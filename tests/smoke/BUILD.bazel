@@ -1,0 +1,25 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "hello",
+    srcs = ["hello.ts"],
+)
+
+ts_compile(
+    name = "button",
+    srcs = [
+        "Button.tsx",
+        "jsx-shim.d.ts",
+    ],
+)
+
+sh_test(
+    name = "smoke_output_test",
+    size = "small",
+    srcs = ["verify_smoke.sh"],
+    data = [
+        ":button",
+        ":hello",
+    ],
+)

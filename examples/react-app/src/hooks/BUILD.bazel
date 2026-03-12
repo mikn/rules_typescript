@@ -1,0 +1,21 @@
+load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_test")
+
+ts_compile(
+    name = "hooks",
+    srcs = [
+        "index.ts",
+        "useCounter.ts",
+    ],
+    visibility = ["//visibility:public"],
+    deps = ["@npm//:react"],
+)
+
+ts_test(
+    name = "hooks_test",
+    srcs = ["useCounter.test.ts"],
+    deps = [
+        ":hooks",
+        "@npm//:react",
+        "@npm//:vitest",
+    ],
+)

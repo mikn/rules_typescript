@@ -1,0 +1,21 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary")
+
+rust_binary(
+    name = "oxc-bazel",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@crates//:clap",
+        "@crates//:miette",
+        "@crates//:rayon",
+        "@crates//:oxc_allocator",
+        "@crates//:oxc_codegen",
+        "@crates//:oxc_diagnostics",
+        "@crates//:oxc_isolated_declarations",
+        "@crates//:oxc_parser",
+        "@crates//:oxc_semantic",
+        "@crates//:oxc_span",
+        "@crates//:oxc_transformer",
+    ],
+)

@@ -1,0 +1,35 @@
+{
+  "compilerOptions": {
+    // ── Target ─────────────────────────────────────────────────────────────
+    "target": "ES2022",
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "lib": ["ES2022"],
+
+    // ── Output ─────────────────────────────────────────────────────────────
+    // tsup drives the actual emit; tsc is used only for type-checking.
+    "noEmit": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+
+    // ── Strictness ──────────────────────────────────────────────────────────
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": true,
+
+    // ── Module interop ──────────────────────────────────────────────────────
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "verbatimModuleSyntax": true,
+
+    // ── Paths ───────────────────────────────────────────────────────────────
+    "rootDir": "src",
+    "baseUrl": "."
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

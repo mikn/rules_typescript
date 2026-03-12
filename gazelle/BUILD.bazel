@@ -1,0 +1,52 @@
+load("@gazelle//:def.bzl", "gazelle", "gazelle_binary")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+# gazelle:prefix github.com/nicholasgasior/rules_typescript/gazelle
+
+go_library(
+    name = "typescript",
+    srcs = [
+        "codegen.go",
+        "config.go",
+        "generate.go",
+        "imports.go",
+        "language.go",
+        "resolve.go",
+    ],
+    importpath = "github.com/nicholasgasior/rules_typescript/gazelle",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//gazelle/tanstack",
+        "@gazelle//config",
+        "@gazelle//label",
+        "@gazelle//language",
+        "@gazelle//repo",
+        "@gazelle//resolve",
+        "@gazelle//rule",
+    ],
+)
+
+go_test(
+    name = "typescript_test",
+    srcs = [
+        "codegen_test.go",
+        "directives_test.go",
+        "imports_test.go",
+    ],
+    embed = [":typescript"],
+)
+
+gazelle_binary(
+    name = "gazelle_ts",
+    languages = [
+        "@gazelle//language/go",
+        "@gazelle//language/proto",
+        ":typescript",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+gazelle(
+    name = "gazelle",
+    gazelle = ":gazelle_ts",
+)

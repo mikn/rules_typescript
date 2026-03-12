@@ -1,0 +1,102 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("@rules_typescript//npm:defs.bzl", "node_modules")
+load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_dev_server")
+
+# Compile the minimal app entry point.
+ts_compile(
+    name = "app",
+    srcs = ["app.ts"],
+    enable_check = False,
+    isolated_declarations = False,
+)
+
+# Build a node_modules tree with vite.
+# Must be named "node_modules" for Node.js ESM resolution to work correctly.
+node_modules(
+    name = "node_modules",
+    deps = ["@npm//:vite"],
+)
+
+# node_modules tree that also includes @vitejs/plugin-react for react_refresh tests.
+node_modules(
+    name = "node_modules_react",
+    deps = [
+        "@npm//:vite",
+        "@npm//:vitejs_plugin-react",
+    ],
+)
+
+# The basic dev server target — the primary output of SP2.
+# `bazel build //tests/dev_server:dev` verifies the rule builds.
+# `bazel run //tests/dev_server:dev` would start the Vite dev server.
+ts_dev_server(
+    name = "dev",
+    entry_point = ":app",
+    node_modules = ":node_modules",
+    port = 5173,
+)
+
+# Dev server with the vite-plugin-bazel for enhanced .ts resolution and HMR.
+# This demonstrates SP2.2: building the plugin inside Bazel and wiring it in.
+ts_dev_server(
+    name = "dev_with_plugin",
+    entry_point = ":app",
+    node_modules = ":node_modules",
+    plugin = "//vite:vite_plugin_bazel",
+    port = 5174,
+)
+
+# Dev server with React Fast Refresh — preserves component state across HMR.
+ts_dev_server(
+    name = "dev_with_react_refresh",
+    entry_point = ":app",
+    node_modules = ":node_modules_react",
+    react_refresh = True,
+    port = 5175,
+)
+
+# Dev server with both React Fast Refresh and vite-plugin-bazel.
+ts_dev_server(
+    name = "dev_with_react_refresh_and_plugin",
+    entry_point = ":app",
+    node_modules = ":node_modules_react",
+    plugin = "//vite:vite_plugin_bazel",
+    react_refresh = True,
+    port = 5176,
+)
+
+# Automated test that verifies the generated runner script and config
+# are well-formed without actually starting the server.
+sh_test(
+    name = "dev_server_test",
+    size = "small",
+    srcs = ["verify_dev_server.sh"],
+    data = [":dev"],
+)
+
+# Test the plugin-enabled variant.
+sh_test(
+    name = "dev_server_with_plugin_test",
+    size = "small",
+    srcs = ["verify_dev_server_plugin.sh"],
+    data = [":dev_with_plugin"],
+)
+
+# Test the React Fast Refresh variant.
+sh_test(
+    name = "dev_server_react_refresh_test",
+    size = "small",
+    srcs = ["verify_dev_server_react_refresh.sh"],
+    data = [":dev_with_react_refresh"],
+)
+
+# Test React Fast Refresh combined with vite-plugin-bazel.
+# Uses a dedicated script so the combined variant's specific config is validated
+# directly, without fallback logic that could mask failures by finding the
+# simpler react_refresh-only variant's config.
+sh_test(
+    name = "dev_server_react_refresh_and_plugin_test",
+    size = "small",
+    srcs = ["verify_dev_server_react_refresh_plugin.sh"],
+    data = [":dev_with_react_refresh_and_plugin"],
+)

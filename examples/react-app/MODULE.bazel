@@ -1,0 +1,33 @@
+"""React application example demonstrating rules_typescript with React + Zod + Vitest.
+
+Shows: React component compilation (TSX), @types/react pairing, custom hooks,
+Zod validation, vitest tests, cross-package deps, and Gazelle BUILD generation.
+
+To use from BCR, remove the local_path_override block below.
+"""
+
+module(
+    name = "react_app",
+    version = "0.0.0",
+)
+
+bazel_dep(name = "rules_typescript", version = "0.1.0")
+
+register_toolchains("@rules_typescript//ts/toolchain:all")
+
+# ─── Local development only ───────────────────────────────────────────────────
+# Remove this block when publishing to BCR or using rules_typescript from the
+# Bazel Central Registry.
+local_path_override(
+    module_name = "rules_typescript",
+    path = "../..",
+)
+
+# ─── npm dependencies from pnpm-lock.yaml ────────────────────────────────────
+# Run `pnpm install` in this directory to update pnpm-lock.yaml.
+# pnpm_lock defaults to //:pnpm-lock.yaml, so the explicit arg is optional.
+npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
+npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
+use_repo(npm, "npm")
+
+bazel_dep(name = "gazelle", version = "0.47.0")

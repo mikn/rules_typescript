@@ -1,0 +1,19 @@
+{
+  "name": "@rules_typescript/test-math",
+  "version": "0.0.0",
+  "description": "Test package for ts_npm_publish rule",
+  "main": "math.js",
+  "types": "math.d.ts",
+  "exports": {
+    ".": {
+      "import": "./math.js",
+      "types": "./math.d.ts"
+    }
+  },
+  "files": [
+    "*.js",
+    "*.js.map",
+    "*.d.ts"
+  ],
+  "license": "MIT"
+}

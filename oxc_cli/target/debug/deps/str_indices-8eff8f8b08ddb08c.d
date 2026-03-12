@@ -1,0 +1,11 @@
+/home/mikn/devel/lovable/rules_typescript/oxc_cli/target/debug/deps/str_indices-8eff8f8b08ddb08c.d: /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/lib.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/byte_chunk.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/chars.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/lines.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/lines_crlf.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/lines_lf.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/utf16.rs
+
+/home/mikn/devel/lovable/rules_typescript/oxc_cli/target/debug/deps/libstr_indices-8eff8f8b08ddb08c.rmeta: /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/lib.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/byte_chunk.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/chars.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/lines.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/lines_crlf.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/lines_lf.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/utf16.rs
+
+/home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/lib.rs:
+/home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/byte_chunk.rs:
+/home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/chars.rs:
+/home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/lines.rs:
+/home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/lines_crlf.rs:
+/home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/lines_lf.rs:
+/home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/utf16.rs:

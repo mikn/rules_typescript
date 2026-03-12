@@ -1,0 +1,1 @@
+/home/mikn/devel/lovable/rules_typescript/oxc_cli/target/release/oxc-bazel: /home/mikn/devel/lovable/rules_typescript/oxc_cli/src/main.rs /home/mikn/devel/lovable/rules_typescript/oxc_cli/src/options.rs /home/mikn/devel/lovable/rules_typescript/oxc_cli/src/transform.rs

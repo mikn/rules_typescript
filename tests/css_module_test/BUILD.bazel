@@ -1,0 +1,33 @@
+load("//ts:defs.bzl", "css_module", "ts_compile", "ts_test")
+
+# ── CSS Module target ──────────────────────────────────────────────────────────
+
+css_module(
+    name = "button_module",
+    srcs = ["Button.module.css"],
+    visibility = ["//visibility:public"],
+)
+
+# ── TypeScript compilation ─────────────────────────────────────────────────────
+
+ts_compile(
+    name = "button",
+    srcs = ["Button.ts"],
+    deps = [":button_module"],
+    visibility = ["//visibility:public"],
+)
+
+# ── ts_test with CSS module dep ────────────────────────────────────────────────
+# The ts_test macro detects the CssModuleInfo provider on :button_module
+# and auto-generates a vitest.config.mjs that mocks .module.css imports.
+# No manual `config` attribute is required.
+
+ts_test(
+    name = "button_test",
+    srcs = ["Button.test.ts"],
+    deps = [
+        ":button",
+        ":button_module",
+        "@npm//:vitest",
+    ],
+)

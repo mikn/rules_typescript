@@ -1,0 +1,11 @@
+load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+# Application package: compiles index.ts, depending on //src/lib for type info.
+# The dep on :lib means app only sees lib's .d.ts at compile time — this is
+# the .d.ts compilation boundary that enables fine-grained Bazel caching.
+ts_compile(
+    name = "app",
+    srcs = ["index.ts"],
+    visibility = ["//visibility:public"],
+    deps = ["//src/lib"],
+)

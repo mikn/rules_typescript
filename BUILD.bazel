@@ -1,0 +1,25 @@
+# Root BUILD file for rules_typescript
+
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+
+exports_files([
+    "MODULE.bazel",
+    "LICENSE",
+])
+
+# ── IDE Integration ────────────────────────────────────────────────────────────
+# Run `bazel run //:refresh_tsconfig` to regenerate the workspace-root
+# tsconfig.json that IDEs (VS Code, WebStorm, etc.) use for code intelligence.
+#
+# The script queries all ts_compile targets, collects their package paths,
+# and writes a tsconfig.json with:
+#   - rootDirs including bazel-bin so the IDE can find compiled .d.ts files
+#   - paths mapping @/<pkg> aliases to source directories
+#   - references pointing at per-package tsconfig.json files (when present)
+#
+# Re-run this whenever you add or remove ts_compile targets.
+sh_binary(
+    name = "refresh_tsconfig",
+    srcs = ["tools/refresh_tsconfig.sh"],
+    visibility = ["//visibility:public"],
+)

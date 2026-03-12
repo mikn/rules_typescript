@@ -1,0 +1,57 @@
+{
+  "name": "@rules_typescript/eslint-plugin-isolated-declarations",
+  "version": "0.1.0",
+  "description": "ESLint plugin for isolated declarations — enforces explicit return types on exports to enable fast per-file .d.ts emit",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint src"
+  },
+  "keywords": [
+    "eslint",
+    "eslint-plugin",
+    "typescript",
+    "isolated-declarations",
+    "bazel",
+    "rules_typescript"
+  ],
+  "peerDependencies": {
+    "@typescript-eslint/parser": ">=8.0.0",
+    "eslint": ">=9.0.0"
+  },
+  "dependencies": {
+    "@typescript-eslint/utils": "^8.0.0"
+  },
+  "devDependencies": {
+    "@typescript-eslint/parser": "^8.0.0",
+    "@typescript-eslint/rule-tester": "^8.0.0",
+    "@types/node": "^22.0.0",
+    "eslint": "^9.0.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

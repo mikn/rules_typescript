@@ -1,0 +1,62 @@
+"""Tests for ts_codegen — general-purpose code generation rule.
+
+Tests:
+  1. codegen_output_test  — verifies that ts_codegen runs the generator and
+                            produces the declared output file with expected content.
+  2. codegen_compile_test — verifies that ts_compile can consume ts_codegen output
+                            as srcs (end-to-end: generate then compile).
+"""
+
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("//ts:defs.bzl", "ts_codegen", "ts_compile")
+
+# ── Generator binary ──────────────────────────────────────────────────────────
+# A simple shell script generator that writes a TypeScript file with an
+# exported constant.  Used to test ts_codegen without requiring any npm deps.
+sh_binary(
+    name = "test_generator",
+    srcs = ["generator.sh"],
+)
+
+# ── ts_codegen target ─────────────────────────────────────────────────────────
+# Runs the generator against input.ts and declares generated.ts as output.
+ts_codegen(
+    name = "generated_ts",
+    srcs = ["input.ts"],
+    outs = ["generated.ts"],
+    generator = ":test_generator",
+    args = [
+        "--srcs-dir",
+        "{srcs_dir}",
+        "--out",
+        "{out}",
+    ],
+)
+
+# ── Output verification test ──────────────────────────────────────────────────
+# Checks that the generated file exists and has the expected content.
+sh_test(
+    name = "codegen_output_test",
+    size = "small",
+    srcs = ["verify_codegen.sh"],
+    data = [":generated_ts"],
+)
+
+# ── End-to-end compile test ───────────────────────────────────────────────────
+# Compiles a TypeScript file that imports from the generated output.
+# This verifies that ts_compile can accept ts_codegen outputs as srcs.
+ts_compile(
+    name = "generated_compile",
+    srcs = [":generated_ts"],
+    enable_check = False,  # generated files may lack explicit return types
+    isolated_declarations = False,
+)
+
+ts_compile(
+    name = "consumer_compile",
+    srcs = ["consumer.ts"],
+    deps = [":generated_compile"],
+    enable_check = False,
+    isolated_declarations = False,
+)

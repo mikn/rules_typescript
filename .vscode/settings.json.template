@@ -1,0 +1,29 @@
+{
+  "_instructions": "Copy this file to .vscode/settings.json (or merge it into your existing settings.json). This file is intentionally named .template so it does not conflict with your personal VS Code settings.",
+
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+  "typescript.preferences.importModuleSpecifier": "relative",
+
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+
+  "files.watcherExclude": {
+    "**/bazel-bin/**": true,
+    "**/bazel-out/**": true,
+    "**/bazel-testlogs/**": true,
+    "**/bazel-rules_typescript/**": true
+  },
+  "search.exclude": {
+    "**/bazel-bin": true,
+    "**/bazel-out": true,
+    "**/bazel-testlogs": true,
+    "**/bazel-rules_typescript": true
+  }
+}

@@ -1,0 +1,33 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("//ts:defs.bzl", "css_module", "ts_compile")
+
+# ── CSS Module target ─────────────────────────────────────────────────────────
+# Generates a typed .d.ts for Button.module.css so TypeScript can type-check
+# `import styles from "./Button.module.css"`.
+
+css_module(
+    name = "button_module",
+    srcs = ["Button.module.css"],
+    visibility = ["//visibility:public"],
+)
+
+# ── TypeScript compilation with a CSS Module dep ──────────────────────────────
+
+ts_compile(
+    name = "button_lib",
+    srcs = ["Button.tsx"],
+    deps = [":button_module"],
+)
+
+# ── Verification test ─────────────────────────────────────────────────────────
+# Checks that the generated .d.ts declares all class names found in the CSS.
+
+sh_test(
+    name = "css_module_output_test",
+    size = "small",
+    srcs = ["verify_css_module.sh"],
+    data = [
+        ":button_module",
+        ":button_lib",
+    ],
+)

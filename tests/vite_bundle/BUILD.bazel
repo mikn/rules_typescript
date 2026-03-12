@@ -1,0 +1,223 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("@rules_typescript//npm:defs.bzl", "node_modules")
+load("@rules_typescript//ts:defs.bzl", "ts_bundle", "ts_compile")
+load("@rules_typescript//vite:bundler.bzl", "vite_bundler")
+
+# Compile the library (lib.ts — no deps).
+ts_compile(
+    name = "lib",
+    srcs = ["lib.ts"],
+)
+
+# Compile the entry point (entry.ts — depends on lib).
+ts_compile(
+    name = "entry",
+    srcs = ["entry.ts"],
+    deps = [":lib"],
+)
+
+# Build a node_modules tree with vite and all its transitive deps.
+node_modules(
+    name = "node_modules",
+    deps = ["@npm//:vite"],
+)
+
+# Declare a Vite bundler instance.
+vite_bundler(
+    name = "vite",
+    vite = "@npm//:vite",
+    node_modules = ":node_modules",
+)
+
+# ── 13.2: Invisible node_modules naming ─────────────────────────────────────
+node_modules(
+    name = "vite_deps",
+    deps = ["@npm//:vite"],
+)
+
+vite_bundler(
+    name = "vite_alt_nm",
+    vite = "@npm//:vite",
+    node_modules = ":vite_deps",
+)
+
+ts_bundle(
+    name = "entry_vite_alt_nm",
+    entry_point = ":entry",
+    bundler = ":vite_alt_nm",
+    bundle_name = "entry",
+    format = "esm",
+    minify = False,
+    sourcemap = False,
+)
+
+# Bundle entry.ts using Vite, producing entry.es.js + entry.es.js.map.
+ts_bundle(
+    name = "entry_vite",
+    entry_point = ":entry",
+    bundler = ":vite",
+    bundle_name = "entry",
+    format = "esm",
+    minify = False,
+    sourcemap = True,
+)
+
+# Bundle in CJS format (produces entry.cjs.js).
+ts_bundle(
+    name = "entry_vite_cjs",
+    entry_point = ":entry",
+    bundler = ":vite",
+    bundle_name = "entry",
+    format = "cjs",
+    minify = False,
+    sourcemap = False,
+)
+
+# Bundle with define and external attrs.
+ts_bundle(
+    name = "entry_vite_opts",
+    entry_point = ":entry",
+    bundler = ":vite",
+    bundle_name = "entry",
+    format = "esm",
+    minify = False,
+    sourcemap = False,
+    define = {"process.env.NODE_ENV": '"production"'},
+    external = ["some-external-dep"],
+)
+
+# Bundle with minify=True (default): verify output is smaller / minified.
+ts_bundle(
+    name = "entry_vite_minified",
+    entry_point = ":entry",
+    bundler = ":vite",
+    bundle_name = "entry",
+    format = "esm",
+    minify = True,
+    sourcemap = False,
+)
+
+# Bundle with split_chunks=True: output is a directory of chunks.
+ts_bundle(
+    name = "entry_vite_chunks",
+    entry_point = ":entry",
+    bundler = ":vite",
+    bundle_name = "entry",
+    format = "esm",
+    minify = False,
+    sourcemap = False,
+    split_chunks = True,
+)
+
+# Verify the Vite bundle output is real (not a placeholder).
+sh_test(
+    name = "vite_bundle_test",
+    size = "medium",
+    srcs = ["verify_vite_bundle.sh"],
+    data = [
+        ":entry_vite",
+        ":entry_vite_cjs",
+        ":entry_vite_opts",
+        ":entry_vite_minified",
+        ":entry_vite_chunks",
+        ":entry_vite_alt_nm",
+    ],
+)
+
+# Verify the 3-level source map chain.
+sh_test(
+    name = "sourcemap_chain_test",
+    size = "medium",
+    srcs = ["verify_sourcemap_chain.sh"],
+    data = [
+        ":entry_vite",
+        ":entry",
+        ":lib",
+    ],
+)
+
+# ── 13.5: import.meta.env.* support via env_vars attr ─────────────────────────
+
+ts_compile(
+    name = "env_entry",
+    srcs = ["env_entry.ts"],
+    vite_types = True,
+)
+
+ts_bundle(
+    name = "entry_vite_env",
+    bundle_name = "entry_env",
+    entry_point = ":env_entry",
+    bundler = ":vite",
+    format = "esm",
+    minify = False,
+    sourcemap = False,
+    env_vars = {
+        "VITE_API_URL": "https://api.example.com",
+        "VITE_VERSION": "1.0.0",
+    },
+)
+
+sh_test(
+    name = "env_vars_test",
+    size = "medium",
+    srcs = ["verify_env_vars.sh"],
+    data = [":entry_vite_env"],
+)
+
+# ── 13.6: Vite app-mode bundling ──────────────────────────────────────────────
+
+ts_bundle(
+    name = "entry_vite_app",
+    mode = "app",
+    html = "index.html",
+    entry_point = ":entry",
+    bundler = ":vite",
+    minify = False,
+    sourcemap = False,
+)
+
+sh_test(
+    name = "app_mode_test",
+    size = "medium",
+    srcs = ["verify_app_mode.sh"],
+    data = [":entry_vite_app"],
+)
+
+# ── 13.7: vite_config attr — user plugin injection ────────────────────────────
+# mock_plugin.mjs exports { plugins: [mockPlugin] } where mockPlugin uses
+# renderChunk to prepend "/* VITE_PLUGIN_INJECTED */" to every output chunk.
+# This verifies that vite_config plugins are applied without breaking Bazel
+# integration (outDir, resolve.alias, entry point rewriting).
+
+ts_bundle(
+    name = "entry_vite_with_config",
+    entry_point = ":entry",
+    bundler = ":vite",
+    bundle_name = "entry",
+    format = "esm",
+    minify = False,
+    sourcemap = False,
+    vite_config = "mock_plugin.mjs",
+)
+
+ts_bundle(
+    name = "entry_vite_app_with_config",
+    mode = "app",
+    html = "index.html",
+    entry_point = ":entry",
+    bundler = ":vite",
+    minify = False,
+    sourcemap = False,
+    vite_config = "mock_plugin.mjs",
+)
+
+sh_test(
+    name = "vite_config_injection_test",
+    size = "medium",
+    srcs = ["verify_vite_config_injection.sh"],
+    data = [
+        ":entry_vite_with_config",
+        ":entry_vite_app_with_config",
+    ],
+)

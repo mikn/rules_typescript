@@ -1,0 +1,16 @@
+"""Application package BUILD file.
+
+Demonstrates cross-package dependency on //src/schema.
+The dep uses only .d.ts files from //src/schema at compile time — this is the
+.d.ts compilation boundary that enables fine-grained Bazel caching: changing
+schema's implementation without changing its types does not recompile app.
+"""
+
+load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "app",
+    srcs = ["index.ts"],
+    deps = ["//src/schema"],
+    visibility = ["//visibility:public"],
+)

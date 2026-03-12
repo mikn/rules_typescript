@@ -1,0 +1,21 @@
+load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_test")
+
+ts_compile(
+    name = "validation",
+    srcs = [
+        "index.ts",
+        "userSchema.ts",
+    ],
+    visibility = ["//visibility:public"],
+    deps = ["@npm//:zod"],
+)
+
+ts_test(
+    name = "validation_test",
+    srcs = ["userSchema.test.ts"],
+    deps = [
+        ":validation",
+        "@npm//:vitest",
+        "@npm//:zod",
+    ],
+)

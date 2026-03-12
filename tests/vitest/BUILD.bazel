@@ -1,0 +1,16 @@
+load("//ts:defs.bzl", "ts_compile", "ts_test")
+
+ts_compile(
+    name = "math",
+    srcs = ["math.ts"],
+    visibility = ["//visibility:public"],
+)
+
+ts_test(
+    name = "math_test",
+    srcs = ["math.test.ts"],
+    deps = [
+        ":math",
+        "@npm//:vitest",
+    ],
+)

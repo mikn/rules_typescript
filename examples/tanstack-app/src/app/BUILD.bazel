@@ -1,0 +1,22 @@
+load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "app",
+    srcs = ["index.ts"],
+    visibility = ["//visibility:public"],
+    deps = ["//src/lib"],
+)
+
+# main.tsx: the real React SPA entry point for Vite bundling.
+# Depends on react-dom (for createRoot) and tanstack_react-router (for RouterProvider).
+ts_compile(
+    name = "main",
+    srcs = ["main.tsx"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//src/lib",
+        "@npm//:react",
+        "@npm//:react-dom",
+        "@npm//:tanstack_react-router",
+    ],
+)

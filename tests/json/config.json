@@ -1,0 +1,11 @@
+{
+  "name": "rules_typescript",
+  "version": "1.0.0",
+  "debug": false,
+  "port": 8080,
+  "tags": ["bazel", "typescript"],
+  "database": {
+    "host": "localhost",
+    "port": 5432
+  }
+}

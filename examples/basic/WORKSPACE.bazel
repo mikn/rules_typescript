@@ -1,0 +1,4 @@
+# Intentionally empty — bzlmod (MODULE.bazel) is the authoritative dependency
+# system. This file exists only to make Bazel recognize this directory as a
+# workspace root when running without --enable_bzlmod (which is the default in
+# Bazel 9+, so this file is effectively unused).

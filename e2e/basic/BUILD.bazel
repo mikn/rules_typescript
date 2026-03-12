@@ -1,0 +1,22 @@
+"""Root BUILD file for the e2e/basic workspace.
+
+The top-level ts_binary target ties the entire dependency graph together and
+acts as the integration-test entry point for bazel build //...
+"""
+
+load("@gazelle//:def.bzl", "gazelle")
+load("@rules_typescript//ts:defs.bzl", "ts_binary")
+
+gazelle(
+    name = "gazelle",
+    gazelle = "@rules_typescript//gazelle:gazelle_ts",
+)
+
+# Bundle the app entry point, pulling in the transitive //src/lib dependency.
+# Exercises ts_binary's entry_point wiring and the cross-package depset walk.
+ts_binary(
+    name = "app_bundle",
+    entry_point = "//src/app",
+    format = "esm",
+    sourcemap = True,
+)

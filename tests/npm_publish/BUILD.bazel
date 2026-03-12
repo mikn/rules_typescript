@@ -1,0 +1,23 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("//ts:defs.bzl", "ts_compile", "ts_npm_publish")
+
+ts_compile(
+    name = "math",
+    srcs = ["math.ts"],
+    visibility = ["//visibility:private"],
+)
+
+ts_npm_publish(
+    name = "math_pkg",
+    package = ":math",
+    package_json = ":package.json",
+    version = "1.0.0",
+    visibility = ["//visibility:private"],
+)
+
+sh_test(
+    name = "npm_publish_test",
+    size = "small",
+    srcs = ["verify_npm_publish.sh"],
+    data = [":math_pkg"],
+)

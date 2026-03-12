@@ -1,0 +1,19 @@
+bcr_test_module:
+  module_path: "e2e/basic"
+  matrix:
+    platform:
+      - debian11
+      - macos_arm64
+    bazel:
+      - "8.x"
+      - "9.x"
+  tasks:
+    run_tests:
+      build_targets:
+        - "//..."
+      test_targets:
+        - "//..."
+      build_flags:
+        - "--keep_going"
+      test_flags:
+        - "--test_output=short"

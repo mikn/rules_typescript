@@ -1,0 +1,12 @@
+load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+# Workspace package target that @npm//:shared aliases to.
+# The pnpm-lock.yaml in tests/npm/ has:
+#   shared: {specifier: workspace:*, version: link:packages/shared}
+# which causes npm_translate_lock to generate:
+#   alias(name = "shared", actual = "//packages/shared:shared")
+ts_compile(
+    name = "shared",
+    srcs = ["index.ts"],
+    visibility = ["//visibility:public"],
+)

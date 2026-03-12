@@ -1,0 +1,3 @@
+# This workspace uses Bzlmod (MODULE.bazel) for dependency management.
+# This file exists solely to prevent Bazel from searching parent directories
+# for a WORKSPACE file when the module is used as a local_path_override target.

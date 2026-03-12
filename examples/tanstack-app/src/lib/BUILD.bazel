@@ -1,0 +1,29 @@
+load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_test")
+
+ts_compile(
+    name = "lib",
+    srcs = [
+        "index.ts",
+        "params.ts",
+        "router.ts",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@npm//:tanstack_react-router",
+        "@npm//:zod",
+    ],
+)
+
+ts_test(
+    name = "lib_test",
+    srcs = [
+        "params.test.ts",
+        "router.test.ts",
+    ],
+    deps = [
+        ":lib",
+        "@npm//:tanstack_react-router",
+        "@npm//:vitest",
+        "@npm//:zod",
+    ],
+)

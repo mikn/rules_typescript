@@ -1,0 +1,33 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("//ts:defs.bzl", "json_library", "ts_compile")
+
+# ── JSON library target ────────────────────────────────────────────────────────
+# Generates a typed .d.ts for config.json so TypeScript can type-check
+# `import config from "./config.json"` with full property types.
+
+json_library(
+    name = "config",
+    srcs = ["config.json"],
+    visibility = ["//visibility:public"],
+)
+
+# ── TypeScript compilation with a JSON dep ─────────────────────────────────────
+
+ts_compile(
+    name = "app_lib",
+    srcs = ["App.tsx"],
+    deps = [":config"],
+)
+
+# ── Verification test ──────────────────────────────────────────────────────────
+# Checks that the generated .d.ts declares all JSON fields with correct types.
+
+sh_test(
+    name = "json_output_test",
+    size = "small",
+    srcs = ["verify_json.sh"],
+    data = [
+        ":config",
+        ":app_lib",
+    ],
+)

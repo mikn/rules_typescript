@@ -1,0 +1,30 @@
+"""Root BUILD file for the examples/react-app workspace.
+
+Demonstrates:
+  - Gazelle for auto-generating BUILD files from TypeScript sources
+  - ts_binary to bundle the application entry point
+  - React + @types/react npm dep pairing
+  - TSX compilation with oxc
+
+Run `bazel run //:gazelle` to regenerate BUILD files from TypeScript sources.
+Run `bazel build //...` to compile all packages (+ tsx, + @types/react types).
+Run `bazel test //...` to run the vitest test suite.
+Run `bazel build //... --output_groups=+_validation` to type-check with tsgo.
+"""
+
+load("@gazelle//:def.bzl", "gazelle")
+load("@rules_typescript//ts:defs.bzl", "ts_binary")
+
+# Run "bazel run //:gazelle" to auto-generate BUILD files.
+gazelle(
+    name = "gazelle",
+    gazelle = "@rules_typescript//gazelle:gazelle_ts",
+)
+
+# Bundle the application entry point into a single ESM file.
+ts_binary(
+    name = "app_bundle",
+    entry_point = "//src/app",
+    format = "esm",
+    sourcemap = True,
+)

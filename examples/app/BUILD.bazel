@@ -1,0 +1,29 @@
+"""Root BUILD file for the examples/app workspace.
+
+Demonstrates:
+  - ts_binary to bundle the application entry point
+  - Gazelle for auto-generating BUILD files from TypeScript sources
+
+Run `bazel build //...` to compile all packages and run type-checking.
+Run `bazel test //...` to run the vitest test suite.
+Run `bazel build //:app_bundle` to produce the bundled output.
+Run `bazel run //:gazelle` to regenerate BUILD files from TypeScript sources.
+"""
+
+load("@gazelle//:def.bzl", "gazelle")
+load("@rules_typescript//ts:defs.bzl", "ts_binary")
+
+# Run "bazel run //:gazelle" to auto-generate BUILD files.
+gazelle(
+    name = "gazelle",
+    gazelle = "@rules_typescript//gazelle:gazelle_ts",
+)
+
+# Bundle the application entry point.
+# Pulls in //src/app, which in turn depends on //src/schema via .d.ts boundary.
+ts_binary(
+    name = "app_bundle",
+    entry_point = "//src/app",
+    format = "esm",
+    sourcemap = True,
+)

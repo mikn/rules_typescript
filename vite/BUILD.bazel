@@ -1,0 +1,117 @@
+# BUILD.bazel for the vite/ package.
+#
+# vite-plugin-bazel (the npm plugin in vite/src/) is compiled inside Bazel
+# using esbuild to produce a single bundled ESM JavaScript file.  This
+# artifact can be imported by any generated vite.config.mjs to wire the
+# Bazel-aware Vite plugin into the dev server.
+#
+# The compiled plugin is placed at:
+#   bazel-bin/vite/vite_plugin_bazel.mjs
+#
+# For production distribution, the pre-built dist/ (built with tsup) is used
+# for npm publishing.  The Bazel build target is for in-workspace use only.
+#
+# bundler.bzl is the Bazel-side complement: it defines the vite_bundler rule
+# that returns a BundlerInfo provider wiring a pre-built Vite binary into the
+# ts_binary / ts_bundle bundler interface.
+
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load("@rules_typescript//npm:defs.bzl", "node_modules")
+
+package(default_visibility = ["//visibility:public"])
+
+bzl_library(
+    name = "bundler",
+    srcs = ["bundler.bzl"],
+    deps = [
+        "//ts/private:providers",
+        "//ts/private:runtime",
+    ],
+)
+
+# Build a node_modules tree containing esbuild (and its native binary).
+# This is used only for the plugin build action below.
+node_modules(
+    name = "esbuild_node_modules",
+    deps = ["@npm//:esbuild"],
+)
+
+# Flat (OS + CPU) config_settings for the node_bin select below.
+# Bazel does not support nested select() so each (OS, CPU) pair needs its own
+# config_setting with both constraints listed.
+config_setting(
+    name = "_exec_linux_amd64",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+    visibility = ["//visibility:private"],
+)
+
+config_setting(
+    name = "_exec_linux_arm64",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:aarch64",
+    ],
+    visibility = ["//visibility:private"],
+)
+
+config_setting(
+    name = "_exec_darwin_amd64",
+    constraint_values = [
+        "@platforms//os:macos",
+        "@platforms//cpu:x86_64",
+    ],
+    visibility = ["//visibility:private"],
+)
+
+config_setting(
+    name = "_exec_darwin_arm64",
+    constraint_values = [
+        "@platforms//os:macos",
+        "@platforms//cpu:aarch64",
+    ],
+    visibility = ["//visibility:private"],
+)
+
+# Hermetic Node.js binary selected by exec-platform at analysis time.
+# Used as the genrule tool so that `node` from PATH is never required.
+alias(
+    name = "node_bin",
+    actual = select({
+        ":_exec_linux_amd64": "@nodejs_linux_amd64//:node_bin",
+        ":_exec_linux_arm64": "@nodejs_linux_arm64//:node_bin",
+        ":_exec_darwin_amd64": "@nodejs_darwin_amd64//:node_bin",
+        ":_exec_darwin_arm64": "@nodejs_darwin_arm64//:node_bin",
+    }),
+    visibility = ["//visibility:private"],
+)
+
+# Build the vite-plugin-bazel TypeScript source into a single bundled ESM file.
+# esbuild's JS wrapper uses require('esbuild') to find its native binary,
+# so we must run from a directory where node_modules/esbuild/ exists.
+genrule(
+    name = "vite_plugin_bazel",
+    srcs = [
+        "src/index.ts",
+        "src/plugin.ts",
+        "src/resolver.ts",
+        "src/watcher.ts",
+        ":esbuild_node_modules",
+    ],
+    outs = ["vite_plugin_bazel.mjs"],
+    cmd = """\
+EXEC_ROOT="$$(pwd)"
+NM="$(execpath :esbuild_node_modules)"
+NODE="$(execpath :node_bin)"
+# Run Node with NODE_PATH set so require('esbuild') resolves.
+NODE_PATH="$${EXEC_ROOT}/$${NM}" "$$NODE" \
+  "$${EXEC_ROOT}/$${NM}/esbuild/bin/esbuild" \
+  "$${EXEC_ROOT}/$(execpath src/index.ts)" \
+  --bundle --platform=node --format=esm --target=node20 \
+  --external:vite --external:chokidar \
+  --outfile="$${EXEC_ROOT}/$@"
+""",
+    tools = [":node_bin"],
+)

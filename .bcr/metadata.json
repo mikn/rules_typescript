@@ -1,0 +1,15 @@
+{
+  "homepage": "https://github.com/nicholasgasior/rules_typescript",
+  "maintainers": [
+    {
+      "name": "Nicholas Gasior",
+      "email": "nicholas@lovable.app",
+      "github": "nicholasgasior"
+    }
+  ],
+  "repository": [
+    "github:nicholasgasior/rules_typescript"
+  ],
+  "versions": [],
+  "yanked_versions": {}
+}

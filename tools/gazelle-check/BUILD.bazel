@@ -1,0 +1,38 @@
+# tools/gazelle-check/BUILD.bazel
+#
+# CI helper that checks BUILD files are up to date with Gazelle.
+#
+# Usage:
+#   bazel run //tools/gazelle-check        # exits 0 if up to date, 1 if not
+#
+# In CI, add this to your pipeline after any file changes:
+#
+#   - run: bazel run //tools/gazelle-check
+#
+# The check script wraps `bazel run //:gazelle -- --mode=diff` and fails if
+# the diff output is non-empty, meaning the current BUILD files do not match
+# what Gazelle would generate.
+
+load("@bazel_skylib//rules:native_binary.bzl", "native_binary")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+
+sh_binary(
+    name = "gazelle-check",
+    srcs = ["check.sh"],
+    # Make the Gazelle binary available as a data dependency so the script can
+    # reference it via `bazel run` without needing a separate Bazel invocation.
+    # When run under `bazel run //tools/gazelle-check`, Bazel sets
+    # BUILD_WORKSPACE_DIRECTORY, and the script invokes `bazel run //:gazelle`.
+    # The gazelle binary is NOT a direct dep here because we invoke it through
+    # a nested `bazel run`, which is the standard Gazelle pattern.
+    data = [],
+    visibility = ["//visibility:public"],
+)
+
+# Alias so users can write `bazel run //tools/gazelle-check` without specifying
+# the target name explicitly.
+alias(
+    name = "gazelle_check",
+    actual = ":gazelle-check",
+    visibility = ["//visibility:public"],
+)

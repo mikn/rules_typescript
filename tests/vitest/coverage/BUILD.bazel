@@ -1,0 +1,31 @@
+"""Coverage test for ts_test bazel coverage integration.
+
+Run with:
+    bazel coverage //tests/vitest/coverage:math_coverage_test --combined_report=lcov
+
+This produces an lcov report at bazel-out/_coverage/_coverage_report.dat.
+
+Requires @vitest/coverage-v8 in the npm deps (included here as a runtime dep).
+The coverage provider is automatically selected when COVERAGE_OUTPUT_FILE is set
+by Bazel during 'bazel coverage' runs.
+"""
+
+load("//ts:defs.bzl", "ts_test")
+
+# Separate coverage test package avoids action-graph conflicts with the
+# non-coverage math_test in //tests/vitest.  Both tests compile math.test.ts
+# but with different dep sets; placing this in its own package ensures the
+# output paths are distinct.
+#
+# Note: math.test.ts is duplicated here because Bazel does not allow source
+# files to be shared across packages as srcs.
+ts_test(
+    name = "math_coverage_test",
+    srcs = ["math.test.ts"],
+    coverage = True,
+    deps = [
+        "//tests/vitest:math",
+        "@npm//:vitest",
+        "@npm//:vitest_coverage-v8",
+    ],
+)

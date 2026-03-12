@@ -1,0 +1,33 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("//ts:defs.bzl", "asset_library", "ts_compile")
+
+# ── Asset library target ──────────────────────────────────────────────────────
+# Generates an ambient .d.ts for logo.svg so TypeScript can type-check
+# `import logo from "./logo.svg"` as a string URL.
+
+asset_library(
+    name = "icons",
+    srcs = ["logo.svg"],
+    visibility = ["//visibility:public"],
+)
+
+# ── TypeScript compilation with an asset dep ──────────────────────────────────
+
+ts_compile(
+    name = "header_lib",
+    srcs = ["Header.tsx"],
+    deps = [":icons"],
+)
+
+# ── Verification test ─────────────────────────────────────────────────────────
+# Checks that the generated .d.ts declares the asset as a string.
+
+sh_test(
+    name = "asset_output_test",
+    size = "small",
+    srcs = ["verify_assets.sh"],
+    data = [
+        ":icons",
+        ":header_lib",
+    ],
+)

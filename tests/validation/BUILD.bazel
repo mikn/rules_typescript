@@ -1,0 +1,53 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("//ts:defs.bzl", "ts_compile")
+
+# ── Correct TypeScript — validation should PASS ───────────────────────────────
+
+ts_compile(
+    name = "correct",
+    srcs = ["correct.ts"],
+)
+
+# Expose the _validation output group (tscheck stamp) so it can be used
+# as a data dep in the positive test. When this filegroup builds successfully,
+# it proves tsgo found no type errors in correct.ts.
+filegroup(
+    name = "correct_tscheck",
+    srcs = [":correct"],
+    output_group = "_validation",
+)
+
+sh_test(
+    name = "validation_passes_test",
+    size = "small",
+    srcs = ["verify_validation.sh"],
+    data = [":correct_tscheck"],
+)
+
+# ── Type-error TypeScript — validation should FAIL ────────────────────────────
+# enable_check = False here so that the normal `bazel build //tests/...` does
+# NOT automatically run tsgo validation on this target (which would fail and
+# break the wildcard build).  The type_error_detected_test sh_test explicitly
+# re-enables validation by invoking `bazel build --output_groups=+_validation`
+# as a subprocess, and asserts that the build exits non-zero.
+ts_compile(
+    name = "type_error",
+    srcs = ["type_error.ts"],
+    tags = ["manual"],  # exclude from //tests/... wildcard builds — see type_error_detected_test
+)
+
+# The type_error target itself builds fine (oxc compile succeeds — it's a
+# transpiler, not a type checker). Only the _validation output group fails.
+# The test below runs a nested `bazel build --output_groups=+_validation`
+# and asserts that the build exits non-zero.
+sh_test(
+    name = "type_error_detected_test",
+    size = "medium",  # spawns a nested Bazel process (~30s)
+    srcs = ["verify_type_error.sh"],
+    # Include MODULE.bazel in runfiles so the script can derive the workspace root.
+    data = ["//:MODULE.bazel"],
+    tags = [
+        "exclusive",  # avoid conflicts with the outer Bazel server
+        "local",      # must run locally (requires filesystem access)
+    ],
+)

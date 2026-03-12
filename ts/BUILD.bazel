@@ -1,0 +1,40 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+
+package(default_visibility = ["//visibility:public"])
+
+# Ambient type shim for Vite client-side globals (import.meta.env, asset URLs).
+# Users can add this to their ts_compile srcs, or set vite_types = True on
+# ts_compile which auto-includes it.
+exports_files(["vite_env.d.ts"])
+
+bzl_library(
+    name = "defs",
+    srcs = ["defs.bzl"],
+    deps = [
+        "//ts/private:css_library",
+        "//ts/private:providers",
+        "//ts/private:ts_binary",
+        "//ts/private:ts_bundle",
+        "//ts/private:ts_check",
+        "//ts/private:ts_compile",
+        "//ts/private:ts_config_gen",
+        "//ts/private:ts_dev_server",
+        "//ts/private:ts_test",
+    ],
+)
+
+bzl_library(
+    name = "extensions",
+    srcs = ["extensions.bzl"],
+    deps = [
+        ":repositories",
+    ],
+)
+
+bzl_library(
+    name = "repositories",
+    srcs = ["repositories.bzl"],
+    deps = [
+        "//ts/private:toolchain",
+    ],
+)

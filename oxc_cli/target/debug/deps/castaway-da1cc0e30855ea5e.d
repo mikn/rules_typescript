@@ -1,0 +1,8 @@
+/home/mikn/devel/lovable/rules_typescript/oxc_cli/target/debug/deps/castaway-da1cc0e30855ea5e.d: /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/castaway-0.2.4/src/lib.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/castaway-0.2.4/src/internal.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/castaway-0.2.4/src/lifetime_free.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/castaway-0.2.4/src/utils.rs
+
+/home/mikn/devel/lovable/rules_typescript/oxc_cli/target/debug/deps/libcastaway-da1cc0e30855ea5e.rmeta: /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/castaway-0.2.4/src/lib.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/castaway-0.2.4/src/internal.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/castaway-0.2.4/src/lifetime_free.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/castaway-0.2.4/src/utils.rs
+
+/home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/castaway-0.2.4/src/lib.rs:
+/home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/castaway-0.2.4/src/internal.rs:
+/home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/castaway-0.2.4/src/lifetime_free.rs:
+/home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/castaway-0.2.4/src/utils.rs:

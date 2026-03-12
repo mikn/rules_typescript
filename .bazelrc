@@ -1,0 +1,21 @@
+# rules_typescript default configuration
+
+# Correctness
+build --incompatible_strict_action_env
+build --nolegacy_external_runfiles
+
+# Type-check on every build (tsgo validation action).
+# This makes type errors fail `bazel build` — the same behaviour as `go build`.
+# Remove this line if you want to skip type-checking (e.g. for faster iteration
+# on a single target without waiting for tsgo).
+build --output_groups=+_validation
+
+# Test output
+test --test_output=errors
+test --test_summary=terse
+
+# Convenience
+build --experimental_convenience_symlinks=normal
+
+# Rust toolchain
+build --@rules_rust//rust/toolchain/channel=stable

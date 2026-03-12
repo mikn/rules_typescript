@@ -1,0 +1,167 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tarball: ${{ steps.build.outputs.tarball }}
+      sha256: ${{ steps.build.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Version: ${VERSION}"
+
+      - name: Build release tarball
+        id: build
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="v${VERSION}"
+          TARBALL_NAME="rules_typescript-${VERSION}.tar.gz"
+
+          # Create tarball with proper prefix
+          git archive \
+            --format=tar.gz \
+            --prefix="rules_typescript-${VERSION}/" \
+            --output="${TARBALL_NAME}" \
+            HEAD
+
+          # Compute SHA256 hash (format for SRI)
+          SHA256_HEX=$(sha256sum "${TARBALL_NAME}" | awk '{print $1}')
+          SHA256_BASE64=$(echo -n "${SHA256_HEX}" | xxd -r -p | base64 -w0)
+
+          echo "tarball=${TARBALL_NAME}" >> $GITHUB_OUTPUT
+          echo "sha256_hex=${SHA256_HEX}" >> $GITHUB_OUTPUT
+          echo "sha256_sri=sha256-${SHA256_BASE64}" >> $GITHUB_OUTPUT
+
+          echo "Tarball: ${TARBALL_NAME}"
+          echo "SHA256 (hex): ${SHA256_HEX}"
+          echo "SHA256 (SRI): sha256-${SHA256_BASE64}"
+
+          # Verify tarball was created
+          if [[ ! -f "${TARBALL_NAME}" ]]; then
+            echo "ERROR: Failed to create tarball"
+            exit 1
+          fi
+          ls -lh "${TARBALL_NAME}"
+
+      - name: Generate attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: ${{ steps.build.outputs.tarball }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.build.outputs.tarball }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+
+      - name: Upload build artifacts for BCR workflow
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-info
+          path: |
+            ${{ steps.build.outputs.tarball }}
+          retention-days: 7
+
+  update-bcr:
+    name: Update BCR metadata
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download release artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-info
+
+      - name: Update .bcr/source.json
+        run: |
+          VERSION="${{ needs.release.outputs.version }}"
+          SHA256="${{ needs.release.outputs.sha256 }}"
+
+          # Use Python for JSON manipulation (more reliable than sed/jq)
+          python3 << 'EOF'
+          import json
+          import sys
+
+          version = sys.argv[1]
+          sha256 = sys.argv[2]
+
+          with open('.bcr/source.json', 'r') as f:
+              data = json.load(f)
+
+          data['url'] = f"https://github.com/nicholasgasior/rules_typescript/releases/download/v{version}/rules_typescript-{version}.tar.gz"
+          data['integrity'] = sha256
+          data['strip_prefix'] = f"rules_typescript-{version}"
+
+          with open('.bcr/source.json', 'w') as f:
+              json.dump(data, f, indent=2)
+              f.write('\n')
+
+          print(f"Updated .bcr/source.json for version {version}")
+          with open('.bcr/source.json', 'r') as f:
+              print(f.read())
+          EOF
+          python3 -c "
+          import json
+          import sys
+          version = '$VERSION'
+          sha256 = '$SHA256'
+          with open('.bcr/source.json', 'r') as f:
+              data = json.load(f)
+          data['url'] = f'https://github.com/nicholasgasior/rules_typescript/releases/download/v{version}/rules_typescript-{version}.tar.gz'
+          data['integrity'] = sha256
+          data['strip_prefix'] = f'rules_typescript-{version}'
+          with open('.bcr/source.json', 'w') as f:
+              json.dump(data, f, indent=2)
+              f.write('\n')
+          print('Updated .bcr/source.json')
+          "
+
+      - name: Verify BCR metadata
+        run: |
+          echo "=== .bcr/metadata.json ==="
+          cat .bcr/metadata.json
+          echo
+          echo "=== .bcr/source.json ==="
+          cat .bcr/source.json
+          echo
+          echo "=== .bcr/presubmit.yml ==="
+          cat .bcr/presubmit.yml
+
+      - name: Create PR for BCR submission
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: Update BCR metadata for v${{ needs.release.outputs.version }}"
+          title: "chore: Update BCR metadata for v${{ needs.release.outputs.version }}"
+          body: |
+            This PR automatically updates the BCR metadata files for the release.
+
+            Version: v${{ needs.release.outputs.version }}
+            SHA256: ${{ needs.release.outputs.sha256 }}
+
+            The BCR submission should reference these files from this commit.
+          branch: bcr-update-${{ needs.release.outputs.version }}
+          delete-branch: true

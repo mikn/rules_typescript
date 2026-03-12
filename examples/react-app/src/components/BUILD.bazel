@@ -1,0 +1,26 @@
+load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_test")
+
+ts_compile(
+    name = "components",
+    srcs = [
+        "Button.tsx",
+        "Counter.tsx",
+        "index.ts",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//src/hooks",
+        "@npm//:react",
+    ],
+)
+
+ts_test(
+    name = "components_test",
+    srcs = ["Button.test.tsx"],
+    deps = [
+        ":components",
+        "//src/hooks",
+        "@npm//:react",
+        "@npm//:vitest",
+    ],
+)

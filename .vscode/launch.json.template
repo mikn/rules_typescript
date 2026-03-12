@@ -1,0 +1,53 @@
+{
+  "_instructions": "Copy this file to .vscode/launch.json (or merge it into your existing launch.json). This file is intentionally named .template so it does not conflict with your personal VS Code launch configuration.",
+
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug vitest (Bazel)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "${workspaceFolder}/tools/bazel_run_debug.sh",
+      "runtimeArgs": [],
+      "args": [
+        "//path/to:your_test"
+      ],
+      "_comment": "Replace //path/to:your_test with the ts_test target you want to debug. See README.md for setup instructions.",
+      "sourceMaps": true,
+      "outFiles": [
+        "${workspaceFolder}/bazel-bin/**/*.js"
+      ],
+      "resolveSourceMapLocations": [
+        "${workspaceFolder}/**",
+        "!**/node_modules/**"
+      ],
+      "autoAttachChildProcesses": true,
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
+    },
+    {
+      "name": "Debug vitest via --inspect-brk (manual)",
+      "_comment_setup": [
+        "This configuration attaches to a vitest process already started with",
+        "--inspect-brk. Start it manually:",
+        "  bazel run //path/to:your_test -- --inspect-brk",
+        "Then launch this configuration to attach."
+      ],
+      "type": "node",
+      "request": "attach",
+      "port": 9229,
+      "sourceMaps": true,
+      "outFiles": [
+        "${workspaceFolder}/bazel-bin/**/*.js"
+      ],
+      "resolveSourceMapLocations": [
+        "${workspaceFolder}/**",
+        "!**/node_modules/**"
+      ],
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
+    }
+  ]
+}

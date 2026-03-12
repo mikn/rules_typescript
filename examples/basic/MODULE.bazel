@@ -1,0 +1,27 @@
+"""Example workspace showing how a consumer project uses rules_typescript.
+
+To use this example from the Bazel Central Registry (BCR), remove the
+local_path_override block below. When developing locally against a checkout
+of rules_typescript, keep the override so the example builds against the
+local source tree.
+"""
+
+module(
+    name = "my_project",
+    version = "0.0.0",
+)
+
+bazel_dep(name = "rules_typescript", version = "0.1.0")
+
+register_toolchains("@rules_typescript//ts/toolchain:all")
+
+# ─── Local development only ───────────────────────────────────────────────────
+# Remove this block when publishing to BCR or using rules_typescript from the
+# Bazel Central Registry.  Keep it when running the example locally against a
+# checkout of this repository.
+local_path_override(
+    module_name = "rules_typescript",
+    path = "../..",
+)
+
+bazel_dep(name = "gazelle", version = "0.47.0")

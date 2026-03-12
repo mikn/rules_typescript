@@ -1,0 +1,43 @@
+load("@rules_typescript//ts:defs.bzl", "ts_codegen", "ts_compile")
+
+# TanStack Start: root layout (wraps all routes)
+ts_compile(
+    name = "routes",
+    srcs = [
+        "__root.tsx",
+        "about.tsx",
+        "index.tsx",
+        "users.tsx",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//src/components",
+        "@npm//:react",
+        "@npm//:tanstack_react-router",
+    ],
+)
+
+# Generate routeTree.gen.ts from the route files.
+#
+# @tanstack/router-generator scans the routes directory and emits a typed
+# route tree.  The output lives in bazel-bin/src/routes/routeTree.gen.ts and
+# can be consumed by a ts_compile target as a source file.
+#
+# The generator executable (//:generate_routes) is a shell binary that invokes
+# generate-routes.mjs via the $NODE_BINARY provided by ts_codegen from the
+# js_runtime toolchain.  The node_modules tree (//:router_generator_node_modules)
+# provides @tanstack/router-generator and its transitive deps at action time.
+ts_codegen(
+    name = "route_tree",
+    srcs = glob(["*.tsx"]),
+    outs = ["routeTree.gen.ts"],
+    generator = "//:generate_routes",
+    args = [
+        "--routes-dir",
+        "{srcs_dir}",
+        "--out",
+        "{out}",
+    ],
+    node_modules = "//:router_generator_node_modules",
+    visibility = ["//visibility:public"],
+)

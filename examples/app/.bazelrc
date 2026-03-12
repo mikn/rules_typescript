@@ -1,0 +1,10 @@
+# Correctness: hermetic action environment so PATH is not leaked into actions.
+build --incompatible_strict_action_env
+
+# Type-check on every build (tsgo validation action).
+# This makes type errors fail `bazel build` — the same behaviour as `go build`.
+build --output_groups=+_validation
+
+# Test output
+test --test_output=errors
+test --test_summary=terse

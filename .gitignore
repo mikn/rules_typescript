@@ -1,0 +1,26 @@
+# Bazel output symlinks
+bazel-bin
+bazel-out
+bazel-rules_typescript
+bazel-testlogs
+bazel-basic
+bazel-*
+
+# Bazel lock files (large, regenerated)
+MODULE.bazel.lock
+
+# Node modules (managed by Bazel, not checked in)
+node_modules/
+
+# IDE
+.vscode/settings.json
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude project memory (personal)
+.claude/

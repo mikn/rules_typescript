@@ -1,0 +1,67 @@
+"""Toolchain type declarations and toolchain targets for oxc-bazel, tsgo, and the JS runtime."""
+
+load("//ts/private:runtime.bzl", "declare_node_runtime_toolchains")
+load("//ts/private:toolchain.bzl", "declare_oxc_toolchains", "declare_tsgo_toolchains")
+load(":resolved_node.bzl", node_resolved = "resolved")
+load(":resolved_oxc.bzl", oxc_resolved = "resolved")
+load(":resolved_tsgo.bzl", tsgo_resolved = "resolved")
+
+package(default_visibility = ["//visibility:public"])
+
+# ─── Toolchain types ───────────────────────────────────────────────────────────
+
+toolchain_type(
+    name = "oxc_toolchain_type",
+    visibility = ["//visibility:public"],
+)
+
+toolchain_type(
+    name = "tsgo_toolchain_type",
+    visibility = ["//visibility:public"],
+)
+
+toolchain_type(
+    name = "js_runtime_type",
+    visibility = ["//visibility:public"],
+)
+
+# ─── Toolchain instances ───────────────────────────────────────────────────────
+#
+# These macros expand to:
+#   oxc_toolchain(name = "oxc_<platform>_impl", ...)
+#   toolchain(name = "oxc_<platform>", toolchain_type = ":oxc_toolchain_type", ...)
+#
+# Each macro call creates targets for linux_amd64, darwin_amd64, darwin_arm64.
+# Register them in MODULE.bazel:
+#   register_toolchains("//ts/toolchain:oxc_linux_amd64", ...)
+
+declare_oxc_toolchains(name = "oxc")
+
+declare_tsgo_toolchains(name = "tsgo")
+
+declare_node_runtime_toolchains(name = "node")
+
+# ─── Resolved toolchain targets ───────────────────────────────────────────────
+#
+# These targets expose the active toolchain binary as a runnable Bazel target
+# via the @toolchain_utils//toolchain:resolved.bzl pattern.
+#
+# Usage:
+#   bazel run //ts/toolchain:oxc_resolved -- --help
+#   bazel run //ts/toolchain:tsgo_resolved -- --version
+#   bazel run //ts/toolchain:node_resolved -- --version
+
+oxc_resolved(
+    name = "oxc_resolved",
+    toolchain_type = ":oxc_toolchain_type",
+)
+
+tsgo_resolved(
+    name = "tsgo_resolved",
+    toolchain_type = ":tsgo_toolchain_type",
+)
+
+node_resolved(
+    name = "node_resolved",
+    toolchain_type = ":js_runtime_type",
+)

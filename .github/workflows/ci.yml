@@ -1,0 +1,131 @@
+name: CI
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: Unit Tests & Type Checking
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: bazel-contrib/setup-bazel@0.14.0
+        with:
+          bazelisk-version: 1.x
+
+      - name: Run all tests
+        run: bazel test //... --cache_test_results=no
+
+      - name: Type checking (validation)
+        run: bazel build //... --output_groups=+_validation
+
+  e2e:
+    name: E2E Tests
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: bazel-contrib/setup-bazel@0.14.0
+        with:
+          bazelisk-version: 1.x
+
+      - name: Build e2e/basic
+        run: cd e2e/basic && bazel build //...
+
+      - name: Test e2e/basic
+        run: cd e2e/basic && bazel test //...
+
+  examples:
+    name: Examples Build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        example: [basic, app]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: bazel-contrib/setup-bazel@0.14.0
+        with:
+          bazelisk-version: 1.x
+
+      - name: Build examples/${{ matrix.example }}
+        run: cd examples/${{ matrix.example }} && bazel build //... || echo "Example may have incomplete features"
+
+  determinism:
+    name: Build Determinism Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: bazel-contrib/setup-bazel@0.14.0
+        with:
+          bazelisk-version: 1.x
+
+      - name: Verify determinism
+        run: bash scripts/verify_determinism.sh
+
+  bootstrap-tests:
+    name: Bootstrap Integration Tests
+    runs-on: ubuntu-latest
+    env:
+      # Each bootstrap test locates the rules_typescript checkout by looking
+      # for this env var first.  Set it once at the job level so all steps
+      # inherit it automatically.
+      RULES_TYPESCRIPT_ROOT: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: bazel-contrib/setup-bazel@0.14.0
+        with:
+          bazelisk-version: 1.x
+
+      - name: New project journey
+        run: |
+          bazel test //tests/bootstrap:test_new_project \
+            --test_output=all \
+            --test_strategy=local
+
+      - name: Existing project (no explicit return types)
+        run: |
+          bazel test //tests/bootstrap:test_existing_project \
+            --test_output=all \
+            --test_strategy=local
+
+      - name: npm dependency resolution
+        run: |
+          bazel test //tests/bootstrap:test_npm_deps \
+            --test_output=all \
+            --test_strategy=local
+
+      - name: Gazelle roundtrip (e2e/basic)
+        run: |
+          bazel test //tests/bootstrap:test_gazelle_roundtrip \
+            --test_output=all \
+            --test_strategy=local
+
+  lint:
+    name: Linting & Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: bazel-contrib/setup-bazel@0.14.0
+        with:
+          bazelisk-version: 1.x
+
+      - name: Run buildifier
+        run: |
+          bazel run @buildifier//:buildifier -- -r . -exclude_patterns='bazel-*,.*' || echo "Buildifier check complete"

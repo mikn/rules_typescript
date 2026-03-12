@@ -1,0 +1,11 @@
+/home/mikn/devel/lovable/rules_typescript/oxc_cli/target/debug/deps/oxc_span-12ef0437481540c7.d: /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_span-0.117.0/src/lib.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_span-0.117.0/src/cmp.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_span-0.117.0/src/edit_distance.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_span-0.117.0/src/source_type.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_span-0.117.0/src/span.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_span-0.117.0/src/generated/assert_layouts.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_span-0.117.0/src/generated/derive_dummy.rs
+
+/home/mikn/devel/lovable/rules_typescript/oxc_cli/target/debug/deps/liboxc_span-12ef0437481540c7.rmeta: /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_span-0.117.0/src/lib.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_span-0.117.0/src/cmp.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_span-0.117.0/src/edit_distance.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_span-0.117.0/src/source_type.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_span-0.117.0/src/span.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_span-0.117.0/src/generated/assert_layouts.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_span-0.117.0/src/generated/derive_dummy.rs
+
+/home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_span-0.117.0/src/lib.rs:
+/home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_span-0.117.0/src/cmp.rs:
+/home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_span-0.117.0/src/edit_distance.rs:
+/home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_span-0.117.0/src/source_type.rs:
+/home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_span-0.117.0/src/span.rs:
+/home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_span-0.117.0/src/generated/assert_layouts.rs:
+/home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_span-0.117.0/src/generated/derive_dummy.rs:

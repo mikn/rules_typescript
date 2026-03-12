@@ -1,0 +1,2 @@
+# Intermediate BUILD file — keeps src/ as a Bazel package boundary so that
+# `bazel build //src/...` works and Gazelle can generate sub-package targets.

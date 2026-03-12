@@ -1,0 +1,33 @@
+"""Schema package BUILD file.
+
+Demonstrates:
+  - ts_compile with an npm dep (zod)
+  - ts_test with vitest running against zod schema validation logic
+  - No explicit node_modules target: ts_test auto-builds it from deps
+"""
+
+load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_test")
+
+# Compile the schema library.  The zod dep provides .d.ts at compile time
+# and is bundled at runtime via ts_binary.
+ts_compile(
+    name = "schema",
+    srcs = [
+        "index.ts",
+        "user.ts",
+    ],
+    deps = ["@npm//:zod"],
+    visibility = ["//visibility:public"],
+)
+
+# Run vitest tests against the compiled schema logic.
+# ts_test automatically builds the node_modules tree from the @npm// deps.
+ts_test(
+    name = "schema_test",
+    srcs = ["user.test.ts"],
+    deps = [
+        ":schema",
+        "@npm//:vitest",
+        "@npm//:zod",
+    ],
+)

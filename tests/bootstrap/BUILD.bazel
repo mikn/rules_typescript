@@ -1,0 +1,164 @@
+"""Bootstrap integration tests for rules_typescript.
+
+Each test spawns nested Bazel processes that simulate the full user journey:
+  - create a project from scratch
+  - run Gazelle to generate BUILD files
+  - build with ts_compile / tsgo type-checking
+  - run ts_test / vitest (npm test only)
+
+Because these tests spawn child `bazel` processes they must run locally
+(never inside a Bazel sandbox), require network access on first run
+(toolchain downloads), and take significant time.  The `exclusive` tag
+prevents them from running in parallel with other tests.
+
+Usage (individual):
+  bazel test //tests/bootstrap:test_new_project --test_output=all
+  bazel test //tests/bootstrap:test_existing_project --test_output=all
+  bazel test //tests/bootstrap:test_npm_deps --test_output=all
+  bazel test //tests/bootstrap:test_gazelle_roundtrip --test_output=all
+
+Usage (suite):
+  bazel test //tests/bootstrap/... --test_output=errors
+"""
+
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+# ── test_new_project ──────────────────────────────────────────────────────────
+# Full new-project journey: write sources → gazelle → build.
+# TypeScript files have explicit return types (isolatedDeclarations = true).
+# No npm deps — npm testing is covered by test_npm_deps.
+sh_test(
+    name = "test_new_project",
+    size = "large",
+    timeout = "long",
+    srcs = ["test_new_project.sh"],
+    env_inherit = ["PATH", "HOME", "USER", "RULES_TYPESCRIPT_ROOT"],
+    tags = [
+        "exclusive",
+        "local",
+        "manual",
+    ],
+)
+
+# ── test_existing_project ─────────────────────────────────────────────────────
+# Existing codebase without explicit return types.
+# gazelle:ts_isolated_declarations false ensures the build succeeds.
+# No npm deps — npm testing is covered by test_npm_deps.
+sh_test(
+    name = "test_existing_project",
+    size = "large",
+    timeout = "long",
+    srcs = ["test_existing_project.sh"],
+    env_inherit = ["PATH", "HOME", "USER", "RULES_TYPESCRIPT_ROOT"],
+    tags = [
+        "exclusive",
+        "local",
+        "manual",
+    ],
+)
+
+# ── test_npm_deps ─────────────────────────────────────────────────────────────
+# npm dependency resolution: zod imported and type-checked, vitest used.
+# Uses tests/npm/pnpm-lock.yaml from the rules_typescript checkout.
+# The lockfile is listed as a data dep so Bazel makes it available via
+# RULES_TYPESCRIPT_ROOT at runtime.
+sh_test(
+    name = "test_npm_deps",
+    size = "large",
+    timeout = "long",
+    srcs = ["test_npm_deps.sh"],
+    data = ["//tests/npm:pnpm-lock.yaml"],
+    env_inherit = ["PATH", "HOME", "USER", "RULES_TYPESCRIPT_ROOT"],
+    tags = [
+        "exclusive",
+        "local",
+        "manual",
+    ],
+)
+
+# ── test_gazelle_roundtrip ────────────────────────────────────────────────────
+# Delete all src/*/BUILD.bazel in a copy of e2e/basic, re-run Gazelle,
+# rebuild and retest; then diff generated vs original files.
+sh_test(
+    name = "test_gazelle_roundtrip",
+    size = "large",
+    timeout = "long",
+    srcs = ["test_gazelle_roundtrip.sh"],
+    env_inherit = ["PATH", "HOME", "USER", "RULES_TYPESCRIPT_ROOT"],
+    tags = [
+        "exclusive",
+        "local",
+        "manual",
+    ],
+)
+
+# ── test_css_assets ───────────────────────────────────────────────────────────
+# CSS modules (*.module.css), SVG assets, and JSON data files.
+# Gazelle generates css_module, asset_library, and json_library targets.
+# Build verifies typed declarations (.css.d.ts, .svg.d.ts, .json.d.ts) exist.
+sh_test(
+    name = "test_css_assets",
+    size = "large",
+    timeout = "long",
+    srcs = ["test_css_assets.sh"],
+    env_inherit = ["PATH", "HOME", "USER", "RULES_TYPESCRIPT_ROOT"],
+    tags = [
+        "exclusive",
+        "local",
+        "manual",
+    ],
+)
+
+# ── test_vite_bundle ──────────────────────────────────────────────────────────
+# Production Vite bundling (lib mode) from scratch.
+# Uses tests/npm/pnpm-lock.yaml for vite 6.4.1.
+# Verifies ts_bundle with vite_bundler produces a .es.js bundle file.
+sh_test(
+    name = "test_vite_bundle",
+    size = "large",
+    timeout = "long",
+    srcs = ["test_vite_bundle.sh"],
+    data = ["//tests/npm:pnpm-lock.yaml"],
+    env_inherit = ["PATH", "HOME", "USER", "RULES_TYPESCRIPT_ROOT"],
+    tags = [
+        "exclusive",
+        "local",
+        "manual",
+    ],
+)
+
+# ── test_dev_server ───────────────────────────────────────────────────────────
+# ts_dev_server builds successfully (does not run the server).
+# Uses tests/npm/pnpm-lock.yaml for vite 6.4.1.
+# Verifies the generated vite.config.mjs and runner script exist and have
+# expected content (port, BAZEL_BIN_DIR, BUILD_WORKSPACE_DIRECTORY).
+sh_test(
+    name = "test_dev_server",
+    size = "large",
+    timeout = "long",
+    srcs = ["test_dev_server.sh"],
+    data = ["//tests/npm:pnpm-lock.yaml"],
+    env_inherit = ["PATH", "HOME", "USER", "RULES_TYPESCRIPT_ROOT"],
+    tags = [
+        "exclusive",
+        "local",
+        "manual",
+    ],
+)
+
+# ── test_codegen ──────────────────────────────────────────────────────────────
+# ts_codegen rule in isolation — no npm, no Gazelle required.
+# A shell script generator reads a schema file and emits TypeScript source.
+# ts_compile consumes the generated output and produces .js + .d.ts.
+sh_test(
+    name = "test_codegen",
+    size = "large",
+    timeout = "long",
+    srcs = ["test_codegen.sh"],
+    env_inherit = ["PATH", "HOME", "USER", "RULES_TYPESCRIPT_ROOT"],
+    tags = [
+        "exclusive",
+        "local",
+        "manual",
+    ],
+)

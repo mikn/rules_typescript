@@ -1,0 +1,13 @@
+load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+# Library package: compiles math.ts and index.ts.
+# The .d.ts outputs are the compilation boundary — downstream targets
+# (//src/app) depend only on these .d.ts files, not on the .ts sources.
+ts_compile(
+    name = "lib",
+    srcs = [
+        "index.ts",
+        "math.ts",
+    ],
+    visibility = ["//visibility:public"],
+)

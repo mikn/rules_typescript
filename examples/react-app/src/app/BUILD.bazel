@@ -1,0 +1,22 @@
+load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_dev_server")
+
+ts_compile(
+    name = "app",
+    srcs = [
+        "App.tsx",
+        "index.ts",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//src/components",
+        "//src/validation",
+        "@npm//:react",
+    ],
+)
+
+ts_dev_server(
+    name = "dev",
+    entry_point = ":app",
+    port = 5173,
+    visibility = ["//visibility:public"],
+)

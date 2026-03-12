@@ -1,0 +1,14 @@
+# Default owner for everything
+* @nicholasgasior
+
+# Gazelle extension (Go)
+/gazelle/ @nicholasgasior
+
+# oxc-bazel CLI (Rust)
+/oxc_cli/ @nicholasgasior
+
+# Vite plugin (TypeScript)
+/vite/ @nicholasgasior
+
+# ESLint plugin
+/eslint-plugin/ @nicholasgasior

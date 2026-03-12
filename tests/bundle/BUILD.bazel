@@ -1,0 +1,42 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("@rules_typescript//ts:defs.bzl", "ts_binary", "ts_bundle", "ts_compile")
+
+# Compile lib.ts as a separate package (no deps).
+ts_compile(
+    name = "lib",
+    srcs = ["lib.ts"],
+)
+
+# Compile app.ts, depending on :lib for type info.
+ts_compile(
+    name = "app",
+    srcs = ["app.ts"],
+    deps = [":lib"],
+)
+
+# ts_binary is now executable: `bazel run //tests/bundle:bundle` works.
+# Its runfiles include the transitive .js files from the dep graph.
+ts_binary(
+    name = "bundle",
+    entry_point = ":app",
+    format = "esm",
+)
+
+# ts_bundle (canonical non-executable) still produces a bundle artifact.
+ts_bundle(
+    name = "bundle_canonical",
+    entry_point = ":app",
+    format = "esm",
+)
+
+sh_test(
+    name = "bundle_output_test",
+    size = "small",
+    srcs = ["verify_bundle.sh"],
+    data = [
+        ":app",
+        ":bundle",
+        ":bundle_canonical",
+        ":lib",
+    ],
+)

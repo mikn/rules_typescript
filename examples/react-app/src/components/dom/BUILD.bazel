@@ -1,0 +1,42 @@
+"""DOM tests for the Button component using @testing-library/react.
+
+This sub-package isolates the DOM tests so they can have their own
+node_modules target named "node_modules" (required by Node/vite resolution).
+When multiple ts_test targets share a BUILD package, they may share a
+node_modules directory with the same name, causing vite to pick up the
+wrong packages.
+"""
+
+load("@rules_typescript//npm:defs.bzl", "node_modules")
+load("@rules_typescript//ts:defs.bzl", "ts_test")
+
+# node_modules tree for DOM tests.
+# Must be named "node_modules" so that vite (used by vitest's happy-dom
+# environment) can find packages via Node's directory-walking resolution.
+# All @vitest/* sub-packages must be included for vitest to find its internals.
+node_modules(
+    name = "node_modules",
+    deps = [
+        "@npm//:testing-library_react",
+        "@npm//:vitest",
+    ],
+)
+
+# DOM tests using @testing-library/react under happy-dom environment.
+# Uses a custom vitest config with preserveSymlinks:true to prevent vite
+# from resolving the runfiles symlinks to paths outside the sandbox.
+ts_test(
+    name = "button_dom_test",
+    srcs = ["Button.dom.test.tsx"],
+    config = ":vitest.config.mjs",
+    node_modules = ":node_modules",
+    deps = [
+        "//src/components",
+        "@npm//:react",
+        "@npm//:react-dom",
+        "@npm//:testing-library_dom",
+        "@npm//:testing-library_react",
+        "@npm//:vitest",
+    ],
+)
+

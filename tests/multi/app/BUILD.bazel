@@ -1,0 +1,8 @@
+load("//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "app",
+    srcs = ["main.ts"],
+    visibility = ["//tests:__subpackages__"],
+    deps = ["//tests/multi/lib"],
+)

@@ -1,0 +1,218 @@
+name: Publish to BCR
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g., 0.1.0)"
+        required: true
+        type: string
+  release:
+    types: [published]
+
+jobs:
+  publish-bcr:
+    name: Publish to Bazel Central Registry
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            # Extract from release event or git tag
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Publishing version: ${VERSION}"
+
+      - name: Validate BCR metadata
+        run: |
+          echo "Validating BCR metadata files..."
+
+          if [[ ! -f .bcr/metadata.json ]]; then
+            echo "ERROR: .bcr/metadata.json not found"
+            exit 1
+          fi
+
+          if [[ ! -f .bcr/source.json ]]; then
+            echo "ERROR: .bcr/source.json not found"
+            exit 1
+          fi
+
+          if [[ ! -f .bcr/presubmit.yml ]]; then
+            echo "ERROR: .bcr/presubmit.yml not found"
+            exit 1
+          fi
+
+          # Validate JSON
+          python3 -c "import json; json.load(open('.bcr/metadata.json'))" || exit 1
+          python3 -c "import json; json.load(open('.bcr/source.json'))" || exit 1
+
+          echo "All metadata files validated"
+
+      - name: Verify release exists
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="v${VERSION}"
+
+          # Check if release exists on GitHub
+          RELEASE=$(gh release view "$TAG" 2>/dev/null || echo "")
+          if [[ -z "$RELEASE" ]]; then
+            echo "WARNING: Release $TAG not found on GitHub"
+            echo "The release should exist before BCR submission"
+          else
+            echo "Release $TAG found on GitHub"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check tarball availability
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TARBALL_URL="https://github.com/nicholasgasior/rules_typescript/releases/download/v${VERSION}/rules_typescript-${VERSION}.tar.gz"
+
+          echo "Checking tarball availability: $TARBALL_URL"
+
+          # Try to download tarball headers
+          if curl -I --fail -s "$TARBALL_URL" > /dev/null 2>&1; then
+            echo "Tarball is available"
+            curl -I -s "$TARBALL_URL" | head -5
+          else
+            echo "WARNING: Could not verify tarball availability"
+            echo "URL: $TARBALL_URL"
+          fi
+
+      - name: Verify SOURCE.md (if required)
+        run: |
+          if [[ -f SOURCE.md ]]; then
+            echo "SOURCE.md found and validated"
+            head -20 SOURCE.md
+          else
+            echo "INFO: SOURCE.md not present (optional)"
+          fi
+
+      - name: Create BCR submission summary
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          cat > /tmp/bcr_summary.md << 'EOF'
+          # BCR Submission for rules_typescript v${VERSION}
+
+          ## Files to submit
+
+          - `.bcr/metadata.json` - Module metadata
+          - `.bcr/source.json` - Release information with integrity hash
+          - `.bcr/presubmit.yml` - Test configuration
+          - Optional: `SOURCE.md` - Custom build instructions
+
+          ## Submission steps
+
+          1. Fork https://github.com/bazelbuild/bazel-central-registry
+          2. Create branch: `rules_typescript-v${VERSION}`
+          3. Create directory: `modules/rules_typescript/${VERSION}/`
+          4. Copy the following files:
+             - .bcr/metadata.json -> modules/rules_typescript/metadata.json
+             - .bcr/source.json -> modules/rules_typescript/${VERSION}/source.json
+             - .bcr/presubmit.yml -> modules/rules_typescript/${VERSION}/presubmit.yml
+          5. Push branch and create PR
+
+          ## Validation
+
+          - Module name: rules_typescript
+          - Version: v${VERSION}
+          - Repository: https://github.com/nicholasgasior/rules_typescript
+          - Release URL: https://github.com/nicholasgasior/rules_typescript/releases/tag/v${VERSION}
+
+          EOF
+
+          cat /tmp/bcr_summary.md
+
+      - name: Print BCR submission info
+        run: |
+          echo "BCR Submission Checklist:"
+          echo "========================"
+          echo ""
+          echo "1. Fork bazel-central-registry:"
+          echo "   https://github.com/bazelbuild/bazel-central-registry/fork"
+          echo ""
+          echo "2. Clone your fork and create a branch:"
+          echo "   git clone https://github.com/YOUR-USERNAME/bazel-central-registry.git"
+          echo "   cd bazel-central-registry"
+          echo "   git checkout -b rules_typescript-v${{ steps.version.outputs.version }}"
+          echo ""
+          echo "3. Create module directory:"
+          echo "   mkdir -p modules/rules_typescript/${{ steps.version.outputs.version }}"
+          echo ""
+          echo "4. Copy metadata (this should exist already):"
+          echo "   cp YOUR-RULES-TYPESCRIPT-REPO/.bcr/metadata.json modules/rules_typescript/"
+          echo ""
+          echo "5. Copy version-specific files:"
+          echo "   cp YOUR-RULES-TYPESCRIPT-REPO/.bcr/source.json modules/rules_typescript/${{ steps.version.outputs.version }}/"
+          echo "   cp YOUR-RULES-TYPESCRIPT-REPO/.bcr/presubmit.yml modules/rules_typescript/${{ steps.version.outputs.version }}/"
+          echo ""
+          echo "6. Create PR:"
+          echo "   git add ."
+          echo "   git commit -m 'Add rules_typescript v${{ steps.version.outputs.version }}'"
+          echo "   git push origin rules_typescript-v${{ steps.version.outputs.version }}"
+          echo ""
+          echo "7. Open PR in bazel-central-registry"
+          echo ""
+          echo "Current metadata:"
+          echo "================"
+          cat .bcr/metadata.json
+          echo ""
+          echo "Current source configuration:"
+          echo "=============================="
+          cat .bcr/source.json
+
+      - name: Generate release notes
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          cat > /tmp/release_notes.txt << EOF
+          # rules_typescript v${VERSION}
+
+          This release is ready for Bazel Central Registry submission.
+
+          ## Release Information
+          - **Version**: ${VERSION}
+          - **Release URL**: https://github.com/nicholasgasior/rules_typescript/releases/tag/v${VERSION}
+          - **Tarball**: rules_typescript-${VERSION}.tar.gz
+
+          ## BCR Metadata
+          - Module: rules_typescript
+          - Compatibility Level: 0
+          - Maintainer: Nicholas Gasior (nicholas@lovable.app)
+          - Repository: https://github.com/nicholasgasior/rules_typescript
+
+          ## Next Steps for BCR Submission
+          1. Submit PR to https://github.com/bazelbuild/bazel-central-registry
+          2. Include .bcr/metadata.json and .bcr/source.json
+          3. BCR tests will validate the release
+
+          EOF
+          cat /tmp/release_notes.txt
+
+      - name: Comment on release
+        if: github.event_name == 'release'
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="v${VERSION}"
+
+          gh release edit "$TAG" \
+            --notes "BCR metadata prepared for submission. See .bcr/metadata.json and .bcr/source.json for details." || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload BCR metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: bcr-metadata-${{ steps.version.outputs.version }}
+          path: |
+            .bcr/metadata.json
+            .bcr/source.json
+            .bcr/presubmit.yml
+          retention-days: 30

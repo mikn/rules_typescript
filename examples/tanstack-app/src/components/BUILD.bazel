@@ -1,0 +1,26 @@
+load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_test")
+
+ts_compile(
+    name = "components",
+    srcs = [
+        "Layout.tsx",
+        "UserCard.tsx",
+        "index.ts",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@npm//:react",
+        "@npm//:tanstack_react-router",
+    ],
+)
+
+ts_test(
+    name = "components_test",
+    srcs = ["UserCard.test.tsx"],
+    deps = [
+        ":components",
+        "@npm//:react",
+        "@npm//:tanstack_react-router",
+        "@npm//:vitest",
+    ],
+)

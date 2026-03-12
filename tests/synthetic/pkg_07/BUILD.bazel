@@ -1,0 +1,14 @@
+load("//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "pkg_07",
+    srcs = [
+        "index.ts",
+        "types.ts",
+        "utils.ts",
+    ],
+    visibility = ["//tests/synthetic:__subpackages__"],
+    deps = [
+        "//tests/synthetic/pkg_03",
+    ],
+)

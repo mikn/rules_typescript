@@ -1,0 +1,21 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "tanstack",
+    srcs = ["plugin.go"],
+    importpath = "github.com/nicholasgasior/rules_typescript/gazelle/tanstack",
+    visibility = ["//gazelle:__pkg__"],
+    deps = [
+        "@gazelle//language",
+        "@gazelle//rule",
+    ],
+)
+
+go_test(
+    name = "tanstack_test",
+    srcs = ["plugin_test.go"],
+    embed = [":tanstack"],
+    deps = [
+        "@gazelle//language",
+    ],
+)

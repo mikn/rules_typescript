@@ -1,0 +1,1 @@
+{"rustc":941463192452883449,"features":"","declared_features":"","target":0,"profile":0,"path":0,"deps":[[7764745262899183004,"build_script_build",false,199497542395732336]],"local":[{"RerunIfChanged":{"output":"release/build/dragonbox_ecma-d7be8cdefee51dc6/output","paths":["build.rs"]}}],"rustflags":[],"config":0,"compile_kind":0}

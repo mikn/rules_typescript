@@ -1,0 +1,11 @@
+/home/mikn/devel/lovable/rules_typescript/oxc_cli/target/debug/deps/oxc_compat-44be27eb9ebb2acf.d: /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_compat-0.117.0/src/lib.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_compat-0.117.0/src/babel_targets.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_compat-0.117.0/src/browserslist_query.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_compat-0.117.0/src/engine.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_compat-0.117.0/src/engine_targets.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_compat-0.117.0/src/es_features.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_compat-0.117.0/src/es_target.rs
+
+/home/mikn/devel/lovable/rules_typescript/oxc_cli/target/debug/deps/liboxc_compat-44be27eb9ebb2acf.rmeta: /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_compat-0.117.0/src/lib.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_compat-0.117.0/src/babel_targets.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_compat-0.117.0/src/browserslist_query.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_compat-0.117.0/src/engine.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_compat-0.117.0/src/engine_targets.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_compat-0.117.0/src/es_features.rs /home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_compat-0.117.0/src/es_target.rs
+
+/home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_compat-0.117.0/src/lib.rs:
+/home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_compat-0.117.0/src/babel_targets.rs:
+/home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_compat-0.117.0/src/browserslist_query.rs:
+/home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_compat-0.117.0/src/engine.rs:
+/home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_compat-0.117.0/src/engine_targets.rs:
+/home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_compat-0.117.0/src/es_features.rs:
+/home/mikn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/oxc_compat-0.117.0/src/es_target.rs:

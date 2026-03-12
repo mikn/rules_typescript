@@ -1,0 +1,29 @@
+version: 2
+updates:
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "03:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "nicholasgasior"
+    labels:
+      - "dependencies"
+      - "ci"
+
+  # npm (for eslint-plugin and other npm packages in the repo)
+  - package-ecosystem: "npm"
+    directory: "/eslint-plugin"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "03:30"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "nicholasgasior"
+    labels:
+      - "dependencies"
+      - "npm"

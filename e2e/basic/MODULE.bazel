@@ -1,0 +1,28 @@
+"""End-to-end test workspace for rules_typescript.
+
+Exercises ts_compile, ts_check, ts_config_gen, ts_test, and ts_binary
+against a minimal multi-package TypeScript project.
+"""
+
+module(
+    name = "e2e_basic",
+    version = "0.0.0",
+)
+
+bazel_dep(name = "rules_typescript", version = "0.0.0")
+
+register_toolchains("@rules_typescript//ts/toolchain:all")
+
+local_path_override(
+    module_name = "rules_typescript",
+    path = "../..",
+)
+
+# ─── npm repo (created by rules_typescript, imported here) ───────────────────
+# rules_typescript's npm extension creates @npm from tests/npm/pnpm-lock.yaml.
+# We import it here so @npm//vitest and similar labels resolve in this workspace.
+
+bazel_dep(name = "gazelle", version = "0.47.0")
+
+npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
+use_repo(npm, "npm")

@@ -1,0 +1,11 @@
+load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "components",
+    srcs = [
+        "Button.tsx",
+        "index.ts",
+        "jsx-shim.d.ts",
+    ],
+    visibility = ["//visibility:public"],
+)

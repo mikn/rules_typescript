@@ -1,0 +1,137 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+
+package(default_visibility = [
+    "//npm:__subpackages__",
+    "//ts:__subpackages__",
+    "//vite:__subpackages__",
+])
+
+bzl_library(
+    name = "providers",
+    srcs = ["providers.bzl"],
+)
+
+bzl_library(
+    name = "css_library",
+    srcs = ["css_library.bzl"],
+    deps = [
+        ":providers",
+    ],
+)
+
+bzl_library(
+    name = "ts_compile",
+    srcs = ["ts_compile.bzl"],
+    deps = [
+        ":providers",
+        ":toolchain",
+    ],
+)
+
+bzl_library(
+    name = "ts_check",
+    srcs = ["ts_check.bzl"],
+    deps = [
+        ":providers",
+        ":ts_config_gen",
+        ":toolchain",
+    ],
+)
+
+bzl_library(
+    name = "ts_config_gen",
+    srcs = ["ts_config_gen.bzl"],
+    deps = [
+        ":providers",
+    ],
+)
+
+bzl_library(
+    name = "ts_test",
+    srcs = ["ts_test.bzl"],
+    deps = [
+        ":providers",
+        ":ts_compile",
+    ],
+)
+
+bzl_library(
+    name = "ts_bundle",
+    srcs = ["ts_bundle.bzl"],
+    deps = [
+        ":providers",
+        ":runtime",
+    ],
+)
+
+bzl_library(
+    name = "ts_binary",
+    srcs = ["ts_binary.bzl"],
+    deps = [
+        ":providers",
+        ":runtime",
+        ":ts_bundle",
+    ],
+)
+
+bzl_library(
+    name = "ts_dev_server",
+    srcs = ["ts_dev_server.bzl"],
+    deps = [
+        ":providers",
+        ":runtime",
+    ],
+)
+
+bzl_library(
+    name = "ts_npm_package",
+    srcs = ["ts_npm_package.bzl"],
+    deps = [
+        ":providers",
+    ],
+)
+
+bzl_library(
+    name = "npm_translate_lock",
+    srcs = ["npm_translate_lock.bzl"],
+    deps = [
+        ":ts_npm_package",
+    ],
+)
+
+bzl_library(
+    name = "node_modules",
+    srcs = ["node_modules.bzl"],
+    deps = [
+        ":providers",
+    ],
+)
+
+bzl_library(
+    name = "toolchain",
+    srcs = ["toolchain.bzl"],
+)
+
+bzl_library(
+    name = "runtime",
+    srcs = ["runtime.bzl"],
+    deps = [
+        ":toolchain",
+    ],
+)
+
+bzl_library(
+    name = "ts_lint",
+    srcs = ["ts_lint.bzl"],
+    deps = [
+        ":providers",
+    ],
+)
+
+bzl_library(
+    name = "ts_npm_publish",
+    srcs = ["ts_npm_publish.bzl"],
+    deps = [
+        ":providers",
+    ],
+)

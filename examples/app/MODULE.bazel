@@ -1,0 +1,36 @@
+"""Example workspace demonstrating a real-world TypeScript application with rules_typescript.
+
+Shows: npm deps (zod), cross-package dependencies, ts_test with vitest,
+ts_binary bundling, type-checking, and Gazelle BUILD file generation.
+
+To use from BCR, remove the local_path_override block below.
+"""
+
+module(
+    name = "my_app",
+    version = "0.0.0",
+)
+
+bazel_dep(name = "rules_typescript", version = "0.1.0")
+
+register_toolchains("@rules_typescript//ts/toolchain:all")
+
+# ─── Local development only ───────────────────────────────────────────────────
+# Remove this block when publishing to BCR or using rules_typescript from the
+# Bazel Central Registry.  Keep it when running the example locally against a
+# checkout of this repository.
+local_path_override(
+    module_name = "rules_typescript",
+    path = "../..",
+)
+
+# ─── npm dependencies from pnpm-lock.yaml ────────────────────────────────────
+# Run `pnpm install` in this directory to update pnpm-lock.yaml.
+# rules_typescript reads the lockfile at build time — no need to run pnpm
+# during the Bazel build itself.
+# pnpm_lock defaults to //:pnpm-lock.yaml, so the explicit arg is optional.
+npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
+npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
+use_repo(npm, "npm")
+
+bazel_dep(name = "gazelle", version = "0.47.0")
