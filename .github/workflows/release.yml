@@ -63,7 +63,7 @@ jobs:
           ls -lh "${TARBALL_NAME}"
 
       - name: Generate attestation
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: ${{ steps.build.outputs.tarball }}
 
