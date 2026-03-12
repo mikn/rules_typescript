@@ -1,153 +1,117 @@
 # AGENTS.md — rules_typescript
 
-## Project
+Instructions for AI agents and contributors working on this codebase.
 
-Bazel ruleset for TypeScript. Oxc (Rust) compiles, tsgo (Go) type-checks. Modeled after rules_go: developers write `.ts`, never touch BUILD files, get hermetic cached builds. Isolated declarations is the architectural keystone — `.d.ts` emit is per-file syntactic (no type-checker needed), making TypeScript structurally identical to Go's per-package compilation model.
+## Quality Standard
 
-## Bazel Conventions (Modern/Idiomatic)
+This ruleset targets **rules_go ergonomic parity**. The bar: a TypeScript developer writes `.ts` files, runs `bazel run //:gazelle`, then `bazel build //...` and `bazel test //...` — everything works with zero manual BUILD file editing.
 
-- **bzlmod only.** No WORKSPACE. All external deps via `MODULE.bazel` + `bazel_dep()`.
-- **Never reference `bazel-out/` directly.** Use `ctx.bin_dir.path`, `File.path`, `File.dirname`. The config segment (`k8-fastbuild`, etc.) is unstable.
-- **Pass deps individually.** Each dep's files are action inputs via `File.path`. Don't stage files into temp directories. Don't glob `bazel-out/`.
-- **Optional toolchains.** Use `config_common.toolchain_type(TYPE, mandatory = False)` for optional features (tsgo type-checking, JS runtime). Check `ctx.toolchains[TYPE]` for `None`.
-- **Validation actions.** Place type-checking in `OutputGroupInfo(_validation = ...)` on the target users build. Don't create separate `_check` targets — Bazel only runs `_validation` from the target being built.
-- **Providers are the API.** `JsInfo`, `TsDeclarationInfo` are the interop contract. Every compilable target must provide both.
-- **`dev_dependency = True`** for anything consumers don't need (gazelle, rules_go, test-only deps).
-- **No `bazel clean`.** Iterate. Trust the cache.
-- **`bzl_library`** for every `.bzl` file. Check visibility across packages.
+## Development Workflow
 
-## Starlark Style
+```bash
+bazel test //...                           # 28 unit/integration tests
+bazel build //... --output_groups=+_validation  # redundant if .bazelrc has it
+cd e2e/basic && bazel test //...           # e2e workspace
+cd examples/react-app && bazel test //...  # example workspace
 
-- `ctx.actions.run` over `ctx.actions.run_shell` when possible. Shell only for tsgo (needs `touch` for stamp).
-- `depset(order = "postorder")` for transitive file sets.
-- `args.add_all()` for file lists — never materialize depsets at analysis time.
-- Private attrs prefixed with `_`. Public rule attrs are the API surface.
-- Macros in `defs.bzl`, raw rules in `private/`. Users load from `defs.bzl`.
-
-## Architecture
-
-```
-ts_compile (one rule, one target)
-  ├── OxcCompile action     → .js + .js.map + .d.ts
-  └── TsgoCheck validation  → .tscheck stamp (in _validation output group)
-       └── generates tsconfig.json inline (rootDirs bridges source + bin trees)
+# Bootstrap tests (slow, spawn nested Bazel — run explicitly)
+RULES_TYPESCRIPT_ROOT=$(pwd) bazel test //tests/bootstrap:test_new_project
 ```
 
-- **Compilation boundary:** `.d.ts` files. Downstream targets only see `.d.ts` from deps, not source `.ts`. Changing implementation without changing public API = no recompilation downstream.
-- **tsconfig generation:** `module: "Preserve"`, `moduleResolution: "Bundler"` (not NodeNext — that requires `.js` extensions). `rootDirs` contains execroot root and `ctx.bin_dir.path` so tsgo can find dep `.d.ts` files in the output tree via the same relative paths used for source imports.
-- **Ambient `.d.ts` in srcs:** Included in tsconfig `include` array. Used for type shims (e.g., JSX namespace without `@types/react`).
+## Three-Stage Development Cycle
 
-## npm Support
+For any non-trivial change:
 
-`npm_translate_lock` in `ts/private/npm_translate_lock.bzl` reads `pnpm-lock.yaml` and creates a self-contained `@npm` external repository:
+1. **Implement** — write code, build, test, iterate until green
+2. **Adversarial review** — separate agent finds bugs, design flaws, shell injection, depset violations
+3. **Fix** — address all CRITICAL and HIGH findings, verify
 
-- Parses both pnpm lockfile v6 and v9 (handles snapshots section, peer-dep suffixes, scoped packages).
-- Downloads every package tarball via `repository_ctx.download_and_extract`. Verifies integrity with the SRI hash from the lockfile when present.
-- Platform-specific packages (with `os`/`cpu` constraints) are filtered to host platform only.
-- Generates a single `BUILD.bazel` with `ts_npm_package` targets. Label naming: `@types/react` → `types_react`, `react-dom` → `react-dom`.
-- Types packages (`@types/*`) are auto-paired with their runtime package via `types_dep` attr.
-- Exposed via `npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")`.
+Do not skip the review stage. It has caught real bugs in every round.
 
-`ts_npm_package` in `ts/private/ts_npm_package.bzl` provides `NpmPackageInfo` with:
-- `package_name`, `package_version`: package identity
-- `package_dir`: the `package.json` File (used for tsconfig `paths` resolution)
-- `all_files`: full file depset for runtime use by `node_modules` rule
-- `js_files`, `declaration_files`: filtered subsets for compilation
-- `transitive_deps`: depset of `NpmPackageInfo` for transitive closure
-- `transitive_package_dirs`: depset of `package.json` Files (inputs to tsgo for Bundler resolution)
+## Architecture (terse)
 
-`node_modules` rule in `ts/private/node_modules.bzl` builds a hermetic `node_modules/` tree from `NpmPackageInfo` targets via a shell action that copies files using a tab-delimited manifest.
-
-## Gazelle Extension
-
-Go implementation in `gazelle/`. Generates `ts_compile` and `ts_test` BUILD targets.
-
-**Package boundary heuristic (every-dir, default):** Every directory with `.ts`/`.tsx` source files gets a `ts_compile` target. This matches Go's behaviour.
-
-**Package boundary heuristic (index-only, opt-in):** Only directories with `index.ts`/`index.tsx`, an explicit `# gazelle:ts_package_boundary true` directive, or the repo root become boundaries. Enable via `# gazelle:ts_package_boundary index-only` in the root BUILD.bazel.
-
-BREAKING CHANGE (post-0.1.0): The default was switched from index-only to every-dir. Existing workspaces that relied on index-only behaviour should add `# gazelle:ts_package_boundary index-only` to their root BUILD.bazel to restore it.
-
-**File classification:**
-- `*.test.ts`, `*.spec.ts`, `*.test.tsx`, `*.spec.tsx` → `ts_test`
-- `*.gen.ts`, `*.gen.tsx` → excluded (generated files, e.g. TanStack Router routeTree)
-- All other `.ts`/`.tsx` → `ts_compile srcs`
-
-**Import resolution** (in `resolve.go`): relative imports resolve via the rule index. Bare specifiers (npm packages) resolve via `npmPackages` map from `gazelle_ts.json`. Path aliases from `pathAliases` in `gazelle_ts.json` or `# gazelle:ts_path_alias` directives resolve to workspace-relative labels. Sub-path alias resolution (`@/utils/helpers`) falls back to the parent directory (`src/utils`) when the exact path is not in the index.
-
-**Directives** (in `config.go`):
-- `ts_package_boundary every-dir` / `index-only` / `true`: boundary mode control
-- `ts_ignore` / `ts_ignore false`: suppress/re-enable generation
-- `ts_target_name <name>`: override primary target name
-- `ts_isolated_declarations false`: emit `isolated_declarations = False` on ts_compile and ts_test
-- `ts_path_alias <alias> <dir>`: add/override a path alias mapping (merges with inherited, not replaces)
-- `ts_runtime_dep <label>`: append a label to all ts_test deps in the subtree
-- `ts_exclude <pattern>`: exclude files matching pattern from source targets
-- `ts_warn_unresolved true`: warn on unresolved imports
-
-**`gazelle_ts.json` (deprecated):** per-directory config file with `pathAliases`, `npmMappingFile`, `excludePatterns`, `excludeDirs`, `runtimeDeps.test`. Migrate to `# gazelle:` directives in BUILD.bazel instead.
-
-## Runtime Toolchain
-
-`JS_RUNTIME_TOOLCHAIN_TYPE` in `ts/private/runtime.bzl`. Provides `JsRuntimeInfo` with:
-- `runtime_binary`: Node/Deno/Bun executable
-- `runtime_name`: human-readable name
-- `args_prefix`: arguments prepended before the script (e.g., `--experimental-vm-modules`)
-
-`node_runtime_repo` downloads Node.js tarballs from nodejs.org per platform. `declare_node_runtime_toolchains` macro generates one `js_runtime_toolchain` + `toolchain()` per platform from `PLATFORM_CONSTRAINTS`.
-
-The JS runtime is optional (`mandatory = False`). `ts_test` falls back to system `node` when no toolchain is registered.
-
-Node.js is provisioned in `MODULE.bazel` via the `rules_nodejs` extension (`node.toolchain(name = "nodejs", node_version = ...)`). The `ts` extension in `ts/extensions.bzl` only exposes `oxc_toolchain` and `tsgo_toolchain` tags — there is no `ts.node_runtime` tag.
-
-## Bundler Interface
-
-`BundlerInfo` provider in `ts/private/providers.bzl`:
-- `bundler_binary`: the CLI executable
-- `config_file`: optional config passed via `--config`
-- `runtime_deps`: depset of additional files the bundler needs at runtime
-
-The bundler CLI contract (documented in `ts/private/ts_bundle.bzl`):
 ```
-<bundler> --entry <path.js> --out-dir <dir> --format esm|cjs|iife
-          [--external <pkg>]... [--sourcemap] [--config <file>]
+ts_compile → OxcCompile action (.js + .d.ts + .js.map)
+           → TsgoCheck validation action (.tscheck stamp in _validation)
+
+.d.ts = compilation boundary. Downstream sees only .d.ts, not .ts source.
+Change implementation without changing .d.ts → no downstream recompilation.
 ```
 
-`ts_bundle_impl` is shared between `ts_bundle` and `ts_binary` (both rules, identical attrs). Fallback mode (no bundler): concatenates all `.js` files from the depset using a shell action with a multiline manifest.
+**Key files:**
+- `ts/defs.bzl` — public API (all rules, providers, macros)
+- `ts/private/ts_compile.bzl` — core compilation rule
+- `ts/private/providers.bzl` — JsInfo, TsDeclarationInfo, BundlerInfo, CssInfo, AssetInfo, NpmPackageInfo
+- `ts/private/npm_translate_lock.bzl` — pnpm lockfile parser + @npm repo generator
+- `ts/private/ts_test.bzl` — vitest test macro (auto node_modules)
+- `ts/private/ts_bundle.bzl` — Vite production bundler
+- `ts/private/ts_dev_server.bzl` — dev server with HMR
+- `ts/private/ts_codegen.bzl` — general code generation
+- `gazelle/generate.go` — BUILD file generation
+- `gazelle/resolve.go` — import → label resolution
+- `gazelle/config.go` — directives, framework detection, codegen detection
+- `oxc_cli/src/main.rs` — Rust CLI (parse → isolated_declarations → transform → codegen)
+- `vite/bundler.bzl` — Vite bundler wrapper
 
-`vite_bundler` rule in `vite/bundler.bzl` returns `BundlerInfo` wiring a pre-built Vite CLI into the interface.
+## Rules (never break these)
 
-## Rust (oxc_cli)
+**Starlark:**
+- Never materialize depsets at analysis time (no `.to_list()` in rule impls unless unavoidable + commented)
+- `depset(order = "postorder")` for all transitive file sets
+- `ctx.actions.run` over `ctx.actions.run_shell` when possible
+- Shell strings: always use `_shell_escape()` for any interpolated path
+- All `fail()` calls must have actionable messages with "Did you mean...?" suggestions
 
-- Edition 2024, min Rust 1.92.0.
-- Built via `rules_rust` + `crate_universe`. `crate.from_cargo()` in MODULE.bazel.
-- `clap` for CLI, `rayon` for parallel file processing, `miette` for diagnostics.
-- `--files` takes 1..N paths. `--out-dir` for output. `--strip-dir-prefix` for package-relative output paths.
-- Each file: parse → semantic → isolated_declarations → transform → codegen. Order matters: isolated_declarations runs BEFORE transform (which strips type info).
+**Bazel:**
+- bzlmod only. No WORKSPACE.
+- Never reference `bazel-out/` directly. Use `ctx.bin_dir.path`, `File.path`.
+- Optional toolchains: `config_common.toolchain_type(TYPE, mandatory = False)`
+- Validation actions in `OutputGroupInfo(_validation = ...)`, not separate targets
+- No `bazel clean`. Iterate. Trust the cache.
 
-## Testing
+**Gazelle (Go):**
+- All config via `# gazelle:ts_*` directives (not `gazelle_ts.json`, which is deprecated)
+- Default: every-dir (every directory with .ts files is a package)
+- `ts_test` auto-generates node_modules from npm deps in the `deps` list
+- Register all new directives in `KnownDirectives()`, all new rules in `Kinds()` + `Loads()`
 
-- `tests/smoke/` — minimal .ts and .tsx compilation + validation
-- `tests/multi/` — cross-package deps, compilation boundary verification
-- `tests/vitest/` — real vitest test run via `ts_test` + `node_modules`
-- `tests/bundle/` — `ts_binary` bundling with placeholder mode
-- `tests/npm/` — npm package targets from `pnpm-lock.yaml`
-- `e2e/basic/` — separate workspace with `local_path_override`, multi-package project + ts_binary bundle + Gazelle
-- Always verify with `--output_groups=+_validation` to trigger type-checking
+**Testing:**
+- Every feature needs a test that ASSERTS correctness (not just "builds without errors")
+- Bootstrap tests (`tests/bootstrap/`) test full user journeys — create project, gazelle, build, test
+- Bootstrap tests found 5 real bugs on first run. They are not optional.
 
-## Phase 6 Verification Results
+## Gazelle Directives (complete list)
 
-All phases verified working end-to-end:
+| Directive | Effect |
+|---|---|
+| `ts_package_boundary every-dir\|index-only\|true` | Package boundary mode |
+| `ts_isolated_declarations false` | Emit `isolated_declarations = False` |
+| `ts_path_alias @/ src/` | Path alias (merges with parent) |
+| `ts_runtime_dep @npm//:happy-dom` | Always-included test dep |
+| `ts_exclude *.generated.ts` | Exclude pattern |
+| `ts_warn_unresolved true` | Warn on unresolved imports |
+| `ts_ignore` | Skip this directory |
+| `ts_target_name <name>` | Override target name |
+| `ts_codegen <name> <generator> <outs> [args]` | Custom codegen rule |
 
-- `bazel build //tests/... --output_groups=+_validation` — passes (oxc compile + tsgo type-check)
-- `bazel test //tests/vitest:math_test` — passes (vitest runs inside sandbox)
-- `cd e2e/basic && bazel build //...` — passes (cross-package ts_binary bundle)
-- npm support: `pnpm-lock.yaml` parsing, tarball download, `node_modules` tree generation
-- Gazelle: extension builds and generates correct BUILD files
+## Provider Contract
 
-## Key Gaps (remaining)
+Every `ts_compile` target provides: `JsInfo` + `TsDeclarationInfo` + `OutputGroupInfo(_validation)`.
+Every `ts_npm_package` provides: `JsInfo` + `TsDeclarationInfo` + `NpmPackageInfo`.
+`css_library`/`css_module`/`asset_library`/`json_library` provide `TsDeclarationInfo` (for .d.ts stubs).
 
-- **tsgo checksums:** Populated for version 7.0.0-dev.20260311.1. Must update when tsgo version changes.
-- **No Windows support.** Linux + macOS only.
-- **Vite bundler:** Skeleton implementation. The `vite_binary` must be a pre-built CLI wrapper — no Bazel-hermetic Vite build yet.
-- **Gazelle npm dep resolution:** Relies on `gazelle_ts.json` + `npmMappingFile` for non-standard npm layouts. Standard `@npm//:package` convention works out of the box.
+## npm Internals
+
+`npm_translate_lock` (repository rule):
+- Parses pnpm-lock.yaml (v6 + v9)
+- Downloads tarballs, extracts to `@npm` repo
+- Generates BUILD.bazel with `ts_npm_package` per package
+- Handles: scoped packages, @types pairing, multiple versions, bin scripts, conditional exports, pnpm workspaces, dependency cycles (Kosaraju's SCC)
+
+## What NOT to do
+
+- Don't add Python dependencies. All codegen uses awk or Starlark `json.decode()`.
+- Don't generate bash scripts for Windows compatibility paths. Use Node.js via the runtime toolchain.
+- Don't add `gazelle_ts.json` features. Use directives.
+- Don't create separate `_check` targets. Use `_validation` output group on the compile target.
+- Don't assume `@npm` is the only repo name. Support custom names via the npm extension.
