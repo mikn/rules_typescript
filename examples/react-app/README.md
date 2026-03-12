@@ -1,116 +1,62 @@
-# react-app example
+# examples/react-app
 
-A self-contained Bazel workspace demonstrating `rules_typescript` with a React
-application. It covers TSX compilation, `@types/react` pairing, custom hooks,
-Zod validation, vitest tests, cross-package dependencies, and Gazelle-generated
-BUILD files.
+A React component library with TSX compilation, DOM testing, and Vite bundling.
 
-## Prerequisites
+## What this demonstrates
 
-- [Bazel](https://bazel.build/) 9.0.0+
-- [pnpm](https://pnpm.io/) (to update the lockfile; not needed just to build)
+- TSX compilation with oxc (React components)
+- `@types/react` automatic pairing (types resolved from `@npm//:types_react`)
+- Custom React hooks with cross-package deps
+- Zod validation as a separate package
+- vitest unit tests and `@testing-library/react` DOM tests (happy-dom)
+- `ts_binary` bundling to a single ESM file
+- `ts_dev_server` skeleton for development
+- tsgo type-checking (enabled by default in `.bazelrc`)
+- Gazelle auto-generating BUILD files from TypeScript sources
 
-## Package layout
+## Structure
 
 ```
-src/
-  app/           App.tsx — root React component, re-exports the app
-  components/    Button.tsx, Counter.tsx — reusable UI components
-  hooks/         useCounter.ts — custom React hook
-  validation/    userSchema.ts — Zod user schema with helper functions
+examples/react-app/
+  MODULE.bazel            # Workspace definition with npm extension
+  .bazelrc                # Enables validation (--output_groups=+_validation)
+  pnpm-lock.yaml          # Locked npm deps
+  BUILD.bazel             # ts_binary bundle + gazelle target
+  src/
+    hooks/
+      useCounter.ts       # Custom React hook
+      useCounter.test.ts  # Hook unit test
+    components/
+      Button.tsx          # Stateless component with ButtonProps interface
+      Counter.tsx         # Stateful component using useCounter hook
+      Button.test.tsx     # Component unit test
+      dom/
+        Button.dom.test.tsx   # @testing-library/react DOM test
+        vitest.config.mjs     # happy-dom environment config
+    validation/
+      userSchema.ts       # Zod schema with explicit type annotations
+      userSchema.test.ts  # Schema validation test
+    app/
+      App.tsx             # Root React component
+      index.ts            # Barrel re-export
 ```
 
-## Workflow
-
-This example follows the rules_typescript workflow exactly: write TypeScript,
-run Gazelle, then build and test.
-
-### 1. Write TypeScript
-
-Source files live under `src/`. All exported values carry explicit return types
-(required by oxc for isolated `.d.ts` emission). For example:
-
-```typescript
-// src/components/Button.tsx
-import type { MouseEvent, ReactElement } from "react";
-
-export interface ButtonProps {
-  label: string;
-  onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
-  disabled?: boolean;
-}
-
-export function Button({ label, onClick, disabled = false }: ButtonProps): ReactElement {
-  return <button onClick={onClick} disabled={disabled}>{label}</button>;
-}
-```
-
-### 2. Generate BUILD files with Gazelle
+## Quick start
 
 ```bash
-bazel run //:gazelle
+bazel build //...    # compile + type-check (validation is on by default via .bazelrc)
+bazel test //...     # run vitest tests (unit + DOM)
+bazel run //:gazelle # regenerate BUILD files from source
 ```
 
-Gazelle reads TypeScript imports and writes `ts_compile`, `ts_test`, and
-`node_modules` targets in every `src/*/` directory. After generation you may
-need to add runtime-only deps that Gazelle cannot infer from static imports —
-see `src/hooks/BUILD.bazel` for an example where `@npm//:react` is added to the
-`node_modules` target so the vitest runner can resolve it at test time.
+## How it works
 
-### 3. Build
+Four packages demonstrate the React component library pattern. `//src/hooks` defines a `useCounter` hook with `@npm//:react` as a dep. `//src/components` depends on `//src/hooks` and `@npm//:react` for TSX compilation -- when `@npm//:react` appears in deps, rules_typescript automatically pairs it with `@npm//:types_react` for type resolution. `//src/validation` uses `zod` independently. `//src/app` composes them into the root `App.tsx`.
 
-```bash
-bazel build //...
-```
+The DOM test in `src/components/dom/` uses `@testing-library/react` under a happy-dom vitest environment. It lives in a sub-package with an explicit `node_modules` target because the DOM test runner needs packages like `react-dom` and `@testing-library/react` that the unit tests do not. Unit tests elsewhere use `ts_test` which auto-generates `node_modules` from deps.
 
-oxc compiles every `ts_compile` target and emits `.js` + `.d.ts` files. The
-root `app_bundle` target bundles `src/app` into a single ESM file.
+JSX return types require `import type { ReactElement } from "react"` because `React.JSX.Element` is not a global in `@types/react` 19. All exported symbols need explicit type annotations for oxc's isolated declarations mode.
 
-### 4. Type-check with tsgo
+## Using as a template
 
-```bash
-bazel build //... --output_groups=+_validation
-```
-
-tsgo runs as a separate validation action. Failures appear as build errors. This
-step is optional during development but recommended in CI.
-
-### 5. Run tests
-
-```bash
-bazel test //...
-```
-
-Three test suites run under vitest:
-
-| Target | Tests |
-|--------|-------|
-| `//src/components:components_test` | ButtonProps interface + Button function |
-| `//src/hooks:hooks_test` | useCounter initial state and increment |
-| `//src/validation:validation_test` | Zod schema parsing and error handling |
-
-## Key points
-
-**`@types/react` pairing.** `@npm//:react` ships no `.d.ts` files — types come
-from `@npm//:types_react`. When `@npm//:react` is listed as a `ts_compile` dep,
-`rules_typescript` automatically pairs it with `@npm//:types_react` and redirects
-tsgo's module resolution to the `@types/react` directory.
-
-**JSX return types.** `React.JSX.Element` is not a global in `@types/react` 19.
-Use `import type { ReactElement } from "react"` as the return type for TSX
-components instead.
-
-**Isolated declarations.** oxc requires that every exported symbol has an
-explicit type annotation so it can emit `.d.ts` files without cross-file
-inference. This constraint keeps compilation fast and hermetic.
-
-## Updating npm dependencies
-
-```bash
-pnpm install          # generates pnpm-lock.yaml
-bazel run //:gazelle  # re-sync BUILD files if new packages were added
-bazel build //...
-```
-
-The lockfile is checked in so Bazel can reproduce the exact build without a
-network connection (after the first fetch).
+Copy this directory. Remove the `local_path_override` block in `MODULE.bazel` and set the `rules_typescript` version to the published BCR version. Keep `pnpm-lock.yaml` checked in -- run `pnpm install` to update it when adding new npm dependencies.

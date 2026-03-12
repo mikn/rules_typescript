@@ -1,138 +1,65 @@
-# tanstack-app example
+# examples/tanstack-app
 
-A self-contained Bazel workspace demonstrating `rules_typescript` with a
-TanStack Router application. It covers TSX compilation, type-safe routing,
-Zod schema validation for route parameters, vitest tests, cross-package
-dependencies, and Gazelle-generated BUILD files.
+A client-side SPA with TanStack React Router, Zod route params, and Vite bundling.
 
-## Prerequisites
+## What this demonstrates
 
-- [Bazel](https://bazel.build/) 9.0.0+
-- [pnpm](https://pnpm.io/) (to update the lockfile; not needed just to build)
+- TanStack React Router with type-safe routing
+- Zod validation for route parameters
+- Factory pattern to wrap complex router generics for isolated declarations
+- `ts_bundle` with Vite for production SPA output (index.html + hashed assets)
+- `ts_codegen` for TanStack Router route tree generation
+- Scoped npm package labels (`@tanstack/react-router` -> `@npm//:tanstack_react-router`)
+- vitest tests for router creation and param schemas
+- tsgo type-checking (enabled by default in `.bazelrc`)
+- Gazelle auto-generating BUILD files from TypeScript sources
 
-## Package layout
+## Structure
 
 ```
-src/
-  lib/           router.ts — router factory; params.ts — Zod route param schemas
-  components/    Layout.tsx, UserCard.tsx — shared UI components
-  routes/        __root.tsx, index.tsx, about.tsx, users.tsx — route definitions
-  app/           application entry point, re-exports the router
+examples/tanstack-app/
+  MODULE.bazel                # Workspace definition with npm extension
+  .bazelrc                    # Enables validation (--output_groups=+_validation)
+  pnpm-lock.yaml              # Locked npm deps
+  index.html                  # SPA shell for Vite app-mode bundling
+  BUILD.bazel                 # ts_binary, ts_bundle (Vite SPA), vite_bundler, gazelle
+  generate-routes.sh          # Shell wrapper for TanStack route tree codegen
+  tanstack-vite.config.mjs    # Experimental tanstackStart() Vite config
+  src/
+    lib/
+      router.ts               # Router factory (wraps complex generics)
+      params.ts               # Zod route parameter schemas
+      router.test.ts           # Router creation test
+      params.test.ts           # Param schema test
+    components/
+      Layout.tsx               # Root layout component
+      UserCard.tsx             # User display component
+      UserCard.test.tsx        # Component test
+    routes/
+      __root.tsx               # Root route (layout wrapper)
+      index.tsx, about.tsx, users.tsx  # Page routes
+    app/
+      index.ts                 # Re-exports router
+      main.tsx                 # React SPA entry point (createRoot + RouterProvider)
 ```
 
-## Workflow
-
-This example follows the rules_typescript workflow exactly: write TypeScript,
-run Gazelle, then build and test.
-
-### 1. Write TypeScript
-
-Source files live under `src/`. All exported values carry explicit return types
-(required by oxc for isolated `.d.ts` emission).
-
-**Factory function pattern for router types.** TanStack Router uses deeply nested
-generics that are impractical to write by hand. The `lib/router.ts` module wraps
-router creation in a factory function so the complex internal types stay private:
-
-```typescript
-// src/lib/router.ts
-import type { AnyRouter } from "@tanstack/react-router";
-
-export type AppRouter = AnyRouter;
-
-function buildRouter(): AppRouter {
-  const rootRoute = createRootRoute({ component: RootComponent });
-  // ... internal route tree — no need for explicit generic annotations here
-  return createRouter({ routeTree });
-}
-
-export const router: AppRouter = buildRouter();
-```
-
-This satisfies isolated declarations (the exported `router` constant has an
-explicit type) while keeping the router creation code readable.
-
-**Zod route parameter schemas** in `lib/params.ts` carry explicit generic
-annotations so oxc can emit `.d.ts` without inference:
-
-```typescript
-export const UsersSearchSchema: z.ZodObject<{
-  page: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
-  search: z.ZodOptional<z.ZodString>;
-}> = z.object({ ... });
-```
-
-### 2. Generate BUILD files with Gazelle
+## Quick start
 
 ```bash
-bazel run //:gazelle
+bazel build //...    # compile + type-check (validation is on by default via .bazelrc)
+bazel test //...     # run vitest tests
+bazel build //:spa   # produce deployable SPA bundle (index.html + JS)
+bazel run //:gazelle # regenerate BUILD files from source
 ```
 
-Gazelle reads TypeScript imports and writes `ts_compile`, `ts_test`, and
-`node_modules` targets. After generation, add runtime-only deps that Gazelle
-cannot infer from static imports. For example, `src/lib/BUILD.bazel` needs
-`@npm//:tanstack_react-router` and `@npm//:zod` in its `node_modules` target
-so the vitest runner can resolve them at test time.
+## How it works
 
-### 3. Build
+The `//src/lib` package contains the router factory and Zod param schemas. TanStack Router uses deeply nested generics that are impractical to annotate by hand, so `router.ts` wraps creation in a factory function returning `AnyRouter` -- this satisfies isolated declarations while keeping the code readable. Zod schemas for route params carry explicit generic annotations (e.g., `z.ZodObject<{page: z.ZodDefault<...>}>`) so oxc can emit `.d.ts` without inference.
 
-```bash
-bazel build //...
-```
+The `//src/routes` package defines the route tree using TSX components that depend on `@npm//:tanstack_react-router`. Unlike `react`, TanStack Router ships its own `.d.ts` files so no `@types` pairing is needed. However, JSX runtime types still come from `@types/react`, so `@npm//:react` is listed as a dep and rules_typescript pairs it with `@npm//:types_react` automatically.
 
-oxc compiles every `ts_compile` target and emits `.js` + `.d.ts` files. The
-root `app_bundle` target bundles `src/app` into a single ESM file.
+The root `BUILD.bazel` defines both a `ts_binary` (plain ESM bundle) and a `ts_bundle` using `vite_bundler` for production SPA output. The `:spa` target runs Vite in app mode against `index.html` to produce a deployable directory with hashed assets. A `ts_codegen` target can generate `routeTree.gen.ts` from the route files using `@tanstack/router-generator`.
 
-### 4. Type-check with tsgo
+## Using as a template
 
-```bash
-bazel build //... --output_groups=+_validation
-```
-
-tsgo runs as a separate validation action. Failures appear as build errors.
-
-### 5. Run tests
-
-```bash
-bazel test //...
-```
-
-Two test suites run under vitest:
-
-| Target | Tests |
-|--------|-------|
-| `//src/lib:lib_test` | router creation + AppRouter typing; Zod param schema parsing |
-| `//src/components:components_test` | UserCard prop rendering |
-
-## Key points
-
-**`@tanstack/react-router` bundles its own types.** Unlike `react`, it ships
-`.d.ts` files inside its own package directory, so no `@types/*` pairing is
-needed. It is listed as a `ts_compile` dep and types resolve automatically.
-
-**`@types/react` pairing still applies.** Even though TanStack Router provides
-its own types, the JSX runtime types come from `@types/react`. List
-`@npm//:react` as a dep and `rules_typescript` pairs it with `@npm//:types_react`
-automatically.
-
-**Scoped package label names.** In `deps`, the `@` sigil and `/` separator in
-scoped npm package names are replaced with underscores: `@tanstack/react-router`
-becomes `@npm//:tanstack_react-router`.
-
-**JSX return types.** Use `import type { ReactElement, ReactNode } from "react"`
-as return types for TSX components. `React.JSX.Element` is not a global in
-`@types/react` 19.
-
-**Isolated declarations.** oxc requires that every exported symbol has an
-explicit type annotation. This constraint keeps compilation fast and hermetic.
-
-## Updating npm dependencies
-
-```bash
-pnpm install          # generates pnpm-lock.yaml
-bazel run //:gazelle  # re-sync BUILD files if new packages were added
-bazel build //...
-```
-
-The lockfile is checked in so Bazel can reproduce the exact build without a
-network connection (after the first fetch).
+Copy this directory. Remove the `local_path_override` block in `MODULE.bazel` and set the `rules_typescript` version to the published BCR version. Keep `pnpm-lock.yaml` checked in -- run `pnpm install` to update it when adding new npm dependencies. The `tanstack-vite.config.mjs` and `:spa_tanstack` target are experimental (SSR) and can be removed for a pure SPA setup.

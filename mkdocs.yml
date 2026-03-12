@@ -1,0 +1,55 @@
+site_name: rules_typescript
+site_url: https://nicholasgasior.github.io/rules_typescript
+repo_url: https://github.com/nicholasgasior/rules_typescript
+repo_name: nicholasgasior/rules_typescript
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.expand
+    - content.code.copy
+    - search.suggest
+  palette:
+    - scheme: default
+      primary: blue
+      accent: blue
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Quick Start: getting-started/quickstart.md
+    - Isolated Declarations: getting-started/isolated-declarations.md
+    - IDE Setup: getting-started/ide-setup.md
+    - Migrating from rules_ts: getting-started/migration.md
+  - Guides:
+    - npm Dependencies: guides/npm.md
+    - Testing with vitest: guides/testing.md
+    - Bundling with Vite: guides/bundling.md
+    - Dev Server: guides/dev-server.md
+    - Monorepo Layout: guides/monorepo.md
+    - Publishing Packages: guides/publishing.md
+    - Troubleshooting: guides/troubleshooting.md
+  - Gazelle:
+    - Overview: gazelle/overview.md
+    - Directives Reference: gazelle/directives.md
+  - Rules Reference:
+    - ts_compile: rules/ts-compile.md
+    - ts_test: rules/ts-test.md
+    - ts_binary: rules/ts-binary.md
+    - ts_bundle: rules/ts-bundle.md
+    - ts_dev_server: rules/ts-dev-server.md
+    - ts_npm_publish: rules/ts-npm-publish.md
+    - node_modules: rules/node-modules.md
+  - Contributing: contributing.md
+  - Changelog: changelog.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true

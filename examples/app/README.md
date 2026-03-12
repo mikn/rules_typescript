@@ -1,67 +1,51 @@
-# examples/app — Real Application Example
+# examples/app
 
-A small but realistic TypeScript application showing the full `rules_typescript` workflow.
+A standard TypeScript library/service workflow with npm deps, vitest testing, and bundling.
 
-## What this example demonstrates
+## What this demonstrates
 
-- **npm deps** — `zod` for schema validation, `vitest` for testing
-- **Cross-package dependencies** — `//src/app` depends on `//src/schema` via `.d.ts` boundary
-- **vitest testing** — `ts_test` with real assertions against zod schema validation
-- **ts_binary bundling** — bundles the application entry point to a single ESM file
-- **Type-checking** — tsgo validation via `--output_groups=+_validation`
-- **Gazelle** — `bazel run //:gazelle` auto-generates BUILD files from TypeScript sources
-- **`.d.ts` compilation boundary** — schema changes only recompile dependents if the API changes
-
-## Quick start
-
-```bash
-# Build everything (compile + bundle)
-bazel build //...
-
-# Run the vitest test suite
-bazel test //...
-
-# Type-check with tsgo
-bazel build //... --output_groups=+_validation
-
-# Regenerate BUILD files from TypeScript sources
-bazel run //:gazelle
-```
+- npm dependency management (`zod`) via pnpm lockfile
+- `ts_test` with vitest (auto-generates `node_modules` from `@npm` deps)
+- Cross-package dependencies via `.d.ts` compilation boundary
+- `ts_binary` bundling to a single ESM file
+- tsgo type-checking (enabled by default in `.bazelrc`)
+- Gazelle auto-generating BUILD files from TypeScript sources
 
 ## Structure
 
 ```
 examples/app/
-  MODULE.bazel          # Consumer MODULE.bazel with local_path_override
-  pnpm-lock.yaml        # Locked npm deps (zod + vitest)
-  BUILD.bazel           # ts_binary bundle + gazelle target
+  MODULE.bazel        # Workspace definition with npm extension
+  .bazelrc            # Enables validation (--output_groups=+_validation)
+  pnpm-lock.yaml      # Locked npm deps (zod + vitest)
+  BUILD.bazel         # ts_binary bundle + gazelle target
   src/
     schema/
-      user.ts           # Zod schema with explicit type annotations
-      index.ts          # Barrel re-export
-      user.test.ts      # vitest test suite
-      BUILD.bazel       # ts_compile + node_modules + ts_test
+      user.ts         # Zod schema with explicit type annotations
+      user.test.ts    # vitest test suite
+      index.ts        # Barrel re-export
+      BUILD.bazel     # ts_compile + ts_test
     app/
-      index.ts          # Uses schema package
-      BUILD.bazel       # ts_compile with cross-package dep
+      index.ts        # Uses schema package
+      BUILD.bazel     # ts_compile with cross-package dep
 ```
 
-## Key design decisions
+## Quick start
 
-**Explicit type annotations on zod schemas** — `rules_typescript` uses oxc's isolated
-declarations mode for fast parallel `.d.ts` emit. This requires exported variables to
-carry explicit type annotations. Zod schemas can be annotated as:
-
-```typescript
-export const UserSchema: z.ZodObject<{
-  id: z.ZodString;
-  name: z.ZodString;
-}> = z.object({ id: z.string(), name: z.string() });
+```bash
+bazel build //...    # compile + type-check (validation is on by default via .bazelrc)
+bazel test //...     # run vitest tests
+bazel run //:gazelle # regenerate BUILD files from source
 ```
 
-**`node_modules` target for tests** — `ts_test` needs a hermetic `node_modules` tree
-at runtime. The `node_modules()` rule builds this tree as a Bazel action — no npm/pnpm
-runs during the build.
+## How it works
 
-**Using this example from BCR** — remove the `local_path_override` block in
-`MODULE.bazel` and set the `rules_typescript` version to the published BCR version.
+The `//src/schema` package uses `zod` as an npm dependency for runtime validation. The `ts_compile` target lists `@npm//:zod` in `deps`, which provides `.d.ts` files at compile time. The `ts_test` target runs vitest against the schema logic -- it lists its `@npm` deps directly and `ts_test` auto-generates the `node_modules` tree needed at runtime. No manual `node_modules` target is required.
+
+The `//src/app` package depends on `//src/schema` via the `.d.ts` boundary. The root `ts_binary` bundles everything into a single ESM file. Zod's runtime code is resolved from the npm tree during bundling.
+
+Exported zod schemas need explicit type annotations for oxc's isolated declarations mode. For example, `export const UserSchema: z.ZodObject<{...}> = z.object({...})` rather than relying on type inference.
+
+## Using as a template
+
+Copy this directory. Remove the `local_path_override` block in `MODULE.bazel` and set the `rules_typescript` version to the published BCR version. Keep `pnpm-lock.yaml` checked in -- run `pnpm install` to update it when adding new npm dependencies.
