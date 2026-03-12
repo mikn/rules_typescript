@@ -24,3 +24,6 @@ Thumbs.db
 
 # Claude project memory (personal)
 .claude/
+RELEASE_CHECKLIST.md
+RELEASE_NOTES.md
+SP10_COMPLETION_SUMMARY.md
