@@ -9,5 +9,5 @@ import { ESLintUtils } from "@typescript-eslint/utils";
 
 export const createRule = ESLintUtils.RuleCreator(
   (name) =>
-    `https://github.com/nicholasgasior/rules_typescript/tree/main/tools/isolated-declarations-lint/docs/rules/${name}.md`
+    `https://github.com/mikn/rules_typescript/tree/main/tools/isolated-declarations-lint/docs/rules/${name}.md`
 );

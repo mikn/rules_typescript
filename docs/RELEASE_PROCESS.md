@@ -72,7 +72,7 @@ Updated .bcr/source.json:
 {
   "integrity": "sha256-...",
   "strip_prefix": "rules_typescript-v0.2.0",
-  "url": "https://github.com/nicholasgasior/rules_typescript/releases/download/v0.2.0/rules_typescript-v0.2.0.tar.gz"
+  "url": "https://github.com/mikn/rules_typescript/releases/download/v0.2.0/rules_typescript-v0.2.0.tar.gz"
 }
 ✓ Updated source.json
 
@@ -84,7 +84,7 @@ Updated .bcr/source.json:
 
 Next steps:
 1. Push the tag: git push origin v0.2.0
-2. Create a GitHub release: https://github.com/nicholasgasior/rules_typescript/releases/new?tag=v0.2.0
+2. Create a GitHub release: https://github.com/mikn/rules_typescript/releases/new?tag=v0.2.0
 3. Attach tarball: /tmp/rules_typescript-v0.2.0.tar.gz
 4. Submit to BCR: https://github.com/bazelbuild/bazel-central-registry/pulls
    - Include .bcr/metadata.json and .bcr/source.json in the PR
@@ -107,7 +107,7 @@ git ls-remote --tags origin  # Shows remote tags
 
 ## Step 3: Create GitHub Release
 
-1. Open GitHub: https://github.com/nicholasgasior/rules_typescript/releases/new?tag=v0.2.0
+1. Open GitHub: https://github.com/mikn/rules_typescript/releases/new?tag=v0.2.0
 
 2. Fill in the form:
    - **Tag version**: v0.2.0 (auto-populated)

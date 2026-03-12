@@ -1,10 +1,10 @@
 # rules_typescript
 
-Bazel rules for TypeScript using [Oxc](https://oxc.rs/) for compilation and [tsgo](https://github.com/nicholasgasior/TypeScript-7) for type-checking.
+Bazel rules for TypeScript using [Oxc](https://oxc.rs/) for compilation and [tsgo](https://github.com/mikn/TypeScript-7) for type-checking.
 
 **TypeScript on Bazel should feel like Go on Bazel.** Write `.ts` files, let Gazelle generate BUILD files, get hermetic cached builds with sub-second incremental feedback.
 
-**Full documentation: [nicholasgasior.github.io/rules_typescript](https://nicholasgasior.github.io/rules_typescript)**
+**Full documentation: [mikn.github.io/rules_typescript](https://mikn.github.io/rules_typescript)**
 
 ## Key Ideas
 
@@ -77,16 +77,16 @@ bazel test //...
 
 ## Feature Highlights
 
-- **[Quick Start](https://nicholasgasior.github.io/rules_typescript/getting-started/quickstart/)** — new project or migrating an existing codebase
-- **[Isolated Declarations](https://nicholasgasior.github.io/rules_typescript/getting-started/isolated-declarations/)** — the architectural keystone for fast incremental builds
-- **[npm Dependencies](https://nicholasgasior.github.io/rules_typescript/guides/npm/)** — pnpm lockfile integration, platform-specific packages, bin scripts
-- **[Testing with vitest](https://nicholasgasior.github.io/rules_typescript/guides/testing/)** — `ts_test`, snapshots, sharding, watch mode with ibazel
-- **[Bundling](https://nicholasgasior.github.io/rules_typescript/guides/bundling/)** — `ts_bundle` with Vite or any `BundlerInfo`-compatible bundler
-- **[Dev Server](https://nicholasgasior.github.io/rules_typescript/guides/dev-server/)** — Vite dev server with ibazel HMR
-- **[Monorepo Layout](https://nicholasgasior.github.io/rules_typescript/guides/monorepo/)** — package boundaries, cross-package `.d.ts` caching
-- **[Gazelle Reference](https://nicholasgasior.github.io/rules_typescript/gazelle/overview/)** — directives, `gazelle_ts.json`, auto-detected lint targets
-- **[Rules Reference](https://nicholasgasior.github.io/rules_typescript/rules/ts-compile/)** — all attributes, providers, and outputs
-- **[Migration from rules_ts](https://nicholasgasior.github.io/rules_typescript/getting-started/migration/)** — differences from aspect-build/rules_ts
+- **[Quick Start](https://mikn.github.io/rules_typescript/getting-started/quickstart/)** — new project or migrating an existing codebase
+- **[Isolated Declarations](https://mikn.github.io/rules_typescript/getting-started/isolated-declarations/)** — the architectural keystone for fast incremental builds
+- **[npm Dependencies](https://mikn.github.io/rules_typescript/guides/npm/)** — pnpm lockfile integration, platform-specific packages, bin scripts
+- **[Testing with vitest](https://mikn.github.io/rules_typescript/guides/testing/)** — `ts_test`, snapshots, sharding, watch mode with ibazel
+- **[Bundling](https://mikn.github.io/rules_typescript/guides/bundling/)** — `ts_bundle` with Vite or any `BundlerInfo`-compatible bundler
+- **[Dev Server](https://mikn.github.io/rules_typescript/guides/dev-server/)** — Vite dev server with ibazel HMR
+- **[Monorepo Layout](https://mikn.github.io/rules_typescript/guides/monorepo/)** — package boundaries, cross-package `.d.ts` caching
+- **[Gazelle Reference](https://mikn.github.io/rules_typescript/gazelle/overview/)** — directives, `gazelle_ts.json`, auto-detected lint targets
+- **[Rules Reference](https://mikn.github.io/rules_typescript/rules/ts-compile/)** — all attributes, providers, and outputs
+- **[Migration from rules_ts](https://mikn.github.io/rules_typescript/getting-started/migration/)** — differences from aspect-build/rules_ts
 
 ## License
 

@@ -37,7 +37,7 @@ scoop install bazelisk
 ### Clone and verify
 
 ```bash
-git clone https://github.com/nicholasgasior/rules_typescript
+git clone https://github.com/mikn/rules_typescript
 cd rules_typescript
 
 # Build everything

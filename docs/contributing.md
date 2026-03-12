@@ -7,7 +7,7 @@ Thank you for your interest in contributing. This document covers everything you
 The only prerequisite is **Bazelisk** (or Bazel 9+). All other dependencies — the Rust toolchain, Go toolchain, Node.js, and npm packages — are fetched hermetically by Bazel on the first build.
 
 ```bash
-git clone https://github.com/nicholasgasior/rules_typescript
+git clone https://github.com/mikn/rules_typescript
 cd rules_typescript
 
 # Build everything

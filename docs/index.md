@@ -1,6 +1,6 @@
 # rules_typescript
 
-Bazel rules for TypeScript using [Oxc](https://oxc.rs/) for compilation and [tsgo](https://github.com/nicholasgasior/TypeScript-7) for type-checking.
+Bazel rules for TypeScript using [Oxc](https://oxc.rs/) for compilation and [tsgo](https://github.com/mikn/TypeScript-7) for type-checking.
 
 **TypeScript on Bazel should feel like Go on Bazel.** Write `.ts` files, let Gazelle generate BUILD files, get hermetic cached builds with sub-second incremental feedback.
 

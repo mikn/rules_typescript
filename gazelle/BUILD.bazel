@@ -1,7 +1,7 @@
 load("@gazelle//:def.bzl", "gazelle", "gazelle_binary")
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 
-# gazelle:prefix github.com/nicholasgasior/rules_typescript/gazelle
+# gazelle:prefix github.com/mikn/rules_typescript/gazelle
 
 go_library(
     name = "typescript",
@@ -13,7 +13,7 @@ go_library(
         "language.go",
         "resolve.go",
     ],
-    importpath = "github.com/nicholasgasior/rules_typescript/gazelle",
+    importpath = "github.com/mikn/rules_typescript/gazelle",
     visibility = ["//visibility:public"],
     deps = [
         "//gazelle/tanstack",

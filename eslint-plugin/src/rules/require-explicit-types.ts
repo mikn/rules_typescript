@@ -61,7 +61,7 @@ type MessageId =
 
 const createRule = ESLintUtils.RuleCreator(
   (name) =>
-    `https://github.com/nicholasgasior/rules_typescript/blob/main/eslint-plugin/docs/rules/${name}.md`,
+    `https://github.com/mikn/rules_typescript/blob/main/eslint-plugin/docs/rules/${name}.md`,
 );
 
 export const requireExplicitTypes = createRule<[], MessageId>({

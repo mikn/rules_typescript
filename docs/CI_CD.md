@@ -135,7 +135,7 @@ After running `scripts/release.sh 0.2.0`:
 git push origin v0.2.0
 
 # 2. Create a GitHub Release
-# Go to: https://github.com/nicholasgasior/rules_typescript/releases/new?tag=v0.2.0
+# Go to: https://github.com/mikn/rules_typescript/releases/new?tag=v0.2.0
 # - Upload the tarball
 # - Write release notes
 
@@ -155,15 +155,15 @@ The `.bcr/metadata.json` file contains maintainer information and repository met
 
 ```json
 {
-  "homepage": "https://github.com/nicholasgasior/rules_typescript",
+  "homepage": "https://github.com/mikn/rules_typescript",
   "maintainers": [
     {
       "name": "Nicholas Gasior",
       "email": "nicholas@lovable.app",
-      "github": "nicholasgasior"
+      "github": "mikn"
     }
   ],
-  "repository": ["github:nicholasgasior/rules_typescript"],
+  "repository": ["github:mikn/rules_typescript"],
   "versions": [],
   "yanked_versions": {}
 }
@@ -177,7 +177,7 @@ The `.bcr/source.json` file specifies the release tarball location and integrity
 {
   "integrity": "sha256-<BASE64_SHA256>",
   "strip_prefix": "rules_typescript-{TAG}",
-  "url": "https://github.com/nicholasgasior/rules_typescript/releases/download/v{TAG}/rules_typescript-v{TAG}.tar.gz"
+  "url": "https://github.com/mikn/rules_typescript/releases/download/v{TAG}/rules_typescript-v{TAG}.tar.gz"
 }
 ```
 

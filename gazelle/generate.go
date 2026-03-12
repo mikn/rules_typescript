@@ -11,7 +11,7 @@ import (
 	"github.com/bazelbuild/bazel-gazelle/language"
 	"github.com/bazelbuild/bazel-gazelle/rule"
 
-	"github.com/nicholasgasior/rules_typescript/gazelle/tanstack"
+	"github.com/mikn/rules_typescript/gazelle/tanstack"
 )
 
 // globExpr is a sentinel prefix used in CodegenPattern.Srcs to indicate that

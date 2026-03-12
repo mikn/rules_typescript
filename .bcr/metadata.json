@@ -1,14 +1,14 @@
 {
-  "homepage": "https://github.com/nicholasgasior/rules_typescript",
+  "homepage": "https://github.com/mikn/rules_typescript",
   "maintainers": [
     {
       "name": "Nicholas Gasior",
-      "email": "nicholas@lovable.app",
-      "github": "nicholasgasior"
+      "email": "mikael@lovable.app",
+      "github": "mikn"
     }
   ],
   "repository": [
-    "github:nicholasgasior/rules_typescript"
+    "github:mikn/rules_typescript"
   ],
   "versions": [],
   "yanked_versions": {}

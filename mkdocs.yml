@@ -1,7 +1,7 @@
 site_name: rules_typescript
-site_url: https://nicholasgasior.github.io/rules_typescript
-repo_url: https://github.com/nicholasgasior/rules_typescript
-repo_name: nicholasgasior/rules_typescript
+site_url: https://mikn.github.io/rules_typescript
+repo_url: https://github.com/mikn/rules_typescript
+repo_name: mikn/rules_typescript
 
 theme:
   name: material

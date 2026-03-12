@@ -65,13 +65,13 @@ The release workflow output includes:
 
 After the workflow completes:
 
-1. Check GitHub Releases: https://github.com/nicholasgasior/rules_typescript/releases
+1. Check GitHub Releases: https://github.com/mikn/rules_typescript/releases
 2. Verify tarball download works
 3. Check SHA256 hash matches the build output
 
 ```bash
 # Verify integrity
-wget https://github.com/nicholasgasior/rules_typescript/releases/download/v0.1.0/rules_typescript-0.1.0.tar.gz
+wget https://github.com/mikn/rules_typescript/releases/download/v0.1.0/rules_typescript-0.1.0.tar.gz
 sha256sum rules_typescript-0.1.0.tar.gz
 ```
 
@@ -144,7 +144,7 @@ Trigger the publish-to-bcr workflow manually:
 ```bash
 gh workflow run publish-to-bcr.yml \
   -f version=0.1.0 \
-  -R nicholasgasior/rules_typescript
+  -R mikn/rules_typescript
 ```
 
 This workflow:
@@ -161,15 +161,15 @@ Contains module-level information (shared across all versions):
 
 ```json
 {
-  "homepage": "https://github.com/nicholasgasior/rules_typescript",
+  "homepage": "https://github.com/mikn/rules_typescript",
   "maintainers": [
     {
       "name": "Nicholas Gasior",
       "email": "nicholas@lovable.app",
-      "github": "nicholasgasior"
+      "github": "mikn"
     }
   ],
-  "repository": ["github:nicholasgasior/rules_typescript"],
+  "repository": ["github:mikn/rules_typescript"],
   "versions": [],
   "yanked_versions": {}
 }
@@ -183,7 +183,7 @@ Version-specific release information:
 
 ```json
 {
-  "url": "https://github.com/nicholasgasior/rules_typescript/releases/download/v0.1.0/rules_typescript-0.1.0.tar.gz",
+  "url": "https://github.com/mikn/rules_typescript/releases/download/v0.1.0/rules_typescript-0.1.0.tar.gz",
   "integrity": "sha256-<base64-hash>",
   "strip_prefix": "rules_typescript-0.1.0"
 }
@@ -378,7 +378,7 @@ VERSION="0.1.0"
 TARBALL="rules_typescript-${VERSION}.tar.gz"
 
 # Download from GitHub release
-wget https://github.com/nicholasgasior/rules_typescript/releases/download/v${VERSION}/${TARBALL}
+wget https://github.com/mikn/rules_typescript/releases/download/v${VERSION}/${TARBALL}
 
 # Calculate SHA256 hash in SRI format
 SHA256_HEX=$(sha256sum ${TARBALL} | awk '{print $1}')

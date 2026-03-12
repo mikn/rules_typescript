@@ -111,7 +111,7 @@ jobs:
           with open('.bcr/source.json', 'r') as f:
               data = json.load(f)
 
-          data['url'] = f"https://github.com/nicholasgasior/rules_typescript/releases/download/v{version}/rules_typescript-{version}.tar.gz"
+          data['url'] = f"https://github.com/mikn/rules_typescript/releases/download/v{version}/rules_typescript-{version}.tar.gz"
           data['integrity'] = sha256
           data['strip_prefix'] = f"rules_typescript-{version}"
 
@@ -130,7 +130,7 @@ jobs:
           sha256 = '$SHA256'
           with open('.bcr/source.json', 'r') as f:
               data = json.load(f)
-          data['url'] = f'https://github.com/nicholasgasior/rules_typescript/releases/download/v{version}/rules_typescript-{version}.tar.gz'
+          data['url'] = f'https://github.com/mikn/rules_typescript/releases/download/v{version}/rules_typescript-{version}.tar.gz'
           data['integrity'] = sha256
           data['strip_prefix'] = f'rules_typescript-{version}'
           with open('.bcr/source.json', 'w') as f:

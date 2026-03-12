@@ -73,7 +73,7 @@ jobs:
       - name: Check tarball availability
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          TARBALL_URL="https://github.com/nicholasgasior/rules_typescript/releases/download/v${VERSION}/rules_typescript-${VERSION}.tar.gz"
+          TARBALL_URL="https://github.com/mikn/rules_typescript/releases/download/v${VERSION}/rules_typescript-${VERSION}.tar.gz"
 
           echo "Checking tarball availability: $TARBALL_URL"
 
@@ -124,8 +124,8 @@ jobs:
 
           - Module name: rules_typescript
           - Version: v${VERSION}
-          - Repository: https://github.com/nicholasgasior/rules_typescript
-          - Release URL: https://github.com/nicholasgasior/rules_typescript/releases/tag/v${VERSION}
+          - Repository: https://github.com/mikn/rules_typescript
+          - Release URL: https://github.com/mikn/rules_typescript/releases/tag/v${VERSION}
 
           EOF
 
@@ -179,14 +179,14 @@ jobs:
 
           ## Release Information
           - **Version**: ${VERSION}
-          - **Release URL**: https://github.com/nicholasgasior/rules_typescript/releases/tag/v${VERSION}
+          - **Release URL**: https://github.com/mikn/rules_typescript/releases/tag/v${VERSION}
           - **Tarball**: rules_typescript-${VERSION}.tar.gz
 
           ## BCR Metadata
           - Module: rules_typescript
           - Compatibility Level: 0
           - Maintainer: Nicholas Gasior (nicholas@lovable.app)
-          - Repository: https://github.com/nicholasgasior/rules_typescript
+          - Repository: https://github.com/mikn/rules_typescript
 
           ## Next Steps for BCR Submission
           1. Submit PR to https://github.com/bazelbuild/bazel-central-registry

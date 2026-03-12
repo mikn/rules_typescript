@@ -1,4 +1,4 @@
-module github.com/nicholasgasior/rules_typescript/gazelle
+module github.com/mikn/rules_typescript/gazelle
 
 go 1.26.1
 

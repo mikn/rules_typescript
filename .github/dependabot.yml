@@ -9,7 +9,7 @@ updates:
       time: "03:00"
     open-pull-requests-limit: 5
     reviewers:
-      - "nicholasgasior"
+      - "mikn"
     labels:
       - "dependencies"
       - "ci"
@@ -23,7 +23,7 @@ updates:
       time: "03:30"
     open-pull-requests-limit: 5
     reviewers:
-      - "nicholasgasior"
+      - "mikn"
     labels:
       - "dependencies"
       - "npm"
