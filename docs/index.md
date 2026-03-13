@@ -1,8 +1,8 @@
 # rules_typescript
 
-Bazel rules for the modern **TypeScript + Vite** ecosystem. [Oxc](https://oxc.rs/) compiles, [tsgo](https://github.com/nicholasgasior/TypeScript-7) type-checks, [Vite](https://vite.dev/) bundles.
+An opinionated Bazel ruleset for TypeScript, optimised for the **Oxc + Vite** toolchain rather than broad compatibility with every JS build tool. If your stack is TypeScript, Vite, and a Vite-based framework — this replaces `tsc`, your bundler, and your dev server with a single hermetic build. If you need `tsc` compatibility or non-Vite toolchains, see [aspect-build/rules_ts](https://github.com/aspect-build/rules_ts) ([comparison](getting-started/migration.md)).
 
-**TypeScript on Bazel should feel like Go on Bazel.** Write `.ts` files, run Gazelle, get hermetic cached builds with sub-second incremental rebuilds. No `node_modules/` directory. No system Node.js. Just Bazelisk.
+[Oxc](https://oxc.rs/) compiles. [tsgo](https://github.com/nicholasgasior/TypeScript-7) type-checks. [Vite](https://vite.dev/) bundles. [Gazelle](https://github.com/bazelbuild/bazel-gazelle) generates BUILD files. Write `.ts`, run Gazelle, `bazel build //...`. No `node_modules/`. No system Node. Just Bazelisk.
 
 ## Built for the Vite Ecosystem
 
