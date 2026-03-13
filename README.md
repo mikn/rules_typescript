@@ -75,6 +75,24 @@ bazel build //...
 bazel test //...
 ```
 
+### Adding npm dependencies
+
+```bash
+pnpm add zod --lockfile-only   # updates pnpm-lock.yaml, no node_modules created
+bazel run //:gazelle           # picks up new package, updates BUILD files
+bazel build //...              # downloads package hermetically, builds
+```
+
+Add the npm extension to `MODULE.bazel` (one-time setup):
+
+```python
+npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
+npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
+use_repo(npm, "npm")
+```
+
+No `node_modules/` directory ever exists in the source tree. The lockfile is the only npm artifact checked into git. `pnpm` is only needed to manage the lockfile — Bazel downloads all packages hermetically at build time.
+
 ## Feature Highlights
 
 - **[Quick Start](https://mikn.github.io/rules_typescript/getting-started/quickstart/)** — new project or migrating an existing codebase
