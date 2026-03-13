@@ -583,6 +583,6 @@ Check logs in GitHub Actions:
 
 ## Related Documentation
 
-- [README.md](../README.md) - Main documentation
-- [TODO.md](../TODO.md) - Development roadmap
-- [AGENTS.md](../AGENTS.md) - Architecture guide
+- [README.md](../index.md) - Main documentation
+- [TODO.md](https://github.com/mikn/rules_typescript/blob/main/TODO.md) - Development roadmap
+- [AGENTS.md](https://github.com/mikn/rules_typescript/blob/main/AGENTS.md) - Architecture guide

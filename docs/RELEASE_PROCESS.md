@@ -366,4 +366,4 @@ Users can add this to their MODULE.bazel file and use rules_typescript.
 
 ---
 
-For questions or issues, see [CI_CD.md](./CI_CD.md) or the main [README.md](../README.md).
+For questions or issues, see [CI_CD.md](./CI_CD.md) or the main [README.md](../index.md).
