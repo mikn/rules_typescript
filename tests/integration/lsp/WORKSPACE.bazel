@@ -1,0 +1,2 @@
+# Bzlmod (MODULE.bazel) is used exclusively; this file prevents Bazel from
+# walking up to a parent workspace.

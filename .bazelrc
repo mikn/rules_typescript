@@ -29,5 +29,5 @@ build --@rules_rust//rust/toolchain/channel=stable
 #
 # To regenerate this list after adding new workspaces, run:
 #   tools/update_deleted_packages.sh  (or compute manually)
-build --deleted_packages=tests/integration/new_project,tests/integration/npm_deps,tests/integration/existing_project,tests/integration/css_assets,tests/integration/vite_bundle,tests/integration/dev_server,tests/integration/codegen,tests/integration/gazelle_roundtrip
-query --deleted_packages=tests/integration/new_project,tests/integration/npm_deps,tests/integration/existing_project,tests/integration/css_assets,tests/integration/vite_bundle,tests/integration/dev_server,tests/integration/codegen,tests/integration/gazelle_roundtrip
+build --deleted_packages=tests/integration/new_project,tests/integration/npm_deps,tests/integration/existing_project,tests/integration/css_assets,tests/integration/vite_bundle,tests/integration/dev_server,tests/integration/codegen,tests/integration/gazelle_roundtrip,tests/integration/lsp
+query --deleted_packages=tests/integration/new_project,tests/integration/npm_deps,tests/integration/existing_project,tests/integration/css_assets,tests/integration/vite_bundle,tests/integration/dev_server,tests/integration/codegen,tests/integration/gazelle_roundtrip,tests/integration/lsp

@@ -26,6 +26,7 @@ Usage (individual):
   bazel test //tests/integration:dev_server_test --test_output=all
   bazel test //tests/integration:codegen_test --test_output=all
   bazel test //tests/integration:gazelle_roundtrip_test --test_output=all
+  bazel test //tests/integration:lsp_test --test_output=all
 
 Usage (suite):
   bazel test //tests/integration/... --test_output=errors
@@ -222,6 +223,30 @@ bazel_integration_test(
     workspace_path = "gazelle_roundtrip",
 )
 
+# ── lsp ───────────────────────────────────────────────────────────────────────
+# Tests: `bazel run //:refresh_tsconfig` generates a tsconfig.json with:
+#   1. Paths entries for npm packages (e.g. "zod") pointing at .d.ts files.
+#   2. Paths entries for # gazelle:ts_path_alias directives (e.g. "@/*").
+# pnpm-lock.yaml is sourced from tests/npm/ at runtime by test_runner.sh.
+
+sh_binary(
+    name = "lsp_test_runner",
+    testonly = True,
+    srcs = ["lsp/test_runner.sh"],
+)
+
+bazel_integration_test(
+    name = "lsp_test",
+    bazel_binaries = bazel_binaries,
+    bazel_version = bazel_binaries.versions.current,
+    data = ["//:MODULE.bazel"],
+    tags = integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS + ["no-sandbox"],
+    test_runner = ":lsp_test_runner",
+    timeout = "long",
+    workspace_files = integration_test_utils.glob_workspace_files("lsp"),
+    workspace_path = "lsp",
+)
+
 # ── test_suite ────────────────────────────────────────────────────────────────
 
 test_suite(
@@ -236,5 +261,6 @@ test_suite(
         ":dev_server_test",
         ":codegen_test",
         ":gazelle_roundtrip_test",
+        ":lsp_test",
     ],
 )

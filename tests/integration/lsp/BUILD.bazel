@@ -1,0 +1,16 @@
+"""Root BUILD file for the lsp integration test workspace."""
+
+load("@gazelle//:def.bzl", "gazelle")
+load("@rules_typescript//ts:defs.bzl", "ts_add_package", "ts_refresh_tsconfig")
+
+# gazelle:ts_package_boundary every-dir
+# gazelle:ts_path_alias @/ src/
+
+gazelle(
+    name = "gazelle",
+    gazelle = "@rules_typescript//gazelle:gazelle_ts",
+)
+
+ts_add_package(name = "add_package")
+
+ts_refresh_tsconfig(name = "refresh_tsconfig")

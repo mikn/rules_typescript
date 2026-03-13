@@ -221,3 +221,26 @@ def ts_add_package(name = "add_package", pnpm_repo_name = "pnpm"):
         env = {"PNPM_BIN": "$(rootpath @{}//:pnpm_bin)".format(pnpm_repo_name)},
         visibility = ["//visibility:public"],
     )
+
+def ts_refresh_tsconfig(name = "refresh_tsconfig"):
+    """Generates a :refresh_tsconfig run target that regenerates the IDE tsconfig.
+
+    The generated tsconfig.json at the workspace root contains:
+      - paths entries for every ts_compile target's package name
+      - paths entries for npm packages (from @npm) with type declarations
+      - paths entries for # gazelle:ts_path_alias directives
+      - rootDirs including bazel-bin so the IDE can find compiled .d.ts files
+
+    Re-run whenever you add or remove ts_compile targets or npm deps:
+
+    Usage:
+        bazel run //:refresh_tsconfig
+
+    Args:
+        name: Target name (default "refresh_tsconfig").
+    """
+    sh_binary(
+        name = name,
+        srcs = ["@rules_typescript//tools:refresh_tsconfig.sh"],
+        visibility = ["//visibility:public"],
+    )

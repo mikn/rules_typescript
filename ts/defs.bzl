@@ -6,10 +6,10 @@ Users should load rules from this file:
     load("@rules_typescript//ts:defs.bzl", "ts_lint", "TsLintInfo")
     load("@rules_typescript//ts:defs.bzl", "css_library", "css_module", "asset_library")
     load("@rules_typescript//ts:defs.bzl", "json_library")
-    load("@rules_typescript//ts:defs.bzl", "ts_pnpm", "ts_add_package")
+    load("@rules_typescript//ts:defs.bzl", "ts_pnpm", "ts_add_package", "ts_refresh_tsconfig")
 """
 load("//ts/private:asset_library.bzl", _asset_library = "asset_library")
-load("//ts/private:pnpm.bzl", _ts_add_package = "ts_add_package", _ts_pnpm = "ts_pnpm")
+load("//ts/private:pnpm.bzl", _ts_add_package = "ts_add_package", _ts_pnpm = "ts_pnpm", _ts_refresh_tsconfig = "ts_refresh_tsconfig")
 load("//ts/private:css_library.bzl", _css_library = "css_library")
 load("//ts/private:css_module.bzl", _css_module = "css_module")
 load("//ts/private:json_library.bzl", _json_library = "json_library")
@@ -66,6 +66,7 @@ ts_npm_publish = _ts_npm_publish
 # Hermetic pnpm workspace macros.
 ts_pnpm = _ts_pnpm
 ts_add_package = _ts_add_package
+ts_refresh_tsconfig = _ts_refresh_tsconfig
 
 def ts_compile(
         name,
