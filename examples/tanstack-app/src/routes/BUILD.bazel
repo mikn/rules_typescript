@@ -1,6 +1,11 @@
-exports_files(["about.tsx", "index.tsx", "__root.tsx", "users.tsx", ])
-
 load("@rules_typescript//ts:defs.bzl", "ts_codegen", "ts_compile")
+
+exports_files([
+    "about.tsx",
+    "index.tsx",
+    "__root.tsx",
+    "users.tsx",
+])
 
 # TanStack Start: root layout (wraps all routes)
 ts_compile(
@@ -33,13 +38,24 @@ ts_codegen(
     name = "route_tree",
     srcs = glob(["*.tsx"]),
     outs = ["routeTree.gen.ts"],
-    generator = "//:generate_routes",
     args = [
         "--routes-dir",
         "{srcs_dir}",
         "--out",
         "{out}",
     ],
+    generator = "//:generate_routes",
     node_modules = "//:router_generator_node_modules",
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "sources",
+    srcs = [
+        "__root.tsx",
+        "about.tsx",
+        "index.tsx",
+        "users.tsx",
+    ],
     visibility = ["//visibility:public"],
 )

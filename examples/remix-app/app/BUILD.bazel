@@ -1,0 +1,37 @@
+# gazelle:ts_exclude entry.client.tsx
+load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+# entry.client.tsx is excluded from the generated :app target via ts_exclude above.
+# It is compiled separately as a single-file target so that ts_bundle can use it
+# as entry_point (ts_bundle requires exactly 1 .js output from the entry target).
+ts_compile(
+    name = "entry_client",
+    srcs = ["entry.client.tsx"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@npm//:react",
+        "@npm//:react-dom",
+        "@npm//:remix-run_react",
+    ],
+)
+
+ts_compile(
+    name = "app",
+    srcs = [
+        "root.tsx",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@npm//:react",
+        "@npm//:remix-run_react",
+    ],
+)
+
+filegroup(
+    name = "sources",
+    srcs = [
+        "entry.client.tsx",
+        "root.tsx",
+    ],
+    visibility = ["//visibility:public"],
+)

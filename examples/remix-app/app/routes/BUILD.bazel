@@ -1,0 +1,23 @@
+load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "routes",
+    srcs = [
+        "_index.tsx",
+        "about.tsx",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@npm//:react",
+        "@npm//:remix-run_react",
+    ],
+)
+
+filegroup(
+    name = "sources",
+    srcs = [
+        "_index.tsx",
+        "about.tsx",
+    ],
+    visibility = ["//visibility:public"],
+)

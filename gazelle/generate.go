@@ -559,12 +559,23 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		// even those that never had them.
 		if args.File != nil {
 			wantName := testTargetName(targetNameForDir(tc, args.Rel))
+			hadTestTarget := false
 			for _, r := range args.File.Rules {
-				switch {
-				case r.Name() == wantName && r.Kind() == "ts_test":
+				if r.Name() == wantName && r.Kind() == "ts_test" {
+					hadTestTarget = true
 					empty = append(empty, rule.NewRule("ts_test", wantName))
-				case r.Name() == "node_modules" && r.Kind() == "node_modules":
-					empty = append(empty, rule.NewRule("node_modules", "node_modules"))
+				}
+			}
+			// Only remove a node_modules(name="node_modules") rule when a ts_test
+			// target was also being deleted. This prevents Gazelle from deleting
+			// user-managed Vite node_modules targets at the workspace root or in
+			// packages that never had ts_test.
+			if hadTestTarget {
+				for _, r := range args.File.Rules {
+					if r.Name() == "node_modules" && r.Kind() == "node_modules" {
+						empty = append(empty, rule.NewRule("node_modules", "node_modules"))
+						break
+					}
 				}
 			}
 		}
@@ -622,6 +633,31 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		for _, existingRule := range args.File.Rules {
 			if existingRule.Kind() == "ts_codegen" && !generatedNames[existingRule.Name()] {
 				empty = append(empty, rule.NewRule("ts_codegen", existingRule.Name()))
+			}
+		}
+	}
+
+	// ---- framework bundle targets (root package only) ---------------------
+	// When we are at the workspace root and a Vite-based framework is detected,
+	// generate node_modules, vite_bundler, and ts_bundle targets. These are
+	// only emitted once at the root; sub-packages handle their own ts_compile
+	// targets via the normal path above.
+	if args.Rel == "" && tc.detectedFramework != FrameworkNone && tc.detectedFramework != FrameworkNextJS {
+		bundleRules, bundleImports := generateFrameworkBundle(args, tc)
+		gen = append(gen, bundleRules...)
+		imports = append(imports, bundleImports...)
+	}
+
+	// ---- filegroup "sources" for framework staging_srcs --------------------
+	// When a framework is detected and this directory is one of the stage dirs,
+	// generate a "sources" filegroup that exports all non-test .ts/.tsx files.
+	// The root ts_bundle staging_srcs references these filegroups via labels
+	// like //src/routes:sources. Only emit when there are actual source files.
+	if args.Rel != "" && tc.detectedFramework != FrameworkNone && isStagedDir(args.Rel, tc) && len(srcFiles) > 0 {
+		if !ruleExists(args, "filegroup", "sources") {
+			if fg := generateSourcesFilegroup(srcFiles); fg != nil {
+				gen = append(gen, fg)
+				imports = append(imports, nil)
 			}
 		}
 	}

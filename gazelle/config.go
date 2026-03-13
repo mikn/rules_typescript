@@ -28,6 +28,18 @@ const (
 	// FrameworkNextJS is set when "next" is listed in package.json
 	// dependencies. Reserved for future use.
 	FrameworkNextJS
+
+	// FrameworkRemix is set when @remix-run/dev or @remix-run/react is listed
+	// in package.json dependencies.
+	FrameworkRemix
+
+	// FrameworkSvelteKit is set when @sveltejs/kit is listed in package.json
+	// dependencies.
+	FrameworkSvelteKit
+
+	// FrameworkSolidStart is set when @solidjs/start or solid-start is listed
+	// in package.json dependencies.
+	FrameworkSolidStart
 )
 
 // ---- directive keys --------------------------------------------------------
@@ -279,7 +291,10 @@ type packageJSON struct {
 //
 // Detection rules (checked in order of priority):
 //   - @tanstack/start or @tanstack/react-router → FrameworkTanStack
-//   - next → FrameworkNextJS
+//   - @remix-run/dev or @remix-run/react        → FrameworkRemix
+//   - @sveltejs/kit                             → FrameworkSvelteKit
+//   - @solidjs/start or solid-start             → FrameworkSolidStart
+//   - next                                      → FrameworkNextJS
 func detectFramework(repoRoot string) Framework {
 	data, err := os.ReadFile(filepath.Join(repoRoot, "package.json"))
 	if err != nil {
@@ -307,6 +322,24 @@ func detectFramework(repoRoot string) Framework {
 	}
 	if _, ok := allDeps["@tanstack/react-router"]; ok {
 		return FrameworkTanStack
+	}
+	// Remix detection.
+	if _, ok := allDeps["@remix-run/dev"]; ok {
+		return FrameworkRemix
+	}
+	if _, ok := allDeps["@remix-run/react"]; ok {
+		return FrameworkRemix
+	}
+	// SvelteKit detection.
+	if _, ok := allDeps["@sveltejs/kit"]; ok {
+		return FrameworkSvelteKit
+	}
+	// SolidStart detection.
+	if _, ok := allDeps["@solidjs/start"]; ok {
+		return FrameworkSolidStart
+	}
+	if _, ok := allDeps["solid-start"]; ok {
+		return FrameworkSolidStart
 	}
 	if _, ok := allDeps["next"]; ok {
 		return FrameworkNextJS

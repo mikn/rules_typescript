@@ -54,7 +54,7 @@ What :spa always works:
 load("@gazelle//:def.bzl", "gazelle")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("@rules_typescript//npm:defs.bzl", "node_modules")
-load("@rules_typescript//ts:defs.bzl", "ts_binary", "ts_bundle", "ts_codegen")
+load("@rules_typescript//ts:defs.bzl", "ts_binary", "ts_bundle")
 load("@rules_typescript//vite:bundler.bzl", "vite_bundler")
 
 # Run "bazel run //:gazelle" to auto-generate BUILD files.
@@ -71,34 +71,6 @@ ts_binary(
     sourcemap = True,
 )
 
-# ── Vite SPA bundle ─────────────────────────────────────────────────────────
-# node_modules tree with vite and its transitive deps (already present as a
-# transitive dep of vitest in the pnpm lockfile).
-# IMPORTANT: name must be "node_modules" so the Vite wrapper script does not
-# need to create a symlink (which would fail in the Bazel sandbox because the
-# parent directory is read-only). The vite_bundler rule only skips the symlink
-# when actual_nm_basename == "node_modules".
-node_modules(
-    name = "node_modules",
-    deps = [
-        # Bundler.
-        "@npm//:vite",
-        # Runtime deps that Vite/Rollup must be able to resolve during bundling.
-        # These are npm packages imported by the compiled .js files. They cannot
-        # be found via the resolve.alias map (which only covers Bazel ts_compile
-        # outputs); they must exist in a real node_modules tree on disk.
-        "@npm//:react",
-        "@npm//:react-dom",
-        "@npm//:tanstack_react-router",
-        # @tanstack/react-start and its transitive dependencies used by the
-        # tanstackStart() Vite plugin at bundle time. Required for :spa_tanstack.
-        "@npm//:tanstack_react-start",
-        "@npm//:zod",
-        # Server-side deps required by tanstackStart() SSR build
-        "@npm//:h3",
-    ],
-)
-
 # ── TanStack Router route tree code generation ───────────────────────────────
 #
 # node_modules tree for the router generator.  The generator imports from
@@ -107,10 +79,10 @@ node_modules(
 # runtime node_modules used by the Vite bundler.
 node_modules(
     name = "router_generator_node_modules",
+    visibility = ["//visibility:public"],
     deps = [
         "@npm//:tanstack_router-generator",
     ],
-    visibility = ["//visibility:public"],
 )
 
 # Shell binary wrapping the TanStack Router generator.
@@ -126,8 +98,8 @@ sh_binary(
 # Vite bundler instance wired to the node_modules tree.
 vite_bundler(
     name = "vite",
-    vite = "@npm//:vite",
     node_modules = ":node_modules",
+    vite = "@npm//:vite",
 )
 
 # SPA bundle: app mode — produces a deployable directory with index.html +
@@ -136,11 +108,11 @@ vite_bundler(
 # This always works and is the recommended production target.
 ts_bundle(
     name = "spa",
-    mode = "app",
-    html = "index.html",
-    entry_point = "//src/app:main",
     bundler = ":vite",
+    entry_point = "//src/app:main",
+    html = "index.html",
     minify = False,
+    mode = "app",
     sourcemap = False,
 )
 
@@ -157,11 +129,12 @@ ts_bundle(
 # Run explicitly: bazel build //:spa_tanstack
 ts_bundle(
     name = "spa_tanstack",
-    mode = "app",
-    html = "index.html",
-    entry_point = "//src/app:main",
     bundler = ":vite",
-    vite_config = "tanstack-vite.config.mjs",
+    entry_point = "//src/app:main",
+    html = "index.html",
+    minify = False,
+    mode = "app",
+    sourcemap = False,
     staging_srcs = [
         "index.html",
         # Route files — the framework plugin scans these for route discovery
@@ -181,7 +154,43 @@ ts_bundle(
         "//src/components:UserCard.tsx",
         "//src/components:index.ts",
     ],
-    minify = False,
-    sourcemap = False,
     tags = ["manual"],
+    vite_config = "tanstack-vite.config.mjs",
+)
+
+# Framework node_modules for TanStack Start
+node_modules(
+    name = "app_node_modules",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@npm//:h3",
+        "@npm//:react",
+        "@npm//:react-dom",
+        "@npm//:tanstack_react-router",
+        "@npm//:tanstack_react-start",
+        "@npm//:vite",
+        "@npm//:zod",
+    ],
+)
+
+vite_bundler(
+    name = "app_vite",
+    node_modules = ":app_node_modules",
+    vite = "@npm//:vite",
+)
+
+ts_bundle(
+    name = "app",
+    bundler = ":app_vite",
+    entry_point = "//src/app:main",
+    html = "index.html",
+    mode = "app",
+    staging_srcs = [
+        "index.html",
+        "//src/routes:sources",
+        "//src/app:sources",
+        "//src/lib:sources",
+        "//src/components:sources",
+    ],
+    vite_config = "tanstack-vite.config.mjs",
 )

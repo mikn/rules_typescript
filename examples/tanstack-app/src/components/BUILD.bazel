@@ -1,6 +1,11 @@
-exports_files(["index.ts", "Layout.tsx", "UserCard.test.tsx", "UserCard.tsx", ])
-
 load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_test")
+
+exports_files([
+    "index.ts",
+    "Layout.tsx",
+    "UserCard.test.tsx",
+    "UserCard.tsx",
+])
 
 ts_compile(
     name = "components",
@@ -25,4 +30,14 @@ ts_test(
         "@npm//:tanstack_react-router",
         "@npm//:vitest",
     ],
+)
+
+filegroup(
+    name = "sources",
+    srcs = [
+        "Layout.tsx",
+        "UserCard.tsx",
+        "index.ts",
+    ],
+    visibility = ["//visibility:public"],
 )

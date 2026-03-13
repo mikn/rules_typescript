@@ -1,6 +1,12 @@
-exports_files(["index.ts", "params.test.ts", "params.ts", "router.test.ts", "router.ts", ])
-
 load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_test")
+
+exports_files([
+    "index.ts",
+    "params.test.ts",
+    "params.ts",
+    "router.test.ts",
+    "router.ts",
+])
 
 ts_compile(
     name = "lib",
@@ -28,4 +34,14 @@ ts_test(
         "@npm//:vitest",
         "@npm//:zod",
     ],
+)
+
+filegroup(
+    name = "sources",
+    srcs = [
+        "index.ts",
+        "params.ts",
+        "router.ts",
+    ],
+    visibility = ["//visibility:public"],
 )

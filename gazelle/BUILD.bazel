@@ -8,6 +8,7 @@ go_library(
     srcs = [
         "codegen.go",
         "config.go",
+        "framework_bundle.go",
         "generate.go",
         "imports.go",
         "language.go",
