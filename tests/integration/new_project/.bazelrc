@@ -1,0 +1,11 @@
+# Integration test workspace for new_project.
+# No @rules_rust flags — those are internal to rules_typescript.
+
+build --incompatible_strict_action_env
+build --nolegacy_external_runfiles
+
+# Always type-check on build
+build --output_groups=+_validation
+
+test --test_output=errors
+test --test_summary=terse

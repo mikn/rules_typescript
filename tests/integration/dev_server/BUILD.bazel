@@ -1,0 +1,21 @@
+"""Root BUILD file for the dev_server integration test workspace.
+
+Demonstrates a minimal ts_dev_server setup:
+  - ts_compile for the app entry point
+  - ts_dev_server wiring it together
+  - No node_modules (no npm deps needed to build; only to serve)
+"""
+
+load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_dev_server")
+
+ts_compile(
+    name = "app",
+    srcs = ["src/app/index.ts"],
+    visibility = ["//visibility:public"],
+)
+
+ts_dev_server(
+    name = "dev",
+    entry_point = ":app",
+    port = 5173,
+)

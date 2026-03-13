@@ -19,3 +19,15 @@ build --experimental_convenience_symlinks=normal
 
 # Rust toolchain
 build --@rules_rust//rust/toolchain/channel=stable
+
+# ── Integration test child workspaces ────────────────────────────────────────
+# Each subdirectory under tests/integration/ is a separate Bazel workspace
+# (it has its own MODULE.bazel). They must be excluded from the parent
+# workspace's package discovery via --deleted_packages, which (unlike
+# .bazelignore) still allows glob() in tests/integration/BUILD.bazel to see
+# the workspace files for inclusion in bazel_integration_test targets.
+#
+# To regenerate this list after adding new workspaces, run:
+#   tools/update_deleted_packages.sh  (or compute manually)
+build --deleted_packages=tests/integration/new_project,tests/integration/npm_deps,tests/integration/existing_project,tests/integration/css_assets,tests/integration/vite_bundle,tests/integration/dev_server,tests/integration/codegen,tests/integration/gazelle_roundtrip
+query --deleted_packages=tests/integration/new_project,tests/integration/npm_deps,tests/integration/existing_project,tests/integration/css_assets,tests/integration/vite_bundle,tests/integration/dev_server,tests/integration/codegen,tests/integration/gazelle_roundtrip

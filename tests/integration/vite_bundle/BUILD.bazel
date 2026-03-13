@@ -1,0 +1,46 @@
+"""Root BUILD file for the vite_bundle integration test workspace.
+
+Hand-written (not Gazelle) to demonstrate the full Vite bundle setup:
+  - Gazelle used only for src/ subdirectories
+  - node_modules() rule for the Vite deps tree
+  - vite_bundler() wiring Vite into the BundlerInfo interface
+  - ts_bundle() producing a production ESM bundle
+"""
+
+load("@gazelle//:def.bzl", "gazelle")
+load("@rules_typescript//npm:defs.bzl", "node_modules")
+load("@rules_typescript//ts:defs.bzl", "ts_bundle")
+load("@rules_typescript//vite:bundler.bzl", "vite_bundler")
+
+# gazelle:ts_package_boundary every-dir
+
+gazelle(
+    name = "gazelle",
+    gazelle = "@rules_typescript//gazelle:gazelle_ts",
+)
+
+# ── node_modules tree for Vite ────────────────────────────────────────────────
+# Name this target "node_modules" so Node.js ESM module resolution works without
+# a symlink. When the tree artifact is named "node_modules", the vite_bundler
+# wrapper script can cd directly to its parent and Vite finds all packages
+# without any additional symlink setup.
+node_modules(
+    name = "node_modules",
+    deps = ["@npm//:vite"],
+)
+
+# ── Vite bundler instance ─────────────────────────────────────────────────────
+vite_bundler(
+    name = "vite",
+    node_modules = ":node_modules",
+    vite = "@npm//:vite",
+)
+
+# ── Production ESM bundle ─────────────────────────────────────────────────────
+ts_bundle(
+    name = "bundle",
+    entry_point = "//src/app",
+    bundler = ":vite",
+    format = "esm",
+    sourcemap = True,
+)

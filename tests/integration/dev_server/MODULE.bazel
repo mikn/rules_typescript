@@ -1,0 +1,25 @@
+"""Integration test: ts_dev_server builds correctly.
+
+The {RULES_TS_ROOT} placeholder is substituted at test runtime by test_runner.sh
+with the absolute path to the rules_typescript checkout.
+
+This test verifies that ts_dev_server:
+  - Builds without error (generates runner script and vite.config.mjs)
+  - Produces a runnable executable (the runner shell script)
+  - Requires no npm deps since we are only testing the build, not serving
+"""
+
+module(
+    name = "test_dev_server",
+    version = "0.0.0",
+    compatibility_level = 0,
+)
+
+bazel_dep(name = "rules_typescript", version = "0.0.0")
+
+local_path_override(
+    module_name = "rules_typescript",
+    path = "{RULES_TS_ROOT}",
+)
+
+register_toolchains("@rules_typescript//ts/toolchain:all")

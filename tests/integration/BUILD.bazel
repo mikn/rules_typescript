@@ -1,0 +1,240 @@
+"""Bazel integration tests for rules_typescript.
+
+These tests use rules_bazel_integration_test to run child Bazel workspaces
+that simulate real user scenarios end-to-end:
+  - create a project from scratch
+  - run Gazelle to generate BUILD files
+  - build with ts_compile / tsgo type-checking
+  - run ts_test / vitest (npm test only)
+
+Each test workspace lives in a subdirectory of this package and contains:
+  - MODULE.bazel (with {RULES_TS_ROOT} placeholder substituted at runtime)
+  - BUILD.bazel, .bazelrc, .bazelversion, WORKSPACE.bazel
+  - TypeScript source files
+  - test_runner.sh (the commands to run inside the child workspace)
+
+The test_runner.sh scripts derive the rules_typescript source root by walking
+from BIT_WORKSPACE_DIR up to the runfiles _main/ directory and resolving the
+MODULE.bazel symlink to the real source checkout.
+
+Usage (individual):
+  bazel test //tests/integration:new_project_test --test_output=all
+  bazel test //tests/integration:npm_deps_test --test_output=all
+  bazel test //tests/integration:existing_project_test --test_output=all
+  bazel test //tests/integration:css_assets_test --test_output=all
+  bazel test //tests/integration:vite_bundle_test --test_output=all
+  bazel test //tests/integration:dev_server_test --test_output=all
+  bazel test //tests/integration:codegen_test --test_output=all
+  bazel test //tests/integration:gazelle_roundtrip_test --test_output=all
+
+Usage (suite):
+  bazel test //tests/integration/... --test_output=errors
+"""
+
+load("@bazel_binaries//:defs.bzl", "bazel_binaries")
+load(
+    "@rules_bazel_integration_test//bazel_integration_test:defs.bzl",
+    "bazel_integration_test",
+    "integration_test_utils",
+)
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+
+# ── new_project ───────────────────────────────────────────────────────────────
+# Full new-project journey: write sources → gazelle → build.
+# TypeScript files have explicit return types (isolatedDeclarations = true).
+# No npm deps.
+
+sh_binary(
+    name = "new_project_test_runner",
+    testonly = True,
+    srcs = ["new_project/test_runner.sh"],
+)
+
+bazel_integration_test(
+    name = "new_project_test",
+    bazel_binaries = bazel_binaries,
+    bazel_version = bazel_binaries.versions.current,
+    # MODULE.bazel is added to data so it appears in the runfiles tree as
+    # _main/MODULE.bazel — a symlink to the real source file. The test_runner.sh
+    # resolves this symlink via readlink -f to find the actual checkout root.
+    data = ["//:MODULE.bazel"],
+    tags = integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS + ["no-sandbox"],
+    test_runner = ":new_project_test_runner",
+    timeout = "long",
+    workspace_files = integration_test_utils.glob_workspace_files("new_project"),
+    workspace_path = "new_project",
+)
+
+# ── npm_deps ──────────────────────────────────────────────────────────────────
+# npm dependency resolution: zod imported and type-checked, vitest used.
+# pnpm-lock.yaml is sourced from tests/npm/ at runtime by test_runner.sh
+# (not included in workspace_files — the lockfile is not part of the
+# static child workspace because it needs to come from the parent checkout).
+
+sh_binary(
+    name = "npm_deps_test_runner",
+    testonly = True,
+    srcs = ["npm_deps/test_runner.sh"],
+)
+
+bazel_integration_test(
+    name = "npm_deps_test",
+    bazel_binaries = bazel_binaries,
+    bazel_version = bazel_binaries.versions.current,
+    data = ["//:MODULE.bazel"],
+    tags = integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS + ["no-sandbox"],
+    test_runner = ":npm_deps_test_runner",
+    timeout = "long",
+    workspace_files = integration_test_utils.glob_workspace_files("npm_deps"),
+    workspace_path = "npm_deps",
+)
+
+# ── existing_project ──────────────────────────────────────────────────────────
+# Tests that # gazelle:ts_isolated_declarations false directive allows
+# functions without explicit return types to build.
+
+sh_binary(
+    name = "existing_project_test_runner",
+    testonly = True,
+    srcs = ["existing_project/test_runner.sh"],
+)
+
+bazel_integration_test(
+    name = "existing_project_test",
+    bazel_binaries = bazel_binaries,
+    bazel_version = bazel_binaries.versions.current,
+    data = ["//:MODULE.bazel"],
+    tags = integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS + ["no-sandbox"],
+    test_runner = ":existing_project_test_runner",
+    timeout = "long",
+    workspace_files = integration_test_utils.glob_workspace_files("existing_project"),
+    workspace_path = "existing_project",
+)
+
+# ── css_assets ────────────────────────────────────────────────────────────────
+# Tests: CSS modules, SVG assets, and JSON imports all work via Gazelle.
+# Gazelle generates css_module, asset_library, and json_library targets.
+
+sh_binary(
+    name = "css_assets_test_runner",
+    testonly = True,
+    srcs = ["css_assets/test_runner.sh"],
+)
+
+bazel_integration_test(
+    name = "css_assets_test",
+    bazel_binaries = bazel_binaries,
+    bazel_version = bazel_binaries.versions.current,
+    data = ["//:MODULE.bazel"],
+    tags = integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS + ["no-sandbox"],
+    test_runner = ":css_assets_test_runner",
+    timeout = "long",
+    workspace_files = integration_test_utils.glob_workspace_files("css_assets"),
+    workspace_path = "css_assets",
+)
+
+# ── vite_bundle ───────────────────────────────────────────────────────────────
+# Tests: Vite production bundle from scratch.
+# pnpm-lock.yaml is sourced from tests/npm/ at runtime by test_runner.sh.
+
+sh_binary(
+    name = "vite_bundle_test_runner",
+    testonly = True,
+    srcs = ["vite_bundle/test_runner.sh"],
+)
+
+bazel_integration_test(
+    name = "vite_bundle_test",
+    bazel_binaries = bazel_binaries,
+    bazel_version = bazel_binaries.versions.current,
+    data = ["//:MODULE.bazel"],
+    tags = integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS + ["no-sandbox"],
+    test_runner = ":vite_bundle_test_runner",
+    timeout = "long",
+    workspace_files = integration_test_utils.glob_workspace_files("vite_bundle"),
+    workspace_path = "vite_bundle",
+)
+
+# ── dev_server ────────────────────────────────────────────────────────────────
+# Tests: ts_dev_server builds correctly (runner script + vite.config.mjs exist).
+# Does not run the actual dev server (no network access needed).
+
+sh_binary(
+    name = "dev_server_test_runner",
+    testonly = True,
+    srcs = ["dev_server/test_runner.sh"],
+)
+
+bazel_integration_test(
+    name = "dev_server_test",
+    bazel_binaries = bazel_binaries,
+    bazel_version = bazel_binaries.versions.current,
+    data = ["//:MODULE.bazel"],
+    tags = integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS + ["no-sandbox"],
+    test_runner = ":dev_server_test_runner",
+    timeout = "long",
+    workspace_files = integration_test_utils.glob_workspace_files("dev_server"),
+    workspace_path = "dev_server",
+)
+
+# ── codegen ───────────────────────────────────────────────────────────────────
+# Tests: ts_codegen → ts_compile pipeline.
+# A shell script generator reads schema.txt and produces generated TypeScript,
+# which is then compiled by ts_compile.
+
+sh_binary(
+    name = "codegen_test_runner",
+    testonly = True,
+    srcs = ["codegen/test_runner.sh"],
+)
+
+bazel_integration_test(
+    name = "codegen_test",
+    bazel_binaries = bazel_binaries,
+    bazel_version = bazel_binaries.versions.current,
+    data = ["//:MODULE.bazel"],
+    tags = integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS + ["no-sandbox"],
+    test_runner = ":codegen_test_runner",
+    timeout = "long",
+    workspace_files = integration_test_utils.glob_workspace_files("codegen"),
+    workspace_path = "codegen",
+)
+
+# ── gazelle_roundtrip ─────────────────────────────────────────────────────────
+# Tests: delete BUILD files → Gazelle regenerates → diff → build + test passes.
+# Verifies Gazelle output is idempotent and the regenerated BUILD files work.
+
+sh_binary(
+    name = "gazelle_roundtrip_test_runner",
+    testonly = True,
+    srcs = ["gazelle_roundtrip/test_runner.sh"],
+)
+
+bazel_integration_test(
+    name = "gazelle_roundtrip_test",
+    bazel_binaries = bazel_binaries,
+    bazel_version = bazel_binaries.versions.current,
+    data = ["//:MODULE.bazel"],
+    tags = integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS + ["no-sandbox"],
+    test_runner = ":gazelle_roundtrip_test_runner",
+    timeout = "long",
+    workspace_files = integration_test_utils.glob_workspace_files("gazelle_roundtrip"),
+    workspace_path = "gazelle_roundtrip",
+)
+
+# ── test_suite ────────────────────────────────────────────────────────────────
+
+test_suite(
+    name = "integration_tests",
+    tags = integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS,
+    tests = [
+        ":new_project_test",
+        ":npm_deps_test",
+        ":existing_project_test",
+        ":css_assets_test",
+        ":vite_bundle_test",
+        ":dev_server_test",
+        ":codegen_test",
+        ":gazelle_roundtrip_test",
+    ],
+)

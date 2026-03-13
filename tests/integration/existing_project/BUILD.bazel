@@ -1,0 +1,17 @@
+"""Root BUILD file for the existing_project integration test workspace.
+
+# gazelle:ts_isolated_declarations false
+# This directive tells the Gazelle TypeScript plugin to emit
+# isolated_declarations = False on all generated ts_compile targets,
+# which allows functions without explicit return types to compile.
+"""
+
+load("@gazelle//:def.bzl", "gazelle")
+
+# gazelle:ts_package_boundary every-dir
+# gazelle:ts_isolated_declarations false
+
+gazelle(
+    name = "gazelle",
+    gazelle = "@rules_typescript//gazelle:gazelle_ts",
+)

@@ -1,0 +1,27 @@
+"""Integration test: Vite production bundle from scratch.
+
+The {RULES_TS_ROOT} placeholder is substituted at test runtime by test_runner.sh
+with the absolute path to the rules_typescript checkout.
+
+pnpm-lock.yaml is sourced from tests/npm/ at runtime by test_runner.sh.
+"""
+
+module(
+    name = "test_vite_bundle",
+    version = "0.0.0",
+    compatibility_level = 0,
+)
+
+bazel_dep(name = "rules_typescript", version = "0.0.0")
+bazel_dep(name = "gazelle", version = "0.47.0")
+
+local_path_override(
+    module_name = "rules_typescript",
+    path = "{RULES_TS_ROOT}",
+)
+
+register_toolchains("@rules_typescript//ts/toolchain:all")
+
+npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
+npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
+use_repo(npm, "npm", "pnpm")

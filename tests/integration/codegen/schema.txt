@@ -1,0 +1,6 @@
+# Simple schema used by the code generator.
+# Each line defines a field: <name>:<type>
+id:number
+name:string
+email:string
+active:boolean
