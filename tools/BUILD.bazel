@@ -1,0 +1,10 @@
+# Tools shipped with rules_typescript.
+# Shell scripts referenced by macros in ts/private/pnpm.bzl.
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "add_package_wrapper.sh",
+    "pnpm_wrapper.sh",
+    "refresh_tsconfig.sh",
+])

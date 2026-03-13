@@ -637,6 +637,19 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		}
 	}
 
+	// ---- hermetic pnpm targets (root package only) -------------------------
+	// Generate :pnpm and :add_package macro invocations at the workspace root.
+	// These targets let consumers run `bazel run //:pnpm -- add <pkg>` without
+	// requiring a system-level pnpm installation.
+	//
+	// We only generate these when a pnpm-lock.yaml exists in the workspace root
+	// (strong signal that this is a pnpm project).
+	if args.Rel == "" {
+		pnpmRules, pnpmImports := generatePnpmTargets(args)
+		gen = append(gen, pnpmRules...)
+		imports = append(imports, pnpmImports...)
+	}
+
 	// ---- framework bundle targets (root package only) ---------------------
 	// When we are at the workspace root and a Vite-based framework is detected,
 	// generate node_modules, vite_bundler, and ts_bundle targets. These are
@@ -693,6 +706,41 @@ func emptyResult(args language.GenerateArgs) language.GenerateResult {
 			rule.NewRule("node_modules", "node_modules"),
 		},
 	}
+}
+
+// generatePnpmTargets generates :pnpm and :add_package macro invocations at
+// the workspace root when a pnpm-lock.yaml file is detected.
+//
+// Both targets are generated unconditionally once a lockfile is found: they
+// are low-cost no-ops if the user never runs them, and essential for the
+// "hermetic pnpm" workflow when they do.
+//
+// Idempotent: if the rules already exist in the BUILD file they are left as-is
+// (Gazelle merges existing rules rather than overwriting them).
+func generatePnpmTargets(args language.GenerateArgs) ([]*rule.Rule, []any) {
+	// Only generate when pnpm-lock.yaml exists at the workspace root.
+	lockfilePath := filepath.Join(args.Dir, "pnpm-lock.yaml")
+	if _, err := os.Stat(lockfilePath); err != nil {
+		// No lockfile: do not generate pnpm targets.
+		return nil, nil
+	}
+
+	var gen []*rule.Rule
+	var imports []any
+
+	if !ruleExists(args, "ts_pnpm", "pnpm") {
+		r := rule.NewRule("ts_pnpm", "pnpm")
+		gen = append(gen, r)
+		imports = append(imports, nil)
+	}
+
+	if !ruleExists(args, "ts_add_package", "add_package") {
+		r := rule.NewRule("ts_add_package", "add_package")
+		gen = append(gen, r)
+		imports = append(imports, nil)
+	}
+
+	return gen, imports
 }
 
 // ---- helper functions ------------------------------------------------------

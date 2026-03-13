@@ -1,6 +1,7 @@
 # Root BUILD file for rules_typescript
 
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("//ts:defs.bzl", "ts_add_package", "ts_pnpm")
 
 exports_files([
     "MODULE.bazel",
@@ -20,6 +21,19 @@ exports_files([
 # Re-run this whenever you add or remove ts_compile targets.
 sh_binary(
     name = "refresh_tsconfig",
-    srcs = ["tools/refresh_tsconfig.sh"],
+    srcs = ["//tools:refresh_tsconfig.sh"],
     visibility = ["//visibility:public"],
 )
+
+# ── Hermetic pnpm ─────────────────────────────────────────────────────────────
+# Run pnpm commands without needing a system-level pnpm installation.
+#
+#   bazel run //:pnpm -- --version
+#   bazel run //:pnpm -- add zod --lockfile-only
+#   bazel run //:add_package -- zod
+#
+# :add_package automatically appends --lockfile-only so pnpm-lock.yaml is
+# updated without creating a node_modules directory.
+ts_pnpm(name = "pnpm")
+
+ts_add_package(name = "add_package")

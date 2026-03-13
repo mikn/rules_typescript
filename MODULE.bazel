@@ -100,5 +100,6 @@ register_toolchains("//ts/toolchain:all")
 # ─── npm dependencies ────────────────────────────────────────────────────────
 
 npm = use_extension("//npm:extensions.bzl", "npm")
+npm.pnpm(version = "10.32.1")
 npm.translate_lock(pnpm_lock = "//tests/npm:pnpm-lock.yaml")
-use_repo(npm, "npm")
+use_repo(npm, "npm", "pnpm")

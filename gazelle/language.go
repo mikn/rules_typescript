@@ -79,7 +79,7 @@ func (l *tsLang) Loads() []rule.LoadInfo {
 	return []rule.LoadInfo{
 		{
 			Name:    "@rules_typescript//ts:defs.bzl",
-			Symbols: []string{"asset_library", "css_library", "css_module", "json_library", "ts_bundle", "ts_codegen", "ts_compile", "ts_dev_server", "ts_lint", "ts_test"},
+			Symbols: []string{"asset_library", "css_library", "css_module", "json_library", "ts_add_package", "ts_bundle", "ts_codegen", "ts_compile", "ts_dev_server", "ts_lint", "ts_pnpm", "ts_test"},
 		},
 		{
 			Name:    "@rules_typescript//npm:defs.bzl",
@@ -102,7 +102,7 @@ func (l *tsLang) ApparentLoads(moduleToApparentName func(string) string) []rule.
 	return []rule.LoadInfo{
 		{
 			Name:    "@" + rulesTs + "//ts:defs.bzl",
-			Symbols: []string{"asset_library", "css_library", "css_module", "json_library", "ts_bundle", "ts_codegen", "ts_compile", "ts_dev_server", "ts_lint", "ts_test"},
+			Symbols: []string{"asset_library", "css_library", "css_module", "json_library", "ts_add_package", "ts_bundle", "ts_codegen", "ts_compile", "ts_dev_server", "ts_lint", "ts_pnpm", "ts_test"},
 		},
 		{
 			Name:    "@" + rulesTs + "//npm:defs.bzl",
@@ -313,6 +313,23 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 				"srcs":       true,
 				"visibility": true,
 			},
+		},
+		// ts_pnpm and ts_add_package are macros generated at the workspace root
+		// when a pnpm-lock.yaml is detected. They wrap the hermetic pnpm binary.
+		// No attrs are managed by Gazelle beyond the name (the macros expand to
+		// sh_binary with sensible defaults). They are kept in Kinds so that
+		// Gazelle can recognise and merge them correctly.
+		"ts_pnpm": {
+			MatchAny:       false,
+			MatchAttrs:     []string{"name"},
+			NonEmptyAttrs:  map[string]bool{},
+			MergeableAttrs: map[string]bool{},
+		},
+		"ts_add_package": {
+			MatchAny:       false,
+			MatchAttrs:     []string{"name"},
+			NonEmptyAttrs:  map[string]bool{},
+			MergeableAttrs: map[string]bool{},
 		},
 	}
 }
