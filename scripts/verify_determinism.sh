@@ -29,10 +29,12 @@ OUTPUT_BASE_2="$TMPDIR/bazel_det_2_$$"
 # Cleanup function
 cleanup() {
   if [[ -d "$OUTPUT_BASE_1" ]]; then
-    rm -rf "$OUTPUT_BASE_1"
+    chmod -R u+w "$OUTPUT_BASE_1" 2>/dev/null || true
+    rm -rf "$OUTPUT_BASE_1" || true
   fi
   if [[ -d "$OUTPUT_BASE_2" ]]; then
-    rm -rf "$OUTPUT_BASE_2"
+    chmod -R u+w "$OUTPUT_BASE_2" 2>/dev/null || true
+    rm -rf "$OUTPUT_BASE_2" || true
   fi
 }
 

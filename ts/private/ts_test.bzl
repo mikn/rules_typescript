@@ -480,12 +480,12 @@ def _ts_test_runner_impl(ctx):
             "_run_vitest() {\n" +
             "  if [[ -n \"$VITEST\" && -f \"$VITEST\" ]]; then\n" +
             (
-                "    \"$VITEST\" \"$VITEST_CMD\" \"${VITEST_EXTRA_FLAGS[@]}\" \"${SHARD_FILES[@]}\"\n"
+                "    \"$VITEST\" \"$VITEST_CMD\" ${VITEST_EXTRA_FLAGS[@]+\"${VITEST_EXTRA_FLAGS[@]}\"} ${SHARD_FILES[@]+\"${SHARD_FILES[@]}\"}\n"
                 if vitest_is_npm_bin else
-                "    \"$RUNTIME\" \"${RUNTIME_ARGS[@]}\" \"$VITEST\" \"$VITEST_CMD\" \"${VITEST_EXTRA_FLAGS[@]}\" \"${SHARD_FILES[@]}\"\n"
+                "    \"$RUNTIME\" ${RUNTIME_ARGS[@]+\"${RUNTIME_ARGS[@]}\"} \"$VITEST\" \"$VITEST_CMD\" ${VITEST_EXTRA_FLAGS[@]+\"${VITEST_EXTRA_FLAGS[@]}\"} ${SHARD_FILES[@]+\"${SHARD_FILES[@]}\"}\n"
             ) +
             "  elif command -v vitest &>/dev/null; then\n" +
-            "    vitest \"$VITEST_CMD\" \"${VITEST_EXTRA_FLAGS[@]}\" \"${SHARD_FILES[@]}\"\n" +
+            "    vitest \"$VITEST_CMD\" ${VITEST_EXTRA_FLAGS[@]+\"${VITEST_EXTRA_FLAGS[@]}\"} ${SHARD_FILES[@]+\"${SHARD_FILES[@]}\"}\n" +
             "  else\n" +
             "    echo \"ts_test: vitest not found. Set vitest attr or include it in node_modules.\" >&2\n" +
             "    return 1\n" +
@@ -513,12 +513,12 @@ def _ts_test_runner_impl(ctx):
             if ctx.attr.coverage else
             "if [[ -n \"$VITEST\" && -f \"$VITEST\" ]]; then\n" +
             (
-                "  exec \"$VITEST\" \"$VITEST_CMD\" \"${VITEST_EXTRA_FLAGS[@]}\" \"${SHARD_FILES[@]}\"\n"
+                "  exec \"$VITEST\" \"$VITEST_CMD\" ${VITEST_EXTRA_FLAGS[@]+\"${VITEST_EXTRA_FLAGS[@]}\"} ${SHARD_FILES[@]+\"${SHARD_FILES[@]}\"}\n"
                 if vitest_is_npm_bin else
-                "  exec \"$RUNTIME\" \"${RUNTIME_ARGS[@]}\" \"$VITEST\" \"$VITEST_CMD\" \"${VITEST_EXTRA_FLAGS[@]}\" \"${SHARD_FILES[@]}\"\n"
+                "  exec \"$RUNTIME\" ${RUNTIME_ARGS[@]+\"${RUNTIME_ARGS[@]}\"} \"$VITEST\" \"$VITEST_CMD\" ${VITEST_EXTRA_FLAGS[@]+\"${VITEST_EXTRA_FLAGS[@]}\"} ${SHARD_FILES[@]+\"${SHARD_FILES[@]}\"}\n"
             ) +
             "elif command -v vitest &>/dev/null; then\n" +
-            "  exec vitest \"$VITEST_CMD\" \"${VITEST_EXTRA_FLAGS[@]}\" \"${SHARD_FILES[@]}\"\n" +
+            "  exec vitest \"$VITEST_CMD\" ${VITEST_EXTRA_FLAGS[@]+\"${VITEST_EXTRA_FLAGS[@]}\"} ${SHARD_FILES[@]+\"${SHARD_FILES[@]}\"}\n" +
             "else\n" +
             "  echo \"ts_test: vitest not found. Set vitest attr or include it in node_modules.\" >&2\n" +
             "  exit 1\n" +

@@ -93,28 +93,16 @@ jobs:
           bazelisk-version: 1.x
 
       - name: New project journey
-        run: |
-          bazel test //tests/bootstrap:test_new_project \
-            --test_output=all \
-            --test_strategy=local
+        run: RULES_TYPESCRIPT_ROOT=${{ github.workspace }} bash tests/bootstrap/test_new_project.sh
 
       - name: Existing project (no explicit return types)
-        run: |
-          bazel test //tests/bootstrap:test_existing_project \
-            --test_output=all \
-            --test_strategy=local
+        run: RULES_TYPESCRIPT_ROOT=${{ github.workspace }} bash tests/bootstrap/test_existing_project.sh
 
       - name: npm dependency resolution
-        run: |
-          bazel test //tests/bootstrap:test_npm_deps \
-            --test_output=all \
-            --test_strategy=local
+        run: RULES_TYPESCRIPT_ROOT=${{ github.workspace }} bash tests/bootstrap/test_npm_deps.sh
 
       - name: Gazelle roundtrip (e2e/basic)
-        run: |
-          bazel test //tests/bootstrap:test_gazelle_roundtrip \
-            --test_output=all \
-            --test_strategy=local
+        run: RULES_TYPESCRIPT_ROOT=${{ github.workspace }} bash tests/bootstrap/test_gazelle_roundtrip.sh
 
   lint:
     name: Linting & Code Quality

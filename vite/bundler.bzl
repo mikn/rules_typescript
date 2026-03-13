@@ -199,7 +199,7 @@ def _vite_bundler_impl(ctx):
         (
             ""  # already named node_modules — no symlink needed
             if actual_nm_basename == "node_modules" else
-            "ln -sfn \"${NM_ACTUAL}\" \"${NM_DIR}/node_modules\" 2>/dev/null || true\n"
+            "ln -sf \"${NM_ACTUAL}\" \"${NM_DIR}/node_modules\" 2>/dev/null || true\n"
         ) +
         "\n" +
         "# cd to the parent of the node_modules tree so that Node.js ESM resolution\n" +
@@ -214,7 +214,7 @@ def _vite_bundler_impl(ctx):
         "RUNTIME_ARGS=(" + runtime_args_str + ")\n" +
         "VITE_JS=\"" + vite_entry_rel + "\"\n" +
         "\n" +
-        "exec \"$RUNTIME\" \"${RUNTIME_ARGS[@]}\" \"$VITE_JS\" build --config \"$CONFIG\"\n"
+        "exec \"$RUNTIME\" ${RUNTIME_ARGS[@]+\"${RUNTIME_ARGS[@]}\"} \"$VITE_JS\" build --config \"$CONFIG\"\n"
     )
 
     ctx.actions.write(

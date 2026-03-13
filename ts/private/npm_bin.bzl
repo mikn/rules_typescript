@@ -115,7 +115,7 @@ def _npm_bin_impl(ctx):
         "\n" +
         "ENTRY=\"" + entry_path + "\"\n" +
         "\n" +
-        "exec \"$RUNTIME\" \"${RUNTIME_ARGS[@]}\" \"$ENTRY\" \"$@\"\n"
+        "exec \"$RUNTIME\" ${RUNTIME_ARGS[@]+\"${RUNTIME_ARGS[@]}\"} \"$ENTRY\" \"$@\"\n"
     )
 
     ctx.actions.write(
