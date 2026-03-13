@@ -1,3 +1,5 @@
+exports_files(["index.ts", "params.test.ts", "params.ts", "router.test.ts", "router.ts", ])
+
 load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_test")
 
 ts_compile(

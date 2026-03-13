@@ -715,10 +715,21 @@ def _tarball_strip_prefix(package_name, version = ""):
     return "package"
 
 def _resolve_dep_version(packages, dep_name, version_spec):
-    """Resolves a dep name + version spec to the concrete version recorded in the lockfile."""
+    """Resolves a dep name + version spec to the concrete version recorded in the lockfile.
+
+    Handles npm aliases: when version_spec is "actual_pkg@version" (e.g.,
+    "h3@2.0.1-rc.16" for alias "h3-v2"), look up the actual package directly.
+    """
+    # Standard case: dep_name@version_spec
     pkg_id = "{}@{}".format(dep_name, version_spec)
     if pkg_id in packages:
         return version_spec
+
+    # Alias case: version_spec is "actual_package@version" (contains @)
+    # e.g., dep_name="h3-v2", version_spec="h3@2.0.1-rc.16"
+    if "@" in version_spec and version_spec in packages:
+        return version_spec
+
     return None
 
 def _versioned_label_name(base_label, version):
@@ -1142,15 +1153,72 @@ def _npm_translate_lock_impl(repository_ctx):
         if pkg_id not in pkg_id_to_label:
             pkg_id_to_label[pkg_id] = versioned
 
+    # ── Collect npm alias mappings ─────────────────────────────────────────────
+    # An npm alias is a dep where the dep_name differs from the actual package
+    # name encoded in the version spec.  For example:
+    #   h3-v2: h3@2.0.1-rc.16
+    # means dep_name="h3-v2", dep_version_spec="h3@2.0.1-rc.16", and the real
+    # package is h3@2.0.1-rc.16 (i.e., the version spec IS the pkg_id).
+    #
+    # We collect all such mappings: alias_label → real_pkg_id.  These are used
+    # to emit additional ts_npm_package targets with package_name set to the
+    # alias name so the node_modules tree builder creates both h3/ and h3-v2/.
+    #
+    # Importantly, _resolve_dep_label (defined below) returns the alias label
+    # for alias deps so that packages like @tanstack/start-server-core have
+    # h3-v2 (not h3) in their Bazel dep list.  This causes the transitive dep
+    # closure of those packages to include the h3-v2 ts_npm_package, and the
+    # node_modules tree builder creates node_modules/h3-v2/ at runtime.
+    #
+    # alias_label_to_pkg_id: alias_label_name → real_pkg_id
+    alias_label_to_pkg_id = {}
+    for pkg_id in packages:
+        pkg = packages[pkg_id]
+        all_deps = {}
+        all_deps.update(pkg.get("dependencies", {}))
+        all_deps.update(pkg.get("optionalDependencies", {}))
+        for dep_name, dep_version_spec in all_deps.items():
+            # Alias case: version_spec IS the pkg_id (e.g., "h3@2.0.1-rc.16")
+            # and dep_name differs from the actual package name in the spec.
+            if "@" in dep_version_spec and dep_version_spec in packages:
+                actual_pkg_name = packages[dep_version_spec]["name"]
+                if dep_name != actual_pkg_name:
+                    alias_label = _package_name_to_label(dep_name)
+                    # Don't override an existing real package target.
+                    if alias_label not in label_to_pkg_id:
+                        alias_label_to_pkg_id[alias_label] = dep_version_spec
+
     def _resolve_dep_label(dep_name, dep_version_spec):
-        """Returns the Bazel label for a dependency, using versioned label when needed."""
+        """Returns the Bazel label for a dependency, using versioned label when needed.
+
+        Handles npm aliases: when dep_version_spec is "actual_pkg@version" (e.g.,
+        "h3@2.0.1-rc.16" for alias "h3-v2"), the alias label ("h3-v2") is returned
+        rather than the real package label ("h3").  This ensures the alias
+        ts_npm_package target (with package_name="h3-v2") ends up in the transitive
+        dep closure of packages that declare h3-v2 as a dependency, so that
+        node_modules/h3-v2/ is created by the tree builder.
+        """
         resolved = _resolve_dep_version(packages, dep_name, dep_version_spec)
         if not resolved:
             return None
+
+        # Standard case: dep_pkg_id = "dep_name@version"
         dep_pkg_id = "{}@{}".format(dep_name, resolved)
-        if dep_pkg_id not in packages:
-            return None
-        return pkg_id_to_label.get(dep_pkg_id)
+        if dep_pkg_id in packages:
+            return pkg_id_to_label.get(dep_pkg_id)
+
+        # Alias case: version_spec IS the pkg_id (e.g., "h3@2.0.1-rc.16").
+        # Return the alias label (e.g., "h3-v2") so the alias ts_npm_package
+        # target is included in transitive deps, causing the node_modules builder
+        # to create node_modules/h3-v2/ rather than only node_modules/h3/.
+        if resolved in packages:
+            alias_label = _package_name_to_label(dep_name)
+            if alias_label in alias_label_to_pkg_id:
+                return alias_label
+            # dep_name matches actual package name (no real alias), use real label.
+            return pkg_id_to_label.get(resolved)
+
+        return None
 
     # ── Cycle detection and breaking ───────────────────────────────────────────
     # Build the complete label → [dep_labels] graph and run Kahn's algorithm to
@@ -1175,7 +1243,25 @@ def _npm_translate_lock_impl(repository_ctx):
                 dep_labels.append(dep_lbl)
         label_to_dep_labels[this_label] = dep_labels
 
+    # Register alias labels in the dep graph with the same deps as the real package.
+    # This lets the cycle detector treat alias targets as first-class nodes, which
+    # is needed when the alias label is referenced from other packages' dep lists.
+    # NOTE: We populate these before cycle detection so the cycle finder can traverse
+    # through alias nodes.  After cycle detection we re-populate to pick up any
+    # mutations made by the cycle breaker.
+    for alias_label, real_pkg_id in alias_label_to_pkg_id.items():
+        real_label = pkg_id_to_label.get(real_pkg_id)
+        if real_label and real_label in label_to_dep_labels:
+            label_to_dep_labels[alias_label] = list(label_to_dep_labels[real_label])
+
     broken_cycle_edges = _detect_and_break_cycles(label_to_dep_labels)
+
+    # Re-populate alias dep lists post-cycle-breaking in case the cycle breaker
+    # mutated the real package's dep list.
+    for alias_label, real_pkg_id in alias_label_to_pkg_id.items():
+        real_label = pkg_id_to_label.get(real_pkg_id)
+        if real_label and real_label in label_to_dep_labels:
+            label_to_dep_labels[alias_label] = list(label_to_dep_labels[real_label])
 
     build_lines = [
         "# Auto-generated by npm_translate_lock. DO NOT EDIT.",
@@ -1468,6 +1554,60 @@ def _npm_translate_lock_impl(repository_ctx):
                 "alias(",
                 '    name = "{}",'.format(alias_name),
                 '    actual = "{}",'.format(actual_label),
+                ")",
+                "",
+            ])
+
+    # ── npm alias targets ─────────────────────────────────────────────────────
+    # For each npm alias (e.g. "h3-v2" → "h3@2.0.1-rc.16"), emit an additional
+    # ts_npm_package target with package_name set to the alias name.  This causes
+    # the node_modules tree builder to create a directory named after the alias
+    # (e.g. node_modules/h3-v2/) alongside the real package directory.
+    #
+    # Without this, code that does `import "h3-v2"` would fail at runtime because
+    # Node.js would look for node_modules/h3-v2/ but only find node_modules/h3/.
+    if alias_label_to_pkg_id:
+        build_lines.append("# npm alias targets (alias_name → real package files with alias package_name)")
+        for alias_label, real_pkg_id in alias_label_to_pkg_id.items():
+            real_pkg = packages[real_pkg_id]
+            real_dir = pkg_dir_names.get(real_pkg_id)
+            if not real_dir:
+                continue
+            real_version = real_pkg["version"]
+            real_label = pkg_id_to_label.get(real_pkg_id)
+            is_types = real_pkg["name"].startswith("@types/")
+            exports_types = pkg_exports_types.get(real_pkg_id, "")
+
+            # Resolve deps using the alias label's entry (already cycle-broken).
+            # alias_label has the same dep list as real_label (set during graph build).
+            dep_labels_for_alias = label_to_dep_labels.get(alias_label, [])
+            dep_label_parts = ['        ":{}",'.format(lbl) for lbl in dep_labels_for_alias]
+            deps_str = ""
+            if dep_label_parts:
+                deps_str = "\n" + "\n".join(dep_label_parts) + "\n    "
+
+            # The alias label may collide with a workspace alias — skip if so.
+            build_lines.append(
+                "# npm alias: {} → {}@{}".format(alias_label, real_pkg["name"], real_version),
+            )
+            build_lines.extend([
+                "ts_npm_package(",
+                '    name = "{}",'.format(alias_label),
+                '    package_name = "{}",'.format(alias_label),
+                '    package_version = "{}",'.format(real_version),
+                '    package_dir = "{}/package.json",'.format(real_dir),
+                "    package_files = glob(",
+                '        ["{}/**/*"],'.format(real_dir),
+                "        exclude_directories = 1,",
+                "    ),",
+            ])
+
+            if exports_types:
+                build_lines.append('    exports_types = "{}/{}",'.format(real_dir, exports_types))
+
+            build_lines.extend([
+                "    is_types_package = {},".format("True" if is_types else "False"),
+                "    deps = [{}],".format(deps_str),
                 ")",
                 "",
             ])

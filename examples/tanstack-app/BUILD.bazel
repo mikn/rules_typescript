@@ -94,6 +94,8 @@ node_modules(
         # tanstackStart() Vite plugin at bundle time. Required for :spa_tanstack.
         "@npm//:tanstack_react-start",
         "@npm//:zod",
+        # Server-side deps required by tanstackStart() SSR build
+        "@npm//:h3",
     ],
 )
 
@@ -160,6 +162,25 @@ ts_bundle(
     entry_point = "//src/app:main",
     bundler = ":vite",
     vite_config = "tanstack-vite.config.mjs",
+    staging_srcs = [
+        "index.html",
+        # Route files — the framework plugin scans these for route discovery
+        "//src/routes:__root.tsx",
+        "//src/routes:index.tsx",
+        "//src/routes:about.tsx",
+        "//src/routes:users.tsx",
+        # App entry
+        "//src/app:main.tsx",
+        "//src/app:index.ts",
+        # Lib (router + params)
+        "//src/lib:router.ts",
+        "//src/lib:params.ts",
+        "//src/lib:index.ts",
+        # Components
+        "//src/components:Layout.tsx",
+        "//src/components:UserCard.tsx",
+        "//src/components:index.ts",
+    ],
     minify = False,
     sourcemap = False,
     tags = ["manual"],

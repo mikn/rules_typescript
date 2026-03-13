@@ -1,3 +1,5 @@
+exports_files(["index.ts", "Layout.tsx", "UserCard.test.tsx", "UserCard.tsx", ])
+
 load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_test")
 
 ts_compile(

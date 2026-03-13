@@ -80,12 +80,15 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 //   file:///path/to/execroot/examples/tanstack-app/tanstack-vite.config.mjs
 // dirname() gives the package root: .../execroot/examples/tanstack-app
 // tanstackStart will then look for src/ relative to this directory.
-const packageRoot = dirname(fileURLToPath(import.meta.url));
+// When staging_srcs is set on ts_bundle, VITE_STAGING_ROOT points at the
+// writable staging directory. The framework plugin can scan route files and
+// write codegen outputs there. Fall back to this file's directory for
+// local (non-Bazel) use.
+const root = process.env.VITE_STAGING_ROOT
+  || dirname(fileURLToPath(import.meta.url));
 
 export default {
-  // Override Bazel's default vite.root (HTML staging dir) with the real
-  // package source directory. The generated config uses _userRoot when set.
-  root: packageRoot,
+  root,
 
   plugins: [
     tanstackStart({
@@ -95,11 +98,10 @@ export default {
         // to find it (relative to srcDirectory, which defaults to "src/").
         entry: "lib/router",
 
-        // Disable file-based route tree code generation. The example uses
-        // programmatic routing (src/lib/router.ts) — no routeTree.gen.ts.
-        // This prevents @tanstack/router-generator from attempting to write
-        // routeTree.gen.ts outside the declared Bazel outputs.
-        enableRouteGeneration: false,
+        // Route generation is ENABLED. The staging_srcs on ts_bundle copies
+        // source files to a writable staging directory, so the router-generator
+        // can write routeTree.gen.ts and populate the route manifest.
+        // enableRouteGeneration defaults to true — no need to set it.
       },
     }),
   ],

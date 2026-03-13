@@ -1,3 +1,5 @@
+exports_files(["index.ts", "main.tsx", ])
+
 load("@rules_typescript//ts:defs.bzl", "ts_compile")
 
 ts_compile(
