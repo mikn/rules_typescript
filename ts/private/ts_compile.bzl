@@ -475,7 +475,7 @@ def _ts_compile_impl(ctx):
                 transitive = [dep_dts_depset, npm_pkg_dirs_depset],
             ),
             outputs = [stamp],
-            command = '"{tsgo}" --project "{tsconfig}" --noEmit && /bin/touch "{stamp}"'.format(
+            command = '"{tsgo}" --project "{tsconfig}" --noEmit && touch "{stamp}"'.format(
                 tsgo = tsgo.tsgo_binary.path,
                 tsconfig = tsconfig.path,
                 stamp = stamp.path,

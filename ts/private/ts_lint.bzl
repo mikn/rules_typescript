@@ -106,7 +106,7 @@ def _ts_lint_impl(ctx):
     cmd = """\
 set -euo pipefail
 "{linter_bin}" {config_flag} {warnings_flag} {srcs}
-/bin/touch "{stamp}"
+touch "{stamp}"
 """.format(
         linter_bin = linter_bin.path,
         config_flag = config_flag,
