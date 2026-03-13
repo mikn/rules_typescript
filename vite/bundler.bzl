@@ -114,9 +114,14 @@ def _vite_bundler_impl(ctx):
 
     # Generate a wrapper script that will be used as the bundler_binary in
     # build actions. This script:
-    #   - Args: <config_path> <entry_path> <out_dir> [<html_path>]  (exec-root-relative)
+    #   - Args: <config_path> <entry_path> <out_dir> <html_path|""> [<staging_manifest>]
+    #     (all exec-root-relative)
     #   - Captures EXEC_ROOT=$(pwd) before cd'ing (CWD = exec root in Bazel actions)
     #   - Sets VITE_ENTRY_PATH, VITE_OUT_DIR, and (app mode) VITE_HTML_PATH env vars
+    #   - When a staging manifest is provided ($5):
+    #       - Creates a writable _staging/ directory inside the action sandbox
+    #       - Copies each listed file preserving package-relative structure
+    #       - Exports VITE_STAGING_ROOT pointing at the staging dir
     #   - cd's to the parent of the node_modules tree.
     #   - Invokes: node [runtime_args] node_modules/vite/bin/vite.js build --config <abs_config>
     #
@@ -138,14 +143,15 @@ def _vite_bundler_impl(ctx):
         "#   $1 = vite.config.mjs path\n" +
         "#   $2 = entry .js path\n" +
         "#   $3 = output directory path\n" +
-        "#   $4 = HTML file path (optional, app mode only)\n" +
+        "#   $4 = HTML file path (\"\" when not in app mode, or no html attr)\n" +
+        "#   $5 = staging manifest path (optional; omitted when staging_srcs is empty)\n" +
         "CONFIG=\"${EXEC_ROOT}/$1\"\n" +
         "\n" +
         "# Export absolute paths for the vite.config.mjs to read.\n" +
         "export EXEC_ROOT\n" +
         "export VITE_ENTRY_PATH=\"${EXEC_ROOT}/$2\"\n" +
         "export VITE_OUT_DIR=\"${EXEC_ROOT}/$3\"\n" +
-        "# Export VITE_HTML_PATH when the 4th argument is provided (app mode).\n" +
+        "# Export VITE_HTML_PATH when the 4th argument is non-empty (app mode).\n" +
         "# Copy the HTML into a staging dir inside bazel-out so that Vite/Rollup\n" +
         "# resolves it without following symlinks back to the source tree, which\n" +
         "# would produce a path outside EXEC_ROOT and cause Rollup to reject it.\n" +
@@ -154,6 +160,35 @@ def _vite_bundler_impl(ctx):
         "  mkdir -p \"${HTML_STAGING}\"\n" +
         "  cp -f \"${EXEC_ROOT}/$4\" \"${HTML_STAGING}/\"\n" +
         "  export VITE_HTML_PATH=\"${HTML_STAGING}/$(basename \"$4\")\"\n" +
+        "fi\n" +
+        "\n" +
+        "# When a staging manifest is provided ($5), copy source files into a\n" +
+        "# writable _staging/ directory. This lets framework Vite plugins (Remix,\n" +
+        "# TanStack Start) scan route files and write codegen without hitting\n" +
+        "# sandbox write-protection on the original source tree.\n" +
+        "# The manifest has one line per file: <dest_rel_path>TAB<src_exec_path>\n" +
+        "if [[ -n \"${5:-}\" ]]; then\n" +
+        "  STAGING_DIR=\"${EXEC_ROOT}/$3/../_staging\"\n" +
+        "  mkdir -p \"${STAGING_DIR}\"\n" +
+        "  while IFS=$'\\t' read -r DEST SRC; do\n" +
+        "    [[ -z \"${DEST}\" ]] && continue\n" +
+        "    DEST_ABS=\"${STAGING_DIR}/${DEST}\"\n" +
+        "    mkdir -p \"$(dirname \"${DEST_ABS}\")\"\n" +
+        "    cp -f \"${EXEC_ROOT}/${SRC}\" \"${DEST_ABS}\"\n" +
+        "  done < \"${EXEC_ROOT}/$5\"\n" +
+        "  export VITE_STAGING_ROOT=\"${STAGING_DIR}\"\n" +
+        "  # When the HTML file is also staged (it was listed in staging_srcs),\n" +
+        "  # update VITE_HTML_PATH to the staged copy so that Rollup resolves the\n" +
+        "  # HTML relative to the staging root (= vite.root). Without this fix,\n" +
+        "  # the HTML is at _html_staging/index.html which is '../' from staging,\n" +
+        "  # and Rollup rejects filenames with '..' path traversal.\n" +
+        "  if [[ -n \"${VITE_HTML_PATH:-}\" ]]; then\n" +
+        "    HTML_BASENAME=\"$(basename \"${VITE_HTML_PATH}\")\"\n" +
+        "    STAGED_HTML=\"${STAGING_DIR}/${HTML_BASENAME}\"\n" +
+        "    if [[ -f \"${STAGED_HTML}\" ]]; then\n" +
+        "      export VITE_HTML_PATH=\"${STAGED_HTML}\"\n" +
+        "    fi\n" +
+        "  fi\n" +
         "fi\n" +
         "\n" +
         "# The node_modules tree artifact may have any name. If it is not already\n" +

@@ -403,30 +403,29 @@ def _ts_compile_impl(ctx):
 
         # Determine the correct strip-dir-prefix for the source files.
         #
-        # For regular source files (e.g. "tests/foo/bar.ts"), f.root.path is ""
-        # and f.dirname equals the package path, so strip-dir-prefix = pkg.
+        # oxc uses --strip-dir-prefix to compute the relative part of each
+        # input path when building the output path inside --out-dir.
         #
-        # For generated files produced by rules like ts_codegen (e.g.
-        # "bazel-out/k8-fastbuild/bin/tests/foo/generated.ts"), f.root.path is
-        # "bazel-out/k8-fastbuild/bin" and f.dirname is the full bin-relative
-        # path. The strip prefix must include the bin-dir prefix so that oxc
-        # strips "bazel-out/k8-fastbuild/bin/tests/foo" and writes the output
-        # under the package sub-directory structure.
+        # For source files: the strip prefix is the common directory of all
+        # input files relative to the exec root. For a ts_compile target in
+        # package "tests/foo" this equals the package path (e.g. "tests/foo").
+        # For targets in the root package (//) with files in a subdirectory
+        # (e.g. "app/root.tsx"), the strip prefix is the common dirname
+        # (e.g. "app") — NOT the empty package path.
         #
-        # We use compile_srcs[0].dirname directly: for source files this equals
-        # pkg (same as before); for generated files it includes the bazel-out
-        # prefix needed for correct stripping.
+        # We use compile_srcs[0].dirname for all cases:
+        #   - Source files in non-root packages: dirname == pkg ✓
+        #   - Source files in root package in a subdir: dirname == subdir ✓
+        #   - Source files in root package in root dir: dirname == "" ✓
+        #   - Generated files: dirname includes bazel-out prefix ✓
         #
-        # Note: this assumes all srcs in a single ts_compile call originate from
-        # the same package-level directory (either all source or all generated
-        # from the same package). Mixed batches of source + generated files are
-        # not supported and should be split into separate ts_compile targets.
-        if compile_srcs[0].is_source:
-            if pkg:
-                args.add("--strip-dir-prefix", pkg)
-        else:
-            # Generated file: strip prefix includes the bazel-out bin prefix.
-            args.add("--strip-dir-prefix", compile_srcs[0].dirname)
+        # Note: this assumes all srcs share the same common directory, i.e.
+        # all source files live directly in one directory (no mixing of
+        # top-level and subdirectory files in the same ts_compile target).
+        # Split targets by directory when files span multiple levels.
+        strip_prefix = compile_srcs[0].dirname
+        if strip_prefix:
+            args.add("--strip-dir-prefix", strip_prefix)
 
         args.add("--target", ctx.attr.target)
         if ctx.attr.jsx_mode:

@@ -671,7 +671,7 @@ def _package_repo_name(repo_prefix, package_name, version):
     version_clean = version.replace(".", "_").replace("+", "_").replace("-", "_")
     return "{}__{}_{}".format(repo_prefix, label, version_clean)
 
-def _tarball_strip_prefix(package_name):
+def _tarball_strip_prefix(package_name, version = ""):
     """Returns the strip prefix for extracting a package tarball.
 
     Most npm packages extract under 'package/'.
@@ -680,10 +680,38 @@ def _tarball_strip_prefix(package_name):
       @types/react     → 'react'
       @types/react-dom → 'react-dom'
       @types/node      → 'node'
+
+    A small number of @types packages use a non-standard prefix that includes
+    a version range (e.g. @types/hast@2.3.x uses 'hast v2.3' as the directory
+    prefix). These are handled by an explicit override table keyed by
+    (package_name, major.minor) so the correct prefix is always used.
     """
     if package_name.startswith("@types/"):
-        # Strip the scope to get the directory name used inside the tarball.
-        return package_name[len("@types/"):]
+        base = package_name[len("@types/"):]
+
+        # Some @types packages use "<name> v<major>.<minor>" as the tarball
+        # directory prefix. Detect this by checking a known override table.
+        # Only the major.minor portion is needed because patch versions still
+        # use the same directory prefix.
+        major_minor = ""
+        if version:
+            parts = version.split(".")
+            if len(parts) >= 2:
+                major_minor = parts[0] + "." + parts[1]
+
+        # Known packages whose tarball uses "<name> v<major>.<minor>/" prefix.
+        # Add entries here when new packages with non-standard prefixes appear.
+        _VERSIONED_PREFIX_PACKAGES = {
+            "@types/hast": ["2.3"],
+            "@types/mdast": ["3.0"],
+            "@types/unist": ["2.0"],
+        }
+        versioned_majors = _VERSIONED_PREFIX_PACKAGES.get(package_name, [])
+        for known_mm in versioned_majors:
+            if major_minor.startswith(known_mm):
+                return base + " v" + major_minor
+
+        return base
     return "package"
 
 def _resolve_dep_version(packages, dep_name, version_spec):
@@ -1002,7 +1030,7 @@ def _npm_translate_lock_impl(repository_ctx):
 
         repository_ctx.report_progress("Downloading {}@{}".format(nm, version))
 
-        strip_prefix = _tarball_strip_prefix(nm)
+        strip_prefix = _tarball_strip_prefix(nm, version)
 
         if integrity:
             repository_ctx.download_and_extract(

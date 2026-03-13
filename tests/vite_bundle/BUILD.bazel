@@ -221,3 +221,26 @@ sh_test(
         ":entry_vite_app_with_config",
     ],
 )
+
+# ── 13.8: staging_srcs — writable source staging for framework plugins ─────────
+# staging_mock_plugin.mjs verifies that VITE_STAGING_ROOT is set and the staged
+# files (staging_route.ts) are present inside the staging dir.
+
+ts_bundle(
+    name = "entry_vite_staging",
+    entry_point = ":entry",
+    bundler = ":vite",
+    bundle_name = "entry",
+    format = "esm",
+    minify = False,
+    sourcemap = False,
+    vite_config = "staging_mock_plugin.mjs",
+    staging_srcs = ["staging_route.ts"],
+)
+
+sh_test(
+    name = "staging_srcs_test",
+    size = "medium",
+    srcs = ["verify_staging_srcs.sh"],
+    data = [":entry_vite_staging"],
+)

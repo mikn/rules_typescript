@@ -1,0 +1,211 @@
+"""Root BUILD file for the examples/remix-app workspace.
+
+Demonstrates:
+  - Remix v2 SPA mode with rules_typescript
+  - staging_srcs: copies app/ route files into a writable staging dir so
+    the Remix vitePlugin can scan routes and write codegen
+  - vite_config: injects the Remix Vite plugin while preserving Bazel
+    resolve.alias and outDir integration
+  - How framework plugins interact with the Bazel sandbox
+
+Run `bazel run //:gazelle` to regenerate BUILD files.
+Run `bazel build //...` to compile all packages.
+Run `bazel build //:app_plain` to produce a plain Vite SPA bundle (no Remix).
+Run `bazel build //:app_remix` to produce a full Remix SPA bundle with routes.
+
+── What :app_remix does ───────────────────────────────────────────────────────
+
+:app_remix uses ts_bundle in app mode with:
+  - staging_srcs = glob(["app/**/*.tsx"]) + ["package.json", "index.html"]
+    Copies all app/ source files plus required project files into a writable
+    _staging/ directory before Vite runs. VITE_STAGING_ROOT is set to the
+    staging dir so the Remix vitePlugin finds app/routes/*.tsx there.
+  - vite_config = "remix-vite.config.mjs"
+    Injects vitePlugin() from @remix-run/dev in SPA mode (ssr: false) and
+    sets buildDirectory = VITE_OUT_DIR so Remix writes its output into the
+    Bazel-declared directory (app_remix_bundle/).
+
+── Remix SPA mode ──────────────────────────────────────────────────────────────
+
+Remix v2 supports SPA mode (ssr: false) which:
+  - Produces only a client bundle (no server bundle).
+  - Does not require app/entry.server.tsx or a Node.js adapter.
+  - Outputs to buildDirectory/client/ (configurable via vitePlugin options).
+
+── How the integration works ───────────────────────────────────────────────────
+
+The three key pieces that make Remix work in the Bazel sandbox:
+
+  1. staging_srcs (writable source directory):
+     Remix's vitePlugin() must write codegen files (route types, manifests)
+     during the build. The Bazel source tree is read-only. staging_srcs copies
+     source files into a writable _staging/ dir inside the action sandbox.
+     VITE_STAGING_ROOT points to this dir; vite.root is set to it so Remix
+     finds app/routes/*.tsx there.
+
+  2. HTML in staging (fixes Rollup path traversal):
+     When staging is the Vite root, the HTML file must also be inside staging
+     (not at ../_html_staging/). The wrapper script detects when index.html
+     is staged and updates VITE_HTML_PATH to point to the staged copy,
+     so rollupOptions.input uses a clean relative path with no '..'.
+
+  3. buildDirectory = VITE_OUT_DIR (fixes output capture):
+     By default, Remix overrides Vite's build.outDir and writes to
+     "<viteRoot>/build/client/". Since viteRoot = staging dir, the output
+     would land outside the Bazel-declared directory. remix-vite.config.mjs
+     passes buildDirectory = process.env["VITE_OUT_DIR"] to the Remix plugin,
+     redirecting output into app_remix_bundle/client/ — inside the declared dir.
+
+── What does NOT work with full SSR Remix in Bazel ────────────────────────────
+
+Full SSR Remix (ssr: true, the default) requires:
+  1. A server entry (app/entry.server.tsx).
+  2. A separate server bundle build (outputs to buildDirectory/server/).
+  3. A Node.js adapter (@remix-run/node or @remix-run/express).
+
+The dual-output model (client + server) is architecturally incompatible with
+ts_bundle's single declared_directory output. Use SPA mode for Bazel-native
+Remix deployments.
+
+── Route compilation model ──────────────────────────────────────────────────────
+
+Note: Remix compiles route TypeScript via its own Vite transforms, not via
+Bazel's oxc compiler. The oxc-compiled .js files in bazel-bin are available
+via resolve.alias but Remix uses the staged .tsx files directly for routes.
+This is by design: staging makes source available; Remix handles compilation.
+The ts_compile targets (entry_client, root, routes) are still useful for
+incremental compilation validation and can be depended on by other targets.
+"""
+
+load("@gazelle//:def.bzl", "gazelle")
+load("@rules_typescript//npm:defs.bzl", "node_modules")
+load("@rules_typescript//ts:defs.bzl", "ts_bundle", "ts_compile")
+load("@rules_typescript//vite:bundler.bzl", "vite_bundler")
+
+# Run "bazel run //:gazelle" to auto-generate BUILD files.
+gazelle(
+    name = "gazelle",
+    gazelle = "@rules_typescript//gazelle:gazelle_ts",
+)
+
+# ── Compilation targets ──────────────────────────────────────────────────────
+#
+# Each ts_compile target covers files in a single directory. This is required
+# by rules_typescript's oxc invocation: when multiple files are compiled
+# together, they must share the same strip-dir-prefix (their common directory).
+# Files in different subdirectories (app/ vs app/routes/) must be in separate
+# targets.
+#
+# The staging_srcs on ts_bundle accepts any label_list, so we can pass all
+# source files to glob the full app/ tree — the wrapper stages each file at
+# its package-relative path.
+
+# Compile the Remix client entry point (single-file target — required by
+# ts_bundle which expects exactly 1 .js output from the entry_point).
+ts_compile(
+    name = "entry_client",
+    srcs = ["app/entry.client.tsx"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@npm//:react",
+        "@npm//:react-dom",
+        "@npm//:remix-run_react",
+    ],
+)
+
+# Compile the root component (single-file).
+ts_compile(
+    name = "root",
+    srcs = ["app/root.tsx"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@npm//:react",
+        "@npm//:remix-run_react",
+    ],
+)
+
+# Compile the route components (all in app/routes/).
+ts_compile(
+    name = "routes",
+    srcs = [
+        "app/routes/_index.tsx",
+        "app/routes/about.tsx",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@npm//:react",
+        "@npm//:remix-run_react",
+    ],
+)
+
+# node_modules tree with vite, remix, and their transitive deps.
+node_modules(
+    name = "node_modules",
+    deps = [
+        "@npm//:vite",
+        "@npm//:react",
+        "@npm//:react-dom",
+        "@npm//:remix-run_dev",
+        "@npm//:remix-run_react",
+        "@npm//:remix-run_node",
+    ],
+)
+
+# Vite bundler instance.
+vite_bundler(
+    name = "vite",
+    vite = "@npm//:vite",
+    node_modules = ":node_modules",
+)
+
+# ── Plain SPA bundle (no Remix plugin) ──────────────────────────────────────
+# This always works: plain Vite bundles the entry_client.tsx entry point.
+# No route scanning, no Remix framework features.
+ts_bundle(
+    name = "app_plain",
+    mode = "app",
+    html = "index.html",
+    entry_point = ":entry_client",
+    bundler = ":vite",
+    minify = False,
+    sourcemap = False,
+)
+
+# ── Remix SPA bundle (staging_srcs + vite_config) ────────────────────────────
+#
+# Uses staging_srcs to copy all app/ source files into a writable staging dir.
+# The Remix vitePlugin (via remix-vite.config.mjs) scans routes in the staging
+# dir and generates the route manifest.
+#
+# Output: app_remix_bundle/client/ containing:
+#   - index.html (Remix-generated entry with hashed asset references)
+#   - assets/*.js (route chunks: entry.client, root, _index, about, + vendors)
+#   - .vite/manifest.json (Vite build manifest)
+#
+# Run: bazel build //:app_remix
+ts_bundle(
+    name = "app_remix",
+    mode = "app",
+    html = "index.html",
+    entry_point = ":entry_client",
+    bundler = ":vite",
+    vite_config = "remix-vite.config.mjs",
+    # Stage the full project structure that Remix needs:
+    #   - package.json (required by Remix's config resolver)
+    #   - app/**/*.tsx (route files for route scanning)
+    #   - index.html (HTML entry point — staged so Rollup resolves it from
+    #     the staging root without '../' path traversal)
+    # The staging dir becomes vite.root so Remix finds:
+    #   package.json at <staging>/package.json
+    #   routes at <staging>/app/routes/*.tsx
+    staging_srcs = glob(
+        ["app/**/*.tsx"],
+        allow_empty = False,
+    ) + [
+        "package.json",
+        "index.html",
+    ],
+    minify = False,
+    sourcemap = False,
+    tags = ["manual"],
+)
