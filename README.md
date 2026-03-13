@@ -1,17 +1,30 @@
 # rules_typescript
 
-Bazel rules for TypeScript using [Oxc](https://oxc.rs/) for compilation and [tsgo](https://github.com/mikn/TypeScript-7) for type-checking.
+Bazel rules for the modern **TypeScript + Vite** ecosystem. [Oxc](https://oxc.rs/) compiles, [tsgo](https://github.com/nicholasgasior/TypeScript-7) type-checks, [Vite](https://vite.dev/) bundles.
 
-**TypeScript on Bazel should feel like Go on Bazel.** Write `.ts` files, let Gazelle generate BUILD files, get hermetic cached builds with sub-second incremental feedback.
+**TypeScript on Bazel should feel like Go on Bazel.** Write `.ts` files, run Gazelle, get hermetic cached builds with sub-second incremental rebuilds. No `node_modules/` directory. No system Node.js install. Just Bazelisk.
 
 **Full documentation: [mikn.github.io/rules_typescript](https://mikn.github.io/rules_typescript)**
 
+## Built for the Vite Ecosystem
+
+This ruleset is designed around **Vite** as the bundler and dev server. Vite-based frameworks work out of the box:
+
+- **React + Vite** — SPA bundling, React Fast Refresh HMR, CSS modules
+- **Remix** — full client bundle with route-based code splitting via `@remix-run/dev` Vite plugin
+- **TanStack Start** — client + SSR server bundles via `@tanstack/react-start` Vite plugin
+- **SvelteKit, Solid Start** — any framework that ships a Vite plugin
+
+Frameworks that don't use Vite (e.g., Next.js with webpack/turbopack) are not a priority.
+
 ## Key Ideas
 
-- **Oxc compiles** — A Rust-based TypeScript/JSX transformer produces `.js`, `.js.map`, and `.d.ts` per source file. No `tsc`. Hundreds of files in milliseconds.
-- **tsgo type-checks** — The Go port of TypeScript runs as a Bazel validation action. Type errors surface on `bazel build` but don't block downstream compilation.
-- **Isolated declarations** — Explicit return types on exports make `.d.ts` emit a per-file syntactic transform. Changing an implementation without changing the public API doesn't recompile dependents.
-- **Gazelle generates BUILD files** — Auto-infers `ts_compile` targets, resolves imports to Bazel labels, handles npm packages.
+- **Oxc compiles** — Rust-based TypeScript/JSX transformer. `.js`, `.js.map`, and `.d.ts` per file. Hundreds of files in milliseconds.
+- **tsgo type-checks** — Go port of TypeScript runs as a validation action. Type errors fail `bazel build`.
+- **Vite bundles** — production bundles with tree-shaking, code splitting, minification. App mode (HTML + hashed assets) and lib mode.
+- **Isolated declarations** — explicit return types on exports make `.d.ts` a per-file syntactic transform. Change implementation without changing API → no downstream recompilation.
+- **Gazelle generates BUILD files** — auto-infers targets, resolves imports, detects frameworks, generates bundler + dev server targets.
+- **Zero prerequisites** — only Bazelisk needed. Node.js, pnpm, Go, Rust all fetched hermetically.
 
 ## Requirements
 
