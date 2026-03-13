@@ -91,10 +91,11 @@ def _ts_npm_publish_impl(ctx):
     for f in all_srcs:
         dest_rel = _dest_rel(f)
         copy_cmds.append(
-            'install -D -m 0644 "{src}" "{dir}/{dest}"'.format(
+            'mkdir -p "{dir}/{dest_dir}" && cp -f "{src}" "{dir}/{dest}"'.format(
                 src = f.path,
                 dir = out_dir.path,
                 dest = dest_rel,
+                dest_dir = dest_rel.rsplit("/", 1)[0] if "/" in dest_rel else ".",
             ),
         )
 
@@ -270,7 +271,7 @@ END {
     package_json_file = updated_pkg_json
 
     copy_cmds.append(
-        'install -D -m 0644 "{src}" "{dir}/package.json"'.format(
+        'cp -f "{src}" "{dir}/package.json"'.format(
             src = package_json_file.path,
             dir = out_dir.path,
         ),
@@ -298,13 +299,18 @@ END {
             # archive entries start with just the directory basename.
             # Capture $PWD (the execroot) before cd so we can use an absolute
             # path for the tar output file.
+            # Use a "package" symlink for cross-platform compatibility:
+            # GNU tar --transform is not available on macOS.
             'execroot="$PWD" && cd "{parent}" && '.format(
                 parent = out_dir.path.rsplit("/", 1)[0],
             ) +
-            'tar cf "$execroot/{tar}" --transform "s|^{base}|package|" "{base}"'.format(
-                tar = tarball.path,
+            'ln -sf "{base}" package && '.format(
                 base = out_dir.basename,
-            )
+            ) +
+            'tar chf "$execroot/{tar}" package && '.format(
+                tar = tarball.path,
+            ) +
+            "rm -f package"
         ),
         mnemonic = "TsNpmPublishTar",
         progress_message = "Creating npm tarball for {}".format(ctx.label),

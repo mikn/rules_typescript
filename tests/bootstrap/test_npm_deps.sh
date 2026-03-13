@@ -129,7 +129,7 @@ register_toolchains("@rules_typescript//ts/toolchain:all")
 
 npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
 npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
-use_repo(npm, "npm")
+use_repo(npm, "npm", "pnpm")
 EOF
 
 cat > BUILD.bazel <<'EOF'
