@@ -1,0 +1,36 @@
+"""Bazel unit tests for the tsserver resolution hook.
+
+These tests exercise the hook's worker and resolution logic directly without
+starting a full tsserver process:
+
+  :test_resolution_map — Run the worker against the current workspace,
+      assert that npm packages (zod, vitest) and internal packages appear
+      in the resolution map with valid .d.ts paths.
+
+Prerequisites for the resolution-map test to pass:
+  bazel build @npm//...   (fetches npm packages into the output base)
+  bazel build //...       (builds .d.ts files into bazel-bin)
+"""
+
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+sh_test(
+    name = "test_resolution_map",
+    size = "medium",
+    srcs = ["test_resolution_map.sh"],
+    data = [
+        # MODULE.bazel is included so the test can resolve MODULE.bazel as a
+        # symlink in the runfiles tree to locate the real workspace root.
+        # (The same pattern used by //tests/integration:*_test runners.)
+        "//:MODULE.bazel",
+        "//tools:tsserver-hook.js",
+        "//tools:tsserver-hook-worker.js",
+    ],
+    tags = [
+        # Requires network-accessible Bazel output base and npm packages.
+        "requires-network",
+        # The test shells out to `bazel query` which is not hermetic.
+        "no-sandbox",
+    ],
+    timeout = "long",
+)

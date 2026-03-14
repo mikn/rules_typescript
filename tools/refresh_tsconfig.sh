@@ -527,6 +527,49 @@ EOF
 
 log "Wrote $TSCONFIG"
 
+# ── Copy tsserver hook scripts to .bazel/ ─────────────────────────────────────
+# Copy tools/tsserver-hook.js and tools/tsserver-hook-worker.js into a .bazel/
+# directory at the workspace root so that consumers do not need to reference
+# the rules_typescript runfiles path directly in their VS Code settings.
+#
+# The .bazel/ directory is workspace-specific generated output (like .vscode/
+# for IDE settings) and should be added to .gitignore.
+BAZEL_TOOLS_DIR="$WORKSPACE/.bazel"
+mkdir -p "$BAZEL_TOOLS_DIR"
+
+# Locate the hook scripts.  When run via `bazel run`, the script's runfiles
+# are available under $RUNFILES_DIR.  We search a few well-known locations.
+_find_hook_script() {
+  local name="$1"
+  # 1. Sibling of this script in the source tree (development workflow).
+  local sibling="$(dirname "${BASH_SOURCE[0]}")/${name}"
+  [[ -f "$sibling" ]] && { echo "$sibling"; return; }
+
+  # 2. rules_typescript runfiles tree (consumer workflow).
+  if [[ -n "${RUNFILES_DIR:-}" ]]; then
+    local rf="${RUNFILES_DIR}/_main/tools/${name}"
+    [[ -f "$rf" ]] && { echo "$rf"; return; }
+    # Rules_typescript may be loaded under its module name.
+    rf="${RUNFILES_DIR}/rules_typescript/tools/${name}"
+    [[ -f "$rf" ]] && { echo "$rf"; return; }
+  fi
+
+  echo ""
+}
+
+_HOOK_SRC="$(_find_hook_script tsserver-hook.js)"
+_WORKER_SRC="$(_find_hook_script tsserver-hook-worker.js)"
+
+if [[ -n "$_HOOK_SRC" && -n "$_WORKER_SRC" ]]; then
+  cp "$_HOOK_SRC" "$BAZEL_TOOLS_DIR/tsserver-hook.js"
+  cp "$_WORKER_SRC" "$BAZEL_TOOLS_DIR/tsserver-hook-worker.js"
+  log "Copied tsserver hook scripts to $BAZEL_TOOLS_DIR/"
+else
+  log "WARNING: tsserver hook scripts not found — skipping copy to .bazel/."
+  log "  Hook source: ${_HOOK_SRC:-not found}"
+  log "  Worker source: ${_WORKER_SRC:-not found}"
+fi
+
 # ── Generate .vscode/settings.json.template ────────────────────────────────────
 VSCODE_DIR="$WORKSPACE/.vscode"
 SETTINGS_TEMPLATE="$VSCODE_DIR/settings.json.template"
@@ -544,6 +587,16 @@ if [[ ! -f "$SETTINGS_TEMPLATE" ]] || [[ "${1:-}" == "--force" ]]; then
   "typescript.tsdk": "node_modules/typescript/lib",
   "typescript.enablePromptUseWorkspaceTsdk": true,
   "typescript.preferences.importModuleSpecifier": "relative",
+
+  "typescript.tsserver.pluginPaths": [],
+
+  "typescript.tsserver.nodePath": "node",
+
+  "typescript.tsserver.userDataDir": null,
+
+  "typescript.tsserver.log": "off",
+
+  "typescript.tsserver.maxTsServerMemory": 4096,
 
   "editor.formatOnSave": true,
   "editor.defaultFormatter": "esbenp.prettier-vscode",
@@ -573,6 +626,26 @@ else
   log "$SETTINGS_TEMPLATE already exists — skipping (run with --force to overwrite)."
 fi
 
+# ── Generate .bazel/tsserver-launch.json ──────────────────────────────────────
+# A VS Code launch configuration that starts tsserver with the Bazel hook
+# loaded via --require.  Users can copy this snippet into their launch.json.
+TSSERVER_LAUNCH="$BAZEL_TOOLS_DIR/tsserver-launch.json"
+cat > "$TSSERVER_LAUNCH" <<'TSLAUNCH_EOF'
+{
+  "_instructions": "Paste the 'typescript.tsserver.nodePath' and 'typescript.tsserver.nodePath' lines from this file into your .vscode/settings.json to enable Bazel-aware module resolution in tsserver.",
+
+  "_comment": "The --require flag loads the Bazel resolution hook before TypeScript starts. The hook patches ts.resolveModuleName so that imports like 'import { z } from \"zod\"' resolve directly to the .d.ts files in the Bazel output base — no need to run 'bazel build' first for IDE support.",
+
+  "typescript.tsserver.nodePath": "node",
+
+  "typescript.tsserver.pluginPaths": [],
+
+  "_nodeOptions": "Set this as 'typescript.tsserver.nodeOptions' in your settings.json:",
+  "typescript.tsserver.nodeOptions": "--require .bazel/tsserver-hook.js"
+}
+TSLAUNCH_EOF
+log "Wrote $TSSERVER_LAUNCH"
+
 # ── Summary ────────────────────────────────────────────────────────────────────
 echo ""
 echo "Done.  IDE tsconfig generated at:"
@@ -581,9 +654,16 @@ echo ""
 echo "Next steps:"
 echo "  1. Open VS Code in the workspace root."
 echo "  2. If you haven't already, copy .vscode/settings.json.template to .vscode/settings.json"
-echo "  3. Run 'bazel build //...' once to populate bazel-bin with .d.ts files."
-echo "  4. Restart the TypeScript language server in VS Code:"
+echo "  3. To enable Bazel-aware module resolution in tsserver, add to .vscode/settings.json:"
+echo "       \"typescript.tsserver.nodeOptions\": \"--require .bazel/tsserver-hook.js\""
+echo "  4. Run 'bazel build //...' once to populate bazel-bin with .d.ts files."
+echo "  5. Restart the TypeScript language server in VS Code:"
 echo "     Cmd+Shift+P → 'TypeScript: Restart TS Server'"
+echo ""
+echo "The tsserver hook scripts are in .bazel/:"
+echo "  .bazel/tsserver-hook.js"
+echo "  .bazel/tsserver-hook-worker.js"
+echo "  .bazel/tsserver-launch.json  (VS Code integration reference)"
 echo ""
 echo "Re-run this command whenever you add or remove ts_compile targets:"
 echo "  bazel run //:refresh_tsconfig"

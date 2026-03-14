@@ -7,4 +7,6 @@ exports_files([
     "add_package_wrapper.sh",
     "pnpm_wrapper.sh",
     "refresh_tsconfig.sh",
+    "tsserver-hook.js",
+    "tsserver-hook-worker.js",
 ])
