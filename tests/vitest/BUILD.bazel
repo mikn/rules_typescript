@@ -12,5 +12,6 @@ ts_test(
     deps = [
         ":math",
         "@npm//:vitest",
+        "@npm//:vitest_coverage-v8",
     ],
 )
