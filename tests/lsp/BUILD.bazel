@@ -7,7 +7,16 @@ starting a full tsserver process:
       assert that npm packages (zod, vitest) and internal packages appear
       in the resolution map with valid .d.ts paths.
 
-Prerequisites for the resolution-map test to pass:
+  :test_resolve_integration — Load the hook, require typescript, and verify
+      that ts._bazelPatched is true and ts.resolveModuleName is the Bazel
+      wrapper.  Also verifies that zod/vitest resolve to .d.ts files when npm
+      packages are available, and that path-alias resolution does not throw.
+
+  :test_tsserver_diagnostics — Gold test: use the TypeScript Language Service API
+      (ts.createLanguageService) with the hook active to verify that a virtual
+      file importing from "zod" produces zero "Cannot find module" errors.
+
+Prerequisites for the npm-resolution tests to pass:
   bazel build @npm//...   (fetches npm packages into the output base)
   bazel build //...       (builds .d.ts files into bazel-bin)
 """
@@ -34,4 +43,45 @@ sh_test(
         "no-sandbox",
     ],
     timeout = "long",
+)
+
+sh_test(
+    name = "test_resolve_integration",
+    size = "medium",
+    srcs = ["test_resolve_integration.sh"],
+    data = [
+        "//:MODULE.bazel",
+        "//tools:tsserver-hook.js",
+        "//tools:tsserver-hook-worker.js",
+        ":resolve_test.mjs",
+    ],
+    env_inherit = ["PATH", "HOME", "USER"],
+    tags = [
+        # Requires the Bazel output base to locate npm .d.ts files.
+        "requires-network",
+        # Shells out to `bazel info output_base` (blocked by bazel test lock,
+        # but the test derives output_base from TEST_SRCDIR as a fallback).
+        "no-sandbox",
+    ],
+    timeout = "moderate",
+)
+
+sh_test(
+    name = "test_tsserver_diagnostics",
+    size = "medium",
+    srcs = ["test_tsserver_diagnostics.sh"],
+    data = [
+        "//:MODULE.bazel",
+        "//tools:tsserver-hook.js",
+        "//tools:tsserver-hook-worker.js",
+        ":tsserver_diag_test.mjs",
+    ],
+    env_inherit = ["PATH", "HOME", "USER"],
+    tags = [
+        # Requires TypeScript available via node (system package or npm-global)
+        # and a Bazel output base with fetched npm packages.
+        "requires-network",
+        "no-sandbox",
+    ],
+    timeout = "moderate",
 )

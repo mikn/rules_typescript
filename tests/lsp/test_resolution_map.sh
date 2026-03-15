@@ -109,7 +109,7 @@ echo "INFO: node ${NODE_VERSION}"
 
 # ── Test 1: Hook script loads without errors ──────────────────────────────────
 echo "INFO: testing that hook loads without errors..."
-node --require "${TOOLS_DIR}/tsserver-hook.js" --eval "process.exit(0)"
+TSSERVER_HOOK_NO_WORKER=1 node --require "${TOOLS_DIR}/tsserver-hook.js" --eval "process.exit(0)"
 pass "hook loads without errors"
 
 # ── Test 2: Run worker and capture resolution map ─────────────────────────────
