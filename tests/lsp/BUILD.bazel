@@ -26,6 +26,7 @@ sh_test(
         "//tools:tsserver-hook.js",
         "//tools:tsserver-hook-worker.js",
     ],
+    env_inherit = ["PATH", "HOME", "USER"],
     tags = [
         # Requires network-accessible Bazel output base and npm packages.
         "requires-network",
