@@ -432,98 +432,89 @@ def _ts_test_runner_impl(ctx):
         # vitest to write lcov data to the directory Bazel expects, then copy
         # the lcov.info file to COVERAGE_OUTPUT_FILE after the run.
         #
-        # When coverage = True and COVERAGE_OUTPUT_FILE is NOT set (bazel test),
-        # pass --coverage so the user can still collect coverage manually if
-        # desired but Bazel won't complain about a missing output.
+        # This block is UNCONDITIONAL — `bazel coverage` works on every ts_test
+        # target regardless of whether `coverage = True` is set on the target.
+        # The `coverage = True` attr only affects `bazel test` (not `bazel
+        # coverage`): when True it also enables coverage during normal test runs
+        # via the COVERAGE_ENABLED env var.
         #
-        # @vitest/coverage-v8 must be in the target's npm deps.
+        # @vitest/coverage-v8 must be in the target's npm deps when using
+        # `bazel coverage`.
+        "# Coverage: collect lcov when COVERAGE_OUTPUT_FILE is set by bazel coverage.\n" +
+        "# This block runs unconditionally so 'bazel coverage' works on any ts_test.\n" +
+        "if [[ -n \"${COVERAGE_OUTPUT_FILE:-}\" ]]; then\n" +
+        "  COVERAGE_DIR=\"$(dirname \"${COVERAGE_OUTPUT_FILE}\")\"\n" +
+        "  mkdir -p \"${COVERAGE_DIR}\"\n" +
+        "  VITEST_EXTRA_FLAGS+=(\"--coverage.enabled\" \"true\")\n" +
+        "  VITEST_EXTRA_FLAGS+=(\"--coverage.provider\" \"v8\")\n" +
+        "  VITEST_EXTRA_FLAGS+=(\"--coverage.reporter\" \"lcov\")\n" +
+        "  VITEST_EXTRA_FLAGS+=(\"--coverage.reportsDirectory\" \"${COVERAGE_DIR}\")\n" +
+        # When coverage is enabled, Vite needs to find @vitest/coverage-v8 from
+        # the CWD (RUNFILES_DIR root).  The node_modules directory is at
+        # NODE_MODULES_DIR (e.g. _main/tests/vitest/coverage/node_modules), which
+        # may be several levels below the RUNFILES root.  Vite's ESM resolver does
+        # NOT use NODE_PATH; it walks the directory tree looking for node_modules.
+        # In the Bazel linux-sandbox, this walk is blocked at the sandbox boundary.
+        #
+        # Fix: create a node_modules symlink at the RUNFILES root pointing to the
+        # actual node_modules tree.  This makes @vitest/coverage-v8 visible from
+        # CWD so Vite's resolver finds it immediately without walking.
+        "  if [[ -n \"$NODE_MODULES_DIR\" && -d \"$NODE_MODULES_DIR\" ]]; then\n" +
+        "    _ROOT_NM=\"${PWD}/node_modules\"\n" +
+        "    if [[ ! -e \"${_ROOT_NM}\" ]]; then\n" +
+        "      ln -sf \"${PWD}/${NODE_MODULES_DIR}\" \"${_ROOT_NM}\" || true\n" +
+        "    fi\n" +
+        "  fi\n" +
         (
-            "# Coverage: collect lcov when COVERAGE_OUTPUT_FILE is set by bazel coverage.\n" +
-            "if [[ -n \"${COVERAGE_OUTPUT_FILE:-}\" ]]; then\n" +
-            "  COVERAGE_DIR=\"$(dirname \"${COVERAGE_OUTPUT_FILE}\")\"\n" +
-            "  mkdir -p \"${COVERAGE_DIR}\"\n" +
-            "  VITEST_EXTRA_FLAGS+=(\"--coverage.enabled\" \"true\")\n" +
-            "  VITEST_EXTRA_FLAGS+=(\"--coverage.provider\" \"v8\")\n" +
-            "  VITEST_EXTRA_FLAGS+=(\"--coverage.reporter\" \"lcov\")\n" +
-            "  VITEST_EXTRA_FLAGS+=(\"--coverage.reportsDirectory\" \"${COVERAGE_DIR}\")\n" +
-            # When coverage is enabled, Vite needs to find @vitest/coverage-v8 from
-            # the CWD (RUNFILES_DIR root).  The node_modules directory is at
-            # NODE_MODULES_DIR (e.g. _main/tests/vitest/coverage/node_modules), which
-            # may be several levels below the RUNFILES root.  Vite's ESM resolver does
-            # NOT use NODE_PATH; it walks the directory tree looking for node_modules.
-            # In the Bazel linux-sandbox, this walk is blocked at the sandbox boundary.
-            #
-            # Fix: create a node_modules symlink at the RUNFILES root pointing to the
-            # actual node_modules tree.  This makes @vitest/coverage-v8 visible from
-            # CWD so Vite's resolver finds it immediately without walking.
-            "  if [[ -n \"$NODE_MODULES_DIR\" && -d \"$NODE_MODULES_DIR\" ]]; then\n" +
-            "    _ROOT_NM=\"${PWD}/node_modules\"\n" +
-            "    if [[ ! -e \"${_ROOT_NM}\" ]]; then\n" +
-            "      ln -sf \"${PWD}/${NODE_MODULES_DIR}\" \"${_ROOT_NM}\" || true\n" +
-            "    fi\n" +
-            "  fi\n" +
+            # coverage = True: also enable coverage during `bazel test` (not just
+            # `bazel coverage`) when the user explicitly opts in.
             "elif [[ \"${COVERAGE_ENABLED:-false}\" == \"true\" ]]; then\n" +
             "  VITEST_EXTRA_FLAGS+=(\"--coverage.enabled\" \"true\")\n" +
-            "  VITEST_EXTRA_FLAGS+=(\"--coverage.provider\" \"v8\")\n" +
-            "fi\n"
+            "  VITEST_EXTRA_FLAGS+=(\"--coverage.provider\" \"v8\")\n"
             if ctx.attr.coverage else ""
         ) +
+        "fi\n" +
         "# Run vitest via the resolved runtime.\n" +
         "VITEST=\"" + vitest_path + "\"\n" +
         "VITEST_CMD=\"" + vitest_subcommand + "\"\n" +
-        # When coverage is enabled and COVERAGE_OUTPUT_FILE is set, we cannot
-        # use exec (which replaces the shell process) because we need to copy
-        # the lcov.info file after vitest exits.  In all other cases we use
-        # exec to avoid an extra shell wrapper process.
+        # We always need the wrapper function form (not exec) so that the
+        # lcov post-processing step can run after vitest exits when
+        # COVERAGE_OUTPUT_FILE is set (which happens during `bazel coverage`).
+        "# Coverage post-run: copy lcov.info → COVERAGE_OUTPUT_FILE if present.\n" +
+        "_run_vitest() {\n" +
+        "  if [[ -n \"$VITEST\" && -f \"$VITEST\" ]]; then\n" +
         (
-            "# Coverage post-run: copy lcov.info → COVERAGE_OUTPUT_FILE if present.\n" +
-            "_run_vitest() {\n" +
-            "  if [[ -n \"$VITEST\" && -f \"$VITEST\" ]]; then\n" +
-            (
-                "    \"$VITEST\" \"$VITEST_CMD\" ${VITEST_EXTRA_FLAGS[@]+\"${VITEST_EXTRA_FLAGS[@]}\"} ${SHARD_FILES[@]+\"${SHARD_FILES[@]}\"}\n"
-                if vitest_is_npm_bin else
-                "    \"$RUNTIME\" ${RUNTIME_ARGS[@]+\"${RUNTIME_ARGS[@]}\"} \"$VITEST\" \"$VITEST_CMD\" ${VITEST_EXTRA_FLAGS[@]+\"${VITEST_EXTRA_FLAGS[@]}\"} ${SHARD_FILES[@]+\"${SHARD_FILES[@]}\"}\n"
-            ) +
-            "  elif command -v vitest &>/dev/null; then\n" +
-            "    vitest \"$VITEST_CMD\" ${VITEST_EXTRA_FLAGS[@]+\"${VITEST_EXTRA_FLAGS[@]}\"} ${SHARD_FILES[@]+\"${SHARD_FILES[@]}\"}\n" +
-            "  else\n" +
-            "    echo \"ts_test: vitest not found. Set vitest attr or include it in node_modules.\" >&2\n" +
-            "    return 1\n" +
-            "  fi\n" +
-            "}\n" +
-            # Disable pipefail/errexit around the vitest invocation so we can
-            # capture the exit code and still perform the lcov copy step.
-            "_exit=0\n" +
-            "_run_vitest || _exit=$?\n" +
-            "if [[ -n \"${COVERAGE_OUTPUT_FILE:-}\" ]]; then\n" +
-            "  _lcov=\"$(dirname \"${COVERAGE_OUTPUT_FILE}\")/lcov.info\"\n" +
-            "  if [[ -f \"$_lcov\" ]]; then\n" +
-            # Normalise SF: paths so Bazel's _lcov_merger can match them.
-            # vitest emits SF lines with the runfiles-relative path
-            # (e.g. "_main/tests/vitest/math.js").  Bazel's lcov_merger
-            # expects paths relative to the workspace root without the
-            # "_main/" repository prefix.
-            "    sed 's|^SF:_main/|SF:|' \"$_lcov\" > \"${COVERAGE_OUTPUT_FILE}\"\n" +
-            "  else\n" +
-            "    # Write an empty lcov file so Bazel does not fail due to a missing output.\n" +
-            "    printf '' > \"${COVERAGE_OUTPUT_FILE}\"\n" +
-            "  fi\n" +
-            "fi\n" +
-            "exit \"${_exit}\"\n"
-            if ctx.attr.coverage else
-            "if [[ -n \"$VITEST\" && -f \"$VITEST\" ]]; then\n" +
-            (
-                "  exec \"$VITEST\" \"$VITEST_CMD\" ${VITEST_EXTRA_FLAGS[@]+\"${VITEST_EXTRA_FLAGS[@]}\"} ${SHARD_FILES[@]+\"${SHARD_FILES[@]}\"}\n"
-                if vitest_is_npm_bin else
-                "  exec \"$RUNTIME\" ${RUNTIME_ARGS[@]+\"${RUNTIME_ARGS[@]}\"} \"$VITEST\" \"$VITEST_CMD\" ${VITEST_EXTRA_FLAGS[@]+\"${VITEST_EXTRA_FLAGS[@]}\"} ${SHARD_FILES[@]+\"${SHARD_FILES[@]}\"}\n"
-            ) +
-            "elif command -v vitest &>/dev/null; then\n" +
-            "  exec vitest \"$VITEST_CMD\" ${VITEST_EXTRA_FLAGS[@]+\"${VITEST_EXTRA_FLAGS[@]}\"} ${SHARD_FILES[@]+\"${SHARD_FILES[@]}\"}\n" +
-            "else\n" +
-            "  echo \"ts_test: vitest not found. Set vitest attr or include it in node_modules.\" >&2\n" +
-            "  exit 1\n" +
-            "fi\n"
-        )
+            "    \"$VITEST\" \"$VITEST_CMD\" ${VITEST_EXTRA_FLAGS[@]+\"${VITEST_EXTRA_FLAGS[@]}\"} ${SHARD_FILES[@]+\"${SHARD_FILES[@]}\"}\n"
+            if vitest_is_npm_bin else
+            "    \"$RUNTIME\" ${RUNTIME_ARGS[@]+\"${RUNTIME_ARGS[@]}\"} \"$VITEST\" \"$VITEST_CMD\" ${VITEST_EXTRA_FLAGS[@]+\"${VITEST_EXTRA_FLAGS[@]}\"} ${SHARD_FILES[@]+\"${SHARD_FILES[@]}\"}\n"
+        ) +
+        "  elif command -v vitest &>/dev/null; then\n" +
+        "    vitest \"$VITEST_CMD\" ${VITEST_EXTRA_FLAGS[@]+\"${VITEST_EXTRA_FLAGS[@]}\"} ${SHARD_FILES[@]+\"${SHARD_FILES[@]}\"}\n" +
+        "  else\n" +
+        "    echo \"ts_test: vitest not found. Set vitest attr or include it in node_modules.\" >&2\n" +
+        "    return 1\n" +
+        "  fi\n" +
+        "}\n" +
+        # Capture vitest's exit code so we can still perform the lcov copy
+        # step even when vitest fails (Bazel expects COVERAGE_OUTPUT_FILE to
+        # be written even on test failure when running under bazel coverage).
+        "_exit=0\n" +
+        "_run_vitest || _exit=$?\n" +
+        "if [[ -n \"${COVERAGE_OUTPUT_FILE:-}\" ]]; then\n" +
+        "  _lcov=\"$(dirname \"${COVERAGE_OUTPUT_FILE}\")/lcov.info\"\n" +
+        "  if [[ -f \"$_lcov\" ]]; then\n" +
+        # Normalise SF: paths so Bazel's _lcov_merger can match them.
+        # vitest emits SF lines with the runfiles-relative path
+        # (e.g. "_main/tests/vitest/math.js").  Bazel's lcov_merger
+        # expects paths relative to the workspace root without the
+        # "_main/" repository prefix.
+        "    sed 's|^SF:_main/|SF:|' \"$_lcov\" > \"${COVERAGE_OUTPUT_FILE}\"\n" +
+        "  else\n" +
+        "    # Write an empty lcov file so Bazel does not fail due to a missing output.\n" +
+        "    printf '' > \"${COVERAGE_OUTPUT_FILE}\"\n" +
+        "  fi\n" +
+        "fi\n" +
+        "exit \"${_exit}\"\n"
     )
 
     ctx.actions.write(
@@ -594,9 +585,11 @@ _RUNNER_ATTRS = {
         values = ["", "node", "happy-dom", "jsdom"],
     ),
     "coverage": attr.bool(
-        doc = "When True, enables vitest coverage instrumentation.  During " +
-              "`bazel coverage`, the runner writes an lcov report to " +
-              "COVERAGE_OUTPUT_FILE as required by Bazel's coverage protocol.  " +
+        doc = "When True, also enables vitest coverage instrumentation during " +
+              "normal `bazel test` runs (in addition to `bazel coverage`).  " +
+              "Coverage during `bazel coverage` is always enabled regardless " +
+              "of this attr — `bazel coverage //path:test` works on every " +
+              "ts_test target without any opt-in.  " +
               "Requires @vitest/coverage-v8 to be present in node_modules.",
         default = False,
     ),
@@ -724,7 +717,11 @@ def ts_test(
         visibility:        Bazel visibility for the test target.
         environment:       Vitest test environment: 'node', 'happy-dom', or 'jsdom'.
                            Requires the corresponding package in node_modules.
-        coverage:          When True, passes --coverage to vitest.
+        coverage:          When True, also enables coverage during `bazel test`
+                           (not just `bazel coverage`).  Coverage during
+                           `bazel coverage` is always on regardless of this
+                           attr — every ts_test supports `bazel coverage`
+                           without any opt-in.
         config:            Optional label pointing to a vitest.config.ts or .js file.
                            Passed as --config to vitest.
         update_snapshots:  When True, creates an *executable* target (not a test)

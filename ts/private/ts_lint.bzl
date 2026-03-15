@@ -90,10 +90,16 @@ def _ts_lint_impl(ctx):
     #
     # Both exit non-zero on lint errors; the shell command propagates that exit
     # code and Bazel fails the action accordingly.
-    src_paths = " ".join(['"{}"'.format(f.path) for f in srcs])
+    #
+    # NOTE: File.path gives a path relative to the execroot (the action CWD).
+    # When the linter binary is an npm_bin wrapper (e.g. @npm//:oxlint_bin),
+    # the wrapper script CDs to RUNFILES_DIR before invoking the linter, making
+    # relative paths invalid.  We therefore capture the absolute execroot path
+    # at action start and prefix all file paths with it.
+    src_paths = " ".join(['"${_EXECROOT}/' + f.path + '"' for f in srcs])
 
     if config_file:
-        config_flag = '--config "{}"'.format(config_file.path)
+        config_flag = '--config "${_EXECROOT}/' + config_file.path + '"'
     else:
         config_flag = ""
 
@@ -103,24 +109,35 @@ def _ts_lint_impl(ctx):
     # attr to change this.
     warnings_flag = "--deny-warnings" if ctx.attr.fail_on_warnings else ""
 
-    cmd = """\
-set -euo pipefail
-"{linter_bin}" {config_flag} {warnings_flag} {srcs}
-touch "{stamp}"
-""".format(
-        linter_bin = linter_bin.path,
-        config_flag = config_flag,
-        warnings_flag = warnings_flag,
-        srcs = src_paths,
-        stamp = stamp.path,
+    cmd = (
+        "set -euo pipefail\n" +
+        # Save the action execroot (CWD at action start) as an absolute path.
+        # This is needed because npm_bin linter wrappers CD to RUNFILES_DIR
+        # before invoking the linter, which would break relative exec paths.
+        "_EXECROOT=\"${PWD}\"\n" +
+        '"{linter_bin}" {config_flag} {warnings_flag} {srcs}\n'.format(
+            linter_bin = linter_bin.path,
+            config_flag = config_flag,
+            warnings_flag = warnings_flag,
+            srcs = src_paths,
+        ) +
+        'touch "${_EXECROOT}/' + stamp.path + '"\n'
     )
 
     inputs = list(srcs)
     if config_file:
         inputs.append(config_file)
 
+    # Collect the linter binary's runfiles so that npm_bin wrapper scripts
+    # (e.g. @npm//:oxlint_bin) can find Node.js and platform-specific native
+    # binaries at action time.  npm_bin wrappers resolve RUNFILES_DIR at
+    # startup to locate their dependencies; passing tools via FilesToRunProvider
+    # makes Bazel stage a proper runfiles tree for the action.
+    linter_files_to_run = ctx.attr.linter_binary[DefaultInfo].files_to_run
+
     ctx.actions.run_shell(
-        inputs = depset(inputs + [linter_bin]),
+        inputs = depset(inputs),
+        tools = [linter_files_to_run],
         outputs = [stamp],
         command = cmd,
         env = {"PATH": "/bin:/usr/bin"},

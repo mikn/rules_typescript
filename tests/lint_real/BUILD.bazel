@@ -1,0 +1,44 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("//ts:defs.bzl", "ts_lint")
+
+# ── oxlint config ─────────────────────────────────────────────────────────────
+# The oxlint.json enables the no-var rule so that violations.ts fails.
+
+# ── Clean target ──────────────────────────────────────────────────────────────
+# clean.ts has no violations; lint should succeed and produce a stamp file.
+ts_lint(
+    name = "clean_lint",
+    srcs = ["clean.ts"],
+    config = ":oxlint.json",
+    linter_binary = "@npm//:oxlint_bin",
+)
+
+# Expose the _validation stamp so the smoke test can declare it as a data dep.
+filegroup(
+    name = "clean_lint_stamp",
+    srcs = [":clean_lint"],
+    output_group = "_validation",
+)
+
+# ── Violation target ───────────────────────────────────────────────────────────
+# violations.ts uses 'var' which triggers no-var.  This target intentionally
+# FAILS the lint action.  Tag it manual so `bazel test //...` skips it;
+# the real_lint_test below exercises it explicitly via a shell subprocess.
+ts_lint(
+    name = "violations_lint",
+    srcs = ["violations.ts"],
+    config = ":oxlint.json",
+    linter_binary = "@npm//:oxlint_bin",
+    tags = ["manual"],
+)
+
+# ── Integration test ──────────────────────────────────────────────────────────
+# Verifies that:
+#   1. clean.ts produces a stamp (lint passes).
+#   2. violations.ts causes the lint action to fail.
+sh_test(
+    name = "real_lint_test",
+    size = "small",
+    srcs = ["verify_real_lint.sh"],
+    data = [":clean_lint_stamp"],
+)

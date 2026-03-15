@@ -14,6 +14,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: 3.0.9
         version: 3.0.9(vitest@3.0.9)
+      oxlint:
+        specifier: 0.16.6
+        version: 0.16.6
       vitest:
         specifier: 3.0.9
         version: 3.0.9
@@ -304,6 +307,46 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
+
+  '@oxlint/darwin-arm64@0.16.6':
+    resolution: {integrity: sha512-wvW55Br6o08JEmiezMqvo0byZNH9eunCkbouV8rM2gQP6ROv8lbeQdPZLpAeFz0QA4Ca2b2pVo5S3N2fS78d+Q==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@oxlint/darwin-x64@0.16.6':
+    resolution: {integrity: sha512-VezC8yep+1TxVtBsTQz2OHJs9aTuIQ7ISyl5rn1QVQXeG7wdFIIFln3ilu2TtaMjnswEdEsCDqBjyoF1euqQow==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@oxlint/linux-arm64-gnu@0.16.6':
+    resolution: {integrity: sha512-hvpBsP5/bERq8ft4KidszGifWV4ZcXeaJrfNI8CqIbfd4AqGJmnc5d6M2Op/sYdEMjRGdpPqftfzw4D6jDHPIQ==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@oxlint/linux-arm64-musl@0.16.6':
+    resolution: {integrity: sha512-PolYYEhYELXaQ0ht0g6Z827rRVDgbi/PQcHFpctiDHbSruW3udIOy9nEOAUt0agSHYrdZcC0NWzISE+CPrM0Yw==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@oxlint/linux-x64-gnu@0.16.6':
+    resolution: {integrity: sha512-y4Lq4mcheXYzyLiS2TG1CaNDfgK+yVmmyJlms010Gs6nd1ejF6cObMuY5g6GLPGRJMJxG4fhbE955I2y50+Ltg==}
+    cpu: [x64]
+    os: [linux]
+
+  '@oxlint/linux-x64-musl@0.16.6':
+    resolution: {integrity: sha512-p3Njn7MzBsIJr+23HtxItA86UP01xhcWfwU35RGWVyTNbXIdNoAkaD+DjXQj2KSEauO7rRDAZbrTA+40NWNNkQ==}
+    cpu: [x64]
+    os: [linux]
+
+  '@oxlint/win32-arm64@0.16.6':
+    resolution: {integrity: sha512-IdySuXzslSnZEk9F2mRx1cjyPsHM8ny2xQd+FEbWhDhfwxVZCK+m9hXoEnqVQ6FLXQsOjWVutGtYb+EpDiZxlQ==}
+    cpu: [arm64]
+    os: [win32]
+
+  '@oxlint/win32-x64@0.16.6':
+    resolution: {integrity: sha512-DqkFdDX1ULoizFBg21TMIe6B5L2a59KljqpN1S7H4+IXhxmRcc71bpZ7FRwrxjrlRhtCD4SAPTZadBI9qRhViw==}
+    cpu: [x64]
+    os: [win32]
 
   '@pkgjs/parseargs@0.11.0':
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
@@ -727,6 +770,11 @@ packages:
 
   node-releases@2.0.36:
     resolution: {integrity: sha512-TdC8FSgHz8Mwtw9g5L4gR/Sh9XhSP/0DEkQxfEFXOpiul5IiHgHan2VhYYb6agDSfp4KuvltmGApc8HMgUrIkA==}
+
+  oxlint@0.16.6:
+    resolution: {integrity: sha512-pesehI0loV2h2k95mFRsUg6uNgGw2RPs1pcuAfPRJUwGehkfraMVCQofwqsMUeufmXygweH734vhKzQ24r3djA==}
+    engines: {node: '>=8.*'}
+    hasBin: true
 
   package-json-from-dist@1.0.1:
     resolution: {integrity: sha512-UEZIS3/by4OC8vL3P2dTXRETpebLI2NiI5vIrjaD/5UtrkFX/tNbwjTSRAGC/+7CAo2pIcBaRgWmcBBHcsaCIw==}
@@ -1178,6 +1226,30 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
+  '@oxlint/darwin-arm64@0.16.6':
+    optional: true
+
+  '@oxlint/darwin-x64@0.16.6':
+    optional: true
+
+  '@oxlint/linux-arm64-gnu@0.16.6':
+    optional: true
+
+  '@oxlint/linux-arm64-musl@0.16.6':
+    optional: true
+
+  '@oxlint/linux-x64-gnu@0.16.6':
+    optional: true
+
+  '@oxlint/linux-x64-musl@0.16.6':
+    optional: true
+
+  '@oxlint/win32-arm64@0.16.6':
+    optional: true
+
+  '@oxlint/win32-x64@0.16.6':
+    optional: true
+
   '@pkgjs/parseargs@0.11.0':
     optional: true
 
@@ -1568,6 +1640,17 @@ snapshots:
   nanoid@3.3.11: {}
 
   node-releases@2.0.36: {}
+
+  oxlint@0.16.6:
+    optionalDependencies:
+      '@oxlint/darwin-arm64': 0.16.6
+      '@oxlint/darwin-x64': 0.16.6
+      '@oxlint/linux-arm64-gnu': 0.16.6
+      '@oxlint/linux-arm64-musl': 0.16.6
+      '@oxlint/linux-x64-gnu': 0.16.6
+      '@oxlint/linux-x64-musl': 0.16.6
+      '@oxlint/win32-arm64': 0.16.6
+      '@oxlint/win32-x64': 0.16.6
 
   package-json-from-dist@1.0.1: {}
 

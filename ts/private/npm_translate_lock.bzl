@@ -1474,6 +1474,26 @@ def _npm_translate_lock_impl(repository_ctx):
             "",
         ])
 
+    # Helper: collect optional dependency info for a package's optional dependencies.
+    # Some packages (e.g. oxlint) ship a JS wrapper that resolves a platform-
+    # specific native binary via require.resolve('@scope/platform-pkg/binary').
+    # For this to work inside a Bazel action sandbox, the platform package's
+    # files must be available on disk AND accessible via Node.js module resolution.
+    # We collect optional dependency (npm_name, dir_name) pairs and include them in
+    # the npm_bin target so the runner can create node_modules/ symlinks at runtime.
+    def _optional_dep_info(pkg):
+        """Returns a list of (npm_name, dir_name) pairs for a pkg's optional deps."""
+        result = []
+        for dep_name, dep_version_spec in pkg.get("optionalDependencies", {}).items():
+            resolved = _resolve_dep_version(packages, dep_name, dep_version_spec)
+            if not resolved:
+                continue
+            dep_pkg_id = "{}@{}".format(dep_name, resolved)
+            dep_dir = pkg_dir_names.get(dep_pkg_id)
+            if dep_dir:
+                result.append((dep_name, dep_dir))
+        return result
+
     # Emit all package targets.
     # For multi-version packages:
     #   - Emit a versioned ts_npm_package for each version.
@@ -1539,17 +1559,43 @@ def _npm_translate_lock_impl(repository_ctx):
                             seen_bin_targets[bin_target_name],
                         ))
                     seen_bin_targets[bin_target_name] = vpkg_id
-                    build_lines.extend([
-                        "npm_bin(",
-                        '    name = "{}",'.format(bin_target_name),
-                        "    package_files = glob(",
-                        '        ["{}/**/*"],'.format(vdir),
-                        "        exclude_directories = 1,",
-                        "    ),",
-                        '    entry_script = "{}",'.format(bin_path),
-                        ")",
-                        "",
-                    ])
+                    opt_info = _optional_dep_info(vpkg)
+                    if opt_info:
+                        # Include optional dep directories so native platform
+                        # binaries are available when the bin script runs inside
+                        # a Bazel action sandbox (e.g. oxlint uses @oxlint/linux-x64-gnu).
+                        all_dirs = [vdir] + [d for (_, d) in opt_info]
+                        all_globs = ['            "{}/**/*",'.format(d) for d in all_dirs]
+                        # optional_dep_info entries: "npm_name:dir_name"
+                        opt_info_strs = ['        "{}:{}",'.format(n, d) for (n, d) in opt_info]
+                        build_lines.extend([
+                            "npm_bin(",
+                            '    name = "{}",'.format(bin_target_name),
+                            "    package_files = glob(",
+                            "        [",
+                        ] + all_globs + [
+                            "        ],",
+                            "        exclude_directories = 1,",
+                            "    ),",
+                            "    optional_dep_info = [",
+                        ] + opt_info_strs + [
+                            "    ],",
+                            '    entry_script = "{}",'.format(bin_path),
+                            ")",
+                            "",
+                        ])
+                    else:
+                        build_lines.extend([
+                            "npm_bin(",
+                            '    name = "{}",'.format(bin_target_name),
+                            "    package_files = glob(",
+                            '        ["{}/**/*"],'.format(vdir),
+                            "        exclude_directories = 1,",
+                            "    ),",
+                            '    entry_script = "{}",'.format(bin_path),
+                            ")",
+                            "",
+                        ])
         else:
             # Single version: plain ts_npm_package, unchanged behaviour.
             dir_name = pkg_dir_names.get(pkg_id)
@@ -1578,17 +1624,43 @@ def _npm_translate_lock_impl(repository_ctx):
                             seen_bin_targets[bin_target_name],
                         ))
                 seen_bin_targets[bin_target_name] = pkg_id
-                build_lines.extend([
-                    "npm_bin(",
-                    '    name = "{}",'.format(bin_target_name),
-                    "    package_files = glob(",
-                    '        ["{}/**/*"],'.format(dir_name),
-                    "        exclude_directories = 1,",
-                    "    ),",
-                    '    entry_script = "{}",'.format(bin_path),
-                    ")",
-                    "",
-                ])
+                opt_info = _optional_dep_info(pkg)
+                if opt_info:
+                    # Include optional dep directories so native platform
+                    # binaries are available when the bin script runs inside
+                    # a Bazel action sandbox (e.g. oxlint uses @oxlint/linux-x64-gnu).
+                    all_dirs = [dir_name] + [d for (_, d) in opt_info]
+                    all_globs = ['            "{}/**/*",'.format(d) for d in all_dirs]
+                    # optional_dep_info entries: "npm_name:dir_name"
+                    opt_info_strs = ['        "{}:{}",'.format(n, d) for (n, d) in opt_info]
+                    build_lines.extend([
+                        "npm_bin(",
+                        '    name = "{}",'.format(bin_target_name),
+                        "    package_files = glob(",
+                        "        [",
+                    ] + all_globs + [
+                        "        ],",
+                        "        exclude_directories = 1,",
+                        "    ),",
+                        "    optional_dep_info = [",
+                    ] + opt_info_strs + [
+                        "    ],",
+                        '    entry_script = "{}",'.format(bin_path),
+                        ")",
+                        "",
+                    ])
+                else:
+                    build_lines.extend([
+                        "npm_bin(",
+                        '    name = "{}",'.format(bin_target_name),
+                        "    package_files = glob(",
+                        '        ["{}/**/*"],'.format(dir_name),
+                        "        exclude_directories = 1,",
+                        "    ),",
+                        '    entry_script = "{}",'.format(bin_path),
+                        ")",
+                        "",
+                    ])
 
     # ── pnpm workspace aliases ──────────────────────────────────────────────
     # If the lockfile has an importers: section with workspace:* references,

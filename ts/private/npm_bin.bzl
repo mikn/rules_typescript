@@ -78,6 +78,93 @@ def _npm_bin_impl(ctx):
     entry_path = _rl(entry_script_file.short_path)
     runtime_args_str = " ".join(["\"{}\"".format(_shell_escape(a)) for a in runtime_args])
 
+    # Build the optional-dependency node_modules setup block.
+    # Some npm packages (e.g. oxlint) use platform-specific native binaries
+    # referenced via require.resolve('@scope/platform-pkg/binary').  Node.js
+    # module resolution walks parent directories looking for node_modules/.
+    # When the entry script runs inside a Bazel runfiles tree (or action sandbox),
+    # packages live in a flat layout (e.g. repo/pkg__ver/) that does not
+    # match the expected node_modules/ structure.
+    #
+    # optional_dep_info: list of "npm_package_name:dir_name" strings where
+    # dir_name is the Bazel package directory name (e.g. "oxlint_linux-x64-gnu__0_16_6").
+    # The runner derives the full runfiles path by finding a file with that dir
+    # in package_files, then creates node_modules/ symlinks.
+    optional_dep_setup_lines = []
+    if ctx.attr.optional_dep_info:
+        # Build a map: dir_name → runfiles_dir_path
+        # by scanning package_files for files whose path contains each dir_name.
+        dir_name_to_rl_path = {}
+        for info in ctx.attr.optional_dep_info:
+            colon_idx = info.find(":")
+            if colon_idx == -1:
+                continue
+            dir_name = info[colon_idx + 1:]
+            # Find a file in package_files that lives in this directory.
+            for f in ctx.files.package_files:
+                # File path: external/+npm+npm/dir_name/file
+                # or: +npm+npm/dir_name/file (relative exec path)
+                # We look for "/<dir_name>/" in the path.
+                if ("/" + dir_name + "/") in f.path:
+                    # The runfiles path for the directory:
+                    # _rl(short_path) gives "repo_name/dir_name/file"
+                    # Strip the "/file" suffix to get "repo_name/dir_name"
+                    rl_file = _rl(f.short_path)
+                    # Find "/<dir_name>/" in rl_file and take everything up to end of dir_name
+                    marker = "/" + dir_name + "/"
+                    idx = rl_file.find(marker)
+                    if idx >= 0:
+                        dir_name_to_rl_path[dir_name] = rl_file[:idx + len(marker) - 1]
+                    break
+
+        if dir_name_to_rl_path:
+            optional_dep_setup_lines += [
+                "# Set up node_modules symlinks for optional platform dependencies.\n",
+                "# Enables require.resolve('@scope/pkg/binary') to work.\n",
+                "#\n",
+                "# We use a temp directory for the node_modules tree so that the\n",
+                "# symlinks are always writable — both in Bazel action sandboxes\n",
+                "# (where RUNFILES_DIR for tools is read-only) and for bazel run\n",
+                "# (where the runfiles tree is immutable after build).\n",
+                '_TMPNM="$(mktemp -d)"\n',
+            ]
+            for info in ctx.attr.optional_dep_info:
+                colon_idx = info.find(":")
+                if colon_idx == -1:
+                    continue
+                npm_name = info[:colon_idx]
+                dir_name = info[colon_idx + 1:]
+                rl_path = dir_name_to_rl_path.get(dir_name)
+                if not rl_path:
+                    continue
+                escaped_rl_path = _shell_escape(rl_path)
+                if npm_name.startswith("@"):
+                    slash = npm_name.find("/")
+                    if slash != -1:
+                        scope = npm_name[:slash]        # e.g. "@oxlint"
+                        pkg = npm_name[slash + 1:]      # e.g. "linux-x64-gnu"
+                        escaped_scope = _shell_escape(scope)
+                        escaped_pkg = _shell_escape(pkg)
+                        optional_dep_setup_lines += [
+                            'mkdir -p "$_TMPNM/' + escaped_scope + '"\n',
+                            'ln -sfn "${RUNFILES_DIR}/' + escaped_rl_path + '" "$_TMPNM/' + escaped_scope + "/" + escaped_pkg + '"\n',
+                        ]
+                else:
+                    escaped_npm_name = _shell_escape(npm_name)
+                    optional_dep_setup_lines.append(
+                        'ln -sfn "${RUNFILES_DIR}/' + escaped_rl_path + '" "$_TMPNM/' + escaped_npm_name + '"\n',
+                    )
+    # When optional deps are present, emit a NODE_PATH export so that
+    # require.resolve() finds the node_modules symlinks even when Node.js
+    # resolves the entry script's __filename through symlinks to an absolute
+    # path outside the runfiles tree.  We point NODE_PATH at the temp dir
+    # so it works both in actions (read-only RUNFILES_DIR) and bazel run.
+    node_path_export = ""
+    if optional_dep_setup_lines:
+        node_path_export = 'export NODE_PATH="$_TMPNM:${NODE_PATH:-}"\n'
+
+    optional_dep_setup = "".join(optional_dep_setup_lines)
+
     runner = ctx.actions.declare_file("{}_bin_runner.sh".format(ctx.label.name))
     runner_content = (
         "#!/usr/bin/env bash\n" +
@@ -105,6 +192,10 @@ def _npm_bin_impl(ctx):
         "    RUNFILES_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)/$(basename \"${BASH_SOURCE[0]}\").runfiles\"\n" +
         "  fi\n" +
         "fi\n" +
+        "\n" +
+        optional_dep_setup +
+        node_path_export +
+        "\n" +
         "cd \"${RUNFILES_DIR}\"\n" +
         "\n" +
         "RUNTIME=\"" + runtime_path + "\"\n" +
@@ -115,7 +206,17 @@ def _npm_bin_impl(ctx):
         "\n" +
         "ENTRY=\"" + entry_path + "\"\n" +
         "\n" +
-        "exec \"$RUNTIME\" ${RUNTIME_ARGS[@]+\"${RUNTIME_ARGS[@]}\"} \"$ENTRY\" \"$@\"\n"
+        (
+            # When optional deps are set up in a tmpdir, we cannot use exec
+            # (which would replace the shell before the trap can clean up).
+            # Instead run the command, capture the exit code, clean up, and exit.
+            "_exit=0\n" +
+            "\"$RUNTIME\" ${RUNTIME_ARGS[@]+\"${RUNTIME_ARGS[@]}\"} \"$ENTRY\" \"$@\" || _exit=$?\n" +
+            'rm -rf "$_TMPNM" 2>/dev/null || true\n' +
+            "exit $_exit\n"
+            if optional_dep_setup_lines else
+            "exec \"$RUNTIME\" ${RUNTIME_ARGS[@]+\"${RUNTIME_ARGS[@]}\"} \"$ENTRY\" \"$@\"\n"
+        )
     )
 
     ctx.actions.write(
@@ -153,6 +254,18 @@ npm_bin = rule(
         "entry_script": attr.string(
             doc = "The relative path within the package to the bin entry script (e.g. 'vitest.mjs').",
             mandatory = True,
+        ),
+        "optional_dep_info": attr.string_list(
+            doc = """Optional dependency information for platform-specific native binaries.
+
+Each entry is a colon-separated string: "npm_package_name:bazel_dir_name".
+Example: "@oxlint/linux-x64-gnu:oxlint_linux-x64-gnu__0_16_6"
+
+At runtime, the runner creates node_modules/ symlinks for each entry so that
+require.resolve('@oxlint/linux-x64-gnu/oxlint') works correctly inside Bazel
+action sandboxes and runfiles trees.
+""",
+            default = [],
         ),
         "runtime": attr.label(
             doc = "Per-target override for the JS runtime binary. " +
