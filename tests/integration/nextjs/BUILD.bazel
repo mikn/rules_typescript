@@ -1,0 +1,47 @@
+"""Root BUILD file for the nextjs integration test workspace.
+
+Hand-written to demonstrate the full next_build setup:
+  - node_modules() rule with Next.js deps
+  - next_build() wrapping `next build`
+  - staging_srcs for the shared lib sources
+"""
+
+load("@rules_typescript//npm:defs.bzl", "node_modules")
+load("@rules_typescript//ts:defs.bzl", "next_build")
+
+# ── node_modules tree for Next.js ─────────────────────────────────────────────
+node_modules(
+    name = "node_modules",
+    deps = [
+        "@npm//:next",
+        "@npm//:react",
+        "@npm//:react-dom",
+        "@npm//:typescript",
+        "@npm//:types_react",
+        "@npm//:types_node",
+    ],
+)
+
+# ── staging_srcs filegroup ────────────────────────────────────────────────────
+# Expose src/lib sources so the next_build action can stage them.
+filegroup(
+    name = "lib_sources",
+    srcs = glob(["src/lib/**/*.ts"]),
+    visibility = ["//visibility:public"],
+)
+
+# ── Next.js application build ─────────────────────────────────────────────────
+next_build(
+    name = "app",
+    srcs = glob(
+        [
+            "src/app/**/*.tsx",
+            "src/app/**/*.ts",
+        ],
+        allow_empty = True,
+    ),
+    staging_srcs = [":lib_sources"],
+    config = "next.config.mjs",
+    tsconfig = "tsconfig.json",
+    node_modules = ":node_modules",
+)

@@ -1,0 +1,38 @@
+"""Next.js application example demonstrating rules_typescript next_build rule.
+
+Hybrid monorepo pattern:
+  - packages/shared   → ts_compile (fast, incremental, .d.ts boundary)
+  - apps/web (root)   → next_build (opaque, wraps `next build`)
+
+The shared library uses ts_compile for sub-second incremental builds. The
+Next.js app shell uses next_build as a single Bazel action. Shared package
+sources are staged at their workspace-relative paths via staging_srcs so
+that relative imports resolve without any transpilePackages configuration.
+
+To use from BCR, remove the local_path_override block below.
+"""
+
+module(
+    name = "nextjs_app",
+    version = "0.0.0",
+)
+
+bazel_dep(name = "rules_typescript", version = "0.1.0")
+
+register_toolchains("@rules_typescript//ts/toolchain:all")
+
+# ─── Local development only ───────────────────────────────────────────────────
+# Remove this block when publishing to BCR or using rules_typescript from the
+# Bazel Central Registry.
+local_path_override(
+    module_name = "rules_typescript",
+    path = "../..",
+)
+
+# ─── npm dependencies from pnpm-lock.yaml ────────────────────────────────────
+# Run `pnpm install` in this directory to update pnpm-lock.yaml.
+npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
+npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
+use_repo(npm, "npm")
+
+bazel_dep(name = "gazelle", version = "0.47.0")

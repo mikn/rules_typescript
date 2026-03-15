@@ -247,6 +247,28 @@ bazel_integration_test(
     workspace_path = "lsp",
 )
 
+# ── nextjs ────────────────────────────────────────────────────────────────────
+# Tests: next_build produces a .next/ output directory with expected contents.
+# pnpm-lock.yaml is sourced from examples/nextjs-app/ at runtime by test_runner.sh.
+
+sh_binary(
+    name = "nextjs_test_runner",
+    testonly = True,
+    srcs = ["nextjs/test_runner.sh"],
+)
+
+bazel_integration_test(
+    name = "nextjs_test",
+    bazel_binaries = bazel_binaries,
+    bazel_version = bazel_binaries.versions.current,
+    data = ["//:MODULE.bazel"],
+    tags = integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS + ["no-sandbox"],
+    test_runner = ":nextjs_test_runner",
+    timeout = "long",
+    workspace_files = integration_test_utils.glob_workspace_files("nextjs"),
+    workspace_path = "nextjs",
+)
+
 # ── test_suite ────────────────────────────────────────────────────────────────
 
 test_suite(
@@ -262,5 +284,6 @@ test_suite(
         ":codegen_test",
         ":gazelle_roundtrip_test",
         ":lsp_test",
+        ":nextjs_test",
     ],
 )

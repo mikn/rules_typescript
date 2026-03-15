@@ -651,11 +651,13 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	}
 
 	// ---- framework bundle targets (root package only) ---------------------
-	// When we are at the workspace root and a Vite-based framework is detected,
-	// generate node_modules, vite_bundler, and ts_bundle targets. These are
-	// only emitted once at the root; sub-packages handle their own ts_compile
-	// targets via the normal path above.
-	if args.Rel == "" && tc.detectedFramework != FrameworkNone && tc.detectedFramework != FrameworkNextJS {
+	// When we are at the workspace root and a framework is detected, generate
+	// the framework-appropriate bundle targets:
+	//   - Vite-based frameworks: node_modules, vite_bundler, ts_bundle
+	//   - Next.js: node_modules, next_build
+	// These targets are only emitted at the root; sub-packages handle their
+	// own ts_compile targets via the normal path above.
+	if args.Rel == "" && tc.detectedFramework != FrameworkNone {
 		bundleRules, bundleImports := generateFrameworkBundle(args, tc)
 		gen = append(gen, bundleRules...)
 		imports = append(imports, bundleImports...)

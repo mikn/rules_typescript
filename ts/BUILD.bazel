@@ -12,6 +12,7 @@ bzl_library(
     srcs = ["defs.bzl"],
     deps = [
         "//ts/private:css_library",
+        "//ts/private:next_build",
         "//ts/private:providers",
         "//ts/private:ts_binary",
         "//ts/private:ts_bundle",

@@ -84,6 +84,14 @@ bzl_library(
 )
 
 bzl_library(
+    name = "next_build",
+    srcs = ["next_build.bzl"],
+    deps = [
+        ":runtime",
+    ],
+)
+
+bzl_library(
     name = "ts_npm_package",
     srcs = ["ts_npm_package.bzl"],
     deps = [

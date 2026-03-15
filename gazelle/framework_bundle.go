@@ -65,7 +65,7 @@ type FrameworkBundleConfig struct {
 
 // frameworkConfigs maps each detected Framework to its bundle configuration.
 // Only frameworks with Vite-based bundling are included here; FrameworkNextJS
-// uses its own toolchain and is intentionally absent.
+// uses its own next_build rule and has a separate generation path.
 var frameworkConfigs = map[Framework]FrameworkBundleConfig{
 	FrameworkTanStack: {
 		AppName:        "app",
@@ -133,10 +133,13 @@ var frameworkConfigs = map[Framework]FrameworkBundleConfig{
 // generateFrameworkBundle generates the root-level bundle targets for the
 // detected framework and returns rules ready for inclusion in GenerateResult.
 //
-// It generates:
+// For Vite-based frameworks it generates:
 //  1. A node_modules rule with the framework's npm deps.
 //  2. A vite_bundler rule pointing at the node_modules target.
 //  3. A ts_bundle rule with staging_srcs, vite_config, and entry_point.
+//
+// For Next.js (FrameworkNextJS) it delegates to generateNextJSBundle which
+// generates node_modules and next_build targets.
 //
 // The function is called from generateRules when rel == "" and a framework is
 // detected. It only generates rules that do not already exist in the current
@@ -149,9 +152,14 @@ func generateFrameworkBundle(
 	args language.GenerateArgs,
 	tc *tsConfig,
 ) ([]*rule.Rule, []any) {
+	// Next.js uses its own rule (next_build) rather than Vite-based bundling.
+	if tc.detectedFramework == FrameworkNextJS {
+		return generateNextJSBundle(args, tc)
+	}
+
 	cfg, ok := frameworkConfigs[tc.detectedFramework]
 	if !ok {
-		// Framework detected but no bundle config registered (e.g. NextJS).
+		// Framework detected but no bundle config registered.
 		return nil, nil
 	}
 
@@ -208,6 +216,71 @@ func generateFrameworkBundle(
 			tb.SetAttr("staging_srcs", stagingSrcs)
 		}
 		gen = append(gen, tb)
+		imports = append(imports, nil)
+	}
+
+	return gen, imports
+}
+
+// generateNextJSBundle generates root-level targets for a Next.js application.
+//
+// It generates:
+//  1. A node_modules rule with next, react, react-dom and their peers.
+//  2. A next_build rule pointing at the node_modules target.
+//
+// The user must hand-author next.config.mjs (or next.config.js). Gazelle
+// generates the Bazel wiring; the Next.js config itself is the user's concern.
+func generateNextJSBundle(
+	args language.GenerateArgs,
+	tc *tsConfig,
+) ([]*rule.Rule, []any) {
+	var gen []*rule.Rule
+	var imports []any
+
+	nextjsNpmDeps := []string{
+		"next",
+		"react",
+		"react-dom",
+	}
+
+	// Filter out deps not present in the lockfile (when lockfile is loaded).
+	npmDeps := filterNpmDeps(nextjsNpmDeps, tc)
+
+	nodeModulesName := "node_modules"
+
+	// ---- node_modules target -----------------------------------------------
+	if !ruleExists(args, "node_modules", nodeModulesName) {
+		nmDeps := make([]string, 0, len(npmDeps))
+		for _, pkg := range npmDeps {
+			nmDeps = append(nmDeps, npmLabel(pkg))
+		}
+		sort.Strings(nmDeps)
+
+		nm := rule.NewRule("node_modules", nodeModulesName)
+		nm.SetAttr("deps", nmDeps)
+		nm.SetAttr("visibility", []string{"//visibility:public"})
+		nm.AddComment("# Next.js node_modules")
+		gen = append(gen, nm)
+		imports = append(imports, nil)
+	}
+
+	// ---- next_build target -------------------------------------------------
+	// Detect the conventional Next.js config filename by checking the repo
+	// root for the standard filenames in priority order.
+	configFile := "next.config.mjs" // default to the ESM config convention
+
+	if !ruleExists(args, "next_build", "app") {
+		nb := rule.NewRule("next_build", "app")
+		// srcs uses glob() — emit the srcs attr as a list containing
+		// glob expressions for the typical Next.js directory layout.
+		nb.SetAttr("srcs", []string{
+			globExprPrefix + "[\"app/**/*.tsx\", \"app/**/*.ts\", \"lib/**/*.ts\"])",
+		})
+		nb.SetAttr("config", configFile)
+		nb.SetAttr("node_modules", ":"+nodeModulesName)
+		nb.AddComment("# Next.js application build")
+		nb.AddComment("# Customize srcs glob to match your project layout.")
+		gen = append(gen, nb)
 		imports = append(imports, nil)
 	}
 

@@ -1,0 +1,55 @@
+"""Root BUILD file for the examples/nextjs-app workspace.
+
+Demonstrates the hybrid monorepo pattern with rules_typescript:
+  - packages/shared uses ts_compile for fast, incremental .d.ts caching.
+  - The Next.js app uses next_build (wraps `next build` as a Bazel action).
+  - Shared package sources are staged via staging_srcs; app uses relative imports.
+
+Run `bazel run //:gazelle` to regenerate BUILD files.
+Run `bazel build //:app` to build the Next.js application.
+Run `bazel build //packages/shared` to build the shared library.
+Run `bazel build //...` to build everything.
+Run `bazel build //... --output_groups=+_validation` to type-check with tsgo.
+"""
+
+load("@gazelle//:def.bzl", "gazelle")
+load("@rules_typescript//npm:defs.bzl", "node_modules")
+load("@rules_typescript//ts:defs.bzl", "next_build")
+
+gazelle(
+    name = "gazelle",
+    gazelle = "@rules_typescript//gazelle:gazelle_ts",
+)
+
+# ── Node.js dependencies for Next.js ─────────────────────────────────────────
+node_modules(
+    name = "node_modules",
+    deps = [
+        "@npm//:next",
+        "@npm//:react",
+        "@npm//:react-dom",
+        "@npm//:typescript",
+        "@npm//:types_node",
+        "@npm//:types_react",
+        "@npm//:types_react-dom",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# ── Next.js application build ─────────────────────────────────────────────────
+# Produces a .next/ directory containing server bundles, static assets, and
+# route manifests. The shared package sources are staged at their workspace-
+# relative paths so that relative imports resolve without transpilePackages.
+next_build(
+    name = "app",
+    srcs = glob([
+        "app/**/*.tsx",
+        "app/**/*.ts",
+    ], allow_empty = True),
+    staging_srcs = [
+        "//packages/shared:sources",
+    ],
+    config = "next.config.mjs",
+    tsconfig = "tsconfig.json",
+    node_modules = ":node_modules",
+)

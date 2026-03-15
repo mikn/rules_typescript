@@ -1,0 +1,3 @@
+# This file intentionally left nearly empty. This workspace uses Bazel modules
+# (bzlmod) via MODULE.bazel. The WORKSPACE.bazel file is kept for compatibility
+# with tools that require it to exist.

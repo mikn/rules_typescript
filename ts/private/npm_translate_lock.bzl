@@ -672,7 +672,7 @@ def _package_repo_name(repo_prefix, package_name, version):
     return "{}__{}_{}".format(repo_prefix, label, version_clean)
 
 def _tarball_strip_prefix(package_name, version = ""):
-    """Returns the strip prefix for extracting a package tarball.
+    """Returns the expected strip prefix for extracting a package tarball.
 
     Most npm packages extract under 'package/'.
     The @types/* DefinitelyTyped packages use the unscoped package name as
@@ -685,6 +685,11 @@ def _tarball_strip_prefix(package_name, version = ""):
     a version range (e.g. @types/hast@2.3.x uses 'hast v2.3' as the directory
     prefix). These are handled by an explicit override table keyed by
     (package_name, major.minor) so the correct prefix is always used.
+
+    For all other packages the returned value is "package". When the actual
+    tarball uses a different prefix (e.g. GitHub-sourced tarballs that use
+    "<user>-<repo>-<sha>/"), use _download_and_extract_pkg which detects the
+    actual prefix dynamically.
     """
     if package_name.startswith("@types/"):
         base = package_name[len("@types/"):]
@@ -713,6 +718,86 @@ def _tarball_strip_prefix(package_name, version = ""):
 
         return base
     return "package"
+
+def _detect_tarball_prefix(repository_ctx, tarball_path):
+    """Detects the top-level directory prefix inside a .tgz archive.
+
+    Runs `tar tf` on the archive and extracts the leading path component of
+    the first entry. This handles non-standard tarballs (e.g. GitHub-sourced
+    packages) that use a prefix other than 'package/'.
+
+    Returns the prefix string without a trailing slash (e.g. "package" or
+    "mscdex-busboy-9aadb7a"), or the empty string if detection fails.
+    """
+    result = repository_ctx.execute(["tar", "tf", str(tarball_path)])
+    if result.return_code != 0 or not result.stdout:
+        return ""
+    first_line = result.stdout.split("\n")[0].strip()
+    if not first_line:
+        return ""
+    # first_line is like "package/package.json" or "mscdex-busboy-9aadb7a/README.md".
+    # Extract everything before the first "/".
+    slash_idx = first_line.find("/")
+    if slash_idx < 0:
+        return first_line
+    return first_line[:slash_idx]
+
+def _download_and_extract_pkg(repository_ctx, url, output, strip_prefix, integrity = ""):
+    """Downloads a package tarball and extracts it, auto-detecting the prefix.
+
+    Falls back to detecting the actual tarball prefix when the expected
+    strip_prefix is "package" but the archive uses a different top-level
+    directory (e.g. GitHub-sourced tarballs published to the npm registry).
+
+    For non-"package" prefixes (@types/* packages) the provided strip_prefix
+    is trusted directly, since those packages always use the predicted layout.
+    """
+    if strip_prefix != "package":
+        # @types/* packages use a predictable prefix; trust it directly.
+        if integrity:
+            repository_ctx.download_and_extract(
+                url = url,
+                output = output,
+                stripPrefix = strip_prefix,
+                integrity = integrity,
+            )
+        else:
+            repository_ctx.download_and_extract(
+                url = url,
+                output = output,
+                stripPrefix = strip_prefix,
+            )
+        return
+
+    # For "package" prefix packages: download first, inspect prefix, then extract.
+    # This handles the rare case of GitHub-sourced tarballs on the npm registry
+    # that use a "<user>-<repo>-<sha>/" prefix instead of "package/".
+    tarball_tmp = output + "_download.tgz"
+    if integrity:
+        repository_ctx.download(
+            url = url,
+            output = tarball_tmp,
+            integrity = integrity,
+        )
+    else:
+        repository_ctx.download(
+            url = url,
+            output = tarball_tmp,
+        )
+
+    # Detect actual prefix from the tarball.
+    actual_prefix = _detect_tarball_prefix(repository_ctx, repository_ctx.path(tarball_tmp))
+    if not actual_prefix:
+        actual_prefix = "package"
+
+    repository_ctx.extract(
+        archive = tarball_tmp,
+        output = output,
+        stripPrefix = actual_prefix,
+    )
+
+    # Remove the temporary tarball to keep the repository clean.
+    repository_ctx.delete(tarball_tmp)
 
 def _resolve_dep_version(packages, dep_name, version_spec):
     """Resolves a dep name + version spec to the concrete version recorded in the lockfile.
@@ -1043,19 +1128,13 @@ def _npm_translate_lock_impl(repository_ctx):
 
         strip_prefix = _tarball_strip_prefix(nm, version)
 
-        if integrity:
-            repository_ctx.download_and_extract(
-                url = tarball_url,
-                output = dir_name,
-                stripPrefix = strip_prefix,
-                integrity = integrity,
-            )
-        else:
-            repository_ctx.download_and_extract(
-                url = tarball_url,
-                output = dir_name,
-                stripPrefix = strip_prefix,
-            )
+        _download_and_extract_pkg(
+            repository_ctx = repository_ctx,
+            url = tarball_url,
+            output = dir_name,
+            strip_prefix = strip_prefix,
+            integrity = integrity,
+        )
 
         pkg_dir_names[pkg_id] = dir_name
 

@@ -79,7 +79,7 @@ func (l *tsLang) Loads() []rule.LoadInfo {
 	return []rule.LoadInfo{
 		{
 			Name:    "@rules_typescript//ts:defs.bzl",
-			Symbols: []string{"asset_library", "css_library", "css_module", "json_library", "ts_add_package", "ts_bundle", "ts_codegen", "ts_compile", "ts_dev_server", "ts_lint", "ts_pnpm", "ts_test"},
+			Symbols: []string{"asset_library", "css_library", "css_module", "json_library", "next_build", "ts_add_package", "ts_bundle", "ts_codegen", "ts_compile", "ts_dev_server", "ts_lint", "ts_pnpm", "ts_test"},
 		},
 		{
 			Name:    "@rules_typescript//npm:defs.bzl",
@@ -102,7 +102,7 @@ func (l *tsLang) ApparentLoads(moduleToApparentName func(string) string) []rule.
 	return []rule.LoadInfo{
 		{
 			Name:    "@" + rulesTs + "//ts:defs.bzl",
-			Symbols: []string{"asset_library", "css_library", "css_module", "json_library", "ts_add_package", "ts_bundle", "ts_codegen", "ts_compile", "ts_dev_server", "ts_lint", "ts_pnpm", "ts_test"},
+			Symbols: []string{"asset_library", "css_library", "css_module", "json_library", "next_build", "ts_add_package", "ts_bundle", "ts_codegen", "ts_compile", "ts_dev_server", "ts_lint", "ts_pnpm", "ts_test"},
 		},
 		{
 			Name:    "@" + rulesTs + "//npm:defs.bzl",
@@ -299,6 +299,21 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 				"minify":       true,
 				"sourcemap":    true,
 				"tags":         true,
+			},
+		},
+		// next_build is generated at the workspace root when Next.js is detected.
+		// srcs uses glob() expressions, node_modules and staging_srcs are mergeable.
+		"next_build": {
+			MatchAny:   false,
+			MatchAttrs: []string{"name"},
+			NonEmptyAttrs: map[string]bool{
+				"node_modules": true,
+			},
+			MergeableAttrs: map[string]bool{
+				"node_modules": true,
+				"config":       true,
+				"staging_srcs": true,
+				"env":          true,
 			},
 		},
 		// filegroup is generated in stage-dir sub-packages to export sources

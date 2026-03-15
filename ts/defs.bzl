@@ -7,6 +7,7 @@ Users should load rules from this file:
     load("@rules_typescript//ts:defs.bzl", "css_library", "css_module", "asset_library")
     load("@rules_typescript//ts:defs.bzl", "json_library")
     load("@rules_typescript//ts:defs.bzl", "ts_pnpm", "ts_add_package", "ts_refresh_tsconfig")
+    load("@rules_typescript//ts:defs.bzl", "next_build")
 """
 load("//ts/private:asset_library.bzl", _asset_library = "asset_library")
 load("//ts/private:pnpm.bzl", _ts_add_package = "ts_add_package", _ts_pnpm = "ts_pnpm", _ts_refresh_tsconfig = "ts_refresh_tsconfig")
@@ -20,6 +21,7 @@ load("//ts/private:ts_check.bzl", _ts_check = "ts_check")
 load("//ts/private:ts_codegen.bzl", _ts_codegen = "ts_codegen")
 load("//ts/private:ts_compile.bzl", _ts_compile_rule = "ts_compile")
 load("//ts/private:ts_config_gen.bzl", _ts_config_gen = "ts_config_gen")
+load("//ts/private:next_build.bzl", _next_build = "next_build")
 load("//ts/private:ts_dev_server.bzl", _ts_dev_server = "ts_dev_server")
 load("//ts/private:ts_lint.bzl", _TsLintInfo = "TsLintInfo", _ts_lint = "ts_lint")
 load("//ts/private:ts_npm_publish.bzl", _NpmPublishInfo = "NpmPublishInfo", _ts_npm_publish = "ts_npm_publish")
@@ -56,6 +58,9 @@ ts_bundle = _ts_bundle
 
 # Dev server rule.
 ts_dev_server = _ts_dev_server
+
+# Next.js build rule.
+next_build = _next_build
 
 # Lint rule.
 ts_lint = _ts_lint
