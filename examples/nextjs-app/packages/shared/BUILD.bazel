@@ -1,24 +1,10 @@
 """BUILD file for packages/shared — a shared TypeScript library.
 
 This package demonstrates the hybrid monorepo pattern:
-  - ts_compile provides fast, incremental .d.ts boundary caching.
-  - The Next.js app stages the source files via staging_srcs and uses
-    relative imports so Next.js SWC compiles them directly.
+  - ts_compile in src/ provides fast, incremental .d.ts boundary caching.
+  - The Next.js app stages the source files via staging_srcs (//packages/shared/src:sources)
+    and uses relative imports so Next.js SWC compiles them directly.
+  - ts_test in src/ runs vitest against the shared logic.
+
+Run `bazel run //:gazelle` to regenerate BUILD files.
 """
-
-load("@rules_typescript//ts:defs.bzl", "ts_compile")
-
-ts_compile(
-    name = "shared",
-    srcs = glob(["src/**/*.ts"]),
-    visibility = ["//visibility:public"],
-)
-
-# Filegroup exporting source files for use in next_build.staging_srcs.
-# These sources are staged at their workspace-relative paths so relative
-# imports in the Next.js app (e.g. from "../../packages/shared/src/...") work.
-filegroup(
-    name = "sources",
-    srcs = glob(["src/**/*.ts"]),
-    visibility = ["//visibility:public"],
-)

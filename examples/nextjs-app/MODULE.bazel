@@ -33,6 +33,6 @@ local_path_override(
 # Run `pnpm install` in this directory to update pnpm-lock.yaml.
 npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
 npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
-use_repo(npm, "npm")
+use_repo(npm, "npm", "pnpm")
 
 bazel_dep(name = "gazelle", version = "0.47.0")

@@ -14,7 +14,7 @@ Run `bazel build //... --output_groups=+_validation` to type-check with tsgo.
 
 load("@gazelle//:def.bzl", "gazelle")
 load("@rules_typescript//npm:defs.bzl", "node_modules")
-load("@rules_typescript//ts:defs.bzl", "next_build")
+load("@rules_typescript//ts:defs.bzl", "next_build", "ts_add_package", "ts_pnpm")
 
 gazelle(
     name = "gazelle",
@@ -24,16 +24,16 @@ gazelle(
 # ── Node.js dependencies for Next.js ─────────────────────────────────────────
 node_modules(
     name = "node_modules",
+    visibility = ["//visibility:public"],
     deps = [
         "@npm//:next",
         "@npm//:react",
         "@npm//:react-dom",
-        "@npm//:typescript",
         "@npm//:types_node",
         "@npm//:types_react",
         "@npm//:types_react-dom",
+        "@npm//:typescript",
     ],
-    visibility = ["//visibility:public"],
 )
 
 # ── Next.js application build ─────────────────────────────────────────────────
@@ -42,14 +42,21 @@ node_modules(
 # relative paths so that relative imports resolve without transpilePackages.
 next_build(
     name = "app",
-    srcs = glob([
-        "app/**/*.tsx",
-        "app/**/*.ts",
-    ], allow_empty = True),
-    staging_srcs = [
-        "//packages/shared:sources",
-    ],
+    srcs = glob(
+        [
+            "app/**/*.tsx",
+            "app/**/*.ts",
+        ],
+        allow_empty = True,
+    ),
     config = "next.config.mjs",
-    tsconfig = "tsconfig.json",
     node_modules = ":node_modules",
+    staging_srcs = [
+        "//packages/shared/src:sources",
+    ],
+    tsconfig = "tsconfig.json",
 )
+
+ts_pnpm(name = "pnpm")
+
+ts_add_package(name = "add_package")
