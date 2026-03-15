@@ -106,9 +106,22 @@ use_repo(npm, "npm")
 
 No `node_modules/` directory ever exists in the source tree. The lockfile is the only npm artifact checked into git. `pnpm` is only needed to manage the lockfile — Bazel downloads all packages hermetically at build time.
 
+## IDE Integration
+
+A tsserver hook resolves modules live from Bazel's build graph — npm types, internal packages, path aliases. No manual `tsconfig.json` paths to maintain. Works with VS Code, Neovim, Emacs, any editor with tsserver.
+
+```bash
+bazel run //:refresh_tsconfig  # one-time: generates hook + tsconfig
+```
+
+Then add to VS Code settings: `"typescript.tsserver.nodeOptions": "--require .bazel/tsserver-hook.js"`
+
+See **[IDE Setup](https://mikn.github.io/rules_typescript/getting-started/ide-setup/)** for all editors.
+
 ## Feature Highlights
 
 - **[Quick Start](https://mikn.github.io/rules_typescript/getting-started/quickstart/)** — new project or migrating an existing codebase
+- **[IDE Setup](https://mikn.github.io/rules_typescript/getting-started/ide-setup/)** — live tsserver resolution from Bazel's build graph (TypeScript's GOPACKAGESDRIVER)
 - **[Isolated Declarations](https://mikn.github.io/rules_typescript/getting-started/isolated-declarations/)** — the architectural keystone for fast incremental builds
 - **[npm Dependencies](https://mikn.github.io/rules_typescript/guides/npm/)** — pnpm lockfile integration, platform-specific packages, bin scripts
 - **[Testing with vitest](https://mikn.github.io/rules_typescript/guides/testing/)** — `ts_test`, snapshots, sharding, watch mode with ibazel
