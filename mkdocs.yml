@@ -1,19 +1,47 @@
 site_name: rules_typescript
 site_url: https://mikn.github.io/rules_typescript
+site_description: Opinionated Bazel rules for TypeScript + Vite. Oxc compiles, tsgo type-checks, Vite bundles.
 repo_url: https://github.com/mikn/rules_typescript
 repo_name: mikn/rules_typescript
 
 theme:
   name: material
+  icon:
+    repo: fontawesome/brands/github
   features:
     - navigation.sections
     - navigation.expand
+    - navigation.top
+    - navigation.instant
+    - navigation.instant.progress
     - content.code.copy
+    - content.code.annotate
     - search.suggest
+    - search.highlight
+    - toc.follow
   palette:
-    - scheme: default
-      primary: blue
-      accent: blue
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/mikn/rules_typescript
 
 nav:
   - Home: index.md
@@ -46,10 +74,17 @@ nav:
 
 markdown_extensions:
   - admonition
+  - pymdownx.details
   - pymdownx.highlight:
       anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
   - pymdownx.superfences
   - pymdownx.tabbed:
       alternate_style: true
+  - pymdownx.snippets
+  - attr_list
+  - md_in_html
   - toc:
       permalink: true
