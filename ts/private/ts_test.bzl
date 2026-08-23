@@ -657,7 +657,7 @@ def ts_test(
         tags = [],
         target = "es2022",
         jsx_mode = "react-jsx",
-        isolated_declarations = True,
+        declarations = "tsgo",
         visibility = None,
         environment = "",
         coverage = False,
@@ -708,12 +708,11 @@ def ts_test(
         tags:              Bazel tags.
         target:            ECMAScript target for the internal ts_compile.
         jsx_mode:          JSX transform mode for the internal ts_compile.
-        isolated_declarations: When False, disables isolated declarations mode
-                           on the internal ts_compile target. Set to False when
-                           test files use constructs that require full type
-                           information for .d.ts emit (e.g. inferred return
-                           types on exported functions). Defaults to True to
-                           match the ts_compile default.
+        declarations:      Declaration emitter for the internal ts_compile
+                           target, "tsgo" (default) or "oxc". Nothing consumes a
+                           test target's .d.ts, so there is rarely a reason to
+                           move tests to "oxc" and pay for annotations on test
+                           helpers.
         visibility:        Bazel visibility for the test target.
         environment:       Vitest test environment: 'node', 'happy-dom', or 'jsdom'.
                            Requires the corresponding package in node_modules.
@@ -787,7 +786,7 @@ def ts_test(
         deps = deps,
         target = target,
         jsx_mode = jsx_mode,
-        isolated_declarations = isolated_declarations,
+        declarations = declarations,
         visibility = ["//visibility:private"],
     )
 

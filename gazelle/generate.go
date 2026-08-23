@@ -374,11 +374,9 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		r.SetAttr("srcs", srcFiles)
 		r.SetAttr("visibility", []string{"//visibility:public"})
 
-		// When isolated_declarations is disabled via directive, emit the
-		// attribute explicitly so the rule falls back to the full
-		// ts_compile_legacy behaviour.
-		if !tc.isolatedDeclarations {
-			r.SetAttr("isolated_declarations", false)
+		// Only emit the attribute when it differs from the rule default.
+		if tc.declarations != "" && tc.declarations != "tsgo" {
+			r.SetAttr("declarations", tc.declarations)
 		}
 
 		// Propagate path aliases from tsconfig.json / directives / gazelle_ts.json
@@ -534,12 +532,10 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		r := rule.NewRule("ts_test", name)
 		r.SetAttr("srcs", testFiles)
 
-		// When isolated_declarations is disabled via directive, emit the
-		// attribute explicitly so the internal ts_compile inside ts_test also
-		// runs in legacy (non-isolated) mode, consistent with ts_compile targets
-		// in the same package.
-		if !tc.isolatedDeclarations {
-			r.SetAttr("isolated_declarations", false)
+		// Same emitter as the ts_compile targets in this package, so the internal
+		// ts_compile inside ts_test does not disagree with its siblings.
+		if tc.declarations != "" && tc.declarations != "tsgo" {
+			r.SetAttr("declarations", tc.declarations)
 		}
 
 		// ts_test auto-builds a node_modules tree from its @npm// deps, so no

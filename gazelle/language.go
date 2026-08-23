@@ -53,8 +53,8 @@ func (l *tsLang) KnownDirectives() []string {
 		directiveTargetName,
 		// Emit a warning for imports that cannot be resolved to a Bazel label.
 		directiveWarnUnresolved,
-		// Control isolated_declarations on generated ts_compile rules.
-		directiveIsolatedDeclarations,
+		// Select the .d.ts emitter on generated ts_compile rules.
+		directiveDeclarations,
 		// Add a TypeScript path alias mapping (can appear multiple times).
 		directivePathAlias,
 		// Append a Bazel label to every ts_test deps list in this tree.
@@ -179,7 +179,7 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 				"deps":                  true,
 				"visibility":            true,
 				"path_aliases":          true,
-				"isolated_declarations": true,
+				"declarations":          true,
 			},
 			ResolveAttrs: map[string]bool{
 				"deps": true,

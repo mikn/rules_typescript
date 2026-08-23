@@ -58,7 +58,7 @@ def _relative_path(from_dir, to_dir):
 
 # ─── Tsconfig generation for validation action ───────────────────────────────
 
-def _generate_tsconfig(ctx, srcs, target, jsx_mode, npm_pkg_dirs = None, type_roots = None, path_aliases = None):
+def _generate_tsconfig(ctx, srcs, target, jsx_mode, npm_pkg_dirs = None, type_roots = None, path_aliases = None, emit_declarations = False, emit_root_dir = None, emit_out_dir = None):
     """Generates a tsconfig.json for tsgo type-checking.
 
     Uses ctx.bin_dir.path for stable path computation independent of the
@@ -80,6 +80,16 @@ def _generate_tsconfig(ctx, srcs, target, jsx_mode, npm_pkg_dirs = None, type_ro
                       are merged into the generated tsconfig paths section so
                       that tsgo can resolve source-level path aliases like
                       `import { Button } from "@/components"`.
+        emit_declarations: When True the tsconfig emits .d.ts into the target's
+                      output directory (declarations = "tsgo"). When False tsgo
+                      is invoked with --noEmit and only reports diagnostics
+                      (declarations = "oxc").
+        emit_root_dir: Exec-root-relative common source directory. Required when
+                      emit_declarations is True.
+        emit_out_dir: Exec-root-relative directory the .d.ts must land in (the
+                      same directory oxc writes the .js into). Together these
+                      mirror oxc's --strip-dir-prefix / --out-dir pair, so
+                      `<rootDir>/a.ts` emits to `<outDir>/a.d.ts`.
     """
     tsconfig = ctx.actions.declare_file("{}.tsconfig.json".format(ctx.label.name))
     tsconfig_dir = tsconfig.dirname
@@ -198,14 +208,31 @@ def _generate_tsconfig(ctx, srcs, target, jsx_mode, npm_pkg_dirs = None, type_ro
                 root_items.append('      "{}"'.format(rel_dir))
             type_roots_entry = ',\n    "typeRoots": [\n{}\n    ]'.format(",\n".join(root_items))
 
+    # Emit layout. outDir is the tsconfig's own directory (the target's output
+    # dir) and rootDir is the common source directory, so source `a.ts` lands at
+    # `./a.d.ts` next to the .js oxc produced.
+    #
+    # isolatedDeclarations is only asserted in oxc mode, where oxc's syntactic
+    # emit genuinely requires it. In tsgo mode the compiler has the full program
+    # and infers the types, so demanding annotations would buy nothing.
+    if emit_declarations:
+        emit_entry = '''"declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "{out_dir}",
+    "rootDir": "{root_dir}",'''.format(
+            out_dir = _relative_path(tsconfig_dir, emit_out_dir) if emit_out_dir else ".",
+            root_dir = _relative_path(tsconfig_dir, emit_root_dir) if emit_root_dir else ".",
+        )
+    else:
+        emit_entry = '''"isolatedDeclarations": true,
+    "declaration": true,
+    "emitDeclarationOnly": true,'''
+
     tsconfig_content = """\
 {{
   "compilerOptions": {{
     "strict": true,
-    "isolatedDeclarations": true,
-    "declaration": true,
-    "emitDeclarationOnly": true,
-    "sourceMap": true,
+    {emit_entry}
     "module": "Preserve",
     "moduleResolution": "Bundler",
     "target": "{target}",
@@ -217,6 +244,7 @@ def _generate_tsconfig(ctx, srcs, target, jsx_mode, npm_pkg_dirs = None, type_ro
   "include": {include}
 }}
 """.format(
+        emit_entry = emit_entry,
         target = ts_target,
         jsx_entry = jsx_entry,
         paths_entry = paths_entry,
@@ -383,6 +411,21 @@ def _ts_compile_impl(ctx):
 
     # Declare outputs: one .js, .js.map, .d.ts per source file.
     pkg = ctx.label.package
+    # Who emits the .d.ts decides what each action is on the hook for.
+    #   "oxc":  oxc emits declarations syntactically, which REQUIRES isolated
+    #           declarations; tsgo then only reports diagnostics, so checking
+    #           stays off the critical path.
+    #   "tsgo": oxc transpiles JS only and tsgo emits declarations from the full
+    #           program, so no source annotations are required.
+    #
+    # enable_check = False under "tsgo" means there is no type program at all,
+    # and therefore no declarations: an opt-out of types, not of correctness.
+    # That is the right shape for terminal targets -- app entry points, dev
+    # servers, bundle inputs -- whose types nothing consumes.
+    oxc_emits_dts = ctx.attr.declarations == "oxc"
+    tsgo_emits_dts = not oxc_emits_dts and ctx.attr.enable_check
+    emits_dts = oxc_emits_dts or tsgo_emits_dts
+
     js_outputs = []
     js_map_outputs = []
     dts_outputs = []
@@ -390,8 +433,10 @@ def _ts_compile_impl(ctx):
         stem = _package_relative_stem(src, pkg)
         js_outputs.append(ctx.actions.declare_file(stem + ".js"))
         js_map_outputs.append(ctx.actions.declare_file(stem + ".js.map"))
-        dts_outputs.append(ctx.actions.declare_file(stem + ".d.ts"))
+        if emits_dts:
+            dts_outputs.append(ctx.actions.declare_file(stem + ".d.ts"))
 
+    oxc_outputs = js_outputs + js_map_outputs + (dts_outputs if oxc_emits_dts else [])
     all_outputs = js_outputs + js_map_outputs + dts_outputs
 
     # ── Compile action ────────────────────────────────────────────────────
@@ -431,22 +476,35 @@ def _ts_compile_impl(ctx):
         if ctx.attr.jsx_mode:
             args.add("--jsx", ctx.attr.jsx_mode)
         args.add("--source-map")
-        args.add("--declaration")
-        if ctx.attr.isolated_declarations:
+        if oxc_emits_dts:
+            args.add("--declaration")
             args.add("--isolated-declarations")
 
         ctx.actions.run(
             inputs = depset(compile_srcs, transitive = [dep_dts_depset]),
-            outputs = all_outputs,
+            outputs = oxc_outputs,
             executable = oxc.oxc_binary,
             arguments = [args],
             mnemonic = "OxcCompile",
             progress_message = "OxcCompile %{label}",
         )
 
-    # ── Validation action: type-checking with tsgo ────────────────────────
+    # ── tsgo action: declaration emit, or diagnostics only ────────────────
+    #
+    # This action already had to construct the complete program -- every
+    # transitive .d.ts and every npm package.json -- to type-check. In tsgo mode
+    # it keeps the declarations it computes instead of discarding them, which is
+    # what removes the isolated-declarations requirement at near-zero cost.
     validation_outputs = []
     tsgo_toolchain_info = ctx.toolchains[TSGO_TOOLCHAIN_TYPE]
+    if tsgo_emits_dts and not tsgo_toolchain_info and compile_srcs:
+        fail(
+            "ts_compile: declarations = \"tsgo\" needs a tsgo toolchain, and none " +
+            "is registered.\nAdd to MODULE.bazel:\n" +
+            "    register_toolchains(\"@rules_typescript//ts/toolchain:all\")\n" +
+            "Or set declarations = \"oxc\" to emit declarations with oxc instead " +
+            "(which requires an explicit type on every export).",
+        )
     if tsgo_toolchain_info and ctx.attr.enable_check and compile_srcs:
         tsgo = tsgo_toolchain_info.tsgo_info
 
@@ -461,6 +519,9 @@ def _ts_compile_impl(ctx):
             npm_pkg_dirs = npm_pkg_dirs if npm_pkg_dirs else None,
             type_roots = type_root_files if type_root_files else None,
             path_aliases = ctx.attr.path_aliases if ctx.attr.path_aliases else None,
+            emit_declarations = tsgo_emits_dts,
+            emit_root_dir = compile_srcs[0].dirname if tsgo_emits_dts else None,
+            emit_out_dir = dts_outputs[0].dirname if tsgo_emits_dts else None,
         )
 
         # Build the depset of transitive npm package.json files so that
@@ -468,23 +529,41 @@ def _ts_compile_impl(ctx):
         # package. This must be computed before the action is registered.
         npm_pkg_dirs_depset = depset(transitive = transitive_package_dir_sets)
 
-        stamp = ctx.actions.declare_file("{}.tscheck".format(ctx.label.name))
-        ctx.actions.run_shell(
-            inputs = depset(
-                check_srcs + [tsconfig, tsgo.tsgo_binary],
-                transitive = [dep_dts_depset, npm_pkg_dirs_depset],
-            ),
-            outputs = [stamp],
-            command = '"{tsgo}" --project "{tsconfig}" --noEmit && touch "{stamp}"'.format(
-                tsgo = tsgo.tsgo_binary.path,
-                tsconfig = tsconfig.path,
-                stamp = stamp.path,
-            ),
-            env = {"PATH": "/bin:/usr/bin"},
-            mnemonic = "TsgoCheck",
-            progress_message = "TsgoCheck %{label}",
+        tsgo_inputs = depset(
+            check_srcs + [tsconfig, tsgo.tsgo_binary],
+            transitive = [dep_dts_depset, npm_pkg_dirs_depset],
         )
-        validation_outputs.append(stamp)
+        if not tsgo_emits_dts:
+            # Diagnostics only. Stays in the _validation output group so it runs
+            # concurrently with downstream compilation.
+            stamp = ctx.actions.declare_file("{}.tscheck".format(ctx.label.name))
+            ctx.actions.run_shell(
+                inputs = tsgo_inputs,
+                outputs = [stamp],
+                command = '"{tsgo}" --project "{tsconfig}" --noEmit && touch "{stamp}"'.format(
+                    tsgo = tsgo.tsgo_binary.path,
+                    tsconfig = tsconfig.path,
+                    stamp = stamp.path,
+                ),
+                env = {"PATH": "/bin:/usr/bin"},
+                mnemonic = "TsgoCheck",
+                progress_message = "TsgoCheck %{label}",
+            )
+            validation_outputs.append(stamp)
+        else:
+            # The .d.ts files are real outputs, so a type error fails the build
+            # by construction -- no --output_groups=+_validation needed, and a
+            # broken target cannot hand a stale declaration to a consumer.
+            tsgo_args = ctx.actions.args()
+            tsgo_args.add("--project", tsconfig.path)
+            ctx.actions.run(
+                inputs = tsgo_inputs,
+                outputs = dts_outputs,
+                executable = tsgo.tsgo_binary,
+                arguments = [tsgo_args],
+                mnemonic = "TsgoDeclare",
+                progress_message = "TsgoDeclare %{label}",
+            )
 
     # ── Build providers ───────────────────────────────────────────────────
     direct_dts = depset(dts_outputs + passthrough_dts, order = "postorder")
@@ -595,9 +674,21 @@ ts_compile = rule(
             doc = "JSX transform mode: 'react-jsx', 'react', 'preserve'. Empty disables JSX.",
             default = "react-jsx",
         ),
-        "isolated_declarations": attr.bool(
-            doc = "Whether to enable isolated declarations mode for faster .d.ts emit.",
-            default = True,
+        "declarations": attr.string(
+            doc = """Which tool emits the .d.ts files.
+
+"tsgo" (default): the tsgo action emits declarations from the full type
+program. Source needs no explicit export annotations, and the declarations are
+exactly what tsc would produce. Type errors fail the build because the .d.ts
+are real outputs. Type-checking is on the critical path.
+
+"oxc": oxc emits declarations syntactically, per file, without a type program.
+This REQUIRES isolated declarations -- every export needs an explicit type --
+and oxc errors if that does not hold. In exchange, type-checking moves off the
+critical path into the _validation output group, so downstream targets compile
+while checking runs concurrently.""",
+            default = "tsgo",
+            values = ["tsgo", "oxc"],
         ),
         "enable_check": attr.bool(
             doc = "Run tsgo type-checking as a validation action (requires tsgo toolchain).",

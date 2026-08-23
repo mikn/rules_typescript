@@ -128,41 +128,53 @@ func TestDirective_PackageBoundary_TrueValueSetsFlag(t *testing.T) {
 	}
 }
 
-// ---- ts_isolated_declarations directive tests ------------------------------
+// ---- ts_declarations directive tests ---------------------------------------
 
-func TestDirective_IsolatedDeclarations_DefaultIsTrue(t *testing.T) {
+func TestDirective_Declarations_DefaultIsTsgo(t *testing.T) {
 	tc := makeConfig("", nil)
-	if !tc.isolatedDeclarations {
-		t.Error("isolatedDeclarations should default to true")
+	if tc.declarations != "tsgo" {
+		t.Errorf("declarations should default to \"tsgo\", got %q", tc.declarations)
 	}
 }
 
-func TestDirective_IsolatedDeclarations_FalseDisables(t *testing.T) {
+func TestDirective_Declarations_Oxc(t *testing.T) {
 	tc := makeConfig("", []rule.Directive{
-		directive(directiveIsolatedDeclarations, "false"),
+		directive(directiveDeclarations, "oxc"),
 	})
-	if tc.isolatedDeclarations {
-		t.Error("ts_isolated_declarations false should set isolatedDeclarations = false")
+	if tc.declarations != "oxc" {
+		t.Errorf("ts_declarations oxc should set declarations = \"oxc\", got %q", tc.declarations)
 	}
 }
 
-func TestDirective_IsolatedDeclarations_TrueExplicit(t *testing.T) {
+func TestDirective_Declarations_TsgoExplicit(t *testing.T) {
 	tc := makeConfig("", []rule.Directive{
-		directive(directiveIsolatedDeclarations, "true"),
+		directive(directiveDeclarations, "tsgo"),
 	})
-	if !tc.isolatedDeclarations {
-		t.Error("ts_isolated_declarations true should set isolatedDeclarations = true")
+	if tc.declarations != "tsgo" {
+		t.Errorf("ts_declarations tsgo should set declarations = \"tsgo\", got %q", tc.declarations)
 	}
 }
 
-func TestDirective_IsolatedDeclarations_InheritedByChild(t *testing.T) {
+// An unrecognised value must not silently pick an emitter: a typo that flipped
+// a tree to oxc would demand explicit types on every export with no diagnostic
+// pointing at the directive.
+func TestDirective_Declarations_InvalidValueKeepsPrevious(t *testing.T) {
+	tc := makeConfig("", []rule.Directive{
+		directive(directiveDeclarations, "swc"),
+	})
+	if tc.declarations != "tsgo" {
+		t.Errorf("invalid ts_declarations value should keep the previous emitter, got %q", tc.declarations)
+	}
+}
+
+func TestDirective_Declarations_InheritedByChild(t *testing.T) {
 	tc := makeChildConfig(
-		[]rule.Directive{directive(directiveIsolatedDeclarations, "false")},
+		[]rule.Directive{directive(directiveDeclarations, "oxc")},
 		"src/lib",
 		nil,
 	)
-	if tc.isolatedDeclarations {
-		t.Error("child should inherit isolatedDeclarations = false from parent")
+	if tc.declarations != "oxc" {
+		t.Errorf("child should inherit declarations = \"oxc\" from parent, got %q", tc.declarations)
 	}
 }
 
@@ -286,7 +298,7 @@ func TestDirective_Exclude_AppendedToParent(t *testing.T) {
 func TestConfig_Clone_MapIsolation_PathAliases(t *testing.T) {
 	parent := &tsConfig{
 		packageBoundaryMode:  boundaryEveryDir,
-		isolatedDeclarations: true,
+		declarations:    "tsgo",
 		pathAliases:          map[string]string{"@/": "src/"},
 	}
 	child := parent.clone()
@@ -305,7 +317,7 @@ func TestConfig_Clone_MapIsolation_PathAliases(t *testing.T) {
 func TestConfig_Clone_SliceIsolation_RuntimeDeps(t *testing.T) {
 	parent := &tsConfig{
 		packageBoundaryMode:  boundaryEveryDir,
-		isolatedDeclarations: true,
+		declarations:    "tsgo",
 		runtimeDepsTest:      []string{"@npm//:a"},
 	}
 	child := parent.clone()
@@ -321,7 +333,7 @@ func TestConfig_Clone_SliceIsolation_RuntimeDeps(t *testing.T) {
 func TestConfig_Clone_SliceIsolation_ExcludePatterns(t *testing.T) {
 	parent := &tsConfig{
 		packageBoundaryMode:  boundaryEveryDir,
-		isolatedDeclarations: true,
+		declarations:    "tsgo",
 		excludePatterns:      []string{"*.gen.ts"},
 	}
 	child := parent.clone()

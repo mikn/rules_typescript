@@ -79,16 +79,25 @@ def ts_compile(
         deps = None,
         target = "es2022",
         jsx_mode = "react-jsx",
-        isolated_declarations = True,
+        declarations = "tsgo",
         enable_check = True,
         path_aliases = None,
         vite_types = False,
         **kwargs):
-    """Compiles TypeScript source files with oxc-bazel and optionally type-checks with tsgo.
+    """Compiles TypeScript with oxc-bazel and emits declarations with tsgo.
 
-    Type-checking runs as a Bazel validation action when a tsgo toolchain is
-    registered. It executes during `bazel build` but does not block downstream
-    compilation.
+    oxc always does the JavaScript transform. The `declarations` attribute
+    decides who emits the .d.ts, and that choice is the one real trade-off in
+    this rule:
+
+    | declarations | annotations needed | type errors        | checking        |
+    |--------------|--------------------|--------------------|-----------------|
+    | "tsgo"       | none               | fail the build     | critical path   |
+    | "oxc"        | on every export    | fail _validation   | concurrent      |
+
+    Default "tsgo" works on unmodified TypeScript. Move a package to "oxc" once
+    every export carries an explicit type, to take type-checking off the
+    critical path.
 
     Args:
         name:                  Target name.
@@ -96,8 +105,10 @@ def ts_compile(
         deps:                  Dependency targets providing TsDeclarationInfo + JsInfo.
         target:                ECMAScript target version (default "es2022").
         jsx_mode:              JSX transform mode (default "react-jsx").
-        isolated_declarations: Whether to use isolated declarations (default True).
-        enable_check:          Whether to run tsgo type-checking (default True).
+        declarations:          "tsgo" (default) or "oxc" -- see the table above.
+        enable_check:          Whether to run tsgo type-checking. Only meaningful
+                               with declarations = "oxc"; under "tsgo" the
+                               compiler emits and checks in one pass.
         path_aliases:          Optional dict mapping path alias prefixes to workspace-relative
                                directory paths (e.g. {"@/": "src/"}). Injected into the tsgo
                                validation tsconfig so aliases like `import "@/components"`
@@ -125,53 +136,7 @@ def ts_compile(
         deps = deps,
         target = target,
         jsx_mode = jsx_mode,
-        isolated_declarations = isolated_declarations,
+        declarations = declarations,
         enable_check = enable_check,
-        **kwargs
-    )
-
-def ts_compile_legacy(
-        name,
-        srcs,
-        deps = None,
-        target = "es2022",
-        jsx_mode = "react-jsx",
-        enable_check = True,
-        path_aliases = None,
-        **kwargs):
-    """Wrapper around ts_compile with isolated_declarations = False.
-
-    Use this during a gradual rollout of isolated declarations.  Packages that
-    have not yet added explicit return types to all exports should use this
-    macro instead of ts_compile.  Once all violations in a package are fixed,
-    replace ts_compile_legacy with ts_compile (which defaults to
-    isolated_declarations = True).
-
-    Migration workflow:
-        1. Replace ts_compile with ts_compile_legacy for all existing targets.
-        2. Add isolated-declarations/require-explicit-types to your ESLint config.
-        3. Enable one package at a time: run the linter, fix violations,
-           switch that package back to ts_compile.
-        4. Repeat until all packages use ts_compile.
-
-    Args:
-        name:         Target name.
-        srcs:         TypeScript source files (.ts, .tsx).
-        deps:         Dependency targets providing TsDeclarationInfo + JsInfo.
-        target:       ECMAScript target version (default "es2022").
-        jsx_mode:     JSX transform mode (default "react-jsx").
-        enable_check: Whether to run tsgo type-checking (default True).
-        path_aliases: Optional path alias dict forwarded to ts_compile.
-        **kwargs:     Additional args forwarded to the rule.
-    """
-    ts_compile(
-        name = name,
-        srcs = srcs,
-        deps = deps,
-        target = target,
-        jsx_mode = jsx_mode,
-        isolated_declarations = False,
-        enable_check = enable_check,
-        path_aliases = path_aliases,
         **kwargs
     )

@@ -70,13 +70,12 @@ const (
 	//   # gazelle:ts_warn_unresolved true
 	directiveWarnUnresolved = "ts_warn_unresolved"
 
-	// directiveIsolatedDeclarations controls whether the generated ts_compile
-	// rules set isolated_declarations = False. The default (true) means no
-	// attribute is emitted (the rule default is true). Set to "false" to
-	// generate ts_compile rules with isolated_declarations = False throughout
-	// the directory tree.
-	//   # gazelle:ts_isolated_declarations false
-	directiveIsolatedDeclarations = "ts_isolated_declarations"
+	// directiveDeclarations selects the .d.ts emitter on generated ts_compile
+	// rules. Accepted values: "tsgo" / "oxc". Default: "tsgo", which is the rule
+	// default, so no attribute is emitted. Set to "oxc" once every export in the
+	// tree carries an explicit type, to take type-checking off the critical path.
+	//   # gazelle:ts_declarations oxc
+	directiveDeclarations = "ts_declarations"
 
 	// directivePathAlias adds a TypeScript path alias mapping. The value is
 	// "<alias> <dir>" where alias is the path alias prefix (e.g. "@/") and dir
@@ -214,11 +213,10 @@ type tsConfig struct {
 	// statically imported (e.g. "happy-dom", "@vitest/coverage-v8").
 	runtimeDepsTest []string
 
-	// isolatedDeclarations controls whether the generated ts_compile rules
-	// set isolated_declarations = False. The default (true) means no
-	// attribute is emitted. Set to false via # gazelle:ts_isolated_declarations
-	// false to generate ts_compile rules with isolated_declarations = False.
-	isolatedDeclarations bool
+	// declarations is the .d.ts emitter for generated ts_compile rules:
+	// "tsgo" (default, no attribute emitted) or "oxc". Set via
+	// # gazelle:ts_declarations.
+	declarations string
 
 	// customCodegens holds ts_codegen patterns parsed from
 	// # gazelle:ts_codegen directives. Each directive contributes one entry.
@@ -236,7 +234,7 @@ func getConfig(c *config.Config) *tsConfig {
 	}
 	return &tsConfig{
 		packageBoundaryMode:  boundaryEveryDir,
-		isolatedDeclarations: true,
+		declarations:         "tsgo",
 	}
 }
 
@@ -641,7 +639,7 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 		// Fresh root config: apply defaults.
 		tc = &tsConfig{
 			packageBoundaryMode:  boundaryEveryDir,
-			isolatedDeclarations: true,
+			declarations:         "tsgo",
 		}
 	}
 
@@ -740,7 +738,7 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 	// Reset per-directory flags that should not propagate past a directory.
 	// packageBoundary (explicit opt-in for a single dir in index-only mode)
 	// and targetName are directory-scoped. packageBoundaryMode, ignore,
-	// isolatedDeclarations, and the list fields are inherited downward.
+	// declarations, and the list fields are inherited downward.
 	tc.packageBoundary = false
 	tc.targetName = ""
 
@@ -788,8 +786,12 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 				tc.targetName = d.Value
 			case directiveWarnUnresolved:
 				tc.warnUnresolved = d.Value == "true"
-			case directiveIsolatedDeclarations:
-				tc.isolatedDeclarations = d.Value != "false"
+			case directiveDeclarations:
+				if d.Value == "oxc" || d.Value == "tsgo" {
+					tc.declarations = d.Value
+				} else {
+					log.Printf("gazelle: ts_declarations: expected \"tsgo\" or \"oxc\", got %q; keeping %q", d.Value, tc.declarations)
+				}
 			case directivePathAlias:
 				// # gazelle:ts_path_alias <alias> <dir>
 				// On first encounter in this BUILD file, seed the directive map

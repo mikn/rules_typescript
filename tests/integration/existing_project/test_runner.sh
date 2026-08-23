@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test_runner.sh — Integration test: existing project with isolated_declarations disabled.
+# test_runner.sh — Integration test: existing project with no type annotations.
 #
 # The rules_bazel_integration_test framework provides:
 #   BIT_BAZEL_BINARY  — absolute path to the Bazel binary to use
@@ -11,9 +11,12 @@
 #   2. Copies the workspace to a writable scratch directory in /tmp.
 #   3. Patches MODULE.bazel with the absolute path to rules_typescript root.
 #   4. Runs `bazel run //:gazelle` to generate BUILD files.
-#   5. Verifies Gazelle emitted isolated_declarations = False on generated targets.
-#   6. Runs `bazel build //...` — functions without explicit return types must compile.
+#   5. Verifies Gazelle emitted NO declarations attribute (the tsgo default).
+#   6. Builds //src/lib — functions without explicit return types must compile.
 #   7. Asserts expected output files exist.
+#   8. Asserts the emitted .d.ts carry inferred return types, not widened ones.
+#   9. Builds //src/broken — a real type error must fail a PLAIN bazel build,
+#      with no --output_groups=+_validation, and must emit no .d.ts.
 
 set -euo pipefail
 
@@ -81,15 +84,18 @@ pass "bazel run //:gazelle"
 [[ -f "src/lib/BUILD.bazel" ]] || fail "Gazelle did not generate src/lib/BUILD.bazel"
 pass "src/lib/BUILD.bazel generated"
 
-# ── Step 2: verify Gazelle emitted isolated_declarations = False ──────────────
-grep -q 'isolated_declarations.*=.*False\|isolated_declarations.*false' src/lib/BUILD.bazel || \
-    fail "src/lib/BUILD.bazel does not contain isolated_declarations = False (directive not respected)"
-pass "src/lib/BUILD.bazel has isolated_declarations = False"
+# ── Step 2: verify Gazelle left the emitter at its default ───────────────────
+if grep -q 'declarations' src/lib/BUILD.bazel; then
+    echo "--- src/lib/BUILD.bazel ---" >&2
+    cat src/lib/BUILD.bazel >&2
+    fail "Gazelle emitted a declarations attribute; the tsgo default needs none"
+fi
+pass "src/lib/BUILD.bazel has no declarations attribute (tsgo default)"
 
 # ── Step 3: build (compile + type-check) ─────────────────────────────────────
-echo "INFO: running bazel build //..."
-bazel_cmd build //... || fail "bazel build //... exited non-zero (functions without return types should still build)"
-pass "bazel build //..."
+echo "INFO: running bazel build //src/lib:all"
+bazel_cmd build //src/lib:all || fail "bazel build //src/lib:all exited non-zero (functions without return types should still build)"
+pass "bazel build //src/lib:all"
 
 # ── Step 4: verify output files ──────────────────────────────────────────────
 BAZEL_BIN="$(bazel_cmd info bazel-bin 2>/dev/null)"
@@ -98,5 +104,44 @@ for rel in "src/lib/math.js" "src/lib/math.d.ts"; do
     [[ -f "${f}" ]] || fail "expected output file not found: ${rel}"
     pass "output file exists: ${rel}"
 done
+
+# ── Step 5: the declarations must carry the inferred types ───────────────────
+# This is the reason tsgo owns declaration emit. A syntactic emitter cannot
+# infer these and would widen them, and nothing would report it until some
+# consumer failed against `{}` or `unknown`.
+DTS="${BAZEL_BIN}/src/lib/math.d.ts"
+echo "--- src/lib/math.d.ts ---"
+cat "${DTS}"
+echo "------------------------"
+for fn in add multiply subtract divide; do
+    grep -qE "declare function ${fn}\\(a: number, b: number\\): number" "${DTS}" || \
+        fail "${fn}() lost its inferred 'number' return type in math.d.ts"
+    pass "${fn}(): number inferred in math.d.ts"
+done
+if grep -qE ':[[:space:]]*(unknown|\\{\\})[[:space:]]*;' "${DTS}"; then
+    fail "math.d.ts widened an export to 'unknown' or '{}'"
+fi
+pass "math.d.ts contains no widened exports"
+
+# ── Step 6: a real type error must fail a plain build ────────────────────────
+# Note the absence of --output_groups=+_validation. Because the .d.ts are real
+# outputs of the tsgo action, a type error is a build failure by construction.
+echo "INFO: running bazel build //src/broken:all (expect FAILURE)"
+BUILD_LOG="$(mktemp)"
+if bazel_cmd build //src/broken:all >"${BUILD_LOG}" 2>&1; then
+    echo "--- build output ---" >&2; cat "${BUILD_LOG}" >&2
+    fail "//src/broken:all built successfully; a type error must fail the build"
+fi
+pass "//src/broken:all failed the build without --output_groups=+_validation"
+
+grep -qE "TS[0-9]{4}|not assignable" "${BUILD_LOG}" || {
+    echo "--- build output ---" >&2; cat "${BUILD_LOG}" >&2
+    fail "build failed, but not with a type diagnostic"
+}
+pass "failure names the type error"
+
+[[ ! -f "${BAZEL_BIN}/src/broken/type_error.d.ts" ]] || \
+    fail "a failing target still produced src/broken/type_error.d.ts"
+pass "no .d.ts was produced for the failing target"
 
 echo "ALL PASSED"

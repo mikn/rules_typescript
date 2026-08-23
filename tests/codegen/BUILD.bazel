@@ -50,7 +50,6 @@ ts_compile(
     name = "generated_compile",
     srcs = [":generated_ts"],
     enable_check = False,  # generated files may lack explicit return types
-    isolated_declarations = False,
 )
 
 ts_compile(
@@ -58,5 +57,4 @@ ts_compile(
     srcs = ["consumer.ts"],
     deps = [":generated_compile"],
     enable_check = False,
-    isolated_declarations = False,
 )

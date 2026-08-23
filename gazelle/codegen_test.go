@@ -12,7 +12,7 @@ import (
 func makeTcWithNpm(pkgs ...string) *tsConfig {
 	tc := &tsConfig{
 		packageBoundaryMode:  boundaryEveryDir,
-		isolatedDeclarations: true,
+		declarations:         "tsgo",
 	}
 	if len(pkgs) > 0 {
 		tc.npmPackages = make(map[string]string, len(pkgs))
@@ -28,7 +28,7 @@ func makeTcWithNpm(pkgs ...string) *tsConfig {
 func makeTcWithFramework(f Framework) *tsConfig {
 	return &tsConfig{
 		packageBoundaryMode:  boundaryEveryDir,
-		isolatedDeclarations: true,
+		declarations:         "tsgo",
 		detectedFramework:    f,
 	}
 }
@@ -336,7 +336,7 @@ func TestDetectPrisma_MissingNpmPackage(t *testing.T) {
 
 func TestDetectPrisma_NoLockfileSchemaPresent(t *testing.T) {
 	// No npmPackages map — schema.prisma alone is enough.
-	tc := &tsConfig{isolatedDeclarations: true}
+	tc := &tsConfig{declarations: "tsgo"}
 	p := detectPrisma(fileSet([]string{"schema.prisma"}), tc)
 	if p == nil {
 		t.Fatal("expected detection when schema.prisma present and npmPackages is nil")
@@ -457,7 +457,7 @@ func TestDetectOpenAPI_MissingNpmPackage(t *testing.T) {
 
 func TestDetectOpenAPI_NoNpmMap(t *testing.T) {
 	// No npm package map — spec file alone triggers detection.
-	tc := &tsConfig{isolatedDeclarations: true}
+	tc := &tsConfig{declarations: "tsgo"}
 	p := detectOpenAPI(fileSet([]string{"openapi.json"}), tc)
 	if p == nil {
 		t.Fatal("expected detection when npmPackages is nil and openapi.json present")
