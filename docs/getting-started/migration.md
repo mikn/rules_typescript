@@ -5,8 +5,7 @@
 ## When to use which
 
 **Choose `rules_ts` (Aspect) if:**
-- You have an existing large codebase that can't adopt isolated declarations
-- You need full `tsc` compatibility for every TypeScript edge case
+- You need full `tsc` compatibility for every TypeScript edge case, including decorator metadata
 - You need Windows support today
 - You want a battle-tested, BCR-published ruleset used in production by many companies
 - You're already invested in `rules_js` and the Aspect ecosystem
@@ -15,7 +14,7 @@
 - You use Vite for bundling and dev serving
 - You want Gazelle to generate all BUILD files (zero manual maintenance)
 - You want sub-second incremental rebuilds via the `.d.ts` compilation boundary
-- You're starting a new project or can adopt isolated declarations
+- You want type errors to fail the build without extra flags
 - You use Remix, TanStack Start, or other Vite-based frameworks
 - You want zero system prerequisites (no Node, no pnpm install needed)
 
@@ -25,14 +24,14 @@
 |---|---|---|
 | **Compiler** | tsc (JavaScript) | Oxc (Rust) — 10-100x faster per file |
 | **Type-checker** | tsc | tsgo (Go port of TypeScript) |
-| **Compilation boundary** | tsc project references | `.d.ts` via isolated declarations |
+| **Compilation boundary** | tsc project references | `.d.ts` per target |
 | **Bundler** | Bring your own | Vite (first-class, built-in) |
 | **Dev server** | None built-in | Vite with HMR + React Fast Refresh |
 | **npm management** | rules_js (pnpm virtual store, symlinks) | Own pnpm lockfile parser (simpler) |
 | **BUILD generation** | Aspect CLI (proprietary) | Gazelle (open-source, directives) |
 | **Framework support** | None built-in | Remix, TanStack Start, SvelteKit, Solid Start |
 | **Dependencies** | rules_js + rules_nodejs | rules_nodejs only |
-| **Isolated declarations** | Not required | Required (or opt-out per package) |
+| **Isolated declarations** | Not required | Not required; opt-in per package for throughput |
 | **pnpm** | System install required | Hermetic (`bazel run //:pnpm`) |
 | **BCR** | Published, stable | Pre-release (v0.1.0) |
 | **Production users** | Many companies | None yet |
@@ -50,14 +49,13 @@
 
 For most projects this doesn't matter. For projects with complex decorator patterns or bleeding-edge TypeScript features, `tsc` is safer.
 
-### No isolated declarations requirement
+### tsc edge-case compatibility
 
-With `rules_ts`, existing codebases work immediately — no code changes needed. With `rules_typescript`, you either:
-
-1. Add explicit return types to all exports (the intended path — enables the fast `.d.ts` boundary)
-2. Use `# gazelle:ts_isolated_declarations false` (escape hatch — everything compiles but you lose the incremental boundary benefit)
-
-Option 2 gets you running immediately, but without the speed advantage that justifies the ruleset. The migration from option 2 to option 1 is gradual (package by package, aided by the ESLint plugin) but non-trivial for large codebases.
+Oxc is not tsc. Decorator metadata (`emitDecoratorMetadata`) may behave
+differently, very new TypeScript syntax can lag tsc by a few weeks, and exotic
+`tsconfig.json` options may not be handled identically. Note this applies to
+the JavaScript transform only — declarations come from tsgo by default, so the
+`.d.ts` are what TypeScript itself would emit.
 
 ### Mature ecosystem
 
@@ -84,7 +82,11 @@ Oxc (Rust) compiles TypeScript 10-100x faster per file than tsc. For a 500-file 
 
 ### Incremental boundary
 
-The `.d.ts` isolated declarations boundary means changing a function body without changing its return type does NOT recompile any downstream package. This is architecturally impossible with tsc project references (which always re-check the dependency graph).
+Each target's `.d.ts` is a real Bazel artifact, so changing a function body
+without changing its exported types leaves that artifact byte-identical and no
+downstream target recompiles. This holds under either declaration emitter. It is
+architecturally impossible with tsc project references, which always re-check
+the dependency graph.
 
 ### Vite-native
 
@@ -110,7 +112,7 @@ If you decide to migrate from `rules_ts`:
 2. Replace `js_library` / `npm_link_all_packages` with `npm_translate_lock`
 3. Remove `tsconfig.json` from BUILD deps — `ts_compile` generates its tsconfig internally
 4. Run `bazel run //:gazelle` to regenerate BUILD files
-5. If your codebase lacks explicit return types, add `# gazelle:ts_isolated_declarations false` to your root BUILD.bazel first (see [Path B](quickstart.md#path-b-existing-project)), then migrate package by package
+5. Nothing else. Missing explicit return types are fine — the default emitter infers them
 
 ### Key conceptual differences
 
@@ -118,6 +120,6 @@ If you decide to migrate from `rules_ts`:
 
 **One `@npm` repository.** `rules_ts` with `rules_js` creates per-package virtual stores. We create a single `@npm` repo. Labels: `@npm//:react`, `@npm//:types_react`.
 
-**Isolated declarations are opt-out.** New projects start with `isolated_declarations = True`. Existing projects opt out with `# gazelle:ts_isolated_declarations false`, then gradually opt packages back in.
+**Isolated declarations are opt-in.** Every target starts on `declarations = "tsgo"`, which needs no annotations. Add `# gazelle:ts_declarations oxc` to a package once its exports are annotated, to move type-checking off the critical path.
 
 **`node_modules` is automatic.** `ts_test` builds its `node_modules` tree from deps automatically. No manual `node_modules` target needed (unless overriding for specific cases).

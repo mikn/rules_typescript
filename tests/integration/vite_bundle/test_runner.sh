@@ -52,8 +52,8 @@ if [[ ! -f "${NPM_LOCKFILE}" ]]; then
 fi
 
 # ── Create writable scratch workspace in /tmp ─────────────────────────────────
-SCRATCH_DIR="$(mktemp -d -t rules_ts_vite_bundle.XXXXXX)"
-OUTPUT_BASE="$(mktemp -d -t rules_ts_vite_bundle_output.XXXXXX)"
+SCRATCH_DIR="$(mktemp -d -p "${TEST_TMPDIR:-/tmp}" -t rules_ts_vite_bundle.XXXXXX)"
+OUTPUT_BASE="$(mktemp -d -p "${TEST_TMPDIR:-/tmp}" -t rules_ts_vite_bundle_output.XXXXXX)"
 
 cleanup() {
     chmod -R u+w "${OUTPUT_BASE}" 2>/dev/null || true

@@ -55,15 +55,37 @@ ts_test(
 )
 ```
 
-## Isolated Declarations Error: Missing Return Type
+## Isolated declarations error: missing return type
 
-When `isolated_declarations = True`, all exported functions and variables must have explicit type annotations. The tsgo type-checker will report:
+Only reachable under `declarations = "oxc"`, where Oxc derives `.d.ts` from
+syntax and so needs an explicit type on every export:
 
 ```
-error TS9007: Declaration emit for this file requires type resolution. ...
+× Isolated declarations error(s): TS9013: Expression type can't be inferred
+│ with --isolatedDeclarations.
 ```
 
-Add the missing return type or explicit type annotation to the export. See [Isolated Declarations](../getting-started/isolated-declarations.md) for the full migration guide.
+Two ways out. Add the annotation Oxc names, or drop that target back to the
+default `declarations = "tsgo"`, where the compiler infers it. See
+[Isolated Declarations](../getting-started/isolated-declarations.md).
+
+## Type errors are not failing the build
+
+Under the default `declarations = "tsgo"` they always do — the `.d.ts` are real
+outputs of the type-checking action, so a target with a type error produces
+nothing.
+
+If a target sets `declarations = "oxc"`, type-checking is a validation action
+instead, and Bazel only runs those when asked:
+
+```
+build --output_groups=+_validation
+```
+
+If a target sets `enable_check = False`, nothing type-checks it at all. Under
+`"oxc"` that still gives you complete declarations (Oxc enforces isolated
+declarations itself); under `"tsgo"` it means the target emits no `.d.ts`,
+which is intended for terminal targets whose declarations nothing consumes.
 
 ## Gazelle Generating Wrong Deps
 

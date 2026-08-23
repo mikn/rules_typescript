@@ -20,10 +20,10 @@ Frameworks that don't use Vite (e.g., Next.js with webpack/turbopack) are not a 
 
 ## Key Ideas
 
-- **Oxc compiles** — Rust-based TypeScript/JSX transformer. `.js` + `.js.map` + `.d.ts` per file. Hundreds of files in milliseconds.
-- **tsgo type-checks** — Go port of TypeScript runs as a validation action. Type errors fail `bazel build`.
+- **Oxc compiles** — Rust-based TypeScript/JSX transformer. `.js` + `.js.map` per file, hundreds of files in milliseconds, and `.d.ts` too under `declarations = "oxc"`.
+- **tsgo emits declarations and type-checks** — Go port of TypeScript. Unmodified TypeScript compiles: no explicit export annotations required, and the `.d.ts` are what `tsc` would produce. Type errors fail `bazel build` because the declarations are real outputs.
 - **Vite bundles** — production bundles with tree-shaking, code splitting, minification. App mode (HTML + hashed assets) and lib mode.
-- **Isolated declarations** — explicit return types on exports make `.d.ts` a per-file syntactic transform. Change implementation without changing API → no downstream recompilation.
+- **Isolated declarations, when you want them** — annotate a package's exports and set `declarations = "oxc"` to have Oxc emit its `.d.ts` syntactically. Type-checking then moves off the critical path: 6.3s → 3.8s rebuild, 4.89s → 2.15s critical path on a 1,000-file, 20-deep chain. Opt-in, per package.
 - **Gazelle generates everything** — BUILD files, bundler targets, dev server targets, framework detection, codegen auto-detection.
 - **Zero prerequisites** — only Bazelisk needed. Node.js, pnpm, Go, Rust all fetched hermetically. No `node_modules/` in the source tree.
 
@@ -87,7 +87,7 @@ ts_compile(
 ## Documentation
 
 - [Quick Start](getting-started/quickstart.md) — new project or migrating an existing one
-- [Isolated Declarations](getting-started/isolated-declarations.md) — why this makes builds fast
+- [Isolated Declarations](getting-started/isolated-declarations.md) — the opt-in throughput mode
 - [IDE Setup](getting-started/ide-setup.md) — VS Code and WebStorm integration
 - [npm Dependencies](guides/npm.md) — pnpm lockfile integration
 - [Testing with vitest](guides/testing.md) — `ts_test`, snapshots, watch mode

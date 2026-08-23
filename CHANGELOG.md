@@ -9,8 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 - Core TypeScript compilation with oxc-bazel (Rust-based, per-file transform)
-- Type-checking with tsgo (Go port of TypeScript) as Bazel validation action
-- Isolated declarations support (.d.ts compilation boundary for incremental builds)
+- tsgo (Go port of TypeScript) emits .d.ts from the full type program by default, so unmodified TypeScript compiles with no explicit export annotations, and type errors fail `bazel build` because the declarations are real outputs
+- declarations = "oxc" as an opt-in throughput mode: Oxc emits .d.ts syntactically (requiring isolated declarations, which it enforces) and type-checking becomes a validation action off the critical path — 6.3s -> 3.8s rebuild and 4.89s -> 2.15s critical path on a 1,000-file, 20-deep chain (tools/bench_declarations.sh)
 - npm dependency management via pnpm-lock.yaml parser (v6 and v9 formats)
 - Multiple npm package version support with semver-correct alias resolution
 - npm bin script generation (@npm//:vitest_bin, @npm//:esbuild_bin, etc.)
@@ -19,7 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Dependency cycle detection and breaking (Kosaraju's SCC algorithm)
 - Gazelle extension for BUILD file auto-generation
 - Gazelle every-dir default (every directory with .ts files is a package)
-- Gazelle directives: ts_package_boundary, ts_isolated_declarations, ts_path_alias, ts_runtime_dep, ts_exclude, ts_warn_unresolved, ts_codegen
+- Gazelle directives: ts_package_boundary, ts_declarations, ts_path_alias, ts_runtime_dep, ts_exclude, ts_warn_unresolved, ts_codegen
 - Gazelle auto-detection of TanStack Router, Prisma, GraphQL codegen, OpenAPI generators
 - Gazelle reads tsconfig.json compilerOptions.paths automatically
 - Gazelle generates ts_compile, ts_test, ts_lint, ts_dev_server, css_library, css_module, asset_library, json_library, ts_codegen targets
@@ -33,7 +33,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - ts_lint rule (ESLint/oxlint as validation action)
 - ts_npm_publish rule (tarball with auto-filled main/types/exports)
 - ESLint plugin for isolated declarations migration (require-explicit-types rule, 31 test cases)
-- ts_compile_legacy macro for gradual isolated declarations adoption
 - vite_types attr on ts_compile for import.meta.env and asset URL types
 - path_aliases attr on ts_compile for tsgo type-checking with path aliases
 - JS runtime toolchain (Node.js via rules_nodejs, pluggable for Deno/Bun/workerd)

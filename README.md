@@ -19,10 +19,10 @@ Frameworks that don't use Vite (e.g., Next.js with webpack/turbopack) are not a 
 
 ## Key Ideas
 
-- **Oxc compiles** — Rust-based TypeScript/JSX transformer. `.js`, `.js.map`, and `.d.ts` per file. Hundreds of files in milliseconds.
-- **tsgo type-checks** — Go port of TypeScript runs as a validation action. Type errors fail `bazel build`.
+- **Oxc compiles** — Rust-based TypeScript/JSX transformer. `.js` + `.js.map` per file, hundreds of files in milliseconds, and `.d.ts` too under `declarations = "oxc"`.
+- **tsgo emits declarations and type-checks** — Go port of TypeScript. Unmodified TypeScript compiles: no explicit export annotations required, and the `.d.ts` are what `tsc` would produce. Type errors fail `bazel build` because the declarations are real outputs.
 - **Vite bundles** — production bundles with tree-shaking, code splitting, minification. App mode (HTML + hashed assets) and lib mode.
-- **Isolated declarations** — explicit return types on exports make `.d.ts` a per-file syntactic transform. Change implementation without changing API → no downstream recompilation.
+- **Isolated declarations, when you want them** — annotate a package's exports and set `declarations = "oxc"` to have Oxc emit its `.d.ts` syntactically. Type-checking then moves off the critical path: 6.3s → 3.8s rebuild, 4.89s → 2.15s critical path on a 1,000-file, 20-deep chain. Opt-in, per package.
 - **Gazelle generates BUILD files** — auto-infers targets, resolves imports, detects frameworks, generates bundler + dev server targets.
 - **Zero prerequisites** — only Bazelisk needed. Node.js, pnpm, Go, Rust all fetched hermetically.
 
@@ -122,7 +122,7 @@ See **[IDE Setup](https://mikn.github.io/rules_typescript/getting-started/ide-se
 
 - **[Quick Start](https://mikn.github.io/rules_typescript/getting-started/quickstart/)** — new project or migrating an existing codebase
 - **[IDE Setup](https://mikn.github.io/rules_typescript/getting-started/ide-setup/)** — live tsserver resolution from Bazel's build graph (TypeScript's GOPACKAGESDRIVER)
-- **[Isolated Declarations](https://mikn.github.io/rules_typescript/getting-started/isolated-declarations/)** — the architectural keystone for fast incremental builds
+- **[Isolated Declarations](https://mikn.github.io/rules_typescript/getting-started/isolated-declarations/)** — the opt-in throughput mode, and what it does and does not buy
 - **[npm Dependencies](https://mikn.github.io/rules_typescript/guides/npm/)** — pnpm lockfile integration, platform-specific packages, bin scripts
 - **[Testing with vitest](https://mikn.github.io/rules_typescript/guides/testing/)** — `ts_test`, snapshots, sharding, watch mode with ibazel
 - **[Bundling](https://mikn.github.io/rules_typescript/guides/bundling/)** — `ts_bundle` with Vite or any `BundlerInfo`-compatible bundler

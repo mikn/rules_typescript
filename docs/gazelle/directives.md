@@ -6,8 +6,8 @@ Directives go in `BUILD.bazel` files as comments and control how Gazelle generat
 
 | Directive | Effect |
 |-----------|--------|
-| `# gazelle:ts_isolated_declarations false` | Emit `isolated_declarations = False` on all generated `ts_compile` and `ts_test` rules — the escape hatch for existing codebases |
-| `# gazelle:ts_isolated_declarations true` | Re-enable isolated declarations for a subdirectory after a parent set it to `false` |
+| `# gazelle:ts_declarations oxc` | Emit `declarations = "oxc"` on all generated `ts_compile` and `ts_test` rules in this tree — Oxc emits `.d.ts` syntactically, which requires an explicit type on every export |
+| `# gazelle:ts_declarations tsgo` | Return a subdirectory to the default emitter after a parent set `oxc` |
 | `# gazelle:ts_package_boundary every-dir` | (default) Every directory with `.ts` files becomes a package |
 | `# gazelle:ts_package_boundary index-only` | Only directories with `index.ts`/`.tsx` become packages (pre-0.2.0 behaviour) |
 | `# gazelle:ts_package_boundary true` | Mark this single directory as a boundary (useful in index-only mode without `index.ts`) |
@@ -23,11 +23,12 @@ Directives go in `BUILD.bazel` files as comments and control how Gazelle generat
 
 ### Existing codebase without explicit return types
 
+Nothing to configure. The `ts_compile` default (`declarations = "tsgo"`) emits
+declarations from the full type program, so inferred export types are fine:
+
 ```python
 # BUILD.bazel (repo root)
 load("@gazelle//:def.bzl", "gazelle")
-
-# gazelle:ts_isolated_declarations false
 
 gazelle(
     name = "gazelle",
@@ -35,15 +36,23 @@ gazelle(
 )
 ```
 
-### Re-enable isolated declarations for a specific package
+### Opt one package into Oxc declaration emit
+
+Once every export in a package carries an explicit type, move it to Oxc's
+syntactic emit to take type-checking off the critical path
+(see [Isolated Declarations](../getting-started/isolated-declarations.md)):
 
 ```python
 # src/my-package/BUILD.bazel
 
-# gazelle:ts_isolated_declarations true
+# gazelle:ts_declarations oxc
 
-# Gazelle will regenerate with isolated_declarations = True
+# Gazelle regenerates with declarations = "oxc". Oxc fails the build, naming
+# the file and line, for any export it cannot derive a type from.
 ```
+
+An unrecognised value keeps the inherited emitter and logs a warning, so a typo
+cannot silently demand annotations across a whole tree.
 
 ### Index-only package boundaries (pre-0.2.0 behaviour)
 

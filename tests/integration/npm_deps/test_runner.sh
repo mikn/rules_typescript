@@ -73,8 +73,8 @@ cleanup() {
     [[ -n "${SCRATCH_DIR}" ]] && rm -rf "${SCRATCH_DIR}"
 }
 trap cleanup EXIT
-SCRATCH_DIR="$(mktemp -d -t rules_ts_npm_deps.XXXXXX)"
-OUTPUT_BASE="$(mktemp -d -t rules_ts_npm_deps_output.XXXXXX)"
+SCRATCH_DIR="$(mktemp -d -p "${TEST_TMPDIR:-/tmp}" -t rules_ts_npm_deps.XXXXXX)"
+OUTPUT_BASE="$(mktemp -d -p "${TEST_TMPDIR:-/tmp}" -t rules_ts_npm_deps_output.XXXXXX)"
 
 cp -rL "${BIT_WORKSPACE_DIR}/." "${SCRATCH_DIR}/"
 for f in "${BIT_WORKSPACE_DIR}"/.bazelrc "${BIT_WORKSPACE_DIR}"/.bazelversion; do

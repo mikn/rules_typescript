@@ -216,8 +216,13 @@ def _generate_tsconfig(ctx, srcs, target, jsx_mode, npm_pkg_dirs = None, type_ro
     # emit genuinely requires it. In tsgo mode the compiler has the full program
     # and infers the types, so demanding annotations would buy nothing.
     if emit_declarations:
+        # noEmitOnError so a target that fails type-checking writes no .d.ts at
+        # all. tsgo otherwise emits and reports, which would leave a declaration
+        # on disk for a target Bazel has failed -- confusing under --keep_going
+        # and a trap for anyone reading bazel-bin directly.
         emit_entry = '''"declaration": true,
     "emitDeclarationOnly": true,
+    "noEmitOnError": true,
     "outDir": "{out_dir}",
     "rootDir": "{root_dir}",'''.format(
             out_dir = _relative_path(tsconfig_dir, emit_out_dir) if emit_out_dir else ".",

@@ -79,7 +79,7 @@ gazelle(
 )
 ```
 
-**Step 6.** Write your TypeScript files. Use explicit return types on exported functions (see [Isolated Declarations](isolated-declarations.md)):
+**Step 6.** Write your TypeScript files. Explicit return types are optional — tsgo emits the declarations from the full type program:
 
 ```typescript
 // src/lib/math.ts
@@ -114,12 +114,10 @@ Each `ts_compile` target Gazelle generates produces `.js`, `.js.map`, and `.d.ts
 
 **Step 1.** Set up the same four root files as Path A (`.bazelversion`, `WORKSPACE.bazel`, `MODULE.bazel`, `.bazelrc`).
 
-**Step 2.** Create `BUILD.bazel` at the repo root with an escape-hatch directive:
+**Step 2.** Create `BUILD.bazel` at the repo root. No escape hatch is needed:
 
 ```python
 load("@gazelle//:def.bzl", "gazelle")
-
-# gazelle:ts_isolated_declarations false
 
 gazelle(
     name = "gazelle",
@@ -127,7 +125,8 @@ gazelle(
 )
 ```
 
-The `# gazelle:ts_isolated_declarations false` directive tells Gazelle to set `isolated_declarations = False` on all generated targets. Most existing TypeScript projects don't have explicit return types on every export, so this lets your code compile immediately. You still get hermetic builds and caching — just not the maximum incremental speed. See [Isolated Declarations](isolated-declarations.md) for how to migrate packages one at a time.
+Most existing TypeScript projects do not annotate every export, and that is
+fine: the `ts_compile` default emits declarations with tsgo, which infers them.
 
 **Step 3.** Run Gazelle:
 
@@ -141,9 +140,13 @@ bazel run //:gazelle
 bazel build //...
 ```
 
-If there are type errors, fix them. The `isolated_declarations = False` flag means you won't hit "missing return type" errors yet.
+If there are type errors, fix them — real type errors fail the build, because
+the `.d.ts` are outputs of the type-checker. You will not see "missing return
+type" errors: those only apply to `declarations = "oxc"`.
 
-**Step 5.** Migrate packages to isolated declarations one at a time. See [Isolated Declarations — Migration](isolated-declarations.md#migration).
+**Step 5.** Optional. Once a package's exports are all annotated, move it to
+Oxc's syntactic declaration emit to take type-checking off the critical path.
+See [Isolated Declarations](isolated-declarations.md).
 
 ---
 

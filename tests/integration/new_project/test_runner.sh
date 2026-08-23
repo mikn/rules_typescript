@@ -76,8 +76,8 @@ cleanup() {
     [[ -n "${SCRATCH_DIR}" ]] && rm -rf "${SCRATCH_DIR}"
 }
 trap cleanup EXIT
-SCRATCH_DIR="$(mktemp -d -t rules_ts_new_project.XXXXXX)"
-OUTPUT_BASE="$(mktemp -d -t rules_ts_new_project_output.XXXXXX)"
+SCRATCH_DIR="$(mktemp -d -p "${TEST_TMPDIR:-/tmp}" -t rules_ts_new_project.XXXXXX)"
+OUTPUT_BASE="$(mktemp -d -p "${TEST_TMPDIR:-/tmp}" -t rules_ts_new_project_output.XXXXXX)"
 
 # Copy workspace files. cp -rL dereferences symlinks from the runfiles tree.
 cp -rL "${BIT_WORKSPACE_DIR}/." "${SCRATCH_DIR}/"

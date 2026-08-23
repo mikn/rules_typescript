@@ -227,7 +227,7 @@ INFO: Built target //src/lib:lib
 **Extra setup complexity in rules_typescript:**
 1. **.bazelrc has more configuration** — includes `--output_groups=+_validation` (type-checking), Rust channel config, test output flags. rules_go's .bazelrc is simpler (just correctness flags).
 
-2. **Explicit return types required** — TypeScript sources MUST have explicit return types on all exports (isolatedDeclarations requirement). Go does not require this; type inference is implicit.
+2. **Explicit return types optional** — the default `declarations = "tsgo"` infers export types, so no annotations are required. They are needed only under the opt-in `declarations = "oxc"`, which trades them for type-checking off the critical path.
 
 3. **MODULE.bazel requires more entries** — rules_typescript needs the Gazelle Go dependencies (`go_deps.from_file()`) to resolve Gazelle itself as a Go binary that must be compiled. rules_go doesn't need this.
 
@@ -510,7 +510,7 @@ bazel build //src/lib:lib
 | **Files included** | All .go files automatically | All .ts/.tsx, but REQUIRES index.ts for package boundary |
 | **Compilation unit** | Package-based (directory = package) | Target-based (ts_compile marks boundary) |
 | **Barrel file required?** | No | **YES** — index.ts marks the package boundary |
-| **Type annotations required?** | No (implicit) | **YES** — explicit return types on exports (isolatedDeclarations) |
+| **Type annotations required?** | No (implicit) | No by default; required only under the opt-in `declarations = "oxc"` |
 | **Public API pattern** | No convention | Explicit re-export pattern in index.ts |
 
 **Friction points:**
@@ -862,7 +862,7 @@ When `app` depends on `lib`, rules_typescript only provides the `.d.ts` files to
 - Changing `lib/math.ts` implementation (but not the .d.ts signature) does NOT recompile `app`
 - Go has no equivalent: changing `util/strings.go` always recompiles dependents
 
-This is the architectural keystone of rules_typescript: **isolated declarations** enable fine-grained incremental compilation.
+The architectural keystone of rules_typescript is the **per-target `.d.ts` artifact**: a body change that leaves exported types alone leaves the artifact byte-identical, so no downstream target recompiles. Isolated declarations are a separate, opt-in mode that additionally lets the emit skip the type program.
 
 ---
 
@@ -1962,7 +1962,7 @@ When detected, Gazelle may generate different rules or exclusions (currently a n
 
 ## KEY ERGONOMIC GAPS IN rules_typescript (vs rules_go)
 
-1. **Explicit type annotations** — Developers must annotate all exports with types (isolated declarations requirement). Go has implicit typing.
+1. **Explicit type annotations** — only under the opt-in `declarations = "oxc"`. The default infers them, like Go.
 
 2. **Barrel file discipline** — Must maintain index.ts files as package boundaries. Go has implicit package-based boundaries.
 
@@ -1992,7 +1992,7 @@ Despite the gaps, rules_typescript successfully mirrors Go's ergonomics in key a
 
 2. **Type errors fail the build** — Both use `bazel build` for compile + type-check
 
-3. **Fine-grained incremental caching** — Isolated declarations enable .d.ts boundary; similar to Go's package-based compilation
+3. **Fine-grained incremental caching** — the per-target .d.ts artifact is the boundary, similar to Go's package-based compilation
 
 4. **Single command workflow** — `bazel build //...` builds everything, including types
 
