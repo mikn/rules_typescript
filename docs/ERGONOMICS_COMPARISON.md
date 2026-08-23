@@ -141,7 +141,6 @@ test --test_output=errors
 test --test_summary=terse
 
 build --experimental_convenience_symlinks=normal
-build --@rules_rust//rust/toolchain/channel=stable
 ```
 
 `WORKSPACE.bazel`:
@@ -157,6 +156,11 @@ module(
 )
 
 bazel_dep(name = "rules_typescript", version = "0.1.0")
+git_override(
+    module_name = "rules_typescript",
+    remote = "https://github.com/mikn/rules_typescript.git",
+    commit = "REPLACE_WITH_A_COMMIT_SHA_FROM_MAIN",
+)
 
 # Optional: add these for Gazelle code generation
 bazel_dep(name = "gazelle", version = "0.47.0")
@@ -225,7 +229,7 @@ INFO: Built target //src/lib:lib
 ### --- Difference ---
 
 **Extra setup complexity in rules_typescript:**
-1. **.bazelrc has more configuration** — includes `--output_groups=+_validation` (type-checking), Rust channel config, test output flags. rules_go's .bazelrc is simpler (just correctness flags).
+1. **.bazelrc has more configuration** — includes `--output_groups=+_validation` (type-checking) and test output flags. rules_go's .bazelrc is simpler (just correctness flags). No Rust configuration belongs here: `rules_rust` is a transitive dependency of `rules_typescript`, so a `--@rules_rust//...` flag in a consumer's .bazelrc fails with `No repository visible as '@rules_rust'`.
 
 2. **Explicit return types optional** — the default `declarations = "tsgo"` infers export types, so no annotations are required. They are needed only under the opt-in `declarations = "oxc"`, which trades them for type-checking off the critical path.
 

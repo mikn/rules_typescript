@@ -29,15 +29,27 @@ Frameworks that don't use Vite (e.g., Next.js with webpack/turbopack) are not a 
 
 ## Install
 
-Add to `MODULE.bazel`:
+`rules_typescript` is not on the Bazel Central Registry yet, so pin it from git
+with `git_override`. Add to `MODULE.bazel`:
 
 ```python
 bazel_dep(name = "rules_typescript", version = "0.1.0")
+git_override(
+    module_name = "rules_typescript",
+    remote = "https://github.com/mikn/rules_typescript.git",
+    commit = "REPLACE_WITH_A_COMMIT_SHA_FROM_MAIN",
+)
 
 register_toolchains("@rules_typescript//ts/toolchain:all")
 
 bazel_dep(name = "gazelle", version = "0.47.0")
 ```
+
+`bazel_dep` keeps its `version` attribute — bzlmod requires it and ignores the
+value while an override is in place. The quickstart covers the
+[`archive_override` and `local_path_override` alternatives](getting-started/quickstart.md#depending-on-rules_typescript);
+the plain `bazel_dep` line starts resolving on its own once a version reaches
+the BCR.
 
 Add to `.bazelrc`:
 
@@ -46,6 +58,15 @@ build --incompatible_strict_action_env
 build --nolegacy_external_runfiles
 build --output_groups=+_validation
 ```
+
+That is all of it. No `@rules_rust` flag belongs here — `rules_rust` is a
+transitive dependency of `rules_typescript`, so Bazel cannot resolve the label
+from your repository and fails the invocation
+([troubleshooting](guides/troubleshooting.md#no-repository-visible-as-rules_rust)).
+
+Your repository root also needs a `BUILD.bazel` (empty is fine) — `rules_rust`
+resolves `//:MODULE.bazel` while fetching crates, and that requires the root to
+be a package.
 
 ## Quick Example
 

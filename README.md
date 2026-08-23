@@ -42,16 +42,28 @@ Supported platforms: Linux x86_64, Linux ARM64, macOS x86_64, macOS ARM64.
 
 **Step 2.** Create `WORKSPACE.bazel` (empty — required by Bazel 9).
 
-**Step 3.** Add to `MODULE.bazel`:
+**Step 3.** Add to `MODULE.bazel`. The ruleset is not on the Bazel Central
+Registry yet, so pin it from git — `bazel_dep` alone has nothing to resolve
+against:
 
 ```python
 module(name = "my_project", version = "0.0.0")
 
 bazel_dep(name = "rules_typescript", version = "0.1.0")
+git_override(
+    module_name = "rules_typescript",
+    remote = "https://github.com/mikn/rules_typescript.git",
+    commit = "REPLACE_WITH_A_COMMIT_SHA_FROM_MAIN",
+)
 register_toolchains("@rules_typescript//ts/toolchain:all")
 
 bazel_dep(name = "gazelle", version = "0.47.0")
 ```
+
+Pin a full commit SHA, not a branch. bzlmod still requires `version` on
+`bazel_dep` and ignores its value while the override is active. See
+[Depending on rules_typescript](https://mikn.github.io/rules_typescript/getting-started/quickstart/#depending-on-rules_typescript)
+for the `archive_override` (smaller fetch) and `local_path_override` forms.
 
 **Step 4.** Add to `.bazelrc`:
 
@@ -61,7 +73,14 @@ build --nolegacy_external_runfiles
 build --output_groups=+_validation
 ```
 
-**Step 5.** Add to `BUILD.bazel`:
+Those three lines are the whole file. Do not add an `@rules_rust` flag:
+`rules_rust` is a transitive dependency of `rules_typescript`, not of your
+module, so Bazel cannot resolve the label and rejects the invocation with
+`No repository visible as '@rules_rust' from main repository`.
+
+**Step 5.** Add to `BUILD.bazel` at the repository root. The file has to exist
+even if empty — `rules_rust` resolves `//:MODULE.bazel` while fetching crates,
+which requires the root to be a Bazel package:
 
 ```python
 load("@gazelle//:def.bzl", "gazelle")

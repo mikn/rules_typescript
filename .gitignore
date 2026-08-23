@@ -12,6 +12,13 @@ MODULE.bazel.lock
 # Node modules (managed by Bazel, not checked in)
 node_modules/
 
+# Cargo build output (oxc_cli is built by Bazel via rules_rust; a cargo
+# target/ is local scratch only)
+target/
+
+# Next.js build output
+.next/
+
 # IDE
 .vscode/settings.json
 *.swp

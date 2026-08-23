@@ -5,6 +5,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+- Consumer setup no longer asks for `build --@rules_rust//rust/toolchain/channel=stable`; the flag is a consumer-visible error (`No repository visible as '@rules_rust'`) and a no-op for this ruleset, whose Rust channel already defaults to stable
+- Install instructions document the pre-BCR `git_override` / `archive_override` / `local_path_override` recipes, since there is no registry entry or release for `bazel_dep(name = "rules_typescript", version = "0.1.0")` to resolve against
+- Cargo build output is gitignored; `oxc_cli/target/` had 2322 tracked files, 622 MiB of blobs, which made a source tarball of HEAD 207 MB instead of 638 KB
+- Gazelle parses tsconfig.json as JSONC — comments and trailing commas no longer make compilerOptions.paths silently disappear
+- Gazelle names css_library, css_module, asset_library and json_library targets after the whole filename (button.css -> button_css), so they no longer collide with the directory-named ts_compile target or with each other
+
 ## [0.1.0] - 2026-03-12
 
 ### Added

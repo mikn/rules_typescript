@@ -17,9 +17,6 @@ test --test_summary=terse
 # Convenience
 build --experimental_convenience_symlinks=normal
 
-# Rust toolchain
-build --@rules_rust//rust/toolchain/channel=stable
-
 # ── Integration test child workspaces ────────────────────────────────────────
 # Each subdirectory under tests/integration/ is a separate Bazel workspace
 # (it has its own MODULE.bazel). They must be excluded from the parent

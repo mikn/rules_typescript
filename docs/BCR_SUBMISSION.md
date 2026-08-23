@@ -2,6 +2,14 @@
 
 This document describes how to submit rules_typescript to the Bazel Central Registry and manage releases.
 
+**Current status: nothing has been released.** There are no git tags, no GitHub
+releases, and `.bcr/metadata.json` still has an empty `versions` list, so
+`registry.bazel.build/modules/rules_typescript` does not exist. `.bcr/source.json`
+is a placeholder — its URL points at a tarball that was never published and its
+`integrity` is empty; `scripts/release.sh` fills both in. Until then consumers pin
+the ruleset with a non-registry override, per
+[Depending on rules_typescript](getting-started/quickstart.md#depending-on-rules_typescript).
+
 ## Overview
 
 The release and BCR publishing process is fully automated using GitHub Actions:

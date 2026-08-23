@@ -1,5 +1,38 @@
 # Troubleshooting
 
+## No repository visible as '@rules_rust'
+
+```
+ERROR: @rules_rust//rust/toolchain/channel :: Error loading option
+@rules_rust//rust/toolchain/channel: No repository visible as '@rules_rust'
+from main repository
+```
+
+A `.bazelrc` in your workspace sets a `--@rules_rust//...` flag. Delete the
+line. `rules_rust` is a transitive dependency of `rules_typescript`, so
+`@rules_rust` is not in your module's repo mapping and Bazel cannot resolve
+the flag's label. Nothing in a consumer's `.bazelrc` needs it: the Rust
+toolchain channel already defaults to `stable`, which is the only channel
+`rules_typescript` registers a toolchain for.
+
+If you really do need `@rules_rust` flags for Rust code of your own, add
+`bazel_dep(name = "rules_rust", version = "0.69.0")` to your `MODULE.bazel` to
+bring the repo into your mapping — but note that the flag then applies to the
+`oxc-bazel` build too, and a non-`stable` channel will fail toolchain
+resolution.
+
+## BUILD file not found for //:MODULE.bazel
+
+```
+Error in path: Unable to load package for //:MODULE.bazel: BUILD file not
+found in any of the following directories.
+```
+
+`rules_rust`'s crate fetching resolves `//:MODULE.bazel`, which requires your
+repository root to be a Bazel package. Create a `BUILD.bazel` at the root; an
+empty file is enough, though the [quickstart](../getting-started/quickstart.md)
+puts the Gazelle target there.
+
 ## Type Errors Not Surfacing
 
 Type-checking runs only when a tsgo toolchain is registered and `enable_check = True` (both are defaults). The recommended way to enable it permanently is:

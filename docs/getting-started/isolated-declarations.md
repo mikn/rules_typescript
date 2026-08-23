@@ -106,6 +106,7 @@ directory in the `rules_typescript` repository and install the tarball:
 # From the rules_typescript checkout:
 cd path/to/rules_typescript/eslint-plugin
 npm install
+npm run build   # tsup -> dist/
 npm pack
 # produces rules_typescript-eslint-plugin-isolated-declarations-0.1.0.tgz
 

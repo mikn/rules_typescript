@@ -6,6 +6,7 @@ The first build fetches all toolchains — typically 2-5 minutes. Subsequent bui
 
 Choose your path:
 
+- [Depending on rules_typescript](#depending-on-rules_typescript) — how to pin the ruleset before it reaches the Bazel Central Registry
 - [Path A: New project](#path-a-new-project) — starting from scratch
 - [Path B: Existing project](#path-b-existing-project) — migrating a TypeScript codebase
 
@@ -30,6 +31,68 @@ scoop install bazelisk
 
 ---
 
+## Depending on rules_typescript
+
+There is no Bazel Central Registry entry and no tagged release yet, so a bare
+`bazel_dep(name = "rules_typescript", version = "0.1.0")` has nothing to
+resolve against. Until the ruleset is published to the BCR, pin it with a
+non-registry override. All three forms below keep `bazel_dep` in place —
+bzlmod still requires the `version` attribute, and ignores its value while an
+override is active.
+
+### git_override — the pre-BCR default
+
+```python
+bazel_dep(name = "rules_typescript", version = "0.1.0")
+git_override(
+    module_name = "rules_typescript",
+    remote = "https://github.com/mikn/rules_typescript.git",
+    commit = "REPLACE_WITH_A_COMMIT_SHA_FROM_MAIN",
+)
+```
+
+Pin a full 40-character commit SHA rather than a branch name: `git_override`
+re-resolves a branch whenever the repository cache is cold, which makes the
+build non-reproducible.
+
+### archive_override — smaller fetch
+
+`git_override` runs a full `git clone` and pays for the whole history, which
+still carries ~200 MB of cargo build output that was tracked by mistake before
+it was removed. A codeload tarball is a single snapshot instead — under 1 MB —
+so prefer this form on CI. Compute the integrity hash for the commit you want:
+
+```bash
+COMMIT=<full 40-char sha>
+curl -sL "https://github.com/mikn/rules_typescript/archive/$COMMIT.tar.gz" \
+  | openssl dgst -sha256 -binary | openssl base64 -A
+```
+
+```python
+bazel_dep(name = "rules_typescript", version = "0.1.0")
+archive_override(
+    module_name = "rules_typescript",
+    urls = ["https://github.com/mikn/rules_typescript/archive/<sha>.tar.gz"],
+    strip_prefix = "rules_typescript-<sha>",
+    integrity = "sha256-<base64 output of the command above>",
+)
+```
+
+### local_path_override — working against a checkout
+
+```python
+bazel_dep(name = "rules_typescript", version = "0.1.0")
+local_path_override(
+    module_name = "rules_typescript",
+    path = "../rules_typescript",
+)
+```
+
+Once a version is published to the BCR, drop the override and the plain
+`bazel_dep` line resolves on its own.
+
+---
+
 ## Path A: New Project
 
 **Step 1.** Create `.bazelversion`:
@@ -43,7 +106,10 @@ scoop install bazelisk
 ```
 ```
 
-**Step 3.** Create `MODULE.bazel`:
+**Step 3.** Create `MODULE.bazel`. `rules_typescript` is not on the Bazel
+Central Registry yet, so pin it from git with `git_override` — see
+[Depending on rules_typescript](#depending-on-rules_typescript) above for the
+full explanation and the `archive_override` alternative:
 
 ```python
 module(
@@ -52,6 +118,11 @@ module(
 )
 
 bazel_dep(name = "rules_typescript", version = "0.1.0")
+git_override(
+    module_name = "rules_typescript",
+    remote = "https://github.com/mikn/rules_typescript.git",
+    commit = "REPLACE_WITH_A_COMMIT_SHA_FROM_MAIN",
+)
 
 register_toolchains("@rules_typescript//ts/toolchain:all")
 
@@ -68,7 +139,15 @@ build --output_groups=+_validation
 
 The `--output_groups=+_validation` line makes type errors fail `bazel build`, the same as `go build`.
 
-**Step 5.** Create `BUILD.bazel` at the repo root:
+That is the whole file. In particular you do **not** need any
+`@rules_rust//...` flag: `rules_rust` is a transitive dependency of
+`rules_typescript`, not of your module, so `@rules_rust` is not visible from
+your repository and Bazel rejects the flag outright (see
+[Troubleshooting](../guides/troubleshooting.md#no-repository-visible-as-rules_rust)).
+
+**Step 5.** Create `BUILD.bazel` at the repo root. It may be empty, but it has
+to exist — `rules_rust`'s crate fetching resolves `//:MODULE.bazel`, which
+requires the repo root to be a Bazel package:
 
 ```python
 load("@gazelle//:def.bzl", "gazelle")
