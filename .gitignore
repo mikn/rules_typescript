@@ -18,6 +18,9 @@ target/
 
 # Next.js build output
 .next/
+# ESLint plugin build output (built on demand: see the isolated-declarations
+# guide, which packs the plugin from source)
+eslint-plugin/dist/
 
 # IDE
 .vscode/settings.json
