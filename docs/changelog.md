@@ -5,6 +5,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- One external repository per npm package (`npm.translate_lock(lazy = ...)`, default on), with `@npm` as an alias-only hub. Bazel fetches only the packages a target actually needs: on a 2731-package lockfile, building one vitest target went from 392s / 2.9 GB to 66s / 415 MB, fetching 227 packages instead of all 2731
+
 ### Fixed
 
 - Consumer setup no longer asks for `build --@rules_rust//rust/toolchain/channel=stable`; the flag is a consumer-visible error (`No repository visible as '@rules_rust'`) and a no-op for this ruleset, whose Rust channel already defaults to stable

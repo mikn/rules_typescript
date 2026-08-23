@@ -97,3 +97,47 @@ node_modules(
 ```
 
 This creates a hermetic `node_modules` directory in the Bazel sandbox containing exactly the specified packages and their transitive dependencies.
+
+## One repository per package
+
+Each npm package gets its own external repository, with `@npm` holding only
+alias targets. Bazel fetches repositories on demand, so a target's npm cost is
+its own dependency closure rather than the lockfile.
+
+Measured on a real 2731-package `pnpm-lock.yaml`, building one vitest test
+target from an empty output base with a shared tarball cache:
+
+| | one repository | one per package |
+|---|---|---|
+| Wall time | 392s | **66s** |
+| npm repositories fetched | 1, holding all 2731 | 227 + the alias hub |
+| `external/` on disk | 2.9 GB | **415 MB** |
+
+227 of 2731 packages is vitest's actual transitive closure. The single-repository
+layout has to download everything before it can generate any target, because it
+reads `bin` and `exports` out of each extracted `package.json`; per-package
+repositories read their own, which is what makes on-demand fetching possible.
+Independent repositories also fetch in parallel, cache and invalidate
+individually, and a malformed tarball fails only its own package instead of
+restarting the whole fetch.
+
+The label surface is unchanged: `@npm//:zod`, `@npm//:types_react`,
+`@npm//:vitest_bin`.
+
+To use the single-repository layout instead:
+
+```python
+npm.translate_lock(
+    pnpm_lock = "//:pnpm-lock.yaml",
+    lazy = False,
+)
+```
+
+### Known gap
+
+npm alias specifiers -- a dependency declared as `h3-v2: h3@2.0.1`, where the
+package is published under a different name than the one importing code uses --
+are resolved for dependency edges but do not get their own alias label. This is
+untested in both layouts; if you rely on aliased specifiers, verify the labels
+you expect exist before adopting either.
+

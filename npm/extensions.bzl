@@ -76,8 +76,11 @@ _translate_lock_tag = tag_class(attrs = {
     "name": attr.string(default = "npm"),
     "pnpm_lock": attr.label(mandatory = True, allow_single_file = True),
     "lazy": attr.bool(
-        default = False,
+        default = True,
         doc = """Declare one repository per npm package instead of one for all of them.
+
+The default. Set False for the single-repository layout, which downloads the
+whole lockfile before it can generate any target.
 
 Bazel then fetches only the packages in the requested targets' transitive
 closure, in parallel, cached and invalidated per package. The default single
