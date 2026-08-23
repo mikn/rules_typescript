@@ -373,6 +373,12 @@ def _parse_pnpm_lock(content):
 #   packages/shared:
 #     dependencies:
 #       zod: {specifier: ^3.0.0, version: 3.24.2}
+#   npm-packages/email-js:
+#     dependencies:
+#       api-utils: {specifier: workspace:*, version: link:../../packages/api-utils}
+#
+# A `link:` path is relative to the importer that declares it, not to the repo
+# root, so it is resolved against the importer path before becoming a label.
 #
 # For workspace packages (version: link:<path>), we generate an `alias` target
 # in the @npm repository that points at the Bazel label //packages/shared:shared
@@ -397,6 +403,28 @@ def _find_importers_start(lines):
             return idx
     return -1
 
+def _resolve_link_path(importer_path, link_path):
+    """Resolves a pnpm `link:` target into a path relative to the workspace root.
+
+    pnpm records link targets relative to the importer that declares them, so
+    importer "npm-packages/email-js" with `link:../../packages/api-utils`
+    refers to "packages/api-utils". The root importer is spelled ".".
+
+    Returns "" when the link resolves to the workspace root itself or escapes
+    it — neither can be expressed as a "//<path>:<name>" label.
+    """
+    segments = []
+    for part in (importer_path + "/" + link_path).split("/"):
+        if not part or part == ".":
+            continue
+        if part == "..":
+            if not segments:
+                return ""
+            segments = segments[:-1]
+            continue
+        segments.append(part)
+    return "/".join(segments)
+
 def _parse_workspace_aliases(content):
     """Parses the importers: section and returns workspace alias mappings.
 
@@ -407,7 +435,8 @@ def _parse_workspace_aliases(content):
     Only entries whose version starts with "link:" are workspace packages.
     The npm_package_name is the key in the `dependencies` block (the package
     name as it appears in package.json, potentially scoped like @myorg/shared).
-    The workspace_rel_path strips the "link:" prefix.
+    The workspace_rel_path is the link target resolved against the importer
+    declaring it, so it is always relative to the workspace root.
     """
     lines = content.split("\n")
     importers_start = _find_importers_start(lines)
@@ -429,7 +458,7 @@ def _parse_workspace_aliases(content):
     #   shared: {specifier: workspace:*, version: link:packages/shared}
 
     state = {
-        "in_importers": True,
+        "current_importer": ".",  # importer path the link: targets are relative to
         "current_section": None,  # "dependencies" or "devDependencies" etc.
         "current_dep_name": None,  # npm package name of the current dep block
         "done": False,
@@ -455,6 +484,7 @@ def _parse_workspace_aliases(content):
 
         # Importer entry (indent 2, ends with colon): path like "." or "packages/shared".
         if indent == 2 and stripped.endswith(":"):
+            state["current_importer"] = stripped[:-1].strip().strip("'\"")
             state["current_section"] = None
             state["current_dep_name"] = None
             continue
@@ -479,8 +509,9 @@ def _parse_workspace_aliases(content):
                 if "version: link:" in rest:
                     link_start = rest.find("version: link:") + len("version: link:")
                     link_val = rest[link_start:].split("}")[0].split(",")[0].strip().strip("'\"")
-                    if dep_name and link_val:
-                        workspace_aliases[dep_name] = link_val
+                    ws_path = _resolve_link_path(state["current_importer"], link_val)
+                    if dep_name and ws_path:
+                        workspace_aliases[dep_name] = ws_path
                 state["current_dep_name"] = None
                 continue
 
@@ -495,9 +526,9 @@ def _parse_workspace_aliases(content):
             kv_k = kv_k.strip()
             kv_v = kv_v.strip().strip("'\"")
             if kv_k == "version" and kv_v.startswith("link:"):
-                link_path = kv_v[len("link:"):]
-                if state["current_dep_name"] and link_path:
-                    workspace_aliases[state["current_dep_name"]] = link_path
+                ws_path = _resolve_link_path(state["current_importer"], kv_v[len("link:"):])
+                if ws_path:
+                    workspace_aliases[state["current_dep_name"]] = ws_path
             continue
 
     return workspace_aliases
@@ -671,54 +702,6 @@ def _package_repo_name(repo_prefix, package_name, version):
     version_clean = version.replace(".", "_").replace("+", "_").replace("-", "_")
     return "{}__{}_{}".format(repo_prefix, label, version_clean)
 
-def _tarball_strip_prefix(package_name, version = ""):
-    """Returns the expected strip prefix for extracting a package tarball.
-
-    Most npm packages extract under 'package/'.
-    The @types/* DefinitelyTyped packages use the unscoped package name as
-    their tarball directory prefix, e.g.:
-      @types/react     → 'react'
-      @types/react-dom → 'react-dom'
-      @types/node      → 'node'
-
-    A small number of @types packages use a non-standard prefix that includes
-    a version range (e.g. @types/hast@2.3.x uses 'hast v2.3' as the directory
-    prefix). These are handled by an explicit override table keyed by
-    (package_name, major.minor) so the correct prefix is always used.
-
-    For all other packages the returned value is "package". When the actual
-    tarball uses a different prefix (e.g. GitHub-sourced tarballs that use
-    "<user>-<repo>-<sha>/"), use _download_and_extract_pkg which detects the
-    actual prefix dynamically.
-    """
-    if package_name.startswith("@types/"):
-        base = package_name[len("@types/"):]
-
-        # Some @types packages use "<name> v<major>.<minor>" as the tarball
-        # directory prefix. Detect this by checking a known override table.
-        # Only the major.minor portion is needed because patch versions still
-        # use the same directory prefix.
-        major_minor = ""
-        if version:
-            parts = version.split(".")
-            if len(parts) >= 2:
-                major_minor = parts[0] + "." + parts[1]
-
-        # Known packages whose tarball uses "<name> v<major>.<minor>/" prefix.
-        # Add entries here when new packages with non-standard prefixes appear.
-        _VERSIONED_PREFIX_PACKAGES = {
-            "@types/hast": ["2.3"],
-            "@types/mdast": ["3.0"],
-            "@types/unist": ["2.0"],
-        }
-        versioned_majors = _VERSIONED_PREFIX_PACKAGES.get(package_name, [])
-        for known_mm in versioned_majors:
-            if major_minor.startswith(known_mm):
-                return base + " v" + major_minor
-
-        return base
-    return "package"
-
 def _detect_tarball_prefix(repository_ctx, tarball_path):
     """Detects the top-level directory prefix inside a .tgz archive.
 
@@ -742,36 +725,15 @@ def _detect_tarball_prefix(repository_ctx, tarball_path):
         return first_line
     return first_line[:slash_idx]
 
-def _download_and_extract_pkg(repository_ctx, url, output, strip_prefix, integrity = ""):
-    """Downloads a package tarball and extracts it, auto-detecting the prefix.
+def _download_and_extract_pkg(repository_ctx, url, output, integrity = ""):
+    """Downloads a package tarball and extracts it, stripping its real prefix.
 
-    Falls back to detecting the actual tarball prefix when the expected
-    strip_prefix is "package" but the archive uses a different top-level
-    directory (e.g. GitHub-sourced tarballs published to the npm registry).
-
-    For non-"package" prefixes (@types/* packages) the provided strip_prefix
-    is trusted directly, since those packages always use the predicted layout.
+    The top-level directory is read out of the downloaded archive instead of
+    being predicted: most npm tarballs use "package/", but @types/* packages
+    use their unscoped name (sometimes suffixed with a version range, e.g.
+    "express-serve-static-core v4.19/") and GitHub-sourced tarballs published
+    to the registry use "<user>-<repo>-<sha>/".
     """
-    if strip_prefix != "package":
-        # @types/* packages use a predictable prefix; trust it directly.
-        if integrity:
-            repository_ctx.download_and_extract(
-                url = url,
-                output = output,
-                stripPrefix = strip_prefix,
-                integrity = integrity,
-            )
-        else:
-            repository_ctx.download_and_extract(
-                url = url,
-                output = output,
-                stripPrefix = strip_prefix,
-            )
-        return
-
-    # For "package" prefix packages: download first, inspect prefix, then extract.
-    # This handles the rare case of GitHub-sourced tarballs on the npm registry
-    # that use a "<user>-<repo>-<sha>/" prefix instead of "package/".
     tarball_tmp = output + "_download.tgz"
     if integrity:
         repository_ctx.download(
@@ -785,7 +747,6 @@ def _download_and_extract_pkg(repository_ctx, url, output, strip_prefix, integri
             output = tarball_tmp,
         )
 
-    # Detect actual prefix from the tarball.
     actual_prefix = _detect_tarball_prefix(repository_ctx, repository_ctx.path(tarball_tmp))
     if not actual_prefix:
         actual_prefix = "package"
@@ -1126,13 +1087,10 @@ def _npm_translate_lock_impl(repository_ctx):
 
         repository_ctx.report_progress("Downloading {}@{}".format(nm, version))
 
-        strip_prefix = _tarball_strip_prefix(nm, version)
-
         _download_and_extract_pkg(
             repository_ctx = repository_ctx,
             url = tarball_url,
             output = dir_name,
-            strip_prefix = strip_prefix,
             integrity = integrity,
         )
 

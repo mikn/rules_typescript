@@ -35,6 +35,15 @@ importers:
         specifier: ^3.0.0
         version: 3.24.2
 
+  # Non-root importer with an importer-relative workspace link: pnpm writes
+  # link: targets relative to the importer, so this one resolves to
+  # packages/nested-shared at the workspace root.
+  tests/npm/nested:
+    dependencies:
+      nested-shared:
+        specifier: workspace:*
+        version: link:../../../packages/nested-shared
+
 packages:
 
   '@ampproject/remapping@2.3.0':
@@ -491,6 +500,12 @@ packages:
 
   '@types/estree@1.0.8':
     resolution: {integrity: sha512-dWHzHa2WqEXI/O1E9OjrocMTKJl2mSrEolh1Iomrv6U+JuNwaHXsXx9bLu5gG7BUWFIN0skIQJQ/L1rIex4X6w==}
+
+  # Tarball extracts under 'express-serve-static-core v4.19/', not under the
+  # unscoped package name — npm_translate_lock must read the prefix from the
+  # archive instead of predicting it.
+  '@types/express-serve-static-core@4.19.6':
+    resolution: {integrity: sha512-N4LZ2xG7DatVqhCZzOGb1Yi5lMbXSZcmdLDe9EzSndPV2HpWYWzRbaerl2n27irrm94EPpprqa8KpskPT085+A==}
 
   '@vitejs/plugin-react@4.4.1':
     resolution: {integrity: sha512-IpEm5ZmeXAP/osiBXVVP5KjFMzbWOonMs0NaQQl+xYnUAcq4oHUBsF2+p4MgKWG4YMmFYJU8A6sxRPuowllm6w==}
@@ -1350,6 +1365,8 @@ snapshots:
       '@babel/types': 7.29.0
 
   '@types/estree@1.0.8': {}
+
+  '@types/express-serve-static-core@4.19.6': {}
 
   '@vitejs/plugin-react@4.4.1(vite@6.4.1)':
     dependencies:

@@ -52,3 +52,32 @@ sh_test(
         "@npm//:vitest_pretty-format",
     ],
 )
+
+# Same feature from a NON-ROOT importer: pnpm-lock.yaml has importer
+# tests/npm/nested with `version: link:../../../packages/nested-shared`, which
+# only yields a valid label once resolved against the importer path. Treating
+# it as root-relative produces "@@//../../../packages/nested-shared:...".
+# type-checking is disabled for the same reason as workspace_consumer above.
+ts_compile(
+    name = "nested_workspace_consumer",
+    srcs = ["nested_workspace_consumer.ts"],
+    deps = ["@npm//:nested-shared"],
+    enable_check = False,
+)
+
+sh_test(
+    name = "workspace_relative_link_test",
+    size = "small",
+    srcs = ["verify_workspace_relative_link.sh"],
+    data = ["@npm//:nested-shared"],
+)
+
+# Test that a tarball with an unpredictable top-level directory is extracted
+# correctly: @types/express-serve-static-core@4.19.6 packs its files under
+# "express-serve-static-core v4.19/".
+sh_test(
+    name = "npm_tarball_prefix_test",
+    size = "small",
+    srcs = ["verify_versioned_types_prefix.sh"],
+    data = ["@npm//:types_express-serve-static-core"],
+)
