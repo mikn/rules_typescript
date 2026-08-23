@@ -461,7 +461,8 @@ func linterConfigLabel(configPath string) string {
 // ---- tsconfig.json reading -------------------------------------------------
 
 // tsConfigJSON is a minimal representation of tsconfig.json used only for
-// reading compilerOptions.paths and compilerOptions.baseUrl.
+// reading compilerOptions.paths and compilerOptions.baseUrl. tsconfig.json is
+// JSONC, so it is decoded with unmarshalJSONC rather than encoding/json.
 type tsConfigJSON struct {
 	CompilerOptions struct {
 		BaseURL string              `json:"baseUrl"`
@@ -500,7 +501,7 @@ func loadTsConfigPaths(tsConfigPath string) map[string]string {
 		return nil
 	}
 	var tsc tsConfigJSON
-	if err := json.Unmarshal(data, &tsc); err != nil {
+	if err := unmarshalJSONC(data, &tsc); err != nil {
 		log.Printf("typescript: failed to parse %s: %v", tsConfigPath, err)
 		return nil
 	}

@@ -11,7 +11,8 @@
 #   2. Copies the workspace to a writable scratch directory in /tmp.
 #   3. Patches MODULE.bazel with the absolute path to rules_typescript root.
 #   4. Runs `bazel run //:gazelle` to generate BUILD files.
-#   5. Verifies Gazelle generated css_module, asset_library, and json_library targets.
+#   5. Verifies Gazelle generated css_module, asset_library, css_library, and
+#      json_library targets under collision-free names.
 #   6. Runs `bazel build //...` — CSS module .d.ts must be generated and compilation
 #      must succeed with the typed CSS module import.
 #   7. Asserts the CSS module .d.ts output exists.
@@ -84,17 +85,25 @@ pass "src/components/BUILD.bazel generated"
 cat src/components/BUILD.bazel
 
 # ── Step 2: verify Gazelle generated expected rule types ──────────────────────
-grep -q 'css_module' src/components/BUILD.bazel || \
-    fail "src/components/BUILD.bazel does not contain css_module rule"
+grep -q 'name = "button_module_css"' src/components/BUILD.bazel || \
+    fail "src/components/BUILD.bazel does not contain css_module rule button_module_css"
 pass "src/components/BUILD.bazel has css_module target"
 
-grep -q 'asset_library' src/components/BUILD.bazel || \
-    fail "src/components/BUILD.bazel does not contain asset_library rule (for logo.svg)"
+grep -q 'name = "logo_svg"' src/components/BUILD.bazel || \
+    fail "src/components/BUILD.bazel does not contain asset_library rule logo_svg"
 pass "src/components/BUILD.bazel has asset_library target"
 
-grep -q 'json_library' src/components/BUILD.bazel || \
-    fail "src/components/BUILD.bazel does not contain json_library rule (for config.json)"
+grep -q 'name = "config_json"' src/components/BUILD.bazel || \
+    fail "src/components/BUILD.bazel does not contain json_library rule config_json"
 pass "src/components/BUILD.bazel has json_library target"
+
+# components.css shares its stem with the directory: its css_library must not
+# take the name of the directory's ts_compile target.
+grep -q 'name = "components_css"' src/components/BUILD.bazel || \
+    fail "src/components/BUILD.bazel does not contain css_library rule components_css"
+grep -q 'name = "components"' src/components/BUILD.bazel || \
+    fail "src/components/BUILD.bazel lost the ts_compile target named after the directory"
+pass "css_library and ts_compile target names do not collide"
 
 # ── Step 3: build (compile + type-check) ─────────────────────────────────────
 echo "INFO: running bazel build //..."

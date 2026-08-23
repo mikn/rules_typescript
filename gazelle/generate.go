@@ -6,6 +6,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/bazelbuild/bazel-gazelle/language"
@@ -283,14 +284,17 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	var empty []*rule.Rule
 	var imports []any
 
+	// Assigned up front so the names cannot collide with each other or with
+	// the TypeScript targets below.
+	libNames := assetTargetNames(reservedTSTargetNames(tc, args.Rel),
+		cssFiles, cssModuleFiles, assetFiles, jsonFiles)
+
 	// ---- css_library targets -----------------------------------------------
 	// Generate one css_library rule per plain .css file (side-effect imports).
-	// The rule name is the basename without the .css extension.
 
 	sort.Strings(cssFiles)
 	for _, f := range cssFiles {
-		ruleName := strings.TrimSuffix(f, ".css")
-		r := rule.NewRule("css_library", ruleName)
+		r := rule.NewRule("css_library", libNames[f])
 		r.SetAttr("srcs", []string{f})
 		r.SetAttr("visibility", []string{"//visibility:public"})
 		gen = append(gen, r)
@@ -302,17 +306,10 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 
 	// ---- css_module targets ------------------------------------------------
 	// Generate one css_module rule per *.module.css file (default imports).
-	// Rule name: strip ".module.css" from the basename, e.g.
-	//   "Button.module.css" → "button_module"
-	//   "foo.module.css"    → "foo_module"
 
 	sort.Strings(cssModuleFiles)
 	for _, f := range cssModuleFiles {
-		// Strip ".module.css" and append "_module" to clearly distinguish these
-		// targets from plain css_library targets.
-		stem := strings.TrimSuffix(f, ".module.css")
-		ruleName := strings.ToLower(stem) + "_module"
-		r := rule.NewRule("css_module", ruleName)
+		r := rule.NewRule("css_module", libNames[f])
 		r.SetAttr("srcs", []string{f})
 		r.SetAttr("visibility", []string{"//visibility:public"})
 		gen = append(gen, r)
@@ -323,18 +320,10 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 
 	// ---- asset_library targets ---------------------------------------------
 	// Generate one asset_library rule per image/font/SVG file.
-	// Rule name: file stem (without extension), with dots replaced by
-	// underscores, e.g.:
-	//   "logo.svg"   → "logo"
-	//   "hero.png"   → "hero"
 
 	sort.Strings(assetFiles)
 	for _, f := range assetFiles {
-		ext := path.Ext(f)
-		stem := strings.TrimSuffix(f, ext)
-		// Replace dots in stem (e.g. "logo.2x.png" → "logo_2x") for valid target names.
-		ruleName := strings.ReplaceAll(stem, ".", "_")
-		r := rule.NewRule("asset_library", ruleName)
+		r := rule.NewRule("asset_library", libNames[f])
 		r.SetAttr("srcs", []string{f})
 		r.SetAttr("visibility", []string{"//visibility:public"})
 		gen = append(gen, r)
@@ -345,17 +334,10 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 
 	// ---- json_library targets ----------------------------------------------
 	// Generate one json_library rule per .json file (typed declarations).
-	// Rule name: file stem (without extension), with dots replaced by
-	// underscores, e.g.:
-	//   "config.json"  → "config"
-	//   "schema.json"  → "schema"
 
 	sort.Strings(jsonFiles)
 	for _, f := range jsonFiles {
-		stem := strings.TrimSuffix(f, ".json")
-		// Replace dots in stem for valid target names.
-		ruleName := strings.ReplaceAll(stem, ".", "_")
-		r := rule.NewRule("json_library", ruleName)
+		r := rule.NewRule("json_library", libNames[f])
 		r.SetAttr("srcs", []string{f})
 		r.SetAttr("visibility", []string{"//visibility:public"})
 		gen = append(gen, r)
@@ -760,6 +742,51 @@ func targetNameForDir(tc *tsConfig, rel string) string {
 // with a given library target name.
 func testTargetName(libName string) string {
 	return libName + "_test"
+}
+
+// reservedTSTargetNames returns the target names the TypeScript rules in a
+// directory own. Non-TypeScript libraries must avoid these.
+func reservedTSTargetNames(tc *tsConfig, rel string) map[string]struct{} {
+	name := targetNameForDir(tc, rel)
+	reserved := map[string]struct{}{
+		name:                 {},
+		name + "_lint":       {},
+		testTargetName(name): {},
+		"dev":                {},
+		"node_modules":       {},
+	}
+	return reserved
+}
+
+// assetTargetNames names every css/asset/json source file in a package. Keeping
+// the extension ("logo.svg" → "logo_svg") is what stops these targets colliding
+// with the directory-named ts_compile target and with each other; a numeric
+// suffix breaks any tie that survives that.
+func assetTargetNames(reserved map[string]struct{}, groups ...[]string) map[string]string {
+	var all []string
+	for _, g := range groups {
+		all = append(all, g...)
+	}
+	sort.Strings(all)
+
+	names := make(map[string]string, len(all))
+	used := make(map[string]struct{}, len(reserved)+len(all))
+	for n := range reserved {
+		used[n] = struct{}{}
+	}
+	for _, f := range all {
+		base := strings.ReplaceAll(f, ".", "_")
+		name := base
+		for i := 2; ; i++ {
+			if _, taken := used[name]; !taken {
+				break
+			}
+			name = base + "_" + strconv.Itoa(i)
+		}
+		used[name] = struct{}{}
+		names[f] = name
+	}
+	return names
 }
 
 // uniqueImports deduplicates and returns sorted import specifiers. The sorted

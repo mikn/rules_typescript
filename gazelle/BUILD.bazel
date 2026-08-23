@@ -11,6 +11,7 @@ go_library(
         "framework_bundle.go",
         "generate.go",
         "imports.go",
+        "jsonc.go",
         "language.go",
         "resolve.go",
     ],
@@ -32,7 +33,9 @@ go_test(
     srcs = [
         "codegen_test.go",
         "directives_test.go",
+        "generate_test.go",
         "imports_test.go",
+        "jsonc_test.go",
     ],
     embed = [":typescript"],
 )

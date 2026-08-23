@@ -46,6 +46,24 @@ By default (**every-dir mode**), every directory that contains `.ts` or `.tsx` s
 
 Test files (`*.test.ts`, `*.spec.ts`, `*.test.tsx`, `*.spec.tsx`) generate `ts_test` targets automatically in both modes.
 
+## Generated Target Names
+
+| Rule | Name |
+|------|------|
+| `ts_compile` | directory basename (`src/components` → `components`), or `# gazelle:ts_target_name` |
+| `ts_test` | `<ts_compile name>_test` |
+| `ts_lint` | `<ts_compile name>_lint` |
+| `ts_dev_server` | `dev` |
+| `css_library`, `css_module`, `asset_library`, `json_library` | the source filename with `.` replaced by `_` |
+
+Non-TypeScript libraries keep the extension in the name — `button.css` →
+`button_css`, `logo.svg` → `logo_svg`, `config.json` → `config_json`,
+`Button.module.css` → `Button_module_css`. That keeps the directory-named
+`ts_compile` target free (a `components/` directory holding `components.css`
+would otherwise generate two targets named `components`) and keeps files that
+share a stem apart (`logo.svg` and `logo.json`). If two names still tie, the
+later one gets a numeric suffix (`_2`).
+
 ## Automatic Lint Targets
 
 When a linter config file is present in the current directory or any ancestor, Gazelle automatically generates a `ts_lint` target alongside each `ts_compile` target. The lint target name is the compile target name with `_lint` appended.
@@ -100,6 +118,10 @@ Place a `gazelle_ts.json` file in your repository root (or any subtree root) to 
 ```
 
 `pathAliases` maps TypeScript `paths` compilerOptions to workspace-relative directories, so imports like `import { Button } from "@components/Button"` resolve to `//src/components`.
+
+Without a `gazelle_ts.json`, Gazelle reads `compilerOptions.paths` and
+`compilerOptions.baseUrl` straight from a directory's `tsconfig.json`. That file
+is parsed as JSONC, so comments and trailing commas are fine.
 
 `runtimeDeps.test` lists Bazel labels appended to every generated `ts_test` deps list. Use this for packages needed at test runtime but never statically imported:
 
