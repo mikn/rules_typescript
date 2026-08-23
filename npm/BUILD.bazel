@@ -12,9 +12,19 @@ bzl_library(
 )
 
 bzl_library(
+    name = "lazy",
+    srcs = ["lazy.bzl"],
+    deps = [
+        "//ts/private:npm_import",
+        "//ts/private:npm_translate_lock",
+    ],
+)
+
+bzl_library(
     name = "extensions",
     srcs = ["extensions.bzl"],
     deps = [
+        ":lazy",
         "//ts/private:npm_translate_lock",
     ],
 )

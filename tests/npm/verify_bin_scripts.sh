@@ -15,22 +15,15 @@ fi
 
 cd "${RUNFILES_DIR}"
 
-# Find the nanoid bin runner script in the runfiles tree.
-# The path varies by Bazel repo naming convention (uses '+' in bzlmod repos).
-NANOID_BIN_SCRIPT=""
-for candidate in \
-  "+npm+npm/nanoid_bin_bin_runner.sh" \
-  "_main/external/+npm+npm/nanoid_bin_bin_runner.sh" \
-  "external/+npm+npm/nanoid_bin_bin_runner.sh" \
-  "npm+npm/nanoid_bin_bin_runner.sh"; do
-  if [[ -f "$candidate" ]]; then
-    NANOID_BIN_SCRIPT="$candidate"
-    break
-  fi
-done
+# Find the nanoid bin runner in the runfiles tree by shape rather than by path.
+# Both npm layouts are valid: packages may share one external repo or each have
+# their own, and the runner's filename follows its target name, so neither the
+# directory nor the basename is fixed.
+# -L because runfiles entries are symlinks and -type f tests the link itself.
+NANOID_BIN_SCRIPT="$(find -L . -maxdepth 3 -name '*bin_runner.sh' -path '*nanoid*' -type f 2>/dev/null | head -1)"
 
 if [[ -z "$NANOID_BIN_SCRIPT" ]]; then
-  echo "ERROR: could not find nanoid_bin runner script" >&2
+  echo "ERROR: could not find a nanoid bin runner script" >&2
   echo "Runfiles tree root:" >&2
   ls -la "${RUNFILES_DIR}" >&2
   exit 1

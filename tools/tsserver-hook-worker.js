@@ -66,12 +66,24 @@ function buildResolutionMap() {
   }
 
   if (resolvedOutputBase) {
-    const npmDir = findNpmExternalDir(resolvedOutputBase);
-    if (npmDir) {
-      log(`scanning npm packages in ${npmDir}`);
-      scanNpmPackages(npmDir, map);
+    // Two layouts to support, and no need to tell them apart up front: npm
+    // packages either share one repository as subdirectories, or each get their
+    // own repository. Both mark themselves with a ts_npm_package rule; only the
+    // per-package form has its package.json at the repository root.
+    const externalDir = path.join(resolvedOutputBase, 'external');
+    let scanned = 0;
+    for (const repoDir of findNpmRepoDirs(externalDir)) {
+      if (fs.existsSync(path.join(repoDir, 'package.json'))) {
+        scanNpmSpokeRepo(repoDir, map);
+      } else {
+        scanNpmPackages(repoDir, map);
+      }
+      scanned += 1;
+    }
+    if (scanned === 0) {
+      log('no npm external repos found — skipping npm resolution');
     } else {
-      log('no @npm external dir found — skipping npm resolution');
+      log(`scanned ${scanned} npm external repo(s)`);
     }
   }
 
@@ -190,6 +202,59 @@ function findNpmExternalDir(outputBase) {
  * @param {string} npmDir
  * @param {Record<string, string>} map
  */
+/**
+ * Every external repository that holds npm packages, in either layout.
+ *
+ * Identified by a BUILD.bazel containing a ts_npm_package rule, which is what
+ * both layouts emit. The alias-only hub is deliberately NOT matched: it has no
+ * package files of its own, so there is nothing in it to resolve.
+ */
+function findNpmRepoDirs(externalDir) {
+  const found = [];
+  let entries;
+  try {
+    entries = fs.readdirSync(externalDir);
+  } catch (_) {
+    return found;
+  }
+  for (const entry of entries) {
+    if (!entry.includes('npm')) continue;
+    const candidate = path.join(externalDir, entry);
+    const buildPath = path.join(candidate, 'BUILD.bazel');
+    try {
+      if (!fs.statSync(candidate).isDirectory()) continue;
+      if (!fs.existsSync(buildPath)) continue;
+      if (fs.readFileSync(buildPath, 'utf8').includes('ts_npm_package')) {
+        found.push(candidate);
+      }
+    } catch (_) {
+      // Unreadable entry — skip.
+    }
+  }
+  return found;
+}
+
+/**
+ * Map one per-package repository, whose package.json is at its own root.
+ *
+ * Only fetched packages exist on disk, so the map covers the part of the build
+ * graph that has actually been built — which is the same set the editor can
+ * meaningfully resolve anyway.
+ */
+function scanNpmSpokeRepo(root, map) {
+  try {
+    const pkgJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+    if (!pkgJson.name || map[pkgJson.name]) return;
+    const dtsPath = resolvePackageDts(pkgJson, root);
+    if (dtsPath) {
+      map[pkgJson.name] = dtsPath;
+      log(`npm (per-package repo): ${pkgJson.name} → ${dtsPath}`);
+    }
+  } catch (_) {
+    // Malformed package — skip.
+  }
+}
+
 function scanNpmPackages(npmDir, map) {
   const buildPath = path.join(npmDir, 'BUILD.bazel');
 

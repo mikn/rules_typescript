@@ -19,7 +19,7 @@ fi
 cd "${RUNFILES_DIR}"
 
 PKG_DIR=""
-for candidate in $(find . -maxdepth 3 -name "types_express-serve-static-core__4_19_6" -type d 2>/dev/null); do
+for candidate in $(find . -maxdepth 3 -type d \( -name "types_express-serve-static-core__4_19_6" -o -name "*__types_express-serve-static-core__4_19_6" \) 2>/dev/null); do
   PKG_DIR="$candidate"
   break
 done

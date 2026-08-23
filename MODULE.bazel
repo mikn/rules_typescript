@@ -103,7 +103,12 @@ register_toolchains("//ts/toolchain:all")
 
 npm = use_extension("//npm:extensions.bzl", "npm")
 npm.pnpm(version = "10.32.1")
-npm.translate_lock(pnpm_lock = "//tests/npm:pnpm-lock.yaml")
+# The ruleset's own tests run on the per-package path so it is exercised by the
+# whole suite rather than by a single dedicated test.
+npm.translate_lock(
+    pnpm_lock = "//tests/npm:pnpm-lock.yaml",
+    lazy = True,
+)
 use_repo(npm, "npm", "pnpm")
 
 # ─── Bazel integration test binaries (dev only) ──────────────────────────────

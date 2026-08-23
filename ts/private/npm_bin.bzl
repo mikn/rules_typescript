@@ -25,6 +25,29 @@ def _shell_escape(s):
     """Escapes a string for safe embedding in a double-quoted shell string."""
     return s.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$").replace("`", "\\`")
 
+# A temp directory, not the runfiles tree: RUNFILES_DIR is read-only for tools in
+# action sandboxes, and the runfiles tree is immutable after `bazel run`.
+_OPTIONAL_DEP_PREAMBLE = [
+    "# Set up node_modules symlinks for optional platform dependencies.\n",
+    "# Enables require.resolve('@scope/pkg/binary') to work.\n",
+    '_TMPNM="$(mktemp -d)"\n',
+]
+
+def _optional_dep_symlink_lines(npm_name, rl_path):
+    """Emits `ln -sfn` lines placing one npm package under $_TMPNM/<npm_name>."""
+    escaped_rl_path = _shell_escape(rl_path)
+    if npm_name.startswith("@"):
+        slash = npm_name.find("/")
+        if slash == -1:
+            return []
+        escaped_scope = _shell_escape(npm_name[:slash])
+        escaped_pkg = _shell_escape(npm_name[slash + 1:])
+        return [
+            'mkdir -p "$_TMPNM/' + escaped_scope + '"\n',
+            'ln -sfn "${RUNFILES_DIR}/' + escaped_rl_path + '" "$_TMPNM/' + escaped_scope + "/" + escaped_pkg + '"\n',
+        ]
+    return ['ln -sfn "${RUNFILES_DIR}/' + escaped_rl_path + '" "$_TMPNM/' + _shell_escape(npm_name) + '"\n']
+
 def _npm_bin_impl(ctx):
     # Resolve the JS runtime from the toolchain or fall back to system node.
     runtime_binary = None
@@ -118,42 +141,33 @@ def _npm_bin_impl(ctx):
                     break
 
         if dir_name_to_rl_path:
-            optional_dep_setup_lines += [
-                "# Set up node_modules symlinks for optional platform dependencies.\n",
-                "# Enables require.resolve('@scope/pkg/binary') to work.\n",
-                "#\n",
-                "# We use a temp directory for the node_modules tree so that the\n",
-                "# symlinks are always writable — both in Bazel action sandboxes\n",
-                "# (where RUNFILES_DIR for tools is read-only) and for bazel run\n",
-                "# (where the runfiles tree is immutable after build).\n",
-                '_TMPNM="$(mktemp -d)"\n',
-            ]
+            optional_dep_setup_lines += _OPTIONAL_DEP_PREAMBLE
             for info in ctx.attr.optional_dep_info:
                 colon_idx = info.find(":")
                 if colon_idx == -1:
                     continue
-                npm_name = info[:colon_idx]
-                dir_name = info[colon_idx + 1:]
-                rl_path = dir_name_to_rl_path.get(dir_name)
-                if not rl_path:
-                    continue
-                escaped_rl_path = _shell_escape(rl_path)
-                if npm_name.startswith("@"):
-                    slash = npm_name.find("/")
-                    if slash != -1:
-                        scope = npm_name[:slash]        # e.g. "@oxlint"
-                        pkg = npm_name[slash + 1:]      # e.g. "linux-x64-gnu"
-                        escaped_scope = _shell_escape(scope)
-                        escaped_pkg = _shell_escape(pkg)
-                        optional_dep_setup_lines += [
-                            'mkdir -p "$_TMPNM/' + escaped_scope + '"\n',
-                            'ln -sfn "${RUNFILES_DIR}/' + escaped_rl_path + '" "$_TMPNM/' + escaped_scope + "/" + escaped_pkg + '"\n',
-                        ]
-                else:
-                    escaped_npm_name = _shell_escape(npm_name)
-                    optional_dep_setup_lines.append(
-                        'ln -sfn "${RUNFILES_DIR}/' + escaped_rl_path + '" "$_TMPNM/' + escaped_npm_name + '"\n',
-                    )
+                rl_path = dir_name_to_rl_path.get(info[colon_idx + 1:])
+                if rl_path:
+                    optional_dep_setup_lines += _optional_dep_symlink_lines(info[:colon_idx], rl_path)
+    # optional_dep_packages is the cross-repository form. With one repository per
+    # npm package there is no shared parent directory to search, so the sibling
+    # package identifies itself through NpmPackageInfo and its package.json
+    # locates its root. This also works in a single-repo layout, where the root is
+    # a subdirectory rather than the repository itself.
+    optional_dep_pkg_files = []
+    for dep in ctx.attr.optional_dep_packages:
+        info = dep[NpmPackageInfo]
+        if not info.package_dir:
+            continue
+        rl_file = _rl(info.package_dir.short_path)
+        slash = rl_file.rfind("/")
+        if slash <= 0:
+            continue
+        if not optional_dep_setup_lines:
+            optional_dep_setup_lines += _OPTIONAL_DEP_PREAMBLE
+        optional_dep_setup_lines += _optional_dep_symlink_lines(info.package_name, rl_file[:slash])
+        optional_dep_pkg_files.append(info.all_files)
+
     # When optional deps are present, emit a NODE_PATH export so that
     # require.resolve() finds the node_modules symlinks even when Node.js
     # resolves the entry script's __filename through symlinks to an absolute
@@ -233,7 +247,7 @@ def _npm_bin_impl(ctx):
     # Also include the full package files so Node can resolve modules inside the package.
     runfiles = ctx.runfiles(
         files = runfiles_files,
-        transitive_files = depset(ctx.files.package_files),
+        transitive_files = depset(ctx.files.package_files, transitive = optional_dep_pkg_files),
     )
 
     return [
@@ -266,6 +280,12 @@ require.resolve('@oxlint/linux-x64-gnu/oxlint') works correctly inside Bazel
 action sandboxes and runfiles trees.
 """,
             default = [],
+        ),
+        "optional_dep_packages": attr.label_list(
+            providers = [[NpmPackageInfo]],
+            doc = "Sibling npm package targets holding platform-specific native " +
+                  "binaries this bin script resolves at runtime. Use instead of " +
+                  "optional_dep_info when each package lives in its own repository.",
         ),
         "runtime": attr.label(
             doc = "Per-target override for the JS runtime binary. " +

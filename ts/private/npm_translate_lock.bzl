@@ -1750,3 +1750,24 @@ Then in BUILD files:
     deps = ["@npm//:zod"]
 """,
 )
+
+# ─── Shared with the per-package extension ───────────────────────────────────
+#
+# npm/lazy.bzl declares one repository per package instead of one repository for
+# all of them, but the analysis in front of that decision is identical: parse the
+# lockfile, filter by host platform, assign labels, pair @types, break dependency
+# cycles. These are exported so that analysis lives in one place rather than
+# being reimplemented and drifting.
+
+parse_pnpm_lock = _parse_pnpm_lock
+parse_workspace_aliases = _parse_workspace_aliases
+npm_tarball_url = _npm_tarball_url
+package_name_to_label = _package_name_to_label
+package_dir_name = _package_dir_name
+resolve_dep_version = _resolve_dep_version
+versioned_label_name = _versioned_label_name
+semver_parts = _semver_parts
+semver_gt = _semver_gt
+host_platform = _host_platform
+pkg_matches_host_platform = _pkg_matches_host_platform
+detect_and_break_cycles = _detect_and_break_cycles

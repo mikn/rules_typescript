@@ -13,6 +13,7 @@ for its own tests.  Non-root registrations for a name are silently skipped when
 the root module has already claimed that name.
 """
 
+load("//npm:lazy.bzl", "declare_lazy_npm_repos")
 load("//ts/private:npm_translate_lock.bzl", "npm_translate_lock")
 load("//ts/private:pnpm.bzl", "DEFAULT_PNPM_VERSION", "pnpm_repo")
 
@@ -21,6 +22,7 @@ def _npm_impl(module_ctx):
     #   1. Root-module registrations take priority.
     #   2. Non-root registrations only fill in names not already claimed.
     claimed = {}  # name → pnpm_lock label
+    lazy = {}  # name → whether to declare one repository per package
 
     # Pass 1: root module.
     for mod in module_ctx.modules:
@@ -29,6 +31,7 @@ def _npm_impl(module_ctx):
         for lock_tag in mod.tags.translate_lock:
             if lock_tag.name not in claimed:
                 claimed[lock_tag.name] = lock_tag.pnpm_lock
+                lazy[lock_tag.name] = lock_tag.lazy
 
     # Pass 2: non-root modules (fill in unclaimed names only).
     for mod in module_ctx.modules:
@@ -37,12 +40,16 @@ def _npm_impl(module_ctx):
         for lock_tag in mod.tags.translate_lock:
             if lock_tag.name not in claimed:
                 claimed[lock_tag.name] = lock_tag.pnpm_lock
+                lazy[lock_tag.name] = lock_tag.lazy
 
     for name, pnpm_lock in claimed.items():
-        npm_translate_lock(
-            name = name,
-            pnpm_lock = pnpm_lock,
-        )
+        if lazy.get(name):
+            declare_lazy_npm_repos(module_ctx, name, pnpm_lock)
+        else:
+            npm_translate_lock(
+                name = name,
+                pnpm_lock = pnpm_lock,
+            )
 
     # ── pnpm hermetic binary ──────────────────────────────────────────────────
     # The root module's npm.pnpm(version=...) tag sets the version; other
@@ -68,6 +75,15 @@ def _npm_impl(module_ctx):
 _translate_lock_tag = tag_class(attrs = {
     "name": attr.string(default = "npm"),
     "pnpm_lock": attr.label(mandatory = True, allow_single_file = True),
+    "lazy": attr.bool(
+        default = False,
+        doc = """Declare one repository per npm package instead of one for all of them.
+
+Bazel then fetches only the packages in the requested targets' transitive
+closure, in parallel, cached and invalidated per package. The default single
+repository must download the whole lockfile before it can generate any target,
+because it reads bin and exports out of each extracted package.json.""",
+    ),
 })
 
 _pnpm_tag = tag_class(

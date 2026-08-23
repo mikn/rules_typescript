@@ -40,12 +40,12 @@ echo "Checking versioned label directories for @vitest/pretty-format..."
 DIR_309=""
 DIR_324=""
 
-for candidate in $(find . -maxdepth 3 -name "vitest_pretty-format__3_0_9" -type d 2>/dev/null); do
+for candidate in $(find . -maxdepth 3 -type d \( -name "vitest_pretty-format__3_0_9" -o -name "*__vitest_pretty-format__3_0_9" \) 2>/dev/null); do
   DIR_309="$candidate"
   break
 done
 
-for candidate in $(find . -maxdepth 3 -name "vitest_pretty-format__3_2_4" -type d 2>/dev/null); do
+for candidate in $(find . -maxdepth 3 -type d \( -name "vitest_pretty-format__3_2_4" -o -name "*__vitest_pretty-format__3_2_4" \) 2>/dev/null); do
   DIR_324="$candidate"
   break
 done
