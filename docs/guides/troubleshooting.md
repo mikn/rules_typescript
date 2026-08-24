@@ -91,7 +91,7 @@ it as a label:
 ```python
 npm.translate_lock(
     pnpm_lock = "//:pnpm-lock.yaml",
-    patches = ["//patches:@pierre__diffs@1.3.1.patch"],
+    patches = ["//patches:@acme__diffs@1.3.1.patch"],
 )
 ```
 

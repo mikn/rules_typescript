@@ -114,7 +114,7 @@ Patches now have to be passed as labels, because the paths pnpm keeps in
 ```python
 npm.translate_lock(
     pnpm_lock = "//:pnpm-lock.yaml",
-    patches = ["//patches:@pierre__diffs@1.3.1.patch"],
+    patches = ["//patches:@acme__diffs@1.3.1.patch"],
 )
 ```
 

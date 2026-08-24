@@ -105,7 +105,7 @@ own naming (`<name with / replaced by __>@<version>.patch`):
 
     npm.translate_lock(
         pnpm_lock = "//:pnpm-lock.yaml",
-        patches = ["//patches:@pierre__diffs@1.3.1.patch"],
+        patches = ["//patches:@acme__diffs@1.3.1.patch"],
     )
 
 A `patchedDependencies` entry with no matching file, or a file no entry claims,

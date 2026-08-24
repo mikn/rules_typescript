@@ -11,8 +11,8 @@ import (
 // The registry tarball for nanoid@3.3.11 is byte-identical whether or not the
 // patch is applied -- `packages:` records the integrity of the unpatched publish
 // -- so nothing but the file content can tell the two apart. The fixture patch
-// rewrites "sideEffects": false into an array, mirroring the real patch in the
-// consumer monorepo whose absence lets Rollup tree-shake a worker to nothing.
+// rewrites "sideEffects": false into an array -- a realistic patch, since a
+// wrong sideEffects lets a bundler tree-shake away a module with side effects.
 func TestPatchReachesTheFilesBazelHandsOut(t *testing.T) {
 	tree := verify.New(t)
 

@@ -53,13 +53,13 @@ catalogs:
 
 overrides:
   lodash@4: 4.18.1
-  '@lovable/workflow-sdk>esbuild': 0.28.1
+  '@acme/toolkit>esbuild': 0.28.1
 
 patchedDependencies:
-  '@pierre/diffs@1.3.1': 08b7159491e7c1a510536ff7395f8fc02e744b7ea3413a9491e40c869c097dcd
-  prosemirror-view@1.41.4:
-    hash: 7874eb3c5889534f00df2fd08dcd39bf56100a7f7eb1798cb3123409c03f4fc6
-    path: patches/prosemirror-view@1.41.4.patch
+  '@acme/diffs@1.3.1': 1111111111111111111111111111111111111111111111111111111111111111
+  acme-editor@1.41.4:
+    hash: 2222222222222222222222222222222222222222222222222222222222222222
+    path: patches/acme-editor@1.41.4.patch
 
 importers:
 
@@ -169,7 +169,7 @@ def _overrides_arrive_pre_resolved_test(ctx):
     # version present: nothing has to resolve `lodash@4` -> 4.18.1.
     asserts.equals(env, "4.18.1", packages["lodash@4.18.1"]["version"])
 
-    # A package-scoped override (`@lovable/workflow-sdk>esbuild`) materialises as
+    # A package-scoped override (`@acme/toolkit>esbuild`) materialises as
     # a second version rather than a second resolution of one version, so the
     # name@version keyed map represents it with no parent>child machinery.
     asserts.equals(env, "0.27.3", packages["esbuild@0.27.3"]["version"])
@@ -469,8 +469,8 @@ def _patched_dependencies_test(ctx):
     env = unittest.begin(ctx)
 
     asserts.equals(env, {
-        "@pierre/diffs@1.3.1": "08b7159491e7c1a510536ff7395f8fc02e744b7ea3413a9491e40c869c097dcd",
-        "prosemirror-view@1.41.4": "7874eb3c5889534f00df2fd08dcd39bf56100a7f7eb1798cb3123409c03f4fc6",
+        "@acme/diffs@1.3.1": "1111111111111111111111111111111111111111111111111111111111111111",
+        "acme-editor@1.41.4": "2222222222222222222222222222222222222222222222222222222222222222",
     }, parse_patched_dependencies(_LOCKFILE))
 
     asserts.equals(env, {}, parse_patched_dependencies("lockfileVersion: '9.0'\n"))

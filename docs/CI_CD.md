@@ -135,9 +135,9 @@ The `.bcr/metadata.json` file contains maintainer information and repository met
   "homepage": "https://github.com/mikn/rules_typescript",
   "maintainers": [
     {
-      "name": "Nicholas Gasior",
-      "email": "nicholas@lovable.app",
-      "github": "mikn"
+      "name": "Your Name",
+      "email": "you@example.com",
+      "github": "your-github-handle"
     }
   ],
   "repository": ["github:mikn/rules_typescript"],

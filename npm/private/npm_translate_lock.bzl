@@ -666,12 +666,12 @@ def _parse_importers(content):
 # Two spellings, both keyed by `name@version`:
 #
 #   patchedDependencies:               patchedDependencies:
-#     '@pierre/diffs@1.3.1': <sha256>    '@pierre/diffs@1.3.1':
+#     '@acme/diffs@1.3.1': <sha256>    '@acme/diffs@1.3.1':
 #                                          hash: <sha256>
 #                                          path: patches/...
 #
-# The hash is the plain sha256 of the patch file's bytes (verified against all
-# six patches in the consumer monorepo), which makes it a usable content check
+# The hash is the plain sha256 of the patch file's bytes, which makes it a
+# usable content check
 # on the patch we are about to apply -- see npm_import's patch handling. The
 # `path:` is deliberately ignored: a lockfile-relative path cannot be turned
 # into a label without knowing where Bazel package boundaries fall, so patches
