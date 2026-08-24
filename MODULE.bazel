@@ -124,7 +124,10 @@ npm.translate_lock(pnpm_lock = "//tests/npm:pnpm-lock.yaml")
 npm_dev = use_extension("//npm:extensions.bzl", "npm", dev_dependency = True)
 npm_dev.translate_lock(
     name = "npm_features",
-    patches = ["//tests/npm:patches/nanoid@3.3.11.patch"],
+    patches = [
+        "//tests/npm:patches/@types__ms@2.1.0.patch",
+        "//tests/npm:patches/nanoid@3.3.11.patch",
+    ],
     pnpm_lock = "//tests/npm:pnpm-lock-features.yaml",
 )
 

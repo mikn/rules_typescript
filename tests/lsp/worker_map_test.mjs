@@ -8,11 +8,11 @@
  * beside it -- so a fixture workspace is the whole of its input, and there is no
  * `bazel` left to stub out.
  *
- * All three halves of the map are checked here, including the parts that are
+ * All the halves of the map are checked here, including the parts that are
  * left OUT: an npm package the data names but nothing installed, a ts_compile
- * package with no entry point, a nested workspace's directives, and a "~" alias
- * prefix that the worker's character screen rejects even though gazelle accepts
- * it. //tests/lsp:test_resolution_map runs the same worker over this repo's own
+ * package with no entry point, a declared module_name whose package has no entry
+ * point either, a nested workspace's directives, and a "~" alias prefix that the
+ * worker's character screen rejects even though gazelle accepts it. //tests/lsp:test_resolution_map runs the same worker over this repo's own
  * generated data rather than a fixture.
  */
 
@@ -96,6 +96,13 @@ write(
       { name: 'never-installed', entry: '', isFile: false },
     ],
     packages: ['src/lib', 'src/app', 'src/empty'],
+    // The bare specifiers targets declared with `module_name`, each naming the
+    // package it resolves to -- the same directories as `packages`, under the
+    // name an import writes.
+    modules: [
+      { name: '@acme/widget', package: 'src/lib' },
+      { name: '@acme/nothing', package: 'src/empty' },
+    ],
     aliases: [{ prefix: '@ui', dir: 'packages/ui/src' }],
   })
 );
@@ -166,6 +173,10 @@ worker.once('message', (msg) => {
   expectEntry(map, 'src/lib', libIndex);
   expectEntry(map, 'src/app', appDts);
   expectAbsent(map, 'src/empty', 'no index.ts/index.d.ts to resolve to');
+
+  // A module_name: the bare specifier resolving to the package that declared it.
+  expectEntry(map, '@acme/widget', libIndex);
+  expectAbsent(map, '@acme/nothing', 'the package it names has no index to resolve to');
 
   // Path aliases: one from the generated data, one from a BUILD directive.
   expectEntry(map, '__alias__@ui/', path.join(root, 'packages/ui/src'));

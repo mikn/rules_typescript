@@ -148,4 +148,17 @@ Gazelle resolves TypeScript imports to Bazel labels in this order:
 3. **npm packages** — resolved to `@npm//:<label>` using the pnpm lockfile
 4. **Unresolved** — optionally warned with `# gazelle:ts_warn_unresolved true`
 
+When several alias entries match one specifier — a tsconfig declaring both
+`"@shared"` and `"@shared/*"`, which is ordinary — the **longest matching alias
+key wins**. That is TypeScript's own rule: a pattern equal to the whole
+specifier is necessarily the longest key that can match it, so "exact beats
+wildcard" and "most specific wildcard wins" are the same rule. An alias key
+without a trailing wildcard matches only at a path-segment boundary, so
+`@shared` does not claim `@sharedX`.
+
+Gazelle's deps and the `ts_compile` strict-deps check share one specifier
+scanner, so a failing build is one Gazelle can fix. If `bazel build` reports an
+import no direct dep provides and re-running Gazelle does not add it, that is a
+bug in the ruleset rather than something to work around.
+
 See [Directives Reference](directives.md) for all available directives.

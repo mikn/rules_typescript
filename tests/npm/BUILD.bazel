@@ -1,8 +1,10 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("@rules_go//go:def.bzl", "go_test")
 load("//npm:defs.bzl", "node_modules")
 load("//ts:defs.bzl", "ts_compile")
 load(":parser_tests.bzl", "parser_test_suite")
+load(":resolution_tests.bzl", "conflicting_direct_versions_test")
 
 package(default_visibility = ["//:__pkg__"])
 
@@ -103,7 +105,10 @@ go_test(
     name = "npm_patched_dependency_test",
     size = "small",
     srcs = ["npm_patched_dependency_test.go"],
-    data = ["@npm_features//:nanoid"],
+    data = [
+        "@npm_features//:nanoid",
+        "@npm_features//:types_ms",
+    ],
     deps = ["//tests/verify"],
 )
 
@@ -205,4 +210,89 @@ build_test(
         "@npm_features//:ms",
         "@npm_features//ms:zod",
     ],
+)
+
+# ── Two versions of one name, in one closure ────────────────────────────────
+#
+# test-exclude's closure resolves three names twice, nested three deep:
+#
+#   test-exclude -> minimatch@10.2.4 -> brace-expansion@5.0.4 -> balanced-match@4.0.4
+#   glob         -> minimatch@9.0.9  -> brace-expansion@2.0.2 -> balanced-match@1.0.2
+#
+# A tree keyed by name alone has one minimatch directory, so one of those two
+# chains is silently overwritten by the other and glob ends up loading whichever
+# minimatch was copied last. Nothing about the result looks wrong: both versions
+# are real versions of the real package.
+node_modules(
+    name = "multi_version_node_modules",
+    deps = ["@npm//:test-exclude"],
+)
+
+go_test(
+    name = "npm_multi_version_tree_test",
+    size = "small",
+    srcs = ["npm_multi_version_tree_test.go"],
+    data = [
+        ":multi_version_node_modules",
+        ":scoped_multi_version_node_modules",
+    ],
+    deps = ["//tests/verify"],
+)
+
+# The same tree read as an ACTION input rather than through runfiles. The two
+# stage a TreeArtifact differently, and the layout leans on links that are
+# relative and internal to the tree -- a symlink naming an exec-root path is only
+# valid inside the action that created it, so the distinction is load-bearing and
+# not something to assume. Every path but the last three is reached through at
+# least one of those links.
+genrule(
+    name = "multi_version_through_action",
+    srcs = [":multi_version_node_modules"],
+    outs = ["multi_version_through_action.txt"],
+    cmd = """set -eu
+d=$(location :multi_version_node_modules)
+for p in \
+  glob/node_modules/minimatch \
+  .pnpm/minimatch@9.0.9/node_modules/minimatch/node_modules/brace-expansion \
+  .pnpm/brace-expansion@2.0.2/node_modules/brace-expansion/node_modules/balanced-match \
+  minimatch \
+  brace-expansion \
+  balanced-match
+do
+  printf '%s %s\\n' "$$p" "$$(awk -F'"' '/"version"/{print $$4; exit}' "$$d/$$p/package.json")"
+done > $@
+""",
+)
+
+diff_test(
+    name = "npm_multi_version_action_input_test",
+    size = "small",
+    file1 = ":multi_version_through_action",
+    file2 = "multi_version_through_action.expected",
+)
+
+# A scoped name resolved twice, in the closure every vitest test already builds:
+# vitest depends on @vitest/pretty-format@3.2.4 while @vitest/snapshot and
+# @vitest/utils depend on 3.0.9. The store path for a scoped package is one
+# directory, not two, so the name is flattened there and spelled out again inside
+# it -- pnpm's own convention -- and the link from the dependent is two segments
+# deeper than an unscoped one.
+node_modules(
+    name = "scoped_multi_version_node_modules",
+    deps = ["@npm//:vitest"],
+)
+
+# Both versions named directly, which is the one arrangement no tree can hold.
+node_modules(
+    name = "conflicting_direct_versions",
+    tags = ["manual"],
+    deps = [
+        "@npm//:minimatch",
+        "@npm//:minimatch_9_0_9",
+    ],
+)
+
+conflicting_direct_versions_test(
+    name = "npm_conflicting_direct_versions_test",
+    target_under_test = ":conflicting_direct_versions",
 )

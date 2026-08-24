@@ -244,15 +244,71 @@ func labelFromRel(rel string) string {
 
 // ---- path alias resolution -------------------------------------------------
 
-// isPathAlias returns true if the import matches any configured path alias
-// prefix.
-func isPathAlias(tc *tsConfig, imp string) bool {
-	for prefix := range tc.pathAliases {
-		if strings.HasPrefix(imp, prefix) {
-			return true
+// aliasMatch is the alias applied to one import specifier: the key that
+// matched, the workspace-relative directory it maps to, and the leftover.
+type aliasMatch struct {
+	prefix string
+	dir    string
+	rest   string
+}
+
+// matchPathAlias picks the alias entry that resolves imp, if any.
+//
+// Longest matching key wins: TypeScript's own rule for compilerOptions.paths
+// (findBestPatternMatch scores candidates by prefix length), under which a
+// wildcard-free key spanning the whole specifier always beats a wildcard one.
+// Comparing keys is also what keeps the winner off Go's map iteration order.
+func matchPathAlias(tc *tsConfig, imp string) (aliasMatch, bool) {
+	var best aliasMatch
+	found := false
+	for prefix, dir := range tc.pathAliases {
+		rest, ok := aliasRest(prefix, imp)
+		if !ok {
+			continue
 		}
+		if found && !aliasKeyBeats(prefix, best.prefix) {
+			continue
+		}
+		best, found = aliasMatch{prefix: prefix, dir: dir, rest: rest}, true
 	}
-	return false
+	return best, found
+}
+
+// aliasKeyBeats reports whether alias key a takes precedence over key b.
+func aliasKeyBeats(a, b string) bool {
+	if len(a) != len(b) {
+		return len(a) > len(b)
+	}
+	return a < b
+}
+
+// aliasRest matches one alias key against a specifier and returns what follows
+// the key.
+//
+// A trailing slash marks a key from a wildcard entry ("@/*": ["src/*"]), which
+// matches anything it prefixes. A key without one names a single module
+// ("@shared": ["src/shared/index"]) and matches only that name or a path under
+// it, never a longer name that starts with the same characters.
+func aliasRest(prefix, imp string) (string, bool) {
+	if strings.HasSuffix(prefix, "/") {
+		if strings.HasPrefix(imp, prefix) {
+			return imp[len(prefix):], true
+		}
+		return "", false
+	}
+	if imp == prefix {
+		return "", true
+	}
+	if strings.HasPrefix(imp, prefix+"/") {
+		return imp[len(prefix)+1:], true
+	}
+	return "", false
+}
+
+// isPathAlias returns true if the import matches any configured path alias.
+func isPathAlias(tc *tsConfig, imp string) bool {
+	_, ok := matchPathAlias(tc, imp)
+	return ok
 }
 
 // resolvePathAlias expands a path alias import to a workspace-relative path,
@@ -272,59 +328,54 @@ func resolvePathAlias(
 	imp string,
 	from label.Label,
 ) string {
-	for prefix, dir := range tc.pathAliases {
-		if !strings.HasPrefix(imp, prefix) {
-			continue
-		}
-		rest := imp[len(prefix):]
-		// dir is workspace-relative, e.g. "src/"
-		dir = strings.TrimSuffix(dir, "/")
-		targetRel := path.Join(dir, rest)
-
-		if lbl, selfImport := lookupInIndex(ix, targetRel, from); lbl != "" {
-			return lbl
-		} else if selfImport {
-			return ""
-		}
-		for _, ext := range []string{".ts", ".tsx", ".js"} {
-			if lbl, selfImport := lookupInIndex(ix, targetRel+ext, from); lbl != "" {
-				return lbl
-			} else if selfImport {
-				return ""
-			}
-		}
-		// Try index file convention.
-		for _, ext := range []string{".ts", ".tsx"} {
-			if lbl, selfImport := lookupInIndex(ix, path.Join(targetRel, "index")+ext, from); lbl != "" {
-				return lbl
-			} else if selfImport {
-				return ""
-			}
-		}
-		// Fallback: legacy bare index lookup (no extension).
-		if lbl, selfImport := lookupInIndex(ix, path.Join(targetRel, "index"), from); lbl != "" {
-			return lbl
-		} else if selfImport {
-			return ""
-		}
-
-		// Sub-path fallback: "@/utils/helpers" might refer to a file compiled
-		// into the parent package (//src/utils:utils) rather than a dedicated
-		// sub-package.  Walk up one directory and try to find a target there.
-		// Example: "@/utils/helpers" → "src/utils/helpers" (miss) →
-		//          try "src/utils" → found //src/utils:utils → return it.
-		parent := path.Dir(targetRel)
-		if parent != "." && parent != targetRel {
-			if lbl, selfImport := lookupInIndex(ix, parent, from); lbl != "" {
-				return lbl
-			} else if selfImport {
-				return ""
-			}
-		}
-
-		return labelFromRel(targetRel)
+	m, ok := matchPathAlias(tc, imp)
+	if !ok {
+		return ""
 	}
-	return ""
+	targetRel := path.Join(strings.TrimSuffix(m.dir, "/"), m.rest)
+
+	if lbl, selfImport := lookupInIndex(ix, targetRel, from); lbl != "" {
+		return lbl
+	} else if selfImport {
+		return ""
+	}
+	for _, ext := range []string{".ts", ".tsx", ".js"} {
+		if lbl, selfImport := lookupInIndex(ix, targetRel+ext, from); lbl != "" {
+			return lbl
+		} else if selfImport {
+			return ""
+		}
+	}
+	// Try index file convention.
+	for _, ext := range []string{".ts", ".tsx"} {
+		if lbl, selfImport := lookupInIndex(ix, path.Join(targetRel, "index")+ext, from); lbl != "" {
+			return lbl
+		} else if selfImport {
+			return ""
+		}
+	}
+	// Fallback: legacy bare index lookup (no extension).
+	if lbl, selfImport := lookupInIndex(ix, path.Join(targetRel, "index"), from); lbl != "" {
+		return lbl
+	} else if selfImport {
+		return ""
+	}
+
+	// Sub-path fallback: "@/utils/helpers" might refer to a file compiled
+	// into the parent package (//src/utils:utils) rather than a dedicated
+	// sub-package.  Walk up one directory and try to find a target there.
+	// Example: "@/utils/helpers" → "src/utils/helpers" (miss) →
+	//          try "src/utils" → found //src/utils:utils → return it.
+	parent := path.Dir(targetRel)
+	if parent != "." && parent != targetRel {
+		if lbl, selfImport := lookupInIndex(ix, parent, from); lbl != "" {
+			return lbl
+		} else if selfImport {
+			return ""
+		}
+	}
+
+	return labelFromRel(targetRel)
 }
 
 // ---- npm package resolution ------------------------------------------------

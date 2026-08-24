@@ -212,8 +212,10 @@ const withMap = withRun.map;
 process.stdout.write(`INFO: map with fragments = ${JSON.stringify(withMap, null, 2)}\n`);
 process.stdout.write(`INFO: worker log =\n${withRun.log}\n`);
 
-// The headline: a package no rule may name, resolved from its fragment alone.
+// The headline: a package no rule may name, resolved from its fragment alone,
+// under both the path it sits at and the bare specifier it declares.
 expectEntry(withMap, FIXTURE_PKG, fixtureIndex);
+expectEntry(withMap, '@acme/leaf', fixtureIndex);
 expectEntry(withMap, '__alias__@frag/', path.join(withFragments, FIXTURE_PKG));
 
 // The data file is still the data file.
@@ -243,6 +245,7 @@ process.stdout.write(`INFO: map without fragments = ${JSON.stringify(withoutMap,
 expectEntry(withoutMap, 'src/from_data', fallbackIndex);
 expectEntry(withoutMap, '__alias__@data/', path.join(noFragments, 'src/from_data'));
 expectAbsent(withoutMap, FIXTURE_PKG, 'no build wrote a fragment for it');
+expectAbsent(withoutMap, '@acme/leaf', 'the module_name arrives with the fragment or not at all');
 
 if (failures > 0) {
   process.stderr.write(`\n${failures} FAILED\n`);

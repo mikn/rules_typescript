@@ -1,11 +1,12 @@
 """The workspace-root tsconfig.json an IDE reads, built from the build graph.
 
 Everything the file needs is already in the graph: a ts_compile target's package
-is its source root, its `path_aliases` attr is what a
-`# gazelle:ts_path_alias` directive turns into, and NpmPackageInfo names the
-.d.ts entry point of every npm package reachable from it. So the tsconfig is a
-declared output of a rule over an aspect, and `bazel run //:refresh_tsconfig`
-only copies that output into the source tree.
+is its source root, its `module_name` is the bare specifier that resolves to
+that root, its `path_aliases` attr is what a `# gazelle:ts_path_alias` directive
+turns into, and NpmPackageInfo names the .d.ts entry point of every npm package
+reachable from it. So the tsconfig is a declared output of a rule over an aspect,
+and `bazel run //:refresh_tsconfig` only copies that output into the source
+tree.
 
 An `@types/*` dep is the exception to `paths`: nothing imports the globals it
 declares, so, as in the tsconfig ts_compile generates, its entry point is named
@@ -26,7 +27,7 @@ load("//ts/private:providers.bzl", "NpmPackageInfo", "TsDeclarationInfo")
 TsconfigSourcesInfo = provider(
     doc = "What a workspace-root tsconfig.json needs from the ts_compile targets under it.",
     fields = {
-        "packages": "depset of struct(path, has_index): package of every ts_compile target reached, and whether it has an index file to name as the package entry point.",
+        "packages": "depset of struct(path, has_index, module_name): package of every ts_compile target reached, whether it has an index file to name as the package entry point, and the bare specifier the target declared with `module_name` (empty when it declared none).",
         "aliases": "depset of struct(prefix, dir): path_aliases entries, workspace-relative.",
         "npm_paths": "depset of struct(name, version, entry, is_file): npm entry points, relative to the package's own directory.",
         "npm_ambient": "depset of struct(name, version, entry): @types/* entry points to name in the tsconfig `files` array, relative to the package's own directory.",
@@ -205,7 +206,10 @@ FRAGMENT_SUFFIX = ".tsconfig-fragment.json"
 _FRAGMENT_FORMAT = "tsconfig-fragment-v1"
 
 def _fragment_package(package):
-    return json.encode({"package": package.path, "index": package.has_index})
+    record = {"package": package.path, "index": package.has_index}
+    if package.module_name:
+        record["module"] = package.module_name
+    return json.encode(record)
 
 def _fragment_alias(alias):
     return json.encode({"alias": alias.prefix, "dir": alias.dir})
@@ -251,7 +255,11 @@ def _tsconfig_aspect_impl(target, ctx):
     npm_files = []
     if ctx.rule.kind == "ts_compile":
         if target.label.package:
-            packages = [struct(path = target.label.package, has_index = _has_index(target, ctx))]
+            packages = [struct(
+                path = target.label.package,
+                has_index = _has_index(target, ctx),
+                module_name = getattr(ctx.rule.attr, "module_name", ""),
+            )]
         aliases = _aliases(ctx.rule.attr)
         npm_paths, npm_files = _npm_entries(ctx.rule.attr)
         npm_ambient, ambient_files = _ambient_entries(ctx.rule.attr)
@@ -332,6 +340,23 @@ def _packages(sources):
         indexed[package.path] = indexed.get(package.path, False) or package.has_index
     return indexed
 
+def _modules(sources):
+    """The package each `module_name` a reached target declared resolves to.
+
+    A module_name is a bare specifier, so it needs its own paths key: the
+    package-path key the target already has is not what the import says. Two
+    targets declaring one name would fight over that key, so the lowest package
+    path wins for the whole name.
+    """
+    modules = {}
+    for package in _collect(sources, "packages"):
+        if not package.module_name:
+            continue
+        chosen = modules.get(package.module_name)
+        if chosen == None or package.path < chosen:
+            modules[package.module_name] = package.path
+    return modules
+
 def _installed_entry(npm_dir, entry):
     base = "{}/{}".format(npm_dir, entry.name)
     return base + "/" + entry.entry if entry.entry else base
@@ -390,6 +415,13 @@ def _ide_tsconfig_impl(ctx):
             paths[key] = ["./{}/index".format(package)]
         paths[key + "/*"] = ["./{}/*".format(package), "{}/{}/*".format(bin_dir, package)]
 
+    # Last, so a first-party module_name wins over a same-named npm package --
+    # the precedence the tsconfig ts_compile generates applies too.
+    for module_name, package in sorted(_modules(sources).items()):
+        if packages.get(package):
+            paths[module_name] = ["./{}/index".format(package)]
+        paths[module_name + "/*"] = ["./{}/*".format(package), "{}/{}/*".format(bin_dir, package)]
+
     config = {
         "_comment": _HEADER,
         "compilerOptions": {
@@ -415,7 +447,7 @@ def _ide_tsconfig_impl(ctx):
             "**/.next",
             "**/.nuxt",
             ".bazel",
-        ],
+        ] + ctx.attr.extra_exclude,
     }
 
     if ambient:
@@ -458,6 +490,15 @@ ide_tsconfig = rule(
             default = "bazel-",
             doc = "Value of --symlink_prefix, which names the bazel-bin symlink the IDE reads .d.ts through.",
         ),
+        extra_exclude = attr.string_list(
+            doc = """Globs to add to the generated `exclude`, on top of the built-in ones.
+
+`include` stays `**/*`, so a directory holding TypeScript that is not in this
+module's build graph -- a nested Bazel module, listed in .bazelignore -- is in
+the program until something excludes it. Nothing in the graph names such a
+directory, so this is where a workspace says so. Anchor each glob with `**/`:
+an unanchored one only matches at the workspace root.""",
+        ),
     ),
     doc = """Writes a workspace-root tsconfig.json for IDE consumption.
 
@@ -479,6 +520,10 @@ def _ide_hook_data_impl(ctx):
             for e in (npm_entries if ctx.attr.npm_dir else [])
         ],
         "packages": sorted(_packages(sources)),
+        "modules": [
+            {"name": name, "package": package}
+            for name, package in sorted(_modules(sources).items())
+        ],
         "aliases": [
             {"prefix": prefix, "dir": dir}
             for prefix, dir in sorted([(a.prefix, a.dir) for a in _collect(sources, "aliases")])
@@ -565,6 +610,7 @@ def ts_refresh_tsconfig(
         deps = [],
         npm_dir = ".bazel/npm",
         tsconfig = "tsconfig.json",
+        extra_exclude = [],
         test = False):
     """Declares the IDE tsconfig, the run target that installs it, and its staleness test.
 
@@ -577,6 +623,10 @@ def ts_refresh_tsconfig(
         npm_dir:  Workspace-relative directory the npm declarations the paths
                   entries point at are installed in. Empty omits them.
         tsconfig: Where in the workspace the file is written.
+        extra_exclude:
+                  Globs added to the generated `exclude`, for TypeScript trees
+                  that are not in this module's build graph. Anchor each with
+                  `**/`.
         test:     Add a diff_test that fails when `tsconfig` is stale. Turn it
                   on once `tsconfig` is checked in.
     """
@@ -584,6 +634,7 @@ def ts_refresh_tsconfig(
         name = name + ".generated",
         deps = deps,
         npm_dir = npm_dir,
+        extra_exclude = extra_exclude,
     )
     ide_hook_data(
         name = name + ".hook_data",

@@ -435,3 +435,149 @@ func TestDropTsExtension(t *testing.T) {
 		}
 	}
 }
+
+// ---- path alias precedence -------------------------------------------------
+
+// aliasPermutations returns every insertion order of the given entries as a
+// distinct map, so that a test cannot pass by luck of one map layout.
+func aliasPermutations(entries [][2]string) []map[string]string {
+	if len(entries) == 0 {
+		return []map[string]string{{}}
+	}
+	var out []map[string]string
+	for i := range entries {
+		rest := make([][2]string, 0, len(entries)-1)
+		rest = append(rest, entries[:i]...)
+		rest = append(rest, entries[i+1:]...)
+		for _, tail := range aliasPermutations(rest) {
+			m := map[string]string{entries[i][0]: entries[i][1]}
+			for k, v := range tail {
+				m[k] = v
+			}
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// overlappingAliases is an alias set in which several keys match the same
+// specifier: the shape a tsconfig produces when it declares both "@shared" and
+// "@shared/*".
+var overlappingAliases = [][2]string{
+	{"@", "src/root"},
+	{"@/", "src/"},
+	{"@shared", "src/shared/index"},
+	{"@shared/", "src/shared/"},
+	{"@shared/deep/", "src/shared/deep/"},
+}
+
+func TestMatchPathAlias_LongestKeyWinsUnderEveryMapOrder(t *testing.T) {
+	perms := aliasPermutations(overlappingAliases)
+	if len(perms) != 120 {
+		t.Fatalf("expected 120 permutations of 5 entries, got %d", len(perms))
+	}
+
+	for _, tt := range []struct {
+		name       string
+		imp        string
+		wantOK     bool
+		wantPrefix string
+		wantDir    string
+		wantRest   string
+	}{
+		{"wildcard key beats the shorter whole-module key", "@shared/value", true, "@shared/", "src/shared/", "value"},
+		{"the whole-module key matches the bare specifier", "@shared", true, "@shared", "src/shared/index", ""},
+		{"deepest wildcard key wins", "@shared/deep/leaf", true, "@shared/deep/", "src/shared/deep/", "leaf"},
+		{"a key only matches at a segment boundary", "@sharedX/value", false, "", "", ""},
+		{"single-character key still matches its own subtree", "@/lib/math", true, "@/", "src/", "lib/math"},
+		{"bare key matches itself exactly", "@", true, "@", "src/root", ""},
+		{"a bare specifier is not an alias", "react", false, "", "", ""},
+	} {
+		for i, aliases := range perms {
+			tc := &tsConfig{pathAliases: aliases}
+			got, ok := matchPathAlias(tc, tt.imp)
+			if ok != tt.wantOK {
+				t.Fatalf("%s (perm %d): matchPathAlias(%q) ok = %v, want %v", tt.name, i, tt.imp, ok, tt.wantOK)
+			}
+			if !tt.wantOK {
+				continue
+			}
+			if got.prefix != tt.wantPrefix || got.dir != tt.wantDir || got.rest != tt.wantRest {
+				t.Fatalf("%s (perm %d): matchPathAlias(%q) = {prefix:%q dir:%q rest:%q}, want {prefix:%q dir:%q rest:%q}",
+					tt.name, i, tt.imp, got.prefix, got.dir, got.rest, tt.wantPrefix, tt.wantDir, tt.wantRest)
+			}
+		}
+	}
+}
+
+func TestAliasRest(t *testing.T) {
+	for _, tt := range []struct {
+		prefix, imp, wantRest string
+		wantOK                bool
+	}{
+		{"@/", "@/lib", "lib", true},
+		{"@/", "@/", "", true},
+		{"@/", "@x", "", false},
+		{"@shared", "@shared", "", true},
+		{"@shared", "@shared/value", "value", true},
+		{"@shared", "@shared/deep/leaf", "deep/leaf", true},
+		{"@shared", "@sharedX", "", false},
+		{"@shared", "@share", "", false},
+		{"packages/shared", "packages/shared-ui/x", "", false},
+	} {
+		gotRest, gotOK := aliasRest(tt.prefix, tt.imp)
+		if gotOK != tt.wantOK || gotRest != tt.wantRest {
+			t.Errorf("aliasRest(%q, %q) = (%q, %v), want (%q, %v)",
+				tt.prefix, tt.imp, gotRest, gotOK, tt.wantRest, tt.wantOK)
+		}
+	}
+}
+
+// TestResolvePathAlias_OverlappingKeysResolveToOneLabel pins the generated dep
+// for a specifier that several alias keys match. Before longest-key precedence
+// this returned either //src/shared or //src/shared/index/value depending on
+// map iteration order, and a hard strict-deps error turns the wrong one into a
+// failing build.
+func TestResolvePathAlias_OverlappingKeysResolveToOneLabel(t *testing.T) {
+	c := emptyConfig()
+	// No index.ts: a barrel would make both candidate expansions converge on
+	// the same label and hide the defect.
+	ix := buildIndex(t, c,
+		indexedRule{kind: "ts_compile", name: "shared", pkg: "src/shared", srcs: []string{"value.ts"}},
+	)
+	from := label.New("", "src/app", "app")
+
+	for _, tt := range []struct {
+		imp  string
+		want string
+	}{
+		{"@shared/value", "//src/shared"},
+		{"@shared", "//src/shared"},
+		{"@sharedX/value", ""},
+	} {
+		for i, aliases := range aliasPermutations(overlappingAliases) {
+			tc := &tsConfig{pathAliases: aliases}
+			if got := resolvePathAlias(c, ix, tc, tt.imp, from); got != tt.want {
+				t.Fatalf("perm %d: resolvePathAlias(%q) = %q, want %q", i, tt.imp, got, tt.want)
+			}
+		}
+	}
+}
+
+func TestIsPathAlias_UsesTheSameMatcherAsResolution(t *testing.T) {
+	tc := &tsConfig{pathAliases: map[string]string{
+		"@shared":  "src/shared/index",
+		"@shared/": "src/shared/",
+	}}
+	for imp, want := range map[string]bool{
+		"@shared":        true,
+		"@shared/value":  true,
+		"@sharedX":       false,
+		"@sharedX/value": false,
+		"react":          false,
+	} {
+		if got := isPathAlias(tc, imp); got != want {
+			t.Errorf("isPathAlias(%q) = %v, want %v", imp, got, want)
+		}
+	}
+}

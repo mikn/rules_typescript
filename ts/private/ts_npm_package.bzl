@@ -123,6 +123,7 @@ def _ts_npm_package_impl(ctx):
             all_files = depset(all_files),
             js_files = depset(js_files),
             declaration_files = direct_decls,
+            direct_deps = direct_npm_dep_infos,
             transitive_deps = depset(
                 # Include direct dep NpmPackageInfo instances so that
                 # consumers can find them in the flattened transitive list.

@@ -28,21 +28,24 @@ toolchains for every tool but no CI coverage.
 
 ### Windows
 
-Windows does not work, and the gap is not a matter of a few rough edges:
+Windows does not work. The two blocking reasons are upstream, not ours:
 
 - **No tsgo binary is published for Windows.** `TSGO_PLATFORMS` in
   `ts/private/toolchain.bzl` lists four platforms, none of them Windows, so
   toolchain resolution finds nothing. `ts_compile`'s default
   (`declarations = "tsgo"`) has no emitter, which means no `.d.ts` and no
   type-checking.
-- **Every runner is a bash script.** `ts_test`, `ts_binary`, `ts_dev_server`,
-  `ts_codegen`, `npm_bin`, `next_build` and the Vite bundler each write a
-  `#!/usr/bin/env bash` launcher. `bazel test` and `bazel run` on those targets
-  need a bash environment (Git Bash, WSL) even where the underlying tool is
-  cross-platform.
 - **Hermetic pnpm has no Windows binary.** `_PNPM_PLATFORMS` in
   `ts/private/pnpm.bzl` covers Linux and macOS only, so `bazel run //:pnpm`
-  cannot resolve.
+  cannot resolve. The `ts_pnpm` / `ts_add_package` wrappers are bash scripts
+  besides.
+
+Our own remaining shell dependency is much smaller than it was, and is no
+longer about runners: `ts_binary`, `ts_test`, `ts_dev_server` and `npm_bin` run
+through one checked-in Go launcher that reads a per-target JSON config. What
+still needs a POSIX shell on the exec platform is a handful of build-action
+wrappers — the Vite bundler and `next_build` — plus the `node_modules` tree's
+fallback path, which is only taken when no JS runtime toolchain is registered.
 
 What does exist on Windows: a registered Node.js toolchain, a `windows_amd64`
 entry in `//platforms`, and a `node_modules` tree action that runs through a
@@ -72,8 +75,9 @@ thing is to move, not a guarantee.
 
 ### Load-bearing — breaks get a changelog entry with the required edit
 
-- `ts_compile`, `ts_test`, `ts_binary`, `ts_bundle`, `ts_config` rules and their
-  documented attributes
+- `ts_compile`, `ts_test`, `ts_binary`, `ts_bundle`, `ts_config`,
+  `node_modules` and `ts_refresh_tsconfig` rules and their documented
+  attributes
 - `JsInfo`, `TsDeclarationInfo`, `TsModuleInfo`, `BundlerInfo`, `CssInfo`,
   `CssModuleInfo`, `AssetInfo`, `NpmPublishInfo`, `TsLintInfo` providers
 - The `npm` module extension (`npm.translate_lock`, `npm.pnpm`) and the `@npm`

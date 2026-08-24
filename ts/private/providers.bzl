@@ -45,6 +45,7 @@ NpmPackageInfo = provider(
         "all_files": "depset of File: All files in this package (package.json + .js + .d.ts + other assets). Used by node_modules rule for runtime.",
         "js_files": "depset of File: JavaScript files in this package.",
         "declaration_files": "depset of File: TypeScript declaration files (.d.ts) in this package.",
+        "direct_deps": "list of NpmPackageInfo: the packages this one depends on directly, each under the name this package imports it by. The flattened transitive closure cannot answer which version an individual package resolved to, which is what a node_modules tree needs to place two versions of one name.",
         "transitive_deps": "depset of NpmPackageInfo: Transitive npm dependencies.",
         "transitive_package_dirs": "depset of File: package.json files for this package and all transitive deps.",
         "exports_types_file": "File or None: The specific .d.ts entry point from package.json exports['.']['types'], or None if not specified. Used by ts_compile to build more precise tsconfig paths entries.",

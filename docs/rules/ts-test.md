@@ -34,6 +34,7 @@ the deps do not describe.
 | `size` | `string` | `"medium"` | Bazel test size |
 | `timeout` | `string` | `None` | Bazel test timeout |
 | `tags` | `string_list` | `[]` | Bazel tags |
+| `visibility` | `string_list` | `None` | Visibility of the test **and** of the `ts_compile` targets the macro generates from `srcs`/`setup_files`/`global_setup`. Those default to `//visibility:public` so an `ts_refresh_tsconfig` can name them |
 | `target` | `string` | `"es2022"` | ECMAScript target for the internal `ts_compile` |
 | `jsx_mode` | `string` | `"react-jsx"` | JSX mode for the internal `ts_compile` |
 | `declarations` | `string` | `"tsgo"` | Declaration emitter for the internal `ts_compile` |
@@ -68,8 +69,15 @@ run after the config's. Scalars from a later layer win, which is why
 
 Two things sit outside the layering and outrank all of it, because they are the
 sandbox contract rather than configuration: npm resolution into the runfiles
-tree (`NODE_PATH`, set by the runner script) and coverage output paths (vitest
-CLI flags, so `bazel coverage` writes lcov where Bazel expects it).
+tree (`NODE_PATH`, set by the launcher) and coverage output paths (vitest CLI
+flags, so `bazel coverage` writes lcov where Bazel expects it).
+
+To see what the launcher resolved — the node binary, the vitest entry, the
+`node_modules` tree, the shard split:
+
+```bash
+bazel run //path/to:my_test -- --dump-config
+```
 
 Read the config that actually ran:
 
@@ -190,8 +198,16 @@ Then attach with VS Code or `chrome://inspect`.
 
 ## Listing npm deps
 
+Test sources are checked for undeclared imports like any other `ts_compile`
+sources: a module that only some dep's own deps provide fails the build with
+the label to add. `bazel run //:gazelle` writes it — Gazelle collects imports
+from the test files and the production sources in the package. See
+[Deps have to be direct](ts-compile.md#deps-have-to-be-direct).
+
 The auto-generated `node_modules` tree is built from the *direct* deps that
-provide `NpmPackageInfo`, plus their transitive npm deps. A `ts_compile` dep
+provide `NpmPackageInfo`, plus their transitive npm deps. It places every
+version those resolve to, keyed by version where a name resolves more than once
+([layout](node-modules.md#the-layout)). A `ts_compile` dep
 does not contribute its own npm dependencies to it. So list every npm package
 needed at runtime — by the test files *and* by the production code under test —
 in `ts_test`'s `deps`, the way `go_test` requires all direct imports. Gazelle

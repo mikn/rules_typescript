@@ -9,6 +9,65 @@
     "moduleResolution": "Bundler",
     "noEmit": true,
     "paths": {
+      "@acme/jsx/*": [
+        "./tests/compiler_options/jsx/*",
+        "./bazel-bin/tests/compiler_options/jsx/*"
+      ],
+      "@acme/ui": [
+        "./tests/compiler_options/module_name/lib/index"
+      ],
+      "@acme/ui/*": [
+        "./tests/compiler_options/module_name/lib/*",
+        "./bazel-bin/tests/compiler_options/module_name/lib/*"
+      ],
+      "@ampproject/remapping": [
+        "./.bazel/npm/@ampproject/remapping"
+      ],
+      "@ampproject/remapping/*": [
+        "./.bazel/npm/@ampproject/remapping/*"
+      ],
+      "@babel/parser": [
+        "./.bazel/npm/@babel/parser"
+      ],
+      "@babel/parser/*": [
+        "./.bazel/npm/@babel/parser/*"
+      ],
+      "@babel/types": [
+        "./.bazel/npm/@babel/types"
+      ],
+      "@babel/types/*": [
+        "./.bazel/npm/@babel/types/*"
+      ],
+      "@isaacs/cliui": [
+        "./.bazel/npm/@isaacs/cliui"
+      ],
+      "@isaacs/cliui/*": [
+        "./.bazel/npm/@isaacs/cliui/*"
+      ],
+      "@jridgewell/gen-mapping": [
+        "./.bazel/npm/@jridgewell/gen-mapping"
+      ],
+      "@jridgewell/gen-mapping/*": [
+        "./.bazel/npm/@jridgewell/gen-mapping/*"
+      ],
+      "@jridgewell/resolve-uri": [
+        "./.bazel/npm/@jridgewell/resolve-uri"
+      ],
+      "@jridgewell/resolve-uri/*": [
+        "./.bazel/npm/@jridgewell/resolve-uri/*"
+      ],
+      "@jridgewell/sourcemap-codec": [
+        "./.bazel/npm/@jridgewell/sourcemap-codec"
+      ],
+      "@jridgewell/sourcemap-codec/*": [
+        "./.bazel/npm/@jridgewell/sourcemap-codec/*"
+      ],
+      "@jridgewell/trace-mapping": [
+        "./.bazel/npm/@jridgewell/trace-mapping"
+      ],
+      "@jridgewell/trace-mapping/*": [
+        "./.bazel/npm/@jridgewell/trace-mapping/*"
+      ],
       "@shared": [
         "./tests/compiler_options/path_aliases/shared/index"
       ],
@@ -16,11 +75,107 @@
         "./tests/compiler_options/path_aliases/shared/*",
         "./bazel-bin/tests/compiler_options/path_aliases/shared/*"
       ],
+      "@vitest/coverage-v8": [
+        "./.bazel/npm/@vitest/coverage-v8/dist/index.d.ts"
+      ],
+      "@vitest/coverage-v8/*": [
+        "./.bazel/npm/@vitest/coverage-v8/dist/*"
+      ],
+      "@vitest/expect": [
+        "./.bazel/npm/@vitest/expect/index.d.ts"
+      ],
+      "@vitest/expect/*": [
+        "./.bazel/npm/@vitest/expect/*"
+      ],
+      "@vitest/mocker": [
+        "./.bazel/npm/@vitest/mocker/dist/index.d.ts"
+      ],
+      "@vitest/mocker/*": [
+        "./.bazel/npm/@vitest/mocker/dist/*"
+      ],
+      "@vitest/pretty-format": [
+        "./.bazel/npm/@vitest/pretty-format/dist/index.d.ts"
+      ],
+      "@vitest/pretty-format/*": [
+        "./.bazel/npm/@vitest/pretty-format/dist/*"
+      ],
+      "@vitest/runner": [
+        "./.bazel/npm/@vitest/runner/dist/index.d.ts"
+      ],
+      "@vitest/runner/*": [
+        "./.bazel/npm/@vitest/runner/dist/*"
+      ],
+      "@vitest/snapshot": [
+        "./.bazel/npm/@vitest/snapshot/dist/index.d.ts"
+      ],
+      "@vitest/snapshot/*": [
+        "./.bazel/npm/@vitest/snapshot/dist/*"
+      ],
+      "@vitest/spy": [
+        "./.bazel/npm/@vitest/spy/dist/index.d.ts"
+      ],
+      "@vitest/spy/*": [
+        "./.bazel/npm/@vitest/spy/dist/*"
+      ],
+      "@vitest/utils": [
+        "./.bazel/npm/@vitest/utils/dist/index.d.ts"
+      ],
+      "@vitest/utils/*": [
+        "./.bazel/npm/@vitest/utils/dist/*"
+      ],
+      "ansi-regex": [
+        "./.bazel/npm/ansi-regex"
+      ],
+      "ansi-regex/*": [
+        "./.bazel/npm/ansi-regex/*"
+      ],
+      "ansi-styles": [
+        "./.bazel/npm/ansi-styles"
+      ],
+      "ansi-styles/*": [
+        "./.bazel/npm/ansi-styles/*"
+      ],
+      "assertion-error": [
+        "./.bazel/npm/assertion-error"
+      ],
+      "assertion-error/*": [
+        "./.bazel/npm/assertion-error/*"
+      ],
+      "cac": [
+        "./.bazel/npm/cac/dist/index.d.ts"
+      ],
+      "cac/*": [
+        "./.bazel/npm/cac/dist/*"
+      ],
+      "emoji-regex": [
+        "./.bazel/npm/emoji-regex"
+      ],
+      "emoji-regex/*": [
+        "./.bazel/npm/emoji-regex/*"
+      ],
+      "es-module-lexer": [
+        "./.bazel/npm/es-module-lexer/types/lexer.d.ts"
+      ],
+      "es-module-lexer/*": [
+        "./.bazel/npm/es-module-lexer/types/*"
+      ],
       "esbuild": [
         "./.bazel/npm/esbuild"
       ],
       "esbuild/*": [
         "./.bazel/npm/esbuild/*"
+      ],
+      "estree-walker": [
+        "./.bazel/npm/estree-walker/types/index.d.ts"
+      ],
+      "estree-walker/*": [
+        "./.bazel/npm/estree-walker/types/*"
+      ],
+      "expect-type": [
+        "./.bazel/npm/expect-type"
+      ],
+      "expect-type/*": [
+        "./.bazel/npm/expect-type/*"
       ],
       "fdir": [
         "./.bazel/npm/fdir"
@@ -28,11 +183,89 @@
       "fdir/*": [
         "./.bazel/npm/fdir/*"
       ],
+      "foreground-child": [
+        "./.bazel/npm/foreground-child"
+      ],
+      "foreground-child/*": [
+        "./.bazel/npm/foreground-child/*"
+      ],
+      "glob": [
+        "./.bazel/npm/glob"
+      ],
+      "glob/*": [
+        "./.bazel/npm/glob/*"
+      ],
+      "has-flag": [
+        "./.bazel/npm/has-flag"
+      ],
+      "has-flag/*": [
+        "./.bazel/npm/has-flag/*"
+      ],
+      "is-fullwidth-code-point": [
+        "./.bazel/npm/is-fullwidth-code-point"
+      ],
+      "is-fullwidth-code-point/*": [
+        "./.bazel/npm/is-fullwidth-code-point/*"
+      ],
+      "jackspeak": [
+        "./.bazel/npm/jackspeak"
+      ],
+      "jackspeak/*": [
+        "./.bazel/npm/jackspeak/*"
+      ],
+      "loupe": [
+        "./.bazel/npm/loupe"
+      ],
+      "loupe/*": [
+        "./.bazel/npm/loupe/*"
+      ],
+      "lru-cache": [
+        "./.bazel/npm/lru-cache"
+      ],
+      "lru-cache/*": [
+        "./.bazel/npm/lru-cache/*"
+      ],
+      "magic-string": [
+        "./.bazel/npm/magic-string"
+      ],
+      "magic-string/*": [
+        "./.bazel/npm/magic-string/*"
+      ],
+      "magicast": [
+        "./.bazel/npm/magicast"
+      ],
+      "magicast/*": [
+        "./.bazel/npm/magicast/*"
+      ],
+      "make-dir": [
+        "./.bazel/npm/make-dir"
+      ],
+      "make-dir/*": [
+        "./.bazel/npm/make-dir/*"
+      ],
+      "minimatch": [
+        "./.bazel/npm/minimatch"
+      ],
+      "minimatch/*": [
+        "./.bazel/npm/minimatch/*"
+      ],
+      "minipass": [
+        "./.bazel/npm/minipass"
+      ],
+      "minipass/*": [
+        "./.bazel/npm/minipass/*"
+      ],
       "nanoid": [
         "./.bazel/npm/nanoid"
       ],
       "nanoid/*": [
         "./.bazel/npm/nanoid/*"
+      ],
+      "package-json-from-dist": [
+        "./.bazel/npm/package-json-from-dist"
+      ],
+      "package-json-from-dist/*": [
+        "./.bazel/npm/package-json-from-dist/*"
       ],
       "packages/nested-shared": [
         "./packages/nested-shared/index"
@@ -47,6 +280,24 @@
       "packages/shared/*": [
         "./packages/shared/*",
         "./bazel-bin/packages/shared/*"
+      ],
+      "path-key": [
+        "./.bazel/npm/path-key"
+      ],
+      "path-key/*": [
+        "./.bazel/npm/path-key/*"
+      ],
+      "path-scurry": [
+        "./.bazel/npm/path-scurry"
+      ],
+      "path-scurry/*": [
+        "./.bazel/npm/path-scurry/*"
+      ],
+      "pathe": [
+        "./.bazel/npm/pathe"
+      ],
+      "pathe/*": [
+        "./.bazel/npm/pathe/*"
       ],
       "picocolors": [
         "./.bazel/npm/picocolors"
@@ -66,11 +317,53 @@
       "rollup/*": [
         "./.bazel/npm/rollup/dist/*"
       ],
+      "shebang-regex": [
+        "./.bazel/npm/shebang-regex"
+      ],
+      "shebang-regex/*": [
+        "./.bazel/npm/shebang-regex/*"
+      ],
+      "signal-exit": [
+        "./.bazel/npm/signal-exit"
+      ],
+      "signal-exit/*": [
+        "./.bazel/npm/signal-exit/*"
+      ],
       "source-map-js": [
         "./.bazel/npm/source-map-js"
       ],
       "source-map-js/*": [
         "./.bazel/npm/source-map-js/*"
+      ],
+      "std-env": [
+        "./.bazel/npm/std-env"
+      ],
+      "std-env/*": [
+        "./.bazel/npm/std-env/*"
+      ],
+      "string-width": [
+        "./.bazel/npm/string-width"
+      ],
+      "string-width-cjs": [
+        "./.bazel/npm/string-width-cjs"
+      ],
+      "string-width-cjs/*": [
+        "./.bazel/npm/string-width-cjs/*"
+      ],
+      "string-width/*": [
+        "./.bazel/npm/string-width/*"
+      ],
+      "strip-ansi": [
+        "./.bazel/npm/strip-ansi"
+      ],
+      "strip-ansi-cjs": [
+        "./.bazel/npm/strip-ansi-cjs"
+      ],
+      "strip-ansi-cjs/*": [
+        "./.bazel/npm/strip-ansi-cjs/*"
+      ],
+      "strip-ansi/*": [
+        "./.bazel/npm/strip-ansi/*"
       ],
       "tests/ambient_npm_types/*": [
         "./tests/ambient_npm_types/*",
@@ -342,9 +635,33 @@
         "./tests/vitest/*",
         "./bazel-bin/tests/vitest/*"
       ],
+      "tests/vitest/attrs/*": [
+        "./tests/vitest/attrs/*",
+        "./bazel-bin/tests/vitest/attrs/*"
+      ],
+      "tests/vitest/config_dict/*": [
+        "./tests/vitest/config_dict/*",
+        "./bazel-bin/tests/vitest/config_dict/*"
+      ],
       "tests/vitest/config_merge/*": [
         "./tests/vitest/config_merge/*",
         "./bazel-bin/tests/vitest/config_merge/*"
+      ],
+      "tests/vitest/coverage/*": [
+        "./tests/vitest/coverage/*",
+        "./bazel-bin/tests/vitest/coverage/*"
+      ],
+      "tests/vitest/data/*": [
+        "./tests/vitest/data/*",
+        "./bazel-bin/tests/vitest/data/*"
+      ],
+      "tests/vitest/environment/*": [
+        "./tests/vitest/environment/*",
+        "./bazel-bin/tests/vitest/environment/*"
+      ],
+      "tests/vitest/global_setup/*": [
+        "./tests/vitest/global_setup/*",
+        "./bazel-bin/tests/vitest/global_setup/*"
       ],
       "tests/vitest/setup_files/*": [
         "./tests/vitest/setup_files/*",
@@ -354,11 +671,41 @@
         "./tests/vitest/workspace/*",
         "./bazel-bin/tests/vitest/workspace/*"
       ],
+      "tinybench": [
+        "./.bazel/npm/tinybench"
+      ],
+      "tinybench/*": [
+        "./.bazel/npm/tinybench/*"
+      ],
+      "tinyexec": [
+        "./.bazel/npm/tinyexec"
+      ],
+      "tinyexec/*": [
+        "./.bazel/npm/tinyexec/*"
+      ],
       "tinyglobby": [
         "./.bazel/npm/tinyglobby"
       ],
       "tinyglobby/*": [
         "./.bazel/npm/tinyglobby/*"
+      ],
+      "tinypool": [
+        "./.bazel/npm/tinypool/dist/index.d.ts"
+      ],
+      "tinypool/*": [
+        "./.bazel/npm/tinypool/dist/*"
+      ],
+      "tinyrainbow": [
+        "./.bazel/npm/tinyrainbow"
+      ],
+      "tinyrainbow/*": [
+        "./.bazel/npm/tinyrainbow/*"
+      ],
+      "tinyspy": [
+        "./.bazel/npm/tinyspy"
+      ],
+      "tinyspy/*": [
+        "./.bazel/npm/tinyspy/*"
       ],
       "undici-types": [
         "./.bazel/npm/undici-types"
@@ -369,8 +716,26 @@
       "vite": [
         "./.bazel/npm/vite"
       ],
+      "vite-node": [
+        "./.bazel/npm/vite-node/dist/index.d.ts"
+      ],
+      "vite-node/*": [
+        "./.bazel/npm/vite-node/dist/*"
+      ],
       "vite/*": [
         "./.bazel/npm/vite/*"
+      ],
+      "vitest": [
+        "./.bazel/npm/vitest"
+      ],
+      "vitest/*": [
+        "./.bazel/npm/vitest/*"
+      ],
+      "wrap-ansi": [
+        "./.bazel/npm/wrap-ansi"
+      ],
+      "wrap-ansi/*": [
+        "./.bazel/npm/wrap-ansi/*"
       ],
       "zod": [
         "./.bazel/npm/zod/index.d.ts"
@@ -395,7 +760,10 @@
     "**/build",
     "**/.next",
     "**/.nuxt",
-    ".bazel"
+    ".bazel",
+    "**/e2e",
+    "**/examples",
+    "**/tests/integration"
   ],
   "files": [
     "./.bazel/npm/@types/node/index.d.ts"

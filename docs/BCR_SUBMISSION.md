@@ -6,7 +6,8 @@ This document describes how to submit rules_typescript to the Bazel Central Regi
 releases, and `.bcr/metadata.json` still has an empty `versions` list, so
 `registry.bazel.build/modules/rules_typescript` does not exist. `.bcr/source.json`
 is a placeholder — its URL points at a tarball that was never published and its
-`integrity` is empty; `scripts/release.sh` fills both in. Until then consumers pin
+`integrity` is empty; the release workflow fills both in when a tag is pushed.
+Until then consumers pin
 the ruleset with a non-registry override, per
 [Depending on rules_typescript](getting-started/quickstart.md#depending-on-rules_typescript).
 
@@ -36,24 +37,24 @@ Release versions follow semantic versioning: `X.Y.Z`
 # Set version variable
 VERSION="0.1.0"
 
-# Create and push tag (optionally use scripts/release.sh)
+# Create and push the tag by hand
 git tag -a "v${VERSION}" -m "rules_typescript ${VERSION}"
 git push origin "v${VERSION}"
 ```
 
-Or use the provided release script:
+Or use the release tool, which does the local half:
 
 ```bash
-bash scripts/release.sh 0.1.0
-git push origin v0.1.0
+bazel run //tools/release -- 0.1.0 --dry-run   # print every step, mutate nothing
+bazel run //tools/release -- 0.1.0 --push      # bump, commit, tag, push
 ```
 
-The script will:
-- Update MODULE.bazel version
-- Create git tag
-- Build tarball
-- Compute SHA256 hash
-- Update .bcr/source.json
+It bumps `module(version)` in `MODULE.bazel`, commits that, and creates the
+annotated tag `v<version>`. It deliberately does **not** build a tarball or
+compute an integrity hash: an archive built locally is not the archive GitHub
+publishes, so a locally computed hash would be wrong. Everything downstream of
+the tag — `git archive`, the GitHub release, the SRI hash and the
+`.bcr/source.json` update — is `.github/workflows/release.yml`.
 
 ### 2. GitHub Release Creation
 
@@ -251,23 +252,23 @@ The oxc Rust CLI requires the Rust toolchain. It's automatically built by Bazel'
 
 Include this if the standard tarball extraction and build procedure needs documentation.
 
-## Automating with Release Script
-
-The `scripts/release.sh` automates most of the release process:
+## Automating with the release tool
 
 ```bash
-bash scripts/release.sh 0.1.0
+bazel run //tools/release -- 0.1.0 --push
 ```
 
-This script:
+The tool:
 1. Validates the version format
 2. Checks the git working tree is clean
-3. Updates MODULE.bazel version
+3. Updates `module(version)` in MODULE.bazel
 4. Commits the change
-5. Creates a git tag
-6. Builds the release tarball
-7. Computes SHA256 hash
-8. Updates .bcr/source.json
+5. Creates the annotated tag `v0.1.0`
+6. Pushes it (with `--push`), which starts the Release workflow
+
+The tarball, the SHA256 SRI hash and the `.bcr/source.json` update happen in
+`.github/workflows/release.yml`, from the tag. `--dry-run` prints every step and
+changes nothing.
 
 **After running the script:**
 ```bash
@@ -331,7 +332,7 @@ Before cutting a release:
 
 For the actual release:
 
-- [ ] Tag version using `git tag v0.1.0` or `bash scripts/release.sh 0.1.0`
+- [ ] Tag version using `git tag v0.1.0` or `bazel run //tools/release -- 0.1.0`
 - [ ] Push tag: `git push origin v0.1.0`
 - [ ] Verify GitHub Actions workflows complete successfully
 - [ ] Download tarball and verify integrity

@@ -183,6 +183,12 @@ The `integrity` field is computed and committed by the `update-bcr` job in
 
 Remote caching allows build artifacts from one machine to be reused by another. All rules_typescript actions are designed to be hermetic and produce deterministic outputs, which maximises cache hit rates.
 
+!!! note "Documented, not exercised"
+    Nothing in this repository's own CI uses `--remote_cache`, `--disk_cache` or
+    RBE, so the setups below are configurations we believe are right rather than
+    ones we run. Treat the cache-hit claims as what Bazel offers, not as
+    something measured here.
+
 ### Why Remote Caching Matters
 
 - **Team builds**: engineers share a common cache, so the second person to build a target gets it from cache at network speed.
@@ -309,7 +315,7 @@ rules_typescript downloads platform-specific binaries for:
 
 | Tool | Source | Platforms |
 |------|--------|-----------|
-| `oxc-bazel` | Built from Rust source via rules_rust | All (linux/mac/win, x86_64/arm64) |
+| `oxc-bazel` | Built from Rust source via rules_rust | linux-x64, linux-arm64, darwin-x64, darwin-arm64 |
 | `tsgo` | Downloaded npm package | linux-x64, linux-arm64, darwin-x64, darwin-arm64 |
 | Node.js | JS runtime toolchain | linux/mac/win, x86_64/arm64 |
 
@@ -345,9 +351,11 @@ If you need a custom executor image (e.g. for additional system tools), build on
 
 ```dockerfile
 FROM ubuntu:22.04
-# rules_typescript shell actions use: bash, install (coreutils), tar, python3
+# Only a POSIX shell is needed: the Vite bundler and next_build wrap their
+# action in bash. Everything else runs a declared binary — no host tar, no
+# python, no coreutils dependency.
 RUN apt-get update && apt-get install -y \
-    bash coreutils tar python3 \
+    bash \
     && rm -rf /var/lib/apt/lists/*
 ```
 

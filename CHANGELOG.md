@@ -17,6 +17,28 @@ requires.
 
 ### Breaking — `ts_compile`
 
+- **New hard error: an import no *direct* dep provides fails the build.** A
+  `TsStrictDeps` action reads the target's own sources and reports every
+  specifier that resolves only because some dep's own deps happen to carry it,
+  naming the file, the line, the specifier and the label to add:
+
+  ```
+  //src/app:app imports a module no direct dep provides:
+
+    src/app/main.ts:1  imports "./hidden"
+                       add "//src/app:hidden" to deps
+  ```
+
+  The transitive closure is still an action input, so a declared dep's own
+  `.d.ts` keeps resolving its own imports — what changed is that arriving
+  transitively no longer *satisfies* an import. Relative paths, bare
+  specifiers, npm packages and `module_name` targets are all checked; node
+  builtins, `node:` specifiers and `path_aliases` prefixes are exempt, and an
+  import nothing in the closure provides is left to TypeScript's `TS2307`,
+  since there is no label to suggest. There is no flag and no opt-out. Run
+  `bazel run //:gazelle` to fix a failure, or add the printed labels by hand.
+  `/// <reference types="x" />` is deliberately not checked — Gazelle does not
+  generate a dep for it either, and the two recognisers stay in agreement.
 - `isolated_declarations = True|False` is replaced by
   `declarations = "tsgo"|"oxc"`, default `"tsgo"`. `"tsgo"` emits `.d.ts` from
   the full type program, so no export needs an explicit type annotation and a
@@ -102,12 +124,20 @@ requires.
   label surface does not move: `@npm//:zod`, `@npm//:types_react`,
   `@npm//:vitest_bin` all still resolve, through an alias hub that downloads
   nothing.
-- `npm.translate_lock` gains `patches`, a label list. A lockfile with
-  `patchedDependencies` and no matching label now **fails the extension**, as
-  does a passed patch file no entry claims. Previously `patchedDependencies`
-  was ignored outright and the unpatched upstream tarball was installed with no
-  warning. Files are matched by pnpm's own `pnpm patch-commit` name,
-  `<name with / replaced by __>@<version>.patch`.
+- `npm.translate_lock` gains `patches`, a label list. Previously
+  `patchedDependencies` was ignored outright and the unpatched upstream tarball
+  was installed with no warning. Files are matched to lockfile entries by
+  pnpm's own `pnpm patch-commit` name,
+  `<name with / replaced by __>@<version>.patch`, and every pairing is
+  **verified at extension time**, so the check does not depend on the patched
+  package entering some build's closure. Four failures, each naming the label:
+  a label that resolves to no readable file; a file whose sha256 disagrees with
+  the digest `patchedDependencies` records; a `patchedDependencies` entry with
+  no matching label; and a passed file no entry claims. A patch filename
+  starting with `@` cannot be exported by `exports_files(glob(["*.patch"]))` —
+  `glob()` prefixes `:` onto such a result and `exports_files` rejects it as a
+  target name, failing the whole package — so the unreadable-label message says
+  to list those files literally.
 - npm alias specifiers (`h3-v2: h3@2.0.1`) get their own labels. They
   previously collapsed onto the real package's label, so the name the importing
   code uses did not exist as a target.
@@ -120,6 +150,27 @@ requires.
   three at every use site, so the lockfile already carries concrete versions and
   injected peers. Tests pin that, so a parser change cannot start reading
   `specifier:` instead of `version:` unnoticed.
+
+### Breaking — `node_modules` trees
+
+- A tree now places **every** resolved version of a package. One npm name can
+  resolve to more than one version in a single closure, and the old tree keyed
+  every destination by package name alone: both versions wrote to
+  `node_modules/<name>`, the last copy won, and every dependent silently got
+  that version. Now each name's primary version keeps the flat top-level
+  directory (primary = what the tree's own `deps` declare, else the highest
+  version — the rule `@npm//:<name>` already follows), every other version gets
+  its bytes once under `.pnpm/<name>@<version>/node_modules/<name>`, and each
+  dependent that resolved to one of those gets a relative symlink at
+  `<dependent>/node_modules/<name>`. Nothing that resolved before moves.
+- **New hard error:** declaring two versions of one name directly on a single
+  `node_modules` target. `node_modules/<name>` is one directory, so there is no
+  arrangement that answers `import "<name>"` with both; the failure names the
+  target, both versions, and the two ways out (depend on one and let the other
+  arrive transitively, or split into two targets).
+- `NpmPackageInfo` gains `direct_deps`, the per-dependent resolution the links
+  are built from. `ts_test`'s auto-generated tree gets the same layout — it
+  goes through the same builder.
 
 ### Breaking — toolchains and repositories
 
@@ -143,6 +194,25 @@ requires.
   node-as-a-build-tool (exec config) from node-as-a-runtime
   (`js_runtime_type`, whose `runtime_binary` is now `cfg = "target"`).
   Registering `@rules_typescript//ts/toolchain:all` picks up both.
+
+### Breaking — the IDE tsconfig
+
+- A target's `module_name` now gets its own `compilerOptions.paths` entry, so a
+  first-party package imported by bare specifier resolves in the editor. The
+  `module_name` keys are emitted last, so a first-party name beats a same-named
+  npm package — the precedence the tsconfig `ts_compile` generates already
+  used.
+- `ts_refresh_tsconfig` gains `extra_exclude`, globs appended to the generated
+  `exclude`. TypeScript trees that are not in this module's build graph — a
+  nested Bazel module, an example workspace in `.bazelignore` — are otherwise
+  walked by `tsc` and checked under the wrong `compilerOptions`, because
+  nothing in the graph names them and `include` is `**/*`.
+- The `ts_compile` targets `ts_test` generates from `srcs`, `setup_files` and
+  `global_setup` follow the test's `visibility`, defaulting to
+  `//visibility:public`, instead of a hardcoded `//visibility:private` that no
+  BUILD file could widen. They were unnameable, so `ts_refresh_tsconfig(deps =
+  ...)` could not reach the npm packages only a test declares. A consumer who
+  wants them locked down sets `visibility` on the `ts_test`.
 
 ### Breaking — bundling, assets and packaging
 
@@ -178,9 +248,31 @@ requires.
   `bazel test //tests/integration/...`. The `RULES_TYPESCRIPT_ROOT` environment
   variable those runners needed is no longer read anywhere.
 - Integration targets are `exclusive` rather than `manual`, so
-  `bazel test //...` now runs them: 138 test targets, 12 of them
+  `bazel test //...` now runs them: 151 test targets, 12 of them
   `exclusive`, 2 `manual`. `bazel test --config=fast //...` skips the
   exclusive ones.
+
+### Breaking — the dev server
+
+- `bazel run //app:dev` serves **first-party source**. Vite transforms the
+  checked-in `.ts` in memory, so a keystroke reaches the browser with no Bazel
+  analysis-and-action cycle in between; `bazel-bin` stays authoritative only
+  for what Vite cannot produce itself — the npm tree, `ts_codegen` output,
+  assets and passthrough `.d.ts`. Generated code is recognised by having no
+  checked-in source, not by a path list. The dev server previously served the
+  compiled `.js` from `bazel-bin`, which put a Bazel rebuild in the inner loop.
+- **The dev server no longer type-checks.** That is native Vite parity — Vite
+  has never type-checked — but it makes editor correctness load-bearing: a type
+  error now surfaces in the editor and in `bazel build`, and no longer blocks
+  the browser update. `ts_bundle` is unchanged: a production bundle still
+  consumes Bazel's compiled output.
+- The restart decision moved into the Vite process. `ibazel run` SIGTERMs the
+  launcher after every rebuild and the launcher deliberately survives it, so
+  one Vite process lives across rebuilds; a `ConfigWatcher` compares content
+  digests of the inputs the generated config was built from (the config itself,
+  the npm tree, the toolchain node binary) and restarts only when one of those
+  changes. A `ts_codegen` rebuild no longer restarts the server, and neither
+  does a source edit.
 
 ### Breaking — shell replaced by Go
 
@@ -311,11 +403,31 @@ requires.
   `<app>_node_modules` made every Vite framework bundle fail to find `rolldown`.
 - No action needs a shell on the exec platform: `ctx.actions.run_shell` is gone
   from the ruleset.
+- Gazelle's path-alias resolution is deterministic. When several
+  `compilerOptions.paths` entries match one specifier — a tsconfig declaring
+  both `@x` and `@x/*` — the longest matching alias key wins, which is what
+  TypeScript's own resolution does (an exact pattern is necessarily the longest
+  key that can match). It previously took whichever key Go's randomised map
+  iteration yielded first, so two identical Gazelle runs could disagree and one
+  of the answers was a dep label that does not exist. Ties break
+  lexicographically, and reading `compilerOptions.paths` is sorted too, so a
+  colliding pattern pair resolves the same way every run.
+- An alias key without a trailing slash now matches only at a path-segment
+  boundary: `@shared` no longer swallows `@sharedX`. That makes Gazelle's
+  "is this specifier an alias" answer identical to the one the strict-deps
+  check uses, so the generator and the check cannot disagree about a
+  specifier's category.
+- Gazelle's import scanner is a character-walk lexer rather than a set of
+  regexes, and it is the same walk the strict-deps check runs. It previously
+  missed `import def, * as ns from "x"` entirely (no dep generated at all) and
+  matched specifiers inside template literals (deps on labels that do not
+  exist).
 
 ### Measurements
 
 Two numbers are quoted in the docs. Both come from one machine on one day, and
-only one of them can still be reproduced from this tree.
+only one of them can still be reproduced from this tree; the npm entry adds a
+query anyone can run against their own lockfile.
 
 - Declaration emitters, via `tools/bench_declarations.sh 20 50 3` (1,000
   annotated files, 20 packages, one linear chain, medians of three interleaved
@@ -324,10 +436,13 @@ only one of them can still be reproduced from this tree.
   2.7s / 1.06s. The script is committed; re-run it on your own graph.
 - npm layout, measured while both layouts still existed: building one vitest
   target from an empty output base against a 2731-package lockfile went from
-  392s / 2.9 GB of `external/` to 66s / 415 MB, fetching 227 packages
+  392s / 2.9 GB of `external/` to 66s / 415 MB, fetching 138 packages
   (vitest's actual transitive closure) instead of all 2731. The
   single-repository arm has since been deleted, so this is a historical record,
-  not something a reader can re-run.
+  not something a reader can re-run. What *is* reproducible is the shape of it:
+  `bazel query 'kind(ts_npm_package, deps(//your:test))'` counts the package
+  targets a target can reach, and on this repository's own lockfile a vitest
+  test target reaches 123 of them, in 121 repositories.
 
 ### Known gaps
 
@@ -347,11 +462,33 @@ Recorded rather than hidden.
 - `coverage_thresholds` reaches the generated config, but its enforcement is
   unproven.
 - `ts_test(update_snapshots = True)` is broken.
-- The runtime/tool toolchain split is registered, but its consumer call sites
-  still resolve node through `js_runtime_type`. Harmless while exec == target,
+- The `node_modules` tree action resolves node through `js_runtime_type` (the
+  target platform) rather than `js_tool_type` (the exec platform). Every other
+  build action was moved; this one was not. Harmless while exec == target,
   wrong under cross-compilation.
 - No libc (glibc vs musl) `constraint_setting`. Nothing would reference it
   until npm's platform `select()` lands.
+- A `node_modules` tree keys versions by `name@version`, which is one key short
+  of pnpm's. Two snapshots that share a name and version but differ in their
+  injected peers (`pkg@6.2.3(peer@5.0.1)` vs `pkg@6.2.3(peer@6.2.2)`) still
+  collapse onto one directory, silently. Making them coexist needs the peer
+  suffix carried from the lockfile through `npm_import` into
+  `NpmPackageInfo`.
+- The strict-deps check does not read `/// <reference types="x" />`. It is a
+  real resolution channel, but Gazelle generates no dep for it, so checking it
+  would produce failures Gazelle cannot fix.
+- Gazelle writes a redundant `path_aliases` entry for a first-party package
+  whose non-wildcard `paths` key equals its own directory. The identity check
+  that drops those compares the key with the target directory verbatim, so a
+  `"pkg": ["./pkg/index"]` entry escapes it and lands in every generated
+  `ts_compile`. Cosmetic, but it makes each Gazelle run's diff much larger than
+  the change that caused it.
+- The IDE `tsconfig.json` has a single `compilerOptions` block, so targets that
+  disagree about `strict`, `allowJs` or `lib` cannot all be correct in it. The
+  generated `paths` are a coverage mechanism, not a per-target compiler-option
+  mechanism; a target whose own options differ is checked correctly by
+  `bazel build` and approximately by the editor. Sources that belong to no
+  `ts_compile` target are not in the program's `paths` at all.
 
 ## [0.1.0] — never released
 

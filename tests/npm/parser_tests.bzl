@@ -15,7 +15,7 @@ that happens.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
-load("//npm:lazy.bzl", "break_cycles")
+load("//npm:lazy.bzl", "break_cycles", "patch_file_name")
 load("//npm/private:npm_import.bzl", "npmrc_auth")
 load(
     "//npm/private:npm_translate_lock.bzl",
@@ -479,6 +479,22 @@ def _patched_dependencies_test(ctx):
 
 patched_dependencies_test = unittest.make(_patched_dependencies_test)
 
+def _patch_file_names_test(ctx):
+    env = unittest.begin(ctx)
+
+    # pnpm's own naming, and the only bridge from a lockfile key to a label: a
+    # `/` cannot be in a filename, so a scoped name keeps its leading '@' after
+    # the replacement -- the one filename shape that cannot be a glob() result.
+    asserts.equals(env, "@acme__diffs@1.3.1.patch", patch_file_name("@acme/diffs@1.3.1"))
+    asserts.equals(env, "acme-editor@1.41.4.patch", patch_file_name("acme-editor@1.41.4"))
+
+    for pkg_id in parse_patched_dependencies(_LOCKFILE):
+        asserts.false(env, "/" in patch_file_name(pkg_id), pkg_id)
+
+    return unittest.end(env)
+
+patch_file_names_test = unittest.make(_patch_file_names_test)
+
 # ─── Cycle breaking ───────────────────────────────────────────────────────────
 #
 # A dropped edge and a kept one fail in opposite directions and neither shows up
@@ -628,6 +644,7 @@ def parser_test_suite(name):
         overrides_arrive_pre_resolved_test,
         package_extensions_arrive_as_edges_test,
         patched_dependencies_test,
+        patch_file_names_test,
         snapshots_keep_peer_variants_test,
         importers_resolve_per_importer_test,
         importer_links_are_importer_relative_test,

@@ -98,3 +98,50 @@ def _no_ambient_types_impl(ctx):
     return analysistest.end(env)
 
 no_ambient_types_test = analysistest.make(_no_ambient_types_impl)
+
+def _module_paths_impl(ctx):
+    env = analysistest.begin(ctx)
+    config = _written_config(env)
+    asserts.true(env, config != None, "ide_tsconfig wrote no tsconfig")
+    if config == None:
+        return analysistest.end(env)
+
+    paths = config["compilerOptions"]["paths"]
+
+    # The bare specifier an import writes. Nothing else in the file carries it:
+    # the target's package path is what the label says, not what the import does.
+    asserts.equals(
+        env,
+        ["./tests/lsp/module_fixture/index"],
+        paths.get("@acme/widget"),
+        "module_name resolves to the declaring package's entry point",
+    )
+    asserts.equals(
+        env,
+        ["./tests/lsp/module_fixture/*", "./bazel-bin/tests/lsp/module_fixture/*"],
+        paths.get("@acme/widget/*"),
+        "and its subpaths reach both the sources and the generated declarations",
+    )
+
+    # A module_name is an addition, not a replacement: the package path still
+    # resolves, since a relative import from a sibling package uses it.
+    asserts.equals(
+        env,
+        ["./tests/lsp/module_fixture/*", "./bazel-bin/tests/lsp/module_fixture/*"],
+        paths.get("tests/lsp/module_fixture/*"),
+        "the package-path key survives alongside it",
+    )
+
+    asserts.true(
+        env,
+        "**/vendor" in config["exclude"],
+        "extra_exclude reaches the generated exclude: " + str(config["exclude"]),
+    )
+    asserts.true(
+        env,
+        "**/node_modules" in config["exclude"],
+        "and the built-in globs are still there: " + str(config["exclude"]),
+    )
+    return analysistest.end(env)
+
+module_paths_test = analysistest.make(_module_paths_impl)

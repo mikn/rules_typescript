@@ -32,7 +32,13 @@ overrides:
 
 # The patch's own sha256. pnpm writes this when it writes the patch, so it is a
 # usable content check on the file before it is applied.
+#
+# The scoped entry is the shape that has a second failure mode of its own: pnpm
+# names its patch file after the package with `/` replaced by `__`, so the
+# filename still starts with '@', and a target name starting with '@' cannot come
+# out of glob().
 patchedDependencies:
+  '@types/ms@2.1.0': 384aa81ade2cdcee50b83f6a65b91d565b53299919c172cac3c6d5676c0c65fd
   nanoid@3.3.11: c55f4f6ee369a589edbbc9e7c7d0731b078544f72aed77ff416bdc9d831333fd
 
 importers:
@@ -48,6 +54,10 @@ importers:
       ms-alias:
         specifier: npm:ms@2.1.3
         version: ms@2.1.3
+    devDependencies:
+      '@types/ms':
+        specifier: 2.1.0
+        version: 2.1.0
 
   # Two workspace members that resolve one name to two different majors, and one
   # package that pnpm resolved twice -- once per peer set. Both are recorded the
@@ -90,6 +100,9 @@ packages:
   # One entry per published tarball, peer sets nowhere in sight: `packages:` is
   # keyed by name@version and says nothing about how many ways a package was
   # resolved.
+  '@types/ms@2.1.0':
+    resolution: {integrity: sha512-GsCCIZDE/p3i96vtEqx+7dBUGXrc7zeSK3wwPHIaRThS+9OhWIXRqzs4d6k1SVU8g91DrNRWxWUGhp5KXQb2VA==}
+
   ansi-regex@5.0.1:
     resolution: {integrity: sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ==}
     engines: {node: '>=8'}
@@ -116,6 +129,8 @@ packages:
     resolution: {integrity: sha512-lY7CDW43ECgW9u1TcT3IoXHflywfVqDYze4waEz812jR/bZ8FHDsl7pFQoSZTz5N+2NqRXs8GBwnAwo3ZNxqhQ==}
 
 snapshots:
+
+  '@types/ms@2.1.0': {}
 
   ansi-regex@5.0.1: {}
 

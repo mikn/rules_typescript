@@ -1,0 +1,106 @@
+"""An import must be satisfied by a DIRECT dep.
+
+The chain here is hidden.ts <- leaf.ts <- middle.ts, one ts_compile target per
+file, so a relative specifier crosses a target boundary the way a bare one
+crosses a package boundary. Every target below declares what it imports, so the
+whole package builds; the cases that must FAIL cannot be build targets, so
+checker_test.go drives the checker directly over hand-written manifests, and
+scanner_test.go pins that Gazelle and the checker recognise the same imports --
+a specifier only one of them sees is either drift Gazelle cannot fix or drift
+the build never notices.
+"""
+
+load("@rules_go//go:def.bzl", "go_test")
+load("//ts:defs.bzl", "ts_compile")
+load(":strict_deps_tests.bzl", "resolution_surface_test")
+
+package(default_visibility = ["//:__pkg__"])
+
+# The go_test targets are hand-named after the checks they drive, so the Go
+# language would add a second target for the same source.
+# gazelle:exclude *_test.go
+
+ts_compile(
+    name = "hidden",
+    srcs = ["hidden.ts"],
+)
+
+ts_compile(
+    name = "leaf",
+    srcs = ["leaf.ts"],
+    deps = [":hidden"],
+)
+
+ts_compile(
+    name = "middle",
+    srcs = ["middle.ts"],
+    deps = [":leaf"],
+)
+
+# ./hidden arrives here through :middle and :leaf as well. Declaring it is what
+# makes the import legal -- delete that dep and the build must fail naming
+# //tests/strict_deps:hidden.
+ts_compile(
+    name = "declared",
+    srcs = ["declared.ts"],
+    deps = [
+        ":hidden",
+        ":leaf",
+        ":middle",
+    ],
+)
+
+# ./leaf names a file this target does not own, and only :leaf provides it.
+ts_compile(
+    name = "relative",
+    srcs = ["relative.ts"],
+    deps = [":leaf"],
+)
+
+# Quoted specifiers in non-import positions. ./hidden is transitively reachable,
+# so this target builds only while the scanner keeps object keys, template
+# literals, regex bodies and message strings out of the import set.
+ts_compile(
+    name = "scanner_forms",
+    srcs = ["scanner_forms.ts"],
+    deps = [":leaf"],
+)
+
+# Node built-ins, with and without the node: prefix, are nobody's dep.
+ts_compile(
+    name = "builtins",
+    srcs = ["builtins.ts"],
+    deps = ["@npm//:types_node"],
+)
+
+resolution_surface_test(
+    name = "resolution_surface_test",
+    size = "small",
+    target_under_test = ":middle",
+    transitive_dep = ":hidden",
+)
+
+# The checker script itself, so a test can drive it over manifests no build
+# graph would produce.
+filegroup(
+    name = "checker",
+    srcs = [":declared"],
+    output_group = "strict_deps",
+)
+
+go_test(
+    name = "checker_test",
+    size = "small",
+    srcs = [
+        "checker_test.go",
+        "scanner_test.go",
+    ],
+    data = [
+        ":checker",
+        "//ts/toolchain:node_resolved",
+    ],
+    deps = [
+        "//gazelle:typescript",
+        "//tests/verify",
+    ],
+)

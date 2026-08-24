@@ -122,12 +122,33 @@ Each file is matched to its lockfile entry by filename, which is pnpm's own
 convention from `pnpm patch-commit`:
 `<name with / replaced by __>@<version>.patch`.
 
-Both mismatches fail the build, loudly:
+Every pairing is then **verified when the extension runs**, not when the patched
+package happens to enter a build's closure — so a patch that nothing currently
+depends on is checked too. Four failures, each naming the label:
 
-- a `patchedDependencies` entry with no matching label — the package would
-  install as published, which is exactly what the lockfile says it must not be;
-- a passed patch file no entry claims — the lockfile is stale, or the file is
-  misnamed.
+- **the label resolves to no readable file.** A label the extension cannot read
+  is a patch nothing applies, and the package installs as published — exactly
+  what the lockfile says it must not be. Resolving the label also forces the
+  patch's Bazel package to load, which is how a broken `patches/BUILD.bazel`
+  surfaces here rather than as a mystery later;
+- **the file's sha256 disagrees with the digest `patchedDependencies` records.**
+  pnpm writes that digest when it writes the patch, so a disagreement means the
+  patch changed without `pnpm install` being re-run, and Bazel would apply a
+  patch pnpm never saw. A pre-pnpm-9 lockfile records something other than a
+  sha256; the file still has to be readable, only the comparison is skipped;
+- **a `patchedDependencies` entry with no matching label**;
+- **a passed patch file no entry claims** — the lockfile is stale, or the file
+  is misnamed.
+
+!!! warning "A patch file whose name starts with `@`"
+    `exports_files(glob(["*.patch"]))` cannot export it: `glob()` prefixes `:`
+    onto such a result and `exports_files` rejects that as a target name, which
+    fails the whole package — every patch in it, not just the scoped one. List
+    those files literally:
+
+    ```python
+    exports_files(["@acme__diffs@1.3.1.patch", "nanoid@3.3.11.patch"])
+    ```
 
 ## catalogs, overrides and packageExtensions
 
@@ -196,6 +217,13 @@ This builds a `node_modules` tree in the sandbox holding exactly those packages
 and their transitive dependencies. `ts_test` does it for you from its `deps` —
 see [Testing with vitest](testing.md).
 
+The tree places **every** version a closure resolved, not one per name: a
+name's primary version keeps the flat top-level directory and any other version
+gets its bytes once under `.pnpm/<name>@<version>/node_modules/<name>`, with a
+relative link from each dependent that resolved to it. Declaring two versions
+of one name directly on one target is an error — see
+[node_modules](../rules/node-modules.md#the-layout).
+
 ## Why one repository per package
 
 A single repository for the whole lockfile cannot fetch lazily, and not by
@@ -214,10 +242,22 @@ package, and a malformed tarball fails only its own package.
 
 One measurement, made while both layouts still existed: building one vitest test
 target from an empty output base against a real 2731-package lockfile went from
-392s and 2.9 GB of `external/` to 66s and 415 MB, fetching 227 packages —
+392s and 2.9 GB of `external/` to 66s and 415 MB, fetching 138 packages —
 vitest's actual transitive closure — instead of all 2731. The single-repository
 implementation has since been deleted, so that comparison cannot be re-run from
 this tree; it is recorded here as history, not as a benchmark you can reproduce.
+
+What you *can* reproduce is the shape of it, on your own lockfile, without
+building anything:
+
+```bash
+bazel query 'kind(ts_npm_package, deps(//path/to:my_test))' | wc -l
+```
+
+That counts the package targets the target can reach — very nearly the set of
+repositories Bazel would fetch, since a package present under an npm alias name
+contributes a second target in the same repository. On this repository's own
+lockfile a vitest test target reaches 123 targets in 121 repositories.
 
 There is one npm implementation. The single-repository layout, its
 `npm_translate_lock` repository rule and the `npm.translate_lock(lazy = ...)`

@@ -85,6 +85,12 @@ If `lib/math.ts` changes but its exported types don't change, `app` is not
 recompiled. Bazel's content-based caching uses the `.d.ts` fingerprint as the
 dependency boundary.
 
+Every import has to be satisfied by a **direct** dep. A `.d.ts` that reaches a
+target through another dep's own deps does not count, so the `deps` list above is
+the whole truth about what `apps/server` may import — and `bazel run //:gazelle`
+keeps it that way. See
+[Deps have to be direct](../rules/ts-compile.md#deps-have-to-be-direct).
+
 Relative imports across packages work as written. For a bare specifier —
 `import { Button } from "@acme/ui"` — set `module_name = "@acme/ui"` on the
 producing target; the dependent then gets a `paths` entry pointing at whatever
@@ -127,3 +133,8 @@ cannot be listed there, and the IDE's `tsconfig.json` will not carry a `paths`
 entry for it — the aspect never reaches it. In a hand-written monorepo, the
 targets you want your editor to see need a visibility grant to the root package.
 See [IDE Setup](../getting-started/ide-setup.md#setup).
+
+`ts_test` follows the same line for the `ts_compile` targets it generates from
+your sources: they take the test's `visibility`, and are public when it declares
+none. That is what lets an IDE tsconfig see the npm packages only a test
+declares.

@@ -38,7 +38,7 @@ gh issue list
 ## Development Workflow
 
 ```bash
-bazel test //...                           # everything: 138 test targets (12 exclusive), 2 manual
+bazel test //...                           # everything: 151 test targets (12 exclusive), 2 manual
 bazel test --config=fast //...             # skips the nested-Bazel integration tests
 bazel build //... --output_groups=+_validation  # redundant if .bazelrc has it
 cd e2e/basic && bazel test //...           # e2e workspace (in .bazelignore)
@@ -62,11 +62,18 @@ Do not skip the review stage. It has caught real bugs in every round.
 ## Architecture (terse)
 
 ```
-ts_compile → OxcCompile action (.js + .d.ts + .js.map)
+ts_compile → TsStrictDeps action (.strictdeps stamp; gates the compile)
+           → OxcCompile action (.js + .d.ts + .js.map)
            → TsgoCheck validation action (.tscheck stamp in _validation)
 
 .d.ts = compilation boundary. Downstream sees only .d.ts, not .ts source.
 Change implementation without changing .d.ts → no downstream recompilation.
+
+TsStrictDeps reads the target's own sources and fails on any specifier no
+DIRECT dep provides. Its scanner is the same character walk as Gazelle's
+`ScanImports` (gazelle/imports.go) -- a specifier only one of them recognises
+is either a dep Gazelle cannot generate or drift nothing notices, so
+tests/strict_deps pins the two against one table. Change one, change both.
 ```
 
 **Key files:**
@@ -85,6 +92,11 @@ Change implementation without changing .d.ts → no downstream recompilation.
 - `ts/private/ts_bundle.bzl` — Vite production bundler (staging_srcs for frameworks)
 - `ts/private/ts_dev_server.bzl` — dev server with HMR
 - `ts/private/ts_codegen.bzl` — general code generation
+- `ts/private/tsconfig_aspect.bzl` — the IDE tsconfig, the hook data, and the
+  aspect that writes per-target fragments
+- `tools/launcher/` — the one Go launcher `ts_binary`, `ts_test`,
+  `ts_dev_server` and `npm_bin` run through; `--dump-config` prints the
+  resolved per-target JSON config
 - `gazelle/generate.go` — BUILD file generation
 - `gazelle/resolve.go` — import → label resolution
 - `gazelle/config.go` — directives, framework detection, codegen detection
@@ -98,7 +110,8 @@ Change implementation without changing .d.ts → no downstream recompilation.
 **Starlark:**
 - Never materialize depsets at analysis time (no `.to_list()` in rule impls unless unavoidable + commented)
 - `depset(order = "postorder")` for all transitive file sets
-- `ctx.actions.run` over `ctx.actions.run_shell` when possible
+- `ctx.actions.run` only. `ctx.actions.run_shell` is gone from the ruleset and
+  nothing new may reintroduce it
 - Shell strings: always use `_shell_escape()` for any interpolated path
 - All `fail()` calls must have actionable messages with "Did you mean...?" suggestions
 - No Python dependencies. Use awk or Starlark `json.decode()`.
@@ -150,7 +163,12 @@ Change implementation without changing .d.ts → no downstream recompilation.
 Every `ts_compile` target provides: `JsInfo` + `TsDeclarationInfo` +
 `TsModuleInfo` + `OutputGroupInfo(_validation)`. `_validation` is only populated
 under `declarations = "oxc"`; under the default the declarations are the proof.
-Every `ts_npm_package` provides: `JsInfo` + `TsDeclarationInfo` + `NpmPackageInfo`.
+A `ts_compile` with any `deps` additionally exposes the strict-deps stamp: in
+`OutputGroupInfo(strict_deps = ...)` always, and as an input to the compile
+actions so a violation fails the build rather than only `--output_groups`.
+Every `ts_npm_package` provides: `JsInfo` + `TsDeclarationInfo` +
+`NpmPackageInfo` (whose `direct_deps` carries the per-dependent resolution the
+`node_modules` links are built from).
 `css_library`/`css_module`/`asset_library`/`json_library` provide `TsDeclarationInfo` (for .d.ts stubs).
 
 ## npm Internals
@@ -172,11 +190,21 @@ Handled: scoped packages, `@types` pairing, multiple versions with
 version-suffixed labels, bin scripts (fixed `:bin` alias per package, since the
 hub cannot know whether a bin exists without downloading), conditional exports,
 pnpm workspaces and `workspace:*` links, npm aliases (their own labels),
-dependency cycles, `patchedDependencies` (verified both ways — a declared patch
-with no file and a file no entry claims both fail).
+dependency cycles, `patchedDependencies` (verified four ways at extension time:
+a label resolving to no readable file, a file whose sha256 disagrees with the
+lockfile digest, a declared patch with no label, and a file no entry claims).
 
 No code needed, pinned by tests: catalogs, overrides (including `parent>child`),
 packageExtensions. pnpm resolves all three at every use site.
+
+`node_modules` trees are flat where flat is unambiguous and version-keyed where
+it is not: a name's primary version keeps the top-level directory, every other
+version gets its bytes once under `.pnpm/<name>@<version>/node_modules/<name>`,
+and each dependent that resolved to one of those gets a relative symlink. The
+manifest the builder reads is `op \t source \t destination`, `C` copy and `L`
+symlink, copies first so no link is ever dangling. Keying is by `name@version`;
+the peer suffix is not carried, so peer-differing snapshots still collapse (a
+known gap, not a licence to key by name).
 
 ## Framework Support
 
@@ -188,7 +216,7 @@ Vite-based frameworks (Remix, TanStack Start, SvelteKit, Solid Start) work via:
 ## What NOT to do
 
 - Don't add Python dependencies. All codegen uses awk or Starlark `json.decode()`.
-- Don't generate bash scripts for Windows compatibility paths. Use Node.js via the runtime toolchain. (Aspiration, not the current state: every runner is bash today, which is why Windows is unsupported. Anything new should not add to that.)
+- Don't generate bash scripts for Windows compatibility paths. Use Node.js via the runtime toolchain, or the Go launcher for anything runnable. Runners are Go now; what is left is a few build-action wrappers (the Vite bundler, `next_build`) and the `node_modules` bash fallback. Don't add to that set.
 - Don't add `gazelle_ts.json` features. Use directives.
 - Don't create separate `_check` targets. Use `_validation` output group on the compile target.
 - Don't assume `@npm` is the only repo name. Support custom names via the npm extension.
@@ -205,3 +233,5 @@ Vite-based frameworks (Remix, TanStack Start, SvelteKit, Solid Start) work via:
 - **Every `fail()` should tell the user what to do.** "Did you mean...?" suggestions prevent hours of debugging.
 - **Gazelle directives > config files.** `gazelle_ts.json` was a mistake. Directives are visible, inheritable, version-controlled in BUILD files.
 - **`pnpm add --lockfile-only`** is the correct workflow. No `node_modules/` directory should ever exist in the source tree.
+- **Two recognisers of one thing drift.** Gazelle's import scanner and the strict-deps checker must agree specifier for specifier, or a hard error becomes unfixable by the tool meant to fix it. Same shape as the `node_modules` tree: the layout planner and the builder read one manifest, not two ideas of it.
+- **A name is not a resolution.** Keying anything by npm package name alone (a `node_modules` destination, a patch pairing, a dep edge) loses the version and fails silently, because every version involved is a real version.

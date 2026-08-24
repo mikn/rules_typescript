@@ -51,6 +51,50 @@ ts_bundle(
 )
 ```
 
+## Framework plugins via `vite_config`
+
+`vite_config` takes **one** `.mjs`/`.js` file that default-exports
+`{plugins: [...]}` (and optionally `root`). The generated config imports it at
+run time and prepends its plugins to Bazel's, which is how TanStack Start,
+Remix, SvelteKit and Solid Start plugins get into the build:
+
+```javascript
+// vite.plugins.mjs
+import { tanstackStart } from "@tanstack/react-start/plugin/vite";
+
+export default { plugins: [tanstackStart()] };
+```
+
+```python
+ts_bundle(
+    name = "app",
+    entry_point = "//src/app",
+    bundler = ":vite",
+    mode = "app",
+    html = "index.html",
+    vite_config = "vite.plugins.mjs",
+)
+```
+
+Two limits are worth knowing before you plan a migration around this:
+
+- **One file, no local imports.** The attr is `allow_single_file`, so a config
+  that imports plugin modules of its own — a repository's real
+  `vite.config.ts`, split across helper files — cannot be expressed as one
+  staged file. Nothing collects those imports into the action's inputs, and a
+  relative import from the staged config resolves next to the generated config
+  in the output tree, not next to the source you wrote.
+- **The plugin package has to be resolvable from where the file is imported.**
+  The config is imported by exec-root path, and Node realpaths it back into the
+  source tree, so the framework package must be resolvable from there. This
+  repository's own `examples/tanstack-app` hits exactly that: its app-mode
+  bundle is excluded from CI with the reason in the workflow, while the SPA
+  target builds.
+
+If your Vite configuration is a program rather than a plugin list, this attr is
+not enough today, and there is no supported way to hand `ts_bundle` a
+multi-file config.
+
 ## Custom Bundler (BundlerInfo Interface)
 
 Any Bazel rule that returns `BundlerInfo` can plug into `ts_bundle` and `ts_binary`. This lets you bring your own bundler — esbuild, Rolldown, webpack — without modifying `rules_typescript`.

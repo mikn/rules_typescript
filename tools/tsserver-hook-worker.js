@@ -3,9 +3,9 @@
  *
  * Runs in a worker thread (spawned by tsserver-hook.js).
  * Builds a resolution map from:
- *   1. The npm packages, ts_compile packages and path aliases named in
- *      .bazel/tsserver-hook-data.json, which `bazel run //:refresh_tsconfig`
- *      writes from the build graph.
+ *   1. The npm packages, ts_compile packages, declared module names and path
+ *      aliases named in .bazel/tsserver-hook-data.json, which
+ *      `bazel run //:refresh_tsconfig` writes from the build graph.
  *   2. The .tsconfig-fragment.json files tsconfig_aspect's `ide_fragments`
  *      output group writes into bazel-out, one per target. A rule's `deps` obey
  *      visibility and an aspect's edges do not, so these cover the targets the
@@ -102,6 +102,18 @@ function buildResolutionMap() {
       scanPackageForResolution(pkg, srcDir, binDir, map);
     }
 
+    // Step 2b: the bare specifiers targets declared with `module_name`. Same
+    // directories as step 2, under the name an import actually writes.
+    for (const module of data.modules || []) {
+      if (!module || !module.name || !module.package || map[module.name]) continue;
+      scanPackageForResolution(
+        module.name,
+        path.join(workspaceRoot, module.package),
+        path.join(workspaceRoot, 'bazel-bin', module.package),
+        map
+      );
+    }
+
     // Step 3: the path aliases the build graph carries.
     for (const alias of data.aliases || []) {
       if (!alias || !alias.prefix || !alias.dir) continue;
@@ -181,7 +193,7 @@ function fragmentRoots() {
  * in, and a fragment whose package has since been deleted is never opened.
  *
  * @param {string[]} packageDirs - Workspace-relative dirs holding a BUILD file.
- * @returns {Array<{label: string, packages: string[], aliases: Array<{prefix: string, dir: string}>, npm: Array<{name: string, version: string, entry: string, isFile: boolean}>}>}
+ * @returns {Array<{label: string, packages: string[], modules: Array<{name: string, package: string}>, aliases: Array<{prefix: string, dir: string}>, npm: Array<{name: string, version: string, entry: string, isFile: boolean}>}>}
  */
 function readFragments(packageDirs) {
   const seen = new Set();
@@ -231,7 +243,7 @@ function parseFragment(file) {
     return null;
   }
 
-  const fragment = { label: null, packages: [], aliases: [], npm: [] };
+  const fragment = { label: null, packages: [], modules: [], aliases: [], npm: [] };
   for (const line of lines) {
     if (!line.trim()) continue;
     let record;
@@ -249,6 +261,9 @@ function parseFragment(file) {
       fragment.label = record.label;
     } else if (typeof record.package === 'string') {
       fragment.packages.push(record.package);
+      if (typeof record.module === 'string' && record.module) {
+        fragment.modules.push({ name: record.module, package: record.package });
+      }
     } else if (typeof record.alias === 'string' && typeof record.dir === 'string') {
       fragment.aliases.push({
         prefix: record.alias.replace(/\/$/, ''),
@@ -283,11 +298,15 @@ const byKey = ([a], [b]) => (a < b ? -1 : a > b ? 1 : 0);
  */
 function mergeFragments(fragments, npmDir, map) {
   const packages = new Set();
+  const modules = new Map();
   const aliases = new Map();
   const npm = new Map();
 
   for (const fragment of fragments) {
     for (const pkg of fragment.packages) packages.add(pkg);
+    for (const module of fragment.modules) {
+      if (!modules.has(module.name)) modules.set(module.name, module.package);
+    }
     for (const alias of fragment.aliases) {
       if (alias.prefix && alias.dir && !aliases.has(alias.prefix)) {
         aliases.set(alias.prefix, alias.dir);
@@ -322,6 +341,16 @@ function mergeFragments(fragments, npmDir, map) {
     if (map[pkg]) continue;
     scanPackageForResolution(
       pkg,
+      path.join(workspaceRoot, pkg),
+      path.join(workspaceRoot, 'bazel-bin', pkg),
+      map
+    );
+  }
+
+  for (const [name, pkg] of [...modules].sort(byKey)) {
+    if (map[name]) continue;
+    scanPackageForResolution(
+      name,
       path.join(workspaceRoot, pkg),
       path.join(workspaceRoot, 'bazel-bin', pkg),
       map
@@ -447,7 +476,9 @@ function isDtsFile(p) {
  *
  * Prefers .d.ts in bazel-bin (post-build) over .ts source (pre-build).
  *
- * @param {string} pkg     - Package path relative to workspace root, e.g. "src/utils".
+ * @param {string} pkg     - The map key: a package path relative to the
+ *                           workspace root, e.g. "src/utils", or the bare
+ *                           specifier a target declared with `module_name`.
  * @param {string} srcDir  - Absolute path to the package source directory.
  * @param {string} binDir  - Absolute path to the package in bazel-bin.
  * @param {Record<string, string>} map

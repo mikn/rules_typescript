@@ -18,7 +18,7 @@ import defaultExport from "./module";
 import defaultExport2, { namedExport } from "./combined";
 import "./side-effect";
 `
-	got := extractFromSource(stripComments(src))
+	got := extractFromSource(src)
 	want := []string{"./bar", "./combined", "./foo", "./module", "./ns", "./side-effect"}
 	assertStringSliceEqual(t, "static imports", got, want)
 }
@@ -29,7 +29,7 @@ const page = import("./page");
 const lazy = import('./lazy-component');
 const req = require("./required");
 `
-	got := extractFromSource(stripComments(src))
+	got := extractFromSource(src)
 	want := []string{"./lazy-component", "./page", "./required"}
 	assertStringSliceEqual(t, "dynamic imports", got, want)
 }
@@ -38,7 +38,7 @@ func TestExtractImports_TemplateStringDynamicImport_IsSkipped(t *testing.T) {
 	// Template literal dynamic imports like import(`./pages/${name}`) must be
 	// silently skipped, not produce an error or a spurious match.
 	src := "const m = import(`./pages/${name}`);\n"
-	got := extractFromSource(stripComments(src))
+	got := extractFromSource(src)
 	if len(got) != 0 {
 		t.Errorf("expected no imports from template literal dynamic import, got: %v", got)
 	}
@@ -50,7 +50,7 @@ func TestExtractImports_ReexportBareStar(t *testing.T) {
 export * from "./utils";
 export * from "./helpers";
 `
-	got := extractFromSource(stripComments(src))
+	got := extractFromSource(src)
 	want := []string{"./helpers", "./utils"}
 	assertStringSliceEqual(t, "bare-star re-exports", got, want)
 }
@@ -58,7 +58,7 @@ export * from "./helpers";
 func TestExtractImports_ReexportNamespaceStar(t *testing.T) {
 	// export * as ns from "./ns"
 	src := `export * as ns from "./ns";`
-	got := extractFromSource(stripComments(src))
+	got := extractFromSource(src)
 	want := []string{"./ns"}
 	assertStringSliceEqual(t, "namespace re-export", got, want)
 }
@@ -69,7 +69,7 @@ func TestExtractImports_ReexportNamedExports(t *testing.T) {
 export { foo, bar } from "./bar";
 export type { MyType } from "./types";
 `
-	got := extractFromSource(stripComments(src))
+	got := extractFromSource(src)
 	want := []string{"./bar", "./types"}
 	assertStringSliceEqual(t, "named re-exports", got, want)
 }
@@ -82,7 +82,7 @@ export * from "./helpers";
 export { Button } from "./components/Button";
 export type { ButtonProps } from "./components/Button";
 `
-	got := extractFromSource(stripComments(src))
+	got := extractFromSource(src)
 	want := []string{"./components/Button", "./helpers", "./utils"}
 	assertStringSliceEqual(t, "barrel file imports", got, want)
 }
@@ -93,7 +93,7 @@ func TestExtractImports_DeduplicatesSpecifiers(t *testing.T) {
 import { foo } from "./utils";
 export { bar } from "./utils";
 `
-	got := extractFromSource(stripComments(src))
+	got := extractFromSource(src)
 	want := []string{"./utils"}
 	assertStringSliceEqual(t, "deduplicated imports", got, want)
 }
@@ -105,7 +105,7 @@ import { useState } from "react";
 import type { FC } from "react";
 import { something } from "@tanstack/router";
 `
-	got := extractFromSource(stripComments(src))
+	got := extractFromSource(src)
 	want := []string{"@tanstack/router", "react"}
 	assertStringSliceEqual(t, "npm imports", got, want)
 }
@@ -116,7 +116,7 @@ func TestExtractImports_CommentsAreStripped(t *testing.T) {
 /* import { blockCommented } from "./should-not-appear-either"; */
 import { real } from "./real";
 `
-	got := extractFromSource(stripComments(src))
+	got := extractFromSource(src)
 	want := []string{"./real"}
 	assertStringSliceEqual(t, "comment stripping", got, want)
 }
@@ -268,7 +268,7 @@ import "./button.css";
 import styles from "./theme.css";
 import { foo } from "./utils";
 `
-	got := extractFromSource(stripComments(src))
+	got := extractFromSource(src)
 	want := []string{"./button.css", "./theme.css", "./utils"}
 	assertStringSliceEqual(t, "CSS imports", got, want)
 }
@@ -385,7 +385,7 @@ import themeStyles from "./theme.module.css";
 import "./side-effect.css";
 import { foo } from "./utils";
 `
-	got := extractFromSource(stripComments(src))
+	got := extractFromSource(src)
 	want := []string{"./Button.module.css", "./side-effect.css", "./theme.module.css", "./utils"}
 	assertStringSliceEqual(t, "CSS module imports", got, want)
 }
@@ -397,7 +397,7 @@ import logo from "./logo.svg";
 import heroImage from "./hero.png";
 import { foo } from "./utils";
 `
-	got := extractFromSource(stripComments(src))
+	got := extractFromSource(src)
 	want := []string{"./hero.png", "./logo.svg", "./utils"}
 	assertStringSliceEqual(t, "asset imports", got, want)
 }

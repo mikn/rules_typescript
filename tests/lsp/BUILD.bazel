@@ -11,6 +11,8 @@
   :test_fragment_map            the same worker again, over the fragment bytes a
                                 real build wrote for a package-private target:
                                 the .bazelrc-optional half of the map.
+  :module_paths_test            what the generated tsconfig says about a
+                                `module_name` and about extra_exclude.
   :fragments_reach_private_test  that those bytes exist at all, for a target no
                                 rule in this package may name.
   :test_resolve_integration     the monkey-patch itself -- ts.resolveModuleName
@@ -29,7 +31,7 @@ load("//npm:defs.bzl", "node_modules")
 load("//ts:defs.bzl", "ts_compile")
 load("//ts/private:tsconfig_aspect.bzl", "ide_tsconfig")
 load(":fragment_tests.bzl", "fragment_files", "fragments_reach_private_test")
-load(":ide_tsconfig_tests.bzl", "ambient_types_test", "no_ambient_types_test")
+load(":ide_tsconfig_tests.bzl", "ambient_types_test", "module_paths_test", "no_ambient_types_test")
 
 package(default_visibility = ["//:__pkg__"])
 
@@ -169,4 +171,19 @@ ambient_types_test(
 no_ambient_types_test(
     name = "no_ambient_types_test",
     target_under_test = ":plain_ide_tsconfig",
+)
+
+# ── module_name and extra_exclude ─────────────────────────────────────────────
+# The two things the graph knows that no package path does: the bare specifier a
+# target declares, and the trees that are not in the graph at all.
+ide_tsconfig(
+    name = "module_ide_tsconfig",
+    extra_exclude = ["**/vendor"],
+    tags = ["manual"],
+    deps = ["//tests/lsp/module_fixture:widget"],
+)
+
+module_paths_test(
+    name = "module_paths_test",
+    target_under_test = ":module_ide_tsconfig",
 )

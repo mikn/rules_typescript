@@ -688,7 +688,7 @@ _ts_snapshot_updater = rule(
     doc = "Internal snapshot-updater rule; use ts_test(update_snapshots=True) macro instead.",
 )
 
-def _compile_setup_sources(name, sources, deps, target, jsx_mode):
+def _compile_setup_sources(name, sources, deps, target, jsx_mode, visibility):
     """Compiles the .ts/.tsx entries of `sources`, passing the rest through."""
     ts_sources = [s for s in sources if s.endswith(".ts") or s.endswith(".tsx")]
     if not ts_sources:
@@ -699,7 +699,7 @@ def _compile_setup_sources(name, sources, deps, target, jsx_mode):
         deps = deps,
         target = target,
         jsx_mode = jsx_mode,
-        visibility = ["//visibility:private"],
+        visibility = visibility,
     )
     return [":" + name] + [s for s in sources if s not in ts_sources]
 
@@ -781,7 +781,11 @@ def ts_test(
                            test target's .d.ts, so there is rarely a reason to
                            move tests to "oxc" and pay for annotations on test
                            helpers.
-        visibility:        Bazel visibility for the test target.
+        visibility:        Bazel visibility for the test target, and for the
+                           ts_compile targets this macro generates from `srcs`,
+                           `setup_files` and `global_setup`. Those default to
+                           `//visibility:public` when the test declares none,
+                           so that an IDE tsconfig can name them.
         environment:       Vitest test environment: 'node', 'happy-dom', or 'jsdom'.
                            Requires the corresponding package in node_modules.
         coverage:          When True, also enables coverage during `bazel test`
@@ -870,8 +874,12 @@ def ts_test(
         )
     """
 
-    # Step 1: compile the test source files.
+    # Step 1: compile the test source files. Their declarations are the only
+    # handle on the test's own types -- an IDE tsconfig has to be able to name
+    # this target -- and `//visibility:private` here is one no BUILD file can
+    # widen, so the test's own visibility decides, public when it has none.
     compile_name = "_{}_compile".format(name)
+    compile_visibility = visibility if visibility else ["//visibility:public"]
     ts_compile(
         name = compile_name,
         srcs = srcs,
@@ -879,7 +887,7 @@ def ts_test(
         target = target,
         jsx_mode = jsx_mode,
         declarations = declarations,
-        visibility = ["//visibility:private"],
+        visibility = compile_visibility,
     )
 
     # Step 2: auto-generate a node_modules target when not explicitly provided.
@@ -915,6 +923,7 @@ def ts_test(
         deps = deps,
         target = target,
         jsx_mode = jsx_mode,
+        visibility = compile_visibility,
     )
     global_setup_labels = _compile_setup_sources(
         name = "_{}_global_setup".format(name),
@@ -922,6 +931,7 @@ def ts_test(
         deps = deps,
         target = target,
         jsx_mode = jsx_mode,
+        visibility = compile_visibility,
     )
 
     # Step 4: assemble the runner rule kwargs.

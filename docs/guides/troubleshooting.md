@@ -100,15 +100,91 @@ and means the lockfile is stale or the file is misnamed. Names follow
 `pnpm patch-commit`: `<name with / replaced by __>@<version>.patch`. See
 [npm Dependencies](npm.md#patched-dependencies).
 
+## npm: patch labels that resolve to no readable file
+
+```
+npm: patch labels passed to npm.translate_lock(patches = [...]) that resolve to
+no readable file:
+  @@//patches:@acme__diffs@1.3.1.patch
+```
+
+The label is wrong, the file is missing, or the Bazel package holding it failed
+to load. The last one has a specific cause worth knowing: a patch filename
+starting with `@` cannot be exported by `exports_files(glob(["*.patch"]))` —
+`glob()` prefixes `:` onto such a result and `exports_files` rejects it as a
+target name, which fails the whole package and every patch in it. List those
+files literally:
+
+```python
+exports_files(["@acme__diffs@1.3.1.patch", "nanoid@3.3.11.patch"])
+```
+
+## npm: patch files whose sha256 disagrees with the lockfile
+
+```
+npm: patch files whose sha256 disagrees with the one pnpm-lock.yaml records in
+patchedDependencies:
+  @@//patches:@acme__diffs@1.3.1.patch
+    lockfile: 384aa81a…
+    file:     19bbd346…
+```
+
+pnpm writes that digest when it writes the patch, so a disagreement means the
+patch file changed without `pnpm install` being re-run. Re-run it (`pnpm install
+--lockfile-only`) so the lockfile records what the file now is, or restore the
+file. Bazel refuses to apply a patch pnpm never saw.
+
+## node_modules: depends on two versions of one name at once
+
+```
+node_modules: @@//src/app:node_modules depends on two versions of 'minimatch' at once:
+  minimatch@10.2.4
+  minimatch@9.0.9
+```
+
+`node_modules/<name>` is one directory, so no arrangement of the tree answers
+`import "<name>"` with both. Depend on one of them here and let the other arrive
+through the package that needs it — a version reached transitively keeps its own
+version, in its own store directory — or split the two into separate
+`node_modules` targets. See
+[node_modules](../rules/node-modules.md#two-versions-of-one-name-in-deps).
+
+## imports a module no direct dep provides
+
+```
+ERROR: .../src/app/BUILD.bazel:3:11: TsStrictDeps //src/app:app failed: (Exit 1)
+//src/app:app imports a module no direct dep provides:
+
+  src/app/main.ts:1  imports "zod"
+                     add "@npm//:zod" to deps
+```
+
+The import resolves today only because it reaches this target through another
+dep's own deps, and stops resolving the moment that dep drops it. Add the label
+the message names, or let Gazelle write it:
+
+```bash
+bazel run //:gazelle
+```
+
+If Gazelle does *not* write it, that is a bug worth reporting: the check and
+Gazelle share one specifier scanner precisely so that every failure it reports
+is one Gazelle can fix. Two things are deliberately outside the check —
+`/// <reference types="x" />` (Gazelle generates no dep for it either) and an
+import nothing in the closure provides at all, which TypeScript reports as
+`TS2307` because there is no label to suggest.
+
 ## Import Not Resolving in tsgo
 
-tsgo uses `moduleResolution: "Bundler"` with `paths` entries for direct npm deps. If tsgo cannot resolve a bare import like `import { z } from "zod"`, add the package as a direct dep:
+tsgo uses `moduleResolution: "Bundler"` with `paths` entries for direct npm
+deps. A bare import that resolves nowhere — no `TsStrictDeps` failure, just
+`TS2307` — means no dep in the closure provides it at all. Add the package:
 
 ```python
 ts_compile(
     name = "app",
     srcs = ["app.ts"],
-    deps = ["@npm//:zod"],  # must be here, not just a transitive dep
+    deps = ["@npm//:zod"],
 )
 ```
 

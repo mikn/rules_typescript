@@ -104,7 +104,37 @@ def _is_sha256_hex(value):
             return False
     return True
 
-def _patch_by_package(lock_content, patch_labels):
+def patch_file_name(package_id):
+    """The patch filename pnpm writes for a `patchedDependencies` key.
+
+    `pnpm patch-commit` cannot put a `/` in a filename, so it writes the package
+    name with `/` replaced by `__`. A scoped package therefore produces a name
+    that still starts with `@`, and that leading `@` is load-bearing: a target
+    name beginning with it cannot come out of `glob()`.
+    """
+    return "{}.patch".format(package_id.replace("/", "__"))
+
+def _patch_file_sha256(module_ctx, label):
+    """sha256 of the patch file's bytes, or "" when the file cannot be read.
+
+    Starlark has no hashing builtin, so the file is copied through the
+    downloader purely for the digest it reports. Deliberately WITHOUT download's
+    own sha256 argument: a checksummed request is served from the
+    content-addressed repository cache without the file being read at all, so an
+    edited patch would be replaced by the locked bytes on a warm cache.
+    """
+    module_ctx.watch(label)
+    path = module_ctx.path(label)
+    if not path.exists:
+        return ""
+    result = module_ctx.download(
+        url = "file://" + str(path),
+        output = "_patch_digest/{}".format(path.basename),
+        allow_fail = True,
+    )
+    return result.sha256 if result.success else ""
+
+def _patch_by_package(module_ctx, lock_content, patch_labels):
     """Pairs each patchedDependencies entry with the patch file that satisfies it.
 
     Matching is by filename, which is pnpm's own: `pnpm patch-commit` writes
@@ -114,9 +144,18 @@ def _patch_by_package(lock_content, patch_labels):
     into a label requires knowing where the consumer's Bazel package boundaries
     fall, which the extension has no way to discover.
 
-    Both directions are errors, because both mean the build would not be
+    A filename match is not on its own evidence that the patch will be applied,
+    so each paired label is resolved to a file here and checked against the
+    digest pnpm recorded for it. Reading it in the extension is what makes the
+    check unconditional: the same digest is checked again by the fetch that
+    applies the patch, but that fetch only happens once something pulls the
+    package into a build.
+
+    Every direction is an error, because each means the build would not be
     building what pnpm installs:
-      a declared patch with no file      the package would install unpatched
+      a declared patch with no label     the package would install unpatched
+      a label naming no readable file    same, and nothing else would say so
+      a file whose digest disagrees      pnpm never saw the patch being applied
       a patch file no entry declares     the patch is stale, or misnamed
 
     Returns:
@@ -129,16 +168,46 @@ def _patch_by_package(lock_content, patch_labels):
 
     result = {}
     missing = []
+    unreadable = []
+    any_scoped = False
+    mismatched = []
     for pkg_id, digest in patched.items():
-        filename = "{}.patch".format(pkg_id.replace("/", "__"))
-        if filename in unclaimed:
+        filename = patch_file_name(pkg_id)
+        if filename not in unclaimed:
+            missing.append("  {} -> expected a patch file named {}".format(pkg_id, filename))
+            continue
+        label = unclaimed.pop(filename)
+        found = _patch_file_sha256(module_ctx, label)
+        if not found:
+            unreadable.append("  {}".format(label))
+            any_scoped = any_scoped or filename.startswith("@")
+        elif _is_sha256_hex(digest) and found != digest:
+            mismatched.append("  {}\n    lockfile: {}\n    file:     {}".format(label, digest, found))
+        else:
             result[pkg_id] = struct(
-                label = unclaimed.pop(filename),
+                label = label,
                 sha256 = digest if _is_sha256_hex(digest) else "",
             )
-        else:
-            missing.append("  {} -> expected a patch file named {}".format(pkg_id, filename))
 
+    if unreadable:
+        fail(
+            "npm: patch labels passed to npm.translate_lock(patches = [...]) that resolve " +
+            "to no readable file:\n" + "\n".join(unreadable) +
+            "\nA label the extension cannot read is a patch nothing applies, and the " +
+            "package then installs as published -- the lockfile says it must not.\n" +
+            ("A patch whose name starts with '@' cannot be exported by " +
+             "exports_files(glob([\"*.patch\"])): glob prefixes ':' onto such a result and " +
+             "exports_files rejects that as a target name, which fails the whole package. " +
+             "List those files literally.\n" if any_scoped else ""),
+        )
+    if mismatched:
+        fail(
+            "npm: patch files whose sha256 disagrees with the one pnpm-lock.yaml records " +
+            "in patchedDependencies:\n" + "\n".join(mismatched) +
+            "\npnpm writes that digest when it writes the patch, so the two disagreeing " +
+            "means the patch changed without `pnpm install` being re-run. Bazel would " +
+            "apply a patch pnpm never saw.",
+        )
     if missing:
         fail(
             "npm: pnpm-lock.yaml declares patchedDependencies with no patch file passed " +
@@ -288,7 +357,7 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
     parsed = parse_pnpm_lock(lock_content)
     packages = parsed["packages"]
     importers = parse_importers(lock_content)
-    patches = _patch_by_package(lock_content, patch_labels)
+    patches = _patch_by_package(module_ctx, lock_content, patch_labels)
 
     # A snapshot needs its `packages:` entry for the bytes to download, and needs
     # to be buildable on some platform we can name. Platform filtering is a

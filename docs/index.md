@@ -6,21 +6,29 @@ An opinionated Bazel ruleset for TypeScript, optimised for the **Oxc + Vite** to
 
 ## Built for the Vite Ecosystem
 
-This ruleset is designed around **Vite** as the bundler and dev server. Any framework that ships a Vite plugin works:
+This ruleset is designed around **Vite** as the bundler and dev server. A
+framework that ships a Vite plugin is expressible, with the amount of proof
+varying — and with one known limit worth reading before you plan a migration:
+`vite_config` takes a single `.mjs`/`.js` file, so a configuration that imports
+local plugin modules of its own cannot be expressed as one staged file
+([bundling](guides/bundling.md#framework-plugins-via-vite_config)).
 
 | Framework | Evidence in this repo | How |
 |---|---|---|
 | **React + Vite** | `examples/react-app` | SPA bundling, React Fast Refresh HMR, CSS modules |
-| **TanStack Start** | `examples/tanstack-app`, `//tests/integration:vite_bundle_test` | Client + SSR server bundles |
+| **TanStack Start** | `examples/tanstack-app` (SPA target), `//tests/integration:vite_bundle_test` | Client bundle; the app-mode target using `tanstackStart()` is excluded from CI |
 | **Remix** | `examples/remix-app` | Client bundle with route-based code splitting |
 | **SvelteKit** | Gazelle target generation only | `@sveltejs/vite-plugin-svelte` via `vite_config` |
 | **Solid Start** | Gazelle target generation only | `@solidjs/start` via `vite_config` |
 
 "Gazelle target generation only" means Gazelle knows how to emit the
 `node_modules` / `vite_bundler` / `ts_bundle` targets for that framework, and
-nothing in the repository builds one. Note also that `examples/` is in
-`.bazelignore` and CI builds only `examples/basic` and `examples/app`, so the
-example workspaces are checked by hand, not on every commit.
+nothing in the repository builds one. `examples/` is in `.bazelignore`, so the
+example workspaces are separate Bazel invocations; CI builds all six of them,
+with one target excluded and the blocker named in the workflow
+(`examples/tanstack-app`'s app-mode bundle, whose `vite_config` resolves
+`@tanstack/react-start` from the source tree — see
+[bundling](guides/bundling.md#framework-plugins-via-vite_config)).
 
 Frameworks that don't use Vite (e.g., Next.js with webpack/turbopack) are not a priority.
 
@@ -31,7 +39,8 @@ Frameworks that don't use Vite (e.g., Next.js with webpack/turbopack) are not a 
 - **Vite bundles** — production bundles with tree-shaking, code splitting, minification. App mode (HTML + hashed assets) and lib mode.
 - **Isolated declarations, when you want them** — annotate a package's exports and set `declarations = "oxc"` to have Oxc emit its `.d.ts` syntactically. Type-checking then moves off the critical path, which on a deep dependency chain shortens it substantially ([measured](rules/ts-compile.md#cost-of-each-mode)). Opt-in, per package.
 - **Gazelle generates the BUILD files** — targets inferred from the directory tree, imports resolved to labels, lint / bundler / dev-server targets generated, frameworks and codegen auto-detected. Nine `# gazelle:ts_*` directives configure it.
-- **npm without a store** — one Bazel repository per package, fetched on demand, behind a `@npm` alias hub. A target's npm cost is its own dependency closure, not the whole lockfile, and no `node_modules/` exists in the source tree.
+- **Deps are what you declared** — a source may import only what a *direct* dep provides. A declaration arriving through another dep's own deps no longer satisfies an import; the build fails naming the file, the specifier and the label to add, and Gazelle writes it.
+- **npm without a store** — one Bazel repository per package, fetched on demand, behind a `@npm` alias hub. A target's npm cost is its own dependency closure, not the whole lockfile, and no `node_modules/` exists in the source tree. A `node_modules` tree places every version a closure resolved, not one per name.
 - **Only Bazelisk required** — Node.js, Go and Rust are fetched hermetically, and [pnpm too](guides/npm.md#hermetic-pnpm) if you want it. pnpm is needed only to edit the lockfile, never to build.
 
 ## Install
@@ -113,8 +122,9 @@ ts_compile(
 | macOS ARM64 | Supported |
 | Windows x86_64 | **Not supported** |
 
-No tsgo binary is published for Windows, every runner is a bash script, and
-hermetic pnpm has no Windows build. Details and the one thing that does work:
+No tsgo binary and no hermetic pnpm binary are published for Windows — both
+upstream gaps — and a few build actions still run through a bash wrapper.
+Details and what does work:
 [COMPATIBILITY.md](https://github.com/mikn/rules_typescript/blob/main/COMPATIBILITY.md#windows).
 
 ## Documentation

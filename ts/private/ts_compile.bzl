@@ -23,6 +23,7 @@ compilation.
 """
 
 load("//ts/private:providers.bzl", "AssetInfo", "CssInfo", "CssModuleInfo", "JsInfo", "NpmPackageInfo", "TsConfigInfo", "TsDeclarationInfo")
+load("//ts/private:runtime.bzl", "JS_TOOL_TOOLCHAIN_TYPE", "get_js_tool")
 load("//ts/private:toolchain.bzl", "OXC_TOOLCHAIN_TYPE", "TSGO_TOOLCHAIN_TYPE", "get_oxc_toolchain")
 
 TsModuleInfo = provider(
@@ -36,9 +37,10 @@ tsconfig by hand.
 """,
     fields = {
         "module_name": "string: the bare specifier for this target, or '' if it declared none.",
+        "label": "string: the label of this target, as a dep list writes it.",
         "declaration_root": "string: exec-root-relative directory the target's generated .d.ts files land in.",
         "source_root": "string: exec-root-relative package directory, where .d.ts files passed straight through stay.",
-        "transitive_modules": "depset of struct(module_name, declaration_root, source_root): this target's modules and its deps'.",
+        "transitive_modules": "depset of struct(module_name, label, declaration_root, source_root): this target's modules and its deps'.",
     },
 )
 
@@ -399,6 +401,437 @@ def _generate_tsconfig(
     ctx.actions.write(output = tsconfig, content = json.encode_indent(config, indent = "  "))
     return tsconfig
 
+# ─── Undeclared imports ──────────────────────────────────────────────────────
+#
+# An import has to be satisfied by a DIRECT dep. Inputs stay transitive and
+# resolution becomes direct, and the split has to happen here rather than in the
+# tsconfig: one `paths` map serves the whole program, so dropping the transitive
+# entries would also stop a declared dep's own .d.ts from resolving ITS imports,
+# which widens those types to `any` instead of reporting anything.
+#
+# So the check reads the target's own sources and asks, per specifier, whether a
+# direct dep provides it. Only Bazel can answer that, and only Bazel knows the
+# label to name in the answer, which is what the compiler's own "cannot find
+# module" cannot tell anyone.
+#
+# The action's inputs are the target's own srcs plus a manifest of what the deps
+# provide, so it never waits on an upstream compile.
+
+# Embedded rather than a checked-in .mjs so that the manifest format and its one
+# reader stay in the same file. Escape sequences are doubled: this is a Starlark
+# string literal.
+_STRICT_DEPS_MJS = """\
+import { readFileSync, writeFileSync } from "node:fs";
+import { builtinModules } from "node:module";
+
+const MODULE_EXTENSIONS = [
+  ".d.ts", ".d.mts", ".d.cts",
+  ".tsx", ".ts", ".mts", ".cts",
+  ".jsx", ".js", ".mjs", ".cjs",
+];
+
+const cfg = {
+  label: "",
+  bin: "",
+  aliases: [],
+  scan: [],
+  own: new Set(),
+  direct: new Set(),
+  transitive: new Map(),
+  npmDirect: new Set(),
+  npmTransitive: new Map(),
+  moduleDirect: [],
+  moduleTransitive: new Map(),
+};
+
+const builtins = new Set(builtinModules);
+
+function stripBin(p) {
+  return cfg.bin && p.startsWith(cfg.bin + "/") ? p.slice(cfg.bin.length + 1) : p;
+}
+
+function stripExtension(p) {
+  for (const ext of MODULE_EXTENSIONS) {
+    if (p.endsWith(ext)) return p.slice(0, -ext.length);
+  }
+  return p;
+}
+
+function keysOf(execPath) {
+  const raw = stripBin(execPath);
+  const bare = stripExtension(raw);
+  return raw === bare ? [raw] : [raw, bare];
+}
+
+function normalize(p) {
+  const out = [];
+  for (const part of p.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === ".." && out.length > 0 && out[out.length - 1] !== "..") {
+      out.pop();
+      continue;
+    }
+    out.push(part);
+  }
+  return out.join("/");
+}
+
+function packageOf(specifier) {
+  if (specifier.startsWith("@")) {
+    const parts = specifier.slice(1).split("/");
+    return parts.length >= 2 ? "@" + parts[0] + "/" + parts[1] : specifier;
+  }
+  return specifier.split("/")[0];
+}
+
+function underPrefix(specifier, prefix) {
+  if (specifier === prefix) return true;
+  return specifier.startsWith(prefix.endsWith("/") ? prefix : prefix + "/");
+}
+
+// ── The specifier scanner ────────────────────────────────────────────────────
+//
+// A character walk rather than a regex: a quoted string is an import specifier
+// only when the tokens before it say so, which is what keeps `{ from: "x" }`
+// and `declare module "x"` out of the results.
+//
+// Gazelle's ScanImports (gazelle/imports.go) is this same walk: a specifier
+// only one of them sees is either a dep Gazelle cannot generate or drift the
+// build never notices, so //tests/strict_deps pins the two against one table.
+const KEYWORDS_BEFORE_REGEX = new Set([
+  "return", "typeof", "instanceof", "in", "of", "new", "delete", "void",
+  "do", "else", "yield", "await", "case", "throw",
+]);
+
+const CLOSERS = ")]";
+
+function specifiersIn(source) {
+  const found = [];
+  let line = 1;
+  let lastWord = "";
+  let lastKind = "";
+  let lastPunct = "";
+  const i = { at: 0 };
+
+  const isWordChar = (c) => /[A-Za-z0-9_$]/.test(c);
+
+  while (i.at < source.length) {
+    const c = source[i.at];
+
+    if (c === "\\n") {
+      line += 1;
+      i.at += 1;
+      continue;
+    }
+    if (c === " " || c === "\\t" || c === "\\r") {
+      i.at += 1;
+      continue;
+    }
+    if (c === "/" && source[i.at + 1] === "/") {
+      while (i.at < source.length && source[i.at] !== "\\n") i.at += 1;
+      continue;
+    }
+    if (c === "/" && source[i.at + 1] === "*") {
+      i.at += 2;
+      while (i.at < source.length && !(source[i.at] === "*" && source[i.at + 1] === "/")) {
+        if (source[i.at] === "\\n") line += 1;
+        i.at += 1;
+      }
+      i.at += 2;
+      continue;
+    }
+    if (c === "/" && ((lastKind === "punct" && !CLOSERS.includes(lastPunct)) || (lastKind === "word" && KEYWORDS_BEFORE_REGEX.has(lastWord)))) {
+      // A regex literal. Its body can hold quotes and slashes, so it has to be
+      // skipped whole rather than tokenized.
+      i.at += 1;
+      let inClass = false;
+      while (i.at < source.length) {
+        const r = source[i.at];
+        if (r === "\\\\") { i.at += 2; continue; }
+        if (r === "\\n") break;
+        if (r === "[") inClass = true;
+        else if (r === "]") inClass = false;
+        else if (r === "/" && !inClass) { i.at += 1; break; }
+        i.at += 1;
+      }
+      lastKind = "punct";
+      continue;
+    }
+    if (c === "`") {
+      i.at += 1;
+      while (i.at < source.length && source[i.at] !== "`") {
+        if (source[i.at] === "\\\\") { i.at += 2; continue; }
+        if (source[i.at] === "\\n") line += 1;
+        i.at += 1;
+      }
+      i.at += 1;
+      lastKind = "string";
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      const startLine = line;
+      const quote = c;
+      let value = "";
+      i.at += 1;
+      while (i.at < source.length && source[i.at] !== quote) {
+        if (source[i.at] === "\\\\") {
+          value += source[i.at + 1] ?? "";
+          i.at += 2;
+          continue;
+        }
+        if (source[i.at] === "\\n") break;
+        value += source[i.at];
+        i.at += 1;
+      }
+      i.at += 1;
+      const isSpecifier =
+        (lastKind === "word" && (lastWord === "from" || lastWord === "import")) ||
+        (lastKind === "call" && (lastWord === "import" || lastWord === "require"));
+      if (isSpecifier && value !== "") found.push({ specifier: value, line: startLine });
+      lastKind = "string";
+      continue;
+    }
+    if (isWordChar(c)) {
+      let word = "";
+      while (i.at < source.length && isWordChar(source[i.at])) {
+        word += source[i.at];
+        i.at += 1;
+      }
+      lastWord = word;
+      lastKind = "word";
+      continue;
+    }
+    if (c === "(" && lastKind === "word") {
+      lastKind = "call";
+      i.at += 1;
+      continue;
+    }
+    lastPunct = c;
+    lastKind = "punct";
+    i.at += 1;
+  }
+
+  return found;
+}
+
+// ── Manifest ─────────────────────────────────────────────────────────────────
+
+const [stampPath, ...rest] = process.argv.slice(2);
+const manifest = [];
+for (const arg of rest) {
+  if (arg.startsWith("@")) manifest.push(...readFileSync(arg.slice(1), "utf8").split("\\n"));
+  else manifest.push(arg);
+}
+
+for (const entry of manifest) {
+  if (entry === "") continue;
+  const field = entry.split("\\t");
+  switch (field[0]) {
+    case "label": cfg.label = field[1]; break;
+    case "bin": cfg.bin = field[1]; break;
+    case "alias": cfg.aliases.push(field[1]); break;
+    case "scan": cfg.scan.push(field[1]); break;
+    case "own": for (const k of keysOf(field[1])) cfg.own.add(k); break;
+    case "direct": for (const k of keysOf(field[1])) cfg.direct.add(k); break;
+    case "transitive":
+      for (const k of keysOf(field[1])) {
+        if (!cfg.transitive.has(k)) cfg.transitive.set(k, field[2]);
+      }
+      break;
+    case "npm-direct": cfg.npmDirect.add(field[1]); break;
+    case "npm-transitive": cfg.npmTransitive.set(field[1], field[2]); break;
+    case "module-direct": cfg.moduleDirect.push(field[1]); break;
+    case "module-transitive": cfg.moduleTransitive.set(field[1], field[2]); break;
+  }
+}
+
+// ── Classification ───────────────────────────────────────────────────────────
+
+function undeclared(specifier, file) {
+  const clean = specifier.split("?")[0].split("#")[0];
+  if (clean === "") return null;
+
+  if (clean.startsWith("./") || clean.startsWith("../")) {
+    const dir = stripBin(file).split("/").slice(0, -1).join("/");
+    const resolved = normalize(dir + "/" + clean);
+    const candidates = [resolved, stripExtension(resolved)];
+    for (const c of [...candidates]) candidates.push(c + "/index");
+    for (const c of candidates) {
+      if (cfg.own.has(c) || cfg.direct.has(c)) return null;
+    }
+    for (const c of candidates) {
+      if (cfg.transitive.has(c)) return cfg.transitive.get(c);
+    }
+    return null;
+  }
+
+  if (clean.startsWith("node:")) return null;
+  for (const alias of cfg.aliases) {
+    if (underPrefix(clean, alias)) return null;
+  }
+  const pkg = packageOf(clean);
+  if (builtins.has(pkg) || cfg.npmDirect.has(pkg)) return null;
+  for (const name of cfg.moduleDirect) {
+    if (underPrefix(clean, name)) return null;
+  }
+  if (cfg.npmTransitive.has(pkg)) return cfg.npmTransitive.get(pkg);
+  for (const [name, label] of cfg.moduleTransitive) {
+    if (underPrefix(clean, name)) return label;
+  }
+  return null;
+}
+
+const findings = [];
+for (const file of cfg.scan) {
+  let source;
+  try {
+    source = readFileSync(file, "utf8");
+  } catch {
+    continue;
+  }
+  for (const { specifier, line } of specifiersIn(source)) {
+    const label = undeclared(specifier, file);
+    if (label !== null) findings.push({ file: stripBin(file), line, specifier, label });
+  }
+}
+
+if (findings.length === 0) {
+  writeFileSync(stampPath, "");
+  process.exit(0);
+}
+
+const width = Math.max(...findings.map((f) => `${f.file}:${f.line}`.length));
+const lines = [
+  `${cfg.label} imports ${findings.length === 1 ? "a module" : "modules"} no direct dep provides:`,
+  "",
+];
+for (const f of findings) {
+  lines.push(`  ${`${f.file}:${f.line}`.padEnd(width)}  imports ${JSON.stringify(f.specifier)}`);
+  lines.push(`  ${" ".repeat(width)}  add ${JSON.stringify(f.label)} to deps`);
+}
+lines.push(
+  "",
+  "Each of those resolves today only because it reaches this target through",
+  "another dep's own deps, and stops resolving the moment that dep drops it.",
+  "Re-run gazelle to regenerate deps, or add the labels above by hand.",
+);
+process.stderr.write(lines.join("\\n") + "\\n");
+process.exit(1);
+"""
+
+def _label_text(label):
+    """The label as a deps list writes it: the main repo's canonical @@ dropped."""
+    text = str(label)
+    return text[2:] if text.startswith("@@//") else text
+
+def _npm_hub_entry(npm_info):
+    """The hub label a deps list writes for an npm package in the closure.
+
+    The closure carries NpmPackageInfo, not labels: a transitive package was
+    never named in any deps list here. Its own repository is
+    `<hub>__<package>__<version>...`, so the hub the extension created -- which
+    is what a deps list names -- is recoverable from the file it provides.
+    """
+    name = npm_info.package_name
+    label_name = name[1:].replace("/", "_") if name.startswith("@") else name
+    hub = "npm"
+    owner = npm_info.package_dir.owner if npm_info.package_dir else None
+    if owner and owner.repo_name:
+        candidate = owner.repo_name.split("__")[0].split("+")[-1]
+        if candidate:
+            hub = candidate
+    return struct(name = name, label = "@{}//:{}".format(hub, label_name))
+
+def _direct_manifest_entry(f):
+    return "direct\t" + f.path
+
+def _transitive_manifest_entry(f):
+    owner = f.owner
+
+    # An external-repo file is an npm package's, and no relative specifier in a
+    # first-party source reaches one; the npm entries below carry those by name.
+    if not owner or owner.repo_name:
+        return None
+    return "transitive\t{}\t{}".format(f.path, _label_text(owner))
+
+def _strict_deps_check(
+        ctx,
+        scan_srcs,
+        own_files,
+        direct_provided,
+        transitive_provided,
+        npm_direct,
+        npm_reachable,
+        module_direct,
+        module_reachable):
+    """Registers the action that fails on an import no direct dep provides.
+
+    Args:
+        ctx:                 Rule context.
+        scan_srcs:           This target's own sources, the files to read.
+        own_files:           Files this target already stages: srcs and
+                             path_alias_srcs.
+        direct_provided:     depset of File: what the direct deps produce.
+        transitive_provided: depset of File: the whole closure, for the label
+                             an undeclared import has to be attributed to.
+        npm_direct:          npm package names of the direct deps.
+        npm_reachable:       struct(name, label) per npm package in the closure.
+        module_direct:       module_name of each direct dep that set one.
+        module_reachable:    struct(module_name, label, ...) for the closure.
+
+    Returns:
+        struct(stamp, checker): the stamp the compile actions take as an input,
+        and the checker that wrote it.
+    """
+    js_tool = get_js_tool(ctx)
+    if not js_tool:
+        fail(
+            "ts_compile: checking {} for undeclared imports needs a JS tool ".format(ctx.label) +
+            "toolchain, and none is registered.\nAdd to MODULE.bazel:\n" +
+            "    register_toolchains(\"@rules_typescript//ts/toolchain:all\")",
+        )
+
+    checker = ctx.actions.declare_file("{}.strictdeps.mjs".format(ctx.label.name))
+    ctx.actions.write(output = checker, content = _STRICT_DEPS_MJS)
+    stamp = ctx.actions.declare_file("{}.strictdeps".format(ctx.label.name))
+
+    # A params file, so the closure is expanded when the action runs rather than
+    # materialised at analysis time.
+    manifest = ctx.actions.args()
+    manifest.use_param_file("@%s", use_always = True)
+    manifest.set_param_file_format("multiline")
+
+    # The scalars first: the reader keys paths off bin_dir as it parses.
+    manifest.add("label\t" + _label_text(ctx.label))
+    manifest.add("bin\t" + ctx.bin_dir.path)
+    for alias in ctx.attr.path_aliases:
+        manifest.add("alias\t" + alias)
+    for name in npm_direct:
+        manifest.add("npm-direct\t" + name)
+    for pkg in npm_reachable:
+        if pkg.name not in npm_direct:
+            manifest.add("npm-transitive\t{}\t{}".format(pkg.name, pkg.label))
+    for name in module_direct:
+        manifest.add("module-direct\t" + name)
+    for module in module_reachable:
+        if module.module_name:
+            manifest.add("module-transitive\t{}\t{}".format(module.module_name, module.label))
+
+    manifest.add_all(scan_srcs, format_each = "scan\t%s")
+    manifest.add_all(own_files, format_each = "own\t%s")
+    manifest.add_all(direct_provided, map_each = _direct_manifest_entry)
+    manifest.add_all(transitive_provided, map_each = _transitive_manifest_entry)
+
+    ctx.actions.run(
+        inputs = depset(scan_srcs + [checker]),
+        outputs = [stamp],
+        executable = js_tool.runtime_binary,
+        arguments = js_tool.args_prefix + [checker.path, stamp.path, manifest],
+        mnemonic = "TsStrictDeps",
+        progress_message = "TsStrictDeps %{label}",
+    )
+    return struct(stamp = stamp, checker = checker)
+
 # ─── Attribute validation ────────────────────────────────────────────────────
 
 def _classify_srcs(ctx):
@@ -504,6 +937,10 @@ def _ts_compile_impl(ctx):
     transitive_css_module_sets = []
     transitive_asset_sets = []
 
+    # What the direct deps produce themselves, which is the set an import has to
+    # be satisfied from. The transitive sets above stay the action inputs.
+    direct_provided_sets = []
+
     # npm_pkg_dirs: list of (package_name, package_dir_path) for tsconfig paths.
     # We collect ALL transitive npm deps so that tsgo can resolve bare module
     # specifiers in transitively-imported .d.ts files (e.g. vitest's index.d.ts
@@ -535,10 +972,12 @@ def _ts_compile_impl(ctx):
     # Step 1a: collect ALL package info entries (direct + transitive) into a map.
     # pkg_info_map: pkg_name → NpmPackageInfo (first seen wins for dedup).
     pkg_info_map = {}
+    direct_npm_names = {}
 
     for dep in ctx.attr.deps:
         if TsDeclarationInfo in dep:
             transitive_dts_sets.append(dep[TsDeclarationInfo].transitive_declaration_files)
+            direct_provided_sets.append(dep[TsDeclarationInfo].declaration_files)
 
             # Direct deps only: declaring @types/foo is how a target asks for
             # foo's globals, so a package that merely appears in some dep's own
@@ -549,17 +988,22 @@ def _ts_compile_impl(ctx):
         if JsInfo in dep:
             transitive_js_sets.append(dep[JsInfo].transitive_js_files)
             transitive_js_map_sets.append(dep[JsInfo].transitive_js_map_files)
+            direct_provided_sets.append(dep[JsInfo].js_files)
         if CssInfo in dep:
             transitive_css_sets.append(dep[CssInfo].transitive_css_files)
+            direct_provided_sets.append(dep[CssInfo].css_files)
         if CssModuleInfo in dep:
             transitive_css_module_sets.append(dep[CssModuleInfo].transitive_css_files)
+            direct_provided_sets.append(dep[CssModuleInfo].css_files)
         if AssetInfo in dep:
             transitive_asset_sets.append(dep[AssetInfo].transitive_asset_files)
+            direct_provided_sets.append(dep[AssetInfo].asset_files)
         if NpmPackageInfo in dep:
             npm_info = dep[NpmPackageInfo]
 
             # Add the direct dep itself.
             pkg_name = npm_info.package_name
+            direct_npm_names[pkg_name] = True
             if pkg_name not in pkg_info_map and npm_info.package_dir:
                 pkg_info_map[pkg_name] = npm_info
 
@@ -629,6 +1073,35 @@ def _ts_compile_impl(ctx):
         if TsModuleInfo in dep
     ]
     module_paths = depset(transitive = module_sets).to_list()
+
+    # No deps, no closure to arrive through: nothing an import could resolve to
+    # that a direct dep does not provide.
+    scan_srcs = compile_srcs + js_srcs + passthrough_dts
+    strict_deps = None
+    if ctx.attr.deps and scan_srcs:
+        strict_deps = _strict_deps_check(
+            ctx = ctx,
+            scan_srcs = scan_srcs,
+            own_files = ctx.files.srcs + ctx.files.path_alias_srcs,
+            direct_provided = depset(transitive = direct_provided_sets),
+            transitive_provided = depset(transitive = (
+                transitive_dts_sets + transitive_js_sets + transitive_css_sets +
+                transitive_css_module_sets + transitive_asset_sets
+            )),
+            npm_direct = sorted(direct_npm_names),
+            npm_reachable = [
+                _npm_hub_entry(pkg_info_map[name])
+                for name in sorted(pkg_info_map)
+            ],
+            module_direct = sorted([
+                dep[TsModuleInfo].module_name
+                for dep in ctx.attr.deps
+                if TsModuleInfo in dep and dep[TsModuleInfo].module_name
+            ]),
+            module_reachable = module_paths,
+        )
+    strict_deps_inputs = [strict_deps.stamp] if strict_deps else []
+    strict_deps_gated = False
 
     # The rest of the user's `extends` chain. Starlark cannot read the tsconfig
     # to follow it, so a ts_config target declares it and we make every file in
@@ -739,8 +1212,9 @@ def _ts_compile_impl(ctx):
             args.add("--declaration")
             args.add("--isolated-declarations")
 
+        strict_deps_gated = True
         ctx.actions.run(
-            inputs = depset(oxc_srcs_by_root[root], transitive = [dep_dts_depset]),
+            inputs = depset(oxc_srcs_by_root[root] + strict_deps_inputs, transitive = [dep_dts_depset]),
             outputs = oxc_outs_by_root[root],
             executable = oxc.oxc_binary,
             arguments = [args],
@@ -810,9 +1284,10 @@ def _ts_compile_impl(ctx):
         # package. This must be computed before the action is registered.
         npm_pkg_dirs_depset = depset(transitive = transitive_package_dir_sets)
 
+        strict_deps_gated = True
         tsgo_inputs = depset(
             check_srcs + [tsconfig, tsgo.tsgo_binary] + tsconfig_chain +
-            ctx.files.path_alias_srcs,
+            ctx.files.path_alias_srcs + strict_deps_inputs,
             transitive = [dep_dts_depset, npm_pkg_dirs_depset],
         )
         if not tsgo_emits_dts:
@@ -850,6 +1325,12 @@ def _ts_compile_impl(ctx):
                 mnemonic = "TsgoDeclare",
                 progress_message = "TsgoDeclare %{label}",
             )
+
+    # A target with sources but no compile action of its own -- JavaScript srcs
+    # with checking off -- has nothing to hang the stamp on, so it goes in the
+    # output group Bazel requests for every target in the build.
+    if strict_deps and not strict_deps_gated:
+        validation_outputs.append(strict_deps.stamp)
 
     # ── Build providers ───────────────────────────────────────────────────
     direct_dts = depset(dts_outputs + passthrough_dts, order = "postorder")
@@ -907,11 +1388,13 @@ def _ts_compile_impl(ctx):
     if ctx.attr.module_name:
         own_modules.append(struct(
             module_name = ctx.attr.module_name,
+            label = _label_text(ctx.label),
             declaration_root = declaration_root,
             source_root = source_root,
         ))
     providers.append(TsModuleInfo(
         module_name = ctx.attr.module_name,
+        label = _label_text(ctx.label),
         declaration_root = declaration_root,
         source_root = source_root,
         transitive_modules = depset(own_modules, transitive = module_sets),
@@ -935,8 +1418,15 @@ def _ts_compile_impl(ctx):
         transitive_asset_files = transitive_assets,
     ))
 
+    output_groups = {}
     if validation_outputs:
-        providers.append(OutputGroupInfo(_validation = depset(validation_outputs)))
+        output_groups["_validation"] = depset(validation_outputs)
+    if strict_deps:
+        # Requesting this group alone checks every target's deps without
+        # compiling anything, since the check reads only the target's own srcs.
+        output_groups["strict_deps"] = depset([strict_deps.stamp, strict_deps.checker])
+    if output_groups:
+        providers.append(OutputGroupInfo(**output_groups))
 
     return providers
 
@@ -1094,6 +1584,7 @@ dep with module_name is the cheaper boundary where one is available.""",
     toolchains = [
         OXC_TOOLCHAIN_TYPE,
         config_common.toolchain_type(TSGO_TOOLCHAIN_TYPE, mandatory = False),
+        config_common.toolchain_type(JS_TOOL_TOOLCHAIN_TYPE, mandatory = False),
     ],
     doc = """Compiles TypeScript source files using oxc-bazel.
 

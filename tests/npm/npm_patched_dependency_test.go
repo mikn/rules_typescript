@@ -31,3 +31,16 @@ func TestPatchReachesTheFilesBazelHandsOut(t *testing.T) {
 			f.Name(), pkg.SideEffects, want)
 	}
 }
+
+// The same mechanism for a SCOPED package, which is where the filename pnpm
+// derives from the package name starts with '@' -- `@types__ms@2.1.0.patch` --
+// and where the patch lands in a .d.ts rather than in the manifest. The
+// published @types/ms@2.1.0 types the options object as `{ long: boolean }`,
+// which makes the field mandatory as soon as the object is passed at all.
+func TestScopedPackagePatchReachesTheFilesBazelHandsOut(t *testing.T) {
+	tree := verify.New(t)
+
+	f := tree.FoundFile("*types_ms__2_1_0/index.d.ts")
+	f.Contains("options?: { long?: boolean }")
+	f.Excludes("options?: { long: boolean }")
+}

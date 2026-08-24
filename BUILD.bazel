@@ -18,20 +18,45 @@ exports_files([
 #   bazel test //:refresh_tsconfig_test  fails when the checked-in copy is stale
 #
 # `deps` is what the IDE sees, and a rule's deps obey visibility. The aspect
-# walks `deps`, so this list is roots only -- the 60 below reach 78 of the 100
-# ts_compile targets in this repo. Gazelle writes `//visibility:public` on every
+# walks `deps`, so this list is roots only: every ts_compile target a root
+# depends on comes along. Gazelle writes `//visibility:public` on every
 # ts_compile it generates, so a workspace whose BUILD files come from gazelle can
 # list any of them; the fixtures here are hand-written, and each package grants
 # `//:__pkg__` instead.
 #
-# Two kinds of target stay out. Fifteen are the ts_compile targets ts_test
-# generates for a test's own sources, which ts_test hardcodes
-# `//visibility:private`; their `vitest` dep is the one npm paths entry a
-# workspace-root `tsc` run still cannot resolve. Seven are the guard fixtures
-# under //tests/compiler_options/analysis whose analysis is meant to fail, so
-# listing one here fails this target instead.
+# The `_<test>_compile` entries are the ts_compile targets ts_test generates for
+# a test's own sources; naming them is what puts `vitest` among the npm paths
+# entries, since nothing else in the graph depends on a test's own sources.
+#
+# The guard fixtures under //tests/compiler_options/analysis stay out: their
+# analysis is meant to fail, so listing one here fails this target instead. So do
+# the fixtures that exist only to be read by an analysis test of the generated
+# file, //tests/lsp/module_fixture among them -- what they declare belongs in
+# that test, not in the checked-in tsconfig.
+#
+# extra_exclude names the TypeScript that is not in this module's graph at all.
+# e2e/, examples/ and tests/integration/ are separate Bazel modules, each with
+# its own MODULE.bazel and its own tsconfig, and all three are in .bazelignore --
+# so nothing here reaches them, and `include: ["**/*"]` would type-check them
+# against the wrong compilerOptions.
+#
+# What `tsc -p tsconfig.json` still reports is the fixtures that typecheck only
+# under their own per-target options -- `strict` off, `allowJs`, `lib:
+# webworker`, `allowImportingTsExtensions`, a `jsxImportSource` -- plus the
+# ambient .d.ts one of them uses to shim `node:fs` with a narrower signature than
+# @types/node's, which no include/exclude isolates from the rest of the program.
+# One root compilerOptions cannot satisfy them; per-package tsconfigs and a
+# narrow `include` were both considered and rejected. Everything else it reports
+# is a specifier nothing in the graph declares: a source file no ts_compile
+# target claims yet (run gazelle), or a bare import of a pnpm workspace link,
+# which resolves once the linked ts_compile declares a `module_name`.
 ts_refresh_tsconfig(
     name = "refresh_tsconfig",
+    extra_exclude = [
+        "**/e2e",
+        "**/examples",
+        "**/tests/integration",
+    ],
     test = True,
     deps = [
         "//packages/nested-shared",
@@ -62,6 +87,7 @@ ts_refresh_tsconfig(
         "//tests/compiler_options/worker",
         "//tests/css:button_lib",
         "//tests/css_module:button_lib",
+        "//tests/css_module_test:_button_test_compile",
         "//tests/css_module_test:button",
         "//tests/dev_server:app",
         "//tests/json:app_lib",
@@ -89,9 +115,23 @@ ts_refresh_tsconfig(
         "//tests/validation:inferred",
         "//tests/vite_bundle:entry",
         "//tests/vite_bundle:env_entry",
+        "//tests/vitest:_math_test_compile",
         "//tests/vitest:math",
+        "//tests/vitest/attrs:_attrs_test_compile",
+        "//tests/vitest/attrs:_attrs_test_setup",
+        "//tests/vitest/config_dict:_define_test_compile",
+        "//tests/vitest/config_merge:_merge_test_compile",
         "//tests/vitest/config_merge:styles",
+        "//tests/vitest/coverage:_math_coverage_test_compile",
+        "//tests/vitest/data:_fixture_test_compile",
+        "//tests/vitest/environment:_edge_test_compile",
+        "//tests/vitest/environment:_jsdom_test_compile",
+        "//tests/vitest/global_setup:_injected_test_compile",
+        "//tests/vitest/global_setup:_injected_test_global_setup",
+        "//tests/vitest/setup_files:_media_test_compile",
+        "//tests/vitest/setup_files:_media_test_setup",
         "//tests/vitest/setup_files:media",
+        "//tests/vitest/workspace:_project_test_compile",
         "//tests/vitest/workspace:styles",
         "//vite:plugin_typecheck",
     ],

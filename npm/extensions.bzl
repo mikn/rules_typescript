@@ -108,9 +108,15 @@ own naming (`<name with / replaced by __>@<version>.patch`):
         patches = ["//patches:@acme__diffs@1.3.1.patch"],
     )
 
-A `patchedDependencies` entry with no matching file, or a file no entry claims,
-fails the build. Silence there would mean shipping the published package while
-the lockfile says otherwise -- which only shows up wherever the patch mattered.""",
+Each label is then resolved to a file and checked against the sha256 the
+lockfile records beside the entry, so a label that names nothing readable, or a
+file pnpm never saw, fails here rather than wherever the patch mattered. So does
+an entry with no matching file, and a file no entry claims.
+
+A scoped package's patch keeps the leading '@' of its name, and a target name
+starting with '@' cannot come out of `glob()` -- glob prefixes ':' onto such a
+result and `exports_files` rejects it, failing the whole package. List those
+files literally.""",
     ),
 })
 

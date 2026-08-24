@@ -33,6 +33,14 @@ transitive npm deps. List every npm package the run needs — imported by the
 tests *and* by the production code under test — in `deps`; a `ts_compile` dep
 does not contribute its own npm packages to the tree. Gazelle does this for you.
 
+Two consequences worth knowing. The test's own sources are checked for
+undeclared imports like any other `ts_compile` sources, so an import that only
+some dep's own deps provide fails the build with the label to add
+([why](../rules/ts-compile.md#deps-have-to-be-direct)). And the tree places
+every version the closure resolved rather than one per name, so a test whose
+dependencies disagree about a package's version gets what each of them
+resolved ([layout](../rules/node-modules.md#the-layout)).
+
 Pass `node_modules` explicitly only when `deps` is a `select()` (a macro cannot
 iterate one) or when the tree you need is not the one the deps describe:
 
@@ -196,6 +204,12 @@ ibazel test //...
 
 ibazel watches the build graph, so only affected targets are rebuilt and
 re-tested.
+
+To see what the test launcher resolved rather than what it ran:
+
+```bash
+bazel run //path/to:my_test -- --dump-config
+```
 
 ## Build feedback
 

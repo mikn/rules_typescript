@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
@@ -511,8 +512,17 @@ func loadTsConfigPaths(tsConfigPath string) map[string]string {
 
 	baseURL := strings.TrimSuffix(tsc.CompilerOptions.BaseURL, "/")
 
+	// Two patterns can normalise to the same alias key, so iteration order
+	// decides which entry survives, and which order the log lines come out in.
+	patterns := make([]string, 0, len(tsc.CompilerOptions.Paths))
+	for aliasPattern := range tsc.CompilerOptions.Paths {
+		patterns = append(patterns, aliasPattern)
+	}
+	sort.Strings(patterns)
+
 	aliases := make(map[string]string, len(tsc.CompilerOptions.Paths))
-	for aliasPattern, targets := range tsc.CompilerOptions.Paths {
+	for _, aliasPattern := range patterns {
+		targets := tsc.CompilerOptions.Paths[aliasPattern]
 		if len(targets) == 0 {
 			continue
 		}

@@ -12,9 +12,12 @@ Both targets are `manual`: they exist to be analysed, and nothing outside
 
 load("//ts:defs.bzl", "ts_compile")
 
+# The module_name is here rather than on `root` because a private target's bare
+# specifier is the one an editor can learn no other way.
 ts_compile(
     name = "leaf",
     srcs = ["index.ts"],
+    module_name = "@acme/leaf",
     tags = ["manual"],
     visibility = ["//visibility:private"],
 )

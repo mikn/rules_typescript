@@ -12,7 +12,7 @@ This ruleset is designed around **Vite** as the bundler and dev server. A
 framework that ships a Vite plugin fits, with the amount of proof varying:
 
 - **React + Vite** — SPA bundling, React Fast Refresh HMR, CSS modules (`examples/react-app`)
-- **TanStack Start** — client + SSR server bundles via the `@tanstack/react-start` Vite plugin (`examples/tanstack-app`, plus an integration test)
+- **TanStack Start** — the SPA bundle builds in CI (`examples/tanstack-app`, plus an integration test); the app-mode bundle that runs `tanstackStart()` through `vite_config` is excluded from CI with the blocker named in the workflow ([why](https://mikn.github.io/rules_typescript/guides/bundling/#framework-plugins-via-vite_config))
 - **Remix** — client bundle with route-based code splitting via the `@remix-run/dev` Vite plugin (`examples/remix-app`)
 - **SvelteKit, Solid Start** — Gazelle generates the targets and the `vite_config` hook takes the plugin, but nothing in this repository builds either one yet
 
@@ -25,7 +25,8 @@ Frameworks that don't use Vite (e.g., Next.js with webpack/turbopack) are not a 
 - **Vite bundles** — production bundles with tree-shaking, code splitting, minification. App mode (HTML + hashed assets) and lib mode.
 - **Isolated declarations, when you want them** — annotate a package's exports and set `declarations = "oxc"` to have Oxc emit its `.d.ts` syntactically. Type-checking then moves off the critical path, which on a deep dependency chain shortens it substantially ([measured](https://mikn.github.io/rules_typescript/rules/ts-compile/#cost-of-each-mode)). Opt-in, per package.
 - **Gazelle generates BUILD files** — infers targets from the directory tree, resolves imports to labels, and generates lint, bundler and dev-server targets. Nine `# gazelle:ts_*` directives configure it.
-- **npm without a store** — one Bazel repository per package, fetched on demand, behind a `@npm` alias hub. A target's npm cost is its own dependency closure, not the whole lockfile.
+- **Deps are what you declared** — a source may import only what a *direct* dep provides. A declaration that reaches a target through another dep's own deps no longer satisfies an import: the build fails naming the file, the specifier and the label to add, and `bazel run //:gazelle` writes it.
+- **npm without a store** — one Bazel repository per package, fetched on demand, behind a `@npm` alias hub. A target's npm cost is its own dependency closure, not the whole lockfile. A `node_modules` tree places every version a closure resolved, not just one per name.
 - **Only Bazelisk required** — Node.js, Go and Rust are fetched hermetically, and [pnpm too](https://mikn.github.io/rules_typescript/guides/npm/#hermetic-pnpm) if you want it. pnpm is needed only to edit the lockfile, never to build.
 
 ## Requirements
@@ -37,8 +38,9 @@ actually reach — is fetched hermetically. The first build also compiles
 cached.
 
 Supported platforms: Linux x86_64, Linux ARM64, macOS x86_64, macOS ARM64.
-**Windows is not supported** — no tsgo binary is published for it, every runner
-is a bash script, and hermetic pnpm has no Windows build. See
+**Windows is not supported**, and the reason is upstream: no tsgo binary and no
+hermetic pnpm binary are published for it. A few of our own build actions still
+run through a bash wrapper too. See
 [COMPATIBILITY.md](COMPATIBILITY.md#windows).
 
 ## Install
@@ -173,7 +175,16 @@ ts_refresh_tsconfig(
 target covers everything it depends on — and the attribute default, `deps = []`,
 reaches nothing and writes a `tsconfig.json` with an empty `paths`. `deps` also
 obeys visibility, so a package-private `ts_compile` target cannot be listed
-(Gazelle writes `//visibility:public` on the targets it generates).
+(Gazelle writes `//visibility:public` on the targets it generates, and so does
+`ts_test` for the targets it generates from your sources). A target's
+`module_name` gets its own `paths` entry, so a first-party package imported by
+bare specifier resolves in the editor too.
+
+`extra_exclude` adds globs to the generated `exclude`. Reach for it when the
+repository holds TypeScript that is not in this module's build graph — a nested
+Bazel module, a workspace in `.bazelignore` — since nothing in `deps` names
+those files and `tsc` would otherwise walk them under the wrong
+`compilerOptions`.
 
 ```bash
 bazel run //:refresh_tsconfig        # writes tsconfig.json, .bazel/npm/, and the hook

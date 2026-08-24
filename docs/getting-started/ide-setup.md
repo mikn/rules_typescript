@@ -4,8 +4,8 @@
 read:
 
 1. A workspace-root `tsconfig.json` whose `compilerOptions.paths` names every
-   source root, path alias, and npm package your targets reach. **This is the
-   primary mechanism**, and the file is meant to be checked in.
+   source root, path alias, `module_name` and npm package your targets reach.
+   **This is the primary mechanism**, and the file is meant to be checked in.
 2. A **tsserver hook** that resolves the same set live, for editors that would
    rather follow a `bazel build` than reload a tsconfig. It is a layer on top,
    not a replacement.
@@ -37,9 +37,14 @@ writing the list:
 - **`deps` obeys visibility**, like any rule's. A package-private `ts_compile`
   target cannot be listed here. Gazelle writes
   `visibility = ["//visibility:public"]` on the targets it generates, so a
-  workspace whose BUILD files come from Gazelle can list any of them. For the
-  hand-written ones, [Complete coverage for the hook](#complete-coverage-for-the-hook)
-  covers them without a grant.
+  workspace whose BUILD files come from Gazelle can list any of them — and
+  `ts_test` does the same for the `ts_compile` targets it generates from your
+  `srcs`, `setup_files` and `global_setup`, so `//path:_my_test_compile` is
+  listable and the npm packages only a test declares reach the tsconfig. (Set
+  `visibility` on the `ts_test` to narrow them again; the generated targets
+  follow it.) For the hand-written private ones,
+  [Complete coverage for the hook](#complete-coverage-for-the-hook) covers them
+  without a grant.
 
 Then run it:
 
@@ -61,6 +66,42 @@ Two attributes move the first two. `tsconfig` (default `"tsconfig.json"`) is
 where the generated config lands. `npm_dir` (default `".bazel/npm"`) is where
 the npm declarations land; `npm_dir = ""` opts out, dropping the npm `paths`
 entries and their files for a workspace that resolves npm types some other way.
+
+### Keeping foreign TypeScript out of the program
+
+The generated config sets `include: ["**/*"]`, so `tsc` walks every `.ts` in the
+repository — including trees that are not in this module's build graph at all: a
+nested Bazel module, a workspace listed in `.bazelignore`, a vendored example.
+Nothing in `deps` names those files, so they are checked under the wrong
+`compilerOptions` and their errors are noise. `extra_exclude` adds globs to the
+generated `exclude`:
+
+```python
+ts_refresh_tsconfig(
+    name = "refresh_tsconfig",
+    test = True,
+    extra_exclude = ["**/e2e", "**/examples"],
+    deps = ["//apps/web", "//packages/ui"],
+)
+```
+
+Anchor each entry with `**/`, the way the built-in exclusions
+(`**/bazel-*`, `**/node_modules`, `**/dist`, `**/build`, `**/.next`,
+`**/.nuxt`, `.bazel`) are.
+
+### Bare specifiers for first-party packages
+
+A target that sets `module_name = "@acme/ui"` gets `@acme/ui` and `@acme/ui/*`
+`paths` entries of its own, so the editor resolves the same bare specifier
+`ts_compile` resolves during the build. Those keys are written last, which means
+a first-party `module_name` wins over a same-named npm package — the precedence
+`ts_compile`'s own generated tsconfig uses.
+
+`module_name` is also the answer for a pnpm `link:`/`workspace:` dependency
+imported by its package name. Bazel resolves the hub's alias before Starlark
+sees it, so the name the code imports exists only inside the alias; declaring
+`module_name` on the target that produces the declarations is what puts it back
+in the graph.
 
 ### Why the npm declarations get copied
 
@@ -113,6 +154,7 @@ replace it, and every key it resolved wins over a fragment that disagrees.
 | | Covered by | Reaches package-private targets |
 |---|---|---|
 | `ts_compile` source roots | fragments, and the data file | yes, via fragments |
+| `module_name` bare specifiers | fragments, and the data file | yes, via fragments |
 | `ts_path_alias` prefixes | fragments, the data file, and a BUILD-file scan | yes, via fragments |
 | npm `.d.ts` declarations | `.bazel/npm`, installed by `bazel run //:refresh_tsconfig` | **no** |
 
@@ -203,8 +245,8 @@ at analysis time. A long-lived editor process asking the Bazel server for
 anything would sit on the same lock a build wants.
 
 1. **Worker thread** reads `.bazel/tsserver-hook-data.json` — the npm entry
-   points, the `ts_compile` package list, the path aliases — and turns it into a
-   module-name → declaration-path map
+   points, the `ts_compile` package list, the `module_name` specifiers, the path
+   aliases — and turns it into a module-name → declaration-path map
 2. **npm packages** resolved from the declarations installed under `npm_dir`,
    the same set the generated `tsconfig.json` names
 3. **Internal packages** resolved from `bazel-bin` (`.d.ts` after a build) or the

@@ -126,6 +126,50 @@ tree (bazel-out/k8-fastbuild/bin/packages/ui).
 
 The supported answer is `module_name` on the producing target.
 
+## Deps have to be direct
+
+A source may import only what a **direct** dep provides. Every `ts_compile`
+target that has both sources and `deps` runs a `TsStrictDeps` action, which
+reads those sources and fails on any specifier that resolves only because it
+arrives through another dep's own deps:
+
+```
+ERROR: .../src/app/BUILD.bazel:3:11: TsStrictDeps //src/app:app failed: (Exit 1)
+//src/app:app imports a module no direct dep provides:
+
+  src/app/main.ts:1  imports "./hidden"
+                     add "//src/app:hidden" to deps
+  src/app/main.ts:2  imports "zod"
+                     add "@npm//:zod" to deps
+
+Each of those resolves today only because it reaches this target through
+another dep's own deps, and stops resolving the moment that dep drops it.
+Re-run gazelle to regenerate deps, or add the labels above by hand.
+```
+
+`bazel run //:gazelle` writes those labels. There is no flag and no opt-out:
+the whole value is that a green build means the `deps` list is true.
+
+**What is checked:** relative imports, bare specifiers that name an npm package,
+and bare specifiers that name another target's `module_name` (including a
+subpath of one). **What is exempt:** Node builtins and `node:` specifiers, and
+anything under a `path_aliases` prefix — an alias resolves to files this target
+already stages. An import that *nothing* in the closure provides is left alone,
+because there is no label to suggest; TypeScript reports it as `TS2307`.
+
+`/// <reference types="x" />` is not checked. It is a real resolution channel,
+but Gazelle generates no dep for it either, and a check Gazelle cannot satisfy
+would be a failure with no fix.
+
+### Why the closure is still an action input
+
+Resolution becomes direct; the inputs do not. One `paths` map serves the whole
+type program, so dropping the transitive entries would stop a *declared* dep's
+own `.d.ts` from resolving *its* imports — which TypeScript widens to `any`
+rather than reporting. The split is made by the check, not by the tsconfig: the
+transitive `.d.ts` stay available for the declarations that need them, and the
+check is what refuses to let your own source lean on them.
+
 ### Importing another target by bare specifier
 
 `path_aliases` maps a prefix to a *source* directory, which is right for
@@ -288,6 +332,10 @@ the gap to shrink on shallower graphs and widen on deeper ones.
 - **`OutputGroupInfo(_validation=...)`** — the tsgo check stamp. Only populated
   under `declarations = "oxc"`; under the default there is nothing to validate
   separately because the declarations themselves are the proof.
+- **`OutputGroupInfo(strict_deps=...)`** — the `TsStrictDeps` stamp, on any
+  target with `deps`. The compile actions take it as an input, so a violation
+  fails a plain `bazel build`; the output group is there for reading the stamp
+  and the checker in isolation.
 
 ## Architecture
 
@@ -298,6 +346,12 @@ The oxc-bazel binary processes each `.ts` file through:
 3. Isolated declarations emit (oxc_isolated_declarations) — only under `declarations = "oxc"`
 4. TypeScript/JSX transform (oxc_transformer)
 5. Code generation (oxc_codegen) for `.js` + `.js.map`
+
+`TsStrictDeps` runs before the transform, as a Node action over a params-file
+manifest of the target's declared and reachable providers. Its scanner is a
+character walk over the source — a quoted string is a specifier only when the
+tokens before it say so — which is the same walk Gazelle uses to generate deps,
+so the two cannot demand different things.
 
 tsgo runs as a separate Bazel action against the generated `tsconfig.json`.
 Under `declarations = "tsgo"` that tsconfig sets `declaration`,

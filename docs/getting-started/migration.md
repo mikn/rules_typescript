@@ -66,11 +66,12 @@ Our parser handles the common cases (scoped packages, `@types` pairing, multiple
 
 ### Windows
 
-`rules_ts` + `rules_js` work on Windows. This ruleset does not: no tsgo binary
-is published for Windows, so the default declaration emitter has no toolchain;
-every runner (`ts_test`, `ts_binary`, `ts_dev_server`, `ts_codegen`, `npm_bin`,
-the Vite bundler) is a bash script; and hermetic pnpm has no Windows build. The
-`node_modules` tree action is cross-platform, and that is the extent of it.
+`rules_ts` + `rules_js` work on Windows. This ruleset does not, for two upstream
+reasons: no tsgo binary is published for Windows, so the default declaration
+emitter has no toolchain, and hermetic pnpm has no Windows build. Runners are a
+Go launcher now, but a few build-action wrappers (the Vite bundler,
+`next_build`) still need a POSIX shell. See
+[COMPATIBILITY.md](https://github.com/mikn/rules_typescript/blob/main/COMPATIBILITY.md#windows).
 
 ## Trade-offs: where rules_typescript is better
 
@@ -83,6 +84,15 @@ ruleset against itself: a rebuild of 1,000 files across 20 packages after
 touching every source takes 6.3s with tsgo emitting declarations and 2.7s with
 oxc emitting them and nothing type-checking
 ([method and caveats](../rules/ts-compile.md#cost-of-each-mode)).
+
+### Deps that mean something
+
+An import has to be satisfied by a direct dep: a declaration arriving through
+another dep's own deps does not count, and the build says so with the label to
+add. `rules_ts` passes the whole transitive closure to `tsc`, so a target can
+compile against a dependency it never declared and break when an unrelated
+package drops one. The cost here is that BUILD files must be accurate, which is
+why Gazelle generates them from the same specifier scanner the check uses.
 
 ### Incremental boundary
 
@@ -157,4 +167,4 @@ aliases into them. Labels are unchanged from a consumer's point of view:
 
 **Isolated declarations are opt-in.** Every target starts on `declarations = "tsgo"`, which needs no annotations. Add `# gazelle:ts_declarations oxc` to a package once its exports are annotated, to move type-checking off the critical path.
 
-**`node_modules` is automatic.** `ts_test` builds its `node_modules` tree from deps automatically. No manual `node_modules` target needed (unless overriding for specific cases).
+**`node_modules` is automatic.** `ts_test` builds its `node_modules` tree from deps automatically. No manual `node_modules` target needed (unless overriding for specific cases). It is not pnpm's virtual store: a name's primary version sits flat at the top level and any other version of that name gets its own store directory plus a link from the dependent that resolved to it, which is the part of pnpm's layout that Node's resolution actually needs.

@@ -1,6 +1,8 @@
 package typescript
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
@@ -341,5 +343,44 @@ func TestConfig_Clone_SliceIsolation_ExcludePatterns(t *testing.T) {
 
 	if len(parent.excludePatterns) != 1 {
 		t.Errorf("parent excludePatterns mutated: got %v, want [*.gen.ts]", parent.excludePatterns)
+	}
+}
+
+// ---- tsconfig.json paths ---------------------------------------------------
+
+// TestLoadTsConfigPaths_CollidingPatternsPickTheSameEntryEveryTime covers two
+// paths patterns that normalise to one alias key. Whichever entry wins, it has
+// to be the same entry on every run: the alias map is written into generated
+// path_aliases attributes and drives dep resolution.
+func TestLoadTsConfigPaths_CollidingPatternsPickTheSameEntryEveryTime(t *testing.T) {
+	dir := t.TempDir()
+	tsConfigPath := filepath.Join(dir, "tsconfig.json")
+	contents := `{
+  "compilerOptions": {
+    "paths": {
+      "@x/*": ["wildcard/*"],
+      "@x/": ["exact/dir/"],
+      "@y/*": ["y/*"]
+    }
+  }
+}`
+	if err := os.WriteFile(tsConfigPath, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	const runs = 200
+	seen := make(map[string]int)
+	for i := 0; i < runs; i++ {
+		aliases := loadTsConfigPaths(tsConfigPath)
+		if got := aliases["@y/"]; got != "y/" {
+			t.Fatalf("run %d: non-colliding entry changed: aliases[\"@y/\"] = %q, want %q", i, got, "y/")
+		}
+		seen[aliases["@x/"]]++
+	}
+	if len(seen) != 1 {
+		t.Fatalf("colliding alias key resolved %d different ways across %d runs: %v", len(seen), runs, seen)
+	}
+	if _, ok := seen["wildcard/"]; !ok {
+		t.Fatalf("colliding alias key resolved to %v, want the last entry in sorted pattern order (%q)", seen, "wildcard/")
 	}
 }
