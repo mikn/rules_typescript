@@ -399,6 +399,15 @@ func resolveNpmPackage(tc *tsConfig, imp string) string {
 		return ""
 	}
 
+	// A specifier carrying a URI scheme is not an npm package. Bundlers
+	// synthesise modules behind one ("virtual:routes"), the package is
+	// declared ambiently rather than installed, and a Bazel target name
+	// cannot contain ':' -- so emitting a label here produces one that
+	// fails to parse rather than one that merely does not exist.
+	if strings.Contains(imp, ":") {
+		return ""
+	}
+
 	// Strip sub-path imports: "react/something" → package is "react".
 	// Scoped packages: "@scope/pkg/sub" → package is "@scope/pkg".
 	pkgName := barePackageName(imp)

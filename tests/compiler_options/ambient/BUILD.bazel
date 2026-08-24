@@ -1,5 +1,9 @@
 """types + typeRoots: an ambient type package that nothing imports."""
 
+# The target below has srcs in these directories; a BUILD file in any of them
+# would turn it into a package and make those labels cross a package boundary.
+# gazelle:exclude typings/my-globals
+
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "ts_compile")
 

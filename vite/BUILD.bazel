@@ -1,3 +1,7 @@
+# The target below has srcs in these directories; a BUILD file in any of them
+# would turn it into a package and make those labels cross a package boundary.
+# gazelle:exclude src
+
 # BUILD.bazel for the vite/ package.
 #
 # vite-plugin-bazel (the npm plugin in vite/src/) is compiled inside Bazel

@@ -581,3 +581,15 @@ func TestIsPathAlias_UsesTheSameMatcherAsResolution(t *testing.T) {
 		}
 	}
 }
+
+func TestNpmLabelForImport_RejectsSchemeSpecifiers(t *testing.T) {
+	tc := &tsConfig{}
+	for _, imp := range []string{"virtual:answer", "virtual:routes/generated", "data:text/javascript,0"} {
+		if got := resolveNpmPackage(tc, imp); got != "" {
+			t.Errorf("resolveNpmPackage(%q) = %q, want \"\" (a target name cannot contain ':')", imp, got)
+		}
+	}
+	if got := resolveNpmPackage(tc, "zod"); got != "@npm//:zod" {
+		t.Errorf("resolveNpmPackage(\"zod\") = %q, want @npm//:zod", got)
+	}
+}

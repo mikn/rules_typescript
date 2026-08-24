@@ -1,5 +1,10 @@
 """srcs spanning a subtree, and relative imports written with a .js extension."""
 
+# The target below has srcs in these directories; a BUILD file in any of them
+# would turn it into a package and make those labels cross a package boundary.
+# gazelle:exclude nested
+# gazelle:exclude nested/deep
+
 load("@rules_go//go:def.bzl", "go_test")
 load("//ts:defs.bzl", "ts_compile")
 
