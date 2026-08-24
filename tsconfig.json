@@ -261,6 +261,13 @@
       "nanoid/*": [
         "./.bazel/npm/nanoid/*"
       ],
+      "nested-shared": [
+        "./packages/nested-shared/index"
+      ],
+      "nested-shared/*": [
+        "./packages/nested-shared/*",
+        "./bazel-bin/packages/nested-shared/*"
+      ],
       "package-json-from-dist": [
         "./.bazel/npm/package-json-from-dist"
       ],
@@ -316,6 +323,13 @@
       ],
       "rollup/*": [
         "./.bazel/npm/rollup/dist/*"
+      ],
+      "shared": [
+        "./packages/shared/index"
+      ],
+      "shared/*": [
+        "./packages/shared/*",
+        "./bazel-bin/packages/shared/*"
       ],
       "shebang-regex": [
         "./.bazel/npm/shebang-regex"

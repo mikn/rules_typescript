@@ -556,11 +556,15 @@ func loadTsConfigPaths(tsConfigPath string) map[string]string {
 			}
 		}
 
-		// An identity mapping is not an alias. ts_refresh_tsconfig emits one
-		// paths entry per first-party package, and the wildcard form maps a
-		// package path to itself; echoing those into every generated target's
-		// path_aliases churns every BUILD file and tells Gazelle nothing.
-		if strings.TrimSuffix(aliasKey, "/") == strings.TrimSuffix(targetDir, "/") {
+		// An identity mapping is not an alias. ts_refresh_tsconfig emits two
+		// paths entries per first-party package: the wildcard form maps the
+		// package path to itself, and the bare form maps it to its own entry
+		// point. Echoing either into every generated target's path_aliases
+		// churns every BUILD file and tells Gazelle nothing it cannot read
+		// off the package path.
+		normKey := strings.TrimSuffix(aliasKey, "/")
+		normDir := strings.TrimSuffix(targetDir, "/")
+		if normKey == normDir || normKey == strings.TrimSuffix(normDir, "/index") {
 			continue
 		}
 

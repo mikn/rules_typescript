@@ -26,14 +26,12 @@ ts_compile(
 #   shared: {specifier: workspace:*, version: link:packages/shared}
 # → alias(name = "shared", actual = "@@//packages/shared:shared")
 #
-# This target verifies that the @npm alias resolves to the workspace package.
-# type-checking is disabled because workspace package resolution via bare
-# specifier names requires additional path alias configuration in production use;
-# the alias target generation in @npm is the key feature being tested here.
+# This target verifies that the @npm alias resolves to the workspace package,
+# and type-checks: Bazel resolves the alias before Starlark sees it, so the
+# bare specifier is recoverable only from module_name on the aliased target.
 ts_compile(
     name = "workspace_consumer",
     srcs = ["workspace_consumer.ts"],
-    enable_check = False,
     deps = ["@npm//:shared"],
 )
 
@@ -70,11 +68,9 @@ go_test(
 # tests/npm/nested with `version: link:../../../packages/nested-shared`, which
 # only yields a valid label once resolved against the importer path. Treating
 # it as root-relative produces "@@//../../../packages/nested-shared:...".
-# type-checking is disabled for the same reason as workspace_consumer above.
 ts_compile(
     name = "nested_workspace_consumer",
     srcs = ["nested_workspace_consumer.ts"],
-    enable_check = False,
     deps = ["@npm//:nested-shared"],
 )
 

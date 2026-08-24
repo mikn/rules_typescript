@@ -8,5 +8,6 @@ load("@rules_typescript//ts:defs.bzl", "ts_compile")
 ts_compile(
     name = "shared",
     srcs = ["index.ts"],
+    module_name = "shared",
     visibility = ["//visibility:public"],
 )

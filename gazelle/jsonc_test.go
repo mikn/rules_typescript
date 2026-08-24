@@ -139,3 +139,32 @@ func TestLoadTsConfigPaths_SkipsToolManagedDirs(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadTsConfigPaths_SkipsFirstPartyPackageSelfEntries(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tsconfig.json")
+	body := `{
+  "compilerOptions": {
+    "paths": {
+      "packages/widget": ["./packages/widget/index"],
+      "packages/widget/*": ["./packages/widget/*"],
+      "@acme/ui": ["./packages/ui/index"],
+      "@/*": ["src/*"]
+    }
+  }
+}`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write tsconfig: %v", err)
+	}
+
+	got := loadTsConfigPaths(path)
+	want := map[string]string{"@acme/ui": "packages/ui/index", "@/": "src/"}
+	if len(got) != len(want) {
+		t.Fatalf("loadTsConfigPaths: got %v, want %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("alias %q: got %q, want %q", k, got[k], v)
+		}
+	}
+}
