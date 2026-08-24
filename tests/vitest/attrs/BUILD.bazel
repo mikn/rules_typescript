@@ -1,0 +1,44 @@
+"""Every environment-shaping attribute, and the config layering, in one target.
+
+config_layers_test is the checked-in proof that each attribute reaches the
+vitest config and that the layers stack in the documented order; `attrs_test`
+itself proves the `globals` and `setup_files` halves end to end.
+"""
+
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("//ts:defs.bzl", "ts_test")
+load("//tests/vitest:vitest_config.bzl", "vitest_config")
+
+ts_test(
+    name = "attrs_test",
+    srcs = [
+        "attrs.test.ts",
+        "globals.d.ts",
+    ],
+    config = {"test": {"testTimeout": 20000}},
+    coverage_thresholds = {
+        "lines": "0",
+        "perFile": "true",
+    },
+    environment = "node",
+    globals = True,
+    reporters = ["default"],
+    setup_files = [
+        "setup.ts",
+        "globals.d.ts",
+    ],
+    deps = ["@npm//:vitest"],
+)
+
+vitest_config(
+    name = "attrs_test_config",
+    testonly = True,
+    test = ":attrs_test",
+)
+
+sh_test(
+    name = "config_layers_test",
+    size = "small",
+    srcs = ["verify_config_layers.sh"],
+    data = [":attrs_test_config"],
+)

@@ -1,0 +1,13 @@
+"""`config` also takes an inline dict, mirroring ts_compile's tsconfig attr."""
+
+load("//ts:defs.bzl", "ts_test")
+
+ts_test(
+    name = "define_test",
+    srcs = [
+        "define.d.ts",
+        "define.test.ts",
+    ],
+    config = {"define": {"__RULES_TS_ANSWER__": "42"}},
+    deps = ["@npm//:vitest"],
+)

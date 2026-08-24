@@ -1,0 +1,34 @@
+"""`environment` takes any vitest environment name, not a hardcoded set of three.
+
+jsdom and edge-runtime are absent from the test lockfile, so these targets are
+analysed and built but never run — which is enough, because the constraint being
+pinned is an analysis-time one.  Two ts_test targets in one package also pin
+that the auto-generated node_modules trees no longer collide.
+"""
+
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "ts_test")
+
+ts_test(
+    name = "edge_test",
+    srcs = ["edge.test.ts"],
+    environment = "edge-runtime",
+    tags = ["manual"],
+    deps = ["@npm//:vitest"],
+)
+
+ts_test(
+    name = "jsdom_test",
+    srcs = ["jsdom.test.ts"],
+    environment = "jsdom",
+    tags = ["manual"],
+    deps = ["@npm//:vitest"],
+)
+
+build_test(
+    name = "environment_values_test",
+    targets = [
+        ":edge_test",
+        ":jsdom_test",
+    ],
+)

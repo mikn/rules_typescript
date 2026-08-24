@@ -1,0 +1,13 @@
+"""`data` puts fixtures a test reads at runtime into the runfiles tree."""
+
+load("//ts:defs.bzl", "ts_test")
+
+ts_test(
+    name = "fixture_test",
+    srcs = [
+        "fixture.test.ts",
+        "node_shims.d.ts",
+    ],
+    data = ["fixture.txt"],
+    deps = ["@npm//:vitest"],
+)
