@@ -2,12 +2,12 @@
 
 Why this shape rather than one big repo
 ---------------------------------------
-The single-repo design (`npm_translate_lock`) has to download and extract every
-package in the lockfile before it can generate any BUILD file, because it reads
-`bin` and `exports` out of each extracted `package.json`. On a real 2731-package
-lockfile that is ~5 minutes and ~5 GB, paid in full even by a target whose only
-npm dependency is vitest, in one serial Starlark loop with no resume: a single
-bad tarball restarts everything.
+A single repository holding every package has to download and extract all of
+them before it can generate any BUILD file, because it reads `bin` and `exports`
+out of each extracted `package.json`. On a real 2731-package lockfile that is
+~5 minutes and ~5 GB, paid in full even by a target whose only npm dependency is
+vitest, in one serial Starlark loop with no resume: a single bad tarball restarts
+everything.
 
 Here each package is its own repository rule, so it reads its OWN package.json
 and writes its OWN BUILD file. Bazel then fetches repositories on demand, which
@@ -121,6 +121,49 @@ def _primary_bin_name(package, bins):
 def _quote_list(items, indent = "        "):
     return "".join(['{}"{}",\n'.format(indent, i) for i in items])
 
+def _apply_patch(rctx):
+    """Applies the package's pnpm patch, failing the fetch if it does not land.
+
+    The tarball just downloaded is byte-identical to the unpatched publish, so a
+    patch that quietly fails to apply leaves nothing downstream able to tell the
+    difference until production. Hence two loud gates: the digest below, and
+    rctx.patch itself, which fails on any hunk that does not apply.
+    """
+    patch = rctx.attr.patch
+
+    # An attr.label is not by itself a dependency of the fetch, and neither is
+    # rctx.path on it: without this, editing a patch file leaves the already
+    # fetched repository in place and the build keeps the old patch.
+    rctx.watch(patch)
+
+    if not rctx.attr.patch_sha256:
+        rctx.patch(patch, strip = 1)
+        return
+
+    # Copied through the downloader purely to get its digest -- Starlark has no
+    # hashing builtin. Deliberately WITHOUT download's own sha256 argument: a
+    # checksummed request is served from the content-addressed repository cache
+    # without reading the file at all, so an edited patch would be silently
+    # replaced by the locked bytes on a warm cache and rejected on a cold one.
+    local = "_pnpm.patch"
+    result = rctx.download(url = "file://" + str(rctx.path(patch)), output = local)
+    if result.sha256 != rctx.attr.patch_sha256:
+        fail(
+            "npm: {} does not match the sha256 recorded for {} in the lockfile's ".format(
+                patch,
+                rctx.attr.package,
+            ) +
+            "patchedDependencies:\n  lockfile: {}\n  file:     {}\n".format(
+                rctx.attr.patch_sha256,
+                result.sha256,
+            ) +
+            "pnpm records that digest when it writes the patch, so the two disagreeing " +
+            "means the patch changed without `pnpm install` being re-run. Bazel would " +
+            "apply a patch pnpm never saw.",
+        )
+    rctx.patch(local, strip = 1)
+    rctx.delete(local)
+
 def _npm_import_impl(rctx):
     tarball = "_pkg.tgz"
     if rctx.attr.integrity:
@@ -131,6 +174,12 @@ def _npm_import_impl(rctx):
     prefix = _detect_tarball_prefix(rctx, rctx.path(tarball))
     rctx.extract(archive = tarball, stripPrefix = prefix if prefix else rctx.attr.expected_prefix)
     rctx.delete(tarball)
+
+    # Before package.json is read: a patch may change `bin` or `exports`, and
+    # pnpm links the patched manifest, so the generated targets must describe
+    # the patched package rather than the published one.
+    if rctx.attr.patch:
+        _apply_patch(rctx)
 
     pkg_json = {}
     pkg_json_path = rctx.path("package.json")
@@ -146,26 +195,37 @@ def _npm_import_impl(rctx):
 
     exports_types = _exports_types(pkg_json)
 
-    pkg_stanza = [
-        "ts_npm_package(",
-        '    name = "pkg",',
-        '    package_name = "{}",'.format(rctx.attr.package),
-        '    package_version = "{}",'.format(rctx.attr.version),
-        '    package_dir = "package.json",',
-        '    package_files = glob(["**/*"], exclude_directories = 1, allow_empty = True),',
-    ]
-    if rctx.attr.deps:
-        pkg_stanza.append("    deps = [")
-        pkg_stanza.append(_quote_list(rctx.attr.deps).rstrip("\n"))
-        pkg_stanza.append("    ],")
-    if rctx.attr.types_dep:
-        pkg_stanza.append('    types_dep = "{}",'.format(rctx.attr.types_dep))
-    if rctx.attr.is_types_package:
-        pkg_stanza.append("    is_types_package = True,")
-    if exports_types:
-        pkg_stanza.append('    exports_types = "{}",'.format(exports_types))
-    pkg_stanza.append(")\n")
-    lines.append("\n".join(pkg_stanza))
+    def _package_stanza(target_name, package_name):
+        stanza = [
+            "ts_npm_package(",
+            '    name = "{}",'.format(target_name),
+            '    package_name = "{}",'.format(package_name),
+            '    package_version = "{}",'.format(rctx.attr.version),
+            '    package_dir = "package.json",',
+            '    package_files = glob(["**/*"], exclude_directories = 1, allow_empty = True),',
+        ]
+        if rctx.attr.deps:
+            stanza.append("    deps = [")
+            stanza.append(_quote_list(rctx.attr.deps).rstrip("\n"))
+            stanza.append("    ],")
+        if rctx.attr.types_dep:
+            stanza.append('    types_dep = "{}",'.format(rctx.attr.types_dep))
+        if rctx.attr.is_types_package:
+            stanza.append("    is_types_package = True,")
+        if exports_types:
+            stanza.append('    exports_types = "{}",'.format(exports_types))
+        stanza.append(")\n")
+        return "\n".join(stanza)
+
+    lines.append(_package_stanza("pkg", rctx.attr.package))
+
+    # An npm alias (`h3-v2: npm:h3@2.0.1`) is the same files installed under a
+    # second name. package_name is what the node_modules tree builder writes on
+    # disk, so the alias needs its own target: node_modules/h3-v2 is where
+    # `import "h3-v2"` looks, and pointing a Bazel alias at :pkg would produce
+    # node_modules/h3 instead.
+    for target_name, alias_package in rctx.attr.aliases.items():
+        lines.append(_package_stanza(target_name, alias_package))
 
     # Native binaries a bin script resolves at runtime live in sibling
     # repositories, so they are declared as targets rather than located by
@@ -214,6 +274,21 @@ npm_import = repository_rule(
         "optional_dep_packages": attr.string_list(
             doc = "Apparent labels of sibling npm_import repos holding platform-specific " +
                   "native binaries this package's bin scripts resolve at runtime.",
+        ),
+        "aliases": attr.string_dict(
+            doc = "Target name -> npm package name for each additional name this package " +
+                  "is imported under (npm alias specifiers). The extension names the " +
+                  "targets so the hub and the spoke agree without duplicating the " +
+                  "name-to-label rule.",
+        ),
+        "patch": attr.label(
+            allow_single_file = True,
+            doc = "The pnpm patch to apply to this package, from patchedDependencies.",
+        ),
+        "patch_sha256": attr.string(
+            doc = "sha256 of the patch file as recorded in the lockfile's " +
+                  "patchedDependencies. Empty when the lockfile records the digest " +
+                  "in some other form, which skips the content check.",
         ),
     },
     doc = "Fetches one npm package into its own repository and generates its BUILD file.",

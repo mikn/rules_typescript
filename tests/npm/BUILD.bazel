@@ -1,8 +1,10 @@
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("//npm:defs.bzl", "node_modules")
 load("//ts:defs.bzl", "ts_compile")
+load(":parser_tests.bzl", "parser_test_suite")
 
-# Expose the lockfile so bootstrap tests can declare it as a data dep.
-exports_files(["pnpm-lock.yaml"])
+# Lockfile-text tests: what the parsers read, and what they must keep ignoring.
+parser_test_suite(name = "parser_tests")
 
 ts_compile(
     name = "app",
@@ -22,8 +24,8 @@ ts_compile(
 ts_compile(
     name = "workspace_consumer",
     srcs = ["workspace_consumer.ts"],
-    deps = ["@npm//:shared"],
     enable_check = False,
+    deps = ["@npm//:shared"],
 )
 
 # Test that npm_bin targets are generated and executable.
@@ -47,9 +49,9 @@ sh_test(
     size = "small",
     srcs = ["verify_multi_version.sh"],
     data = [
+        "@npm//:vitest_pretty-format",
         "@npm//:vitest_pretty-format_3_0_9",
         "@npm//:vitest_pretty-format_3_2_4",
-        "@npm//:vitest_pretty-format",
     ],
 )
 
@@ -61,8 +63,8 @@ sh_test(
 ts_compile(
     name = "nested_workspace_consumer",
     srcs = ["nested_workspace_consumer.ts"],
-    deps = ["@npm//:nested-shared"],
     enable_check = False,
+    deps = ["@npm//:nested-shared"],
 )
 
 sh_test(
@@ -80,4 +82,38 @@ sh_test(
     size = "small",
     srcs = ["verify_versioned_types_prefix.sh"],
     data = ["@npm//:types_express-serve-static-core"],
+)
+
+# A pnpm patch has to reach the files a build sees. The registry tarball is
+# byte-identical either way -- `packages:` records the integrity of the unpatched
+# publish -- so a patch that quietly fails to apply produces a green build that
+# ships the wrong package. The fixture patch rewrites nanoid's "sideEffects".
+sh_test(
+    name = "npm_patched_dependency_test",
+    size = "small",
+    srcs = ["verify_patched_dependency.sh"],
+    data = ["@npm_features//:nanoid"],
+)
+
+# Two npm alias specifiers in the fixture lockfile, each reachable by exactly
+# one route: ms-alias is declared by the workspace root and nothing else,
+# nano-alias by zod and nothing else.
+node_modules(
+    name = "importer_alias_node_modules",
+    deps = ["@npm_features//:ms-alias"],
+)
+
+node_modules(
+    name = "package_alias_node_modules",
+    deps = ["@npm_features//:zod"],
+)
+
+sh_test(
+    name = "npm_alias_test",
+    size = "small",
+    srcs = ["verify_npm_alias.sh"],
+    data = [
+        ":importer_alias_node_modules",
+        ":package_alias_node_modules",
+    ],
 )

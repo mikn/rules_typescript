@@ -12,10 +12,60 @@ bzl_library(
 )
 
 bzl_library(
+    name = "asset_library",
+    srcs = ["asset_library.bzl"],
+    deps = [
+        ":providers",
+    ],
+)
+
+bzl_library(
     name = "css_library",
     srcs = ["css_library.bzl"],
     deps = [
         ":providers",
+    ],
+)
+
+bzl_library(
+    name = "css_module",
+    srcs = ["css_module.bzl"],
+    deps = [
+        ":providers",
+    ],
+)
+
+bzl_library(
+    name = "json_library",
+    srcs = ["json_library.bzl"],
+    deps = [
+        ":providers",
+        ":runtime",
+    ],
+)
+
+bzl_library(
+    name = "npm_bin",
+    srcs = ["npm_bin.bzl"],
+    deps = [
+        ":providers",
+        ":runtime",
+    ],
+)
+
+bzl_library(
+    name = "pnpm",
+    srcs = ["pnpm.bzl"],
+    deps = [
+        "@rules_shell//shell:rules_bzl",
+    ],
+)
+
+bzl_library(
+    name = "ts_codegen",
+    srcs = ["ts_codegen.bzl"],
+    deps = [
+        ":runtime",
     ],
 )
 
@@ -33,7 +83,6 @@ bzl_library(
     srcs = ["ts_check.bzl"],
     deps = [
         ":providers",
-        ":ts_config_gen",
         ":toolchain",
     ],
 )
@@ -50,7 +99,9 @@ bzl_library(
     name = "ts_test",
     srcs = ["ts_test.bzl"],
     deps = [
+        ":node_modules",
         ":providers",
+        ":runtime",
         ":ts_compile",
     ],
 )
@@ -102,14 +153,14 @@ bzl_library(
 bzl_library(
     name = "npm_import",
     srcs = ["npm_import.bzl"],
+    deps = [
+        ":ts_npm_package",
+    ],
 )
 
 bzl_library(
     name = "npm_translate_lock",
     srcs = ["npm_translate_lock.bzl"],
-    deps = [
-        ":ts_npm_package",
-    ],
 )
 
 bzl_library(
@@ -117,19 +168,23 @@ bzl_library(
     srcs = ["node_modules.bzl"],
     deps = [
         ":providers",
+        ":runtime",
     ],
 )
 
 bzl_library(
     name = "toolchain",
     srcs = ["toolchain.bzl"],
+    deps = [
+        "//platforms",
+    ],
 )
 
 bzl_library(
     name = "runtime",
     srcs = ["runtime.bzl"],
     deps = [
-        ":toolchain",
+        "//platforms",
     ],
 )
 

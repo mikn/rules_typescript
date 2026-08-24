@@ -1,0 +1,15 @@
+diff --git a/package.json b/package.json
+--- a/package.json
++++ b/package.json
+@@ -28,7 +28,10 @@
+   },
+   "react-native": "index.js",
+   "bin": "./bin/nanoid.cjs",
+-  "sideEffects": false,
++  "sideEffects": [
++    "./index.js",
++    "./index.cjs"
++  ],
+   "types": "./index.d.ts",
+   "type": "module",
+   "main": "index.cjs",

@@ -4,8 +4,8 @@ Users should load from this file in their BUILD files:
     load("@rules_typescript//npm:defs.bzl", "node_modules")
     load("@rules_typescript//npm:defs.bzl", "npm_bin")
 
-Note: npm_translate_lock is a repository rule used in MODULE.bazel via the
-npm module extension, not in BUILD files.  To set up npm dependencies, use:
+Note: npm repositories are declared by the npm module extension in
+MODULE.bazel, not in BUILD files.  To set up npm dependencies, use:
 
     # In MODULE.bazel:
     npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
