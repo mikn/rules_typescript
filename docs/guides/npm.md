@@ -121,17 +121,11 @@ Independent repositories also fetch in parallel, cache and invalidate
 individually, and a malformed tarball fails only its own package instead of
 restarting the whole fetch.
 
-The label surface is unchanged: `@npm//:zod`, `@npm//:types_react`,
-`@npm//:vitest_bin`.
+The label surface is `@npm//:zod`, `@npm//:types_react`, `@npm//:vitest_bin`.
 
-To use the single-repository layout instead:
-
-```python
-npm.translate_lock(
-    pnpm_lock = "//:pnpm-lock.yaml",
-    lazy = False,
-)
-```
+There is one npm implementation. The single-repository layout and its `lazy`
+attribute are gone: carrying two resolvers is how they drift, and patches could
+not be implemented once for both.
 
 ### Known gap
 

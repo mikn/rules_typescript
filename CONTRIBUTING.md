@@ -137,10 +137,10 @@ Bootstrap tests spin up isolated Bazel workspaces to verify end-to-end user jour
 ```bash
 export RULES_TYPESCRIPT_ROOT=$(pwd)
 
-bazel test //tests/bootstrap:test_new_project --test_output=all --test_strategy=local
-bazel test //tests/bootstrap:test_existing_project --test_output=all --test_strategy=local
-bazel test //tests/bootstrap:test_npm_deps --test_output=all --test_strategy=local
-bazel test //tests/bootstrap:test_gazelle_roundtrip --test_output=all --test_strategy=local
+bazel test //tests/integration:new_project_test --test_output=all
+bazel test //tests/integration:existing_project_test --test_output=all
+bazel test //tests/integration:npm_deps_test --test_output=all
+bazel test //tests/integration:gazelle_roundtrip_test --test_output=all
 ```
 
 ### End-to-end workspace tests
@@ -160,7 +160,7 @@ bazel test //...
 | Vitest | `bazel test //tests/vitest/...` | ts_test + vitest runner |
 | Bundle | `bazel test //tests/bundle/...` | ts_binary bundling |
 | npm | `bazel test //tests/npm/...` | npm package targets from pnpm-lock.yaml |
-| Bootstrap | `bazel test //tests/bootstrap/...` | Full user-journey integration tests |
+| Integration | `bazel test //tests/integration/...` | Full user-journey tests, each in a nested Bazel workspace |
 | Gazelle | `bazel test //gazelle/...` | Gazelle extension unit tests |
 | E2E | `cd e2e/basic && bazel build //...` | Real consumer workspace |
 

@@ -17,7 +17,6 @@ module(
 )
 
 bazel_dep(name = "rules_typescript", version = "0.0.0")
-
 local_path_override(
     module_name = "rules_typescript",
     path = "{RULES_TS_ROOT}",

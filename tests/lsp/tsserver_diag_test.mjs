@@ -1,61 +1,55 @@
 /**
- * tsserver_diag_test.mjs — End-to-end language service test with Bazel hook.
+ * tsserver_diag_test.mjs — the gold test for tools/tsserver-hook.js.
  *
- * Run via (hook pre-populates the resolution cache):
- *   TSSERVER_HOOK_PRELOAD_MAP='{"zod":"/path/to/zod.d.ts"}' \
+ * Run by tests/lsp/test_tsserver_diagnostics.sh, which supplies typescript and
+ * zod from the lockfile and pre-populates the hook's cache:
+ *   TSSERVER_HOOK_PRELOAD_MAP='{"zod":"<abs>/zod/index.d.ts"}' \
  *   TSSERVER_HOOK_NO_WORKER=1 \
- *   node --require <hook.js> tsserver_diag_test.mjs <hook.js> [<zod.d.ts>]
+ *   node --require <hook.js> tsserver_diag_test.mjs <zod.d.ts>
  *
- * What this tests (Test 5 from the LSP test plan — the gold test):
- *   Use TypeScript's Language Service API (ts.createLanguageService) to get
- *   semantic diagnostics for a virtual file that imports from "zod".  The hook
- *   patches ts.resolveModuleName; this test verifies that calling
- *   ts.createLanguageService with a host whose resolveModuleNames delegates to
- *   the patched ts.resolveModuleName produces ZERO "Cannot find module 'zod'"
- *   errors.
+ * The claim under test is the one an editor cares about: with the hook loaded,
+ * `import { z } from "zod"` type-checks against zod's REAL declarations even
+ * though nothing on the module search path leads to them. Three assertions,
+ * every one of which fails if the hook stops working:
  *
- * Why ts.createLanguageService instead of the standalone tsserver.js process:
- *   tsserver.js is a self-contained bundle that does not call require('typescript').
- *   The hook patches the MODULE-level ts.resolveModuleName (intercepted via
- *   Module._load → Proxy), which is visible to callers who load TypeScript as a
- *   module.  ts.createLanguageService uses TypeScript as a module, making it
- *   the correct API surface for this test.
+ *   baseline  the same language service WITHOUT the hook's resolver reports
+ *             TS2307 for "zod" -- without this the other two prove nothing,
+ *             because ambient resolution would satisfy them on its own.
+ *   resolved  with the hook's resolver, the good file has zero diagnostics AND
+ *             a bogus member access on `z` is rejected. A stub, an `any`, or a
+ *             widened import would pass the first half and fail the second.
+ *   direct    ts.resolveModuleName("zod", ...) returns the exact .d.ts path.
  *
- *   The hook is designed for editors that load TypeScript via require() (e.g.
- *   neovim's nvim-lspconfig with tsserver, emacs lsp-mode, etc.) — those
- *   callers will get the patched ts.resolveModuleName transparently.
- *
- * Arguments:
- *   argv[2]  path to tsserver-hook.js (informational only; hook is pre-loaded
- *            via --require in the parent shell script)
- *   argv[3]  path to zod's index.d.ts (or "skip" to test skip logic)
- *
- * Exit code: 0 = pass or skip, 1 = failure.
+ * Why ts.createLanguageService and not the standalone tsserver.js process:
+ * tsserver.js is a self-contained bundle that never calls require('typescript'),
+ * so the Module._load patch is invisible to it. The hook targets editors that
+ * load TypeScript as a module (neovim, emacs lsp-mode, VS Code), and
+ * createLanguageService is that same API surface.
  */
 
-'use strict';
-
 import { createRequire } from 'module';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, statSync } from 'fs';
 
 const require = createRequire(import.meta.url);
 
-const [, , hookPathArg, zodDtsArg] = process.argv;
+const [, , zodDts] = process.argv;
 
-let allPassed = true;
+if (!zodDts) {
+  process.stderr.write('FATAL: usage: tsserver_diag_test.mjs <zod.d.ts>\n');
+  process.exit(1);
+}
+
+let failures = 0;
 
 function pass(name) {
   process.stdout.write(`PASS: ${name}\n`);
 }
+
 function fail(name, detail) {
   process.stderr.write(`FAIL: ${name}${detail ? ': ' + detail : ''}\n`);
-  allPassed = false;
-}
-function skip(name) {
-  process.stdout.write(`SKIP: ${name}\n`);
+  failures += 1;
 }
 
-// ── Load TypeScript via the hook (must be --require'd before this script) ─────
 let ts;
 try {
   ts = require('typescript');
@@ -65,221 +59,164 @@ try {
 }
 
 process.stdout.write(`INFO: TypeScript ${ts.version}\n`);
-process.stdout.write(`INFO: _bazelPatched = ${ts._bazelPatched}\n`);
 
-// ── Verify the hook is active ─────────────────────────────────────────────────
-if (ts._bazelPatched !== true) {
-  fail('hook active', 'ts._bazelPatched is not true — hook may not be loaded via --require');
-  // Continue so remaining tests still run (they may still pass if hook loaded differently).
+if (ts._bazelPatched === true) {
+  pass('hook active: ts._bazelPatched === true');
+} else {
+  process.stderr.write(
+    `FATAL: ts._bazelPatched is ${JSON.stringify(ts._bazelPatched)} -- the hook did not patch ` +
+      'the typescript module, so nothing below would be testing the hook\n'
+  );
+  process.exit(1);
 }
 
-// ── Helper: create a minimal Language Service host ────────────────────────────
-function createHost(virtualFiles, resolveModuleNames) {
-  const scriptVersions = new Map();
-  const scriptSnapshots = new Map();
+if (!existsSync(zodDts)) {
+  process.stderr.write(`FATAL: zod declarations not on disk: ${zodDts}\n`);
+  process.exit(1);
+}
 
-  for (const [name, content] of Object.entries(virtualFiles)) {
-    scriptVersions.set(name, '1');
-    scriptSnapshots.set(name, ts.ScriptSnapshot.fromString(content));
-  }
+const GOOD = '/virtual/good.ts';
+const BAD = '/virtual/bad.ts';
+const BOGUS_MEMBER = 'definitelyNotAZodMethod';
+
+const virtualFiles = {
+  [GOOD]: 'import { z } from "zod";\nexport const s = z.string();\n',
+  [BAD]: `import { z } from "zod";\nexport const s = z.${BOGUS_MEMBER}();\n`,
+};
+
+function createHost(resolveModuleNames) {
+  const snapshots = new Map(
+    Object.entries(virtualFiles).map(([name, content]) => [
+      name,
+      ts.ScriptSnapshot.fromString(content),
+    ])
+  );
+
+  const readAny = (p) => {
+    const snap = snapshots.get(p);
+    if (snap) return snap.getText(0, snap.getLength());
+    return existsSync(p) ? readFileSync(p, 'utf8') : undefined;
+  };
 
   return {
     getScriptFileNames: () => Object.keys(virtualFiles),
-    getScriptVersion: (f) => scriptVersions.get(f) || '0',
-    getScriptSnapshot: (f) => {
-      if (scriptSnapshots.has(f)) return scriptSnapshots.get(f);
-      if (existsSync(f)) return ts.ScriptSnapshot.fromString(readFileSync(f, 'utf8'));
-      return undefined;
-    },
+    getScriptVersion: () => '1',
+    getScriptSnapshot: (f) =>
+      snapshots.get(f) ||
+      (existsSync(f) ? ts.ScriptSnapshot.fromString(readFileSync(f, 'utf8')) : undefined),
     getCurrentDirectory: () => '/virtual',
     getCompilationSettings: () => ({
       moduleResolution: ts.ModuleResolutionKind.Bundler,
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2022,
       noEmit: true,
-      strict: false,
+      strict: true,
     }),
-    getDefaultLibFileName: (opts) => ts.getDefaultLibFilePath(opts),
-    fileExists: (p) => {
-      if (scriptSnapshots.has(p)) return true;
-      return existsSync(p);
-    },
-    readFile: (p) => {
-      if (scriptSnapshots.has(p)) {
-        const snap = scriptSnapshots.get(p);
-        return snap.getText(0, snap.getLength());
+    getDefaultLibFileName: (options) => ts.getDefaultLibFilePath(options),
+    fileExists: (p) => snapshots.has(p) || existsSync(p),
+    readFile: readAny,
+    directoryExists: (p) => {
+      try {
+        return statSync(p).isDirectory();
+      } catch {
+        return false;
       }
-      if (existsSync(p)) return readFileSync(p, 'utf8');
-      return undefined;
     },
+    getDirectories: () => [],
+    realpath: (p) => p,
     resolveModuleNames,
   };
 }
 
-// ── Test A: Language service without hook — baseline ──────────────────────────
-// Verify that WITHOUT our custom resolver, zod is not found.
+function diagnostics(host, fileName) {
+  const service = ts.createLanguageService(host, ts.createDocumentRegistry());
+  try {
+    return service.getSemanticDiagnostics(fileName).map((d) => ({
+      code: d.code,
+      message: ts.flattenDiagnosticMessageText(d.messageText, ' '),
+    }));
+  } finally {
+    service.dispose();
+  }
+}
+
+const describe = (list) => JSON.stringify(list);
+
+// ── baseline: no hook resolver, zod is unreachable ───────────────────────────
 {
-  const fileContent = 'import { z } from "zod";\nconst schema = z.string();\nexport { schema };\n';
-  const host = createHost(
-    { '/virtual/test.ts': fileContent },
-    undefined  // no custom resolver — standard TS resolution
+  const baseline = diagnostics(createHost(undefined), GOOD);
+  const missingZod = baseline.filter((d) => d.code === 2307 && d.message.includes("'zod'"));
+  if (missingZod.length > 0) {
+    pass('baseline: standard resolution cannot find "zod"');
+  } else {
+    fail(
+      'baseline: standard resolution cannot find "zod"',
+      'no TS2307 for zod, so "zod" is reachable without the hook and the ' +
+        `assertions below would prove nothing. diagnostics: ${describe(baseline)}`
+    );
+  }
+}
+
+// ── with the hook's resolver: real declarations, not a stand-in ──────────────
+{
+  const resolveModuleNames = (moduleNames, containingFile) =>
+    moduleNames.map(
+      (name) =>
+        ts.resolveModuleName(
+          name,
+          containingFile,
+          { moduleResolution: ts.ModuleResolutionKind.Bundler },
+          {
+            fileExists: (p) =>
+              existsSync(p) || Object.prototype.hasOwnProperty.call(virtualFiles, p),
+            readFile: (p) =>
+              existsSync(p) ? readFileSync(p, 'utf8') : virtualFiles[p],
+          }
+        ).resolvedModule
+    );
+
+  const host = createHost(resolveModuleNames);
+
+  const good = diagnostics(host, GOOD);
+  if (good.length === 0) {
+    pass('hook resolver: `import { z } from "zod"` type-checks clean');
+  } else {
+    fail('hook resolver: `import { z } from "zod"` type-checks clean', describe(good));
+  }
+
+  const bad = diagnostics(host, BAD);
+  if (bad.some((d) => d.message.includes(BOGUS_MEMBER))) {
+    pass(`hook resolver: z.${BOGUS_MEMBER}() is rejected (real declarations loaded)`);
+  } else {
+    fail(
+      `hook resolver: z.${BOGUS_MEMBER}() is rejected`,
+      'a nonexistent member on `z` produced no error, so zod resolved to ' +
+        `something untyped rather than its own declarations. diagnostics: ${describe(bad)}`
+    );
+  }
+}
+
+// ── the patched resolver returns the exact path it was given ─────────────────
+{
+  const result = ts.resolveModuleName(
+    'zod',
+    GOOD,
+    { moduleResolution: ts.ModuleResolutionKind.Bundler },
+    {
+      fileExists: (p) => existsSync(p),
+      readFile: (p) => (existsSync(p) ? readFileSync(p, 'utf8') : undefined),
+    }
   );
-
-  const service = ts.createLanguageService(host, ts.createDocumentRegistry());
-  try {
-    const diags = service.getSemanticDiagnostics('/virtual/test.ts');
-    const zodError = diags.find(
-      (d) => typeof d.messageText === 'string' && d.messageText.includes("'zod'")
-    );
-    if (zodError) {
-      pass('baseline: standard TS cannot resolve zod (expected)');
-    } else {
-      // If zod happens to be on the TS search path, this might not error.
-      process.stdout.write('INFO: baseline: no zod error (zod may be on default paths)\n');
-      pass('baseline: language service works without hook');
-    }
-  } finally {
-    service.dispose();
+  const resolved = result.resolvedModule && result.resolvedModule.resolvedFileName;
+  if (resolved === zodDts) {
+    pass(`ts.resolveModuleName("zod") -> ${resolved}`);
+  } else {
+    fail('ts.resolveModuleName("zod")', `got ${JSON.stringify(resolved)}, want ${zodDts}`);
   }
 }
 
-// ── Test B: Language service with hook-aware resolver ─────────────────────────
-// The hook patches ts.resolveModuleName.  A language service host that
-// delegates to ts.resolveModuleName (our patched version) should resolve zod.
-if (!zodDtsArg || zodDtsArg === 'skip') {
-  skip('language service with hook-aware resolver (no zod .d.ts provided)');
-} else if (!existsSync(zodDtsArg)) {
-  skip(`language service with hook-aware resolver (zod .d.ts not on disk: ${zodDtsArg})`);
-} else {
-  // Virtual files: the test file + a stub of zod's re-export chain.
-  // The real zod.d.ts does `export * from "./lib"`, so we need to handle that.
-  // For the test we use a minimal stub that exports z.string() so we don't
-  // have to replicate the whole zod package.
-  const zodStub = `
-export declare const z: {
-  string(): StringSchema;
-  number(): NumberSchema;
-  object(shape: Record<string, any>): ObjectSchema;
-};
-export declare interface StringSchema { optional(): StringSchema; parse(v: unknown): string; }
-export declare interface NumberSchema { optional(): NumberSchema; parse(v: unknown): number; }
-export declare interface ObjectSchema { optional(): ObjectSchema; parse(v: unknown): Record<string, any>; }
-`;
-
-  const fileContent = 'import { z } from "zod";\nconst schema = z.string();\nexport { schema };\n';
-  const zodStubPath = '/virtual/node_modules/zod/index.d.ts';
-
-  const virtualFiles = {
-    '/virtual/test.ts': fileContent,
-    [zodStubPath]: zodStub,
-  };
-
-  // resolveModuleNames: delegate to the patched ts.resolveModuleName.
-  // If the hook is active, ts.resolveModuleName('zod', ...) returns the cached path.
-  // We fall back to a direct virtual path match for test determinism.
-  const resolveModuleNames = (moduleNames, containingFile) => {
-    return moduleNames.map((name) => {
-      // First try the patched ts.resolveModuleName.
-      const result = ts.resolveModuleName(name, containingFile, {
-        moduleResolution: ts.ModuleResolutionKind.Bundler,
-      }, {
-        fileExists: (p) => existsSync(p) || virtualFiles.hasOwnProperty(p),
-        readFile: (p) => {
-          if (virtualFiles[p] !== undefined) return virtualFiles[p];
-          if (existsSync(p)) return readFileSync(p, 'utf8');
-          return undefined;
-        },
-        trace: undefined,
-      });
-
-      if (result.resolvedModule) {
-        return result.resolvedModule;
-      }
-
-      // If the hook didn't resolve it (cache not ready), fall back to our
-      // virtual stub for 'zod'.
-      if (name === 'zod') {
-        return {
-          resolvedFileName: zodStubPath,
-          extension: ts.Extension.Dts,
-          isExternalLibraryImport: true,
-        };
-      }
-
-      return undefined;
-    });
-  };
-
-  const host = createHost(virtualFiles, resolveModuleNames);
-  const service = ts.createLanguageService(host, ts.createDocumentRegistry());
-
-  try {
-    const diags = service.getSemanticDiagnostics('/virtual/test.ts');
-    process.stdout.write(`INFO: Test B diagnostics count: ${diags.length}\n`);
-
-    const zodMissingErrors = diags.filter(
-      (d) =>
-        d.code === 2307 &&
-        (typeof d.messageText === 'string'
-          ? d.messageText.includes("'zod'")
-          : (d.messageText.messageText || '').includes("'zod'"))
-    );
-
-    if (zodMissingErrors.length > 0) {
-      fail(
-        'language service with hook-aware resolver',
-        `still reports "Cannot find module 'zod'" (${zodMissingErrors.length} error(s))`
-      );
-      process.stderr.write(
-        'INFO: diagnostics: ' + JSON.stringify(diags.map((d) => ({
-          code: d.code,
-          message: typeof d.messageText === 'string' ? d.messageText : d.messageText.messageText,
-        })), null, 2) + '\n'
-      );
-    } else {
-      const resolvedPath = ts._bazelPatched
-        ? 'via Bazel hook cache'
-        : 'via virtual stub fallback';
-      pass(`language service: no "Cannot find module 'zod'" errors (${resolvedPath})`);
-    }
-  } finally {
-    service.dispose();
-  }
-}
-
-// ── Test C: Patched ts.resolveModuleName is callable from the language service ─
-// Verify that calling ts.resolveModuleName (the patched function) returns a
-// valid result when the cache contains the entry, and does not crash otherwise.
-{
-  const mockHost = {
-    fileExists: (p) => existsSync(p),
-    readFile: (p) => existsSync(p) ? readFileSync(p, 'utf8') : undefined,
-    trace: undefined,
-  };
-
-  try {
-    const result = ts.resolveModuleName('zod', '/virtual/test.ts', {
-      moduleResolution: ts.ModuleResolutionKind.Bundler,
-    }, mockHost);
-
-    if (result && result.resolvedModule) {
-      const path = result.resolvedModule.resolvedFileName;
-      pass(`ts.resolveModuleName('zod') returns a resolved path: ${path}`);
-    } else if (ts._bazelPatched) {
-      // The hook is patched but cache was empty (no PRELOAD_MAP). That's OK.
-      process.stdout.write('INFO: zod not in cache (TSSERVER_HOOK_PRELOAD_MAP not set?)\n');
-      pass('ts.resolveModuleName("zod") did not throw (hook active, cache empty)');
-    } else {
-      pass('ts.resolveModuleName("zod") returned no module (hook not active, expected)');
-    }
-  } catch (e) {
-    fail('ts.resolveModuleName("zod") must not throw', e.message);
-  }
-}
-
-// ── Summary ──────────────────────────────────────────────────────────────────
-if (allPassed) {
-  process.stdout.write('\nALL PASSED\n');
-  process.exit(0);
-} else {
-  process.stderr.write('\nSOME TESTS FAILED\n');
+if (failures > 0) {
+  process.stderr.write(`\n${failures} FAILED\n`);
   process.exit(1);
 }
+process.stdout.write('\nALL PASSED\n');

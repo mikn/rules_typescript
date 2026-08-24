@@ -44,7 +44,7 @@ cd e2e/basic && bazel test //...           # e2e workspace
 cd examples/react-app && bazel test //...  # example workspace
 
 # Bootstrap tests (slow, spawn nested Bazel — run explicitly)
-RULES_TYPESCRIPT_ROOT=$(pwd) bazel test //tests/bootstrap:test_new_project
+bazel test //tests/integration:new_project_test
 ```
 
 ## Three-Stage Development Cycle
@@ -112,7 +112,7 @@ Change implementation without changing .d.ts → no downstream recompilation.
 
 **Testing:**
 - Every feature needs a test that ASSERTS correctness (not just "builds without errors")
-- Bootstrap tests (`tests/bootstrap/`) test full user journeys — create project, gazelle, build, test
+- Integration tests (`tests/integration/`) test full user journeys in a nested Bazel workspace — create project, gazelle, build, test
 - Bootstrap tests found 5 real bugs on first run. They are not optional.
 - Use `sh_test` for output verification, `go_test` for Gazelle logic, vitest for runtime behavior
 

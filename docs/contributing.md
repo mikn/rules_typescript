@@ -69,7 +69,7 @@ bazel test //gazelle/...
 
 ```bash
 export RULES_TYPESCRIPT_ROOT=$(pwd)
-bazel test //tests/bootstrap:test_new_project --test_output=all --test_strategy=local
+bazel test //tests/integration:new_project_test --test_output=all
 ```
 
 ### End-to-End Workspace Tests
@@ -89,7 +89,7 @@ bazel test //...
 | Vitest | `bazel test //tests/vitest/...` | ts_test + vitest runner |
 | Bundle | `bazel test //tests/bundle/...` | ts_binary bundling |
 | npm | `bazel test //tests/npm/...` | npm package targets from pnpm-lock.yaml |
-| Bootstrap | `bazel test //tests/bootstrap/...` | Full user-journey integration tests |
+| Integration | `bazel test //tests/integration/...` | Full user-journey tests, each in a nested Bazel workspace |
 | Gazelle | `bazel test //gazelle/...` | Gazelle extension unit tests |
 | E2E | `cd e2e/basic && bazel build //...` | Real consumer workspace |
 

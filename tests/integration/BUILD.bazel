@@ -17,19 +17,14 @@ The test_runner.sh scripts derive the rules_typescript source root by walking
 from BIT_WORKSPACE_DIR up to the runfiles _main/ directory and resolving the
 MODULE.bazel symlink to the real source checkout.
 
-Usage (individual):
-  bazel test //tests/integration:new_project_test --test_output=all
-  bazel test //tests/integration:npm_deps_test --test_output=all
-  bazel test //tests/integration:existing_project_test --test_output=all
-  bazel test //tests/integration:css_assets_test --test_output=all
-  bazel test //tests/integration:vite_bundle_test --test_output=all
-  bazel test //tests/integration:dev_server_test --test_output=all
-  bazel test //tests/integration:codegen_test --test_output=all
-  bazel test //tests/integration:gazelle_roundtrip_test --test_output=all
-  bazel test //tests/integration:lsp_test --test_output=all
+Every test here is `exclusive`: each spawns a nested Bazel with its own output
+base, so several at once exhausts disk. They are NOT `manual` -- a plain
+`bazel test //...` runs them, one at a time, which is the only reason the
+negative cases below are ever checked. Roughly three minutes each.
 
-Usage (suite):
-  bazel test //tests/integration/... --test_output=errors
+  bazel test //tests/integration:integration_tests   the whole suite
+  bazel test //tests/integration:new_project_test    one of them
+  bazel test --config=fast //...                     everything BUT these
 """
 
 load("@bazel_binaries//:defs.bzl", "bazel_binaries")
@@ -39,6 +34,15 @@ load(
     "integration_test_utils",
 )
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+
+# integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS is ["exclusive", "manual"].
+# `manual` is dropped deliberately: it took these tests out of every wildcard,
+# which meant nothing ever ran them.
+_NESTED_BAZEL_TAGS = [
+    tag
+    for tag in integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS
+    if tag != "manual"
+] + ["no-sandbox"]
 
 # ── new_project ───────────────────────────────────────────────────────────────
 # Full new-project journey: write sources → gazelle → build.
@@ -53,15 +57,15 @@ sh_binary(
 
 bazel_integration_test(
     name = "new_project_test",
+    timeout = "long",
     bazel_binaries = bazel_binaries,
     bazel_version = bazel_binaries.versions.current,
     # MODULE.bazel is added to data so it appears in the runfiles tree as
     # _main/MODULE.bazel — a symlink to the real source file. The test_runner.sh
     # resolves this symlink via readlink -f to find the actual checkout root.
     data = ["//:MODULE.bazel"],
-    tags = integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS + ["no-sandbox"],
+    tags = _NESTED_BAZEL_TAGS,
     test_runner = ":new_project_test_runner",
-    timeout = "long",
     workspace_files = integration_test_utils.glob_workspace_files("new_project"),
     workspace_path = "new_project",
 )
@@ -80,12 +84,12 @@ sh_binary(
 
 bazel_integration_test(
     name = "npm_deps_test",
+    timeout = "long",
     bazel_binaries = bazel_binaries,
     bazel_version = bazel_binaries.versions.current,
     data = ["//:MODULE.bazel"],
-    tags = integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS + ["no-sandbox"],
+    tags = _NESTED_BAZEL_TAGS,
     test_runner = ":npm_deps_test_runner",
-    timeout = "long",
     workspace_files = integration_test_utils.glob_workspace_files("npm_deps"),
     workspace_path = "npm_deps",
 )
@@ -102,12 +106,12 @@ sh_binary(
 
 bazel_integration_test(
     name = "existing_project_test",
+    timeout = "long",
     bazel_binaries = bazel_binaries,
     bazel_version = bazel_binaries.versions.current,
     data = ["//:MODULE.bazel"],
-    tags = integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS + ["no-sandbox"],
+    tags = _NESTED_BAZEL_TAGS,
     test_runner = ":existing_project_test_runner",
-    timeout = "long",
     workspace_files = integration_test_utils.glob_workspace_files("existing_project"),
     workspace_path = "existing_project",
 )
@@ -125,12 +129,12 @@ sh_binary(
 
 bazel_integration_test(
     name = "oxc_declarations_test",
+    timeout = "long",
     bazel_binaries = bazel_binaries,
     bazel_version = bazel_binaries.versions.current,
     data = ["//:MODULE.bazel"],
-    tags = integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS + ["no-sandbox"],
+    tags = _NESTED_BAZEL_TAGS,
     test_runner = ":oxc_declarations_test_runner",
-    timeout = "long",
     workspace_files = integration_test_utils.glob_workspace_files("oxc_declarations"),
     workspace_path = "oxc_declarations",
 )
@@ -147,12 +151,12 @@ sh_binary(
 
 bazel_integration_test(
     name = "css_assets_test",
+    timeout = "long",
     bazel_binaries = bazel_binaries,
     bazel_version = bazel_binaries.versions.current,
     data = ["//:MODULE.bazel"],
-    tags = integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS + ["no-sandbox"],
+    tags = _NESTED_BAZEL_TAGS,
     test_runner = ":css_assets_test_runner",
-    timeout = "long",
     workspace_files = integration_test_utils.glob_workspace_files("css_assets"),
     workspace_path = "css_assets",
 )
@@ -169,12 +173,12 @@ sh_binary(
 
 bazel_integration_test(
     name = "vite_bundle_test",
+    timeout = "long",
     bazel_binaries = bazel_binaries,
     bazel_version = bazel_binaries.versions.current,
     data = ["//:MODULE.bazel"],
-    tags = integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS + ["no-sandbox"],
+    tags = _NESTED_BAZEL_TAGS,
     test_runner = ":vite_bundle_test_runner",
-    timeout = "long",
     workspace_files = integration_test_utils.glob_workspace_files("vite_bundle"),
     workspace_path = "vite_bundle",
 )
@@ -191,12 +195,12 @@ sh_binary(
 
 bazel_integration_test(
     name = "dev_server_test",
+    timeout = "long",
     bazel_binaries = bazel_binaries,
     bazel_version = bazel_binaries.versions.current,
     data = ["//:MODULE.bazel"],
-    tags = integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS + ["no-sandbox"],
+    tags = _NESTED_BAZEL_TAGS,
     test_runner = ":dev_server_test_runner",
-    timeout = "long",
     workspace_files = integration_test_utils.glob_workspace_files("dev_server"),
     workspace_path = "dev_server",
 )
@@ -214,12 +218,12 @@ sh_binary(
 
 bazel_integration_test(
     name = "codegen_test",
+    timeout = "long",
     bazel_binaries = bazel_binaries,
     bazel_version = bazel_binaries.versions.current,
     data = ["//:MODULE.bazel"],
-    tags = integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS + ["no-sandbox"],
+    tags = _NESTED_BAZEL_TAGS,
     test_runner = ":codegen_test_runner",
-    timeout = "long",
     workspace_files = integration_test_utils.glob_workspace_files("codegen"),
     workspace_path = "codegen",
 )
@@ -236,12 +240,12 @@ sh_binary(
 
 bazel_integration_test(
     name = "gazelle_roundtrip_test",
+    timeout = "long",
     bazel_binaries = bazel_binaries,
     bazel_version = bazel_binaries.versions.current,
     data = ["//:MODULE.bazel"],
-    tags = integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS + ["no-sandbox"],
+    tags = _NESTED_BAZEL_TAGS,
     test_runner = ":gazelle_roundtrip_test_runner",
-    timeout = "long",
     workspace_files = integration_test_utils.glob_workspace_files("gazelle_roundtrip"),
     workspace_path = "gazelle_roundtrip",
 )
@@ -249,7 +253,7 @@ bazel_integration_test(
 # ── lsp ───────────────────────────────────────────────────────────────────────
 # Tests: `bazel run //:refresh_tsconfig` generates a tsconfig.json with:
 #   1. Paths entries for npm packages (e.g. "zod") pointing at .d.ts files.
-#   2. Paths entries for # gazelle:ts_path_alias directives (e.g. "@/*").
+#   2. Paths entries for ts_path_alias directives (e.g. "@/*").
 # pnpm-lock.yaml is sourced from tests/npm/ at runtime by test_runner.sh.
 
 sh_binary(
@@ -260,12 +264,12 @@ sh_binary(
 
 bazel_integration_test(
     name = "lsp_test",
+    timeout = "long",
     bazel_binaries = bazel_binaries,
     bazel_version = bazel_binaries.versions.current,
     data = ["//:MODULE.bazel"],
-    tags = integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS + ["no-sandbox"],
+    tags = _NESTED_BAZEL_TAGS,
     test_runner = ":lsp_test_runner",
-    timeout = "long",
     workspace_files = integration_test_utils.glob_workspace_files("lsp"),
     workspace_path = "lsp",
 )
@@ -282,12 +286,12 @@ sh_binary(
 
 bazel_integration_test(
     name = "nextjs_test",
+    timeout = "long",
     bazel_binaries = bazel_binaries,
     bazel_version = bazel_binaries.versions.current,
     data = ["//:MODULE.bazel"],
-    tags = integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS + ["no-sandbox"],
+    tags = _NESTED_BAZEL_TAGS,
     test_runner = ":nextjs_test_runner",
-    timeout = "long",
     workspace_files = integration_test_utils.glob_workspace_files("nextjs"),
     workspace_path = "nextjs",
 )
@@ -296,17 +300,17 @@ bazel_integration_test(
 
 test_suite(
     name = "integration_tests",
-    tags = integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS,
     tests = [
-        ":new_project_test",
-        ":npm_deps_test",
-        ":existing_project_test",
-        ":css_assets_test",
-        ":vite_bundle_test",
-        ":dev_server_test",
         ":codegen_test",
+        ":css_assets_test",
+        ":dev_server_test",
+        ":existing_project_test",
         ":gazelle_roundtrip_test",
         ":lsp_test",
+        ":new_project_test",
         ":nextjs_test",
+        ":npm_deps_test",
+        ":oxc_declarations_test",
+        ":vite_bundle_test",
     ],
 )

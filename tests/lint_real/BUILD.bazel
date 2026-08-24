@@ -21,9 +21,10 @@ filegroup(
 )
 
 # ── Violation target ───────────────────────────────────────────────────────────
-# violations.ts uses 'var' which triggers no-var.  This target intentionally
-# FAILS the lint action.  Tag it manual so `bazel test //...` skips it;
-# the real_lint_test below exercises it explicitly via a shell subprocess.
+# violations.ts uses 'var', which oxlint.json's no-var rejects, so building this
+# target fails. NOTHING BUILDS IT: asserting that a build fails needs a Bazel
+# that can be allowed to fail, which is the nested one in //tests/integration.
+# It is a fixture waiting for that test, not coverage.
 ts_lint(
     name = "violations_lint",
     srcs = ["violations.ts"],
@@ -33,9 +34,8 @@ ts_lint(
 )
 
 # ── Integration test ──────────────────────────────────────────────────────────
-# Verifies that:
-#   1. clean.ts produces a stamp (lint passes).
-#   2. violations.ts causes the lint action to fail.
+# The stamp is only written when the linter exits 0, so its presence is the
+# assertion that a real oxlint ran and passed on clean.ts.
 sh_test(
     name = "real_lint_test",
     size = "small",

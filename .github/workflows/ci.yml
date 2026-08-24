@@ -77,14 +77,9 @@ jobs:
       - name: Verify determinism
         run: bash scripts/verify_determinism.sh
 
-  bootstrap-tests:
-    name: Bootstrap Integration Tests
+  integration-tests:
+    name: Integration Tests (nested Bazel)
     runs-on: ubuntu-latest
-    env:
-      # Each bootstrap test locates the rules_typescript checkout by looking
-      # for this env var first.  Set it once at the job level so all steps
-      # inherit it automatically.
-      RULES_TYPESCRIPT_ROOT: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v4
 
@@ -92,17 +87,12 @@ jobs:
         with:
           bazelisk-version: 1.x
 
-      - name: New project journey
-        run: RULES_TYPESCRIPT_ROOT=${{ github.workspace }} bash tests/bootstrap/test_new_project.sh
-
-      - name: Existing project (no explicit return types)
-        run: RULES_TYPESCRIPT_ROOT=${{ github.workspace }} bash tests/bootstrap/test_existing_project.sh
-
-      - name: npm dependency resolution
-        run: RULES_TYPESCRIPT_ROOT=${{ github.workspace }} bash tests/bootstrap/test_npm_deps.sh
-
-      - name: Gazelle roundtrip (e2e/basic)
-        run: RULES_TYPESCRIPT_ROOT=${{ github.workspace }} bash tests/bootstrap/test_gazelle_roundtrip.sh
+      # The integration targets spawn a nested Bazel each and are tagged
+      # exclusive, so they run serially. They are part of //... now, but are
+      # slow enough to deserve their own job rather than lengthening the
+      # critical path of the main test job.
+      - name: Integration suite
+        run: bazelisk test //tests/integration/... --test_output=errors
 
   lint:
     name: Linting & Code Quality

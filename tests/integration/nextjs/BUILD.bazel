@@ -16,9 +16,9 @@ node_modules(
         "@npm//:next",
         "@npm//:react",
         "@npm//:react-dom",
-        "@npm//:typescript",
-        "@npm//:types_react",
         "@npm//:types_node",
+        "@npm//:types_react",
+        "@npm//:typescript",
     ],
 )
 
@@ -40,8 +40,8 @@ next_build(
         ],
         allow_empty = True,
     ),
-    staging_srcs = [":lib_sources"],
     config = "next.config.mjs",
-    tsconfig = "tsconfig.json",
     node_modules = ":node_modules",
+    staging_srcs = [":lib_sources"],
+    tsconfig = "tsconfig.json",
 )

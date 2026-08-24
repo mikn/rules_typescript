@@ -48,9 +48,9 @@ grep -q '"rules_typescript"' "${RULES_TS_ROOT}/MODULE.bazel" 2>/dev/null || {
 echo "INFO: rules_ts_root   = ${RULES_TS_ROOT}"
 
 # ── Create writable scratch workspace in /tmp ─────────────────────────────────
-SCRATCH_DIR="$(mktemp -d -p "${TEST_TMPDIR:-/tmp}" -t rules_ts_gazelle_roundtrip.XXXXXX)"
-OUTPUT_BASE="$(mktemp -d -p "${TEST_TMPDIR:-/tmp}" -t rules_ts_gazelle_roundtrip_output.XXXXXX)"
-SNAPSHOT_DIR="$(mktemp -d -p "${TEST_TMPDIR:-/tmp}" -t rules_ts_gazelle_roundtrip_snap.XXXXXX)"
+SCRATCH_DIR="$(mktemp -d -p "${TEST_TMPDIR:-${XDG_CACHE_HOME:-$HOME/.cache}}" -t rules_ts_gazelle_roundtrip.XXXXXX)"
+OUTPUT_BASE="$(mktemp -d -p "${TEST_TMPDIR:-${XDG_CACHE_HOME:-$HOME/.cache}}" -t rules_ts_gazelle_roundtrip_output.XXXXXX)"
+SNAPSHOT_DIR="$(mktemp -d -p "${TEST_TMPDIR:-${XDG_CACHE_HOME:-$HOME/.cache}}" -t rules_ts_gazelle_roundtrip_snap.XXXXXX)"
 
 cleanup() {
     chmod -R u+w "${OUTPUT_BASE}" 2>/dev/null || true

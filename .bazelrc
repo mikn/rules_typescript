@@ -17,6 +17,14 @@ test --test_summary=terse
 # Convenience
 build --experimental_convenience_symlinks=normal
 
+# ── Fast lane ────────────────────────────────────────────────────────────────
+# Everything except the nested-Bazel integration tests, which are `exclusive`
+# (each spawns its own Bazel, ~3 minutes apiece):
+#   bazel test --config=fast //...
+# A tag filter cannot go the other way -- nothing re-includes a `manual`
+# target -- which is why those tests carry `exclusive` and not `manual`.
+test:fast --test_tag_filters=-exclusive
+
 # ── Integration test child workspaces ────────────────────────────────────────
 # Each subdirectory under tests/integration/ is a separate Bazel workspace
 # (it has its own MODULE.bazel). They must be excluded from the parent

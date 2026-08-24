@@ -123,12 +123,11 @@ echo -e "${YELLOW}[4/5] Bootstrap integration tests...${NC}"
 if [[ $SKIP_BOOTSTRAP -eq 1 ]]; then
     echo -e "${YELLOW}  ⚠ Bootstrap tests skipped (--skip-bootstrap)${NC}"
 else
-    export RULES_TYPESCRIPT_ROOT="$REPO_ROOT"
     BOOTSTRAP_TARGETS=(
-        "//tests/bootstrap:test_new_project"
-        "//tests/bootstrap:test_existing_project"
-        "//tests/bootstrap:test_npm_deps"
-        "//tests/bootstrap:test_gazelle_roundtrip"
+        "//tests/integration:new_project_test"
+        "//tests/integration:existing_project_test"
+        "//tests/integration:npm_deps_test"
+        "//tests/integration:gazelle_roundtrip_test"
     )
     for target in "${BOOTSTRAP_TARGETS[@]}"; do
         echo "  Running $target..."

@@ -102,21 +102,27 @@ echo "INFO: bazel_output_base = ${BAZEL_OUTPUT_BASE:-<not found>}"
 
 pass "hook files exist"
 
-# ── Prerequisite: Node.js available ───────────────────────────────────────────
-command -v node >/dev/null 2>&1 || fail "node not found on PATH"
-NODE_VERSION=$(node --version)
-echo "INFO: node ${NODE_VERSION}"
+# ── Node.js from the JS runtime toolchain ─────────────────────────────────────
+if [[ -n "${TEST_SRCDIR:-}" ]]; then
+  NODE="${_RUNFILES_MAIN}/ts/toolchain/node_resolved/node"
+  [[ -x "${NODE}" ]] || fail "node not found in runfiles at ${NODE}"
+else
+  command -v node >/dev/null 2>&1 || fail "node not found on PATH"
+  NODE="$(command -v node)"
+fi
+echo "INFO: node $("${NODE}" --version)"
 
 # ── Test 1: Hook script loads without errors ──────────────────────────────────
 echo "INFO: testing that hook loads without errors..."
-TSSERVER_HOOK_NO_WORKER=1 node --require "${TOOLS_DIR}/tsserver-hook.js" --eval "process.exit(0)"
+TSSERVER_HOOK_NO_WORKER=1 "${NODE}" --require "${TOOLS_DIR}/tsserver-hook.js" --eval "process.exit(0)"
 pass "hook loads without errors"
 
 # ── Test 2: Run worker and capture resolution map ─────────────────────────────
 echo "INFO: running worker to build resolution map (may take up to 60 s)..."
 
-RESOLUTION_MAP_FILE="$(mktemp -t resolution_map.XXXXXX.json)"
-WORKER_SCRIPT="$(mktemp -t tsserver_hook_test.XXXXXX.js)"
+_SCRATCH="${TEST_TMPDIR:-${TMPDIR:-/tmp}}"
+RESOLUTION_MAP_FILE="$(mktemp "${_SCRATCH}/resolution_map.XXXXXX.json")"
+WORKER_SCRIPT="$(mktemp "${_SCRATCH}/tsserver_hook_test.XXXXXX.js")"
 cleanup() {
   rm -f "${RESOLUTION_MAP_FILE}" "${WORKER_SCRIPT}"
 }
@@ -163,7 +169,7 @@ w.on('error', (err) => {
 });
 WORKER_EOF
 
-node "${WORKER_SCRIPT}" \
+"${NODE}" "${WORKER_SCRIPT}" \
     "${TOOLS_DIR}/tsserver-hook-worker.js" \
     "${WORKSPACE_ROOT}" \
     "${RESOLUTION_MAP_FILE}" \
@@ -242,16 +248,22 @@ for k, v in data.items():
     else:
         invalid += 1
 
-print("INFO: {} paths exist, {} paths missing (may be unbuilt packages)".format(
-    valid, invalid))
+print("INFO: {} paths exist, {} paths missing".format(valid, invalid))
 
+# Every builder in the worker checks the file before recording it, so a missing
+# path is a bug in the map rather than an unbuilt package.
 if valid == 0:
     print("FAIL: no resolution map entries point to existing files", file=sys.stderr)
+    sys.exit(1)
+if invalid:
+    for k, v in sorted(data.items()):
+        if not k.startswith('__alias__') and not os.path.exists(v):
+            print("FAIL: {} -> {!r} is not on disk".format(k, v), file=sys.stderr)
     sys.exit(1)
 
 sys.exit(0)
 PYEOF
-pass "at least one resolution entry points to an existing file"
+pass "every resolution entry points to a file on disk"
 
 # ── Summary ────────────────────────────────────────────────────────────────────
 echo ""
