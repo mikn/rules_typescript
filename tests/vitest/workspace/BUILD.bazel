@@ -6,6 +6,8 @@ only sees it because ts_test merges that layer into every project entry.
 
 load("//ts:defs.bzl", "css_module", "ts_compile", "ts_test")
 
+package(default_visibility = ["//:__pkg__"])
+
 css_module(
     name = "button_module",
     srcs = ["Button.module.css"],

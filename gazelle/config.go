@@ -528,6 +528,15 @@ func loadTsConfigPaths(tsConfigPath string) map[string]string {
 		// Strip leading "./" from the target.
 		targetDir = strings.TrimPrefix(targetDir, "./")
 
+		// A named dot-directory is tool-managed, never a Bazel package:
+		// ts_refresh_tsconfig installs npm declarations under npm_dir
+		// (.bazel/npm by default), one paths entry per package, and treating
+		// those as aliases resolved `import 'zod'` to //.bazel/npm/zod/index.d
+		// instead of @npm//:zod. A bare "." is the baseUrl root, not a dot-dir.
+		if head, _, _ := strings.Cut(targetDir, "/"); len(head) > 1 && head[0] == '.' && head != ".." {
+			continue
+		}
+
 		// Prepend baseUrl when set and target is not absolute.
 		if baseURL != "" && !strings.HasPrefix(targetDir, "/") {
 			if targetDir == "." || targetDir == "" {
@@ -535,6 +544,14 @@ func loadTsConfigPaths(tsConfigPath string) map[string]string {
 			} else {
 				targetDir = baseURL + "/" + targetDir
 			}
+		}
+
+		// An identity mapping is not an alias. ts_refresh_tsconfig emits one
+		// paths entry per first-party package, and the wildcard form maps a
+		// package path to itself; echoing those into every generated target's
+		// path_aliases churns every BUILD file and tells Gazelle nothing.
+		if strings.TrimSuffix(aliasKey, "/") == strings.TrimSuffix(targetDir, "/") {
+			continue
 		}
 
 		// Ensure the alias key ends with "/" only when it was a wildcard pattern.

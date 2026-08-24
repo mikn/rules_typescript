@@ -20,6 +20,19 @@ sh_test(
     ],
 )
 
+# Dev serves source and prod serves bazel-bin .js, so the same specifier takes
+# two code paths. This is the test that they stay the same MODULE.
+sh_test(
+    name = "resolution_parity_test",
+    size = "small",
+    srcs = ["resolution_parity_test.sh"],
+    data = [
+        "resolution_parity_test.mjs",
+        "//ts/toolchain:node_resolved",
+        "//vite:vite_plugin_bazel",
+    ],
+)
+
 # The wrapper under test only needs to run far enough to reach the runtime, so
 # the runtime is a stub and the node_modules tree is never built.
 node_modules(

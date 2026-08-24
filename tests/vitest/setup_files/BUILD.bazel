@@ -2,6 +2,8 @@
 
 load("//ts:defs.bzl", "ts_compile", "ts_test")
 
+package(default_visibility = ["//:__pkg__"])
+
 ts_compile(
     name = "media",
     srcs = [

@@ -3,6 +3,8 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "ts_compile")
 
+package(default_visibility = ["//:__pkg__"])
+
 ts_compile(
     name = "jsx_runtime",
     srcs = ["jsx-runtime.d.ts"],

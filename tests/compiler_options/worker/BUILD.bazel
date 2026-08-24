@@ -3,6 +3,8 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "ts_compile")
 
+package(default_visibility = ["//:__pkg__"])
+
 # target es2022 implies lib.es2022.full, which is es2022 + dom + dom.iterable +
 # scripthost. A lib declaration beats an ambient one, so with DOM in scope the
 # Workers globals in worker-configuration.d.ts lose to the browser ones and the

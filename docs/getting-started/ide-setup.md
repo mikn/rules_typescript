@@ -37,7 +37,9 @@ writing the list:
 - **`deps` obeys visibility**, like any rule's. A package-private `ts_compile`
   target cannot be listed here. Gazelle writes
   `visibility = ["//visibility:public"]` on the targets it generates, so a
-  workspace whose BUILD files come from Gazelle can list any of them.
+  workspace whose BUILD files come from Gazelle can list any of them. For the
+  hand-written ones, [Complete coverage for the hook](#complete-coverage-for-the-hook)
+  covers them without a grant.
 
 Then run it:
 
@@ -81,6 +83,63 @@ bazel test //:refresh_tsconfig_test
 It fails with `tsconfig.json is stale: run 'bazel run //:refresh_tsconfig'`
 whenever a dependency edit changes what the IDE should see. Turn it on once the
 file is checked in.
+
+## Complete coverage for the hook
+
+`deps` is a rule attribute, so it reaches only what this workspace's visibility
+lets a rule name. An **aspect** is not: it propagates along the dependency edges
+a build already has and creates none, so it needs no grant at all. Two lines in
+`.bazelrc` turn that on for every build:
+
+```
+build --aspects=@rules_typescript//ts/private:tsconfig_aspect.bzl%tsconfig_aspect
+build --output_groups=+ide_fragments
+```
+
+Every target the aspect reaches then gets a `<target>.tsconfig-fragment.json`
+beside its other outputs in `bazel-out`, and the hook merges what it finds there
+into the map. `+group` is additive, so this composes with the
+`--output_groups=+_validation` above and with anything a command line adds; no
+extra command is involved, and any ordinary `bazel build` refreshes the fragments
+as a side effect of building what you asked for.
+
+**Both lines are optional.** Without them nothing writes fragments, the hook
+finds none, and it works exactly as it did before they existed — from
+`.bazel/tsserver-hook-data.json` alone. Fragments augment that file; they never
+replace it, and every key it resolved wins over a fragment that disagrees.
+
+### What fragments do and do not cover
+
+| | Covered by | Reaches package-private targets |
+|---|---|---|
+| `ts_compile` source roots | fragments, and the data file | yes, via fragments |
+| `ts_path_alias` prefixes | fragments, the data file, and a BUILD-file scan | yes, via fragments |
+| npm `.d.ts` declarations | `.bazel/npm`, installed by `bazel run //:refresh_tsconfig` | **no** |
+
+The npm half is the exception, and the reason is the same one that makes
+`.bazel/npm` necessary at all: an npm package's declarations live in a lazily
+fetched external repository that no workspace-relative path reaches, so a
+fragment can only *name* the package, not point at anything readable. Whether
+that name resolves depends on what `bazel run //:refresh_tsconfig` last
+installed, and that target's `deps` do obey visibility. So fragments give you the
+first-party half in full and leave the npm half exactly where it was.
+
+The checked-in `tsconfig.json` does not change either. It stays what
+`refresh_tsconfig` generates from `deps`, which is what a fresh clone, a plain
+`tsc` run and every non-hook editor read. Fragments are a hook-only mechanism.
+
+### Two things to know about the cost
+
+- **Each fragment carries its target's whole closure**, so the set is redundant
+  by design: any one fragment is a complete answer for its own subgraph, which is
+  what makes a partially built `bazel-out` still usable. The bytes are the price.
+- **A deleted or renamed target leaves its fragment behind**, because nothing
+  cleans `bazel-out`. This is handled rather than avoided. The hook looks for
+  fragments only under directories the source tree still has a BUILD file for, so
+  a fragment whose package is gone is never opened; and nothing enters the map
+  without the path it names existing on disk, so a fragment naming a removed
+  package or a renamed alias contributes nothing. `bazel clean` is not the answer
+  and is not needed.
 
 ## Editor configuration
 
@@ -150,13 +209,18 @@ anything would sit on the same lock a build wants.
    the same set the generated `tsconfig.json` names
 3. **Internal packages** resolved from `bazel-bin` (`.d.ts` after a build) or the
    source tree (`.ts` before one)
-4. **Path aliases** come from that graph data, plus a scan of
+4. **Fragments**, if the `.bazelrc` lines above are in place, add the packages and
+   aliases of every target the aspect reached, including the ones no rule may
+   name. One target built in two configurations writes two fragments; they are
+   deduplicated by label, first config root in sorted order winning, so the merge
+   does not depend on what `bazel-out` happens to hold
+5. **Path aliases** come from that graph data, plus a scan of
    `# gazelle:ts_path_alias` directives in BUILD files to cover directives added
-   since the last refresh — the graph data wins, since it is what the build
-   actually resolves
-5. **File watcher** watches the graph data file, the root `BUILD.bazel` and
-   `pnpm-lock.yaml`, and `bazel-bin` recursively for new `.d.ts`; a change to any
-   of them rebuilds the map
+   since the last refresh — the graph wins, since it is what the build actually
+   resolves
+6. **File watcher** watches the graph data file, the root `BUILD.bazel` and
+   `pnpm-lock.yaml`, and `bazel-bin` recursively for new `.d.ts` and new
+   fragments; a change to any of them rebuilds the map
 
 The main thread is never blocked — the worker builds the map off-thread and posts
 it back. tsserver returns "unresolved" briefly on first load, then resolves once
@@ -172,7 +236,9 @@ the worker completes.
 ### What a build buys
 
 First-party resolution works without `bazel build`: the source `.ts` files are
-always on disk. `bazel build` improves it by providing `.d.ts` files.
+always on disk. `bazel build` improves it by providing `.d.ts` files — and, with
+the aspect enabled, by writing the fragments that name the packages `deps` could
+not reach.
 
 npm resolution is bounded by the refresh rather than by the build. The packages
 that resolve are the ones reachable from `deps` when `refresh_tsconfig` last ran,

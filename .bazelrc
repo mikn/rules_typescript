@@ -10,6 +10,16 @@ build --nolegacy_external_runfiles
 # on a single target without waiting for tsgo).
 build --output_groups=+_validation
 
+# Feed the tsserver hook from every target, not just the ones a rule can name.
+# The aspect propagates along dependency edges that already exist and creates
+# none, so it reaches package-private targets with no visibility grant, and its
+# `ide_fragments` group writes one .tsconfig-fragment.json per target reached.
+# `+group` is additive, so this composes with the line above and with any
+# --output_groups a command line adds. Drop both lines to opt out: the hook
+# falls back to .bazel/tsserver-hook-data.json alone.
+build --aspects=//ts/private:tsconfig_aspect.bzl%tsconfig_aspect
+build --output_groups=+ide_fragments
+
 # Test output
 test --test_output=errors
 test --test_summary=terse

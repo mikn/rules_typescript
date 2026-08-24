@@ -31,6 +31,20 @@ TsconfigSourcesInfo = provider(
         "npm_paths": "depset of struct(name, version, entry, is_file): npm entry points, relative to the package's own directory.",
         "npm_ambient": "depset of struct(name, version, entry): @types/* entry points to name in the tsconfig `files` array, relative to the package's own directory.",
         "npm_files": "depset of struct(name, version, dest, file): the files an npm entry point needs on disk, and where under the package each one goes.",
+        "has_content": "Whether anything above is non-empty here or anywhere below, so that a fragment is written only where there is something to say.",
+    },
+)
+
+TsconfigFragmentInfo = provider(
+    doc = "The per-target tsconfig fragments an editor can merge without a rule ever naming the target.",
+    fields = {
+        "fragments": """depset of File: one fragment per target the aspect reached.
+
+Each is complete for its own closure -- packages, aliases and npm entry points --
+so any one of them is a usable answer on its own, which is what makes a
+partially built bazel-out still readable. The `@types/*` entries are not in
+there: they are a tsconfig `files` concern, and no module specifier resolves to
+them.""",
     },
 )
 
@@ -186,6 +200,43 @@ def _has_index(target, ctx):
                 return True
     return False
 
+FRAGMENT_SUFFIX = ".tsconfig-fragment.json"
+
+_FRAGMENT_FORMAT = "tsconfig-fragment-v1"
+
+def _fragment_package(package):
+    return json.encode({"package": package.path, "index": package.has_index})
+
+def _fragment_alias(alias):
+    return json.encode({"alias": alias.prefix, "dir": alias.dir})
+
+def _fragment_npm(entry):
+    return json.encode({
+        "npm": entry.name,
+        "version": entry.version,
+        "entry": entry.entry,
+        "file": entry.is_file,
+    })
+
+def _fragment(target, ctx, sources):
+    """One JSON object per line, carrying `sources`, for the tsserver hook to merge.
+
+    Deliberately not built from _packages/_npm_view: those materialise their
+    depsets, which is affordable once for one ide_tsconfig target and not on
+    every target of every build. An Args with map_each defers the same work to
+    execution time, so the depsets stay depsets through analysis.
+    """
+    args = ctx.actions.args()
+    args.set_param_file_format("multiline")
+    args.add(json.encode({"format": _FRAGMENT_FORMAT, "label": str(target.label)}))
+    args.add_all(sources.packages, map_each = _fragment_package, uniquify = True)
+    args.add_all(sources.aliases, map_each = _fragment_alias, uniquify = True)
+    args.add_all(sources.npm_paths, map_each = _fragment_npm, uniquify = True)
+
+    out = ctx.actions.declare_file(target.label.name + FRAGMENT_SUFFIX)
+    ctx.actions.write(out, args)
+    return out
+
 def _tsconfig_aspect_impl(target, ctx):
     inherited = [
         dep[TsconfigSourcesInfo]
@@ -206,18 +257,40 @@ def _tsconfig_aspect_impl(target, ctx):
         npm_ambient, ambient_files = _ambient_entries(ctx.rule.attr)
         npm_files = npm_files + ambient_files
 
-    return [TsconfigSourcesInfo(
+    sources = TsconfigSourcesInfo(
         packages = depset(packages, transitive = [s.packages for s in inherited], order = "postorder"),
         aliases = depset(aliases, transitive = [s.aliases for s in inherited], order = "postorder"),
         npm_paths = depset(npm_paths, transitive = [s.npm_paths for s in inherited], order = "postorder"),
         npm_ambient = depset(npm_ambient, transitive = [s.npm_ambient for s in inherited], order = "postorder"),
         npm_files = depset(npm_files, transitive = [s.npm_files for s in inherited], order = "postorder"),
-    )]
+        has_content = bool(packages or aliases or npm_paths) or any([s.has_content for s in inherited]),
+    )
+
+    fragments = [dep[TsconfigFragmentInfo].fragments for dep in getattr(ctx.rule.attr, "deps", []) if TsconfigFragmentInfo in dep]
+    own = [_fragment(target, ctx, sources)] if sources.has_content else []
+    fragments = depset(own, transitive = fragments, order = "postorder")
+
+    return [
+        sources,
+        TsconfigFragmentInfo(fragments = fragments),
+        OutputGroupInfo(ide_fragments = fragments),
+    ]
 
 tsconfig_aspect = aspect(
     implementation = _tsconfig_aspect_impl,
     attr_aspects = ["deps"],
-    doc = "Collects the source roots, path aliases and npm entry points an IDE tsconfig needs.",
+    doc = """Collects the source roots, path aliases and npm entry points an IDE tsconfig needs.
+
+Also writes one `<target>.tsconfig-fragment.json` per target reached, in the
+`ide_fragments` output group. That group is how the tsserver hook gets the
+targets no rule can name: an aspect propagates along dependency edges that
+already exist and creates none, so it needs no visibility where
+`ide_tsconfig(deps = [...])` needs a grant. Enable it in .bazelrc, where any
+`bazel build` then refreshes the fragments as a side effect:
+
+    build --aspects=@rules_typescript//ts/private:tsconfig_aspect.bzl%tsconfig_aspect
+    build --output_groups=+ide_fragments
+""",
 )
 
 _HEADER = "Generated by 'bazel run //:refresh_tsconfig'. Do not edit manually — re-run to update."

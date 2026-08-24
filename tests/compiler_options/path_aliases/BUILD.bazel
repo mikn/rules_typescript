@@ -3,6 +3,8 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "ts_compile")
 
+package(default_visibility = ["//:__pkg__"])
+
 # The alias points outside this target's srcs, so the files it resolves to have
 # to be declared: they are inputs to the type-check action, which is what makes
 # the resolution the same on every machine rather than dependent on what else

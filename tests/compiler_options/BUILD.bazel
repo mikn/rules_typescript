@@ -7,6 +7,8 @@ exercises, so building the package is the assertion.
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "ts_compile")
 
+package(default_visibility = ["//:__pkg__"])
+
 # `lib` replaces the set `target` implies. importScripts lives in lib.webworker,
 # which no target implies, so this fails to resolve without it.
 ts_compile(

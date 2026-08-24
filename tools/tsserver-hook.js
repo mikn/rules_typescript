@@ -9,10 +9,11 @@
  * When loaded, this script:
  *   1. Walks up from cwd to find the workspace root (directory containing
  *      MODULE.bazel).
- *   2. Spawns a background worker thread that reads what
- *      `bazel run //:refresh_tsconfig` wrote from the build graph into
- *      .bazel/tsserver-hook-data.json, and turns it into a module-name → .d.ts
- *      path map.
+ *   2. Spawns a background worker thread that reads what the build graph already
+ *      wrote down -- .bazel/tsserver-hook-data.json from
+ *      `bazel run //:refresh_tsconfig`, plus tsconfig_aspect's per-target
+ *      fragments in bazel-out where a build produced them -- and turns it into a
+ *      module-name → .d.ts path map.
  *   3. Monkey-patches ts.resolveModuleName so that imports like
  *      `import { z } from "zod"` resolve to the declarations Bazel installed
  *      instead of relying on paths in tsconfig.json.
@@ -25,7 +26,7 @@
  *     server lock.
  *   - Must not crash before refresh_tsconfig has ever run.
  *   - Worker thread must not block the main thread (tsserver).
- *   - Cache is rebuilt automatically when that data, a BUILD file or
+ *   - Cache is rebuilt automatically when that data, a fragment, a BUILD file or
  *     pnpm-lock.yaml changes.
  */
 

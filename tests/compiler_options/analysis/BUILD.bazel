@@ -18,6 +18,8 @@ load(
     "rejected_tsgo_arg_test",
 )
 
+package(default_visibility = ["//:__pkg__"])
+
 # One target holding a subtree, a JavaScript source and a declaration map: the
 # subject of the content assertions below. The nested source sorts first, so a
 # strip prefix or a rootDir taken from srcs[0] would be the nested directory.

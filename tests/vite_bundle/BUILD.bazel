@@ -4,6 +4,8 @@ load("@rules_typescript//npm:defs.bzl", "node_modules")
 load("@rules_typescript//ts:defs.bzl", "ts_binary", "ts_bundle", "ts_compile")
 load("@rules_typescript//vite:bundler.bzl", "vite_bundler")
 
+package(default_visibility = ["//:__pkg__"])
+
 # The go_test targets are hand-named after the sh_tests they replaced, so the
 # Go language would add a second target for the same source.
 # gazelle:exclude *_test.go

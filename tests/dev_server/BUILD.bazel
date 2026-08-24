@@ -2,6 +2,8 @@ load("@rules_go//go:def.bzl", "go_test")
 load("@rules_typescript//npm:defs.bzl", "node_modules")
 load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_dev_server")
 
+package(default_visibility = ["//:__pkg__"])
+
 # The go_test targets are hand-named after the sh_tests they replaced, so the
 # Go language would add a second target for the same source.
 # gazelle:exclude *_test.go
@@ -11,6 +13,16 @@ ts_compile(
     name = "app",
     srcs = ["app.ts"],
     enable_check = False,
+)
+
+# The entry point the dev servers below use. Separate from :app because :app is
+# a //:refresh_tsconfig root, and a module_name reachable from one of those
+# lands in the checked-in tsconfig.json.
+ts_compile(
+    name = "dev_app",
+    srcs = ["dev_app.ts"],
+    enable_check = False,
+    deps = ["//tests/dev_server/lib"],
 )
 
 # Build a node_modules tree with vite.
@@ -34,7 +46,7 @@ node_modules(
 # `bazel run //tests/dev_server:dev` would start the Vite dev server.
 ts_dev_server(
     name = "dev",
-    entry_point = ":app",
+    entry_point = ":dev_app",
     node_modules = ":node_modules",
     port = 5173,
 )
@@ -43,7 +55,7 @@ ts_dev_server(
 # This demonstrates SP2.2: building the plugin inside Bazel and wiring it in.
 ts_dev_server(
     name = "dev_with_plugin",
-    entry_point = ":app",
+    entry_point = ":dev_app",
     node_modules = ":node_modules",
     plugin = "//vite:vite_plugin_bazel",
     port = 5174,
@@ -52,7 +64,7 @@ ts_dev_server(
 # Dev server with React Fast Refresh — preserves component state across HMR.
 ts_dev_server(
     name = "dev_with_react_refresh",
-    entry_point = ":app",
+    entry_point = ":dev_app",
     node_modules = ":node_modules_react",
     port = 5175,
     react_refresh = True,
@@ -61,7 +73,7 @@ ts_dev_server(
 # Dev server with both React Fast Refresh and vite-plugin-bazel.
 ts_dev_server(
     name = "dev_with_react_refresh_and_plugin",
-    entry_point = ":app",
+    entry_point = ":dev_app",
     node_modules = ":node_modules_react",
     plugin = "//vite:vite_plugin_bazel",
     port = 5176,

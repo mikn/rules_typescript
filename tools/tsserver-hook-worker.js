@@ -6,7 +6,12 @@
  *   1. The npm packages, ts_compile packages and path aliases named in
  *      .bazel/tsserver-hook-data.json, which `bazel run //:refresh_tsconfig`
  *      writes from the build graph.
- *   2. Path-alias directives (# gazelle:ts_path_alias) in BUILD files, for
+ *   2. The .tsconfig-fragment.json files tsconfig_aspect's `ide_fragments`
+ *      output group writes into bazel-out, one per target. A rule's `deps` obey
+ *      visibility and an aspect's edges do not, so these cover the targets the
+ *      data file cannot name -- and they are optional: without the .bazelrc
+ *      lines that request the group there are none, and (1) is the whole map.
+ *   3. Path-alias directives (# gazelle:ts_path_alias) in BUILD files, for
  *      directives added since the last refresh.
  *
  * Sends the map to the main thread via postMessage, then sets up file-system
@@ -17,8 +22,10 @@
  *   - Zero npm dependencies (Node.js builtins only).
  *   - Never runs Bazel: this is an editor process, and asking the Bazel server
  *     anything from here would block on the lock a build holds. Everything
- *     Bazel knows arrives through the generated data file.
- *   - Must degrade gracefully when that file is absent or stale.
+ *     Bazel knows arrives through files a build already wrote.
+ *   - Must degrade gracefully when any of them is absent or stale. Nothing
+ *     enters the map without the path it names existing on disk, which is also
+ *     what keeps a fragment left behind by a deleted target from being wrong.
  */
 
 'use strict';
@@ -31,6 +38,14 @@ const { workspaceRoot, dataFile: providedDataFile } = workerData;
 
 // Where `bazel run //:refresh_tsconfig` installs the graph data, workspace-relative.
 const HOOK_DATA = '.bazel/tsserver-hook-data.json';
+
+// One per target, written by tsconfig_aspect's `ide_fragments` output group.
+const FRAGMENT_SUFFIX = '.tsconfig-fragment.json';
+const FRAGMENT_FORMAT = 'tsconfig-fragment-v1';
+
+// The rule attribute's default, so fragment npm entries still resolve when no
+// data file says where the declarations were installed.
+const DEFAULT_NPM_DIR = '.bazel/npm';
 
 const DEBUG = !!process.env.TSSERVER_HOOK_DEBUG;
 
@@ -52,6 +67,10 @@ function log(msg) {
 function buildResolutionMap() {
   const map = {};
   const data = readHookData();
+  // `npm_dir = ""` on the rule is a deliberate opt-out of npm entries, so an
+  // empty string in the data file is null here, not the default.
+  const configured = data ? data.npmDir : DEFAULT_NPM_DIR;
+  const npmDir = configured ? path.join(workspaceRoot, configured) : null;
 
   if (!data) {
     log(
@@ -62,9 +81,8 @@ function buildResolutionMap() {
     // Step 1: npm packages, installed in the workspace by refresh_tsconfig.
     // Only the packages the aspect reached are listed, which is the same set
     // the generated tsconfig.json exposes.
-    const npmDir = path.join(workspaceRoot, data.npmDir || '');
     let resolved = 0;
-    for (const pkg of data.npmPackages || []) {
+    for (const pkg of npmDir ? data.npmPackages || [] : []) {
       if (!pkg || !pkg.name || map[pkg.name]) continue;
       const dtsPath = resolveInstalledPackage(npmDir, pkg);
       if (dtsPath) {
@@ -94,15 +112,236 @@ function buildResolutionMap() {
     }
   }
 
-  // Step 4: path aliases from BUILD files, which cover directives added since
-  // the last refresh. The generated data wins: it is what the build resolves.
+  // Step 4: the aspect's per-target fragments, which reach the targets no rule
+  // can name. They augment what the data file already resolved, never replace
+  // it, and there are none at all until a build requests the output group.
+  let tree = { packages: [], aliases: [] };
   try {
-    scanPathAliases(workspaceRoot, map);
+    tree = walkWorkspace(workspaceRoot);
   } catch (e) {
-    log(`scanPathAliases failed: ${e.message}`);
+    log(`workspace walk failed: ${e.message}`);
+  }
+  mergeFragments(readFragments(tree.packages), npmDir, map);
+
+  // Step 5: path aliases from BUILD files, which cover directives added since
+  // the last refresh. The graph wins over them: it is what the build resolves.
+  for (const alias of tree.aliases) {
+    const key = `__alias__${alias.prefix}/`;
+    if (map[key]) continue;
+    map[key] = path.join(workspaceRoot, alias.dir);
+    log(`path alias (BUILD): ${alias.prefix} → ${map[key]}`);
   }
 
   return map;
+}
+
+// ── Fragments ────────────────────────────────────────────────────────────────
+
+/**
+ * Every `<config>/bin` a build could have written fragments into.
+ *
+ * One target built in two configurations writes two fragments under two
+ * different config directories, so the roots are deduped by real path and
+ * sorted: the merge is then the same whatever order the filesystem lists them
+ * in.
+ *
+ * @returns {string[]}
+ */
+function fragmentRoots() {
+  const roots = new Set();
+  const add = (p) => {
+    try {
+      if (fs.statSync(p).isDirectory()) roots.add(fs.realpathSync(p));
+    } catch (_) {
+      // Not a directory the convenience symlinks produced here.
+    }
+  };
+
+  add(path.join(workspaceRoot, 'bazel-bin'));
+  const outDir = path.join(workspaceRoot, 'bazel-out');
+  let configs = [];
+  try {
+    configs = fs.readdirSync(outDir);
+  } catch (_) {
+    // No bazel-out symlink: --experimental_convenience_symlinks=ignore, or no
+    // build yet.
+  }
+  for (const config of configs) {
+    add(path.join(outDir, config, 'bin'));
+  }
+  return [...roots].sort();
+}
+
+/**
+ * The fragments found under every config root, one per target label.
+ *
+ * Discovery is rooted in the source tree rather than in a recursive walk of
+ * bazel-out: a fragment lives at `<config>/bin/<package>/<target>` +
+ * FRAGMENT_SUFFIX, so `packageDirs` is the complete list of directories to look
+ * in, and a fragment whose package has since been deleted is never opened.
+ *
+ * @param {string[]} packageDirs - Workspace-relative dirs holding a BUILD file.
+ * @returns {Array<{label: string, packages: string[], aliases: Array<{prefix: string, dir: string}>, npm: Array<{name: string, version: string, entry: string, isFile: boolean}>}>}
+ */
+function readFragments(packageDirs) {
+  const seen = new Set();
+  const fragments = [];
+  let files = 0;
+
+  for (const root of fragmentRoots()) {
+    for (const pkg of packageDirs) {
+      let names;
+      try {
+        names = fs.readdirSync(path.join(root, pkg));
+      } catch (_) {
+        continue;
+      }
+      for (const name of names.sort()) {
+        if (!name.endsWith(FRAGMENT_SUFFIX)) continue;
+        files += 1;
+        const fragment = parseFragment(path.join(root, pkg, name));
+        // The same label under a second configuration says the same thing about
+        // the source tree, and counting it twice would make the merge depend on
+        // how many configurations happen to be in bazel-out.
+        if (!fragment || seen.has(fragment.label)) continue;
+        seen.add(fragment.label);
+        fragments.push(fragment);
+      }
+    }
+  }
+
+  log(`fragments: ${fragments.length} labels from ${files} files`);
+  return fragments;
+}
+
+/**
+ * One fragment file: a JSON object per line, the first naming the format and the
+ * target label. Returns null for anything that is not a fragment this version
+ * understands.
+ *
+ * @param {string} file
+ * @returns {object | null}
+ */
+function parseFragment(file) {
+  let lines;
+  try {
+    lines = fs.readFileSync(file, 'utf8').split('\n');
+  } catch (e) {
+    log(`fragment ${file} unreadable: ${e.message}`);
+    return null;
+  }
+
+  const fragment = { label: null, packages: [], aliases: [], npm: [] };
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    let record;
+    try {
+      record = JSON.parse(line);
+    } catch (e) {
+      log(`fragment ${file} is not JSON per line: ${e.message}`);
+      return null;
+    }
+    if (record.format !== undefined) {
+      if (record.format !== FRAGMENT_FORMAT || typeof record.label !== 'string') {
+        log(`fragment ${file} has format ${record.format}, want ${FRAGMENT_FORMAT}`);
+        return null;
+      }
+      fragment.label = record.label;
+    } else if (typeof record.package === 'string') {
+      fragment.packages.push(record.package);
+    } else if (typeof record.alias === 'string' && typeof record.dir === 'string') {
+      fragment.aliases.push({
+        prefix: record.alias.replace(/\/$/, ''),
+        dir: record.dir.replace(/\/$/, ''),
+      });
+    } else if (typeof record.npm === 'string') {
+      fragment.npm.push({
+        name: record.npm,
+        version: String(record.version || ''),
+        entry: record.entry || '',
+        isFile: !!record.file,
+      });
+    }
+  }
+
+  if (!fragment.label) {
+    log(`fragment ${file} names no label`);
+    return null;
+  }
+  return fragment;
+}
+
+const byKey = ([a], [b]) => (a < b ? -1 : a > b ? 1 : 0);
+
+/**
+ * Fold the fragments into `map`, leaving every key the data file already
+ * resolved alone.
+ *
+ * @param {object[]} fragments
+ * @param {string | null} npmDir - The installed npm tree, or null when npm_dir is off.
+ * @param {Record<string, string>} map
+ */
+function mergeFragments(fragments, npmDir, map) {
+  const packages = new Set();
+  const aliases = new Map();
+  const npm = new Map();
+
+  for (const fragment of fragments) {
+    for (const pkg of fragment.packages) packages.add(pkg);
+    for (const alias of fragment.aliases) {
+      if (alias.prefix && alias.dir && !aliases.has(alias.prefix)) {
+        aliases.set(alias.prefix, alias.dir);
+      }
+    }
+    for (const entry of fragment.npm) {
+      const chosen = npm.get(entry.name);
+      // Two versions of one name would fight over the same directory under
+      // npmDir. The generated tsconfig gives the whole name to the lowest
+      // version, so the hook has to agree or the two disagree about one import.
+      if (!chosen || entry.version < chosen.version) npm.set(entry.name, entry);
+    }
+  }
+
+  for (const [name, entry] of npmDir ? [...npm].sort(byKey) : []) {
+    if (map[name]) continue;
+    // Only the first-party half of a fragment is self-contained. An npm .d.ts
+    // lives in an external repository no workspace-relative path reaches, so it
+    // resolves here only if `bazel run //:refresh_tsconfig` installed it -- and
+    // that target's own deps decide what it installs.
+    const dtsPath = resolveInstalledPackage(npmDir, {
+      name,
+      entry: entry.entry,
+      isFile: entry.isFile,
+    });
+    if (!dtsPath) continue;
+    map[name] = dtsPath;
+    log(`fragment npm: ${name} → ${dtsPath}`);
+  }
+
+  for (const pkg of [...packages].sort()) {
+    if (map[pkg]) continue;
+    scanPackageForResolution(
+      pkg,
+      path.join(workspaceRoot, pkg),
+      path.join(workspaceRoot, 'bazel-bin', pkg),
+      map
+    );
+  }
+
+  for (const [prefix, dir] of [...aliases].sort(byKey)) {
+    const key = `__alias__${prefix}/`;
+    if (map[key]) continue;
+    const absDir = path.join(workspaceRoot, dir);
+    // The data file is rewritten whole on every refresh; a fragment is not, so
+    // a renamed alias leaves the old one in bazel-out until that target is next
+    // built. A directory that is gone is how that shows up.
+    if (!fs.existsSync(absDir)) {
+      log(`fragment alias: ${prefix} → ${absDir} (gone, skipped)`);
+      continue;
+    }
+    map[key] = absDir;
+    log(`fragment alias: ${prefix} → ${absDir}`);
+  }
 }
 
 /**
@@ -231,25 +470,52 @@ function scanPackageForResolution(pkg, srcDir, binDir, map) {
 }
 
 /**
- * Walk BUILD files in the workspace and extract # gazelle:ts_path_alias
- * directives.  Each directive maps an alias prefix to a source directory.
+ * One walk of the source tree, for the two things it is the authority on: the
+ * # gazelle:ts_path_alias directives in BUILD files, and where the Bazel
+ * packages are.
  *
- * The alias is stored with the "__alias__" prefix so the main thread can
- * distinguish it from direct module-name mappings.
+ * Directive format:  # gazelle:ts_path_alias <alias_prefix> <workspace-relative-dir>
  *
- * Format:  # gazelle:ts_path_alias <alias_prefix> <workspace-relative-dir>
+ * The package list is what makes fragment discovery cheap and self-cleaning: a
+ * fragment can only sit under a package directory, so nothing else in bazel-out
+ * has to be read, and a package that no longer exists in the source tree is not
+ * looked in.
  *
  * @param {string} root
- * @param {Record<string, string>} map
+ * @returns {{packages: string[], aliases: Array<{prefix: string, dir: string}>}}
  */
-function scanPathAliases(root, map) {
+function walkWorkspace(root) {
   const re = /^\s*#\s*gazelle:ts_path_alias\s+(\S+)\s+(\S+)/;
-
-  // Walk the workspace tree, stopping at nested workspace boundaries.
   const BOUNDARY_FILES = new Set(['MODULE.bazel', 'WORKSPACE', 'WORKSPACE.bazel']);
-  const PRUNE_DIRS = new Set([
-    'node_modules', 'dist', 'build', '.next', '.nuxt',
-  ]);
+  const PRUNE_DIRS = new Set(['node_modules', 'dist', 'build', '.next', '.nuxt']);
+  const BUILD_FILES = new Set(['BUILD.bazel', 'BUILD']);
+
+  const packages = [];
+  const aliases = [];
+  const seenPrefix = new Set();
+
+  function readDirectives(filePath) {
+    let lines;
+    try {
+      lines = fs.readFileSync(filePath, 'utf8').split('\n');
+    } catch (_) {
+      return;
+    }
+    for (const line of lines) {
+      const m = line.match(re);
+      if (!m) continue;
+      const prefix = m[1]; // e.g. "@/"
+      const dir = m[2]; // e.g. "src/"
+      // Only safe characters: this is the one input that is text rather than
+      // graph, so a prefix gazelle would accept can still be refused here.
+      if (!/^[A-Za-z0-9@/_.*-]+$/.test(prefix)) continue;
+      if (!/^[A-Za-z0-9@/_.*-]+$/.test(dir)) continue;
+      const stripped = prefix.replace(/\/$/, '');
+      if (seenPrefix.has(stripped)) continue; // First occurrence wins.
+      seenPrefix.add(stripped);
+      aliases.push({ prefix: stripped, dir: dir.replace(/\/$/, '') });
+    }
+  }
 
   function walk(dir, isRoot) {
     let entries;
@@ -259,49 +525,33 @@ function scanPathAliases(root, map) {
       return;
     }
 
-    // Check for child workspace boundary (skip everything except root).
-    if (!isRoot) {
-      const isBoundary = entries.some(
-        (e) => e.isFile() && BOUNDARY_FILES.has(e.name)
-      );
-      if (isBoundary) return;
+    // A child workspace's directives and packages are that workspace's, not
+    // this one's.
+    if (!isRoot && entries.some((e) => e.isFile() && BOUNDARY_FILES.has(e.name))) {
+      return;
     }
 
+    // Sorted, so which BUILD file wins a repeated alias prefix does not depend
+    // on the order the filesystem happens to list directories in.
+    entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+
+    let isPackage = false;
     for (const entry of entries) {
       if (entry.name.startsWith('.') || entry.name.startsWith('bazel-')) continue;
       if (PRUNE_DIRS.has(entry.name)) continue;
 
-      if (entry.isFile() && (entry.name === 'BUILD.bazel' || entry.name === 'BUILD')) {
-        const filePath = path.join(dir, entry.name);
-        try {
-          const lines = fs.readFileSync(filePath, 'utf8').split('\n');
-          for (const line of lines) {
-            const m = line.match(re);
-            if (!m) continue;
-            const aliasPrefix = m[1]; // e.g. "@/"
-            const aliasDir = m[2];    // e.g. "src/"
-
-            // Validate: only safe characters.
-            if (!/^[A-Za-z0-9@/_.*-]+$/.test(aliasPrefix)) continue;
-            if (!/^[A-Za-z0-9@/_.*-]+$/.test(aliasDir)) continue;
-
-            const key = `__alias__${aliasPrefix.replace(/\/$/, '')}/`;
-            if (map[key]) continue; // First occurrence wins.
-
-            const absDir = path.join(workspaceRoot, aliasDir.replace(/\/$/, ''));
-            map[key] = absDir;
-            log(`path alias: ${aliasPrefix} → ${absDir}`);
-          }
-        } catch (_) {
-          // ignore unreadable BUILD files
-        }
+      if (entry.isFile() && BUILD_FILES.has(entry.name)) {
+        isPackage = true;
+        readDirectives(path.join(dir, entry.name));
       } else if (entry.isDirectory()) {
         walk(path.join(dir, entry.name), false);
       }
     }
+    if (isPackage) packages.push(path.relative(root, dir));
   }
 
   walk(root, true);
+  return { packages: packages.sort(), aliases };
 }
 
 // ── Initial build ─────────────────────────────────────────────────────────────
@@ -356,13 +606,13 @@ for (const watchPath of rootWatchPaths) {
   }
 }
 
-// Watch bazel-bin for new .d.ts files (generated after `bazel build`).
-// Use recursive watch so nested packages are covered.
+// Watch bazel-bin for the two things a `bazel build` adds: .d.ts files, and the
+// aspect's fragments. Use recursive watch so nested packages are covered.
 const bazelBin = path.join(workspaceRoot, 'bazel-bin');
 if (fs.existsSync(bazelBin)) {
   try {
     fs.watch(bazelBin, { recursive: true, persistent: false }, (_event, filename) => {
-      if (filename && filename.endsWith('.d.ts')) {
+      if (filename && (filename.endsWith('.d.ts') || filename.endsWith(FRAGMENT_SUFFIX))) {
         log(`bazel-bin changed: ${filename}`);
         scheduleRebuild(500);
       }

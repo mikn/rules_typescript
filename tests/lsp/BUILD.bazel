@@ -8,6 +8,11 @@
                                 (both forms of entry point), internal ts_compile
                                 packages, and path aliases, including what must
                                 stay OUT of the map.
+  :test_fragment_map            the same worker again, over the fragment bytes a
+                                real build wrote for a package-private target:
+                                the .bazelrc-optional half of the map.
+  :fragments_reach_private_test  that those bytes exist at all, for a target no
+                                rule in this package may name.
   :test_resolve_integration     the monkey-patch itself -- ts.resolveModuleName
                                 returns lockfile .d.ts paths and follows
                                 ts_path_alias prefixes.
@@ -23,7 +28,10 @@ load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//npm:defs.bzl", "node_modules")
 load("//ts:defs.bzl", "ts_compile")
 load("//ts/private:tsconfig_aspect.bzl", "ide_tsconfig")
+load(":fragment_tests.bzl", "fragment_files", "fragments_reach_private_test")
 load(":ide_tsconfig_tests.bzl", "ambient_types_test", "no_ambient_types_test")
+
+package(default_visibility = ["//:__pkg__"])
 
 # typescript is a genuine dependency of the LSP path, not a stand-in: the hook
 # patches real TypeScript's module-level resolveModuleName, and tsgo has no
@@ -67,6 +75,33 @@ sh_test(
         "//ts/toolchain:node_resolved",
     ],
     deps = ["@bazel_tools//tools/bash/runfiles"],
+)
+
+# The fragment closure of a public target, which is where the private one's
+# fragment comes from. Naming //tests/lsp/fragment_fixture:leaf here instead is
+# the visibility error this whole mechanism exists to avoid.
+fragment_files(
+    name = "fixture_fragments",
+    testonly = True,
+    dep = "//tests/lsp/fragment_fixture:root",
+)
+
+sh_test(
+    name = "test_fragment_map",
+    size = "small",
+    srcs = ["test_fragment_map.sh"],
+    data = [
+        "fragment_map_test.mjs",
+        ":fixture_fragments",
+        "//tools:tsserver-hook-worker.js",
+        "//ts/toolchain:node_resolved",
+    ],
+    deps = ["@bazel_tools//tools/bash/runfiles"],
+)
+
+fragments_reach_private_test(
+    name = "fragments_reach_private_test",
+    target_under_test = "//tests/lsp/fragment_fixture:root",
 )
 
 sh_test(

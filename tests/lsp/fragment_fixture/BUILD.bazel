@@ -1,0 +1,31 @@
+"""A package-private target behind a public one: the case only an aspect reaches.
+
+`leaf` is `//visibility:private`, so no rule outside this package can name it --
+not `ide_tsconfig(deps = [...])`, not a filegroup, not the test that asserts on
+it. `root` is the only edge into it, and tsconfig_aspect propagates along that
+edge without creating one, which is what //tests/lsp:fragments_reach_private_test
+measures.
+
+Both targets are `manual`: they exist to be analysed, and nothing outside
+//tests/lsp should compile them.
+"""
+
+load("//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "leaf",
+    srcs = ["index.ts"],
+    tags = ["manual"],
+    visibility = ["//visibility:private"],
+)
+
+# The alias is here so a fragment carries all three record kinds; its directory
+# holds this target's own srcs, which is what path_aliases requires.
+ts_compile(
+    name = "root",
+    srcs = ["root.ts"],
+    path_aliases = {"@frag/": "tests/lsp/fragment_fixture/"},
+    tags = ["manual"],
+    visibility = ["//tests/lsp:__pkg__"],
+    deps = [":leaf"],
+)

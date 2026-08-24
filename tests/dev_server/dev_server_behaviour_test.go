@@ -6,18 +6,27 @@
 // a throwaway workspace, and asserts over HTTP:
 //
 //  1. the generated config, EVALUATED (it is a module that reads its
-//     environment), configures the port the rule was given, an allow-list that
-//     reaches bazel-bin, and a watch path ibazel's rebuilds land in;
+//     environment and the filesystem), configures the port the rule was given,
+//     an allow-list that reaches bazel-bin, a watch path ibazel's rebuilds land
+//     in, an alias per first-party module_name pointing at SOURCE, and the
+//     inputs a rebuild has to restart the server for;
 //  2. the running server serves a file from bazel-bin rather than answering 403;
-//  3. with plugin = //vite:vite_plugin_bazel, an `import "./app.ts"` is
-//     rewritten to the PRE-COMPILED .js under bazel-bin; without the plugin the
-//     same import still points at the .ts source. Same request, two answers --
-//     which is what proves the plugin is installed and resolving rather than
-//     merely named in the config text;
-//  4. with react_refresh = True, a .tsx module comes back carrying the React
+//  3. an `import "./app.ts"` lands on the .ts SOURCE in both variants: dev
+//     takes Bazel out of the inner loop, so Vite transforms first-party source
+//     itself. What the plugin adds is bazel-bin for what Vite cannot produce:
+//     a ts_codegen output with no checked-in source resolves WITH the plugin
+//     and does not without it. Same request, two answers -- which is what
+//     proves the plugin is installed and resolving rather than merely named in
+//     the config text;
+//  4. a first-party bare specifier (`@devserver/lib`) resolves to that
+//     package's source, so it is one module in the graph with a relative
+//     import of the same file;
+//  5. with react_refresh = True, a .tsx module comes back carrying the React
 //     Fast Refresh preamble; without it, it does not;
-//  5. the launcher survives the SIGTERM ibazel sends on every rebuild, and the
-//     server behind it keeps answering.
+//  6. the launcher survives the SIGTERM ibazel sends on every rebuild, and the
+//     server behind it keeps answering;
+//  7. a rebuild that only rewrote ts_codegen output serves the new bytes and
+//     does NOT restart Vite; a rebuild that changed the generated config does.
 //
 // Which variant is under test comes from the env of the go_test target:
 // DEV_TARGET, DEV_PORT, DEV_BAZEL_PLUGIN, DEV_REACT_REFRESH.
@@ -73,6 +82,29 @@ func TestDevServerBehaviour(t *testing.T) {
 	write(t, filepath.Join(ws, "entry.js"), "import { origin } from \"./app.ts\";\nexport { origin };\n")
 	write(t, filepath.Join(ws, "widget.tsx"), "export function Widget() {\n  return <div className=\"widget\">hello</div>;\n}\n")
 
+	// The package //tests/dev_server/lib declares module_name "@devserver/lib".
+	// Its source has to be where the config expects it for the alias to point at
+	// source rather than at bazel-bin.
+	libSource := filepath.Join(ws, "tests", "dev_server", "lib", "index.ts")
+	mkdir(t, filepath.Dir(libSource))
+	write(t, libSource, "export const packageName: string = \"LIB_SOURCE_TRANSFORMED_BY_VITE\";\n")
+	write(t, filepath.Join(ws, "alias_entry.js"),
+		"import { packageName } from \"@devserver/lib\";\nexport { packageName };\n")
+
+	// A ts_codegen output: generated .ts under bazel-bin with no source in the
+	// workspace. Vite cannot produce it, so this is what bazel-bin is still for.
+	generated := filepath.Join(bazelBin, "generated", "routes.ts")
+	mkdir(t, filepath.Dir(generated))
+	write(t, generated, "export const routes: string[] = [\"CODEGEN_V1\"];\n")
+	write(t, filepath.Join(ws, "gen_entry.js"),
+		"import { routes } from \"./generated/routes.ts\";\nexport { routes };\n")
+
+	// The config watches its own bazel-bin copy, so the scratch workspace needs
+	// one for the restart decision to have a baseline to move away from.
+	scratchConfig := filepath.Join(bazelBin, "tests", "dev_server", target+"_dev", "vite.config.mjs")
+	mkdir(t, filepath.Dir(scratchConfig))
+	write(t, scratchConfig, "// stand-in for the generated config, v1\n")
+
 	// ── 1: what the config says, by running it ────────────────────────────────
 	cfg := evalConfig(t, node.Abs(), readConfig.Abs(), config.Abs(), ws)
 	t.Logf("config = %s", cfg.raw)
@@ -89,6 +121,34 @@ func TestDevServerBehaviour(t *testing.T) {
 	// ibazel writes rebuilt .js here, and Vite only notices through this watcher.
 	if !slices.Contains(cfg.WatchPaths, bazelBin) {
 		t.Errorf("server.watch.paths does not include %s: %v", bazelBin, cfg.WatchPaths)
+	}
+
+	// The alias is what makes `@devserver/lib` mean source in dev. It has to name
+	// the source file, not the compiled output: the point of serving source is
+	// that Bazel is not in the loop.
+	if got := replacementFor(cfg.Alias, "/^@devserver\\/lib$/"); got != libSource {
+		t.Errorf("resolve.alias sends @devserver/lib to %q, want the source %q\nalias = %v",
+			got, libSource, cfg.Alias)
+	}
+
+	// Restart-or-keep, as the config declares it: the config itself is fixable by
+	// an in-process restart, a new Vite or a new node binary is not, and no
+	// ts_codegen output is on the list at all -- that is the whole point.
+	wantInputs := map[string]string{scratchConfig: "restart"}
+	for _, input := range cfg.ConfigInputs {
+		if want, ok := wantInputs[input.Path]; ok {
+			if input.Remedy != want {
+				t.Errorf("input %s declares remedy %q, want %q", input.Path, input.Remedy, want)
+			}
+			delete(wantInputs, input.Path)
+		}
+		if strings.HasPrefix(input.Path, filepath.Join(bazelBin, "generated")) {
+			t.Errorf("a ts_codegen output is a watched config input (%s); a codegen "+
+				"rebuild would restart the dev server", input.Path)
+		}
+	}
+	for path := range wantInputs {
+		t.Errorf("configInputs does not watch %s: %v", path, cfg.ConfigInputs)
 	}
 
 	srv := start(t, launcher.Abs(), ws, tmp)
@@ -109,23 +169,66 @@ func TestDevServerBehaviour(t *testing.T) {
 	// ── 3: where an import of a .ts module lands ──────────────────────────────
 	// Vite rewrites every import specifier in what it serves to the URL it
 	// resolved, so the served entry.js says which file the plugin container
-	// chose for "./app.ts": bazel-bin's compiled .js, or the .ts source.
-	t.Run("resolves_ts_import", func(t *testing.T) {
+	// chose for "./app.ts". In dev that must be the SOURCE in both variants:
+	// Bazel is out of the inner loop, and the pre-compiled .js next to it is
+	// exactly the round trip this is meant to skip.
+	t.Run("serves_first_party_source", func(t *testing.T) {
 		r := get(t, base, "/entry.js")
 		if r.status != 200 {
 			t.Fatalf("GET /entry.js returned %d, want 200\n%s", r.status, r.body)
 		}
 		t.Logf("entry.js = %s", r.body)
-		if wantBazelPlugin {
-			r.contains(t, srv, "bazel-bin/app.js")
-			return
-		}
-		// Without the plugin the same import must still name the .ts source.
 		r.contains(t, srv, "/app.ts")
 		r.excludes(t, "bazel-bin/app.js")
+
+		// And the bytes really came from Vite transforming the source.
+		m := get(t, base, "/app.ts")
+		m.contains(t, srv, "TS_SOURCE_TRANSFORMED_BY_VITE")
+		m.excludes(t, "JS_PRECOMPILED_BY_BAZEL")
 	})
 
-	// ── 4: React Fast Refresh ─────────────────────────────────────────────────
+	// ── 3b: what bazel-bin is still for ───────────────────────────────────────
+	// A ts_codegen output has no checked-in source, so Vite cannot produce it and
+	// the plugin has to find it under bazel-bin. Without the plugin the same
+	// import resolves nowhere -- the one request that separates the two variants.
+	t.Run("resolves_codegen_from_bazel_bin", func(t *testing.T) {
+		r := get(t, base, "/gen_entry.js")
+		t.Logf("gen_entry.js (status %d) = %s", r.status, r.body)
+		if !wantBazelPlugin {
+			// Vite alone cannot see bazel-bin, and says so.
+			if r.status == 200 {
+				t.Fatalf("GET /gen_entry.js returned 200 without the plugin; bazel-bin "+
+					"is not Vite's to resolve\n%s", r.body)
+			}
+			r.contains(t, srv, "Failed to resolve import")
+			r.excludes(t, "bazel-bin/generated/routes.ts")
+			return
+		}
+		if r.status != 200 {
+			t.Fatalf("GET /gen_entry.js returned %d, want 200\n%s", r.status, r.body)
+		}
+		r.contains(t, srv, "bazel-bin/generated/routes.ts")
+		m := get(t, base, "/@fs"+filepath.Join(bazelBin, "generated", "routes.ts"))
+		m.contains(t, srv, "CODEGEN_V1")
+	})
+
+	// ── 4: a first-party bare specifier ───────────────────────────────────────
+	// `@devserver/lib` is how packages import each other. resolve.alias is a rule
+	// feature, not a plugin one, so both variants must land on the same source
+	// file -- otherwise the bare import and a relative import of the same file
+	// are two modules in Vite's graph.
+	t.Run("resolves_first_party_bare_specifier", func(t *testing.T) {
+		r := get(t, base, "/alias_entry.js")
+		if r.status != 200 {
+			t.Fatalf("GET /alias_entry.js returned %d, want 200\n%s", r.status, r.body)
+		}
+		t.Logf("alias_entry.js = %s", r.body)
+		r.contains(t, srv, "/tests/dev_server/lib/index.ts")
+		m := get(t, base, "/tests/dev_server/lib/index.ts")
+		m.contains(t, srv, "LIB_SOURCE_TRANSFORMED_BY_VITE")
+	})
+
+	// ── 5: React Fast Refresh ─────────────────────────────────────────────────
 	t.Run("react_refresh", func(t *testing.T) {
 		r := get(t, base, "/widget.tsx")
 		if !wantReactRefresh {
@@ -150,7 +253,7 @@ func TestDevServerBehaviour(t *testing.T) {
 			"react-refresh package in the node_modules tree (status %d)", r.status)
 	})
 
-	// ── 5: the SIGTERM ibazel sends on every rebuild ──────────────────────────
+	// ── 6: the SIGTERM ibazel sends on every rebuild ──────────────────────────
 	// ibazel terminates the launcher and rebuilds; the point of the dev server is
 	// that vite lives through it and picks the new .js up from its watcher.
 	t.Run("survives_ibazel_sigterm", func(t *testing.T) {
@@ -168,6 +271,61 @@ func TestDevServerBehaviour(t *testing.T) {
 			t.Errorf("after SIGTERM the server answers %d, want 200\n%s", r.status, srv.log(t))
 		}
 	})
+
+	// ── 7: restart-or-keep, both ways ─────────────────────────────────────────
+	// Only the plugin makes the decision; without it there is no ConfigWatcher
+	// and nothing to assert.
+	if !wantBazelPlugin {
+		return
+	}
+
+	// A rebuild that only rewrote ts_codegen output leaves the running server
+	// correctly configured, so it must serve the new bytes without restarting.
+	t.Run("keeps_running_on_codegen_rebuild", func(t *testing.T) {
+		before := restartCount(t, srv)
+		write(t, generated, "export const routes: string[] = [\"CODEGEN_V2\"];\n")
+		url := "/@fs" + filepath.Join(bazelBin, "generated", "routes.ts")
+		if !eventually(t, func() bool {
+			return strings.Contains(get(t, base, url).body, "CODEGEN_V2")
+		}) {
+			t.Errorf("the rebuilt codegen output never reached the server\n%s", srv.log(t))
+		}
+		if after := restartCount(t, srv); after != before {
+			t.Errorf("a codegen-only rebuild restarted Vite (%d → %d restarts)\n%s",
+				before, after, srv.log(t))
+		}
+	})
+
+	// A rebuild that changed the generated config left the running server
+	// configured for a graph that no longer exists, and only a restart fixes it.
+	t.Run("restarts_on_config_change", func(t *testing.T) {
+		before := restartCount(t, srv)
+		write(t, scratchConfig, "// stand-in for the generated config, v2 — new aliases\n")
+		if !eventually(t, func() bool { return restartCount(t, srv) > before }) {
+			t.Fatalf("the config changed and Vite did not restart\n%s", srv.log(t))
+		}
+		if !eventually(t, func() bool { return get(t, base, "/app.ts").status == 200 }) {
+			t.Errorf("the server never came back after restarting\n%s", srv.log(t))
+		}
+	})
+}
+
+// restartCount is how many times the plugin has decided the running server is
+// configured for a graph that no longer exists.
+func restartCount(t *testing.T, s *server) int {
+	t.Helper()
+	return strings.Count(s.log(t), "[vite-plugin-bazel] restarting:")
+}
+
+func eventually(t *testing.T, done func() bool) bool {
+	t.Helper()
+	for i := 0; i < 60; i++ {
+		if done() {
+			return true
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return false
 }
 
 func env(t *testing.T, name string) string {
@@ -194,12 +352,37 @@ func write(t *testing.T, path, content string) {
 }
 
 type devConfig struct {
-	Port       int      `json:"port"`
-	Host       any      `json:"host"`
-	Root       string   `json:"root"`
-	FsAllow    []string `json:"fsAllow"`
-	WatchPaths []string `json:"watchPaths"`
-	raw        string
+	Port         int           `json:"port"`
+	Host         any           `json:"host"`
+	Root         string        `json:"root"`
+	FsAllow      []string      `json:"fsAllow"`
+	WatchPaths   []string      `json:"watchPaths"`
+	Alias        []aliasEntry  `json:"alias"`
+	ConfigInputs []configInput `json:"configInputs"`
+	raw          string
+}
+
+type aliasEntry struct {
+	Find        string `json:"find"`
+	Replacement string `json:"replacement"`
+}
+
+type configInput struct {
+	Label  string `json:"label"`
+	Path   string `json:"path"`
+	Digest string `json:"digest"`
+	Remedy string `json:"remedy"`
+}
+
+// replacementFor returns what the alias with this exact `find` points at, or ""
+// when the config declared no such alias.
+func replacementFor(entries []aliasEntry, find string) string {
+	for _, entry := range entries {
+		if entry.Find == find {
+			return entry.Replacement
+		}
+	}
+	return ""
 }
 
 // evalConfig runs the generated config as the module it is: the port, root and

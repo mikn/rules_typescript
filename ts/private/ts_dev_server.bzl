@@ -1,11 +1,31 @@
 """Dev server rule that starts Vite in dev mode.
 
 ts_dev_server is an executable rule.  Running it with `bazel run //app:dev`
-starts a Vite development server that serves compiled JavaScript from bazel-bin.
+starts a Vite development server that serves first-party source, and reads
+bazel-bin only for what Vite cannot produce itself.
 
 Architecture
 ────────────
-Bazel (or ibazel) compiles .ts → .js under bazel-bin/.  This rule generates:
+Dev and prod want opposite things from the same import, and get them.
+
+`vite build` (ts_bundle): Bazel compiled every first-party .ts to .js under
+bazel-bin, and the plugin redirects imports there.  Bazel owns the transform.
+
+`bazel run //app:dev`: Bazel is OUT of the inner loop.  Vite transforms
+checked-in first-party source in memory, so a keystroke reaches the browser
+without a Bazel analysis and action cycle in between.  bazel-bin stays
+authoritative for what Vite cannot produce itself: the npm tree the
+`node_modules` attr built, `ts_codegen` output (route trees, generated protos),
+and non-source assets and passthrough .d.ts.  Generated code is recognised by
+having no checked-in source, not by a list of paths that would drift out of
+sync with ts_codegen.
+
+Serving source means the dev server does not typecheck.  That is native parity
+-- Vite has never typechecked, tsserver does -- but it makes editor correctness
+load-bearing: a type error now surfaces in the editor and in `bazel build`, and
+no longer blocks the browser update.
+
+This rule generates:
 
   1. A vite.config.mjs for dev mode that:
      - Sets `root` to the workspace root (BUILD_WORKSPACE_DIRECTORY when running
@@ -13,8 +33,14 @@ Bazel (or ibazel) compiles .ts → .js under bazel-bin/.  This rule generates:
      - Configures `server.fs.allow` to serve files from bazel-bin.
      - Points `resolve.modules` at the Bazel-generated node_modules tree so that
        `import "react"` finds the right packages.
+     - Emits one `resolve.alias` entry per first-party `module_name` in the
+       graph, pointing at that package's SOURCE, so that `@scope/pkg` and a
+       relative import of the same file are one module in Vite's graph rather
+       than two copies of it.  The mapping is the TsModuleInfo one ts_compile
+       already writes into tsconfig `paths` -- not a second source of truth.
+     - Exports `bazelConfigInputs`, the inputs it was generated from (below).
      - Optionally uses the vite-plugin-bazel plugin (when the `plugin` attr is
-       set) for .ts-to-.js resolution and HMR support when run with ibazel.
+       set) for resolution and HMR support.
 
   2. A launcher config (read by //tools/launcher) that:
      - Runs the Node binary of the resolved JS runtime toolchain, from runfiles.
@@ -26,20 +52,29 @@ Bazel (or ibazel) compiles .ts → .js under bazel-bin/.  This rule generates:
 
 ibazel integration
 ──────────────────
-When run via `ibazel run //app:dev`, ibazel:
-  1. Builds the target (compiles .ts → .js under bazel-bin).
-  2. Starts the launcher for the first build.
-  3. On subsequent rebuilds, sends SIGTERM to the launcher, rebuilds, then
-     restarts.  (This is ibazel's default "run" behaviour.)
+`ibazel run //app:dev` SIGTERMs the launcher after every rebuild, and the
+launcher deliberately survives it (//tools/launcher, Supervise with
+IgnoreTerm): one Vite process lives across every rebuild.  So the
+restart-or-keep decision is not ibazel's to make -- it is made inside that
+process, by this generated config and the plugin:
 
-The preferred integration is to keep the dev server alive across rebuilds.
-The generated vite.config.mjs watches bazel-bin for .js file changes via
-Vite's built-in file watcher (server.watch), so Vite picks up newly compiled
-files and sends HMR updates without requiring a server restart.
+    changed                   handled by             restart Vite?
+    ───────────────────────── ────────────────────── ─────────────
+    first-party source        Vite transform → HMR   no (Bazel uninvolved)
+    ts_codegen output         bazel-bin watcher      no
+    this generated config     ConfigWatcher          yes
+    npm tree / Vite version   ConfigWatcher          yes, plus a warning that
+    toolchain node binary     ConfigWatcher          only a new `bazel run`
+                                                     really replaces them
 
-When vite-plugin-bazel is wired in via the `plugin` attr, the plugin intercepts
-.ts import resolution and redirects to .js in bazel-bin, and uses a bazel-bin
-file watcher to trigger HMR updates precisely.
+The config exports `bazelConfigInputs`: for each input a path, which digest
+identifies it, and whether an in-process restart can fix it.  Content digests,
+not timestamps -- Bazel rewrites outputs on every action, so an mtime says
+nothing about whether anything changed.
+
+Vite restarts itself when its own config file changes, but has no concept of
+the thing that GENERATES its config, because natively nothing does.  That is
+what the ConfigWatcher adds.
 
 Usage:
 
@@ -84,17 +119,31 @@ Usage:
 
     # Run with:
     #   bazel run //app:dev
-    # Or with ibazel for live reloading:
+    # Or with ibazel, so a ts_codegen rebuild or a config change is picked up:
     #   ibazel run //app:dev
 """
 
 load("//tools/launcher:launcher.bzl", "LAUNCHER_ATTRS", "declare_launcher", "rlocation_path")
 load("//ts/private:providers.bzl", "BundlerInfo", "JsInfo")
 load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "get_js_runtime")
+load("//ts/private:ts_compile.bzl", "TsModuleInfo")
 
 # ─── Config generation ─────────────────────────────────────────────────────────
 
-def _generate_dev_config(ctx, node_modules_rl, plugin_rl, react_refresh, user_config_rl = ""):
+def _bin_relative(f):
+    """The path of a generated file relative to the bazel-bin symlink."""
+    if f.short_path.startswith("../"):
+        return "external/" + f.short_path[3:]
+    return f.short_path
+
+def _generate_dev_config(
+        ctx,
+        node_modules_rl,
+        plugin_rl,
+        react_refresh,
+        modules,
+        runtime_rl,
+        user_config_rl = ""):
     """Generates a vite.config.mjs for dev server mode.
 
     The config is designed to work in conjunction with the launcher:
@@ -114,6 +163,10 @@ def _generate_dev_config(ctx, node_modules_rl, plugin_rl, react_refresh, user_co
             vite_plugin_bazel.mjs, or empty string if not set.
         react_refresh: bool, whether to import and use @vitejs/plugin-react
             for React Fast Refresh (HMR that preserves component state).
+        modules: list of struct(module_name, source_root) for every first-party
+            package in the graph that declared a module_name.
+        runtime_rl: Runfiles-tree-relative path of the toolchain node binary,
+            so the config can watch the one it is running under.
         user_config_rl: Runfiles-tree-relative path to the user-supplied Vite
             plugin config file (.mjs/.js), or empty string if not set. When set,
             the generated config dynamically imports this file and prepends its
@@ -125,6 +178,12 @@ def _generate_dev_config(ctx, node_modules_rl, plugin_rl, react_refresh, user_co
     port = ctx.attr.port
     host = ctx.attr.host
     open_browser = ctx.attr.open
+
+    # Declared before the content is built: the config watches itself, and only
+    # Bazel knows where the file it is about to write will land.
+    config_file = ctx.actions.declare_file(
+        "{}_dev/vite.config.mjs".format(ctx.label.name),
+    )
 
     open_js = "true" if open_browser else "false"
     host_js = json.encode(host) if host else "true"
@@ -144,6 +203,7 @@ def _generate_dev_config(ctx, node_modules_rl, plugin_rl, react_refresh, user_co
             "//   VITE_USER_CONFIG_PATH      — absolute path to the user-supplied plugin config\n" if user_config_rl else ""
         ) +
         "\n" +
+        "import fs from 'node:fs';\n" +
         "import path from 'node:path';\n" +
         "\n" +
         "// Resolve key directories from environment variables.\n" +
@@ -155,6 +215,71 @@ def _generate_dev_config(ctx, node_modules_rl, plugin_rl, react_refresh, user_co
         "\n" +
         "// The Bazel-generated node_modules tree (absolute path in runfiles).\n" +
         "const nodeModulesPath = process.env['NODE_MODULES_PATH'] || null;\n" +
+        "\n"
+    )
+
+    config_content += (
+        "// Every first-party package in this graph that declared a module_name,\n" +
+        "// as TsModuleInfo reports it: the mapping ts_compile writes into tsconfig\n" +
+        "// `paths`, so the editor and the dev server agree what `@scope/pkg` means.\n" +
+        "const firstPartyModules = " + json.encode([
+            {"name": m.module_name, "dir": m.source_root}
+            for m in modules
+        ]) + ";\n" +
+        "\n" +
+        "// In dev the alias points at SOURCE, which is what takes Bazel out of the\n" +
+        "// inner loop for a package imported by its bare specifier. A package whose\n" +
+        "// source is not checked in is generated, and resolves under bazel-bin.\n" +
+        "const firstPartyAliases = [];\n" +
+        "for (const mod of firstPartyModules) {\n" +
+        "  const dirs = [path.join(workspaceRoot, mod.dir), path.join(bazelBin, mod.dir)];\n" +
+        "  const entry = dirs\n" +
+        "    .flatMap((dir) => ['index.ts', 'index.tsx'].map((f) => path.join(dir, f)))\n" +
+        "    .find((candidate) => fs.existsSync(candidate));\n" +
+        "  // Exact match first, and as a RegExp: a string `find` also matches every\n" +
+        "  // subpath under it, which would rewrite `@scope/pkg/button` to\n" +
+        "  // `<pkg>/index.ts/button`.\n" +
+        "  if (entry) {\n" +
+        "    const escaped = mod.name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n" +
+        "    firstPartyAliases.push({ find: new RegExp('^' + escaped + '$'), replacement: entry });\n" +
+        "  }\n" +
+        "  const dir = dirs.find((candidate) => fs.existsSync(candidate));\n" +
+        "  if (dir) firstPartyAliases.push({ find: mod.name, replacement: dir });\n" +
+        "}\n" +
+        "\n" +
+        "// The inputs this config was generated from. A rebuild that changes one of\n" +
+        "// them leaves the running server configured for a graph that no longer\n" +
+        "// exists; a rebuild that only rewrote ts_codegen output leaves it correct,\n" +
+        "// and the bazel-bin watcher turns that into HMR instead of a restart.\n" +
+        "const configInputs = [\n" +
+        "  {\n" +
+        "    label: 'the generated vite config',\n" +
+        "    path: path.join(bazelBin, " + json.encode(_bin_relative(config_file)) + "),\n" +
+        "    digest: 'content',\n" +
+        "    remedy: 'restart',\n" +
+        "  },\n" +
+        "];\n" +
+        "if (nodeModulesPath) {\n" +
+        "  configInputs.push({\n" +
+        "    label: 'vite in the Bazel npm tree',\n" +
+        "    path: path.join(nodeModulesPath, 'vite', 'package.json'),\n" +
+        "    digest: 'content',\n" +
+        "    remedy: 'manual',\n" +
+        "  });\n" +
+        "}\n" +
+        "// The runfiles symlink, not process.execPath: execPath is already resolved\n" +
+        "// to the old toolchain's real file, which a new toolchain does not touch.\n" +
+        "const runfilesDir = process.env['RUNFILES_DIR'];\n" +
+        "if (runfilesDir) {\n" +
+        "  configInputs.push({\n" +
+        "    label: 'the toolchain node binary',\n" +
+        "    path: path.join(runfilesDir, " + json.encode(runtime_rl) + "),\n" +
+        "    digest: 'identity',\n" +
+        "    remedy: 'manual',\n" +
+        "  });\n" +
+        "}\n" +
+        "\n" +
+        "export const bazelConfigInputs = configInputs;\n" +
         "\n"
     )
 
@@ -257,6 +382,7 @@ def _generate_dev_config(ctx, node_modules_rl, plugin_rl, react_refresh, user_co
                 "    bazelBin: bazelBin,\n" +
                 "    nodeModules: nodeModulesPath || undefined,\n" +
                 "    target: " + json.encode(str(ctx.label)) + ",\n" +
+                "    configInputs: bazelConfigInputs,\n" +
                 "  }));\n" +
                 "}\n"
             )
@@ -290,6 +416,9 @@ def _generate_dev_config(ctx, node_modules_rl, plugin_rl, react_refresh, user_co
         "    // Point module resolution at the Bazel-generated node_modules tree.\n" +
         "    // This ensures `import 'react'` finds the Bazel-managed package.\n" +
         "    modules: resolveModules,\n" +
+        "    // A first-party module_name resolves to source; npm packages are\n" +
+        "    // untouched and keep resolving through the node_modules tree above.\n" +
+        "    alias: firstPartyAliases,\n" +
         "  },\n" +
         "\n"
     )
@@ -316,9 +445,6 @@ def _generate_dev_config(ctx, node_modules_rl, plugin_rl, react_refresh, user_co
         "};\n"
     )
 
-    config_file = ctx.actions.declare_file(
-        "{}_dev/vite.config.mjs".format(ctx.label.name),
-    )
     ctx.actions.write(
         output = config_file,
         content = config_content,
@@ -391,9 +517,28 @@ def _ts_dev_server_impl(ctx):
     if vite_config_files:
         user_config_rl = rlocation_path(ctx, vite_config_files[0])
 
+    # ── First-party module_name mapping ────────────────────────────────────────
+    # Materialised because the config file is a list of them; the same depset
+    # ts_compile walks to write tsconfig `paths`.
+    modules = []
+    if TsModuleInfo in entry_point:
+        modules = [
+            m
+            for m in entry_point[TsModuleInfo].transitive_modules.to_list()
+            if m.module_name
+        ]
+
     # ── Generate the vite.config.mjs ───────────────────────────────────────────
     react_refresh = ctx.attr.react_refresh
-    config_file = _generate_dev_config(ctx, node_modules_rl, plugin_rl, react_refresh, user_config_rl)
+    config_file = _generate_dev_config(
+        ctx,
+        node_modules_rl,
+        plugin_rl,
+        react_refresh,
+        modules,
+        rlocation_path(ctx, runtime_binary),
+        user_config_rl,
+    )
 
     # ── Locate Vite CLI ────────────────────────────────────────────────────────
     # vite/bin/vite.js lives inside the node_modules directory tree artifact.
@@ -482,9 +627,11 @@ ts_dev_server = rule(
         "plugin": attr.label(
             doc = "Optional compiled vite-plugin-bazel JavaScript file. " +
                   "When set (e.g. '//vite:vite_plugin_bazel'), the generated vite.config.mjs " +
-                  "will import and use the plugin for .ts-to-.js resolution and precise HMR " +
-                  "invalidation. Without this attr, Vite's built-in file watcher is used. " +
-                  "This attr accepts a bundled .mjs file target.",
+                  "imports the plugin, which resolves generated code out of bazel-bin, " +
+                  "invalidates precisely on a rebuild, and restarts the server when the " +
+                  "config it was generated from changes. Without this attr Vite serves " +
+                  "first-party source and nothing else: bazel-bin, and therefore ts_codegen " +
+                  "output, is invisible to it. This attr accepts a bundled .mjs file target.",
             allow_single_file = [".mjs", ".js"],
         ),
         "port": attr.int(
@@ -534,20 +681,35 @@ ts_dev_server = rule(
     },
     doc = """Starts a Vite dev server for a TypeScript application.
 
-`bazel run //app:dev` compiles the TypeScript sources and then starts Vite
-in dev mode.  The dev server serves compiled JavaScript directly from bazel-bin
-and watches for file changes to trigger HMR updates.
+`bazel run //app:dev` builds the target once and then starts Vite in dev mode.
+From there Bazel is out of the inner loop: Vite transforms your first-party
+`.ts`/`.tsx` source in memory, so a save reaches the browser as HMR without a
+Bazel analysis and action cycle in between. bazel-bin is still where Vite reads
+what it cannot produce itself -- `ts_codegen` output, generated assets, and the
+npm tree from the `node_modules` attr.
 
-For live-reloading on TypeScript edits, use `ibazel run //app:dev`.  ibazel
-will recompile the TypeScript sources and write new .js files to bazel-bin;
-Vite's file watcher will then send HMR updates to the browser.
+**The dev server does not typecheck.** That is the same deal as a native
+`vite dev` (Vite has never typechecked; tsserver and `bazel build` do), but it
+makes editor correctness load-bearing: a type error shows up in the editor and
+in `bazel build`, and no longer blocks the browser update.
+
+`ibazel run //app:dev` is still worth using for what Bazel does own: a
+`ts_codegen` rebuild reaches the browser as HMR, and a rebuild that changed the
+server's own configuration -- BUILD deps, a `module_name`, the entry point, the
+npm tree -- restarts Vite instead of leaving it serving a graph that no longer
+exists. A rebuild that changed neither does nothing, which is the point.
+
+Each first-party `module_name` in the graph becomes a `resolve.alias` entry
+pointing at that package's source, so `import "@scope/pkg"` and a relative
+import of the same file are one module in Vite's graph.
 
 The node_modules attr must point to a node_modules() rule that includes `vite`
 and all packages imported by the application.
 
-The optional plugin attr wires in the vite-plugin-bazel for better .ts import
-resolution and precise HMR invalidation.  Set it to `//vite:vite_plugin_bazel`
-to use the compiled plugin from this repository.
+The optional plugin attr wires in vite-plugin-bazel, which is what resolves
+generated code out of bazel-bin, invalidates precisely on a rebuild, and makes
+the restart decision. Without it Vite cannot see bazel-bin at all. Set it to
+`//vite:vite_plugin_bazel` to use the compiled plugin from this repository.
 
 Example (basic):
 
@@ -585,7 +747,7 @@ Example (with vite-plugin-bazel for enhanced HMR):
     # Start the dev server:
     #   bazel run //app:dev
 
-    # Start with live HMR on TypeScript edits (requires ibazel):
+    # Same, with codegen rebuilds and config-aware restarts (requires ibazel):
     #   ibazel run //app:dev
 
 Example (with React Fast Refresh — preserves component state across HMR):

@@ -9,6 +9,13 @@
     "moduleResolution": "Bundler",
     "noEmit": true,
     "paths": {
+      "@shared": [
+        "./tests/compiler_options/path_aliases/shared/index"
+      ],
+      "@shared/*": [
+        "./tests/compiler_options/path_aliases/shared/*",
+        "./bazel-bin/tests/compiler_options/path_aliases/shared/*"
+      ],
       "esbuild": [
         "./.bazel/npm/esbuild"
       ],
@@ -65,13 +72,287 @@
       "source-map-js/*": [
         "./.bazel/npm/source-map-js/*"
       ],
+      "tests/ambient_npm_types/*": [
+        "./tests/ambient_npm_types/*",
+        "./bazel-bin/tests/ambient_npm_types/*"
+      ],
+      "tests/assets/*": [
+        "./tests/assets/*",
+        "./bazel-bin/tests/assets/*"
+      ],
+      "tests/bundle/*": [
+        "./tests/bundle/*",
+        "./bazel-bin/tests/bundle/*"
+      ],
+      "tests/codegen/*": [
+        "./tests/codegen/*",
+        "./bazel-bin/tests/codegen/*"
+      ],
+      "tests/compile_layout/*": [
+        "./tests/compile_layout/*",
+        "./bazel-bin/tests/compile_layout/*"
+      ],
+      "tests/compiler_options/*": [
+        "./tests/compiler_options/*",
+        "./bazel-bin/tests/compiler_options/*"
+      ],
+      "tests/compiler_options/ambient/*": [
+        "./tests/compiler_options/ambient/*",
+        "./bazel-bin/tests/compiler_options/ambient/*"
+      ],
+      "tests/compiler_options/analysis/*": [
+        "./tests/compiler_options/analysis/*",
+        "./bazel-bin/tests/compiler_options/analysis/*"
+      ],
+      "tests/compiler_options/baseline/*": [
+        "./tests/compiler_options/baseline/*",
+        "./bazel-bin/tests/compiler_options/baseline/*"
+      ],
+      "tests/compiler_options/js_sources/*": [
+        "./tests/compiler_options/js_sources/*",
+        "./bazel-bin/tests/compiler_options/js_sources/*"
+      ],
+      "tests/compiler_options/jsx/*": [
+        "./tests/compiler_options/jsx/*",
+        "./bazel-bin/tests/compiler_options/jsx/*"
+      ],
+      "tests/compiler_options/module_name/consumer/*": [
+        "./tests/compiler_options/module_name/consumer/*",
+        "./bazel-bin/tests/compiler_options/module_name/consumer/*"
+      ],
+      "tests/compiler_options/module_name/lib": [
+        "./tests/compiler_options/module_name/lib/index"
+      ],
+      "tests/compiler_options/module_name/lib/*": [
+        "./tests/compiler_options/module_name/lib/*",
+        "./bazel-bin/tests/compiler_options/module_name/lib/*"
+      ],
+      "tests/compiler_options/path_aliases/*": [
+        "./tests/compiler_options/path_aliases/*",
+        "./bazel-bin/tests/compiler_options/path_aliases/*"
+      ],
+      "tests/compiler_options/source_maps/*": [
+        "./tests/compiler_options/source_maps/*",
+        "./bazel-bin/tests/compiler_options/source_maps/*"
+      ],
+      "tests/compiler_options/subtree/*": [
+        "./tests/compiler_options/subtree/*",
+        "./bazel-bin/tests/compiler_options/subtree/*"
+      ],
+      "tests/compiler_options/worker": [
+        "./tests/compiler_options/worker/index"
+      ],
+      "tests/compiler_options/worker/*": [
+        "./tests/compiler_options/worker/*",
+        "./bazel-bin/tests/compiler_options/worker/*"
+      ],
+      "tests/css/*": [
+        "./tests/css/*",
+        "./bazel-bin/tests/css/*"
+      ],
+      "tests/css_module/*": [
+        "./tests/css_module/*",
+        "./bazel-bin/tests/css_module/*"
+      ],
       "tests/css_module_test/*": [
         "./tests/css_module_test/*",
         "./bazel-bin/tests/css_module_test/*"
       ],
+      "tests/dev_server/*": [
+        "./tests/dev_server/*",
+        "./bazel-bin/tests/dev_server/*"
+      ],
+      "tests/json/*": [
+        "./tests/json/*",
+        "./bazel-bin/tests/json/*"
+      ],
+      "tests/lsp/*": [
+        "./tests/lsp/*",
+        "./bazel-bin/tests/lsp/*"
+      ],
+      "tests/multi/app/*": [
+        "./tests/multi/app/*",
+        "./bazel-bin/tests/multi/app/*"
+      ],
+      "tests/multi/lib/*": [
+        "./tests/multi/lib/*",
+        "./bazel-bin/tests/multi/lib/*"
+      ],
+      "tests/npm/*": [
+        "./tests/npm/*",
+        "./bazel-bin/tests/npm/*"
+      ],
+      "tests/npm_publish/*": [
+        "./tests/npm_publish/*",
+        "./bazel-bin/tests/npm_publish/*"
+      ],
+      "tests/smoke/*": [
+        "./tests/smoke/*",
+        "./bazel-bin/tests/smoke/*"
+      ],
+      "tests/synthetic/pkg_00": [
+        "./tests/synthetic/pkg_00/index"
+      ],
+      "tests/synthetic/pkg_00/*": [
+        "./tests/synthetic/pkg_00/*",
+        "./bazel-bin/tests/synthetic/pkg_00/*"
+      ],
+      "tests/synthetic/pkg_01": [
+        "./tests/synthetic/pkg_01/index"
+      ],
+      "tests/synthetic/pkg_01/*": [
+        "./tests/synthetic/pkg_01/*",
+        "./bazel-bin/tests/synthetic/pkg_01/*"
+      ],
+      "tests/synthetic/pkg_02": [
+        "./tests/synthetic/pkg_02/index"
+      ],
+      "tests/synthetic/pkg_02/*": [
+        "./tests/synthetic/pkg_02/*",
+        "./bazel-bin/tests/synthetic/pkg_02/*"
+      ],
+      "tests/synthetic/pkg_03": [
+        "./tests/synthetic/pkg_03/index"
+      ],
+      "tests/synthetic/pkg_03/*": [
+        "./tests/synthetic/pkg_03/*",
+        "./bazel-bin/tests/synthetic/pkg_03/*"
+      ],
+      "tests/synthetic/pkg_04": [
+        "./tests/synthetic/pkg_04/index"
+      ],
+      "tests/synthetic/pkg_04/*": [
+        "./tests/synthetic/pkg_04/*",
+        "./bazel-bin/tests/synthetic/pkg_04/*"
+      ],
+      "tests/synthetic/pkg_05": [
+        "./tests/synthetic/pkg_05/index"
+      ],
+      "tests/synthetic/pkg_05/*": [
+        "./tests/synthetic/pkg_05/*",
+        "./bazel-bin/tests/synthetic/pkg_05/*"
+      ],
+      "tests/synthetic/pkg_06": [
+        "./tests/synthetic/pkg_06/index"
+      ],
+      "tests/synthetic/pkg_06/*": [
+        "./tests/synthetic/pkg_06/*",
+        "./bazel-bin/tests/synthetic/pkg_06/*"
+      ],
+      "tests/synthetic/pkg_07": [
+        "./tests/synthetic/pkg_07/index"
+      ],
+      "tests/synthetic/pkg_07/*": [
+        "./tests/synthetic/pkg_07/*",
+        "./bazel-bin/tests/synthetic/pkg_07/*"
+      ],
+      "tests/synthetic/pkg_08": [
+        "./tests/synthetic/pkg_08/index"
+      ],
+      "tests/synthetic/pkg_08/*": [
+        "./tests/synthetic/pkg_08/*",
+        "./bazel-bin/tests/synthetic/pkg_08/*"
+      ],
+      "tests/synthetic/pkg_09": [
+        "./tests/synthetic/pkg_09/index"
+      ],
+      "tests/synthetic/pkg_09/*": [
+        "./tests/synthetic/pkg_09/*",
+        "./bazel-bin/tests/synthetic/pkg_09/*"
+      ],
+      "tests/synthetic/pkg_10": [
+        "./tests/synthetic/pkg_10/index"
+      ],
+      "tests/synthetic/pkg_10/*": [
+        "./tests/synthetic/pkg_10/*",
+        "./bazel-bin/tests/synthetic/pkg_10/*"
+      ],
+      "tests/synthetic/pkg_11": [
+        "./tests/synthetic/pkg_11/index"
+      ],
+      "tests/synthetic/pkg_11/*": [
+        "./tests/synthetic/pkg_11/*",
+        "./bazel-bin/tests/synthetic/pkg_11/*"
+      ],
+      "tests/synthetic/pkg_12": [
+        "./tests/synthetic/pkg_12/index"
+      ],
+      "tests/synthetic/pkg_12/*": [
+        "./tests/synthetic/pkg_12/*",
+        "./bazel-bin/tests/synthetic/pkg_12/*"
+      ],
+      "tests/synthetic/pkg_13": [
+        "./tests/synthetic/pkg_13/index"
+      ],
+      "tests/synthetic/pkg_13/*": [
+        "./tests/synthetic/pkg_13/*",
+        "./bazel-bin/tests/synthetic/pkg_13/*"
+      ],
+      "tests/synthetic/pkg_14": [
+        "./tests/synthetic/pkg_14/index"
+      ],
+      "tests/synthetic/pkg_14/*": [
+        "./tests/synthetic/pkg_14/*",
+        "./bazel-bin/tests/synthetic/pkg_14/*"
+      ],
+      "tests/synthetic/pkg_15": [
+        "./tests/synthetic/pkg_15/index"
+      ],
+      "tests/synthetic/pkg_15/*": [
+        "./tests/synthetic/pkg_15/*",
+        "./bazel-bin/tests/synthetic/pkg_15/*"
+      ],
+      "tests/synthetic/pkg_16": [
+        "./tests/synthetic/pkg_16/index"
+      ],
+      "tests/synthetic/pkg_16/*": [
+        "./tests/synthetic/pkg_16/*",
+        "./bazel-bin/tests/synthetic/pkg_16/*"
+      ],
+      "tests/synthetic/pkg_17": [
+        "./tests/synthetic/pkg_17/index"
+      ],
+      "tests/synthetic/pkg_17/*": [
+        "./tests/synthetic/pkg_17/*",
+        "./bazel-bin/tests/synthetic/pkg_17/*"
+      ],
+      "tests/synthetic/pkg_18": [
+        "./tests/synthetic/pkg_18/index"
+      ],
+      "tests/synthetic/pkg_18/*": [
+        "./tests/synthetic/pkg_18/*",
+        "./bazel-bin/tests/synthetic/pkg_18/*"
+      ],
+      "tests/synthetic/pkg_19": [
+        "./tests/synthetic/pkg_19/index"
+      ],
+      "tests/synthetic/pkg_19/*": [
+        "./tests/synthetic/pkg_19/*",
+        "./bazel-bin/tests/synthetic/pkg_19/*"
+      ],
+      "tests/validation/*": [
+        "./tests/validation/*",
+        "./bazel-bin/tests/validation/*"
+      ],
+      "tests/vite_bundle/*": [
+        "./tests/vite_bundle/*",
+        "./bazel-bin/tests/vite_bundle/*"
+      ],
       "tests/vitest/*": [
         "./tests/vitest/*",
         "./bazel-bin/tests/vitest/*"
+      ],
+      "tests/vitest/config_merge/*": [
+        "./tests/vitest/config_merge/*",
+        "./bazel-bin/tests/vitest/config_merge/*"
+      ],
+      "tests/vitest/setup_files/*": [
+        "./tests/vitest/setup_files/*",
+        "./bazel-bin/tests/vitest/setup_files/*"
+      ],
+      "tests/vitest/workspace/*": [
+        "./tests/vitest/workspace/*",
+        "./bazel-bin/tests/vitest/workspace/*"
       ],
       "tinyglobby": [
         "./.bazel/npm/tinyglobby"
@@ -90,6 +371,12 @@
       ],
       "vite/*": [
         "./.bazel/npm/vite/*"
+      ],
+      "zod": [
+        "./.bazel/npm/zod/index.d.ts"
+      ],
+      "zod/*": [
+        "./.bazel/npm/zod/*"
       ]
     },
     "rootDirs": [

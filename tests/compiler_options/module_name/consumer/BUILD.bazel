@@ -3,6 +3,8 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "ts_compile")
 
+package(default_visibility = ["//:__pkg__"])
+
 # main.ts imports "@acme/ui". Without the module_name the dep declares, that is
 # TS2307 -- and the only alternative was a path_aliases value with a
 # hardcoded bazel-out/<cpu>-<compilation mode>/bin prefix in it.

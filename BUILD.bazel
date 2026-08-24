@@ -17,20 +17,82 @@ exports_files([
 #                                        the npm .d.ts files under .bazel/npm
 #   bazel test //:refresh_tsconfig_test  fails when the checked-in copy is stale
 #
-# `deps` is what the IDE sees, and a rule's deps obey visibility: only the five
-# ts_compile targets below carry `visibility = ["//visibility:public"]`, so only
-# their packages appear. The other 86 in this repo are package-private test
-# fixtures; each needs a visibility grant to be listed here (gazelle writes
-# `//visibility:public` on the ts_compile targets it generates, so a workspace
-# whose BUILD files come from gazelle can list all of them).
+# `deps` is what the IDE sees, and a rule's deps obey visibility. The aspect
+# walks `deps`, so this list is roots only -- the 60 below reach 78 of the 100
+# ts_compile targets in this repo. Gazelle writes `//visibility:public` on every
+# ts_compile it generates, so a workspace whose BUILD files come from gazelle can
+# list any of them; the fixtures here are hand-written, and each package grants
+# `//:__pkg__` instead.
+#
+# Two kinds of target stay out. Fifteen are the ts_compile targets ts_test
+# generates for a test's own sources, which ts_test hardcodes
+# `//visibility:private`; their `vitest` dep is the one npm paths entry a
+# workspace-root `tsc` run still cannot resolve. Seven are the guard fixtures
+# under //tests/compiler_options/analysis whose analysis is meant to fail, so
+# listing one here fails this target instead.
 ts_refresh_tsconfig(
     name = "refresh_tsconfig",
     test = True,
     deps = [
         "//packages/nested-shared",
         "//packages/shared",
+        "//tests/ambient_npm_types:consumer",
+        "//tests/ambient_npm_types:consumer_no_types",
+        "//tests/assets:header_lib",
+        "//tests/bundle:app",
+        "//tests/codegen:consumer_compile",
+        "//tests/compile_layout:siblings",
+        "//tests/compiler_options:ts_extension_imports",
+        "//tests/compiler_options:webworker_lib",
+        "//tests/compiler_options/ambient:app",
+        "//tests/compiler_options/analysis:everything",
+        "//tests/compiler_options/analysis:from_exec_root",
+        "//tests/compiler_options/analysis:quoted_option",
+        "//tests/compiler_options/analysis:with_css",
+        "//tests/compiler_options/baseline:loose",
+        "//tests/compiler_options/baseline:loose_check_only",
+        "//tests/compiler_options/js_sources:app",
+        "//tests/compiler_options/js_sources:flavours",
+        "//tests/compiler_options/jsx:view",
+        "//tests/compiler_options/module_name/consumer:app",
+        "//tests/compiler_options/path_aliases:app",
+        "//tests/compiler_options/source_maps:mapped",
+        "//tests/compiler_options/source_maps:unmapped",
+        "//tests/compiler_options/subtree:tree",
+        "//tests/compiler_options/worker",
+        "//tests/css:button_lib",
+        "//tests/css_module:button_lib",
         "//tests/css_module_test:button",
+        "//tests/dev_server:app",
+        "//tests/json:app_lib",
+        "//tests/lsp:ambient_fixture",
+        "//tests/lsp:plain_fixture",
+        "//tests/multi/app",
+        "//tests/npm:app",
+        "//tests/npm:nested_workspace_consumer",
+        "//tests/npm:workspace_consumer",
+        "//tests/npm_publish:math",
+        "//tests/smoke:button",
+        "//tests/smoke:hello",
+        "//tests/synthetic/pkg_10",
+        "//tests/synthetic/pkg_11",
+        "//tests/synthetic/pkg_12",
+        "//tests/synthetic/pkg_13",
+        "//tests/synthetic/pkg_14",
+        "//tests/synthetic/pkg_15",
+        "//tests/synthetic/pkg_16",
+        "//tests/synthetic/pkg_17",
+        "//tests/synthetic/pkg_18",
+        "//tests/synthetic/pkg_19",
+        "//tests/validation:annotated_oxc",
+        "//tests/validation:correct",
+        "//tests/validation:inferred",
+        "//tests/vite_bundle:entry",
+        "//tests/vite_bundle:env_entry",
         "//tests/vitest:math",
+        "//tests/vitest/config_merge:styles",
+        "//tests/vitest/setup_files:media",
+        "//tests/vitest/workspace:styles",
         "//vite:plugin_typecheck",
     ],
 )

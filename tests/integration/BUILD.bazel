@@ -34,6 +34,22 @@ negative cases below are ever checked. Roughly three minutes each.
   bazel test --config=fast //...                     everything BUT these
 """
 
+# Each child workspace is staged into a scratch dir at test time; Gazelle must
+# not generate BUILD files inside them. `harness/` and `runners/` are absent
+# from this list on purpose -- they are first-party Go it should keep managing.
+# gazelle:exclude codegen
+# gazelle:exclude css_assets
+# gazelle:exclude dev_server
+# gazelle:exclude existing_project
+# gazelle:exclude gazelle_roundtrip
+# gazelle:exclude lsp
+# gazelle:exclude new_project
+# gazelle:exclude nextjs
+# gazelle:exclude npm_deps
+# gazelle:exclude npmrc_registry
+# gazelle:exclude oxc_declarations
+# gazelle:exclude vite_bundle
+
 load("@bazel_binaries//:defs.bzl", "bazel_binaries")
 load(
     "@rules_bazel_integration_test//bazel_integration_test:defs.bzl",

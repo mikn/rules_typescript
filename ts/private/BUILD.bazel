@@ -178,3 +178,12 @@ bzl_library(
         ":runtime",
     ],
 )
+
+bzl_library(
+    name = "tsconfig_aspect",
+    srcs = ["tsconfig_aspect.bzl"],
+    deps = [
+        ":providers",
+        "@bazel_skylib//rules:diff_test",
+    ],
+)

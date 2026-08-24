@@ -8,6 +8,8 @@ load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "ts_compile")
 load(":ambient_tests.bzl", "ambient_entry_test", "no_ambient_entry_test")
 
+package(default_visibility = ["//:__pkg__"])
+
 ts_compile(
     name = "consumer",
     srcs = ["ambient_globals.ts"],

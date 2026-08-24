@@ -7,6 +7,8 @@ the CssModuleInfo dep.
 
 load("//ts:defs.bzl", "css_module", "ts_compile", "ts_test")
 
+package(default_visibility = ["//:__pkg__"])
+
 css_module(
     name = "button_module",
     srcs = ["Button.module.css"],

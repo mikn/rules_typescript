@@ -8,7 +8,7 @@ load("//ts:defs.bzl", "ts_compile", "ts_npm_publish")
 ts_compile(
     name = "math",
     srcs = ["math.ts"],
-    visibility = ["//visibility:private"],
+    visibility = ["//:__pkg__"],
 )
 
 ts_npm_publish(

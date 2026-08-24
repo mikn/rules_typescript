@@ -3,14 +3,16 @@
  *
  *   node read_config.mjs <vite.config.mjs>
  *
- * The config is a real module that reads its environment, so the only honest way
- * to ask what port (or root, or allow-list) it configures is to run it.
+ * The config is a real module that reads its environment and the filesystem, so
+ * the only honest way to ask what port (or alias, or watched input) it
+ * configures is to run it.
  */
 
 import path from 'node:path';
 
 const configPath = process.argv[2];
-const config = (await import(path.resolve(configPath))).default;
+const module = await import(path.resolve(configPath));
+const config = module.default;
 
 process.stdout.write(
   JSON.stringify({
@@ -19,5 +21,12 @@ process.stdout.write(
     root: config?.root ?? null,
     fsAllow: config?.server?.fs?.allow ?? null,
     watchPaths: config?.server?.watch?.paths ?? null,
+    // A `find` is a RegExp for an exact match and a string for the subpath
+    // prefix; both go over the wire as text.
+    alias: (config?.resolve?.alias ?? []).map((entry) => ({
+      find: String(entry.find),
+      replacement: entry.replacement,
+    })),
+    configInputs: module.bazelConfigInputs ?? null,
   })
 );

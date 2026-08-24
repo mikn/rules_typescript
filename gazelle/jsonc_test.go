@@ -108,3 +108,34 @@ func TestLoadTsConfigPaths_AliasValueWithDoubleSlash(t *testing.T) {
 		t.Errorf("alias value mangled: got %q", got["cdn"])
 	}
 }
+
+// A generated tsconfig carries one paths entry per npm package, pointing under
+// npm_dir. Those must not become path aliases: doing so resolved
+// `import 'zod'` to //.bazel/npm/zod/index.d instead of @npm//:zod.
+func TestLoadTsConfigPaths_SkipsToolManagedDirs(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tsconfig.json")
+	body := `{
+  "compilerOptions": {
+    "paths": {
+      "zod": ["./.bazel/npm/zod/index.d.ts"],
+      "zod/*": ["./.bazel/npm/zod/*"],
+      "@/*": ["src/*"]
+    }
+  }
+}`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write tsconfig: %v", err)
+	}
+
+	got := loadTsConfigPaths(path)
+	want := map[string]string{"@/": "src/"}
+	if len(got) != len(want) {
+		t.Fatalf("loadTsConfigPaths: got %v, want %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("alias %q: got %q, want %q", k, got[k], v)
+		}
+	}
+}

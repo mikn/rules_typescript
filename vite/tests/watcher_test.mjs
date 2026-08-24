@@ -7,6 +7,11 @@
  * injects) and the node:fs.watch fallback, against real files on disk. The
  * fallback case is what caught `import('chokidar')` — chokidar is bundled inside
  * Vite's dist, so it never resolved and every rebuild was silently ignored.
+ *
+ * The plugin-level tests model one more thing about Vite that a plugin can get
+ * silently wrong: a function returned from `configureServer` is a POST HOOK,
+ * which Vite CALLS as soon as its internal middlewares are installed. So the
+ * fake server calls it, the way Vite does.
  */
 
 import assert from 'node:assert/strict';
@@ -85,10 +90,13 @@ function fakeViteWatcher() {
 
 function fakeDevServer(watcher) {
   const warnings = [];
+  const infos = [];
   const sent = [];
   const invalidated = [];
   const logger = {
-    info() {},
+    info(message) {
+      infos.push(message);
+    },
     warn(message) {
       warnings.push(message);
     },
@@ -98,10 +106,16 @@ function fakeDevServer(watcher) {
   };
   return {
     warnings,
+    infos,
     sent,
     invalidated,
+    restarts: 0,
     logger,
     watcher,
+    restart() {
+      this.restarts++;
+      return Promise.resolve();
+    },
     config: { root: tmpRoot, logger },
     moduleGraph: {
       getModulesByFile: (file) => new Set([{ file }]),
@@ -110,6 +124,18 @@ function fakeDevServer(watcher) {
     },
     ws: { send: (payload) => sent.push(payload) },
   };
+}
+
+/**
+ * Runs `configureServer` the way Vite does: a function it returns is a post hook
+ * that Vite invokes once the internal middlewares are in place, not a teardown
+ * handle it stores for shutdown. A plugin that returns its teardown from here
+ * detaches its own watchers before the first request.
+ */
+async function installPlugin(plugin, server) {
+  const post = await plugin.configureServer(server);
+  if (typeof post === 'function') post();
+  return post;
 }
 
 const tests = [];
@@ -234,8 +260,9 @@ test('configureServer wires the watcher to server.watcher and sends HMR updates'
   const plugin = bazelPlugin({ bazelBin: bin, hmrDebounceMs: 20 });
 
   plugin.configResolved(server.config);
-  const cleanup = await plugin.configureServer(server);
+  const post = await installPlugin(plugin, server);
 
+  assert.equal(post, undefined, 'configureServer must return nothing: Vite calls what it returns');
   assert.deepEqual(source.added, [bin], 'the plugin must ride on server.watcher');
 
   const changed = path.join(bin, 'app', 'page.js');
@@ -249,7 +276,7 @@ test('configureServer wires the watcher to server.watcher and sends HMR updates'
   );
   assert.deepEqual(server.warnings, []);
 
-  cleanup();
+  plugin.closeBundle();
   assert.equal(source.listenerCount('change'), 0);
 });
 
@@ -259,7 +286,7 @@ test('a watcher that cannot start warns, and throws when hmr is required', async
   const plugin = bazelPlugin({ bazelBin: missing });
 
   plugin.configResolved(server.config);
-  await plugin.configureServer(server);
+  await installPlugin(plugin, server);
 
   assert.equal(server.warnings.length, 1, 'the failure must be reported');
   assert.match(server.warnings[0], /no HMR/);
@@ -271,6 +298,78 @@ test('a watcher that cannot start warns, and throws when hmr is required', async
   await assert.rejects(() => strict.configureServer(strictServer), /no HMR/);
 });
 
+// ── Restart or keep: what a rebuild means ────────────────────────────────────
+
+test('a changed config input restarts the server, a codegen rebuild does not', async () => {
+  const bin = newBazelBin();
+  const configPath = path.join(bin, 'app', 'dev', 'vite.config.mjs');
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, '// v1\n');
+  const codegen = path.join(bin, 'app', 'routes.gen.js');
+  fs.writeFileSync(codegen, 'export const routes = [1];\n');
+
+  const source = fakeViteWatcher();
+  const server = fakeDevServer(source);
+  const plugin = bazelPlugin({
+    bazelBin: bin,
+    hmrDebounceMs: 20,
+    configInputs: [
+      {
+        label: 'the generated vite config',
+        path: configPath,
+        digest: 'content',
+        remedy: 'restart',
+      },
+    ],
+  });
+
+  plugin.configResolved(server.config);
+  await installPlugin(plugin, server);
+  assert.ok(source.added.includes(configPath), 'the config input must be watched');
+
+  // A rebuild that only rewrote generated code: the running server is still
+  // configured for the graph it has.
+  fs.writeFileSync(codegen, 'export const routes = [1, 2];\n');
+  source.emit('change', codegen);
+  await waitUntil('the HMR update for the codegen rebuild', () => server.sent.length > 0);
+  await sleep(200);
+  assert.equal(server.restarts, 0, 'a codegen-only rebuild must not restart Vite');
+
+  // A rebuild that rewrote the config: the graph it describes is gone.
+  fs.writeFileSync(configPath, '// v2 — new aliases\n');
+  source.emit('change', configPath);
+  await waitUntil('the restart', () => server.restarts > 0);
+  assert.match(server.infos.join('\n'), /restarting: the generated vite config/);
+
+  plugin.closeBundle();
+});
+
+test('a config input a restart cannot fix says so', async () => {
+  const bin = newBazelBin();
+  const npmTree = path.join(bin, 'node_modules_stamp');
+  fs.writeFileSync(npmTree, '{"version":"6.0.0"}\n');
+
+  const source = fakeViteWatcher();
+  const server = fakeDevServer(source);
+  const plugin = bazelPlugin({
+    bazelBin: bin,
+    hmrDebounceMs: 20,
+    configInputs: [
+      { label: 'vite in the Bazel npm tree', path: npmTree, digest: 'content', remedy: 'manual' },
+    ],
+  });
+
+  plugin.configResolved(server.config);
+  await installPlugin(plugin, server);
+
+  fs.writeFileSync(npmTree, '{"version":"7.0.0"}\n');
+  source.emit('change', npmTree);
+  await waitUntil('the restart', () => server.restarts > 0);
+  assert.match(server.warnings.join('\n'), /re-run `bazel run` on this target/);
+
+  plugin.closeBundle();
+});
+
 test('hmr: false starts no watcher at all', async () => {
   const bin = newBazelBin();
   const source = fakeViteWatcher();
@@ -278,9 +377,9 @@ test('hmr: false starts no watcher at all', async () => {
   const plugin = bazelPlugin({ bazelBin: bin, hmr: false });
 
   plugin.configResolved(server.config);
-  const cleanup = await plugin.configureServer(server);
+  const post = await installPlugin(plugin, server);
 
-  assert.equal(cleanup, undefined);
+  assert.equal(post, undefined);
   assert.deepEqual(source.added, []);
   assert.deepEqual(server.warnings, []);
 });

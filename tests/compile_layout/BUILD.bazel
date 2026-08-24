@@ -10,6 +10,8 @@ load(
     "tsconfig_layout_test",
 )
 
+package(default_visibility = ["//:__pkg__"])
+
 # The go_test targets are hand-named after the sh_tests they replaced, so the
 # Go language would add a second target for the same source.
 # gazelle:exclude *_test.go
