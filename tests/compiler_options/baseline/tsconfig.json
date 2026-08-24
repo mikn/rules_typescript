@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noUnusedLocals": true
+  },
+  "files": ["not-a-real-file.ts"],
+  "include": ["src/**/*.ts"],
+  "exclude": ["**/*.ts"]
+}

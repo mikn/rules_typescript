@@ -14,8 +14,25 @@ run unconditionally during `bazel build` but do NOT block downstream
 compilation.
 """
 
-load("//ts/private:providers.bzl", "AssetInfo", "CssInfo", "CssModuleInfo", "JsInfo", "NpmPackageInfo", "TsDeclarationInfo")
+load("//ts/private:providers.bzl", "AssetInfo", "CssInfo", "CssModuleInfo", "JsInfo", "NpmPackageInfo", "TsConfigInfo", "TsDeclarationInfo")
 load("//ts/private:toolchain.bzl", "OXC_TOOLCHAIN_TYPE", "TSGO_TOOLCHAIN_TYPE", "get_oxc_toolchain")
+
+TsModuleInfo = provider(
+    doc = """The bare specifier a ts_compile target is importable as.
+
+A first-party package imported as `@scope/pkg` rather than by relative path
+needs a paths entry pointing at the .d.ts files Bazel produced for it. Only the
+producing target knows where those land under the current configuration, so the
+name travels with the target instead of being written into a consumer's
+tsconfig by hand.
+""",
+    fields = {
+        "module_name": "string: the bare specifier for this target, or '' if it declared none.",
+        "declaration_root": "string: exec-root-relative directory the target's generated .d.ts files land in.",
+        "source_root": "string: exec-root-relative package directory, where .d.ts files passed straight through stay.",
+        "transitive_modules": "depset of struct(module_name, declaration_root, source_root): this target's modules and its deps'.",
+    },
+)
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -56,210 +73,266 @@ def _relative_path(from_dir, to_dir):
     result = up_parts + down_parts
     return "/".join(result) if result else "."
 
-# ─── Tsconfig generation for validation action ───────────────────────────────
+# ─── Tsconfig generation ─────────────────────────────────────────────────────
 
-def _generate_tsconfig(ctx, srcs, target, jsx_mode, npm_pkg_dirs = None, type_roots = None, path_aliases = None, emit_declarations = False, emit_root_dir = None, emit_out_dir = None):
-    """Generates a tsconfig.json for tsgo type-checking.
+# Options whose values encode the sandbox layout or the action's declared
+# outputs: a user value here breaks the build rather than configuring it, so
+# setting one fails with the mapped text as the pointer to the real knob.
+_BAZEL_OWNED_OPTIONS = {
+    "baseUrl": "tsgo removed baseUrl (TS5102); use path_aliases, whose values Bazel rewrites",
+    "rootDirs": "rootDirs bridges the source tree and the output tree",
+    "paths": "use path_aliases for source aliases, or module_name on the target that produces the declarations",
+    "outDir": "outDir must be the directory Bazel declared the outputs in",
+    "rootDir": "rootDir must be the source directory oxc strips",
+    "declarationDir": "declarations must land next to the .js Bazel declared",
+    "declaration": "declaration emit follows from the `declarations` attr",
+    "emitDeclarationOnly": "declaration emit follows from the `declarations` attr",
+    "declarationMap": "Bazel declares no .d.ts.map output",
+    "noEmit": "declaration emit follows from the `declarations` attr",
+    "noEmitOnError": "a target that fails to check must not leave a declaration on disk",
+    "isolatedDeclarations": "isolated declarations follow from declarations = \"oxc\"",
+    "composite": "cross-target wiring is Bazel's job, not tsc's",
+    "incremental": "Bazel declares no .tsbuildinfo output",
+    "tsBuildInfoFile": "Bazel declares no .tsbuildinfo output",
+}
 
-    Uses ctx.bin_dir.path for stable path computation independent of the
-    Bazel output configuration (fastbuild, opt, etc.).
+# Required by the .d.ts this ruleset generates for css_module, css_library,
+# asset_library and json_library deps, whose extensions TypeScript otherwise
+# refuses. Beneath the user's options, so an explicit value still wins.
+_RULESET_OPTIONS = {
+    "allowArbitraryExtensions": True,
+}
+
+# Applied only when no `tsconfig` is supplied: with one, the ruleset contributes
+# no opinions of its own, so tsgo sees what tsc would.
+_ZERO_CONFIG_OPTIONS = {
+    "strict": True,
+    "module": "Preserve",
+    "moduleResolution": "Bundler",
+    "skipLibCheck": True,
+    "esModuleInterop": True,
+}
+
+# Options whose values are paths a user copies out of a package's own
+# tsconfig.json, where they are written relative to that package.
+_PACKAGE_RELATIVE_OPTIONS = ["types", "typeRoots"]
+
+def _rebase_package_relative(entry, package_rel):
+    """Rewrites a package-relative path so it resolves from the generated config.
+
+    Entries that are not relative paths (npm package names such as "node" or
+    "@cloudflare/workers-types") are returned untouched.
+    """
+    if entry == ".":
+        return package_rel
+    if entry.startswith("./"):
+        return package_rel + "/" + entry[2:]
+    if entry.startswith("../"):
+        return package_rel + "/" + entry
+    return entry
+
+def _generate_tsconfig(
+        ctx,
+        srcs,
+        npm_pkg_dirs = None,
+        type_roots = None,
+        module_paths = None,
+        extends_file = None,
+        emit_declarations = False,
+        emit_root_dir = None,
+        emit_out_dir = None):
+    """Generates the tsconfig.json tsgo is invoked with.
+
+    Layered lowest precedence first:
+
+      1. `extends_file` -- the user's own tsconfig.json, referenced (not
+         copied), so every relative path inside it still resolves against the
+         directory it was written for.
+      2. _RULESET_OPTIONS, and the derived typeRoots.
+      3. _ZERO_CONFIG_OPTIONS -- only when there is no `extends_file`.
+      4. compiler_options_json -- what the user asked for, via the ts_compile
+         macro's lib / types / target / jsx / compiler_options arguments.
+      5. Bazel-owned options: _BAZEL_OWNED_OPTIONS plus paths and include.
+
+    Layers 2-5 all land in this generated file, so they override the user's
+    tsconfig wholesale, per key, exactly as TypeScript's own `extends` does.
 
     Args:
         ctx:          Rule context.
-        srcs:         Source files to include.
-        target:       ECMAScript target string.
-        jsx_mode:     JSX mode string.
-        npm_pkg_dirs: Optional list of (package_name, package_dir_path) pairs
-                      for npm packages that need paths mappings so tsgo can
-                      resolve bare specifier imports (e.g. "import from 'zod'").
-        type_roots:   Optional list of .d.ts files from @types/* packages, used
-                      to derive typeRoots directories for tsgo so that ambient
-                      type packages (@types/react, @types/node, etc.) are found.
-        path_aliases: Optional dict mapping path alias prefixes (e.g. "@/") to
-                      workspace-relative directory paths (e.g. "src/"). These
-                      are merged into the generated tsconfig paths section so
-                      that tsgo can resolve source-level path aliases like
-                      `import { Button } from "@/components"`.
-        emit_declarations: When True the tsconfig emits .d.ts into the target's
-                      output directory (declarations = "tsgo"). When False tsgo
-                      is invoked with --noEmit and only reports diagnostics
-                      (declarations = "oxc").
-        emit_root_dir: Exec-root-relative common source directory. Required when
-                      emit_declarations is True.
-        emit_out_dir: Exec-root-relative directory the .d.ts must land in (the
-                      same directory oxc writes the .js into). Together these
-                      mirror oxc's --strip-dir-prefix / --out-dir pair, so
-                      `<rootDir>/a.ts` emits to `<outDir>/a.d.ts`.
+        srcs:         Source files to type-check (.ts/.tsx plus ambient .d.ts).
+        npm_pkg_dirs: (package_name, path, is_file) triples for npm deps.
+        type_roots:   .d.ts files from @types/* packages, used to derive
+                      typeRoots so ambient type packages are discoverable.
+        module_paths: struct(module_name, declaration_root, source_root) from
+                      every dep that declared a module_name.
+        extends_file: The user's tsconfig.json, or None for zero-config.
+        emit_declarations: True when tsgo emits the .d.ts (declarations =
+                      "tsgo"), False when it only reports diagnostics.
+        emit_root_dir: Exec-root-relative common source directory.
+        emit_out_dir: Exec-root-relative directory the .d.ts must land in.
     """
     tsconfig = ctx.actions.declare_file("{}.tsconfig.json".format(ctx.label.name))
     tsconfig_dir = tsconfig.dirname
+    package_rel = _relative_path(tsconfig_dir, ctx.label.package)
 
-    # rootDirs bridges the source tree (execroot root) and the output tree
-    # (bin dir) so tsgo can resolve dep .d.ts files via the same relative
-    # paths used for source imports.
-    execroot_rel = _relative_path(tsconfig_dir, "")
-    bin_dir_rel = _relative_path(tsconfig_dir, ctx.bin_dir.path)
+    opts = {}
+    opts.update(_RULESET_OPTIONS)
 
-    # include: source files relative to tsconfig location.
-    include_items = []
-    for src in srcs:
-        rel = _relative_path(tsconfig_dir, src.dirname) if src.dirname else "."
-        include_items.append('    "{}/{}"'.format(rel, src.basename))
-
-    include_json = "[\n{}\n  ]".format(",\n".join(include_items)) if include_items else "[]"
-
-    ts_target = target if target else "ES2022"
-    jsx_entry = ',\n    "jsx": "{}"'.format(jsx_mode) if jsx_mode else ""
-
-    # Build paths entries for npm packages so tsgo can resolve bare module
-    # specifiers like `import { z } from "zod"` to the extracted package dir.
-    #
-    # npm_pkg_dirs entries: (pkg_name, path, is_file)
-    # When is_file is True, path is a .d.ts file path (not a directory).
-    # In this case we emit: "pkg": ["path/to/index.d.ts"]
-    # When is_file is False, path is a directory.
-    # In this case we emit: "pkg": ["dir"] and "pkg/*": ["dir/*"]
-    path_items = []
-
-    # First: source-level path aliases (e.g. "@/" → "src/") so tsgo can
-    # resolve user-defined path aliases like `import { Button } from "@/components"`.
-    # These entries use execroot-relative paths (relative to the tsconfig location
-    # which itself lives in the bin dir).
-    if path_aliases:
-        for alias_key, alias_dir in path_aliases.items():
-            # alias_dir is workspace-relative (e.g. "src/"), so we resolve it
-            # relative to the tsconfig output directory.
-            # Strip trailing slash for path computation, then re-add for the
-            # wildcard variant so TypeScript sees both exact and sub-path forms.
-            dir_no_slash = alias_dir[:-1] if alias_dir.endswith("/") else alias_dir
-            rel_dir = _relative_path(tsconfig_dir, dir_no_slash) if dir_no_slash else _relative_path(tsconfig_dir, "")
-
-            # Emit both the exact alias and the wildcard form.
-            # For "@/" we emit: "@/*": ["./<rel>/*"] and "@": ["./<rel>"]
-            # This covers both `import "@/index"` and `import "@/components/Button"`.
-            if alias_key.endswith("/"):
-                # Wildcard alias (e.g. "@/"): emit both bare and glob forms.
-                alias_no_slash = alias_key[:-1]
-                path_items.append('      "{}*": ["{}/*"]'.format(alias_key, rel_dir))
-                path_items.append('      "{}": ["{}"]'.format(alias_no_slash, rel_dir))
-            else:
-                # Exact alias (e.g. "@utils"): emit exact and sub-path wildcard.
-                path_items.append('      "{}": ["{}"]'.format(alias_key, rel_dir))
-                path_items.append('      "{}/*": ["{}/*"]'.format(alias_key, rel_dir))
-
-    # Second: npm package paths so tsgo can resolve bare specifier imports.
-    if npm_pkg_dirs:
-        for entry in npm_pkg_dirs:
-            if len(entry) == 3:
-                pkg_name, path, is_file = entry[0], entry[1], entry[2]
-            else:
-                pkg_name, path = entry[0], entry[1]
-                is_file = False
-            if is_file:
-                rel_path = _relative_path(tsconfig_dir, path[:path.rfind("/")] if "/" in path else "") + "/" + path.split("/")[-1]
-                path_items.append(
-                    '      "{}": ["{}"]'.format(pkg_name, rel_path),
-                )
-                # Also add directory-wildcard for sub-path imports.
-                rel_dir = _relative_path(tsconfig_dir, path[:path.rfind("/")] if "/" in path else path)
-                path_items.append(
-                    '      "{}/*": ["{}/*"]'.format(pkg_name, rel_dir),
-                )
-            else:
-                rel_dir = _relative_path(tsconfig_dir, path)
-                # Map the bare specifier to both the package root (for
-                # package.json#types resolution) and the common index.d.ts pattern.
-                path_items.append(
-                    '      "{}": ["{}"]'.format(pkg_name, rel_dir),
-                )
-                path_items.append(
-                    '      "{}/*": ["{}/*"]'.format(pkg_name, rel_dir),
-                )
-
-    paths_entry = ""
-    if path_items:
-        paths_entry = ',\n    "paths": {{\n{}\n    }}'.format(",\n".join(path_items))
-
-    # Build typeRoots entries from collected @types/* package directories.
-    # typeRoots tells TypeScript where to find ambient type packages.
-    # Each @types/* package lives in its own directory; typeRoots needs the
-    # *parent* of those directories (i.e., the directory that contains
-    # @types/react, @types/react-dom, etc. as subdirectories).
-    # Since we have the .d.ts files from each @types package, we derive the
-    # parent by going two levels up: .d.ts → package_dir → parent (= @types/).
-    # We deduplicate since multiple @types/* packages share the same parent.
-    type_roots_entry = ""
+    # typeRoots: TypeScript wants the directory that *contains* the @types
+    # packages, so derive it from each @types .d.ts by going up one level from
+    # the package directory.
     if type_roots:
         seen_roots = {}
         for dts_file in type_roots:
-            # dts_file.dirname = ".../types_react__19_1_6"  (the @types/react dir)
-            # dts_file.dirname's parent  = the @npm repo root
-            # We need the parent of the package dir to use as typeRoots.
             pkg_dir = dts_file.dirname
-            # Navigate up two levels: package_dir → parent
             parent_dir = pkg_dir[:pkg_dir.rfind("/")] if "/" in pkg_dir else pkg_dir
-            if parent_dir not in seen_roots:
-                seen_roots[parent_dir] = True
-
+            seen_roots[parent_dir] = True
         if seen_roots:
-            root_items = []
-            for root_dir in seen_roots:
-                rel_dir = _relative_path(tsconfig_dir, root_dir)
-                root_items.append('      "{}"'.format(rel_dir))
-            type_roots_entry = ',\n    "typeRoots": [\n{}\n    ]'.format(",\n".join(root_items))
+            opts["typeRoots"] = [_relative_path(tsconfig_dir, d) for d in seen_roots]
 
-    # Emit layout. outDir is the tsconfig's own directory (the target's output
-    # dir) and rootDir is the common source directory, so source `a.ts` lands at
-    # `./a.d.ts` next to the .js oxc produced.
+    if not extends_file:
+        opts.update(_ZERO_CONFIG_OPTIONS)
+
+    # target and jsx come from the attrs in every mode, including over a
+    # tsconfig baseline: oxc transforms with them, and the two compilers
+    # disagreeing is worse than deferring to the file.
+    opts["target"] = ctx.attr.target
+    if ctx.attr.jsx_mode:
+        opts["jsx"] = ctx.attr.jsx_mode
+
+    user_opts = {}
+    if ctx.attr.compiler_options_json:
+        decoded = json.decode(ctx.attr.compiler_options_json)
+        if type(decoded) != "dict":
+            fail("ts_compile: compiler_options must be a dict, got {}.".format(type(decoded)))
+        user_opts = decoded
+
+    for key, reason in _BAZEL_OWNED_OPTIONS.items():
+        if key in user_opts:
+            fail(
+                "ts_compile: compilerOptions.{key} is set by the rule and cannot be overridden -- {reason}.\n".format(
+                    key = key,
+                    reason = reason,
+                ) +
+                "Remove \"{}\" from compiler_options on {}.".format(key, ctx.label),
+            )
+
+    for key in _PACKAGE_RELATIVE_OPTIONS:
+        if key in user_opts:
+            if type(user_opts[key]) != "list":
+                fail("ts_compile: compilerOptions.{} must be a list of strings on {}.".format(key, ctx.label))
+            user_opts[key] = [
+                _rebase_package_relative(entry, package_rel)
+                for entry in user_opts[key]
+            ]
+
+    opts.update(user_opts)
+
+    # ── Bazel-owned: module resolution ────────────────────────────────────
     #
-    # isolatedDeclarations is only asserted in oxc mode, where oxc's syntactic
-    # emit genuinely requires it. In tsgo mode the compiler has the full program
-    # and infers the types, so demanding annotations would buy nothing.
+    # paths is one key, so it cannot be half-inherited: everything importable
+    # has to be represented here.
+    paths = {}
+
+    for alias_key, alias_dir in ctx.attr.path_aliases.items():
+        if alias_dir.startswith("bazel-out/") or alias_dir.startswith("bazel-bin/"):
+            fail(
+                "ts_compile: path_aliases[\"{}\"] on {} points into the output tree ({}).\n".format(
+                    alias_key,
+                    ctx.label,
+                    alias_dir,
+                ) +
+                "That path embeds the build configuration, so it breaks under -c opt or a " +
+                "different exec platform.\nTo import another package by bare specifier, set " +
+                "module_name on the target that produces its declarations and depend on it.",
+            )
+        dir_no_slash = alias_dir[:-1] if alias_dir.endswith("/") else alias_dir
+        rel_dir = _relative_path(tsconfig_dir, dir_no_slash)
+        if alias_key.endswith("/"):
+            paths[alias_key + "*"] = [rel_dir + "/*"]
+            paths[alias_key[:-1]] = [rel_dir]
+        else:
+            paths[alias_key] = [rel_dir]
+            paths[alias_key + "/*"] = [rel_dir + "/*"]
+
+    for entry in npm_pkg_dirs or []:
+        pkg_name, path, is_file = entry[0], entry[1], entry[2]
+        pkg_dir = path[:path.rfind("/")] if "/" in path else ""
+        rel_dir = _relative_path(tsconfig_dir, pkg_dir if is_file else path)
+        if is_file:
+            paths[pkg_name] = [rel_dir + "/" + path.split("/")[-1]]
+        else:
+            paths[pkg_name] = [rel_dir]
+        paths[pkg_name + "/*"] = [rel_dir + "/*"]
+
+    # Last, so a first-party module_name wins over a same-named npm package.
+    # Both roots are listed because a module's declarations are either generated
+    # or passed through from srcs; TypeScript tries each entry in turn.
+    for module in module_paths or []:
+        roots = [
+            _relative_path(tsconfig_dir, module.declaration_root),
+            _relative_path(tsconfig_dir, module.source_root),
+        ]
+        paths[module.module_name] = [r + "/index.d.ts" for r in roots] + roots
+        paths[module.module_name + "/*"] = [r + "/*" for r in roots]
+
+    if paths:
+        opts["paths"] = paths
+
+    opts["rootDirs"] = [
+        _relative_path(tsconfig_dir, ""),
+        _relative_path(tsconfig_dir, ctx.bin_dir.path),
+    ]
+
+    # ── Bazel-owned: emit shape ───────────────────────────────────────────
+    opts["declaration"] = True
+    opts["emitDeclarationOnly"] = True
+    opts["declarationMap"] = False
+    opts["composite"] = False
+    opts["incremental"] = False
+
     if emit_declarations:
-        # noEmitOnError so a target that fails type-checking writes no .d.ts at
-        # all. tsgo otherwise emits and reports, which would leave a declaration
-        # on disk for a target Bazel has failed -- confusing under --keep_going
-        # and a trap for anyone reading bazel-bin directly.
-        emit_entry = '''"declaration": true,
-    "emitDeclarationOnly": true,
-    "noEmitOnError": true,
-    "outDir": "{out_dir}",
-    "rootDir": "{root_dir}",'''.format(
-            out_dir = _relative_path(tsconfig_dir, emit_out_dir) if emit_out_dir else ".",
-            root_dir = _relative_path(tsconfig_dir, emit_root_dir) if emit_root_dir else ".",
-        )
+        # noEmit off because a tsconfig that sets it -- the usual shape for a
+        # bundler-built package -- would starve the action of its declared
+        # outputs; noEmitOnError so a target that fails to check leaves no
+        # declaration behind for a consumer to read.
+        opts["noEmit"] = False
+        opts["noEmitOnError"] = True
+        opts["outDir"] = _relative_path(tsconfig_dir, emit_out_dir) if emit_out_dir else "."
+        opts["declarationDir"] = opts["outDir"]
+        opts["rootDir"] = _relative_path(tsconfig_dir, emit_root_dir) if emit_root_dir else "."
     else:
-        emit_entry = '''"isolatedDeclarations": true,
-    "declaration": true,
-    "emitDeclarationOnly": true,'''
+        # oxc's syntactic emit genuinely requires isolated declarations. In tsgo
+        # mode the compiler has the full program and infers the types, so
+        # demanding annotations would buy nothing.
+        opts["isolatedDeclarations"] = True
 
-    tsconfig_content = """\
-{{
-  "compilerOptions": {{
-    "strict": true,
-    {emit_entry}
-    "module": "Preserve",
-    "moduleResolution": "Bundler",
-    "target": "{target}",
-    "skipLibCheck": true,
-    "esModuleInterop": true,
-    "allowArbitraryExtensions": true,
-    "rootDirs": ["{execroot_rel}", "{bin_dir_rel}"]{jsx_entry}{paths_entry}{type_roots_entry}
-  }},
-  "include": {include}
-}}
-""".format(
-        emit_entry = emit_entry,
-        target = ts_target,
-        jsx_entry = jsx_entry,
-        paths_entry = paths_entry,
-        type_roots_entry = type_roots_entry,
-        include = include_json,
-        execroot_rel = execroot_rel,
-        bin_dir_rel = bin_dir_rel,
-    )
+    # ── Bazel-owned: the file set ─────────────────────────────────────────
 
-    ctx.actions.write(output = tsconfig, content = tsconfig_content)
+    include = []
+    for src in srcs:
+        rel = _relative_path(tsconfig_dir, src.dirname) if src.dirname else "."
+        include.append(rel + "/" + src.basename)
+
+    config = {}
+    if extends_file:
+        extends_dir = _relative_path(tsconfig_dir, extends_file.dirname)
+        # TypeScript reads an `extends` that is not visibly relative as a node
+        # module specifier.
+        if not extends_dir.startswith("."):
+            extends_dir = "./" + extends_dir
+        config["extends"] = extends_dir + "/" + extends_file.basename
+    config["compilerOptions"] = opts
+    config["include"] = include
+
+    if extends_file:
+        # srcs is the only file list. Emptying the inherited ones is safe only
+        # alongside `extends`: TS18002 rejects an empty `files` otherwise.
+        config["files"] = []
+        config["exclude"] = []
+        config["references"] = []
+
+    ctx.actions.write(output = tsconfig, content = json.encode_indent(config, indent = "  "))
     return tsconfig
 
 # ─── Rule implementation ───────────────────────────────────────────────────────
@@ -414,6 +487,24 @@ def _ts_compile_impl(ctx):
 
     dep_dts_depset = depset(transitive = transitive_dts_sets, order = "postorder")
 
+    # module_name deps: every module reachable from here, direct or not, since a
+    # bare specifier in a dep's .d.ts has to resolve too.
+    module_sets = [
+        dep[TsModuleInfo].transitive_modules
+        for dep in ctx.attr.deps
+        if TsModuleInfo in dep
+    ]
+    module_paths = depset(transitive = module_sets).to_list()
+
+    # The rest of the user's `extends` chain. Starlark cannot read the tsconfig
+    # to follow it, so a ts_config target declares it and we make every file in
+    # it an action input.
+    tsconfig_chain = []
+    if ctx.file.tsconfig:
+        tsconfig_chain = [ctx.file.tsconfig]
+        if TsConfigInfo in ctx.attr.tsconfig:
+            tsconfig_chain += ctx.attr.tsconfig[TsConfigInfo].deps_tsconfigs.to_list()
+
     # Declare outputs: one .js, .js.map, .d.ts per source file.
     pkg = ctx.label.package
     # Who emits the .d.ts decides what each action is on the hook for.
@@ -519,11 +610,10 @@ def _ts_compile_impl(ctx):
         tsconfig = _generate_tsconfig(
             ctx = ctx,
             srcs = check_srcs,
-            target = ctx.attr.target,
-            jsx_mode = ctx.attr.jsx_mode,
             npm_pkg_dirs = npm_pkg_dirs if npm_pkg_dirs else None,
             type_roots = type_root_files if type_root_files else None,
-            path_aliases = ctx.attr.path_aliases if ctx.attr.path_aliases else None,
+            module_paths = module_paths,
+            extends_file = ctx.file.tsconfig,
             emit_declarations = tsgo_emits_dts,
             emit_root_dir = compile_srcs[0].dirname if tsgo_emits_dts else None,
             emit_out_dir = dts_outputs[0].dirname if tsgo_emits_dts else None,
@@ -535,7 +625,7 @@ def _ts_compile_impl(ctx):
         npm_pkg_dirs_depset = depset(transitive = transitive_package_dir_sets)
 
         tsgo_inputs = depset(
-            check_srcs + [tsconfig, tsgo.tsgo_binary],
+            check_srcs + [tsconfig, tsgo.tsgo_binary] + tsconfig_chain,
             transitive = [dep_dts_depset, npm_pkg_dirs_depset],
         )
         if not tsgo_emits_dts:
@@ -634,6 +724,32 @@ def _ts_compile_impl(ctx):
         ),
     ]
 
+    # Derived from bin_dir rather than from a declared File so that a target
+    # with no sources of its own still forwards its deps' modules.
+    declaration_root = "/".join([
+        p
+        for p in [ctx.bin_dir.path, ctx.label.workspace_root, ctx.label.package]
+        if p
+    ])
+    source_root = "/".join([
+        p
+        for p in [ctx.label.workspace_root, ctx.label.package]
+        if p
+    ])
+    own_modules = []
+    if ctx.attr.module_name:
+        own_modules.append(struct(
+            module_name = ctx.attr.module_name,
+            declaration_root = declaration_root,
+            source_root = source_root,
+        ))
+    providers.append(TsModuleInfo(
+        module_name = ctx.attr.module_name,
+        declaration_root = declaration_root,
+        source_root = source_root,
+        transitive_modules = depset(own_modules, transitive = module_sets),
+    ))
+
     # Always propagate CssInfo so ts_compile targets can be used as CSS deps.
     providers.append(CssInfo(
         css_files = depset(transitive = transitive_css_sets),
@@ -699,14 +815,51 @@ while checking runs concurrently.""",
             doc = "Run tsgo type-checking as a validation action (requires tsgo toolchain).",
             default = True,
         ),
+        "tsconfig": attr.label(
+            doc = """The project's own tsconfig.json, used as the compilerOptions baseline.
+
+Either a .json file or a ts_config target (which additionally declares the
+files the tsconfig `extends`). The file is referenced where it lives, not
+copied, so relative paths inside it keep resolving against the directory they
+were written for.
+
+The generated tsconfig `extends` this file and overrides the options Bazel owns
+(see _BAZEL_OWNED_OPTIONS) plus paths and include. Everything else -- strict,
+module, moduleResolution, lib, the strict* family, verbatimModuleSyntax and the
+rest -- is whatever the file says, so tsgo checks the code under the same
+options `tsc` would.
+
+Leave it unset for the zero-config baseline (strict, module Preserve,
+moduleResolution Bundler, skipLibCheck, esModuleInterop).""",
+            allow_single_file = [".json"],
+        ),
+        "compiler_options_json": attr.string(
+            doc = """JSON object of compilerOptions overrides, on top of `tsconfig`.
+
+Set through the ts_compile macro's lib / types / target / jsx_mode /
+jsx_import_source / compiler_options arguments rather than written by hand.
+Entries in `types` and `typeRoots` are treated as relative to the target's
+package, matching how they are written in a package's own tsconfig.json.""",
+        ),
+        "module_name": attr.string(
+            doc = """The bare specifier this target is importable as, e.g. "@acme/ui".
+
+Dependents get a paths entry mapping this name (and its subpaths) to the .d.ts
+files this target produces, wherever the current configuration puts them. The
+entry point is index.d.ts.""",
+        ),
         "path_aliases": attr.string_dict(
             doc = """Source-level path alias mappings to inject into the tsgo validation tsconfig.
 
 Maps alias prefixes (as they appear in import statements) to workspace-relative
-directory paths. These are added to the compilerOptions.paths section of the
-generated tsconfig so that tsgo can resolve path aliases that are defined in
-the project's tsconfig.json but are not automatically visible to the Bazel
-build's generated tsconfig.
+**source** directory paths. These are added to the compilerOptions.paths section
+of the generated tsconfig so that tsgo can resolve path aliases that are defined
+in the project's tsconfig.json (compilerOptions.paths cannot be inherited from
+it: paths is one key, and the rule owns it).
+
+A value pointing into bazel-out/ is rejected -- to make a bare specifier resolve
+to another target's generated declarations, set module_name on that target and
+depend on it.
 
 Examples:
     # tsconfig.json has: {"@/*": ["./src/*"]}
@@ -738,5 +891,10 @@ only depend on the .d.ts files, enabling fine-grained Bazel caching.
 When a tsgo toolchain is registered, type-checking runs as a validation
 action in the _validation output group — it executes during `bazel build`
 but does not block downstream targets.
+
+Compiler options come from `tsconfig` (the project's own file, whatever it
+says) and from `compiler_options_json`, in that order, with the options Bazel
+owns applied last. Use the ts_compile macro in //ts:defs.bzl rather than this
+rule directly: it takes lib / types / compiler_options as Starlark values.
 """,
 )

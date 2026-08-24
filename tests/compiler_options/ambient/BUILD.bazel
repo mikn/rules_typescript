@@ -1,0 +1,26 @@
+"""types + typeRoots: an ambient type package that nothing imports."""
+
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "ts_compile")
+
+# Reaches the action as a dep, so the file is an input but is NOT in `include`.
+# Only typeRoots + types put its globals in scope.
+ts_compile(
+    name = "globals_package",
+    srcs = ["typings/my-globals/index.d.ts"],
+)
+
+ts_compile(
+    name = "app",
+    srcs = ["app.ts"],
+    compiler_options = {
+        "typeRoots": ["./typings"],
+        "types": ["my-globals"],
+    },
+    deps = [":globals_package"],
+)
+
+build_test(
+    name = "ambient_types_test",
+    targets = [":app"],
+)

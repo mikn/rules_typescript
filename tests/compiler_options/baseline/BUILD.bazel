@@ -1,0 +1,45 @@
+"""The tsconfig baseline, its extends chain, and the precedence order."""
+
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "ts_compile", "ts_config")
+
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+    deps = ["tsconfig.base.json"],
+)
+
+# Three assertions in one build:
+#   - the baseline reaches tsgo through the extends chain: strict lives in
+#     tsconfig.base.json and loose.ts has an implicit any;
+#   - `lib` on the target beats the ["es5"] the baseline asks for;
+#   - the options Bazel owns beat the baseline's noEmit / composite / outDir /
+#     declarationMap, and its files / include / exclude do not decide which
+#     sources are compiled.
+ts_compile(
+    name = "loose",
+    srcs = ["loose.ts"],
+    lib = [
+        "es2022",
+        "webworker",
+    ],
+    tsconfig = ":tsconfig",
+)
+
+# The same baseline through the other emit path: declarations = "oxc" checks
+# with --noEmit, where the Bazel-owned options are isolatedDeclarations and
+# composite instead of outDir / rootDir / noEmit.
+ts_compile(
+    name = "loose_check_only",
+    srcs = ["loose_check_only.ts"],
+    declarations = "oxc",
+    tsconfig = ":tsconfig",
+)
+
+build_test(
+    name = "baseline_test",
+    targets = [
+        ":loose",
+        ":loose_check_only",
+    ],
+)

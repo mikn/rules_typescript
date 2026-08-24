@@ -1,0 +1,24 @@
+"""jsx_import_source: the non-React JSX runtime (Solid, Preact, ...)."""
+
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "jsx_runtime",
+    srcs = ["jsx-runtime.d.ts"],
+    module_name = "@acme/jsx",
+)
+
+# Without jsx_import_source, react-jsx resolves "react/jsx-runtime" and this is
+# TS2307. With it, <div /> is typed by @acme/jsx's own JSX namespace.
+ts_compile(
+    name = "view",
+    srcs = ["view.tsx"],
+    jsx_import_source = "@acme/jsx",
+    deps = [":jsx_runtime"],
+)
+
+build_test(
+    name = "jsx_import_source_test",
+    targets = [":view"],
+)

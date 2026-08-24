@@ -1,0 +1,38 @@
+"""Coverage for the compiler-options surface of ts_compile.
+
+Every target here compiles code that does NOT compile without the option it
+exercises, so building the package is the assertion.
+"""
+
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "ts_compile")
+
+# `lib` replaces the set `target` implies. importScripts lives in lib.webworker,
+# which no target implies, so this fails to resolve without it.
+ts_compile(
+    name = "webworker_lib",
+    srcs = ["webworker.ts"],
+    lib = [
+        "es2022",
+        "webworker",
+    ],
+)
+
+# compiler_options reaches tsgo verbatim: a ".ts" specifier is TS5097 without
+# allowImportingTsExtensions.
+ts_compile(
+    name = "ts_extension_imports",
+    srcs = [
+        "ext_helper.ts",
+        "ext_main.ts",
+    ],
+    compiler_options = {"allowImportingTsExtensions": True},
+)
+
+build_test(
+    name = "compiler_options_test",
+    targets = [
+        ":ts_extension_imports",
+        ":webworker_lib",
+    ],
+)
