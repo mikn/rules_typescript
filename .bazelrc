@@ -25,6 +25,26 @@ build --experimental_convenience_symlinks=normal
 # target -- which is why those tests carry `exclusive` and not `manual`.
 test:fast --test_tag_filters=-exclusive
 
+# ── CI lanes ─────────────────────────────────────────────────────────────────
+# The stages CI runs, named here rather than in a driver script, so that
+# `bazel test --config=ci //...` locally is the same invocation
+# .github/workflows/ci.yml makes.
+#
+# e2e/ and examples/ are separate workspaces (see .bazelignore), so their legs
+# are `cd` + a fresh bazel in the workflow, not configs — a config cannot
+# change workspace.
+build:ci --verbose_failures
+test:ci --config=fast
+test:ci --cache_test_results=no
+
+# The lane the fast one leaves out: `bazel test --config=ci-integration
+# //tests/integration/...`. Those targets are `exclusive`, so they serialize.
+build:ci-integration --verbose_failures
+
+# Two output bases, one target, compared byte for byte. Convenience symlinks
+# are off because both builds would otherwise race for the same bazel-bin.
+build:determinism --experimental_convenience_symlinks=ignore
+
 # ── Integration test child workspaces ────────────────────────────────────────
 # Each subdirectory under tests/integration/ is a separate Bazel workspace
 # (it has its own MODULE.bazel). They must be excluded from the parent
@@ -32,7 +52,9 @@ test:fast --test_tag_filters=-exclusive
 # .bazelignore) still allows glob() in tests/integration/BUILD.bazel to see
 # the workspace files for inclusion in bazel_integration_test targets.
 #
-# To regenerate this list after adding new workspaces, run:
-#   tools/update_deleted_packages.sh  (or compute manually)
+# Only the older layout needs an entry here: those child workspaces sit directly
+# in tests/integration/<name>/ with a real BUILD.bazel. Prefer the newer
+# tests/integration/npmrc_registry layout -- child workspace under workspace/
+# with a BUILD.bazel.tpl -- which needs no entry at all.
 build --deleted_packages=tests/integration/new_project,tests/integration/npm_deps,tests/integration/existing_project,tests/integration/css_assets,tests/integration/vite_bundle,tests/integration/dev_server,tests/integration/codegen,tests/integration/gazelle_roundtrip,tests/integration/lsp,tests/integration/nextjs,tests/integration/oxc_declarations
 query --deleted_packages=tests/integration/new_project,tests/integration/npm_deps,tests/integration/existing_project,tests/integration/css_assets,tests/integration/vite_bundle,tests/integration/dev_server,tests/integration/codegen,tests/integration/gazelle_roundtrip,tests/integration/lsp,tests/integration/nextjs,tests/integration/oxc_declarations

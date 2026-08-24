@@ -301,7 +301,7 @@ func TestIsCSSModuleFile(t *testing.T) {
 	}{
 		{"Button.module.css", true},
 		{"theme.module.css", true},
-		{"button.css", false},  // plain CSS, not a module
+		{"button.css", false}, // plain CSS, not a module
 		{"button.ts", false},
 		{"Button.MODULE.css", false}, // case-sensitive
 	}

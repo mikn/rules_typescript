@@ -1,0 +1,100 @@
+"""Analysis-time proof that the IDE tsconfig carries the ambient @types/* declarations.
+
+An @types/* package reaches the compiler through the entry point a consumer names
+in `files`, never through a module specifier, so no `paths` entry can stand in
+for it -- and the siblings that entry point references have to be installed
+beside it.
+"""
+
+load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
+load("//ts/private:tsconfig_aspect.bzl", "WorkspaceCopyInfo")
+
+def _written_config(env):
+    for action in analysistest.target_actions(env):
+        outputs = action.outputs.to_list()
+        if len(outputs) == 1 and outputs[0].basename.endswith(".json"):
+            return json.decode(action.content)
+    return None
+
+def _installed(env):
+    return [
+        entry.dest
+        for entry in analysistest.target_under_test(env)[WorkspaceCopyInfo].entries.to_list()
+    ]
+
+def _ambient_types_impl(ctx):
+    env = analysistest.begin(ctx)
+    config = _written_config(env)
+    asserts.true(env, config != None, "ide_tsconfig wrote no tsconfig")
+    if config == None:
+        return analysistest.end(env)
+
+    asserts.equals(
+        env,
+        ["./.bazel/npm/@types/node/index.d.ts"],
+        config.get("files"),
+        "@types/node's entry point is named in `files`",
+    )
+
+    # A `files` array of its own switches off TypeScript's implicit `include`,
+    # and with it every source in the workspace.
+    asserts.equals(
+        env,
+        ["**/*"],
+        config.get("include"),
+        "the implicit include is spelled out alongside it",
+    )
+
+    installed = _installed(env)
+    asserts.true(
+        env,
+        ".bazel/npm/@types/node/index.d.ts" in installed,
+        "the entry point is installed under npm_dir: " + str(installed),
+    )
+
+    # index.d.ts is little more than a list of `/// <reference path=...>`, each
+    # resolved on disk beside it.
+    asserts.true(
+        env,
+        ".bazel/npm/@types/node/globals.d.ts" in installed,
+        "the siblings it references are installed too: " + str(installed),
+    )
+    asserts.true(
+        env,
+        ".bazel/npm/@types/node/package.json" in installed,
+        "the package.json is installed too: " + str(installed),
+    )
+
+    # A typeRoot is a directory whose *children* are the type packages, and one
+    # npm repo per package leaves no such directory to name.
+    asserts.equals(
+        env,
+        None,
+        config["compilerOptions"].get("typeRoots"),
+        "no typeRoots is derived",
+    )
+    return analysistest.end(env)
+
+ambient_types_test = analysistest.make(_ambient_types_impl)
+
+def _no_ambient_types_impl(ctx):
+    env = analysistest.begin(ctx)
+    config = _written_config(env)
+    asserts.true(env, config != None, "ide_tsconfig wrote no tsconfig")
+    if config == None:
+        return analysistest.end(env)
+
+    # No @types/* dep, so no `files` -- and therefore no reason to spell the
+    # implicit include out. Both keys absent is what the test above is measured
+    # against.
+    asserts.equals(env, None, config.get("files"), "nothing is named in `files`")
+    asserts.equals(env, None, config.get("include"), "the implicit include is left implicit")
+    asserts.equals(
+        env,
+        [],
+        [d for d in _installed(env) if "@types" in d],
+        "nothing from an @types package is installed",
+    )
+    return analysistest.end(env)
+
+no_ambient_types_test = analysistest.make(_no_ambient_types_impl)

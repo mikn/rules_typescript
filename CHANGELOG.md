@@ -3,55 +3,412 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+Nothing here has been released. There is no git tag, no GitHub release and no
+Bazel Central Registry entry; `0.1.0` is the version string in `MODULE.bazel`,
+not a shipped artifact. Consumers pin a commit
+([quickstart](https://mikn.github.io/rules_typescript/getting-started/quickstart/#depending-on-rules_typescript)),
+so every entry below is a change against whatever commit you pinned last.
+
+Pre-1.0, breaking changes land without a deprecation path. The breaking
+sections are the migration guide: every break is listed with the edit it
+requires.
+
 ## [Unreleased]
 
+### Breaking — `ts_compile`
+
+- `isolated_declarations = True|False` is replaced by
+  `declarations = "tsgo"|"oxc"`, default `"tsgo"`. `"tsgo"` emits `.d.ts` from
+  the full type program, so no export needs an explicit type annotation and a
+  type error fails a plain `bazel build`. `"oxc"` is the old behaviour: a
+  syntactic per-file emit that requires isolated declarations, with
+  type-checking demoted to a `_validation` action. Gazelle's
+  `# gazelle:ts_isolated_declarations <bool>` becomes
+  `# gazelle:ts_declarations <tsgo|oxc>`.
+- `ts_compile_legacy` is deleted, not ported. It left oxc as the emitter with
+  isolated declarations off, which silently widened declarations
+  (`export declare const PATTERNS: {}` for an object of five `RegExp`s) with no
+  diagnostic anywhere. Move those targets to the `declarations` default.
+- Under `declarations = "tsgo"`, `enable_check = False` now means no type
+  program and therefore **no `.d.ts` output at all**. It is the right setting
+  for terminal targets (app entries, dev servers, bundle inputs) and wrong for
+  anything another `ts_compile` depends on.
+- New attributes: `tsconfig`, `lib`, `types`, `jsx_import_source`,
+  `compiler_options`, `module_name`. See
+  [ts_compile](https://mikn.github.io/rules_typescript/rules/ts-compile/#where-compiler-options-come-from) for
+  the precedence rules.
+- The generated tsconfig no longer sets `strict`, `module`,
+  `moduleResolution`, `skipLibCheck` and `esModuleInterop` unconditionally.
+  With `tsconfig` set they come from your file (or from tsc's defaults if it
+  omits them); without it the previous baseline still applies. A target that
+  relied on being strict-checked while extending a non-strict tsconfig now
+  checks under the file's options instead.
+- `target` and `jsx_mode` are still injected in every mode and supersede a
+  `target`/`jsx` in the tsconfig file, because oxc transforms with them and the
+  two compilers must agree.
+- **New hard analysis error:** `compiler_options` naming any of the 15
+  Bazel-owned keys (`paths`, `baseUrl`, `rootDir`, `rootDirs`, `outDir`,
+  `declarationDir`, `declaration`, `declarationMap`, `emitDeclarationOnly`,
+  `noEmit`, `noEmitOnError`, `isolatedDeclarations`, `composite`,
+  `incremental`, `tsBuildInfoFile`) fails analysis and names the attribute to
+  use instead. Such a value would previously have been applied and broken the
+  sandbox layout.
+- **New hard analysis error:** a `path_aliases` value pointing into
+  `bazel-out/` or `bazel-bin/` fails analysis. That path embeds the build
+  configuration, so it breaks under `-c opt` or a different exec platform. To
+  import another target by bare specifier, set `module_name` on the target that
+  produces the declarations and depend on it.
+
+### Breaking — new public API
+
+- `ts_config` rule (`//ts:defs.bzl`). Declares a hand-written `tsconfig.json`
+  plus the files it `extends`, since Starlark cannot read the file to follow the
+  chain. A tsconfig that extends nothing can be passed to `ts_compile` directly
+  without it.
+- `TsModuleInfo` provider (`//ts:defs.bzl`). Carries the bare specifier a
+  target is importable as (`module_name`) and the directories its declarations
+  land in, so a consumer's tsconfig `paths` no longer has to name output paths
+  by hand.
+
+### Breaking — `ts_test`
+
+- A vitest config is now **always** generated and always passed with
+  `--config`, so vitest never auto-discovers a stray config from the runfiles
+  tree.
+- `config` **merges** into the generated config instead of replacing it, and
+  accepts an inline dict as well as a label. Objects merge key by key, arrays
+  concatenate base-first (matching vite's `mergeConfig`), later scalars win. A
+  `config` that previously replaced the Bazel layer wholesale now composes with
+  it.
+- New attributes: `setup_files`, `global_setup`, `data`, `globals`,
+  `reporters`, `coverage_thresholds`.
+- `environment` is emitted into the config instead of being passed on the
+  command line, and is no longer validated against a fixed set of names.
+- The CSS-module mock now actually takes effect. Class names from
+  `*.module.css` imports change from vite's hashed form to the plain property
+  name — the behaviour the docs always described. **Expect snapshot and
+  assertion updates in tests that touched CSS-module class names.**
+- The auto-generated `node_modules` tree moved to a per-target directory, so a
+  package may now hold more than one `ts_test`.
+- The config that actually ran is readable:
+  `bazel build //path:my_test --output_groups=vitest_config`.
+
+### Breaking — npm
+
+- One external repository per npm package is the only implementation. The
+  `npm_translate_lock` repository rule (~1770 lines) and
+  `npm.translate_lock(lazy = ...)` are **deleted**;
+  `npm/private/npm_translate_lock.bzl` is now only the pnpm lockfile reader. The
+  label surface does not move: `@npm//:zod`, `@npm//:types_react`,
+  `@npm//:vitest_bin` all still resolve, through an alias hub that downloads
+  nothing.
+- `npm.translate_lock` gains `patches`, a label list. A lockfile with
+  `patchedDependencies` and no matching label now **fails the extension**, as
+  does a passed patch file no entry claims. Previously `patchedDependencies`
+  was ignored outright and the unpatched upstream tarball was installed with no
+  warning. Files are matched by pnpm's own `pnpm patch-commit` name,
+  `<name with / replaced by __>@<version>.patch`.
+- npm alias specifiers (`h3-v2: h3@2.0.1`) get their own labels. They
+  previously collapsed onto the real package's label, so the name the importing
+  code uses did not exist as a target.
+- `npm_bin`'s `optional_dep_info` attribute is removed — only the deleted
+  single-repository path produced it. Platform-matched `optionalDependencies`
+  (native sidecars such as `oxlint` → `@oxlint/linux-x64-gnu`) are now named
+  through `optional_dep_packages`.
+- pnpm `catalogs`, `overrides` (including the `parent>child` form) and
+  `packageExtensions` need no support code and got none: pnpm resolves all
+  three at every use site, so the lockfile already carries concrete versions and
+  injected peers. Tests pin that, so a parser change cannot start reading
+  `specifier:` instead of `version:` unnoticed.
+
+### Breaking — toolchains and repositories
+
+- The `ts.oxc_toolchain()`, `ts.tsgo_toolchain()` and `ts.node()` extension
+  tags are removed. `ts.tsgo(version = ...)` is the only remaining tag.
+- `rules_typescript_dependencies()` is gone, and with it `ts/repositories.bzl`.
+  The `ts` extension declares its own repositories.
+- The `@oxc` repository is gone — oxc resolves directly to
+  `//oxc_cli:oxc-bazel`, built from source by `rules_rust` for the exec
+  platform. `@tsgo` is replaced by per-platform `@tsgo_<platform>`
+  repositories.
+- `PLATFORM_CONSTRAINTS` is replaced by `//platforms:platforms.bzl%PLATFORMS`.
+  The new `//platforms` package is the single platform vocabulary and also
+  declares `//platforms:<key>` (for `--platforms`) and `//platforms:is_<key>`
+  (for `select()`).
+- oxc and tsgo are now `exec_compatible_with`-constrained instead of
+  `target_compatible_with`-constrained, so they follow the execution platform.
+  A build that set `--platforms` to anything unusual previously lost its
+  compilers.
+- New toolchain type `//ts/toolchain:js_tool_type` separates
+  node-as-a-build-tool (exec config) from node-as-a-runtime
+  (`js_runtime_type`, whose `runtime_binary` is now `cfg = "target"`).
+  Registering `@rules_typescript//ts/toolchain:all` picks up both.
+
+### Breaking — bundling, assets and packaging
+
+- `ts_bundle` requires `bundler`. The bundler-less mode concatenated every
+  transitive `.js` file behind a `// Placeholder bundle` header and called it a
+  bundle — a plausible-looking artifact no runtime accepts. Point the attr at a
+  `vite_bundler` (or any `BundlerInfo` provider). `ts_binary` is unchanged:
+  without a bundler it runs the entry point `.js` directly, which is a real
+  thing to do.
+- `css_module` and `json_library` need the `js_tool` toolchain, and
+  `ts_npm_publish` and `next_build` now do too — `register_toolchains("@rules_typescript//ts/toolchain:all")`
+  covers all of them. `css_module` and `ts_npm_publish` used to shell out to the
+  host `awk`.
+- `css_module` extracts class names by parsing the stylesheet rather than
+  regex-matching `.name` anywhere in the file. Declaration values
+  (`url(logo.png)` no longer declares `png`), strings, at-rule preludes,
+  `@keyframes` bodies and `:global(...)` groups contribute no names, and a name
+  that is not a bare TypeScript identifier is emitted quoted
+  (`readonly "button-primary": string`) instead of as a syntax error.
+- `ts_npm_publish` stages into `<name>_pkg/package/` instead of `<name>_pkg/`,
+  and its `package.json` is rewritten through `JSON.parse`/`JSON.stringify`, so
+  a template that is not one-field-per-line survives. Output is pretty-printed
+  two-space JSON.
+- `ts_npm_package` requires `package_dir` and `package_files`; the impl always
+  dereferenced both.
+
+### Breaking — tests
+
+- `tests/bootstrap` is deleted, all 8 targets. Every scenario it covered
+  already exists under `tests/integration/` with three more besides, and the
+  bootstrap copies were the non-hermetic ones: they inherited `PATH`/`HOME`/`USER`
+  and found `bazel` on the caller's PATH. Use
+  `bazel test //tests/integration/...`. The `RULES_TYPESCRIPT_ROOT` environment
+  variable those runners needed is no longer read anywhere.
+- Integration targets are `exclusive` rather than `manual`, so
+  `bazel test //...` now runs them: 138 test targets, 12 of them
+  `exclusive`, 2 `manual`. `bazel test --config=fast //...` skips the
+  exclusive ones.
+
+### Breaking — shell replaced by Go
+
+- `scripts/` is deleted. `ci.sh` was a sequence of bazel invocations that
+  duplicated `.github/workflows/ci.yml`; `quickstart.sh` and `release.sh` are
+  `bazel run //tools/quickstart` and `//tools/release`; `verify_determinism.sh`
+  is explicit CI steps, because two builds cannot be one action.
+- `ts_binary`, `ts_test`, `ts_dev_server` and `npm_bin` run through one
+  checked-in Go launcher that reads a per-target JSON config. The generated
+  file is `<target>_launcher`, **not** `<target>_runner.sh`; anything naming the
+  old file breaks. `--dump-config` prints the resolved config.
+- `tools/refresh_tsconfig.sh` is deleted. `ts_refresh_tsconfig` takes `deps`
+  and an aspect walks them — a `deps = []` call produces a tsconfig with no
+  `paths` at all. Its `execroot_symlink` attr is removed.
+- `npm_import`'s `expected_prefix` attr is removed; the prefix is detected.
+
 ### Added
-- One external repository per npm package (`npm.translate_lock(lazy = ...)`, default on), with `@npm` as an alias-only hub. Bazel fetches only the packages a target actually needs: on a 2731-package lockfile, building one vitest target went from 392s / 2.9 GB to 66s / 415 MB, fetching 227 packages instead of all 2731
+
+- `ts_compile` can consume a real `tsconfig.json`: the generated config
+  `extends` it in place rather than copying it, so relative paths inside it
+  still resolve. This unblocks ambient-globals-only packages
+  (`types: ["./worker-configuration.d.ts"]`), `jsx: preserve` with
+  `jsxImportSource`, `lib: ["webworker"]`, `resolveJsonModule` and
+  `allowImportingTsExtensions`.
+- npm packages are fetched on demand. A target's npm cost is its own dependency
+  closure rather than the whole lockfile, repositories fetch in parallel,
+  caching and invalidation are per package, and a malformed tarball fails only
+  its own package.
+- `//tests/lsp:test_tsserver_diagnostics` passes for the first time. It wanted
+  a `typescript` module from a host `node_modules` that does not exist on a
+  clean machine, so it had never run anywhere; `typescript` now comes from the
+  lockfile through `@npm`.
+
+- `//tests/integration/npmrc_registry` proves `.npmrc` private registries end
+  to end: a throwaway local registry that 401s unauthenticated requests, so a
+  scoped `registry=` override and an `_authToken` reaching the wire as
+  `Authorization: Bearer` are both asserted, not just parsed.
+- A root `go.mod` and `go.work`, so `go vet`, `staticcheck` and `gopls` reach
+  the ruleset's Go. They could not before, and `go vet` immediately found a
+  redeclaration Bazel cannot see: three files in one directory each declared
+  `const placeholder`, which compiles because each is its own single-src
+  `go_test`. CI now gates on `gofmt -l` and `go vet`.
+- All six `examples/` workspaces are in the CI matrix. It built two, so
+  `examples/tanstack-app` was broken with nobody watching.
 
 ### Fixed
-- Consumer setup no longer asks for `build --@rules_rust//rust/toolchain/channel=stable`; the flag is a consumer-visible error (`No repository visible as '@rules_rust'`) and a no-op for this ruleset, whose Rust channel already defaults to stable
-- Install instructions document the pre-BCR `git_override` / `archive_override` / `local_path_override` recipes, since there is no registry entry or release for `bazel_dep(name = "rules_typescript", version = "0.1.0")` to resolve against
-- Cargo build output is gitignored; `oxc_cli/target/` had 2322 tracked files, 622 MiB of blobs, which made a source tarball of HEAD 207 MB instead of 638 KB
-- Gazelle parses tsconfig.json as JSONC — comments and trailing commas no longer make compilerOptions.paths silently disappear
-- Gazelle names css_library, css_module, asset_library and json_library targets after the whole filename (button.css -> button_css), so they no longer collide with the directory-named ts_compile target or with each other
 
-## [0.1.0] - 2026-03-12
+- An `@types/*` dep supplies its ambient globals. The generated tsconfig used to
+  derive `typeRoots` from the dirname of each `@types` declaration, which under
+  one-repository-per-package named the package directory itself and `external/`
+  -- neither of which is a directory whose *children* are type packages, so
+  TypeScript resolved nothing and `process`, `setTimeout`, `Buffer` and
+  `import 'node:fs'` were all errors. The entry-point `.d.ts` of each direct
+  `@types/*` dep is now listed in the generated tsconfig's `files`, and no
+  `typeRoots` is derived at all. `NpmPackageInfo` gains `ambient_types_file`;
+  `TsDeclarationInfo.type_roots` is deleted.
+- Consumer setup no longer asks for
+  `build --@rules_rust//rust/toolchain/channel=stable`. The flag is a
+  consumer-visible error (`No repository visible as '@rules_rust'`) and a no-op
+  for this ruleset, whose Rust channel already defaults to stable.
+- Install instructions document the pre-BCR `git_override` /
+  `archive_override` / `local_path_override` recipes, since there is no
+  registry entry or release for a bare `bazel_dep` to resolve against.
+- Cargo build output is gitignored; `oxc_cli/target/` had 2322 tracked files,
+  622 MiB of blobs, which made a source tarball of HEAD 207 MB instead of
+  638 KB.
+- Gazelle parses `tsconfig.json` as JSONC — comments and trailing commas no
+  longer make `compilerOptions.paths` silently disappear.
+- Gazelle names `css_library`, `css_module`, `asset_library` and `json_library`
+  targets after the whole filename (`button.css` → `button_css`), so they no
+  longer collide with the directory-named `ts_compile` target or with each
+  other.
+- Integration runners no longer default their scratch directory to `/tmp`: a
+  nested Bazel output base does not fit in a small tmpfs, and the failure
+  surfaced as "No space left on device" from cgo, nowhere near its cause.
+- The tsgo repository rule no longer runs an unchecked host `chmod +x`; the
+  exec bit comes from the npm tarball.
+- `ts_npm_publish` no longer creates an undeclared `package` symlink next to
+  its output: two publish targets in one package wrote that same path, so a
+  concurrent build could archive the wrong directory. The staging directory is
+  itself named `package` and `tar -C` reads it directly.
+- `ts_npm_publish`'s staging action runs under `set -euo pipefail`; a failed
+  copy used to leave a partial package and exit 0.
+- `ts_binary` with a Vite bundler no longer fails analysis with "No attribute
+  'env_vars' in attr". The Vite config generator reads the bundle attrs
+  `ts_binary` does not declare through their defaults.
+- Rules that run Node inside a build action (`css_module`, `json_library`,
+  `ts_codegen`, `next_build`, `ts_npm_publish`, `vite_bundler`) resolve it from
+  the `js_tool` (exec platform) toolchain instead of `js_runtime` (target
+  platform). Under a `--platforms` that differs from the host, they used to
+  build actions that ran the target's Node — `node.exe` on a Linux builder.
+- `vite_bundler` and `next_build` no longer fall back to a `node` from `PATH`
+  when no toolchain is registered; the missing toolchain is an error.
+- `//vite:vite_plugin_bazel` is built by a rule that resolves the Node
+  toolchain, replacing a genrule whose four hand-written `config_setting`s
+  keyed the *target* platform to pick an exec-platform `@nodejs_*` binary. It
+  failed analysis outright under `--platforms=//platforms:windows_amd64`.
 
-### Added
+- An npm tarball's top-level directory is detected with
+  `rctx.path().readdir()` instead of shelling out to the host `tar`. The old
+  code returned `""` when `tar` failed and fell back to `package`, which aborts
+  the fetch for DefinitelyTyped-style tarballs — `@types/express-serve-static-core`
+  packs under `express-serve-static-core v4.19/`, the case the function exists
+  for. No `rctx.execute` call remains in the ruleset.
+- Launchers resolve paths through the Bazel runfiles library, so they work with
+  a runfiles **manifest** and no symlink tree. The hand-rolled
+  `RUNFILES_DIR`/`TEST_SRCDIR`/`$0.runfiles` discovery died at `cd` in that
+  layout. Four hand-written shell-quoting helpers are deleted with it.
+- Cycle breaking removes only cycle-closing edges. Self-edges are now removed
+  (a one-member SCC broke nothing, so Bazel saw the cycle), and an edge between
+  two *distinct* cycles is kept instead of dropped. On this repo's own lockfile
+  it drops 2 edges where the old code dropped 4.
+- `ts_dev_server` no longer falls back to a host-PATH `node` or `vite`. A
+  missing JS runtime toolchain fails at analysis time; a missing
+  `node_modules`/vite fails the launcher with an actionable message.
+- The Vite HMR watcher rides Vite's own `server.watcher` instead of
+  `import('chokidar')`. chokidar is inlined into Vite's dist chunk and is not an
+  installed package, so the import always threw `ERR_MODULE_NOT_FOUND` and every
+  rebuild was dropped silently. A watcher that cannot start now warns.
+- The Vite bundler creates a `node_modules` beside the generated config.
+  `linux-sandbox` remounts `/` read-only, so Vite's `.vite-temp` mkdir hit the
+  source tree with `EROFS` — which Node's `recursive: true` mkdir masks as
+  `ENOENT`, and Vite only tolerates `EACCES`. `examples/tanstack-app` could not
+  build.
+- Gazelle names a framework bundle's node_modules tree `node_modules`. Bazel
+  materialises a tree artifact as per-file symlinks into the real execroot, and
+  Node realpaths a module before resolving its bare imports, so a tree named
+  `<app>_node_modules` made every Vite framework bundle fail to find `rolldown`.
+- No action needs a shell on the exec platform: `ctx.actions.run_shell` is gone
+  from the ruleset.
+
+### Measurements
+
+Two numbers are quoted in the docs. Both come from one machine on one day, and
+only one of them can still be reproduced from this tree.
+
+- Declaration emitters, via `tools/bench_declarations.sh 20 50 3` (1,000
+  annotated files, 20 packages, one linear chain, medians of three interleaved
+  runs): `declarations = "tsgo"` 6.3s wall / 4.89s critical path,
+  `declarations = "oxc"` 3.8s / 2.15s, `"oxc"` with `enable_check = False`
+  2.7s / 1.06s. The script is committed; re-run it on your own graph.
+- npm layout, measured while both layouts still existed: building one vitest
+  target from an empty output base against a 2731-package lockfile went from
+  392s / 2.9 GB of `external/` to 66s / 415 MB, fetching 227 packages
+  (vitest's actual transitive closure) instead of all 2731. The
+  single-repository arm has since been deleted, so this is a historical record,
+  not something a reader can re-run.
+
+### Known gaps
+
+Recorded rather than hidden.
+
+- **Windows is unsupported**, not partially supported. See
+  [COMPATIBILITY.md](https://github.com/mikn/rules_typescript/blob/main/COMPATIBILITY.md#platforms).
+- Ambient globals reach a target from its **direct** `@types/*` deps only.
+  TypeScript with a real `node_modules` also picks up transitively installed
+  ones; here declaring the dep is how a target asks for them.
+- `skipLibCheck: true` masks ambient-vs-lib conflicts, so what bites a Workers
+  package is a lib declaration winning over an ambient one at the use site.
+  Unsettled.
+- `jsdom` and `happy-dom` are not exercised for real — neither is in the test
+  lockfile, so `ts_test`'s `environment` is only pinned at analysis time.
+- vitest 3.2's `projects` spelling is unhandled; the pinned vitest is 3.0.9.
+- `coverage_thresholds` reaches the generated config, but its enforcement is
+  unproven.
+- `ts_test(update_snapshots = True)` is broken.
+- The runtime/tool toolchain split is registered, but its consumer call sites
+  still resolve node through `js_runtime_type`. Harmless while exec == target,
+  wrong under cross-compilation.
+- No libc (glibc vs musl) `constraint_setting`. Nothing would reference it
+  until npm's platform `select()` lands.
+
+## [0.1.0] — never released
+
+No tag, no release and no registry entry exists for this version. The list
+below records what the ruleset did before the changes above, so a consumer
+pinned to an older commit can tell what moved.
+
 - Core TypeScript compilation with oxc-bazel (Rust-based, per-file transform)
-- tsgo (Go port of TypeScript) emits .d.ts from the full type program by default, so unmodified TypeScript compiles with no explicit export annotations, and type errors fail `bazel build` because the declarations are real outputs
-- declarations = "oxc" as an opt-in throughput mode: Oxc emits .d.ts syntactically (requiring isolated declarations, which it enforces) and type-checking becomes a validation action off the critical path — 6.3s -> 3.8s rebuild and 4.89s -> 2.15s critical path on a 1,000-file, 20-deep chain (tools/bench_declarations.sh)
+- tsgo (Go port of TypeScript) emits `.d.ts` from the full type program by
+  default, so unmodified TypeScript compiles with no explicit export
+  annotations, and type errors fail `bazel build` because the declarations are
+  real outputs
+- `declarations = "oxc"` as an opt-in throughput mode: Oxc emits `.d.ts`
+  syntactically (requiring isolated declarations, which it enforces) and
+  type-checking becomes a validation action off the critical path
 - npm dependency management via pnpm-lock.yaml parser (v6 and v9 formats)
 - Multiple npm package version support with semver-correct alias resolution
-- npm bin script generation (@npm//:vitest_bin, @npm//:esbuild_bin, etc.)
-- Conditional exports (package.json "exports" field) resolution
-- pnpm workspace support (workspace:* protocol)
+- npm bin script generation (`@npm//:vitest_bin`, `@npm//:esbuild_bin`, …)
+- Conditional exports (package.json `exports` field) resolution
+- pnpm workspace support (`workspace:*` protocol)
 - Dependency cycle detection and breaking (Kosaraju's SCC algorithm)
 - Gazelle extension for BUILD file auto-generation
-- Gazelle every-dir default (every directory with .ts files is a package)
-- Gazelle directives: ts_package_boundary, ts_declarations, ts_path_alias, ts_runtime_dep, ts_exclude, ts_warn_unresolved, ts_codegen
-- Gazelle auto-detection of TanStack Router, Prisma, GraphQL codegen, OpenAPI generators
-- Gazelle reads tsconfig.json compilerOptions.paths automatically
-- Gazelle generates ts_compile, ts_test, ts_lint, ts_dev_server, css_library, css_module, asset_library, json_library, ts_codegen targets
-- ts_test with vitest (auto node_modules from deps, DOM testing, coverage, snapshots, custom config, environment selection)
-- ts_binary (runnable, entry_file convention, index.js default)
-- ts_bundle with real Vite integration (ESM/CJS, tree-shaking, minification, chunk splitting, source maps, app mode, env_vars)
-- ts_dev_server with ibazel HMR support and React Fast Refresh
-- Vite plugin injection via vite_config attr (unlocks Remix, SvelteKit, TanStack Start)
-- ts_codegen rule for code generation (TanStack routes, Prisma, GraphQL, OpenAPI, custom)
-- css_library, css_module (typed .d.ts from regex extraction), asset_library, json_library (fully typed .d.ts)
-- ts_lint rule (ESLint/oxlint as validation action)
-- ts_npm_publish rule (tarball with auto-filled main/types/exports)
-- ESLint plugin for isolated declarations migration (require-explicit-types rule, 31 test cases)
-- vite_types attr on ts_compile for import.meta.env and asset URL types
-- path_aliases attr on ts_compile for tsgo type-checking with path aliases
-- JS runtime toolchain (Node.js via rules_nodejs, pluggable for Deno/Bun/workerd)
-- ARM toolchain_utils (v1.3.0) integration for resolved toolchain targets
+- Gazelle every-dir default (every directory with `.ts` files is a package)
+- Gazelle directives: `ts_package_boundary`, `ts_declarations`, `ts_path_alias`,
+  `ts_runtime_dep`, `ts_exclude`, `ts_warn_unresolved`, `ts_ignore`,
+  `ts_target_name`, `ts_codegen`
+- Gazelle auto-detection of TanStack Router, Prisma, GraphQL codegen, OpenAPI
+  generators
+- Gazelle reads `tsconfig.json` `compilerOptions.paths` automatically
+- Gazelle generates `ts_compile`, `ts_test`, `ts_lint`, `ts_dev_server`,
+  `css_library`, `css_module`, `asset_library`, `json_library`, `ts_codegen`
+  targets
+- `ts_test` with vitest (auto node_modules from deps, DOM testing, coverage,
+  snapshots, custom config, environment selection)
+- `ts_binary` (runnable, entry_file convention, index.js default)
+- `ts_bundle` with real Vite integration (ESM/CJS, tree-shaking, minification,
+  chunk splitting, source maps, app mode, env_vars)
+- `ts_dev_server` with ibazel HMR support and React Fast Refresh
+- Vite plugin injection via `vite_config` attr (unlocks Remix, SvelteKit,
+  TanStack Start)
+- `ts_codegen` rule for code generation (TanStack routes, Prisma, GraphQL,
+  OpenAPI, custom)
+- `css_library`, `css_module` (typed `.d.ts` from regex extraction),
+  `asset_library`, `json_library` (fully typed `.d.ts`)
+- `ts_lint` rule (ESLint/oxlint as validation action)
+- `ts_npm_publish` rule (tarball with auto-filled main/types/exports)
+- ESLint plugin for isolated declarations migration
+  (`require-explicit-types` rule)
+- `vite_types` attr on `ts_compile` for `import.meta.env` and asset URL types
+- `path_aliases` attr on `ts_compile` for tsgo type-checking with path aliases
+- JS runtime toolchain (Node.js via rules_nodejs, pluggable for
+  Deno/Bun/workerd)
+- `toolchain_utils` (v1.3.0) integration for resolved toolchain targets
 - Linux ARM64 platform support (oxc built from source, tsgo from npm)
-- Windows Node.js toolchain registered (node_modules action cross-platform)
-- IDE support via bazel run //:refresh_tsconfig (generates tsconfig.json with paths)
+- IDE support via `bazel run //:refresh_tsconfig` and a live tsserver
+  resolution hook
 - GitHub Actions CI workflow
-- Bootstrap integration tests (8 tests covering full user journeys)
-- Examples: basic, app (zod), react-app (React + testing-library), tanstack-app (TanStack Router SPA)
+- Examples: basic, app (zod), react-app (React + testing-library),
+  tanstack-app (TanStack Router SPA)
 - BCR presubmit configuration
-- Release automation scripts

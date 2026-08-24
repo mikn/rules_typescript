@@ -1,11 +1,9 @@
 """Core bundle rule for rules_typescript.
 
 ts_bundle is the canonical implementation of the bundle action. It accepts an
-entry_point (a ts_compile target providing JsInfo) and an optional bundler
-(a target providing BundlerInfo). When a bundler is wired in, it is invoked
-via the standard CLI interface or the generated-config interface (for Vite).
-When no bundler is provided, the rule falls back to a placeholder concatenation
-so that downstream targets continue to build during iterative development.
+entry_point (a ts_compile target providing JsInfo) and a bundler (a target
+providing BundlerInfo), which is invoked via the standard CLI interface or the
+generated-config interface (for Vite).
 
 Standard bundler CLI interface (BundlerInfo.use_generated_config = False):
   <bundler_binary>
@@ -36,7 +34,6 @@ env_vars attr: a string_dict that is sugar over the define attr.  Each entry
 """
 
 load("//ts/private:providers.bzl", "BundlerInfo", "CssInfo", "JsInfo")
-load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE")
 
 # Vite lib mode output filename suffixes per format.
 # Vite uses: esm → .es.js, cjs → .cjs.js, iife → .iife.js
@@ -107,7 +104,7 @@ def _generate_vite_config(ctx, entry_js_file, bundle_filename, out_dir_rel, tran
             k.replace('"', '\\"'),
             v,
         ))
-    for k, v in ctx.attr.env_vars.items():
+    for k, v in getattr(ctx.attr, "env_vars", {}).items():
         # Translate env_vars key to import.meta.env.<key> with a JSON-encoded
         # string literal value.  Vite/esbuild's define accepts a JS expression
         # string, so to make the replacement a JS string literal we must wrap
@@ -128,7 +125,7 @@ def _generate_vite_config(ctx, entry_js_file, bundle_filename, out_dir_rel, tran
 
     # minify value: "esbuild" (default), "terser", or false
     # We map the bool attr to Vite's expected value string or false.
-    minify_js = '"esbuild"' if ctx.attr.minify else "false"
+    minify_js = '"esbuild"' if getattr(ctx.attr, "minify", True) else "false"
 
     # The entry path and outDir are passed via env vars (set by the wrapper).
     # VITE_ENTRY_PATH: absolute path to the entry .js file
@@ -262,9 +259,7 @@ def _generate_vite_config(ctx, entry_js_file, bundle_filename, out_dir_rel, tran
         # so framework plugins (Remix, TanStack Start) can scan routes and write
         # codegen (route manifests, routeTree.gen.ts) inside it.
         staging_root_line = (
-            "const stagingRoot = process.env[\"VITE_STAGING_ROOT\"] || null;\n"
-            if has_staging_srcs else
-            ""
+            "const stagingRoot = process.env[\"VITE_STAGING_ROOT\"] || null;\n" if has_staging_srcs else ""
         )
 
         if has_staging_srcs and user_config_file:
@@ -416,8 +411,9 @@ def create_bundle_action(ctx, entry_js_info, bundle_filename):
     """Creates the bundle action and returns the output file(s).
 
     Args:
-        ctx: The rule context. Must have attrs: bundler, format, sourcemap,
-             external, define, env_vars, mode (may be absent for non-bundle rules).
+        ctx: The rule context. Must have a bundler attr carrying BundlerInfo,
+             plus format, sourcemap, external, define, env_vars, mode (mode and
+             the Vite-only attrs may be absent for non-bundle rules).
         entry_js_info: JsInfo from the entry_point target.
         bundle_filename: Filename stem (without .js extension) for the bundle.
 
@@ -430,300 +426,258 @@ def create_bundle_action(ctx, entry_js_info, bundle_filename):
     # Collect transitive CSS files so Vite can find them in the sandbox.
     entry_point_target = ctx.attr.entry_point
     all_css = (
-        entry_point_target[CssInfo].transitive_css_files
-        if CssInfo in entry_point_target
-        else depset()
+        entry_point_target[CssInfo].transitive_css_files if CssInfo in entry_point_target else depset()
     )
 
-    bundler_target = ctx.attr.bundler
-    if bundler_target and BundlerInfo in bundler_target:
-        # ── Real bundler path ────────────────────────────────────────────────
-        bundler_info = bundler_target[BundlerInfo]
+    bundler_info = ctx.attr.bundler[BundlerInfo]
 
-        # Materialise direct js_files to find the entry file (O(1) files).
-        entry_js_files = entry_js_info.js_files.to_list()
-        if not entry_js_files:
-            fail(
+    # Materialise direct js_files to find the entry file (O(1) files).
+    entry_js_files = entry_js_info.js_files.to_list()
+    if not entry_js_files:
+        fail(
             "ts_bundle: entry_point '{ep}' provides JsInfo but has no direct .js outputs.\n".format(ep = ctx.attr.entry_point.label) +
             "Ensure the ts_compile target at entry_point has at least one .ts source file in srcs.",
         )
-        if len(entry_js_files) != 1:
-            fail(
-            "ts_bundle: entry_point '{ep}' must produce exactly 1 .js file (the entry), " +
-            "but it produces {n}.\n".format(ep = ctx.attr.entry_point.label, n = len(entry_js_files)) +
+    if len(entry_js_files) != 1:
+        fail(
+            "ts_bundle: entry_point '{ep}' must produce exactly 1 .js file (the entry), but it produces {n}.\n".format(
+                ep = ctx.attr.entry_point.label,
+                n = len(entry_js_files),
+            ) +
             "Use a ts_compile target with a single source file as the entry point, " +
             "e.g. srcs = [\"index.ts\"].",
         )
-        entry_js_file = entry_js_files[0]
+    entry_js_file = entry_js_files[0]
 
-        use_generated_config = getattr(bundler_info, "use_generated_config", False)
+    use_generated_config = getattr(bundler_info, "use_generated_config", False)
 
-        if use_generated_config:
-            # ── Vite-style generated-config invocation ───────────────────────
-            # Determine whether chunk splitting is enabled.
-            split_chunks = getattr(ctx.attr, "split_chunks", False)
+    if use_generated_config:
+        # ── Vite-style generated-config invocation ───────────────────────
+        # Determine whether chunk splitting is enabled.
+        split_chunks = getattr(ctx.attr, "split_chunks", False)
 
-            # Determine whether this is an app-mode bundle.
-            bundle_mode = getattr(ctx.attr, "mode", "lib")
-            is_app_mode = bundle_mode == "app"
+        # Determine whether this is an app-mode bundle.
+        bundle_mode = getattr(ctx.attr, "mode", "lib")
+        is_app_mode = bundle_mode == "app"
 
-            # In app mode or split_chunks mode, the output is a directory
-            # because the set of output files (hashed filenames) is not known
-            # at Bazel analysis time.
-            out_dir_rel = "{}_bundle".format(ctx.label.name)
+        # In app mode or split_chunks mode, the output is a directory
+        # because the set of output files (hashed filenames) is not known
+        # at Bazel analysis time.
+        out_dir_rel = "{}_bundle".format(ctx.label.name)
 
-            if is_app_mode or split_chunks:
-                # Declare the output as a directory (file names unknown at
-                # analysis time — hashed in app mode, chunk-named in split mode).
-                bundle_out = ctx.actions.declare_directory(out_dir_rel)
-                out_dir_path = bundle_out.path
-                outputs = [bundle_out]
-            else:
-                # Lib mode: declare output files using Vite's lib mode naming
-                # convention: <bundle_filename>.<format_suffix>.js
-                fmt = ctx.attr.format
-                vite_suffix = _VITE_FORMAT_SUFFIX.get(fmt, "es")
-                vite_js_name = "{}.{}.js".format(bundle_filename, vite_suffix)
-
-                bundle_out = ctx.actions.declare_file(
-                    "{}/{}".format(out_dir_rel, vite_js_name),
-                )
-                out_dir_path = bundle_out.dirname
-
-                outputs = [bundle_out]
-                if ctx.attr.sourcemap:
-                    map_out = ctx.actions.declare_file(
-                        "{}/{}.map".format(out_dir_rel, vite_js_name),
-                    )
-                    outputs.append(map_out)
-
-            # The config file must be a sibling to avoid "output is a prefix"
-            # Bazel errors when the bundle output is a declared_directory.
-            if is_app_mode or split_chunks:
-                config_out_path = "{}_bundle_config/vite.config.mjs".format(ctx.label.name)
-            else:
-                config_out_path = "{}_bundle/vite.config.mjs".format(ctx.label.name)
-
-            # Collect the user-supplied vite_config file (if any).
-            # This is an optional label attr pointing to a .mjs/.js file that
-            # exports { plugins: [...] }. Plugins from this file are prepended
-            # to the Bazel-generated plugins array in the generated config.
-            user_vite_config_file = None
-            user_vite_config_inputs = []
-            vite_config_attr = getattr(ctx.attr, "vite_config", None)
-            if vite_config_attr:
-                vite_config_files = vite_config_attr.files.to_list()
-                if vite_config_files:
-                    user_vite_config_file = vite_config_files[0]
-                    user_vite_config_inputs = [user_vite_config_file]
-
-            # ── staging_srcs — writable source staging for framework plugins ──
-            # When staging_srcs is set, we generate a manifest file listing
-            # every staging source as "<pkg_rel_path>\t<exec_root_rel_path>".
-            # The wrapper script reads this manifest, creates a writable
-            # _staging/ directory inside the action sandbox, copies each file
-            # there preserving structure, and exports VITE_STAGING_ROOT so the
-            # generated vite.config.mjs can use it as vite.root.
-            # Framework plugins (Remix, TanStack Start) can then scan source
-            # files and write codegen into the staging dir without hitting
-            # sandbox write-protection on the original source tree.
-            staging_srcs_attr = getattr(ctx.attr, "staging_srcs", [])
-            staging_srcs_files = []
-            for t in staging_srcs_attr:
-                staging_srcs_files.extend(t.files.to_list())
-
-            staging_manifest_file = None
-            staging_manifest_inputs = []
-            if staging_srcs_files:
-                # Build manifest: one line per file, tab-separated:
-                #   <package_relative_dest_path>\t<exec_root_relative_src_path>
-                # The destination path is derived from the file's short_path
-                # (workspace-relative) by stripping the package prefix.
-                pkg_prefix = ctx.label.package + "/"
-                manifest_lines = []
-                for f in staging_srcs_files:
-                    # Derive destination relative to the package root.
-                    # short_path is workspace-relative, e.g. "src/routes/index.tsx"
-                    short = f.short_path
-                    if short.startswith(pkg_prefix):
-                        dest = short[len(pkg_prefix):]
-                    else:
-                        # External or generated file: use the short_path directly.
-                        dest = short
-                    manifest_lines.append("{}\t{}".format(dest, f.path))
-                staging_manifest_content = "\n".join(manifest_lines) + "\n"
-                staging_manifest_file = ctx.actions.declare_file(
-                    "{}_bundle_config/staging_manifest.txt".format(ctx.label.name),
-                )
-                ctx.actions.write(
-                    output = staging_manifest_file,
-                    content = staging_manifest_content,
-                )
-                staging_manifest_inputs = [staging_manifest_file]
-
-            has_staging = bool(staging_srcs_files)
-
-            config_file = ctx.actions.declare_file(config_out_path)
-            config_content = _generate_vite_config(
-                ctx,
-                entry_js_file,
-                bundle_filename,
-                out_dir_rel,
-                all_js,
-                app_mode = is_app_mode,
-                user_config_file = user_vite_config_file,
-                has_staging_srcs = has_staging,
-            )
-            ctx.actions.write(output = config_file, content = config_content)
-
-            # In app mode, also collect the HTML file as an input.
-            html_file = None
-            html_input_files = []
-            if is_app_mode:
-                html_attr = getattr(ctx.attr, "html", None)
-                if html_attr:
-                    html_files = html_attr.files.to_list()
-                    if html_files:
-                        html_file = html_files[0]
-                        html_input_files = [html_file]
-                else:
-                    fail(
-                        "ts_bundle: 'html' attr is required when mode = \"app\".\n" +
-                        "Provide the path to your index.html file:\n" +
-                        "  ts_bundle(\n" +
-                        "      name = \"app\",\n" +
-                        "      mode = \"app\",\n" +
-                        "      html = \"index.html\",\n" +
-                        "      entry_point = \":entry\",\n" +
-                        "      bundler = \":vite\",\n" +
-                        "  )",
-                    )
-
-            inputs = depset(
-                [entry_js_file, config_file] +
-                html_input_files +
-                user_vite_config_inputs +
-                staging_manifest_inputs +
-                staging_srcs_files,
-                transitive = [
-                    all_js,
-                    all_js_maps,
-                    all_css,
-                    bundler_info.runtime_deps,
-                ],
-            )
-
-            # Arguments to the wrapper script:
-            #   $1 = vite.config.mjs path (exec-root-relative)
-            #   $2 = entry .js path (exec-root-relative) — used for VITE_ENTRY_PATH
-            #   $3 = output directory path (exec-root-relative)
-            #   $4 = HTML file path (exec-root-relative, app mode only; "" when absent)
-            #   $5 = staging manifest path (exec-root-relative, optional; "" when absent)
-            # The wrapper converts these to absolute paths via EXEC_ROOT=$(pwd).
-            action_args = [
-                config_file.path,
-                entry_js_file.path,
-                out_dir_path,
-            ]
-            if is_app_mode and html_file:
-                action_args.append(html_file.path)
-            else:
-                action_args.append("")
-            if staging_manifest_file:
-                action_args.append(staging_manifest_file.path)
-
-            ctx.actions.run(
-                inputs = inputs,
-                outputs = outputs,
-                executable = bundler_info.bundler_binary,
-                arguments = action_args,
-                mnemonic = "TsBundleVite",
-                progress_message = "TsBundleVite %{label}",
-            )
+        if is_app_mode or split_chunks:
+            # Declare the output as a directory (file names unknown at
+            # analysis time — hashed in app mode, chunk-named in split mode).
+            bundle_out = ctx.actions.declare_directory(out_dir_rel)
+            out_dir_path = bundle_out.path
+            outputs = [bundle_out]
         else:
-            # ── Standard CLI invocation ──────────────────────────────────────
+            # Lib mode: declare output files using Vite's lib mode naming
+            # convention: <bundle_filename>.<format_suffix>.js
+            fmt = ctx.attr.format
+            vite_suffix = _VITE_FORMAT_SUFFIX.get(fmt, "es")
+            vite_js_name = "{}.{}.js".format(bundle_filename, vite_suffix)
+
             bundle_out = ctx.actions.declare_file(
-                "{}_bundle/{}.js".format(ctx.label.name, bundle_filename),
+                "{}/{}".format(out_dir_rel, vite_js_name),
             )
-            out_dir = bundle_out.dirname
-
-            args = ctx.actions.args()
-            args.add("--entry", entry_js_file)
-            args.add("--out-dir", out_dir)
-            args.add("--format", ctx.attr.format)
-            for ext in ctx.attr.external:
-                args.add("--external", ext)
-            if ctx.attr.sourcemap:
-                args.add("--sourcemap")
-            for k, v in ctx.attr.define.items():
-                args.add("--define", "{}={}".format(k, v))
-            if bundler_info.config_file:
-                args.add("--config", bundler_info.config_file)
-
-            inputs = depset(
-                [entry_js_file],
-                transitive = [
-                    all_js,
-                    all_js_maps,
-                    all_css,
-                    bundler_info.runtime_deps,
-                ] + ([depset([bundler_info.config_file])] if bundler_info.config_file else []),
-            )
+            out_dir_path = bundle_out.dirname
 
             outputs = [bundle_out]
             if ctx.attr.sourcemap:
                 map_out = ctx.actions.declare_file(
-                    "{}_bundle/{}.js.map".format(ctx.label.name, bundle_filename),
+                    "{}/{}.map".format(out_dir_rel, vite_js_name),
                 )
                 outputs.append(map_out)
 
-            ctx.actions.run(
-                inputs = inputs,
-                outputs = outputs,
-                executable = bundler_info.bundler_binary,
-                arguments = [args],
-                mnemonic = "TsBundle",
-                progress_message = "TsBundle %{label}",
+        # The config file must be a sibling to avoid "output is a prefix"
+        # Bazel errors when the bundle output is a declared_directory.
+        if is_app_mode or split_chunks:
+            config_out_path = "{}_bundle_config/vite.config.mjs".format(ctx.label.name)
+        else:
+            config_out_path = "{}_bundle/vite.config.mjs".format(ctx.label.name)
+
+        # Collect the user-supplied vite_config file (if any).
+        # This is an optional label attr pointing to a .mjs/.js file that
+        # exports { plugins: [...] }. Plugins from this file are prepended
+        # to the Bazel-generated plugins array in the generated config.
+        user_vite_config_file = None
+        user_vite_config_inputs = []
+        vite_config_attr = getattr(ctx.attr, "vite_config", None)
+        if vite_config_attr:
+            vite_config_files = vite_config_attr.files.to_list()
+            if vite_config_files:
+                user_vite_config_file = vite_config_files[0]
+                user_vite_config_inputs = [user_vite_config_file]
+
+        # ── staging_srcs — writable source staging for framework plugins ──
+        # When staging_srcs is set, we generate a manifest file listing
+        # every staging source as "<pkg_rel_path>\t<exec_root_rel_path>".
+        # The wrapper script reads this manifest, creates a writable
+        # _staging/ directory inside the action sandbox, copies each file
+        # there preserving structure, and exports VITE_STAGING_ROOT so the
+        # generated vite.config.mjs can use it as vite.root.
+        # Framework plugins (Remix, TanStack Start) can then scan source
+        # files and write codegen into the staging dir without hitting
+        # sandbox write-protection on the original source tree.
+        staging_srcs_attr = getattr(ctx.attr, "staging_srcs", [])
+        staging_srcs_files = []
+        for t in staging_srcs_attr:
+            staging_srcs_files.extend(t.files.to_list())
+
+        staging_manifest_file = None
+        staging_manifest_inputs = []
+        if staging_srcs_files:
+            # Build manifest: one line per file, tab-separated:
+            #   <package_relative_dest_path>\t<exec_root_relative_src_path>
+            # The destination path is derived from the file's short_path
+            # (workspace-relative) by stripping the package prefix.
+            pkg_prefix = ctx.label.package + "/"
+            manifest_lines = []
+            for f in staging_srcs_files:
+                # Derive destination relative to the package root.
+                # short_path is workspace-relative, e.g. "src/routes/index.tsx"
+                short = f.short_path
+                if short.startswith(pkg_prefix):
+                    dest = short[len(pkg_prefix):]
+                else:
+                    # External or generated file: use the short_path directly.
+                    dest = short
+                manifest_lines.append("{}\t{}".format(dest, f.path))
+            staging_manifest_content = "\n".join(manifest_lines) + "\n"
+            staging_manifest_file = ctx.actions.declare_file(
+                "{}_bundle_config/staging_manifest.txt".format(ctx.label.name),
             )
+            ctx.actions.write(
+                output = staging_manifest_file,
+                content = staging_manifest_content,
+            )
+            staging_manifest_inputs = [staging_manifest_file]
+
+        has_staging = bool(staging_srcs_files)
+
+        config_file = ctx.actions.declare_file(config_out_path)
+        config_content = _generate_vite_config(
+            ctx,
+            entry_js_file,
+            bundle_filename,
+            out_dir_rel,
+            all_js,
+            app_mode = is_app_mode,
+            user_config_file = user_vite_config_file,
+            has_staging_srcs = has_staging,
+        )
+        ctx.actions.write(output = config_file, content = config_content)
+
+        # In app mode, also collect the HTML file as an input.
+        html_file = None
+        html_input_files = []
+        if is_app_mode:
+            html_attr = getattr(ctx.attr, "html", None)
+            if html_attr:
+                html_files = html_attr.files.to_list()
+                if html_files:
+                    html_file = html_files[0]
+                    html_input_files = [html_file]
+            else:
+                fail(
+                    "ts_bundle: 'html' attr is required when mode = \"app\".\n" +
+                    "Provide the path to your index.html file:\n" +
+                    "  ts_bundle(\n" +
+                    "      name = \"app\",\n" +
+                    "      mode = \"app\",\n" +
+                    "      html = \"index.html\",\n" +
+                    "      entry_point = \":entry\",\n" +
+                    "      bundler = \":vite\",\n" +
+                    "  )",
+                )
+
+        inputs = depset(
+            [entry_js_file, config_file] +
+            html_input_files +
+            user_vite_config_inputs +
+            staging_manifest_inputs +
+            staging_srcs_files,
+            transitive = [
+                all_js,
+                all_js_maps,
+                all_css,
+                bundler_info.runtime_deps,
+            ],
+        )
+
+        # Arguments to the wrapper script:
+        #   $1 = vite.config.mjs path (exec-root-relative)
+        #   $2 = entry .js path (exec-root-relative) — used for VITE_ENTRY_PATH
+        #   $3 = output directory path (exec-root-relative)
+        #   $4 = HTML file path (exec-root-relative, app mode only; "" when absent)
+        #   $5 = staging manifest path (exec-root-relative, optional; "" when absent)
+        # The wrapper converts these to absolute paths via EXEC_ROOT=$(pwd).
+        action_args = [
+            config_file.path,
+            entry_js_file.path,
+            out_dir_path,
+        ]
+        if is_app_mode and html_file:
+            action_args.append(html_file.path)
+        else:
+            action_args.append("")
+        if staging_manifest_file:
+            action_args.append(staging_manifest_file.path)
+
+        ctx.actions.run(
+            inputs = inputs,
+            outputs = outputs,
+            executable = bundler_info.bundler_binary,
+            arguments = action_args,
+            mnemonic = "TsBundleVite",
+            progress_message = "TsBundleVite %{label}",
+        )
     else:
-        # ── Placeholder fallback (no bundler configured) ─────────────────────
-        # Concatenate all .js files in depset order. This preserves the
-        # build graph while a real bundler is wired in. ctx.actions.run_shell
-        # is used here because we need shell pipeline primitives (while/read).
+        # ── Standard CLI invocation ──────────────────────────────────────
         bundle_out = ctx.actions.declare_file(
             "{}_bundle/{}.js".format(ctx.label.name, bundle_filename),
         )
-        manifest_args = ctx.actions.args()
-        manifest_args.set_param_file_format("multiline")
-        manifest_args.add_all(all_js)
+        out_dir = bundle_out.dirname
 
-        manifest = ctx.actions.declare_file("{}_js_manifest.txt".format(ctx.label.name))
-        ctx.actions.write(output = manifest, content = manifest_args)
+        args = ctx.actions.args()
+        args.add("--entry", entry_js_file)
+        args.add("--out-dir", out_dir)
+        args.add("--format", ctx.attr.format)
+        for ext in ctx.attr.external:
+            args.add("--external", ext)
+        if ctx.attr.sourcemap:
+            args.add("--sourcemap")
+        for k, v in ctx.attr.define.items():
+            args.add("--define", "{}={}".format(k, v))
+        if bundler_info.config_file:
+            args.add("--config", bundler_info.config_file)
 
-        bundle_cmd = """\
-set -euo pipefail
-mkdir -p "$(dirname "{out}")"
-echo "// Placeholder bundle — replace with a real bundler." > "{out}"
-echo "// Entry point: {entry_label}" >> "{out}"
-while IFS= read -r f; do
-  echo "" >> "{out}"
-  echo "// ---- $f ----" >> "{out}"
-  cat "$f" >> "{out}"
-done < "{manifest}"
-""".format(
-            out = bundle_out.path,
-            manifest = manifest.path,
-            entry_label = str(ctx.attr.entry_point.label).replace('"', '\\"').replace("$", "\\$").replace("`", "\\`"),
+        inputs = depset(
+            [entry_js_file],
+            transitive = [
+                all_js,
+                all_js_maps,
+                all_css,
+                bundler_info.runtime_deps,
+            ] + ([depset([bundler_info.config_file])] if bundler_info.config_file else []),
         )
 
-        ctx.actions.run_shell(
-            inputs = depset([manifest], transitive = [all_js, all_js_maps]),
-            outputs = [bundle_out],
-            command = bundle_cmd,
+        outputs = [bundle_out]
+        if ctx.attr.sourcemap:
+            map_out = ctx.actions.declare_file(
+                "{}_bundle/{}.js.map".format(ctx.label.name, bundle_filename),
+            )
+            outputs.append(map_out)
+
+        ctx.actions.run(
+            inputs = inputs,
+            outputs = outputs,
+            executable = bundler_info.bundler_binary,
+            arguments = [args],
             mnemonic = "TsBundle",
             progress_message = "TsBundle %{label}",
         )
-        outputs = [bundle_out]
 
     return struct(bundle_out = bundle_out, outputs = outputs)
 
@@ -734,10 +688,10 @@ def ts_bundle_impl(ctx):
     entry_point = ctx.attr.entry_point
     if JsInfo not in entry_point:
         fail(
-        "ts_bundle: entry_point '{ep}' does not provide JsInfo.\n".format(ep = ctx.attr.entry_point.label) +
-        "The entry_point attr must be a ts_compile target (or any target that provides JsInfo).\n" +
-        "Did you mean: entry_point = \"//path/to:your_ts_compile_target\"?",
-    )
+            "ts_bundle: entry_point '{ep}' does not provide JsInfo.\n".format(ep = ctx.attr.entry_point.label) +
+            "The entry_point attr must be a ts_compile target (or any target that provides JsInfo).\n" +
+            "Did you mean: entry_point = \"//path/to:your_ts_compile_target\"?",
+        )
 
     entry_js_info = entry_point[JsInfo]
 
@@ -771,9 +725,6 @@ def ts_bundle_impl(ctx):
 
 ts_bundle = rule(
     implementation = ts_bundle_impl,
-    toolchains = [
-        config_common.toolchain_type(JS_RUNTIME_TOOLCHAIN_TYPE, mandatory = False),
-    ],
     attrs = {
         "entry_point": attr.label(
             doc = "The ts_compile target whose output is the bundle entry point.",
@@ -781,9 +732,9 @@ ts_bundle = rule(
             mandatory = True,
         ),
         "bundler": attr.label(
-            doc = "Optional target providing BundlerInfo. When absent, falls back to placeholder concatenation.",
+            doc = "Target providing BundlerInfo, e.g. a vite_bundler. Required: without a bundler there is nothing to bundle with.",
             providers = [BundlerInfo],
-            default = None,
+            mandatory = True,
         ),
         "bundle_name": attr.string(
             doc = "Name for the output bundle file (without extension). Defaults to the rule name.",
@@ -927,7 +878,7 @@ When staging_srcs is empty (default), behaviour is identical to regular
 ts_bundle — no staging dir is created, no root override is applied.
 
 Only effective when using a Vite bundler (use_generated_config = True).
-Ignored for the placeholder fallback and standard CLI bundlers.
+Ignored for standard CLI bundlers.
 
 Example (Remix):
     ts_bundle(
@@ -946,18 +897,9 @@ Example (Remix):
     },
     doc = """Produces a bundled JavaScript output from a ts_compile entry point.
 
-Collects all transitive .js outputs from the entry_point's dependency graph.
-When a bundler target (providing BundlerInfo) is specified via the bundler attr,
-it is invoked via the standard CLI interface (or generated-config mode for Vite).
-Without a bundler, the rule produces a placeholder concatenation so the build
-graph remains valid.
-
-Example (no bundler — placeholder mode):
-    ts_bundle(
-        name = "app",
-        entry_point = "//src/app:app",
-        format = "esm",
-    )
+Collects all transitive .js outputs from the entry_point's dependency graph and
+hands them to the bundler named by the bundler attr, which is invoked via the
+standard CLI interface (or generated-config mode for Vite).
 
 Example (with a Vite bundler — lib mode, the default):
     load("@rules_typescript//npm:defs.bzl", "node_modules")

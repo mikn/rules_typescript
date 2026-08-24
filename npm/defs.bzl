@@ -13,8 +13,8 @@ MODULE.bazel, not in BUILD files.  To set up npm dependencies, use:
     use_repo(npm, "npm")
 """
 
+load("//npm/private:npm_bin.bzl", _npm_bin = "npm_bin")
 load("//ts/private:node_modules.bzl", _node_modules = "node_modules")
-load("//ts/private:npm_bin.bzl", _npm_bin = "npm_bin")
 
 node_modules = _node_modules
 npm_bin = _npm_bin

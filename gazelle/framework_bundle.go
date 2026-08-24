@@ -23,13 +23,18 @@ import (
 
 // ---- FrameworkBundleConfig -------------------------------------------------
 
+// Node realpaths a module before resolving its bare imports, so only a tree
+// whose own directory is named "node_modules" is on that resolution path.
+const frameworkNodeModulesName = "node_modules"
+
+// One framework per workspace root, so the bundler can take the bare name.
+const frameworkViteBundlerName = "vite"
+
 // FrameworkBundleConfig describes the Bazel targets that should be generated
 // at the workspace root when a specific Vite-based framework is detected.
 type FrameworkBundleConfig struct {
-	// AppName is the base name for all generated targets (e.g. "app").
-	// node_modules → "<AppName>_node_modules"
-	// vite_bundler → "<AppName>_vite"
-	// ts_bundle    → "<AppName>"
+	// AppName is the base name for the generated targets (e.g. "app") and the
+	// stem of the pre-rename names cleanupLegacyFrameworkTargets deletes.
 	AppName string
 
 	// NpmDeps is the list of npm package names to include in the node_modules
@@ -151,16 +156,17 @@ var frameworkConfigs = map[Framework]FrameworkBundleConfig{
 func generateFrameworkBundle(
 	args language.GenerateArgs,
 	tc *tsConfig,
-) ([]*rule.Rule, []any) {
+) ([]*rule.Rule, []any, []*rule.Rule) {
 	// Next.js uses its own rule (next_build) rather than Vite-based bundling.
 	if tc.detectedFramework == FrameworkNextJS {
-		return generateNextJSBundle(args, tc)
+		gen, imports := generateNextJSBundle(args, tc)
+		return gen, imports, nil
 	}
 
 	cfg, ok := frameworkConfigs[tc.detectedFramework]
 	if !ok {
 		// Framework detected but no bundle config registered.
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	// Filter out npm deps that are not actually present in the lockfile.
@@ -170,8 +176,9 @@ func generateFrameworkBundle(
 	var gen []*rule.Rule
 	var imports []any
 
-	nodeModulesName := cfg.AppName + "_node_modules"
-	viteTargetName := cfg.AppName + "_vite"
+	nodeModulesName := frameworkNodeModulesName
+	viteTargetName := frameworkViteBundlerName
+	empty := cleanupLegacyFrameworkTargets(args, cfg)
 
 	// ---- node_modules target -----------------------------------------------
 	// Only generate if not already present in the BUILD file.
@@ -186,6 +193,7 @@ func generateFrameworkBundle(
 		nm.SetAttr("deps", nmDeps)
 		nm.SetAttr("visibility", []string{"//visibility:public"})
 		nm.AddComment("# Framework node_modules for " + frameworkName(tc.detectedFramework))
+		nm.AddComment("# Name must be \"node_modules\": Node realpaths a module before its imports.")
 		gen = append(gen, nm)
 		imports = append(imports, nil)
 	}
@@ -219,7 +227,7 @@ func generateFrameworkBundle(
 		imports = append(imports, nil)
 	}
 
-	return gen, imports
+	return gen, imports, empty
 }
 
 // generateNextJSBundle generates root-level targets for a Next.js application.
@@ -359,6 +367,61 @@ func frameworkName(f Framework) string {
 	default:
 		return "unknown framework"
 	}
+}
+
+// legacyFrameworkTargetNames maps each pre-rename target name to its kind.
+func legacyFrameworkTargetNames(cfg FrameworkBundleConfig) map[string]string {
+	return map[string]string{
+		cfg.AppName + "_node_modules": "node_modules",
+		cfg.AppName + "_vite":         "vite_bundler",
+	}
+}
+
+// cleanupLegacyFrameworkTargets deletes the pre-rename pair, all of it or none
+// of it: the bundler half is the tree half's only consumer.
+func cleanupLegacyFrameworkTargets(args language.GenerateArgs, cfg FrameworkBundleConfig) []*rule.Rule {
+	if args.File == nil {
+		return nil
+	}
+	legacy := legacyFrameworkTargetNames(cfg)
+
+	var empty []*rule.Rule
+	for _, r := range args.File.Rules {
+		if kind, ok := legacy[r.Name()]; ok && r.Kind() == kind {
+			empty = append(empty, rule.NewRule(kind, r.Name()))
+		}
+	}
+	for _, r := range args.File.Rules {
+		if _, isLegacy := legacy[r.Name()]; isLegacy {
+			continue
+		}
+		if referencesAny(r, legacy) {
+			return nil
+		}
+	}
+	return empty
+}
+
+func referencesAny(r *rule.Rule, names map[string]string) bool {
+	referenced := func(v string) bool {
+		for name := range names {
+			if v == ":"+name || v == "//:"+name {
+				return true
+			}
+		}
+		return false
+	}
+	for _, key := range r.AttrKeys() {
+		if referenced(r.AttrString(key)) {
+			return true
+		}
+		for _, v := range r.AttrStrings(key) {
+			if referenced(v) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ruleExists returns true when the BUILD file already contains a rule with the

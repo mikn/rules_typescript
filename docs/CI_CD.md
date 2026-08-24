@@ -10,28 +10,35 @@ The repository includes a comprehensive GitHub Actions workflow at `.github/work
 
 ### Workflow Jobs
 
-1. **Unit Tests & Type Checking**
-   - Runs all unit tests across the monorepo
-   - Validates TypeScript compilation and type checking
-   - Platform: Ubuntu latest
+1. **Unit Tests & Type Checking** (`test`)
+   - `bazel test --config=ci //...`, then
+     `bazel build --config=ci //... --output_groups=+_validation`
+   - Matrix: `ubuntu-latest` and `macos-latest`
 
-2. **E2E Tests**
-   - Builds and tests the e2e/basic example
-   - Verifies end-to-end functionality
+2. **E2E Tests** (`e2e`)
+   - Builds and tests `e2e/basic`, a separate workspace
+   - Matrix: `ubuntu-latest` and `macos-latest`
 
-3. **Examples Build**
-   - Builds all examples (basic, app)
-   - Non-critical; some examples may have incomplete features
-   - Fails gracefully if features aren't implemented
+3. **Examples Build** (`examples`)
+   - Builds `examples/basic` and `examples/app`, `fail-fast: false`
 
-4. **Build Determinism**
-   - Verifies builds are bit-for-bit reproducible
-   - Uses `scripts/verify_determinism.sh`
-   - Ensures builds are cacheable and releasable
+4. **Build Determinism** (`determinism`)
+   - `//tests/smoke:hello` built from two empty output bases, then compared
+     byte for byte. Two builds cannot be one action, so this is the one check
+     that stays a sequence of invocations in the workflow rather than a target
 
-5. **Linting & Code Quality** (optional)
-   - Buildifier formatting checks
-   - Can be disabled if buildifier is unavailable
+5. **Integration Tests** (`integration-tests`)
+   - `bazelisk test --config=ci-integration //tests/integration/...`
+   - Its own job because each target spawns a nested Bazel and they run
+     serially (`exclusive`). This is the only job that runs them: `--config=ci`
+     in the `test` job expands `--config=fast`, which filters them out so they
+     do not run three times per push
+
+6. **Linting & Code Quality** (`lint`)
+   - `buildifier --mode=check -r .`, using the released binary downloaded in the
+     job. There is no `buildifier` `bazel_dep`, so
+     `bazel run @buildifier//:buildifier` does not work — see
+     [CONTRIBUTING.md](contributing.md#starlark-build-files-and-bzl-files)
 
 ### Triggering CI
 
@@ -44,32 +51,25 @@ To trigger manually (requires GitHub web UI):
 2. Select "CI" workflow
 3. Click "Run workflow"
 
-## Local CI Script
+## Running CI Locally
 
-For local development and CI/CD integration, use `scripts/ci.sh`:
+There is no CI driver script: the stages live in `.bazelrc` as `--config=`
+groups, so the local command and the workflow step are the same command.
 
 ```bash
-# Run all tests and validations
-bash scripts/ci.sh
+# The main workspace: tests, then type-checking. --config=ci expands
+# --config=fast, so the exclusive nested-Bazel targets are skipped.
+bazel test --config=ci //...
+bazel build --config=ci //... --output_groups=+_validation
 
-# Run with verbose output
-bash scripts/ci.sh --verbose
+# The nested-Bazel suite, which serializes (~3 minutes per target).
+bazel test --config=ci-integration //tests/integration/...
 
-# Continue even if some checks fail
-bash scripts/ci.sh --keep-going
+# e2e/ and examples/ are separate workspaces (.bazelignore), so they are
+# separate invocations — a --config cannot change workspace.
+cd e2e/basic && bazel build //... && bazel test //...
+cd examples/basic && bazel build //...
 ```
-
-### What the Script Does
-
-1. Tests main workspace (unit tests + integration tests)
-2. Validates TypeScript compilation (type checking)
-3. Builds and tests e2e examples
-4. Builds all examples (non-critical)
-
-### Exit Code
-
-- `0`: All critical checks passed
-- `1`: One or more critical checks failed
 
 ## Determinism Verification
 
@@ -78,19 +78,23 @@ Builds must be deterministic for:
 - Reproducible releases
 - Cache hit rates
 
-Run the determinism check:
+Two builds cannot be a single Bazel action, so the check is a sequence of
+invocations — the same one the `determinism` job runs:
 
 ```bash
-bash scripts/verify_determinism.sh
+for base in a b; do
+  bazel --output_base="$HOME/.cache/det_$base" \
+    build --config=determinism //tests/smoke:hello
+done
+cmp \
+  "$(bazel --output_base="$HOME/.cache/det_a" info bazel-bin)/tests/smoke/hello.js" \
+  "$(bazel --output_base="$HOME/.cache/det_b" info bazel-bin)/tests/smoke/hello.js"
 ```
 
-The script:
-1. Builds `//tests/smoke:hello` with output_base_1
-2. Builds the same target with output_base_2
-3. Compares the output files (byte-for-byte)
-4. Reports SHA256 hash
-
-**Note:** Uses `--output_base` instead of `bazel clean` to preserve build cache.
+`--config=determinism` turns off the convenience symlinks, which the two builds
+would otherwise race for. `bazel info bazel-bin` is asked for the output path
+rather than guessing at the `bazel-out` layout. Separate output bases are used
+instead of `bazel clean`, which preserves the repository cache.
 
 ## Release Process
 
@@ -100,52 +104,25 @@ The script:
 - Git tags properly configured
 - Valid semantic version (X.Y.Z or X.Y.Z-prerelease)
 
-### Automated Release
+### Cutting a Release
 
 ```bash
-bash scripts/release.sh <version>
+bazel run //tools/release -- 0.2.0 --dry-run   # prints every step, writes nothing
+bazel run //tools/release -- 0.2.0 --push
 ```
 
-Example:
-```bash
-bash scripts/release.sh 0.2.0
-```
+The tool validates the version, refuses a dirty tree or an existing tag,
+rewrites the version inside `module()` in `MODULE.bazel` (and nowhere else, so
+`bazel_dep` versions survive), commits, tags, and optionally pushes. It works on
+the checkout you ran `bazel` from, via `BUILD_WORKING_DIRECTORY`.
 
-### What the Script Does
+Everything after the tag is `.github/workflows/release.yml`: `git archive`
+tarball, SRI hash, GitHub release with a provenance attestation, and the PR that
+fills in `.bcr/source.json`. A locally built tarball would differ from the
+published one, and so carry the wrong integrity hash — which is why the tool
+does not build one.
 
-1. **Validates version format** (semantic versioning)
-2. **Updates MODULE.bazel** with new version
-3. **Commits and tags** the version (e.g., `v0.2.0`)
-4. **Builds tarball** excluding build artifacts and git metadata
-5. **Computes SHA256** hash of the tarball
-6. **Updates `.bcr/source.json`** with the hash
-
-### Generated Artifacts
-
-After running `scripts/release.sh 0.2.0`:
-
-- Git tag: `v0.2.0`
-- Tarball: `/tmp/rules_typescript-v0.2.0.tar.gz`
-- Updated: `.bcr/source.json` with integrity hash
-
-### Manual Steps After Release
-
-```bash
-# 1. Push the tag to GitHub
-git push origin v0.2.0
-
-# 2. Create a GitHub Release
-# Go to: https://github.com/mikn/rules_typescript/releases/new?tag=v0.2.0
-# - Upload the tarball
-# - Write release notes
-
-# 3. Submit to Bazel Central Registry (BCR)
-# - Fork: https://github.com/bazelbuild/bazel-central-registry
-# - Create PR with rules_typescript entry:
-#   - Path: modules/rules_typescript/0.2.0/
-#   - Include: .bcr/metadata.json, .bcr/source.json
-# - See: https://github.com/bazelbuild/bazel-central-registry/blob/main/CONTRIBUTING.md
-```
+Full walkthrough: [Release Process](RELEASE_PROCESS.md).
 
 ## BCR (Bazel Central Registry) Publishing
 
@@ -181,11 +158,12 @@ The `.bcr/source.json` file specifies the release tarball location and integrity
 }
 ```
 
-The `integrity` field is automatically computed and updated by `scripts/release.sh`.
+The `integrity` field is computed and committed by the `update-bcr` job in
+`.github/workflows/release.yml`.
 
 ### BCR Submission Checklist
 
-- [ ] Release script executed (`bash scripts/release.sh <version>`)
+- [ ] Tag cut and pushed (`bazel run //tools/release -- <version> --push`)
 - [ ] GitHub release created with tarball uploaded
 - [ ] Fork of bazel-central-registry created
 - [ ] New version directory created: `modules/rules_typescript/<version>/`
@@ -209,7 +187,7 @@ Remote caching allows build artifacts from one machine to be reused by another. 
 
 - **Team builds**: engineers share a common cache, so the second person to build a target gets it from cache at network speed.
 - **CI/CD**: CI builds from pull requests hit the same cache as the main-branch build, dramatically reducing CI time after the first full build.
-- **Reproducibility**: deterministic outputs mean the same source always produces the same artifact. The `scripts/verify_determinism.sh` script validates this property.
+- **Reproducibility**: deterministic outputs mean the same source always produces the same artifact. The `determinism` CI job validates this property.
 
 ### BuildBuddy Setup
 
@@ -459,7 +437,14 @@ build-examples:
 determinism:
   stage: build
   script:
-    - bash scripts/verify_determinism.sh
+    - |
+      for base in a b; do
+        bazel --output_base="$CI_PROJECT_DIR/.det_$base" \
+          build --config=determinism //tests/smoke:hello
+      done
+      cmp \
+        "$(bazel --output_base="$CI_PROJECT_DIR/.det_a" info bazel-bin)/tests/smoke/hello.js" \
+        "$(bazel --output_base="$CI_PROJECT_DIR/.det_b" info bazel-bin)/tests/smoke/hello.js"
   allow_failure: false
 ```
 
@@ -474,12 +459,12 @@ startup --output_base=/root/.cache/bazel/output
 
 ## Known Sources of Non-Determinism
 
-rules_typescript is designed for deterministic builds, and the `scripts/verify_determinism.sh` script verifies bit-for-bit reproducibility for smoke tests. However, certain configurations or downstream tools can introduce non-determinism. This section documents known causes and how to avoid them.
+rules_typescript is designed for deterministic builds, and the `determinism` CI job verifies bit-for-bit reproducibility for smoke tests. However, certain configurations or downstream tools can introduce non-determinism. This section documents known causes and how to avoid them.
 
 ### 1. Build Timestamps in Compiled Output
 
 **Risk**: Some compilers embed the current timestamp in their outputs.
-**Status in rules_typescript**: `oxc` does not embed timestamps in compiled `.js` or `.js.map` files. `tsgo` does not embed timestamps in `.d.ts` files. Verified by `verify_determinism.sh`.
+**Status in rules_typescript**: `oxc` does not embed timestamps in compiled `.js` or `.js.map` files. `tsgo` does not embed timestamps in `.d.ts` files. Verified by the `determinism` CI job.
 **Mitigation**: If you add a custom `genrule` that runs a tool with `date` or similar, the output will be non-deterministic. Pass `--no-timestamp` or equivalent to that tool.
 
 ### 2. File Ordering in Directory Outputs
@@ -496,8 +481,11 @@ rules_typescript is designed for deterministic builds, and the `scripts/verify_d
 
 ### 4. npm Package Download Order
 
-**Risk**: `npm_translate_lock` downloads npm tarballs in parallel; if two packages produce the same output file path, the winning tarball depends on download order.
-**Status**: rules_typescript's `npm_translate_lock` downloads each package independently into its own directory. There is no cross-package ordering dependency.
+**Risk**: parallel npm tarball downloads; if two packages produced the same
+output file path, the winner would depend on download order.
+**Status**: not possible. Each package is its own external repository with its
+own root, so there is no shared output path to race over and no cross-package
+ordering dependency.
 **Mitigation**: N/A.
 
 ### 5. tsgo (TypeScript Native) Internal Parallelism
@@ -546,7 +534,7 @@ rules_typescript is designed for deterministic builds, and the `scripts/verify_d
 
 ### Reliability
 
-1. **Determinism**: Verified by `verify_determinism.sh`
+1. **Determinism**: verified by the `determinism` CI job
 2. **Reproducible releases**: All artifacts are bit-for-bit identical
 3. **Sandbox isolation**: No system dependency leaks
 
@@ -560,18 +548,21 @@ rules_typescript is designed for deterministic builds, and the `scripts/verify_d
 
 ### Determinism Failures
 
-If `verify_determinism.sh` fails:
+If the determinism check fails:
 
 1. Check for timestamp issues in compiled output
 2. Verify no non-deterministic sources (e.g., timestamps in generated files)
 3. Review oxc and tsgo configuration for timestamp dependencies
 
-### Release Script Issues
+### Release Tool Issues
 
-- **Dirty working tree**: Commit or stash all changes
-- **Tag exists**: Delete and recreate with `git tag -d <tag>` (before push)
-- **No jq available**: Script uses `sed` fallback for JSON updates
-- **Different OS behavior**: Script handles macOS and Linux differences
+- **Dirty working tree**: commit or stash all changes; `--dry-run` reports what
+  is uncommitted without touching anything
+- **Tag exists**: `git tag -d <tag>` before push, or release the next patch
+  version
+- **"no rules_typescript MODULE.bazel found"**: `bazel run` was invoked from
+  outside the checkout; the tool resolves the repo from
+  `BUILD_WORKING_DIRECTORY` upward
 
 ### CI Failures
 
@@ -579,7 +570,7 @@ Check logs in GitHub Actions:
 1. Click workflow run
 2. Expand failed job
 3. Review error output
-4. Compare with local reproduction: `bash scripts/ci.sh --verbose`
+4. Compare with local reproduction: `bazel test --config=ci //...`
 
 ## Related Documentation
 

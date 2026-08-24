@@ -37,9 +37,10 @@ dependency chain that shortens the critical path substantially:
 | `declarations = "oxc"` | 3.8s | 2.15s |
 | `declarations = "oxc"`, `enable_check = False` | 2.7s | 1.06s |
 
-1,000 annotated files, 20 packages, one linear chain; medians of three
-interleaved runs via `tools/bench_declarations.sh`. Shallower graphs narrow the
-gap; deeper ones widen it.
+One machine, one day, `tools/bench_declarations.sh 20 50 3`: 1,000 annotated
+files across 20 packages in one linear chain, medians of three interleaved runs.
+Shallower graphs narrow the gap; deeper ones widen it. The script is committed —
+run it on your own graph rather than trusting these figures.
 
 ## The requirement
 

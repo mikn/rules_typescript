@@ -1,149 +1,130 @@
 /**
- * File system watcher for bazel-bin changes.
+ * Debounced watcher over the .js files Bazel writes under bazel-bin.
  *
- * ibazel rebuilds change many files quasi-simultaneously (one Bazel action can
- * produce dozens of .js outputs).  A naive "one HMR update per file event"
- * approach would flood Vite with redundant invalidations.  Instead this module:
- *
- *  1. Watches the bazel-bin directory tree with chokidar.
- *  2. Accumulates changed .js paths into a buffer.
- *  3. After a configurable debounce window (default 50 ms) with no new events,
- *     flushes the buffer by calling the registered `onRebuild` callback with
- *     the de-duplicated list of changed module IDs.
- *
- * The watcher is also responsible for detecting ibazel's "build complete"
- * sentinel so that HMR is triggered only after the full rebuild finishes,
- * not in the middle of it.  ibazel writes the file
- * `bazel-bin/ibazel_result` (conventionally) or sets the mtime on a
- * well-known file.  We watch for changes to any `.js` file (the actual
- * compiled outputs) and let the debounce window absorb the burst.
+ * One ibazel rebuild rewrites dozens of outputs, so events are coalesced into a
+ * single `onRebuild` call per quiet window instead of one HMR update per file.
  */
 
+import fs from 'node:fs';
 import path from 'node:path';
-import type { FSWatcher } from 'chokidar';
 
-// chokidar ships as a dependency of Vite 6.x and is always available in
-// a project that has Vite installed.  We import it dynamically so that the
-// plugin can still be loaded in environments where chokidar is not pre-loaded
-// (e.g., during unit tests that mock the module).
-async function loadChokidar(): Promise<typeof import('chokidar')> {
-  return import('chokidar');
+/**
+ * The part of Vite's `server.watcher` this module uses. Vite runs that watcher
+ * already and hands it to every plugin; chokidar itself is bundled inside
+ * Vite's dist and is not a package a sibling module can import.
+ */
+export interface WatchSource {
+  add(paths: string): unknown;
+  on(event: 'add' | 'change', listener: (filePath: string) => void): unknown;
+  off?(event: 'add' | 'change', listener: (filePath: string) => void): unknown;
+  unwatch?(paths: string): unknown;
 }
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-/** Called after a debounced rebuild completes, with the set of changed .js
- *  module IDs (workspace-relative, starting with `/`). */
-export type RebuildCallback = (changedIds: Set<string>) => void;
+/** Called after a debounce window with the absolute paths of changed .js files. */
+export type RebuildCallback = (changedPaths: Set<string>) => void;
 
 export interface BazelWatcherOptions {
   /** Absolute path to the bazel-bin output tree. */
   bazelBin: string;
-  /** Called once per debounce window with the set of changed file paths
-   *  (absolute paths to .js files under bazel-bin). */
   onRebuild: RebuildCallback;
   /**
-   * Debounce delay in milliseconds.  All file-change events that arrive
-   * within this window after the first event are merged into a single
-   * callback invocation.
-   *
-   * Default: 50 ms.  This is intentionally short — Bazel typically writes
-   * all outputs within a few milliseconds of each other, and we want HMR
-   * latency to stay under 100 ms.
+   * Vite's `server.watcher`. Without one, the watcher falls back to
+   * `node:fs.watch`, whose recursive mode needs Node 20+ on Linux.
+   */
+  source?: WatchSource;
+  /**
+   * Quiet period before a batch is flushed, in milliseconds (default 50).
+   * Bazel writes all outputs of a rebuild within a few milliseconds of each
+   * other, and HMR latency should stay under 100 ms.
    */
   debounceMs?: number;
 }
 
-// ---------------------------------------------------------------------------
-// BazelWatcher
-// ---------------------------------------------------------------------------
-
 export class BazelWatcher {
   private readonly bazelBin: string;
   private readonly onRebuild: RebuildCallback;
+  private readonly source: WatchSource | null;
   private readonly debounceMs: number;
 
-  private watcher: FSWatcher | null = null;
+  private readonly onFileEvent = (filePath: string): void => {
+    this.handleFileEvent(filePath);
+  };
+
+  private fsWatcher: fs.FSWatcher | null = null;
+  private attached: WatchSource | null = null;
   private pendingChanges: Set<string> = new Set();
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(options: BazelWatcherOptions) {
     this.bazelBin = options.bazelBin;
     this.onRebuild = options.onRebuild;
+    this.source = options.source ?? null;
     this.debounceMs = options.debounceMs ?? 50;
   }
 
   /**
-   * Start watching bazel-bin for .js file changes.
+   * Starts watching bazel-bin for .js changes.
    *
-   * This is an async operation because chokidar is loaded dynamically.
-   * The returned promise resolves once the initial scan is complete and
-   * the watcher is ready to receive events.
+   * Rejects with an actionable message when no watch is possible, so the caller
+   * can warn or fail instead of losing HMR silently.
    */
   async start(): Promise<void> {
-    const chokidar = await loadChokidar();
+    if (!fs.existsSync(this.bazelBin)) {
+      throw new Error(
+        `bazel-bin does not exist at ${this.bazelBin}. Build the target once ` +
+          '(bazel build //your:target) before starting the dev server, or set the ' +
+          'bazelBin option to the real output tree.',
+      );
+    }
 
-    this.watcher = chokidar.watch(this.bazelBin, {
-      // Only emit events for .js files (compiled outputs).  We deliberately
-      // ignore .js.map files here — when a .js file changes we look up its
-      // companion map at load time, so we don't need a separate map event.
-      //
-      // The filter function receives (filePath, stats?) where stats is
-      // populated when chokidar has already stat()ed the entry.  Returning
-      // true means "ignore this path".
-      ignored: (filePath: string, stats?: { isDirectory?: () => boolean }) => {
-        // Never ignore directories — chokidar needs to descend into them.
-        if (stats?.isDirectory?.()) return false;
-        // Ignore dotfiles (chokidar internals, git objects, etc.).
-        const base = filePath.split('/').pop() ?? filePath;
-        if (base.startsWith('.')) return true;
-        // Ignore anything that is not a .js file.
-        return !filePath.endsWith('.js');
-      },
-      ignoreInitial: true,
-      persistent: true,
-      // Prefer native fs events; fall back to polling on network file systems.
-      usePolling: false,
-      // Wait until the file has not changed for this many ms before reporting
-      // the event.  Prevents reading a partially-written file from Bazel.
-      awaitWriteFinish: {
-        stabilityThreshold: 20,
-        pollInterval: 10,
-      },
-    });
+    if (this.source !== null) {
+      this.source.add(this.bazelBin);
+      this.source.on('add', this.onFileEvent);
+      this.source.on('change', this.onFileEvent);
+      this.attached = this.source;
+      return;
+    }
 
-    this.watcher.on('add', (filePath: string) => this.handleFileEvent(filePath));
-    this.watcher.on('change', (filePath: string) => this.handleFileEvent(filePath));
-
-    // Wait for the initial scan to complete before returning.
-    await new Promise<void>((resolve) => {
-      this.watcher!.on('ready', resolve);
-    });
+    try {
+      this.fsWatcher = fs.watch(
+        this.bazelBin,
+        { recursive: true, persistent: true },
+        (_event, filename) => {
+          if (filename === null) return;
+          this.onFileEvent(path.resolve(this.bazelBin, filename.toString()));
+        },
+      );
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `cannot watch ${this.bazelBin} with node:fs.watch (${detail}). Pass Vite's ` +
+          'server.watcher as the `source` option — recursive fs.watch needs Node 20+ on Linux.',
+      );
+    }
   }
 
-  /**
-   * Stop watching and release all resources.
-   */
+  /** Detaches every listener. An injected source is never closed — it is Vite's. */
   async stop(): Promise<void> {
     if (this.debounceTimer !== null) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
     }
-    if (this.watcher !== null) {
-      await this.watcher.close();
-      this.watcher = null;
+    if (this.attached !== null) {
+      this.attached.off?.('add', this.onFileEvent);
+      this.attached.off?.('change', this.onFileEvent);
+      this.attached.unwatch?.(this.bazelBin);
+      this.attached = null;
+    }
+    if (this.fsWatcher !== null) {
+      this.fsWatcher.close();
+      this.fsWatcher = null;
     }
     this.pendingChanges.clear();
   }
 
-  // ── Private ───────────────────────────────────────────────────────────────
-
   private handleFileEvent(absolutePath: string): void {
-    // Only care about .js files (not .js.map directly — the plugin will look
-    // up the map when loading the .js).
     if (!absolutePath.endsWith('.js')) return;
+    if (bazelPathToModuleId(absolutePath, this.bazelBin) === null) return;
 
     this.pendingChanges.add(absolutePath);
     this.scheduleFlush();
@@ -163,8 +144,7 @@ export class BazelWatcher {
 
     if (this.pendingChanges.size === 0) return;
 
-    // Snapshot and clear the pending set before invoking the callback so that
-    // any new events that arrive during the callback don't get lost.
+    // Snapshot before the callback so events arriving during it are not lost.
     const snapshot = new Set(this.pendingChanges);
     this.pendingChanges.clear();
 
@@ -172,19 +152,12 @@ export class BazelWatcher {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Utility: convert a bazel-bin absolute path to a workspace-relative module ID
-// ---------------------------------------------------------------------------
-
 /**
- * Converts an absolute .js path under bazel-bin to a Vite module ID of the
- * form `/workspace/relative/path.js`.
- *
- * Returns null when the path does not live under bazelBin.
+ * Converts an absolute .js path under bazel-bin to a Vite module ID of the form
+ * `/workspace/relative/path.js`, or null when it is not under bazelBin.
  */
 export function bazelPathToModuleId(absolutePath: string, bazelBin: string): string | null {
   const rel = path.relative(bazelBin, absolutePath);
-  if (rel.startsWith('..')) return null;
-  // Normalise to forward slashes for consistent module IDs across platforms.
+  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return null;
   return '/' + rel.split(path.sep).join('/');
 }

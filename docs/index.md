@@ -2,19 +2,25 @@
 
 An opinionated Bazel ruleset for TypeScript, optimised for the **Oxc + Vite** toolchain rather than broad compatibility with every JS build tool. If your stack is TypeScript, Vite, and a Vite-based framework — this replaces `tsc`, your bundler, and your dev server with a single hermetic build. If you need `tsc` compatibility or non-Vite toolchains, see [aspect-build/rules_ts](https://github.com/aspect-build/rules_ts) ([comparison](getting-started/migration.md)).
 
-[Oxc](https://oxc.rs/) compiles. [tsgo](https://github.com/nicholasgasior/TypeScript-7) type-checks. [Vite](https://vite.dev/) bundles. [Gazelle](https://github.com/bazelbuild/bazel-gazelle) generates BUILD files. Write `.ts`, run Gazelle, `bazel build //...`. No `node_modules/`. No system Node. Just Bazelisk.
+[Oxc](https://oxc.rs/) compiles. [tsgo](https://github.com/microsoft/typescript-go) type-checks. [Vite](https://vite.dev/) bundles. [Gazelle](https://github.com/bazelbuild/bazel-gazelle) generates BUILD files. Write `.ts`, run Gazelle, `bazel build //...`. No `node_modules/`. No system Node. Just Bazelisk.
 
 ## Built for the Vite Ecosystem
 
 This ruleset is designed around **Vite** as the bundler and dev server. Any framework that ships a Vite plugin works:
 
-| Framework | Support | How |
+| Framework | Evidence in this repo | How |
 |---|---|---|
-| **React + Vite** | Full | SPA bundling, React Fast Refresh HMR, CSS modules |
-| **Remix** | Full | Client bundle with route-based code splitting |
-| **TanStack Start** | Full | Client + SSR server bundles |
-| **SvelteKit** | Config defined | Via `@sveltejs/kit/vite` plugin |
-| **Solid Start** | Config defined | Via `@solidjs/start/vite` plugin |
+| **React + Vite** | `examples/react-app` | SPA bundling, React Fast Refresh HMR, CSS modules |
+| **TanStack Start** | `examples/tanstack-app`, `//tests/integration:vite_bundle_test` | Client + SSR server bundles |
+| **Remix** | `examples/remix-app` | Client bundle with route-based code splitting |
+| **SvelteKit** | Gazelle target generation only | `@sveltejs/vite-plugin-svelte` via `vite_config` |
+| **Solid Start** | Gazelle target generation only | `@solidjs/start` via `vite_config` |
+
+"Gazelle target generation only" means Gazelle knows how to emit the
+`node_modules` / `vite_bundler` / `ts_bundle` targets for that framework, and
+nothing in the repository builds one. Note also that `examples/` is in
+`.bazelignore` and CI builds only `examples/basic` and `examples/app`, so the
+example workspaces are checked by hand, not on every commit.
 
 Frameworks that don't use Vite (e.g., Next.js with webpack/turbopack) are not a priority.
 
@@ -23,9 +29,10 @@ Frameworks that don't use Vite (e.g., Next.js with webpack/turbopack) are not a 
 - **Oxc compiles** — Rust-based TypeScript/JSX transformer. `.js` + `.js.map` per file, hundreds of files in milliseconds, and `.d.ts` too under `declarations = "oxc"`.
 - **tsgo emits declarations and type-checks** — Go port of TypeScript. Unmodified TypeScript compiles: no explicit export annotations required, and the `.d.ts` are what `tsc` would produce. Type errors fail `bazel build` because the declarations are real outputs.
 - **Vite bundles** — production bundles with tree-shaking, code splitting, minification. App mode (HTML + hashed assets) and lib mode.
-- **Isolated declarations, when you want them** — annotate a package's exports and set `declarations = "oxc"` to have Oxc emit its `.d.ts` syntactically. Type-checking then moves off the critical path: 6.3s → 3.8s rebuild, 4.89s → 2.15s critical path on a 1,000-file, 20-deep chain. Opt-in, per package.
-- **Gazelle generates everything** — BUILD files, bundler targets, dev server targets, framework detection, codegen auto-detection.
-- **Zero prerequisites** — only Bazelisk needed. Node.js, pnpm, Go, Rust all fetched hermetically. No `node_modules/` in the source tree.
+- **Isolated declarations, when you want them** — annotate a package's exports and set `declarations = "oxc"` to have Oxc emit its `.d.ts` syntactically. Type-checking then moves off the critical path, which on a deep dependency chain shortens it substantially ([measured](rules/ts-compile.md#cost-of-each-mode)). Opt-in, per package.
+- **Gazelle generates the BUILD files** — targets inferred from the directory tree, imports resolved to labels, lint / bundler / dev-server targets generated, frameworks and codegen auto-detected. Nine `# gazelle:ts_*` directives configure it.
+- **npm without a store** — one Bazel repository per package, fetched on demand, behind a `@npm` alias hub. A target's npm cost is its own dependency closure, not the whole lockfile, and no `node_modules/` exists in the source tree.
+- **Only Bazelisk required** — Node.js, Go and Rust are fetched hermetically, and [pnpm too](guides/npm.md#hermetic-pnpm) if you want it. pnpm is needed only to edit the lockfile, never to build.
 
 ## Install
 
@@ -104,17 +111,22 @@ ts_compile(
 | Linux ARM64 | Supported |
 | macOS x86_64 | Supported |
 | macOS ARM64 | Supported |
+| Windows x86_64 | **Not supported** |
+
+No tsgo binary is published for Windows, every runner is a bash script, and
+hermetic pnpm has no Windows build. Details and the one thing that does work:
+[COMPATIBILITY.md](https://github.com/mikn/rules_typescript/blob/main/COMPATIBILITY.md#windows).
 
 ## Documentation
 
 - [Quick Start](getting-started/quickstart.md) — new project or migrating an existing one
 - [Isolated Declarations](getting-started/isolated-declarations.md) — the opt-in throughput mode
-- [IDE Setup](getting-started/ide-setup.md) — VS Code and WebStorm integration
+- [IDE Setup](getting-started/ide-setup.md) — the live tsserver resolution hook, for any editor that runs tsserver
 - [npm Dependencies](guides/npm.md) — pnpm lockfile integration
-- [Testing with vitest](guides/testing.md) — `ts_test`, snapshots, watch mode
+- [Testing with vitest](guides/testing.md) — `ts_test`, the vitest config layers, coverage
 - [Bundling](guides/bundling.md) — `ts_bundle` with Vite or custom bundlers
 - [Monorepo Layout](guides/monorepo.md) — package boundaries and cross-package deps
-- [Gazelle Reference](gazelle/overview.md) — directives, `gazelle_ts.json`, framework detection
+- [Gazelle Reference](gazelle/overview.md) — directives, package boundaries, framework detection
 - [Rules Reference](rules/ts-compile.md) — all rule attributes and providers
 
 ## License

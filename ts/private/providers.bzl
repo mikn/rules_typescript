@@ -1,10 +1,16 @@
-"""Provider definitions for rules_typescript."""
+"""Provider definitions for rules_typescript.
+
+A `direct` field carries only what the target itself produces. A rule that just
+forwards a dep's files -- ts_compile relative to CSS or assets, say -- leaves the
+direct field empty and puts the closure in the transitive one; a consumer that
+wants everything reachable reads the transitive field.
+"""
 
 JsInfo = provider(
     doc = "Provider for JavaScript compilation outputs.",
     fields = {
-        "js_files": "depset of File: Direct .js output files from this target.",
-        "js_map_files": "depset of File: Direct .js.map source map files from this target.",
+        "js_files": "depset of File: .js files this target produces -- compiled output plus any JavaScript src staged as-is.",
+        "js_map_files": "depset of File: .js.map source map files this target produces.",
         "transitive_js_files": "depset of File: Transitive closure of all .js files from this target and its deps.",
         "transitive_js_map_files": "depset of File: Transitive closure of all .js.map files.",
     },
@@ -13,17 +19,20 @@ JsInfo = provider(
 TsDeclarationInfo = provider(
     doc = "Provider for TypeScript declaration outputs (.d.ts files).",
     fields = {
-        "declaration_files": "depset of File: Direct .d.ts output files from this target.",
+        "declaration_files": "depset of File: declaration files this target produces, plus the ambient ones it passes through from srcs.",
         "transitive_declaration_files": "depset of File: Transitive closure of all .d.ts files from this target and its deps.",
-        "type_roots": "depset of File: Root directories containing type declarations (for @types packages).",
     },
 )
 
 TsConfigInfo = provider(
-    doc = "Provider for generated tsconfig.json files.",
+    doc = """A tsconfig.json and the files it extends.
+
+Starlark cannot read the file to follow its `extends` chain, so a ts_config
+target declares the chain and every file in it becomes an action input.
+""",
     fields = {
-        "tsconfig": "File: The generated tsconfig.json file.",
-        "deps_tsconfigs": "depset of File: Transitive tsconfig.json files from dependencies.",
+        "tsconfig": "File: The tsconfig.json this target declares.",
+        "deps_tsconfigs": "depset of File: Every file `tsconfig` extends, transitively.",
     },
 )
 
@@ -39,13 +48,14 @@ NpmPackageInfo = provider(
         "transitive_deps": "depset of NpmPackageInfo: Transitive npm dependencies.",
         "transitive_package_dirs": "depset of File: package.json files for this package and all transitive deps.",
         "exports_types_file": "File or None: The specific .d.ts entry point from package.json exports['.']['types'], or None if not specified. Used by ts_compile to build more precise tsconfig paths entries.",
+        "ambient_types_file": "File or None: On an @types/* package, the entry-point .d.ts a consumer lists in tsconfig `files` to bring its globals and `declare module` blocks into the program. None on every other package.",
     },
 )
 
 CssInfo = provider(
     doc = "Provider for CSS file outputs.",
     fields = {
-        "css_files": "depset of File: Direct .css files from this target.",
+        "css_files": "depset of File: .css files this target itself produces; empty on a target that only forwards them.",
         "transitive_css_files": "depset of File: Transitive closure of all .css files.",
     },
 )
@@ -53,7 +63,7 @@ CssInfo = provider(
 CssModuleInfo = provider(
     doc = "Provider for CSS Module outputs (.module.css files with typed class names).",
     fields = {
-        "css_files": "depset of File: Direct .module.css files from this target.",
+        "css_files": "depset of File: .module.css files this target itself produces; empty on a target that only forwards them.",
         "transitive_css_files": "depset of File: Transitive closure of all .module.css files.",
     },
 )
@@ -67,7 +77,7 @@ file also gets a generated ambient .d.ts declaration so that TypeScript accepts
 'import logo from \"./logo.svg\"' without type errors.
 """,
     fields = {
-        "asset_files": "depset of File: Direct asset files from this target.",
+        "asset_files": "depset of File: asset files this target itself produces; empty on a target that only forwards them.",
         "transitive_asset_files": "depset of File: Transitive closure of all asset files.",
     },
 )

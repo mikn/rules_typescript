@@ -33,7 +33,8 @@ Typical patterns:
 
   2. Node.js generator with npm imports:
      Wrap a Node.js script that imports from node_modules with sh_binary.
-     The shell wrapper invokes node directly (node is in PATH via toolchain).
+     The shell wrapper invokes $NODE_BINARY, which ts_codegen sets from the
+     js_tool toolchain.
 
          sh_binary(name = "gen_routes", srcs = ["generate-routes.sh"])
          ts_codegen(
@@ -62,7 +63,7 @@ When node_modules is set, ts_codegen automatically sets:
   TS_CODEGEN_NODE_MODULES → same path (for scripts that fork child processes)
 """
 
-load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "get_js_runtime")
+load("//ts/private:runtime.bzl", "JS_TOOL_TOOLCHAIN_TYPE", "get_js_tool")
 
 # ─── Rule implementation ───────────────────────────────────────────────────────
 
@@ -115,11 +116,9 @@ def _ts_codegen_impl(ctx):
                 # Fallback: use the parent of the first file.
                 node_modules_dir = first_nm.dirname
 
-    # Resolve the JS runtime from the toolchain (for passing NODE_BINARY env).
-    js_runtime = get_js_runtime(ctx)
-    runtime_binary = None
-    if js_runtime:
-        runtime_binary = js_runtime.runtime_binary
+    # Resolve node as a build tool (for passing NODE_BINARY env).
+    js_tool = get_js_tool(ctx)
+    runtime_binary = js_tool.runtime_binary if js_tool else None
 
     # Expand placeholders in each argument string.
     expanded_args = []
@@ -144,7 +143,7 @@ def _ts_codegen_impl(ctx):
         action_env["NODE_PATH"] = node_modules_dir
         action_env["TS_CODEGEN_NODE_MODULES"] = node_modules_dir
 
-    # When a JS runtime is available from the toolchain, expose its path via
+    # When node is available from the js_tool toolchain, expose its path via
     # NODE_BINARY so generator shell scripts can invoke `$NODE_BINARY script.mjs`
     # without relying on `node` being in PATH.
     extra_inputs = []
@@ -212,10 +211,13 @@ Built for the exec configuration (build machine) so it runs as a Bazel action.
 
 When the generator is a Node.js script that imports npm packages, wrap it in
 sh_binary and rely on the NODE_BINARY env variable (set automatically by
-ts_codegen when the js_runtime toolchain is registered) to invoke node:
+ts_codegen when the js_tool toolchain is registered) to invoke node.  Locate the
+script with a runfiles library, not "$0.runfiles" -- that directory does not
+exist when Bazel hands the action a runfiles manifest instead of a tree:
 
     #!/usr/bin/env bash
-    exec "$NODE_BINARY" "$0.runfiles/_main/path/to/script.mjs" "$@"
+    # source @bazel_tools//tools/bash/runfiles first; it defines rlocation.
+    exec "$NODE_BINARY" "$(rlocation _main/path/to/script.mjs)" "$@"
 """,
             mandatory = True,
             executable = True,
@@ -256,7 +258,7 @@ Use this when the generator script imports npm packages at runtime.
         ),
     },
     toolchains = [
-        config_common.toolchain_type(JS_RUNTIME_TOOLCHAIN_TYPE, mandatory = False),
+        config_common.toolchain_type(JS_TOOL_TOOLCHAIN_TYPE, mandatory = False),
     ],
     doc = """Runs a generator executable to produce TypeScript source files from inputs.
 

@@ -1,12 +1,12 @@
 # Tools shipped with rules_typescript.
-# Shell scripts referenced by macros in ts/private/pnpm.bzl.
+# Shell scripts referenced by macros in ts/private/pnpm.bzl; the tsserver hook
+# scripts //:refresh_tsconfig copies into a consumer workspace.
 
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
     "add_package_wrapper.sh",
     "pnpm_wrapper.sh",
-    "refresh_tsconfig.sh",
     "tsserver-hook.js",
     "tsserver-hook-worker.js",
 ])

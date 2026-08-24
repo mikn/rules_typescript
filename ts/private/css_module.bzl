@@ -6,7 +6,8 @@ CSS Modules (*.module.css) differ from plain CSS:
   - TypeScript needs a typed .d.ts declaration for each .module.css file.
 
 This rule:
-  1. Parses class names from the .module.css source using a shell/awk action.
+  1. Parses class names out of each .module.css source with css_module_dts.mjs,
+     run on the js_tool toolchain's Node.
   2. Generates a typed .d.ts declaration for each file.
   3. Propagates both the .css and .d.ts files through CssModuleInfo and
      TsDeclarationInfo so that ts_compile can consume them.
@@ -20,78 +21,28 @@ The generated .d.ts looks like:
 """
 
 load("//ts/private:providers.bzl", "CssModuleInfo", "TsDeclarationInfo")
-
-# ── Typed .d.ts generation ───────────────────────────────────────────────────
-#
-# We use a run_shell action with awk to extract CSS class names and emit the
-# typed declaration.  This avoids any dependency on Python, Node.js, or other
-# external tools at generation time.
-#
-# The awk script matches the most common class selector forms:
-#   .className {          → extract "className"
-#   .className,           → extract "className" (multi-selector)
-#   .className:hover {    → extract "className" (pseudo-class)
-#   .className.another {  → extract "className" only (first segment)
-#
-# Composing (composes: other from ...) is not extracted since it is not a
-# locally-defined class.
-#
-# The awk script:
-#   1. Finds all occurrences of .[ident] in the input using a while/match loop.
-#   2. De-duplicates class names while preserving first-occurrence order.
-#   3. Writes the .d.ts header, one line per class, then the footer.
-
-_EXTRACT_CLASSES_CMD = r"""
-css_in="$1"
-dts_out="$2"
-
-awk '
-BEGIN {
-    n = 0
-    in_comment = 0
-}
-/\/\*/ { in_comment = 1 }
-/\*\// { in_comment = 0; next }
-in_comment { next }
-/^[[:space:]]*composes:/ { next }
-{
-    line = $0
-    while (match(line, /\.[a-zA-Z_][a-zA-Z0-9_-]*/)) {
-        cls = substr(line, RSTART + 1, RLENGTH - 1)
-        if (!(cls in seen)) {
-            seen[cls] = 1
-            order[n++] = cls
-        }
-        line = substr(line, RSTART + RLENGTH)
-    }
-}
-END {
-    print "declare const styles: {"
-    for (i = 0; i < n; i++) {
-        print "  readonly " order[i] ": string;"
-    }
-    print "};"
-    print "export default styles;"
-}
-' "$css_in" > "$dts_out"
-"""
+load("//ts/private:runtime.bzl", "JS_TOOL_TOOLCHAIN_TYPE", "get_js_tool")
 
 def _css_module_impl(ctx):
     css_files = ctx.files.srcs
+    js_tool = get_js_tool(ctx)
+    generator = ctx.file._generator
 
     dts_outputs = []
     for css_file in css_files:
-        # Emit the .d.ts next to the .css source.
-        # The module.css.d.ts name is important: TypeScript requires the
-        # declaration file to be named <source>.d.ts when
-        # allowArbitraryExtensions is enabled.
+        # The <source>.d.ts name is what TypeScript looks for with
+        # allowArbitraryExtensions enabled.
         dts = ctx.actions.declare_file(css_file.basename + ".d.ts", sibling = css_file)
 
-        ctx.actions.run_shell(
-            inputs = [css_file],
+        ctx.actions.run(
+            inputs = [css_file, generator],
             outputs = [dts],
-            command = _EXTRACT_CLASSES_CMD,
-            arguments = [css_file.path, dts.path],
+            executable = js_tool.runtime_binary,
+            arguments = js_tool.args_prefix + [
+                generator.path,
+                css_file.path,
+                dts.path,
+            ],
             mnemonic = "CssModuleDts",
             progress_message = "CssModuleDts %{label}",
         )
@@ -122,12 +73,14 @@ def _css_module_impl(ctx):
         TsDeclarationInfo(
             declaration_files = direct_dts,
             transitive_declaration_files = transitive_dts,
-            type_roots = depset([]),
         ),
     ]
 
 css_module = rule(
     implementation = _css_module_impl,
+    toolchains = [
+        config_common.toolchain_type(JS_TOOL_TOOLCHAIN_TYPE, mandatory = True),
+    ],
     attrs = {
         "srcs": attr.label_list(
             doc = "CSS Module source files (*.module.css).",
@@ -137,6 +90,10 @@ css_module = rule(
         "deps": attr.label_list(
             doc = "Other css_module targets whose CSS this target composes from.",
             providers = [[CssModuleInfo]],
+        ),
+        "_generator": attr.label(
+            default = Label("//ts/private:css_module_dts.mjs"),
+            allow_single_file = True,
         ),
     },
     doc = """Processes CSS Module files and generates typed TypeScript declarations.
@@ -158,8 +115,12 @@ The generated .d.ts maps each class name found in the CSS to a string:
     };
     export default styles;
 
-Class names are extracted via regex — this handles the common cases but does
-not parse @import, @media blocks, or :global() selectors specially.
+Class names come from selectors only: declaration values, comments, strings,
+at-rule preludes, @keyframes/@font-face bodies and :global(...) groups
+contribute none.  A class scoped globally by the selector-level form
+(':global .foo', with no parentheses) is still declared.
+
+Requires the js_tool toolchain (Node.js on the exec platform).
 
 Example:
     css_module(

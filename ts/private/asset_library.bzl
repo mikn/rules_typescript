@@ -25,9 +25,8 @@ which parses the JSON at build time and generates a fully-typed .d.ts:
         srcs = ["config.json"],
     )
 
-The generated declarations vary by asset type:
-  .svg / .png / .jpg / .gif / .webp → 'declare const asset: string; export default asset;'
-  .woff / .woff2 / .ttf / .eot      → 'declare const asset: string; export default asset;'
+Every supported type imports as a URL string, so each declaration is
+'declare const asset: string; export default asset;'.
 """
 
 load("//ts/private:providers.bzl", "AssetInfo", "TsDeclarationInfo")
@@ -42,33 +41,16 @@ declare const asset: string;
 export default asset;
 """
 
-# Map of extension (without dot) → declaration content.
-_DTS_BY_EXT = {
-    "svg": _URL_DTS,
-    "png": _URL_DTS,
-    "jpg": _URL_DTS,
-    "jpeg": _URL_DTS,
-    "gif": _URL_DTS,
-    "webp": _URL_DTS,
-    "woff": _URL_DTS,
-    "woff2": _URL_DTS,
-    "ttf": _URL_DTS,
-    "eot": _URL_DTS,
-}
-
 def _asset_library_impl(ctx):
     asset_files = ctx.files.srcs
 
     dts_outputs = []
     for asset_file in asset_files:
-        ext = asset_file.extension.lower()
-        content = _DTS_BY_EXT.get(ext, _URL_DTS)
-
         # The .d.ts must be named <basename>.d.ts so that TypeScript resolves
         # it when allowArbitraryExtensions is enabled:
         #   logo.svg  →  logo.svg.d.ts
         dts = ctx.actions.declare_file(asset_file.basename + ".d.ts", sibling = asset_file)
-        ctx.actions.write(output = dts, content = content)
+        ctx.actions.write(output = dts, content = _URL_DTS)
         dts_outputs.append(dts)
 
     # Build transitive depsets from any asset_library deps.
@@ -94,7 +76,6 @@ def _asset_library_impl(ctx):
         TsDeclarationInfo(
             declaration_files = direct_dts,
             transitive_declaration_files = transitive_dts,
-            type_roots = depset([]),
         ),
     ]
 
@@ -118,7 +99,7 @@ asset_library = rule(
     implementation = _asset_library_impl,
     attrs = {
         "srcs": attr.label_list(
-            doc = "Static asset source files (images, SVGs, fonts, JSON).",
+            doc = "Static asset source files: images, SVGs and fonts. JSON goes to json_library.",
             allow_files = _ASSET_EXTENSIONS,
             mandatory = True,
         ),

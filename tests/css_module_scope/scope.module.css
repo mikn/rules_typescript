@@ -1,0 +1,45 @@
+/* :local(...) is the explicit form of the default scoping: declared.
+   :global(...) escapes scoping: not declared. */
+
+:local(.foo) {
+  color: red;
+}
+
+:global(.bar) {
+  color: blue;
+}
+
+:local(.mixLocal) :global(.mixGlobal) .mixPlain {
+  color: green;
+}
+
+/* A :local group nested inside a :global group scopes again. */
+:global(.outerGlobal :local(.innerLocal)) {
+  color: teal;
+}
+
+:local {
+  .blockLocal {
+    color: pink;
+  }
+}
+
+:global {
+  .blockGlobal {
+    color: gray;
+  }
+
+  :local(.reLocal) {
+    color: olive;
+  }
+}
+
+@media (min-width: 600px) {
+  :local(.mediaLocal) {
+    display: grid;
+  }
+
+  :global(.mediaGlobal) {
+    display: grid;
+  }
+}

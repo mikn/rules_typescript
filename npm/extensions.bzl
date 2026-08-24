@@ -44,6 +44,7 @@ def _npm_impl(module_ctx):
             name,
             lock_tag.pnpm_lock,
             lock_tag.patches,
+            lock_tag.npmrc,
         )
 
     # ── pnpm hermetic binary ──────────────────────────────────────────────────
@@ -70,6 +71,28 @@ def _npm_impl(module_ctx):
 _translate_lock_tag = tag_class(attrs = {
     "name": attr.string(default = "npm"),
     "pnpm_lock": attr.label(mandatory = True, allow_single_file = True),
+    "npmrc": attr.label(
+        allow_single_file = True,
+        doc = """The workspace .npmrc, when packages come from anywhere but registry.npmjs.org.
+
+A pnpm lockfile records name@version and integrity and says nothing about the
+registry, so a private or scoped registry is unreachable without this file:
+
+    npm.translate_lock(
+        pnpm_lock = "//:pnpm-lock.yaml",
+        npmrc = "//:.npmrc",
+    )
+
+`registry=` and `@scope:registry=` are read by the extension. Credentials
+(`//host/:_authToken=`, `//host/:_auth=`) are NOT: they are read by each package's
+own fetch, because the extension's result is written to MODULE.bazel.lock, which
+is committed. `${VAR}` interpolation is resolved at fetch time from the
+environment, which is how a token stays out of the workspace entirely.
+
+`~/.npmrc` is deliberately not consulted. Bazel cannot make a file outside the
+workspace an input, so reading it would mean one lockfile and one lock fetching
+different bytes on two machines.""",
+    ),
     "patches": attr.label_list(
         allow_files = True,
         doc = """The patch files named by the lockfile's `patchedDependencies`.

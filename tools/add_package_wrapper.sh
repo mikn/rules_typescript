@@ -1,17 +1,23 @@
 #!/usr/bin/env bash
-# Convenience wrapper for adding npm packages via hermetic pnpm.
-# Automatically appends --lockfile-only so pnpm updates pnpm-lock.yaml
-# without creating a node_modules directory in the workspace.
+# --- begin runfiles.bash initialization v3 ---
+# Copy-pasted from the Bazel Bash runfiles library v3.
+set -uo pipefail; set +e; f=bazel_tools/tools/bash/runfiles/runfiles.bash
+# shellcheck disable=SC1090
+source "${RUNFILES_DIR:-/dev/null}/$f" 2>/dev/null || \
+  source "$(grep -sm1 "^$f " "${RUNFILES_MANIFEST_FILE:-/dev/null}" | cut -f2- -d' ')" 2>/dev/null || \
+  source "$0.runfiles/$f" 2>/dev/null || \
+  source "$(grep -sm1 "^$f " "$0.runfiles_manifest" | cut -f2- -d' ')" 2>/dev/null || \
+  source "$(grep -sm1 "^$f " "$0.exe.runfiles_manifest" | cut -f2- -d' ')" 2>/dev/null || \
+  { echo>&2 "ERROR: cannot find $f"; exit 1; }; f=; set -e
+# --- end runfiles.bash initialization v3 ---
+
+# Adds npm packages via hermetic pnpm, appending --lockfile-only so pnpm
+# updates pnpm-lock.yaml without creating a node_modules directory.
 #
 # Usage (via Bazel):
-#   bazel run //:add_package -- <package> [flags]
-#
-# Examples:
 #   bazel run //:add_package -- zod
 #   bazel run //:add_package -- -D typescript
 #   bazel run //:add_package -- react react-dom
-
-set -euo pipefail
 
 if [[ -z "${BUILD_WORKSPACE_DIRECTORY:-}" ]]; then
   echo "ERROR: BUILD_WORKSPACE_DIRECTORY is not set." >&2
@@ -24,29 +30,11 @@ if [[ -z "${PNPM_BIN:-}" ]]; then
   exit 1
 fi
 
-if [[ "${0}" == /* ]]; then
-  binary_dir="$(dirname "${0}")"
-  binary_name="$(basename "${0}")"
-else
-  binary_dir="$(cd "$(dirname "${0}")" && pwd)"
-  binary_name="$(basename "${0}")"
-fi
-
-runfiles_dir="${binary_dir}/${binary_name}.runfiles"
-
-pnpm_rloc="${PNPM_BIN#../}"
-pnpm_bin="${runfiles_dir}/${pnpm_rloc}"
-
+pnpm_bin="$(rlocation "${PNPM_BIN}")" || pnpm_bin=""
 if [[ ! -x "${pnpm_bin}" ]]; then
-  if [[ -n "${RUNFILES_DIR:-}" ]]; then
-    pnpm_bin="${RUNFILES_DIR}/${pnpm_rloc}"
-  fi
-fi
-
-if [[ ! -x "${pnpm_bin}" ]]; then
-  echo "ERROR: Cannot locate pnpm binary." >&2
-  echo "  Looked at: ${runfiles_dir}/${pnpm_rloc}" >&2
+  echo "ERROR: Cannot locate pnpm binary in runfiles." >&2
   echo "  PNPM_BIN=${PNPM_BIN}" >&2
+  echo "  rlocation returned: ${pnpm_bin:-<nothing>}" >&2
   exit 1
 fi
 

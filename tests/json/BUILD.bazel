@@ -1,5 +1,9 @@
-load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("@rules_go//go:def.bzl", "go_test")
 load("//ts:defs.bzl", "json_library", "ts_compile")
+
+# The go_test targets are hand-named after the sh_tests they replaced, so the
+# Go language would add a second target for the same source.
+# gazelle:exclude *_test.go
 
 # ── JSON library target ────────────────────────────────────────────────────────
 # Generates a typed .d.ts for config.json so TypeScript can type-check
@@ -22,12 +26,13 @@ ts_compile(
 # ── Verification test ──────────────────────────────────────────────────────────
 # Checks that the generated .d.ts declares all JSON fields with correct types.
 
-sh_test(
+go_test(
     name = "json_output_test",
     size = "small",
-    srcs = ["verify_json.sh"],
+    srcs = ["json_output_test.go"],
     data = [
-        ":config",
         ":app_lib",
+        ":config",
     ],
+    deps = ["//tests/verify"],
 )

@@ -38,12 +38,14 @@ gh issue list
 ## Development Workflow
 
 ```bash
-bazel test //...                           # unit/integration tests
+bazel test //...                           # everything: 138 test targets (12 exclusive), 2 manual
+bazel test --config=fast //...             # skips the nested-Bazel integration tests
 bazel build //... --output_groups=+_validation  # redundant if .bazelrc has it
-cd e2e/basic && bazel test //...           # e2e workspace
-cd examples/react-app && bazel test //...  # example workspace
+cd e2e/basic && bazel test //...           # e2e workspace (in .bazelignore)
+cd examples/react-app && bazel test //...  # example workspace (in .bazelignore)
 
-# Bootstrap tests (slow, spawn nested Bazel — run explicitly)
+# One integration test on its own. Each spawns a nested Bazel and is tagged
+# `exclusive`, so they run serially rather than being excluded.
 bazel test //tests/integration:new_project_test
 ```
 
@@ -71,8 +73,14 @@ Change implementation without changing .d.ts → no downstream recompilation.
 - `ts/defs.bzl` — public API (all rules, providers, macros)
 - `ts/private/ts_compile.bzl` — core compilation rule
 - `ts/private/providers.bzl` — JsInfo, TsDeclarationInfo, BundlerInfo, CssInfo, AssetInfo, NpmPackageInfo
-- `ts/private/npm_translate_lock.bzl` — pnpm lockfile parser + @npm repo generator
-- `ts/private/pnpm.bzl` — hermetic pnpm download
+- `npm/private/npm_translate_lock.bzl` — pnpm lockfile reader (parsing only; no repository rule)
+- `npm/extensions.bzl` — the `npm` module extension (translate_lock, pnpm tags)
+- `npm/lazy.bzl` — whole-graph analysis + one `npm_import` per package + the alias hub
+- `npm/private/npm_import.bzl` — the per-package repository rule and `npm_hub`
+- `ts/private/pnpm.bzl` — hermetic pnpm download + `ts_pnpm`/`ts_add_package` macros
+- `ts/private/ts_config.bzl` — the public `ts_config` rule (a hand-written tsconfig.json and its `extends` chain)
+- `platforms/platforms.bzl` — the one platform table (`PLATFORMS`) everything loads
+- `ts/toolchain/BUILD.bazel` — toolchain types and instances; `//ts/toolchain:all`
 - `ts/private/ts_test.bzl` — vitest test macro (auto node_modules)
 - `ts/private/ts_bundle.bzl` — Vite production bundler (staging_srcs for frameworks)
 - `ts/private/ts_dev_server.bzl` — dev server with HMR
@@ -113,7 +121,8 @@ Change implementation without changing .d.ts → no downstream recompilation.
 **Testing:**
 - Every feature needs a test that ASSERTS correctness (not just "builds without errors")
 - Integration tests (`tests/integration/`) test full user journeys in a nested Bazel workspace — create project, gazelle, build, test
-- Bootstrap tests found 5 real bugs on first run. They are not optional.
+- They are part of `bazel test //...`. Tagging a test `manual` takes it out of CI; use `exclusive` when the problem is concurrency, not the test.
+- `tests/bootstrap` is deleted. It was a non-hermetic duplicate of `tests/integration` (inherited PATH/HOME/USER, host `bazel`). Do not recreate it.
 - Use `sh_test` for output verification, `go_test` for Gazelle logic, vitest for runtime behavior
 
 **npm:**
@@ -127,7 +136,7 @@ Change implementation without changing .d.ts → no downstream recompilation.
 | Directive | Effect |
 |---|---|
 | `ts_package_boundary every-dir\|index-only\|true` | Package boundary mode |
-| `ts_isolated_declarations false` | Emit `isolated_declarations = False` |
+| `ts_declarations tsgo\|oxc` | Choose the declaration emitter for the subtree |
 | `ts_path_alias @/ src/` | Path alias (merges with parent) |
 | `ts_runtime_dep @npm//:happy-dom` | Always-included test dep |
 | `ts_exclude *.generated.ts` | Exclude pattern |
@@ -138,17 +147,36 @@ Change implementation without changing .d.ts → no downstream recompilation.
 
 ## Provider Contract
 
-Every `ts_compile` target provides: `JsInfo` + `TsDeclarationInfo` + `OutputGroupInfo(_validation)`.
+Every `ts_compile` target provides: `JsInfo` + `TsDeclarationInfo` +
+`TsModuleInfo` + `OutputGroupInfo(_validation)`. `_validation` is only populated
+under `declarations = "oxc"`; under the default the declarations are the proof.
 Every `ts_npm_package` provides: `JsInfo` + `TsDeclarationInfo` + `NpmPackageInfo`.
 `css_library`/`css_module`/`asset_library`/`json_library` provide `TsDeclarationInfo` (for .d.ts stubs).
 
 ## npm Internals
 
-`npm_translate_lock` (repository rule):
-- Parses pnpm-lock.yaml (v6 + v9)
-- Downloads tarballs, extracts to `@npm` repo
-- Generates BUILD.bazel with `ts_npm_package` per package
-- Handles: scoped packages, @types pairing, multiple versions, bin scripts, conditional exports, pnpm workspaces, npm aliases, dependency cycles (Kosaraju's SCC)
+ONE REPOSITORY PER PACKAGE is the only implementation. `npm_translate_lock` the
+repository rule, and `npm.translate_lock(lazy = ...)`, are deleted — do not
+reintroduce a second resolver.
+
+`npm/extensions.bzl` → `npm/lazy.bzl` (whole-graph analysis, no network) →
+one `npm_import` per package + one `npm_hub` of aliases.
+
+The analysis stays in the extension because none of it is a decision a package
+can make about itself: platform filtering, which package a bare label means
+(highest version), `@types` pairing, cycle breaking (Kosaraju's SCC), alias
+naming, patch routing. Each package then reads its own `package.json` and writes
+its own BUILD file, which is what makes on-demand fetching possible.
+
+Handled: scoped packages, `@types` pairing, multiple versions with
+version-suffixed labels, bin scripts (fixed `:bin` alias per package, since the
+hub cannot know whether a bin exists without downloading), conditional exports,
+pnpm workspaces and `workspace:*` links, npm aliases (their own labels),
+dependency cycles, `patchedDependencies` (verified both ways — a declared patch
+with no file and a file no entry claims both fail).
+
+No code needed, pinned by tests: catalogs, overrides (including `parent>child`),
+packageExtensions. pnpm resolves all three at every use site.
 
 ## Framework Support
 
@@ -160,16 +188,16 @@ Vite-based frameworks (Remix, TanStack Start, SvelteKit, Solid Start) work via:
 ## What NOT to do
 
 - Don't add Python dependencies. All codegen uses awk or Starlark `json.decode()`.
-- Don't generate bash scripts for Windows compatibility paths. Use Node.js via the runtime toolchain.
+- Don't generate bash scripts for Windows compatibility paths. Use Node.js via the runtime toolchain. (Aspiration, not the current state: every runner is bash today, which is why Windows is unsupported. Anything new should not add to that.)
 - Don't add `gazelle_ts.json` features. Use directives.
 - Don't create separate `_check` targets. Use `_validation` output group on the compile target.
 - Don't assume `@npm` is the only repo name. Support custom names via the npm extension.
 - Don't push directly to main. Use PRs.
-- Don't skip bootstrap tests when adding new features.
+- Don't skip the integration tests when adding new features, and don't tag them `manual` to make a run faster.
 
 ## Lessons Learned (add to this section)
 
-- **Bootstrap tests catch real bugs.** 5 out of 8 bootstrap tests found bugs on their first run, including a Rust binary bug where oxc-bazel ignored the `isolated_declarations` flag.
+- **End-to-end tests catch real bugs.** The nested-Bazel journey tests found 5 bugs on their first run, including a Rust binary bug where oxc-bazel ignored the isolated-declarations flag. They also spent a release tagged `manual`, which is how "34 pass" came to read as full coverage of a 54-target suite.
 - **Shell escaping is never optional.** Every path interpolated into a shell string must use `_shell_escape()`. Three separate review rounds caught injection vectors.
 - **npm alias support is non-obvious.** pnpm's `"h3-v2": "npm:h3@2.0.1-rc.16"` pattern requires both the alias name AND real name as `ts_npm_package` targets with different `package_name` values.
 - **Framework Vite plugins need writable filesystems.** `staging_srcs` solves this by copying source files to a temp dir inside the Bazel action. General mechanism, not framework-specific.

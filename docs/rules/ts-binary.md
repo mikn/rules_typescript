@@ -1,8 +1,14 @@
 # ts_binary
 
-Produces a runnable JavaScript output by collecting transitive `.js` outputs from a `ts_compile` target and optionally invoking a bundler.
+Produces a **runnable** target from a `ts_compile` entry point. Without a
+bundler it runs that target's entry `.js` on the JS runtime; with one it bundles
+first and runs the bundle.
 
-`ts_binary` is the stable public name for the bundling rule. It is functionally identical to `ts_bundle`.
+`ts_binary` and [`ts_bundle`](ts-bundle.md) are separate rules with overlapping
+attributes, not aliases. Reach for `ts_binary` when you want `bazel run`; reach
+for `ts_bundle` when you want a bundle as a build artifact — it requires a
+`bundler` and adds the app-mode, HTML, `vite_config` and `staging_srcs` surface
+that framework builds need.
 
 ## Usage
 
@@ -22,18 +28,23 @@ ts_binary(
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `entry_point` | `label` | required | `ts_compile` target providing `JsInfo` |
-| `bundler` | `label` | `None` | Target providing `BundlerInfo` |
+| `entry_file` | `string` | `""` | Which source's `.js` is the entry when the target emits several, e.g. `"main.ts"`. `index.js` is used by convention when unset |
+| `bundler` | `label` | `None` | Target providing `BundlerInfo`. When set, the bundle is what runs |
 | `bundle_name` | `string` | rule name | Output file name (without `.js`) |
 | `format` | `string` | `"esm"` | Output format: `esm`, `cjs`, `iife` |
 | `sourcemap` | `bool` | `True` | Emit source map |
-| `minify` | `bool` | `True` | Minify the bundle |
-| `split_chunks` | `bool` | `False` | Enable chunk splitting (Vite mode only; output is a directory) |
 | `external` | `string_list` | `[]` | Module specifiers to leave external |
 | `define` | `string_dict` | `{}` | Global constant replacements |
+| `node_modules` | `label` | `None` | `node_modules` target for packages the program needs at runtime |
+
+`minify` and `split_chunks` are `ts_bundle` attributes; `ts_binary` does not
+accept them.
 
 ## Without a Bundler
 
-Without a `bundler` target, `ts_binary` concatenates all `.js` files in dependency order. Useful during development and for keeping the build graph valid.
+Without a `bundler`, `ts_binary` runs the entry point's own `.js` file on the JS
+runtime, with the transitive `.js` outputs in its runfiles — the imports resolve
+as written. It does not concatenate anything.
 
 ## With Vite
 

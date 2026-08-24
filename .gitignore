@@ -9,6 +9,10 @@ bazel-*
 # Bazel lock files (large, regenerated)
 MODULE.bazel.lock
 
+# Everything //:refresh_tsconfig installs except the root tsconfig.json, which
+# stays checked in (//:refresh_tsconfig_test diffs it)
+.bazel/
+
 # Node modules (managed by Bazel, not checked in)
 node_modules/
 

@@ -474,6 +474,10 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		}
 	}
 
+	// The framework bundle owns node_modules(name = "node_modules") at the
+	// workspace root; the stale-rule cleanup below must not delete it.
+	frameworkOwnsNodeModules := args.Rel == "" && tc.detectedFramework != FrameworkNone
+
 	// ---- ts_test targets ---------------------------------------------------
 
 	if len(testFiles) > 0 {
@@ -548,7 +552,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 			// target was also being deleted. This prevents Gazelle from deleting
 			// user-managed Vite node_modules targets at the workspace root or in
 			// packages that never had ts_test.
-			if hadTestTarget {
+			if hadTestTarget && !frameworkOwnsNodeModules {
 				for _, r := range args.File.Rules {
 					if r.Name() == "node_modules" && r.Kind() == "node_modules" {
 						empty = append(empty, rule.NewRule("node_modules", "node_modules"))
@@ -565,7 +569,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	//
 	// Exception: if any ts_test rule in this BUILD file has an explicit node_modules
 	// attr set, the user is managing node_modules manually and we must not delete it.
-	if len(testFiles) > 0 && args.File != nil {
+	if len(testFiles) > 0 && args.File != nil && !frameworkOwnsNodeModules {
 		hasManualNodeModules := false
 		for _, existingRule := range args.File.Rules {
 			if existingRule.Kind() == "ts_test" && existingRule.Attr("node_modules") != nil {
@@ -636,9 +640,10 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	// These targets are only emitted at the root; sub-packages handle their
 	// own ts_compile targets via the normal path above.
 	if args.Rel == "" && tc.detectedFramework != FrameworkNone {
-		bundleRules, bundleImports := generateFrameworkBundle(args, tc)
+		bundleRules, bundleImports, bundleEmpty := generateFrameworkBundle(args, tc)
 		gen = append(gen, bundleRules...)
 		imports = append(imports, bundleImports...)
+		empty = append(empty, bundleEmpty...)
 	}
 
 	// ---- filegroup "sources" for framework staging_srcs --------------------

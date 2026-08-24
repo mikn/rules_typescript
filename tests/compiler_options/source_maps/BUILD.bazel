@@ -1,0 +1,34 @@
+"""source_map and declaration_map: which maps Bazel declares."""
+
+load("@rules_go//go:def.bzl", "go_test")
+load("//ts:defs.bzl", "ts_compile")
+
+# The go_test is hand-named after the sh_test it replaced, so the Go language
+# would add a second target for the same source.
+# gazelle:exclude *_test.go
+
+# declaration_map is what makes go-to-definition from a consumer's editor land
+# on mapped.ts instead of the generated mapped.d.ts.
+ts_compile(
+    name = "mapped",
+    srcs = ["mapped.ts"],
+    declaration_map = True,
+)
+
+# A bundle input whose bundler makes its own map has no use for oxc's.
+ts_compile(
+    name = "unmapped",
+    srcs = ["unmapped.ts"],
+    source_map = False,
+)
+
+go_test(
+    name = "source_maps_test",
+    size = "small",
+    srcs = ["source_maps_test.go"],
+    data = [
+        ":mapped",
+        ":unmapped",
+    ],
+    deps = ["//tests/verify"],
+)

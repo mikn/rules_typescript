@@ -66,7 +66,7 @@ With shared packages (staging_srcs pattern):
     )
 """
 
-load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "get_js_runtime")
+load("//ts/private:runtime.bzl", "JS_TOOL_TOOLCHAIN_TYPE", "get_js_tool")
 
 def _shell_escape(s):
     """Escapes a string for safe embedding in a double-quoted shell string."""
@@ -75,13 +75,11 @@ def _shell_escape(s):
 # ─── Rule implementation ────────────────────────────────────────────────────────
 
 def _next_build_impl(ctx):
-    # Resolve the JS runtime from the toolchain.
-    runtime_binary = None
-    runtime_args = []
-    js_runtime = get_js_runtime(ctx)
-    if js_runtime:
-        runtime_binary = js_runtime.runtime_binary
-        runtime_args = js_runtime.args_prefix
+    # `next build` runs inside the action, so node comes from the js_tool
+    # (exec platform) toolchain.
+    js_tool = get_js_tool(ctx)
+    runtime_binary = js_tool.runtime_binary
+    runtime_args = js_tool.args_prefix
 
     # ── Collect node_modules ──────────────────────────────────────────────────
     # Use the DefaultInfo file list to get the directory artifact directly.
@@ -139,6 +137,7 @@ def _next_build_impl(ctx):
 
     for src in srcs:
         short = src.short_path
+
         # Strip the package prefix from the short path to get a path relative
         # to the package directory (= the Next.js project root in staging).
         # Examples:
@@ -157,6 +156,7 @@ def _next_build_impl(ctx):
     for src in staging_srcs_files:
         # staging_srcs files land at their workspace-relative paths.
         short = src.short_path
+
         # short_path can start with "../" for external repo files — skip those.
         if short.startswith("../"):
             continue
@@ -191,12 +191,7 @@ def _next_build_impl(ctx):
     # Escape the label name once and reuse everywhere it appears in shell context.
     label_name_esc = _shell_escape(ctx.label.name)
 
-    # Runtime invocation.
-    if runtime_binary:
-        runtime_rel_esc = _shell_escape(runtime_binary.path)
-        runtime_cmd = '"${EXEC_ROOT}/' + runtime_rel_esc + '"'
-    else:
-        runtime_cmd = '"node"'
+    runtime_cmd = '"${EXEC_ROOT}/' + _shell_escape(runtime_binary.path) + '"'
 
     runtime_args_str = " ".join(['"{}"'.format(_shell_escape(a)) for a in runtime_args])
 
@@ -231,7 +226,7 @@ def _next_build_impl(ctx):
         'mkdir -p "${STAGING_DIR}"\n' +
         "\n" +
         "# Copy source files from the manifest into the staging directory.\n" +
-        'while IFS=$\'\\t\' read -r DEST SRC; do\n' +
+        "while IFS=$'\\t' read -r DEST SRC; do\n" +
         '  [[ -z "${DEST}" ]] && continue\n' +
         '  DEST_ABS="${STAGING_DIR}/${DEST}"\n' +
         '  mkdir -p "$(dirname "${DEST_ABS}")"\n' +
@@ -244,14 +239,12 @@ def _next_build_impl(ctx):
         (
             "# Copy next.config into staging dir.\n" +
             'cp -f "${EXEC_ROOT}/' + config_path_esc + '" "${STAGING_DIR}/' + config_basename_esc + '"\n' +
-            "\n"
-            if config_file else ""
+            "\n" if config_file else ""
         ) +
         (
             "# Copy tsconfig.json into staging dir.\n" +
             'cp -f "${EXEC_ROOT}/' + tsconfig_path_esc + '" "${STAGING_DIR}/tsconfig.json"\n' +
-            "\n"
-            if tsconfig_file else ""
+            "\n" if tsconfig_file else ""
         ) +
         "# Generate a minimal package.json so Next.js can determine the project name.\n" +
         "# Next.js requires package.json to exist in the project directory.\n" +
@@ -268,26 +261,30 @@ def _next_build_impl(ctx):
         "\n" +
         "# Next.js build configuration for hermetic Bazel actions.\n" +
         "# Disable telemetry to avoid network calls.\n" +
-        'export NEXT_TELEMETRY_DISABLED=1\n' +
+        "export NEXT_TELEMETRY_DISABLED=1\n" +
         "# Skip Next.js's Node.js require() patching which can fail in sandbox envs.\n" +
-        'export NEXT_PRIVATE_SKIP_PATCHING=1\n' +
+        "export NEXT_PRIVATE_SKIP_PATCHING=1\n" +
         "\n" +
         "# Run next build inside the staging directory.\n" +
-        'RUNTIME_ARGS=(' + runtime_args_str + ')\n' +
+        "RUNTIME_ARGS=(" + runtime_args_str + ")\n" +
         'NEXT_BIN="${NM_ACTUAL}/next/dist/bin/next"\n' +
         "\n" +
         'cd "${STAGING_DIR}"\n' +
         "\n" +
         'if [[ -n "${RUNTIME_ARGS[*]+set}" ]]; then\n' +
-        '  ' + runtime_cmd + ' "${RUNTIME_ARGS[@]}" "${NEXT_BIN}" build\n' +
-        'else\n' +
-        '  ' + runtime_cmd + ' "${NEXT_BIN}" build\n' +
-        'fi\n' +
+        "  " + runtime_cmd + ' "${RUNTIME_ARGS[@]}" "${NEXT_BIN}" build\n' +
+        "else\n" +
+        "  " + runtime_cmd + ' "${NEXT_BIN}" build\n' +
+        "fi\n" +
         "\n" +
         "# Move the .next/ output to OUT_DIR.\n" +
         "# Remove .next/cache/ to keep the Bazel output hermetic and cacheable.\n" +
-        'mv "${STAGING_DIR}/.next/"* "${OUT_DIR}/" 2>/dev/null || true\n' +
-        'rm -rf "${OUT_DIR}/cache" 2>/dev/null || true\n' +
+        'if [[ ! -d "${STAGING_DIR}/.next" ]]; then\n' +
+        '  echo "next_build: next build wrote no .next directory" >&2\n' +
+        "  exit 1\n" +
+        "fi\n" +
+        'mv "${STAGING_DIR}/.next/"* "${OUT_DIR}/"\n' +
+        'rm -rf "${OUT_DIR}/cache"\n' +
         "# Clean up the staging directory from inside OUT_DIR.\n" +
         'rm -rf "${OUT_DIR}/_staging"\n'
     )
@@ -300,13 +297,11 @@ def _next_build_impl(ctx):
     )
 
     # ── Build the action input depset ─────────────────────────────────────────
-    direct_inputs = [manifest, wrapper] + srcs + staging_srcs_files + nm_files
+    direct_inputs = [manifest, wrapper, runtime_binary] + srcs + staging_srcs_files + nm_files
     if config_file:
         direct_inputs.append(config_file)
     if tsconfig_file:
         direct_inputs.append(tsconfig_file)
-    if runtime_binary:
-        direct_inputs.append(runtime_binary)
 
     # ── Run the build action ──────────────────────────────────────────────────
     ctx.actions.run(
@@ -384,14 +379,16 @@ referenced from the Next.js app's BUILD file.
         ),
         "env": attr.string_dict(
             doc = "Additional environment variables to set for the next build action. " +
-                  "NEXT_TELEMETRY_DISABLED and NEXT_PRIVATE_STANDALONE are always set.",
+                  "NEXT_TELEMETRY_DISABLED and NEXT_PRIVATE_SKIP_PATCHING are always set.",
             default = {},
         ),
     },
     toolchains = [
-        config_common.toolchain_type(JS_RUNTIME_TOOLCHAIN_TYPE, mandatory = False),
+        config_common.toolchain_type(JS_TOOL_TOOLCHAIN_TYPE, mandatory = True),
     ],
     doc = """Builds a Next.js application with `next build`.
+
+Requires the js_tool toolchain (Node.js on the exec platform).
 
 Produces a `.next/` directory artifact containing the compiled Next.js output
 (server bundles, static assets, route manifests, etc.). The `.next/cache/`

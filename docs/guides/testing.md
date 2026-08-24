@@ -1,13 +1,14 @@
 # Testing with vitest
 
-`ts_test` compiles TypeScript test files and runs them with vitest inside the Bazel sandbox.
+`ts_test` compiles TypeScript test files and runs them with vitest inside the
+Bazel sandbox. The full attribute table is in the
+[ts_test reference](../rules/ts-test.md); this page is the guide.
 
 ## Setup
 
 ```python
 # BUILD.bazel
 load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_test")
-load("@rules_typescript//npm:defs.bzl", "node_modules")
 
 ts_compile(
     name = "math",
@@ -15,9 +16,32 @@ ts_compile(
     visibility = ["//visibility:private"],
 )
 
+ts_test(
+    name = "math_test",
+    srcs = ["math.test.ts"],
+    deps = [":math", "@npm//:vitest"],
+)
+```
+
+```bash
+bazel test //path/to:math_test
+```
+
+No `node_modules` target is needed. `ts_test` builds a per-target
+`node_modules` tree from every dep that provides `NpmPackageInfo`, plus their
+transitive npm deps. List every npm package the run needs — imported by the
+tests *and* by the production code under test — in `deps`; a `ts_compile` dep
+does not contribute its own npm packages to the tree. Gazelle does this for you.
+
+Pass `node_modules` explicitly only when `deps` is a `select()` (a macro cannot
+iterate one) or when the tree you need is not the one the deps describe:
+
+```python
+load("@rules_typescript//npm:defs.bzl", "node_modules")
+
 node_modules(
     name = "node_modules",
-    deps = ["@npm//:vitest"],
+    deps = ["@npm//:vitest", "@npm//:happy-dom"],
 )
 
 ts_test(
@@ -28,92 +52,156 @@ ts_test(
 )
 ```
 
-```bash
-bazel test //path/to:math_test
-```
+## Controlling the test environment
 
-## Attributes
+A vitest config is always generated and always passed with `--config`, so vitest
+never picks up a stray config from the runfiles tree. Everything you set
+composes with it rather than replacing it — see
+[the generated vitest config](../rules/ts-test.md#the-generated-vitest-config)
+for the precedence rules.
 
-| Attribute | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `srcs` | `label_list` | required | `.ts`/`.tsx` test files |
-| `deps` | `label_list` | `[]` | `ts_compile` or npm targets the tests import |
-| `node_modules` | `label` | `None` | A `node_modules` target for runtime npm resolution |
-| `vitest` | `label` | `None` | Explicit vitest binary label (auto-detected from `node_modules` when absent) |
-| `runtime` | `label` | `None` | Per-target JS runtime binary override |
-| `env` | `string_dict` | `{}` | Additional environment variables |
-| `size` | `string` | `"medium"` | Bazel test size |
-| `update_snapshots` | `bool` | `False` | When True, produces an executable that runs `vitest run --update` and writes snapshot files back to the source tree |
-
-## Sharding
-
-`ts_test` supports Bazel test sharding. Pass `--test_sharding_strategy=explicit` and set `shard_count` on the target to distribute test files across parallel runners.
-
-## Snapshot Testing
-
-Vitest snapshot files (`.snap`) must live in the source tree, but the Bazel sandbox is read-only. Two supported workflows:
-
-**Recommended: `update_snapshots = True`**
+### DOM tests and polyfills
 
 ```python
 ts_test(
-    name = "my_test",
+    name = "component_test",
     srcs = ["Button.test.tsx"],
-    deps = [":button"],
-    node_modules = ":node_modules",
-)
-
-ts_test(
-    name = "update_snapshots",
-    srcs = ["Button.test.tsx"],
-    deps = [":button"],
-    node_modules = ":node_modules",
-    update_snapshots = True,  # produces an executable, not a test
+    deps = [
+        ":button",
+        "@npm//:react",
+        "@npm//:happy-dom",
+        "@npm//:@testing-library/react",
+        "@npm//:vitest",
+    ],
+    environment = "happy-dom",
+    setup_files = ["setupTests.ts"],
 )
 ```
 
-To create or update snapshots:
+`environment` is any value vitest accepts — `node`, `jsdom`, `happy-dom`,
+`edge-runtime`, or a custom environment package — and the matching package has
+to be in `deps`. `setup_files` entries run before every test file, which is
+where `matchMedia`, `ResizeObserver`, `PointerEvent` and friends belong.
+TypeScript entries are compiled with the same `deps` as the tests.
+
+`global_setup` is the same mechanism for `test.globalSetup`, which runs once
+around the whole run rather than per file.
+
+### An existing vitest config
+
+```python
+ts_test(
+    name = "component_test",
+    srcs = ["Button.test.tsx"],
+    deps = [":button", "@npm//:react", "@npm//:vitest"],
+    config = "vitest.config.ts",
+    data = ["test/fixtures.json", "test/msw-handlers.ts"],
+)
+```
+
+Anything the config imports relatively belongs in `data`; it is not a build
+input otherwise. A config that default-exports an array is read as a vitest
+workspace, and each project in it gets the Bazel and attribute layers too.
+
+Small adjustments do not need a file at all — `config` also takes a dict:
+
+```python
+config = {"test": {"testTimeout": 30000, "retry": 2}},
+```
+
+### Other knobs
+
+```python
+ts_test(
+    name = "math_test",
+    srcs = ["math.test.ts"],
+    deps = [":math", "@npm//:vitest"],
+    globals = True,                          # global describe/it/expect
+    reporters = ["default", "junit"],
+    coverage_thresholds = {"lines": "80"},
+)
+```
+
+### Seeing what ran
 
 ```bash
-bazel run //path/to:update_snapshots
+bazel build //path/to:math_test --output_groups=vitest_config
 ```
 
-Vitest runs with `--update` from the workspace root, so snapshot files are written to the correct `__snapshots__` directory alongside your source files. Commit the resulting `.snap` files to version control.
+That writes out the merged config the runner passed to vitest — the fastest way
+to tell whether your layer landed where you expected.
 
-**Alternative: `--sandbox_writable_path`**
+## CSS modules
+
+A dep providing `CssModuleInfo` adds a mock plugin to the Bazel layer:
+`*.module.css` imports resolve to a `Proxy` whose every property lookup returns
+the property name, so class names are deterministic without a CSS parse at test
+time.
+
+```ts
+import styles from "./Button.module.css";
+expect(styles.primary).toBe("primary");
+```
+
+This used to be shadowed by vite's own CSS plugins, which produced hashed class
+names instead. It now applies, so assertions written against the hashed form
+need updating.
+
+## Coverage
+
+```bash
+bazel coverage //path/to:math_test
+```
+
+Works on every `ts_test` with nothing to opt into, provided
+`@vitest/coverage-v8` is in the `node_modules` tree. `coverage = True`
+additionally instruments plain `bazel test` runs.
+
+`coverage_thresholds` reaches `test.coverage.thresholds` in the generated
+config, and only applies when coverage runs. Its enforcement has no test behind
+it, so do not treat a green build as proof a threshold held.
+
+## Sharding
+
+`ts_test` distributes test files across shards using `TEST_SHARD_INDEX` and
+`TEST_TOTAL_SHARDS`. Set `shard_count` on the target and pass
+`--test_sharding_strategy=explicit`.
+
+## Snapshots
+
+Vitest writes `.snap` files next to the sources, and the Bazel sandbox is
+read-only. `update_snapshots = True` is meant to produce an executable that
+writes them back, but it does not work today (see
+[the reference](../rules/ts-test.md#snapshot-updating)). Make the snapshot
+directory writable instead:
 
 ```bash
 bazel test //path/to:my_test \
   --sandbox_writable_path=$(pwd)/src/components/__snapshots__
 ```
 
-## Watch Mode
+Commit the resulting `.snap` files.
 
-Use [ibazel](https://github.com/bazelbuild/bazel-watcher) to watch test files and re-run them on every change:
+## Watch mode
+
+Use [ibazel](https://github.com/bazelbuild/bazel-watcher) to re-run tests on
+every change:
 
 ```bash
-# Install ibazel
 go install github.com/bazelbuild/bazel-watcher/cmd/ibazel@latest
 
-# Watch a single test target
 ibazel test //path/to:my_test
-
-# Watch all tests in the repo
 ibazel test //...
 ```
 
-ibazel monitors the build graph and re-runs tests whenever a source file or dependency changes. Only the affected targets are rebuilt and re-tested.
+ibazel watches the build graph, so only affected targets are rebuilt and
+re-tested.
 
-## Build Feedback
-
-To see which targets were (re)built or cached:
+## Build feedback
 
 ```bash
-# Show results for up to 10 targets (default is 1)
-bazel test //... --show_result=10
-
-# Show results for all targets (unlimited)
-bazel test //... --show_result=0
+bazel test //... --show_result=10   # default is 1
+bazel test //... --show_result=0    # all targets
 ```
 
-Add `test --show_result=20` to `.bazelrc` for a persistent setting.
+Add `test --show_result=20` to `.bazelrc` to make it permanent.

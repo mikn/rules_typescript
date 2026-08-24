@@ -1,6 +1,10 @@
-load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("@rules_go//go:def.bzl", "go_test")
 load("@rules_typescript//npm:defs.bzl", "node_modules")
 load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_dev_server")
+
+# The go_test targets are hand-named after the sh_tests they replaced, so the
+# Go language would add a second target for the same source.
+# gazelle:exclude *_test.go
 
 # Compile the minimal app entry point.
 ts_compile(
@@ -50,8 +54,8 @@ ts_dev_server(
     name = "dev_with_react_refresh",
     entry_point = ":app",
     node_modules = ":node_modules_react",
-    react_refresh = True,
     port = 5175,
+    react_refresh = True,
 )
 
 # Dev server with both React Fast Refresh and vite-plugin-bazel.
@@ -60,42 +64,39 @@ ts_dev_server(
     entry_point = ":app",
     node_modules = ":node_modules_react",
     plugin = "//vite:vite_plugin_bazel",
-    react_refresh = True,
     port = 5176,
+    react_refresh = True,
 )
 
-# Automated test that verifies the generated runner script and config
-# are well-formed without actually starting the server.
-sh_test(
-    name = "dev_server_test",
-    size = "small",
-    srcs = ["verify_dev_server.sh"],
-    data = [":dev"],
-)
-
-# Test the plugin-enabled variant.
-sh_test(
-    name = "dev_server_with_plugin_test",
-    size = "small",
-    srcs = ["verify_dev_server_plugin.sh"],
-    data = [":dev_with_plugin"],
-)
-
-# Test the React Fast Refresh variant.
-sh_test(
-    name = "dev_server_react_refresh_test",
-    size = "small",
-    srcs = ["verify_dev_server_react_refresh.sh"],
-    data = [":dev_with_react_refresh"],
-)
-
-# Test React Fast Refresh combined with vite-plugin-bazel.
-# Uses a dedicated script so the combined variant's specific config is validated
-# directly, without fallback logic that could mask failures by finding the
-# simpler react_refresh-only variant's config.
-sh_test(
-    name = "dev_server_react_refresh_and_plugin_test",
-    size = "small",
-    srcs = ["verify_dev_server_react_refresh_plugin.sh"],
-    data = [":dev_with_react_refresh_and_plugin"],
-)
+# Each variant is started for real and interrogated over HTTP; the env says which
+# target to run, the port the rule was given (the evaluated config has to report
+# it), and which of the two plugins the response must show evidence of.
+# The server itself is started on a kernel-assigned port: on the configured one,
+# two concurrent `bazel test` runs make Vite increment past the collision and one
+# run then answers the other's requests.
+[
+    go_test(
+        name = "{}_behaviour_test".format(target),
+        size = "medium",
+        srcs = ["dev_server_behaviour_test.go"],
+        data = [
+            "read_config.mjs",
+            ":{}".format(target),
+            "//ts/toolchain:node_resolved",
+        ],
+        env = {
+            "DEV_BAZEL_PLUGIN": bazel_plugin,
+            "DEV_PORT": port,
+            "DEV_REACT_REFRESH": react_refresh,
+            "DEV_TARGET": target,
+        },
+        tags = ["requires-network"],
+        deps = ["//tests/verify"],
+    )
+    for target, port, bazel_plugin, react_refresh in [
+        ("dev", "5173", "0", "0"),
+        ("dev_with_plugin", "5174", "1", "0"),
+        ("dev_with_react_refresh", "5175", "0", "1"),
+        ("dev_with_react_refresh_and_plugin", "5176", "1", "1"),
+    ]
+]

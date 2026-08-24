@@ -1,19 +1,37 @@
 # Release Process for rules_typescript
 
-This document describes the complete release process, from development to Bazel Central Registry submission.
+This document describes the complete release process, from development to Bazel
+Central Registry submission.
+
+**Nothing has been released yet.** There are no git tags and no GitHub releases,
+so every version number below (`0.2.0`, `0.2.1`, …) is an example of the shape a
+release takes, not a record of one. The first release will be `0.1.0`. See
+[BCR Submission](BCR_SUBMISSION.md) for current status.
 
 ## Prerequisites
 
 Before releasing, ensure:
 
-1. **All tests pass**
+1. **All tests pass** — the lane CI runs, named in `.bazelrc`:
    ```bash
-   bash scripts/ci.sh
+   bazel test --config=ci //...
+   bazel build --config=ci //... --output_groups=+_validation
    ```
+   `e2e/` and `examples/` are separate workspaces, so they are separate
+   invocations: `cd e2e/basic && bazel test //...`, then `bazel build //...`
+   in each `examples/*` directory.
 
-2. **Determinism is verified**
+2. **Determinism is verified** — build one target from two empty output bases
+   and compare, which is what the `determinism` job in
+   `.github/workflows/ci.yml` does:
    ```bash
-   bash scripts/verify_determinism.sh
+   for base in a b; do
+     bazel --output_base="$HOME/.cache/det_$base" \
+       build --config=determinism //tests/smoke:hello
+   done
+   cmp \
+     "$(bazel --output_base="$HOME/.cache/det_a" info bazel-bin)/tests/smoke/hello.js" \
+     "$(bazel --output_base="$HOME/.cache/det_b" info bazel-bin)/tests/smoke/hello.js"
    ```
 
 3. **Working tree is clean**
@@ -27,76 +45,58 @@ Before releasing, ensure:
    - Patch version: Bug fixes
    - Pre-release: X.Y.Z-rc.1, X.Y.Z-alpha, etc.
 
-## Step 1: Automated Release
-
-Run the release script with your version:
+## Step 1: Bump, Commit, Tag
 
 ```bash
-bash scripts/release.sh 0.2.0
+bazel run //tools/release -- 0.2.0 --dry-run   # prints every step, writes nothing
+bazel run //tools/release -- 0.2.0
 ```
 
-This script will:
+The tool acts on the checkout you ran `bazel` from (`BUILD_WORKING_DIRECTORY`)
+and:
 
-1. Validate the version format
-2. Check for uncommitted changes
-3. Check if the git tag already exists
-4. Update `MODULE.bazel` with the new version
-5. Commit with message "Release v0.2.0"
-6. Create an annotated git tag
-7. Build a deterministic tarball (excluding build artifacts)
-8. Compute SHA256 hash of the tarball
-9. Update `.bcr/source.json` with the integrity hash
-10. Print next steps
+1. Validates the version format
+2. Refuses if the tag already exists or the working tree is dirty
+3. Rewrites the version inside `module()` in `MODULE.bazel` — and only there,
+   so `bazel_dep` versions are untouched
+4. Commits `MODULE.bazel` as `chore: release v0.2.0`
+5. Creates the annotated tag `v0.2.0`
+
+It stops there. Everything downstream of the tag belongs to
+`.github/workflows/release.yml`: it builds the tarball with `git archive`,
+computes the SRI hash, publishes the GitHub release with a build-provenance
+attestation, and opens the PR that fills in `.bcr/source.json`. Producing a
+tarball locally would produce a *different* archive from the published one, and
+so a wrong integrity hash.
 
 ### Example Output
 
 ```
-=== rules_typescript Release v0.2.0 ===
+Repository: /home/you/src/rules_typescript
+Release:    v0.2.0
 
-[1/5] Updating MODULE.bazel version...
-✓ Updated MODULE.bazel to version 0.2.0
+[1/3] MODULE.bazel: module version 0.1.0 -> 0.2.0
+[2/3] commit MODULE.bazel
+[3/3] tag v0.2.0
 
-[2/5] Creating git tag...
-✓ Created tag v0.2.0
+Nothing has been pushed. To publish:
 
-[3/5] Building tarball...
-✓ Created tarball: /tmp/rules_typescript-v0.2.0.tar.gz
--rw-r--r--  1 user  staff  15K Mar 11 20:30 /tmp/rules_typescript-v0.2.0.tar.gz
+  git push origin v0.2.0
 
-[4/5] Computing SHA256 hash...
-SHA256: 1234567890abcdef...
-✓ Computed hash
-
-[5/5] Updating .bcr/source.json...
-Updated .bcr/source.json:
-{
-  "integrity": "sha256-...",
-  "strip_prefix": "rules_typescript-v0.2.0",
-  "url": "https://github.com/mikn/rules_typescript/releases/download/v0.2.0/rules_typescript-v0.2.0.tar.gz"
-}
-✓ Updated source.json
-
-=== Release Complete ===
-✓ Version: 0.2.0
-✓ Tag: v0.2.0
-✓ Tarball: rules_typescript-v0.2.0.tar.gz
-✓ SHA256: 1234567890abcdef...
-
-Next steps:
-1. Push the tag: git push origin v0.2.0
-2. Create a GitHub release: https://github.com/mikn/rules_typescript/releases/new?tag=v0.2.0
-3. Attach tarball: /tmp/rules_typescript-v0.2.0.tar.gz
-4. Submit to BCR: https://github.com/bazelbuild/bazel-central-registry/pulls
-   - Include .bcr/metadata.json and .bcr/source.json in the PR
+That starts .github/workflows/release.yml: tarball, GitHub release, and the
+.bcr/source.json PR. To undo instead: git tag -d v0.2.0 && git reset --hard HEAD~1
 ```
 
 ## Step 2: Push to GitHub
 
-Push the tag to GitHub:
+Pushing the tag is what starts the Release workflow:
 
 ```bash
 git push origin v0.2.0
 ```
+
+`bazel run //tools/release -- 0.2.0 --push` does the bump, tag, and push in one
+go.
 
 Verify the tag is visible:
 
@@ -105,18 +105,20 @@ git tag -l  # Shows local tags
 git ls-remote --tags origin  # Shows remote tags
 ```
 
-## Step 3: Create GitHub Release
+## Step 3: Watch the Release Workflow
 
-1. Open GitHub: https://github.com/mikn/rules_typescript/releases/new?tag=v0.2.0
+The push in Step 2 triggers `.github/workflows/release.yml`, which creates the
+GitHub release, attaches the `git archive` tarball, and opens the
+`.bcr/source.json` PR. Nothing here is manual:
 
-2. Fill in the form:
-   - **Tag version**: v0.2.0 (auto-populated)
-   - **Release title**: Release v0.2.0 or "TypeScript Rules v0.2.0"
-   - **Description**: Include notable changes, bug fixes, and new features
-   - **Attach tarball**: Upload `/tmp/rules_typescript-v0.2.0.tar.gz`
-   - **Prerelease**: Check if this is a prerelease (rc, alpha, beta)
+```bash
+gh run list --workflow=release.yml
+gh release view v0.2.0
+```
 
-3. Click "Publish release"
+Mark the release as a prerelease by hand if the version carries an `-rc.N`,
+`-alpha.N`, or `-beta.N` suffix — the workflow publishes with
+`prerelease: false`.
 
 ## Step 4: Submit to Bazel Central Registry
 
@@ -211,7 +213,7 @@ Common issues:
 
 - **Integrity mismatch**: Recalculate hash and update source.json
 - **Missing metadata**: Add required fields to metadata.json
-- **Non-deterministic build**: Rerun verify_determinism.sh and fix issues
+- **Non-deterministic build**: rerun the determinism check in Prerequisites and fix what differs
 - **Licensing**: Ensure LICENSE file is included in tarball
 
 ## Rollback and Fixes
@@ -224,11 +226,8 @@ If you haven't pushed yet, you can undo:
 # Undo the tag
 git tag -d v0.2.0
 
-# Undo the commit
-git reset --soft HEAD~1
-
-# Restore files
-git restore MODULE.bazel .bcr/source.json
+# Undo the commit (the tool only ever touches MODULE.bazel)
+git reset --hard HEAD~1
 ```
 
 Then fix the issue and try again.
@@ -244,11 +243,8 @@ If you've already pushed:
 Example:
 
 ```bash
-# Delete local tag and recreate with updated MODULE.bazel
-git tag -d v0.2.0
-# Fix the issue...
-bash scripts/release.sh 0.2.1
-git push origin v0.2.1
+# Fix the issue, then cut the next patch version.
+bazel run //tools/release -- 0.2.1 --push
 ```
 
 ## Pre-release Workflow
@@ -256,24 +252,22 @@ git push origin v0.2.1
 For testing before a major release, use pre-release versions:
 
 ```bash
-# Release candidate
-bash scripts/release.sh 0.2.0-rc.1
-
-# Beta release
-bash scripts/release.sh 0.2.0-beta.1
-
-# Alpha release
-bash scripts/release.sh 0.2.0-alpha.1
+bazel run //tools/release -- 0.2.0-rc.1
+bazel run //tools/release -- 0.2.0-beta.1
+bazel run //tools/release -- 0.2.0-alpha.1
 ```
 
-These can be published to GitHub with the "Prerelease" checkbox enabled, but do not need BCR submission.
+These do not need BCR submission. `release.yml` publishes every tag with
+`prerelease: false`, so tick "Set as a pre-release" on the GitHub release
+afterwards.
 
 ## Verification Checklist
 
 Before declaring release complete:
 
-- [ ] `scripts/ci.sh` passes all tests
-- [ ] `scripts/verify_determinism.sh` passes
+- [ ] `bazel test --config=ci //...` passes, and the `e2e/` and `examples/`
+      workspaces build
+- [ ] The determinism check in Prerequisites passes
 - [ ] Git tag is created and pushed
 - [ ] GitHub release is published with tarball
 - [ ] Tarball is downloadable from GitHub
@@ -295,7 +289,7 @@ After releasing v0.2.0, prepare for v0.2.1:
 
 3. When ready for next release:
    ```bash
-   bash scripts/release.sh 0.2.1
+   bazel run //tools/release -- 0.2.1
    ```
 
 ## Resources
@@ -316,7 +310,7 @@ Someone has already released this version:
 git tag -l | grep v0.2.0
 
 # Create a patch version instead
-bash scripts/release.sh 0.2.1
+bazel run //tools/release -- 0.2.1
 ```
 
 ### "Integrity hash is different"
@@ -330,8 +324,8 @@ This usually means the tarball is different. Causes:
 Solution:
 
 ```bash
-# Verify determinism
-bash scripts/verify_determinism.sh
+# Verify determinism (see Prerequisites for the two-output-base sequence)
+bazel build --config=determinism //tests/smoke:hello
 
 # Check git status
 git status

@@ -18,6 +18,10 @@ Directives go in `BUILD.bazel` files as comments and control how Gazelle generat
 | `# gazelle:ts_runtime_dep @npm//:happy-dom` | Append a label to every generated `ts_test` deps list |
 | `# gazelle:ts_exclude *.generated.ts` | Exclude files matching this pattern from source targets |
 | `# gazelle:ts_warn_unresolved true` | Warn when an import cannot be resolved to a Bazel label |
+| `# gazelle:ts_codegen <name> <generator> <outs> [args…]` | Register a `ts_codegen` target in this directory |
+
+That is the complete set — nine directives. An unknown `# gazelle:ts_*` comment
+makes Gazelle warn rather than fail, so a typo shows up in the run output.
 
 ## Examples
 
@@ -92,6 +96,29 @@ These labels are appended to every generated `ts_test` deps list in the repo.
 ```
 
 Gazelle will not generate `ts_compile` or `ts_test` targets in `legacy-code/` or any of its subdirectories. Write the BUILD file for this directory manually.
+
+### Register a codegen target
+
+```python
+# src/api/BUILD.bazel
+
+# gazelle:ts_codegen api_types @npm//:openapi-typescript_bin api-types.ts {srcs} -o {out}
+```
+
+The fields are `<name> <generator_label> <outs> [args…]`, where `<outs>` is a
+comma-separated list of output file names and everything after it is passed to
+the generator. `{srcs}` and `{out}` are substituted.
+
+For a generator that writes a whole directory, prefix the outs field with
+`dir:`:
+
+```python
+# gazelle:ts_codegen prisma_client @npm//:prisma_bin dir:generated/client generate --schema {srcs}
+```
+
+Gazelle also auto-detects TanStack Router, Prisma, GraphQL codegen and OpenAPI
+generators from `package.json`, so a directive is only needed for generators it
+does not recognise.
 
 ### Exclude generated files
 

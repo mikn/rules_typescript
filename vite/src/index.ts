@@ -38,4 +38,4 @@ export { BazelResolver } from './resolver.js';
 export type { ResolverOptions, ResolvedFile } from './resolver.js';
 
 export { BazelWatcher, bazelPathToModuleId } from './watcher.js';
-export type { BazelWatcherOptions, RebuildCallback } from './watcher.js';
+export type { BazelWatcherOptions, RebuildCallback, WatchSource } from './watcher.js';

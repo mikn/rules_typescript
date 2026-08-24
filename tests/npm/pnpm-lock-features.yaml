@@ -1,6 +1,7 @@
 # A second, deliberately tiny lockfile for the pnpm features that are not about
-# graph size: patched dependencies and npm alias specifiers, plus the blocks a
-# reader has to walk past without reading (catalogs, overrides).
+# graph size: patched dependencies, npm alias specifiers, peer-dependency
+# variants and per-importer resolution, plus the blocks a reader has to walk past
+# without reading (catalogs, overrides).
 #
 # Separate from pnpm-lock.yaml because that file is copied verbatim into the
 # integration and bootstrap scratch workspaces, which know nothing about patch
@@ -48,7 +49,60 @@ importers:
         specifier: npm:ms@2.1.3
         version: ms@2.1.3
 
+  # Two workspace members that resolve one name to two different majors, and one
+  # package that pnpm resolved twice -- once per peer set. Both are recorded the
+  # way pnpm records them: the importer names the snapshot it got, and the
+  # snapshot key carries the peer set (compare
+  # '@vitest/mocker@3.0.9(vite@6.4.1)' in tests/npm/pnpm-lock.yaml).
+  #
+  # The peer relationship itself is invented -- ansi-styles has no peer on
+  # ansi-regex -- so that the fixture stays four real tarballs instead of a
+  # storybook/react closure. What is under test is the SHAPE, and every
+  # integrity here is the published one, so the packages really download.
+  # A member whose own directory is named after an npm package in the same
+  # lockfile: the hub then needs a package `ms/` and a target `:ms` side by side.
+  ms:
+    dependencies:
+      zod:
+        specifier: 3.24.2
+        version: 3.24.2
+
+  app-a:
+    dependencies:
+      ansi-regex:
+        specifier: ^5.0.0
+        version: 5.0.1
+      ansi-styles:
+        specifier: ^6.0.0
+        version: 6.2.3(ansi-regex@5.0.1)
+
+  app-b:
+    dependencies:
+      ansi-regex:
+        specifier: ^6.0.0
+        version: 6.2.2
+      ansi-styles:
+        specifier: ^6.0.0
+        version: 6.2.3(ansi-regex@6.2.2)
+
 packages:
+
+  # One entry per published tarball, peer sets nowhere in sight: `packages:` is
+  # keyed by name@version and says nothing about how many ways a package was
+  # resolved.
+  ansi-regex@5.0.1:
+    resolution: {integrity: sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ==}
+    engines: {node: '>=8'}
+
+  ansi-regex@6.2.2:
+    resolution: {integrity: sha512-Bq3SmSpyFHaWjPk8If9yc6svM8c56dB5BAtW4Qbw5jHTwwXXcTLoRMkpDJp6VL0XzlWaCHTXrkFURMYmD0sLqg==}
+    engines: {node: '>=12'}
+
+  ansi-styles@6.2.3:
+    resolution: {integrity: sha512-4Dj6M28JB+oAH8kFkTLUo+a2jwOFkuqb3yucU0CANcRRUbxS0cP0nZYCGjcc3BNXwRIsUVmDGgzawme7zvJHvg==}
+    engines: {node: '>=12'}
+    peerDependencies:
+      ansi-regex: '*'
 
   ms@2.1.3:
     resolution: {integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==}
@@ -62,6 +116,21 @@ packages:
     resolution: {integrity: sha512-lY7CDW43ECgW9u1TcT3IoXHflywfVqDYze4waEz812jR/bZ8FHDsl7pFQoSZTz5N+2NqRXs8GBwnAwo3ZNxqhQ==}
 
 snapshots:
+
+  ansi-regex@5.0.1: {}
+
+  ansi-regex@6.2.2: {}
+
+  # The same tarball, twice, with different transitive versions. Collapsing these
+  # onto `ansi-styles@6.2.3` leaves whichever the reader saw last, and both
+  # importers then build against it.
+  ansi-styles@6.2.3(ansi-regex@5.0.1):
+    dependencies:
+      ansi-regex: 5.0.1
+
+  ansi-styles@6.2.3(ansi-regex@6.2.2):
+    dependencies:
+      ansi-regex: 6.2.2
 
   ms@2.1.3: {}
 

@@ -1,11 +1,16 @@
-load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("@rules_go//go:def.bzl", "go_test")
 
-sh_test(
+# The go_test targets are hand-named after the sh_tests they replaced, so the
+# Go language would add a second target for the same source.
+# gazelle:exclude *_test.go
+
+go_test(
     name = "multi_boundary_test",
     size = "small",
-    srcs = ["verify_multi.sh"],
+    srcs = ["multi_boundary_test.go"],
     data = [
-        "//tests/multi/app:app",
-        "//tests/multi/lib:lib",
+        "//tests/multi/app",
+        "//tests/multi/lib",
     ],
+    deps = ["//tests/verify"],
 )

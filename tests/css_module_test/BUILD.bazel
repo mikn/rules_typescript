@@ -13,8 +13,8 @@ css_module(
 ts_compile(
     name = "button",
     srcs = ["Button.ts"],
-    deps = [":button_module"],
     visibility = ["//visibility:public"],
+    deps = [":button_module"],
 )
 
 # ── ts_test with CSS module dep ────────────────────────────────────────────────

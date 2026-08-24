@@ -25,7 +25,7 @@ export interface ResolverOptions {
   bazelBin: string;
   /** Optional Bazel workspace name (currently unused but reserved for
    *  runfiles-style path construction in a future iteration). */
-  workspace?: string;
+  workspace?: string | undefined;
 }
 
 export interface ResolvedFile {

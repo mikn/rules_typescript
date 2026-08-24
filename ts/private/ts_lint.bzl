@@ -42,7 +42,19 @@ Usage
 Action mnemonic: TsLint
 """
 
-load("//ts/private:providers.bzl", "TsDeclarationInfo")
+# How each supported linter spells "a warning is an error".
+_WARNINGS_AS_ERRORS = {
+    "oxlint": "--deny-warnings",
+    "eslint": "--max-warnings=0",
+}
+
+# The tsaction helper substitutes this with the action's working directory. An
+# npm_bin linter wrapper cds to RUNFILES_DIR, which invalidates every
+# execroot-relative path it was handed.
+_EXECROOT = "{{EXECROOT}}"
+
+def _execroot_path(f):
+    return _EXECROOT + "/" + f.path
 
 # ─── Provider ──────────────────────────────────────────────────────────────────
 
@@ -64,11 +76,6 @@ def _ts_lint_impl(ctx):
             "Example: srcs = [\"index.ts\", \"utils.ts\"]",
         )
 
-    linter = ctx.attr.linter
-    if linter not in ("oxlint", "eslint"):
-        fail("ts_lint: 'linter' must be 'oxlint' or 'eslint'; got '{}'.  " +
-             "See the rule documentation for supported linters.".format(linter))
-
     # Resolve the linter binary.  Both ctx.executable.linter_binary and the
     # default oxlint/eslint targets use the same attribute; the rule defaults
     # differ based on `linter`.
@@ -77,69 +84,34 @@ def _ts_lint_impl(ctx):
     # Config file is optional — pass --config only when provided.
     config_file = ctx.file.config
 
-    # The stamp file is Bazel's concrete output that tracks linting results.
     stamp = ctx.actions.declare_file("{}.tslint".format(ctx.label.name))
 
-    # Build the command.  We use run_shell so we can chain the touch command.
-    #
-    # oxlint invocation:
-    #   oxlint [--config <cfg>] <src> ...
-    #
-    # eslint invocation:
-    #   eslint [--config <cfg>] <src> ...
-    #
-    # Both exit non-zero on lint errors; the shell command propagates that exit
-    # code and Bazel fails the action accordingly.
-    #
-    # NOTE: File.path gives a path relative to the execroot (the action CWD).
-    # When the linter binary is an npm_bin wrapper (e.g. @npm//:oxlint_bin),
-    # the wrapper script CDs to RUNFILES_DIR before invoking the linter, making
-    # relative paths invalid.  We therefore capture the absolute execroot path
-    # at action start and prefix all file paths with it.
-    src_paths = " ".join(['"${_EXECROOT}/' + f.path + '"' for f in srcs])
-
+    args = ctx.actions.args()
+    args.add("-stamp", stamp)
+    args.add("--")
+    args.add(linter_bin)
     if config_file:
-        config_flag = '--config "${_EXECROOT}/' + config_file.path + '"'
-    else:
-        config_flag = ""
-
-    # oxlint needs --deny-warnings when we want lint warnings to fail the build.
-    # We keep the default non-strict behaviour (warnings are informational) to
-    # match typical developer expectations.  Users can set `fail_on_warnings`
-    # attr to change this.
-    warnings_flag = "--deny-warnings" if ctx.attr.fail_on_warnings else ""
-
-    cmd = (
-        "set -euo pipefail\n" +
-        # Save the action execroot (CWD at action start) as an absolute path.
-        # This is needed because npm_bin linter wrappers CD to RUNFILES_DIR
-        # before invoking the linter, which would break relative exec paths.
-        "_EXECROOT=\"${PWD}\"\n" +
-        '"{linter_bin}" {config_flag} {warnings_flag} {srcs}\n'.format(
-            linter_bin = linter_bin.path,
-            config_flag = config_flag,
-            warnings_flag = warnings_flag,
-            srcs = src_paths,
-        ) +
-        'touch "${_EXECROOT}/' + stamp.path + '"\n'
-    )
+        args.add("--config", _execroot_path(config_file))
+    if ctx.attr.fail_on_warnings:
+        args.add(_WARNINGS_AS_ERRORS[ctx.attr.linter])
+    args.add_all(srcs, map_each = _execroot_path)
+    args.use_param_file("@%s", use_always = False)
+    args.set_param_file_format("multiline")
 
     inputs = list(srcs)
     if config_file:
         inputs.append(config_file)
 
-    # Collect the linter binary's runfiles so that npm_bin wrapper scripts
-    # (e.g. @npm//:oxlint_bin) can find Node.js and platform-specific native
-    # binaries at action time.  npm_bin wrappers resolve RUNFILES_DIR at
-    # startup to locate their dependencies; passing tools via FilesToRunProvider
-    # makes Bazel stage a proper runfiles tree for the action.
+    # An npm_bin wrapper locates Node and its package's native binary through
+    # its own runfiles, which only a FilesToRunProvider in `tools` stages.
     linter_files_to_run = ctx.attr.linter_binary[DefaultInfo].files_to_run
 
-    ctx.actions.run_shell(
+    ctx.actions.run(
         inputs = depset(inputs),
         tools = [linter_files_to_run],
         outputs = [stamp],
-        command = cmd,
+        executable = ctx.executable._tsaction,
+        arguments = ["stamp", args],
         env = {"PATH": "/bin:/usr/bin"},
         mnemonic = "TsLint",
         progress_message = "TsLint %{label}",
@@ -162,7 +134,8 @@ ts_lint = rule(
             mandatory = True,
         ),
         "linter": attr.string(
-            doc = "Linter to use: 'oxlint' (default, fast Rust-based) or 'eslint'.",
+            doc = "Linter whose CLI is being driven: 'oxlint' (default, fast Rust-based) or 'eslint'. " +
+                  "It selects the spelling of the flags ts_lint passes, not the binary — that is linter_binary.",
             default = "oxlint",
             values = ["oxlint", "eslint"],
         ),
@@ -188,8 +161,13 @@ Bazel toolchain.
             allow_single_file = True,
         ),
         "fail_on_warnings": attr.bool(
-            doc = "When True, warnings are treated as errors (passes --deny-warnings to oxlint). Default False.",
+            doc = "When True, warnings fail the build: --deny-warnings for oxlint, --max-warnings=0 for eslint. Default False.",
             default = False,
+        ),
+        "_tsaction": attr.label(
+            default = Label("//ts/tools/tsaction"),
+            executable = True,
+            cfg = "exec",
         ),
     },
     doc = """Runs a linter (oxlint or eslint) as a Bazel validation action.

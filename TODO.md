@@ -4,9 +4,18 @@
 
 **"TypeScript on Bazel should feel like Go on Bazel."**
 
-Today we have: compilation (oxc), type-checking (tsgo), npm deps (pnpm lockfile), Gazelle, vitest testing, and a placeholder bundler. This gets you a **pure TypeScript library monorepo** with hermetic cached builds.
+Today we have: compilation (oxc), type-checking and declaration emit (tsgo), npm
+deps (pnpm lockfile), Gazelle, vitest testing, a Vite bundler, a dev server with
+HMR, CSS/asset rules, and `next_build`. See the readiness table below per area.
 
-What we don't have: real bundling, dev server with HMR, CSS/asset support, or framework integration. This means **no real Next.js, Remix, TanStack Start, or SvelteKit apps** can be built today.
+What is still thin:
+
+- Only Next.js has an integration test. `examples/{react-app,remix-app,tanstack-app,nextjs-app}`
+  exist but the CI `examples` matrix builds only `[basic, app]`, so four of the
+  six examples are never built by anything.
+- Consumers build oxc from Rust source on first use, so cold start is nowhere
+  near `rules_go`'s prebuilt-toolchain experience. This is the widest remaining
+  gap against the vision above.
 
 ### Current Readiness
 

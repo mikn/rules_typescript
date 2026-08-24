@@ -11,6 +11,6 @@ load("@rules_typescript//ts:defs.bzl", "ts_compile")
 ts_compile(
     name = "app",
     srcs = ["index.ts"],
-    deps = ["//src/schema"],
     visibility = ["//visibility:public"],
+    deps = ["//src/schema"],
 )

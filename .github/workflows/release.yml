@@ -16,7 +16,8 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       tarball: ${{ steps.build.outputs.tarball }}
-      sha256: ${{ steps.build.outputs.sha256 }}
+      sha256: ${{ steps.build.outputs.sha256_hex }}
+      integrity: ${{ steps.build.outputs.sha256_sri }}
     steps:
       - uses: actions/checkout@v4
 
@@ -98,46 +99,23 @@ jobs:
       - name: Update .bcr/source.json
         run: |
           VERSION="${{ needs.release.outputs.version }}"
-          SHA256="${{ needs.release.outputs.sha256 }}"
+          INTEGRITY="${{ needs.release.outputs.integrity }}"
 
-          # Use Python for JSON manipulation (more reliable than sed/jq)
-          python3 << 'EOF'
-          import json
-          import sys
+          if [[ -z "${INTEGRITY}" ]]; then
+            echo "ERROR: the release job produced no SRI integrity hash"
+            exit 1
+          fi
 
-          version = sys.argv[1]
-          sha256 = sys.argv[2]
+          jq \
+            --arg url "https://github.com/mikn/rules_typescript/releases/download/v${VERSION}/rules_typescript-${VERSION}.tar.gz" \
+            --arg integrity "${INTEGRITY}" \
+            --arg strip_prefix "rules_typescript-${VERSION}" \
+            '.url = $url | .integrity = $integrity | .strip_prefix = $strip_prefix' \
+            .bcr/source.json > .bcr/source.json.new
+          mv .bcr/source.json.new .bcr/source.json
 
-          with open('.bcr/source.json', 'r') as f:
-              data = json.load(f)
-
-          data['url'] = f"https://github.com/mikn/rules_typescript/releases/download/v{version}/rules_typescript-{version}.tar.gz"
-          data['integrity'] = sha256
-          data['strip_prefix'] = f"rules_typescript-{version}"
-
-          with open('.bcr/source.json', 'w') as f:
-              json.dump(data, f, indent=2)
-              f.write('\n')
-
-          print(f"Updated .bcr/source.json for version {version}")
-          with open('.bcr/source.json', 'r') as f:
-              print(f.read())
-          EOF
-          python3 -c "
-          import json
-          import sys
-          version = '$VERSION'
-          sha256 = '$SHA256'
-          with open('.bcr/source.json', 'r') as f:
-              data = json.load(f)
-          data['url'] = f'https://github.com/mikn/rules_typescript/releases/download/v{version}/rules_typescript-{version}.tar.gz'
-          data['integrity'] = sha256
-          data['strip_prefix'] = f'rules_typescript-{version}'
-          with open('.bcr/source.json', 'w') as f:
-              json.dump(data, f, indent=2)
-              f.write('\n')
-          print('Updated .bcr/source.json')
-          "
+          echo "Updated .bcr/source.json for version ${VERSION}"
+          cat .bcr/source.json
 
       - name: Verify BCR metadata
         run: |

@@ -3,29 +3,42 @@
 #
 #   bazel test //tests/lsp:test_tsserver_diagnostics --test_output=all
 #
-# Hermetic: node comes from the registered JS runtime toolchain, and typescript
-# and zod come from the lockfile through @npm, laid out as a node_modules tree
-# in the runfiles. Nothing is read from the host and nothing is skipped -- an
-# absent prerequisite fails the test rather than turning it into a no-op.
+# The subject is a TypeScript language service running under the hook, so every
+# assertion is in tsserver_diag_test.mjs and this file is the shim that gives it
+# a hermetic environment: node from the registered JS runtime toolchain, and
+# typescript and zod from the lockfile through @npm, laid out as a node_modules
+# tree in the runfiles. Nothing is read from the host and nothing is skipped --
+# an absent prerequisite fails the test rather than turning it into a no-op.
 
-set -euo pipefail
+# --- begin runfiles.bash initialization v3 ---
+# Copy-pasted from the Bazel Bash runfiles library v3.
+set -uo pipefail; set +e; f=bazel_tools/tools/bash/runfiles/runfiles.bash
+# shellcheck disable=SC1090
+source "${RUNFILES_DIR:-/dev/null}/$f" 2>/dev/null || \
+  source "$(grep -sm1 "^$f " "${RUNFILES_MANIFEST_FILE:-/dev/null}" | cut -f2- -d' ')" 2>/dev/null || \
+  source "$0.runfiles/$f" 2>/dev/null || \
+  source "$(grep -sm1 "^$f " "$0.runfiles_manifest" | cut -f2- -d' ')" 2>/dev/null || \
+  source "$(grep -sm1 "^$f " "$0.exe.runfiles_manifest" | cut -f2- -d' ')" 2>/dev/null || \
+  { echo>&2 "ERROR: cannot find $f"; exit 1; }; f=; set -e
+# --- end runfiles.bash initialization v3 ---
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-RUNFILES="${TEST_SRCDIR:-}"
-[[ -n "${RUNFILES}" ]] || fail "TEST_SRCDIR is unset; run this through bazel test"
-[[ -d "${RUNFILES}/_main" ]] && RUNFILES="${RUNFILES}/_main"
+# rlocation answers an absent runfile with a non-zero exit and no output, which
+# would otherwise become an empty path handed to node.
+runfile() {
+  local resolved
+  resolved="$(rlocation "${TEST_WORKSPACE:-_main}/$1")" || resolved=""
+  [[ -n "${resolved}" && -e "${resolved}" ]] || fail "missing runfile: $1"
+  printf '%s\n' "${resolved}"
+}
 
-NODE="${RUNFILES}/ts/toolchain/node_resolved/node"
-HOOK_JS="${RUNFILES}/tools/tsserver-hook.js"
-DTS_ENTRY_MJS="${RUNFILES}/tests/lsp/dts_entry.mjs"
-DIAG_TEST_MJS="${RUNFILES}/tests/lsp/tsserver_diag_test.mjs"
-NODE_MODULES="${RUNFILES}/tests/lsp/lsp_node_modules"
-
-for f in "${NODE}" "${HOOK_JS}" "${DTS_ENTRY_MJS}" "${DIAG_TEST_MJS}"; do
-  [[ -f "${f}" ]] || fail "missing runfile: ${f}"
-done
-[[ -d "${NODE_MODULES}" ]] || fail "missing node_modules tree: ${NODE_MODULES}"
+NODE="$(runfile ts/toolchain/node_resolved/node)"
+HOOK_JS="$(runfile tools/tsserver-hook.js)"
+DTS_ENTRY_MJS="$(runfile tests/lsp/dts_entry.mjs)"
+DIAG_TEST_MJS="$(runfile tests/lsp/tsserver_diag_test.mjs)"
+NODE_MODULES="$(runfile tests/lsp/lsp_node_modules)"
+[[ -d "${NODE_MODULES}" ]] || fail "not a node_modules tree: ${NODE_MODULES}"
 
 echo "INFO: node $("${NODE}" --version)"
 

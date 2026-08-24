@@ -1,10 +1,29 @@
 """Root BUILD file for the npm_deps integration test workspace."""
 
 load("@gazelle//:def.bzl", "gazelle")
+load("@rules_typescript//ts:defs.bzl", "ts_lint")
 
 # gazelle:ts_package_boundary every-dir
+# gazelle:exclude lint_fixture
 
 gazelle(
     name = "gazelle",
     gazelle = "@rules_typescript//gazelle:gazelle_ts",
+)
+
+# The negative case for ts_lint with a real oxlint: `var` violates the no-var
+# rule in lint_fixture/oxlint.json, so building this target must fail. It is
+# `manual` because `bazel build //...` has to keep succeeding; the test builds it
+# on purpose and asserts the failure.
+#
+# Both the fixture and its config live under the gazelle:exclude'd directory:
+# gazelle treats a config at the workspace root as the workspace's linter config
+# and generates a ts_lint rule in every package, which is not what this test is
+# about.
+ts_lint(
+    name = "violations_lint",
+    srcs = ["lint_fixture/violations.ts"],
+    config = "lint_fixture/oxlint.json",
+    linter_binary = "@npm//:oxlint_bin",
+    tags = ["manual"],
 )

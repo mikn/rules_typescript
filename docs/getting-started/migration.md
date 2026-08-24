@@ -13,41 +13,31 @@
 **Choose `rules_typescript` (this) if:**
 - You use Vite for bundling and dev serving
 - You want Gazelle to generate all BUILD files (zero manual maintenance)
-- You want sub-second incremental rebuilds via the `.d.ts` compilation boundary
+- You want the `.d.ts` compilation boundary: a body-only change recompiles nothing downstream
 - You want type errors to fail the build without extra flags
 - You use Remix, TanStack Start, or other Vite-based frameworks
-- You want zero system prerequisites (no Node, no pnpm install needed)
+- You want no system prerequisite but Bazelisk (no system Node, no `pnpm install`)
 
 ## Comparison
 
 | | rules_ts (Aspect) | rules_typescript (this) |
 |---|---|---|
-| **Compiler** | tsc (JavaScript) | Oxc (Rust) — 10-100x faster per file |
+| **Compiler** | tsc (JavaScript) | Oxc (Rust) |
 | **Type-checker** | tsc | tsgo (Go port of TypeScript) |
 | **Compilation boundary** | tsc project references | `.d.ts` per target |
 | **Bundler** | Bring your own | Vite (first-class, built-in) |
 | **Dev server** | None built-in | Vite with HMR + React Fast Refresh |
-| **npm management** | rules_js (pnpm virtual store, symlinks) | Own pnpm lockfile parser (simpler) |
+| **npm management** | rules_js (pnpm virtual store, symlinks) | Own pnpm lockfile reader; one Bazel repository per package, fetched on demand |
 | **BUILD generation** | Aspect CLI (proprietary) | Gazelle (open-source, directives) |
 | **Framework support** | None built-in | Remix, TanStack Start, SvelteKit, Solid Start |
-| **Dependencies** | rules_js + rules_nodejs | rules_nodejs only |
+| **Bazel deps** | rules_js + rules_nodejs | rules_nodejs, rules_rust, rules_go + gazelle, rules_shell, bazel_skylib, platforms, toolchain_utils |
 | **Isolated declarations** | Not required | Not required; opt-in per package for throughput |
-| **pnpm** | System install required | Hermetic (`bazel run //:pnpm`) |
-| **BCR** | Published, stable | Pre-release (v0.1.0) |
+| **pnpm** | System install required | Hermetic, opt-in ([two lines](../guides/npm.md#hermetic-pnpm)); Linux and macOS only |
+| **BCR** | Published, stable | Not published; no tag or release either — consumers pin a commit |
 | **Production users** | Many companies | None yet |
-| **Windows** | Supported | Partial (node_modules action only) |
+| **Windows** | Supported | Not supported |
 
 ## Trade-offs: where rules_ts is better
-
-### Full tsc compatibility
-
-`tsc` IS TypeScript. Every compiler flag, every `tsconfig.json` option, every edge case works exactly as documented. Our Oxc + tsgo stack covers the vast majority of TypeScript, but:
-
-- Decorator metadata (`emitDecoratorMetadata`) may behave differently in oxc
-- Very new TypeScript syntax may lag behind tsc by a few weeks until oxc implements it
-- Some exotic `tsconfig.json` options (e.g., `verbatimModuleSyntax` edge cases) may not be handled identically
-
-For most projects this doesn't matter. For projects with complex decorator patterns or bleeding-edge TypeScript features, `tsc` is safer.
 
 ### tsc edge-case compatibility
 
@@ -59,7 +49,11 @@ the JavaScript transform only — declarations come from tsgo by default, so the
 
 ### Mature ecosystem
 
-`rules_ts` is published on BCR, used in production by real companies, and battle-tested at scale. `rules_typescript` is v0.1.0. Expect rough edges.
+`rules_ts` is published on BCR, used in production by real companies, and
+battle-tested at scale. `rules_typescript` has no release at all — no tag, no
+BCR entry, no production users — and its API broke repeatedly in the last two
+rounds of work (see the [changelog](../changelog.md)). Expect rough edges and
+expect to read a changelog when you move a pin.
 
 ### npm handling
 
@@ -72,13 +66,23 @@ Our parser handles the common cases (scoped packages, `@types` pairing, multiple
 
 ### Windows
 
-`rules_ts` + `rules_js` work on Windows. Our `node_modules` build action is cross-platform (Node.js script), but test runners, dev server, and binary runners are still bash scripts.
+`rules_ts` + `rules_js` work on Windows. This ruleset does not: no tsgo binary
+is published for Windows, so the default declaration emitter has no toolchain;
+every runner (`ts_test`, `ts_binary`, `ts_dev_server`, `ts_codegen`, `npm_bin`,
+the Vite bundler) is a bash script; and hermetic pnpm has no Windows build. The
+`node_modules` tree action is cross-platform, and that is the extent of it.
 
 ## Trade-offs: where rules_typescript is better
 
 ### Compilation speed
 
-Oxc (Rust) compiles TypeScript 10-100x faster per file than tsc. For a 500-file project, clean compilation is seconds, not minutes. Incremental rebuilds (touching one file) are sub-second.
+Oxc is a Rust transformer with no type program, so the per-file transform is far
+cheaper than tsc's. No like-for-like comparison against `rules_ts` has been run
+here, so take no multiplier from this page. What has been measured is this
+ruleset against itself: a rebuild of 1,000 files across 20 packages after
+touching every source takes 6.3s with tsgo emitting declarations and 2.7s with
+oxc emitting them and nothing type-checking
+([method and caveats](../rules/ts-compile.md#cost-of-each-mode)).
 
 ### Incremental boundary
 
@@ -92,33 +96,64 @@ the dependency graph.
 
 Bundling, dev server, HMR, React Fast Refresh, framework Vite plugins — all built-in. `rules_ts` has no bundler or dev server; you wire those yourself.
 
-### Simpler dependency chain
+### No JS-ruleset layer
 
-No `rules_js`. No complex virtual store. One `pnpm-lock.yaml` → one `@npm` repository.
+There is no `rules_js` and no virtual store: the ruleset reads `pnpm-lock.yaml`
+itself and declares one Bazel repository per package behind a `@npm` alias hub.
+Fewer moving parts *in the JS layer* — but not a smaller dependency chain
+overall. Oxc is Rust, so `rules_rust` and a Rust toolchain come along; Gazelle
+is Go, so `rules_go`, `gazelle` and a Go SDK do too. `rules_ts` needs neither.
+The first build pays for both toolchains.
 
 ### Gazelle
 
-Open-source BUILD file generation with 10 directives, framework auto-detection, codegen auto-detection, and automatic lint/dev-server/bundler target generation. `rules_ts` relies on the proprietary Aspect CLI.
+Open-source BUILD file generation with nine `# gazelle:ts_*` directives,
+framework auto-detection, codegen auto-detection, and automatic
+lint/dev-server/bundler target generation. `rules_ts` relies on the proprietary
+Aspect CLI.
 
-### Zero system prerequisites
+### No system prerequisites but Bazelisk
 
-Only Bazelisk needed. Node.js, pnpm, Go, Rust are all downloaded hermetically. `rules_ts` requires system Node.js and pnpm.
+Node.js, Go and Rust are downloaded hermetically. pnpm can be too — it is
+opt-in, [two lines of setup](../guides/npm.md#hermetic-pnpm) — and is needed
+only to edit the lockfile, never to build or test. `rules_ts` requires a system
+Node.js and pnpm.
 
 ## Migration steps
 
 If you decide to migrate from `rules_ts`:
 
 1. Replace `ts_project` targets with `ts_compile`
-2. Replace `js_library` / `npm_link_all_packages` with `npm_translate_lock`
-3. Remove `tsconfig.json` from BUILD deps — `ts_compile` generates its tsconfig internally
+2. Replace `js_library` / `npm_link_all_packages` with the `npm` module
+   extension in `MODULE.bazel`:
+
+   ```python
+   npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
+   npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
+   use_repo(npm, "npm")
+   ```
+
+3. Keep your `tsconfig.json` out of BUILD `deps`. Either drop it entirely and
+   take the zero-config baseline, or pass it as `ts_compile(tsconfig = ...)` to
+   have the generated config extend it — see
+   [where compiler options come from](../rules/ts-compile.md#where-compiler-options-come-from)
 4. Run `bazel run //:gazelle` to regenerate BUILD files
-5. Nothing else. Missing explicit return types are fine — the default emitter infers them
+5. Nothing else. Missing explicit return types are fine — the default emitter
+   infers them
 
 ### Key conceptual differences
 
-**No `tsconfig.json` in BUILD files.** `ts_compile` generates a tsconfig per target internally using `rootDirs`, `moduleResolution: "Bundler"`, and `paths` entries from deps.
+**The tsconfig is generated, but yours can be the baseline.** `ts_compile`
+generates a tsconfig per target — it owns `rootDirs`, `paths`, the `@types`
+`files` list and the emit shape, which a user file cannot supply — and `extends` yours in place
+when you pass `tsconfig`. Attributes (`lib`, `types`, `jsx_import_source`,
+`compiler_options`) sit between the two.
 
-**One `@npm` repository.** `rules_ts` with `rules_js` creates per-package virtual stores. We create a single `@npm` repo. Labels: `@npm//:react`, `@npm//:types_react`.
+**One Bazel repository per npm package.** `rules_ts` with `rules_js` builds a
+pnpm virtual store of symlinks. Here each package is its own external
+repository, fetched when something needs it, with `@npm` holding nothing but
+aliases into them. Labels are unchanged from a consumer's point of view:
+`@npm//:react`, `@npm//:types_react`, `@npm//:vitest_bin`.
 
 **Isolated declarations are opt-in.** Every target starts on `declarations = "tsgo"`, which needs no annotations. Add `# gazelle:ts_declarations oxc` to a package once its exports are annotated, to move type-checking off the critical path.
 

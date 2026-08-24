@@ -51,7 +51,7 @@ Why a "node_modules" symlink is created:
 """
 
 load("//ts/private:providers.bzl", "BundlerInfo", "NpmPackageInfo")
-load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "get_js_runtime")
+load("//ts/private:runtime.bzl", "JS_TOOL_TOOLCHAIN_TYPE", "get_js_tool")
 
 def _shell_escape(s):
     """Escapes a string for safe embedding in a double-quoted shell string."""
@@ -60,16 +60,22 @@ def _shell_escape(s):
 # ─── Rule implementation ───────────────────────────────────────────────────────
 
 def _vite_bundler_impl(ctx):
-    # Resolve the JS runtime from the toolchain or fall back to system node.
-    runtime_binary = None
+    # Vite runs inside a build action, so node comes from the js_tool (exec
+    # platform) toolchain unless the target names its own.
     runtime_args = []
     if ctx.file.runtime:
         runtime_binary = ctx.file.runtime
     else:
-        js_runtime = get_js_runtime(ctx)
-        if js_runtime:
-            runtime_binary = js_runtime.runtime_binary
-            runtime_args = js_runtime.args_prefix
+        js_tool = get_js_tool(ctx)
+        if not js_tool:
+            fail(
+                "vite_bundler: no JS tool toolchain registered and no 'runtime' set for '{}'.\n".format(ctx.label) +
+                "Either register one:\n" +
+                "  register_toolchains(\"@rules_typescript//ts/toolchain:all\")\n" +
+                "or point the runtime attr at a node binary built for the exec platform.",
+            )
+        runtime_binary = js_tool.runtime_binary
+        runtime_args = js_tool.args_prefix
 
     # Collect the node_modules directory artifact (from node_modules() rule).
     # The node_modules() rule produces a single directory artifact.
@@ -109,7 +115,7 @@ def _vite_bundler_impl(ctx):
     # The runtime path is exec-root-relative. Since we cd to a subdirectory,
     # we must resolve it to an absolute path before cd'ing.
     # We capture EXEC_ROOT=$(pwd) before the cd, then use $EXEC_ROOT/<rel>.
-    runtime_rel = runtime_binary.path if runtime_binary else ""
+    runtime_rel = runtime_binary.path
     runtime_args_str = " ".join(["\"{}\"".format(a) for a in runtime_args])
 
     # Generate a wrapper script that will be used as the bundler_binary in
@@ -146,6 +152,10 @@ def _vite_bundler_impl(ctx):
         "#   $4 = HTML file path (\"\" when not in app mode, or no html attr)\n" +
         "#   $5 = staging manifest path (optional; omitted when staging_srcs is empty)\n" +
         "CONFIG=\"${EXEC_ROOT}/$1\"\n" +
+        "\n" +
+        "# Vite's config loader mkdirs '.vite-temp' in the nearest node_modules above\n" +
+        "# the config, and the exec root's is a read-only symlink into the source tree.\n" +
+        "mkdir -p \"$(dirname \"${CONFIG}\")/node_modules\"\n" +
         "\n" +
         "# Export absolute paths for the vite.config.mjs to read.\n" +
         "export EXEC_ROOT\n" +
@@ -197,20 +207,14 @@ def _vite_bundler_impl(ctx):
         "NM_ACTUAL=\"${EXEC_ROOT}/" + _shell_escape(node_modules_path) + "\"\n" +
         "NM_DIR=\"${EXEC_ROOT}/" + _shell_escape(parent_rel) + "\"\n" +
         (
-            ""  # already named node_modules — no symlink needed
-            if actual_nm_basename == "node_modules" else
-            "ln -sf \"${NM_ACTUAL}\" \"${NM_DIR}/node_modules\" 2>/dev/null || true\n"
+            "" if actual_nm_basename == "node_modules" else "ln -sf \"${NM_ACTUAL}\" \"${NM_DIR}/node_modules\" 2>/dev/null || true\n"  # already named node_modules — no symlink needed
         ) +
         "\n" +
         "# cd to the parent of the node_modules tree so that Node.js ESM resolution\n" +
         "# can traverse directories and find node_modules/picomatch, etc.\n" +
         "cd \"${NM_DIR}\"\n" +
         "\n" +
-        (
-            "RUNTIME=\"${EXEC_ROOT}/" + _shell_escape(runtime_rel) + "\"\n"
-            if runtime_rel else
-            "RUNTIME=\"node\"\n"
-        ) +
+        "RUNTIME=\"${EXEC_ROOT}/" + _shell_escape(runtime_rel) + "\"\n" +
         "RUNTIME_ARGS=(" + runtime_args_str + ")\n" +
         "VITE_JS=\"" + vite_entry_rel + "\"\n" +
         "\n" +
@@ -225,12 +229,9 @@ def _vite_bundler_impl(ctx):
 
     # Collect all runtime deps: vite npm package files + node_modules tree + runtime.
     vite_npm_info = ctx.attr.vite[NpmPackageInfo]
-    runtime_dep_files = []
-    if runtime_binary:
-        runtime_dep_files.append(runtime_binary)
 
     runtime_deps = depset(
-        [wrapper] + runtime_dep_files,
+        [wrapper, runtime_binary],
         transitive = [
             vite_npm_info.all_files,
             depset(node_modules_files),
@@ -266,15 +267,14 @@ vite_bundler = rule(
             allow_files = True,
         ),
         "runtime": attr.label(
-            doc = "Per-target override for the JS runtime binary. " +
-                  "When set, takes priority over the js_runtime toolchain.",
+            doc = "Per-target override for the node binary that runs Vite. " +
+                  "When set, takes priority over the js_tool toolchain.",
             allow_single_file = True,
-            executable = True,
             cfg = "exec",
         ),
     },
     toolchains = [
-        config_common.toolchain_type(JS_RUNTIME_TOOLCHAIN_TYPE, mandatory = False),
+        config_common.toolchain_type(JS_TOOL_TOOLCHAIN_TYPE, mandatory = False),
     ],
     doc = """Declares a Vite bundler instance that satisfies the BundlerInfo interface.
 

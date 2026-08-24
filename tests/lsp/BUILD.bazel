@@ -1,8 +1,13 @@
 """Tests for the tsserver resolution hook (//tools:tsserver-hook.js).
 
-  :test_resolution_map          the worker's map of the REAL workspace: it runs
-                                `bazel query` and scans the npm external repos,
-                                so it is neither sandboxed nor hermetic.
+  :test_resolution_map          the worker over what //:refresh_tsconfig really
+                                generates for this repo, staged into a scratch
+                                workspace by its own copier. Only the npm half
+                                of the map is visible from there.
+  :test_worker_map              the same worker against a fixture workspace: npm
+                                (both forms of entry point), internal ts_compile
+                                packages, and path aliases, including what must
+                                stay OUT of the map.
   :test_resolve_integration     the monkey-patch itself -- ts.resolveModuleName
                                 returns lockfile .d.ts paths and follows
                                 ts_path_alias prefixes.
@@ -16,6 +21,9 @@ from the lockfile via :lsp_node_modules, so they need nothing from the host.
 
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//npm:defs.bzl", "node_modules")
+load("//ts:defs.bzl", "ts_compile")
+load("//ts/private:tsconfig_aspect.bzl", "ide_tsconfig")
+load(":ide_tsconfig_tests.bzl", "ambient_types_test", "no_ambient_types_test")
 
 # typescript is a genuine dependency of the LSP path, not a stand-in: the hook
 # patches real TypeScript's module-level resolveModuleName, and tsgo has no
@@ -32,27 +40,33 @@ node_modules(
 
 sh_test(
     name = "test_resolution_map",
-    size = "medium",
-    timeout = "long",
+    size = "small",
     srcs = ["test_resolution_map.sh"],
     data = [
-        # A symlink in the runfiles tree, resolved to locate the real checkout
-        # the worker must query. Same pattern as //tests/integration:*_test.
-        "//:MODULE.bazel",
+        "resolution_map_test.mjs",
+        # The run target, for its manifest and the files it installs: staging
+        # them here is what makes the npm entry points under test the real ones.
+        "//:refresh_tsconfig",
         "//tools:tsserver-hook.js",
         "//tools:tsserver-hook-worker.js",
         "//ts/toolchain:node_resolved",
     ],
-    env_inherit = [
-        "PATH",
-        "HOME",
-        "USER",
+    deps = ["@bazel_tools//tools/bash/runfiles"],
+)
+
+# The same worker against a fixture workspace, where the internal-package and
+# path-alias halves of the map are checked too -- neither survives the staging
+# :test_resolution_map does, which is why that one sees only the npm half.
+sh_test(
+    name = "test_worker_map",
+    size = "small",
+    srcs = ["test_worker_map.sh"],
+    data = [
+        "worker_map_test.mjs",
+        "//tools:tsserver-hook-worker.js",
+        "//ts/toolchain:node_resolved",
     ],
-    tags = [
-        # Shells out to `bazel query` against the real workspace.
-        "no-sandbox",
-        "requires-network",
-    ],
+    deps = ["@bazel_tools//tools/bash/runfiles"],
 )
 
 sh_test(
@@ -66,6 +80,7 @@ sh_test(
         "//tools:tsserver-hook.js",
         "//ts/toolchain:node_resolved",
     ],
+    deps = ["@bazel_tools//tools/bash/runfiles"],
 )
 
 sh_test(
@@ -79,4 +94,44 @@ sh_test(
         "//tools:tsserver-hook.js",
         "//ts/toolchain:node_resolved",
     ],
+    deps = ["@bazel_tools//tools/bash/runfiles"],
+)
+
+# ── Ambient @types/* declarations in the generated tsconfig ───────────────────
+# The two fixtures differ only in the @types/node dep, so the pair is what
+# attributes the `files` entry to that dep rather than to anything else the
+# aspect walks. Analysed, not built: the tsconfig is written at analysis time.
+ts_compile(
+    name = "ambient_fixture",
+    srcs = ["ambient_fixture.ts"],
+    tags = ["manual"],
+    deps = ["@npm//:types_node"],
+)
+
+ts_compile(
+    name = "plain_fixture",
+    srcs = ["plain_fixture.ts"],
+    tags = ["manual"],
+)
+
+ide_tsconfig(
+    name = "ambient_ide_tsconfig",
+    tags = ["manual"],
+    deps = [":ambient_fixture"],
+)
+
+ide_tsconfig(
+    name = "plain_ide_tsconfig",
+    tags = ["manual"],
+    deps = [":plain_fixture"],
+)
+
+ambient_types_test(
+    name = "ambient_types_test",
+    target_under_test = ":ambient_ide_tsconfig",
+)
+
+no_ambient_types_test(
+    name = "no_ambient_types_test",
+    target_under_test = ":plain_ide_tsconfig",
 )

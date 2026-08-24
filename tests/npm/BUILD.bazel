@@ -1,7 +1,12 @@
-load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@rules_go//go:def.bzl", "go_test")
 load("//npm:defs.bzl", "node_modules")
 load("//ts:defs.bzl", "ts_compile")
 load(":parser_tests.bzl", "parser_test_suite")
+
+# The go_test targets are hand-named after the sh_tests they replaced, so the
+# Go language would add a second target for the same source.
+# gazelle:exclude *_test.go
 
 # Lockfile-text tests: what the parsers read, and what they must keep ignoring.
 parser_test_suite(name = "parser_tests")
@@ -30,11 +35,12 @@ ts_compile(
 
 # Test that npm_bin targets are generated and executable.
 # nanoid_bin is a simple bin with no npm dependencies, making it ideal for testing.
-sh_test(
+go_test(
     name = "npm_bin_test",
     size = "small",
-    srcs = ["verify_bin_scripts.sh"],
+    srcs = ["npm_bin_test.go"],
     data = ["@npm//:nanoid_bin"],
+    deps = ["//tests/verify"],
 )
 
 # Test that multi-version npm packages generate versioned Bazel labels.
@@ -44,15 +50,16 @@ sh_test(
 #   @npm//:vitest_pretty-format_3_0_9  (versioned, specific)
 #   @npm//:vitest_pretty-format_3_2_4  (versioned, specific)
 #   @npm//:vitest_pretty-format        (alias → highest = 3.2.4)
-sh_test(
+go_test(
     name = "npm_multi_version_test",
     size = "small",
-    srcs = ["verify_multi_version.sh"],
+    srcs = ["npm_multi_version_test.go"],
     data = [
         "@npm//:vitest_pretty-format",
         "@npm//:vitest_pretty-format_3_0_9",
         "@npm//:vitest_pretty-format_3_2_4",
     ],
+    deps = ["//tests/verify"],
 )
 
 # Same feature from a NON-ROOT importer: pnpm-lock.yaml has importer
@@ -67,32 +74,35 @@ ts_compile(
     deps = ["@npm//:nested-shared"],
 )
 
-sh_test(
+go_test(
     name = "workspace_relative_link_test",
     size = "small",
-    srcs = ["verify_workspace_relative_link.sh"],
+    srcs = ["workspace_relative_link_test.go"],
     data = ["@npm//:nested-shared"],
+    deps = ["//tests/verify"],
 )
 
 # Test that a tarball with an unpredictable top-level directory is extracted
 # correctly: @types/express-serve-static-core@4.19.6 packs its files under
 # "express-serve-static-core v4.19/".
-sh_test(
+go_test(
     name = "npm_tarball_prefix_test",
     size = "small",
-    srcs = ["verify_versioned_types_prefix.sh"],
+    srcs = ["npm_tarball_prefix_test.go"],
     data = ["@npm//:types_express-serve-static-core"],
+    deps = ["//tests/verify"],
 )
 
 # A pnpm patch has to reach the files a build sees. The registry tarball is
 # byte-identical either way -- `packages:` records the integrity of the unpatched
 # publish -- so a patch that quietly fails to apply produces a green build that
 # ships the wrong package. The fixture patch rewrites nanoid's "sideEffects".
-sh_test(
+go_test(
     name = "npm_patched_dependency_test",
     size = "small",
-    srcs = ["verify_patched_dependency.sh"],
+    srcs = ["npm_patched_dependency_test.go"],
     data = ["@npm_features//:nanoid"],
+    deps = ["//tests/verify"],
 )
 
 # Two npm alias specifiers in the fixture lockfile, each reachable by exactly
@@ -108,12 +118,89 @@ node_modules(
     deps = ["@npm_features//:zod"],
 )
 
-sh_test(
+go_test(
     name = "npm_alias_test",
     size = "small",
-    srcs = ["verify_npm_alias.sh"],
+    srcs = ["npm_alias_test.go"],
     data = [
         ":importer_alias_node_modules",
         ":package_alias_node_modules",
+    ],
+    deps = ["//tests/verify"],
+)
+
+# ── Peer-dependency variants and per-importer resolution ─────────────────────
+#
+# pnpm resolves a package once PER PEER SET, and the fixture lockfile has
+# ansi-styles@6.2.3 resolved twice: once against ansi-regex@5.0.1 for the
+# workspace member app-a, once against ansi-regex@6.2.2 for app-b. Both
+# resolutions are the same tarball; only the transitive versions differ.
+#
+# Two things have to hold, and each fails silently on its own:
+#   the graph keeps the variants apart   -- otherwise both members get whichever
+#                                          snapshot the reader saw last
+#   the label names the member's own     -- otherwise a flat hub hands both
+#                                          members the highest version
+#
+# Nothing in the built output would look wrong either way: every version present
+# is a real version of a real package. Only the tree contents tell them apart.
+node_modules(
+    name = "peer_variant_a_node_modules",
+    deps = ["@npm_features//app-a:ansi-styles"],
+)
+
+node_modules(
+    name = "peer_variant_b_node_modules",
+    deps = ["@npm_features//app-b:ansi-styles"],
+)
+
+node_modules(
+    name = "importer_a_node_modules",
+    deps = ["@npm_features//app-a:ansi-regex"],
+)
+
+node_modules(
+    name = "importer_b_node_modules",
+    deps = ["@npm_features//app-b:ansi-regex"],
+)
+
+go_test(
+    name = "npm_peer_variant_test",
+    size = "small",
+    srcs = ["npm_peer_variant_test.go"],
+    data = [
+        ":importer_a_node_modules",
+        ":importer_b_node_modules",
+        ":peer_variant_a_node_modules",
+        ":peer_variant_b_node_modules",
+    ],
+    deps = ["//tests/verify"],
+)
+
+# ── The graph does not depend on the machine that read the lockfile ──────────
+#
+# fsevents@2.3.3 is `os: [darwin]`. Filtering the lockfile against the host's
+# os/cpu -- which is what the module extension used to do -- makes @npm//:fsevents
+# exist on a Mac and not exist on Linux, and the extension's result is recorded in
+# MODULE.bazel.lock, a file that is committed and shared. So the label has to
+# resolve here, on Linux, and the choice of which platform's package a build
+# actually pulls has to be a select() resolved at analysis time instead.
+go_test(
+    name = "npm_platform_independent_graph_test",
+    size = "small",
+    srcs = ["npm_platform_independent_graph_test.go"],
+    data = ["@npm//:fsevents"],
+    deps = ["//tests/verify"],
+)
+
+# A workspace member's directory can be named after an npm package -- a member at
+# `ms/` alongside a dependency on `ms`. The hub then needs the target `:ms` and
+# the package `ms/` at once, which is the one way per-importer packages could
+# have collided with the flat namespace.
+build_test(
+    name = "npm_importer_package_name_collision_test",
+    targets = [
+        "@npm_features//:ms",
+        "@npm_features//ms:zod",
     ],
 )

@@ -5,15 +5,25 @@
 ## Setup
 
 ```python
-load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_dev_server")
+load("@rules_typescript//ts:defs.bzl", "ts_dev_server")
+load("@rules_typescript//npm:defs.bzl", "node_modules")
+
+node_modules(
+    name = "dev_node_modules",
+    deps = ["@npm//:vite"],
+)
 
 ts_dev_server(
     name = "dev",
     entry_point = ":app",
+    node_modules = ":dev_node_modules",
     port = 5173,
     plugin = "@rules_typescript//vite:vite_plugin_bazel",
 )
 ```
+
+Vite itself comes from the `node_modules` tree — the rule does not fetch it —
+so that attribute is what makes the target runnable.
 
 ```bash
 ibazel run //src/app:dev
@@ -36,6 +46,8 @@ The `plugin` attribute wires `vite-plugin-bazel`, which intercepts `.ts` import 
 | `node_modules` | `label` | `None` | `node_modules` target providing Vite and other runtime deps |
 | `plugin` | `label` | `None` | Compiled `.mjs` file for `vite-plugin-bazel` (enables HMR with ibazel) |
 | `bundler` | `label` | `None` | `BundlerInfo`-providing target (optional; dev mode uses Vite natively) |
+| `react_refresh` | `bool` | `False` | React Fast Refresh via `@vitejs/plugin-react`, so component state survives an HMR update. Requires `@npm//:vitejs_plugin-react` in the `node_modules` deps |
+| `vite_config` | `label` | `None` | A `.mjs`/`.js` file default-exporting `{plugins: [...]}`, prepended to Bazel's plugins. This is how framework plugins (TanStack Start, Remix, SvelteKit, Solid Start) run in the dev server |
 
 ## Watch Mode with ibazel
 

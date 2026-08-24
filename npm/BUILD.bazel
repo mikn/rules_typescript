@@ -6,8 +6,8 @@ bzl_library(
     name = "defs",
     srcs = ["defs.bzl"],
     deps = [
+        "//npm/private:npm_bin",
         "//ts/private:node_modules",
-        "//ts/private:npm_bin",
     ],
 )
 
@@ -15,8 +15,9 @@ bzl_library(
     name = "lazy",
     srcs = ["lazy.bzl"],
     deps = [
-        "//ts/private:npm_import",
-        "//ts/private:npm_translate_lock",
+        "//npm/private:npm_import",
+        "//npm/private:npm_translate_lock",
+        "//platforms",
     ],
 )
 

@@ -1,7 +1,7 @@
 """End-to-end test workspace for rules_typescript.
 
-Exercises ts_compile, ts_check, ts_config_gen, ts_test, and ts_binary
-against a minimal multi-package TypeScript project.
+Exercises ts_compile, ts_test, and ts_binary against a minimal
+multi-package TypeScript project.
 """
 
 module(

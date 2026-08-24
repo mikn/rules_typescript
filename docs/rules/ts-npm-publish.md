@@ -1,6 +1,12 @@
 # ts_npm_publish
 
-Assembles a publishable npm package from a `ts_compile` target. Collects `.js`, `.js.map`, and `.d.ts` outputs, merges them with a `package.json` template, and produces a staging directory and a tarball ready for `npm publish`.
+Assembles a publishable npm package from a `ts_compile` target. Collects `.js`,
+`.js.map`, and `.d.ts` outputs, merges them with a `package.json` template, and
+produces a staging directory and a tarball ready for `npm publish`.
+
+`main`, `types` and `exports` are auto-filled from the entry point when the
+template does not declare them; `version` is replaced when the attr is set. See
+[Publishing Packages](../guides/publishing.md#packagejson-template).
 
 ## Usage
 
@@ -27,7 +33,7 @@ ts_npm_publish(
 
 | Output | Description |
 |--------|-------------|
-| `<name>_pkg/` | Staging directory with all files at package root |
+| `<name>_pkg/package/` | Staging directory; the `package/` level is what npm expects inside the tarball |
 | `<name>_pkg.tar` | Tarball with `package/` prefix (ready for `npm publish`) |
 
 See [Publishing Packages](../guides/publishing.md) for the full guide.

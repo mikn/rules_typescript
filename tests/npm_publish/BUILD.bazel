@@ -1,5 +1,9 @@
-load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("@rules_go//go:def.bzl", "go_test")
 load("//ts:defs.bzl", "ts_compile", "ts_npm_publish")
+
+# The go_test targets are hand-named after the sh_tests they replaced, so the
+# Go language would add a second target for the same source.
+# gazelle:exclude *_test.go
 
 ts_compile(
     name = "math",
@@ -15,9 +19,23 @@ ts_npm_publish(
     visibility = ["//visibility:private"],
 )
 
-sh_test(
+# A minified template exercises the JSON path that a line-oriented patcher
+# cannot handle.
+ts_npm_publish(
+    name = "compact_pkg",
+    package = ":math",
+    package_json = ":package.compact.json",
+    version = "2.5.0",
+    visibility = ["//visibility:private"],
+)
+
+go_test(
     name = "npm_publish_test",
     size = "small",
-    srcs = ["verify_npm_publish.sh"],
-    data = [":math_pkg"],
+    srcs = ["npm_publish_test.go"],
+    data = [
+        ":compact_pkg",
+        ":math_pkg",
+    ],
+    deps = ["//tests/verify"],
 )

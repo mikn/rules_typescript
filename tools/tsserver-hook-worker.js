@@ -3,27 +3,34 @@
  *
  * Runs in a worker thread (spawned by tsserver-hook.js).
  * Builds a resolution map from:
- *   1. npm packages in the Bazel @npm external repo (from `bazel info output_base`).
- *   2. Internal ts_compile packages (from `bazel query`).
- *   3. Path-alias directives (# gazelle:ts_path_alias) in BUILD files.
+ *   1. The npm packages, ts_compile packages and path aliases named in
+ *      .bazel/tsserver-hook-data.json, which `bazel run //:refresh_tsconfig`
+ *      writes from the build graph.
+ *   2. Path-alias directives (# gazelle:ts_path_alias) in BUILD files, for
+ *      directives added since the last refresh.
  *
  * Sends the map to the main thread via postMessage, then sets up file-system
- * watches to rebuild the map when BUILD files or pnpm-lock.yaml change.
+ * watches to rebuild the map when that data, a BUILD file or pnpm-lock.yaml
+ * changes.
  *
  * Design constraints:
  *   - Zero npm dependencies (Node.js builtins only).
- *   - Must not block — all Bazel invocations use execSync with a timeout.
- *   - Must degrade gracefully if Bazel is unavailable.
+ *   - Never runs Bazel: this is an editor process, and asking the Bazel server
+ *     anything from here would block on the lock a build holds. Everything
+ *     Bazel knows arrives through the generated data file.
+ *   - Must degrade gracefully when that file is absent or stale.
  */
 
 'use strict';
 
 const { parentPort, workerData } = require('worker_threads');
-const { execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
-const { workspaceRoot, outputBase: providedOutputBase } = workerData;
+const { workspaceRoot, dataFile: providedDataFile } = workerData;
+
+// Where `bazel run //:refresh_tsconfig` installs the graph data, workspace-relative.
+const HOOK_DATA = '.bazel/tsserver-hook-data.json';
 
 const DEBUG = !!process.env.TSSERVER_HOOK_DEBUG;
 
@@ -44,76 +51,51 @@ function log(msg) {
  */
 function buildResolutionMap() {
   const map = {};
+  const data = readHookData();
 
-  // Step 1: npm packages from the Bazel external @npm repo
-  // Use the pre-computed output base (from workerData.outputBase) when
-  // available — this is critical when the worker runs inside a `bazel test`
-  // invocation that holds the Bazel server lock, preventing `bazel info` from
-  // running concurrently.
-  let resolvedOutputBase = (providedOutputBase || '').trim();
-
-  if (!resolvedOutputBase) {
-    try {
-      resolvedOutputBase = execSync('bazel info output_base', {
-        cwd: workspaceRoot,
-        encoding: 'utf8',
-        timeout: 15000,
-        stdio: ['ignore', 'pipe', 'ignore'],
-      }).trim();
-    } catch (e) {
-      log(`bazel info output_base failed: ${e.message} — skipping npm resolution`);
-    }
-  }
-
-  if (resolvedOutputBase) {
-    // Two layouts to support, and no need to tell them apart up front: npm
-    // packages either share one repository as subdirectories, or each get their
-    // own repository. Both mark themselves with a ts_npm_package rule; only the
-    // per-package form has its package.json at the repository root.
-    const externalDir = path.join(resolvedOutputBase, 'external');
-    let scanned = 0;
-    for (const repoDir of findNpmRepoDirs(externalDir)) {
-      if (fs.existsSync(path.join(repoDir, 'package.json'))) {
-        scanNpmSpokeRepo(repoDir, map);
+  if (!data) {
+    log(
+      `no hook data at ${path.join(workspaceRoot, HOOK_DATA)} — ` +
+        'run `bazel run //:refresh_tsconfig` to generate it'
+    );
+  } else {
+    // Step 1: npm packages, installed in the workspace by refresh_tsconfig.
+    // Only the packages the aspect reached are listed, which is the same set
+    // the generated tsconfig.json exposes.
+    const npmDir = path.join(workspaceRoot, data.npmDir || '');
+    let resolved = 0;
+    for (const pkg of data.npmPackages || []) {
+      if (!pkg || !pkg.name || map[pkg.name]) continue;
+      const dtsPath = resolveInstalledPackage(npmDir, pkg);
+      if (dtsPath) {
+        map[pkg.name] = dtsPath;
+        resolved += 1;
+        log(`npm: ${pkg.name} → ${dtsPath}`);
       } else {
-        scanNpmPackages(repoDir, map);
+        log(`npm: ${pkg.name} has no declarations under ${npmDir}`);
       }
-      scanned += 1;
     }
-    if (scanned === 0) {
-      log('no npm external repos found — skipping npm resolution');
-    } else {
-      log(`scanned ${scanned} npm external repo(s)`);
+    log(`npm: resolved ${resolved} of ${(data.npmPackages || []).length} packages`);
+
+    // Step 2: internal ts_compile packages.
+    for (const pkg of data.packages || []) {
+      const srcDir = path.join(workspaceRoot, pkg);
+      const binDir = path.join(workspaceRoot, 'bazel-bin', pkg);
+      scanPackageForResolution(pkg, srcDir, binDir, map);
+    }
+
+    // Step 3: the path aliases the build graph carries.
+    for (const alias of data.aliases || []) {
+      if (!alias || !alias.prefix || !alias.dir) continue;
+      const key = `__alias__${alias.prefix.replace(/\/$/, '')}/`;
+      if (map[key]) continue;
+      map[key] = path.join(workspaceRoot, alias.dir.replace(/\/$/, ''));
+      log(`path alias: ${alias.prefix} → ${map[key]}`);
     }
   }
 
-  // Step 2: internal ts_compile packages
-  try {
-    const queryResult = execSync(
-      "bazel query 'kind(\"ts_compile rule\", //...)' --output=package 2>/dev/null",
-      {
-        cwd: workspaceRoot,
-        encoding: 'utf8',
-        timeout: 45000,
-        stdio: ['ignore', 'pipe', 'ignore'],
-        shell: true,
-      }
-    ).trim();
-
-    if (queryResult) {
-      const packages = queryResult.split('\n').filter(Boolean);
-      log(`found ${packages.length} ts_compile packages`);
-      for (const pkg of packages) {
-        const srcDir = path.join(workspaceRoot, pkg);
-        const binDir = path.join(workspaceRoot, 'bazel-bin', pkg);
-        scanPackageForResolution(pkg, srcDir, binDir, map);
-      }
-    }
-  } catch (e) {
-    log(`bazel query failed: ${e.message} — skipping internal package resolution`);
-  }
-
-  // Step 3: path aliases from BUILD files
+  // Step 4: path aliases from BUILD files, which cover directives added since
+  // the last refresh. The generated data wins: it is what the build resolves.
   try {
     scanPathAliases(workspaceRoot, map);
   } catch (e) {
@@ -124,198 +106,49 @@ function buildResolutionMap() {
 }
 
 /**
- * Every external repository that holds npm packages, in either layout.
+ * The graph data `bazel run //:refresh_tsconfig` writes, or null.
  *
- * Identified by a BUILD.bazel containing a ts_npm_package rule, which is what
- * both layouts emit. The alias-only hub is deliberately NOT matched: it has no
- * package files of its own, so there is nothing in it to resolve.
+ * @returns {object | null}
  */
-function findNpmRepoDirs(externalDir) {
-  const found = [];
-  let entries;
-  try {
-    entries = fs.readdirSync(externalDir);
-  } catch (_) {
-    return found;
-  }
-  for (const entry of entries) {
-    if (!entry.includes('npm')) continue;
-    const candidate = path.join(externalDir, entry);
-    const buildPath = path.join(candidate, 'BUILD.bazel');
+function readHookData() {
+  const candidates = [
+    providedDataFile,
+    process.env.TSSERVER_HOOK_DATA,
+    path.join(workspaceRoot, HOOK_DATA),
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
     try {
-      if (!fs.statSync(candidate).isDirectory()) continue;
-      if (!fs.existsSync(buildPath)) continue;
-      if (fs.readFileSync(buildPath, 'utf8').includes('ts_npm_package')) {
-        found.push(candidate);
-      }
-    } catch (_) {
-      // Unreadable entry — skip.
-    }
-  }
-  return found;
-}
-
-/**
- * Map one per-package repository, whose package.json is at its own root.
- *
- * Only fetched packages exist on disk, so the map covers the part of the build
- * graph that has actually been built — which is the same set the editor can
- * meaningfully resolve anyway.
- */
-function scanNpmSpokeRepo(root, map) {
-  try {
-    const pkgJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-    if (!pkgJson.name || map[pkgJson.name]) return;
-    const dtsPath = resolvePackageDts(pkgJson, root);
-    if (dtsPath) {
-      map[pkgJson.name] = dtsPath;
-      log(`npm (per-package repo): ${pkgJson.name} → ${dtsPath}`);
-    }
-  } catch (_) {
-    // Malformed package — skip.
-  }
-}
-
-function scanNpmPackages(npmDir, map) {
-  const buildPath = path.join(npmDir, 'BUILD.bazel');
-
-  // Prefer the BUILD.bazel parsing approach (same logic as refresh_tsconfig.sh)
-  // because it gives us the authoritative exports_types path.
-  if (fs.existsSync(buildPath)) {
-    try {
-      const content = fs.readFileSync(buildPath, 'utf8');
-      const parsed = parseTsNpmPackageStanzas(content, npmDir);
-
-      for (const [pkgName, dtsPath] of Object.entries(parsed)) {
-        if (fs.existsSync(dtsPath)) {
-          map[pkgName] = dtsPath;
-          log(`npm (BUILD.bazel): ${pkgName} → ${dtsPath}`);
-        }
-      }
-      return; // BUILD.bazel approach succeeded
+      return JSON.parse(fs.readFileSync(candidate, 'utf8'));
     } catch (e) {
-      log(`BUILD.bazel parse failed: ${e.message} — falling back to package.json scan`);
+      log(`hook data at ${candidate} unusable: ${e.message}`);
     }
   }
-
-  // Fallback: scan package.json files directly (for repos without BUILD.bazel).
-  try {
-    const entries = fs.readdirSync(npmDir);
-    for (const entry of entries) {
-      const pkgJsonPath = path.join(npmDir, entry, 'package.json');
-      if (!fs.existsSync(pkgJsonPath)) continue;
-
-      try {
-        const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
-        const name = pkgJson.name;
-        if (!name) continue;
-
-        // Skip if already mapped (BUILD.bazel approach takes precedence).
-        if (map[name]) continue;
-
-        const dtsPath = resolvePackageDts(pkgJson, path.join(npmDir, entry));
-        if (dtsPath) {
-          map[name] = dtsPath;
-          log(`npm (package.json): ${name} → ${dtsPath}`);
-        }
-      } catch (_) {
-        // Malformed package — skip.
-      }
-    }
-  } catch (_) {
-    // ignore
-  }
+  return null;
 }
 
 /**
- * Parse ts_npm_package() stanzas from a BUILD.bazel string.
- * Returns a map of package_name → absolute .d.ts path.
+ * The .d.ts one installed npm package resolves to, or null.
  *
- * @param {string} content  - Contents of the BUILD.bazel file.
- * @param {string} npmDir   - Absolute path to the @npm external repo root.
- * @returns {Record<string, string>}
+ * `entry` is what the aspect knew: the package's own exports["."].types when it
+ * declares one, otherwise the directory whose package.json names the rest.
+ *
+ * @param {string} npmDir - Absolute path to the installed npm tree.
+ * @param {{name: string, entry: string, isFile: boolean}} pkg
+ * @returns {string | null}
  */
-function parseTsNpmPackageStanzas(content, npmDir) {
-  const result = {};
-  const stanzaMarker = 'ts_npm_package(';
-  let i = 0;
-
-  while (true) {
-    const start = content.indexOf(stanzaMarker, i);
-    if (start === -1) break;
-
-    // Find the matching closing paren by tracking depth.
-    let depth = 0;
-    let j = start + stanzaMarker.length - 1; // position of opening "("
-    while (j < content.length) {
-      if (content[j] === '(') depth++;
-      else if (content[j] === ')') {
-        depth--;
-        if (depth === 0) break;
-      }
-      j++;
-    }
-
-    const stanza = content.slice(start, j + 1);
-    i = j + 1;
-
-    const pkgNameMatch = stanza.match(/\bpackage_name\s*=\s*"([^"]+)"/);
-    const exportsTypesMatch = stanza.match(/\bexports_types\s*=\s*"([^"]+)"/);
-    const pkgDirMatch = stanza.match(/\bpackage_dir\s*=\s*"([^"]+)"/);
-    const isTypesMatch = stanza.match(/\bis_types_package\s*=\s*(True|False)/);
-
-    if (!pkgNameMatch) continue;
-
-    const pkgName = pkgNameMatch[1];
-    const isTypes = isTypesMatch ? isTypesMatch[1] === 'True' : false;
-
-    // Skip @types/* packages — they are paired to runtime packages.
-    if (isTypes) continue;
-
-    // First occurrence wins.
-    if (result[pkgName]) continue;
-
-    let dtsRel = exportsTypesMatch ? exportsTypesMatch[1] : null;
-
-    if (!dtsRel && pkgDirMatch) {
-      // Derive package subdir from package_dir field.
-      let pkgSubdir = pkgDirMatch[1];
-      if (pkgSubdir.endsWith('/package.json')) {
-        pkgSubdir = pkgSubdir.slice(0, -'/package.json'.length);
-      }
-      const pkgJsonPath = path.join(npmDir, pkgSubdir, 'package.json');
-      if (fs.existsSync(pkgJsonPath)) {
-        try {
-          const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
-          const typesField = pkgJson.types || pkgJson.typings || '';
-          if (typesField) {
-            const normalized = typesField.replace(/^\.\//, '');
-            dtsRel = `${pkgSubdir}/${normalized}`;
-          } else {
-            const idx = path.join(npmDir, pkgSubdir, 'index.d.ts');
-            if (fs.existsSync(idx)) {
-              dtsRel = `${pkgSubdir}/index.d.ts`;
-            }
-          }
-        } catch (_) {
-          // ignore
-        }
-      }
-    }
-
-    if (!dtsRel) continue;
-
-    const absDts = path.join(npmDir, dtsRel);
-    if (
-      absDts.endsWith('.d.ts') ||
-      absDts.endsWith('.d.mts') ||
-      absDts.endsWith('.d.cts')
-    ) {
-      result[pkgName] = absDts;
-    }
+function resolveInstalledPackage(npmDir, pkg) {
+  const target = path.join(npmDir, pkg.name, pkg.entry || '');
+  if (pkg.isFile) {
+    return isDtsFile(target) && fs.existsSync(target) ? target : null;
   }
-
-  return result;
+  let pkgJson = {};
+  try {
+    pkgJson = JSON.parse(fs.readFileSync(path.join(target, 'package.json'), 'utf8'));
+  } catch (_) {
+    // No package.json: resolvePackageDts still tries index.d.ts.
+  }
+  return resolvePackageDts(pkgJson, target);
 }
 
 /**
@@ -502,9 +335,10 @@ function scheduleRebuild(delay) {
   }, delay);
 }
 
-// Watch root-level BUILD files and pnpm-lock.yaml (most likely to change when
-// packages are added or removed).
+// Watch the generated graph data, the root-level BUILD files and
+// pnpm-lock.yaml: between them, everything that changes what resolves.
 const rootWatchPaths = [
+  providedDataFile || path.join(workspaceRoot, HOOK_DATA),
   path.join(workspaceRoot, 'BUILD.bazel'),
   path.join(workspaceRoot, 'BUILD'),
   path.join(workspaceRoot, 'pnpm-lock.yaml'),

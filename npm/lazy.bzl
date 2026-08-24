@@ -1,4 +1,4 @@
-"""Declares one repository per npm package, plus an alias hub.
+"""Declares one repository per resolved npm package, plus an alias hub.
 
 A single repository for the whole lockfile has to download everything before it
 can generate any target: it reads `bin` and `exports` out of each extracted
@@ -8,14 +8,34 @@ serial Starlark loop with no resume.
 
 Here the extension does the whole-graph analysis -- which it can do from the
 lockfile text alone, with no network -- and then declares one `npm_import` per
-package. Each package reads its own `package.json` and writes its own BUILD
+resolved package. Each one reads its own `package.json` and writes its own BUILD
 file, so Bazel fetches repositories on demand.
 
-The analysis stays here rather than moving into the packages because all of it
-is a whole-graph decision that one package cannot make about itself:
+The unit is the SNAPSHOT, not the package
+-----------------------------------------
+pnpm resolves a package once per distinct peer set and writes each outcome as its
+own `snapshots:` key: `@storybook/react@8.6.14(react@18.3.1)` and
+`@storybook/react@8.6.14(react@19.0.0)` are one tarball and two different
+dependency graphs. Keying anything by `name@version` merges them, and the merge
+is silent -- every version in the merged result is a real version, so the only
+symptom is an importer built against the other variant's transitive closure.
 
-  platform filtering    optional native packages for other operating systems
-                        must be dropped before anything references them
+So the graph is keyed by snapshot id throughout, and a snapshot's repository name
+carries its peer set. A peer-free snapshot keeps the plain `<name>__<version>`
+repository name it has always had.
+
+Resolution is per importer
+--------------------------
+`importers:` records, for each workspace member, the snapshot each declared
+dependency resolved to -- and two members legitimately resolve one name to
+different majors. A single flat hub cannot express that, so each importer gets
+its own package inside the hub: `@npm//path/to/member:react` is what that member
+declared, while `@npm//:react` is the whole-lockfile namespace (the root
+importer's resolution where it has one, the highest version otherwise).
+
+The analysis stays here rather than moving into the packages because all of it is
+a whole-graph decision that one package cannot make about itself:
+
   label assignment      `@npm//:react` means the highest version present, which
                         is only knowable across the whole lockfile
   @types pairing        matching react@19 to @types/react@19 requires seeing both
@@ -25,49 +45,39 @@ is a whole-graph decision that one package cannot make about itself:
                         only the graph knows the alias exists
   patch routing         `patchedDependencies` is keyed by name@version at the
                         top of the lockfile, nowhere near the package it patches
+  platform partition    which platforms a tarball is for decides which select()
+                        branch may reference it
 """
 
 load(
-    "//ts/private:npm_import.bzl",
+    "//npm/private:npm_import.bzl",
     "npm_hub",
     "npm_import",
 )
 load(
-    "//ts/private:npm_translate_lock.bzl",
-    "detect_and_break_cycles",
-    "host_platform",
+    "//npm/private:npm_translate_lock.bzl",
     "npm_tarball_url",
-    "package_dir_name",
+    "npmrc_registries",
     "package_name_to_label",
     "parse_importers",
     "parse_patched_dependencies",
     "parse_pnpm_lock",
-    "pkg_matches_host_platform",
-    "resolve_dep_version",
+    "peer_suffix_dir_name",
+    "pkg_matches_platform",
     "semver_gt",
     "semver_parts",
+    "snapshot_dir_name",
     "versioned_label_name",
 )
+load(
+    "//platforms:platforms.bzl",
+    "PLATFORMS",
+)
 
-def _resolve_dep_id(live, dep_name, dep_spec):
-    """Maps a declared dependency to its lockfile key, or None.
+_ALL_PLATFORMS = sorted(PLATFORMS)
 
-    resolve_dep_version returns the concrete VERSION, not the key, and for an
-    npm alias (`h3-v2: h3@2.0.1`) that version is already the key of the aliased
-    package. Getting this wrong drops the edge silently rather than failing.
-    """
-    version = resolve_dep_version(live, dep_name, dep_spec)
-    if version == None:
-        return None
-    pkg_id = "{}@{}".format(dep_name, version)
-    if pkg_id in live:
-        return pkg_id
-    if version in live:
-        return version
-    return None
-
-def _repo_name(prefix, package, version):
-    return "{}__{}".format(prefix, package_dir_name(package, version))
+def _repo_name(prefix, snapshot):
+    return "{}__{}".format(prefix, snapshot_dir_name(snapshot))
 
 def _alias_target_name(alias_package):
     """Target name inside the aliased package's own repository.
@@ -110,7 +120,7 @@ def _patch_by_package(lock_content, patch_labels):
       a patch file no entry declares     the patch is stale, or misnamed
 
     Returns:
-        dict: {pkg_id: struct(label = Label, sha256 = str)}
+        dict: {package_id: struct(label = Label, sha256 = str)}
     """
     patched = parse_patched_dependencies(lock_content)
     unclaimed = {}
@@ -145,193 +155,320 @@ def _patch_by_package(lock_content, patch_labels):
         )
     return result
 
-def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels):
-    """Declares one npm_import per package plus one npm_hub of aliases.
+def _workspace_link_label(path):
+    """The label of the workspace member a pnpm `link:` target points at."""
+    return "@@//{path}:{target}".format(path = path, target = path.split("/")[-1])
+
+def _platforms_of_package(pkg):
+    """The PLATFORMS keys a published tarball is built for.
+
+    Empty means the package targets a platform this ruleset has no vocabulary
+    for (`os: [aix]`), and nothing may reference it.
+    """
+    return [
+        key
+        for key in _ALL_PLATFORMS
+        if pkg_matches_platform(pkg, PLATFORMS[key].npm_os, PLATFORMS[key].npm_cpu)
+    ]
+
+def _dedup(items):
+    return sorted({item: True for item in items}.keys())
+
+def break_cycles(graph):
+    """Finds the dependency edges that have to be dropped to leave `graph` acyclic.
+
+    Every edge returned closes a cycle in a depth-first walk, which is what makes
+    the result safe to subtract: an edge whose head is still on the walk's own
+    path has a path back to itself, so it lies inside one strongly connected
+    component. An edge between two distinct components can never qualify, and a
+    self-edge always does.
+
+    Args:
+        graph: dict of node -> list of nodes it depends on. Not mutated. A dep
+            that is not itself a key is outside the graph and never dropped.
+
+    Returns:
+        A list of (from_node, to_node) tuples.
+    """
+    nodes = sorted(graph)
+    deps_of = {node: _dedup([dep for dep in graph[node] if dep in graph]) for node in nodes}
+
+    budget = len(nodes) + 1
+    for node in nodes:
+        budget += 2 * len(deps_of[node]) + 2
+
+    visited = {}
+    on_path = {}
+    cursor = {}
+    broken = []
+    for root in nodes:
+        if root in visited:
+            continue
+        visited[root] = True
+        on_path[root] = True
+        cursor[root] = 0
+        stack = [root]
+        for _ in range(budget):
+            if not stack:
+                break
+            node = stack[-1]
+            deps = deps_of[node]
+            if cursor[node] == len(deps):
+                stack.pop()
+                on_path.pop(node)
+                continue
+            dep = deps[cursor[node]]
+            cursor[node] += 1
+            if dep in on_path:
+                broken.append((node, dep))
+            elif dep not in visited:
+                visited[dep] = True
+                on_path[dep] = True
+                cursor[dep] = 0
+                stack.append(dep)
+        if stack:
+            fail("npm: cycle breaking ran out of steps walking '{}'; this is a bug in rules_typescript.".format(root))
+
+    return broken
+
+def _split_by_platform(labels_with_platforms):
+    """Partitions dep labels into unconditional and per-platform lists.
+
+    Args:
+        labels_with_platforms: list of (label, [platform_key, ...]) pairs.
+
+    Returns:
+        (list of unconditional labels, {platform_key: [labels]}).
+    """
+    common = []
+    per_platform = {}
+    for (label, plats) in labels_with_platforms:
+        if len(plats) == len(_ALL_PLATFORMS):
+            common.append(label)
+            continue
+        for plat in plats:
+            per_platform.setdefault(plat, []).append(label)
+    return (_dedup(common), {plat: _dedup(labels) for plat, labels in per_platform.items()})
+
+def _pick_primary(sids, snapshots, preferred):
+    """The snapshot a bare (or version-only) hub label should mean.
+
+    `preferred` is the root importer's own resolution, which is the only answer
+    the lockfile actually gives for that name; the highest-version fallback is a
+    guess, and exists because the flat hub also has to name packages no importer
+    declares.
+    """
+    for sid in sids:
+        if sid in preferred:
+            return sid
+    best = None
+    for sid in sorted(sids):
+        if best == None:
+            best = sid
+            continue
+        if semver_gt(semver_parts(snapshots[sid]["version"]), semver_parts(snapshots[best]["version"])):
+            best = sid
+    return best
+
+def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc):
+    """Declares one npm_import per resolved package plus one npm_hub of aliases.
 
     Args:
         module_ctx:   The module extension context.
         hub_name:     Name of the alias hub repository, conventionally "npm".
         pnpm_lock:    Label of the pnpm-lock.yaml to read.
         patch_labels: Labels of the pnpm patch files named by patchedDependencies.
+        npmrc:        Label of the workspace .npmrc, or None. Read here for the
+                      registry each package's tarball lives on; the credentials in
+                      it are read by npm_import at fetch time instead, because an
+                      extension's output is recorded in MODULE.bazel.lock.
     """
     lock_content = module_ctx.read(pnpm_lock)
-    packages = parse_pnpm_lock(lock_content)["packages"]
-    host_os, host_cpu = host_platform(module_ctx)
+    registries = npmrc_registries(module_ctx.read(npmrc)) if npmrc else {}
+    parsed = parse_pnpm_lock(lock_content)
+    packages = parsed["packages"]
+    importers = parse_importers(lock_content)
     patches = _patch_by_package(lock_content, patch_labels)
 
-    # Drop packages built for other platforms before anything can depend on them.
+    # A snapshot needs its `packages:` entry for the bytes to download, and needs
+    # to be buildable on some platform we can name. Platform filtering is a
+    # partition, not a drop: every platform's packages are declared and the
+    # choice becomes a select(), so the extension result does not depend on the
+    # machine that evaluated it.
     live = {}
-    for pkg_id, pkg in packages.items():
-        if not pkg.get("name") or not pkg.get("version"):
+    platforms_of = {}
+    for sid, snap in parsed["snapshots"].items():
+        pkg = packages.get(snap["package_id"])
+        if pkg == None:
             continue
-        if pkg_matches_host_platform(pkg, host_os, host_cpu):
-            live[pkg_id] = pkg
-
-    # Which pkg_id each label points at. A bare label is the highest version
-    # present; every version additionally gets a version-suffixed label.
-    versions_by_label = {}
-    for pkg_id, pkg in live.items():
-        label = package_name_to_label(pkg["name"])
-        versions_by_label.setdefault(label, []).append(pkg_id)
-
-    # label_of is the package's identity in the dependency graph. extra_labels
-    # holds the additional names the hub must also expose: when a package
-    # resolves at several versions every version gets a version-suffixed label,
-    # and the highest keeps the bare one, so a consumer can pin or not.
-    label_of = {}
-    extra_labels = {}
-    for label, pkg_ids in versions_by_label.items():
-        best = pkg_ids[0]
-        for pkg_id in pkg_ids[1:]:
-            if semver_gt(semver_parts(live[pkg_id]["version"]), semver_parts(live[best]["version"])):
-                best = pkg_id
-        if len(pkg_ids) == 1:
-            label_of[pkg_ids[0]] = label
+        plats = _platforms_of_package(pkg)
+        if not plats:
             continue
-        for pkg_id in pkg_ids:
-            versioned = versioned_label_name(label, live[pkg_id]["version"])
-            label_of[pkg_id] = label if pkg_id == best else versioned
-            if pkg_id == best:
-                extra_labels[versioned] = pkg_id
+        live[sid] = snap
+        platforms_of[sid] = plats
 
-    # @types/<x> provides declarations for <x>. Prefer the @types major that
-    # matches the runtime major, else the highest available.
-    types_for = {}
-    for pkg_id, pkg in live.items():
-        name = pkg["name"]
-        if not name.startswith("@types/"):
-            continue
-        runtime_name = name[len("@types/"):]
-        types_for.setdefault(runtime_name, []).append(pkg_id)
-
-    def _types_pkg_for(runtime_pkg):
-        candidates = types_for.get(runtime_pkg["name"], [])
-        if not candidates:
-            return None
-        runtime_major = semver_parts(runtime_pkg["version"])[0]
-        best = None
-        for pkg_id in candidates:
-            if semver_parts(live[pkg_id]["version"])[0] == runtime_major:
-                if best == None or semver_gt(semver_parts(live[pkg_id]["version"]), semver_parts(live[best]["version"])):
-                    best = pkg_id
-        if best != None:
-            return best
-        for pkg_id in candidates:
-            if best == None or semver_gt(semver_parts(live[pkg_id]["version"]), semver_parts(live[best]["version"])):
-                best = pkg_id
-        return best
-
-    # Resolve declared dependency specs to pkg_ids, then break cycles on the
-    # label graph. An edge additionally records the name the dependent imports
-    # the package under, which differs from the package's own name exactly when
-    # the spec is an npm alias.
-    deps_by_pkg = {}
-    optional_by_pkg = {}
-    aliases_of_pkg = {}
-    for pkg_id, pkg in live.items():
+    # Resolve every dependency edge to a snapshot id. An edge additionally
+    # records the name the dependent imports the package under, which differs
+    # from the package's own name exactly when the spec is an npm alias.
+    deps_by_sid = {}
+    optional_by_sid = {}
+    aliases_of_sid = {}
+    for sid, snap in live.items():
         resolved = []
         optional = []
         for section in ("dependencies", "optionalDependencies"):
-            for dep_name, dep_spec in pkg.get(section, {}).items():
-                dep_id = _resolve_dep_id(live, dep_name, dep_spec)
-                if dep_id == None or dep_id == pkg_id:
+            for dep_name, dep_sid in snap[section].items():
+                if dep_sid not in live or dep_sid == sid:
                     continue
-                imported_as = dep_name if live[dep_id]["name"] != dep_name else ""
+                imported_as = dep_name if live[dep_sid]["name"] != dep_name else ""
                 if imported_as:
-                    aliases_of_pkg.setdefault(dep_id, {})[imported_as] = True
-                resolved.append((dep_id, imported_as))
+                    aliases_of_sid.setdefault(dep_sid, {})[imported_as] = True
+                resolved.append((dep_sid, imported_as))
                 if section == "optionalDependencies":
-                    optional.append(dep_id)
-        deps_by_pkg[pkg_id] = resolved
-        optional_by_pkg[pkg_id] = optional
+                    optional.append(dep_sid)
+        deps_by_sid[sid] = resolved
+        optional_by_sid[sid] = optional
 
     # An alias the workspace itself imports is the one a consumer writes in a
     # BUILD file (`@npm//:h3-v2`), and no package in the graph declares it, so
     # without reading the importers for aliases the label would not exist.
-    importers = parse_importers(lock_content)
     for imported_as, target in importers["aliases"].items():
         if target in live and live[target]["name"] != imported_as:
-            aliases_of_pkg.setdefault(target, {})[imported_as] = True
+            aliases_of_sid.setdefault(target, {})[imported_as] = True
 
-    label_graph = {}
-    for pkg_id, edges in deps_by_pkg.items():
-        label_graph[label_of[pkg_id]] = [label_of[dep_id] for (dep_id, _) in edges]
-    broken = detect_and_break_cycles(label_graph)
+    # Cycle breaking works on resolved identity: an alias edge is judged by the
+    # snapshot it reaches, not by the name it reaches it by.
+    snapshot_graph = {sid: [dep_sid for (dep_sid, _) in edges] for sid, edges in deps_by_sid.items()}
+    broken = break_cycles(snapshot_graph)
+    dropped = {}
+    for (frm, to) in broken:
+        dropped.setdefault(frm, {})[to] = True
 
-    allowed = {}
-    for label, dep_labels in label_graph.items():
-        allowed[label] = {d: True for d in dep_labels}
+    # @types/<x> provides declarations for <x>. Prefer the @types major that
+    # matches the runtime major, else the highest available.
+    types_for = {}
+    for sid, snap in live.items():
+        if not snap["name"].startswith("@types/"):
+            continue
+        types_for.setdefault(snap["name"][len("@types/"):], []).append(sid)
 
-    # Declare the packages.
-    repo_of = {pkg_id: _repo_name(hub_name, live[pkg_id]["name"], live[pkg_id]["version"]) for pkg_id in live}
+    def _types_sid_for(snap):
+        candidates = types_for.get(snap["name"], [])
+        if not candidates:
+            return None
+        runtime_major = semver_parts(snap["version"])[0]
+        matching = [
+            sid
+            for sid in candidates
+            if semver_parts(live[sid]["version"])[0] == runtime_major
+        ]
+        return _pick_primary(matching if matching else candidates, live, {})
 
-    def _dep_label(dep_id, imported_as):
+    repo_of = {sid: _repo_name(hub_name, live[sid]) for sid in live}
+
+    def _dep_label(dep_sid, imported_as):
         target = _alias_target_name(imported_as) if imported_as else "pkg"
-        return "@{}//:{}".format(repo_of[dep_id], target)
+        return "@{}//:{}".format(repo_of[dep_sid], target)
 
-    for pkg_id, pkg in live.items():
-        own_label = label_of[pkg_id]
-        dep_labels = []
-        for (dep_id, imported_as) in deps_by_pkg[pkg_id]:
-            # The cycle breaker works on package identity, so an alias edge is
-            # judged by the package it reaches, not by the name it reaches it by.
-            if allowed.get(own_label, {}).get(label_of[dep_id]):
-                dep_labels.append(_dep_label(dep_id, imported_as))
+    for sid, snap in live.items():
+        edges = [
+            (_dep_label(dep_sid, imported_as), platforms_of[dep_sid])
+            for (dep_sid, imported_as) in deps_by_sid[sid]
+            if not dropped.get(sid, {}).get(dep_sid)
+        ]
+        deps, platform_deps = _split_by_platform(edges)
 
-        types_id = None
-        if not pkg["name"].startswith("@types/"):
-            types_id = _types_pkg_for(pkg)
+        # Platform-matched optionalDependencies are how npm ships native
+        # sidecars (oxlint -> @oxlint/linux-x64-gnu). A bin script resolves them
+        # through node_modules at runtime, and with one repository per package
+        # they are no longer siblings on disk, so they have to be named as
+        # targets. Not filtered by the cycle breaker: these are leaf binaries,
+        # and this is a runfiles edge rather than a build edge.
+        optional, platform_optional = _split_by_platform([
+            ("@{}//:pkg".format(repo_of[dep_sid]), platforms_of[dep_sid])
+            for dep_sid in optional_by_sid[sid]
+        ])
 
-        patch = patches.get(pkg_id)
+        types_sid = None
+        if not snap["name"].startswith("@types/"):
+            types_sid = _types_sid_for(snap)
+
+        patch = patches.get(snap["package_id"])
         npm_import(
-            name = repo_of[pkg_id],
-            package = pkg["name"],
-            version = pkg["version"],
-            url = npm_tarball_url(pkg["name"], pkg["version"], pkg.get("resolution", {})),
-            integrity = pkg.get("resolution", {}).get("integrity", ""),
-            deps = sorted({d: True for d in dep_labels}.keys()),
-            types_dep = "@{}//:pkg".format(repo_of[types_id]) if types_id else "",
-            is_types_package = pkg["name"].startswith("@types/"),
+            name = repo_of[sid],
+            package = snap["name"],
+            version = snap["version"],
+            url = npm_tarball_url(
+                snap["name"],
+                snap["version"],
+                packages[snap["package_id"]].get("resolution", {}),
+                registries,
+            ),
+            integrity = packages[snap["package_id"]].get("resolution", {}).get("integrity", ""),
+            deps = deps,
+            platform_deps = platform_deps,
+            platforms = _ALL_PLATFORMS,
+            types_dep = "@{}//:pkg".format(repo_of[types_sid]) if types_sid else "",
+            is_types_package = snap["name"].startswith("@types/"),
             aliases = {
                 _alias_target_name(alias): alias
-                for alias in sorted(aliases_of_pkg.get(pkg_id, {}).keys())
+                for alias in sorted(aliases_of_sid.get(sid, {}).keys())
             },
+            npmrc = npmrc,
             patch = patch.label if patch else None,
             patch_sha256 = patch.sha256 if patch else "",
-            # Platform-matched optionalDependencies are how npm ships native
-            # sidecars (oxlint -> @oxlint/linux-x64-gnu). A bin script resolves
-            # them through node_modules at runtime, and with one repository per
-            # package they are no longer siblings on disk, so they have to be
-            # named as targets. Not filtered by the cycle breaker: these are leaf
-            # binaries, and this is a runfiles edge rather than a build edge.
-            optional_dep_packages = sorted([
-                "@{}//:pkg".format(repo_of[dep_id])
-                for dep_id in optional_by_pkg[pkg_id]
-            ]),
+            optional_dep_packages = optional,
+            platform_optional_dep_packages = platform_optional,
         )
 
-    # The hub: aliases only, no downloads, so referencing one name fetches one
-    # package. Bin targets are aliased lazily too -- the package's own BUILD file
-    # decides whether a bin target exists, so the alias may dangle for a package
-    # with no bin, which only errors if someone actually asks for it.
+    # ── The flat hub: the whole-lockfile namespace ────────────────────────────
+    #
+    # Aliases only, no downloads, so referencing one name fetches one package.
+    # Bin targets are aliased lazily too -- the package's own BUILD file decides
+    # whether a bin target exists, so the alias may dangle for a package with no
+    # bin, which only errors if someone actually asks for it.
+    root_importer = importers["importers"].get(".", {"deps": {}, "links": {}})
+    root_sids = {sid: True for sid in root_importer["deps"].values()}
+
+    sids_by_label = {}
+    for sid, snap in live.items():
+        sids_by_label.setdefault(package_name_to_label(snap["name"]), []).append(sid)
+
     aliases = {}
-    for pkg_id in live:
-        aliases[label_of[pkg_id]] = "@{}//:pkg".format(repo_of[pkg_id])
-        aliases[label_of[pkg_id] + "_bin"] = "@{}//:bin".format(repo_of[pkg_id])
-    for extra_label, pkg_id in extra_labels.items():
-        aliases[extra_label] = "@{}//:pkg".format(repo_of[pkg_id])
+    for label, sids in sids_by_label.items():
+        primary = _pick_primary(sids, live, root_sids)
+        aliases[label] = "@{}//:pkg".format(repo_of[primary])
+        aliases[label + "_bin"] = "@{}//:bin".format(repo_of[primary])
+
+    # Version- and peer-qualified labels, so a consumer can name a resolution the
+    # flat namespace had to pick between.
+    for label, sids in sids_by_label.items():
+        by_version = {}
+        for sid in sids:
+            by_version.setdefault(live[sid]["version"], []).append(sid)
+        for version, version_sids in by_version.items():
+            versioned = versioned_label_name(label, version)
+            if versioned not in aliases:
+                aliases[versioned] = "@{}//:pkg".format(repo_of[_pick_primary(version_sids, live, root_sids)])
+            if len(version_sids) == 1:
+                continue
+            for sid in version_sids:
+                peers = peer_suffix_dir_name(live[sid]["peer_suffix"]) or "no_peers"
+                qualified = "{}__{}".format(versioned, peers)
+                if qualified not in aliases:
+                    aliases[qualified] = "@{}//:pkg".format(repo_of[sid])
 
     # An npm alias only gets a hub label when no real package owns that name --
     # a package actually called `h3-v2` is what a consumer means by `@npm//:h3-v2`.
     real_labels = {label: True for label in aliases}
     alias_owner = {}
-    for pkg_id, alias_names in aliases_of_pkg.items():
+    for sid, alias_names in aliases_of_sid.items():
         for alias in alias_names:
             label = package_name_to_label(alias)
             if label in real_labels:
                 continue
             owner = alias_owner.get(label)
-            if owner != None and owner != pkg_id:
+            if owner != None and owner != sid:
                 # The hub is one flat namespace, so two importers aliasing the
                 # same name at different packages has no right answer. Silently
                 # keeping one would hand half the workspace the wrong package.
@@ -339,22 +476,35 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels):
                     "npm: the alias '{}' resolves to both {} and {} in this lockfile, ".format(
                         alias,
                         owner,
-                        pkg_id,
+                        sid,
                     ) +
                     "so @{}//:{} cannot mean one of them.".format(hub_name, label),
                 )
-            alias_owner[label] = pkg_id
-            aliases[label] = "@{}//:{}".format(repo_of[pkg_id], _alias_target_name(alias))
+            alias_owner[label] = sid
+            aliases[label] = "@{}//:{}".format(repo_of[sid], _alias_target_name(alias))
 
     for name, path in importers["links"].items():
         if path:
-            aliases[package_name_to_label(name)] = "@@//{path}:{target}".format(
-                path = path,
-                target = path.split("/")[-1],
-            )
+            aliases[package_name_to_label(name)] = _workspace_link_label(path)
+
+    # ── Per-importer packages: what each workspace member actually declared ───
+    importer_aliases = {}
+    for path, entry in importers["importers"].items():
+        if path == ".":
+            continue
+        for dep_name, dep_sid in entry["deps"].items():
+            if dep_sid not in live:
+                continue
+            label = package_name_to_label(dep_name)
+            imported_as = dep_name if live[dep_sid]["name"] != dep_name else ""
+            importer_aliases["{}|{}".format(path, label)] = _dep_label(dep_sid, imported_as)
+            importer_aliases["{}|{}_bin".format(path, label)] = "@{}//:bin".format(repo_of[dep_sid])
+        for dep_name, link_path in entry["links"].items():
+            importer_aliases["{}|{}".format(path, package_name_to_label(dep_name))] = _workspace_link_label(link_path)
 
     npm_hub(
         name = hub_name,
         aliases = aliases,
+        importer_aliases = importer_aliases,
         broken_cycle_edges = ["{} -> {}".format(a, b) for (a, b) in broken],
     )

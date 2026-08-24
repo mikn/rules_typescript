@@ -1,5 +1,9 @@
-load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("@rules_go//go:def.bzl", "go_test")
 load("//ts:defs.bzl", "asset_library", "ts_compile")
+
+# The go_test targets are hand-named after the sh_tests they replaced, so the
+# Go language would add a second target for the same source.
+# gazelle:exclude *_test.go
 
 # ── Asset library target ──────────────────────────────────────────────────────
 # Generates an ambient .d.ts for logo.svg so TypeScript can type-check
@@ -22,12 +26,13 @@ ts_compile(
 # ── Verification test ─────────────────────────────────────────────────────────
 # Checks that the generated .d.ts declares the asset as a string.
 
-sh_test(
+go_test(
     name = "asset_output_test",
     size = "small",
-    srcs = ["verify_assets.sh"],
+    srcs = ["asset_output_test.go"],
     data = [
-        ":icons",
         ":header_lib",
+        ":icons",
     ],
+    deps = ["//tests/verify"],
 )

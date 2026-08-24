@@ -39,4 +39,3 @@ ts_test(
         "@npm//:vitest",
     ],
 )
-

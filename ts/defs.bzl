@@ -9,23 +9,24 @@ Users should load rules from this file:
     load("@rules_typescript//ts:defs.bzl", "ts_pnpm", "ts_add_package", "ts_refresh_tsconfig")
     load("@rules_typescript//ts:defs.bzl", "next_build")
 """
+
 load("//ts/private:asset_library.bzl", _asset_library = "asset_library")
-load("//ts/private:pnpm.bzl", _ts_add_package = "ts_add_package", _ts_pnpm = "ts_pnpm", _ts_refresh_tsconfig = "ts_refresh_tsconfig")
 load("//ts/private:css_library.bzl", _css_library = "css_library")
 load("//ts/private:css_module.bzl", _css_module = "css_module")
 load("//ts/private:json_library.bzl", _json_library = "json_library")
+load("//ts/private:next_build.bzl", _next_build = "next_build")
+load("//ts/private:pnpm.bzl", _ts_add_package = "ts_add_package", _ts_pnpm = "ts_pnpm")
 load("//ts/private:providers.bzl", _AssetInfo = "AssetInfo", _BundlerInfo = "BundlerInfo", _CssInfo = "CssInfo", _CssModuleInfo = "CssModuleInfo", _JsInfo = "JsInfo", _TsDeclarationInfo = "TsDeclarationInfo")
 load("//ts/private:ts_binary.bzl", _ts_binary = "ts_binary")
 load("//ts/private:ts_bundle.bzl", _ts_bundle = "ts_bundle")
-load("//ts/private:ts_check.bzl", _ts_check = "ts_check")
 load("//ts/private:ts_codegen.bzl", _ts_codegen = "ts_codegen")
 load("//ts/private:ts_compile.bzl", _TsModuleInfo = "TsModuleInfo", _ts_compile_rule = "ts_compile")
-load("//ts/private:ts_config_gen.bzl", _ts_config = "ts_config", _ts_config_gen = "ts_config_gen")
-load("//ts/private:next_build.bzl", _next_build = "next_build")
+load("//ts/private:ts_config.bzl", _ts_config = "ts_config")
 load("//ts/private:ts_dev_server.bzl", _ts_dev_server = "ts_dev_server")
 load("//ts/private:ts_lint.bzl", _TsLintInfo = "TsLintInfo", _ts_lint = "ts_lint")
 load("//ts/private:ts_npm_publish.bzl", _NpmPublishInfo = "NpmPublishInfo", _ts_npm_publish = "ts_npm_publish")
 load("//ts/private:ts_test.bzl", _ts_test = "ts_test")
+load("//ts/private:tsconfig_aspect.bzl", _ts_refresh_tsconfig = "ts_refresh_tsconfig")
 
 # Providers — exported for use in custom rules that extend this ruleset.
 AssetInfo = _AssetInfo
@@ -45,10 +46,8 @@ css_module = _css_module
 json_library = _json_library
 
 # Standalone rules for advanced use cases.
-ts_check = _ts_check
 ts_codegen = _ts_codegen
 ts_config = _ts_config
-ts_config_gen = _ts_config_gen
 ts_test = _ts_test
 
 # Bundle rules.
@@ -88,7 +87,11 @@ def ts_compile(
         tsconfig = None,
         declarations = "tsgo",
         enable_check = True,
+        source_map = True,
+        declaration_map = False,
+        tsgo_args = None,
         path_aliases = None,
+        path_alias_srcs = None,
         vite_types = False,
         **kwargs):
     """Compiles TypeScript with oxc-bazel and emits declarations with tsgo.
@@ -154,12 +157,21 @@ def ts_compile(
         enable_check:          Whether to run tsgo type-checking. Only meaningful
                                with declarations = "oxc"; under "tsgo" the
                                compiler emits and checks in one pass.
+        source_map:            Emit a .js.map next to every .js (default True).
+        declaration_map:       Emit a .d.ts.map next to every declaration, so
+                               go-to-definition across a package boundary lands
+                               on the .ts source. Needs the tsgo emit.
+        tsgo_args:             Extra tsgo flags, restricted to the ones that only
+                               report on the program (e.g. ["--traceResolution"]).
         path_aliases:          Optional dict mapping path alias prefixes to workspace-relative
                                source directory paths (e.g. {"@/": "src/"}). Injected into the
                                tsgo tsconfig so aliases like `import "@/components"` resolve
                                during type-checking. For a bare specifier that has to resolve
                                to another target's generated declarations, set module_name on
                                that target instead.
+        path_alias_srcs:       Labels whose files a path_aliases entry resolves to,
+                               when they are not in srcs. They become inputs to the
+                               type-check action.
         vite_types:            When True, automatically prepends the Vite client-side ambient
                                type shim (@rules_typescript//ts:vite_env.d.ts) to srcs. This
                                provides types for import.meta.env, import.meta.hot, and asset
@@ -173,6 +185,10 @@ def ts_compile(
 
     if path_aliases != None:
         kwargs["path_aliases"] = path_aliases
+    if path_alias_srcs != None:
+        kwargs["path_alias_srcs"] = path_alias_srcs
+    if tsgo_args != None:
+        kwargs["tsgo_args"] = tsgo_args
 
     # target and jsx_mode stay rule attrs (oxc needs them too), so the rule
     # injects them; everything else reaches the tsconfig through this dict.
@@ -200,5 +216,7 @@ def ts_compile(
         compiler_options_json = json.encode(compiler_opts),
         declarations = declarations,
         enable_check = enable_check,
+        source_map = source_map,
+        declaration_map = declaration_map,
         **kwargs
     )

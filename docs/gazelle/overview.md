@@ -21,7 +21,12 @@ Add `gazelle` to `MODULE.bazel`:
 bazel_dep(name = "gazelle", version = "0.47.0")
 ```
 
-`rules_typescript` already declares `rules_go`, `go_sdk`, and `go_deps` as non-dev dependencies, so they propagate transitively via bzlmod. Consumers do not need to configure a Go toolchain.
+`rules_typescript` declares `rules_go`, `go_sdk` and `go_deps` as non-dev
+dependencies, so a consumer needs only the `bazel_dep` above: the Go toolchain
+and the Gazelle binary's own Go module deps come along transitively. That is a
+convenience for you and a real cost in the dependency graph — building the
+Gazelle extension fetches a Go SDK and its modules, on top of the Rust toolchain
+`oxc-bazel` needs.
 
 Run Gazelle:
 
@@ -98,32 +103,34 @@ To run linting:
 bazel build //... --output_groups=+_validation
 ```
 
-## gazelle_ts.json
+## Configuration
 
-Place a `gazelle_ts.json` file in your repository root (or any subtree root) to configure path aliases, npm package mappings, and runtime dependencies:
+Gazelle reads `compilerOptions.paths` and `compilerOptions.baseUrl` straight
+from the nearest `tsconfig.json`, parsed as JSONC — comments and trailing commas
+are fine. Everything else is configured with `# gazelle:ts_*` directives in
+BUILD files; see the [Directives Reference](directives.md).
 
-```json
-{
-  "pathAliases": {
-    "@/": "src/",
-    "@components/": "src/components/"
-  },
-  "npmMappingFile": "npm/package_mapping.json",
-  "excludePatterns": ["*.generated.ts"],
-  "excludeDirs": ["coverage", "storybook-static"],
-  "runtimeDeps": {
-    "test": ["@npm//:happy-dom", "@npm//:react", "@npm//:react-dom"]
-  }
-}
-```
+Directives beat file-based configuration, and the aliases from a `tsconfig.json`
+merge with the ones a parent directory's directives established.
 
-`pathAliases` maps TypeScript `paths` compilerOptions to workspace-relative directories, so imports like `import { Button } from "@components/Button"` resolve to `//src/components`.
+### gazelle_ts.json (deprecated)
 
-Without a `gazelle_ts.json`, Gazelle reads `compilerOptions.paths` and
-`compilerOptions.baseUrl` straight from a directory's `tsconfig.json`. That file
-is parsed as JSONC, so comments and trailing commas are fine.
+A `gazelle_ts.json` in a directory is still read, and Gazelle prints a
+deprecation warning naming the directive to replace each key with:
 
-`runtimeDeps.test` lists Bazel labels appended to every generated `ts_test` deps list. Use this for packages needed at test runtime but never statically imported:
+| Key | Replacement |
+|---|---|
+| `pathAliases` | `# gazelle:ts_path_alias @/ src/` |
+| `excludePatterns` | `# gazelle:ts_exclude *.generated.ts` |
+| `runtimeDeps.test` | `# gazelle:ts_runtime_dep @npm//:happy-dom` |
+| `excludeDirs` | no directive; excluded directories are the built-in set plus this key |
+| `npmMappingFile` | no directive; a JSON file mapping npm names to labels |
+
+It sits above `tsconfig.json` and below directives in precedence. Do not add new
+uses of it — a config file that is invisible from the BUILD files it changes was
+a mistake, and only the two keys with no directive replacement keep it alive.
+
+`runtimeDeps.test` (or `# gazelle:ts_runtime_dep`) lists Bazel labels appended to every generated `ts_test` deps list. Use this for packages needed at test runtime but never statically imported:
 
 | Package | Why it needs to be explicit |
 |---------|----------------------------|
@@ -137,7 +144,7 @@ is parsed as JSONC, so comments and trailing commas are fine.
 Gazelle resolves TypeScript imports to Bazel labels in this order:
 
 1. **Relative imports** (`./foo`, `../bar`) — resolved to the `ts_compile` target in that directory
-2. **Path aliases** — resolved via `pathAliases` in `gazelle_ts.json` or `# gazelle:ts_path_alias` directives
+2. **Path aliases** — from `compilerOptions.paths` in the nearest `tsconfig.json`, or a `# gazelle:ts_path_alias` directive
 3. **npm packages** — resolved to `@npm//:<label>` using the pnpm lockfile
 4. **Unresolved** — optionally warned with `# gazelle:ts_warn_unresolved true`
 

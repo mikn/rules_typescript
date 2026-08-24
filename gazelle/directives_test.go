@@ -297,9 +297,9 @@ func TestDirective_Exclude_AppendedToParent(t *testing.T) {
 // Verify that modifying a child's pathAliases does not mutate the parent's map.
 func TestConfig_Clone_MapIsolation_PathAliases(t *testing.T) {
 	parent := &tsConfig{
-		packageBoundaryMode:  boundaryEveryDir,
-		declarations:    "tsgo",
-		pathAliases:          map[string]string{"@/": "src/"},
+		packageBoundaryMode: boundaryEveryDir,
+		declarations:        "tsgo",
+		pathAliases:         map[string]string{"@/": "src/"},
 	}
 	child := parent.clone()
 	child.pathAliases["@extra/"] = "extra/"
@@ -316,9 +316,9 @@ func TestConfig_Clone_MapIsolation_PathAliases(t *testing.T) {
 // parent's slice backing array.
 func TestConfig_Clone_SliceIsolation_RuntimeDeps(t *testing.T) {
 	parent := &tsConfig{
-		packageBoundaryMode:  boundaryEveryDir,
-		declarations:    "tsgo",
-		runtimeDepsTest:      []string{"@npm//:a"},
+		packageBoundaryMode: boundaryEveryDir,
+		declarations:        "tsgo",
+		runtimeDepsTest:     []string{"@npm//:a"},
 	}
 	child := parent.clone()
 	child.runtimeDepsTest = append(child.runtimeDepsTest, "@npm//:b")
@@ -332,9 +332,9 @@ func TestConfig_Clone_SliceIsolation_RuntimeDeps(t *testing.T) {
 // parent's slice backing array.
 func TestConfig_Clone_SliceIsolation_ExcludePatterns(t *testing.T) {
 	parent := &tsConfig{
-		packageBoundaryMode:  boundaryEveryDir,
-		declarations:    "tsgo",
-		excludePatterns:      []string{"*.gen.ts"},
+		packageBoundaryMode: boundaryEveryDir,
+		declarations:        "tsgo",
+		excludePatterns:     []string{"*.gen.ts"},
 	}
 	child := parent.clone()
 	child.excludePatterns = append(child.excludePatterns, "*.auto.ts")

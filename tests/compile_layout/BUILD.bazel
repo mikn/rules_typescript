@@ -1,0 +1,54 @@
+"""One ts_compile target whose srcs span two sibling directories, none at the root."""
+
+load("@rules_go//go:def.bzl", "go_test")
+load("//ts:defs.bzl", "ts_compile")
+load(
+    ":layout_tests.bzl",
+    "declared_outputs_test",
+    "include_entry_test",
+    "oxc_strip_prefix_test",
+    "tsconfig_layout_test",
+)
+
+# The go_test targets are hand-named after the sh_tests they replaced, so the
+# Go language would add a second target for the same source.
+# gazelle:exclude *_test.go
+
+# alpha/ sorts before beta/, and neither is the package: a strip prefix or a
+# rootDir read off one src's directory cannot be right for both trees. alpha/one
+# reaches its two siblings -- one in each tree -- through ".js" specifiers,
+# which is how TypeScript's own ESM output is written.
+ts_compile(
+    name = "siblings",
+    srcs = [
+        "alpha/one.ts",
+        "alpha/three.ts",
+        "beta/deep/two.ts",
+    ],
+    declaration_map = True,
+)
+
+go_test(
+    name = "layout_test",
+    size = "small",
+    srcs = ["layout_test.go"],
+    data = [":siblings"],
+    deps = ["//tests/verify"],
+)
+
+declared_outputs_test(
+    name = "declared_outputs_test",
+    target_under_test = ":siblings",
+)
+
+tsconfig_layout_test(
+    name = "tsconfig_layout_test",
+    target_under_test = ":siblings",
+)
+
+oxc_strip_prefix_test(
+    name = "oxc_strip_prefix_test",
+    target_under_test = ":siblings",
+)
+
+include_entry_test(name = "include_entry_test")

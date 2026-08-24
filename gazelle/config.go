@@ -233,8 +233,8 @@ func getConfig(c *config.Config) *tsConfig {
 		return v.(*tsConfig)
 	}
 	return &tsConfig{
-		packageBoundaryMode:  boundaryEveryDir,
-		declarations:         "tsgo",
+		packageBoundaryMode: boundaryEveryDir,
+		declarations:        "tsgo",
 	}
 }
 
@@ -639,8 +639,8 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 	} else {
 		// Fresh root config: apply defaults.
 		tc = &tsConfig{
-			packageBoundaryMode:  boundaryEveryDir,
-			declarations:         "tsgo",
+			packageBoundaryMode: boundaryEveryDir,
+			declarations:        "tsgo",
 		}
 	}
 

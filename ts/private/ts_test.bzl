@@ -96,6 +96,7 @@ Snapshot testing:
       --sandbox_writable_path=$(pwd)/src/components/__snapshots__
 """
 
+load("//tools/launcher:launcher.bzl", "LAUNCHER_ATTRS", "declare_launcher", "rlocation_path")
 load("//ts/private:node_modules.bzl", "build_node_modules_action")
 load("//ts/private:providers.bzl", "CssModuleInfo", "JsInfo", "NpmPackageInfo")
 load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "get_js_runtime")
@@ -372,10 +373,6 @@ def _vitest_config_content(
     ]
     return "\n".join(lines)
 
-def _shell_escape(s):
-    """Escapes a string for safe embedding in a double-quoted shell string."""
-    return s.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$").replace("`", "\\`")
-
 # ─── Internal test runner rule ─────────────────────────────────────────────────
 
 def _ts_test_runner_impl(ctx):
@@ -389,6 +386,10 @@ def _ts_test_runner_impl(ctx):
 
     # The test .js files come from the compiled test target.
     test_js_files = ctx.files.compiled_tests
+
+    # DefaultInfo also carries the .d.ts and .js.map beside every module; vitest
+    # takes this list as the files to run.
+    test_entry_points = [f for f in test_js_files if f.extension in ("js", "mjs", "cjs")]
 
     # Collect the node_modules directory.
     node_modules_files = ctx.files.node_modules
@@ -422,24 +423,6 @@ def _ts_test_runner_impl(ctx):
             runtime_binary = js_runtime.runtime_binary
             runtime_args = js_runtime.args_prefix
 
-    # Helper: convert a file's short_path to its runfiles-tree-relative path.
-    #
-    # Bazel runfiles layout with --nolegacy_external_runfiles (bzlmod default):
-    #   $RUNFILES_DIR/_main/<short_path>          for main-workspace files
-    #   $RUNFILES_DIR/<repo_name>/<path>          for external-repo files
-    #
-    # File.short_path encoding:
-    #   main-workspace:   "path/to/file"          (no prefix)
-    #   external-repo:    "../repo_name/path"      (leading "../")
-    #
-    # Therefore:
-    #   short_path starting with "../" → strip ".." → use remainder as runfiles-relative
-    #   otherwise                      → prepend "_main/"
-    def _rl(short_path):
-        if short_path.startswith("../"):
-            return short_path[3:]  # strip leading "../"
-        return "_main/" + short_path
-
     # Write a text file listing the test .js files.
     # The runner reads this to support sharding.
     # Store runfiles-relative paths (with _main/ prefix for main-workspace files).
@@ -448,7 +431,7 @@ def _ts_test_runner_impl(ctx):
     )
     ctx.actions.write(
         output = test_files_list,
-        content = "\n".join([_rl(f.short_path) for f in test_js_files]) + "\n",
+        content = "\n".join([rlocation_path(ctx, f) for f in test_entry_points]) + "\n",
     )
 
     # ── Vitest config ─────────────────────────────────────────────────────────
@@ -480,254 +463,57 @@ def _ts_test_runner_impl(ctx):
     ctx.actions.write(
         output = vitest_config,
         content = _vitest_config_content(
-            config_rf = _rl(vitest_config.short_path),
+            config_rf = rlocation_path(ctx, vitest_config),
             css_module_mock = needs_css_module_mock,
-            user_config_rf = _rl(user_config.short_path) if user_config else None,
+            user_config_rf = rlocation_path(ctx, user_config) if user_config else None,
             user_config_json = ctx.attr.config_json,
             environment = ctx.attr.environment,
-            setup_files_rf = [_rl(f.short_path) for f in setup_js],
-            global_setup_rf = [_rl(f.short_path) for f in global_setup_js],
+            setup_files_rf = [rlocation_path(ctx, f) for f in setup_js],
+            global_setup_rf = [rlocation_path(ctx, f) for f in global_setup_js],
             globals_enabled = ctx.attr.globals,
             reporters = ctx.attr.reporters,
             coverage_thresholds = ctx.attr.coverage_thresholds,
         ),
     )
 
-    # Determine paths for the runner script (all as runfiles-relative paths).
-    node_modules_path = _shell_escape(_rl(node_modules_files[0].short_path)) if node_modules_files else ""
-    vitest_path = _shell_escape(_rl(vitest_bin.short_path)) if vitest_bin else ""
+    # ── Launcher config ───────────────────────────────────────────────────────
+    # Every path is a runfiles path; the launcher resolves them through the
+    # runfiles library, so manifest-only layouts work like symlink trees.
+    vitest_cfg = {
+        "config_file": rlocation_path(ctx, vitest_config),
+        "test_files_list": rlocation_path(ctx, test_files_list),
+        "update_snapshots": ctx.attr.update_snapshots,
+        "coverage": ctx.attr.coverage,
+    }
+    if vitest_bin:
+        vitest_cfg["vitest"] = rlocation_path(ctx, vitest_bin)
 
-    # Fallback: resolve vitest from node_modules if not explicit.
-    # Use the canonical bin entry path (vitest.mjs) as declared in vitest's
-    # package.json#bin field.  This replaces the old heuristic (dist/cli.js)
-    # with the authoritative ESM bin entry extracted during npm_translate_lock.
-    if not vitest_path and node_modules_path:
-        vitest_path = "{}/vitest/vitest.mjs".format(node_modules_path)
+        # An npm_bin wrapper resolves its own Node; prefixing the runtime again
+        # would run a launcher under a launcher.
+        vitest_cfg["vitest_is_npm_bin"] = vitest_is_npm_bin
+    if node_modules_files:
+        vitest_cfg["node_modules"] = rlocation_path(ctx, node_modules_files[0])
 
-    runtime_path = _shell_escape(_rl(runtime_binary.short_path)) if runtime_binary else ""
-    # Build the shell snippet that prefixes runtime args (e.g. "--experimental-vm-modules").
-    runtime_args_str = " ".join(["\"{}\"".format(_shell_escape(a)) for a in runtime_args])
+        # The canonical bin entry from vitest's package.json#bin, reached inside
+        # the node_modules tree artifact.
+        vitest_cfg["vitest_in_tree"] = "vitest/vitest.mjs"
 
-    test_files_list_path = _shell_escape(_rl(test_files_list.short_path))
+    config = {
+        "label": str(ctx.label),
+        "mode": "vitest",
+        "workspace": ctx.workspace_name,
+        "runtime_args": runtime_args,
+        "env": ctx.attr.env,
+        "vitest": vitest_cfg,
+    }
+    if runtime_binary:
+        config["runtime"] = rlocation_path(ctx, runtime_binary)
 
-    # Environment variable export lines from the env attribute.
-    # Shell-escape values to prevent injection via $, `, ", \.
-    env_lines = []
-    for k, v in ctx.attr.env.items():
-        escaped = v.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$").replace("`", "\\`")
-        env_lines.append("export {k}=\"{v}\"".format(k = k, v = escaped))
-    env_setup = "\n".join(env_lines)
-
-    # Build the vitest CLI flags beyond "run" (or "watch --update" for snapshots).
-    # Each flag is emitted as a separate array element to avoid word-splitting
-    # issues when paths are used as argument values.
-    # `environment` and the other environment-shaping attrs live in the
-    # generated config, not on the command line, so that the documented
-    # precedence (attrs beat the user config) holds in one place.
-    vitest_extra_flags = ['"--config"']
-
-    # Resolved against RUNFILES_ROOT rather than PWD: update_snapshots runs from
-    # the workspace root, where a runfiles-relative path does not exist.
-    vitest_extra_flags.append('"${RUNFILES_ROOT}/' + _shell_escape(_rl(vitest_config.short_path)) + '"')
-    if ctx.attr.update_snapshots:
-        vitest_extra_flags.append('"--update"')
-    vitest_flags_str = " ".join(vitest_extra_flags)
-
-    # update_snapshots targets run vitest in the workspace root so that
-    # snapshot files are written back to the source tree.
-    # The vitest subcommand changes: "run --update" (write snapshots then exit).
-    vitest_subcommand = "run"
-
-    runner = ctx.actions.declare_file("{}_test_runner.sh".format(ctx.label.name))
-
-    runner_content = (
-        "#!/usr/bin/env bash\n" +
-        "# Bazel-generated test runner for " + str(ctx.label) + "\n" +
-        "set -euo pipefail\n" +
-        "\n" +
-        "# Resolve the runfiles root.\n" +
-        "# Bazel sets RUNFILES_DIR; TEST_SRCDIR is the legacy name.\n" +
-        "if [[ -z \"${RUNFILES_DIR:-}\" && -n \"${TEST_SRCDIR:-}\" ]]; then\n" +
-        "  RUNFILES_DIR=\"$TEST_SRCDIR\"\n" +
-        "fi\n" +
-        "# Absolute runfiles root: every generated path below is resolved against\n" +
-        "# it, so it stays correct after the cd below changes the directory.\n" +
-        "RUNFILES_ROOT=\"$(cd \"${RUNFILES_DIR}\" && pwd)\"\n" +
-        (
-            # update_snapshots: cd to BUILD_WORKSPACE_DIRECTORY (set by `bazel run`)
-            # so vitest writes .snap files back into the source tree.
-            "# update_snapshots: write snapshots back into the source tree.\n" +
-            "# BUILD_WORKSPACE_DIRECTORY is set by `bazel run` to the workspace root.\n" +
-            "if [[ -n \"${BUILD_WORKSPACE_DIRECTORY:-}\" ]]; then\n" +
-            "  cd \"${BUILD_WORKSPACE_DIRECTORY}\"\n" +
-            "else\n" +
-            "  cd \"${RUNFILES_DIR}\"\n" +
-            "fi\n"
-            if ctx.attr.update_snapshots else
-            "# All paths in this script are relative to RUNFILES_DIR.\n" +
-            "cd \"${RUNFILES_DIR}\"\n"
-        ) +
-        "\n" +
-        "# Environment variables from the `env` attribute.\n" +
-        env_setup + "\n" +
-        "\n" +
-        "# Node resolution via NODE_PATH.\n" +
-        # node_modules_path is the runfiles-relative path to the node_modules tree
-        # (e.g. _main/tests/vitest/node_modules).  The directory must be literally
-        # named "node_modules" for Node.js ESM module resolution to work — vitest
-        # uses import('@vitest/coverage-v8') which resolves via the
-        # walking-parent-directories algorithm, not via NODE_PATH.
-        #
-        # When the explicit node_modules target is not named "node_modules" (e.g.
-        # "math_coverage_node_modules"), we create a "node_modules" symlink in the
-        # parent directory so that Node.js can find packages via its standard ESM
-        # resolution algorithm.
-        "NODE_MODULES_DIR=\"" + node_modules_path + "\"\n" +
-        "if [[ -n \"$NODE_MODULES_DIR\" ]]; then\n" +
-        "  NODE_MODULES_DIR=\"${RUNFILES_ROOT}/${NODE_MODULES_DIR}\"\n" +
-        "fi\n" +
-        "if [[ -n \"$NODE_MODULES_DIR\" && -d \"$NODE_MODULES_DIR\" ]]; then\n" +
-        "  export NODE_PATH=\"${NODE_MODULES_DIR}:${NODE_PATH:-}\"\n" +
-        "  # Ensure the directory is named 'node_modules' for ESM resolution.\n" +
-        "  # Node.js ESM does not use NODE_PATH; it walks parent directories looking\n" +
-        "  # for a directory literally named 'node_modules'.  When the target has a\n" +
-        "  # different name, create a 'node_modules' symlink one level up so that\n" +
-        "  # vitest running from inside the tree can locate sibling packages.\n" +
-        "  _NM_BASENAME=\"$(basename \"${NODE_MODULES_DIR}\")\"\n" +
-        "  if [[ \"$_NM_BASENAME\" != \"node_modules\" ]]; then\n" +
-        "    _NM_PARENT_DIR=\"$(dirname \"${NODE_MODULES_DIR}\")\"\n" +
-        "    _NM_SYMLINK=\"${_NM_PARENT_DIR}/node_modules\"\n" +
-        "    if [[ ! -e \"${_NM_SYMLINK}\" ]]; then\n" +
-        "      ln -sf \"${NODE_MODULES_DIR}\" \"${_NM_SYMLINK}\" || true\n" +
-        "    fi\n" +
-        "  fi\n" +
-        # Vite resolves the bare imports of a vitest config file (vitest/config,
-        # plugin packages) by walking up from the config's directory.  A
-        # node_modules at the runfiles root terminates that walk inside the
-        # sandbox for every package layout, not just the auto-generated one.
-        "  _ROOT_NM=\"${RUNFILES_ROOT}/node_modules\"\n" +
-        "  if [[ ! -e \"${_ROOT_NM}\" ]]; then\n" +
-        "    ln -sf \"${NODE_MODULES_DIR}\" \"${_ROOT_NM}\" || true\n" +
-        "  fi\n" +
-        "fi\n" +
-        "\n" +
-        "# Resolve the JS runtime binary.\n" +
-        "RUNTIME=\"" + (("${RUNFILES_ROOT}/" + runtime_path) if runtime_path else "") + "\"\n" +
-        "RUNTIME_ARGS=(" + runtime_args_str + ")\n" +
-        "if [[ -z \"$RUNTIME\" ]]; then\n" +
-        "  # Fallback to system node.\n" +
-        "  RUNTIME=\"node\"\n" +
-        "fi\n" +
-        "\n" +
-        "# Read all test .js files (runfiles-relative paths).\n" +
-        "ALL_TEST_FILES=()\n" +
-        "while IFS= read -r line; do\n" +
-        "  [[ -n \"$line\" ]] && ALL_TEST_FILES+=(\"$line\")\n" +
-        "done < \"${RUNFILES_ROOT}/" + test_files_list_path + "\"\n" +
-        "\n" +
-        "# Shard support: partition files across shards.\n" +
-        "SHARD_INDEX=\"${TEST_SHARD_INDEX:-0}\"\n" +
-        "TOTAL_SHARDS=\"${TEST_TOTAL_SHARDS:-1}\"\n" +
-        "\n" +
-        "SHARD_FILES=()\n" +
-        "idx=0\n" +
-        "for f in \"${ALL_TEST_FILES[@]}\"; do\n" +
-        "  if (( idx % TOTAL_SHARDS == SHARD_INDEX )); then\n" +
-        "    SHARD_FILES+=(\"$f\")\n" +
-        "  fi\n" +
-        "  (( idx++ )) || true\n" +
-        "done\n" +
-        "\n" +
-        "if [[ \"${#SHARD_FILES[@]}\" -eq 0 ]]; then\n" +
-        "  echo \"ts_test: no test files assigned to shard $SHARD_INDEX/$TOTAL_SHARDS\"\n" +
-        "  exit 0\n" +
-        "fi\n" +
-        "\n" +
-        "# Extra vitest flags (environment, config) as a bash array.\n" +
-        "VITEST_EXTRA_FLAGS=(" + vitest_flags_str + ")\n" +
-        "\n" +
-        # Coverage: when COVERAGE_OUTPUT_FILE is set (bazel coverage), configure
-        # vitest to write lcov data to the directory Bazel expects, then copy
-        # the lcov.info file to COVERAGE_OUTPUT_FILE after the run.
-        #
-        # This block is UNCONDITIONAL — `bazel coverage` works on every ts_test
-        # target regardless of whether `coverage = True` is set on the target.
-        # The `coverage = True` attr only affects `bazel test` (not `bazel
-        # coverage`): when True it also enables coverage during normal test runs
-        # via the COVERAGE_ENABLED env var.
-        #
-        # @vitest/coverage-v8 must be in the target's npm deps when using
-        # `bazel coverage`.
-        "# Coverage: collect lcov when COVERAGE_OUTPUT_FILE is set by bazel coverage.\n" +
-        "# This block runs unconditionally so 'bazel coverage' works on any ts_test.\n" +
-        "if [[ -n \"${COVERAGE_OUTPUT_FILE:-}\" ]]; then\n" +
-        "  COVERAGE_DIR=\"$(dirname \"${COVERAGE_OUTPUT_FILE}\")\"\n" +
-        "  mkdir -p \"${COVERAGE_DIR}\"\n" +
-        "  VITEST_EXTRA_FLAGS+=(\"--coverage.enabled\" \"true\")\n" +
-        "  VITEST_EXTRA_FLAGS+=(\"--coverage.provider\" \"v8\")\n" +
-        "  VITEST_EXTRA_FLAGS+=(\"--coverage.reporter\" \"lcov\")\n" +
-        "  VITEST_EXTRA_FLAGS+=(\"--coverage.reportsDirectory\" \"${COVERAGE_DIR}\")\n" +
-        (
-            # coverage = True: also enable coverage during `bazel test` (not just
-            # `bazel coverage`) when the user explicitly opts in.
-            "elif [[ \"${COVERAGE_ENABLED:-false}\" == \"true\" ]]; then\n" +
-            "  VITEST_EXTRA_FLAGS+=(\"--coverage.enabled\" \"true\")\n" +
-            "  VITEST_EXTRA_FLAGS+=(\"--coverage.provider\" \"v8\")\n"
-            if ctx.attr.coverage else ""
-        ) +
-        "fi\n" +
-        "# Run vitest via the resolved runtime.\n" +
-        "VITEST=\"" + (("${RUNFILES_ROOT}/" + vitest_path) if vitest_path else "") + "\"\n" +
-        "VITEST_CMD=\"" + vitest_subcommand + "\"\n" +
-        # We always need the wrapper function form (not exec) so that the
-        # lcov post-processing step can run after vitest exits when
-        # COVERAGE_OUTPUT_FILE is set (which happens during `bazel coverage`).
-        "# Coverage post-run: copy lcov.info → COVERAGE_OUTPUT_FILE if present.\n" +
-        "_run_vitest() {\n" +
-        "  if [[ -n \"$VITEST\" && -f \"$VITEST\" ]]; then\n" +
-        (
-            "    \"$VITEST\" \"$VITEST_CMD\" ${VITEST_EXTRA_FLAGS[@]+\"${VITEST_EXTRA_FLAGS[@]}\"} ${SHARD_FILES[@]+\"${SHARD_FILES[@]}\"}\n"
-            if vitest_is_npm_bin else
-            "    \"$RUNTIME\" ${RUNTIME_ARGS[@]+\"${RUNTIME_ARGS[@]}\"} \"$VITEST\" \"$VITEST_CMD\" ${VITEST_EXTRA_FLAGS[@]+\"${VITEST_EXTRA_FLAGS[@]}\"} ${SHARD_FILES[@]+\"${SHARD_FILES[@]}\"}\n"
-        ) +
-        "  elif command -v vitest &>/dev/null; then\n" +
-        "    vitest \"$VITEST_CMD\" ${VITEST_EXTRA_FLAGS[@]+\"${VITEST_EXTRA_FLAGS[@]}\"} ${SHARD_FILES[@]+\"${SHARD_FILES[@]}\"}\n" +
-        "  else\n" +
-        "    echo \"ts_test: vitest not found. Set vitest attr or include it in node_modules.\" >&2\n" +
-        "    return 1\n" +
-        "  fi\n" +
-        "}\n" +
-        # Capture vitest's exit code so we can still perform the lcov copy
-        # step even when vitest fails (Bazel expects COVERAGE_OUTPUT_FILE to
-        # be written even on test failure when running under bazel coverage).
-        "_exit=0\n" +
-        "_run_vitest || _exit=$?\n" +
-        "if [[ -n \"${COVERAGE_OUTPUT_FILE:-}\" ]]; then\n" +
-        "  _lcov=\"$(dirname \"${COVERAGE_OUTPUT_FILE}\")/lcov.info\"\n" +
-        "  if [[ -f \"$_lcov\" ]]; then\n" +
-        # Normalise SF: paths so Bazel's _lcov_merger can match them.
-        # vitest emits SF lines with the runfiles-relative path
-        # (e.g. "_main/tests/vitest/math.js").  Bazel's lcov_merger
-        # expects paths relative to the workspace root without the
-        # "_main/" repository prefix.
-        "    sed 's|^SF:_main/|SF:|' \"$_lcov\" > \"${COVERAGE_OUTPUT_FILE}\"\n" +
-        "  else\n" +
-        "    # Write an empty lcov file so Bazel does not fail due to a missing output.\n" +
-        "    printf '' > \"${COVERAGE_OUTPUT_FILE}\"\n" +
-        "  fi\n" +
-        "fi\n" +
-        "exit \"${_exit}\"\n"
-    )
-
-    ctx.actions.write(
-        output = runner,
-        content = runner_content,
-        is_executable = True,
-    )
+    launcher = declare_launcher(ctx, config, basename = "{}_test_launcher".format(ctx.label.name))
 
     # Build runfiles.
     runfiles_files = (
-        [test_files_list, vitest_config] +
+        [test_files_list, vitest_config] + launcher.files +
         test_js_files +
         node_modules_files +
         ctx.files.setup_files +
@@ -744,13 +530,19 @@ def _ts_test_runner_impl(ctx):
     runfiles = ctx.runfiles(
         files = runfiles_files,
         transitive_files = transitive_js,
+        root_symlinks = launcher.root_symlinks,
     )
     for target in ctx.attr.data + ctx.attr.setup_files + ctx.attr.global_setup:
         runfiles = runfiles.merge(target[DefaultInfo].default_runfiles)
 
+    # An npm_bin vitest is itself launcher-driven, so it needs its own config
+    # staged in this test's runfiles, not just its executable.
+    if ctx.attr.vitest:
+        runfiles = runfiles.merge(ctx.attr.vitest[DefaultInfo].default_runfiles)
+
     return [
         DefaultInfo(
-            executable = runner,
+            executable = launcher.executable,
             runfiles = runfiles,
         ),
         # Exposes the config vitest actually ran with, for debugging and for
@@ -864,7 +656,7 @@ _ts_test_runner_test = rule(
     implementation = _ts_test_runner_impl,
     test = True,
     attrs = dict(
-        _RUNNER_ATTRS,
+        _RUNNER_ATTRS | LAUNCHER_ATTRS,
         # lcov_merger: required by Bazel's coverage protocol.
         # When `bazel coverage` is run, Bazel invokes the lcov_merger binary to
         # merge individual coverage files from each shard into a single combined
@@ -889,7 +681,7 @@ _ts_test_runner_test = rule(
 _ts_snapshot_updater = rule(
     implementation = _ts_test_runner_impl,
     executable = True,
-    attrs = _RUNNER_ATTRS,
+    attrs = _RUNNER_ATTRS | LAUNCHER_ATTRS,
     toolchains = [
         config_common.toolchain_type(JS_RUNTIME_TOOLCHAIN_TYPE, mandatory = False),
     ],
@@ -1077,6 +869,7 @@ def ts_test(
             npm_workspace_name = "my_npm",
         )
     """
+
     # Step 1: compile the test source files.
     compile_name = "_{}_compile".format(name)
     ts_compile(

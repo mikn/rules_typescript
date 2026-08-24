@@ -1,7 +1,7 @@
 # Root BUILD file for rules_typescript
 
-load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("//ts:defs.bzl", "ts_add_package", "ts_pnpm")
+load("//ts/private:tsconfig_aspect.bzl", "ts_refresh_tsconfig")
 
 exports_files([
     "MODULE.bazel",
@@ -9,20 +9,30 @@ exports_files([
 ])
 
 # ── IDE Integration ────────────────────────────────────────────────────────────
-# Run `bazel run //:refresh_tsconfig` to regenerate the workspace-root
-# tsconfig.json that IDEs (VS Code, WebStorm, etc.) use for code intelligence.
+# The workspace-root tsconfig.json IDEs read is a declared output, written from
+# an aspect over the ts_compile graph: source roots, `path_aliases`, and the
+# .d.ts entry point NpmPackageInfo names for every npm package a target imports.
 #
-# The script queries all ts_compile targets, collects their package paths,
-# and writes a tsconfig.json with:
-#   - rootDirs including bazel-bin so the IDE can find compiled .d.ts files
-#   - paths mapping @/<pkg> aliases to source directories
-#   - references pointing at per-package tsconfig.json files (when present)
+#   bazel run //:refresh_tsconfig        installs it in the source tree, with
+#                                        the npm .d.ts files under .bazel/npm
+#   bazel test //:refresh_tsconfig_test  fails when the checked-in copy is stale
 #
-# Re-run this whenever you add or remove ts_compile targets.
-sh_binary(
+# `deps` is what the IDE sees, and a rule's deps obey visibility: only the five
+# ts_compile targets below carry `visibility = ["//visibility:public"]`, so only
+# their packages appear. The other 86 in this repo are package-private test
+# fixtures; each needs a visibility grant to be listed here (gazelle writes
+# `//visibility:public` on the ts_compile targets it generates, so a workspace
+# whose BUILD files come from gazelle can list all of them).
+ts_refresh_tsconfig(
     name = "refresh_tsconfig",
-    srcs = ["//tools:refresh_tsconfig.sh"],
-    visibility = ["//visibility:public"],
+    test = True,
+    deps = [
+        "//packages/nested-shared",
+        "//packages/shared",
+        "//tests/css_module_test:button",
+        "//tests/vitest:math",
+        "//vite:plugin_typecheck",
+    ],
 )
 
 # ── Hermetic pnpm ─────────────────────────────────────────────────────────────

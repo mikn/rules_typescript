@@ -87,19 +87,30 @@ use_repo(
     "tsgo_linux_arm64",
 )
 
-# Toolchain registration is the CONSUMER's responsibility.
-# rules_typescript does NOT register its own toolchains — consumers must add:
+# Toolchain registration is the CONSUMER's responsibility — consumers add:
 #
 #   register_toolchains("@rules_typescript//ts/toolchain:all")
 #
-# to their own MODULE.bazel. This matches the rules_go pattern where consumers
-# explicitly opt in to toolchain registration.
+# to their own MODULE.bazel, matching the rules_go pattern.
 #
-# For the main repo's own tests, we register them here:
-register_toolchains("//ts/toolchain:all")
+# dev_dependency is what makes that contract true. Toolchain resolution collects
+# register_toolchains() from every module in the graph, not just the root, so a
+# non-dev call here would register these toolchains for every consumer whether
+# they asked or not. Marked dev, the call applies only when rules_typescript is
+# itself the root module, i.e. for this repo's own tests.
+register_toolchains(
+    "//ts/toolchain:all",
+    dev_dependency = True,
+)
 
 # ─── npm dependencies ────────────────────────────────────────────────────────
 
+# Non-dev even though the lockfile is a test fixture: //vite:esbuild_node_modules
+# resolves @npm//:esbuild in this module's repo mapping, and the target it feeds,
+# //vite:vite_plugin_bazel, is consumer API (ts_dev_server's `plugin` attr). A
+# dev-only usage hides @npm from this module whenever rules_typescript is not the
+# root, so sourcing //vite's esbuild from outside the test fixture has to come
+# first.
 npm = use_extension("//npm:extensions.bzl", "npm")
 npm.pnpm(version = "10.32.1")
 npm.translate_lock(pnpm_lock = "//tests/npm:pnpm-lock.yaml")
@@ -107,12 +118,19 @@ npm.translate_lock(pnpm_lock = "//tests/npm:pnpm-lock.yaml")
 # A second hub for the pnpm features that need their own fixture: the main
 # lockfile is copied verbatim into the integration and bootstrap scratch
 # workspaces, which pass no patch files.
-npm.translate_lock(
+#
+# Nothing outside //tests/npm names @npm_features, so this hub and its patched
+# nanoid have no business in a consumer's MODULE.bazel.lock.
+npm_dev = use_extension("//npm:extensions.bzl", "npm", dev_dependency = True)
+npm_dev.translate_lock(
     name = "npm_features",
     patches = ["//tests/npm:patches/nanoid@3.3.11.patch"],
     pnpm_lock = "//tests/npm:pnpm-lock-features.yaml",
 )
-use_repo(npm, "npm", "npm_features", "pnpm")
+
+use_repo(npm, "npm", "pnpm")
+
+use_repo(npm_dev, "npm_features")
 
 # ─── Bazel integration test binaries (dev only) ──────────────────────────────
 

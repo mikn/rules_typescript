@@ -54,7 +54,6 @@ def _css_library_impl(ctx):
         TsDeclarationInfo(
             declaration_files = direct_dts,
             transitive_declaration_files = transitive_dts,
-            type_roots = depset([]),
         ),
     ]
 

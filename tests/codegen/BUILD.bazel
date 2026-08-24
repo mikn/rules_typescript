@@ -7,9 +7,13 @@ Tests:
                             as srcs (end-to-end: generate then compile).
 """
 
+load("@rules_go//go:def.bzl", "go_test")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
-load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//ts:defs.bzl", "ts_codegen", "ts_compile")
+
+# The go_test targets are hand-named after the sh_tests they replaced, so the
+# Go language would add a second target for the same source.
+# gazelle:exclude *_test.go
 
 # ── Generator binary ──────────────────────────────────────────────────────────
 # A simple shell script generator that writes a TypeScript file with an
@@ -25,22 +29,23 @@ ts_codegen(
     name = "generated_ts",
     srcs = ["input.ts"],
     outs = ["generated.ts"],
-    generator = ":test_generator",
     args = [
         "--srcs-dir",
         "{srcs_dir}",
         "--out",
         "{out}",
     ],
+    generator = ":test_generator",
 )
 
 # ── Output verification test ──────────────────────────────────────────────────
 # Checks that the generated file exists and has the expected content.
-sh_test(
+go_test(
     name = "codegen_output_test",
     size = "small",
-    srcs = ["verify_codegen.sh"],
+    srcs = ["codegen_output_test.go"],
     data = [":generated_ts"],
+    deps = ["//tests/verify"],
 )
 
 # ── End-to-end compile test ───────────────────────────────────────────────────
@@ -55,6 +60,6 @@ ts_compile(
 ts_compile(
     name = "consumer_compile",
     srcs = ["consumer.ts"],
-    deps = [":generated_compile"],
     enable_check = False,
+    deps = [":generated_compile"],
 )

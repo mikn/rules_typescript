@@ -5,9 +5,13 @@ vitest config and that the layers stack in the documented order; `attrs_test`
 itself proves the `globals` and `setup_files` halves end to end.
 """
 
-load("@rules_shell//shell:sh_test.bzl", "sh_test")
-load("//ts:defs.bzl", "ts_test")
+load("@rules_go//go:def.bzl", "go_test")
 load("//tests/vitest:vitest_config.bzl", "vitest_config")
+load("//ts:defs.bzl", "ts_test")
+
+# The go_test is hand-named after the sh_test it replaced, so the Go language
+# would add a second target for the same source.
+# gazelle:exclude *_test.go
 
 ts_test(
     name = "attrs_test",
@@ -36,9 +40,10 @@ vitest_config(
     test = ":attrs_test",
 )
 
-sh_test(
+go_test(
     name = "config_layers_test",
     size = "small",
-    srcs = ["verify_config_layers.sh"],
+    srcs = ["config_layers_test.go"],
     data = [":attrs_test_config"],
+    deps = ["//tests/verify"],
 )

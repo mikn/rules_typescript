@@ -33,11 +33,19 @@ go_test(
     srcs = [
         "codegen_test.go",
         "directives_test.go",
+        "framework_bundle_test.go",
         "generate_test.go",
         "imports_test.go",
         "jsonc_test.go",
+        "resolve_test.go",
     ],
     embed = [":typescript"],
+    deps = [
+        "@gazelle//config",
+        "@gazelle//label",
+        "@gazelle//resolve",
+        "@gazelle//rule",
+    ],
 )
 
 gazelle_binary(

@@ -263,7 +263,7 @@ func isPathAlias(tc *tsConfig, imp string) bool {
 //  2. With extension:      src/utils/helpers.ts / .tsx / .js
 //  3. Index file:          src/utils/helpers/index(.ts/.tsx)
 //  4. Parent directory:    src/utils (handles non-barrel sub-path imports that
-//                          point to files compiled into the parent package)
+//     point to files compiled into the parent package)
 //  5. labelFromRel fallback for when the target hasn't been indexed yet.
 func resolvePathAlias(
 	_ *config.Config,
@@ -441,4 +441,3 @@ func dropTsExtension(name string) string {
 	}
 	return name
 }
-

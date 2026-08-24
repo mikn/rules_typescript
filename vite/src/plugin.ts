@@ -53,8 +53,9 @@ export interface BazelPluginOptions {
    * When omitted the plugin attempts to auto-detect it by looking for a
    * directory named `<target_name>_node_modules` inside bazel-bin.
    *
-   * If neither this option nor `target` is set, npm resolution falls back to
-   * Vite's default behaviour (the project-root `node_modules`).
+   * The tree is added to `server.fs.allow` so the dev server can serve from it.
+   * Vite resolves bare specifiers itself and exposes no search-path option, so
+   * this does not redirect `import "react"`.
    */
   nodeModules?: string;
 
@@ -82,6 +83,13 @@ export interface BazelPluginOptions {
    * Default: `50`.
    */
   hmrDebounceMs?: number;
+
+  /**
+   * `true` turns a watcher that fails to start into a hard error instead of a
+   * warning; `false` skips the bazel-bin watcher entirely.  Unset is
+   * best-effort: the dev server still boots, with a warning, and no HMR.
+   */
+  hmr?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -163,15 +171,6 @@ export function bazelPlugin(options: BazelPluginOptions = {}): Plugin {
       const nodeModules = resolveNodeModules(root, bazelBin);
 
       const patch: UserConfig = {
-        resolve: {
-          // When a generated node_modules tree is available, prepend it to
-          // Node's module resolution search path so that `import "react"` finds
-          // the Bazel-managed package rather than whatever is in the project
-          // root's node_modules.
-          ...(nodeModules != null
-            ? { modules: [nodeModules, 'node_modules'] }
-            : {}),
-        },
         server: {
           fs: {
             // Allow Vite's dev server to serve files from bazel-bin (and the
@@ -183,11 +182,9 @@ export function bazelPlugin(options: BazelPluginOptions = {}): Plugin {
               ...(nodeModules != null ? [nodeModules] : []),
             ],
           },
-          watch: {
-            // Exclude bazel-bin from Vite's own watcher — we manage that
-            // separately via BazelWatcher so we can debounce ibazel bursts.
-            ignored: [bazelBin],
-          },
+          // Only with HMR off: BazelWatcher rides on server.watcher, and
+          // chokidar's `ignored` would drop the path it adds there.
+          ...(options.hmr === false ? { watch: { ignored: [bazelBin] } } : {}),
         },
         // Optimise dependencies from the generated node_modules.
         optimizeDeps: {
@@ -211,14 +208,10 @@ export function bazelPlugin(options: BazelPluginOptions = {}): Plugin {
         workspace: options.workspace,
       });
 
-      config.logger.info(
-        `[vite-plugin-bazel] bazel-bin: ${bazelBinAbsolute}`,
-        { once: true },
-      );
+      config.logger.info(`[vite-plugin-bazel] bazel-bin: ${bazelBinAbsolute}`);
       if (nodeModulesAbsolute != null) {
         config.logger.info(
           `[vite-plugin-bazel] node_modules: ${nodeModulesAbsolute}`,
-          { once: true },
         );
       }
     },
@@ -266,27 +259,31 @@ export function bazelPlugin(options: BazelPluginOptions = {}): Plugin {
     },
 
     // ── configureServer ───────────────────────────────────────────────────
-    configureServer(server: ViteDevServer): (() => void) | void {
-      // Start the BazelWatcher after the server has started.  We return a
-      // cleanup function that Vite calls when the server is torn down.
-
-      const hmrDebounceMs = options.hmrDebounceMs ?? 50;
+    async configureServer(server: ViteDevServer): Promise<(() => void) | void> {
+      if (options.hmr === false) return;
 
       watcher = new BazelWatcher({
         bazelBin: bazelBinAbsolute,
-        debounceMs: hmrDebounceMs,
+        debounceMs: options.hmrDebounceMs ?? 50,
+        // Vite's own watcher: the plugin must not run a second one, and
+        // chokidar is not importable outside Vite's bundle.
+        source: server.watcher,
         onRebuild: (changedAbsolutePaths: Set<string>) => {
           handleRebuild(server, changedAbsolutePaths, bazelBinAbsolute);
         },
       });
 
-      // Start is async; fire and forget from within the synchronous plugin
-      // hook.  Any errors are caught and logged so they don't crash the server.
-      watcher.start().catch((err: unknown) => {
-        server.config.logger.error(
-          `[vite-plugin-bazel] failed to start bazel-bin watcher: ${String(err)}`,
-        );
-      });
+      try {
+        await watcher.start();
+      } catch (err: unknown) {
+        watcher = null;
+        const detail = err instanceof Error ? err.message : String(err);
+        const message =
+          `[vite-plugin-bazel] no HMR: the bazel-bin watcher failed to start — ${detail}`;
+        if (options.hmr === true) throw new Error(message);
+        server.config.logger.warn(message);
+        return;
+      }
 
       return function cleanup() {
         if (watcher !== null) {

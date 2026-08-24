@@ -1,10 +1,13 @@
 # Bundling
 
-`ts_binary` and `ts_bundle` collect transitive `.js` outputs and optionally invoke a pluggable bundler.
+`ts_binary` and `ts_bundle` collect transitive `.js` outputs and hand them to a pluggable bundler.
 
-## Basic Usage (Placeholder Mode)
+`ts_bundle` requires a `bundler`: there is no bundler-less mode, because an
+artifact that only looks like a bundle is worse than a build error.
 
-Without a bundler, the rule concatenates all `.js` files in dependency order. This is useful during development and keeps the build graph valid.
+## Basic Usage (No Bundling)
+
+`ts_binary` without a `bundler` runs the entry point `.js` directly — nothing is bundled.
 
 ```python
 load("@rules_typescript//ts:defs.bzl", "ts_binary")
@@ -12,13 +15,11 @@ load("@rules_typescript//ts:defs.bzl", "ts_binary")
 ts_binary(
     name = "app",
     entry_point = "//src/app",
-    format = "esm",
-    sourcemap = True,
 )
 ```
 
 ```bash
-bazel build //:app
+bazel run //:app
 ```
 
 ## With Vite
@@ -118,16 +119,26 @@ Output is expected at `<out-dir>/<bundle_name>.js` (and `.js.map` if `--sourcema
 | `runtime_deps` | `depset of File` | Files the bundler needs at runtime |
 | `use_generated_config` | `bool` | When `True`, use mode 2 (generated vite.config.mjs) |
 
-## ts_binary / ts_bundle Attributes
+## Attributes
+
+The two rules are not aliases and their attribute sets differ. Shared:
 
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `entry_point` | `label` | required | `ts_compile` target providing `JsInfo` |
-| `bundler` | `label` | `None` | Target providing `BundlerInfo` |
+| `bundler` | `label` | required for `ts_bundle`, optional for `ts_binary` | Target providing `BundlerInfo` |
 | `bundle_name` | `string` | rule name | Output file name (without `.js`) |
 | `format` | `string` | `"esm"` | Output format: `esm`, `cjs`, `iife` |
 | `sourcemap` | `bool` | `True` | Emit source map |
-| `minify` | `bool` | `True` | Minify the bundle (esbuild minifier via Vite) |
-| `split_chunks` | `bool` | `False` | Enable chunk splitting (Vite mode only; output is a directory) |
 | `external` | `string_list` | `[]` | Module specifiers to leave external |
 | `define` | `string_dict` | `{}` | Global constant replacements |
+
+`ts_bundle` only: `minify`, `split_chunks`, `env_vars`, `mode`, `html`,
+`vite_config`, `staging_srcs` — see the
+[ts_bundle reference](../rules/ts-bundle.md#attributes).
+
+`ts_binary` only: `entry_file` (which `.js` is the entry when the target emits
+several) and `node_modules` — see the
+[ts_binary reference](../rules/ts-binary.md#attributes).
+
+Setting `minify` on a `ts_binary` is an analysis error, not a no-op.

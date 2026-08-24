@@ -9,19 +9,24 @@
  * When loaded, this script:
  *   1. Walks up from cwd to find the workspace root (directory containing
  *      MODULE.bazel).
- *   2. Spawns a background worker thread that runs `bazel query` and scans
- *      the @npm external repo to build a module-name → .d.ts path map.
+ *   2. Spawns a background worker thread that reads what
+ *      `bazel run //:refresh_tsconfig` wrote from the build graph into
+ *      .bazel/tsserver-hook-data.json, and turns it into a module-name → .d.ts
+ *      path map.
  *   3. Monkey-patches ts.resolveModuleName so that imports like
- *      `import { z } from "zod"` resolve to the .d.ts in the Bazel output
- *      base instead of relying on paths in tsconfig.json.
+ *      `import { z } from "zod"` resolve to the declarations Bazel installed
+ *      instead of relying on paths in tsconfig.json.
  *   4. Falls back to the standard TypeScript resolver for anything not in the
  *      Bazel resolution map.
  *
  * Design constraints:
  *   - Zero npm dependencies (Node.js builtins only).
- *   - Must not crash if Bazel is not installed or packages are not fetched.
+ *   - Never runs Bazel: nothing here needs a `bazel` on PATH or a turn at the
+ *     server lock.
+ *   - Must not crash before refresh_tsconfig has ever run.
  *   - Worker thread must not block the main thread (tsserver).
- *   - Cache is rebuilt automatically when BUILD files or pnpm-lock.yaml change.
+ *   - Cache is rebuilt automatically when that data, a BUILD file or
+ *     pnpm-lock.yaml changes.
  */
 
 'use strict';
@@ -315,14 +320,18 @@ function buildResolvedModule(resolvedFileName) {
     extension = '.ts';
   }
 
+  const npmPath = ['external', '.bazel'].some(
+    (dir) =>
+      resolvedFileName.includes(`${path.sep}${dir}${path.sep}`) ||
+      resolvedFileName.includes(`/${dir}/`)
+  );
+
   return {
     resolvedModule: {
       resolvedFileName,
-      // Mark packages in bazel's external/ directory as external library
-      // imports so tsserver doesn't treat them as editable workspace files.
-      isExternalLibraryImport:
-        resolvedFileName.includes(`${path.sep}external${path.sep}`) ||
-        resolvedFileName.includes('/external/'),
+      // Declarations Bazel installed or fetched are not editable workspace
+      // files, and tsserver offers to rename symbols in the ones that are.
+      isExternalLibraryImport: npmPath,
       extension,
     },
   };

@@ -1,5 +1,9 @@
-load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("@rules_go//go:def.bzl", "go_test")
 load("//ts:defs.bzl", "ts_lint")
+
+# The go_test targets are hand-named after the sh_tests they replaced, so the
+# Go language would add a second target for the same source.
+# gazelle:exclude *_test.go
 
 # ── oxlint config ─────────────────────────────────────────────────────────────
 # The oxlint.json enables the no-var rule so that violations.ts fails.
@@ -36,9 +40,10 @@ ts_lint(
 # ── Integration test ──────────────────────────────────────────────────────────
 # The stamp is only written when the linter exits 0, so its presence is the
 # assertion that a real oxlint ran and passed on clean.ts.
-sh_test(
+go_test(
     name = "real_lint_test",
     size = "small",
-    srcs = ["verify_real_lint.sh"],
+    srcs = ["real_lint_test.go"],
     data = [":clean_lint_stamp"],
+    deps = ["//tests/verify"],
 )

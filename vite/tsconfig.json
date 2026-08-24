@@ -20,6 +20,10 @@
     "noFallthroughCasesInSwitch": true,
     "exactOptionalPropertyTypes": true,
 
+    // vite's own .d.ts reference DOM globals this package's ES2022-only lib
+    // does not declare.
+    "skipLibCheck": true,
+
     // ── Module interop ──────────────────────────────────────────────────────
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
@@ -27,8 +31,7 @@
     "verbatimModuleSyntax": true,
 
     // ── Paths ───────────────────────────────────────────────────────────────
-    "rootDir": "src",
-    "baseUrl": "."
+    "rootDir": "src"
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist"]

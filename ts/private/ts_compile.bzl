@@ -3,6 +3,14 @@
 ts_compile transforms .ts/.tsx source files into .js + .js.map + .d.ts outputs
 using the oxc-bazel CLI as a Bazel action.
 
+JavaScript sources (.js/.mjs/.cjs) are accepted too. They need no transform, so
+they are materialised in the output tree unchanged and joined into the type
+program: `import "./util.js"` resolves, JSDoc types cross the package boundary,
+and `checkJs` in compiler_options type-checks them.
+
+srcs may span a whole subtree. Every output keeps its package-relative path, so
+one target can hold `index.ts` and `nested/helper.ts` together.
+
 The .d.ts output is the compilation boundary artifact: downstream targets
 depend only on .d.ts files, so Bazel's content-based caching means that if a
 dep's .d.ts doesn't change (e.g. because an internal implementation detail
@@ -36,23 +44,58 @@ tsconfig by hand.
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-def _is_ts_source(f):
-    """Returns True if the file is a TypeScript source file."""
-    return f.extension in ("ts", "tsx")
+_TS_EXTENSIONS = ["ts", "tsx"]
+
+_JS_EXTENSIONS = ["js", "mjs", "cjs"]
+
+# tsc's own naming for the declaration it emits from a JavaScript source.
+_JS_DECLARATION_EXTENSION = {
+    "js": ".d.ts",
+    "mjs": ".d.mts",
+    "cjs": ".d.cts",
+}
 
 def _is_dts_source(f):
-    """Returns True if the file is an ambient declaration file (.d.ts)."""
-    return f.basename.endswith(".d.ts")
+    """Returns True if the file is an ambient declaration file."""
+    b = f.basename
+    return b.endswith(".d.ts") or b.endswith(".d.mts") or b.endswith(".d.cts")
 
-def _package_relative_stem(f, pkg):
-    """Returns the package-relative path with TypeScript extension stripped."""
+def _package_relative_path(f, pkg):
+    """Returns the path of a src relative to the target's package, extension intact."""
     p = f.short_path
+    if p.startswith("../"):
+        # An external-repo file: ../<repo name>/<rest>.
+        parts = p.split("/", 2)
+        if len(parts) == 3:
+            p = parts[2]
     if pkg and p.startswith(pkg + "/"):
         p = p[len(pkg) + 1:]
+    return p
+
+def _strip_ts_extension(p):
     for ext in (".tsx", ".ts"):
         if p.endswith(ext):
             return p[:-len(ext)]
     return p
+
+def _package_relative_stem(f, pkg):
+    """Returns the package-relative path with the TypeScript extension stripped."""
+    return _strip_ts_extension(_package_relative_path(f, pkg))
+
+def _source_root(f, pkg):
+    """Returns the exec-root-relative directory the package-relative path hangs off.
+
+    A checked-in source gives the package directory; a generated one gives the
+    bin directory plus the package. oxc's --strip-dir-prefix takes a single
+    value, so two srcs with different roots cannot share one invocation.
+    """
+    rel = _package_relative_path(f, pkg)
+    p = f.path
+    if p == rel:
+        return ""
+    if p.endswith("/" + rel):
+        return p[:len(p) - len(rel) - 1]
+    return f.dirname
 
 def _relative_path(from_dir, to_dir):
     """Computes a relative path from from_dir to to_dir.
@@ -73,6 +116,14 @@ def _relative_path(from_dir, to_dir):
     result = up_parts + down_parts
     return "/".join(result) if result else "."
 
+def include_entry(tsconfig_dir, src_dir, basename):
+    """Returns a src's `include` entry, relative to the generated tsconfig.
+
+    Exported for the unit test. A src in the workspace root has an empty
+    dirname, which names the exec root -- not the tsconfig's own directory.
+    """
+    return _relative_path(tsconfig_dir, src_dir) + "/" + basename
+
 # ─── Tsconfig generation ─────────────────────────────────────────────────────
 
 # Options whose values encode the sandbox layout or the action's declared
@@ -87,7 +138,8 @@ _BAZEL_OWNED_OPTIONS = {
     "declarationDir": "declarations must land next to the .js Bazel declared",
     "declaration": "declaration emit follows from the `declarations` attr",
     "emitDeclarationOnly": "declaration emit follows from the `declarations` attr",
-    "declarationMap": "Bazel declares no .d.ts.map output",
+    "declarationMap": "declaration map emit follows from the `declaration_map` attr",
+    "sourceMap": "source map emit follows from the `source_map` attr",
     "noEmit": "declaration emit follows from the `declarations` attr",
     "noEmitOnError": "a target that fails to check must not leave a declaration on disk",
     "isolatedDeclarations": "isolated declarations follow from declarations = \"oxc\"",
@@ -95,6 +147,20 @@ _BAZEL_OWNED_OPTIONS = {
     "incremental": "Bazel declares no .tsbuildinfo output",
     "tsBuildInfoFile": "Bazel declares no .tsbuildinfo output",
 }
+
+# tsgo flags that report on the program without changing what it emits or how
+# it resolves. Everything else is either a compilerOption -- which belongs in
+# `compiler_options`, where the guard above can see it -- or a flag that would
+# move outputs Bazel already declared.
+_ALLOWED_TSGO_ARGS = [
+    "--diagnostics",
+    "--explainFiles",
+    "--extendedDiagnostics",
+    "--listEmittedFiles",
+    "--listFiles",
+    "--noErrorTruncation",
+    "--traceResolution",
+]
 
 # Required by the .d.ts this ruleset generates for css_module, css_library,
 # asset_library and json_library deps, whose extensions TypeScript otherwise
@@ -135,9 +201,10 @@ def _generate_tsconfig(
         ctx,
         srcs,
         npm_pkg_dirs = None,
-        type_roots = None,
+        ambient_dts = None,
         module_paths = None,
         extends_file = None,
+        allow_js = False,
         emit_declarations = False,
         emit_root_dir = None,
         emit_out_dir = None):
@@ -148,7 +215,7 @@ def _generate_tsconfig(
       1. `extends_file` -- the user's own tsconfig.json, referenced (not
          copied), so every relative path inside it still resolves against the
          directory it was written for.
-      2. _RULESET_OPTIONS, and the derived typeRoots.
+      2. _RULESET_OPTIONS and allowJs.
       3. _ZERO_CONFIG_OPTIONS -- only when there is no `extends_file`.
       4. compiler_options_json -- what the user asked for, via the ts_compile
          macro's lib / types / target / jsx / compiler_options arguments.
@@ -159,13 +226,15 @@ def _generate_tsconfig(
 
     Args:
         ctx:          Rule context.
-        srcs:         Source files to type-check (.ts/.tsx plus ambient .d.ts).
+        srcs:         Source files to type-check (.ts/.tsx/.js/.mjs/.cjs plus
+                      ambient .d.ts).
         npm_pkg_dirs: (package_name, path, is_file) triples for npm deps.
-        type_roots:   .d.ts files from @types/* packages, used to derive
-                      typeRoots so ambient type packages are discoverable.
+        ambient_dts:  Entry-point .d.ts of each @types/* dep, listed in `files`
+                      so its ambient declarations join the program.
         module_paths: struct(module_name, declaration_root, source_root) from
                       every dep that declared a module_name.
         extends_file: The user's tsconfig.json, or None for zero-config.
+        allow_js:     True when a JavaScript src is in `include`.
         emit_declarations: True when tsgo emits the .d.ts (declarations =
                       "tsgo"), False when it only reports diagnostics.
         emit_root_dir: Exec-root-relative common source directory.
@@ -178,17 +247,10 @@ def _generate_tsconfig(
     opts = {}
     opts.update(_RULESET_OPTIONS)
 
-    # typeRoots: TypeScript wants the directory that *contains* the @types
-    # packages, so derive it from each @types .d.ts by going up one level from
-    # the package directory.
-    if type_roots:
-        seen_roots = {}
-        for dts_file in type_roots:
-            pkg_dir = dts_file.dirname
-            parent_dir = pkg_dir[:pkg_dir.rfind("/")] if "/" in pkg_dir else pkg_dir
-            seen_roots[parent_dir] = True
-        if seen_roots:
-            opts["typeRoots"] = [_relative_path(tsconfig_dir, d) for d in seen_roots]
+    # A JavaScript src is listed in `include`; without this tsgo reports TS6504
+    # on it rather than reading it.
+    if allow_js:
+        opts["allowJs"] = True
 
     if not extends_file:
         opts.update(_ZERO_CONFIG_OPTIONS)
@@ -235,17 +297,6 @@ def _generate_tsconfig(
     paths = {}
 
     for alias_key, alias_dir in ctx.attr.path_aliases.items():
-        if alias_dir.startswith("bazel-out/") or alias_dir.startswith("bazel-bin/"):
-            fail(
-                "ts_compile: path_aliases[\"{}\"] on {} points into the output tree ({}).\n".format(
-                    alias_key,
-                    ctx.label,
-                    alias_dir,
-                ) +
-                "That path embeds the build configuration, so it breaks under -c opt or a " +
-                "different exec platform.\nTo import another package by bare specifier, set " +
-                "module_name on the target that produces its declarations and depend on it.",
-            )
         dir_no_slash = alias_dir[:-1] if alias_dir.endswith("/") else alias_dir
         rel_dir = _relative_path(tsconfig_dir, dir_no_slash)
         if alias_key.endswith("/"):
@@ -287,7 +338,7 @@ def _generate_tsconfig(
     # ── Bazel-owned: emit shape ───────────────────────────────────────────
     opts["declaration"] = True
     opts["emitDeclarationOnly"] = True
-    opts["declarationMap"] = False
+    opts["declarationMap"] = ctx.attr.declaration_map
     opts["composite"] = False
     opts["incremental"] = False
 
@@ -298,9 +349,12 @@ def _generate_tsconfig(
         # declaration behind for a consumer to read.
         opts["noEmit"] = False
         opts["noEmitOnError"] = True
-        opts["outDir"] = _relative_path(tsconfig_dir, emit_out_dir) if emit_out_dir else "."
+
+        # Compared against None, not tested for truth: "" is the exec root, the
+        # source root of a target in the top-level package, and not "unset".
+        opts["outDir"] = _relative_path(tsconfig_dir, emit_out_dir) if emit_out_dir != None else "."
         opts["declarationDir"] = opts["outDir"]
-        opts["rootDir"] = _relative_path(tsconfig_dir, emit_root_dir) if emit_root_dir else "."
+        opts["rootDir"] = _relative_path(tsconfig_dir, emit_root_dir) if emit_root_dir != None else "."
     else:
         # oxc's syntactic emit genuinely requires isolated declarations. In tsgo
         # mode the compiler has the full program and infers the types, so
@@ -311,12 +365,19 @@ def _generate_tsconfig(
 
     include = []
     for src in srcs:
-        rel = _relative_path(tsconfig_dir, src.dirname) if src.dirname else "."
-        include.append(rel + "/" + src.basename)
+        include.append(include_entry(tsconfig_dir, src.dirname, src.basename))
+
+    # An ambient package declares globals nothing imports, so `include` -- which
+    # only ever names this target's own srcs -- would leave it out of the program.
+    files = [
+        include_entry(tsconfig_dir, f.dirname, f.basename)
+        for f in ambient_dts or []
+    ]
 
     config = {}
     if extends_file:
         extends_dir = _relative_path(tsconfig_dir, extends_file.dirname)
+
         # TypeScript reads an `extends` that is not visibly relative as a node
         # module specifier.
         if not extends_dir.startswith("."):
@@ -326,36 +387,114 @@ def _generate_tsconfig(
     config["include"] = include
 
     if extends_file:
-        # srcs is the only file list. Emptying the inherited ones is safe only
-        # alongside `extends`: TS18002 rejects an empty `files` otherwise.
-        config["files"] = []
+        # srcs and the ambient packages are the only file list. Emptying the
+        # inherited ones is safe only alongside `extends`: TS18002 rejects an
+        # empty `files` otherwise.
+        config["files"] = files
         config["exclude"] = []
         config["references"] = []
+    elif files:
+        config["files"] = files
 
     ctx.actions.write(output = tsconfig, content = json.encode_indent(config, indent = "  "))
     return tsconfig
+
+# ─── Attribute validation ────────────────────────────────────────────────────
+
+def _classify_srcs(ctx):
+    """Splits srcs into the TypeScript, JavaScript and ambient-declaration sets."""
+    compile_srcs = []
+    js_srcs = []
+    passthrough_dts = []
+    for f in ctx.files.srcs:
+        if _is_dts_source(f):
+            passthrough_dts.append(f)
+        elif f.extension in _TS_EXTENSIONS:
+            compile_srcs.append(f)
+        elif f.extension in _JS_EXTENSIONS:
+            js_srcs.append(f)
+        elif f.extension == "jsx":
+            fail(
+                "ts_compile: '{}' on {} is a .jsx file, which oxc has no ".format(f.short_path, ctx.label) +
+                "output extension for.\nRename it to .tsx -- TypeScript accepts the " +
+                "JavaScript in it unchanged -- or drop the JSX and call it .js.",
+            )
+        else:
+            fail(
+                "ts_compile: srcs must contain only .ts, .tsx, .js, .mjs, .cjs " +
+                "or .d.ts files; got '{}' (extension: .{}).\n".format(f.short_path, f.extension) +
+                "Remove this file from srcs, or if you need to pass through assets " +
+                "use a filegroup or a dedicated rule for that file type.\n" +
+                "Did you mean to add it to a different attribute?",
+            )
+    return compile_srcs, js_srcs, passthrough_dts
+
+def _validate_tsgo_args(ctx):
+    """Rejects a tsgo flag that would move an output or change resolution."""
+    for arg in ctx.attr.tsgo_args:
+        if arg not in _ALLOWED_TSGO_ARGS:
+            fail(
+                "ts_compile: tsgo_args on {} contains \"{}\".\n".format(ctx.label, arg) +
+                "Only flags that report on the program are allowed:\n  " +
+                " ".join(_ALLOWED_TSGO_ARGS) + "\n" +
+                "A compilerOption belongs in compiler_options (or in the file `tsconfig` " +
+                "points at), where the Bazel-owned-key guard can see it. Anything else " +
+                "would move outputs this rule already declared to Bazel.",
+            )
+
+def _validate_path_aliases(ctx, srcs):
+    """Rejects an alias that points into bazel-out, or at files no action stages.
+
+    An alias is a source-level path, so its target directory has to be staged by
+    the same action that resolves it. Only srcs and path_alias_srcs are inputs,
+    so an alias covered by neither resolves against whatever the sandbox happens
+    to hold -- which is what makes the build order-dependent.
+    """
+    covered = [f.short_path for f in srcs] + [
+        f.short_path
+        for f in ctx.files.path_alias_srcs
+    ]
+    for alias_key, alias_dir in ctx.attr.path_aliases.items():
+        if alias_dir.startswith("bazel-out/") or alias_dir.startswith("bazel-bin/"):
+            fail(
+                "ts_compile: path_aliases[\"{}\"] on {} points into the output tree ({}).\n".format(
+                    alias_key,
+                    ctx.label,
+                    alias_dir,
+                ) +
+                "That path embeds the build configuration, so it breaks under -c opt or a " +
+                "different exec platform.\nTo import another package by bare specifier, set " +
+                "module_name on the target that produces its declarations and depend on it.",
+            )
+        prefix = alias_dir if alias_dir.endswith("/") else alias_dir + "/"
+        found = False
+        for path in covered:
+            if path == alias_dir or path.startswith(prefix):
+                found = True
+                break
+        if not found:
+            fail(
+                "ts_compile: path_aliases[\"{}\"] on {} points at \"{}\", where none of ".format(
+                    alias_key,
+                    ctx.label,
+                    alias_dir,
+                ) +
+                "this target's inputs live.\nThe type-check action stages srcs and " +
+                "path_alias_srcs and nothing else, so the alias would resolve against " +
+                "whatever another action happened to leave in the sandbox.\nList the " +
+                "files it resolves to in path_alias_srcs, or set module_name on the " +
+                "target that produces them and depend on it instead.",
+            )
 
 # ─── Rule implementation ───────────────────────────────────────────────────────
 
 def _ts_compile_impl(ctx):
     oxc = get_oxc_toolchain(ctx)
+    pkg = ctx.label.package
 
-    # Separate .ts/.tsx sources from pre-existing .d.ts declaration inputs.
-    compile_srcs = []
-    passthrough_dts = []
-    for f in ctx.files.srcs:
-        if _is_dts_source(f):
-            passthrough_dts.append(f)
-        elif _is_ts_source(f):
-            compile_srcs.append(f)
-        else:
-            fail(
-                "ts_compile: srcs must contain only .ts, .tsx, or .d.ts files; " +
-                "got '{}' (extension: .{}).\n".format(f.short_path, f.extension) +
-                "Remove this file from srcs, or if you need to pass through assets " +
-                "use a filegroup or a dedicated rule for that file type.\n" +
-                "Did you mean to add it to a different attribute?",
-            )
+    compile_srcs, js_srcs, passthrough_dts = _classify_srcs(ctx)
+    _validate_tsgo_args(ctx)
+    _validate_path_aliases(ctx, compile_srcs + js_srcs + passthrough_dts)
 
     # Collect transitive deps.
     transitive_dts_sets = []
@@ -364,6 +503,7 @@ def _ts_compile_impl(ctx):
     transitive_css_sets = []
     transitive_css_module_sets = []
     transitive_asset_sets = []
+
     # npm_pkg_dirs: list of (package_name, package_dir_path) for tsconfig paths.
     # We collect ALL transitive npm deps so that tsgo can resolve bare module
     # specifiers in transitively-imported .d.ts files (e.g. vitest's index.d.ts
@@ -378,13 +518,15 @@ def _ts_compile_impl(ctx):
     #  Pass 1: collect all transitive package infos (name → dir_path).
     #  Pass 2: for @types/* packages, find which runtime package they type-annotate
     #           and override the runtime package's dir with the @types dir.
-    # This avoids the bug where transitive type_roots from unrelated deps pollute
-    # the mapping (e.g. vitest's transitive @types/estree dep being used for vitest).
-    # type_root_files: .d.ts files from @types/* packages that provide ambient
-    # type declarations for runtime packages (e.g. @types/react for react).
-    # We collect these so _generate_tsconfig can add a typeRoots entry to the
-    # tsconfig, enabling tsgo to resolve bare module specifiers like 'react'.
-    type_root_files = []
+    # This avoids the bug where transitive @types entries from unrelated deps
+    # pollute the mapping (e.g. vitest's transitive @types/estree dep being used
+    # for vitest).
+    #
+    # ambient_dts: entry-point .d.ts of each @types/* package in `deps`, keyed by
+    # path to dedupe. _generate_tsconfig lists them in `files` so the globals and
+    # `declare module` blocks they hold join the program.
+    ambient_dts = {}
+
     # transitive_package_dir_sets: depset of package.json Files from all
     # direct npm deps, used as inputs to the tsgo validation action so that
     # moduleResolution:"Bundler" can read exports/types fields.
@@ -397,16 +539,13 @@ def _ts_compile_impl(ctx):
     for dep in ctx.attr.deps:
         if TsDeclarationInfo in dep:
             transitive_dts_sets.append(dep[TsDeclarationInfo].transitive_declaration_files)
-            # Collect type_roots files from @types/* packages that are DIRECT
-            # deps (not transitively accumulated from random dep subtrees).
-            # We only want files from packages whose package_name starts with
-            # "@types/", which are the ambient declaration packages.
-            if NpmPackageInfo in dep:
-                direct_npm_info = dep[NpmPackageInfo]
-                if direct_npm_info.package_name.startswith("@types/"):
-                    type_root_files.extend(
-                        dep[TsDeclarationInfo].type_roots.to_list(),
-                    )
+
+            # Direct deps only: declaring @types/foo is how a target asks for
+            # foo's globals, so a package that merely appears in some dep's own
+            # closure does not silently put its globals in this target's scope.
+            if NpmPackageInfo in dep and dep[NpmPackageInfo].ambient_types_file:
+                entry = dep[NpmPackageInfo].ambient_types_file
+                ambient_dts[entry.path] = entry
         if JsInfo in dep:
             transitive_js_sets.append(dep[JsInfo].transitive_js_files)
             transitive_js_map_sets.append(dep[JsInfo].transitive_js_map_files)
@@ -430,12 +569,6 @@ def _ts_compile_impl(ctx):
                 if trans_name not in pkg_info_map and transitive_info.package_dir:
                     pkg_info_map[trans_name] = transitive_info
 
-                # Collect type_roots from @types/* transitive deps for typeRoots.
-                if trans_name.startswith("@types/"):
-                    type_root_files.extend(
-                        transitive_info.declaration_files.to_list(),
-                    )
-
             # Collect transitive package.json files as a depset (no to_list).
             transitive_package_dir_sets.append(npm_info.transitive_package_dirs)
 
@@ -455,6 +588,7 @@ def _ts_compile_impl(ctx):
         if pkg_name.startswith("@types/"):
             continue  # @types/* packages don't need an override
         runtime_pkg_dir = npm_info.package_dir.dirname
+
         # Check declaration_files: if any file lives outside the runtime package
         # dir, it must be from the paired @types/* package.
         for dts_file in dep[TsDeclarationInfo].declaration_files.to_list():
@@ -505,8 +639,6 @@ def _ts_compile_impl(ctx):
         if TsConfigInfo in ctx.attr.tsconfig:
             tsconfig_chain += ctx.attr.tsconfig[TsConfigInfo].deps_tsconfigs.to_list()
 
-    # Declare outputs: one .js, .js.map, .d.ts per source file.
-    pkg = ctx.label.package
     # Who emits the .d.ts decides what each action is on the hook for.
     #   "oxc":  oxc emits declarations syntactically, which REQUIRES isolated
     #           declarations; tsgo then only reports diagnostics, so checking
@@ -522,63 +654,94 @@ def _ts_compile_impl(ctx):
     tsgo_emits_dts = not oxc_emits_dts and ctx.attr.enable_check
     emits_dts = oxc_emits_dts or tsgo_emits_dts
 
+    if ctx.attr.declaration_map and not tsgo_emits_dts:
+        fail(
+            "ts_compile: declaration_map on {} needs the tsgo declaration emit.\n".format(ctx.label) +
+            "oxc writes declarations syntactically and emits no map for them, and a " +
+            "target that emits no declarations has nothing to map.\nSet declarations = " +
+            "\"tsgo\" with enable_check = True, or drop declaration_map.",
+        )
+
+    # ── Declare outputs ───────────────────────────────────────────────────
+    #
+    # Every output keeps its package-relative path, so a target may hold a
+    # subtree. oxc's --strip-dir-prefix takes a single value, so the sources are
+    # grouped by the root their package-relative path hangs off (the package
+    # directory for a checked-in file, the bin directory for a generated one)
+    # and each group gets its own invocation.
+    out_base = "/".join([
+        p
+        for p in [ctx.bin_dir.path, ctx.label.workspace_root, pkg]
+        if p
+    ])
+
+    oxc_srcs_by_root = {}
+    oxc_outs_by_root = {}
     js_outputs = []
     js_map_outputs = []
     dts_outputs = []
+    dts_map_outputs = []
+
     for src in compile_srcs:
         stem = _package_relative_stem(src, pkg)
-        js_outputs.append(ctx.actions.declare_file(stem + ".js"))
-        js_map_outputs.append(ctx.actions.declare_file(stem + ".js.map"))
+        root = _source_root(src, pkg)
+        group_outs = oxc_outs_by_root.setdefault(root, [])
+        oxc_srcs_by_root.setdefault(root, []).append(src)
+
+        js_out = ctx.actions.declare_file(stem + ".js")
+        js_outputs.append(js_out)
+        group_outs.append(js_out)
+        if ctx.attr.source_map:
+            js_map_out = ctx.actions.declare_file(stem + ".js.map")
+            js_map_outputs.append(js_map_out)
+            group_outs.append(js_map_out)
         if emits_dts:
-            dts_outputs.append(ctx.actions.declare_file(stem + ".d.ts"))
+            dts_out = ctx.actions.declare_file(stem + ".d.ts")
+            dts_outputs.append(dts_out)
+            if oxc_emits_dts:
+                group_outs.append(dts_out)
+        if ctx.attr.declaration_map:
+            dts_map_outputs.append(ctx.actions.declare_file(stem + ".d.ts.map"))
 
-    oxc_outputs = js_outputs + js_map_outputs + (dts_outputs if oxc_emits_dts else [])
-    all_outputs = js_outputs + js_map_outputs + dts_outputs
+    # JavaScript needs no transform, so it is staged in the output tree as-is:
+    # a relative import of it from compiled TypeScript has to resolve at runtime
+    # in the same directory layout.
+    js_passthrough = []
+    for src in js_srcs:
+        rel = _package_relative_path(src, pkg)
+        staged = ctx.actions.declare_file(rel)
+        ctx.actions.symlink(output = staged, target_file = src)
+        js_passthrough.append(staged)
+        if tsgo_emits_dts:
+            stem = rel[:-(len(src.extension) + 1)]
+            dts_ext = _JS_DECLARATION_EXTENSION[src.extension]
+            dts_outputs.append(ctx.actions.declare_file(stem + dts_ext))
+            if ctx.attr.declaration_map:
+                dts_map_outputs.append(ctx.actions.declare_file(stem + dts_ext + ".map"))
 
-    # ── Compile action ────────────────────────────────────────────────────
-    if compile_srcs:
+    all_outputs = js_outputs + js_map_outputs + dts_outputs + dts_map_outputs + js_passthrough
+
+    # ── Compile actions ───────────────────────────────────────────────────
+    for root in sorted(oxc_srcs_by_root.keys()):
         args = ctx.actions.args()
         args.add("--files")
-        args.add_all(compile_srcs)
-        args.add("--out-dir", js_outputs[0].dirname)
-
-        # Determine the correct strip-dir-prefix for the source files.
-        #
-        # oxc uses --strip-dir-prefix to compute the relative part of each
-        # input path when building the output path inside --out-dir.
-        #
-        # For source files: the strip prefix is the common directory of all
-        # input files relative to the exec root. For a ts_compile target in
-        # package "tests/foo" this equals the package path (e.g. "tests/foo").
-        # For targets in the root package (//) with files in a subdirectory
-        # (e.g. "app/root.tsx"), the strip prefix is the common dirname
-        # (e.g. "app") — NOT the empty package path.
-        #
-        # We use compile_srcs[0].dirname for all cases:
-        #   - Source files in non-root packages: dirname == pkg ✓
-        #   - Source files in root package in a subdir: dirname == subdir ✓
-        #   - Source files in root package in root dir: dirname == "" ✓
-        #   - Generated files: dirname includes bazel-out prefix ✓
-        #
-        # Note: this assumes all srcs share the same common directory, i.e.
-        # all source files live directly in one directory (no mixing of
-        # top-level and subdirectory files in the same ts_compile target).
-        # Split targets by directory when files span multiple levels.
-        strip_prefix = compile_srcs[0].dirname
-        if strip_prefix:
-            args.add("--strip-dir-prefix", strip_prefix)
+        args.add_all(oxc_srcs_by_root[root])
+        args.add("--out-dir", out_base)
+        if root:
+            args.add("--strip-dir-prefix", root)
 
         args.add("--target", ctx.attr.target)
         if ctx.attr.jsx_mode:
             args.add("--jsx", ctx.attr.jsx_mode)
-        args.add("--source-map")
+        if ctx.attr.source_map:
+            args.add("--source-map")
         if oxc_emits_dts:
             args.add("--declaration")
             args.add("--isolated-declarations")
 
         ctx.actions.run(
-            inputs = depset(compile_srcs, transitive = [dep_dts_depset]),
-            outputs = oxc_outputs,
+            inputs = depset(oxc_srcs_by_root[root], transitive = [dep_dts_depset]),
+            outputs = oxc_outs_by_root[root],
             executable = oxc.oxc_binary,
             arguments = [args],
             mnemonic = "OxcCompile",
@@ -591,9 +754,10 @@ def _ts_compile_impl(ctx):
     # transitive .d.ts and every npm package.json -- to type-check. In tsgo mode
     # it keeps the declarations it computes instead of discarding them, which is
     # what removes the isolated-declarations requirement at near-zero cost.
+    program_srcs = compile_srcs + js_srcs
     validation_outputs = []
     tsgo_toolchain_info = ctx.toolchains[TSGO_TOOLCHAIN_TYPE]
-    if tsgo_emits_dts and not tsgo_toolchain_info and compile_srcs:
+    if tsgo_emits_dts and not tsgo_toolchain_info and program_srcs:
         fail(
             "ts_compile: declarations = \"tsgo\" needs a tsgo toolchain, and none " +
             "is registered.\nAdd to MODULE.bazel:\n" +
@@ -601,22 +765,44 @@ def _ts_compile_impl(ctx):
             "Or set declarations = \"oxc\" to emit declarations with oxc instead " +
             "(which requires an explicit type on every export).",
         )
-    if tsgo_toolchain_info and ctx.attr.enable_check and compile_srcs:
+    if tsgo_toolchain_info and ctx.attr.enable_check and program_srcs:
         tsgo = tsgo_toolchain_info.tsgo_info
 
-        # Include both .ts/.tsx sources and ambient .d.ts files in the
-        # tsconfig — ambient declarations provide type context for checking.
-        check_srcs = compile_srcs + passthrough_dts
+        emit_root_dir = None
+        if tsgo_emits_dts:
+            roots = {}
+            for src in program_srcs:
+                roots[_source_root(src, pkg)] = True
+            root_list = sorted(roots.keys())
+            if len(root_list) > 1:
+                fail(
+                    "ts_compile: srcs on {} hang off {} different roots, and one ".format(
+                        ctx.label,
+                        len(root_list),
+                    ) +
+                    "declaration emit has one rootDir:\n  " + "\n  ".join(root_list) + "\n" +
+                    "A target may hold a whole subtree, but not a mix of checked-in and " +
+                    "generated sources. Put the generated sources in their own ts_compile " +
+                    "target and depend on it, or set declarations = \"oxc\" (or " +
+                    "enable_check = False), neither of which emits from tsgo.",
+                )
+            emit_root_dir = root_list[0]
+
+        # Include .ts/.tsx sources, JavaScript sources and ambient .d.ts files
+        # in the tsconfig — ambient declarations provide type context for
+        # checking.
+        check_srcs = compile_srcs + js_srcs + passthrough_dts
         tsconfig = _generate_tsconfig(
             ctx = ctx,
             srcs = check_srcs,
             npm_pkg_dirs = npm_pkg_dirs if npm_pkg_dirs else None,
-            type_roots = type_root_files if type_root_files else None,
+            ambient_dts = [ambient_dts[path] for path in sorted(ambient_dts)],
             module_paths = module_paths,
             extends_file = ctx.file.tsconfig,
+            allow_js = bool(js_srcs),
             emit_declarations = tsgo_emits_dts,
-            emit_root_dir = compile_srcs[0].dirname if tsgo_emits_dts else None,
-            emit_out_dir = dts_outputs[0].dirname if tsgo_emits_dts else None,
+            emit_root_dir = emit_root_dir,
+            emit_out_dir = out_base if tsgo_emits_dts else None,
         )
 
         # Build the depset of transitive npm package.json files so that
@@ -625,22 +811,26 @@ def _ts_compile_impl(ctx):
         npm_pkg_dirs_depset = depset(transitive = transitive_package_dir_sets)
 
         tsgo_inputs = depset(
-            check_srcs + [tsconfig, tsgo.tsgo_binary] + tsconfig_chain,
+            check_srcs + [tsconfig, tsgo.tsgo_binary] + tsconfig_chain +
+            ctx.files.path_alias_srcs,
             transitive = [dep_dts_depset, npm_pkg_dirs_depset],
         )
         if not tsgo_emits_dts:
             # Diagnostics only. Stays in the _validation output group so it runs
             # concurrently with downstream compilation.
             stamp = ctx.actions.declare_file("{}.tscheck".format(ctx.label.name))
-            ctx.actions.run_shell(
+            check_args = ctx.actions.args()
+            check_args.add("-stamp", stamp)
+            check_args.add("--")
+            check_args.add(tsgo.tsgo_binary)
+            check_args.add("--project", tsconfig)
+            check_args.add_all(ctx.attr.tsgo_args)
+            check_args.add("--noEmit")
+            ctx.actions.run(
                 inputs = tsgo_inputs,
                 outputs = [stamp],
-                command = '"{tsgo}" --project "{tsconfig}" --noEmit && touch "{stamp}"'.format(
-                    tsgo = tsgo.tsgo_binary.path,
-                    tsconfig = tsconfig.path,
-                    stamp = stamp.path,
-                ),
-                env = {"PATH": "/bin:/usr/bin"},
+                executable = ctx.executable._tsaction,
+                arguments = ["stamp", check_args],
                 mnemonic = "TsgoCheck",
                 progress_message = "TsgoCheck %{label}",
             )
@@ -651,9 +841,10 @@ def _ts_compile_impl(ctx):
             # broken target cannot hand a stale declaration to a consumer.
             tsgo_args = ctx.actions.args()
             tsgo_args.add("--project", tsconfig.path)
+            tsgo_args.add_all(ctx.attr.tsgo_args)
             ctx.actions.run(
                 inputs = tsgo_inputs,
-                outputs = dts_outputs,
+                outputs = dts_outputs + dts_map_outputs,
                 executable = tsgo.tsgo_binary,
                 arguments = [tsgo_args],
                 mnemonic = "TsgoDeclare",
@@ -662,7 +853,7 @@ def _ts_compile_impl(ctx):
 
     # ── Build providers ───────────────────────────────────────────────────
     direct_dts = depset(dts_outputs + passthrough_dts, order = "postorder")
-    direct_js = depset(js_outputs, order = "postorder")
+    direct_js = depset(js_outputs + js_passthrough, order = "postorder")
     direct_js_map = depset(js_map_outputs, order = "postorder")
 
     transitive_dts = depset(
@@ -671,7 +862,7 @@ def _ts_compile_impl(ctx):
         order = "postorder",
     )
     transitive_js = depset(
-        js_outputs,
+        js_outputs + js_passthrough,
         transitive = transitive_js_sets,
         order = "postorder",
     )
@@ -681,36 +872,17 @@ def _ts_compile_impl(ctx):
         order = "postorder",
     )
 
-    # Build the transitive CSS depset for CssInfo propagation.
-    transitive_css = depset(
-        transitive = transitive_css_sets,
-        order = "postorder",
-    )
+    # ts_compile produces no CSS and no assets of its own, so it only forwards
+    # what its deps carry: the direct fields stay empty and the closure travels
+    # in the transitive ones.
+    transitive_css = depset(transitive = transitive_css_sets, order = "postorder")
+    transitive_css_modules = depset(transitive = transitive_css_module_sets, order = "postorder")
+    transitive_assets = depset(transitive = transitive_asset_sets, order = "postorder")
 
-    # Build transitive CSS modules depset.
-    transitive_css_modules = depset(
-        transitive = transitive_css_module_sets,
-        order = "postorder",
-    )
-
-    # Build transitive assets depset.
-    transitive_assets = depset(
-        transitive = transitive_asset_sets,
-        order = "postorder",
-    )
-
-    type_roots_sets = []
-    for dep in ctx.attr.deps:
-        if TsDeclarationInfo in dep:
-            type_roots_sets.append(dep[TsDeclarationInfo].type_roots)
-
-    # Include transitive CSS, CSS module, and asset files in DefaultInfo so
-    # bundlers and tests can access them via the runfiles / output tree.
     providers = [
-        DefaultInfo(files = depset(
-            all_outputs + passthrough_dts,
-            transitive = [transitive_css, transitive_css_modules, transitive_assets],
-        )),
+        # This target's own outputs. A dep's files reach a consumer through the
+        # provider that describes them, not through this one.
+        DefaultInfo(files = depset(all_outputs + passthrough_dts)),
         JsInfo(
             js_files = direct_js,
             js_map_files = direct_js_map,
@@ -720,20 +892,15 @@ def _ts_compile_impl(ctx):
         TsDeclarationInfo(
             declaration_files = direct_dts,
             transitive_declaration_files = transitive_dts,
-            type_roots = depset(transitive = type_roots_sets),
         ),
     ]
 
     # Derived from bin_dir rather than from a declared File so that a target
     # with no sources of its own still forwards its deps' modules.
-    declaration_root = "/".join([
-        p
-        for p in [ctx.bin_dir.path, ctx.label.workspace_root, ctx.label.package]
-        if p
-    ])
+    declaration_root = out_base
     source_root = "/".join([
         p
-        for p in [ctx.label.workspace_root, ctx.label.package]
+        for p in [ctx.label.workspace_root, pkg]
         if p
     ])
     own_modules = []
@@ -752,19 +919,19 @@ def _ts_compile_impl(ctx):
 
     # Always propagate CssInfo so ts_compile targets can be used as CSS deps.
     providers.append(CssInfo(
-        css_files = depset(transitive = transitive_css_sets),
+        css_files = depset(),
         transitive_css_files = transitive_css,
     ))
 
     # Propagate CssModuleInfo so ts_compile targets can carry CSS Module deps.
     providers.append(CssModuleInfo(
-        css_files = depset(transitive = transitive_css_module_sets),
+        css_files = depset(),
         transitive_css_files = transitive_css_modules,
     ))
 
     # Propagate AssetInfo so ts_compile targets can carry asset deps.
     providers.append(AssetInfo(
-        asset_files = depset(transitive = transitive_asset_sets),
+        asset_files = depset(),
         transitive_asset_files = transitive_assets,
     ))
 
@@ -779,8 +946,20 @@ ts_compile = rule(
     implementation = _ts_compile_impl,
     attrs = {
         "srcs": attr.label_list(
-            doc = "TypeScript source files (.ts, .tsx) and ambient declarations (.d.ts) to compile.",
-            allow_files = [".ts", ".tsx", ".d.ts"],
+            doc = """Sources to compile.
+
+.ts / .tsx      compiled by oxc; one .js (+ .js.map, + .d.ts) output each.
+.js / .mjs/.cjs staged into the output tree unchanged and added to the type
+                program. allowJs is set for them, so JSDoc types cross the
+                package boundary; add checkJs through compiler_options to have
+                them type-checked. Under declarations = "tsgo" each one also
+                gets a declaration (.d.ts / .d.mts / .d.cts), the same as tsc.
+.d.ts           ambient declarations: type context for the check, passed
+                straight through to consumers, never in `include`.
+
+Paths are kept relative to the target's package, so srcs may span a subtree.
+""",
+            allow_files = [".ts", ".tsx", ".d.ts", ".js", ".jsx", ".mjs", ".cjs"],
             mandatory = True,
         ),
         "deps": attr.label_list(
@@ -814,6 +993,30 @@ while checking runs concurrently.""",
         "enable_check": attr.bool(
             doc = "Run tsgo type-checking as a validation action (requires tsgo toolchain).",
             default = True,
+        ),
+        "source_map": attr.bool(
+            doc = """Emit one .js.map next to every .js oxc writes.
+
+Off drops the outputs and the flag, for a target whose JavaScript nothing
+debugs -- a codegen step, or a bundle input whose bundler makes its own map.""",
+            default = True,
+        ),
+        "declaration_map": attr.bool(
+            doc = """Emit a .d.ts.map next to every declaration.
+
+This is what makes go-to-definition across a package boundary land on the
+.ts source instead of the generated .d.ts. Needs the tsgo declaration emit
+(declarations = "tsgo" with enable_check = True); oxc emits no map.""",
+            default = False,
+        ),
+        "tsgo_args": attr.string_list(
+            doc = """Extra flags for the tsgo invocation.
+
+Only flags that report on the program are accepted -- --traceResolution,
+--explainFiles, --listFiles, --listEmittedFiles, --diagnostics,
+--extendedDiagnostics, --noErrorTruncation. A compilerOption belongs in
+compiler_options instead, where the Bazel-owned-key guard can see it; any other
+flag would move an output this rule already declared to Bazel.""",
         ),
         "tsconfig": attr.label(
             doc = """The project's own tsconfig.json, used as the compilerOptions baseline.
@@ -849,7 +1052,7 @@ files this target produces, wherever the current configuration puts them. The
 entry point is index.d.ts.""",
         ),
         "path_aliases": attr.string_dict(
-            doc = """Source-level path alias mappings to inject into the tsgo validation tsconfig.
+            doc = """Source-level path alias mappings to inject into the tsgo tsconfig.
 
 Maps alias prefixes (as they appear in import statements) to workspace-relative
 **source** directory paths. These are added to the compilerOptions.paths section
@@ -857,25 +1060,35 @@ of the generated tsconfig so that tsgo can resolve path aliases that are defined
 in the project's tsconfig.json (compilerOptions.paths cannot be inherited from
 it: paths is one key, and the rule owns it).
 
-A value pointing into bazel-out/ is rejected -- to make a bare specifier resolve
-to another target's generated declarations, set module_name on that target and
-depend on it.
+An alias must resolve to files this target already stages -- its own srcs, or
+files listed in path_alias_srcs. An alias pointing anywhere else is an analysis
+error, because the action would resolve it against whatever another action
+happened to leave in the sandbox. A value pointing into bazel-out/ is rejected
+for the same reason: to make a bare specifier resolve to another target's
+generated declarations, set module_name on that target and depend on it.
 
 Examples:
-    # tsconfig.json has: {"@/*": ["./src/*"]}
+    # tsconfig.json has: {"@/*": ["./src/*"]}, and this target compiles src/.
     path_aliases = {"@/": "src/"}
 
-    # Multiple aliases
-    path_aliases = {
-        "@/": "src/",
-        "@components/": "src/components/",
-        "@utils": "src/utils",
-    }
-
-Gazelle auto-populates this attr when it reads compilerOptions.paths from
-the project tsconfig.json. Users can also set it manually when Gazelle is
-not in use or when the alias mapping differs from the tsconfig paths.
+    # The aliased files belong to another target.
+    path_aliases = {"@lib/": "packages/lib/src/"}
+    path_alias_srcs = ["//packages/lib/src:sources"]
 """,
+        ),
+        "_tsaction": attr.label(
+            default = Label("//ts/tools/tsaction"),
+            executable = True,
+            cfg = "exec",
+        ),
+        "path_alias_srcs": attr.label_list(
+            doc = """Files a path_aliases entry resolves to, when they are not in srcs.
+
+They become inputs to the type-check action, which is what makes an alias into
+another target's sources resolve the same way every time. tsgo type-checks them
+as part of this program, so a type error in one of them fails this target: a
+dep with module_name is the cheaper boundary where one is available.""",
+            allow_files = True,
         ),
     },
     toolchains = [
@@ -884,7 +1097,10 @@ not in use or when the alias mapping differs from the tsconfig paths.
     ],
     doc = """Compiles TypeScript source files using oxc-bazel.
 
-Produces one .js, .js.map, and .d.ts output per .ts/.tsx input file.
+Produces one .js, .js.map, and .d.ts output per .ts/.tsx input file, and stages
+every .js/.mjs/.cjs input into the output tree as-is. Output paths stay relative
+to the target's package, so srcs may span a subtree.
+
 The .d.ts outputs are the compilation boundary: downstream ts_compile targets
 only depend on the .d.ts files, enabling fine-grained Bazel caching.
 

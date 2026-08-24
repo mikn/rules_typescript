@@ -2,7 +2,10 @@
 
 The only prerequisite is **Bazelisk** (or Bazel 9+ directly). Everything else — the Rust toolchain, Go toolchain, Node.js runtime, and all npm packages — is fetched hermetically by Bazel on the first build.
 
-The first build fetches all toolchains — typically 2-5 minutes. Subsequent builds are fully cached and take milliseconds for small changes.
+The first build fetches a Rust toolchain, a Go SDK, Node.js and tsgo, and then
+**compiles `oxc-bazel` from Rust source**. That compile dominates: expect
+minutes, and expect it to scale with your machine rather than your project.
+Everything after it is cached; small changes rebuild in milliseconds.
 
 Choose your path:
 
@@ -249,4 +252,8 @@ node.toolchain(
 )
 ```
 
-Your version takes precedence over the default bundled with `rules_typescript` because bzlmod resolves root-module extension calls first.
+Keep `name = "nodejs"`. `rules_nodejs` keeps the root module's registration of
+that name and ignores every other module's, so your version wins over the one
+`rules_typescript` asks for — and `rules_typescript`'s toolchains resolve the
+repositories that name generates (`nodejs_linux_amd64` and friends). Under any
+other name your registration is simply unused.

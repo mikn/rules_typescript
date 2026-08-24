@@ -11,8 +11,8 @@ import (
 // makeTcWithNpm builds a minimal tsConfig with the given npm packages loaded.
 func makeTcWithNpm(pkgs ...string) *tsConfig {
 	tc := &tsConfig{
-		packageBoundaryMode:  boundaryEveryDir,
-		declarations:         "tsgo",
+		packageBoundaryMode: boundaryEveryDir,
+		declarations:        "tsgo",
 	}
 	if len(pkgs) > 0 {
 		tc.npmPackages = make(map[string]string, len(pkgs))
@@ -27,9 +27,9 @@ func makeTcWithNpm(pkgs ...string) *tsConfig {
 // no npmPackages map (simulates no lockfile loaded).
 func makeTcWithFramework(f Framework) *tsConfig {
 	return &tsConfig{
-		packageBoundaryMode:  boundaryEveryDir,
-		declarations:         "tsgo",
-		detectedFramework:    f,
+		packageBoundaryMode: boundaryEveryDir,
+		declarations:        "tsgo",
+		detectedFramework:   f,
 	}
 }
 

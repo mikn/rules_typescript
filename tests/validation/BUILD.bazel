@@ -1,5 +1,9 @@
-load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("@rules_go//go:def.bzl", "go_test")
 load("//ts:defs.bzl", "ts_compile")
+
+# The go_test targets are hand-named after the sh_tests they replaced, so the
+# Go language would add a second target for the same source.
+# gazelle:exclude *_test.go
 
 # ── declarations = "tsgo" (the default): tsgo emits the .d.ts ─────────────────
 
@@ -16,14 +20,15 @@ ts_compile(
     srcs = ["inferred.ts"],
 )
 
-sh_test(
+go_test(
     name = "declaration_types_test",
     size = "small",
-    srcs = ["verify_declarations.sh"],
+    srcs = ["declaration_types_test.go"],
     data = [
         ":correct",
         ":inferred",
     ],
+    deps = ["//tests/verify"],
 )
 
 # ── declarations = "oxc": syntactic emit, diagnostics in _validation ──────────
@@ -45,11 +50,12 @@ filegroup(
     output_group = "_validation",
 )
 
-sh_test(
+go_test(
     name = "oxc_validation_passes_test",
     size = "small",
-    srcs = ["verify_validation.sh"],
+    srcs = ["oxc_validation_passes_test.go"],
     data = [":annotated_oxc_tscheck"],
+    deps = ["//tests/verify"],
 )
 
 # The negative cases -- a type error under "tsgo", and un-annotated exports

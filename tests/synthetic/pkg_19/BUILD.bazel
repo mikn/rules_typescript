@@ -9,7 +9,7 @@ ts_compile(
     ],
     visibility = ["//tests/synthetic:__subpackages__"],
     deps = [
-        "//tests/synthetic/pkg_09",
         "//tests/synthetic/pkg_05",
+        "//tests/synthetic/pkg_09",
     ],
 )

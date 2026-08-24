@@ -1,1 +1,37 @@
 # Private implementation files for npm rules.
+
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+
+package(default_visibility = [
+    "//npm:__subpackages__",
+    "//tests:__subpackages__",
+])
+
+# npm_import.bzl writes a load() of this file into every generated spoke repo's
+# BUILD file, so it has to be loadable from an arbitrary external repository.
+exports_files(
+    ["npm_bin.bzl"],
+    visibility = ["//visibility:public"],
+)
+
+bzl_library(
+    name = "npm_bin",
+    srcs = ["npm_bin.bzl"],
+    deps = [
+        "//ts/private:providers",
+        "//ts/private:runtime",
+    ],
+)
+
+bzl_library(
+    name = "npm_import",
+    srcs = ["npm_import.bzl"],
+    deps = [
+        "//ts/private:ts_npm_package",
+    ],
+)
+
+bzl_library(
+    name = "npm_translate_lock",
+    srcs = ["npm_translate_lock.bzl"],
+)

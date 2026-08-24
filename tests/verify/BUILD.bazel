@@ -1,0 +1,12 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+# gazelle:prefix github.com/mikn/rules_typescript/tests/verify
+
+go_library(
+    name = "verify",
+    testonly = True,
+    srcs = ["verify.go"],
+    importpath = "github.com/mikn/rules_typescript/tests/verify",
+    visibility = ["//tests:__subpackages__"],
+    deps = ["@rules_go//go/runfiles"],
+)

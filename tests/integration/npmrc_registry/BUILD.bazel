@@ -1,0 +1,43 @@
+"""Integration test: fetching an npm package through a private registry.
+
+`.npmrc` is the only record of where a pnpm lockfile's bytes come from, so its
+scoped-registry and `_authToken` lines are load-bearing at fetch time. The
+Starlark tests in //tests/npm cover the parsing; this test stands up a throwaway
+HTTP registry on 127.0.0.1, points one scope at it, and asserts the tarball
+arrives from there with the token on the wire.
+
+The child workspace lives in workspace/ and keeps its root BUILD file as
+BUILD.bazel.tpl, which the runner renames in the scratch copy. A real
+BUILD.bazel there would make workspace/ a subpackage, and glob() does not see
+into a subpackage -- the sibling tests dodge that with a --deleted_packages entry
+in //.bazelrc instead, which is one more place to remember on every addition.
+
+  bazel test //tests/integration/npmrc_registry:npmrc_registry_test
+"""
+
+load("@bazel_binaries//:defs.bzl", "bazel_binaries")
+load(
+    "@rules_bazel_integration_test//bazel_integration_test:defs.bzl",
+    "bazel_integration_test",
+    "integration_test_utils",
+)
+
+# `manual` is dropped for the same reason as in //tests/integration: it takes the
+# test out of every wildcard, so nothing ever runs it.
+_NESTED_BAZEL_TAGS = [
+    tag
+    for tag in integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS
+    if tag != "manual"
+] + ["no-sandbox"]
+
+bazel_integration_test(
+    name = "npmrc_registry_test",
+    timeout = "long",
+    bazel_binaries = bazel_binaries,
+    bazel_version = bazel_binaries.versions.current,
+    data = ["//:MODULE.bazel"],
+    tags = _NESTED_BAZEL_TAGS,
+    test_runner = "//tests/integration/runners:npmrc_registry_runner",
+    workspace_files = integration_test_utils.glob_workspace_files("workspace"),
+    workspace_path = "workspace",
+)

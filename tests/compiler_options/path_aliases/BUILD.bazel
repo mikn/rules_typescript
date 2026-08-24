@@ -1,0 +1,20 @@
+"""path_aliases: a source-level alias, and the files it resolves to."""
+
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "ts_compile")
+
+# The alias points outside this target's srcs, so the files it resolves to have
+# to be declared: they are inputs to the type-check action, which is what makes
+# the resolution the same on every machine rather than dependent on what else
+# was staged in the sandbox.
+ts_compile(
+    name = "app",
+    srcs = ["app/main.ts"],
+    path_alias_srcs = ["shared/value.ts"],
+    path_aliases = {"@shared/": "tests/compiler_options/path_aliases/shared/"},
+)
+
+build_test(
+    name = "path_aliases_test",
+    targets = [":app"],
+)

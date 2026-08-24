@@ -17,6 +17,8 @@
 
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@rules_typescript//npm:defs.bzl", "node_modules")
+load("@rules_typescript//ts:defs.bzl", "ts_compile")
+load(":plugin.bzl", "esbuild_bundle")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -29,89 +31,51 @@ bzl_library(
     ],
 )
 
-# Build a node_modules tree containing esbuild (and its native binary).
-# This is used only for the plugin build action below.
+bzl_library(
+    name = "plugin",
+    srcs = ["plugin.bzl"],
+    deps = [
+        "//ts/private:runtime",
+    ],
+)
+
+# node_modules tree for the plugin build action below.
 node_modules(
     name = "esbuild_node_modules",
     deps = ["@npm//:esbuild"],
 )
 
-# Flat (OS + CPU) config_settings for the node_bin select below.
-# Bazel does not support nested select() so each (OS, CPU) pair needs its own
-# config_setting with both constraints listed.
-config_setting(
-    name = "_exec_linux_amd64",
-    constraint_values = [
-        "@platforms//os:linux",
-        "@platforms//cpu:x86_64",
-    ],
-    visibility = ["//visibility:private"],
-)
-
-config_setting(
-    name = "_exec_linux_arm64",
-    constraint_values = [
-        "@platforms//os:linux",
-        "@platforms//cpu:aarch64",
-    ],
-    visibility = ["//visibility:private"],
-)
-
-config_setting(
-    name = "_exec_darwin_amd64",
-    constraint_values = [
-        "@platforms//os:macos",
-        "@platforms//cpu:x86_64",
-    ],
-    visibility = ["//visibility:private"],
-)
-
-config_setting(
-    name = "_exec_darwin_arm64",
-    constraint_values = [
-        "@platforms//os:macos",
-        "@platforms//cpu:aarch64",
-    ],
-    visibility = ["//visibility:private"],
-)
-
-# Hermetic Node.js binary selected by exec-platform at analysis time.
-# Used as the genrule tool so that `node` from PATH is never required.
-alias(
-    name = "node_bin",
-    actual = select({
-        ":_exec_linux_amd64": "@nodejs_linux_amd64//:node_bin",
-        ":_exec_linux_arm64": "@nodejs_linux_arm64//:node_bin",
-        ":_exec_darwin_amd64": "@nodejs_darwin_amd64//:node_bin",
-        ":_exec_darwin_arm64": "@nodejs_darwin_arm64//:node_bin",
-    }),
-    visibility = ["//visibility:private"],
-)
-
 # Build the vite-plugin-bazel TypeScript source into a single bundled ESM file.
-# esbuild's JS wrapper uses require('esbuild') to find its native binary,
-# so we must run from a directory where node_modules/esbuild/ exists.
-genrule(
+esbuild_bundle(
     name = "vite_plugin_bazel",
     srcs = [
         "src/index.ts",
         "src/plugin.ts",
         "src/resolver.ts",
         "src/watcher.ts",
-        ":esbuild_node_modules",
     ],
-    outs = ["vite_plugin_bazel.mjs"],
-    cmd = """\
-EXEC_ROOT="$$(pwd)"
-NM="$(execpath :esbuild_node_modules)"
-NODE="$(execpath :node_bin)"
-# Run Node with NODE_PATH set so require('esbuild') resolves.
-NODE_PATH="$${EXEC_ROOT}/$${NM}" "$$NODE" \
-  "$${EXEC_ROOT}/$${NM}/esbuild/bin/esbuild" \
-  "$${EXEC_ROOT}/$(execpath src/index.ts)" \
-  --bundle --platform=node --format=esm --target=node20 \
-  --external:vite --external:chokidar \
-  --outfile="$${EXEC_ROOT}/$@"
-""",
-    tools = [":node_bin"],
+    out = "vite_plugin_bazel.mjs",
+    entry_point = "src/index.ts",
+    # vite alone: anything else the plugin imports must be a node builtin, so
+    # esbuild fails the build rather than shipping an unresolvable import.
+    external = ["vite"],
+    node_modules = ":esbuild_node_modules",
+)
+
+# esbuild strips types without checking them, so this is the type check for the
+# sources :vite_plugin_bazel bundles.
+ts_compile(
+    name = "plugin_typecheck",
+    srcs = glob(["src/*.ts"]),
+    # npm deps reach tsgo as tsconfig `paths` entries pointing at package
+    # directories, which node16 ESM resolution cannot resolve.
+    compiler_options = {
+        "module": "Preserve",
+        "moduleResolution": "Bundler",
+    },
+    tsconfig = "tsconfig.json",
+    deps = [
+        "@npm//:types_node",
+        "@npm//:vite",
+    ],
 )

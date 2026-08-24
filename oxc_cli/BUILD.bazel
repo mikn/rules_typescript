@@ -8,7 +8,6 @@ rust_binary(
     deps = [
         "@crates//:clap",
         "@crates//:miette",
-        "@crates//:rayon",
         "@crates//:oxc_allocator",
         "@crates//:oxc_codegen",
         "@crates//:oxc_diagnostics",
@@ -17,5 +16,6 @@ rust_binary(
         "@crates//:oxc_semantic",
         "@crates//:oxc_span",
         "@crates//:oxc_transformer",
+        "@crates//:rayon",
     ],
 )

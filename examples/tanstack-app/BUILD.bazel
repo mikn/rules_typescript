@@ -14,6 +14,7 @@ Run `bazel build //...` to compile all packages.
 Run `bazel test //...` to run the vitest test suite.
 Run `bazel build //... --output_groups=+_validation` to type-check with tsgo.
 Run `bazel build //:spa` to produce a deployable SPA bundle.
+Run `bazel build //:app` to produce the tanstackStart() bundle (client + server).
 Run `bazel build //:spa_tanstack` to attempt tanstackStart() bundle (see below).
 
 NOTE on @tanstack/react-start and the Bazel sandbox:
@@ -43,10 +44,10 @@ What :spa_tanstack actually does:
   Results depend on whether the required SSR entry files and server dependencies
   are present in the sandbox.
 
-  The :spa target (plain Vite, no vite_config) always works and produces a
-  deployable SPA bundle with TanStack Router.
+  The :spa target (plain Vite, no vite_config) produces a deployable SPA bundle
+  with TanStack Router.
 
-What :spa always works:
+What :spa is:
   Plain Vite app-mode bundling with @tanstack/react-router for routing. No SSR
   infrastructure needed. Use this for production SPA deployments.
 """
@@ -95,6 +96,22 @@ sh_binary(
     visibility = ["//visibility:public"],
 )
 
+# Named "node_modules" on purpose: Node resolves a module's realpath before
+# looking for sibling packages, so the tree's own directory name is on that path.
+node_modules(
+    name = "node_modules",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@npm//:h3",
+        "@npm//:react",
+        "@npm//:react-dom",
+        "@npm//:tanstack_react-router",
+        "@npm//:tanstack_react-start",
+        "@npm//:vite",
+        "@npm//:zod",
+    ],
+)
+
 # Vite bundler instance wired to the node_modules tree.
 vite_bundler(
     name = "vite",
@@ -104,8 +121,8 @@ vite_bundler(
 
 # SPA bundle: app mode — produces a deployable directory with index.html +
 # hashed JS/CSS/asset references. Entry point is src/app:main (main.tsx
-# renders the React app into #root). Plain Vite, no framework plugin.
-# This always works and is the recommended production target.
+# renders the React app into #root). Plain Vite, no framework plugin — the
+# recommended production target.
 ts_bundle(
     name = "spa",
     bundler = ":vite",
@@ -158,30 +175,11 @@ ts_bundle(
     vite_config = "tanstack-vite.config.mjs",
 )
 
-# Framework node_modules for TanStack Start
-node_modules(
-    name = "app_node_modules",
-    visibility = ["//visibility:public"],
-    deps = [
-        "@npm//:h3",
-        "@npm//:react",
-        "@npm//:react-dom",
-        "@npm//:tanstack_react-router",
-        "@npm//:tanstack_react-start",
-        "@npm//:vite",
-        "@npm//:zod",
-    ],
-)
-
-vite_bundler(
-    name = "app_vite",
-    node_modules = ":app_node_modules",
-    vite = "@npm//:vite",
-)
-
+# TanStack Start bundle: tanstackStart() via vite_config, writing its client
+# and server environments into the one declared output directory.
 ts_bundle(
     name = "app",
-    bundler = ":app_vite",
+    bundler = ":vite",
     entry_point = "//src/app:main",
     html = "index.html",
     mode = "app",

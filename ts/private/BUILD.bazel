@@ -6,6 +6,11 @@ package(default_visibility = [
     "//vite:__subpackages__",
 ])
 
+exports_files([
+    "css_module_dts.mjs",
+    "npm_package_json.mjs",
+])
+
 bzl_library(
     name = "providers",
     srcs = ["providers.bzl"],
@@ -32,21 +37,13 @@ bzl_library(
     srcs = ["css_module.bzl"],
     deps = [
         ":providers",
+        ":runtime",
     ],
 )
 
 bzl_library(
     name = "json_library",
     srcs = ["json_library.bzl"],
-    deps = [
-        ":providers",
-        ":runtime",
-    ],
-)
-
-bzl_library(
-    name = "npm_bin",
-    srcs = ["npm_bin.bzl"],
     deps = [
         ":providers",
         ":runtime",
@@ -79,17 +76,8 @@ bzl_library(
 )
 
 bzl_library(
-    name = "ts_check",
-    srcs = ["ts_check.bzl"],
-    deps = [
-        ":providers",
-        ":toolchain",
-    ],
-)
-
-bzl_library(
-    name = "ts_config_gen",
-    srcs = ["ts_config_gen.bzl"],
+    name = "ts_config",
+    srcs = ["ts_config.bzl"],
     deps = [
         ":providers",
     ],
@@ -111,7 +99,6 @@ bzl_library(
     srcs = ["ts_bundle.bzl"],
     deps = [
         ":providers",
-        ":runtime",
     ],
 )
 
@@ -148,19 +135,6 @@ bzl_library(
     deps = [
         ":providers",
     ],
-)
-
-bzl_library(
-    name = "npm_import",
-    srcs = ["npm_import.bzl"],
-    deps = [
-        ":ts_npm_package",
-    ],
-)
-
-bzl_library(
-    name = "npm_translate_lock",
-    srcs = ["npm_translate_lock.bzl"],
 )
 
 bzl_library(
@@ -201,5 +175,6 @@ bzl_library(
     srcs = ["ts_npm_publish.bzl"],
     deps = [
         ":providers",
+        ":runtime",
     ],
 )

@@ -33,31 +33,72 @@ repository root to be a Bazel package. Create a `BUILD.bazel` at the root; an
 empty file is enough, though the [quickstart](../getting-started/quickstart.md)
 puts the Gazelle target there.
 
-## Type Errors Not Surfacing
+## No tsgo toolchain / declarations are missing
 
-Type-checking runs only when a tsgo toolchain is registered and `enable_check = True` (both are defaults). The recommended way to enable it permanently is:
+Toolchain registration is the **consumer's** job. `rules_typescript` deliberately
+registers nothing on your behalf, the same way `rules_go` does not. Your
+`MODULE.bazel` needs:
 
-```
-# .bazelrc
-build --output_groups=+_validation
-```
-
-To trigger it for a single build without modifying `.bazelrc`:
-
-```bash
-bazel build //... --output_groups=+_validation
+```python
+register_toolchains("@rules_typescript//ts/toolchain:all")
 ```
 
-## tsgo Not Found
+Without it, nothing resolves the tsgo toolchain, and under the default
+`declarations = "tsgo"` that means no `.d.ts` and no type-checking.
 
-The tsgo toolchain is registered automatically by `rules_typescript`. If it is not resolving, confirm that your `bazel_dep` for `rules_typescript` is present and that no explicit `register_toolchains` call in your workspace is shadowing the defaults.
-
-To use a specific tsgo version:
+To pin a tsgo version:
 
 ```python
 ts = use_extension("@rules_typescript//ts:extensions.bzl", "ts")
 ts.tsgo(version = "7.0.0-dev.20260311.1")
 ```
+
+On Windows there is no tsgo binary to resolve at all — see
+[COMPATIBILITY.md](https://github.com/mikn/rules_typescript/blob/main/COMPATIBILITY.md#windows).
+
+## compilerOptions.X is set by the rule and cannot be overridden
+
+```
+ts_compile: compilerOptions.paths is set by the rule and cannot be overridden --
+use path_aliases for source aliases, or module_name on the target that produces
+the declarations.
+Remove "paths" from compiler_options on //src/app:app.
+```
+
+Fifteen `compilerOptions` keys encode the sandbox layout or the action's
+declared outputs, so `compiler_options` refuses them rather than applying a
+value that would break the build. The message names the attribute to use
+instead; the full list is in
+[ts_compile](../rules/ts-compile.md#the-two-hard-errors).
+
+## path_aliases points into the output tree
+
+```
+ts_compile: path_aliases["@acme/ui"] on //src/app:app points into the output
+tree (bazel-out/k8-fastbuild/bin/packages/ui).
+```
+
+A path under `bazel-out/` embeds the build configuration, so it stops resolving
+under `-c opt` or a different exec platform. `path_aliases` is for **source**
+directories. To import another target by bare specifier, set `module_name` on
+the target that produces its declarations and depend on it.
+
+## npm: pnpm-lock.yaml declares patchedDependencies with no patch file
+
+Your lockfile patches a package and the extension was not given the patch. Pass
+it as a label:
+
+```python
+npm.translate_lock(
+    pnpm_lock = "//:pnpm-lock.yaml",
+    patches = ["//patches:@pierre__diffs@1.3.1.patch"],
+)
+```
+
+The reverse — a patch file no `patchedDependencies` entry claims — fails too,
+and means the lockfile is stale or the file is misnamed. Names follow
+`pnpm patch-commit`: `<name with / replaced by __>@<version>.patch`. See
+[npm Dependencies](npm.md#patched-dependencies).
 
 ## Import Not Resolving in tsgo
 
@@ -71,9 +112,25 @@ ts_compile(
 )
 ```
 
-## vitest Not Found at Test Runtime
+## ts_test: vitest not found
 
-The `node_modules` target must include vitest:
+```
+ts_test: vitest not found. Set vitest attr or include it in node_modules.
+```
+
+`vitest` has to be reachable from the tree the test runs against. With the
+default (auto) `node_modules`, that means listing it in `deps`:
+
+```python
+ts_test(
+    name = "my_test",
+    srcs = ["my.test.ts"],
+    deps = [":my_lib", "@npm//:vitest"],
+)
+```
+
+With an explicit `node_modules` target, put it there instead — the auto
+generation is skipped entirely when `node_modules` is set:
 
 ```python
 node_modules(
@@ -83,10 +140,16 @@ node_modules(
 
 ts_test(
     name = "my_test",
+    srcs = ["my.test.ts"],
+    deps = [":my_lib"],
     node_modules = ":node_modules",
-    ...
 )
 ```
+
+The same applies to every package the run needs at runtime, including ones only
+the production code imports: the auto tree is built from `ts_test`'s direct npm
+deps and their transitive npm deps, and a `ts_compile` dep does not contribute
+its own.
 
 ## Isolated declarations error: missing return type
 
@@ -125,12 +188,17 @@ which is intended for terminal targets whose declarations nothing consumes.
 If Gazelle generates incorrect `deps` for an import:
 
 1. Check that the import specifier matches an npm package name in the lockfile.
-2. For path aliases, verify `gazelle_ts.json` has the correct `pathAliases` entries.
-3. Use `# gazelle:ts_ignore` to suppress generation for a directory and write its BUILD file manually.
+2. For path aliases, check `compilerOptions.paths` in the nearest
+   `tsconfig.json` — Gazelle reads it directly, as JSONC — or set
+   `# gazelle:ts_path_alias @/ src/` explicitly.
+3. Use `# gazelle:ts_ignore` to suppress generation for a directory and write
+   its BUILD file manually.
 
 ## Slow First Build
 
-The first build downloads: the Rust toolchain (for oxc_cli), tsgo npm tarballs, Node.js tarballs, and all npm packages from the lockfile. Subsequent builds are fully cached.
+The first build downloads a Rust toolchain (and compiles `oxc_cli` from
+source), a tsgo npm tarball, a Node.js tarball, and the npm packages your
+targets actually reach — not the whole lockfile. Subsequent builds are cached.
 
 To speed up CI, mount a persistent Bazel cache volume:
 
@@ -145,7 +213,7 @@ Bazel works correctly inside Docker containers without privileged mode:
 ```dockerfile
 FROM ubuntu:24.04
 
-RUN apt-get update && apt-get install -y curl git python3 \
+RUN apt-get update && apt-get install -y curl git \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -Lo /usr/local/bin/bazel \
@@ -159,5 +227,7 @@ RUN bazel build //...
 
 Key points:
 - Mount a cache volume to avoid re-downloading toolchains on each run.
-- The Rust toolchain for `oxc-bazel` is the largest download (~500 MB) on the first build.
+- The first build's long pole is Rust: `rules_rust` fetches a toolchain and
+  then compiles `oxc-bazel` and its crate graph from source. Budget minutes, not
+  seconds, and cache it.
 - ARM64 containers are supported — `rules_rust` builds `oxc-bazel` natively and `@typescript/native-preview-linux-arm64` provides tsgo.

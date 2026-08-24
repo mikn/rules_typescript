@@ -1,6 +1,10 @@
 # npm Dependencies
 
-npm packages are managed through a `pnpm-lock.yaml` file. The `npm_translate_lock` extension downloads all packages and generates a self-contained `@npm` Bazel repository.
+npm packages come from a `pnpm-lock.yaml`. The `npm` module extension reads that
+file — text only, no network — and declares **one external repository per
+package**, plus an alias hub named `@npm` that holds nothing but aliases. Bazel
+fetches a package's repository the first time something needs it, so a target's
+npm cost is its own dependency closure rather than the whole lockfile.
 
 ## Setup
 
@@ -11,7 +15,12 @@ pnpm init
 pnpm add react react-dom --lockfile-only
 ```
 
-The `--lockfile-only` flag updates the lockfile without creating a `node_modules/` directory. No `node_modules/` ever exists in the source tree — Bazel downloads all packages hermetically at build time.
+`--lockfile-only` updates the lockfile without creating a `node_modules/`
+directory. No `node_modules/` ever exists in the source tree — Bazel materialises
+one inside the sandbox for the targets that need it.
+
+If you would rather not install pnpm at all, see
+[Hermetic pnpm](#hermetic-pnpm) below.
 
 **Step 2.** Add to `MODULE.bazel`:
 
@@ -33,8 +42,6 @@ ts_compile(
 
 ## Label Convention
 
-npm packages map to Bazel labels using this convention:
-
 | npm package | Bazel label |
 |-------------|-------------|
 | `react` | `@npm//:react` |
@@ -42,38 +49,107 @@ npm packages map to Bazel labels using this convention:
 | `@types/react` | `@npm//:types_react` |
 | `@tanstack/react-query` | `@npm//:tanstack_react-query` |
 
-The general rules:
-- Scoped packages (`@scope/name`) become `scope_name` (drop `@`, replace `/` with `_`)
-- Hyphenated names are preserved as-is
+- Scoped packages (`@scope/name`) become `scope_name` — drop the `@`, replace
+  `/` with `_`.
+- Hyphens are kept as-is.
+- A bare label means the **highest version** of that package in the lockfile.
+  When a package resolves at several versions, every version additionally gets a
+  version-suffixed label, so you can pin one deliberately.
+- A `workspace:*` link resolves to the target in your own repository, not to a
+  downloaded package.
 
 ## Adding Dependencies
 
 ```bash
 pnpm add zod --lockfile-only   # updates pnpm-lock.yaml only — no node_modules
-bazel run //:gazelle           # Gazelle detects the new import, adds @npm//:zod to deps
-bazel build //...              # Bazel downloads the package hermetically
+bazel run //:gazelle           # Gazelle sees the new import, adds @npm//:zod
+bazel build //...              # Bazel fetches just that package's closure
 ```
 
-The `--lockfile-only` flag is the key: it updates the lockfile without creating or touching `node_modules/`. Bazel handles all package downloads at build time from the lockfile.
+`pnpm` is needed only to edit the lockfile. It is not needed at build time, test
+time, or on CI.
 
-**Workflow comparison:**
+## Hermetic pnpm
 
-| Step | Without Bazel | With Bazel |
-|------|--------------|------------|
-| Add package | `pnpm add zod` (creates node_modules) | `pnpm add zod --lockfile-only` |
-| Install | `pnpm install` (500MB+ node_modules) | Not needed |
-| Use in code | `import { z } from "zod"` | Same |
-| Build | `pnpm vite build` | `bazel build //...` |
+The extension also downloads a standalone pnpm binary, so lockfile edits need no
+system install. It is not wired up by default — add the two macros to your root
+`BUILD.bazel` and take the repo in `MODULE.bazel`:
 
-`pnpm` is only needed to manage the lockfile. It is not needed at build time, test time, or on CI (Bazel downloads everything).
+```python
+# MODULE.bazel
+npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
+npm.pnpm(version = "10.32.1")   # optional; a default version is used otherwise
+npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
+use_repo(npm, "npm", "pnpm")
+```
+
+```python
+# BUILD.bazel
+load("@rules_typescript//ts:defs.bzl", "ts_add_package", "ts_pnpm")
+
+ts_pnpm(name = "pnpm")
+ts_add_package(name = "add_package")
+```
+
+```bash
+bazel run //:pnpm -- --version
+bazel run //:pnpm -- add zod --lockfile-only
+bazel run //:add_package -- zod          # appends --lockfile-only for you
+```
+
+Both targets `cd` to `$BUILD_WORKSPACE_DIRECTORY` first, so they edit the source
+tree rather than a sandbox. The wrapper is a bash script and the binary is
+published for Linux and macOS only, so this does not work on Windows.
+
+## Patched dependencies
+
+pnpm's `patchedDependencies` used to be ignored silently: the `packages:`
+integrity in the lockfile is the byte-identical upstream tarball, so a patched
+package was fetched **unpatched** and nothing said so.
+
+Patches now have to be passed as labels, because the paths pnpm keeps in
+`pnpm-workspace.yaml` cannot be turned into labels by an extension — a path like
+`patches/foo.patch` says nothing about where your Bazel package boundaries fall:
+
+```python
+npm.translate_lock(
+    pnpm_lock = "//:pnpm-lock.yaml",
+    patches = ["//patches:@pierre__diffs@1.3.1.patch"],
+)
+```
+
+Each file is matched to its lockfile entry by filename, which is pnpm's own
+convention from `pnpm patch-commit`:
+`<name with / replaced by __>@<version>.patch`.
+
+Both mismatches fail the build, loudly:
+
+- a `patchedDependencies` entry with no matching label — the package would
+  install as published, which is exactly what the lockfile says it must not be;
+- a passed patch file no entry claims — the lockfile is stale, or the file is
+  misnamed.
+
+## catalogs, overrides and packageExtensions
+
+These three need no support and have none, because pnpm resolves them at every
+use site before writing the lockfile: `catalog:` specifiers, `overrides` (both
+plain and the package-scoped `parent>child` form) and `packageExtensions`
+already appear as concrete versions and injected peers in the `packages:` and
+`snapshots:` sections the extension reads. Tests pin that behaviour so a future
+parser change cannot start reading `specifier:` instead of `version:` unnoticed.
 
 ## Platform-Specific Packages
 
-The `npm_translate_lock` extension filters out packages whose `os`/`cpu` fields don't match the host machine. This handles packages like `@rollup/rollup-linux-x64-gnu` correctly without manual configuration.
+A package whose `os`/`cpu` fields exclude your platform — `@rollup/rollup-linux-x64-gnu`
+on a Mac, say — is not part of your build, and there is nothing to configure.
+
+Native sidecars still work: a bin script that resolves an optional dependency at
+runtime (`oxlint` → `@oxlint/linux-x64-gnu`) gets it in its runfiles, even
+though the two are no longer sibling directories inside one repository.
 
 ## Bin Scripts
 
-npm packages that define `bin` entries in their `package.json` get a `_bin` label automatically:
+Packages with a `bin` entry in their `package.json` get a `_bin` label:
 
 | npm package | Binary label |
 |-------------|-------------|
@@ -81,11 +157,31 @@ npm packages that define `bin` entries in their `package.json` get a `_bin` labe
 | `esbuild` | `@npm//:esbuild_bin` |
 | `oxlint` | `@npm//:oxlint_bin` |
 
-Use these labels as `executable` targets in Bazel rules or as `tools` in custom actions.
+Use these as `executable` targets or as `tools` in custom actions. The hub
+cannot know whether a package has a bin without downloading it — which is the
+cost being avoided — so each `<label>_bin` alias is declared unconditionally and
+resolves only when something asks for it. Asking for one on a package with no
+bin script is an error at that point, not at load time. The bin chosen is npm's
+own convention: the entry named after the package, else the only one.
+
+## npm aliases
+
+A dependency declared under a different name than the package it resolves to —
+`"h3-v2": "npm:h3@2.0.1"` — gets its own label, so the name your code imports
+exists as a target:
+
+```python
+deps = ["@npm//:h3-v2"]
+```
+
+An alias label is only created when no real package in the lockfile already
+claims that name, and an alias that resolves to two different packages in one
+lockfile is an error rather than a coin flip: the hub is one flat namespace.
 
 ## node_modules Targets
 
-For test and dev-server targets that need a `node_modules` directory on the file system, use the `node_modules` rule:
+For test and dev-server targets that need a real `node_modules` directory on
+disk:
 
 ```python
 load("@rules_typescript//npm:defs.bzl", "node_modules")
@@ -96,42 +192,34 @@ node_modules(
 )
 ```
 
-This creates a hermetic `node_modules` directory in the Bazel sandbox containing exactly the specified packages and their transitive dependencies.
+This builds a `node_modules` tree in the sandbox holding exactly those packages
+and their transitive dependencies. `ts_test` does it for you from its `deps` —
+see [Testing with vitest](testing.md).
 
-## One repository per package
+## Why one repository per package
 
-Each npm package gets its own external repository, with `@npm` holding only
-alias targets. Bazel fetches repositories on demand, so a target's npm cost is
-its own dependency closure rather than the lockfile.
+A single repository for the whole lockfile cannot fetch lazily, and not by
+oversight: it reads `bin` and `exports` out of each extracted `package.json` to
+generate targets, so nothing can be emitted until everything is downloaded. One
+serial Starlark loop, no resume, and a target whose only npm dependency is
+vitest pays for all of it.
 
-Measured on a real 2731-package `pnpm-lock.yaml`, building one vitest test
-target from an empty output base with a shared tarball cache:
+Per-package repositories invert that. The extension does the whole-graph
+analysis it can do from the lockfile text alone — platform filtering, which
+version a bare label means, `@types` pairing, cycle breaking, alias naming,
+patch routing — and then declares one repository per package. Each package reads
+its own `package.json` and writes its own BUILD file, so Bazel fetches on
+demand, fetches independent repositories in parallel, caches and invalidates per
+package, and a malformed tarball fails only its own package.
 
-| | one repository | one per package |
-|---|---|---|
-| Wall time | 392s | **66s** |
-| npm repositories fetched | 1, holding all 2731 | 227 + the alias hub |
-| `external/` on disk | 2.9 GB | **415 MB** |
+One measurement, made while both layouts still existed: building one vitest test
+target from an empty output base against a real 2731-package lockfile went from
+392s and 2.9 GB of `external/` to 66s and 415 MB, fetching 227 packages —
+vitest's actual transitive closure — instead of all 2731. The single-repository
+implementation has since been deleted, so that comparison cannot be re-run from
+this tree; it is recorded here as history, not as a benchmark you can reproduce.
 
-227 of 2731 packages is vitest's actual transitive closure. The single-repository
-layout has to download everything before it can generate any target, because it
-reads `bin` and `exports` out of each extracted `package.json`; per-package
-repositories read their own, which is what makes on-demand fetching possible.
-Independent repositories also fetch in parallel, cache and invalidate
-individually, and a malformed tarball fails only its own package instead of
-restarting the whole fetch.
-
-The label surface is `@npm//:zod`, `@npm//:types_react`, `@npm//:vitest_bin`.
-
-There is one npm implementation. The single-repository layout and its `lazy`
-attribute are gone: carrying two resolvers is how they drift, and patches could
-not be implemented once for both.
-
-### Known gap
-
-npm alias specifiers -- a dependency declared as `h3-v2: h3@2.0.1`, where the
-package is published under a different name than the one importing code uses --
-are resolved for dependency edges but do not get their own alias label. This is
-untested in both layouts; if you rely on aliased specifiers, verify the labels
-you expect exist before adopting either.
-
+There is one npm implementation. The single-repository layout, its
+`npm_translate_lock` repository rule and the `npm.translate_lock(lazy = ...)`
+attribute are gone: two resolvers is how they drift, and patches could not be
+implemented once for both.

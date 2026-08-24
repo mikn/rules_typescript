@@ -71,6 +71,10 @@ nav:
     - node_modules: rules/node-modules.md
   - Contributing: contributing.md
   - Changelog: changelog.md
+  - Maintainers:
+    - CI/CD: CI_CD.md
+    - Release Process: RELEASE_PROCESS.md
+    - BCR Submission: BCR_SUBMISSION.md
 
 markdown_extensions:
   - admonition
@@ -83,7 +87,9 @@ markdown_extensions:
   - pymdownx.superfences
   - pymdownx.tabbed:
       alternate_style: true
-  - pymdownx.snippets
+  - pymdownx.snippets:
+      base_path: ['.']
+      check_paths: true
   - attr_list
   - md_in_html
   - toc:
