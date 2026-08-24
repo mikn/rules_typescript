@@ -1,0 +1,21 @@
+"""Toolchain resolution tests.
+
+The target platform under test is windows_amd64 on purpose: this ruleset ships
+a Node.js runtime for it but no compiler binary, so it separates the three
+roles.  oxc and tsgo must still resolve (they run on the exec platform), the
+staged JS runtime must be the Windows one (it runs on the target), and the JS
+runtime used as a build tool must not be.
+"""
+
+load(":probe.bzl", "toolchain_probe")
+load(":resolution_test.bzl", "foreign_target_platform_test")
+
+toolchain_probe(
+    name = "probe",
+    tags = ["manual"],
+)
+
+foreign_target_platform_test(
+    name = "foreign_target_platform_test",
+    target_under_test = ":probe",
+)

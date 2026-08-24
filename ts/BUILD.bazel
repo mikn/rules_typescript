@@ -11,15 +11,22 @@ bzl_library(
     name = "defs",
     srcs = ["defs.bzl"],
     deps = [
+        "//ts/private:asset_library",
         "//ts/private:css_library",
+        "//ts/private:css_module",
+        "//ts/private:json_library",
         "//ts/private:next_build",
+        "//ts/private:pnpm",
         "//ts/private:providers",
         "//ts/private:ts_binary",
         "//ts/private:ts_bundle",
         "//ts/private:ts_check",
+        "//ts/private:ts_codegen",
         "//ts/private:ts_compile",
         "//ts/private:ts_config_gen",
         "//ts/private:ts_dev_server",
+        "//ts/private:ts_lint",
+        "//ts/private:ts_npm_publish",
         "//ts/private:ts_test",
     ],
 )
@@ -27,14 +34,6 @@ bzl_library(
 bzl_library(
     name = "extensions",
     srcs = ["extensions.bzl"],
-    deps = [
-        ":repositories",
-    ],
-)
-
-bzl_library(
-    name = "repositories",
-    srcs = ["repositories.bzl"],
     deps = [
         "//ts/private:toolchain",
     ],

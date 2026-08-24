@@ -79,14 +79,13 @@ use_repo(
 # ─── TypeScript toolchains ──────────────────────────────────────────────────
 
 ts = use_extension("//ts:extensions.bzl", "ts")
-ts.oxc_toolchain(
-    name = "oxc",
+use_repo(
+    ts,
+    "tsgo_darwin_amd64",
+    "tsgo_darwin_arm64",
+    "tsgo_linux_amd64",
+    "tsgo_linux_arm64",
 )
-ts.tsgo_toolchain(
-    name = "tsgo",
-    tsgo_version = "7.0.0-dev.20260311.1",
-)
-use_repo(ts, "oxc", "tsgo")
 
 # Toolchain registration is the CONSUMER's responsibility.
 # rules_typescript does NOT register its own toolchains — consumers must add:
@@ -104,7 +103,16 @@ register_toolchains("//ts/toolchain:all")
 npm = use_extension("//npm:extensions.bzl", "npm")
 npm.pnpm(version = "10.32.1")
 npm.translate_lock(pnpm_lock = "//tests/npm:pnpm-lock.yaml")
-use_repo(npm, "npm", "pnpm")
+
+# A second hub for the pnpm features that need their own fixture: the main
+# lockfile is copied verbatim into the integration and bootstrap scratch
+# workspaces, which pass no patch files.
+npm.translate_lock(
+    name = "npm_features",
+    patches = ["//tests/npm:patches/nanoid@3.3.11.patch"],
+    pnpm_lock = "//tests/npm:pnpm-lock-features.yaml",
+)
+use_repo(npm, "npm", "npm_features", "pnpm")
 
 # ─── Bazel integration test binaries (dev only) ──────────────────────────────
 
