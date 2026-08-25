@@ -38,9 +38,12 @@ the deps do not describe.
 | `target` | `string` | `"es2022"` | ECMAScript target for the internal `ts_compile` |
 | `jsx_mode` | `string` | `"react-jsx"` | JSX mode for the internal `ts_compile` |
 | `declarations` | `string` | `"tsgo"` | Declaration emitter for the internal `ts_compile` |
+| `lib` | `string_list` | `None` | `lib` set for the internal `ts_compile`. A worker test needs it: `webworker` is in no set `target` implies |
+| `types` | `string_list` | `None` | Ambient type packages for the internal `ts_compile`. An entry may name an `exports` subpath (`@cloudflare/vitest-pool-workers/types`), which is how an ambient module a package ships behind one reaches the program — nothing imports such a declaration, and tsconfig `types` resolves through a `node_modules` this ruleset does not have, so the subpath is resolved from the manifest and the file put in `files` |
+| `compiler_options` | `string_dict` | `None` | Anything else for the internal `ts_compile` |
 | `environment` | `string` | `""` | `test.environment` — `node`, `jsdom`, `happy-dom`, `edge-runtime`, or any custom vitest environment package. The package must be in `deps` |
 | `coverage` | `bool` | `False` | Also instrument during plain `bazel test`. `bazel coverage` works on every target regardless |
-| `config` | `label` or `dict` | `None` | A vitest config file (`.ts`/`.mts`/`.cts`/`.js`/`.mjs`/`.cjs`) or an inline dict. **Merged**, not substituted |
+| `config` | `label` or `dict` | `None` | A vitest config file (`.ts`/`.mts`/`.cts`/`.js`/`.mjs`/`.cjs`) or an inline dict. **Merged**, not substituted. A file is staged beside the generated `node_modules` tree so its own bare imports resolve, so a path it needs to name comes from the `TS_TEST_PACKAGE_DIR` environment variable rather than from its own location |
 | `setup_files` | `label_list` | `[]` | `test.setupFiles`. `.ts`/`.tsx` entries are compiled with the same `deps` as the tests |
 | `global_setup` | `label_list` | `[]` | `test.globalSetup`; compiled like `setup_files` |
 | `data` | `label_list` | `[]` | Extra runfiles: fixtures, and files a `config` or setup entry imports |

@@ -79,18 +79,20 @@ returned.
 
 ## Framework plugins via `vite_config`
 
-`vite_config` takes **one** `.mjs`/`.js` file that default-exports
-`{plugins: [...]}` (and optionally `root`). The generated config imports it at
-run time and prepends its plugins to Bazel's. That is the hook TanStack Start's
+`vite_config` takes the config file, and `vite_config_srcs` the local modules it
+imports. Both are staged into `bazel-bin` and the generated config loads the
+staged copy, prepending its plugins to Bazel's. That is the hook TanStack Start's
 and Remix's plugins go through — and the two frameworks Gazelle deliberately
 generates nothing for are the ones this hook cannot serve
 ([which, and why](../gazelle/overview.md#framework-detection)):
 
-```javascript
-// vite.plugins.mjs
+```typescript
+// vite.plugins.ts
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 
-export default { plugins: [tanstackStart()] };
+import { myPlugin } from "./plugins/mine";
+
+export default { plugins: [tanstackStart(), myPlugin()] };
 ```
 
 ```python
@@ -100,33 +102,32 @@ ts_bundle(
     bundler = ":vite",
     mode = "app",
     html = "index.html",
-    vite_config = "vite.plugins.mjs",
+    vite_config = "vite.plugins.ts",
+    vite_config_srcs = glob(["plugins/**/*.ts"]),
 )
 ```
 
-Two limits are worth knowing before you plan a migration around this:
+TypeScript is accepted, and so are the extensionless relative specifiers a
+bundler-resolution config is written with, because the generated config goes
+through Vite's own `loadConfigFromFile` — the same loader Vite runs on a root
+config — rather than a plain dynamic `import()`, which reads neither.
 
-- **One file, no local imports.** The attr is `allow_single_file`, so a config
-  that imports plugin modules of its own — a repository's real
-  `vite.config.ts`, split across helper files — cannot be expressed as one
-  staged file. Nothing collects those imports into the action's inputs, and a
-  relative import from the staged config resolves next to the generated config
-  in the output tree, not next to the source you wrote.
-- **The plugin package has to be resolvable from where the file is imported.**
-  `ts_bundle` imports the config by exec-root path, and Node realpaths it back
-  into the source tree, so the framework package must be resolvable from *there* —
-  which for a checked-in config means a source-tree `node_modules`. This
-  repository's own `examples/tanstack-app` hits exactly that: its app-mode
-  bundle is excluded from CI with the reason in the workflow, while the SPA
-  target builds. Point the attr at a **generated** file under `bazel-out` and the
-  problem goes away, because that file sits beside the hermetic npm tree.
+Three things are worth knowing before planning a migration around this:
 
-`ts_dev_server`'s `vite_config` attr does not have the second limit: it loads a
-copy of the file in `bazel-bin`, so a bare npm specifier resolves through the
-`node_modules` tree, and the boundary that remains — no relative imports — is
-[stated and tested](dev-server.md#vite_config-what-it-may-import). `ts_bundle`
-has not been given the same staging yet, so the two attrs differ on this one
-point.
+- **The modules it imports have to be declared.** `vite_config_srcs` is what
+  stages them; without it only the entry config is staged and its relative
+  imports fail, naming the file. A file outside the config's own package is an
+  error rather than a silent flattening — it would have to stage above the
+  staging root.
+- **A bare npm specifier resolves through the Bazel tree, a relative one through
+  the staged tree.** The staged copy sits beside the `node_modules` the build
+  produced, so the framework package resolves without a source-tree
+  `node_modules` — which is what used to make a checked-in config work only on a
+  machine that had run `pnpm install`.
+- **The config is a plugin list, not a program.** Anything the config computes
+  from its surroundings — reading the repository, branching on an env var it
+  expects the dev server to have set — runs in the output tree, not the source
+  tree.
 
 If your Vite configuration is a program rather than a plugin list, this attr is
 not enough today, and there is no supported way to hand `ts_bundle` a

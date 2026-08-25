@@ -19,8 +19,9 @@ Directives go in `BUILD.bazel` files as comments and control how Gazelle generat
 | `# gazelle:ts_exclude *.generated.ts` | Exclude files matching this pattern from source targets |
 | `# gazelle:ts_warn_unresolved true` | Warn when an import cannot be resolved to a Bazel label |
 | `# gazelle:ts_codegen <name> <generator> <outs> [args…]` | Register a `ts_codegen` target in this directory |
+| `# gazelle:ts_npm_hub npm_eslint` | Resolve bare specifiers in this tree into that npm hub repo instead of `@npm` |
 
-That is the complete set — nine directives. An unknown `# gazelle:ts_*` comment
+That is the complete set — ten directives. An unknown `# gazelle:ts_*` comment
 makes Gazelle warn rather than fail, so a typo shows up in the run output.
 
 ## `# keep` — not ours, and load-bearing
@@ -86,6 +87,27 @@ cannot silently demand annotations across a whole tree.
 
 # gazelle:ts_package_boundary index-only
 ```
+
+In this mode a directory without an index file is not a package, so its sources
+are rolled up into the nearest ancestor that is one, and no BUILD file is written
+there. That is what dissolves the commonest package-level cycle: a barrel that
+re-exports `./rules` while `./rules` imports `../utils` is a cycle between two
+Bazel packages and no cycle at all between files.
+
+### More than one npm hub
+
+A workspace can translate several lockfiles. Which hub a package's imports come
+from is a property of that package, so it is named where the package is:
+
+```python
+# eslint-plugin/BUILD.bazel
+
+# gazelle:ts_npm_hub npm_eslint
+```
+
+Generated deps in that tree then read `@npm_eslint//:eslint` rather than
+`@npm//:eslint`. Without it the label names a hub the package does not use, which
+is a label that does not exist. Both `npm_eslint` and `@npm_eslint` are accepted.
 
 ### Path alias for `@/` imports
 

@@ -149,20 +149,18 @@ The copy is what draws the boundary, and
   built. That target must be in the same Bazel package as the dev server — it is
   the directory Node finds walking up from the copy. Gazelle generates them
   together, so this is automatic unless you moved one.
-- A **relative import does not resolve.** Only the one file is copied, so a
-  sibling module is not there to be found. The dev server exits with
+- A **relative import resolves only if the module is declared** in
+  `vite_config_srcs`, which is what stages it beside the copy. An **undeclared**
+  sibling is not there, and the dev server exits with
   `[rules_typescript] Failed to load vite_config: …` naming the file, rather than
   starting on half a config.
 
-Keep the config self-contained apart from bare npm imports, or reach the tree
-explicitly through the `NODE_MODULES_PATH` environment variable the launcher sets.
+`vite_config` accepts TypeScript, and the extensionless relative specifiers a
+bundler-resolution config is written with, because the generated config loads it
+through Vite's own `loadConfigFromFile` rather than a plain dynamic `import()`.
 
-!!! warning "`ts_bundle`'s `vite_config` is different"
-    `ts_bundle` still imports the user's config by exec-root path, so a
-    *checked-in* config there resolves its imports in the source tree. Point
-    `ts_bundle`'s `vite_config` at a **generated** file under `bazel-out` if you
-    need it to be hermetic — see
-    [bundling](bundling.md#framework-plugins-via-vite_config).
+`ts_bundle` stages its config the same way, so the two attrs no longer differ —
+see [bundling](bundling.md#framework-plugins-via-vite_config).
 
 ## Watch mode with ibazel, and who decides to restart
 
@@ -204,9 +202,50 @@ what `ConfigWatcher` adds.
 | `open` | `bool` | `False` | Open the browser automatically on start |
 | `node_modules` | `label` | `None` | `node_modules` target providing Vite and the application's runtime deps. Also what makes a bare npm import resolve at all — see [above](#how-a-bare-npm-specifier-resolves) |
 | `plugin` | `label` | `None` | Compiled `vite-plugin-bazel` `.mjs`. Without it Vite serves first-party source and nothing else — `bazel-bin` is invisible |
+| `server` | `label` | `//vite:dev_server` | Which implementation serves this target, as a `DevServerInfo`-providing target. `@rules_typescript//oj:dev_server` selects oj — see [below](#choosing-the-server) |
 | `bundler` | `label` | `None` | `BundlerInfo`-providing target, for a non-Vite dev server. The Vite path does not need it |
 | `react_refresh` | `bool` | `False` | React Fast Refresh via `@vitejs/plugin-react`, so component state survives an HMR update. Requires `@npm//:vitejs_plugin-react` in the `node_modules` deps; the dev server fails to start if the plugin cannot be loaded |
-| `vite_config` | `label` | `None` | A `.mjs`/`.js` file default-exporting `{plugins: [...]}`, prepended to Bazel's plugins. This is how framework plugins run in the dev server — TanStack Start's and Remix's do; SvelteKit's and Solid Start's [cannot](../gazelle/overview.md#framework-detection). Loaded from a copy in `bazel-bin`, which bounds what it may import |
+| `vite_config_srcs` | `label_list` | `[]` | The local modules `vite_config` imports, staged beside it so its relative imports resolve |
+| `vite_config` | `label` | `None` | A `.ts`/`.mts`/`.mjs`/`.js` file default-exporting `{plugins: [...]}`, prepended to Bazel's plugins. This is how framework plugins run in the dev server — TanStack Start's and Remix's do; SvelteKit's and Solid Start's [cannot](../gazelle/overview.md#framework-detection). Loaded from a copy in `bazel-bin`, which bounds what it may import |
+
+## Choosing the server
+
+`ts_dev_server` takes a `DevServerInfo`, and the implementation is a per-target
+choice. Vite is the default; oj ([raphamorim/oj](https://github.com/raphamorim/oj),
+a Rust-native build tool) is the second shipped one, and reads the same generated
+config:
+
+```python
+ts_dev_server(
+    name = "dev",
+    entry_point = ":app",
+    node_modules = ":node_modules",   # oj needs no @npm//:vite in here
+    server = "@rules_typescript//oj:dev_server",
+)
+```
+
+Two differences are structural rather than incidental, and the provider declares
+both rather than leaving the launcher to guess. oj takes the directory it serves
+from a positional argument, not from the config's `root`. And a field one server
+does not read is an **analysis-time error** on a target that set the attr
+reaching it — `open = True` against oj fails naming both, rather than starting a
+server that quietly does something else. `react_refresh` is the same: oj applies
+Fast Refresh itself, so setting it would instrument every component twice.
+
+!!! warning "oj cannot yet serve an app with npm dependencies"
+    oj 0.1.4 does not use a plugin `resolveId` result for a bare specifier: its
+    own resolver runs first, fails against a source tree that has no
+    `node_modules`, and discards the correct in-tree path the plugin returns. So
+    `import "react"` does not resolve under oj. This is upstream;
+    `//tests/dev_server:dev_oj_behaviour_test` pins the current behaviour so a
+    fix shows up as a failing test rather than a silent pass. Until then oj is
+    usable for first-party-only graphs, and Vite is the escape hatch on any
+    target that needs more.
+
+Bringing your own is a rule returning `DevServerInfo`. A server shipping as an
+npm package sets `server_in_tree` (a path inside the `node_modules` tree, since a
+file inside a TreeArtifact has no label at analysis time); a native binary sets
+`server_binary`. Exactly one.
 
 ## Diagnostics
 
