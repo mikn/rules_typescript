@@ -87,6 +87,17 @@ ts_dev_server(
     vite_config = "user_config.mjs",
 )
 
+# The same app under oj instead of Vite, which is the point of the server attr:
+# one generated config, two implementations reading it. oj needs no @npm//:vite
+# in the tree -- it is here only because the Vite variants above share this one.
+ts_dev_server(
+    name = "dev_oj",
+    entry_point = ":dev_app",
+    node_modules = ":node_modules",
+    port = 5179,
+    server = "//oj:dev_server",
+)
+
 # The other side of that boundary: only the config file itself is copied, so its
 # relative import of a sibling module resolves nowhere. :vite_config_boundary_test
 # starts this one and asserts it dies naming the file it could not load.
@@ -119,6 +130,7 @@ ts_dev_server(
         ],
         env = {
             "DEV_BAZEL_PLUGIN": bazel_plugin,
+            "DEV_IMPL": impl,
             "DEV_PORT": port,
             "DEV_REACT_REFRESH": react_refresh,
             "DEV_TARGET": target,
@@ -127,12 +139,15 @@ ts_dev_server(
         tags = ["requires-network"],
         deps = ["//tests/verify"],
     )
-    for target, port, bazel_plugin, react_refresh, user_config in [
-        ("dev", "5173", "0", "0", "0"),
-        ("dev_with_plugin", "5174", "1", "0", "0"),
-        ("dev_with_react_refresh", "5175", "0", "1", "0"),
-        ("dev_with_react_refresh_and_plugin", "5176", "1", "1", "0"),
-        ("dev_with_user_config", "5177", "0", "0", "1"),
+    for target, port, bazel_plugin, react_refresh, user_config, impl in [
+        ("dev", "5173", "0", "0", "0", "vite"),
+        ("dev_with_plugin", "5174", "1", "0", "0", "vite"),
+        ("dev_with_react_refresh", "5175", "0", "1", "0", "vite"),
+        ("dev_with_react_refresh_and_plugin", "5176", "1", "1", "0", "vite"),
+        ("dev_with_user_config", "5177", "0", "0", "1", "vite"),
+        # The same assertions against oj: what the seam is for is that one
+        # generated config drives either implementation.
+        ("dev_oj", "5179", "0", "0", "0", "oj"),
     ]
 ]
 

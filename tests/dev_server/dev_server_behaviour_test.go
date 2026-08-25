@@ -66,6 +66,7 @@ func TestDevServerBehaviour(t *testing.T) {
 	wantBazelPlugin := env(t, "DEV_BAZEL_PLUGIN") == "1"
 	wantReactRefresh := env(t, "DEV_REACT_REFRESH") == "1"
 	wantUserConfig := env(t, "DEV_USER_CONFIG") == "1"
+	impl := env(t, "DEV_IMPL")
 
 	node := tree.File("ts/toolchain/node_resolved/node")
 	launcher := tree.File("tests/dev_server/" + target + "_launcher")
@@ -191,9 +192,15 @@ func TestDevServerBehaviour(t *testing.T) {
 		}
 	}
 
-	srv := start(t, launcher.Abs(), ws, tmp)
+	// Args past the launcher reach the server's own CLI, which is not a shared
+	// surface: --strictPort is Vite's, and oj rejects it outright.
+	var extraArgs []string
+	if impl == "vite" {
+		extraArgs = append(extraArgs, "--strictPort")
+	}
+	srv := start(t, launcher.Abs(), ws, tmp, extraArgs...)
 	base := srv.awaitHTTP(t)
-	t.Logf("%s is up and answering on %s", target, base)
+	t.Logf("%s (%s) is up and answering on %s", target, impl, base)
 
 	// ── 2: the running server really serves bazel-bin ─────────────────────────
 	// Vite answers 403 for a file outside fs.allow, so a 200 here is the whole
@@ -235,7 +242,14 @@ func TestDevServerBehaviour(t *testing.T) {
 		r := get(t, base, "/gen_entry.js")
 		t.Logf("gen_entry.js (status %d) = %s", r.status, r.body)
 		if !wantBazelPlugin {
-			// Vite alone cannot see bazel-bin, and says so.
+			// Neither server can see bazel-bin without the plugin; they differ in
+			// when they say so. Vite fails the transform, oj serves the module with
+			// the specifier untouched so the failure lands in the browser instead.
+			if impl == "oj" {
+				r.contains(t, srv, "./generated/routes.ts")
+				r.excludes(t, "bazel-bin/generated/routes.ts")
+				return
+			}
 			if r.status == 200 {
 				t.Fatalf("GET /gen_entry.js returned 200 without the plugin; bazel-bin "+
 					"is not Vite's to resolve\n%s", r.body)
@@ -276,6 +290,23 @@ func TestDevServerBehaviour(t *testing.T) {
 	// does not reach would only move the failure one request later.
 	t.Run("resolves_npm_from_bazel_tree", func(t *testing.T) {
 		r := get(t, base, "/npm_entry.js")
+		if impl == "oj" {
+			// oj 0.1.4 does not use a plugin resolveId result for a bare specifier:
+			// its own resolver runs first, fails against a source tree that has no
+			// node_modules, and the plugin's answer -- the correct path inside the
+			// Bazel tree, which `this.resolve` does return -- is discarded. What
+			// reaches the browser is oj's unresolved-id placeholder.
+			//
+			// Pinned rather than skipped: this is the one gap that keeps oj from
+			// serving an app with npm dependencies, so an upstream fix has to show
+			// up here as a failure to be looked at, not as a quiet pass.
+			r.contains(t, srv, "/@id/")
+			if strings.Contains(r.body, "/node_modules/zod/") {
+				t.Fatalf("oj now resolves a bare specifier through the plugin: drop this "+
+					"branch and let the shared assertion below cover it\n%s", r.body)
+			}
+			return
+		}
 		if r.status != 200 {
 			t.Fatalf("GET /npm_entry.js returned %d, want 200\n%s\n%s", r.status, r.body, srv.log(t))
 		}
@@ -321,6 +352,14 @@ func TestDevServerBehaviour(t *testing.T) {
 		r := get(t, base, "/widget.tsx")
 		if r.status != 200 {
 			t.Fatalf("GET /widget.tsx returned %d, want 200\n%s\n%s", r.status, r.body, srv.log(t))
+		}
+		if impl == "oj" {
+			// oj applies Fast Refresh itself, which is why ts_dev_server rejects
+			// react_refresh = True against it rather than stacking plugin-react on
+			// top. The transform is oj's own, so the plugin-react preamble that the
+			// Vite variants assert on is not what shows up here.
+			r.contains(t, srv, "$RefreshReg$")
+			return
 		}
 		if !wantReactRefresh {
 			r.excludes(t, "react-refresh", "$RefreshReg$")
@@ -515,7 +554,7 @@ type server struct {
 // concurrent `bazel test` runs make Vite increment past the collision and one run
 // then answers the other's requests. --strictPort keeps that from happening
 // quietly.
-func start(t *testing.T, launcher, ws, tmp string) *server {
+func start(t *testing.T, launcher, ws, tmp string, extraArgs ...string) *server {
 	t.Helper()
 	port := freePort(t)
 	t.Logf("serving on port %d", port)
@@ -527,7 +566,7 @@ func start(t *testing.T, launcher, ws, tmp string) *server {
 	}
 	defer logFile.Close()
 
-	cmd := exec.Command(launcher, "--port", strconv.Itoa(port), "--strictPort")
+	cmd := exec.Command(launcher, append([]string{"--port", strconv.Itoa(port)}, extraArgs...)...)
 	cmd.Dir = ws
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile

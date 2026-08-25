@@ -27,6 +27,10 @@ adopts `base`, `publicDir`, `server.port`, `server.host`, `server.fs.allow`,
 `server.watch`: it has its own watcher, so a target relying on Vite's watcher
 paths to see a rebuild has to say so.
 
+oj applies React Fast Refresh itself, so `react_refresh = True` is an error
+against it rather than a no-op: @vitejs/plugin-react on top of a transform that
+already ran would instrument every component twice.
+
 oj is a native binary and needs no npm package to run, but it is not Node-free:
 its plugin host is a Node process, which is why `ts_dev_server` puts the
 toolchain Node on PATH for it.
@@ -47,6 +51,7 @@ def _oj_dev_server_impl(ctx):
             "server.watch.paths",
             "optimizeDeps.noDiscovery",
         ],
+        native_react_refresh = True,
         runtime_deps = depset([ctx.executable.oj]),
     )]
 

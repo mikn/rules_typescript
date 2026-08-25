@@ -19,6 +19,7 @@ def _vite_dev_server_impl(_ctx):
         config_dialect = "vite",
         runs_in_js_runtime = True,
         ignored_config_fields = [],
+        native_react_refresh = False,
         runtime_deps = depset(),
     )]
 

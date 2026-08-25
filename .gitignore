@@ -41,3 +41,6 @@ Thumbs.db
 RELEASE_CHECKLIST.md
 RELEASE_NOTES.md
 SP10_COMPLETION_SUMMARY.md
+
+# oj's config-extraction cache, written into whatever root it serves
+.oj-cache/

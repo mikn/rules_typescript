@@ -147,6 +147,39 @@ def _bin_relative(f):
         return "external/" + f.short_path[3:]
     return f.short_path
 
+def _server_config_input_js(server_info, server_binary_rl):
+    """The restart input naming whichever dev server is actually serving.
+
+    A rebuild that moved the server -- a new Vite in the npm tree, a new oj
+    binary -- leaves a running server that is no longer the one the graph was
+    planned around. Which file that is depends on the implementation, so it
+    cannot be the hardcoded `vite/package.json` it used to be: an oj target need
+    not have vite in its tree at all.
+    """
+    if server_info.server_in_tree:
+        segments = server_info.server_in_tree.split("/")
+        pkg = "/".join(segments[0:2]) if server_info.server_in_tree.startswith("@") else segments[0]
+        return (
+            "if (nodeModulesPath) {\n" +
+            "  configInputs.push({\n" +
+            "    label: " + json.encode("{} in the Bazel npm tree".format(pkg)) + ",\n" +
+            "    path: path.join(nodeModulesPath, " + json.encode(pkg) + ", 'package.json'),\n" +
+            "    digest: 'content',\n" +
+            "    remedy: 'manual',\n" +
+            "  });\n" +
+            "}\n"
+        )
+    return (
+        "if (process.env['RUNFILES_DIR']) {\n" +
+        "  configInputs.push({\n" +
+        "    label: 'the dev server binary',\n" +
+        "    path: path.join(process.env['RUNFILES_DIR'], " + json.encode(server_binary_rl) + "),\n" +
+        "    digest: 'identity',\n" +
+        "    remedy: 'manual',\n" +
+        "  });\n" +
+        "}\n"
+    )
+
 def _generate_dev_config(
         ctx,
         node_modules_rl,
@@ -154,6 +187,7 @@ def _generate_dev_config(
         react_refresh,
         modules,
         runtime_rl,
+        server_input_js,
         user_config_rl = ""):
     """Generates a vite.config.mjs for dev server mode.
 
@@ -178,6 +212,8 @@ def _generate_dev_config(
             package in the graph that declared a module_name.
         runtime_rl: Runfiles-tree-relative path of the toolchain node binary,
             so the config can watch the one it is running under.
+        server_input_js: The JavaScript, from _server_config_input_js, that adds
+            the selected dev server to configInputs.
         user_config_rl: Runfiles-tree-relative path to the bin copy of the
             user-supplied Vite plugin config, or empty string if there is none.
             When set, the generated config dynamically imports it and prepends
@@ -270,14 +306,7 @@ def _generate_dev_config(
         "    remedy: 'restart',\n" +
         "  },\n" +
         "];\n" +
-        "if (nodeModulesPath) {\n" +
-        "  configInputs.push({\n" +
-        "    label: 'vite in the Bazel npm tree',\n" +
-        "    path: path.join(nodeModulesPath, 'vite', 'package.json'),\n" +
-        "    digest: 'content',\n" +
-        "    remedy: 'manual',\n" +
-        "  });\n" +
-        "}\n" +
+        server_input_js +
         "// The runfiles symlink, not process.execPath: execPath is already resolved\n" +
         "// to the old toolchain's real file, which a new toolchain does not touch.\n" +
         "const runfilesDir = process.env['RUNFILES_DIR'];\n" +
@@ -553,6 +582,16 @@ def _resolve_server(ctx):
             "the node_modules tree); it set " +
             ("both" if server_info.server_binary else "neither") + ".",
         )
+    if ctx.attr.react_refresh and server_info.native_react_refresh:
+        fail(
+            "ts_dev_server: {} sets react_refresh = True, but the server it selected ({})\n".format(
+                ctx.label,
+                ctx.attr.server.label,
+            ) +
+            "applies React Fast Refresh itself. Adding @vitejs/plugin-react on top would\n" +
+            "instrument every component a second time.\n" +
+            "Drop react_refresh; Fast Refresh is already on.",
+        )
     _check_ignored_fields(ctx, server_info)
     return server_info
 
@@ -645,6 +684,9 @@ def _ts_dev_server_impl(ctx):
 
     # ── Generate the vite.config.mjs ───────────────────────────────────────────
     react_refresh = ctx.attr.react_refresh
+    server_binary_rl = ""
+    if server_info.server_binary:
+        server_binary_rl = rlocation_path(ctx, server_info.server_binary)
     config_file = _generate_dev_config(
         ctx,
         node_modules_rl,
@@ -652,6 +694,7 @@ def _ts_dev_server_impl(ctx):
         react_refresh,
         modules,
         rlocation_path(ctx, runtime_binary),
+        _server_config_input_js(server_info, server_binary_rl),
         user_config_rl,
     )
 
@@ -668,7 +711,7 @@ def _ts_dev_server_impl(ctx):
     if server_info.server_in_tree:
         dev_server["server_in_tree"] = server_info.server_in_tree
     else:
-        dev_server["server_binary"] = rlocation_path(ctx, server_info.server_binary)
+        dev_server["server_binary"] = server_binary_rl
     if node_modules_files:
         dev_server["node_modules"] = node_modules_rl
     if plugin_files:

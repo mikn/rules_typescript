@@ -1,5 +1,9 @@
 # Root BUILD file for rules_typescript
 
+# oj writes its config-extraction cache into the directory it serves, so a
+# workspace where the oj dev server has ever run has one of these at its root.
+# gazelle:exclude .oj-cache
+
 load("//ts:defs.bzl", "ts_add_package", "ts_pnpm")
 load("//ts/private:tsconfig_aspect.bzl", "ts_refresh_tsconfig")
 
