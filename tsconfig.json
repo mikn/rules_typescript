@@ -32,6 +32,36 @@
       "@babel/types/*": [
         "./.bazel/npm/@babel/types/lib/*"
       ],
+      "@cloudflare/kv-asset-handler": [
+        "./.bazel/npm/@cloudflare/kv-asset-handler/dist/index.d.ts"
+      ],
+      "@cloudflare/kv-asset-handler/*": [
+        "./.bazel/npm/@cloudflare/kv-asset-handler/dist/*"
+      ],
+      "@cloudflare/unenv-preset": [
+        "./.bazel/npm/@cloudflare/unenv-preset/dist/index.d.ts"
+      ],
+      "@cloudflare/unenv-preset/*": [
+        "./.bazel/npm/@cloudflare/unenv-preset/dist/*"
+      ],
+      "@cloudflare/vitest-pool-workers": [
+        "./.bazel/npm/@cloudflare/vitest-pool-workers/dist/pool/index.d.mts"
+      ],
+      "@cloudflare/vitest-pool-workers/*": [
+        "./.bazel/npm/@cloudflare/vitest-pool-workers/dist/pool/*"
+      ],
+      "@cloudflare/workers-types": [
+        "./.bazel/npm/@cloudflare/workers-types"
+      ],
+      "@cloudflare/workers-types/*": [
+        "./.bazel/npm/@cloudflare/workers-types/*"
+      ],
+      "@cspotcode/source-map-support": [
+        "./.bazel/npm/@cspotcode/source-map-support/source-map-support.d.ts"
+      ],
+      "@cspotcode/source-map-support/*": [
+        "./.bazel/npm/@cspotcode/source-map-support/*"
+      ],
       "@devserver/lib": [
         "./tests/dev_server/lib/index"
       ],
@@ -117,6 +147,12 @@
       "@humanwhocodes/retry/*": [
         "./.bazel/npm/@humanwhocodes/retry/dist/*"
       ],
+      "@img/colour": [
+        "./.bazel/npm/@img/colour/index.d.ts"
+      ],
+      "@img/colour/*": [
+        "./.bazel/npm/@img/colour/*"
+      ],
       "@jridgewell/gen-mapping": [
         "./.bazel/npm/@jridgewell/gen-mapping/types/gen-mapping.d.mts"
       ],
@@ -171,6 +207,24 @@
       "@oxc-project/types/*": [
         "./.bazel/npm/@oxc-project/types/*"
       ],
+      "@poppinss/colors": [
+        "./.bazel/npm/@poppinss/colors/build/index.d.ts"
+      ],
+      "@poppinss/colors/*": [
+        "./.bazel/npm/@poppinss/colors/build/*"
+      ],
+      "@poppinss/dumper": [
+        "./.bazel/npm/@poppinss/dumper/build/index.d.ts"
+      ],
+      "@poppinss/dumper/*": [
+        "./.bazel/npm/@poppinss/dumper/build/*"
+      ],
+      "@poppinss/exception": [
+        "./.bazel/npm/@poppinss/exception/build/index.d.ts"
+      ],
+      "@poppinss/exception/*": [
+        "./.bazel/npm/@poppinss/exception/build/*"
+      ],
       "@rolldown/pluginutils": [
         "./.bazel/npm/@rolldown/pluginutils/dist/index.d.mts"
       ],
@@ -190,6 +244,18 @@
       "@shared/*": [
         "./tests/compiler_options/path_aliases/shared/*",
         "./bazel-bin/tests/compiler_options/path_aliases/shared/*"
+      ],
+      "@sindresorhus/is": [
+        "./.bazel/npm/@sindresorhus/is/distribution/index.d.ts"
+      ],
+      "@sindresorhus/is/*": [
+        "./.bazel/npm/@sindresorhus/is/distribution/*"
+      ],
+      "@speed-highlight/core": [
+        "./.bazel/npm/@speed-highlight/core/dist/index.d.ts"
+      ],
+      "@speed-highlight/core/*": [
+        "./.bazel/npm/@speed-highlight/core/dist/*"
       ],
       "@standard-schema/spec": [
         "./.bazel/npm/@standard-schema/spec/dist/index.d.ts"
@@ -359,6 +425,12 @@
       "ast-v8-to-istanbul/*": [
         "./.bazel/npm/ast-v8-to-istanbul/dist/*"
       ],
+      "blake3-wasm": [
+        "./.bazel/npm/blake3-wasm"
+      ],
+      "blake3-wasm/*": [
+        "./.bazel/npm/blake3-wasm/*"
+      ],
       "bundle-require": [
         "./.bazel/npm/bundle-require/dist/index.d.ts"
       ],
@@ -395,6 +467,12 @@
       "chokidar/*": [
         "./.bazel/npm/chokidar/esm/*"
       ],
+      "cjs-module-lexer": [
+        "./.bazel/npm/cjs-module-lexer/lexer.d.ts"
+      ],
+      "cjs-module-lexer/*": [
+        "./.bazel/npm/cjs-module-lexer/*"
+      ],
       "commander": [
         "./.bazel/npm/commander/typings/index.d.ts"
       ],
@@ -413,6 +491,12 @@
       "consola/*": [
         "./.bazel/npm/consola/dist/*"
       ],
+      "cookie": [
+        "./.bazel/npm/cookie/dist/index.d.ts"
+      ],
+      "cookie/*": [
+        "./.bazel/npm/cookie/dist/*"
+      ],
       "detect-libc": [
         "./.bazel/npm/detect-libc/index.d.ts"
       ],
@@ -430,6 +514,12 @@
       ],
       "entities/*": [
         "./.bazel/npm/entities/dist/esm/*"
+      ],
+      "error-stack-parser-es": [
+        "./.bazel/npm/error-stack-parser-es/dist/index.d.ts"
+      ],
+      "error-stack-parser-es/*": [
+        "./.bazel/npm/error-stack-parser-es/dist/*"
       ],
       "es-module-lexer": [
         "./.bazel/npm/es-module-lexer/types/lexer.d.ts"
@@ -589,6 +679,12 @@
       "keyv/*": [
         "./.bazel/npm/keyv/src/*"
       ],
+      "kleur": [
+        "./.bazel/npm/kleur/index.d.ts"
+      ],
+      "kleur/*": [
+        "./.bazel/npm/kleur/*"
+      ],
       "lightningcss": [
         "./.bazel/npm/lightningcss/node/index.d.ts"
       ],
@@ -630,6 +726,12 @@
       ],
       "make-dir/*": [
         "./.bazel/npm/make-dir/*"
+      ],
+      "miniflare": [
+        "./.bazel/npm/miniflare/dist/src/index.d.ts"
+      ],
+      "miniflare/*": [
+        "./.bazel/npm/miniflare/dist/src/*"
       ],
       "mlly": [
         "./.bazel/npm/mlly/dist/index.d.ts"
@@ -693,6 +795,12 @@
       ],
       "path-key/*": [
         "./.bazel/npm/path-key/*"
+      ],
+      "path-to-regexp": [
+        "./.bazel/npm/path-to-regexp/dist/index.d.ts"
+      ],
+      "path-to-regexp/*": [
+        "./.bazel/npm/path-to-regexp/dist/*"
       ],
       "pathe": [
         "./.bazel/npm/pathe/dist/index.d.mts"
@@ -773,6 +881,12 @@
         "./packages/shared/*",
         "./bazel-bin/packages/shared/*"
       ],
+      "sharp": [
+        "./.bazel/npm/sharp/dist/index.d.mts"
+      ],
+      "sharp/*": [
+        "./.bazel/npm/sharp/dist/*"
+      ],
       "shebang-regex": [
         "./.bazel/npm/shebang-regex"
       ],
@@ -808,6 +922,12 @@
       ],
       "sucrase/*": [
         "./.bazel/npm/sucrase/dist/types/*"
+      ],
+      "supports-color": [
+        "./.bazel/npm/supports-color/index.d.ts"
+      ],
+      "supports-color/*": [
+        "./.bazel/npm/supports-color/*"
       ],
       "tailwindcss": [
         "./.bazel/npm/tailwindcss/dist/lib.d.mts"
@@ -1142,6 +1262,10 @@
         "./tests/vitest/workspace/*",
         "./bazel-bin/tests/vitest/workspace/*"
       ],
+      "tests/workers/*": [
+        "./tests/workers/*",
+        "./bazel-bin/tests/workers/*"
+      ],
       "tinybench": [
         "./.bazel/npm/tinybench/dist/index.d.cts"
       ],
@@ -1209,11 +1333,23 @@
       "ufo/*": [
         "./.bazel/npm/ufo/dist/*"
       ],
+      "undici": [
+        "./.bazel/npm/undici/index.d.ts"
+      ],
       "undici-types": [
         "./.bazel/npm/undici-types/index.d.ts"
       ],
       "undici-types/*": [
         "./.bazel/npm/undici-types/*"
+      ],
+      "undici/*": [
+        "./.bazel/npm/undici/*"
+      ],
+      "unenv": [
+        "./.bazel/npm/unenv/dist/index.d.mts"
+      ],
+      "unenv/*": [
+        "./.bazel/npm/unenv/dist/*"
       ],
       "uri-js": [
         "./.bazel/npm/uri-js/dist/es5/uri.all.d.ts"
@@ -1245,6 +1381,12 @@
       "word-wrap/*": [
         "./.bazel/npm/word-wrap/*"
       ],
+      "wrangler": [
+        "./.bazel/npm/wrangler/wrangler-dist/cli.d.ts"
+      ],
+      "wrangler/*": [
+        "./.bazel/npm/wrangler/wrangler-dist/*"
+      ],
       "ws": [
         "./.bazel/npm/ws"
       ],
@@ -1256,6 +1398,18 @@
       ],
       "yocto-queue/*": [
         "./.bazel/npm/yocto-queue/*"
+      ],
+      "youch": [
+        "./.bazel/npm/youch/build/index.d.ts"
+      ],
+      "youch-core": [
+        "./.bazel/npm/youch-core/build/index.d.ts"
+      ],
+      "youch-core/*": [
+        "./.bazel/npm/youch-core/build/*"
+      ],
+      "youch/*": [
+        "./.bazel/npm/youch/build/*"
       ],
       "zod": [
         "./.bazel/npm/zod/index.d.ts"
@@ -1283,9 +1437,32 @@
     ".bazel",
     "**/e2e",
     "**/examples",
-    "**/tests/integration"
+    "**/tests/integration",
+    "tests/compiler_options/ext_helper.ts",
+    "tests/compiler_options/ext_main.ts",
+    "tests/compiler_options/webworker.ts",
+    "tests/compiler_options/ambient/app.ts",
+    "tests/compiler_options/analysis/nested/leaf.ts",
+    "tests/compiler_options/analysis/util.js",
+    "tests/compiler_options/analysis/zroot.ts",
+    "tests/compiler_options/baseline/loose.ts",
+    "tests/compiler_options/baseline/loose_check_only.ts",
+    "tests/compiler_options/js_sources/esm.mjs",
+    "tests/compiler_options/js_sources/legacy.cjs",
+    "tests/compiler_options/js_sources/main.ts",
+    "tests/compiler_options/js_sources/math.js",
+    "tests/compiler_options/jsx/view.tsx",
+    "tests/compiler_options/worker/index.ts",
+    "tests/workers/src/index.ts",
+    "tests/workers/src/worker.test.ts",
+    "vite/src/index.ts",
+    "vite/src/plugin.ts",
+    "vite/src/resolver.ts",
+    "vite/src/watcher.ts",
+    "vite/tsup.config.ts"
   ],
   "files": [
+    "./.bazel/npm/@cloudflare/vitest-pool-workers/types/cloudflare-test.d.ts",
     "./.bazel/npm/@types/node/index.d.ts"
   ],
   "include": [

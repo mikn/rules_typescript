@@ -61,6 +61,23 @@ ts_refresh_tsconfig(
         "**/examples",
         "**/tests/integration",
     ],
+    # A package needs its own editor program when its targets set compilerOptions
+    # the root block cannot also be set to. tsserver resolves a file to a program
+    # by directory, so the root program would otherwise check these against the
+    # wrong options -- which is what the 9 tsc errors against the root tsconfig
+    # were. Declared rather than discovered: glob() cannot cross a package
+    # boundary, and the rule fails when this disagrees with the graph.
+    nested_tsconfigs = [
+        "tests/compiler_options/tsconfig.json",
+        "tests/compiler_options/ambient/tsconfig.json",
+        "tests/compiler_options/analysis/tsconfig.json",
+        "tests/compiler_options/baseline/tsconfig.json",
+        "tests/compiler_options/js_sources/tsconfig.json",
+        "tests/compiler_options/jsx/tsconfig.json",
+        "tests/compiler_options/worker/tsconfig.json",
+        "tests/workers/tsconfig.json",
+        "vite/tsconfig.json",
+    ],
     test = True,
     deps = [
         "//eslint-plugin/src",
@@ -124,6 +141,8 @@ ts_refresh_tsconfig(
         "//tests/synthetic/pkg_18",
         "//tests/synthetic/pkg_19",
         "//tests/tailwind:entry",
+        "//tests/workers:worker",
+        "//tests/workers:_worker_test_compile",
         "//tests/tailwind:tailwind_config",
         "//tests/validation:annotated_oxc",
         "//tests/validation:correct",

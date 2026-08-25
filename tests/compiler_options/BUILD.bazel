@@ -38,3 +38,6 @@ build_test(
         ":webworker_lib",
     ],
 )
+
+# The generated editor program for this package; see //:refresh_tsconfig.
+exports_files(["tsconfig.json"])

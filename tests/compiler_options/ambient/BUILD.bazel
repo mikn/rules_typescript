@@ -30,3 +30,6 @@ build_test(
     name = "ambient_types_test",
     targets = [":app"],
 )
+
+# The generated editor program for this package; see //:refresh_tsconfig.
+exports_files(["tsconfig.json"])

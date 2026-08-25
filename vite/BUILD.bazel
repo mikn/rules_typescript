@@ -1,5 +1,8 @@
 # The target below has srcs in these directories; a BUILD file in any of them
 # would turn it into a package and make those labels cross a package boundary.
+# A ts_compile baseline, not data: it is named by the tsconfig attr.
+# gazelle:exclude vite.tsconfig.json
+
 # gazelle:exclude src
 
 # The tsup config only type-checks under `module: Preserve` with bundler
@@ -96,7 +99,7 @@ ts_compile(
         "module": "Preserve",
         "moduleResolution": "Bundler",
     },
-    tsconfig = "tsconfig.json",
+    tsconfig = "vite.tsconfig.json",
     deps = [
         "@npm//:types_node",
         "@npm//:vite",
@@ -114,3 +117,6 @@ ts_compile(
     },
     deps = ["@npm//:tsup"],
 )
+
+# The generated editor program for this package; see //:refresh_tsconfig.
+exports_files(["tsconfig.json"])

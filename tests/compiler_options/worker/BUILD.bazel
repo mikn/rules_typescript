@@ -32,3 +32,6 @@ build_test(
     name = "worker_test",
     targets = [":worker"],
 )
+
+# The generated editor program for this package; see //:refresh_tsconfig.
+exports_files(["tsconfig.json"])

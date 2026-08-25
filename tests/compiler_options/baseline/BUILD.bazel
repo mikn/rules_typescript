@@ -1,3 +1,6 @@
+# A ts_compile baseline, not data: it is named by the tsconfig attr.
+# gazelle:exclude baseline.tsconfig.json
+
 load("@rules_typescript//ts:defs.bzl", "json_library")
 
 """The tsconfig baseline, its extends chain, and the precedence order."""
@@ -9,7 +12,7 @@ package(default_visibility = ["//:__pkg__"])
 
 ts_config(
     name = "tsconfig",
-    src = "tsconfig.json",
+    src = "baseline.tsconfig.json",
     deps = ["tsconfig.base.json"],
 )
 
@@ -53,3 +56,6 @@ json_library(
     srcs = ["tsconfig.base.json"],
     visibility = ["//visibility:public"],
 )
+
+# The generated editor program for this package; see //:refresh_tsconfig.
+exports_files(["tsconfig.json"])

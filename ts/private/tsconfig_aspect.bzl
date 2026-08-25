@@ -22,7 +22,7 @@ canonical repository name that changes with every version bump.
 """
 
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
-load("//ts/private:providers.bzl", "NpmPackageInfo")
+load("//ts/private:providers.bzl", "NpmPackageInfo", "TsConfigInfo")
 
 TsconfigSourcesInfo = provider(
     doc = "What a workspace-root tsconfig.json needs from the ts_compile targets under it.",
@@ -32,6 +32,7 @@ TsconfigSourcesInfo = provider(
         "npm_paths": "depset of struct(name, version, entry, is_file): npm entry points, relative to the package's own directory.",
         "npm_ambient": "depset of struct(name, version, entry): @types/* entry points to name in the tsconfig `files` array, relative to the package's own directory.",
         "npm_files": "depset of struct(name, version, dest, file): the files an npm entry point needs on disk, and where under the package each one goes.",
+        "option_groups": "depset of struct(package, label, options_json, extends, include): the compilerOptions delta an editor needs for one target, which no single root block can carry -- a target that turns `strict` off, or names a `lib` its target does not imply, is checked correctly by the build and wrongly by the editor unless the editor gets its own program for those files.",
         "has_content": "Whether anything above is non-empty here or anywhere below, so that a fragment is written only where there is something to say.",
     },
 )
@@ -152,6 +153,56 @@ def _npm_entries(rule_attr):
                 ))
     return paths, files
 
+def _npm_type_packages(rule_attr):
+    """The compilerOptions.types entries an npm dep actually provides.
+
+    Only these are dropped from an editor program's options: they are the ones
+    that resolve through node_modules, which is what does not exist here.
+    """
+    requested = _requested_type_packages(rule_attr)
+    if not requested:
+        return []
+    provided = []
+    for dep in getattr(rule_attr, "deps", []):
+        if NpmPackageInfo not in dep:
+            continue
+        info = dep[NpmPackageInfo]
+        for entry in requested:
+            if _requested_subpath_file(info, [entry]):
+                provided.append(entry)
+    return provided
+
+def _requested_type_packages(rule_attr):
+    """The compilerOptions.types entries that name a package rather than a path."""
+    raw = getattr(rule_attr, "compiler_options_json", "")
+    if not raw:
+        return []
+    decoded = json.decode(raw)
+    if type(decoded) != "dict":
+        return []
+    return [
+        t
+        for t in decoded.get("types", [])
+        if type(t) == "string" and not t.startswith(".")
+    ]
+
+def _requested_subpath_file(info, requested):
+    """The declaration a `types` entry designates on this package, or None.
+
+    The same resolution ts_compile does: a bare name means the root export, and
+    `pkg/sub` means the `exports` subpath -- which is where a package puts an
+    ambient module it must not force on every importer.
+    """
+    for entry in requested:
+        if entry == info.package_name:
+            if info.exports_types_file:
+                return info.exports_types_file
+        elif entry.startswith(info.package_name + "/"):
+            designated = info.subpath_types.get("." + entry[len(info.package_name):])
+            if designated:
+                return designated
+    return None
+
 def _ambient_entries(rule_attr):
     """The @types/* entry points one ts_compile target declares, and their files.
 
@@ -161,16 +212,18 @@ def _ambient_entries(rule_attr):
     produces. The whole declaration set comes along -- an entry point is a list
     of `/// <reference path=...>` to its siblings, resolved on disk.
     """
+    requested = _requested_type_packages(rule_attr)
     entries = []
     files = []
     for dep in getattr(rule_attr, "deps", []):
         if NpmPackageInfo not in dep:
             continue
         info = dep[NpmPackageInfo]
-        if not info.ambient_types_file:
+        ambient = info.ambient_types_file or _requested_subpath_file(info, requested)
+        if not ambient:
             continue
         root = info.package_dir.dirname
-        entry = _under(info.ambient_types_file, root)
+        entry = _under(ambient, root)
         if not entry:
             continue
         entries.append(struct(
@@ -246,6 +299,100 @@ def _fragment(target, ctx, sources):
     ctx.actions.write(out, args)
     return out
 
+# Options a target sets that the root block cannot also be set to. Bazel-owned
+# keys are dropped: they describe the sandbox's shape, not the semantics an
+# editor has to agree with, and every one of them is rejected on the attr anyway.
+_EDITOR_IRRELEVANT_OPTIONS = [
+    "outDir",
+    "rootDir",
+    "rootDirs",
+    "declarationDir",
+    "declaration",
+    "declarationMap",
+    "emitDeclarationOnly",
+    "sourceMap",
+    "noEmit",
+    "noEmitOnError",
+    "isolatedDeclarations",
+    "composite",
+    "incremental",
+    "tsBuildInfoFile",
+    "baseUrl",
+    "paths",
+]
+
+def _option_group(target, ctx):
+    """The compilerOptions delta one ts_compile target needs, or []."""
+
+    # A `manual` target is one nothing builds -- //tests/compiler_options/analysis
+    # has one whose option value is deliberately nonsense to tsgo, read by an
+    # analysis test rather than run. There is no editor program to get right.
+    if "manual" in getattr(ctx.rule.attr, "tags", []):
+        return []
+
+    raw = getattr(ctx.rule.attr, "compiler_options_json", "")
+    options = {}
+    if raw:
+        decoded = json.decode(raw)
+        if type(decoded) == "dict":
+            options = {
+                k: v
+                for k, v in decoded.items()
+                if k not in _EDITOR_IRRELEVANT_OPTIONS
+            }
+
+            # A `types` entry that names an npm package cannot resolve from a
+            # nested config either -- there is still no node_modules to walk --
+            # so those reach the editor through `files`, installed by
+            # _ambient_entries. Every other entry stays: a relative path is a
+            # workspace file, and a bare name under a declared `typeRoots` is a
+            # local type package, which resolves from here exactly as it does for
+            # the build.
+            if "types" in options:
+                npm_named = _npm_type_packages(ctx.rule.attr)
+                kept = [t for t in options["types"] if t not in npm_named]
+                if kept:
+                    options["types"] = kept
+                else:
+                    options.pop("types")
+
+    # A .js source is only in the program at all with allowJs, which ts_compile
+    # infers from srcs rather than making the author say it.
+    sources = [f for src in ctx.rule.files.srcs for f in [src]]
+    if any([f.extension in ("js", "jsx", "mjs", "cjs") for f in sources]):
+        options["allowJs"] = True
+
+    # The baseline this target checks against. An editor program for these files
+    # has to start from the same place, or it disagrees for a second reason.
+    extends = ""
+    tsconfig = getattr(ctx.rule.attr, "tsconfig", None)
+    if tsconfig and TsConfigInfo in tsconfig:
+        extends = tsconfig[TsConfigInfo].tsconfig.short_path
+    elif getattr(ctx.rule.file, "tsconfig", None):
+        extends = ctx.rule.file.tsconfig.short_path
+
+    if not options and not extends:
+        return []
+
+    package = target.label.package
+    include = [
+        f.short_path[len(package) + 1:] if package else f.short_path
+        for f in sources
+        if not f.short_path.endswith(".d.ts") and f.short_path.startswith(package)
+    ]
+    if not include:
+        return []
+
+    # JSON and a tuple, not a dict and a list: a depset element has to be
+    # immutable, and these travel to _ide_tsconfig_impl through one.
+    return [struct(
+        package = package,
+        label = str(target.label),
+        options_json = json.encode(options),
+        extends = extends,
+        include = tuple(sorted(include)),
+    )]
+
 def _tsconfig_aspect_impl(target, ctx):
     inherited = [
         dep[TsconfigSourcesInfo]
@@ -258,6 +405,7 @@ def _tsconfig_aspect_impl(target, ctx):
     npm_paths = []
     npm_ambient = []
     npm_files = []
+    option_groups = []
     if ctx.rule.kind == "ts_compile":
         if target.label.package:
             packages = [struct(
@@ -269,6 +417,7 @@ def _tsconfig_aspect_impl(target, ctx):
         npm_paths, npm_files = _npm_entries(ctx.rule.attr)
         npm_ambient, ambient_files = _ambient_entries(ctx.rule.attr)
         npm_files = npm_files + ambient_files
+        option_groups = _option_group(target, ctx)
 
     sources = TsconfigSourcesInfo(
         packages = depset(packages, transitive = [s.packages for s in inherited], order = "postorder"),
@@ -276,6 +425,7 @@ def _tsconfig_aspect_impl(target, ctx):
         npm_paths = depset(npm_paths, transitive = [s.npm_paths for s in inherited], order = "postorder"),
         npm_ambient = depset(npm_ambient, transitive = [s.npm_ambient for s in inherited], order = "postorder"),
         npm_files = depset(npm_files, transitive = [s.npm_files for s in inherited], order = "postorder"),
+        option_groups = depset(option_groups, transitive = [s.option_groups for s in inherited], order = "postorder"),
         has_content = bool(packages or aliases or npm_paths) or any([s.has_content for s in inherited]),
     )
 
@@ -365,6 +515,126 @@ def _modules(sources):
 def _installed_entry(npm_dir, entry):
     base = "{}/{}".format(npm_dir, entry.name)
     return base + "/" + entry.entry if entry.entry else base
+
+def _nested_configs(sources, root_options):
+    """One editor program per package whose options the root block cannot carry.
+
+    tsserver picks the nearest tsconfig.json walking up from a file, so a package
+    whose targets disagree with the root block needs its own file there. Grouping
+    is by package because that is the only granularity tsserver has: two targets
+    in one directory setting the same key to different values have no
+    representation at all, and that is an error rather than a silent pick.
+
+    A key whose value already equals the root's is dropped, so a target that only
+    restates the defaults produces no file.
+    """
+    groups = {}
+    for entry in sources.option_groups.to_list():
+        options = json.decode(entry.options_json)
+        delta = {
+            key: value
+            for key, value in options.items()
+            if key not in root_options or root_options[key] != value
+        }
+        group = groups.setdefault(entry.package, struct(
+            options = {},
+            owners = {},
+            extends = {},
+            include = {},
+        ))
+        for key, value in delta.items():
+            if key in group.options and group.options[key] != value:
+                fail(
+                    "ts_refresh_tsconfig: {} and {} are in the same package and set\n".format(
+                        group.owners[key],
+                        entry.label,
+                    ) +
+                    "  compilerOptions.{} to {} and {}.\n".format(
+                        key,
+                        json.encode(group.options[key]),
+                        json.encode(value),
+                    ) +
+                    "An editor resolves a file to a program by directory, so one\n" +
+                    "directory cannot hold both answers -- whichever were written, the\n" +
+                    "other target's sources would be checked against the wrong one.\n" +
+                    "Move one of them into its own package.",
+                )
+            group.options[key] = value
+            group.owners[key] = entry.label
+        if entry.extends:
+            group.extends[entry.extends] = True
+        for path in entry.include:
+            group.include[path] = True
+
+    out = []
+    for package in sorted(groups):
+        group = groups[package]
+        if not group.options and not group.extends:
+            continue
+        out.append(struct(
+            package = package,
+            options = group.options,
+            extends = sorted(group.extends),
+            include = sorted(group.include),
+        ))
+    return out
+
+def _nested_config_json(package, group, tsconfig_path, ambient):
+    """The nested tsconfig's own content.
+
+    `extends` is an array with the root FIRST so that a package baseline the
+    targets already check against wins over it. `include`/`exclude` are written
+    rather than inherited: a relative path in an extended config is re-resolved
+    against the extending file, so an inherited root `exclude` would name
+    something else entirely here. Inherited `paths` are not re-resolved, which is
+    why the root's aliases still work from down here.
+    """
+    depth = len(package.split("/"))
+    to_root = "/".join([".."] * depth) + "/" + tsconfig_path
+    extends = [to_root] + ["./" + _relative_to(package, path) for path in group.extends]
+
+    # An editor program must not write anything, and it is the one place these can
+    # be pinned: they sit in the nested file's OWN compilerOptions, which beat
+    # every `extends`. A package baseline that sets outDir/incremental -- as
+    # //tests/compiler_options/baseline's does -- otherwise wins over the root's
+    # noEmit and leaves emitted files and a .tsbuildinfo in the source tree. The
+    # whole group has to go together: composite implies incremental, so turning
+    # only the latter off is TS6379.
+    options = dict(group.options)
+    options["noEmit"] = True
+    options["composite"] = False
+    options["incremental"] = False
+
+    # rootDir too, and to this package. A baseline is a Bazel tsconfig, so its
+    # rootDir is whatever directory oxc strips for the target that uses it, and a
+    # program covering the whole package is not under that -- //vite's baseline
+    # says vite/src, which puts vite/tsup.config.ts outside it (TS6059).
+    options["rootDir"] = "."
+
+    return {
+        "_comment": _HEADER,
+        "extends": extends,
+        # `files` is restated rather than inherited, and it has to be both. A
+        # baseline's is a Bazel one, naming what Bazel passes rather than what
+        # exists (//tests/compiler_options/baseline lists a deliberately absent
+        # file to prove the attr wins, TS6053) -- but the ROOT's is where every
+        # ambient declaration is named, so an empty one here loses @types/node
+        # and every `declare module` with it.
+        "files": [
+            "/".join([".."] * len(package.split("/"))) + "/" + entry.removeprefix("./")
+            for entry in ambient
+        ],
+        "compilerOptions": options,
+        "include": group.include,
+        "exclude": [],
+    }
+
+def _relative_to(package, path):
+    """`path`, which is workspace-relative, expressed from inside `package`."""
+    prefix = package + "/"
+    if path.startswith(prefix):
+        return path[len(prefix):]
+    return path
 
 def _ide_tsconfig_impl(ctx):
     sources = [dep[TsconfigSourcesInfo] for dep in ctx.attr.deps]
@@ -463,12 +733,76 @@ def _ide_tsconfig_impl(ctx):
         config["files"] = ambient
         config["include"] = ["**/*"]
 
+    # A package whose targets disagree with the block above gets its own program.
+    # Its files leave the root one FILE BY FILE rather than by directory: a file
+    # no ts_compile claims is still worth checking, and excluding the directory
+    # would drop it from the editor entirely.
+    nested = _nested_configs_for(ctx, config["compilerOptions"])
+    nested_outs = []
+    for group in nested:
+        config["exclude"] = config["exclude"] + [
+            "{}/{}".format(group.package, path)
+            for path in group.include
+        ]
+        nested_out = ctx.actions.declare_file("{}.nested.{}.json".format(
+            ctx.label.name,
+            group.package.replace("/", "_"),
+        ))
+        ctx.actions.write(
+            nested_out,
+            json.indent(
+                json.encode(_nested_config_json(
+                    group.package,
+                    group,
+                    ctx.attr.tsconfig_path,
+                    ambient,
+                )),
+                indent = "  ",
+            ) + "\n",
+        )
+        nested_outs.append(struct(
+            file = nested_out,
+            dest = group.package + "/tsconfig.json",
+        ))
+
+    _check_declared_nested(ctx, [n.dest for n in nested_outs])
+
     out = ctx.actions.declare_file(ctx.label.name + ".json")
     ctx.actions.write(out, json.indent(json.encode(config), indent = "  ") + "\n")
     return [
         DefaultInfo(files = depset([out])),
-        WorkspaceCopyInfo(entries = depset(copies)),
+        WorkspaceCopyInfo(entries = depset(copies + nested_outs)),
+        OutputGroupInfo(nested_tsconfigs = depset([n.file for n in nested_outs])),
     ]
+
+def _nested_configs_for(ctx, root_options):
+    sources = [dep[TsconfigSourcesInfo] for dep in ctx.attr.deps]
+    merged = struct(option_groups = depset(transitive = [s.option_groups for s in sources]))
+    return _nested_configs(merged, root_options)
+
+def _check_declared_nested(ctx, computed):
+    """Fails when the checked-in set of nested configs is not the computed one.
+
+    glob() cannot see across package boundaries, so the macro cannot discover
+    these on its own -- and an orphan left behind after a package's options
+    converge with the root would silently own that whole subtree in the editor.
+    So the set is declared, and disagreement in either direction is an error.
+    """
+    declared = sorted(ctx.attr.nested_tsconfigs)
+    if declared == sorted(computed):
+        return
+    missing = [p for p in computed if p not in declared]
+    extra = [p for p in declared if p not in computed]
+    fail(
+        "ts_refresh_tsconfig: the nested_tsconfigs list does not match what the\n" +
+        "graph needs.\n" +
+        ("  add:    {}\n".format(", ".join(missing)) if missing else "") +
+        ("  remove: {}\n".format(", ".join(extra)) if extra else "") +
+        "Each entry is a package that needs its own editor program because its\n" +
+        "targets' compilerOptions disagree with the root block. The list is\n" +
+        "declared rather than discovered because glob() cannot cross a package\n" +
+        "boundary, and an entry left behind would own its subtree in the editor.",
+    )
 
 _IDE_ATTRS = {
     "deps": attr.label_list(
@@ -491,6 +825,16 @@ ide_tsconfig = rule(
     implementation = _ide_tsconfig_impl,
     attrs = dict(
         _IDE_ATTRS,
+        nested_tsconfigs = attr.string_list(
+            doc = "Every package that gets its own generated tsconfig.json, as a " +
+                  "workspace-relative path to that file. Declared rather than " +
+                  "discovered, and checked against what the graph needs.",
+        ),
+        tsconfig_path = attr.string(
+            default = "tsconfig.json",
+            doc = "Where the root tsconfig is written, so a nested one can point " +
+                  "`extends` back at it.",
+        ),
         symlink_prefix = attr.string(
             default = "bazel-",
             doc = "Value of --symlink_prefix, which names the bazel-bin symlink the IDE reads .d.ts through.",
@@ -610,12 +954,39 @@ The copy is all it does: what to write is decided at analysis time, by the rules
 that declared the outputs.""",
 )
 
+def _nested_tsconfig_file_impl(ctx):
+    """One nested tsconfig out of the generator's output group, by destination.
+
+    diff_test compares two single files, and the generator produces a set of
+    them; without this each nested file would need its own rule instance in the
+    generator, which the generator cannot know the names of at load time.
+    """
+    wanted = ctx.attr.dest.replace("/", "_")
+    for entry in ctx.attr.generator[WorkspaceCopyInfo].entries.to_list():
+        if entry.dest == ctx.attr.dest:
+            return [DefaultInfo(files = depset([entry.file]))]
+    fail("no generated tsconfig for {} (looked for {})".format(ctx.attr.dest, wanted))
+
+_nested_tsconfig_file = rule(
+    implementation = _nested_tsconfig_file_impl,
+    attrs = {
+        "generator": attr.label(
+            doc = "The ide_tsconfig target whose nested outputs to pick from.",
+            providers = [WorkspaceCopyInfo],
+        ),
+        "dest": attr.string(
+            doc = "The workspace-relative destination naming which nested file to take.",
+        ),
+    },
+)
+
 def ts_refresh_tsconfig(
         name = "refresh_tsconfig",
         deps = [],
         npm_dir = ".bazel/npm",
         tsconfig = "tsconfig.json",
         extra_exclude = [],
+        nested_tsconfigs = [],
         test = False):
     """Declares the IDE tsconfig, the run target that installs it, and its staleness test.
 
@@ -632,6 +1003,18 @@ def ts_refresh_tsconfig(
                   Globs added to the generated `exclude`, for TypeScript trees
                   that are not in this module's build graph. Anchor each with
                   `**/`.
+        nested_tsconfigs:
+                  Packages that need their own editor program, as
+                  workspace-relative paths to the tsconfig.json each one gets
+                  (e.g. "tests/compiler_options/jsx/tsconfig.json"). A package
+                  belongs here when its targets set compilerOptions the root
+                  block cannot also be set to -- `strict` off, a `lib` its
+                  target does not imply -- because an editor resolves a file to
+                  a program by directory and the root program would check those
+                  files against the wrong options. The list is declared rather
+                  than discovered (glob() cannot cross a package boundary) and
+                  the rule fails when it disagrees with the graph in either
+                  direction.
         test:     Add a diff_test that fails when `tsconfig` is stale. Turn it
                   on once `tsconfig` is checked in.
     """
@@ -640,7 +1023,15 @@ def ts_refresh_tsconfig(
         deps = deps,
         npm_dir = npm_dir,
         extra_exclude = extra_exclude,
+        nested_tsconfigs = nested_tsconfigs,
+        tsconfig_path = tsconfig,
     )
+    for nested in nested_tsconfigs:
+        _nested_tsconfig_file(
+            name = "{}.nested.{}".format(name, nested.replace("/", "_").replace(".", "_")),
+            generator = ":" + name + ".generated",
+            dest = nested,
+        )
     ide_hook_data(
         name = name + ".hook_data",
         deps = deps,
@@ -664,3 +1055,12 @@ def ts_refresh_tsconfig(
             file1 = ":" + name + ".generated",
             file2 = tsconfig,
         )
+        for nested in nested_tsconfigs:
+            slug = nested.replace("/", "_").replace(".", "_")
+            diff_test(
+                name = "{}_nested_{}_test".format(name, slug),
+                size = "small",
+                failure_message = "{} is stale: run `bazel run //:{}`.".format(nested, name),
+                file1 = ":{}.nested.{}".format(name, slug),
+                file2 = "//{}:tsconfig.json".format(nested.rsplit("/", 1)[0]),
+            )

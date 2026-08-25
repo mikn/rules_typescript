@@ -4,7 +4,7 @@
     "composite": false,
     "incremental": false,
     "lib": [
-      "es2022",
+      "esnext",
       "webworker"
     ],
     "noEmit": true,
@@ -12,15 +12,14 @@
   },
   "exclude": [],
   "extends": [
-    "../../../tsconfig.json",
-    "./baseline.tsconfig.json"
+    "../../tsconfig.json"
   ],
   "files": [
-    "../../../.bazel/npm/@cloudflare/vitest-pool-workers/types/cloudflare-test.d.ts",
-    "../../../.bazel/npm/@types/node/index.d.ts"
+    "../../.bazel/npm/@cloudflare/vitest-pool-workers/types/cloudflare-test.d.ts",
+    "../../.bazel/npm/@types/node/index.d.ts"
   ],
   "include": [
-    "loose.ts",
-    "loose_check_only.ts"
+    "src/index.ts",
+    "src/worker.test.ts"
   ]
 }

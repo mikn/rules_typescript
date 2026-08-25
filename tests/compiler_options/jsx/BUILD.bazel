@@ -24,3 +24,6 @@ build_test(
     name = "jsx_import_source_test",
     targets = [":view"],
 )
+
+# The generated editor program for this package; see //:refresh_tsconfig.
+exports_files(["tsconfig.json"])
