@@ -82,6 +82,19 @@ crate.annotation(
     gen_all_binaries = True,
     repositories = ["oj_crates"],
 )
+
+# oj_server serves a module only when a plugin `load` hook returns its contents,
+# so a plugin that maps a bare specifier to a path -- which is the only way to
+# reach an npm tree that is a build output rather than a directory above the
+# importer -- got a 404 for every module it resolved correctly. Rollup's contract
+# is that a resolveId result naming a real file IS the module. The patch
+# implements that half; it is upstreamable as written.
+crate.annotation(
+    crate = "oj_server",
+    patch_args = ["-p1"],
+    patches = ["//oj/patches:0001-serve-plugin-resolved-files-from-disk.patch"],
+    repositories = ["oj_crates"],
+)
 crate.from_specs(
     name = "oj_crates",
     host_tools = "@rust_host_tools_nightly",

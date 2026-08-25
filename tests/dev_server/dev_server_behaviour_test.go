@@ -290,46 +290,42 @@ func TestDevServerBehaviour(t *testing.T) {
 	// does not reach would only move the failure one request later.
 	t.Run("resolves_npm_from_bazel_tree", func(t *testing.T) {
 		r := get(t, base, "/npm_entry.js")
-		if impl == "oj" {
-			// oj 0.1.4 does not use a plugin resolveId result for a bare specifier:
-			// its own resolver runs first, fails against a source tree that has no
-			// node_modules, and the plugin's answer -- the correct path inside the
-			// Bazel tree, which `this.resolve` does return -- is discarded. What
-			// reaches the browser is oj's unresolved-id placeholder.
-			//
-			// Pinned rather than skipped: this is the one gap that keeps oj from
-			// serving an app with npm dependencies, so an upstream fix has to show
-			// up here as a failure to be looked at, not as a quiet pass.
-			r.contains(t, srv, "/@id/")
-			if strings.Contains(r.body, "/node_modules/zod/") {
-				t.Fatalf("oj now resolves a bare specifier through the plugin: drop this "+
-					"branch and let the shared assertion below cover it\n%s", r.body)
-			}
-			return
-		}
 		if r.status != 200 {
 			t.Fatalf("GET /npm_entry.js returned %d, want 200\n%s\n%s", r.status, r.body, srv.log(t))
 		}
 		t.Logf("npm_entry.js = %s", r.body)
-		dep := fsURL(r.body)
+		dep := depURL(r.body)
 		if dep == "" {
-			t.Fatalf("nothing in the response points at a resolved file:\n%s", r.body)
+			t.Fatalf("nothing in the response points at a resolved dependency:\n%s", r.body)
 		}
-		if !strings.Contains(dep, "/node_modules/zod/") {
-			t.Errorf("`import \"zod\"` resolved to %q, which is not in a Bazel npm tree", dep)
+		m := get(t, base, dep)
+		if !strings.Contains(m.finalURL, "/node_modules/zod/") {
+			t.Errorf("`import \"zod\"` resolved to %q, which is not in a Bazel npm tree",
+				m.finalURL)
 		}
-		if m := get(t, base, dep); m.status != 200 {
+		if m.status != 200 {
 			t.Errorf("the resolved dependency %s answers %d, want 200\n%s", dep, m.status, m.body)
 		}
 
-		// And the plugin resolves rather than invents: a package no tree has still
-		// produces Vite's own error.
+		// And the plugin resolves rather than invents: a package no tree has must
+		// not come back as anything. Where that failure surfaces differs -- Vite
+		// resolves while transforming and fails the module, oj defers to a
+		// container URL and fails when it is requested -- so the assertion is that
+		// it fails, not when.
 		missing := get(t, base, "/npm_missing.js")
-		if missing.status == 200 {
-			t.Errorf("GET /npm_missing.js returned 200; `not-in-any-npm-tree` is in no "+
-				"tree\n%s", missing.body)
+		if missing.status != 200 {
+			missing.contains(t, srv, "Failed to resolve import")
+			return
 		}
-		missing.contains(t, srv, "Failed to resolve import")
+		deferred := depURL(missing.body)
+		if deferred == "" {
+			t.Fatalf("GET /npm_missing.js returned 200 and resolved `not-in-any-npm-tree` "+
+				"to nothing deferred either; the specifier was invented\n%s", missing.body)
+		}
+		if answer := get(t, base, deferred); answer.status == 200 {
+			t.Errorf("the deferred reference for `not-in-any-npm-tree` answers 200 from %q; "+
+				"a package no tree has must not resolve\n%s", answer.finalURL, answer.body)
+		}
 	})
 
 	// ── 4c: the user-supplied vite_config ─────────────────────────────────────
@@ -428,10 +424,13 @@ func TestDevServerBehaviour(t *testing.T) {
 	})
 }
 
-// fsURL is the first /@fs URL a served module imports: which file Vite resolved
-// a specifier to, as Vite itself rewrote it.
-func fsURL(body string) string {
-	m := regexp.MustCompile(`"(/@fs/[^"]+)"`).FindStringSubmatch(body)
+// depURL is the first URL a served module imports, in whichever form the server
+// rewrites to: Vite names the resolved file directly (/@fs/<abs>), oj names an
+// id its plugin container resolved (/@id/<hex>) and redirects to the file. Both
+// are "the URL this module's dependency is at"; where it lands is the assertion,
+// not how it is spelled.
+func depURL(body string) string {
+	m := regexp.MustCompile(`"(/@(?:fs|id)/[^"]+)"`).FindStringSubmatch(body)
 	if m == nil {
 		return ""
 	}
@@ -659,6 +658,11 @@ type response struct {
 	url    string
 	status int
 	body   string
+	// finalURL is where the request landed after redirects. A dev server may
+	// answer a resolved-dependency URL with one -- oj serves an id its plugin
+	// container resolved by redirecting to that file's own URL -- and which file
+	// it chose is only visible here.
+	finalURL string
 }
 
 func get(t *testing.T, base, path string) response {
@@ -705,7 +709,11 @@ func httpGet(url string) (response, error) {
 	if err != nil {
 		return response{url: url, status: resp.StatusCode}, err
 	}
-	return response{url: url, status: resp.StatusCode, body: string(body)}, nil
+	final := url
+	if resp.Request != nil && resp.Request.URL != nil {
+		final = resp.Request.URL.String()
+	}
+	return response{url: url, status: resp.StatusCode, body: string(body), finalURL: final}, nil
 }
 
 func (r response) contains(t *testing.T, s *server, wants ...string) {

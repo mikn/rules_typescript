@@ -56,15 +56,16 @@ to rediscover them. Each names the file to change.
   what makes an untyped package reached transitively (vitest → @vitest/expect →
   chai) resolve to its `@types/*`. The IDE tsconfig the aspect writes still walks
   direct deps, so the editor sees `chai` as untyped where the build does not.
-- **oj does not use a plugin `resolveId` result for a bare specifier.** Its own
-  resolver runs first, fails against a source tree that has no `node_modules`,
-  and discards the correct in-tree path that `this.resolve` does return -- so
-  every app with an npm dependency fails under `//oj:dev_server`. Verified
-  against oj 0.1.4 by logging from inside the plugin; the specifier reaches the
-  browser as oj's `/@id/<hash>` placeholder. Pinned, not skipped, by
-  `//tests/dev_server:dev_oj_behaviour_test`, so an upstream fix shows up as a
-  failing test. This is upstream, not ours to work around in a config both
-  servers read.
+- **oj carries one patch, in `oj/patches/`.** `oj_server` served a module only
+  when a plugin `load` hook returned its contents, so a plugin that maps a bare
+  specifier to a path -- the only way to reach an npm tree that is a build output
+  rather than a directory above the importer -- got a 404 for every module it
+  resolved correctly. Rollup's contract is that a `resolveId` result naming a real
+  file *is* the module and a null `load` means "read it from disk"; the patch
+  implements that half and is upstreamable as written. Applied through
+  `crate.annotation(patches = ...)`, so it is part of the build rather than a
+  thing to remember. `//tests/dev_server:dev_oj_behaviour_test` asserts `import
+  "zod"` lands in the Bazel tree under oj, the same assertion the Vite lanes get.
 - **A lib-mode `ts_bundle` drops CSS imports.** `mode = "app"` emits the CSS;
   a bundle with `format = ...` produces no .css at all and strips the import
   from the .js, Tailwind or not. Reproduced with a plain `css_library` dep, so

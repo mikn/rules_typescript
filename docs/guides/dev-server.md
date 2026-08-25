@@ -232,15 +232,15 @@ reaching it — `open = True` against oj fails naming both, rather than starting
 server that quietly does something else. `react_refresh` is the same: oj applies
 Fast Refresh itself, so setting it would instrument every component twice.
 
-!!! warning "oj cannot yet serve an app with npm dependencies"
-    oj 0.1.4 does not use a plugin `resolveId` result for a bare specifier: its
-    own resolver runs first, fails against a source tree that has no
-    `node_modules`, and discards the correct in-tree path the plugin returns. So
-    `import "react"` does not resolve under oj. This is upstream;
-    `//tests/dev_server:dev_oj_behaviour_test` pins the current behaviour so a
-    fix shows up as a failing test rather than a silent pass. Until then oj is
-    usable for first-party-only graphs, and Vite is the escape hatch on any
-    target that needs more.
+!!! note "oj carries one patch"
+    `oj_server` served a module only when a plugin `load` hook returned its
+    contents, so the resolver plugin — which maps a bare specifier to a path in
+    the Bazel tree and leaves the contents to the server — got a 404 for every
+    module it resolved correctly. Rollup's contract is that a `resolveId` result
+    naming a real file *is* the module, and a `load` returning nothing means read
+    it from disk. `oj/patches/` implements that half, applied through
+    `crate.annotation(patches = ...)`, and it is upstreamable as written. Without
+    it `import "react"` does not resolve under oj at all.
 
 Bringing your own is a rule returning `DevServerInfo`. A server shipping as an
 npm package sets `server_in_tree` (a path inside the `node_modules` tree, since a
