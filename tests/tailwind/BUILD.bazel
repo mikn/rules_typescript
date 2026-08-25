@@ -113,14 +113,32 @@ ts_dev_server(
     vite_config = "tailwind_config.ts",
 )
 
-go_test(
-    name = "tailwind_dev_test",
-    size = "medium",
-    srcs = ["tailwind_dev_test.go"],
-    data = [
-        ":dev",
-        "//ts/toolchain:node_resolved",
-    ],
-    tags = ["requires-network"],
-    deps = ["//tests/verify"],
+[
+    go_test(
+        name = "tailwind_dev_{}_test".format(impl),
+        size = "medium",
+        srcs = ["tailwind_dev_test.go"],
+        data = [
+            ":{}".format(target),
+            "//ts/toolchain:node_resolved",
+        ],
+        env = {"DEV_TARGET": target},
+        deps = ["//tests/verify"],
+    )
+    for impl, target in [
+        ("vite", "dev"),
+        ("oj", "dev_oj"),
+    ]
+]
+
+# The same under oj. @tailwindcss/vite is built on Vite-only APIs -- a
+# ResolvedConfig handed to configResolved, config.createResolver -- so whether it
+# runs at all in another server's plugin host is a question, not a given.
+ts_dev_server(
+    name = "dev_oj",
+    entry_point = ":entry",
+    node_modules = ":node_modules",
+    port = 5182,
+    server = "//oj:dev_server",
+    vite_config = "tailwind_config.ts",
 )

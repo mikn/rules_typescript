@@ -7,6 +7,10 @@
 // above it to walk up to, so the import resolves nowhere and the dev server
 // answers 500 for that file -- a green `bazel build` and an unstyled page.
 // enhanced-resolve reads NODE_PATH, which is why the launcher sets it.
+//
+// Run against both servers, because the plugin is built on Vite-only APIs -- a
+// ResolvedConfig handed to configResolved, config.createResolver -- and whether
+// another server's plugin host supplies them is not something to assume.
 package tailwind_test
 
 import (
@@ -26,7 +30,11 @@ import (
 
 func TestDevServerServesGeneratedTailwindCss(t *testing.T) {
 	tree := verify.New(t)
-	launcher := tree.File("tests/tailwind/dev_launcher")
+	target := os.Getenv("DEV_TARGET")
+	if target == "" {
+		t.Fatal("DEV_TARGET is unset; the lane does not know which server to start")
+	}
+	launcher := tree.File("tests/tailwind/" + target + "_launcher")
 	if !launcher.Exists() {
 		t.FailNow()
 	}

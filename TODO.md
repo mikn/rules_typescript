@@ -71,11 +71,15 @@ to rediscover them. Each names the file to change.
   from the .js, Tailwind or not. Reproduced with a plain `css_library` dep, so
   it is not a Tailwind or a plugin problem. `//tests/tailwind` therefore asserts
   app mode.
-- **Tailwind v4 needs `@source` under Bazel.** Its content detection walks up
-  from the CSS applying `.gitignore` rules, and a build sandbox has no such tree
-  to walk, so with no `@source` it silently generates nothing. Not a bug to fix
-  -- naming the files to scan is the correct thing in a sandbox -- but it is not
-  discoverable from a green build that emits an empty stylesheet.
+- **Tailwind v4: `@source` is needed for a bundle, not for the dev server.**
+  `@tailwindcss/vite` scans from Vite's resolved `root`. `ts_bundle` sets that to
+  the HTML staging directory in app mode, which holds only the HTML, so the files
+  to scan have to be named; the dev server's root is the workspace root and needs
+  nothing. Prefer `@import "tailwindcss" source("<dir>")` to a bare `@source`:
+  the former is validated and fails on a missing directory, the latter exits 0
+  and emits nothing. Scanning a compiled `.js` also loses a class name that only
+  ever appeared in a type position. Both servers are covered by
+  `//tests/tailwind:tailwind_dev_{vite,oj}_test`.
 - **Workers: tests and a deploy dry-run both run.** `//tests/workers:worker_test` runs
   inside workerd against the `.js` Bazel compiled, via `SELF.fetch()`. The
   earlier diagnosis here -- that the pool must own the transform and cannot take
