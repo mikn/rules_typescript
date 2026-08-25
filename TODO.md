@@ -92,10 +92,12 @@ to rediscover them. Each names the file to change.
   `wrangler deploy --dry-run --outdir`, which needs the config and the worker
   closure staged into a writable scratch dir (wrangler writes `.wrangler/tmp`
   beside the config, and a Bazel output dir is read-only) and a writable `HOME`.
-  Also: `bazel coverage` cannot run a workers test today -- `coverageFlags` in
+  Also: `bazel coverage` cannot run a workers test. `coverageFlags` in
   `tools/launcher/vitest.go` hardcodes `--coverage.provider v8`, which fails
-  inside workerd on `node:inspector/promises`; istanbul works, so the provider
-  needs to be a knob.
+  inside workerd on `node:inspector/promises`. istanbul runs but reports
+  `All files | 0 | 0 | 0 | 0`, so a provider knob alone does not fix it -- the
+  instrumentation has to reach code executing in another runtime. No CI job runs
+  `bazel coverage`, so this is a limitation rather than a break.
 - **`ts_add_package` writes to the workspace root, not to a hub's directory.**
   `bazel run //:add_package -- <pkg>` created a new `package.json` and
   `pnpm-lock.yaml` at the repo root instead of touching

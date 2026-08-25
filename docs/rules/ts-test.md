@@ -74,9 +74,15 @@ run after the config's. Scalars from a later layer win, which is why
 
 Layer 4 is root-only because `resolveSnapshotPath` is one of vitest's
 non-project options; it is applied once, to the root config, and never merged
-into a project. `preserveSymlinks` in layer 1 is not configuration either — a
-DOM environment resolves every module id to its realpath, which for a runfiles
-symlink walks straight out of the test sandbox.
+into a project. `preserveSymlinks` in layer 1 is the default rather than
+the contract: a DOM environment resolves every module id to its realpath, which
+for a runfiles symlink walks straight out of the test sandbox, so layer 1 turns
+it on. A pool that resolves modules for a second runtime needs the opposite —
+under `@cloudflare/vitest-pool-workers` a lexical path is a second module
+identity for the same file — so a Workers config sets
+`resolve.preserveSymlinks: false` and the user layer wins. Leaving it out fails
+as `Cannot read properties of undefined (reading 'config')` from inside the pool
+runner; `//tests/workers` is the worked example.
 
 Two things sit outside the layering and outrank all of it, because they are the
 sandbox contract rather than configuration: npm resolution into the runfiles

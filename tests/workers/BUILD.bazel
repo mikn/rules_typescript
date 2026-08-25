@@ -44,7 +44,6 @@ ts_test(
         "esnext",
         "webworker",
     ],
-    tags = ["requires-network"],
     types = ["@cloudflare/vitest-pool-workers/types"],
     deps = [
         ":worker",
