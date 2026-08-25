@@ -115,11 +115,11 @@ ts_test(
 ```
 
 Anything the config imports relatively belongs in `data`; it is not a build
-input otherwise. A config that default-exports an array is read as a vitest
-workspace, and each project in it gets the Bazel and attribute layers too — but
-only on vitest 3: that array becomes `test.workspace`, which vitest 4 removed and
-throws on ([detail](../rules/ts-test.md#a-config-file)). Every other `config`
-shape runs on both.
+input otherwise. A config that default-exports an array is read as a list of
+vitest projects, and each project in it gets the Bazel and attribute layers too
+— that array becomes `test.projects`, which needs vitest 3.2 or later
+([detail](../rules/ts-test.md#a-config-file)). Every other `config` shape runs
+on any vitest 3 or 4.
 
 Small adjustments do not need a file at all — `config` also takes a dict:
 

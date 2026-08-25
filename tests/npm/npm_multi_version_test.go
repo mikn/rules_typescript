@@ -6,18 +6,18 @@ import (
 	"github.com/mikn/rules_typescript/tests/verify"
 )
 
-// The fixture lockfile has @vitest/pretty-format at 3.0.9 and 3.2.4, which is
-// what exercises the multi-version label generation:
+// The fixture lockfile has @rolldown/pluginutils at 1.0.0-rc.3 and 1.0.1, which
+// is what exercises the multi-version label generation:
 //
-//	@npm//:vitest_pretty-format_3_0_9  versioned target for 3.0.9
-//	@npm//:vitest_pretty-format_3_2_4  versioned target for 3.2.4
-//	@npm//:vitest_pretty-format        alias to the highest version
+//	@npm//:rolldown_pluginutils_1_0_0_rc_3  versioned target for 1.0.0-rc.3
+//	@npm//:rolldown_pluginutils_1_0_1       versioned target for 1.0.1
+//	@npm//:rolldown_pluginutils             alias to the highest version
 func TestVersionedLabelsStayApart(t *testing.T) {
 	tree := verify.New(t)
 
 	for _, c := range []struct{ dirSuffix, want string }{
-		{"vitest_pretty-format__3_0_9", "3.0.9"},
-		{"vitest_pretty-format__3_2_4", "3.2.4"},
+		{"rolldown_pluginutils__1_0_0_rc_3", "1.0.0-rc.3"},
+		{"rolldown_pluginutils__1_0_1", "1.0.1"},
 	} {
 		dir := tree.FoundDir("*" + c.dirSuffix)
 		var pkg struct {

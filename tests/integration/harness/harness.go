@@ -144,7 +144,25 @@ func (it *IT) prepare(cfg Config, workspaceSrc string) error {
 			return err
 		}
 	}
-	return nil
+	return it.shareRepositoryCache()
+}
+
+// Each test gets its own output base, so without a shared repository cache all
+// of them re-fetch the whole BCR registry at once and the concurrent DNS
+// lookups start failing ("Unknown host: bcr.bazel.build") on a different
+// subset of tests each run.
+func (it *IT) shareRepositoryCache() error {
+	cache := filepath.Join(scratchRoot(), "repository_cache")
+	if err := os.MkdirAll(cache, 0o755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(filepath.Join(it.WorkspaceDir, ".bazelrc"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = fmt.Fprintf(f, "\ncommon --repository_cache=%s\n", cache)
+	return err
 }
 
 // TEST_TMPDIR is the LAST choice: a nested output base runs to gigabytes, and

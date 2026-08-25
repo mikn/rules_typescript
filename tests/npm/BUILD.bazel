@@ -3,6 +3,7 @@ load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("@rules_go//go:def.bzl", "go_test")
 load("//npm:defs.bzl", "node_modules")
 load("//ts:defs.bzl", "ts_compile")
+load(":exports_types_tests.bzl", "declaration_entry_test", "exports_types_test_suite")
 load(":parser_tests.bzl", "parser_test_suite")
 load(":resolution_tests.bzl", "conflicting_direct_peers_test", "conflicting_direct_versions_test")
 
@@ -14,6 +15,22 @@ package(default_visibility = ["//:__pkg__"])
 
 # Lockfile-text tests: what the parsers read, and what they must keep ignoring.
 parser_test_suite(name = "parser_tests")
+
+# Manifest-text tests: which .d.ts a published package designates as its own
+# entry point, over the manifests of packages in this repo's lockfiles.
+exports_types_test_suite(name = "exports_types_tests")
+
+# The end of that resolution: the ruleset's own Vite plugin type-checks against
+# the declarations of the Vite it depends on, named as a file. Nothing else
+# fails when it does not -- tsgo reports no error for a bare specifier it cannot
+# type, and the plugin's own peer range is checked in a different lane
+# (//vite/tests:peer_version_test), against the runtime package.
+declaration_entry_test(
+    name = "vite_plugin_declaration_entry_test",
+    size = "small",
+    npm_package = "@npm//:vite",
+    target_under_test = "//vite:plugin_typecheck",
+)
 
 ts_compile(
     name = "app",
@@ -46,20 +63,22 @@ go_test(
 )
 
 # Test that multi-version npm packages generate versioned Bazel labels.
-# The lockfile includes @vitest/pretty-format at 3.0.9 and 3.2.4, which
-# triggers the multi-version label generation path in npm_translate_lock.
+# The lockfile includes @rolldown/pluginutils at 1.0.0-rc.3 and 1.0.1, which
+# triggers the multi-version label generation path in npm_translate_lock. The
+# prerelease is the half that pins the sanitiser: a label may not hold `.` or
+# `-`, and both survive the version only as `_`.
 # This verifies:
-#   @npm//:vitest_pretty-format_3_0_9  (versioned, specific)
-#   @npm//:vitest_pretty-format_3_2_4  (versioned, specific)
-#   @npm//:vitest_pretty-format        (alias → highest = 3.2.4)
+#   @npm//:rolldown_pluginutils_1_0_0_rc_3  (versioned, specific)
+#   @npm//:rolldown_pluginutils_1_0_1       (versioned, specific)
+#   @npm//:rolldown_pluginutils             (alias → highest = 1.0.1)
 go_test(
     name = "npm_multi_version_test",
     size = "small",
     srcs = ["npm_multi_version_test.go"],
     data = [
-        "@npm//:vitest_pretty-format",
-        "@npm//:vitest_pretty-format_3_0_9",
-        "@npm//:vitest_pretty-format_3_2_4",
+        "@npm//:rolldown_pluginutils",
+        "@npm//:rolldown_pluginutils_1_0_0_rc_3",
+        "@npm//:rolldown_pluginutils_1_0_1",
     ],
     deps = ["//tests/verify"],
 )
@@ -285,15 +304,15 @@ diff_test(
     file2 = "multi_version_through_action.expected",
 )
 
-# A scoped name resolved twice, in the closure every vitest test already builds:
-# vitest depends on @vitest/pretty-format@3.2.4 while @vitest/snapshot and
-# @vitest/utils depend on 3.0.9. The store path for a scoped package is one
-# directory, not two, so the name is flattened there and spelled out again inside
-# it -- pnpm's own convention -- and the link from the dependent is two segments
-# deeper than an unscoped one.
+# A scoped name resolved twice, inside one plugin's closure: @vitejs/plugin-react
+# depends on @rolldown/pluginutils@1.0.0-rc.3 while rolldown, reached through the
+# vite it declares as a peer, depends on 1.0.1. The store path for a scoped
+# package is one directory, not two, so the name is flattened there and spelled
+# out again inside it -- pnpm's own convention -- and the link from the dependent
+# is two segments deeper than an unscoped one.
 node_modules(
     name = "scoped_multi_version_node_modules",
-    deps = ["@npm//:vitest"],
+    deps = ["@npm//:vitejs_plugin-react"],
 )
 
 # Both versions named directly, which is the one arrangement no tree can hold.

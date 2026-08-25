@@ -31,8 +31,19 @@ This rule generates:
      - Sets `root` to the workspace root (BUILD_WORKSPACE_DIRECTORY when running
        under `bazel run`, or the runfiles directory otherwise).
      - Configures `server.fs.allow` to serve files from bazel-bin.
-     - Points `resolve.modules` at the Bazel-generated node_modules tree so that
-       `import "react"` finds the right packages.
+     - Installs the `bazel:npm-resolve` plugin, which is what makes a bare
+       `import "react"` from first-party source resolve at all. Vite has no
+       search-path option (`resolve.modules` is webpack's): it resolves a bare
+       specifier by walking up from the importer, and nothing above a checked-in
+       source file is a node_modules directory -- the npm tree is a Bazel
+       output. The plugin hands the specifier straight back to Vite's own
+       resolver, anchored at that package's package.json inside the tree, so
+       exports maps, conditions and subpaths stay Vite's to interpret rather
+       than this rule's to reimplement.
+     - Loads @vitejs/plugin-react (`react_refresh = True`) at the entry point
+       that package's own `exports` map declares.
+     - Imports the `vite_config` file from a copy in bazel-bin rather than from
+       the source tree; see the attr doc for what such a config may import.
      - Emits one `resolve.alias` entry per first-party `module_name` in the
        graph, pointing at that package's SOURCE, so that `@scope/pkg` and a
        relative import of the same file are one module in Vite's graph rather
@@ -167,10 +178,10 @@ def _generate_dev_config(
             package in the graph that declared a module_name.
         runtime_rl: Runfiles-tree-relative path of the toolchain node binary,
             so the config can watch the one it is running under.
-        user_config_rl: Runfiles-tree-relative path to the user-supplied Vite
-            plugin config file (.mjs/.js), or empty string if not set. When set,
-            the generated config dynamically imports this file and prepends its
-            plugins before the Bazel system plugins.
+        user_config_rl: Runfiles-tree-relative path to the bin copy of the
+            user-supplied Vite plugin config, or empty string if there is none.
+            When set, the generated config dynamically imports it and prepends
+            its plugins before the Bazel system plugins.
 
     Returns:
         The generated vite.config.mjs File.
@@ -283,25 +294,51 @@ def _generate_dev_config(
         "\n"
     )
 
-    # Add react dynamic import when react_refresh is enabled.
-    # We cannot use a static `import react from '@vitejs/plugin-react'` here
-    # because Node resolves bare specifiers relative to the config file's
-    # directory (inside the runfiles tree), where there is no node_modules/.
-    # Instead we use a dynamic import() with the absolute path derived from
-    # NODE_MODULES_PATH, matching the pattern used for vite-plugin-bazel.
+    # A static `import react from '@vitejs/plugin-react'` resolves from the config
+    # file's own directory, which is a generated one with no node_modules above it.
     if react_refresh:
+        react_load_failed = json.encode(
+            "[ts_dev_server] {} sets react_refresh = True, but @vitejs/plugin-react did not ".format(ctx.label) +
+            "load from the Bazel node_modules tree. Add @npm//:vitejs_plugin-react to the deps " +
+            "of the node_modules() target this dev server uses. Cause: ",
+        )
         config_content += (
-            "// Load @vitejs/plugin-react dynamically from the Bazel node_modules tree.\n" +
-            "// A static import would fail because the config file lives in runfiles,\n" +
-            "// where there is no node_modules/ directory for bare-specifier resolution.\n" +
-            "let react = null;\n" +
-            "if (nodeModulesPath) {\n" +
-            "  try {\n" +
-            "    const reactMod = await import(nodeModulesPath + '/@vitejs/plugin-react/dist/index.mjs');\n" +
-            "    react = reactMod.default;\n" +
-            "  } catch (err) {\n" +
-            "    console.warn('[ts_dev_server] Failed to load @vitejs/plugin-react:', err.message);\n" +
+            "// A package's own `exports` map is the only authority on its entry point;\n" +
+            "// a path into its dist/ is a guess at a layout the package reorganises.\n" +
+            "function npmExportsEntry(node) {\n" +
+            "  if (typeof node === 'string') return node;\n" +
+            "  if (node === null || typeof node !== 'object') return null;\n" +
+            "  if (Array.isArray(node)) {\n" +
+            "    for (const alternative of node) {\n" +
+            "      const hit = npmExportsEntry(alternative);\n" +
+            "      if (hit) return hit;\n" +
+            "    }\n" +
+            "    return null;\n" +
             "  }\n" +
+            "  const keys = Object.keys(node);\n" +
+            "  if (keys.some((key) => key.startsWith('.'))) return npmExportsEntry(node['.']);\n" +
+            "  for (const condition of ['import', 'module', 'default']) {\n" +
+            "    if (condition in node) {\n" +
+            "      const hit = npmExportsEntry(node[condition]);\n" +
+            "      if (hit) return hit;\n" +
+            "    }\n" +
+            "  }\n" +
+            "  return null;\n" +
+            "}\n" +
+            "\n" +
+            "function npmEntryPath(pkg) {\n" +
+            "  const dir = path.join(nodeModulesPath, pkg);\n" +
+            "  const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));\n" +
+            "  const entry = npmExportsEntry(manifest.exports) || manifest.module || manifest.main;\n" +
+            "  if (!entry) throw new Error(pkg + ' in ' + dir + ' declares no entry point');\n" +
+            "  return path.join(dir, entry);\n" +
+            "}\n" +
+            "\n" +
+            "let react;\n" +
+            "try {\n" +
+            "  react = (await import(npmEntryPath('@vitejs/plugin-react'))).default;\n" +
+            "} catch (err) {\n" +
+            "  throw new Error(" + react_load_failed + " + err.message);\n" +
             "}\n" +
             "\n"
         )
@@ -330,9 +367,9 @@ def _generate_dev_config(
 
     if user_config_rl:
         config_content += (
-            "// Load the user-supplied Vite plugin config from the runfiles path.\n" +
-            "// The config path is passed via VITE_USER_CONFIG_PATH env var.\n" +
-            "// The file must export a default object with a `plugins` array.\n" +
+            "// The user's vite_config, as VITE_USER_CONFIG_PATH points at it: the bin\n" +
+            "// copy, so its own bare imports resolve beside the Bazel npm tree rather\n" +
+            "// than in the source tree. It must default-export a `plugins` array.\n" +
             "const userConfigPath = process.env['VITE_USER_CONFIG_PATH'];\n" +
             "let _userPlugins = [];\n" +
             "if (userConfigPath) {\n" +
@@ -353,40 +390,55 @@ def _generate_dev_config(
         "// Build the list of directories Vite's dev server is allowed to serve.\n" +
         "const fsAllow = [workspaceRoot, bazelBin];\n" +
         "if (nodeModulesPath) fsAllow.push(nodeModulesPath);\n" +
-        "\n" +
-        "// Resolve modules: prefer Bazel-generated node_modules, then fallback\n" +
-        "// to workspace-root node_modules for compatibility.\n" +
-        "const resolveModules = nodeModulesPath\n" +
-        "  ? [nodeModulesPath, 'node_modules']\n" +
-        "  : ['node_modules'];\n" +
         "\n"
     )
 
-    if plugin_rl or react_refresh or user_config_rl:
+    if node_modules_rl:
         config_content += (
-            "// Build the plugins array.\n" +
-            "// User-supplied plugins (from vite_config attr) run first so that\n" +
-            "// framework transforms execute before Bazel system plugins.\n" +
-            "const plugins = [..._userPlugins];\n" if user_config_rl else "// Build the plugins array.\n" +
-                                                                          "const plugins = [];\n"
+            "// Vite resolves a bare specifier by walking up from the importer, and above\n" +
+            "// a checked-in source file there is no node_modules to find -- the npm tree\n" +
+            "// is a Bazel output elsewhere. So the id goes back to Vite's own resolver\n" +
+            "// with an importer that does have it above them: the package's own manifest\n" +
+            "// inside the tree. Exports maps, conditions and subpaths stay Vite's.\n" +
+            "const bazelNpmResolve = {\n" +
+            "  name: 'bazel:npm-resolve',\n" +
+            "  enforce: 'pre',\n" +
+            "  async resolveId(id, importer, options) {\n" +
+            "    if (id.startsWith('.') || id.startsWith('/') || id.includes(':') || id.includes('\\0')) {\n" +
+            "      return null;\n" +
+            "    }\n" +
+            "    const segments = id.split('/');\n" +
+            "    const pkg = id.startsWith('@') ? segments.slice(0, 2).join('/') : segments[0];\n" +
+            "    const manifest = path.join(nodeModulesPath, pkg, 'package.json');\n" +
+            "    if (!fs.existsSync(manifest)) return null;\n" +
+            "    return this.resolve(id, manifest, { ...options, skipSelf: true });\n" +
+            "  },\n" +
+            "};\n" +
+            "\n"
         )
-        if react_refresh:
-            config_content += (
-                "// React Fast Refresh — preserves component state across HMR updates.\n" +
-                "if (react) plugins.push(react());\n"
-            )
-        if plugin_rl:
-            config_content += (
-                "if (bazelPluginFn) {\n" +
-                "  plugins.push(bazelPluginFn({\n" +
-                "    bazelBin: bazelBin,\n" +
-                "    nodeModules: nodeModulesPath || undefined,\n" +
-                "    target: " + json.encode(str(ctx.label)) + ",\n" +
-                "    configInputs: bazelConfigInputs,\n" +
-                "  }));\n" +
-                "}\n"
-            )
-        config_content += "\n"
+
+    # User plugins first: a framework transform has to see a module before the
+    # Bazel ones. The npm resolver last, so anything above it can claim an id.
+    config_content += "const plugins = [{}];\n".format("..._userPlugins" if user_config_rl else "")
+    if react_refresh:
+        config_content += (
+            "// React Fast Refresh — preserves component state across HMR updates.\n" +
+            "plugins.push(react());\n"
+        )
+    if plugin_rl:
+        config_content += (
+            "if (bazelPluginFn) {\n" +
+            "  plugins.push(bazelPluginFn({\n" +
+            "    bazelBin: bazelBin,\n" +
+            "    nodeModules: nodeModulesPath || undefined,\n" +
+            "    target: " + json.encode(str(ctx.label)) + ",\n" +
+            "    configInputs: bazelConfigInputs,\n" +
+            "  }));\n" +
+            "}\n"
+        )
+    if node_modules_rl:
+        config_content += "plugins.push(bazelNpmResolve);\n"
+    config_content += "\n"
 
     config_content += (
         "// @type {import('vite').UserConfig}\n" +
@@ -413,21 +465,16 @@ def _generate_dev_config(
         "  },\n" +
         "\n" +
         "  resolve: {\n" +
-        "    // Point module resolution at the Bazel-generated node_modules tree.\n" +
-        "    // This ensures `import 'react'` finds the Bazel-managed package.\n" +
-        "    modules: resolveModules,\n" +
-        "    // A first-party module_name resolves to source; npm packages are\n" +
-        "    // untouched and keep resolving through the node_modules tree above.\n" +
+        "    // A first-party module_name resolves to source; a bare npm specifier is\n" +
+        "    // left to the bazel:npm-resolve plugin, which Vite runs before its own\n" +
+        "    // resolver. There is no resolve.modules: that is a webpack option, and\n" +
+        "    // Vite ignores it.\n" +
         "    alias: firstPartyAliases,\n" +
         "  },\n" +
+        "\n" +
+        "  plugins,\n" +
         "\n"
     )
-
-    if plugin_rl or react_refresh or user_config_rl:
-        config_content += (
-            "  plugins,\n" +
-            "\n"
-        )
 
     config_content += (
         "  // Disable dependency pre-bundling when using a Bazel node_modules tree.\n" +
@@ -512,10 +559,21 @@ def _ts_dev_server_impl(ctx):
         plugin_rl = rlocation_path(ctx, plugin_files[0])
 
     # ── User-supplied vite_config (optional) ────────────────────────────────────
-    vite_config_files = ctx.files.vite_config
+    # A copy in bin, not the source file: Node resolves the runfiles symlink
+    # before that file's own imports, which would then leave the Bazel tree.
+    user_config = None
     user_config_rl = ""
-    if vite_config_files:
-        user_config_rl = rlocation_path(ctx, vite_config_files[0])
+    if ctx.file.vite_config:
+        user_config = ctx.actions.declare_file("{}_dev/user.vite.config.{}".format(
+            ctx.label.name,
+            ctx.file.vite_config.extension,
+        ))
+        ctx.actions.expand_template(
+            template = ctx.file.vite_config,
+            output = user_config,
+            substitutions = {},
+        )
+        user_config_rl = rlocation_path(ctx, user_config)
 
     # ── First-party module_name mapping ────────────────────────────────────────
     # Materialised because the config file is a list of them; the same depset
@@ -556,7 +614,7 @@ def _ts_dev_server_impl(ctx):
         dev_server["node_modules"] = node_modules_rl
     if plugin_files:
         dev_server["plugin"] = plugin_rl
-    if vite_config_files:
+    if user_config:
         dev_server["user_config"] = user_config_rl
 
     # A non-Vite dev server is invoked from a wrapper that reads BUNDLER_BINARY.
@@ -576,7 +634,8 @@ def _ts_dev_server_impl(ctx):
     explicit_runfiles = [config_file, runtime_binary] + launcher.files
     explicit_runfiles.extend(node_modules_files)
     explicit_runfiles.extend(plugin_files)
-    explicit_runfiles.extend(vite_config_files)
+    if user_config:
+        explicit_runfiles.append(user_config)
     if bundler_info:
         explicit_runfiles.append(bundler_info.bundler_binary)
 
@@ -668,14 +727,24 @@ ts_dev_server = rule(
         "vite_config": attr.label(
             doc = "Optional user-supplied Vite plugin configuration file (.mjs or .js). " +
                   "When set, the generated vite.config.mjs imports this file and prepends " +
-                  "its plugins to the Bazel system plugins (react, bazel-plugin). " +
-                  "The file must export a default object with a `plugins` array: " +
+                  "its plugins to the Bazel system plugins (react, bazel-plugin, npm " +
+                  "resolution), which is how a framework plugin (TanStack Start, Remix) " +
+                  "gets to transform a module first. The file must export a default object " +
+                  "with a `plugins` array: " +
                   "  export default { plugins: [myFrameworkPlugin()] }; " +
-                  "This enables framework-specific Vite plugins (TanStack Start, Remix, " +
-                  "SvelteKit, Solid Start) in the dev server while preserving Bazel " +
-                  "module resolution and HMR integration. " +
-                  "The plugin config file path is passed via the VITE_USER_CONFIG_PATH " +
-                  "environment variable to the generated vite.config.mjs at runtime.",
+                  "\n\n" +
+                  "What such a config may import is a hard boundary, because the rule " +
+                  "loads a COPY of it in bazel-bin (a source-tree config would resolve " +
+                  "its own imports through a source-tree node_modules, which this ruleset " +
+                  "does not have): a bare npm specifier resolves through the tree the " +
+                  "node_modules attr built, as long as that target is in the same Bazel " +
+                  "package as this one -- that is the directory Node finds walking up from " +
+                  "the copy. A RELATIVE import does not resolve: only this one file is " +
+                  "copied, so a sibling module is not there to be found, and the load " +
+                  "fails with a `[rules_typescript] Failed to load vite_config` error " +
+                  "naming it. Keep the config self-contained, or reach the tree explicitly " +
+                  "through the NODE_MODULES_PATH environment variable the launcher sets. " +
+                  "The copy's path reaches the generated config as VITE_USER_CONFIG_PATH.",
             allow_single_file = [".mjs", ".js"],
         ),
     },

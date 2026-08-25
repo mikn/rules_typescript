@@ -4,10 +4,10 @@ load("//ts:defs.bzl", "ts_test")
 
 ts_test(
     name = "fixture_test",
-    srcs = [
-        "fixture.test.ts",
-        "node_shims.d.ts",
-    ],
+    srcs = ["fixture.test.ts"],
     data = ["fixture.txt"],
-    deps = ["@npm//:vitest"],
+    deps = [
+        "@npm//:types_node",
+        "@npm//:vitest",
+    ],
 )

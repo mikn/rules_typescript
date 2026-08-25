@@ -40,8 +40,8 @@ What is still thin:
 | npm deps (pnpm → Bazel) | Production-ready; one repo per package, patches verified at extension time |
 | node_modules trees | Every *resolution* placed — name, version and peer set (primary flat, the rest under `.pnpm/<name>@<version>[_<peer set>]/`, with a relative link per disagreeing edge) |
 | Gazelle BUILD generation | Production-ready (JS/TS, CSS, assets, path aliases from tsconfig.json, ts_dev_server); alias resolution is deterministic, extension-spelling specifiers resolve, and one scanner is shared with the strict-deps check. CI pins two properties of a run (the output builds; generating twice from scratch is byte-identical); two more were verified by hand against this tree and are not a CI job (the suite still passes; the test-target set is unchanged) |
-| Testing (vitest) | Solid (DOM run for real, coverage, custom config, snapshots read *and* written, watch mode, debugging). Gaps: the array-`config` (workspace) form is vitest 3 only, and `coverage_thresholds` enforcement is unproven |
-| Bundling | Vite bundler (production quality), exercised on Vite 6 and Vite 8; single-file `vite_config`, and not hermetic as a source file |
+| Testing (vitest) | Solid (DOM run for real, coverage, custom config, snapshots read *and* written, watch mode, debugging). Gap: `coverage_thresholds` enforcement is unproven |
+| Bundling | Vite bundler (production quality), exercised on Vite 8; single-file `vite_config`, and not hermetic as a source file |
 | Dev server + HMR | Serves first-party source with Bazel out of the inner loop; codegen rebuilds and config-aware restarts under ibazel; does not typecheck; no npm resolution path of its own |
 | IDE integration | Generated tsconfig + tsserver hook; `module_name` and `extra_exclude` supported. One `compilerOptions` block cannot satisfy targets that disagree about `strict`/`lib`/`allowJs` |
 | CSS / assets | css_library, css_module, asset_library, json_library rules; CSS module mock in ts_test |
@@ -54,20 +54,11 @@ What is still thin:
 Small enough not to need a sub-project, specific enough that nobody should have
 to rediscover them. Each names the file to change.
 
-- **`npm/private/npm_import.bzl`, `_exports_types` has no fallback.** It returns
-  `""` when `exports["."]` is a string, and never falls back to the package's
-  top-level `types`/`typings` or to the `.d.ts` beside the resolved JS entry. The
-  tsconfig aspect then writes a `paths` entry pointing at a *directory*, which
-  TypeScript cannot resolve. Live consequence: Vite 8 ships
-  `"exports": {".": "./dist/node/index.js"}` and no top-level `types`, so
-  `//vite:plugin_typecheck` still typechecks against **Vite 6**'s `.d.ts` while
-  `vite/package.json` declares `peerDependencies.vite: ^8.0.0` —
-  `import type { Plugin } from "vite"` cannot compile against `@npm_vite//:vite`
-  until this is fixed. Same drift this ruleset exists to prevent, one layer down.
-- **`ts/private/ts_test.bzl` emits `test.workspace`,** which vitest 4 removed and
-  throws on. Two sites in `_vitest_config_content`, plus the docstrings. Not
-  currently red — `tests/vitest/**` runs vitest 3.0.9 — and a hard failure the
-  moment `@npm//:vitest` moves to 4. See SP5.4.
+- **`ts/private/tsconfig_aspect.bzl` pairs `@types/*` for direct deps only.**
+  `ts_compile` reads the pairing for every package it names in `paths`, which is
+  what makes an untyped package reached transitively (vitest → @vitest/expect →
+  chai) resolve to its `@types/*`. The IDE tsconfig the aspect writes still walks
+  direct deps, so the editor sees `chai` as untyped where the build does not.
 - **`ts/private/ts_dev_server.bzl` hardcodes
   `@vitejs/plugin-react/dist/index.mjs`.** The pinned `@vitejs/plugin-react`
   (4.4.1) has that file, so `react_refresh` works today; 6.1.0 — the first major
@@ -328,7 +319,7 @@ generating a target, that produced the worst outcome available: a green
 ### 5.4 Custom vitest Configuration
 - [x] Add `config` attr to `ts_test` (label to vitest.config.ts)
 - [x] Support custom reporters, setup files, global setup
-- [~] Support `vitest.workspace.ts` for monorepo configurations. A `config` that default-exports an array becomes `test.workspace` and each project gets the Bazel and attribute layers -- but `test.workspace` was renamed `projects` in vitest 3.2 and REMOVED in vitest 4, which throws. Rename it in `_vitest_config_content` (two sites) before anything here moves to vitest 4
+- [x] Support an array-form `config` for monorepo configurations. It becomes `test.projects` -- the name vitest 3.2 renamed `test.workspace` to and vitest 4 removed the old spelling of -- and each project gets the Bazel and attribute layers
 
 ### 5.5 Watch Mode
 - [x] Document `ibazel test //path:test` as the watch mode workflow (README.md)
@@ -356,7 +347,7 @@ generating a target, that produced the worst outcome available: a green
 - [x] Generate versioned target names: `@npm//:react_19_1_0` alongside `@npm//:react`
 - [x] Primary alias (`@npm//:react`) points to highest semver version (preserved behaviour)
 - [x] Dependency edges from dependents correctly reference the versioned label they actually use
-- [x] Test: `@vitest/pretty-format` at 3.0.9+3.2.4 is exercised by the existing lockfile (//tests/npm:npm_multi_version_test)
+- [x] Test: `@rolldown/pluginutils` at 1.0.0-rc.3+1.0.1 is exercised by the existing lockfile (//tests/npm:npm_multi_version_test)
 - [x] Resolve the correct version per dependent in a `node_modules` tree: `NpmPackageInfo.direct_deps` carries the per-dependent resolution, the primary version stays flat and every other version gets a store directory plus a link from the dependent that resolved to it
 - [x] Carry pnpm's peer suffix, so two snapshots sharing `name@version` but differing in injected peers stop collapsing onto one directory: `NpmPackageInfo.peer_id` reaches the layout planner from the snapshot key, the non-primary resolution gets `.pnpm/<name>@<version>_<peer set>/node_modules/<name>`, and declaring two of them on one target is an error
 

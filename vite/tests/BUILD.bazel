@@ -11,15 +11,17 @@ load("@rules_typescript//ts:defs.bzl", "ts_test")
 load("@rules_typescript//vite:bundler.bzl", "vite_bundler")
 
 # The vitest major the ruleset's own test path runs on, against the Vite major
-# the plugin declares -- one lockfile, so neither can move without the other.
+# the plugin declares. The hub's Vite and the plugin's peerDependencies range are
+# in two different files now, so this is the only thing holding them together.
 ts_test(
     name = "peer_version_test",
     size = "small",
     srcs = ["peer_version.test.ts"],
+    data = ["//vite:package.json"],
     deps = [
-        "@npm_vite//:types_node",
-        "@npm_vite//:vite",
-        "@npm_vite//:vitest",
+        "@npm//:types_node",
+        "@npm//:vite",
+        "@npm//:vitest",
     ],
 )
 
@@ -51,14 +53,14 @@ sh_test(
 # the runtime is a stub and the node_modules tree is never built.
 node_modules(
     name = "stub_node_modules",
-    deps = ["@npm_vite//:vite"],
+    deps = ["@npm//:vite"],
 )
 
 vite_bundler(
     name = "stub_bundler",
     node_modules = ":stub_node_modules",
     runtime = "stub_runtime.sh",
-    vite = "@npm_vite//:vite",
+    vite = "@npm//:vite",
 )
 
 sh_test(

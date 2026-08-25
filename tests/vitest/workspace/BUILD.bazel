@@ -1,7 +1,7 @@
-"""A vitest workspace config, and the Bazel layer reaching each of its projects.
+"""An array-form vitest config, and the Bazel layer reaching each of its projects.
 
-The CSS-module mock lives in the config ts_test generates; a workspace project
-only sees it because ts_test merges that layer into every project entry.
+The CSS-module mock lives in the config ts_test generates; a `test.projects`
+entry only sees it because ts_test merges that layer into every entry.
 """
 
 load("//ts:defs.bzl", "css_module", "ts_compile", "ts_test")

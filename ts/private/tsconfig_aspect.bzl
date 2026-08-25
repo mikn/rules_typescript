@@ -22,7 +22,7 @@ canonical repository name that changes with every version bump.
 """
 
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
-load("//ts/private:providers.bzl", "NpmPackageInfo", "TsDeclarationInfo")
+load("//ts/private:providers.bzl", "NpmPackageInfo")
 
 TsconfigSourcesInfo = provider(
     doc = "What a workspace-root tsconfig.json needs from the ts_compile targets under it.",
@@ -80,7 +80,6 @@ def _npm_entries(rule_attr):
     directory when its declarations live there, the package directory otherwise.
     """
     infos = {}
-    paired = {}
 
     for dep in getattr(rule_attr, "deps", []):
         if NpmPackageInfo not in dep:
@@ -95,16 +94,22 @@ def _npm_entries(rule_attr):
             if transitive.package_dir:
                 infos.setdefault(transitive.package_name, transitive)
 
-        if TsDeclarationInfo not in dep or info.package_name.startswith("@types/"):
+    # Over every package that gets a `paths` entry, not just the direct deps:
+    # an untyped package reached transitively (vitest -> @vitest/expect -> chai)
+    # is named in `paths` all the same, and pointing that entry at the runtime
+    # package resolves to no declarations at all.
+    paired = {}
+    for name, info in infos.items():
+        if name.startswith("@types/"):
             continue
         runtime_dir = info.package_dir.dirname
         outside = [
             dts
-            for dts in dep[TsDeclarationInfo].declaration_files.to_list()
+            for dts in info.declaration_files.to_list()
             if not dts.path.startswith(runtime_dir + "/")
         ]
         if outside:
-            paired.setdefault(info.package_name, outside)
+            paired[name] = outside
 
     paths = []
     files = []

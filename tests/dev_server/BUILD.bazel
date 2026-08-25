@@ -24,19 +24,16 @@ ts_compile(
     deps = ["//tests/dev_server/lib"],
 )
 
-# Build a node_modules tree with vite.
-# Must be named "node_modules" for Node.js ESM resolution to work correctly.
+# One tree for every dev server here, and it has to be named "node_modules":
+# a package inside it resolves its own dependencies by Node's up-walk, which only
+# looks in directories of that name. @vitejs/plugin-react reaching react-refresh
+# is exactly that, and a tree named anything else silently loses Fast Refresh.
 node_modules(
     name = "node_modules",
-    deps = ["@npm//:vite"],
-)
-
-# node_modules tree that also includes @vitejs/plugin-react for react_refresh tests.
-node_modules(
-    name = "node_modules_react",
     deps = [
         "@npm//:vite",
         "@npm//:vitejs_plugin-react",
+        "@npm//:zod",
     ],
 )
 
@@ -64,7 +61,7 @@ ts_dev_server(
 ts_dev_server(
     name = "dev_with_react_refresh",
     entry_point = ":dev_app",
-    node_modules = ":node_modules_react",
+    node_modules = ":node_modules",
     port = 5175,
     react_refresh = True,
 )
@@ -73,10 +70,32 @@ ts_dev_server(
 ts_dev_server(
     name = "dev_with_react_refresh_and_plugin",
     entry_point = ":dev_app",
-    node_modules = ":node_modules_react",
+    node_modules = ":node_modules",
     plugin = "//vite:vite_plugin_bazel",
     port = 5176,
     react_refresh = True,
+)
+
+# A user-supplied vite_config, the shape a framework plugin needs: a bare npm
+# import for the plugin package, and a plugins array. The rule loads a copy of it
+# in bin, so that bare import resolves through the Bazel npm tree.
+ts_dev_server(
+    name = "dev_with_user_config",
+    entry_point = ":dev_app",
+    node_modules = ":node_modules",
+    port = 5177,
+    vite_config = "user_config.mjs",
+)
+
+# The other side of that boundary: only the config file itself is copied, so its
+# relative import of a sibling module resolves nowhere. :vite_config_boundary_test
+# starts this one and asserts it dies naming the file it could not load.
+ts_dev_server(
+    name = "dev_with_relative_user_config",
+    entry_point = ":dev_app",
+    node_modules = ":node_modules",
+    port = 5178,
+    vite_config = "user_config_relative.mjs",
 )
 
 # Each variant is started for real and interrogated over HTTP; the env says which
@@ -89,7 +108,10 @@ ts_dev_server(
     go_test(
         name = "{}_behaviour_test".format(target),
         size = "medium",
-        srcs = ["dev_server_behaviour_test.go"],
+        srcs = [
+            "dev_server_behaviour_test.go",
+            "launcher_config_test.go",
+        ],
         data = [
             "read_config.mjs",
             ":{}".format(target),
@@ -100,14 +122,35 @@ ts_dev_server(
             "DEV_PORT": port,
             "DEV_REACT_REFRESH": react_refresh,
             "DEV_TARGET": target,
+            "DEV_USER_CONFIG": user_config,
         },
         tags = ["requires-network"],
         deps = ["//tests/verify"],
     )
-    for target, port, bazel_plugin, react_refresh in [
-        ("dev", "5173", "0", "0"),
-        ("dev_with_plugin", "5174", "1", "0"),
-        ("dev_with_react_refresh", "5175", "0", "1"),
-        ("dev_with_react_refresh_and_plugin", "5176", "1", "1"),
+    for target, port, bazel_plugin, react_refresh, user_config in [
+        ("dev", "5173", "0", "0", "0"),
+        ("dev_with_plugin", "5174", "1", "0", "0"),
+        ("dev_with_react_refresh", "5175", "0", "1", "0"),
+        ("dev_with_react_refresh_and_plugin", "5176", "1", "1", "0"),
+        ("dev_with_user_config", "5177", "0", "0", "1"),
     ]
 ]
+
+# What a vite_config can and cannot import, and where the rule loads it from.
+# No server comes up here: a config that fails to load fails before Vite listens.
+go_test(
+    name = "vite_config_boundary_test",
+    size = "small",
+    srcs = [
+        "launcher_config_test.go",
+        "vite_config_boundary_test.go",
+    ],
+    data = [
+        "user_config_helper.mjs",
+        ":dev_with_react_refresh",
+        ":dev_with_relative_user_config",
+        ":dev_with_user_config",
+        "//ts/toolchain:node_resolved",
+    ],
+    deps = ["//tests/verify"],
+)

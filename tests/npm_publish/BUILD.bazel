@@ -1,4 +1,5 @@
 load("@rules_go//go:def.bzl", "go_test")
+load("@rules_typescript//ts:defs.bzl", "json_library")
 load("//ts:defs.bzl", "ts_compile", "ts_npm_publish")
 
 ts_compile(
@@ -34,4 +35,10 @@ go_test(
         ":math_pkg",
     ],
     deps = ["//tests/verify"],
+)
+
+json_library(
+    name = "package_compact_json",
+    srcs = ["package.compact.json"],
+    visibility = ["//visibility:public"],
 )

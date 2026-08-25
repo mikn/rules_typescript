@@ -65,3 +65,9 @@ ts_compile(
     enable_check = False,
     deps = [":generated_compile"],
 )
+
+ts_compile(
+    name = "codegen",
+    srcs = ["input.ts"],
+    visibility = ["//visibility:public"],
+)

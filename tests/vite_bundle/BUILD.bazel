@@ -1,7 +1,7 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_go//go:def.bzl", "go_test")
 load("@rules_typescript//npm:defs.bzl", "node_modules")
-load("@rules_typescript//ts:defs.bzl", "ts_binary", "ts_bundle", "ts_compile")
+load("@rules_typescript//ts:defs.bzl", "ts_binary", "ts_bundle", "ts_compile", "ts_dev_server")
 load("@rules_typescript//vite:bundler.bzl", "vite_bundler")
 
 package(default_visibility = ["//:__pkg__"])
@@ -26,26 +26,26 @@ ts_compile(
 # Build a node_modules tree with vite and all its transitive deps.
 node_modules(
     name = "node_modules",
-    deps = ["@npm_vite//:vite"],
+    deps = ["@npm//:vite"],
 )
 
 # Declare a Vite bundler instance.
 vite_bundler(
     name = "vite",
     node_modules = ":node_modules",
-    vite = "@npm_vite//:vite",
+    vite = "@npm//:vite",
 )
 
 # ── 13.2: Invisible node_modules naming ─────────────────────────────────────
 node_modules(
     name = "vite_deps",
-    deps = ["@npm_vite//:vite"],
+    deps = ["@npm//:vite"],
 )
 
 vite_bundler(
     name = "vite_alt_nm",
     node_modules = ":vite_deps",
-    vite = "@npm_vite//:vite",
+    vite = "@npm//:vite",
 )
 
 ts_bundle(
@@ -123,22 +123,22 @@ ts_compile(
     srcs = ["vendor_entry.ts"],
     deps = [
         ":lib",
-        "@npm_vite//:nanoid",
+        "@npm//:nanoid",
     ],
 )
 
 node_modules(
     name = "vendor_node_modules",
     deps = [
-        "@npm_vite//:nanoid",
-        "@npm_vite//:vite",
+        "@npm//:nanoid",
+        "@npm//:vite",
     ],
 )
 
 vite_bundler(
     name = "vite_vendor",
     node_modules = ":vendor_node_modules",
-    vite = "@npm_vite//:vite",
+    vite = "@npm//:vite",
 )
 
 ts_bundle(
@@ -334,4 +334,18 @@ ts_binary(
 build_test(
     name = "ts_binary_vite_test",
     targets = [":entry_bin_vite"],
+)
+
+ts_compile(
+    name = "vite_bundle",
+    srcs = ["staging_route.ts"],
+    visibility = ["//visibility:public"],
+)
+
+ts_dev_server(
+    name = "dev",
+    entry_point = ":vite_bundle",
+    plugin = "@rules_typescript//vite:vite_plugin_bazel",
+    port = 5173,
+    visibility = ["//visibility:public"],
 )

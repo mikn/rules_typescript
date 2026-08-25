@@ -3,15 +3,18 @@
   "version": "0.0.0",
   "private": true,
   "dependencies": {
-    "@vitejs/plugin-react": "4.4.1",
-    "@vitest/coverage-v8": "3.0.9",
+    "@vitejs/plugin-react": "5.2.0",
+    "@vitest/coverage-v8": "4.1.11",
     "happy-dom": "20.8.3",
     "oxlint": "0.16.6",
+    "test-exclude": "7.0.2",
     "typescript": "5.9.2",
-    "vitest": "3.0.9",
+    "vite": "8.2.2",
+    "vitest": "4.1.11",
     "zod": "3.24.2"
   },
   "devDependencies": {
-    "@types/node": "22.20.1"
+    "@types/node": "22.20.1",
+    "tsup": "8.5.1"
   }
 }

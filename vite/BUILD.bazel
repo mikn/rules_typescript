@@ -2,9 +2,9 @@
 # would turn it into a package and make those labels cross a package boundary.
 # gazelle:exclude src
 
-# tsup lives in @npm_vite, this package's own hub. Gazelle writes every bare
-# specifier as @npm//:<name>, so the target below is hand-written and the file
-# kept out of what Gazelle claims.
+# The tsup config only type-checks under `module: Preserve` with bundler
+# resolution, which Gazelle cannot infer, so its target is hand-written below and
+# the file kept out of what Gazelle claims.
 # gazelle:ts_exclude tsup.config.ts
 
 # BUILD.bazel for the vite/ package.
@@ -30,6 +30,9 @@ load("@rules_typescript//ts:defs.bzl", "ts_compile")
 load(":plugin.bzl", "esbuild_bundle")
 
 package(default_visibility = ["//visibility:public"])
+
+# //vite/tests:peer_version_test reads peerDependencies.vite out of the manifest.
+exports_files(["package.json"])
 
 bzl_library(
     name = "bundler",
@@ -98,5 +101,5 @@ ts_compile(
         "module": "Preserve",
         "moduleResolution": "Bundler",
     },
-    deps = ["@npm_vite//:tsup"],
+    deps = ["@npm//:tsup"],
 )

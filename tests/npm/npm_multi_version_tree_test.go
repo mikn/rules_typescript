@@ -68,9 +68,8 @@ func TestEachDependentResolvesItsOwnVersion(t *testing.T) {
 		// A scoped name, whose store directory is one path segment while the name
 		// inside it is two.
 		{"scoped_multi_version_node_modules", [][2][]string{
-			{{"vitest", "@vitest/pretty-format"}, {"3.0.9", "3.2.4"}},
-			{{"@vitest/snapshot", "@vitest/pretty-format"}, {"3.0.9", "3.0.9"}},
-			{{"@vitest/utils", "@vitest/pretty-format"}, {"3.0.9", "3.0.9"}},
+			{{"@vitejs/plugin-react", "@rolldown/pluginutils"}, {"5.2.0", "1.0.0-rc.3"}},
+			{{"rolldown", "@rolldown/pluginutils"}, {"1.2.5", "1.0.1"}},
 		}},
 	} {
 		nm := tree.FoundDir("*/" + fixture.nodeModules)

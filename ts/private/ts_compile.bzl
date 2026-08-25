@@ -1019,25 +1019,22 @@ def _ts_compile_impl(ctx):
     # Step 1b: build a map from runtime package name → @types package dir.
     # When a package like 'react' has a separate @types/react package, TypeScript
     # must resolve 'react' to the @types/react directory (since react itself ships
-    # no .d.ts files).  We detect this pairing by looking at the direct deps:
-    # for each direct npm dep, check if its TsDeclarationInfo.declaration_files
-    # contains files from a different directory than the runtime package dir.
-    # That different directory is the @types/* package dir.
+    # no .d.ts files).  The pairing shows up as a declaration file outside the
+    # runtime package's own directory, which is the @types/* package dir.
+    #
+    # Read for every package in `paths`, not only the direct deps: an untyped
+    # package reached transitively (vitest -> @vitest/expect -> chai) is named in
+    # `paths` all the same, and a paths entry pointing at a package that ships no
+    # declarations resolves to no types at all.
     types_override = {}  # pkg_name → @types_dir (when a types dep is paired)
-    for dep in ctx.attr.deps:
-        if NpmPackageInfo not in dep or TsDeclarationInfo not in dep:
-            continue
-        npm_info = dep[NpmPackageInfo]
-        pkg_name = npm_info.package_name
+    for pkg_name, npm_info in pkg_info_map.items():
         if pkg_name.startswith("@types/"):
             continue  # @types/* packages don't need an override
         runtime_pkg_dir = npm_info.package_dir.dirname
 
-        # Check declaration_files: if any file lives outside the runtime package
-        # dir, it must be from the paired @types/* package.
-        for dts_file in dep[TsDeclarationInfo].declaration_files.to_list():
+        # One package's own declarations, not a transitive closure.
+        for dts_file in npm_info.declaration_files.to_list():
             if not dts_file.path.startswith(runtime_pkg_dir):
-                # This file is from a @types/* package dir.
                 types_override[pkg_name] = dts_file.dirname
                 break
 

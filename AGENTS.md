@@ -236,24 +236,23 @@ exactly one `.js` and Gazelle merges a directory into one target. Until that
 target exists the label dangles and `bazel build //...` fails for the whole
 workspace — `//tests/integration:remix_test` pins both sides of that.
 
-## Vite and vitest are consumer versions, and two lanes are tested
+## Vite and vitest are consumer versions, and one lane is tested
 
 Neither is a ruleset dependency; both come from a consumer lockfile, and the rules
-generate config for whatever it resolves to. Two hubs are exercised on purpose,
-because a generated config that only ever meets one generation breaks silently on
-the next:
+generate config for whatever it resolves to. There is one hub: `@npm`, built from
+`tests/npm/pnpm-lock.yaml`, on Vite 8 and vitest 4. Everything runs on it —
+`tests/vitest/**`, `tests/dev_server/**`, `tests/vite_bundle/**`, `vite/tests/**`
+(vite-plugin-bazel's own tests, against the Vite major its `peerDependencies`
+declares), and the integration workspaces, which copy that lockfile verbatim.
 
-- `@npm` (`tests/npm/pnpm-lock.yaml`) — Vite 6, vitest 3. `tests/vitest/**`,
-  `tests/dev_server/**`, the integration workspaces, `examples/`.
-- `@npm_vite` (`vite/pnpm-lock.yaml`) — Vite 8, vitest 4. `tests/vite_bundle/**`,
-  and `vite/tests/**` (vite-plugin-bazel's own tests, including a `ts_test` on
-  vitest 4).
-
-Do not collapse them onto one lockfile. Two known version-sensitive spots:
+A second hub on a second major is not a second lane, it is a second lockfile to
+keep in step: what it actually bought was `ts_bundle` proven on Vite 8 while the
+integration test of `ts_bundle` ran on Vite 6. Two known version-sensitive spots
+in the generated config, both now written the way the current major wants them:
 `ts_bundle` emits `output.manualChunks` and an unnamed `minify` (the plugin
 `split_chunks` used to emit is gone in Vite 7; naming `esbuild` picks an optional
-peer that is not in the tree), and `ts_test`'s array-`config` form still emits
-`test.workspace`, which vitest 4 removed and throws on.
+peer that is not in the tree), and `ts_test`'s array-`config` form emits
+`test.projects` (`test.workspace` was removed in vitest 4, which throws on it).
 
 ## Snapshots under Bazel
 

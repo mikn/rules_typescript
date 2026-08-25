@@ -12,4 +12,5 @@ ts_compile(
     name = "lib",
     srcs = ["index.ts"],
     module_name = "@devserver/lib",
+    visibility = ["//visibility:public"],
 )

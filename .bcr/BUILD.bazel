@@ -1,0 +1,2 @@
+# BCR submission metadata, read by the registry rather than by any target.
+# gazelle:ts_ignore

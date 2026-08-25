@@ -204,30 +204,115 @@ def _bin_entries(pkg_json):
         return {k: v for k, v in raw.items() if type(v) == "string"}
     return {}
 
-def _exports_types(pkg_json):
-    """Returns the .d.ts that exports["."] designates, or "".
+_DECLARATION_EXTENSIONS = (".d.ts", ".d.mts", ".d.cts")
 
-    Preferred over globbing every .d.ts because a package's own exports map is
-    the only authority on which declaration is its entry point.
+_JS_TO_DECLARATION = {".js": ".d.ts", ".mjs": ".d.mts", ".cjs": ".d.cts"}
+
+# Conditions a declaration lookup descends into, matched against the exports
+# map's own key order because that is the order a resolver tries them in. "node"
+# is among them: without it a `{"node": ..., "default": ...}` package answers
+# with the declarations of its browser build.
+_TYPE_CONDITIONS = ("types", "typings", "node", "import", "require", "default")
+
+_WALK_STEPS = 64
+
+def _root_export(exports):
+    """The `exports` subtree describing the package's own entry point, or None.
+
+    A map with no subpath keys IS that subtree -- npm's shorthand for a package
+    that exports nothing but itself.
     """
-    exports = pkg_json.get("exports")
+    if type(exports) == "string":
+        return exports
     if type(exports) != "dict":
+        return None
+    if "." in exports:
+        return exports["."]
+    for key in exports.keys():
+        if key.startswith("."):
+            return None
+    return exports
+
+def _export_targets(root):
+    """Every file exports["."] can designate, in the order a resolver tries them.
+
+    Iterative because Starlark has no recursion. Children go to the front, so a
+    condition's whole subtree is tried before the next condition is looked at,
+    which is the order a resolver descends in.
+    """
+    pending = [root]
+    targets = []
+    for _ in range(_WALK_STEPS):
+        if not pending:
+            break
+        node = pending.pop(0)
+        kind = type(node)
+        if kind == "string":
+            targets.append(node)
+        elif kind == "list":
+            pending = list(node) + pending
+        elif kind == "dict":
+            pending = [node[key] for key in node.keys() if key in _TYPE_CONDITIONS] + pending
+    return targets
+
+def _declaration_at(target, has_file):
+    """The declaration one exports target designates, if the package ships it."""
+    path = target.removeprefix("./")
+    if not path or "*" in path:
         return ""
-    root = exports.get(".")
-    if type(root) == "string":
-        return ""
-    if type(root) != "dict":
-        return ""
-    for key in ("types", "typings"):
-        value = root.get(key)
-        if type(value) == "string":
-            return value.removeprefix("./")
-        if type(value) == "dict":
-            for nested in ("import", "require", "default"):
-                inner = value.get(nested)
-                if type(inner) == "string":
-                    return inner.removeprefix("./")
+    for extension in _DECLARATION_EXTENSIONS:
+        if path.endswith(extension):
+            return path if has_file(path) else ""
+    for js, declaration in _JS_TO_DECLARATION.items():
+        if path.endswith(js):
+            beside = path[:-len(js)] + declaration
+            return beside if has_file(beside) else ""
     return ""
+
+def _declaration_field(value, has_file):
+    """The declaration a `types`/`typings` field names, if the package ships it."""
+    named = _declaration_at(value, has_file)
+    if named:
+        return named
+    extended = value.removeprefix("./") + ".d.ts"
+    return extended if has_file(extended) else ""
+
+def _exports_types(pkg_json, has_file):
+    """The .d.ts a package's own metadata designates as its entry point, or "".
+
+    The order is every resolver's, TypeScript's included. `exports` first, in the
+    key order the map itself is written in: a package that ships one has declared
+    there which files it means to be entered through, conditions and all. Then
+    `types` and `typings`, which is where a package with no `exports`, or one
+    whose `exports` names no declarations, publishes them -- most of npm.
+
+    So the exports map is authoritative about what it designates and silent about
+    the rest, and this reads it that way rather than treating the silence as an
+    answer. Every candidate is checked against the extracted package, because a
+    manifest that names a declaration it does not ship would otherwise become a
+    target with a missing source.
+
+    Args:
+        pkg_json: The package's decoded package.json.
+        has_file: Predicate on a package-relative path.
+    """
+    for target in _export_targets(_root_export(pkg_json.get("exports"))):
+        designated = _declaration_at(target, has_file)
+        if designated:
+            return designated
+    for field in ("types", "typings"):
+        value = pkg_json.get(field)
+        if type(value) == "string":
+            named = _declaration_field(value, has_file)
+            if named:
+                return named
+    return ""
+
+def _rctx_has_file(rctx):
+    def has_file(path):
+        return rctx.path(path).exists
+
+    return has_file
 
 def _primary_bin_name(package, bins):
     """The bin a bare `bazel run @npm//:<pkg>_bin` should mean.
@@ -362,7 +447,7 @@ def _npm_import_impl(rctx):
     lines.append('package(default_visibility = ["//visibility:public"])\n')
     lines.append('exports_files(["package.json"])\n')
 
-    exports_types = _exports_types(pkg_json)
+    declaration_entry = _exports_types(pkg_json, _rctx_has_file(rctx))
 
     def _package_stanza(target_name, package_name):
         stanza = [
@@ -389,8 +474,8 @@ def _npm_import_impl(rctx):
             stanza.append('    types_dep = "{}",'.format(rctx.attr.types_dep))
         if rctx.attr.is_types_package:
             stanza.append("    is_types_package = True,")
-        if exports_types:
-            stanza.append('    exports_types = "{}",'.format(exports_types))
+        if declaration_entry:
+            stanza.append('    exports_types = "{}",'.format(declaration_entry))
         stanza.append(")\n")
         return "\n".join(stanza)
 
@@ -564,7 +649,8 @@ npm_hub = repository_rule(
           "package per workspace member holding that member's own resolution.",
 )
 
-# Exported for the tests that pin the credential rules; the fetch path above is
-# the only production caller.
+# Exported for the tests that pin the credential rules and the declaration a
+# package designates; the paths above are the only production callers.
+exports_types = _exports_types
 npmrc_auth = _npmrc_auth
 npmrc_auth_fields = _npmrc_auth_fields

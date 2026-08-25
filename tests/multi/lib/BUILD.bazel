@@ -3,5 +3,5 @@ load("//ts:defs.bzl", "ts_compile")
 ts_compile(
     name = "lib",
     srcs = ["math.ts"],
-    visibility = ["//tests:__subpackages__"],
+    visibility = ["//visibility:public"],
 )

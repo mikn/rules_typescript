@@ -28,5 +28,14 @@ process.stdout.write(
       replacement: entry.replacement,
     })),
     configInputs: module.bazelConfigInputs ?? null,
+    // Vite flattens nested plugin arrays (one npm plugin package can be
+    // several), and so does this, so the order is the order Vite sees.
+    plugins: (config?.plugins ?? [])
+      .flat(Infinity)
+      .filter((plugin) => plugin && plugin.name)
+      .map((plugin) => plugin.name),
+    // Not a Vite option in any version -- webpack's. Reported so a test can
+    // fail if it comes back.
+    resolveModules: config?.resolve?.modules ?? null,
   })
 );

@@ -106,19 +106,17 @@ ts_test(
 ```
 
 The file may default-export an object, a function of `env`, or a promise of
-either. An array is read as a vitest workspace definition and becomes
-`test.workspace`; each project in it receives the Bazel layer and the attribute
-layer too, because every workspace project gets its own Vite server. Anything
-the config imports relatively must be in `data` — it is not a build input
-otherwise.
+either. An array is read as a list of vitest projects and becomes
+`test.projects`; each project in it receives the Bazel layer and the attribute
+layer too, because every project gets its own Vite server. Anything the config
+imports relatively must be in `data` — it is not a build input otherwise.
 
-!!! warning "The array form is vitest 3 only"
-    `test.workspace` was renamed `projects` in vitest 3.2 and **removed** in
-    vitest 4, which throws on it rather than ignoring it. The generated config
-    still emits `test.workspace`, so a `config` that default-exports an array
-    fails under vitest 4. Every other `config` shape works on both — object,
-    function, promise, inline dict. Tracked in
-    [TODO.md](https://github.com/mikn/rules_typescript/blob/main/TODO.md).
+!!! warning "The array form needs vitest 3.2 or later"
+    `test.projects` is the name `test.workspace` was renamed to in vitest 3.2;
+    vitest 4 removed the old name and throws on it rather than ignoring it. The
+    generated config emits `test.projects`, so a `config` that default-exports
+    an array needs vitest 3.2 or later. Every other `config` shape works on any
+    vitest 3 or 4 — object, function, promise, inline dict.
 
 ### An inline dict
 

@@ -163,7 +163,7 @@ _ts_auto_node_modules = rule(
 #                          `globals`, `reporters`, `coverage_thresholds`
 #   4. the snapshot layer  — where .snap files are read from and written to.
 #                          Merged at the root only: vitest rejects
-#                          `resolveSnapshotPath` in a workspace project.
+#                          `resolveSnapshotPath` in a project entry.
 #
 # Objects are merged key by key; arrays are concatenated (base first), which
 # matches vite's own mergeConfig, so a user `plugins` list never displaces the
@@ -283,7 +283,7 @@ def _snapshot_layer(snapshot_bases, snapshot_root, test_include, update_snapshot
     """The root-only config layer that redirects vitest's .snap paths.
 
     `resolveSnapshotPath` is one of vitest's non-project options, so this layer
-    is merged at the root and never into a workspace project.
+    is merged at the root and never into a `test.projects` entry.
     """
     if not snapshot_bases:
         return "const snapshotLayer = {};"
@@ -423,22 +423,22 @@ def _vitest_config_content(
             "  let user = typeof userConfigExport === 'function'",
             "    ? await userConfigExport(env)",
             "    : await userConfigExport;",
-            "  // A config file that default-exports an array is a vitest workspace",
-            "  // definition; vitest reads those from test.workspace.",
-            "  if (Array.isArray(user)) user = { test: { workspace: user } };",
+            "  // A config file that default-exports an array is a list of vitest",
+            "  // projects; vitest 4 removed test.workspace and throws on it.",
+            "  if (Array.isArray(user)) user = { test: { projects: user } };",
             "  if (!isPlainObject(user)) user = {};",
         ]
     else:
         lines.append("  const user = {};")
     lines += [
         "  const merged = merge(merge(merge(bazelLayer, user), attrLayer), snapshotLayer);",
-        "  // Every workspace project gets its own Vite server, so the Bazel layer",
-        "  // and the attribute layer have to be applied to each project too.",
-        "  const projects = merged.test && merged.test.workspace;",
+        "  // Every project gets its own Vite server, so the Bazel layer and the",
+        "  // attribute layer have to be applied to each project too.",
+        "  const projects = merged.test && merged.test.projects;",
         "  if (Array.isArray(projects)) {",
         "    merged.test = {",
         "      ...merged.test,",
-        "      workspace: projects.map((p) =>",
+        "      projects: projects.map((p) =>",
         "        isPlainObject(p) ? merge(merge(bazelLayer, p), attrLayer) : p,",
         "      ),",
         "    };",
@@ -711,9 +711,9 @@ _RUNNER_ATTRS = {
         doc = "A vitest config file (.ts/.mts/.js/.mjs).  It is MERGED into the " +
               "generated config rather than replacing it, so the Bazel-owned " +
               "machinery (CSS-module mock, module resolution) survives.  A " +
-              "config that default-exports an array is read as a vitest " +
-              "workspace (test.workspace).  Files it imports relatively must be " +
-              "listed in `data`.",
+              "config that default-exports an array is read as a list of " +
+              "vitest projects (test.projects).  Files it imports relatively " +
+              "must be listed in `data`.",
         allow_single_file = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"],
     ),
     "config_json": attr.string(
@@ -919,10 +919,10 @@ def ts_test(
                            into the config rules_typescript generates rather than
                            replacing it — see "Vitest config generation" in this
                            file for the layering.  A config file that
-                           default-exports an array is read as a vitest workspace
-                           (test.workspace), and each project in it receives the
-                           Bazel layer and the attribute layer too.  Files the
-                           config imports relatively belong in `data`.
+                           default-exports an array is read as a list of vitest
+                           projects (test.projects), and each project in it
+                           receives the Bazel layer and the attribute layer too.
+                           Files the config imports relatively belong in `data`.
         setup_files:       Files run before every test file (test.setupFiles), in
                            the order listed — compiled .ts/.tsx entries first,
                            then plain .js/.mjs ones.  TypeScript entries are

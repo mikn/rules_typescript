@@ -26,10 +26,18 @@
 //  6. the launcher survives the SIGTERM ibazel sends on every rebuild, and the
 //     server behind it keeps answering;
 //  7. a rebuild that only rewrote ts_codegen output serves the new bytes and
-//     does NOT restart Vite; a rebuild that changed the generated config does.
+//     does NOT restart Vite; a rebuild that changed the generated config does;
+//  8. a BARE npm specifier out of first-party source resolves into the Bazel npm
+//     tree and the file it lands on is served. Vite has no search-path option,
+//     so this is the bazel:npm-resolve plugin or nothing -- and a package that
+//     is not in the tree still fails, so the plugin is resolving rather than
+//     inventing;
+//  9. with a vite_config, the user's plugin is first in the container and its
+//     transform reaches the response, which also means its own bare npm import
+//     resolved.
 //
 // Which variant is under test comes from the env of the go_test target:
-// DEV_TARGET, DEV_PORT, DEV_BAZEL_PLUGIN, DEV_REACT_REFRESH.
+// DEV_TARGET, DEV_PORT, DEV_BAZEL_PLUGIN, DEV_REACT_REFRESH, DEV_USER_CONFIG.
 package dev_server_test
 
 import (
@@ -40,6 +48,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -56,6 +65,7 @@ func TestDevServerBehaviour(t *testing.T) {
 	wantPort := env(t, "DEV_PORT")
 	wantBazelPlugin := env(t, "DEV_BAZEL_PLUGIN") == "1"
 	wantReactRefresh := env(t, "DEV_REACT_REFRESH") == "1"
+	wantUserConfig := env(t, "DEV_USER_CONFIG") == "1"
 
 	node := tree.File("ts/toolchain/node_resolved/node")
 	launcher := tree.File("tests/dev_server/" + target + "_launcher")
@@ -80,7 +90,14 @@ func TestDevServerBehaviour(t *testing.T) {
 	write(t, filepath.Join(ws, "app.ts"), "export const origin: string = \"TS_SOURCE_TRANSFORMED_BY_VITE\";\n")
 	write(t, filepath.Join(bazelBin, "app.js"), "export const origin = \"JS_PRECOMPILED_BY_BAZEL\";\n")
 	write(t, filepath.Join(ws, "entry.js"), "import { origin } from \"./app.ts\";\nexport { origin };\n")
-	write(t, filepath.Join(ws, "widget.tsx"), "export function Widget() {\n  return <div className=\"widget\">hello</div>;\n}\n")
+	// No JSX: what is under test is the Fast Refresh transform, and JSX would pull
+	// in react/jsx-runtime, which needs a react this npm tree does not carry.
+	write(t, filepath.Join(ws, "widget.tsx"), "export function Widget() {\n  return null;\n}\n")
+
+	// A bare npm specifier, and one for a package no tree has.
+	write(t, filepath.Join(ws, "npm_entry.js"), "import { z } from \"zod\";\nexport { z };\n")
+	write(t, filepath.Join(ws, "npm_missing.js"),
+		"import x from \"not-in-any-npm-tree\";\nexport { x };\n")
 
 	// The package //tests/dev_server/lib declares module_name "@devserver/lib".
 	// Its source has to be where the config expects it for the alias to point at
@@ -106,7 +123,8 @@ func TestDevServerBehaviour(t *testing.T) {
 	write(t, scratchConfig, "// stand-in for the generated config, v1\n")
 
 	// ── 1: what the config says, by running it ────────────────────────────────
-	cfg := evalConfig(t, node.Abs(), readConfig.Abs(), config.Abs(), ws)
+	cfg := evalConfig(t, node.Abs(), readConfig.Abs(), config.Abs(),
+		readLauncherConfig(t, tree, target).env(tree, ws))
 	t.Logf("config = %s", cfg.raw)
 
 	if got := strconv.Itoa(cfg.Port); got != wantPort {
@@ -149,6 +167,28 @@ func TestDevServerBehaviour(t *testing.T) {
 	}
 	for path := range wantInputs {
 		t.Errorf("configInputs does not watch %s: %v", path, cfg.ConfigInputs)
+	}
+
+	// npm resolution is a plugin, because Vite has no option for it: resolve.modules
+	// is webpack's, and a config that sets it configures nothing.
+	if !slices.Contains(cfg.Plugins, "bazel:npm-resolve") {
+		t.Errorf("the config installs no bazel:npm-resolve plugin, so no bare npm "+
+			"specifier can resolve: plugins = %v", cfg.Plugins)
+	}
+	if cfg.ResolveModules != nil {
+		t.Errorf("the config sets resolve.modules = %v, which is a webpack option Vite "+
+			"ignores; whatever it was meant to do is not being done", cfg.ResolveModules)
+	}
+	if got := slices.Contains(cfg.Plugins, "vite:react-babel"); got != wantReactRefresh {
+		t.Errorf("react plugin present = %v, want %v: plugins = %v",
+			got, wantReactRefresh, cfg.Plugins)
+	}
+	// A framework transform has to see a module before the Bazel plugins do.
+	if wantUserConfig {
+		if len(cfg.Plugins) == 0 || cfg.Plugins[0] != "devserver-user-config" {
+			t.Errorf("the vite_config plugin is not first in the container: plugins = %v",
+				cfg.Plugins)
+		}
 	}
 
 	srv := start(t, launcher.Abs(), ws, tmp)
@@ -228,29 +268,68 @@ func TestDevServerBehaviour(t *testing.T) {
 		m.contains(t, srv, "LIB_SOURCE_TRANSFORMED_BY_VITE")
 	})
 
+	// ── 4b: a bare npm specifier ──────────────────────────────────────────────
+	// The npm tree is a Bazel output, and nothing above a checked-in source file
+	// is a node_modules directory, so without the resolver plugin this request is
+	// an unresolved-import error. The response says which file Vite chose, and
+	// that file has to be served too -- resolving into a directory server.fs.allow
+	// does not reach would only move the failure one request later.
+	t.Run("resolves_npm_from_bazel_tree", func(t *testing.T) {
+		r := get(t, base, "/npm_entry.js")
+		if r.status != 200 {
+			t.Fatalf("GET /npm_entry.js returned %d, want 200\n%s\n%s", r.status, r.body, srv.log(t))
+		}
+		t.Logf("npm_entry.js = %s", r.body)
+		dep := fsURL(r.body)
+		if dep == "" {
+			t.Fatalf("nothing in the response points at a resolved file:\n%s", r.body)
+		}
+		if !strings.Contains(dep, "/node_modules/zod/") {
+			t.Errorf("`import \"zod\"` resolved to %q, which is not in a Bazel npm tree", dep)
+		}
+		if m := get(t, base, dep); m.status != 200 {
+			t.Errorf("the resolved dependency %s answers %d, want 200\n%s", dep, m.status, m.body)
+		}
+
+		// And the plugin resolves rather than invents: a package no tree has still
+		// produces Vite's own error.
+		missing := get(t, base, "/npm_missing.js")
+		if missing.status == 200 {
+			t.Errorf("GET /npm_missing.js returned 200; `not-in-any-npm-tree` is in no "+
+				"tree\n%s", missing.body)
+		}
+		missing.contains(t, srv, "Failed to resolve import")
+	})
+
+	// ── 4c: the user-supplied vite_config ─────────────────────────────────────
+	// The marker reaches the response only if the config loaded, its own bare npm
+	// import resolved, and its plugin is in the container.
+	t.Run("user_config_plugin", func(t *testing.T) {
+		r := get(t, base, "/app.ts")
+		if r.status != 200 {
+			t.Fatalf("GET /app.ts returned %d, want 200\n%s", r.status, r.body)
+		}
+		if !wantUserConfig {
+			r.excludes(t, "USER_CONFIG_PLUGIN_RAN")
+			return
+		}
+		r.contains(t, srv, "USER_CONFIG_PLUGIN_RAN")
+	})
+
 	// ── 5: React Fast Refresh ─────────────────────────────────────────────────
 	t.Run("react_refresh", func(t *testing.T) {
 		r := get(t, base, "/widget.tsx")
+		if r.status != 200 {
+			t.Fatalf("GET /widget.tsx returned %d, want 200\n%s\n%s", r.status, r.body, srv.log(t))
+		}
 		if !wantReactRefresh {
-			if r.status != 200 {
-				t.Fatalf("GET /widget.tsx returned %d, want 200\n%s", r.status, r.body)
-			}
-			r.excludes(t, "react-refresh")
+			r.excludes(t, "react-refresh", "$RefreshReg$")
 			return
 		}
-		if r.status == 200 {
-			r.contains(t, srv, "react-refresh")
-			return
-		}
-		// KNOWN BROKEN, and narrowly tolerated: node_modules() materializes only
-		// babel.js out of the react-refresh package -- no package.json -- so
-		// plugin-react's own import of it throws at transform time. The 500 still
-		// has to come FROM the react plugin, which is what proves react_refresh
-		// wired the plugin in; a target that lost the plugin would answer 200
-		// with a plain esbuild transform and fail the branch above.
-		r.contains(t, srv, "vite:react-babel", "Cannot find package 'react-refresh'")
-		t.Logf("KNOWN BROKEN: the react plugin ran, then died on the incomplete "+
-			"react-refresh package in the node_modules tree (status %d)", r.status)
+		// The plugin has to have loaded AND run: the preamble is what preserves
+		// component state, and plugin-react only emits it after resolving the
+		// react-refresh runtime out of the same npm tree.
+		r.contains(t, srv, "/@react-refresh", "$RefreshReg$")
 	})
 
 	// ── 6: the SIGTERM ibazel sends on every rebuild ──────────────────────────
@@ -310,6 +389,16 @@ func TestDevServerBehaviour(t *testing.T) {
 	})
 }
 
+// fsURL is the first /@fs URL a served module imports: which file Vite resolved
+// a specifier to, as Vite itself rewrote it.
+func fsURL(body string) string {
+	m := regexp.MustCompile(`"(/@fs/[^"]+)"`).FindStringSubmatch(body)
+	if m == nil {
+		return ""
+	}
+	return m[1]
+}
+
 // restartCount is how many times the plugin has decided the running server is
 // configured for a graph that no longer exists.
 func restartCount(t *testing.T, s *server) int {
@@ -359,7 +448,11 @@ type devConfig struct {
 	WatchPaths   []string      `json:"watchPaths"`
 	Alias        []aliasEntry  `json:"alias"`
 	ConfigInputs []configInput `json:"configInputs"`
-	raw          string
+	Plugins      []string      `json:"plugins"`
+	// resolve.modules is webpack's, not Vite's. Read back so a test can fail if
+	// it returns.
+	ResolveModules any `json:"resolveModules"`
+	raw            string
 }
 
 type aliasEntry struct {
@@ -385,15 +478,20 @@ func replacementFor(entries []aliasEntry, find string) string {
 	return ""
 }
 
-// evalConfig runs the generated config as the module it is: the port, root and
-// allow-list it reports are all read out of its environment at import time.
-func evalConfig(t *testing.T, node, readConfig, config, ws string) devConfig {
+// evalConfig runs the generated config as the module it is: the port, root,
+// allow-list and plugin list it reports are all read out of its environment at
+// import time, so it gets the environment the launcher would have given it.
+func evalConfig(t *testing.T, node, readConfig, config string, env []string) devConfig {
 	t.Helper()
 	cmd := exec.Command(node, readConfig, config)
-	cmd.Env = append(os.Environ(), "BUILD_WORKSPACE_DIRECTORY="+ws)
+	cmd.Env = append(os.Environ(), env...)
+	// stderr separately: the JSON is on stdout, and the reason it is not there is
+	// on stderr.
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		t.Fatalf("evaluating %s: %v\n%s", config, err, out)
+		t.Fatalf("evaluating %s: %v\n%s%s", config, err, out, stderr.String())
 	}
 	cfg := devConfig{raw: string(out)}
 	if err := json.Unmarshal(out, &cfg); err != nil {
@@ -566,18 +664,4 @@ func (r response) excludes(t *testing.T, unwanted ...string) {
 				r.url, r.status, bad, r.body)
 		}
 	}
-}
-
-func runfilesDir(t *testing.T) string {
-	t.Helper()
-	for _, dir := range []string{os.Getenv("RUNFILES_DIR"), os.Getenv("TEST_SRCDIR")} {
-		if dir == "" {
-			continue
-		}
-		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
-			return dir
-		}
-	}
-	t.Fatal("no runfiles tree: RUNFILES_DIR and TEST_SRCDIR are both unusable")
-	return ""
 }
