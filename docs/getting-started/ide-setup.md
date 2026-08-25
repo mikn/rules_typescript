@@ -89,6 +89,46 @@ Anchor each entry with `**/`, the way the built-in exclusions
 (`**/bazel-*`, `**/node_modules`, `**/dist`, `**/build`, `**/.next`,
 `**/.nuxt`, `.bazel`) are.
 
+### Packages the root `compilerOptions` cannot fit
+
+One `compilerOptions` block cannot serve a target that turns `strict` off beside
+one that leaves it on, or a target naming a `lib` its `target` does not imply.
+An editor resolves a file to a program **by directory**, so such a package needs
+its own `tsconfig.json` next to its sources, and the root has to stop claiming
+those files.
+
+`ts_refresh_tsconfig` generates those files, and you declare which packages get
+one:
+
+```python
+ts_refresh_tsconfig(
+    name = "refresh_tsconfig",
+    test = True,
+    nested_tsconfigs = ["apps/worker/tsconfig.json"],
+    deps = ["//apps/web", "//apps/worker"],
+)
+```
+
+The rule **fails when that list disagrees with the graph**, in either direction,
+and the message names what to add or remove. It cannot discover the list itself:
+`glob()` does not cross a package boundary, and an entry left behind after a
+package's options converge with the root would go on owning that subtree in the
+editor. Each entry also gets its own staleness `diff_test`.
+
+Two things are worth knowing about what those files contain. Each one `extends`
+the root **and** the package's own `ts_compile` baseline, root first so the
+baseline wins — inherited `paths` are not re-resolved, so the root's aliases
+still work from down there, while `include`/`exclude` are re-resolved against
+the extending file and are therefore written out rather than inherited. And each
+one pins `noEmit`, `composite`, `incremental`, `rootDir` and `files` itself: a
+Bazel tsconfig describes one action rather than a program, so a baseline
+inherited whole would emit into your source tree, reject files outside one
+target's `rootDir`, and lose every ambient declaration.
+
+A package whose targets set **the same** option to **different** values has no
+representation at all — one directory cannot hold both answers. That is an
+error naming both targets, and the fix is to move one into its own package.
+
 ### Bare specifiers for first-party packages
 
 A target that sets `module_name = "@acme/ui"` gets `@acme/ui` and `@acme/ui/*`
