@@ -58,6 +58,8 @@ func MakePlan(cfg *Config, r *Resolver, args []string) (*Plan, error) {
 		return planVitest(cfg, r, plan)
 	case ModeDevServer:
 		return planDevServer(cfg, r, plan, args)
+	case ModeWrangler:
+		return planWrangler(cfg, r, plan, args)
 	}
 	return nil, fmt.Errorf("ts_launcher: unhandled mode %q", cfg.Mode)
 }

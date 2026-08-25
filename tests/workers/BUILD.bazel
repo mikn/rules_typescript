@@ -1,5 +1,6 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
-load("//ts:defs.bzl", "ts_compile", "ts_test")
+load("//npm:defs.bzl", "node_modules")
+load("//ts:defs.bzl", "ts_compile", "ts_test", "ts_worker_dry_run_test")
 
 package(default_visibility = ["//:__pkg__"])
 
@@ -55,6 +56,23 @@ ts_test(
 build_test(
     name = "worker_builds_test",
     targets = [":worker"],
+)
+
+# wrangler needs its own tree: the pool's node_modules is built from the test's
+# deps, and wrangler is not one of them.
+node_modules(
+    name = "wrangler_node_modules",
+    deps = ["@npm_workers//:wrangler"],
+)
+
+# Does this worker still deploy? Everything a deploy does up to the upload, with
+# no credentials and nothing sent.
+ts_worker_dry_run_test(
+    name = "deploy_dry_run_test",
+    size = "medium",
+    config = "wrangler.jsonc",
+    node_modules = ":wrangler_node_modules",
+    deps = [":worker"],
 )
 
 # The generated editor program for this package; see //:refresh_tsconfig.

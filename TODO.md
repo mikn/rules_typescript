@@ -76,7 +76,7 @@ to rediscover them. Each names the file to change.
   to walk, so with no `@source` it silently generates nothing. Not a bug to fix
   -- naming the files to scan is the correct thing in a sandbox -- but it is not
   discoverable from a green build that emits an empty stylesheet.
-- **Workers: tests run, deploy does not.** `//tests/workers:worker_test` runs
+- **Workers: tests and a deploy dry-run both run.** `//tests/workers:worker_test` runs
   inside workerd against the `.js` Bazel compiled, via `SELF.fetch()`. The
   earlier diagnosis here -- that the pool must own the transform and cannot take
   compiled output -- was wrong; compiled `.js` is fine. Two things were missing:
@@ -88,10 +88,11 @@ to rediscover them. Each names the file to change.
   is a second module identity. Omitting the second reads as
   `Cannot read properties of undefined (reading 'config')`, which looks like a
   plugin-API problem and is not.
-  What remains is **deploy**: no `wrangler` rule exists. The hermetic shape is
-  `wrangler deploy --dry-run --outdir`, which needs the config and the worker
-  closure staged into a writable scratch dir (wrangler writes `.wrangler/tmp`
-  beside the config, and a Bazel output dir is read-only) and a writable `HOME`.
+  Deploy is now `ts_worker_dry_run_test` (and `ts_worker_dry_run` to run it):
+  everything a deploy does up to the upload, with no credentials and nothing
+  sent. Publishing for real stays a command a human or a release job runs -- it
+  needs credentials, is not reproducible, and must not fire because the graph
+  changed.
   Also: `bazel coverage` cannot run a workers test. `coverageFlags` in
   `tools/launcher/vitest.go` hardcodes `--coverage.provider v8`, which fails
   inside workerd on `node:inspector/promises`. istanbul runs but reports

@@ -27,6 +27,7 @@ load("//ts/private:ts_lint.bzl", _TsLintInfo = "TsLintInfo", _ts_lint = "ts_lint
 load("//ts/private:ts_npm_publish.bzl", _NpmPublishInfo = "NpmPublishInfo", _ts_npm_publish = "ts_npm_publish")
 load("//ts/private:ts_test.bzl", _ts_test = "ts_test")
 load("//ts/private:tsconfig_aspect.bzl", _ts_refresh_tsconfig = "ts_refresh_tsconfig")
+load("//ts/private:wrangler.bzl", _ts_worker_dry_run = "ts_worker_dry_run", _ts_worker_dry_run_test = "ts_worker_dry_run_test")
 
 # Providers — exported for use in custom rules that extend this ruleset.
 AssetInfo = _AssetInfo
@@ -38,6 +39,8 @@ NpmPublishInfo = _NpmPublishInfo
 TsDeclarationInfo = _TsDeclarationInfo
 TsModuleInfo = _TsModuleInfo
 TsLintInfo = _TsLintInfo
+ts_worker_dry_run = _ts_worker_dry_run
+ts_worker_dry_run_test = _ts_worker_dry_run_test
 
 # CSS / asset / JSON support.
 asset_library = _asset_library

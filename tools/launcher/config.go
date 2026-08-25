@@ -25,6 +25,7 @@ const (
 	ModeNode      = "node"
 	ModeVitest    = "vitest"
 	ModeDevServer = "devserver"
+	ModeWrangler  = "wrangler"
 )
 
 // Config is the whole contract between the Starlark rules and this binary.
@@ -40,6 +41,7 @@ type Config struct {
 	Node      *NodeConfig      `json:"node,omitempty"`
 	Vitest    *VitestConfig    `json:"vitest,omitempty"`
 	DevServer *DevServerConfig `json:"dev_server,omitempty"`
+	Wrangler  *WranglerConfig  `json:"wrangler,omitempty"`
 }
 
 // NodeConfig runs one .js entry point.
@@ -66,6 +68,17 @@ type VitestConfig struct {
 	NodeModules     string `json:"node_modules,omitempty"`
 	UpdateSnapshots bool   `json:"update_snapshots,omitempty"`
 	Coverage        bool   `json:"coverage,omitempty"`
+}
+
+// WranglerConfig runs `wrangler deploy --dry-run` over a worker Bazel built.
+// Everything is staged into a writable scratch dir because wrangler writes
+// beside the config file, and a Bazel output directory is read-only.
+type WranglerConfig struct {
+	ConfigFile     string   `json:"config_file"`
+	NodeModules    string   `json:"node_modules"`
+	WranglerInTree string   `json:"wrangler_in_tree"`
+	WorkerFiles    []string `json:"worker_files"`
+	PackagePrefix  string   `json:"package_prefix,omitempty"`
 }
 
 // DevServerConfig runs one dev server implementation, chosen by
@@ -189,10 +202,17 @@ func (c *Config) validate() error {
 		if (c.DevServer.ServerBinary == "") == (c.DevServer.ServerInTree == "") {
 			return errors.New(`mode "devserver" requires exactly one of dev_server.server_binary and dev_server.server_in_tree`)
 		}
+	case ModeWrangler:
+		if c.Wrangler == nil {
+			return errors.New(`mode "wrangler" requires a "wrangler" section`)
+		}
+		if c.Wrangler.ConfigFile == "" || c.Wrangler.NodeModules == "" {
+			return errors.New(`mode "wrangler" requires wrangler.config_file and wrangler.node_modules`)
+		}
 	case "":
 		return errors.New(`missing "mode"`)
 	default:
-		return fmt.Errorf("unknown mode %q (want %q, %q or %q)", c.Mode, ModeNode, ModeVitest, ModeDevServer)
+		return fmt.Errorf("unknown mode %q (want %q, %q, %q or %q)", c.Mode, ModeNode, ModeVitest, ModeDevServer, ModeWrangler)
 	}
 	return nil
 }

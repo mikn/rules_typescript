@@ -64,6 +64,7 @@ nav:
   - Rules Reference:
     - ts_compile: rules/ts-compile.md
     - ts_test: rules/ts-test.md
+    - ts_worker_dry_run: rules/ts-worker-dry-run.md
     - ts_binary: rules/ts-binary.md
     - ts_bundle: rules/ts-bundle.md
     - ts_dev_server: rules/ts-dev-server.md

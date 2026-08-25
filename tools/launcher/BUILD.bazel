@@ -13,6 +13,7 @@ go_library(
         "resolve.go",
         "run.go",
         "vitest.go",
+        "wrangler.go",
     ],
     importpath = "github.com/mikn/rules_typescript/tools/launcher",
     visibility = ["//visibility:public"],
