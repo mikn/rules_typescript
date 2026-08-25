@@ -90,6 +90,34 @@ def stage_vite_config(ctx, config_file, extra_srcs, subdir):
 # configs are written with. So that is tried first, and the dynamic import is the
 # fallback for a plain .mjs when vite is not in the tree (an oj target need not
 # have it).
+# What the generated config actually reads out of a user vite_config. Everything
+# else it would silently discard, and a real framework config sets several of
+# them -- `define`, `resolve.alias`, `build.target`, `optimizeDeps` -- so the
+# build fails naming them rather than producing a bundle that quietly ignores
+# half its configuration.
+#
+# The check runs where the config is loaded rather than at analysis time, because
+# only the loaded object says what keys it has.
+def unhandled_keys_js(honoured, label):
+    return (
+        "const _honoured = " + json.encode(sorted(honoured)) + ";\n" +
+        "if (_userCfg) {\n" +
+        "  const _unhandled = Object.keys(_userCfg).filter(\n" +
+        "    (key) => !_honoured.includes(key),\n" +
+        "  );\n" +
+        "  if (_unhandled.length) {\n" +
+        "    throw new Error(\n" +
+        "      '[rules_typescript] " + label + ": the vite_config sets ' +\n" +
+        "        _unhandled.join(', ') +\n" +
+        "        ', which the generated config does not read. Only ' +\n" +
+        "        _honoured.join(', ') + ' reach the build; the rest would be\\n' +\n" +
+        "        'silently discarded. Move what you need into a plugin, or open an\\n' +\n" +
+        "        'issue for the option.',\n" +
+        "    );\n" +
+        "  }\n" +
+        "}\n"
+    )
+
 LOAD_USER_CONFIG_JS = (
     "// The user's vite_config, staged under bazel-bin so its own bare imports\n" +
     "// resolve beside the Bazel npm tree rather than in the source tree.\n" +
@@ -122,6 +150,7 @@ LOAD_USER_CONFIG_JS = (
     "  if (_userCfg && Array.isArray(_userCfg.plugins)) {\n" +
     "    _userPlugins = _userCfg.plugins.flat(Infinity).filter(Boolean);\n" +
     "  }\n" +
+    unhandled_keys_js(["plugins"], "ts_dev_server") +
     "}\n" +
     "\n"
 )

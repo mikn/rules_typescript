@@ -34,7 +34,7 @@ env_vars attr: a string_dict that is sugar over the define attr.  Each entry
 """
 
 load("//ts/private:providers.bzl", "BundlerInfo", "CssInfo", "JsInfo")
-load("//ts/private:vite_config.bzl", "VITE_CONFIG_EXTENSIONS", "VITE_CONFIG_SRCS_DOC", "stage_vite_config")
+load("//ts/private:vite_config.bzl", "VITE_CONFIG_EXTENSIONS", "VITE_CONFIG_SRCS_DOC", "stage_vite_config", "unhandled_keys_js")
 
 # Vite lib mode output filename suffixes per format.
 # Vite uses: esm → .es.js, cjs → .cjs.js, iife → .iife.js
@@ -258,6 +258,7 @@ def _generate_vite_config(ctx, entry_js_file, bundle_filename, out_dir_rel, tran
             "  if (typeof _userCfg.root === 'string' && _userCfg.root) {\n" +
             "    _userRoot = _userCfg.root;\n" +
             "  }\n" +
+            unhandled_keys_js(["plugins", "root"], "ts_bundle") +
             "} catch (_err) {\n" +
             "  throw new Error('[rules_typescript] Failed to load vite_config: ' + _err.message);\n" +
             "}\n"
