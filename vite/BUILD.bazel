@@ -27,6 +27,7 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@rules_typescript//npm:defs.bzl", "node_modules")
 load("@rules_typescript//ts:defs.bzl", "ts_compile")
+load(":dev_server.bzl", "vite_dev_server")
 load(":plugin.bzl", "esbuild_bundle")
 
 package(default_visibility = ["//visibility:public"])
@@ -42,6 +43,16 @@ bzl_library(
         "//ts/private:runtime",
     ],
 )
+
+bzl_library(
+    name = "dev_server_bzl",
+    srcs = ["dev_server.bzl"],
+    deps = ["//ts/private:providers"],
+)
+
+# The default ts_dev_server(server = ...). Vite itself comes from the target's
+# own node_modules tree, so this instance carries no state.
+vite_dev_server(name = "dev_server")
 
 bzl_library(
     name = "plugin",

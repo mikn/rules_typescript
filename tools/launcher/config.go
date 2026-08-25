@@ -68,15 +68,22 @@ type VitestConfig struct {
 	Coverage        bool   `json:"coverage,omitempty"`
 }
 
-// DevServerConfig runs the vite dev server out of the node_modules tree.
+// DevServerConfig runs one dev server implementation, chosen by
+// ts_dev_server's server attr. ServerBinary and ServerInTree are the two ways a
+// server can arrive and exactly one is set: a native binary is a runfile, while
+// a server shipping as an npm package is only a path inside the node_modules
+// tree, since a file inside a TreeArtifact has no label to put in runfiles.
 type DevServerConfig struct {
-	ConfigFile    string `json:"config_file"`
-	NodeModules   string `json:"node_modules,omitempty"`
-	ViteInTree    string `json:"vite_in_tree"`
-	Plugin        string `json:"plugin,omitempty"`
-	UserConfig    string `json:"user_config,omitempty"`
-	BundlerBinary string `json:"bundler_binary,omitempty"`
-	Port          int    `json:"port"`
+	ConfigFile      string   `json:"config_file"`
+	NodeModules     string   `json:"node_modules,omitempty"`
+	ServerBinary    string   `json:"server_binary,omitempty"`
+	ServerInTree    string   `json:"server_in_tree,omitempty"`
+	Argv            []string `json:"argv"`
+	RunsInJsRuntime bool     `json:"runs_in_js_runtime,omitempty"`
+	Plugin          string   `json:"plugin,omitempty"`
+	UserConfig      string   `json:"user_config,omitempty"`
+	BundlerBinary   string   `json:"bundler_binary,omitempty"`
+	Port            int      `json:"port"`
 }
 
 // LoadConfig reads the config for this launcher.
@@ -178,6 +185,9 @@ func (c *Config) validate() error {
 		}
 		if c.DevServer.ConfigFile == "" {
 			return errors.New(`mode "devserver" requires dev_server.config_file`)
+		}
+		if (c.DevServer.ServerBinary == "") == (c.DevServer.ServerInTree == "") {
+			return errors.New(`mode "devserver" requires exactly one of dev_server.server_binary and dev_server.server_in_tree`)
 		}
 	case "":
 		return errors.New(`missing "mode"`)

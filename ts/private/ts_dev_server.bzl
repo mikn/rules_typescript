@@ -135,7 +135,7 @@ Usage:
 """
 
 load("//tools/launcher:launcher.bzl", "LAUNCHER_ATTRS", "declare_launcher", "rlocation_path")
-load("//ts/private:providers.bzl", "BundlerInfo", "JsInfo")
+load("//ts/private:providers.bzl", "BundlerInfo", "DevServerInfo", "JsInfo")
 load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "get_js_runtime")
 load("//ts/private:ts_compile.bzl", "TsModuleInfo")
 
@@ -500,6 +500,62 @@ def _generate_dev_config(
 
 # ─── Rule implementation ───────────────────────────────────────────────────────
 
+# The config the generator writes sets these, and each is only reached through
+# the attr named beside it. A server that does not read one is only a problem for
+# a target that asked for it, so the check is per-attr rather than per-field.
+_CONFIG_FIELD_ATTRS = {
+    "server.open": "open",
+    "server.watch.paths": None,
+    "root": None,
+    "optimizeDeps.noDiscovery": None,
+}
+
+def _check_ignored_fields(ctx, server_info):
+    """Fails when a set attr reaches a config field this server does not read."""
+    for field in server_info.ignored_config_fields:
+        attr_name = _CONFIG_FIELD_ATTRS.get(field)
+        if not attr_name:
+            continue
+        if getattr(ctx.attr, attr_name, None):
+            fail(
+                "ts_dev_server: {} sets {} = {}, which reaches the generated config as `{}`.\n".format(
+                    ctx.label,
+                    attr_name,
+                    getattr(ctx.attr, attr_name),
+                    field,
+                ) +
+                "The server this target selected ({}) does not read that field, so the\n".format(
+                    ctx.attr.server.label,
+                ) +
+                "setting would be silently dropped rather than applied.\n" +
+                "Either drop the attr, or select a server that reads it:\n" +
+                "    server = \"@rules_typescript//vite:dev_server\"",
+            )
+
+def _resolve_server(ctx):
+    """Reads DevServerInfo off the server attr and checks it is self-consistent."""
+    server_info = ctx.attr.server[DevServerInfo]
+    if server_info.config_dialect != "vite":
+        fail(
+            "ts_dev_server: server '{}' declares config_dialect '{}'.\n".format(
+                ctx.attr.server.label,
+                server_info.config_dialect,
+            ) +
+            "This rule only generates a Vite-dialect config; a server reading another\n" +
+            "format needs a generator for it before it can be selected here.",
+        )
+    if bool(server_info.server_binary) == bool(server_info.server_in_tree):
+        fail(
+            "ts_dev_server: server '{}' must set exactly one of DevServerInfo.server_binary ".format(
+                ctx.attr.server.label,
+            ) +
+            "(a native or built executable) and DevServerInfo.server_in_tree (a path inside " +
+            "the node_modules tree); it set " +
+            ("both" if server_info.server_binary else "neither") + ".",
+        )
+    _check_ignored_fields(ctx, server_info)
+    return server_info
+
 def _ts_dev_server_impl(ctx):
     entry_point = ctx.attr.entry_point
     if JsInfo not in entry_point:
@@ -512,6 +568,7 @@ def _ts_dev_server_impl(ctx):
         )
 
     entry_js_info = entry_point[JsInfo]
+    server_info = _resolve_server(ctx)
 
     # ── BundlerInfo (optional) ──────────────────────────────────────────────
     # When a `bundler` attr is provided, its BundlerInfo is collected and the
@@ -598,18 +655,20 @@ def _ts_dev_server_impl(ctx):
         user_config_rl,
     )
 
-    # ── Locate Vite CLI ────────────────────────────────────────────────────────
-    # vite/bin/vite.js lives inside the node_modules directory tree artifact.
-    # We cannot reference individual files inside a TreeArtifact at analysis
-    # time, so the launcher joins this onto the resolved node_modules directory.
-    vite_rel_path = "vite/bin/vite.js"  # relative to node_modules root
-
     # ── Launcher config ────────────────────────────────────────────────────────
+    # A server inside the npm tree is a path, not a File: an individual file
+    # inside a TreeArtifact has no label at analysis time, so the launcher joins
+    # it onto the resolved tree. A native server is a File and needs neither.
     dev_server = {
         "config_file": rlocation_path(ctx, config_file),
-        "vite_in_tree": vite_rel_path,
+        "argv": server_info.argv,
+        "runs_in_js_runtime": server_info.runs_in_js_runtime,
         "port": ctx.attr.port,
     }
+    if server_info.server_in_tree:
+        dev_server["server_in_tree"] = server_info.server_in_tree
+    else:
+        dev_server["server_binary"] = rlocation_path(ctx, server_info.server_binary)
     if node_modules_files:
         dev_server["node_modules"] = node_modules_rl
     if plugin_files:
@@ -648,6 +707,7 @@ def _ts_dev_server_impl(ctx):
                 entry_js_info.transitive_js_files,
                 entry_js_info.transitive_js_map_files,
                 bundler_runtime_files,
+                server_info.runtime_deps,
             ],
         ),
     )
@@ -714,6 +774,18 @@ ts_dev_server = rule(
                   "resolved from the node_modules tree. " +
                   "Example: bundler = \"//vite:bundler\" for explicit Vite bundler wiring.",
             providers = [BundlerInfo],
+        ),
+        "server": attr.label(
+            doc = "Which dev server implementation serves this target, as a " +
+                  "target providing DevServerInfo. Defaults to Vite. " +
+                  "`@rules_typescript//oj:dev_server` selects oj instead, which " +
+                  "reads the same generated config but is a native binary and " +
+                  "needs no @npm//:vite in the node_modules tree. A server that " +
+                  "does not read a config field this target set is an analysis-" +
+                  "time error naming both, so switching implementations cannot " +
+                  "silently drop a setting.",
+            default = "@rules_typescript//vite:dev_server",
+            providers = [DevServerInfo],
         ),
         "react_refresh": attr.bool(
             doc = "Enable React Fast Refresh via @vitejs/plugin-react. " +

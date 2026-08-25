@@ -287,6 +287,7 @@ func devServerFixture(t *testing.T) (*Resolver, map[string]string) {
 		"_main/tests/app/node_modules":                  dirMarker,
 		"_main/tests/app/node_modules/vite/bin/vite.js": "x",
 		"_main/vite/vite_plugin_bazel.mjs":              "x",
+		"_main/oj/oj":                                   "#!/bin/sh\n",
 		"+node+/bin/node":                               "#!/bin/sh\n",
 	})
 }
@@ -297,11 +298,13 @@ func devServerConfig() *Config {
 		Mode:    ModeDevServer,
 		Runtime: "+node+/bin/node",
 		DevServer: &DevServerConfig{
-			ConfigFile:  "_main/tests/app/dev_vite.config.mjs",
-			NodeModules: "_main/tests/app/node_modules",
-			ViteInTree:  "vite/bin/vite.js",
-			Plugin:      "_main/vite/vite_plugin_bazel.mjs",
-			Port:        5173,
+			ConfigFile:      "_main/tests/app/dev_vite.config.mjs",
+			NodeModules:     "_main/tests/app/node_modules",
+			ServerInTree:    "vite/bin/vite.js",
+			Argv:            []string{"dev", "--config", "{config}"},
+			RunsInJsRuntime: true,
+			Plugin:          "_main/vite/vite_plugin_bazel.mjs",
+			Port:            5173,
 		},
 	}
 }
@@ -338,13 +341,45 @@ func TestPlanDevServerRunsViteFromTheNodeModulesTree(t *testing.T) {
 func TestPlanDevServerExplainsAMissingVite(t *testing.T) {
 	r, _ := devServerFixture(t)
 	cfg := devServerConfig()
-	cfg.DevServer.ViteInTree = "vite/bin/absent.js"
+	cfg.DevServer.ServerInTree = "vite/bin/absent.js"
 	_, err := MakePlan(cfg, r, nil)
 	if err == nil {
 		t.Fatal("a node_modules tree without vite must fail")
 	}
-	if !strings.Contains(err.Error(), "@npm//:vite") {
+	if !strings.Contains(err.Error(), "node_modules() target") {
 		t.Errorf("error is not actionable: %v", err)
+	}
+}
+
+func ojDevServerConfig() *Config {
+	cfg := devServerConfig()
+	cfg.DevServer.ServerInTree = ""
+	cfg.DevServer.ServerBinary = "_main/oj/oj"
+	cfg.DevServer.Argv = []string{"dev", "--config", "{config}", "{root}"}
+	cfg.DevServer.RunsInJsRuntime = false
+	return cfg
+}
+
+func TestPlanDevServerRunsANativeServerWithoutTheJsRuntime(t *testing.T) {
+	r, real := devServerFixture(t)
+	t.Setenv("BUILD_WORKSPACE_DIRECTORY", "/workspace/root")
+	plan, err := MakePlan(ojDevServerConfig(), r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		real["_main/oj/oj"], "dev", "--config",
+		real["_main/tests/app/dev_vite.config.mjs"], "/workspace/root",
+	}
+	if strings.Join(plan.Argv, "\x00") != strings.Join(want, "\x00") {
+		t.Errorf("argv = %q, want %q", plan.Argv, want)
+	}
+	// The plugin host is a Node process the server spawns by name, so a native
+	// server that cannot see the toolchain node would fall back to a host one.
+	nodeDir := filepath.Dir(real["+node+/bin/node"])
+	if !strings.HasPrefix(plan.EnvOverrides["PATH"], nodeDir+string(os.PathListSeparator)) {
+		t.Errorf("PATH = %q, want the toolchain node dir %q first",
+			plan.EnvOverrides["PATH"], nodeDir)
 	}
 }
 

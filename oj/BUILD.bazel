@@ -1,0 +1,14 @@
+# oj has no npm package and publishes no release binary, so the crate built from
+# source by MODULE.bazel's oj_crates extension is the only way to pin it.
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load(":dev_server.bzl", "oj_dev_server")
+
+package(default_visibility = ["//visibility:public"])
+
+bzl_library(
+    name = "dev_server_bzl",
+    srcs = ["dev_server.bzl"],
+    deps = ["//ts/private:providers"],
+)
+
+oj_dev_server(name = "dev_server")

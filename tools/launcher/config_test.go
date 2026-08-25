@@ -15,7 +15,12 @@ func TestParseConfigRejectsBadDocuments(t *testing.T) {
 		"node without body":   `{"label":"//a:b","mode":"node"}`,
 		"vitest without body": `{"label":"//a:b","mode":"vitest"}`,
 		"devserver no config": `{"label":"//a:b","mode":"devserver","dev_server":{}}`,
-		"unknown field":       `{"label":"//a:b","mode":"node","node":{"entry":"a"},"shell":"bash"}`,
+		// Exactly one of the two server forms: a config naming both leaves which
+		// executable actually serves the app up to whichever the launcher reads
+		// first, and naming neither has nothing to run at all.
+		"devserver both server forms": `{"label":"//a:b","mode":"devserver","dev_server":{"config_file":"c","server_binary":"b","server_in_tree":"vite/bin/vite.js"}}`,
+		"devserver no server form":    `{"label":"//a:b","mode":"devserver","dev_server":{"config_file":"c"}}`,
+		"unknown field":               `{"label":"//a:b","mode":"node","node":{"entry":"a"},"shell":"bash"}`,
 	}
 	for name, doc := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -33,11 +33,22 @@ bazel_dep(name = "rules_go", version = "0.60.0")
 rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
 rust.toolchain(
     edition = "2024",
-    versions = ["1.94.0"],
+    versions = ["1.98.0"],
 )
 use_repo(rust, "rust_toolchains")
 
 register_toolchains("@rust_toolchains//:all")
+
+# cargo resolves a binary-only crate through artifact-dependencies, which is
+# nightly-gated. These tools run only when the oj_crates repo below is
+# generated; every rust_binary in this module still builds on the stable
+# toolchain pinned above.
+rust_host_tools = use_extension("@rules_rust//rust:extensions.bzl", "rust_host_tools")
+rust_host_tools.host_tools(
+    name = "rust_host_tools_nightly",
+    version = "nightly",
+)
+use_repo(rust_host_tools, "rust_host_tools_nightly")
 
 # ─── Go toolchain (for Gazelle extension) ────────────────────────────────────
 
@@ -55,7 +66,27 @@ crate.from_cargo(
     cargo_lockfile = "//oxc_cli:Cargo.lock",
     manifests = ["//oxc_cli:Cargo.toml"],
 )
-use_repo(crate, "crates")
+
+# oj ships neither an npm package nor a release binary, so cargo is the only
+# channel it can be pinned from. It is a pure binary crate, hence gen_binaries
+# rather than a dep of the manifest above -- whose graph it must stay out of,
+# rolldown being the heaviest thing either tool pulls.
+crate.spec(
+    artifact = "bin",
+    package = "oj",
+    repositories = ["oj_crates"],
+    version = "=0.1.4",
+)
+crate.annotation(
+    crate = "oj",
+    gen_all_binaries = True,
+    repositories = ["oj_crates"],
+)
+crate.from_specs(
+    name = "oj_crates",
+    host_tools = "@rust_host_tools_nightly",
+)
+use_repo(crate, "crates", "oj_crates")
 
 # ─── Node.js toolchain (via rules_nodejs) ───────────────────────────────────
 

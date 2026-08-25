@@ -84,6 +84,36 @@ file also gets a generated ambient .d.ts declaration so that TypeScript accepts
     },
 )
 
+DevServerInfo = provider(
+    doc = """How to start one dev server implementation.
+
+The shipped implementations are Vite (`//vite:dev_server`) and oj
+(`//oj:dev_server`); `ts_dev_server(server = ...)` picks between them per
+target, and a third is any rule returning this provider.
+
+Two things differ between implementations and neither can be papered over.
+A server shipping as an npm package has no `File` to point at -- its executable
+is a path inside the `node_modules` tree artifact, which Starlark cannot address
+at analysis time -- so it sets `server_in_tree` and leaves `server_binary` None.
+A native binary is the other way round; exactly one of the two must be set.
+
+`config_dialect` names the config the server is handed. Both shipped servers
+read Vite's, because oj adopts `vite.config`. They do not read all of it, and a
+field one of them drops is not always a field it does without: oj takes the
+serve root from argv instead. `argv` covers the second case and
+`ignored_config_fields` the first.
+""",
+    fields = {
+        "server_binary": "File or None: the server executable, for a server that is a build artifact. None when the server ships inside the npm tree, in which case server_in_tree names it instead.",
+        "server_in_tree": "string: the server executable's path relative to the root of the node_modules tree, for a server that ships as an npm package. Empty when server_binary is set.",
+        "argv": "list of string: the command line after the executable. `{config}` expands to the generated config's path and `{root}` to the directory being served; a server taking either somewhere other than where the other one takes it says so here rather than in the launcher.",
+        "config_dialect": "string: which config format this server is handed. Only \"vite\" is generated today; a server reading its own format declares its own dialect, and the generator has to learn it before that server can be selected.",
+        "runs_in_js_runtime": "bool: True when the executable is JavaScript and the toolchain Node runs it, False for a native binary. A native server still gets the toolchain Node on PATH -- oj's plugin host is a Node process, so a native server is not necessarily a Node-free one.",
+        "ignored_config_fields": "list of string: dotted config paths this server does not honour, e.g. [\"server.open\"]. A target whose configuration depends on one of these fails at analysis time naming the field and the server, rather than starting a server that quietly does something else.",
+        "runtime_deps": "depset of File: everything the server needs in runfiles beyond the generated config and the npm tree.",
+    },
+)
+
 BundlerInfo = provider(
     doc = """Information about a JavaScript bundler.
 
