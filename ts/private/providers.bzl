@@ -50,6 +50,7 @@ NpmPackageInfo = provider(
         "transitive_deps": "depset of NpmPackageInfo: Transitive npm dependencies.",
         "transitive_package_dirs": "depset of File: package.json files for this package and all transitive deps.",
         "exports_types_file": "File or None: The specific .d.ts entry point from package.json exports['.']['types'], or None if not specified. Used by ts_compile to build more precise tsconfig paths entries.",
+        "subpath_types": "dict of string to File: each non-root `exports` subpath designating a declaration, mapped to that file. A consumer names one in compiler_options[\"types\"] to put it in its tsconfig `files` -- the only route by which an ambient module a package ships behind a subpath reaches the program, since tsconfig `types` resolves through a node_modules this ruleset does not have.",
         "ambient_types_file": "File or None: On an @types/* package, the entry-point .d.ts a consumer lists in tsconfig `files` to bring its globals and `declare module` blocks into the program. None on every other package.",
     },
 )

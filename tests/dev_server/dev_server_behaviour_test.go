@@ -404,7 +404,7 @@ func TestDevServerBehaviour(t *testing.T) {
 		write(t, generated, "export const routes: string[] = [\"CODEGEN_V2\"];\n")
 		url := "/@fs" + filepath.Join(bazelBin, "generated", "routes.ts")
 		if !eventually(t, func() bool {
-			return strings.Contains(get(t, base, url).body, "CODEGEN_V2")
+			return strings.Contains(bodyOf(base, url), "CODEGEN_V2")
 		}) {
 			t.Errorf("the rebuilt codegen output never reached the server\n%s", srv.log(t))
 		}
@@ -422,7 +422,7 @@ func TestDevServerBehaviour(t *testing.T) {
 		if !eventually(t, func() bool { return restartCount(t, srv) > before }) {
 			t.Fatalf("the config changed and Vite did not restart\n%s", srv.log(t))
 		}
-		if !eventually(t, func() bool { return get(t, base, "/app.ts").status == 200 }) {
+		if !eventually(t, func() bool { return answers(base, "/app.ts") }) {
 			t.Errorf("the server never came back after restarting\n%s", srv.log(t))
 		}
 	})
@@ -669,6 +669,29 @@ func get(t *testing.T, base, path string) response {
 		t.Fatalf("GET %s: %v", url, err)
 	}
 	return r
+}
+
+// bodyOf is the served body, or "" when the request did not land. Same reason as
+// `answers`: inside a poll a transport error is a "not yet".
+func bodyOf(base, path string) string {
+	r, err := httpGet(base + path)
+	if err != nil {
+		return ""
+	}
+	return r.body
+}
+
+// answers reports whether the server served this path, treating a transport
+// error as "not yet" rather than as a failure.
+//
+// `get` fatals on one, which is right for a single request -- there is no server
+// and the test cannot continue -- and wrong inside a poll for a server that is
+// deliberately being restarted: a request landing on the socket the old process
+// is closing is exactly what the poll is waiting through, and fatalling on it
+// fails the test for the condition it was told to expect.
+func answers(base, path string) bool {
+	r, err := httpGet(base + path)
+	return err == nil && r.status == 200
 }
 
 func httpGet(url string) (response, error) {

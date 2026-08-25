@@ -1,0 +1,11 @@
+{
+  "name": "rules_typescript_workers_test",
+  "version": "0.0.0",
+  "private": true,
+  "dependencies": {
+    "@cloudflare/vitest-pool-workers": "0.22.0",
+    "@cloudflare/workers-types": "5.20260825.1",
+    "vitest": "4.1.11",
+    "wrangler": "4.126.0"
+  }
+}

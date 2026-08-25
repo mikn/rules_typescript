@@ -91,6 +91,19 @@ def _ts_npm_package_impl(ctx):
     # direct declarations (not the full transitive closure).
     direct_decls = depset(dts_files, transitive = [types_dts_direct])
 
+    # The declaration files the manifest designated behind a subpath, resolved
+    # against what the package actually shipped. Matching on the package-relative
+    # suffix is what the two have in common: the dict is written at repo-rule
+    # time from the manifest, and these Files carry a repo-prefixed exec path.
+    package_root = package_dir.dirname
+    subpath_types = {}
+    for subpath, rel in ctx.attr.subpath_types.items():
+        want = package_root + "/" + rel
+        for f in dts_files:
+            if f.path == want:
+                subpath_types[subpath] = f
+                break
+
     ambient_types_file = None
     if ctx.attr.is_types_package:
         ambient_types_file = _ambient_entry(
@@ -137,6 +150,7 @@ def _ts_npm_package_impl(ctx):
                 order = "postorder",
             ),
             exports_types_file = ctx.file.exports_types,
+            subpath_types = subpath_types,
             ambient_types_file = ambient_types_file,
         ),
     ]
@@ -181,6 +195,15 @@ ts_npm_package = rule(
         "is_types_package": attr.bool(
             doc = "True if this package is a @types/* declaration package.",
             default = False,
+        ),
+        "subpath_types": attr.string_dict(
+            doc = "Each non-root `exports` subpath that designates a declaration, " +
+                  "mapped to that declaration's package-relative path. A consumer " +
+                  "naming one in `compiler_options[\"types\"]` gets the file in its " +
+                  "tsconfig `files`, which is the only way an ambient module a " +
+                  "package ships behind a subpath reaches the program: tsconfig " +
+                  "`types` resolves through node_modules, and npm packages reach " +
+                  "the compiler through `paths`.",
         ),
         "exports_types": attr.label(
             doc = "The specific .d.ts file exposed via exports['.']['types'] in package.json. " +

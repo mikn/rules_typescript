@@ -172,6 +172,14 @@ npm_dev.translate_lock(
     name = "npm_eslint",
     pnpm_lock = "//tests/eslint:pnpm-lock.yaml",
 )
+
+# Cloudflare Workers: the vitest pool that runs tests inside workerd, and the
+# wrangler that deploys them. One hub for both, since the pool depends on
+# wrangler and miniflare anyway.
+npm_dev.translate_lock(
+    name = "npm_workers",
+    pnpm_lock = "//tests/workers:pnpm-lock.yaml",
+)
 npm_dev.translate_lock(
     name = "npm_features",
     patches = [
@@ -183,7 +191,7 @@ npm_dev.translate_lock(
 
 use_repo(npm, "npm", "pnpm")
 
-use_repo(npm_dev, "npm_eslint", "npm_features", "npm_tailwind")
+use_repo(npm_dev, "npm_eslint", "npm_features", "npm_tailwind", "npm_workers")
 
 # ─── Bazel integration test binaries (dev only) ──────────────────────────────
 

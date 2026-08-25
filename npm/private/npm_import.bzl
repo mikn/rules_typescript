@@ -308,6 +308,40 @@ def _exports_types(pkg_json, has_file):
                 return named
     return ""
 
+def _exports_subpath_types(pkg_json, has_file):
+    """The declaration each non-root `exports` subpath designates, keyed by subpath.
+
+    The root entry is `_exports_types`' business; this is every other subpath,
+    which is where a package puts declarations that are not its entry point.
+    Ambient module declarations in particular: a package cannot put
+    `declare module "cloudflare:test"` in its entry point without forcing it on
+    every importer, so it ships a subpath nothing imports and the consumer names
+    that subpath instead.
+
+    tsconfig `types` cannot reach one of those under Bazel. TypeScript resolves a
+    `types` entry by walking node_modules for the package and reading its
+    manifest, and this ruleset has no node_modules to walk -- npm packages reach
+    the compiler through `paths`, which `types` does not consult. So the subpath
+    is resolved here, where the manifest is, and the file it names is put in the
+    consumer's `files`.
+
+    A subpath with a wildcard is skipped: it designates a pattern rather than a
+    file, and `_declaration_at` cannot name one.
+    """
+    exports = pkg_json.get("exports")
+    if type(exports) != "dict":
+        return {}
+    out = {}
+    for key in exports.keys():
+        if not key.startswith("./") or "*" in key:
+            continue
+        for target in _export_targets(exports[key]):
+            designated = _declaration_at(target, has_file)
+            if designated:
+                out[key] = designated
+                break
+    return out
+
 def _rctx_has_file(rctx):
     def has_file(path):
         return rctx.path(path).exists
@@ -448,6 +482,7 @@ def _npm_import_impl(rctx):
     lines.append('exports_files(["package.json"])\n')
 
     declaration_entry = _exports_types(pkg_json, _rctx_has_file(rctx))
+    subpath_declarations = _exports_subpath_types(pkg_json, _rctx_has_file(rctx))
 
     def _package_stanza(target_name, package_name):
         stanza = [
@@ -476,6 +511,11 @@ def _npm_import_impl(rctx):
             stanza.append("    is_types_package = True,")
         if declaration_entry:
             stanza.append('    exports_types = "{}",'.format(declaration_entry))
+        if subpath_declarations:
+            stanza.append("    subpath_types = {")
+            for subpath in sorted(subpath_declarations.keys()):
+                stanza.append('        "{}": "{}",'.format(subpath, subpath_declarations[subpath]))
+            stanza.append("    },")
         stanza.append(")\n")
         return "\n".join(stanza)
 
@@ -652,5 +692,6 @@ npm_hub = repository_rule(
 # Exported for the tests that pin the credential rules and the declaration a
 # package designates; the paths above are the only production callers.
 exports_types = _exports_types
+exports_subpath_types = _exports_subpath_types
 npmrc_auth = _npmrc_auth
 npmrc_auth_fields = _npmrc_auth_fields

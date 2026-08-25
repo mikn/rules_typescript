@@ -538,12 +538,28 @@ def _ts_test_runner_impl(ctx):
     # resolves that against the real file — bazel-bin, not the runfiles tree — so
     # the user's config has to exist there too.  rules_ts copies tsconfig.json
     # into bin for the same reason.
+    #
+    # Staged BESIDE the node_modules tree, not in the package directory: Vite
+    # leaves a bare import in a config file external, so Node resolves it by
+    # walking up from where that file sits, and the tree is one level deeper than
+    # the package (`<nm_target>/node_modules`, so two tests in one package do not
+    # collide). From the package directory that walk never reaches it, and a
+    # config importing the pool it installs -- which is what a Workers config is
+    # -- fails to load. As its sibling, the first directory the walk looks in is
+    # the tree itself.
     user_config = None
     if ctx.file.config:
-        user_config = ctx.actions.declare_file("_{}_vitest.user.config.{}".format(
+        config_basename = "_{}_vitest.user.config.{}".format(
             ctx.label.name,
             ctx.file.config.extension,
-        ))
+        )
+        if node_modules_files:
+            user_config = ctx.actions.declare_file(
+                config_basename,
+                sibling = node_modules_files[0],
+            )
+        else:
+            user_config = ctx.actions.declare_file(config_basename)
         ctx.actions.expand_template(
             template = ctx.file.config,
             output = user_config,
@@ -823,6 +839,22 @@ def _compile_setup_sources(name, sources, deps, target, jsx_mode, visibility):
     )
     return [":" + name] + [s for s in sources if s not in ts_sources]
 
+# The generated test compile is the ts_compile RULE, which takes one JSON blob
+# rather than the macro's lib / types / compiler_options -- so the macro's
+# folding of those three has to happen here too. Empty stays empty: the rule
+# treats an absent value differently from an empty object.
+def _test_compiler_options_json(lib, types, compiler_options):
+    opts = {}
+    if lib != None:
+        opts["lib"] = lib
+    if types != None:
+        opts["types"] = types
+    for key, value in (compiler_options or {}).items():
+        opts[key] = value
+    if not opts:
+        return ""
+    return json.encode(opts)
+
 # ─── Public macro ─────────────────────────────────────────────────────────────
 
 def ts_test(
@@ -840,6 +872,9 @@ def ts_test(
         target = "es2022",
         jsx_mode = "react-jsx",
         declarations = "tsgo",
+        lib = None,
+        types = None,
+        compiler_options = None,
         visibility = None,
         environment = "",
         coverage = False,
@@ -914,6 +949,16 @@ def ts_test(
                            `bazel coverage` is always on regardless of this
                            attr — every ts_test supports `bazel coverage`
                            without any opt-in.
+        lib:               Forwarded to the generated ts_compile: the `lib` set the
+                           tests type-check against. A worker test is what needs
+                           it -- webworker is in no set `target` implies.
+        types:             Forwarded to the generated ts_compile: ambient type
+                           packages to put in the program. A vitest pool that
+                           declares its own module (`cloudflare:test`) is
+                           reachable no other way, nothing importing the
+                           declaration.
+        compiler_options:  Forwarded to the generated ts_compile, for whatever
+                           the two above do not cover.
         config:            Vitest config, either a label pointing at a config file
                            (.ts/.mts/.js/.mjs) or an inline dict.  It is MERGED
                            into the config rules_typescript generates rather than
@@ -992,6 +1037,7 @@ def ts_test(
         target = target,
         jsx_mode = jsx_mode,
         declarations = declarations,
+        compiler_options_json = _test_compiler_options_json(lib, types, compiler_options),
         visibility = compile_visibility,
     )
 

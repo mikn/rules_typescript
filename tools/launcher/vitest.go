@@ -37,6 +37,14 @@ func planVitest(cfg *Config, r *Resolver, plan *Plan) (*Plan, error) {
 		return nil, err
 	}
 
+	// A user config is staged wherever its own imports resolve, which is not the
+	// package directory -- so a path it needs to name (the compiled worker a
+	// Workers pool boots, say) cannot be written relative to itself. The
+	// generated config does sit in the package's output directory, so its
+	// dirname is the anchor, and it is exported rather than derived so that
+	// moving either file does not silently change what a config resolves.
+	plan.setEnv("TS_TEST_PACKAGE_DIR", filepath.Dir(configFile))
+
 	shard, err := shardFiles(r, v.TestFilesList)
 	if err != nil {
 		return nil, err

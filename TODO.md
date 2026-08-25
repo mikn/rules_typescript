@@ -38,10 +38,10 @@ What is still thin:
 | node_modules trees | Every *resolution* placed — name, version and peer set (primary flat, the rest under `.pnpm/<name>@<version>[_<peer set>]/`, with a relative link per disagreeing edge) |
 | Gazelle BUILD generation | Production-ready (JS/TS, CSS, assets, path aliases from tsconfig.json, ts_dev_server); alias resolution is deterministic, extension-spelling specifiers resolve, and one scanner is shared with the strict-deps check. A run on this clean tree changes zero files (`bazel run //gazelle -- -mode=diff` prints no diff). CI pins two properties of a run (the output builds; generating twice from scratch is byte-identical); two more are verified by hand against this tree and are **not** a CI job (the suite still passes; the test-target set is unchanged) |
 | Testing (vitest) | Solid (DOM run for real, coverage, custom config, snapshots read *and* written, watch mode, debugging). Gap: `coverage_thresholds` enforcement is unproven |
-| Bundling | Vite bundler (production quality), exercised on Vite 8; single-file `vite_config`, imported from the source tree and so not hermetic (`ts_dev_server` loads a bin copy; `ts_bundle` does not) |
-| Dev server + HMR | Serves first-party source with Bazel out of the inner loop; resolves bare npm specifiers through the `node_modules` tree via the `bazel:npm-resolve` plugin; codegen rebuilds and config-aware restarts under ibazel; loads `vite_config` from a bin copy; does not typecheck |
+| Bundling | Vite bundler (production quality), exercised on Vite 8. `vite_config` composes: a TypeScript config plus the local modules it imports (`vite_config_srcs`), staged into bazel-bin by both `ts_bundle` and `ts_dev_server` and loaded through Vite's own config loader. Gap: a lib-mode bundle (`format = ...`) drops CSS imports; app mode emits them |
+| Dev server + HMR | Pluggable: `ts_dev_server(server = ...)` takes a `DevServerInfo`, Vite by default and oj (`//oj:dev_server`) as the second implementation, one generated config driving either. Serves first-party source with Bazel out of the inner loop; resolves bare npm specifiers through the `node_modules` tree via the `bazel:npm-resolve` plugin; codegen rebuilds and config-aware restarts under ibazel; does not typecheck. oj is not yet usable for an app with npm dependencies -- see below |
 | IDE integration | Generated tsconfig + tsserver hook; `module_name` and `extra_exclude` supported. One `compilerOptions` block cannot satisfy targets that disagree about `strict`/`lib`/`allowJs` |
-| CSS / assets | css_library, css_module, asset_library, json_library rules; CSS module mock in ts_test |
+| CSS / assets | css_library, css_module, asset_library, json_library rules; CSS module mock in ts_test. css_library copies the .css into bazel-bin, which is what makes a relative CSS import resolve for a bundler. Tailwind v4 works through `vite_config` in app mode (`//tests/tailwind`) |
 | Framework integration | TanStack Start and Remix get generated bundle targets, Remix with a nested-Bazel integration test; Next.js has its own `next_build`; SvelteKit and Solid Start are detected and get a named refusal instead of a target |
 | npm publishing | ts_npm_publish with auto-filled main/types/exports |
 | CI/CD | Docs: remote caching (BuildBuddy/EngFlow), RBE, GitLab CI, non-determinism — documented, not exercised by this repo's CI |
@@ -56,15 +56,49 @@ to rediscover them. Each names the file to change.
   what makes an untyped package reached transitively (vitest → @vitest/expect →
   chai) resolve to its `@types/*`. The IDE tsconfig the aspect writes still walks
   direct deps, so the editor sees `chai` as untyped where the build does not.
-- **`//tests/dev_server:dev_with_plugin_behaviour_test` is flaky in its
-  `restarts_on_config_change` subtest.** Seen once in three full
-  `--nocache_test_results` runs: `GET /app.ts: dial tcp: connection reset by
-  peer`. Once the restart count moves, the subtest polls `get(…)` inside
-  `eventually` until the server answers 200 — but `get` calls `t.Fatalf` on a
-  transport error, so a request that lands on the socket the old Vite is closing
-  kills the test instead of counting as one more failed poll. The retry loop needs
-  to tolerate a transport error; the assertion is that the server comes back, not
-  that every request in between connects.
+- **oj does not use a plugin `resolveId` result for a bare specifier.** Its own
+  resolver runs first, fails against a source tree that has no `node_modules`,
+  and discards the correct in-tree path that `this.resolve` does return -- so
+  every app with an npm dependency fails under `//oj:dev_server`. Verified
+  against oj 0.1.4 by logging from inside the plugin; the specifier reaches the
+  browser as oj's `/@id/<hash>` placeholder. Pinned, not skipped, by
+  `//tests/dev_server:dev_oj_behaviour_test`, so an upstream fix shows up as a
+  failing test. This is upstream, not ours to work around in a config both
+  servers read.
+- **A lib-mode `ts_bundle` drops CSS imports.** `mode = "app"` emits the CSS;
+  a bundle with `format = ...` produces no .css at all and strips the import
+  from the .js, Tailwind or not. Reproduced with a plain `css_library` dep, so
+  it is not a Tailwind or a plugin problem. `//tests/tailwind` therefore asserts
+  app mode.
+- **Tailwind v4 needs `@source` under Bazel.** Its content detection walks up
+  from the CSS applying `.gitignore` rules, and a build sandbox has no such tree
+  to walk, so with no `@source` it silently generates nothing. Not a bug to fix
+  -- naming the files to scan is the correct thing in a sandbox -- but it is not
+  discoverable from a green build that emits an empty stylesheet.
+- **The Workers vitest pool boots but cannot run a Bazel-compiled test.** The
+  pool starts workerd, finds the worker `main`, and reaches the test file; it
+  then fails to resolve `cloudflare:test`, because rewriting that import is part
+  of a transform the pool expects to own and Bazel hands it a .js that has
+  already been compiled. `//tests/workers` pins what does work -- the worker and
+  its tests typecheck, `cloudflare:test` included, through the subpath-`types`
+  resolution added for it. Closing this means letting the pool transform sources
+  rather than consuming compiled output, which is the same shape as the dev
+  server's "Bazel out of the inner loop".
+- **`ts_add_package` writes to the workspace root, not to a hub's directory.**
+  `bazel run //:add_package -- <pkg>` created a new `package.json` and
+  `pnpm-lock.yaml` at the repo root instead of touching
+  `//tests/npm`. `bazel run //:pnpm -- add <pkg> --lockfile-only --dir <dir>` is
+  the working form. The rule should take the hub directory.
+- **`//tests/npm/pnpm-lock.yaml` is a curated fixture that `pnpm` regenerates
+  destructively.** Its comments say what each entry proves, and it carries a
+  workspace link, a non-root importer, and a hand-placed tarball-prefix package
+  that nothing depends on. A `pnpm add` against it dropped that package and every
+  comment. New third-party dependencies belong in their own hub (`npm_tailwind`,
+  `npm_eslint`, `npm_workers`) unless they are testing the translator itself.
+- **`eslint-plugin/` and `tools/isolated-declarations-lint/` are two independent
+  implementations of the same plugin.** Different package names, licences and
+  vitest majors; both now build and test under Bazel. Which one survives is a
+  decision nobody has made.
 - **Two of the four Gazelle acceptance properties are hand-verified, not CI.**
   `//tests/integration:gazelle_roundtrip_test` pins that the output builds and
   that two from-scratch runs are byte-identical. It does **not** run `bazel test`

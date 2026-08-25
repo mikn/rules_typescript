@@ -31,5 +31,8 @@ ts_test(
         ":button_module",
         ":styles",
         "@npm//:vitest",
+        # The config's own bare import; without it in the tree the config that
+        # installs the plugin below cannot load.
+        "@npm//:zod",
     ],
 )

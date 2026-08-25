@@ -1,0 +1,58 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "ts_compile")
+
+package(default_visibility = ["//:__pkg__"])
+
+# @npm_workers is translated from these; nothing in this package builds them.
+exports_files([
+    "package.json",
+    "pnpm-lock.yaml",
+])
+
+# The targets below have srcs in src/; a BUILD file there would turn it into a
+# package and make those labels cross a package boundary.
+# gazelle:exclude src
+
+# gazelle:ts_npm_hub npm_workers
+
+# The worker itself. `webworker` is in no set `target` implies, so without lib
+# the Request/Response globals it is written against do not resolve.
+ts_compile(
+    name = "worker",
+    srcs = ["src/index.ts"],
+    lib = [
+        "esnext",
+        "webworker",
+    ],
+)
+
+# The test sources typecheck against `cloudflare:test`, which nothing imports a
+# declaration for: the pool ships it behind an `exports` subpath whose only
+# condition is `types`, which is what a package does with an ambient module it
+# must not force on every importer. Naming that subpath is the whole assertion --
+# tsconfig `types` resolves through a node_modules this ruleset does not have, so
+# the subpath is resolved from the manifest and the file it names is put in
+# `files`.
+#
+# Compiling rather than running: the pool boots workerd and finds this worker,
+# but rewriting the `cloudflare:test` import is part of a transform the pool
+# expects to own, and Bazel hands it a .js that has already been compiled. That
+# is recorded in TODO.md as the remaining Workers gap.
+ts_compile(
+    name = "worker_test_sources",
+    srcs = ["src/worker.test.ts"],
+    types = ["@cloudflare/vitest-pool-workers/types"],
+    deps = [
+        ":worker",
+        "@npm_workers//:cloudflare_vitest-pool-workers",
+        "@npm_workers//:vitest",
+    ],
+)
+
+build_test(
+    name = "worker_typecheck_test",
+    targets = [
+        ":worker",
+        ":worker_test_sources",
+    ],
+)

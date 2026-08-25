@@ -199,6 +199,45 @@ def _rebase_package_relative(entry, package_rel):
         return package_rel + "/" + entry
     return entry
 
+# A tsconfig `types` entry names a package, and TypeScript resolves it by walking
+# node_modules for that package and reading its manifest. There is no
+# node_modules here -- npm packages reach the compiler through `paths`, which
+# `types` does not consult -- so an entry that would have resolved natively
+# resolves to nothing and its declarations never join the program.
+#
+# So the entry is resolved here instead, against what the package's own manifest
+# designated: the root export for a bare name, and the matching `exports` subpath
+# for `pkg/sub`. The file goes in `files`, which is how every other ambient
+# declaration in this ruleset reaches tsgo.
+def _requested_type_files(ctx, npm_info):
+    requested = _requested_types(ctx)
+    if not requested:
+        return []
+    name = npm_info.package_name
+    out = []
+    for entry in requested:
+        if entry == name:
+            if npm_info.exports_types_file:
+                out.append(npm_info.exports_types_file)
+        elif entry.startswith(name + "/"):
+            subpath = "." + entry[len(name):]
+            designated = npm_info.subpath_types.get(subpath)
+            if designated:
+                out.append(designated)
+    return out
+
+def _requested_types(ctx):
+    """The compilerOptions.types this target asked for, or []."""
+    if not ctx.attr.compiler_options_json:
+        return []
+    decoded = json.decode(ctx.attr.compiler_options_json)
+    if type(decoded) != "dict":
+        return []
+    value = decoded.get("types")
+    if type(value) != "list":
+        return []
+    return [v for v in value if type(v) == "string"]
+
 def _generate_tsconfig(
         ctx,
         srcs,
@@ -985,6 +1024,9 @@ def _ts_compile_impl(ctx):
             if NpmPackageInfo in dep and dep[NpmPackageInfo].ambient_types_file:
                 entry = dep[NpmPackageInfo].ambient_types_file
                 ambient_dts[entry.path] = entry
+            if NpmPackageInfo in dep:
+                for entry in _requested_type_files(ctx, dep[NpmPackageInfo]):
+                    ambient_dts[entry.path] = entry
         if JsInfo in dep:
             transitive_js_sets.append(dep[JsInfo].transitive_js_files)
             transitive_js_map_sets.append(dep[JsInfo].transitive_js_map_files)
