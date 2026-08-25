@@ -13,10 +13,12 @@ framework that ships a Vite plugin fits, with the amount of proof varying:
 
 - **React + Vite** — SPA bundling, React Fast Refresh HMR, CSS modules (`examples/react-app`)
 - **TanStack Start** — the SPA bundle builds in CI (`examples/tanstack-app`, plus an integration test); the app-mode bundle that runs `tanstackStart()` through `vite_config` is excluded from CI with the blocker named in the workflow ([why](https://mikn.github.io/rules_typescript/guides/bundling/#framework-plugins-via-vite_config))
-- **Remix** — client bundle with route-based code splitting via the `@remix-run/dev` Vite plugin (`examples/remix-app`)
-- **SvelteKit, Solid Start** — Gazelle generates the targets and the `vite_config` hook takes the plugin, but nothing in this repository builds either one yet
+- **Remix** — client bundle with route-based code splitting via the `@remix-run/dev` Vite plugin. An integration test runs Gazelle over a fresh Remix workspace, builds what it wrote, and asserts a chunk per route (`//tests/integration:remix_test`, plus `examples/remix-app`)
+- **SvelteKit, Solid Start** — detected, and deliberately given **no** bundle target. Gazelle names the framework and says bundling it is unsupported, instead of writing a `ts_bundle` that cannot build; your TypeScript still compiles and tests ([the reason for each](https://mikn.github.io/rules_typescript/gazelle/overview/#framework-detection))
 
-Frameworks that don't use Vite (e.g., Next.js with webpack/turbopack) are not a priority.
+Frameworks that don't use Vite are not a priority. Next.js is the exception with
+a rule of its own — `next_build` runs the framework's own build
+(`examples/nextjs-app`, `//tests/integration:nextjs_test`).
 
 ## Key Ideas
 
@@ -26,7 +28,7 @@ Frameworks that don't use Vite (e.g., Next.js with webpack/turbopack) are not a 
 - **Isolated declarations, when you want them** — annotate a package's exports and set `declarations = "oxc"` to have Oxc emit its `.d.ts` syntactically. Type-checking then moves off the critical path, which on a deep dependency chain shortens it substantially ([measured](https://mikn.github.io/rules_typescript/rules/ts-compile/#cost-of-each-mode)). Opt-in, per package.
 - **Gazelle generates BUILD files** — infers targets from the directory tree, resolves imports to labels, and generates lint, bundler and dev-server targets. Nine `# gazelle:ts_*` directives configure it.
 - **Deps are what you declared** — a source may import only what a *direct* dep provides. A declaration that reaches a target through another dep's own deps no longer satisfies an import: the build fails naming the file, the specifier and the label to add, and `bazel run //:gazelle` writes it.
-- **npm without a store** — one Bazel repository per package, fetched on demand, behind a `@npm` alias hub. A target's npm cost is its own dependency closure, not the whole lockfile. A `node_modules` tree places every version a closure resolved, not just one per name.
+- **npm without a store** — one Bazel repository per package, fetched on demand, behind a `@npm` alias hub. A target's npm cost is its own dependency closure, not the whole lockfile. A `node_modules` tree places every *resolution* a closure made — name, version and peer set — not one directory per name.
 - **Only Bazelisk required** — Node.js, Go and Rust are fetched hermetically, and [pnpm too](https://mikn.github.io/rules_typescript/guides/npm/#hermetic-pnpm) if you want it. pnpm is needed only to edit the lockfile, never to build.
 
 ## Requirements
@@ -42,6 +44,12 @@ Supported platforms: Linux x86_64, Linux ARM64, macOS x86_64, macOS ARM64.
 hermetic pnpm binary are published for it. A few of our own build actions still
 run through a bash wrapper too. See
 [COMPATIBILITY.md](COMPATIBILITY.md#windows).
+
+Vite and vitest are your dependencies, not the ruleset's — they come from your
+own lockfile, and the rules generate configuration for whichever version that
+resolves to. Which versions the repository's own tests exercise, and where a
+generated config is version-sensitive, is in
+[COMPATIBILITY.md](COMPATIBILITY.md#vite-and-vitest).
 
 ## Install
 

@@ -15,9 +15,8 @@ ts_compile(
     enable_check = False,
 )
 
-# The entry point the dev servers below use. Separate from :app because :app is
-# a //:refresh_tsconfig root, and a module_name reachable from one of those
-# lands in the checked-in tsconfig.json.
+# The dev servers' entry point, and a //:refresh_tsconfig root: its dep on a
+# `module_name` package feeds both the vite config alias and the IDE paths entry.
 ts_compile(
     name = "dev_app",
     srcs = ["dev_app.ts"],

@@ -123,9 +123,11 @@ def _generate_vite_config(ctx, entry_js_file, bundle_filename, out_dir_rel, tran
     # sourcemap value: true or false (Vite accepts boolean or 'inline')
     sourcemap_js = "true" if ctx.attr.sourcemap else "false"
 
-    # minify value: "esbuild" (default), "terser", or false
-    # We map the bool attr to Vite's expected value string or false.
-    minify_js = '"esbuild"' if getattr(ctx.attr, "minify", True) else "false"
+    # `true` is the default minifier for the running Vite, which naming one
+    # ("esbuild", "terser") is not: both are optional peer dependencies, absent
+    # from a node_modules tree built from `deps = ["@npm//:vite"]` alone.
+    minify = getattr(ctx.attr, "minify", True)
+    minify_js = "true" if minify else "false"
 
     # The entry path and outDir are passed via env vars (set by the wrapper).
     # VITE_ENTRY_PATH: absolute path to the entry .js file
@@ -134,7 +136,8 @@ def _generate_vite_config(ctx, entry_js_file, bundle_filename, out_dir_rel, tran
     # The output filename uses a function to force the pattern:
     #   <bundle_filename>.<vite_format>.js
     # e.g., "entry.es.js", "entry.cjs.js", "entry.iife.js"
-    # This is required because Vite 6 defaults to .mjs for es format.
+    # This is required because Vite derives the extension from the nearest
+    # package.json "type", which no directory in the output tree declares.
     filename_fn = '() => "' + bundle_filename + "." + vite_format + '.js"'
 
     # ── resolve.alias — map Bazel package paths to their bazel-bin outputs ──
@@ -174,18 +177,33 @@ def _generate_vite_config(ctx, entry_js_file, bundle_filename, out_dir_rel, tran
     alias_js = "{\n" + "\n".join(alias_entries) + "\n  }" if alias_entries else "{}"
 
     # ── split_chunks — manualChunks splitting strategy ──────────────────────
-    # When split_chunks=True, use Rollup's splitVendorChunkPlugin approach by
-    # providing a manualChunks function that splits vendor (node_modules) code
-    # into a separate "vendor" chunk.  Vite 5+ ships splitVendorChunkPlugin as
-    # a named export.  Since we target Vite 5+, we import it directly.
+    # `output.manualChunks` is the option every Vite generation has honoured;
+    # the vendor-splitting plugin that used to wrap it was removed in Vite 7.
     split_chunks = getattr(ctx.attr, "split_chunks", False)
 
     if split_chunks:
-        split_vendor_import = "import { splitVendorChunkPlugin } from \"vite\";\n"
-        split_vendor_plugin = "splitVendorChunkPlugin()"
+        split_vendor_decl = (
+            "\n" +
+            "// Third-party code goes to its own chunk, so a first-party edit\n" +
+            "// leaves the vendor chunk's content hash untouched.\n" +
+            "const vendorChunk = (id) =>\n" +
+            "  id.includes(\"node_modules\") ? \"vendor\" : undefined;\n"
+        )
     else:
-        split_vendor_import = ""
-        split_vendor_plugin = ""
+        split_vendor_decl = ""
+
+    # `build.minify: false` still runs the bundler's dead-code pass, which
+    # re-emits every chunk from its AST and so discards whatever a plugin's
+    # renderChunk returned. Naming the output-level option is what makes
+    # minify = False mean the text the plugins produced.
+    output_entries = []
+    if split_chunks:
+        output_entries.append("        manualChunks: vendorChunk,\n")
+    if not minify:
+        output_entries.append("        minify: false,\n")
+    output_js = (
+        "      output: {\n" + "".join(output_entries) + "      },\n"
+    ) if output_entries else ""
 
     # ── User-config plugin injection ─────────────────────────────────────────
     # When a vite_config file is provided, the generated config dynamically
@@ -245,13 +263,8 @@ def _generate_vite_config(ctx, entry_js_file, bundle_filename, out_dir_rel, tran
         # which would produce a path that doesn't exist in the sandbox.
 
         # Build the plugins array: user plugins first (when present), then
-        # bazelEntryPlugin (required for app mode HTML rewriting), then optionally
-        # splitVendorChunkPlugin when split_chunks is also requested in app mode.
-        if split_vendor_plugin:
-            system_plugins = "bazelEntryPlugin, " + split_vendor_plugin
-        else:
-            system_plugins = "bazelEntryPlugin"
-        plugins_list = user_plugins_prefix + system_plugins
+        # bazelEntryPlugin (required for app mode HTML rewriting).
+        plugins_list = user_plugins_prefix + "bazelEntryPlugin"
 
         # When staging_srcs is present, VITE_STAGING_ROOT is set by the wrapper
         # and takes priority over everything else as the Vite root. The staging
@@ -288,7 +301,7 @@ def _generate_vite_config(ctx, entry_js_file, bundle_filename, out_dir_rel, tran
             "// Entry and output paths are passed via environment variables by the\n" +
             "// vite_bundler wrapper script for sandbox compatibility.\n" +
             "import { defineConfig } from \"vite\";\n" +
-            split_vendor_import +
+            split_vendor_decl +
             "\n" +
             "const entryPath = process.env[\"VITE_ENTRY_PATH\"];\n" +
             "const outDir = process.env[\"VITE_OUT_DIR\"];\n" +
@@ -336,6 +349,7 @@ def _generate_vite_config(ctx, entry_js_file, bundle_filename, out_dir_rel, tran
             "    outDir: outDir,\n" +
             "    rollupOptions: {\n" +
             "      input: htmlPath,\n" +
+            output_js +
             "    },\n" +
             "    sourcemap: " + sourcemap_js + ",\n" +
             "    minify: " + minify_js + ",\n" +
@@ -350,19 +364,14 @@ def _generate_vite_config(ctx, entry_js_file, bundle_filename, out_dir_rel, tran
         )
     else:
         # ── Lib mode (default): use build.lib ───────────────────────────────
-        # Build plugins line: present when user_config, split_chunks, or both.
-        if user_plugins_prefix or split_vendor_plugin:
-            lib_plugins_content = user_plugins_prefix + split_vendor_plugin
-            lib_plugins_line = "  plugins: [" + lib_plugins_content + "],\n"
-        else:
-            lib_plugins_line = ""
+        lib_plugins_line = "  plugins: [_userPlugins],\n" if user_config_file else ""
         config_content = (
             "// Generated by rules_typescript ts_bundle for " + str(ctx.label) + "\n" +
             "// DO NOT EDIT — regenerated on every build.\n" +
             "// Entry and output paths are passed via environment variables by the\n" +
             "// vite_bundler wrapper script for sandbox compatibility.\n" +
             "import { defineConfig } from \"vite\";\n" +
-            split_vendor_import +
+            split_vendor_decl +
             "\n" +
             "const entryPath = process.env[\"VITE_ENTRY_PATH\"];\n" +
             "const outDir = process.env[\"VITE_OUT_DIR\"];\n" +
@@ -387,6 +396,7 @@ def _generate_vite_config(ctx, entry_js_file, bundle_filename, out_dir_rel, tran
             "    emptyOutDir: false,\n" +
             "    rollupOptions: {\n" +
             "      external: " + externals_js + ",\n" +
+            output_js +
             "    },\n" +
             "  },\n" +
             "  resolve: {\n" +
@@ -750,11 +760,11 @@ ts_bundle = rule(
             default = True,
         ),
         "minify": attr.bool(
-            doc = "Whether to minify the bundle output. When True, uses esbuild minification (Vite default). Default True.",
+            doc = "Whether to minify the bundle output. True selects the running Vite's own default minifier (esbuild on 6, oxc on 8); False also pins the bundler's dead-code pass off, so a plugin's renderChunk output survives. Default True.",
             default = True,
         ),
         "split_chunks": attr.bool(
-            doc = "When True, enable chunk splitting via splitVendorChunkPlugin. The output is a directory instead of a single file. Only supported in generated-config mode (Vite bundler). Default False.",
+            doc = "When True, split third-party (node_modules) code into a separate \"vendor\" chunk via build.rollupOptions.output.manualChunks. The output is a directory instead of a single file. Only supported in generated-config mode (Vite bundler). Default False.",
             default = False,
         ),
         "external": attr.string_list(
@@ -847,8 +857,8 @@ In BUILD:
         vite_config = "my-framework-vite-config.mjs",
     )
 
-User plugins are inserted before Bazel's system plugins (e.g. bazelEntryPlugin,
-splitVendorChunkPlugin) so that framework transforms run first during bundling.
+User plugins are inserted before Bazel's system plugins (e.g. bazelEntryPlugin)
+so that framework transforms run first during bundling.
 
 Only supported when using a Vite bundler (use_generated_config = True).
 Ignored for bundlers that use the standard CLI interface.

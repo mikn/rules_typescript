@@ -15,16 +15,20 @@ import (
 // indexedRule is one rule to put in the RuleIndex: a kind, a target name, the
 // Bazel package it lives in, and its srcs.
 type indexedRule struct {
-	kind string
-	name string
-	pkg  string
-	srcs []string
+	kind       string
+	name       string
+	pkg        string
+	srcs       []string
+	moduleName string
 }
 
 func newRule(ir indexedRule) (*rule.Rule, *rule.File) {
 	r := rule.NewRule(ir.kind, ir.name)
 	if ir.srcs != nil {
 		r.SetAttr("srcs", ir.srcs)
+	}
+	if ir.moduleName != "" {
+		r.SetAttr("module_name", ir.moduleName)
 	}
 	return r, rule.EmptyFile("BUILD.bazel", ir.pkg)
 }
@@ -78,6 +82,26 @@ func TestImportsForRule_TsCompile(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("importsForRule(ts_compile) = %v, want %v", got, want)
+	}
+}
+
+func TestImportsForRule_ModuleNameIsIndexed(t *testing.T) {
+	c := emptyConfig()
+	r, f := newRule(indexedRule{
+		kind: "ts_compile", name: "lib", pkg: "packages/lib",
+		srcs: []string{"index.ts", "helpers.ts"}, moduleName: "@acme/lib",
+	})
+
+	got := specStrings(importsForRule(c, r, f))
+	want := []string{
+		"packages/lib/index",
+		"packages/lib",
+		"packages/lib/helpers",
+		"@acme/lib",
+		"@acme/lib/helpers",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("importsForRule(module_name) = %v, want %v", got, want)
 	}
 }
 
@@ -221,6 +245,10 @@ func TestResolveRelative(t *testing.T) {
 		indexedRule{kind: "ts_compile", name: "lib", pkg: "src/lib", srcs: []string{"index.ts", "math.ts"}},
 		indexedRule{kind: "ts_compile", name: "app", pkg: "src/app", srcs: []string{"index.ts", "main.ts"}},
 		indexedRule{kind: "css_module", name: "styles", pkg: "src/app", srcs: []string{"Button.module.css"}},
+		// A target whose name is not its directory basename: only an index hit
+		// can produce this label, so a row wanting it cannot be satisfied by
+		// the constructed-label fallback.
+		indexedRule{kind: "ts_compile", name: "core", pkg: "src/lib", srcs: []string{"helper.ts"}},
 	)
 	from := label.New("", "src/app", "app")
 
@@ -236,6 +264,12 @@ func TestResolveRelative(t *testing.T) {
 		// label, which is what Bazel wants in that BUILD file.
 		{"css module by filename", "./Button.module.css", ":styles"},
 		{"unindexed directory falls back to a constructed label", "../generated/api", "//src/generated/api"},
+		// The extension a specifier spells out is not part of any index key:
+		// importsForRule drops it from every source it indexes. These are the
+		// two ways TypeScript lets one be spelled out.
+		{"nodenext .js specifier for a .ts source", "../lib/helper.js", "//src/lib:core"},
+		{"allowImportingTsExtensions specifier", "../lib/helper.ts", "//src/lib:core"},
+		{"nodenext .js specifier inside the package", "./main.js", ""},
 	} {
 		if got := resolveRelative(c, ix, tt.imp, from); got != tt.want {
 			t.Errorf("%s: resolveRelative(%q) = %q, want %q", tt.name, tt.imp, got, tt.want)
@@ -243,22 +277,73 @@ func TestResolveRelative(t *testing.T) {
 	}
 }
 
-func TestLabelFromRel(t *testing.T) {
-	// The fallback treats the whole path as a package whose target is named
-	// after its last segment -- which is right for the directory imports it
-	// exists for ("src/lib" -> //src/lib) and, for a file path, produces a
-	// label for a package that does not exist ("src/lib/math.ts" ->
-	// //src/lib/math). Pinned here as the current contract.
-	for rel, want := range map[string]string{
-		"src/lib/math.ts":  "//src/lib/math",
-		"src/lib/index.ts": "//src/lib",
-		"src/lib/index":    "//src/lib",
-		"src/lib":          "//src/lib",
-		"index.ts":         "",
-		"":                 "",
+// A specifier reaching a target whose srcs live in a subdirectory of its own
+// package -- the layout `# gazelle:exclude` protects -- resolves to that target
+// and not to a package label for the subdirectory, which is not a package.
+func TestResolveRelative_SrcsInSubdirectoryOfThePackage(t *testing.T) {
+	c := emptyConfig()
+	c.Exts[languageName] = makeConfig("", nil)
+	ix := buildIndex(t, c,
+		indexedRule{kind: "ts_compile", name: "everything", pkg: "pkg", srcs: []string{"nested/leaf.ts", "util.js", "root.ts"}},
+	)
+	from := label.New("", "consumer", "consumer")
+
+	for imp, want := range map[string]string{
+		"../pkg/nested/leaf.js": "//pkg:everything",
+		"../pkg/nested/leaf":    "//pkg:everything",
+		"../pkg/util.js":        "//pkg:everything",
 	} {
-		if got := labelFromRel(rel); got != want {
-			t.Errorf("labelFromRel(%q) = %q, want %q", rel, got, want)
+		if got := resolveRelative(c, ix, imp, from); got != want {
+			t.Errorf("resolveRelative(%q) = %q, want %q", imp, got, want)
+		}
+	}
+}
+
+func TestLabelForUnindexed(t *testing.T) {
+	// The package is the module's directory. For a path naming a file that is
+	// the parent -- naming the file itself would be a package that cannot
+	// exist -- and for a directory import it is the path itself.
+	from := label.New("", "src/app", "app")
+	for rel, want := range map[string]string{
+		"src/lib/math.ts":           "//src/lib",
+		"src/lib/math.js":           "//src/lib",
+		"src/lib/data.json":         "//src/lib",
+		"src/lib/Button.module.css": "//src/lib",
+		"src/lib/logo.svg":          "//src/lib",
+		"src/lib/index.ts":          "//src/lib",
+		"src/lib/index":             "//src/lib",
+		"src/lib":                   "//src/lib",
+		// A dot in a directory name is not an extension.
+		"src/lib.v2": "//src/lib.v2",
+		// Nothing outside the workspace, and nothing for the importer's own
+		// package: a label on that would be a cycle.
+		"index.ts":     "",
+		"src/app/x.ts": "",
+		"src/app":      "",
+		"..":           "",
+		"":             "",
+	} {
+		if got := labelForUnindexed(rel, from); got != want {
+			t.Errorf("labelForUnindexed(%q) = %q, want %q", rel, got, want)
+		}
+	}
+}
+
+func TestModuleIndexKeys_DropsTheSpelledOutExtension(t *testing.T) {
+	keys := moduleIndexKeys("src/lib/math.js", []string{".ts"})
+	want := []string{
+		"src/lib/math.js",
+		"src/lib/math",
+		"src/lib/math.ts",
+		"src/lib/math/index.ts",
+		"src/lib/math/index.tsx",
+	}
+	if len(keys) != len(want) {
+		t.Fatalf("moduleIndexKeys = %q, want %q", keys, want)
+	}
+	for i := range want {
+		if keys[i] != want[i] {
+			t.Errorf("moduleIndexKeys[%d] = %q, want %q", i, keys[i], want[i])
 		}
 	}
 }
@@ -299,6 +384,7 @@ func TestResolvePathAlias(t *testing.T) {
 		// import target, which is what the sub-path fallback below looks for.
 		indexedRule{kind: "ts_compile", name: "utils", pkg: "src/utils", srcs: []string{"index.ts"}},
 		indexedRule{kind: "ts_compile", name: "ui", pkg: "packages/ui/src", srcs: []string{"index.ts"}},
+		indexedRule{kind: "ts_compile", name: "core", pkg: "src/lib", srcs: []string{"helper.ts"}},
 	)
 	from := label.New("", "src/app", "app")
 
@@ -312,6 +398,11 @@ func TestResolvePathAlias(t *testing.T) {
 		{"second alias with a different prefix", "~ui/", "//packages/ui/src:ui"},
 		{"sub-path compiled into the parent package", "@/utils/helpers", "//src/utils"},
 		{"unindexed alias target falls back to a label", "@/generated/api", "//src/generated/api"},
+		// An alias specifier can spell the extension out for the same reasons a
+		// relative one can.
+		{"alias with a nodenext .js extension", "@/lib/helper.js", "//src/lib:core"},
+		{"alias with a .ts extension", "@/lib/helper.ts", "//src/lib:core"},
+		{"unindexed alias file falls back to its directory", "@/generated/api.ts", "//src/generated"},
 	} {
 		if got := resolvePathAlias(c, ix, tc, tt.imp, from); got != tt.want {
 			t.Errorf("%s: resolvePathAlias(%q) = %q, want %q", tt.name, tt.imp, got, tt.want)
@@ -591,5 +682,41 @@ func TestNpmLabelForImport_RejectsSchemeSpecifiers(t *testing.T) {
 	}
 	if got := resolveNpmPackage(tc, "zod"); got != "@npm//:zod" {
 		t.Errorf("resolveNpmPackage(\"zod\") = %q, want @npm//:zod", got)
+	}
+}
+
+// ---- bare specifiers -------------------------------------------------------
+
+func TestResolveImport_BareSpecifiers(t *testing.T) {
+	c := emptyConfig()
+	c.Exts[languageName] = makeConfig("", nil)
+	tc := getConfig(c)
+	ix := buildIndex(t, c,
+		indexedRule{
+			kind: "ts_compile", name: "lib", pkg: "packages/lib",
+			srcs: []string{"index.ts"}, moduleName: "@acme/lib",
+		},
+	)
+	from := label.New("", "app", "app")
+
+	for _, tt := range []struct {
+		name string
+		imp  string
+		want string
+	}{
+		// A workspace link's package name is a first-party target, not a
+		// package in the hub.
+		{"module_name of a first-party target", "@acme/lib", "//packages/lib"},
+		// Node builtins are not packages under either spelling.
+		{"bare builtin", "path", ""},
+		{"bare builtin sub-path", "fs/promises", ""},
+		{"prefixed builtin", "node:path", ""},
+		// Everything else still gets the hub label.
+		{"npm package", "zod", "@npm//:zod"},
+		{"scoped npm package", "@tanstack/router", "@npm//:tanstack_router"},
+	} {
+		if got := resolveImport(c, ix, tc, tt.imp, from); got != tt.want {
+			t.Errorf("%s: resolveImport(%q) = %q, want %q", tt.name, tt.imp, got, tt.want)
+		}
 	}
 }

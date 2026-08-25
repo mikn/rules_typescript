@@ -5,6 +5,9 @@ load("//ts:defs.bzl", "ts_lint")
 # Go language would add a second target for the same source.
 # gazelle:exclude *_test.go
 
+# violations.ts exists to fail the linter, so no generated target may lint it.
+# gazelle:ts_exclude violations.ts
+
 # ── oxlint config ─────────────────────────────────────────────────────────────
 # The oxlint.json enables the no-var rule so that violations.ts fails.
 

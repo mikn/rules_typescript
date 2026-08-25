@@ -5,10 +5,6 @@ load("//ts:defs.bzl", "ts_compile")
 
 package(default_visibility = ["//:__pkg__"])
 
-# The go_test is hand-named after the sh_test it replaced, so the Go language
-# would add a second target for the same source.
-# gazelle:exclude *_test.go
-
 # main.ts imports "./math.js" and assigns add()'s result to a number. That only
 # checks if math.js is in the program AND its JSDoc is read, so the build is the
 # assertion for allowJs. checkJs additionally puts math.js's own body under

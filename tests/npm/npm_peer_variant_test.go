@@ -37,4 +37,15 @@ func TestPeerVariantsAndPerImporterResolution(t *testing.T) {
 			t.Errorf("%s/%s is %s, want %s\n  %s", nm.Name(), c.pkg, pkg.Version, c.want, c.why)
 		}
 	}
+
+	// A peer suffix on its own costs nothing. app-a's tree holds exactly one
+	// resolution of ansi-styles, and it is a suffixed one, so it keeps the flat
+	// top-level directory and the tree has no store at all. Only a SECOND
+	// resolution of one name needs one -- which is what keeps the decoration-only
+	// suffixes pnpm writes, `(patch_hash=...)` among them, off the layout.
+	a := tree.FoundDir("*/peer_variant_a_node_modules")
+	a.File("ansi-styles/package.json").Contains(`"version": "6.2.3"`)
+	if store := tree.Find("*/peer_variant_a_node_modules/.pnpm"); len(store) != 0 {
+		t.Errorf("peer_variant_a_node_modules has a .pnpm store (%v); one resolution per name needs none", store)
+	}
 }

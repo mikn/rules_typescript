@@ -24,6 +24,7 @@ load(
     "parse_importers",
     "parse_patched_dependencies",
     "parse_pnpm_lock",
+    "peer_suffix_dir_name",
 )
 
 # A lockfile with one of every block, in the order pnpm writes them.
@@ -298,6 +299,39 @@ def _snapshots_keep_peer_variants_test(ctx):
     return unittest.end(env)
 
 snapshots_keep_peer_variants_test = unittest.make(_snapshots_keep_peer_variants_test)
+
+_DIR_UNSAFE = "()@/.,'\"+ "
+
+def _peer_tokens_separate_peer_sets_test(ctx):
+    env = unittest.begin(ctx)
+
+    # The token names one peer set, and it names the store directory a
+    # non-primary resolution's files go in as well as the repository they come
+    # from. So it has to be a filename, and it has to be different for peer sets
+    # that are different -- including two that agree for their first hundred
+    # characters, which nested peer sets routinely do. A token that collided
+    # would merge two resolutions into one directory, which is the whole bug.
+    asserts.equals(env, "", peer_suffix_dir_name(""))
+
+    long_a = "(react@18.3.1)(react-dom@18.3.1)(typescript@5.9.3)(vite@6.4.1)(zod@3.24.2)"
+    long_b = "(react@18.3.1)(react-dom@18.3.1)(typescript@5.9.3)(vite@6.4.1)(zod@4.1.13)"
+    tokens = [
+        peer_suffix_dir_name(suffix)
+        for suffix in ("(ansi-regex@5.0.1)", "(ansi-regex@6.2.2)", long_a, long_b)
+    ]
+    asserts.equals(env, 4, len(({token: True for token in tokens}).keys()))
+
+    for token in tokens:
+        for ch in _DIR_UNSAFE.elems():
+            asserts.true(
+                env,
+                ch not in token,
+                "peer token {} holds {}, which is not usable in a path component".format(token, ch),
+            )
+
+    return unittest.end(env)
+
+peer_tokens_separate_peer_sets_test = unittest.make(_peer_tokens_separate_peer_sets_test)
 
 def _importers_resolve_per_importer_test(ctx):
     env = unittest.begin(ctx)
@@ -646,6 +680,7 @@ def parser_test_suite(name):
         patched_dependencies_test,
         patch_file_names_test,
         snapshots_keep_peer_variants_test,
+        peer_tokens_separate_peer_sets_test,
         importers_resolve_per_importer_test,
         importer_links_are_importer_relative_test,
         npmrc_registries_test,

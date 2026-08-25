@@ -76,6 +76,16 @@ cannot silently demand annotations across a whole tree.
 
 This maps `import { x } from "@/utils"` to `//src/utils`.
 
+A generated target carries the aliases its own imports match, plus any alias
+whose directory holds its own sources — which is exactly the set `ts_compile`
+accepts, so a generated target cannot trip
+[its alias validation](../rules/ts-compile.md#the-two-hard-errors). The practical
+effect is that the directive reaches `compilerOptions.paths` in the
+[IDE tsconfig](../getting-started/ide-setup.md) as soon as you declare it,
+without waiting for a source to import through it. Aliases Gazelle reads back out
+of a `tsconfig.json` this ruleset generated are an echo of its own output, not a
+declaration, and are not re-emitted.
+
 ### Add runtime deps to all tests
 
 ```python

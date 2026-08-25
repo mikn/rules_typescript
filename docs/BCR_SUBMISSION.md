@@ -367,16 +367,21 @@ Common issues:
 
 ### BCR Metadata Issues
 
-Validate files locally:
+The BCR PR's own presubmit validates all three files and names the file and line
+it rejected — that is the authority. For a faster local check on the two JSON
+files, with nothing to install:
 
 ```bash
-# Validate JSON
-python3 -c "import json; json.load(open('.bcr/metadata.json'))"
-python3 -c "import json; json.load(open('.bcr/source.json'))"
-
-# Validate YAML
-python3 -c "import yaml; yaml.safe_load(open('.bcr/presubmit.yml'))"
+python3 -m json.tool .bcr/metadata.json  > /dev/null
+python3 -m json.tool .bcr/source.json    > /dev/null
 ```
+
+`json.tool` is stdlib, so any `python3` will do. There is no stdlib equivalent
+for `.bcr/presubmit.yml`; leave that one to the presubmit rather than installing
+a YAML parser for it.
+
+This is a maintainer's local convenience, not a dependency: no rule, action or
+toolchain in rules_typescript uses Python.
 
 ### Integrity Hash Mismatch
 

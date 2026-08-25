@@ -247,6 +247,23 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		}
 	}
 
+	// Two targets over one source declare the same .js and .d.ts, which Bazel
+	// rejects as conflicting actions rather than tolerating as a duplicate.
+	if claimed := claimedSrcs(args, tc); len(claimed) > 0 {
+		srcFiles = dropClaimed(srcFiles, claimed)
+		testFiles = dropClaimed(testFiles, claimed)
+		cssFiles = dropClaimed(cssFiles, claimed)
+		cssModuleFiles = dropClaimed(cssModuleFiles, claimed)
+		assetFiles = dropClaimed(assetFiles, claimed)
+		jsonFiles = dropClaimed(jsonFiles, claimed)
+		hasIndex = false
+		for _, f := range srcFiles {
+			if isIndexFile(f) {
+				hasIndex = true
+			}
+		}
+	}
+
 	// Also check GenFiles: a generated index file counts as a boundary only
 	// when there are regular source files present too. Without regular source
 	// files the generated index alone would cause an empty ts_compile cleanup
@@ -361,14 +378,6 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 			r.SetAttr("declarations", tc.declarations)
 		}
 
-		// Propagate path aliases from tsconfig.json / directives / gazelle_ts.json
-		// into the generated ts_compile rule so that tsgo type-checking can resolve
-		// source-level path aliases (e.g. "@/components") without emitting
-		// false "Cannot find module" errors.
-		if len(tc.pathAliases) > 0 {
-			r.SetAttr("path_aliases", tc.pathAliases)
-		}
-
 		// Collect imports for all src files.
 		var allImports []string
 		for _, f := range srcFiles {
@@ -379,6 +388,13 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 				continue
 			}
 			allImports = append(allImports, imps...)
+		}
+
+		// Aliases let tsgo resolve source-level specifiers like "@/components".
+		// One tsconfig `paths` map serves a whole workspace, so a target takes
+		// only the entries it can carry -- see usedPathAliases.
+		if used := usedPathAliases(tc, args.Rel, srcFiles, allImports); len(used) > 0 {
+			r.SetAttr("path_aliases", used)
 		}
 
 		gen = append(gen, r)
@@ -605,17 +621,22 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	// pattern but still exist in the current BUILD file. This allows Gazelle
 	// to clean up stale auto-generated ts_codegen rules when the trigger files
 	// are removed (e.g. schema.prisma deleted).
+	//
+	// Only the names the built-in detectors use: `outs` is mergeable, so an
+	// empty rule strips it from whatever it matches, hand-written or not.
 	if args.File != nil {
-		// Build a set of names that were just generated so we know which
-		// existing ts_codegen rules are stale.
 		generatedNames := make(map[string]bool, len(codegenPatterns))
 		for _, p := range codegenPatterns {
 			generatedNames[p.Name] = true
 		}
 		for _, existingRule := range args.File.Rules {
-			if existingRule.Kind() == "ts_codegen" && !generatedNames[existingRule.Name()] {
-				empty = append(empty, rule.NewRule("ts_codegen", existingRule.Name()))
+			if existingRule.Kind() != "ts_codegen" {
+				continue
 			}
+			if generatedNames[existingRule.Name()] || !detectorCodegenNames[existingRule.Name()] {
+				continue
+			}
+			empty = append(empty, rule.NewRule("ts_codegen", existingRule.Name()))
 		}
 	}
 
@@ -729,6 +750,109 @@ func generatePnpmTargets(args language.GenerateArgs) ([]*rule.Rule, []any) {
 }
 
 // ---- helper functions ------------------------------------------------------
+
+// detectorCodegenNames mirrors the names the detectors in codegen.go emit.
+// Change one there, change it here.
+var detectorCodegenNames = map[string]bool{
+	"route_tree":    true,
+	"prisma_client": true,
+	"graphql_types": true,
+	"api_types":     true,
+}
+
+// compilingKinds declare a per-source output for every src they list.
+var compilingKinds = map[string]bool{
+	"ts_compile":    true,
+	"ts_test":       true,
+	"css_library":   true,
+	"css_module":    true,
+	"asset_library": true,
+	"json_library":  true,
+}
+
+// claimedSrcs returns the srcs of the rules in this build file that Gazelle is
+// not about to write. A glob() srcs expression reads as no names.
+func claimedSrcs(args language.GenerateArgs, tc *tsConfig) map[string]struct{} {
+	if args.File == nil {
+		return nil
+	}
+	ours := reservedTSTargetNames(tc, args.Rel)
+	claimed := make(map[string]struct{})
+	for _, r := range args.File.Rules {
+		// Gazelle writes neither attribute, so what they name survives the merge
+		// and is compiled -- including on the ts_test Gazelle owns.
+		if r.Kind() == "ts_test" {
+			for _, attr := range []string{"setup_files", "global_setup"} {
+				for _, src := range r.AttrStrings(attr) {
+					claimed[src] = struct{}{}
+				}
+			}
+		}
+		if !compilingKinds[r.Kind()] {
+			continue
+		}
+		if _, mine := ours[r.Name()]; mine {
+			continue
+		}
+		for _, src := range r.AttrStrings("srcs") {
+			claimed[src] = struct{}{}
+		}
+	}
+	return claimed
+}
+
+func dropClaimed(files []string, claimed map[string]struct{}) []string {
+	var kept []string
+	for _, f := range files {
+		if _, taken := claimed[f]; !taken {
+			kept = append(kept, f)
+		}
+	}
+	return kept
+}
+
+// usedPathAliases narrows the inherited alias map to the entries this target can
+// carry: the ones its own imports resolve through, plus the ones whose directory
+// holds its own sources.
+//
+// The second set carries the alias into the IDE tsconfig, which only learns an
+// alias exists from the targets that declare it. It covers directive-declared
+// aliases only: one read back out of a generated tsconfig is an echo, not a
+// declaration.
+func usedPathAliases(tc *tsConfig, rel string, srcs, imports []string) map[string]string {
+	if len(tc.pathAliases) == 0 {
+		return nil
+	}
+	used := make(map[string]string)
+	for _, imp := range imports {
+		if m, ok := matchPathAlias(tc, imp); ok {
+			used[m.prefix] = m.dir
+		}
+	}
+	for prefix, dir := range tc.pathAliases {
+		if tc.aliasesFromDirectives && aliasCoversSrcs(dir, rel, srcs) {
+			used[prefix] = dir
+		}
+	}
+	return used
+}
+
+// aliasCoversSrcs mirrors ts_compile's _validate_path_aliases: an alias holds only
+// when one of the target's own sources sits at or under its directory.
+func aliasCoversSrcs(dir, rel string, srcs []string) bool {
+	norm := strings.TrimSuffix(dir, "/")
+	if norm == "" {
+		return false
+	}
+	prefix := norm + "/"
+	for _, src := range srcs {
+		p := path.Join(rel, src)
+		if p == norm || strings.HasPrefix(p, prefix) {
+			return true
+		}
+	}
+	return false
+}
 
 // targetNameForDir returns the Bazel target name for the primary ts_compile
 // rule in a directory. Uses the configured override if present, otherwise the

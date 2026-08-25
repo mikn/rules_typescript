@@ -5,10 +5,6 @@ load("//ts:defs.bzl", "ts_compile")
 
 package(default_visibility = ["//:__pkg__"])
 
-# The go_test is hand-named after the sh_test it replaced, so the Go language
-# would add a second target for the same source.
-# gazelle:exclude *_test.go
-
 # declaration_map is what makes go-to-definition from a consumer's editor land
 # on mapped.ts instead of the generated mapped.d.ts.
 ts_compile(

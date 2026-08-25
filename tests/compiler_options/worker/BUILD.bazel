@@ -23,7 +23,8 @@ ts_compile(
     srcs = ["index.ts"],
     lib = ["es2022"],
     types = ["./worker-configuration.d.ts"],
-    deps = [":worker_configuration"],
+    # `types` is not an import, so nothing Gazelle reads implies this dep.
+    deps = [":worker_configuration"],  # keep
 )
 
 build_test(

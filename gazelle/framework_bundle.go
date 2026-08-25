@@ -6,15 +6,22 @@ package typescript
 //
 // User story:
 //  1. Write a minimal vite.config.mjs with the framework plugin (3 lines).
-//  2. Run Gazelle → it generates node_modules, vite_bundler, and ts_bundle.
-//  3. bazel build //:app produces the framework bundle.
+//  2. Declare the framework's client entry as its own single-file ts_compile
+//     (`# gazelle:ts_exclude <entry>` plus the target), since ts_bundle needs
+//     exactly one .js and Gazelle merges a directory into one target.
+//  3. Run Gazelle → it generates node_modules, vite_bundler, and ts_bundle.
+//  4. bazel build //:app produces the framework bundle.
 //
 // Gazelle cannot write arbitrary non-BUILD files, so the vite_config file must
 // be hand-authored. We generate a ts_bundle that points at the conventional
 // config filename for each framework (e.g. "tanstack-vite.config.mjs").
+//
+// A framework whose bundling cannot work at all belongs in unsupportedBundling
+// instead: Gazelle then says so rather than emitting a target that fails.
 
 import (
 	"fmt"
+	"log"
 	"sort"
 
 	"github.com/bazelbuild/bazel-gazelle/language"
@@ -47,6 +54,11 @@ type FrameworkBundleConfig struct {
 	// ts_bundle to this filename. The user must create this file manually.
 	ViteConfigFile string
 
+	// StageFiles lists workspace-root files, besides HTMLFile, that the
+	// framework plugin reads from the staging root rather than from the
+	// package source directory.
+	StageFiles []string
+
 	// StageDirs is the list of workspace-relative directories whose source
 	// files should be listed in ts_bundle.staging_srcs. Gazelle emits a
 	// filegroup named "sources" in each directory and collects their labels.
@@ -55,7 +67,10 @@ type FrameworkBundleConfig struct {
 	StageDirs []string
 
 	// EntryPoint is the Bazel label of the primary entry_point for ts_bundle.
-	// Example: "//src/app:main" or ":entry_client".
+	// ts_bundle requires exactly one .js from it, so it names the single-file
+	// ts_compile the framework's conventional client entry gets: the user marks
+	// that file `# gazelle:ts_exclude` and declares the target, since Gazelle
+	// merges every source in a directory into one target.
 	EntryPoint string
 
 	// HTMLFile is the workspace-relative path to the HTML entry file
@@ -69,8 +84,9 @@ type FrameworkBundleConfig struct {
 }
 
 // frameworkConfigs maps each detected Framework to its bundle configuration.
-// Only frameworks with Vite-based bundling are included here; FrameworkNextJS
-// uses its own next_build rule and has a separate generation path.
+// FrameworkNextJS uses its own next_build rule and has a separate generation
+// path. A detected framework absent from BOTH maps gets no bundle targets and
+// no explanation, which is the one outcome to avoid.
 var frameworkConfigs = map[Framework]FrameworkBundleConfig{
 	FrameworkTanStack: {
 		AppName:        "app",
@@ -102,35 +118,34 @@ var frameworkConfigs = map[Framework]FrameworkBundleConfig{
 			"@remix-run/node",
 		},
 		StageDirs:  []string{"app/routes", "app"},
-		EntryPoint: ":entry_client",
+		StageFiles: []string{"package.json"},
+		EntryPoint: "//app:entry_client",
 		HTMLFile:   "index.html",
 	},
-	FrameworkSvelteKit: {
-		AppName:        "app",
-		BundleName:     "app_sveltekit",
-		ViteConfigFile: "svelte.config.mjs",
-		NpmDeps: []string{
-			"vite",
-			"@sveltejs/kit",
-			"@sveltejs/vite-plugin-svelte",
-		},
-		StageDirs:  []string{"src/routes", "src/lib"},
-		EntryPoint: "//src:app",
-		HTMLFile:   "index.html",
-	},
-	FrameworkSolidStart: {
-		AppName:        "app",
-		BundleName:     "app_solid",
-		ViteConfigFile: "solid-vite.config.mjs",
-		NpmDeps: []string{
-			"vite",
-			"solid-js",
-			"@solidjs/start",
-		},
-		StageDirs:  []string{"src/routes", "src"},
-		EntryPoint: "//src:app",
-		HTMLFile:   "index.html",
-	},
+}
+
+// unsupportedBundling carries, for each framework detection recognises but
+// bundling cannot serve, why no bundle target is generated for it. A target
+// that fails to build is worse than no target, and silence is worse than both.
+var unsupportedBundling = map[Framework]string{
+	FrameworkSvelteKit: "its Vite plugin runs SvelteKit's own sync step from the config hook, " +
+		"needing src/app.html and a svelte.config.js of its own beside the vite config, " +
+		"and .svelte files are not TypeScript, so no staging_srcs filegroup carries the routes",
+	FrameworkSolidStart: "@solidjs/start ships no Vite plugin: defineConfig() returns a vinxi app, " +
+		"which ts_bundle's vite_config contract (a default export with a plugins array) cannot consume",
+}
+
+// reportUnsupportedBundling names the framework and says bundling for it is
+// unsupported, so the missing target is a decision rather than a hole.
+func reportUnsupportedBundling(f Framework) {
+	name := frameworkName(f)
+	reason, ok := unsupportedBundling[f]
+	if !ok {
+		log.Printf("typescript: %s detected: no bundle target generated, and no reason is registered for it.", name)
+		return
+	}
+	log.Printf("typescript: %s detected: bundling it is unsupported, so no bundle target was generated — %s. "+
+		"Your TypeScript still compiles and tests; for a client-only build, declare a ts_bundle by hand with no vite_config.", name, reason)
 }
 
 // ---- generation ------------------------------------------------------------
@@ -165,7 +180,7 @@ func generateFrameworkBundle(
 
 	cfg, ok := frameworkConfigs[tc.detectedFramework]
 	if !ok {
-		// Framework detected but no bundle config registered.
+		reportUnsupportedBundling(tc.detectedFramework)
 		return nil, nil, nil
 	}
 
@@ -449,6 +464,8 @@ func buildStagingSrcs(cfg FrameworkBundleConfig) []string {
 	if cfg.HTMLFile != "" {
 		srcs = append(srcs, cfg.HTMLFile)
 	}
+
+	srcs = append(srcs, cfg.StageFiles...)
 
 	// One filegroup label per stage directory.
 	for _, dir := range cfg.StageDirs {

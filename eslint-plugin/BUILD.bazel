@@ -1,0 +1,6 @@
+# No target claims this tree: every source here imports @typescript-eslint/utils
+# (the tests also @typescript-eslint/rule-tester and eslint), and no hub in
+# MODULE.bazel carries them -- so a ts_compile over these files would fail
+# strict deps on a label that cannot be written. Drop this directive once those
+# packages are in a lockfile the npm extension reads.
+# gazelle:ts_ignore

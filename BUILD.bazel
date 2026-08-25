@@ -90,6 +90,7 @@ ts_refresh_tsconfig(
         "//tests/css_module_test:_button_test_compile",
         "//tests/css_module_test:button",
         "//tests/dev_server:app",
+        "//tests/dev_server:dev_app",
         "//tests/json:app_lib",
         "//tests/lsp:ambient_fixture",
         "//tests/lsp:plain_fixture",
@@ -100,6 +101,10 @@ ts_refresh_tsconfig(
         "//tests/npm_publish:math",
         "//tests/smoke:button",
         "//tests/smoke:hello",
+        "//tests/strict_deps:builtins",
+        "//tests/strict_deps:declared",
+        "//tests/strict_deps:relative",
+        "//tests/strict_deps:scanner_forms",
         "//tests/synthetic/pkg_10",
         "//tests/synthetic/pkg_11",
         "//tests/synthetic/pkg_12",
@@ -134,6 +139,7 @@ ts_refresh_tsconfig(
         "//tests/vitest/workspace:_project_test_compile",
         "//tests/vitest/workspace:styles",
         "//vite:plugin_typecheck",
+        "//vite:tsup_config",
     ],
 )
 

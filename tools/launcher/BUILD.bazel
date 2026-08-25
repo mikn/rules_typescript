@@ -32,5 +32,8 @@ go_test(
         "plan_test.go",
         "resolve_test.go",
     ],
+    # keep: this package's library is `launcher`, not the `launcher_lib` the Go
+    # naming convention picks for a main package.
     embed = [":launcher"],
+    deps = ["@rules_go//go/runfiles"],
 )

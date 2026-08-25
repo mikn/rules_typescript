@@ -46,14 +46,14 @@ ts_bundle(
 | `bundle_name` | `string` | rule name | Output file name (without `.js`) |
 | `format` | `string` | `"esm"` | Output format: `esm`, `cjs`, `iife` |
 | `sourcemap` | `bool` | `True` | Emit source map |
-| `minify` | `bool` | `True` | Minify the bundle |
-| `split_chunks` | `bool` | `False` | Enable chunk splitting (Vite mode only; output is a directory) |
+| `minify` | `bool` | `True` | `True` selects the running Vite's own default minifier rather than naming one (esbuild on 6, oxc on 8 — naming `esbuild` would pick an optional peer that is not in the tree). `False` also pins `output.minify`, so a plugin's `renderChunk` output survives the dead-code pass |
+| `split_chunks` | `bool` | `False` | Give third-party code its own chunk, via `build.rollupOptions.output.manualChunks`. Vite bundlers and lib mode only; the output becomes a directory ([detail](../guides/bundling.md#chunk-splitting)) |
 | `external` | `string_list` | `[]` | Module specifiers to leave external |
 | `define` | `string_dict` | `{}` | Global constant replacements |
 | `env_vars` | `string_dict` | `{}` | Sugar over `define`: `{"VITE_API_URL": "…"}` becomes `import.meta.env.VITE_API_URL` |
 | `mode` | `string` | `"lib"` | `"lib"` (single JS output) or `"app"` (HTML application; requires `html`) |
 | `html` | `label` | `None` | HTML entry point for `mode = "app"`; the output is a directory of hashed assets |
-| `vite_config` | `label` | `None` | A `.mjs`/`.js` file default-exporting `{plugins: [...]}`. Its plugins run before Bazel's, which is how framework plugins (TanStack Start, Remix, SvelteKit, Solid Start) get in. Vite bundlers only |
+| `vite_config` | `label` | `None` | A `.mjs`/`.js` file default-exporting `{plugins: [...]}`. Its plugins run before Bazel's, which is how a framework plugin gets in — TanStack Start's and Remix's do; SvelteKit's and Solid Start's [cannot](../gazelle/overview.md#framework-detection). Vite bundlers only |
 | `staging_srcs` | `label_list` | `[]` | Sources copied into a writable staging directory before Vite runs, for framework plugins that scan route files and write codegen next to them |
 
 See [Bundling](../guides/bundling.md) for the complete guide.

@@ -336,17 +336,16 @@ sha256sum /tmp/rules_typescript-v0.2.0.tar.gz
 
 ### "Module files are not valid YAML"
 
-Your metadata.json or source.json has invalid syntax:
+Your metadata.json or source.json has invalid syntax. Usual causes: a trailing
+comma, an unquoted string, a missing brace. A stdlib-only local check:
 
 ```bash
-# Validate JSON
-python3 -c "import json; json.load(open('.bcr/metadata.json'))"
-
-# Check for common issues
-- Trailing commas
-- Unquoted strings
-- Missing braces
+python3 -m json.tool .bcr/metadata.json > /dev/null
+python3 -m json.tool .bcr/source.json   > /dev/null
 ```
+
+A maintainer's convenience, not a dependency — nothing in the ruleset itself uses
+Python.
 
 ## Next Steps
 

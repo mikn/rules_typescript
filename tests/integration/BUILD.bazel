@@ -48,6 +48,7 @@ negative cases below are ever checked. Roughly three minutes each.
 # gazelle:exclude npm_deps
 # gazelle:exclude npmrc_registry
 # gazelle:exclude oxc_declarations
+# gazelle:exclude remix
 # gazelle:exclude vite_bundle
 
 load("@bazel_binaries//:defs.bzl", "bazel_binaries")
@@ -257,6 +258,28 @@ bazel_integration_test(
     workspace_path = "nextjs",
 )
 
+# ── remix ────────────────────────────────────────────────────────────────────
+# Tests: Gazelle generates the Remix framework bundle, and building it produces
+# a real Remix SPA -- per-route chunks compiled from the staged sources.
+# pnpm-lock.yaml is sourced from examples/remix-app/ at runtime by the runner.
+#
+# The child workspace sits under remix/workspace/ and keeps its BUILD files as
+# .tpl, which the runner renames in the scratch copy: this one needs a BUILD
+# file in a subdirectory, and glob() cannot see into a subpackage. That is also
+# why it needs no //.bazelrc --deleted_packages entry.
+
+bazel_integration_test(
+    name = "remix_test",
+    timeout = "long",
+    bazel_binaries = bazel_binaries,
+    bazel_version = bazel_binaries.versions.current,
+    data = ["//:MODULE.bazel"],
+    tags = _NESTED_BAZEL_TAGS,
+    test_runner = "//tests/integration/runners:remix_runner",
+    workspace_files = integration_test_utils.glob_workspace_files("remix/workspace"),
+    workspace_path = "remix/workspace",
+)
+
 # ── test_suite ────────────────────────────────────────────────────────────────
 
 test_suite(
@@ -272,6 +295,7 @@ test_suite(
         ":nextjs_test",
         ":npm_deps_test",
         ":oxc_declarations_test",
+        ":remix_test",
         ":vite_bundle_test",
     ],
 )

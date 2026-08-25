@@ -38,7 +38,7 @@ gh issue list
 ## Development Workflow
 
 ```bash
-bazel test //...                           # everything: 151 test targets (12 exclusive), 2 manual
+bazel test //...                           # everything; `bazel query 'tests(//...)' | wc -l` for the count
 bazel test --config=fast //...             # skips the nested-Bazel integration tests
 bazel build //... --output_groups=+_validation  # redundant if .bazelrc has it
 cd e2e/basic && bazel test //...           # e2e workspace (in .bazelignore)
@@ -197,21 +197,75 @@ lockfile digest, a declared patch with no label, and a file no entry claims).
 No code needed, pinned by tests: catalogs, overrides (including `parent>child`),
 packageExtensions. pnpm resolves all three at every use site.
 
-`node_modules` trees are flat where flat is unambiguous and version-keyed where
-it is not: a name's primary version keeps the top-level directory, every other
-version gets its bytes once under `.pnpm/<name>@<version>/node_modules/<name>`,
-and each dependent that resolved to one of those gets a relative symlink. The
-manifest the builder reads is `op \t source \t destination`, `C` copy and `L`
-symlink, copies first so no link is ever dangling. Keying is by `name@version`;
-the peer suffix is not carried, so peer-differing snapshots still collapse (a
-known gap, not a licence to key by name).
+`node_modules` trees are flat where flat is unambiguous and keyed by RESOLUTION
+where it is not: a name's primary resolution keeps the top-level directory, every
+other one gets its bytes once under
+`.pnpm/<name>@<version>[_<peer set>]/node_modules/<name>`, and each dependent
+that resolved to one of those gets a relative symlink. The manifest the builder
+reads is `op \t source \t destination`, `C` copy and `L` symlink, copies first so
+no link is ever dangling.
+
+A resolution is name, version AND peer set: pnpm resolves a package once per
+distinct peer set and the outcomes have different dependency edges, so
+`NpmPackageInfo.peer_id` carries pnpm's peer suffix (the same token the
+snapshot's repository name is built from) and everything keys on it. Two
+resolutions of one name declared side by side on ONE target is an error either
+way — two versions, or two peer sets of one version — because `node_modules/<name>`
+is one directory and Node resolves the bare name to it.
 
 ## Framework Support
 
-Vite-based frameworks (Remix, TanStack Start, SvelteKit, Solid Start) work via:
-1. `staging_srcs` on `ts_bundle` — copies source files to writable dir for framework plugin scanning
+The mechanism is three parts:
+1. `staging_srcs` on `ts_bundle` — copies source files to a writable dir for framework plugin scanning
 2. `vite_config` attr — user provides a 3-line `.mjs` with the framework plugin
-3. Gazelle auto-generates `node_modules` + `vite_bundler` + `ts_bundle` + `filegroup` targets
+3. Gazelle auto-generates `node_modules` + `vite_bundler` + `ts_bundle` + `filegroup` targets at the workspace root
+
+**Detecting a framework and being able to bundle it are separate facts, and
+`gazelle/framework_bundle.go` has a map for each.** `frameworkConfigs` gets bundle
+targets; `unsupportedBundling` gets a named log line and no targets. SvelteKit and
+Solid Start are in the second map — SvelteKit's plugin runs its own sync step from
+the Vite `config` hook and its `.svelte` routes are not TypeScript, and
+`@solidjs/start` ships no Vite plugin at all (`defineConfig()` returns a vinxi
+app, which the `vite_config` contract cannot consume). A framework in NEITHER map
+is the one outcome to avoid: no target and no explanation. If you add a framework,
+add it to one of the two.
+
+The generated `entry_point` names a single-file `ts_compile` the user declares
+(`# gazelle:ts_exclude <entry>` plus the target), because `ts_bundle` needs
+exactly one `.js` and Gazelle merges a directory into one target. Until that
+target exists the label dangles and `bazel build //...` fails for the whole
+workspace — `//tests/integration:remix_test` pins both sides of that.
+
+## Vite and vitest are consumer versions, and two lanes are tested
+
+Neither is a ruleset dependency; both come from a consumer lockfile, and the rules
+generate config for whatever it resolves to. Two hubs are exercised on purpose,
+because a generated config that only ever meets one generation breaks silently on
+the next:
+
+- `@npm` (`tests/npm/pnpm-lock.yaml`) — Vite 6, vitest 3. `tests/vitest/**`,
+  `tests/dev_server/**`, the integration workspaces, `examples/`.
+- `@npm_vite` (`vite/pnpm-lock.yaml`) — Vite 8, vitest 4. `tests/vite_bundle/**`,
+  and `vite/tests/**` (vite-plugin-bazel's own tests, including a `ts_test` on
+  vitest 4).
+
+Do not collapse them onto one lockfile. Two known version-sensitive spots:
+`ts_bundle` emits `output.manualChunks` and an unnamed `minify` (the plugin
+`split_chunks` used to emit is gone in Vite 7; naming `esbuild` picks an optional
+peer that is not in the tree), and `ts_test`'s array-`config` form still emits
+`test.workspace`, which vitest 4 removed and throws on.
+
+## Snapshots under Bazel
+
+`ts_test` redirects `test.resolveSnapshotPath` to
+`<package>/__snapshots__/<source>.snap` — where a plain `vitest` keeps it — reads
+those files from runfiles via the `snapshots` attr, and runs vitest in read-only
+snapshot mode (`CI=true`) so no `bazel test` can write a `.snap` and then pass on
+what it wrote. Every `ts_test` also declares `<name>.update_snapshots`, which
+reuses the test's own `ts_compile` (a second `ts_compile` over the same srcs would
+declare the same `.js` outputs) and writes under `BUILD_WORKSPACE_DIRECTORY`.
+Update mode pins `test.dir`, `test.include` and `cacheDir`, because `bazel run`
+puts the working directory in the user's source tree.
 
 ## What NOT to do
 
@@ -234,4 +288,7 @@ Vite-based frameworks (Remix, TanStack Start, SvelteKit, Solid Start) work via:
 - **Gazelle directives > config files.** `gazelle_ts.json` was a mistake. Directives are visible, inheritable, version-controlled in BUILD files.
 - **`pnpm add --lockfile-only`** is the correct workflow. No `node_modules/` directory should ever exist in the source tree.
 - **Two recognisers of one thing drift.** Gazelle's import scanner and the strict-deps checker must agree specifier for specifier, or a hard error becomes unfixable by the tool meant to fix it. Same shape as the `node_modules` tree: the layout planner and the builder read one manifest, not two ideas of it.
-- **A name is not a resolution.** Keying anything by npm package name alone (a `node_modules` destination, a patch pairing, a dep edge) loses the version and fails silently, because every version involved is a real version.
+- **A name is not a resolution.** Keying anything by npm package name alone (a `node_modules` destination, a patch pairing, a dep edge) loses the version and fails silently, because every version involved is a real version. `name@version` is one key short too: pnpm resolves once per peer set.
+- **A green suite is not a preserved suite.** `bazel run //gazelle` once *deleted* hand-written `go_test` targets and still satisfied "builds" and "idempotent" — a deleted test passes both. `bazel query 'tests(//...)'` before and after is the check that catches it, and it is now part of the Gazelle acceptance run.
+- **A test that never ran is not a test.** `tests/vitest/environment` was two `manual` targets behind a `build_test`, so no non-default vitest environment had ever executed; the moment one did it failed on runfiles realpathing out of the sandbox. Same for snapshots: `toMatchSnapshot()` asserted nothing at all, because the `.snap` was not in runfiles and vitest treated every run as a first run.
+- **Emitting a target that cannot build is worse than emitting none, and silence is worse than both.** Gazelle now names the framework and the reason instead.

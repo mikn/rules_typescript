@@ -147,7 +147,21 @@ node_modules: @@//src/app:node_modules depends on two versions of 'minimatch' at
 through the package that needs it — a version reached transitively keeps its own
 version, in its own store directory — or split the two into separate
 `node_modules` targets. See
-[node_modules](../rules/node-modules.md#two-versions-of-one-name-in-deps).
+[node_modules](../rules/node-modules.md#two-resolutions-of-one-name-in-deps).
+
+The same error has a narrower form, for two resolutions of *one* version that
+differ in the peers pnpm resolved them against:
+
+```
+node_modules: @@//src/app:node_modules depends on two resolutions of
+'ansi-styles@6.2.3' at once, one per peer set:
+  peers ansi-regex_5_0_1_5e7443ea
+  peers ansi-regex_6_2_2_602a0566
+```
+
+There is no arrangement for that one either. The tarball is the same both ways;
+what differs is what the package's own dependencies resolve to, and that lives in
+the one `node_modules/<name>/node_modules`.
 
 ## imports a module no direct dep provides
 
@@ -269,6 +283,48 @@ If Gazelle generates incorrect `deps` for an import:
    `# gazelle:ts_path_alias @/ src/` explicitly.
 3. Use `# gazelle:ts_ignore` to suppress generation for a directory and write
    its BUILD file manually.
+
+## typescript: &lt;framework&gt; detected: bundling it is unsupported
+
+Not an error. Gazelle recognised a framework it deliberately generates no bundle
+target for — currently SvelteKit and Solid Start — and named the reason rather
+than writing a `ts_bundle` that cannot build. The rest of the workspace still
+compiles and tests. For a client-only build, declare a `ts_bundle` by hand with
+no `vite_config`. Details:
+[Framework detection](../gazelle/overview.md#framework-detection).
+
+## rule '//app:entry_client' does not exist, after Gazelle on a framework workspace
+
+The generated framework `ts_bundle` names a single-file entry target you declare,
+because `ts_bundle` needs exactly one `.js` and Gazelle merges a directory into
+one target. Until it exists the label dangles and takes down `bazel build //...`
+for the whole workspace, not just that target. Add it:
+
+```python
+# app/BUILD.bazel
+# gazelle:ts_exclude entry.client.tsx
+
+load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "entry_client",
+    srcs = ["entry.client.tsx"],
+    visibility = ["//visibility:public"],
+)
+```
+
+## Snapshot 'x 1' mismatched, or a snapshot vitest says is new
+
+`ts_test` runs vitest in read-only snapshot mode, so a mismatch is a failure
+rather than a rewrite, and a snapshot the sandbox cannot read counts as absent.
+Two causes:
+
+- The `.snap` is not in `snapshots`, so it never reached the runfiles tree. Add
+  `snapshots = glob(["__snapshots__/*.snap"])`.
+- The snapshot is genuinely stale. Regenerate it:
+  `bazel run //path/to:my_test.update_snapshots`, then commit.
+
+Full workflow: [Snapshots](testing.md#snapshots).
 
 ## Slow First Build
 

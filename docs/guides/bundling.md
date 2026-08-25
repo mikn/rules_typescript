@@ -51,12 +51,40 @@ ts_bundle(
 )
 ```
 
+## Chunk splitting
+
+`split_chunks = True` gives third-party code its own chunk, so a first-party edit
+leaves the vendor chunk's content hash untouched. The output becomes a directory
+rather than a single file. Lib mode only — app mode does its own splitting.
+
+It is emitted as `build.rollupOptions.output.manualChunks`, the spelling every
+Vite generation from 6 onward honours (on Vite 8, rolldown maps it onto its own
+`advancedChunks`). The vendor-splitting *plugin* this used to emit was removed in
+Vite 7.
+
+Two things about the split chunk's filename, since a deploy script or a test may
+want to find it: lib mode derives the extension from the nearest
+`package.json#type`, which nothing in a Bazel output tree declares, so the chunk
+can land as `.mjs`; and its name carries a content hash. Locate it by exclusion —
+the entry is `<bundle_name>.<format>.js`, the chunk is whatever else is in the
+directory — not by a literal name.
+
+`minify` interacts with this. `True` means "the running Vite's own default
+minifier" (esbuild on 6, oxc on 8) rather than naming one, because both esbuild
+and terser are optional peers and so absent from a tree built from
+`deps = ["@npm//:vite"]`. `False` additionally pins `output.minify: false`:
+`build.minify: false` on its own still runs the bundler's dead-code pass, which
+re-emits every chunk from its AST and discards whatever a plugin's `renderChunk`
+returned.
+
 ## Framework plugins via `vite_config`
 
 `vite_config` takes **one** `.mjs`/`.js` file that default-exports
 `{plugins: [...]}` (and optionally `root`). The generated config imports it at
-run time and prepends its plugins to Bazel's, which is how TanStack Start,
-Remix, SvelteKit and Solid Start plugins get into the build:
+run time and prepends its plugins to Bazel's. That is the hook TanStack Start's
+and Remix's plugins go through — and the two frameworks Gazelle deliberately
+generates nothing for are the ones this hook cannot serve
+([which, and why](../gazelle/overview.md#framework-detection)):
 
 ```javascript
 // vite.plugins.mjs

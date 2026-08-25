@@ -114,6 +114,35 @@ requires.
   package may now hold more than one `ts_test`.
 - The config that actually ran is readable:
   `bazel build //path:my_test --output_groups=vitest_config`.
+- **Snapshots work, and a stale one now fails.** Vitest resolves a `.snap` beside
+  the test file it ran, which under Bazel is the compiled `.js` in `bazel-out` —
+  never the source tree. So a `bazel test` **passed against a deliberately stale
+  checked-in snapshot**: the `.snap` was not in runfiles, vitest treated it as
+  new, wrote it into the sandbox, and reported success. `toMatchSnapshot()` under
+  `ts_test` asserted nothing at all. Three changes together fix that:
+    - A fourth, root-only config layer sets `test.resolveSnapshotPath` to
+      `<package>/__snapshots__/<source name>.snap` — where a plain `vitest` run
+      already keeps it, so an adopting repository renames nothing.
+    - A new `snapshots` attr (`glob(["__snapshots__/*.snap"])`) puts those files
+      in runfiles, which is what makes a stale or absent one a failure.
+    - `CI=true` is set on every non-update run, vitest's read-only snapshot mode,
+      so no `bazel test` can write a `.snap` and pass on what it just wrote. It
+      goes through `dict.setdefault`, so `env = {"CI": "false"}` still opts out.
+      Its only other effect is `allowOnly` → `false`.
+- **Every `ts_test` now also declares `<name>.update_snapshots`**, an executable
+  that runs the same compiled tests with `--update` and writes under
+  `BUILD_WORKSPACE_DIRECTORY`. It reuses the test's own `ts_compile`, which is
+  what removes the output collision the previously-documented recipe hit: two
+  `ts_test`-like targets over the same srcs in one package are two `ts_compile`s
+  declaring the same `.js` and `.d.ts`. `update_snapshots = True` survives as a
+  standalone updater, now documented as unable to share a package with a test
+  over the same srcs. **`--sandbox_writable_path` is no longer part of any
+  snapshot workflow.**
+- **A DOM `environment` runs under sandboxing.** `resolve.preserveSymlinks: true`
+  is in the Bazel layer: a browser-like environment realpaths every module id,
+  which for a runfiles symlink resolves to the execroot path *outside* the test
+  sandbox (`Failed to load url … Does the file exist?`). The node environment
+  never hit it, because its ssr transform loads the path it is given.
 
 ### Breaking — npm
 
@@ -171,6 +200,29 @@ requires.
 - `NpmPackageInfo` gains `direct_deps`, the per-dependent resolution the links
   are built from. `ts_test`'s auto-generated tree gets the same layout — it
   goes through the same builder.
+- **A tree is keyed by *resolution*, not by `name@version`.** `name@version` was
+  one key short of pnpm's: pnpm resolves a package once per distinct set of
+  peers, and those outcomes share a tarball but have different `dependencies:`
+  maps. `ansi-styles@6.2.3(ansi-regex@5.0.1)` and
+  `ansi-styles@6.2.3(ansi-regex@6.2.2)` used to collapse onto one directory, and
+  the resolution a target *declared* was as likely to be the discarded one as a
+  transitively-reached one. `NpmPackageInfo` gains `peer_id`, carrying pnpm's
+  peer suffix — the same token the snapshot's repository name is built from, so
+  there is one mangler rather than two — and the store path becomes
+  `.pnpm/<name>@<version>_<peer set>/node_modules/<name>`. The peer component is
+  a readable prefix plus a digest of the whole set: a nested peer set can run to
+  hundreds of characters, and truncating alone would collide two resolutions into
+  one directory. A tree with no peer-differing edge is unchanged byte for byte; a
+  tree with one gains the files of the resolution that was previously dropped.
+- **New hard error:** declaring two peer resolutions of one version on a single
+  `node_modules` target — the version error, one level narrower. `import
+  "<name>"` from the tree root answers with one directory, and *that directory's
+  own* `node_modules/<name>` is one directory too, which is exactly what the two
+  variants disagree about. The message distinguishes it from the version case.
+- `ts_test` no longer keeps its own npm-package collector. The duplicate keyed by
+  `name@version`, so it dropped a peer variant before the layout planner ever saw
+  it — meaning `ts_test` trees could not have been fixed from `node_modules.bzl`
+  alone. Both paths now call one `collect_npm_packages`.
 
 ### Breaking — toolchains and repositories
 
@@ -238,6 +290,19 @@ requires.
   two-space JSON.
 - `ts_npm_package` requires `package_dir` and `package_files`; the impl always
   dereferenced both.
+- **`ts_bundle`'s generated Vite config no longer names anything Vite removed or
+  made optional.** `split_chunks` emits
+  `build.rollupOptions.output.manualChunks` rather than `splitVendorChunkPlugin`,
+  which Vite 7 removed — a plain `import` of a name that no longer exists, and
+  the reason the old spelling survived is that the ruleset only ever tested one
+  Vite generation. `minify = True` emits `true`, meaning the running Vite's own
+  default minifier (esbuild on 6, oxc on 8), rather than naming `"esbuild"`:
+  Vite 8 accepts the name but then installs `buildEsbuildPlugin()`, and esbuild
+  is an *optional* peer, absent from a tree built from `deps = ["@npm//:vite"]`.
+  And `minify = False` now also emits `output.minify: false`, because
+  `build.minify: false` alone still runs the bundler's dead-code pass, which
+  re-emits each chunk from its AST and silently discards whatever a plugin's
+  `renderChunk` returned — string form and `{code}` form both.
 
 ### Breaking — tests
 
@@ -248,9 +313,10 @@ requires.
   `bazel test //tests/integration/...`. The `RULES_TYPESCRIPT_ROOT` environment
   variable those runners needed is no longer read anywhere.
 - Integration targets are `exclusive` rather than `manual`, so
-  `bazel test //...` now runs them: 151 test targets, 12 of them
-  `exclusive`, 2 `manual`. `bazel test --config=fast //...` skips the
-  exclusive ones.
+  `bazel test //...` now runs them — currently 158 test targets, 13 of them
+  `exclusive` and 2 `manual`
+  (`bazel query 'tests(//...)' | wc -l` if that has moved).
+  `bazel test --config=fast //...` skips the exclusive ones.
 
 ### Breaking — the dev server
 
@@ -317,6 +383,30 @@ requires.
   `go_test`. CI now gates on `gofmt -l` and `go vet`.
 - All six `examples/` workspaces are in the CI matrix. It built two, so
   `examples/tanstack-app` was broken with nobody watching.
+- **A second npm hub, `@npm_vite`, built from `vite-plugin-bazel`'s own
+  lockfile.** The bundle rules are now exercised against Vite 8 / vitest 4
+  (`tests/vite_bundle`, `vite/tests`) while `ts_test`, `ts_dev_server` and the
+  integration workspaces stay on Vite 6 / vitest 3 (`@npm`,
+  `tests/npm/pnpm-lock.yaml`). Two generations on purpose: a generated config
+  that only ever meets one is a config that breaks silently on the next, which is
+  how `splitVendorChunkPlugin` survived a passing test. The plugin's peer range
+  and the Vite it is tested against now share one lockfile. See
+  [COMPATIBILITY.md](https://github.com/mikn/rules_typescript/blob/main/COMPATIBILITY.md#vite-and-vitest).
+- `//tests/integration:remix_test` — a nested-Bazel journey through a real Remix
+  workspace: Gazelle, then `bazel build` on what it wrote, then assertions on
+  the produced artifacts (`client/index.html` with hashed refs,
+  `client/.vite/manifest.json`, one hashed chunk per route). It also pins the two
+  attrs that are load-bearing rather than decorative, by asserting the *right*
+  failure without each: dropping `package.json` from `staging_srcs` fails on
+  `_staging/package.json`, and a root-relative `entry_point` fails
+  `bazel build //...` on `'//:entry_client' does not exist`.
+- `//tests/vitest/snapshot` and `//tests/vitest/environment:{dom,node}_test` —
+  the first tests in the repository to actually run a snapshot assertion and a
+  non-default vitest environment. The environment pair asserts the same claim
+  from both sides (one needs a `document`, the other needs there to be none), so
+  an `environment` that never reached vitest fails one of them whichever way it
+  defaulted. `jsdom` and `edge-runtime` stay analysis-only behind a `build_test`,
+  which is enough for what they pin: that the attr is not a fixed list.
 
 ### Fixed
 
@@ -422,6 +512,60 @@ requires.
   missed `import def, * as ns from "x"` entirely (no dep generated at all) and
   matched specifiers inside template literals (deps on labels that do not
   exist).
+- **Gazelle resolves a specifier that spells out its extension.** The index is
+  built with extensions dropped, and the lookup used the path as written, so a
+  NodeNext-style `./rules/foo.js` over a `foo.ts` source asked for a key that was
+  never in the index — and then invented `//<dir>/foo.js` as the dep, a label that
+  does not exist. One candidate list now serves both sides: the path as written,
+  the path with its extension dropped, that stem under each known extension, and
+  `<stem>/index.ts[x]`. The same drift the strict-deps checker already avoided by
+  stripping; Gazelle did not.
+- **Gazelle no longer writes a dep for a Node built-in spelled without
+  `node:`.** `import { join } from "path"` became `@npm//:path`, which does not
+  exist. The exemption now matches the strict-deps checker's on the bare name.
+- **A `ts_compile`'s `module_name` is indexed, and a bare specifier consults the
+  index before npm.** `import "@acme/lib"` became `@npm//:acme_lib`; the hub has
+  no such package, so the label did not exist.
+- **A generated `ts_compile` carries only the path aliases it can satisfy.** The
+  whole workspace `paths` map was copied onto every generated target, and
+  `ts_compile` hard-fails on an alias whose files are none of its inputs, so a
+  Gazelle run could leave dozens of targets failing analysis. A target now gets
+  the aliases its own imports match, plus any alias whose directory holds its own
+  sources — which is exactly the set `ts_compile` accepts, mirrored from its
+  validation so a generated target cannot trip it. Aliases read back out of a
+  tsconfig this ruleset generated are an echo, not a declaration, and are
+  skipped; a `# gazelle:ts_path_alias` directive is a declaration and reaches the
+  IDE tsconfig's `paths` even when nothing imports through it yet.
+- **A generated target no longer claims a hand-written target's srcs.** Two
+  `ts_compile`s over one source declare the same `.js` and `.d.ts`, which is a
+  conflicting-action error rather than a duplicate-target one. Generation now
+  drops any src an existing `ts_compile`/`ts_test`/`css_*`/`asset_library`/
+  `json_library` in the same BUILD file already lists, plus any `ts_test`'s
+  `setup_files` and `global_setup`.
+- **Gazelle no longer emits a dep on the importing package itself.** A module in
+  the importer's own package that no rule claims used to resolve to that
+  package's own label — a dependency cycle. It now resolves to nothing, and an
+  unindexed module elsewhere resolves to its *directory*'s target when the last
+  segment names a file.
+- **Gazelle names the framework it will not bundle.** SvelteKit and Solid Start
+  were emitting `node_modules` + `vite_bundler` + `ts_bundle` targets that cannot
+  build — SvelteKit's plugin runs its own sync step from the Vite `config` hook
+  and wants files `staging_srcs` cannot carry, and `@solidjs/start` ships no Vite
+  plugin at all (`defineConfig()` returns a vinxi app, which the `vite_config`
+  contract silently discards, so the bundle built *green* with zero framework
+  involvement). Both are still detected; both now get a log line naming the
+  framework, the reason, and the fallback, and no target. A framework recognised
+  by neither map is the outcome this is designed to prevent: no target and no
+  explanation.
+- **The generated Remix bundle builds.** Its `entry_point` was `":entry_client"`
+  — root-package-relative, and the root has no TypeScript — so the label dangled
+  and killed `bazel build //...` for the whole workspace, not just that target.
+  It now names `//app:entry_client`, and `package.json` is staged, which the
+  `@remix-run/dev` plugin reads from the staging root.
+- `bazel run //path:my_test.update_snapshots` no longer writes a `.vite/` cache
+  directory into the source tree: update mode runs with the working directory at
+  `BUILD_WORKSPACE_DIRECTORY`, from which vite derived `cacheDir`, so the layer
+  pins `cacheDir` under the target's output directory instead.
 
 ### Measurements
 
@@ -456,33 +600,66 @@ Recorded rather than hidden.
 - `skipLibCheck: true` masks ambient-vs-lib conflicts, so what bites a Workers
   package is a lib declaration winning over an ambient one at the use site.
   Unsettled.
-- `jsdom` and `happy-dom` are not exercised for real — neither is in the test
-  lockfile, so `ts_test`'s `environment` is only pinned at analysis time.
-- vitest 3.2's `projects` spelling is unhandled; the pinned vitest is 3.0.9.
+- `jsdom` and `edge-runtime` are still analysis-only: neither is in a lockfile
+  the build reads, so those two `environment` values are pinned by a
+  `build_test` rather than by a run. `happy-dom` and `node` do run.
+- **`ts_test` still emits `test.workspace`**, which vitest 3.2 renamed `projects`
+  and vitest 4 removed outright — it throws rather than ignoring it. So the one
+  `config` shape that produces it (a file default-exporting an array) is vitest 3
+  only. Not currently red: `tests/vitest/**` runs 3.0.9, and every other `config`
+  shape is proven on 4.1.11 through `//vite/tests:peer_version_test`.
 - `coverage_thresholds` reaches the generated config, but its enforcement is
   unproven.
-- `ts_test(update_snapshots = True)` is broken.
+- **A `vite_config` that is a source file is not hermetic.** The generated config
+  imports it by exec-root path; Node realpaths that back into the source tree
+  before resolving the config's own bare imports, so the framework plugin is only
+  found through a source-tree `node_modules` — which this project forbids and no
+  CI job exercises. A *generated* `vite_config` under `bazel-out` works, because
+  it sits beside the hermetic tree. `ts_bundle` should stage the user's config
+  the way it stages `staging_srcs`.
+- **`npm_import`'s `_exports_types` has no fallback**, so a package whose
+  `exports["."]` is a plain string and which has no top-level `types` gets a
+  `paths` entry pointing at a directory TypeScript cannot resolve. Vite 8 is
+  exactly that shape, which is why `//vite:plugin_typecheck` still typechecks
+  against Vite 6's `.d.ts` while `vite/package.json` declares
+  `peerDependencies.vite: ^8.0.0`.
+- **`ts_dev_server` has no npm resolution path of its own.** `resolve.modules` is
+  not a Vite option in any version, so that line is dead config: a bare
+  `import "react"` from a dev-served source resolves only if the consumer happens
+  to have a real root `node_modules`. Relatedly, `react_refresh` imports
+  `@vitejs/plugin-react/dist/index.mjs` by fixed path; the pinned 4.4.1 has that
+  file, and 6.1.0 (the first major peering on Vite 8) does not, at which point
+  the `catch` turns `react_refresh = True` into a silent no-op.
+- **Two Vite majors cannot coexist in one Bazel package.** After the Vite
+  bundler wrapper's `ln -sf`, Node realpaths through the symlink, so the upward
+  walk starts inside the real tree and can reach a *sibling* target's
+  `node_modules` in the same package. A `node_modules()` target not named
+  `node_modules` therefore resolves through whichever sibling is.
+- Gazelle's Node-builtin list is hand-maintained while the strict-deps checker
+  uses `builtinModules`. Both reduce to the bare name, so `fs/promises` agrees;
+  a name Node exposes only under `node:` (`node:sqlite`, `node:test`) would have
+  Gazelle write a label that does not exist.
+- `_short_digest` is Java's `String.hashCode` masked to 32 bits. Two peer
+  suffixes agreeing on their first 40 sanitised characters *and* colliding on
+  that hash merge into one repository, and now also one store directory. The
+  bound pre-dates resolution keying (same token) and is not eliminated; a real
+  hash function is not available in Starlark.
 - The `node_modules` tree action resolves node through `js_runtime_type` (the
   target platform) rather than `js_tool_type` (the exec platform). Every other
   build action was moved; this one was not. Harmless while exec == target,
   wrong under cross-compilation.
 - No libc (glibc vs musl) `constraint_setting`. Nothing would reference it
   until npm's platform `select()` lands.
-- A `node_modules` tree keys versions by `name@version`, which is one key short
-  of pnpm's. Two snapshots that share a name and version but differ in their
-  injected peers (`pkg@6.2.3(peer@5.0.1)` vs `pkg@6.2.3(peer@6.2.2)`) still
-  collapse onto one directory, silently. Making them coexist needs the peer
-  suffix carried from the lockfile through `npm_import` into
-  `NpmPackageInfo`.
 - The strict-deps check does not read `/// <reference types="x" />`. It is a
   real resolution channel, but Gazelle generates no dep for it, so checking it
   would produce failures Gazelle cannot fix.
-- Gazelle writes a redundant `path_aliases` entry for a first-party package
-  whose non-wildcard `paths` key equals its own directory. The identity check
-  that drops those compares the key with the target directory verbatim, so a
-  `"pkg": ["./pkg/index"]` entry escapes it and lands in every generated
-  `ts_compile`. Cosmetic, but it makes each Gazelle run's diff much larger than
-  the change that caused it.
+- `eslint-plugin/**` and `tools/isolated-declarations-lint/**` have no buildable
+  targets, and the blocker is a lockfile rather than Gazelle: every source there
+  imports `@typescript-eslint/utils`, which no lockfile the build reads contains,
+  and with strict deps a hard error nothing over those files can compile. Both
+  trees carry a `# gazelle:ts_ignore` naming exactly that. Behind it waits a
+  genuine package-level cycle between `eslint-plugin/src` and `src/rules`, which
+  one-target-per-directory cannot express.
 - The IDE `tsconfig.json` has a single `compilerOptions` block, so targets that
   disagree about `strict`, `allowJs` or `lib` cannot all be correct in it. The
   generated `paths` are a coverage mechanism, not a per-target compiler-option

@@ -185,7 +185,7 @@ jobs:
           ## BCR Metadata
           - Module: rules_typescript
           - Compatibility Level: 0
-          - Maintainer: Nicholas Gasior (nicholas@lovable.app)
+          - Maintainer: $(jq -r '.maintainers[0] | "\(.name) (\(.email))"' .bcr/metadata.json)
           - Repository: https://github.com/mikn/rules_typescript
 
           ## Next Steps for BCR Submission

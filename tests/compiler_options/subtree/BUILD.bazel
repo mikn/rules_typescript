@@ -10,10 +10,6 @@ load("//ts:defs.bzl", "ts_compile")
 
 package(default_visibility = ["//:__pkg__"])
 
-# The go_test is hand-named after the sh_test it replaced, so the Go language
-# would add a second target for the same source.
-# gazelle:exclude *_test.go
-
 # One target, three directory levels. Every output keeps its package-relative
 # path, and root.ts reaches the other two through ".js" specifiers that resolve
 # to the .ts files -- which is how TypeScript's own ESM output is written.

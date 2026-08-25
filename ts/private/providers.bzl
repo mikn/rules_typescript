@@ -41,6 +41,7 @@ NpmPackageInfo = provider(
     fields = {
         "package_name": "string: npm package name (e.g., 'react').",
         "package_version": "string: npm package version.",
+        "peer_id": "string: a filesystem-safe token naming the peer set this resolution was made against, empty for a package pnpm resolved only one way. Two snapshots can share name@version and differ only here, and they are two different dependency graphs, so anything keying a package by name and version alone merges them.",
         "package_dir": "File: The package.json file at the root of the extracted package.",
         "all_files": "depset of File: All files in this package (package.json + .js + .d.ts + other assets). Used by node_modules rule for runtime.",
         "js_files": "depset of File: JavaScript files in this package.",

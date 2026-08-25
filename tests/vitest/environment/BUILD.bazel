@@ -1,13 +1,35 @@
 """`environment` takes any vitest environment name, not a hardcoded set of three.
 
-jsdom and edge-runtime are absent from the test lockfile, so these targets are
-analysed and built but never run — which is enough, because the constraint being
-pinned is an analysis-time one.  Two ts_test targets in one package also pin
-that the auto-generated node_modules trees no longer collide.
+:dom_test and :node_test run the same claim from both sides -- one needs a
+`document`, the other needs there to be none -- so an `environment` that never
+reached vitest fails one of them whichever way it defaulted.
+
+jsdom and edge-runtime are absent from the test lockfile, so those two targets
+are analysed and built but never run, which is enough for the constraint they
+pin: that the attr is not validated against a fixed list.  Several ts_test
+targets in one package also pin that the auto-generated node_modules trees no
+longer collide.
 """
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "ts_test")
+
+ts_test(
+    name = "dom_test",
+    srcs = ["dom.test.ts"],
+    environment = "happy-dom",
+    deps = [
+        "@npm//:happy-dom",
+        "@npm//:vitest",
+    ],
+)
+
+ts_test(
+    name = "node_test",
+    srcs = ["node.test.ts"],
+    environment = "node",
+    deps = ["@npm//:vitest"],
+)
 
 ts_test(
     name = "edge_test",

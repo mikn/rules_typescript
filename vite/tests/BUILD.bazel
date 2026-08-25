@@ -7,7 +7,21 @@ so every ibazel rebuild was dropped without a word.
 
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("@rules_typescript//npm:defs.bzl", "node_modules")
+load("@rules_typescript//ts:defs.bzl", "ts_test")
 load("@rules_typescript//vite:bundler.bzl", "vite_bundler")
+
+# The vitest major the ruleset's own test path runs on, against the Vite major
+# the plugin declares -- one lockfile, so neither can move without the other.
+ts_test(
+    name = "peer_version_test",
+    size = "small",
+    srcs = ["peer_version.test.ts"],
+    deps = [
+        "@npm_vite//:types_node",
+        "@npm_vite//:vite",
+        "@npm_vite//:vitest",
+    ],
+)
 
 sh_test(
     name = "watcher_test",
@@ -37,14 +51,14 @@ sh_test(
 # the runtime is a stub and the node_modules tree is never built.
 node_modules(
     name = "stub_node_modules",
-    deps = ["@npm//:vite"],
+    deps = ["@npm_vite//:vite"],
 )
 
 vite_bundler(
     name = "stub_bundler",
     node_modules = ":stub_node_modules",
     runtime = "stub_runtime.sh",
-    vite = "@npm//:vite",
+    vite = "@npm_vite//:vite",
 )
 
 sh_test(

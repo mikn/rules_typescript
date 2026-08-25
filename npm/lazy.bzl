@@ -24,6 +24,11 @@ So the graph is keyed by snapshot id throughout, and a snapshot's repository nam
 carries its peer set. A peer-free snapshot keeps the plain `<name>__<version>`
 repository name it has always had.
 
+The same peer token travels on to `NpmPackageInfo.peer_id`: a `node_modules` tree
+has to give two peer resolutions of one version two directories for the same
+reason two versions need two, and a provider carrying only name and version
+cannot tell it there are two.
+
 Resolution is per importer
 --------------------------
 `importers:` records, for each workspace member, the snapshot each declared
@@ -467,6 +472,7 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
             name = repo_of[sid],
             package = snap["name"],
             version = snap["version"],
+            peer_id = peer_suffix_dir_name(snap["peer_suffix"]),
             url = npm_tarball_url(
                 snap["name"],
                 snap["version"],

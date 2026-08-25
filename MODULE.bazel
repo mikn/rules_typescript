@@ -131,9 +131,17 @@ npm_dev.translate_lock(
     pnpm_lock = "//tests/npm:pnpm-lock-features.yaml",
 )
 
+# The bundle and dev-server rules are exercised against vite-plugin-bazel's own
+# lockfile, so the Vite a generated config is proven against and the Vite the
+# plugin declares as its peer dependency cannot drift into different majors.
+npm_dev.translate_lock(
+    name = "npm_vite",
+    pnpm_lock = "//vite:pnpm-lock.yaml",
+)
+
 use_repo(npm, "npm", "pnpm")
 
-use_repo(npm_dev, "npm_features")
+use_repo(npm_dev, "npm_features", "npm_vite")
 
 # ─── Bazel integration test binaries (dev only) ──────────────────────────────
 

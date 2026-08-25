@@ -24,6 +24,7 @@ is already the price of the older child-workspace layout.
 # gazelle:exclude npm_deps
 # gazelle:exclude npmrc_registry
 # gazelle:exclude oxc_declarations
+# gazelle:exclude remix
 # gazelle:exclude vite_bundle
 
 load("@rules_go//go:def.bzl", "go_binary")
@@ -40,6 +41,7 @@ _RUNNERS = [
     "npm_deps",
     "npmrc_registry",
     "oxc_declarations",
+    "remix",
     "vite_bundle",
 ]
 

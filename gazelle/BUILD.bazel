@@ -3,6 +3,10 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 # gazelle:prefix github.com/mikn/rules_typescript/gazelle
 
+# The go_library here is `typescript` and the gazelle() runner is `gazelle`, so
+# the Go language would generate a go_test embedding the runner.
+# gazelle:exclude *_test.go
+
 go_library(
     name = "typescript",
     srcs = [

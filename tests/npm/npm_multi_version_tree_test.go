@@ -100,6 +100,68 @@ func TestEachDependentResolvesItsOwnVersion(t *testing.T) {
 	}
 }
 
+// A version is not a resolution. pnpm resolves a package once per distinct PEER
+// SET and keys each outcome apart, because the outcomes have different
+// dependency edges: ansi-styles@6.2.3(ansi-regex@5.0.1) and
+// ansi-styles@6.2.3(ansi-regex@6.2.2) are one tarball and two builds.
+//
+// A tree keyed by name@version has one directory for the pair and one
+// `node_modules/ansi-regex` inside it, so one of the two dependents imports the
+// other one's peer. That is harder to see than the version case, not easier: the
+// ansi-styles files are byte-identical whichever resolution won, so the only
+// evidence is the version reached one hop further down.
+//
+// The fixture declares app-a's resolution here and reaches the other only
+// through wrap-ansi, so the tree has to place both and point each dependent at
+// its own.
+func TestEachDependentResolvesItsOwnPeerSet(t *testing.T) {
+	tree := verify.New(t)
+	nm := tree.FoundDir("*/peer_variant_both_node_modules")
+	root := nm.Abs()
+
+	for _, chain := range [][2][]string{
+		{{"ansi-styles", "ansi-regex"}, {"6.2.3", "5.0.1"}},
+		{{"wrap-ansi", "ansi-styles", "ansi-regex"}, {"8.1.0", "6.2.3", "6.2.2"}},
+	} {
+		names, versions := chain[0], chain[1]
+		dir := root
+		for i, name := range names {
+			resolved := resolveFrom(root, dir, name)
+			if resolved == "" {
+				t.Errorf("%v does not resolve %q: nothing by that name up the tree from %s",
+					names[:i], name, rel(t, root, dir))
+				break
+			}
+			var pkg struct {
+				Version string `json:"version"`
+			}
+			at := rel(t, root, resolved)
+			nm.File(at + "/package.json").JSON(&pkg)
+			if pkg.Version != versions[i] {
+				t.Errorf("%v resolves %q to %s@%s (at %s), want %s@%s",
+					names[:i], name, name, pkg.Version, at, name, versions[i])
+			}
+			dir = resolved
+		}
+	}
+
+	// The store path is pnpm's own: one directory per resolution, named
+	// `<name>@<version>` with the peer set appended after an underscore. Only the
+	// prefix is pinned -- the peer component ends in a digest of the whole peer
+	// suffix, because nested peer sets run to hundreds of characters and
+	// truncating alone would collide two resolutions into one directory, which is
+	// the bug this keying exists to avoid.
+	//
+	// Asserted by looking for the directory rather than by reading the link that
+	// reaches it: runfiles staging materialises a link to a directory as the
+	// directory, so the link is only a link where the tree is an action input.
+	store := tree.Find("*/peer_variant_both_node_modules/.pnpm/ansi-styles@6.2.3_*/node_modules/ansi-styles")
+	if len(store) != 1 {
+		t.Errorf("%d directories match .pnpm/ansi-styles@6.2.3_*/node_modules/ansi-styles, want 1",
+			len(store))
+	}
+}
+
 func rel(t *testing.T, root, path string) string {
 	t.Helper()
 	out, err := filepath.Rel(root, path)

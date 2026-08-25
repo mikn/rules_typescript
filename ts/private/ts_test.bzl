@@ -64,40 +64,32 @@ npm package naming convention:
   required @npm// labels in ts_test's deps.
 
 Snapshot testing:
-  Vitest snapshot files (.snap) must live in the source tree but Bazel's
-  sandbox is read-only by default.  The recommended workflow is to create a
-  separate executable ts_snapshot target using update_snapshots = True:
+  Vitest resolves a .snap file next to the test file it ran, which under Bazel
+  is the compiled .js in bazel-out.  ts_test replaces that resolution
+  (test.resolveSnapshotPath) with the path the .ts source implies:
 
-    ts_test(
-        name = "my_test",
-        ...
-    )
+    <package>/__snapshots__/<source file name>.snap
 
-    ts_test(
-        name = "update_snapshots",
-        srcs = [...],  # same srcs as my_test
-        deps = [...],
-        update_snapshots = True,  # produces an executable, not a test
-    )
+  the same place a plain `vitest` run would keep it, so a repository adopting
+  ts_test keeps its snapshots where they already are.
 
-  Then run:
+  Reading them: list them in `snapshots`, which is what puts them in the
+  runfiles tree the sandboxed test can read.  A test whose snapshot is absent
+  there fails -- ts_test runs vitest in its read-only snapshot mode (CI=true)
+  so that no `bazel test` can write a .snap and pass on what it just wrote.
 
-    bazel run //path:update_snapshots
+  Writing them: every ts_test also declares an executable
 
-  vitest writes the snapshot files back into the source tree via
-  --reporter=verbose --update.  The snapshot directory must be writable; when
-  running with `bazel run` the current working directory is the workspace root,
-  so vitest resolves snapshot paths relative to the source files correctly.
+    bazel run //path:my_test.update_snapshots
 
-  Alternative: use --sandbox_writable_path to make a specific directory
-  writable inside the test sandbox:
-
-    bazel test //path:my_test \\
-      --sandbox_writable_path=$(pwd)/src/components/__snapshots__
+  which runs the same compiled tests with `vitest --update` and writes the
+  files under BUILD_WORKSPACE_DIRECTORY.  It shares the test's ts_compile
+  target; a second ts_test over the same srcs would collide with it on the
+  compiled .js outputs.
 """
 
 load("//tools/launcher:launcher.bzl", "LAUNCHER_ATTRS", "declare_launcher", "rlocation_path")
-load("//ts/private:node_modules.bzl", "build_node_modules_action")
+load("//ts/private:node_modules.bzl", "build_node_modules_action", "collect_npm_packages")
 load("//ts/private:providers.bzl", "CssModuleInfo", "JsInfo", "NpmPackageInfo")
 load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "get_js_runtime")
 load("//ts/private:ts_compile.bzl", "ts_compile")
@@ -110,25 +102,11 @@ load("//ts/private:ts_compile.bzl", "ts_compile")
 # ts_compile targets in deps — the rule silently skips non-npm deps.
 
 def _ts_auto_node_modules_impl(ctx):
-    # Filter to only deps that provide NpmPackageInfo.
-    npm_deps = [dep for dep in ctx.attr.deps if NpmPackageInfo in dep]
-
-    # Collect packages_to_link and input_file_sets, deduplicating by
-    # package_name@version.
-    seen = {}
-    packages_to_link = []
-
-    for dep in npm_deps:
-        npm_info = dep[NpmPackageInfo]
-        key = "{}@{}".format(npm_info.package_name, npm_info.package_version)
-        if key not in seen:
-            seen[key] = True
-            packages_to_link.append(npm_info)
-        for dep_info in npm_info.transitive_deps.to_list():
-            dep_key = "{}@{}".format(dep_info.package_name, dep_info.package_version)
-            if dep_key not in seen:
-                seen[dep_key] = True
-                packages_to_link.append(dep_info)
+    packages_to_link = collect_npm_packages([
+        dep[NpmPackageInfo]
+        for dep in ctx.attr.deps
+        if NpmPackageInfo in dep
+    ])
 
     input_file_sets = [npm_info.all_files for npm_info in packages_to_link]
 
@@ -183,6 +161,9 @@ _ts_auto_node_modules = rule(
 #                          (.ts/.mts/.js/.mjs) or an inline dict
 #   3. the attribute layer — `environment`, `setup_files`, `global_setup`,
 #                          `globals`, `reporters`, `coverage_thresholds`
+#   4. the snapshot layer  — where .snap files are read from and written to.
+#                          Merged at the root only: vitest rejects
+#                          `resolveSnapshotPath` in a workspace project.
 #
 # Objects are merged key by key; arrays are concatenated (base first), which
 # matches vite's own mergeConfig, so a user `plugins` list never displaces the
@@ -216,6 +197,37 @@ const cssModulesMockPlugin = {
     }
     return null;
   },
+};
+"""
+
+_SNAPSHOT_HELPERS = """\
+const snapshotBase = (testPath) => {
+  const p = testPath.split(sep).join('/');
+  for (const [compiled, base] of Object.entries(SNAPSHOT_BASES)) {
+    if (p === compiled || p.endsWith('/' + compiled)) return base;
+  }
+  return null;
+};
+
+// The test vitest runs is the compiled .js in bazel-out, so vitest's own
+// answer -- a __snapshots__ dir beside the test file -- points at the build
+// tree. Every snapshot path below is rebuilt from the .ts source instead.
+const vitestDefaultSnapshotPath = (testPath, ext) =>
+  join(dirname(testPath), '__snapshots__', basename(testPath) + ext);
+
+let RUNFILES_MANIFEST;
+const rlocation = (p) => {
+  const dir = process.env.RUNFILES_DIR;
+  if (dir) return resolve(dir, p);
+  if (RUNFILES_MANIFEST === undefined) {
+    const manifest = process.env.RUNFILES_MANIFEST_FILE;
+    RUNFILES_MANIFEST = new Map(
+      (manifest ? readFileSync(manifest, 'utf8').split('\\n') : [])
+        .filter((line) => line.includes(' '))
+        .map((line) => [line.slice(0, line.indexOf(' ')), line.slice(line.indexOf(' ') + 1)]),
+    );
+  }
+  return RUNFILES_MANIFEST.get(p) ?? abs(p);
 };
 """
 
@@ -267,6 +279,47 @@ def _relative_import(from_path, to_path):
     joined = "/".join(parts)
     return joined if joined.startswith("..") else "./" + joined
 
+def _snapshot_layer(snapshot_bases, snapshot_root, test_include, update_snapshots):
+    """The root-only config layer that redirects vitest's .snap paths.
+
+    `resolveSnapshotPath` is one of vitest's non-project options, so this layer
+    is merged at the root and never into a workspace project.
+    """
+    if not snapshot_bases:
+        return "const snapshotLayer = {};"
+    if update_snapshots:
+        return "\n".join([
+            "const SOURCE_ROOT = process.env.BUILD_WORKSPACE_DIRECTORY;",
+            "const snapshotLayer = {",
+            # vite derives cacheDir from the root, and `bazel run` puts the root
+            # in the user's source tree, where a .vite/ has no business being.
+            "  cacheDir: abs('.vitest-cache'),",
+            "  test: {",
+            # `bazel run` puts the working directory at the workspace root, and
+            # vitest globs that for test files. The compiled ones are here, and
+            # naming them keeps the runfiles trees beside them out of the run.
+            "    dir: abs('.'),",
+            "    include: {},".format(_js(test_include)),
+            "    resolveSnapshotPath: (testPath, ext) => {",
+            "      const base = snapshotBase(testPath);",
+            "      if (base === null || !SOURCE_ROOT) return vitestDefaultSnapshotPath(testPath, ext);",
+            "      return resolve(SOURCE_ROOT, base + ext);",
+            "    },",
+            "  },",
+            "};",
+        ])
+    return "\n".join([
+        "const snapshotLayer = {",
+        "  test: {",
+        "    resolveSnapshotPath: (testPath, ext) => {",
+        "      const base = snapshotBase(testPath);",
+        "      if (base === null) return vitestDefaultSnapshotPath(testPath, ext);",
+        "      return rlocation({prefix} + base + ext);".format(prefix = _js(snapshot_root + "/")),
+        "    },",
+        "  },",
+        "};",
+    ])
+
 def _vitest_config_content(
         config_rf,
         css_module_mock,
@@ -277,16 +330,25 @@ def _vitest_config_content(
         global_setup_rf,
         globals_enabled,
         reporters,
-        coverage_thresholds):
+        coverage_thresholds,
+        snapshot_bases = {},
+        snapshot_root = "",
+        test_include = [],
+        update_snapshots = False):
     """Builds the entry vitest config that layers Bazel, user and attr config."""
     lines = [
         "// AUTO-GENERATED by rules_typescript ts_test. Do not edit.",
         "//",
         "// Layers, lowest precedence first: Bazel machinery, the `config` attr,",
-        "// then the ts_test attributes. Arrays concatenate; scalars are overridden.",
-        "import { dirname, resolve } from 'node:path';",
+        "// then the ts_test attributes, then the snapshot layer.",
+        "// Arrays concatenate; scalars are overridden.",
+        "import { " +
+        ("basename, dirname, join, resolve, sep" if snapshot_bases else "dirname, resolve") +
+        " } from 'node:path';",
         "import { fileURLToPath } from 'node:url';",
     ]
+    if snapshot_bases:
+        lines.append("import { readFileSync } from 'node:fs';")
     if user_config_rf:
         lines.append("import userConfigExport from '{}';".format(
             _relative_import(config_rf, user_config_rf),
@@ -297,13 +359,26 @@ def _vitest_config_content(
         "const abs = (p) => resolve(HERE, p);",
         "",
     ]
+    if snapshot_bases:
+        lines += [
+            "const SNAPSHOT_BASES = {};".format(_js(snapshot_bases)),
+            _SNAPSHOT_HELPERS,
+        ]
 
     base_plugins = []
     if css_module_mock:
         lines.append(_CSS_MODULE_MOCK_PLUGIN)
         base_plugins.append("cssModulesMockPlugin")
 
-    lines.append("const bazelLayer = {{ plugins: [{}] }};".format(", ".join(base_plugins)))
+    lines += [
+        # Every path vitest is handed is a runfiles symlink; resolving them to
+        # their targets walks out of the test sandbox, which the browser-like
+        # environments do and the node one does not.
+        "const bazelLayer = {",
+        "  resolve: { preserveSymlinks: true },",
+        "  plugins: [{}],".format(", ".join(base_plugins)),
+        "};",
+    ]
 
     if user_config_json:
         lines.append("const userConfigExport = {};".format(user_config_json))
@@ -337,6 +412,7 @@ def _vitest_config_content(
     else:
         lines.append("const attrLayer = {};")
 
+    lines.append(_snapshot_layer(snapshot_bases, snapshot_root, test_include, update_snapshots))
     lines += [
         "",
         _CONFIG_MERGE_HELPERS,
@@ -355,7 +431,7 @@ def _vitest_config_content(
     else:
         lines.append("  const user = {};")
     lines += [
-        "  const merged = merge(merge(bazelLayer, user), attrLayer);",
+        "  const merged = merge(merge(merge(bazelLayer, user), attrLayer), snapshotLayer);",
         "  // Every workspace project gets its own Vite server, so the Bazel layer",
         "  // and the attribute layer have to be applied to each project too.",
         "  const projects = merged.test && merged.test.workspace;",
@@ -372,6 +448,21 @@ def _vitest_config_content(
         "",
     ]
     return "\n".join(lines)
+
+def _snapshot_bases(srcs):
+    """Maps each compiled test .js to the .snap path its .ts source implies.
+
+    Keyed by the compiled path so the generated config can match the file
+    vitest reports, whatever prefix the runfiles layout gives it.
+    """
+    bases = {}
+    for src in srcs:
+        if src.extension not in ("ts", "tsx", "mts", "cts"):
+            continue
+        stem = src.short_path[:-(len(src.extension) + 1)]
+        parent = stem[:stem.rfind("/")] if "/" in stem else ""
+        bases[stem + ".js"] = "{}/__snapshots__/{}".format(parent, src.basename)
+    return bases
 
 # ─── Internal test runner rule ─────────────────────────────────────────────────
 
@@ -473,6 +564,16 @@ def _ts_test_runner_impl(ctx):
             globals_enabled = ctx.attr.globals,
             reporters = ctx.attr.reporters,
             coverage_thresholds = ctx.attr.coverage_thresholds,
+            snapshot_bases = _snapshot_bases(ctx.files.srcs),
+            snapshot_root = ctx.workspace_name,
+            test_include = [
+                _relative_import(
+                    rlocation_path(ctx, vitest_config),
+                    rlocation_path(ctx, f),
+                ).removeprefix("./")
+                for f in test_entry_points
+            ],
+            update_snapshots = ctx.attr.update_snapshots,
         ),
     )
 
@@ -498,12 +599,18 @@ def _ts_test_runner_impl(ctx):
         # the node_modules tree artifact.
         vitest_cfg["vitest_in_tree"] = "vitest/vitest.mjs"
 
+    # A sandboxed test must fail on a stale or missing .snap, never write one,
+    # and vitest only stops writing when it believes it is running in CI.
+    env = dict(ctx.attr.env)
+    if not ctx.attr.update_snapshots:
+        env.setdefault("CI", "true")
+
     config = {
         "label": str(ctx.label),
         "mode": "vitest",
         "workspace": ctx.workspace_name,
         "runtime_args": runtime_args,
-        "env": ctx.attr.env,
+        "env": env,
         "vitest": vitest_cfg,
     }
     if runtime_binary:
@@ -518,7 +625,8 @@ def _ts_test_runner_impl(ctx):
         node_modules_files +
         ctx.files.setup_files +
         ctx.files.global_setup +
-        ctx.files.data
+        ctx.files.data +
+        ctx.files.snapshots
     )
     if vitest_bin:
         runfiles_files.append(vitest_bin)
@@ -631,6 +739,18 @@ _RUNNER_ATTRS = {
               "`config` or `setup_files` entry, anything read at runtime.",
         allow_files = True,
     ),
+    "srcs": attr.label_list(
+        doc = "The .ts/.tsx test sources `compiled_tests` was built from. The " +
+              "runner only reads their paths, to map each compiled test file " +
+              "back to the snapshot file its source implies.",
+        allow_files = [".ts", ".tsx", ".mts", ".cts"],
+    ),
+    "snapshots": attr.label_list(
+        doc = "Checked-in vitest snapshot files (__snapshots__/*.snap). Listing " +
+              "them makes them readable inside the test sandbox, which is what " +
+              "turns a stale snapshot into a failure.",
+        allow_files = [".snap"],
+    ),
     "globals": attr.bool(
         doc = "Enables vitest's global describe/it/expect (test.globals).",
         default = False,
@@ -730,6 +850,7 @@ def ts_test(
         globals = False,
         reporters = [],
         coverage_thresholds = {},
+        snapshots = [],
         update_snapshots = False):
     """Compiles TypeScript test files and runs them with vitest.
 
@@ -818,37 +939,21 @@ def ts_test(
                            {"lines": "80"}.  Enforced only when coverage runs
                            (`bazel coverage`, or `bazel test` with
                            coverage = True).
-        update_snapshots:  When True, creates an *executable* target (not a test)
-                           that runs `vitest run --update` and writes snapshot files
-                           back into the source tree. Use with `bazel run`:
+        snapshots:         Checked-in vitest snapshot files
+                           (`glob(["__snapshots__/*.snap"])`). Listing them is
+                           what makes them readable inside the test sandbox,
+                           and so what turns a stale one into a failure; a
+                           snapshot the test needs and cannot read fails too.
+                           Write them with the generated updater:
 
-                               bazel run //path:name
+                               bazel run //path:my_test.update_snapshots
 
-                           The snapshot files are written relative to
-                           BUILD_WORKSPACE_DIRECTORY (the workspace root), which
-                           is how vitest resolves __snapshots__ directories.
-
-                           Typical pattern — two targets sharing the same srcs:
-
-                               ts_test(
-                                   name = "my_test",
-                                   srcs = ["my.test.ts"],
-                                   deps = [...],
-                               )
-
-                               ts_test(
-                                   name = "update_snapshots",
-                                   srcs = ["my.test.ts"],
-                                   deps = [...],
-                                   update_snapshots = True,
-                               )
-
-                           Alternative: pass --sandbox_writable_path to make the
-                           __snapshots__ directory writable inside the test sandbox:
-
-                               bazel test //path:my_test \\
-                                 --sandbox_writable_path=\\
-                                 $(pwd)/src/components/__snapshots__
+        update_snapshots:  Makes THIS target the executable updater instead of
+                           a test. Every ts_test already declares
+                           `<name>.update_snapshots`, so this is only for an
+                           updater that has to stand on its own — and it
+                           compiles `srcs` itself, so it cannot share a package
+                           with a ts_test over the same files.
 
     Example:
         ts_test(
@@ -938,6 +1043,8 @@ def ts_test(
     runner_kwargs = {
         "name": name,
         "compiled_tests": [":{}".format(compile_name)],
+        "srcs": srcs,
+        "snapshots": snapshots,
         "deps": deps,
         "env": env,
         "environment": environment,
@@ -967,9 +1074,19 @@ def ts_test(
         # Produce an executable target (not a test) so `bazel run` works.
         # size/timeout/tags are test-only attrs; omit them for the executable rule.
         _ts_snapshot_updater(**runner_kwargs)
-    else:
-        runner_kwargs["size"] = size
-        runner_kwargs["tags"] = tags
-        if timeout:
-            runner_kwargs["timeout"] = timeout
-        _ts_test_runner_test(**runner_kwargs)
+        return
+
+    # The updater has to share the test's compiled sources: a second ts_compile
+    # over the same srcs in the same package declares the same .js outputs.
+    _ts_snapshot_updater(
+        **(runner_kwargs | {
+            "name": "{}.update_snapshots".format(name),
+            "update_snapshots": True,
+        })
+    )
+
+    runner_kwargs["size"] = size
+    runner_kwargs["tags"] = tags
+    if timeout:
+        runner_kwargs["timeout"] = timeout
+    _ts_test_runner_test(**runner_kwargs)

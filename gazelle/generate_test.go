@@ -3,11 +3,13 @@ package typescript
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"testing"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
 	"github.com/bazelbuild/bazel-gazelle/language"
+	"github.com/bazelbuild/bazel-gazelle/rule"
 )
 
 // runGenerate writes files into <tmp>/<rel> and runs the rule generator over
@@ -146,4 +148,204 @@ func TestGenerate_RuleNamesUnchangedForPlainTSPackage(t *testing.T) {
 	byName := generatedNames(t, res)
 	assertRule(t, byName, "lib", "ts_compile")
 	assertRule(t, byName, "lib_test", "ts_test")
+}
+
+// runGenerateWithBuild is runGenerate with a BUILD file in the directory, so
+// that both its directives and its existing rules reach the generator.
+func runGenerateWithBuild(t *testing.T, rel, build string, files map[string]string) language.GenerateResult {
+	t.Helper()
+
+	repoRoot := t.TempDir()
+	dir := filepath.Join(repoRoot, rel)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	f, err := rule.LoadData(filepath.Join(dir, "BUILD.bazel"), rel, []byte(build))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c := &config.Config{RepoRoot: repoRoot, Exts: make(map[string]interface{})}
+	configureTsConfig(c, "", nil)
+	configureTsConfig(c, rel, f)
+
+	return generateRules(language.GenerateArgs{
+		Config:       c,
+		Dir:          dir,
+		Rel:          rel,
+		File:         f,
+		RegularFiles: names,
+	})
+}
+
+func generatedRule(res language.GenerateResult, name string) *rule.Rule {
+	for _, r := range res.Gen {
+		if r.Name() == name {
+			return r
+		}
+	}
+	return nil
+}
+
+// Two ts_compile targets over one source declare the same .js and .d.ts, which
+// Bazel rejects as conflicting actions rather than as a duplicate.
+func TestGenerate_LeavesWhatAnExistingTargetAlreadyCompiles(t *testing.T) {
+	res := runGenerateWithBuild(t, "widget", `
+ts_compile(
+    name = "hand_written",
+    srcs = ["Button.tsx"],
+)
+
+css_library(
+    name = "hand_written_css",
+    srcs = ["styles.css"],
+)
+`, map[string]string{
+		"Button.tsx": "export const Button = () => null;\n",
+		"styles.css": ".b {}\n",
+	})
+
+	byName := generatedNames(t, res)
+	if _, ok := byName["widget"]; ok {
+		t.Errorf("generated a ts_compile over a claimed src; generated %v", byName)
+	}
+	if len(byName) != 0 {
+		t.Errorf("every src is claimed, so nothing should be generated; got %v", byName)
+	}
+}
+
+// A ts_test's setup_files are compiled by the macro and Gazelle never writes
+// that attribute, so they stay claimed even on the ts_test Gazelle owns.
+func TestGenerate_LeavesTheSetupFilesOfItsOwnTsTest(t *testing.T) {
+	res := runGenerateWithBuild(t, "attrs", `
+ts_test(
+    name = "attrs_test",
+    srcs = ["attrs.test.ts"],
+    setup_files = ["setup.ts"],
+)
+`, map[string]string{
+		"attrs.test.ts": "export const t = 1;\n",
+		"setup.ts":      "export const s = 1;\n",
+	})
+
+	byName := generatedNames(t, res)
+	if _, ok := byName["attrs"]; ok {
+		t.Errorf("generated a ts_compile over a setup_files src; generated %v", byName)
+	}
+	assertRule(t, byName, "attrs_test", "ts_test")
+}
+
+// One tsconfig `paths` map serves a whole workspace, and ts_compile rejects an
+// alias whose files are none of its inputs, so a target that uses none must
+// carry none.
+func TestGenerate_NoPathAliasesWhenTheSourcesUseNone(t *testing.T) {
+	res := runGenerateWithBuild(t, "app", `
+# gazelle:ts_path_alias @/ app/src/
+# gazelle:ts_path_alias ~ui/ packages/ui/src/
+`, map[string]string{
+		"main.ts": "import { z } from 'zod';\nexport const y = z;\n",
+	})
+
+	r := generatedRule(res, "app")
+	if r == nil {
+		t.Fatal("no ts_compile named app")
+	}
+	if r.Attr("path_aliases") != nil {
+		t.Error("path_aliases set on a target whose sources use no alias")
+	}
+}
+
+func TestUsedPathAliases_PicksOnlyTheMatchedKeys(t *testing.T) {
+	c := emptyConfig()
+	c.Exts[languageName] = makeConfig("", []rule.Directive{
+		directive("ts_path_alias", "@/ src/"),
+		directive("ts_path_alias", "~ui/ packages/ui/src/"),
+	})
+	tc := getConfig(c)
+
+	got := usedPathAliases(tc, "app", []string{"main.ts"}, []string{"@/x", "zod", "./local"})
+	want := map[string]string{"@/": "src/"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("usedPathAliases = %v, want %v", got, want)
+	}
+	if got := usedPathAliases(tc, "app", []string{"main.ts"}, []string{"zod"}); len(got) != 0 {
+		t.Errorf("usedPathAliases with no alias import = %v, want empty", got)
+	}
+}
+
+// A path alias reaches the IDE tsconfig only through a target that declares it,
+// and the package it points into is the one target that can: ts_compile accepts
+// an alias whose directory holds that target's own sources.
+func TestUsedPathAliases_KeepsTheAliasOverThePackageItPointsInto(t *testing.T) {
+	c := emptyConfig()
+	c.Exts[languageName] = makeConfig("", []rule.Directive{
+		directive("ts_path_alias", "@/ src/"),
+		directive("ts_path_alias", "@ui/ packages/ui/src/"),
+		directive("ts_path_alias", "@lib lib/index"),
+	})
+	tc := getConfig(c)
+
+	// Nothing here imports through any alias: "@/" survives because
+	// src/components/button.ts lives under src/.
+	got := usedPathAliases(tc, "src/components", []string{"button.ts"}, nil)
+	want := map[string]string{"@/": "src/"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("usedPathAliases = %v, want %v", got, want)
+	}
+
+	// "@lib" points at a file stem, not a directory -- the same thing
+	// ts_compile refuses, so Gazelle must not write it either.
+	if got := usedPathAliases(tc, "lib", []string{"index.ts"}, nil); len(got) != 0 {
+		t.Errorf("usedPathAliases over a stem alias = %v, want empty", got)
+	}
+
+	// ts_refresh_tsconfig writes a paths entry for every module_name in the
+	// graph. Reading one of those back is not a declaration, so it must not
+	// come back as an attr on the package it names.
+	tc.aliasesFromDirectives = false
+	if got := usedPathAliases(tc, "src/components", []string{"button.ts"}, nil); len(got) != 0 {
+		t.Errorf("usedPathAliases over an echoed alias = %v, want empty", got)
+	}
+}
+
+// `outs` is mergeable, so an empty stub strips it from whatever it matches. Only
+// the names the built-in detectors write are Gazelle's to clean up.
+func TestGenerate_KeepsAHandWrittenTsCodegen(t *testing.T) {
+	res := runGenerateWithBuild(t, "codegen", `
+ts_codegen(
+    name = "generated_ts",
+    srcs = ["input.ts"],
+    outs = ["generated.ts"],
+    generator = ":test_generator",
+)
+
+ts_codegen(
+    name = "route_tree",
+    srcs = ["input.ts"],
+    outs = ["routeTree.gen.ts"],
+    generator = "@npm//:tsr_bin",
+)
+`, map[string]string{
+		"input.ts": "export const a = 1;\n",
+	})
+
+	var emptied []string
+	for _, r := range res.Empty {
+		if r.Kind() == "ts_codegen" {
+			emptied = append(emptied, r.Name())
+		}
+	}
+	sort.Strings(emptied)
+	if len(emptied) != 1 || emptied[0] != "route_tree" {
+		t.Errorf("ts_codegen cleanup stubs = %v, want [route_tree]", emptied)
+	}
 }

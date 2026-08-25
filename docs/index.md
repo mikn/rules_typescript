@@ -13,24 +13,30 @@ varying — and with one known limit worth reading before you plan a migration:
 local plugin modules of its own cannot be expressed as one staged file
 ([bundling](guides/bundling.md#framework-plugins-via-vite_config)).
 
-| Framework | Evidence in this repo | How |
+| Framework | Gazelle generates a bundle target? | Evidence in this repo |
 |---|---|---|
-| **React + Vite** | `examples/react-app` | SPA bundling, React Fast Refresh HMR, CSS modules |
-| **TanStack Start** | `examples/tanstack-app` (SPA target), `//tests/integration:vite_bundle_test` | Client bundle; the app-mode target using `tanstackStart()` is excluded from CI |
-| **Remix** | `examples/remix-app` | Client bundle with route-based code splitting |
-| **SvelteKit** | Gazelle target generation only | `@sveltejs/vite-plugin-svelte` via `vite_config` |
-| **Solid Start** | Gazelle target generation only | `@solidjs/start` via `vite_config` |
+| **React + Vite** | n/a — plain Vite, no framework plugin | `examples/react-app`: SPA bundling, React Fast Refresh HMR, CSS modules |
+| **TanStack Start** | yes | `examples/tanstack-app` (SPA target), `//tests/integration:vite_bundle_test`. The app-mode target that runs `tanstackStart()` is excluded from CI |
+| **Remix** | yes | `//tests/integration:remix_test` — Gazelle over a fresh workspace, then a build of what it wrote, asserting one chunk per route. Plus `examples/remix-app` |
+| **SvelteKit** | **no**, by decision | Gazelle names the framework and the reason instead |
+| **Solid Start** | **no**, by decision | Gazelle names the framework and the reason instead |
 
-"Gazelle target generation only" means Gazelle knows how to emit the
-`node_modules` / `vite_bundler` / `ts_bundle` targets for that framework, and
-nothing in the repository builds one. `examples/` is in `.bazelignore`, so the
-example workspaces are separate Bazel invocations; CI builds all six of them,
-with one target excluded and the blocker named in the workflow
-(`examples/tanstack-app`'s app-mode bundle, whose `vite_config` resolves
-`@tanstack/react-start` from the source tree — see
+For the two that get no target, that is the whole support statement: a
+`ts_bundle` nothing can build is worse than none, and silence is worse than
+both, so Gazelle logs which framework it saw and why bundling it is
+unsupported. The rest of the workspace still compiles and tests. The two
+reasons, and what a client-only build would take instead, are in
+[Framework detection](gazelle/overview.md#framework-detection).
+
+`examples/` is in `.bazelignore`, so the example workspaces are separate Bazel
+invocations; CI builds all six of them, with one target excluded and the blocker
+named in the workflow (`examples/tanstack-app`'s app-mode bundle, whose
+`vite_config` resolves `@tanstack/react-start` from the source tree — see
 [bundling](guides/bundling.md#framework-plugins-via-vite_config)).
 
-Frameworks that don't use Vite (e.g., Next.js with webpack/turbopack) are not a priority.
+Frameworks that don't use Vite are not a priority. Next.js is the exception with
+a rule of its own — `next_build` runs the framework's own build
+(`examples/nextjs-app`, `//tests/integration:nextjs_test`).
 
 ## Key Ideas
 
@@ -40,7 +46,7 @@ Frameworks that don't use Vite (e.g., Next.js with webpack/turbopack) are not a 
 - **Isolated declarations, when you want them** — annotate a package's exports and set `declarations = "oxc"` to have Oxc emit its `.d.ts` syntactically. Type-checking then moves off the critical path, which on a deep dependency chain shortens it substantially ([measured](rules/ts-compile.md#cost-of-each-mode)). Opt-in, per package.
 - **Gazelle generates the BUILD files** — targets inferred from the directory tree, imports resolved to labels, lint / bundler / dev-server targets generated, frameworks and codegen auto-detected. Nine `# gazelle:ts_*` directives configure it.
 - **Deps are what you declared** — a source may import only what a *direct* dep provides. A declaration arriving through another dep's own deps no longer satisfies an import; the build fails naming the file, the specifier and the label to add, and Gazelle writes it.
-- **npm without a store** — one Bazel repository per package, fetched on demand, behind a `@npm` alias hub. A target's npm cost is its own dependency closure, not the whole lockfile, and no `node_modules/` exists in the source tree. A `node_modules` tree places every version a closure resolved, not one per name.
+- **npm without a store** — one Bazel repository per package, fetched on demand, behind a `@npm` alias hub. A target's npm cost is its own dependency closure, not the whole lockfile, and no `node_modules/` exists in the source tree. A `node_modules` tree places every *resolution* a closure made — name, version and peer set — not one directory per name.
 - **Only Bazelisk required** — Node.js, Go and Rust are fetched hermetically, and [pnpm too](guides/npm.md#hermetic-pnpm) if you want it. pnpm is needed only to edit the lockfile, never to build.
 
 ## Install

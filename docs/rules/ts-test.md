@@ -47,25 +47,33 @@ the deps do not describe.
 | `globals` | `bool` | `False` | `test.globals` — global `describe`/`it`/`expect` |
 | `reporters` | `string_list` | `[]` | `test.reporters`, e.g. `["default", "junit"]` |
 | `coverage_thresholds` | `string_dict` | `{}` | `test.coverage.thresholds`, e.g. `{"lines": "80", "perFile": "true"}`. Values that look numeric or boolean are emitted as such |
-| `update_snapshots` | `bool` | `False` | Produces an executable (not a test) that runs `vitest run --update`. **Currently broken** — see [Snapshot updating](#snapshot-updating) |
+| `snapshots` | `label_list` | `[]` | Checked-in `.snap` files, normally `glob(["__snapshots__/*.snap"])`. Listing them is what puts them inside the sandbox, and so what makes a stale one fail — see [Snapshots](#snapshots) |
+| `update_snapshots` | `bool` | `False` | Makes **this** target the executable updater rather than a test. Rarely needed: every `ts_test` already declares `<name>.update_snapshots` |
 
 ## The generated vitest config
 
 A config is always generated and always passed with `--config`, so vitest never
 auto-discovers a stray config out of the runfiles tree. It is an *entry* config
-that layers three sources, lowest precedence first:
+that layers four sources, lowest precedence first:
 
-| Layer | Contents |
-|-------|----------|
-| 1. Bazel | the CSS-module mock plugin, when a dep provides `CssModuleInfo` |
-| 2. user | the `config` attr — a config file or an inline dict |
-| 3. attributes | `environment`, `setup_files`, `global_setup`, `globals`, `reporters`, `coverage_thresholds` |
+| Layer | Contents | Applies to workspace projects too? |
+|-------|----------|---|
+| 1. Bazel | `resolve.preserveSymlinks`, and the CSS-module mock plugin when a dep provides `CssModuleInfo` | yes |
+| 2. user | the `config` attr — a config file or an inline dict | it *is* the projects |
+| 3. attributes | `environment`, `setup_files`, `global_setup`, `globals`, `reporters`, `coverage_thresholds` | yes |
+| 4. snapshots | `test.resolveSnapshotPath`, and in update mode `test.dir`, `test.include` and `cacheDir` | no — root only |
 
 Objects merge key by key; arrays concatenate base-first, matching vite's own
 `mergeConfig`. So a user `plugins` list never displaces the CSS-module mock, and
 a user `setupFiles` list never displaces `setup_files` — the attribute's entries
 run after the config's. Scalars from a later layer win, which is why
 `environment` overrides an environment set inside `config`.
+
+Layer 4 is root-only because `resolveSnapshotPath` is one of vitest's
+non-project options; it is applied once, to the root config, and never merged
+into a project. `preserveSymlinks` in layer 1 is not configuration either — a
+DOM environment resolves every module id to its realpath, which for a runfiles
+symlink walks straight out of the test sandbox.
 
 Two things sit outside the layering and outrank all of it, because they are the
 sandbox contract rather than configuration: npm resolution into the runfiles
@@ -104,8 +112,13 @@ layer too, because every workspace project gets its own Vite server. Anything
 the config imports relatively must be in `data` — it is not a build input
 otherwise.
 
-Note: vitest 3.2 renamed `test.workspace` to `projects`. The pinned vitest is
-3.0.9 and the new spelling is unhandled.
+!!! warning "The array form is vitest 3 only"
+    `test.workspace` was renamed `projects` in vitest 3.2 and **removed** in
+    vitest 4, which throws on it rather than ignoring it. The generated config
+    still emits `test.workspace`, so a `config` that default-exports an array
+    fails under vitest 4. Every other `config` shape works on both — object,
+    function, promise, inline dict. Tracked in
+    [TODO.md](https://github.com/mikn/rules_typescript/blob/main/TODO.md).
 
 ### An inline dict
 
@@ -158,23 +171,52 @@ bazel test //path/to:math_test
 `TEST_TOTAL_SHARDS`. Set `shard_count` on the target and pass
 `--test_sharding_strategy=explicit`.
 
-## Snapshot updating
+## Snapshots
 
-`update_snapshots = True` is meant to produce an executable that writes
-snapshots back into the source tree:
+Vitest resolves a `.snap` beside the test file it ran, which under Bazel is the
+compiled `.js` in `bazel-out`. `ts_test` replaces that resolution with the path
+the `.ts` source implies:
 
-```bash
-bazel run //path/to:update_snapshots
+```
+<package>/__snapshots__/<source file name>.snap
 ```
 
-It does not work today: no test in the repository covers it, and it is recorded
-as broken in [CHANGELOG.md](../changelog.md#known-gaps). Until it is fixed,
-make the snapshot directory writable in the sandbox instead:
+which is where a plain `vitest` run already keeps it. A repository adopting
+`ts_test` renames nothing.
+
+**Reading** them takes the `snapshots` attr — that is what puts the files in the
+sandbox:
+
+```python
+ts_test(
+    name = "widget_test",
+    srcs = ["widget.test.ts"],
+    snapshots = glob(["__snapshots__/*.snap"]),
+    deps = [":widget", "@npm//:vitest"],
+)
+```
+
+Without it the test cannot read the snapshot, and it fails rather than passing:
+`ts_test` runs vitest in read-only snapshot mode (`CI=true`), so no `bazel test`
+can write a `.snap` and then pass on what it just wrote. Set `env = {"CI":
+"false"}` to opt out of that, at the cost of the guarantee.
+
+**Writing** them uses the executable every `ts_test` declares alongside itself:
 
 ```bash
-bazel test //path/to:my_test \
-  --sandbox_writable_path=$(pwd)/src/components/__snapshots__
+bazel run //path/to:widget_test.update_snapshots
 ```
+
+It reuses the test's own compiled sources and writes under
+`BUILD_WORKSPACE_DIRECTORY`, i.e. into your checkout, next to the `.ts` file.
+Commit the result. `--sandbox_writable_path` is no longer involved.
+
+`update_snapshots = True` on a `ts_test` makes *that* target the updater instead
+of a test. It exists for an updater that has to stand alone, and it compiles
+`srcs` itself — so it cannot share a package with a `ts_test` over the same
+files, which would be two `ts_compile` targets declaring the same `.js` outputs.
+The generated `<name>.update_snapshots` avoids that by sharing the test's
+compile target, which is why it, not this attr, is the normal route.
 
 ## Debugging
 
@@ -206,8 +248,8 @@ from the test files and the production sources in the package. See
 
 The auto-generated `node_modules` tree is built from the *direct* deps that
 provide `NpmPackageInfo`, plus their transitive npm deps. It places every
-version those resolve to, keyed by version where a name resolves more than once
-([layout](node-modules.md#the-layout)). A `ts_compile` dep
+*resolution* those made — name, version and peer set — keyed apart wherever one
+name resolved more than once ([layout](node-modules.md#the-layout)). A `ts_compile` dep
 does not contribute its own npm dependencies to it. So list every npm package
 needed at runtime — by the test files *and* by the production code under test —
 in `ts_test`'s `deps`, the way `go_test` requires all direct imports. Gazelle

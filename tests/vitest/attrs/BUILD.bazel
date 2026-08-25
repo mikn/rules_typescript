@@ -17,7 +17,8 @@ ts_test(
     name = "attrs_test",
     srcs = [
         "attrs.test.ts",
-        "globals.d.ts",
+        # Declarations only: nothing imports it, so it is not inferable.
+        "globals.d.ts",  # keep
     ],
     config = {"test": {"testTimeout": 20000}},
     coverage_thresholds = {
@@ -31,7 +32,7 @@ ts_test(
         "setup.ts",
         "globals.d.ts",
     ],
-    deps = ["@npm//:vitest"],
+    deps = ["@npm//:vitest"],  # keep
 )
 
 vitest_config(

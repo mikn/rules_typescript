@@ -370,6 +370,10 @@ def _npm_import_impl(rctx):
             '    name = "{}",'.format(target_name),
             '    package_name = "{}",'.format(package_name),
             '    package_version = "{}",'.format(rctx.attr.version),
+        ]
+        if rctx.attr.peer_id:
+            stanza.append('    peer_id = "{}",'.format(rctx.attr.peer_id))
+        stanza += [
             '    package_dir = "package.json",',
             '    package_files = glob(["**/*"], exclude_directories = 1, allow_empty = True),',
         ]
@@ -436,6 +440,12 @@ npm_import = repository_rule(
     attrs = {
         "package": attr.string(mandatory = True, doc = "npm package name, e.g. '@types/react'."),
         "version": attr.string(mandatory = True, doc = "Resolved version."),
+        "peer_id": attr.string(
+            doc = "Filesystem-safe token naming this snapshot's peer set, empty for a " +
+                  "package pnpm resolved only one way. The repository name already carries " +
+                  "it; this passes it on to the providers, which is where a node_modules " +
+                  "tree can act on it.",
+        ),
         "url": attr.string(mandatory = True, doc = "Tarball URL."),
         "integrity": attr.string(doc = "SRI hash from the lockfile's resolution.integrity."),
         "deps": attr.string_list(

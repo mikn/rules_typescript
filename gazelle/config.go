@@ -167,6 +167,10 @@ type tsConfig struct {
 	// directives. Directives take priority over file-based sources.
 	pathAliases map[string]string
 
+	// aliasesFromDirectives records that pathAliases was declared rather than
+	// read back out of a tsconfig this ruleset generated. Inherited downward.
+	aliasesFromDirectives bool
+
 	// npmPackages holds the set of npm package names known to the workspace.
 	// Keys are npm package names (e.g. "react"); values are the Bazel label
 	// string to use as a dep (e.g. "@npm//react").
@@ -845,6 +849,7 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 					dir := strings.TrimSpace(parts[1])
 					if alias != "" && dir != "" {
 						directiveAliases[alias] = dir
+						tc.aliasesFromDirectives = true
 					} else {
 						log.Printf("typescript: invalid ts_path_alias value %q (want \"<alias> <dir>\")", d.Value)
 					}

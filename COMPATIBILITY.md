@@ -53,6 +53,44 @@ cross-platform Node script rather than shell. That is enough to build a
 `node_modules` directory and nothing else. If you need TypeScript on Bazel on
 Windows today, use [aspect-build/rules_ts](https://github.com/aspect-build/rules_ts).
 
+## Vite and vitest
+
+Neither is a dependency of this ruleset. Both come from your `pnpm-lock.yaml`,
+and `ts_bundle`, `ts_dev_server` and `ts_test` generate configuration for
+whatever version that resolves to. So "supported" here means *exercised by a
+test in this repository*, and nothing constrains what you pin.
+
+Two lockfiles are exercised, deliberately on different majors, because a
+generated config that only ever meets one generation is a config that breaks
+silently on the next:
+
+| Hub | Lockfile | Vite | vitest | What it exercises |
+|---|---|---|---|---|
+| `@npm` | `tests/npm/pnpm-lock.yaml` | 6.4.1 | 3.0.9 | `ts_test` (the whole `tests/vitest` suite), `ts_dev_server` (four servers started for real), the nested-Bazel integration workspaces, `examples/` |
+| `@npm_vite` | `vite/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_bundle` output (`tests/vite_bundle`), and `vite-plugin-bazel`'s own tests, which run under `ts_test` |
+
+To re-derive the versions rather than trusting the table:
+
+```bash
+grep -nE '^  (vite|vitest)@' tests/npm/pnpm-lock.yaml vite/pnpm-lock.yaml
+```
+
+The two places a generated config is known to be version-sensitive:
+
+- **`ts_bundle`** emits `build.rollupOptions.output.manualChunks` for
+  `split_chunks`, and `minify = True` emits `true` rather than naming a
+  minifier. Both are spellings every generation from 6 onward honours; the
+  vendor-splitting plugin `split_chunks` used to emit was removed in Vite 7,
+  and naming `esbuild` picks a minifier that is an optional peer and so absent
+  from a tree built from `deps = ["@npm//:vite"]`. `minify = False` also pins
+  `output.minify: false`, because the dead-code pass otherwise re-emits each
+  chunk from its AST and discards what a plugin's `renderChunk` returned.
+- **`ts_test`** reads a `config` file that default-exports an array as a vitest
+  *workspace* and emits `test.workspace`. vitest 4 removed that option and
+  throws on it — so that one `config` shape is vitest 3 only. Every other
+  `ts_test` config shape runs on 4 as well; `//vite/tests:peer_version_test` is
+  a `ts_test` on vitest 4.1.11.
+
 ## Versioning Policy
 
 This project follows [Semantic Versioning 2.0.0](https://semver.org/) from 1.0

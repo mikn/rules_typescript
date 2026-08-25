@@ -26,26 +26,26 @@ ts_compile(
 # Build a node_modules tree with vite and all its transitive deps.
 node_modules(
     name = "node_modules",
-    deps = ["@npm//:vite"],
+    deps = ["@npm_vite//:vite"],
 )
 
 # Declare a Vite bundler instance.
 vite_bundler(
     name = "vite",
     node_modules = ":node_modules",
-    vite = "@npm//:vite",
+    vite = "@npm_vite//:vite",
 )
 
 # ── 13.2: Invisible node_modules naming ─────────────────────────────────────
 node_modules(
     name = "vite_deps",
-    deps = ["@npm//:vite"],
+    deps = ["@npm_vite//:vite"],
 )
 
 vite_bundler(
     name = "vite_alt_nm",
     node_modules = ":vite_deps",
-    vite = "@npm//:vite",
+    vite = "@npm_vite//:vite",
 )
 
 ts_bundle(
@@ -116,9 +116,71 @@ ts_bundle(
     split_chunks = True,
 )
 
-# Verify the Vite bundle output is real (not a placeholder).
+# split_chunks only has an observable outcome when there is third-party code to
+# separate, so this entry imports one npm package and nothing else does.
+ts_compile(
+    name = "vendor_entry",
+    srcs = ["vendor_entry.ts"],
+    deps = [
+        ":lib",
+        "@npm_vite//:nanoid",
+    ],
+)
+
+node_modules(
+    name = "vendor_node_modules",
+    deps = [
+        "@npm_vite//:nanoid",
+        "@npm_vite//:vite",
+    ],
+)
+
+vite_bundler(
+    name = "vite_vendor",
+    node_modules = ":vendor_node_modules",
+    vite = "@npm_vite//:vite",
+)
+
+ts_bundle(
+    name = "vendor_split",
+    bundle_name = "vendor_entry",
+    bundler = ":vite_vendor",
+    entry_point = ":vendor_entry",
+    format = "esm",
+    minify = False,
+    sourcemap = False,
+    split_chunks = True,
+)
+
+# The same graph without split_chunks: one file, everything in it. Without this
+# pair, a vendor chunk that happened to appear for some other reason would read
+# as the feature working.
+ts_bundle(
+    name = "vendor_unsplit",
+    bundle_name = "vendor_entry",
+    bundler = ":vite_vendor",
+    entry_point = ":vendor_entry",
+    format = "esm",
+    minify = False,
+    sourcemap = False,
+)
+
 go_test(
-    name = "vite_bundle_test",
+    name = "split_chunks_test",
+    size = "small",
+    srcs = ["split_chunks_test.go"],
+    data = [
+        ":vendor_split",
+        ":vendor_unsplit",
+    ],
+    deps = ["//tests/verify"],
+)
+
+# Verify the Vite bundle output is real (not a placeholder). Not named
+# vite_bundle_test: Gazelle's Go language reserves that name for this package,
+# and the exclude directive above makes it delete whatever holds it.
+go_test(
+    name = "bundle_output_test",
     size = "small",
     srcs = ["vite_bundle_test.go"],
     data = [

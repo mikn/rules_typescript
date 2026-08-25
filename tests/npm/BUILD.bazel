@@ -4,7 +4,7 @@ load("@rules_go//go:def.bzl", "go_test")
 load("//npm:defs.bzl", "node_modules")
 load("//ts:defs.bzl", "ts_compile")
 load(":parser_tests.bzl", "parser_test_suite")
-load(":resolution_tests.bzl", "conflicting_direct_versions_test")
+load(":resolution_tests.bzl", "conflicting_direct_peers_test", "conflicting_direct_versions_test")
 
 package(default_visibility = ["//:__pkg__"])
 
@@ -180,6 +180,23 @@ go_test(
     deps = ["//tests/verify"],
 )
 
+# Both peer resolutions of ONE version in one tree. app-a's ansi-styles is
+# declared here; the other resolution arrives only through wrap-ansi, which
+# depends on ansi-styles@6.2.3(ansi-regex@6.2.2).
+#
+# The two share a tarball, so a tree keyed by name@version has one directory for
+# them and one `node_modules/ansi-regex` inside it -- and whichever resolution
+# loses, its dependents import the other one's peer. Nothing about that looks
+# wrong: both ansi-regex versions are real, and the ansi-styles files are
+# byte-identical either way.
+node_modules(
+    name = "peer_variant_both_node_modules",
+    deps = [
+        "@npm_features//:wrap-ansi",
+        "@npm_features//app-a:ansi-styles",
+    ],
+)
+
 # ── The graph does not depend on the machine that read the lockfile ──────────
 #
 # fsevents@2.3.3 is `os: [darwin]`. Filtering the lockfile against the host's
@@ -230,6 +247,7 @@ go_test(
     srcs = ["npm_multi_version_tree_test.go"],
     data = [
         ":multi_version_node_modules",
+        ":peer_variant_both_node_modules",
         ":scoped_multi_version_node_modules",
     ],
     deps = ["//tests/verify"],
@@ -291,4 +309,22 @@ node_modules(
 conflicting_direct_versions_test(
     name = "npm_conflicting_direct_versions_test",
     target_under_test = ":conflicting_direct_versions",
+)
+
+# Two peer resolutions of ONE version, named directly, which is the same
+# arrangement one level narrower: the files are identical, but the two disagree
+# about what ansi-styles' own `import "ansi-regex"` resolves to, and
+# node_modules/ansi-styles/node_modules holds one answer.
+node_modules(
+    name = "conflicting_direct_peers",
+    tags = ["manual"],
+    deps = [
+        "@npm_features//app-a:ansi-styles",
+        "@npm_features//app-b:ansi-styles",
+    ],
+)
+
+conflicting_direct_peers_test(
+    name = "npm_conflicting_direct_peers_test",
+    target_under_test = ":conflicting_direct_peers",
 )

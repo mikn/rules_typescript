@@ -1,10 +1,6 @@
 load("@rules_go//go:def.bzl", "go_test")
 load("//ts:defs.bzl", "ts_compile", "ts_npm_publish")
 
-# The go_test targets are hand-named after the sh_tests they replaced, so the
-# Go language would add a second target for the same source.
-# gazelle:exclude *_test.go
-
 ts_compile(
     name = "math",
     srcs = ["math.ts"],

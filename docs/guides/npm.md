@@ -217,11 +217,13 @@ This builds a `node_modules` tree in the sandbox holding exactly those packages
 and their transitive dependencies. `ts_test` does it for you from its `deps` —
 see [Testing with vitest](testing.md).
 
-The tree places **every** version a closure resolved, not one per name: a
-name's primary version keeps the flat top-level directory and any other version
-gets its bytes once under `.pnpm/<name>@<version>/node_modules/<name>`, with a
-relative link from each dependent that resolved to it. Declaring two versions
-of one name directly on one target is an error — see
+The tree places **every** resolution a closure made, not one per name: a name's
+primary resolution keeps the flat top-level directory and any other one gets its
+bytes once under `.pnpm/<name>@<version>[_<peer set>]/node_modules/<name>`, with
+a relative link from each dependent that resolved to it. A resolution is name,
+version and peer set, because pnpm resolves a package once per distinct peer set
+and the outcomes have different dependency edges. Declaring two resolutions of
+one name directly on one target is an error — see
 [node_modules](../rules/node-modules.md#the-layout).
 
 ## Why one repository per package

@@ -37,9 +37,10 @@ Two consequences worth knowing. The test's own sources are checked for
 undeclared imports like any other `ts_compile` sources, so an import that only
 some dep's own deps provide fails the build with the label to add
 ([why](../rules/ts-compile.md#deps-have-to-be-direct)). And the tree places
-every version the closure resolved rather than one per name, so a test whose
-dependencies disagree about a package's version gets what each of them
-resolved ([layout](../rules/node-modules.md#the-layout)).
+every *resolution* the closure made rather than one directory per name, so a test
+whose dependencies disagree about a package — its version, or the peers it was
+resolved against — gets what each of them resolved
+([layout](../rules/node-modules.md#the-layout)).
 
 Pass `node_modules` explicitly only when `deps` is a `select()` (a macro cannot
 iterate one) or when the tree you need is not the one the deps describe:
@@ -78,7 +79,7 @@ ts_test(
         ":button",
         "@npm//:react",
         "@npm//:happy-dom",
-        "@npm//:@testing-library/react",
+        "@npm//:testing-library_react",
         "@npm//:vitest",
     ],
     environment = "happy-dom",
@@ -88,9 +89,15 @@ ts_test(
 
 `environment` is any value vitest accepts — `node`, `jsdom`, `happy-dom`,
 `edge-runtime`, or a custom environment package — and the matching package has
-to be in `deps`. `setup_files` entries run before every test file, which is
-where `matchMedia`, `ResizeObserver`, `PointerEvent` and friends belong.
-TypeScript entries are compiled with the same `deps` as the tests.
+to be in `deps`. (Scoped npm names take their label form: `@testing-library/react`
+is `@npm//:testing-library_react`.) `setup_files` entries run before every test
+file, which is where `matchMedia`, `ResizeObserver`, `PointerEvent` and friends
+belong. TypeScript entries are compiled with the same `deps` as the tests.
+
+A DOM environment needs no sandbox flags: the generated config sets
+`resolve.preserveSymlinks`, without which vitest's web transform resolves every
+runfiles symlink to its target and walks out of the sandbox
+(`Failed to load url … Does the file exist?`).
 
 `global_setup` is the same mechanism for `test.globalSetup`, which runs once
 around the whole run rather than per file.
@@ -109,7 +116,10 @@ ts_test(
 
 Anything the config imports relatively belongs in `data`; it is not a build
 input otherwise. A config that default-exports an array is read as a vitest
-workspace, and each project in it gets the Bazel and attribute layers too.
+workspace, and each project in it gets the Bazel and attribute layers too — but
+only on vitest 3: that array becomes `test.workspace`, which vitest 4 removed and
+throws on ([detail](../rules/ts-test.md#a-config-file)). Every other `config`
+shape runs on both.
 
 Small adjustments do not need a file at all — `config` also takes a dict:
 
@@ -177,18 +187,35 @@ it, so do not treat a green build as proof a threshold held.
 
 ## Snapshots
 
-Vitest writes `.snap` files next to the sources, and the Bazel sandbox is
-read-only. `update_snapshots = True` is meant to produce an executable that
-writes them back, but it does not work today (see
-[the reference](../rules/ts-test.md#snapshot-updating)). Make the snapshot
-directory writable instead:
+`toMatchSnapshot()` works, and the `.snap` files stay where a plain `vitest` run
+keeps them — `<package>/__snapshots__/<source>.snap`, beside your `.ts` rather
+than in `bazel-out`. Adopting `ts_test` renames nothing.
 
-```bash
-bazel test //path/to:my_test \
-  --sandbox_writable_path=$(pwd)/src/components/__snapshots__
+Two halves, and both are needed. Reading: list the files in `snapshots`, which is
+what puts them inside the sandbox.
+
+```python
+ts_test(
+    name = "widget_test",
+    srcs = ["widget.test.ts"],
+    snapshots = glob(["__snapshots__/*.snap"]),
+    deps = [":widget", "@npm//:vitest"],
+)
 ```
 
-Commit the resulting `.snap` files.
+Writing: run the updater that every `ts_test` declares next to itself.
+
+```bash
+bazel run //path/to:widget_test.update_snapshots
+```
+
+It writes into your checkout. Commit the result. `--sandbox_writable_path` is not
+part of this any more, and neither is a second hand-written target.
+
+The `snapshots` attr is not cosmetic. `ts_test` runs vitest in read-only snapshot
+mode, so a snapshot the test cannot read is a failure — where an unlisted one
+used to look like a *new* snapshot, get written into the sandbox, and let the test
+pass on what it had just written.
 
 ## Watch mode
 

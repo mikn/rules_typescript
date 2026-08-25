@@ -119,6 +119,7 @@ def _ts_npm_package_impl(ctx):
         NpmPackageInfo(
             package_name = ctx.attr.package_name,
             package_version = ctx.attr.package_version,
+            peer_id = ctx.attr.peer_id,
             package_dir = package_dir,
             all_files = depset(all_files),
             js_files = depset(js_files),
@@ -152,6 +153,12 @@ ts_npm_package = rule(
         "package_version": attr.string(
             doc = "The resolved npm package version.",
             mandatory = True,
+        ),
+        "peer_id": attr.string(
+            doc = "Filesystem-safe token naming the peer set this resolution was made " +
+                  "against, empty when pnpm resolved the package only one way. Written by " +
+                  "npm_import from the snapshot key's peer suffix; two snapshots sharing " +
+                  "name@version differ only here.",
         ),
         "package_dir": attr.label(
             doc = "The package.json at the root of the extracted npm package; its directory is the package root.",

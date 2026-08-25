@@ -29,7 +29,7 @@
 | **Dev server** | None built-in | Vite with HMR + React Fast Refresh |
 | **npm management** | rules_js (pnpm virtual store, symlinks) | Own pnpm lockfile reader; one Bazel repository per package, fetched on demand |
 | **BUILD generation** | Aspect CLI (proprietary) | Gazelle (open-source, directives) |
-| **Framework support** | None built-in | Remix, TanStack Start, SvelteKit, Solid Start |
+| **Framework support** | None built-in | Remix and TanStack Start bundle through a Vite-plugin hook; Next.js has its own rule. SvelteKit and Solid Start are detected and deliberately unsupported ([why](../gazelle/overview.md#framework-detection)) |
 | **Bazel deps** | rules_js + rules_nodejs | rules_nodejs, rules_rust, rules_go + gazelle, rules_shell, bazel_skylib, platforms, toolchain_utils |
 | **Isolated declarations** | Not required | Not required; opt-in per package for throughput |
 | **pnpm** | System install required | Hermetic, opt-in ([two lines](../guides/npm.md#hermetic-pnpm)); Linux and macOS only |
@@ -167,4 +167,4 @@ aliases into them. Labels are unchanged from a consumer's point of view:
 
 **Isolated declarations are opt-in.** Every target starts on `declarations = "tsgo"`, which needs no annotations. Add `# gazelle:ts_declarations oxc` to a package once its exports are annotated, to move type-checking off the critical path.
 
-**`node_modules` is automatic.** `ts_test` builds its `node_modules` tree from deps automatically. No manual `node_modules` target needed (unless overriding for specific cases). It is not pnpm's virtual store: a name's primary version sits flat at the top level and any other version of that name gets its own store directory plus a link from the dependent that resolved to it, which is the part of pnpm's layout that Node's resolution actually needs.
+**`node_modules` is automatic.** `ts_test` builds its `node_modules` tree from deps automatically. No manual `node_modules` target needed (unless overriding for specific cases). It is not pnpm's virtual store: a name's primary resolution sits flat at the top level and every other resolution of that name — another version, or the same version resolved against different peers — gets its own store directory plus a link from the dependent that resolved to it, which is the part of pnpm's layout that Node's resolution actually needs.

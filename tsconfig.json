@@ -38,6 +38,13 @@
       "@babel/types/*": [
         "./.bazel/npm/@babel/types/*"
       ],
+      "@devserver/lib": [
+        "./tests/dev_server/lib/index"
+      ],
+      "@devserver/lib/*": [
+        "./tests/dev_server/lib/*",
+        "./bazel-bin/tests/dev_server/lib/*"
+      ],
       "@isaacs/cliui": [
         "./.bazel/npm/@isaacs/cliui"
       ],
@@ -123,6 +130,12 @@
       "@vitest/utils/*": [
         "./.bazel/npm/@vitest/utils/dist/*"
       ],
+      "acorn": [
+        "./.bazel/npm/acorn"
+      ],
+      "acorn/*": [
+        "./.bazel/npm/acorn/*"
+      ],
       "ansi-regex": [
         "./.bazel/npm/ansi-regex"
       ],
@@ -135,17 +148,53 @@
       "ansi-styles/*": [
         "./.bazel/npm/ansi-styles/*"
       ],
+      "any-promise": [
+        "./.bazel/npm/any-promise"
+      ],
+      "any-promise/*": [
+        "./.bazel/npm/any-promise/*"
+      ],
       "assertion-error": [
         "./.bazel/npm/assertion-error"
       ],
       "assertion-error/*": [
         "./.bazel/npm/assertion-error/*"
       ],
+      "bundle-require": [
+        "./.bazel/npm/bundle-require"
+      ],
+      "bundle-require/*": [
+        "./.bazel/npm/bundle-require/*"
+      ],
       "cac": [
         "./.bazel/npm/cac/dist/index.d.ts"
       ],
       "cac/*": [
         "./.bazel/npm/cac/dist/*"
+      ],
+      "chokidar": [
+        "./.bazel/npm/chokidar"
+      ],
+      "chokidar/*": [
+        "./.bazel/npm/chokidar/*"
+      ],
+      "commander": [
+        "./.bazel/npm/commander"
+      ],
+      "commander/*": [
+        "./.bazel/npm/commander/*"
+      ],
+      "confbox": [
+        "./.bazel/npm/confbox/dist/index.d.ts"
+      ],
+      "confbox/*": [
+        "./.bazel/npm/confbox/dist/*"
+      ],
+      "consola": [
+        "./.bazel/npm/consola"
+      ],
+      "consola/*": [
+        "./.bazel/npm/consola/*"
       ],
       "emoji-regex": [
         "./.bazel/npm/emoji-regex"
@@ -183,6 +232,12 @@
       "fdir/*": [
         "./.bazel/npm/fdir/*"
       ],
+      "fix-dts-default-cjs-exports": [
+        "./.bazel/npm/fix-dts-default-cjs-exports"
+      ],
+      "fix-dts-default-cjs-exports/*": [
+        "./.bazel/npm/fix-dts-default-cjs-exports/*"
+      ],
       "foreground-child": [
         "./.bazel/npm/foreground-child"
       ],
@@ -212,6 +267,24 @@
       ],
       "jackspeak/*": [
         "./.bazel/npm/jackspeak/*"
+      ],
+      "joycon": [
+        "./.bazel/npm/joycon"
+      ],
+      "joycon/*": [
+        "./.bazel/npm/joycon/*"
+      ],
+      "lilconfig": [
+        "./.bazel/npm/lilconfig"
+      ],
+      "lilconfig/*": [
+        "./.bazel/npm/lilconfig/*"
+      ],
+      "lines-and-columns": [
+        "./.bazel/npm/lines-and-columns"
+      ],
+      "lines-and-columns/*": [
+        "./.bazel/npm/lines-and-columns/*"
       ],
       "loupe": [
         "./.bazel/npm/loupe"
@@ -254,6 +327,12 @@
       ],
       "minipass/*": [
         "./.bazel/npm/minipass/*"
+      ],
+      "mlly": [
+        "./.bazel/npm/mlly"
+      ],
+      "mlly/*": [
+        "./.bazel/npm/mlly/*"
       ],
       "nanoid": [
         "./.bazel/npm/nanoid"
@@ -312,11 +391,41 @@
       "picocolors/*": [
         "./.bazel/npm/picocolors/*"
       ],
+      "pirates": [
+        "./.bazel/npm/pirates"
+      ],
+      "pirates/*": [
+        "./.bazel/npm/pirates/*"
+      ],
+      "pkg-types": [
+        "./.bazel/npm/pkg-types"
+      ],
+      "pkg-types/*": [
+        "./.bazel/npm/pkg-types/*"
+      ],
       "postcss": [
         "./.bazel/npm/postcss"
       ],
+      "postcss-load-config": [
+        "./.bazel/npm/postcss-load-config"
+      ],
+      "postcss-load-config/*": [
+        "./.bazel/npm/postcss-load-config/*"
+      ],
       "postcss/*": [
         "./.bazel/npm/postcss/*"
+      ],
+      "readdirp": [
+        "./.bazel/npm/readdirp"
+      ],
+      "readdirp/*": [
+        "./.bazel/npm/readdirp/*"
+      ],
+      "resolve-from": [
+        "./.bazel/npm/resolve-from"
+      ],
+      "resolve-from/*": [
+        "./.bazel/npm/resolve-from/*"
       ],
       "rollup": [
         "./.bazel/npm/rollup/dist/rollup.d.ts"
@@ -343,11 +452,17 @@
       "signal-exit/*": [
         "./.bazel/npm/signal-exit/*"
       ],
+      "source-map": [
+        "./.bazel/npm/source-map"
+      ],
       "source-map-js": [
         "./.bazel/npm/source-map-js"
       ],
       "source-map-js/*": [
         "./.bazel/npm/source-map-js/*"
+      ],
+      "source-map/*": [
+        "./.bazel/npm/source-map/*"
       ],
       "std-env": [
         "./.bazel/npm/std-env"
@@ -378,6 +493,12 @@
       ],
       "strip-ansi/*": [
         "./.bazel/npm/strip-ansi/*"
+      ],
+      "sucrase": [
+        "./.bazel/npm/sucrase"
+      ],
+      "sucrase/*": [
+        "./.bazel/npm/sucrase/*"
       ],
       "tests/ambient_npm_types/*": [
         "./tests/ambient_npm_types/*",
@@ -469,6 +590,13 @@
         "./tests/dev_server/*",
         "./bazel-bin/tests/dev_server/*"
       ],
+      "tests/dev_server/lib": [
+        "./tests/dev_server/lib/index"
+      ],
+      "tests/dev_server/lib/*": [
+        "./tests/dev_server/lib/*",
+        "./bazel-bin/tests/dev_server/lib/*"
+      ],
       "tests/json/*": [
         "./tests/json/*",
         "./bazel-bin/tests/json/*"
@@ -496,6 +624,10 @@
       "tests/smoke/*": [
         "./tests/smoke/*",
         "./bazel-bin/tests/smoke/*"
+      ],
+      "tests/strict_deps/*": [
+        "./tests/strict_deps/*",
+        "./bazel-bin/tests/strict_deps/*"
       ],
       "tests/synthetic/pkg_00": [
         "./tests/synthetic/pkg_00/index"
@@ -720,6 +852,36 @@
       ],
       "tinyspy/*": [
         "./.bazel/npm/tinyspy/*"
+      ],
+      "tree-kill": [
+        "./.bazel/npm/tree-kill"
+      ],
+      "tree-kill/*": [
+        "./.bazel/npm/tree-kill/*"
+      ],
+      "ts-interface-checker": [
+        "./.bazel/npm/ts-interface-checker"
+      ],
+      "ts-interface-checker/*": [
+        "./.bazel/npm/ts-interface-checker/*"
+      ],
+      "tsup": [
+        "./.bazel/npm/tsup"
+      ],
+      "tsup/*": [
+        "./.bazel/npm/tsup/*"
+      ],
+      "typescript": [
+        "./.bazel/npm/typescript"
+      ],
+      "typescript/*": [
+        "./.bazel/npm/typescript/*"
+      ],
+      "ufo": [
+        "./.bazel/npm/ufo/dist/index.d.ts"
+      ],
+      "ufo/*": [
+        "./.bazel/npm/ufo/dist/*"
       ],
       "undici-types": [
         "./.bazel/npm/undici-types"
