@@ -482,6 +482,10 @@ def create_bundle_action(ctx, entry_js_info, bundle_filename):
 
     use_generated_config = getattr(bundler_info, "use_generated_config", False)
 
+    # Declared only by the lib branch below; every other path leaves it None so
+    # the shared struct return can name it unconditionally.
+    css_out = None
+
     if use_generated_config:
         # ── Vite-style generated-config invocation ───────────────────────
         # Determine whether chunk splitting is enabled.
@@ -520,6 +524,21 @@ def create_bundle_action(ctx, entry_js_info, bundle_filename):
                     "{}/{}.map".format(out_dir_rel, vite_js_name),
                 )
                 outputs.append(map_out)
+
+            # Lib mode extracts CSS into one stylesheet and does not reference it
+            # from the JS, so nothing about the .js output implies it. Declaring it
+            # is the whole fix: Vite writes it either way, and an undeclared output
+            # is discarded with the sandbox. App mode needs nothing here -- its
+            # declare_directory already captures whatever was written.
+            #
+            # Unconditional rather than gated on this target having a CSS dep: the
+            # gate would have to materialise the transitive CSS depset, which this
+            # function avoids on purpose, and the wrapper creates the file up front
+            # so an entry that imports no CSS is not a missing output.
+            css_out = ctx.actions.declare_file(
+                "{}/{}.css".format(out_dir_rel, bundle_filename),
+            )
+            outputs.append(css_out)
 
         # The config file must be a sibling to avoid "output is a prefix"
         # Bazel errors when the bundle output is a declared_directory.
@@ -648,7 +667,8 @@ def create_bundle_action(ctx, entry_js_info, bundle_filename):
         #   $2 = entry .js path (exec-root-relative) — used for VITE_ENTRY_PATH
         #   $3 = output directory path (exec-root-relative)
         #   $4 = HTML file path (exec-root-relative, app mode only; "" when absent)
-        #   $5 = staging manifest path (exec-root-relative, optional; "" when absent)
+        #   $5 = staging manifest path (exec-root-relative; "" when absent)
+        #   $6 = declared lib-mode stylesheet (exec-root-relative; "" in app mode)
         # The wrapper converts these to absolute paths via EXEC_ROOT=$(pwd).
         action_args = [
             config_file.path,
@@ -659,8 +679,10 @@ def create_bundle_action(ctx, entry_js_info, bundle_filename):
             action_args.append(html_file.path)
         else:
             action_args.append("")
-        if staging_manifest_file:
-            action_args.append(staging_manifest_file.path)
+
+        # $5 is a placeholder rather than an omission now that $6 follows it.
+        action_args.append(staging_manifest_file.path if staging_manifest_file else "")
+        action_args.append(css_out.path if css_out else "")
 
         ctx.actions.run(
             inputs = inputs,
@@ -716,7 +738,7 @@ def create_bundle_action(ctx, entry_js_info, bundle_filename):
             progress_message = "TsBundle %{label}",
         )
 
-    return struct(bundle_out = bundle_out, outputs = outputs)
+    return struct(bundle_out = bundle_out, outputs = outputs, css_out = css_out)
 
 # ─── Shared rule implementation ────────────────────────────────────────────────
 # ts_bundle_impl is used by the ts_bundle rule.

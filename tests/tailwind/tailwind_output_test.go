@@ -14,6 +14,15 @@ import (
 	"github.com/mikn/rules_typescript/tests/verify"
 )
 
+// Lib mode puts every extracted rule in one stylesheet and never references it
+// from the JS, so nothing about the .js output implies it exists. It survives
+// only because ts_bundle declares it -- an undeclared output is discarded with
+// the sandbox, which is what made this look like "Vite drops CSS in lib mode".
+func TestLibModeEmitsItsStylesheet(t *testing.T) {
+	css := verify.New(t).File("tests/tailwind/lib_bundle/lib.css")
+	css.Contains("display: flex", "align-items: center")
+}
+
 func TestTailwindGeneratesUtilitiesFromScannedSource(t *testing.T) {
 	assets := verify.New(t).Dir("tests/tailwind/app_bundle/assets")
 	// What `flex` and `items-center` compile to. Asserting the compiled

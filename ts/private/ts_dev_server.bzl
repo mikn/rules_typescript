@@ -135,7 +135,7 @@ Usage:
 """
 
 load("//tools/launcher:launcher.bzl", "LAUNCHER_ATTRS", "declare_launcher", "rlocation_path")
-load("//ts/private:providers.bzl", "BundlerInfo", "DevServerInfo", "JsInfo")
+load("//ts/private:providers.bzl", "AssetInfo", "BundlerInfo", "CssInfo", "CssModuleInfo", "DevServerInfo", "JsInfo")
 load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "get_js_runtime")
 load("//ts/private:ts_compile.bzl", "TsModuleInfo")
 load("//ts/private:vite_config.bzl", "LOAD_USER_CONFIG_JS", "VITE_CONFIG_EXTENSIONS", "VITE_CONFIG_SRCS_DOC", "stage_vite_config")
@@ -711,6 +711,17 @@ def _ts_dev_server_impl(ctx):
     })
 
     # ── Runfiles ───────────────────────────────────────────────────────────────
+    # CSS and assets as well as JS. The dev server serves from the workspace root,
+    # where a checked-in .css sits beside its source already -- so this looks
+    # redundant until the CSS is generated, and then it is the only copy there is.
+    # It is also what lets a test run the server against its own runfiles rather
+    # than against the developer's tree.
+    non_js_files = [
+        entry_point[provider].transitive_css_files if provider != AssetInfo else entry_point[provider].transitive_asset_files
+        for provider in (CssInfo, CssModuleInfo, AssetInfo)
+        if provider in entry_point
+    ]
+
     explicit_runfiles = [config_file, runtime_binary] + launcher.files
     explicit_runfiles.extend(node_modules_files)
     explicit_runfiles.extend(plugin_files)
@@ -728,7 +739,7 @@ def _ts_dev_server_impl(ctx):
                 entry_js_info.transitive_js_map_files,
                 bundler_runtime_files,
                 server_info.runtime_deps,
-            ],
+            ] + non_js_files,
         ),
     )
 

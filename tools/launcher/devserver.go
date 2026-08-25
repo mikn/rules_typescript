@@ -100,6 +100,13 @@ func planDevServer(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, 
 	}
 	plan.setEnv("NODE_MODULES_PATH", nodeModules)
 
+	// NODE_PATH as well, which Node's own ESM resolution ignores -- but not every
+	// resolver in the graph is Node's. Tailwind v4 resolves `@import "tailwindcss"`
+	// from the CSS file's own directory using enhanced-resolve, which reads
+	// NODE_PATH explicitly; a source-tree .css has no node_modules above it to
+	// walk up to, so without this the dev server answers 500 for that stylesheet.
+	plan.prependPath("NODE_PATH", nodeModules)
+
 	argv, serverPath, err := serverCommand(cfg, r, configFile, nodeModules)
 	if err != nil {
 		return nil, err

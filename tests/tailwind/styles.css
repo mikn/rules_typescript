@@ -1,7 +1,10 @@
 @import "tailwindcss";
 
-/* Tailwind v4 finds source files by walking up from the CSS and applying
-   .gitignore rules. Inside a build sandbox there is no such tree to walk, so the
-   files to scan are named: the compiled .js beside this file, which is what the
-   sandbox actually contains and which still carries the class-name strings. */
+/* @tailwindcss/vite scans from Vite's resolved `root`, not by walking up from
+   this file. In app mode ts_bundle sets that root to the HTML staging directory,
+   which holds only index.html -- so the files to scan have to be named. The
+   compiled .js is what the sandbox contains and it still carries the class-name
+   strings; a class that only ever appeared in an erased type position would not
+   survive into it. Under the dev server the root is the workspace root and this
+   line is redundant but harmless. */
 @source "./entry.js";

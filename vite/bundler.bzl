@@ -150,7 +150,8 @@ def _vite_bundler_impl(ctx):
         "#   $2 = entry .js path\n" +
         "#   $3 = output directory path\n" +
         "#   $4 = HTML file path (\"\" when not in app mode, or no html attr)\n" +
-        "#   $5 = staging manifest path (optional; omitted when staging_srcs is empty)\n" +
+        "#   $5 = staging manifest path (\"\" when staging_srcs is empty)\n" +
+        "#   $6 = the lib-mode stylesheet Bazel declared (\"\" in app mode)\n" +
         "CONFIG=\"${EXEC_ROOT}/$1\"\n" +
         "\n" +
         "# Vite's config loader mkdirs '.vite-temp' in the nearest node_modules above\n" +
@@ -217,6 +218,17 @@ def _vite_bundler_impl(ctx):
         "RUNTIME=\"${EXEC_ROOT}/" + _shell_escape(runtime_rel) + "\"\n" +
         "RUNTIME_ARGS=(" + runtime_args_str + ")\n" +
         "VITE_JS=\"" + vite_entry_rel + "\"\n" +
+        "\n" +
+        "# Lib mode emits the stylesheet only when something was extracted into it,\n" +
+        "# so an entry importing no CSS would leave a declared output uncreated. An\n" +
+        "# empty file put there first is overwritten by the real one when there is\n" +
+        "# one: the generated config sets emptyOutDir false, so Vite does not clear\n" +
+        "# the directory before writing. Done before the build so the exec below\n" +
+        "# stays an exec.\n" +
+        "if [[ -n \"${6:-}\" ]]; then\n" +
+        "  mkdir -p \"$(dirname \"${EXEC_ROOT}/$6\")\"\n" +
+        "  : > \"${EXEC_ROOT}/$6\"\n" +
+        "fi\n" +
         "\n" +
         "exec \"$RUNTIME\" ${RUNTIME_ARGS[@]+\"${RUNTIME_ARGS[@]}\"} \"$VITE_JS\" build --config \"$CONFIG\"\n"
     )

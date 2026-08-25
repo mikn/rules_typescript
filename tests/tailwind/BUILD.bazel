@@ -1,6 +1,6 @@
 load("@rules_go//go:def.bzl", "go_test")
 load("//npm:defs.bzl", "node_modules")
-load("//ts:defs.bzl", "css_library", "ts_bundle", "ts_compile")
+load("//ts:defs.bzl", "css_library", "ts_bundle", "ts_compile", "ts_dev_server")
 load("//vite:bundler.bzl", "vite_bundler")
 
 package(default_visibility = ["//:__pkg__"])
@@ -67,7 +67,10 @@ go_test(
     name = "tailwind_output_test",
     size = "small",
     srcs = ["tailwind_output_test.go"],
-    data = [":app"],
+    data = [
+        ":app",
+        ":lib",
+    ],
     deps = ["//tests/verify"],
 )
 
@@ -83,4 +86,41 @@ ts_compile(
         "@npm_tailwind//:tailwindcss_vite",
         "@npm_tailwind//:vite",
     ],
+)
+
+# The same entry as a library bundle. Lib mode extracts CSS into one stylesheet
+# and never references it from the JS, so the only thing that made it survive is
+# Bazel declaring it: an undeclared output goes out with the sandbox.
+ts_bundle(
+    name = "lib",
+    bundle_name = "lib",
+    bundler = ":vite",
+    entry_point = ":entry",
+    format = "esm",
+    minify = False,
+    sourcemap = False,
+    vite_config = "tailwind_config.ts",
+)
+
+# The dev server path. Tailwind resolves `@import "tailwindcss"` from the CSS's
+# own location through enhanced-resolve, which is not Node's ESM resolver and has
+# no node_modules above a source-tree CSS to walk up to.
+ts_dev_server(
+    name = "dev",
+    entry_point = ":entry",
+    node_modules = ":node_modules",
+    port = 5181,
+    vite_config = "tailwind_config.ts",
+)
+
+go_test(
+    name = "tailwind_dev_test",
+    size = "medium",
+    srcs = ["tailwind_dev_test.go"],
+    data = [
+        ":dev",
+        "//ts/toolchain:node_resolved",
+    ],
+    tags = ["requires-network"],
+    deps = ["//tests/verify"],
 )
