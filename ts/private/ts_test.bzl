@@ -374,6 +374,12 @@ def _vitest_config_content(
         # Every path vitest is handed is a runfiles symlink; resolving them to
         # their targets walks out of the test sandbox, which the browser-like
         # environments do and the node one does not.
+        #
+        # A pool that resolves modules for a second runtime is the other case,
+        # and it wants the opposite: under @cloudflare/vitest-pool-workers a
+        # lexical path is a second module identity for the same file, so a
+        # workers config sets resolve.preserveSymlinks = false and the user layer
+        # wins. See //tests/workers:vitest.workers.config.mjs.
         "const bazelLayer = {",
         "  resolve: { preserveSymlinks: true },",
         "  plugins: [{}],".format(", ".join(base_plugins)),

@@ -1,5 +1,5 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
-load("//ts:defs.bzl", "ts_compile")
+load("//ts:defs.bzl", "ts_compile", "ts_test")
 
 package(default_visibility = ["//:__pkg__"])
 
@@ -26,21 +26,25 @@ ts_compile(
     ],
 )
 
-# The test sources typecheck against `cloudflare:test`, which nothing imports a
-# declaration for: the pool ships it behind an `exports` subpath whose only
-# condition is `types`, which is what a package does with an ambient module it
-# must not force on every importer. Naming that subpath is the whole assertion --
-# tsconfig `types` resolves through a node_modules this ruleset does not have, so
-# the subpath is resolved from the manifest and the file it names is put in
-# `files`.
+# The tests run inside workerd, from the .js Bazel compiled. `cloudflare:test`
+# is owned by the pool's own Vite plugin, which is why the config installs
+# cloudflareTest() rather than setting test.pool -- see vitest.workers.config.mjs.
 #
-# Compiling rather than running: the pool boots workerd and finds this worker,
-# but rewriting the `cloudflare:test` import is part of a transform the pool
-# expects to own, and Bazel hands it a .js that has already been compiled. That
-# is recorded in TODO.md as the remaining Workers gap.
-ts_compile(
-    name = "worker_test_sources",
+# `types` names an `exports` subpath whose only condition is `types`, which is
+# where the pool puts the ambient declaration for that module: nothing imports
+# it, and tsconfig `types` cannot reach it under a ruleset with no node_modules,
+# so it is resolved from the manifest into the program's `files`.
+ts_test(
+    name = "worker_test",
+    size = "medium",
     srcs = ["src/worker.test.ts"],
+    config = "vitest.workers.config.mjs",
+    data = ["wrangler.jsonc"],
+    lib = [
+        "esnext",
+        "webworker",
+    ],
+    tags = ["requires-network"],
     types = ["@cloudflare/vitest-pool-workers/types"],
     deps = [
         ":worker",
@@ -50,9 +54,6 @@ ts_compile(
 )
 
 build_test(
-    name = "worker_typecheck_test",
-    targets = [
-        ":worker",
-        ":worker_test_sources",
-    ],
+    name = "worker_builds_test",
+    targets = [":worker"],
 )

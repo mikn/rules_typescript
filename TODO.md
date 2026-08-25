@@ -76,15 +76,26 @@ to rediscover them. Each names the file to change.
   to walk, so with no `@source` it silently generates nothing. Not a bug to fix
   -- naming the files to scan is the correct thing in a sandbox -- but it is not
   discoverable from a green build that emits an empty stylesheet.
-- **The Workers vitest pool boots but cannot run a Bazel-compiled test.** The
-  pool starts workerd, finds the worker `main`, and reaches the test file; it
-  then fails to resolve `cloudflare:test`, because rewriting that import is part
-  of a transform the pool expects to own and Bazel hands it a .js that has
-  already been compiled. `//tests/workers` pins what does work -- the worker and
-  its tests typecheck, `cloudflare:test` included, through the subpath-`types`
-  resolution added for it. Closing this means letting the pool transform sources
-  rather than consuming compiled output, which is the same shape as the dev
-  server's "Bazel out of the inner loop".
+- **Workers: tests run, deploy does not.** `//tests/workers:worker_test` runs
+  inside workerd against the `.js` Bazel compiled, via `SELF.fetch()`. The
+  earlier diagnosis here -- that the pool must own the transform and cannot take
+  compiled output -- was wrong; compiled `.js` is fine. Two things were missing:
+  the pool has to be installed as a **Vite plugin** (`cloudflareTest()`, which
+  both installs the pool runner and owns `cloudflare:test` through its own
+  `resolveId`/`load`), not as `test.pool` (`cloudflarePool()` is only the runner);
+  and `resolve.preserveSymlinks` must be **false**, against ts_test's own layer,
+  because the pool resolves modules for a second runtime and a lexical path there
+  is a second module identity. Omitting the second reads as
+  `Cannot read properties of undefined (reading 'config')`, which looks like a
+  plugin-API problem and is not.
+  What remains is **deploy**: no `wrangler` rule exists. The hermetic shape is
+  `wrangler deploy --dry-run --outdir`, which needs the config and the worker
+  closure staged into a writable scratch dir (wrangler writes `.wrangler/tmp`
+  beside the config, and a Bazel output dir is read-only) and a writable `HOME`.
+  Also: `bazel coverage` cannot run a workers test today -- `coverageFlags` in
+  `tools/launcher/vitest.go` hardcodes `--coverage.provider v8`, which fails
+  inside workerd on `node:inspector/promises`; istanbul works, so the provider
+  needs to be a knob.
 - **`ts_add_package` writes to the workspace root, not to a hub's directory.**
   `bazel run //:add_package -- <pkg>` created a new `package.json` and
   `pnpm-lock.yaml` at the repo root instead of touching
