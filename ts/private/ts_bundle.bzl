@@ -406,6 +406,10 @@ def _generate_vite_config(ctx, entry_js_file, bundle_filename, out_dir_rel, tran
             '      name: "' + bundle_filename + '",\n' +
             '      formats: ["' + vite_format + '"],\n' +
             "      fileName: " + filename_fn + ",\n" +
+            # Lib mode derives the CSS filename from package.json's name, and the
+            # output tree has no package.json -- so a lib bundle whose entry
+            # imports any CSS fails on a manifest it has no reason to need.
+            '      cssFileName: "' + bundle_filename + '",\n' +
             "    },\n" +
             "    outDir: outDir,\n" +
             "    sourcemap: " + sourcemap_js + ",\n" +

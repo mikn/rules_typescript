@@ -1,0 +1,10 @@
+{
+  "name": "rules_typescript_tailwind_test",
+  "version": "0.0.0",
+  "private": true,
+  "dependencies": {
+    "@tailwindcss/vite": "4.3.3",
+    "tailwindcss": "4.3.3",
+    "vite": "8.2.2"
+  }
+}

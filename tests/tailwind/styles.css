@@ -1,0 +1,7 @@
+@import "tailwindcss";
+
+/* Tailwind v4 finds source files by walking up from the CSS and applying
+   .gitignore rules. Inside a build sandbox there is no such tree to walk, so the
+   files to scan are named: the compiled .js beside this file, which is what the
+   sandbox actually contains and which still carries the class-name strings. */
+@source "./entry.js";

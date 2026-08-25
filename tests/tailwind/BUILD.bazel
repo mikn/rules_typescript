@@ -1,0 +1,71 @@
+load("@rules_go//go:def.bzl", "go_test")
+load("//npm:defs.bzl", "node_modules")
+load("//ts:defs.bzl", "css_library", "ts_bundle", "ts_compile")
+load("//vite:bundler.bzl", "vite_bundler")
+
+package(default_visibility = ["//:__pkg__"])
+
+# gazelle:exclude *_test.go
+
+# @npm_tailwind is translated from these; nothing in this package builds them.
+exports_files([
+    "package.json",
+    "pnpm-lock.yaml",
+])
+
+# The vite_config is loaded by Vite, not compiled by ts_compile: it is staged and
+# read at bundle time, so a target for it here would claim a file that is already
+# an input to :app.
+# gazelle:ts_exclude tailwind_config.ts
+
+css_library(
+    name = "styles_css",
+    srcs = ["styles.css"],
+)
+
+ts_compile(
+    name = "entry",
+    srcs = ["entry.ts"],
+    deps = [":styles_css"],
+)
+
+# The bundle is `mode = "app"`. A lib-mode bundle (format = ...) drops CSS
+# imports entirely -- with or without Tailwind -- which is recorded in TODO.md
+# rather than worked around here.
+
+# @tailwindcss/vite reaches tailwindcss and @tailwindcss/oxide by bare specifier
+# from the staged config, so all three have to be in the tree the bundler runs
+# beside -- the platform-specific oxide binary included.
+node_modules(
+    name = "node_modules",
+    deps = [
+        "@npm_tailwind//:tailwindcss",
+        "@npm_tailwind//:tailwindcss_vite",
+        "@npm_tailwind//:vite",
+    ],
+)
+
+vite_bundler(
+    name = "vite",
+    node_modules = ":node_modules",
+    vite = "@npm_tailwind//:vite",
+)
+
+ts_bundle(
+    name = "app",
+    bundler = ":vite",
+    entry_point = ":entry",
+    html = "index.html",
+    minify = False,
+    mode = "app",
+    sourcemap = False,
+    vite_config = "tailwind_config.ts",
+)
+
+go_test(
+    name = "tailwind_output_test",
+    size = "small",
+    srcs = ["tailwind_output_test.go"],
+    data = [":app"],
+    deps = ["//tests/verify"],
+)

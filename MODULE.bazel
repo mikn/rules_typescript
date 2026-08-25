@@ -153,6 +153,16 @@ npm.translate_lock(pnpm_lock = "//tests/npm:pnpm-lock.yaml")
 # Nothing outside //tests/npm names @npm_features, so this hub and its patched
 # nanoid have no business in a consumer's MODULE.bazel.lock.
 npm_dev = use_extension("//npm:extensions.bzl", "npm", dev_dependency = True)
+
+# Tailwind v4's own hub. //tests/npm's lockfile is a curated fixture -- its
+# comments say what each entry is there to prove, and it carries a workspace
+# link and a non-root importer that no `pnpm add` regenerates -- so Tailwind's
+# thirteen platform-gated oxide packages get their own lock rather than
+# re-resolving that one.
+npm_dev.translate_lock(
+    name = "npm_tailwind",
+    pnpm_lock = "//tests/tailwind:pnpm-lock.yaml",
+)
 npm_dev.translate_lock(
     name = "npm_features",
     patches = [
@@ -164,7 +174,7 @@ npm_dev.translate_lock(
 
 use_repo(npm, "npm", "pnpm")
 
-use_repo(npm_dev, "npm_features")
+use_repo(npm_dev, "npm_features", "npm_tailwind")
 
 # ─── Bazel integration test binaries (dev only) ──────────────────────────────
 

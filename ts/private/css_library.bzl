@@ -23,10 +23,29 @@ def _css_library_impl(ctx):
     # tsgo/TypeScript does not error on `import "./foo.css"` when
     # allowArbitraryExtensions is enabled.
     dts_outputs = []
+
+    # A copy in bazel-bin, not the source file. What imports this CSS is the
+    # compiled .js, which lives in bazel-bin, and `import "./button.css"` is
+    # resolved relative to the importer -- so a bundler running over the output
+    # tree looks for the CSS beside that .js and a source-tree-only .css is not
+    # there. The dev server is unaffected: it serves source from the workspace
+    # root, where both sit side by side already.
+    bin_css_files = []
     for css_file in css_files:
         dts = ctx.actions.declare_file(css_file.basename + ".d.ts", sibling = css_file)
         ctx.actions.write(output = dts, content = _CSS_DTS_CONTENT)
         dts_outputs.append(dts)
+
+        # A copy, not a symlink: a bundler realpaths a symlink before resolving
+        # what the CSS itself imports, so `@import "tailwindcss"` from a symlink
+        # would look for a source-tree node_modules that does not exist.
+        bin_css = ctx.actions.declare_file(css_file.basename, sibling = css_file)
+        ctx.actions.expand_template(
+            template = css_file,
+            output = bin_css,
+            substitutions = {},
+        )
+        bin_css_files.append(bin_css)
 
     # Build the transitive depsets from any css_library deps.
     transitive_css_sets = []
@@ -37,13 +56,13 @@ def _css_library_impl(ctx):
         if TsDeclarationInfo in dep:
             transitive_dts_sets.append(dep[TsDeclarationInfo].transitive_declaration_files)
 
-    direct_css = depset(css_files)
-    transitive_css = depset(css_files, transitive = transitive_css_sets, order = "postorder")
+    direct_css = depset(bin_css_files)
+    transitive_css = depset(bin_css_files, transitive = transitive_css_sets, order = "postorder")
     direct_dts = depset(dts_outputs)
     transitive_dts = depset(dts_outputs, transitive = transitive_dts_sets, order = "postorder")
 
     return [
-        DefaultInfo(files = depset(css_files + dts_outputs)),
+        DefaultInfo(files = depset(bin_css_files + dts_outputs)),
         CssInfo(
             css_files = direct_css,
             transitive_css_files = transitive_css,
@@ -79,8 +98,9 @@ A css_library target provides CssInfo and TsDeclarationInfo (with generated
      imports when allowArbitraryExtensions is true.
   2. ts_compile targets can declare a CSS dependency without failing on the
      absence of JsInfo.
-  3. The .css files are passed through untransformed to the output tree so that
-     bundlers (e.g. Vite) can include them in the bundle.
+  3. The .css files are copied untransformed into bazel-bin beside the compiled
+     .js that imports them, which is what makes `import "./button.css"` resolve
+     for a bundler running over the output tree.
 
 Example:
     css_library(
