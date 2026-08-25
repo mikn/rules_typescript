@@ -285,12 +285,31 @@ ts_bundle(
     vite_config = "mock_plugin.mjs",
 )
 
+# A TypeScript config whose plugin comes from a relatively-imported sibling --
+# the shape a framework config actually has. Neither half works without staging:
+# a .ts file cannot be dynamically imported, and the sibling is not beside the
+# staged copy unless vite_config_srcs puts it there.
+# gazelle:ts_exclude composed_config.ts
+# gazelle:ts_exclude composed_plugin.ts
+ts_bundle(
+    name = "entry_vite_composed_config",
+    bundle_name = "entry",
+    bundler = ":vite",
+    entry_point = ":entry",
+    format = "esm",
+    minify = False,
+    sourcemap = False,
+    vite_config = "composed_config.ts",
+    vite_config_srcs = ["composed_plugin.ts"],
+)
+
 go_test(
     name = "vite_config_injection_test",
     size = "small",
     srcs = ["vite_config_injection_test.go"],
     data = [
         ":entry_vite_app_with_config",
+        ":entry_vite_composed_config",
         ":entry_vite_with_config",
     ],
     deps = ["//tests/verify"],

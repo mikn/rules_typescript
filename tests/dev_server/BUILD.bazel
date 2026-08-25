@@ -87,6 +87,18 @@ ts_dev_server(
     vite_config = "user_config.mjs",
 )
 
+# The composed form: the same config whose relative import used to fail, with the
+# sibling it imports declared. Both are staged, so `./user_config_helper.mjs`
+# resolves in the staged tree exactly as it does in the source tree.
+ts_dev_server(
+    name = "dev_with_composed_user_config",
+    entry_point = ":dev_app",
+    node_modules = ":node_modules",
+    port = 5180,
+    vite_config = "user_config_relative.mjs",
+    vite_config_srcs = ["user_config_helper.mjs"],
+)
+
 # The same app under oj instead of Vite, which is the point of the server attr:
 # one generated config, two implementations reading it. oj needs no @npm//:vite
 # in the tree -- it is here only because the Vite variants above share this one.
@@ -145,6 +157,9 @@ ts_dev_server(
         ("dev_with_react_refresh", "5175", "0", "1", "0", "vite"),
         ("dev_with_react_refresh_and_plugin", "5176", "1", "1", "0", "vite"),
         ("dev_with_user_config", "5177", "0", "0", "1", "vite"),
+        # Same assertions, but the plugin comes from a module the config imports
+        # relatively -- which only resolves because vite_config_srcs staged it.
+        ("dev_with_composed_user_config", "5180", "0", "0", "1", "vite"),
         # The same assertions against oj: what the seam is for is that one
         # generated config drives either implementation.
         ("dev_oj", "5179", "0", "0", "0", "oj"),

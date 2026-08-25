@@ -138,6 +138,7 @@ load("//tools/launcher:launcher.bzl", "LAUNCHER_ATTRS", "declare_launcher", "rlo
 load("//ts/private:providers.bzl", "BundlerInfo", "DevServerInfo", "JsInfo")
 load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "get_js_runtime")
 load("//ts/private:ts_compile.bzl", "TsModuleInfo")
+load("//ts/private:vite_config.bzl", "LOAD_USER_CONFIG_JS", "VITE_CONFIG_EXTENSIONS", "VITE_CONFIG_SRCS_DOC", "stage_vite_config")
 
 # ─── Config generation ─────────────────────────────────────────────────────────
 
@@ -395,25 +396,7 @@ def _generate_dev_config(
         )
 
     if user_config_rl:
-        config_content += (
-            "// The user's vite_config, as VITE_USER_CONFIG_PATH points at it: the bin\n" +
-            "// copy, so its own bare imports resolve beside the Bazel npm tree rather\n" +
-            "// than in the source tree. It must default-export a `plugins` array.\n" +
-            "const userConfigPath = process.env['VITE_USER_CONFIG_PATH'];\n" +
-            "let _userPlugins = [];\n" +
-            "if (userConfigPath) {\n" +
-            "  try {\n" +
-            "    const _userMod = await import(userConfigPath);\n" +
-            "    const _userCfg = _userMod.default || _userMod;\n" +
-            "    if (Array.isArray(_userCfg.plugins)) {\n" +
-            "      _userPlugins = _userCfg.plugins;\n" +
-            "    }\n" +
-            "  } catch (err) {\n" +
-            "    throw new Error('[rules_typescript] Failed to load vite_config: ' + err.message);\n" +
-            "  }\n" +
-            "}\n" +
-            "\n"
-        )
+        config_content += LOAD_USER_CONFIG_JS
 
     config_content += (
         "// Build the list of directories Vite's dev server is allowed to serve.\n" +
@@ -657,19 +640,14 @@ def _ts_dev_server_impl(ctx):
     # ── User-supplied vite_config (optional) ────────────────────────────────────
     # A copy in bin, not the source file: Node resolves the runfiles symlink
     # before that file's own imports, which would then leave the Bazel tree.
-    user_config = None
-    user_config_rl = ""
-    if ctx.file.vite_config:
-        user_config = ctx.actions.declare_file("{}_dev/user.vite.config.{}".format(
-            ctx.label.name,
-            ctx.file.vite_config.extension,
-        ))
-        ctx.actions.expand_template(
-            template = ctx.file.vite_config,
-            output = user_config,
-            substitutions = {},
-        )
-        user_config_rl = rlocation_path(ctx, user_config)
+    staged_config = stage_vite_config(
+        ctx,
+        ctx.file.vite_config,
+        ctx.files.vite_config_srcs,
+        "{}_dev/config".format(ctx.label.name),
+    )
+    user_config = staged_config.entry
+    user_config_rl = rlocation_path(ctx, user_config) if user_config else ""
 
     # ── First-party module_name mapping ────────────────────────────────────────
     # Materialised because the config file is a list of them; the same depset
@@ -736,8 +714,7 @@ def _ts_dev_server_impl(ctx):
     explicit_runfiles = [config_file, runtime_binary] + launcher.files
     explicit_runfiles.extend(node_modules_files)
     explicit_runfiles.extend(plugin_files)
-    if user_config:
-        explicit_runfiles.append(user_config)
+    explicit_runfiles.extend(staged_config.files)
     if bundler_info:
         explicit_runfiles.append(bundler_info.bundler_binary)
 
@@ -860,10 +837,14 @@ ts_dev_server = rule(
                   "naming it. Keep the config self-contained, or reach the tree explicitly " +
                   "through the NODE_MODULES_PATH environment variable the launcher sets. " +
                   "The copy's path reaches the generated config as VITE_USER_CONFIG_PATH.",
-            allow_single_file = [".mjs", ".js"],
+            allow_single_file = VITE_CONFIG_EXTENSIONS,
+        ),
+        "vite_config_srcs": attr.label_list(
+            doc = VITE_CONFIG_SRCS_DOC,
+            allow_files = True,
         ),
     },
-    doc = """Starts a Vite dev server for a TypeScript application.
+    doc = """Starts a dev server for a TypeScript application.
 
 `bazel run //app:dev` builds the target once and then starts Vite in dev mode.
 From there Bazel is out of the inner loop: Vite transforms your first-party

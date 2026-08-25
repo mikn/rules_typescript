@@ -12,9 +12,10 @@
 //   - a BARE npm specifier in the config resolves through that tree
 //     (:dev_with_user_config_behaviour_test proves it over HTTP, since only a
 //     running server shows the plugin actually installed);
-//   - a RELATIVE import does not, because only the one file is copied -- and the
-//     dev server refuses to start, naming the file, rather than coming up with
-//     half a config.
+//   - a RELATIVE import resolves only when the module it names is declared in
+//     vite_config_srcs, because that is what stages it beside the copy. An
+//     UNDECLARED sibling is not there, and the dev server refuses to start,
+//     naming the file, rather than coming up with half a config.
 //
 // Also here, because it is a property of the same generated file: the config
 // reaches @vitejs/plugin-react through that package's own exports map, never

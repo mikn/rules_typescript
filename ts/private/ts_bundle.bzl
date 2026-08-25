@@ -34,6 +34,7 @@ env_vars attr: a string_dict that is sugar over the define attr.  Each entry
 """
 
 load("//ts/private:providers.bzl", "BundlerInfo", "CssInfo", "JsInfo")
+load("//ts/private:vite_config.bzl", "VITE_CONFIG_EXTENSIONS", "VITE_CONFIG_SRCS_DOC", "stage_vite_config")
 
 # Vite lib mode output filename suffixes per format.
 # Vite uses: esm → .es.js, cjs → .cjs.js, iife → .iife.js
@@ -233,8 +234,24 @@ def _generate_vite_config(ctx, entry_js_file, bundle_filename, out_dir_rel, tran
             "try {\n" +
             "  const _userConfigPath = process.env[\"EXEC_ROOT\"] + \"/\" + \"" +
             user_config_path.replace('"', '\\"') + "\";\n" +
-            "  const _userMod = await import(_userConfigPath);\n" +
-            "  const _userCfg = _userMod.default || _userMod;\n" +
+            # Vite's own loader, not a bare import: it is what Vite runs on a
+            # root config, so it reads a .ts config and resolves the
+            # extensionless relative imports bundler-resolution configs use.
+            "  let _userCfg = null;\n" +
+            "  try {\n" +
+            "    const { loadConfigFromFile } = await import('vite');\n" +
+            "    const _loaded = await loadConfigFromFile(\n" +
+            "      { command: 'build', mode: 'production' },\n" +
+            "      _userConfigPath,\n" +
+            "    );\n" +
+            "    _userCfg = _loaded && _loaded.config;\n" +
+            "  } catch (_viteErr) {\n" +
+            "    _userCfg = null;\n" +
+            "  }\n" +
+            "  if (!_userCfg) {\n" +
+            "    const _userMod = await import(_userConfigPath);\n" +
+            "    _userCfg = _userMod.default || _userMod;\n" +
+            "  }\n" +
             "  if (Array.isArray(_userCfg.plugins)) {\n" +
             "    _userPlugins = _userCfg.plugins;\n" +
             "  }\n" +
@@ -511,14 +528,20 @@ def create_bundle_action(ctx, entry_js_info, bundle_filename):
         # This is an optional label attr pointing to a .mjs/.js file that
         # exports { plugins: [...] }. Plugins from this file are prepended
         # to the Bazel-generated plugins array in the generated config.
-        user_vite_config_file = None
-        user_vite_config_inputs = []
-        vite_config_attr = getattr(ctx.attr, "vite_config", None)
-        if vite_config_attr:
-            vite_config_files = vite_config_attr.files.to_list()
-            if vite_config_files:
-                user_vite_config_file = vite_config_files[0]
-                user_vite_config_inputs = [user_vite_config_file]
+        # Staged under bazel-bin, not read where it sits: Node resolves the exec
+        # path to the source file before resolving that file's own bare imports,
+        # which then look for a source-tree node_modules this ruleset does not
+        # have. The staged copy sits beside the tree the build produced, and
+        # vite_config_srcs stages the modules the config imports relatively.
+        # getattr: ts_binary shares this implementation and has no vite_config.
+        staged_user_config = stage_vite_config(
+            ctx,
+            getattr(ctx.file, "vite_config", None),
+            getattr(ctx.files, "vite_config_srcs", []),
+            "{}_bundle_config/config".format(ctx.label.name),
+        )
+        user_vite_config_file = staged_user_config.entry
+        user_vite_config_inputs = staged_user_config.files
 
         # ── staging_srcs — writable source staging for framework plugins ──
         # When staging_srcs is set, we generate a manifest file listing
@@ -863,8 +886,12 @@ so that framework transforms run first during bundling.
 Only supported when using a Vite bundler (use_generated_config = True).
 Ignored for bundlers that use the standard CLI interface.
 """,
-            allow_single_file = [".mjs", ".js"],
+            allow_single_file = VITE_CONFIG_EXTENSIONS,
             default = None,
+        ),
+        "vite_config_srcs": attr.label_list(
+            doc = VITE_CONFIG_SRCS_DOC,
+            allow_files = True,
         ),
         "staging_srcs": attr.label_list(
             doc = """Source files to stage into a writable directory for framework Vite plugins.
