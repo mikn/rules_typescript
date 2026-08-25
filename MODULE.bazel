@@ -163,6 +163,15 @@ npm_dev.translate_lock(
     name = "npm_tailwind",
     pnpm_lock = "//tests/tailwind:pnpm-lock.yaml",
 )
+
+# The @typescript-eslint packages, which only //eslint-plugin and
+# //tools/isolated-declarations-lint import. Their own hub for the same reason
+# Tailwind has one, plus a second: eslint pulls a large closure that has no
+# business in the tree an app's tests resolve against.
+npm_dev.translate_lock(
+    name = "npm_eslint",
+    pnpm_lock = "//tests/eslint:pnpm-lock.yaml",
+)
 npm_dev.translate_lock(
     name = "npm_features",
     patches = [
@@ -174,7 +183,7 @@ npm_dev.translate_lock(
 
 use_repo(npm, "npm", "pnpm")
 
-use_repo(npm_dev, "npm_features", "npm_tailwind")
+use_repo(npm_dev, "npm_eslint", "npm_features", "npm_tailwind")
 
 # ─── Bazel integration test binaries (dev only) ──────────────────────────────
 

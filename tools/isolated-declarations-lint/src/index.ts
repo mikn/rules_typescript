@@ -34,7 +34,7 @@
  * ```
  */
 
-import type { Linter } from "eslint";
+import type { ESLint, Linter } from "eslint";
 import { requireExplicitTypes } from "./rules/require-explicit-types.js";
 
 // ---------------------------------------------------------------------------
@@ -56,7 +56,7 @@ const recommended: Linter.Config = {
     // The plugin is referenced by its own name inside a flat config object.
     // Consumers that import the plugin manually choose their own namespace;
     // this config object uses "isolated-declarations" as the canonical name.
-    "isolated-declarations": { rules } as unknown as Linter.Plugin,
+    "isolated-declarations": { rules } as unknown as ESLint.Plugin,
   },
   rules: {
     "isolated-declarations/require-explicit-types": "error",
@@ -70,7 +70,7 @@ const recommended: Linter.Config = {
 const strict: Linter.Config = {
   name: "isolated-declarations/strict",
   plugins: {
-    "isolated-declarations": { rules } as unknown as Linter.Plugin,
+    "isolated-declarations": { rules } as unknown as ESLint.Plugin,
   },
   rules: {
     "isolated-declarations/require-explicit-types": [

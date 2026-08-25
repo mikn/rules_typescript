@@ -114,6 +114,17 @@ const (
 	// When the <outs_csv> value starts with "dir:" the remainder is treated as
 	// the out_dir value and the Outs slice is left empty.
 	directiveCodegen = "ts_codegen"
+
+	// directiveNpmHub names the repo that npm deps in this tree resolve into.
+	//
+	//	# gazelle:ts_npm_hub npm_eslint
+	//
+	// A workspace can have more than one npm hub -- a curated fixture lockfile
+	// and a real one, a tool's dependencies kept out of the app's closure -- and
+	// which one a package's imports come from is a property of the package, not
+	// of the whole repo. Without this the generated label named a hub the
+	// package does not use, which is a label that does not exist.
+	directiveNpmHub = "ts_npm_hub"
 )
 
 // packageBoundaryMode values.
@@ -153,6 +164,10 @@ type tsConfig struct {
 	// package boundary. Used only when packageBoundaryMode == boundaryIndexOnly
 	// to allow individual directories to opt-in regardless of index.ts.
 	packageBoundary bool
+
+	// npmHub is the repo label prefix that a bare specifier resolves into,
+	// e.g. "@npm". Set by directiveNpmHub and inherited by child directories.
+	npmHub string
 
 	// ignore suppresses ts_compile / ts_test generation in this directory.
 	ignore bool
@@ -240,6 +255,7 @@ func getConfig(c *config.Config) *tsConfig {
 	return &tsConfig{
 		packageBoundaryMode: boundaryEveryDir,
 		declarations:        "tsgo",
+		npmHub:              defaultNpmHub,
 	}
 }
 
@@ -676,6 +692,7 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 		tc = &tsConfig{
 			packageBoundaryMode: boundaryEveryDir,
 			declarations:        "tsgo",
+			npmHub:              defaultNpmHub,
 		}
 	}
 
@@ -818,6 +835,8 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 				} else {
 					tc.ignore = true
 				}
+			case directiveNpmHub:
+				tc.npmHub = normalizeNpmHub(d.Value)
 			case directiveTargetName:
 				tc.targetName = d.Value
 			case directiveWarnUnresolved:
@@ -952,4 +971,24 @@ func parseCodegenDirective(value string) *CodegenPattern {
 	}
 
 	return &cp
+}
+
+// defaultNpmHub is the repo npm_translate_lock creates when given no name, and
+// so the hub a workspace that never sets directiveNpmHub is using.
+const defaultNpmHub = "@npm"
+
+// normalizeNpmHub accepts a hub as a repo name or as a repo label, since both
+// are how one gets written in a BUILD file, and returns the label form. An
+// empty value resets to the default rather than producing "//:react", which
+// would silently resolve to a target in the current repo.
+func normalizeNpmHub(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.TrimSuffix(value, "//")
+	if value == "" {
+		return defaultNpmHub
+	}
+	if !strings.HasPrefix(value, "@") {
+		return "@" + value
+	}
+	return value
 }

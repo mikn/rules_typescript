@@ -18,6 +18,7 @@ go_library(
         "jsonc.go",
         "language.go",
         "resolve.go",
+        "rollup.go",
     ],
     importpath = "github.com/mikn/rules_typescript/gazelle",
     visibility = ["//visibility:public"],

@@ -1,0 +1,28 @@
+load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_test")
+
+ts_compile(
+    name = "src",
+    srcs = [
+        "index.ts",
+        "rules/require-explicit-types.ts",
+        "utils.ts",
+    ],
+    # keep: the name package.json publishes. The tests import the plugin by it
+    # rather than relatively, which is what a consumer does, and without this
+    # there is no target for that specifier to resolve to.
+    module_name = "@rules_typescript/eslint-plugin-isolated-declarations",
+    visibility = ["//visibility:public"],
+    deps = ["@npm_eslint//:typescript-eslint_utils"],
+)
+
+ts_test(
+    name = "src_test",
+    srcs = ["rules/__tests__/require-explicit-types.test.ts"],
+    deps = [
+        ":src",
+        "@npm_eslint//:typescript-eslint_parser",
+        "@npm_eslint//:typescript-eslint_rule-tester",
+        "@npm_eslint//:typescript-eslint_utils",
+        "@npm_eslint//:vitest",
+    ],
+)

@@ -1,7 +1,6 @@
 package typescript
 
 import (
-	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -291,6 +290,29 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		isBoundary = len(srcFiles) > 0 || hasIndex || args.Rel == "" || tc.packageBoundary
 	}
 
+	// In index-only mode a plain subdirectory is not a package, so its files
+	// belong to this target rather than to one of their own. Rolling them up is
+	// what keeps an ordinary shape -- a barrel re-exporting ./rules, and ./rules
+	// importing ../utils -- from becoming a cycle between two Bazel packages
+	// when at file granularity there is no cycle.
+	//
+	// A directory that is not a boundary claims nothing at all, so no BUILD file
+	// appears in it to make those rolled-up labels cross a package boundary.
+	if tc.packageBoundaryMode == boundaryIndexOnly {
+		if !isBoundary {
+			return language.GenerateResult{}
+		}
+		rolledSrcs, rolledTests := rolledUpSrcs(args.Dir, tc.excludePatterns)
+		if claimed := claimedSrcs(args, tc); len(claimed) > 0 {
+			rolledSrcs = dropClaimed(rolledSrcs, claimed)
+			rolledTests = dropClaimed(rolledTests, claimed)
+		}
+		srcFiles = append(srcFiles, rolledSrcs...)
+		testFiles = append(testFiles, rolledTests...)
+		sort.Strings(srcFiles)
+		sort.Strings(testFiles)
+	}
+
 	totalNonTS := len(cssFiles) + len(cssModuleFiles) + len(assetFiles) + len(jsonFiles)
 	if !isBoundary && len(srcFiles) == 0 && len(testFiles) == 0 && totalNonTS == 0 {
 		// No TypeScript, CSS, asset, or JSON files and not a boundary: nothing to do.
@@ -379,16 +401,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		}
 
 		// Collect imports for all src files.
-		var allImports []string
-		for _, f := range srcFiles {
-			filePath := filepath.Join(args.Dir, f)
-			imps, err := extractImports(filePath)
-			if err != nil {
-				log.Printf("typescript: error reading %s: %v", filePath, err)
-				continue
-			}
-			allImports = append(allImports, imps...)
-		}
+		allImports := importsIn(args.Dir, srcFiles)
 
 		// Aliases let tsgo resolve source-level specifiers like "@/components".
 		// One tsconfig `paths` map serves a whole workspace, so a target takes
@@ -500,16 +513,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		sort.Strings(testFiles)
 
 		// Collect all imports from test files for dep resolution.
-		var allImports []string
-		for _, f := range testFiles {
-			filePath := filepath.Join(args.Dir, f)
-			imps, err := extractImports(filePath)
-			if err != nil {
-				log.Printf("typescript: error reading %s: %v", filePath, err)
-				continue
-			}
-			allImports = append(allImports, imps...)
-		}
+		allImports := importsIn(args.Dir, testFiles)
 
 		// Also collect npm imports from production source files in this package.
 		// ts_test auto-generates a node_modules tree from its own @npm// deps, so
@@ -519,15 +523,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		// node_modules tree would be missing packages needed by the SUT.
 		var allPackageImports []string
 		allPackageImports = append(allPackageImports, allImports...)
-		for _, f := range srcFiles {
-			filePath := filepath.Join(args.Dir, f)
-			imps, err := extractImports(filePath)
-			if err != nil {
-				log.Printf("typescript: error reading %s: %v", filePath, err)
-				continue
-			}
-			allPackageImports = append(allPackageImports, imps...)
-		}
+		allPackageImports = append(allPackageImports, importsIn(args.Dir, srcFiles)...)
 
 		name := testTargetName(targetNameForDir(tc, args.Rel))
 

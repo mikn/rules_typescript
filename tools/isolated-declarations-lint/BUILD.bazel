@@ -1,4 +1,8 @@
-# Same as eslint-plugin/BUILD.bazel: the @typescript-eslint packages these
-# sources import are in no hub MODULE.bazel declares, so there is no label a
-# ts_compile here could name for them.
-# gazelle:ts_ignore
+# Same hub as //eslint-plugin: these are the @typescript-eslint packages, which
+# the default hub does not carry.
+# gazelle:ts_npm_hub npm_eslint
+
+# index-only, so src/ is one package and src/rules/ is part of it. One target
+# per directory makes this a cycle -- the barrel re-exports ./rules and ./rules
+# imports ../utils -- which at file granularity does not exist.
+# gazelle:ts_package_boundary index-only

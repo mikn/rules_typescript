@@ -63,6 +63,8 @@ func (l *tsLang) KnownDirectives() []string {
 		directiveExclude,
 		// Register a custom ts_codegen target via a directive.
 		directiveCodegen,
+		// Name the npm hub repo that bare specifiers in this tree resolve into.
+		directiveNpmHub,
 	}
 }
 

@@ -35,7 +35,7 @@ type MessageIds =
   | "addVariableType"
   | "cannotInferType";
 
-interface RuleOptions {
+export interface RuleOptions {
   /** Allow missing types on exported `default` if the expression is a class or
    *  function declaration — those are already named and thus inferrable by tsc.
    *  Defaults to `false` for maximum strictness. */

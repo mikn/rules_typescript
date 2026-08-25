@@ -401,7 +401,7 @@ func resolvePathAlias(
 // then falls back to the default @npm//:target-name convention.
 //
 // The label format matches what rules_typescript's npm_translate_lock generates:
-//   - "vitest"             → "@npm//:vitest"
+//   - "vitest"             → "@npm//:vitest" (or the ts_npm_hub hub)
 //   - "@types/react"       → "@npm//:types_react"
 //   - "@tanstack/router"   → "@npm//:tanstack_router"
 func resolveNpmPackage(tc *tsConfig, imp string) string {
@@ -441,12 +441,17 @@ func resolveNpmPackage(tc *tsConfig, imp string) string {
 		return ""
 	}
 
-	// Default convention: @npm//:target-name.
-	// The target name is derived from the npm package name by dropping the
-	// leading "@" for scoped packages and replacing "/" with "_", which
-	// matches the _package_name_to_label function in npm_translate_lock.bzl.
+	// Default convention: <hub>//:target-name, the hub being @npm unless
+	// directiveNpmHub named another. The target name is derived from the npm
+	// package name by dropping the leading "@" for scoped packages and
+	// replacing "/" with "_", which matches the _package_name_to_label
+	// function in npm_translate_lock.bzl.
+	hub := tc.npmHub
+	if hub == "" {
+		hub = defaultNpmHub
+	}
 	targetName := npmPackageToLabelName(pkgName)
-	return "@npm//:" + targetName
+	return hub + "//:" + targetName
 }
 
 // npmPackageToLabelName converts an npm package name to a Bazel label name

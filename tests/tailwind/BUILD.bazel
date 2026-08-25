@@ -13,9 +13,10 @@ exports_files([
     "pnpm-lock.yaml",
 ])
 
-# The vite_config is loaded by Vite, not compiled by ts_compile: it is staged and
-# read at bundle time, so a target for it here would claim a file that is already
-# an input to :app.
+# The vite_config is loaded by Vite, not compiled by ts_compile, so Gazelle must
+# not claim it as a source of :entry -- it is already an input to :app. It still
+# needs a type check, and one the IDE tsconfig can see, which is :tailwind_config
+# below (the same split as //vite:tsup_config).
 # gazelle:ts_exclude tailwind_config.ts
 
 css_library(
@@ -68,4 +69,18 @@ go_test(
     srcs = ["tailwind_output_test.go"],
     data = [":app"],
     deps = ["//tests/verify"],
+)
+
+# Vite loads this config; nothing compiles it, so this target is its type check.
+ts_compile(
+    name = "tailwind_config",
+    srcs = ["tailwind_config.ts"],
+    compiler_options = {
+        "module": "Preserve",
+        "moduleResolution": "Bundler",
+    },
+    deps = [
+        "@npm_tailwind//:tailwindcss_vite",
+        "@npm_tailwind//:vite",
+    ],
 )

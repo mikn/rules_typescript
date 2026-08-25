@@ -720,3 +720,46 @@ func TestResolveImport_BareSpecifiers(t *testing.T) {
 		}
 	}
 }
+
+// A workspace with more than one npm hub is the normal case, not an exotic one:
+// a curated fixture lockfile beside a real one, or a tool's dependencies kept
+// out of an app's closure. The hub is a property of the package doing the
+// importing, so it comes from a directive rather than from the repo.
+func TestResolveNpmPackage_HubFromDirective(t *testing.T) {
+	tc := makeConfig("", nil)
+	tc.npmHub = "@npm_eslint"
+	for imp, want := range map[string]string{
+		"eslint":                    "@npm_eslint//:eslint",
+		"@typescript-eslint/utils":  "@npm_eslint//:typescript-eslint_utils",
+		"@typescript-eslint/parser": "@npm_eslint//:typescript-eslint_parser",
+		// Still not packages, whichever hub is named.
+		"node:fs":    "",
+		"./relative": "",
+	} {
+		if got := resolveNpmPackage(tc, imp); got != want {
+			t.Errorf("resolveNpmPackage(%q) = %q, want %q", imp, got, want)
+		}
+	}
+
+	// An unset hub is the default, not "//:eslint" -- which would resolve to a
+	// target in the importing repo rather than failing.
+	tc.npmHub = ""
+	if got := resolveNpmPackage(tc, "eslint"); got != "@npm//:eslint" {
+		t.Errorf("an empty hub gave %q, want the @npm default", got)
+	}
+}
+
+// Both spellings reach a BUILD file, so both have to mean the same hub.
+func TestNormalizeNpmHub(t *testing.T) {
+	for value, want := range map[string]string{
+		"npm_eslint":     "@npm_eslint",
+		"@npm_eslint":    "@npm_eslint",
+		"@npm_eslint//":  "@npm_eslint",
+		"  npm_eslint  ": "@npm_eslint",
+		"":               "@npm",
+	} {
+		if got := normalizeNpmHub(value); got != want {
+			t.Errorf("normalizeNpmHub(%q) = %q, want %q", value, got, want)
+		}
+	}
+}

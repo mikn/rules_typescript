@@ -63,6 +63,10 @@ ts_refresh_tsconfig(
     ],
     test = True,
     deps = [
+        "//eslint-plugin/src",
+        # The generated per-test compile target: without it the IDE has no
+        # program covering a test file, and its imports resolve to nothing.
+        "//eslint-plugin/src:_src_test_compile",
         "//packages/nested-shared",
         "//packages/shared",
         "//tests/ambient_npm_types:consumer",
@@ -119,6 +123,8 @@ ts_refresh_tsconfig(
         "//tests/synthetic/pkg_17",
         "//tests/synthetic/pkg_18",
         "//tests/synthetic/pkg_19",
+        "//tests/tailwind:entry",
+        "//tests/tailwind:tailwind_config",
         "//tests/validation:annotated_oxc",
         "//tests/validation:correct",
         "//tests/validation:inferred",
@@ -142,6 +148,8 @@ ts_refresh_tsconfig(
         "//tests/vitest/setup_files:media",
         "//tests/vitest/workspace:_project_test_compile",
         "//tests/vitest/workspace:styles",
+        "//tools/isolated-declarations-lint/src",
+        "//tools/isolated-declarations-lint/src:_src_test_compile",
         "//vite:plugin_typecheck",
         "//vite:tsup_config",
     ],
