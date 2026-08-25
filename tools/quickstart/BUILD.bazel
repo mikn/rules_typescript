@@ -14,6 +14,7 @@ genrule(
 go_library(
     name = "quickstart_lib",
     srcs = ["main.go"],
+    # keep
     embedsrcs = [":module_snapshot"],
     importpath = "github.com/mikn/rules_typescript/tools/quickstart",
     visibility = ["//visibility:private"],

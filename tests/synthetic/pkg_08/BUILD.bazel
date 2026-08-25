@@ -9,7 +9,5 @@ ts_compile(
     ],
     # keep
     visibility = ["//tests/synthetic:__subpackages__"],
-    deps = [
-        "//tests/synthetic/pkg_04",
-    ],
+    deps = ["//tests/synthetic/pkg_04"],
 )
