@@ -41,11 +41,34 @@ ibazel run //src/app:dev   # codegen rebuilds and config-aware restarts
 | `port` | `int` | `5173` | Dev server port |
 | `host` | `string` | `"localhost"` | Dev server host. Set to `"0.0.0.0"` to bind on all interfaces |
 | `open` | `bool` | `False` | Open the browser automatically on start |
-| `node_modules` | `label` | `None` | `node_modules` target providing Vite and the application's runtime deps |
+| `node_modules` | `label` | `None` | `node_modules` target providing Vite and the application's runtime deps. Also what makes a bare npm import resolve at all — see [npm resolution](#npm-resolution) |
 | `plugin` | `label` | `None` | Compiled `vite-plugin-bazel` `.mjs` file. It resolves generated code out of `bazel-bin`, invalidates precisely on a rebuild, and makes the restart decision. Without it `bazel-bin` is invisible to Vite |
 | `bundler` | `label` | `None` | `BundlerInfo`-providing target, for a non-Vite dev server. The Vite path resolves Vite from `node_modules` and does not need it |
-| `react_refresh` | `bool` | `False` | React Fast Refresh via `@vitejs/plugin-react`, so component state survives an HMR update. Requires `@npm//:vitejs_plugin-react` in the `node_modules` deps |
-| `vite_config` | `label` | `None` | A `.mjs`/`.js` file default-exporting `{plugins: [...]}`, prepended to Bazel's plugins. This is how framework plugins run in the dev server — TanStack Start's and Remix's do; SvelteKit's and Solid Start's [cannot](../gazelle/overview.md#framework-detection) |
+| `react_refresh` | `bool` | `False` | React Fast Refresh via `@vitejs/plugin-react`, so component state survives an HMR update. Requires `@npm//:vitejs_plugin-react` in the `node_modules` deps; the dev server fails to start if the plugin cannot be loaded |
+| `vite_config` | `label` | `None` | A `.mjs`/`.js` file default-exporting `{plugins: [...]}`, prepended to Bazel's plugins. This is how framework plugins run in the dev server — TanStack Start's and Remix's do; SvelteKit's and Solid Start's [cannot](../gazelle/overview.md#framework-detection). Loaded from a copy in `bazel-bin`, which bounds what it may import |
+
+## npm resolution
+
+A bare specifier in dev-served source resolves through the `node_modules` tree,
+via a generated `bazel:npm-resolve` plugin at `enforce: 'pre'`. Vite has no
+search-path option — it walks up from the importer looking for a `node_modules`
+directory, and above a checked-in source file there is none, because the tree is a
+Bazel output elsewhere. The plugin locates `<tree>/<package>/package.json` and
+hands the id back to Vite's own resolver anchored there, so exports maps,
+conditions and subpaths are interpreted by Vite rather than reimplemented by the
+rule. A package the tree does not carry produces Vite's ordinary
+`Failed to resolve import`; add it to the `node_modules` target's `deps`.
+
+## What a `vite_config` may import
+
+The rule loads a **copy of the file in `bazel-bin`**, not your source file, so its
+own imports resolve beside the Bazel npm tree instead of in the source tree. A
+bare npm specifier resolves through the tree the `node_modules` attr built,
+provided that target is in the same Bazel package as the dev server; a relative
+import does not, and the server exits with
+`[rules_typescript] Failed to load vite_config` naming the file. Pinned by
+`//tests/dev_server:vite_config_boundary_test`; details in
+[Dev Server](../guides/dev-server.md#vite_config-what-it-may-import).
 
 ## Restarts
 

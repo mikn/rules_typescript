@@ -41,7 +41,7 @@ Dev and production want opposite things from the same import, and get them.
 |---|---|---|
 | first-party `.ts` | Bazel compiles it; the plugin redirects imports to `bazel-bin` | **served as source**, transformed by Vite in memory |
 | `ts_codegen` output | from `bazel-bin` | from `bazel-bin` |
-| npm packages | the `node_modules` tree | the `node_modules` tree |
+| npm packages | the `node_modules` tree | the `node_modules` tree, via the `bazel:npm-resolve` plugin |
 | assets, passthrough `.d.ts` | from `bazel-bin` | from `bazel-bin` |
 
 Generated code is recognised by having *no checked-in source*, rather than by a
@@ -52,6 +52,31 @@ entry pointing at that package's source, so `import "@acme/ui"` and a relative
 import of the same file are one module in Vite's graph instead of two copies of
 it. That mapping is the same `TsModuleInfo` one `ts_compile` writes into its
 tsconfig `paths` — not a second source of truth.
+
+### How a bare npm specifier resolves
+
+Vite has no search-path option. It resolves `import "zod"` by walking up from the
+importer looking for a `node_modules` directory, and above a checked-in source
+file there is never one — the npm tree is a Bazel output somewhere else entirely.
+(`resolve.modules` is webpack's; Vite ignores it, so a config that sets it
+configures nothing.)
+
+So the rule installs a plugin, `bazel:npm-resolve`, at `enforce: 'pre'`. For a
+bare specifier it looks for `<tree>/<package>/package.json`; if that file exists
+it hands the id straight back to Vite's own resolver with that manifest as the
+importer, which does have a `node_modules` above it. Two consequences worth
+knowing:
+
+- **Exports maps, conditions and subpaths stay Vite's.** The plugin decides
+  *where* to look, never *what* a specifier means, so `import "zod/v4"` or a
+  package with a conditional `exports` behaves in dev exactly as it does in a
+  `ts_bundle`.
+- **A package the tree does not carry still fails.** The plugin returns nothing
+  and you get Vite's ordinary `Failed to resolve import` — add the package to the
+  `node_modules` target's `deps`, not to the config.
+
+The `node_modules` attr is therefore what makes npm imports work at all in dev, in
+addition to supplying Vite itself.
 
 ## The dev server does not type-check
 
@@ -75,6 +100,69 @@ The `plugin` attribute wires `vite-plugin-bazel`. It is what:
 **Gazelle** sets `plugin = "@rules_typescript//vite:vite_plugin_bazel"` when it
 first generates a `ts_dev_server` target. The attribute is only set on first
 generation and can be removed if you do not want it.
+
+## React Fast Refresh
+
+`react_refresh = True` loads `@vitejs/plugin-react`, which preserves component
+state across an HMR update. The package has to be in the `node_modules` tree:
+
+```python
+node_modules(
+    name = "dev_node_modules",
+    deps = [
+        "@npm//:vite",
+        "@npm//:vitejs_plugin-react",
+    ],
+)
+
+ts_dev_server(
+    name = "dev",
+    entry_point = ":app",
+    node_modules = ":dev_node_modules",
+    react_refresh = True,
+)
+```
+
+The entry point comes from that package's own `exports` map rather than from a
+path into its `dist/`, which is a layout the package owns and reorganises between
+majors. If the plugin cannot be loaded the dev server **fails to start**, naming
+the target and the dep to add — it does not come up without Fast Refresh.
+
+!!! note "The tree has to be named `node_modules`"
+    `@vitejs/plugin-react` resolves the `react-refresh` runtime by Node's own
+    walk-up, which only looks in directories called `node_modules`. A tree named
+    anything else loses Fast Refresh with no error.
+
+## `vite_config`: what it may import
+
+`vite_config` takes one `.mjs`/`.js` file default-exporting `{plugins: [...]}`,
+and the rule loads a **copy of it in `bazel-bin`** rather than your source file.
+That is deliberate: Node resolves a runfiles symlink before it resolves that
+file's own imports, so a config loaded from the source tree would resolve its
+imports through a source-tree `node_modules` — which this ruleset does not have,
+and which no part of the build graph would know about if it did.
+
+The copy is what draws the boundary, and
+`//tests/dev_server:vite_config_boundary_test` pins every side of it:
+
+- A **bare npm specifier** resolves, through the tree the `node_modules` attr
+  built. That target must be in the same Bazel package as the dev server — it is
+  the directory Node finds walking up from the copy. Gazelle generates them
+  together, so this is automatic unless you moved one.
+- A **relative import does not resolve.** Only the one file is copied, so a
+  sibling module is not there to be found. The dev server exits with
+  `[rules_typescript] Failed to load vite_config: …` naming the file, rather than
+  starting on half a config.
+
+Keep the config self-contained apart from bare npm imports, or reach the tree
+explicitly through the `NODE_MODULES_PATH` environment variable the launcher sets.
+
+!!! warning "`ts_bundle`'s `vite_config` is different"
+    `ts_bundle` still imports the user's config by exec-root path, so a
+    *checked-in* config there resolves its imports in the source tree. Point
+    `ts_bundle`'s `vite_config` at a **generated** file under `bazel-out` if you
+    need it to be hermetic — see
+    [bundling](bundling.md#framework-plugins-via-vite_config).
 
 ## Watch mode with ibazel, and who decides to restart
 
@@ -114,11 +202,11 @@ what `ConfigWatcher` adds.
 | `port` | `int` | `5173` | Dev server port |
 | `host` | `string` | `"localhost"` | Dev server host. Set to `"0.0.0.0"` to bind on all interfaces |
 | `open` | `bool` | `False` | Open the browser automatically on start |
-| `node_modules` | `label` | `None` | `node_modules` target providing Vite and the application's runtime deps |
+| `node_modules` | `label` | `None` | `node_modules` target providing Vite and the application's runtime deps. Also what makes a bare npm import resolve at all — see [above](#how-a-bare-npm-specifier-resolves) |
 | `plugin` | `label` | `None` | Compiled `vite-plugin-bazel` `.mjs`. Without it Vite serves first-party source and nothing else — `bazel-bin` is invisible |
 | `bundler` | `label` | `None` | `BundlerInfo`-providing target, for a non-Vite dev server. The Vite path does not need it |
-| `react_refresh` | `bool` | `False` | React Fast Refresh via `@vitejs/plugin-react`, so component state survives an HMR update. Requires `@npm//:vitejs_plugin-react` in the `node_modules` deps |
-| `vite_config` | `label` | `None` | A `.mjs`/`.js` file default-exporting `{plugins: [...]}`, prepended to Bazel's plugins. This is how framework plugins run in the dev server — TanStack Start's and Remix's do; SvelteKit's and Solid Start's [cannot](../gazelle/overview.md#framework-detection) |
+| `react_refresh` | `bool` | `False` | React Fast Refresh via `@vitejs/plugin-react`, so component state survives an HMR update. Requires `@npm//:vitejs_plugin-react` in the `node_modules` deps; the dev server fails to start if the plugin cannot be loaded |
+| `vite_config` | `label` | `None` | A `.mjs`/`.js` file default-exporting `{plugins: [...]}`, prepended to Bazel's plugins. This is how framework plugins run in the dev server — TanStack Start's and Remix's do; SvelteKit's and Solid Start's [cannot](../gazelle/overview.md#framework-detection). Loaded from a copy in `bazel-bin`, which bounds what it may import |
 
 ## Diagnostics
 

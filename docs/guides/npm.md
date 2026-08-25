@@ -168,6 +168,38 @@ Native sidecars still work: a bin script that resolves an optional dependency at
 runtime (`oxlint` → `@oxlint/linux-x64-gnu`) gets it in its runfiles, even
 though the two are no longer sibling directories inside one repository.
 
+## Where a package's type declarations come from
+
+Each package target carries one declaration entry point, and it is the file the
+package's own metadata designates — read in the order a resolver reads it, not in
+an order this ruleset prefers. That entry is what the `ts_compile` boundary
+type-checks against and what the [IDE tsconfig](../getting-started/ide-setup.md)
+puts in `compilerOptions.paths`.
+
+1. **`exports`, in the map's own key order.** Node and TypeScript try conditions
+   as they are written, so a package that writes `require` before `import` means
+   that; a fixed priority list would answer with the wrong build's declarations.
+   The walk descends `types`, `typings`, `node`, `import`, `require` and
+   `default`, follows array fallbacks, and understands the conditions-only
+   shorthand (a map with no `.`-prefixed keys *is* the root entry) and a plain
+   string. A leaf naming `.js`, `.mjs` or `.cjs` resolves to the declaration
+   beside it — `./dist/node/index.js` → `./dist/node/index.d.ts`.
+2. **Top-level `types`, then `typings`,** including the extensionless form
+   (`"typings": "dist/index"` → `dist/index.d.ts`). This is where a package with
+   no `exports` publishes its declarations, and where **every `@types/*` package**
+   publishes them.
+
+Every candidate is checked against the extracted package before it is used, so a
+manifest naming a `.d.ts` it does not actually ship falls through to the next
+candidate rather than producing a target with a missing source. That is not a
+hypothetical: six `@babel/helper-*` resolutions in this repository's own lockfile
+designate a `lib/index.d.ts` their tarball does not contain.
+
+!!! note "`paths` for subpaths is rooted at the entry's directory"
+    A package designating `dist/index.d.ts` gets `pkg/*` → `dist/*`. Importing
+    `pkg/sub` where the subpath's declarations sit somewhere other than beside the
+    entry will not resolve in the editor, even though the build is fine.
+
 ## Bin Scripts
 
 Packages with a `bin` entry in their `package.json` get a `_bin` label:
@@ -259,7 +291,8 @@ bazel query 'kind(ts_npm_package, deps(//path/to:my_test))' | wc -l
 That counts the package targets the target can reach — very nearly the set of
 repositories Bazel would fetch, since a package present under an npm alias name
 contributes a second target in the same repository. On this repository's own
-lockfile a vitest test target reaches 123 targets in 121 repositories.
+lockfile a vitest test target reaches 74 targets in 74 repositories; the two
+counts coincide because no alias falls inside that closure.
 
 There is one npm implementation. The single-repository layout, its
 `npm_translate_lock` repository rule and the `npm.translate_lock(lazy = ...)`

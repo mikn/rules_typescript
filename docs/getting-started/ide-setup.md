@@ -112,6 +112,17 @@ a `tsconfig.json` cannot name it. Copying the `.d.ts` into `npm_dir` is what
 makes a `paths` entry possible, and it keys them by package name rather than by
 a canonical repository name that changes on every version bump.
 
+Which `.d.ts` gets copied is the entry point the package's own metadata
+designates —
+[how that is resolved](../guides/npm.md#where-a-packages-type-declarations-come-from).
+The wildcard entry is rooted at that file's directory, so a package designating
+`dist/node/index.d.ts` gets `pkg` → that file and `pkg/*` → `dist/node/*`:
+
+```json
+"vite":   ["./.bazel/npm/vite/dist/node/index.d.ts"],
+"vite/*": ["./.bazel/npm/vite/dist/node/*"]
+```
+
 ### Keeping the checked-in file honest
 
 `test = True` adds a `diff_test` named `<name>_test` that compares the

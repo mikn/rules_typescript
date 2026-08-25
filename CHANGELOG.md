@@ -143,6 +143,27 @@ requires.
   which for a runfiles symlink resolves to the execroot path *outside* the test
   sandbox (`Failed to load url … Does the file exist?`). The node environment
   never hit it, because its ssr transform loads the path it is given.
+- **A `config` that default-exports an array emits `test.projects`, not
+  `test.workspace`.** vitest 4 does not deprecate `test.workspace`; it **throws**
+  on it, so that one `config` shape was a startup crash on 4 and nothing caught it
+  because the tests that reach it ran vitest 3. `test.projects` is the name vitest
+  3.2 renamed it to, so the array form now needs vitest 3.2 or later; every other
+  shape — object, function, promise, inline dict — runs on 3 and 4 alike.
+
+### Breaking — Vite and vitest versions
+
+- **The tested lane is Vite 8 / vitest 4.** Neither tool is a ruleset dependency,
+  so nothing forces your pin; what changed is which versions the generated configs
+  are proven against. `@npm` (`tests/npm/pnpm-lock.yaml`) resolves vite 8.2.2 and
+  vitest 4.1.11, one resolution each, and everything in the repository runs on it.
+  If you were on Vite 6 / vitest 3 you were on the previously-tested lane; the two
+  spellings that move with the major are listed in
+  [COMPATIBILITY.md](https://github.com/mikn/rules_typescript/blob/main/COMPATIBILITY.md#vite-and-vitest).
+- `@npm_vite` and `vite/pnpm-lock.yaml` are **deleted**. Nothing outside the
+  repository's own tests named that hub. `@npm_features`
+  (`tests/npm/pnpm-lock-features.yaml`) is unaffected: it is the pnpm
+  patch/alias/peer-variant fixture, resolves neither Vite nor vitest, and is
+  declared `dev_dependency`, so it never reaches a consumer's resolution.
 
 ### Breaking — npm
 
@@ -313,10 +334,16 @@ requires.
   `bazel test //tests/integration/...`. The `RULES_TYPESCRIPT_ROOT` environment
   variable those runners needed is no longer read anywhere.
 - Integration targets are `exclusive` rather than `manual`, so
-  `bazel test //...` now runs them — currently 158 test targets, 13 of them
+  `bazel test //...` now runs them — currently 162 test targets, 13 of them
   `exclusive` and 2 `manual`
   (`bazel query 'tests(//...)' | wc -l` if that has moved).
   `bazel test --config=fast //...` skips the exclusive ones.
+- The 13 nested-Bazel workspaces share one repository cache. Each has its own
+  output base, so before this every one of them fetched the whole BCR registry
+  separately and the concurrent lookups failed on a different subset each run —
+  a missing cache that read as flakiness. `prepare()` in
+  `tests/integration/harness/harness.go` now appends
+  `common --repository_cache=<shared>` to each staged workspace's `.bazelrc`.
 
 ### Breaking — the dev server
 
@@ -339,6 +366,36 @@ requires.
   the npm tree, the toolchain node binary) and restarts only when one of those
   changes. A `ts_codegen` rebuild no longer restarts the server, and neither
   does a source edit.
+- **A bare npm specifier from dev-served source resolves.** It did not before:
+  the generated config set `resolve.modules`, which is a webpack option Vite
+  ignores, so nothing was doing the work and a served module importing `"react"`
+  answered 500. A `bazel:npm-resolve` plugin (`enforce: 'pre'`) now finds the
+  package's own `package.json` inside the `node_modules` tree and hands the id
+  back to Vite's own resolver anchored there, so exports maps, conditions and
+  subpaths stay Vite's to interpret; a package the tree does not carry falls
+  through to Vite's ordinary unresolved-import error. No test noticed the gap
+  because no test imported an npm package from served source — five dev servers
+  are now started for real and one of the requests is exactly this.
+- **`react_refresh = True` fails loudly instead of serving without Fast
+  Refresh.** The rule imported `@vitejs/plugin-react/dist/index.mjs` by fixed
+  path — a file the installed major does not ship — and swallowed the failure in a
+  `console.warn`, so the attr was a no-op. The entry point now comes from that
+  package's own `exports` map, and a load failure throws naming the
+  `ts_dev_server` label and the dep to add. If your `node_modules` target is
+  missing `@npm//:vitejs_plugin-react`, a dev server that used to start silently
+  without Fast Refresh now refuses to start.
+- **`vite_config` is loaded from a copy in `bazel-bin`, not from your source
+  tree.** Node resolves a runfiles symlink before it resolves that file's own
+  imports, so a source-tree config resolved its bare imports through a
+  source-tree `node_modules` — which this ruleset does not have. The consequence
+  is a boundary, and it is tested
+  (`//tests/dev_server:vite_config_boundary_test`): a **bare npm specifier** in
+  the config resolves through the tree the `node_modules` attr built, provided
+  that target is in the same Bazel package as the dev server; a **relative
+  import** does not, because only the one file is copied, and the server exits
+  with `[rules_typescript] Failed to load vite_config` naming the file rather
+  than starting on half a config. `ts_bundle`'s `vite_config` is unchanged and
+  still imported from the source tree.
 
 ### Breaking — shell replaced by Go
 
@@ -383,14 +440,12 @@ requires.
   `go_test`. CI now gates on `gofmt -l` and `go vet`.
 - All six `examples/` workspaces are in the CI matrix. It built two, so
   `examples/tanstack-app` was broken with nobody watching.
-- **A second npm hub, `@npm_vite`, built from `vite-plugin-bazel`'s own
-  lockfile.** The bundle rules are now exercised against Vite 8 / vitest 4
-  (`tests/vite_bundle`, `vite/tests`) while `ts_test`, `ts_dev_server` and the
-  integration workspaces stay on Vite 6 / vitest 3 (`@npm`,
-  `tests/npm/pnpm-lock.yaml`). Two generations on purpose: a generated config
-  that only ever meets one is a config that breaks silently on the next, which is
-  how `splitVendorChunkPlugin` survived a passing test. The plugin's peer range
-  and the Vite it is tested against now share one lockfile. See
+- **`//vite/tests:peer_version_test`** reads `peerDependencies.vite` out of
+  `vite/package.json` and asserts the Vite the tests install is a major that range
+  names. That coupling was briefly a second npm hub (`@npm_vite`, on its own
+  lockfile); a second hub on a second major turned out to be a second lockfile to
+  keep in step rather than a second lane, so it is gone and a test holds the two
+  files together instead. See
   [COMPATIBILITY.md](https://github.com/mikn/rules_typescript/blob/main/COMPATIBILITY.md#vite-and-vitest).
 - `//tests/integration:remix_test` — a nested-Bazel journey through a real Remix
   workspace: Gazelle, then `bazel build` on what it wrote, then assertions on
@@ -410,6 +465,24 @@ requires.
 
 ### Fixed
 
+- **An npm package's declaration entry point is resolved the way a resolver
+  resolves it.** `_exports_types` read `exports["."]` looking for a `types` key
+  directly under it, and returned nothing for a plain-string `exports["."]` with
+  no fallback to top-level `types`/`typings`. That is where most of npm publishes,
+  **every `@types/*` package included**, so most of a real closure had no
+  declaration entry at all: the tsconfig aspect wrote a `paths` entry pointing at
+  a *directory*, TypeScript resolved nothing, and the build stayed green because
+  nothing was checked. It now walks the `exports` subtree in **the map's own key
+  order** — Node and TypeScript try conditions as written, and a fixed priority
+  answers with the wrong build's declarations for a package that writes `require`
+  before `import` — through array fallbacks and the conditions-only shorthand;
+  a leaf naming `.js`/`.mjs`/`.cjs` resolves to the declaration beside it; then
+  top-level `types`, then `typings`, extensionless form included. Every candidate
+  is existence-checked against the extracted package, because a manifest naming a
+  `.d.ts` it does not ship would otherwise become a target with a missing source —
+  six `@babel/helper-*` resolutions in this repository's own lockfile do exactly
+  that. `tests/npm/exports_types_tests.bzl` pins the shapes against real
+  manifests.
 - An `@types/*` dep supplies its ambient globals. The generated tsconfig used to
   derive `typeRoots` from the dirname of each `@types` declaration, which under
   one-repository-per-package named the package directory itself and `external/`
@@ -547,6 +620,17 @@ requires.
   package's own label — a dependency cycle. It now resolves to nothing, and an
   unindexed module elsewhere resolves to its *directory*'s target when the last
   segment names a file.
+- **`bazel run //gazelle` is a no-op on a clean checkout of this repository —
+  zero files changed.** For two rounds its output could not be applied at all,
+  and once it could, ten BUILD files still came back modified because they
+  differed from Gazelle's own rendering (a one-element `deps` written across
+  lines, a genrule referenced by its output filename rather than its label)
+  rather than because anything had drifted. That made real drift
+  indistinguishable from formatting. The fixtures now carry Gazelle's rendering,
+  and the hand-written forms that must survive a run are pinned with `# keep` —
+  including `visibility`, which merges, so without `# keep` a hand-narrowed one
+  came back `//visibility:public` every run. Check yours the same way:
+  `bazel run //:gazelle -- -mode=diff`.
 - **Gazelle names the framework it will not bundle.** SvelteKit and Solid Start
   were emitting `node_modules` + `vite_bundler` + `ts_bundle` targets that cannot
   build — SvelteKit's plugin runs its own sync step from the Vite `config` hook
@@ -586,7 +670,7 @@ query anyone can run against their own lockfile.
   not something a reader can re-run. What *is* reproducible is the shape of it:
   `bazel query 'kind(ts_npm_package, deps(//your:test))'` counts the package
   targets a target can reach, and on this repository's own lockfile a vitest
-  test target reaches 123 of them, in 121 repositories.
+  test target reaches 74 of them, in 74 repositories.
 
 ### Known gaps
 
@@ -603,33 +687,24 @@ Recorded rather than hidden.
 - `jsdom` and `edge-runtime` are still analysis-only: neither is in a lockfile
   the build reads, so those two `environment` values are pinned by a
   `build_test` rather than by a run. `happy-dom` and `node` do run.
-- **`ts_test` still emits `test.workspace`**, which vitest 3.2 renamed `projects`
-  and vitest 4 removed outright — it throws rather than ignoring it. So the one
-  `config` shape that produces it (a file default-exporting an array) is vitest 3
-  only. Not currently red: `tests/vitest/**` runs 3.0.9, and every other `config`
-  shape is proven on 4.1.11 through `//vite/tests:peer_version_test`.
 - `coverage_thresholds` reaches the generated config, but its enforcement is
   unproven.
-- **A `vite_config` that is a source file is not hermetic.** The generated config
-  imports it by exec-root path; Node realpaths that back into the source tree
-  before resolving the config's own bare imports, so the framework plugin is only
-  found through a source-tree `node_modules` — which this project forbids and no
-  CI job exercises. A *generated* `vite_config` under `bazel-out` works, because
-  it sits beside the hermetic tree. `ts_bundle` should stage the user's config
-  the way it stages `staging_srcs`.
-- **`npm_import`'s `_exports_types` has no fallback**, so a package whose
-  `exports["."]` is a plain string and which has no top-level `types` gets a
-  `paths` entry pointing at a directory TypeScript cannot resolve. Vite 8 is
-  exactly that shape, which is why `//vite:plugin_typecheck` still typechecks
-  against Vite 6's `.d.ts` while `vite/package.json` declares
-  `peerDependencies.vite: ^8.0.0`.
-- **`ts_dev_server` has no npm resolution path of its own.** `resolve.modules` is
-  not a Vite option in any version, so that line is dead config: a bare
-  `import "react"` from a dev-served source resolves only if the consumer happens
-  to have a real root `node_modules`. Relatedly, `react_refresh` imports
-  `@vitejs/plugin-react/dist/index.mjs` by fixed path; the pinned 4.4.1 has that
-  file, and 6.1.0 (the first major peering on Vite 8) does not, at which point
-  the `catch` turns `react_refresh = True` into a silent no-op.
+- **`ts_bundle`'s `vite_config` is not hermetic when it is a source file.** The
+  generated config imports it by exec-root path; Node realpaths that back into the
+  source tree before resolving the config's own bare imports, so the framework
+  plugin is only found through a source-tree `node_modules` — which this project
+  forbids and no CI job exercises. A *generated* `vite_config` under `bazel-out`
+  works, because it sits beside the hermetic tree. The fix is for `ts_bundle` to
+  stage the file the way `ts_dev_server` already copies its own; `ts_dev_server`
+  is no longer affected.
+- The array-`config` form of `ts_test` needs **vitest 3.2 or later**, since
+  `test.projects` is the name `test.workspace` was renamed to in 3.2. Every other
+  `config` shape works on 3 and 4 alike.
+- Gazelle discards every `compilerOptions.paths` fallback after the first, and
+  logs one `paths entry "…" has 2 targets; using only "…" (first)` line per
+  affected entry. On this repository all of them are the `./bazel-bin/…` mirror
+  `ts_refresh_tsconfig` writes beside each source entry, so nothing resolvable is
+  lost here; a `tsconfig.json` with a genuine fallback chain loses the rest of it.
 - **Two Vite majors cannot coexist in one Bazel package.** After the Vite
   bundler wrapper's `ln -sf`, Node realpaths through the symlink, so the upward
   walk starts inside the real tree and can reach a *sibling* target's

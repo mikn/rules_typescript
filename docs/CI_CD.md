@@ -36,6 +36,12 @@ The repository includes a comprehensive GitHub Actions workflow at `.github/work
      serially (`exclusive`). This is the only job that runs them: `--config=ci`
      in the `test` job expands `--config=fast`, which filters them out so they
      do not run three times per push
+   - Each nested Bazel has its own output base, so the harness gives them all one
+     **shared repository cache** — it appends `common --repository_cache=<shared>`
+     to every staged workspace's `.bazelrc` (`prepare()` in
+     `tests/integration/harness/harness.go`). Without it each workspace fetches
+     the whole BCR registry for itself, and the resulting lookup failures read as
+     flaky tests rather than as a missing cache
 
 6. **Linting & Code Quality** (`lint`)
    - `buildifier --mode=check -r .`, using the released binary downloaded in the

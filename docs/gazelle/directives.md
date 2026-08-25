@@ -23,6 +23,27 @@ Directives go in `BUILD.bazel` files as comments and control how Gazelle generat
 That is the complete set — nine directives. An unknown `# gazelle:ts_*` comment
 makes Gazelle warn rather than fail, so a typo shows up in the run output.
 
+## `# keep` — not ours, and load-bearing
+
+`# keep` is Gazelle's own comment, understood by every language extension. On the
+line above an attribute it means "never rewrite this value"; above a whole rule it
+means "never rewrite this rule". It is the answer whenever a run keeps undoing an
+edit you meant:
+
+```python
+ts_compile(
+    name = "internal",
+    srcs = ["index.ts"],
+    # keep
+    visibility = ["//myapp:__subpackages__"],
+)
+```
+
+`visibility` is the case that bites, because it is a *merged* attribute and every
+rule Gazelle generates carries `//visibility:public` — so without `# keep` a
+hand-narrowed visibility widens back on every run, silently. See
+[getting the clean-tree diff to empty](overview.md#getting-the-clean-tree-diff-to-empty).
+
 ## Examples
 
 ### Existing codebase without explicit return types

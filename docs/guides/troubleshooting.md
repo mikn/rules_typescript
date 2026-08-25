@@ -313,6 +313,67 @@ ts_compile(
 )
 ```
 
+## ts_dev_server: sets react_refresh = True, but @vitejs/plugin-react did not load
+
+The dev server refuses to start because it could not load the Fast Refresh plugin
+out of the Bazel `node_modules` tree. Almost always the package is not in the
+tree — add it to the `node_modules` target the dev server uses:
+
+```python
+node_modules(
+    name = "node_modules",
+    deps = [
+        "@npm//:vite",
+        "@npm//:vitejs_plugin-react",
+    ],
+)
+```
+
+The message ends with the underlying cause, and the target name matters too: the
+plugin resolves the `react-refresh` runtime by Node's own walk-up, which only
+looks in directories called `node_modules`. This used to be a `console.warn` and a
+server that came up without Fast Refresh; it is a hard failure now, on purpose.
+
+## [rules_typescript] Failed to load vite_config
+
+`ts_dev_server` loads a **copy** of your `vite_config` from `bazel-bin`, so the
+file's own imports resolve beside the Bazel npm tree rather than in your source
+tree. Only that one file is copied, so:
+
+- a **relative** import of a sibling module fails — the message names the file it
+  could not find. Inline the helper, or move the plugin into a published package;
+- a **bare npm** import works, as long as the `node_modules` target is in the same
+  Bazel package as the dev server. If you moved one of them, move it back or add a
+  `node_modules` target beside the server.
+
+Details: [`vite_config`: what it may import](dev-server.md#vite_config-what-it-may-import).
+
+## Dev server: Failed to resolve import "some-package"
+
+The dev server resolves bare specifiers through the `node_modules` tree only.
+Nothing is wrong with the config — the package is not in that tree. Add it to the
+target's `deps` and restart:
+
+```python
+node_modules(
+    name = "node_modules",
+    deps = ["@npm//:vite", "@npm//:some-package"],
+)
+```
+
+If the specifier is a first-party package name rather than an npm one, it needs
+`module_name` on the `ts_compile` target that produces it; the dev server turns
+each one into a `resolve.alias` pointing at source.
+
+## gazelle: typescript: paths entry "…" has N targets; using only "…" (first)
+
+Not an error. `compilerOptions.paths` values are arrays and Gazelle resolves deps
+against the first entry only. With a `tsconfig.json` written by
+`ts_refresh_tsconfig` the discarded entry is the `./bazel-bin/…` mirror of the one
+it kept, so nothing is lost. With a hand-written fallback chain, everything after
+the first entry is being ignored — collapse the chain, or expect deps to be
+resolved from the first path.
+
 ## Snapshot 'x 1' mismatched, or a snapshot vitest says is new
 
 `ts_test` runs vitest in read-only snapshot mode, so a mismatch is a failure

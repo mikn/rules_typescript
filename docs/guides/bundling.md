@@ -113,11 +113,20 @@ Two limits are worth knowing before you plan a migration around this:
   relative import from the staged config resolves next to the generated config
   in the output tree, not next to the source you wrote.
 - **The plugin package has to be resolvable from where the file is imported.**
-  The config is imported by exec-root path, and Node realpaths it back into the
-  source tree, so the framework package must be resolvable from there. This
+  `ts_bundle` imports the config by exec-root path, and Node realpaths it back
+  into the source tree, so the framework package must be resolvable from *there* —
+  which for a checked-in config means a source-tree `node_modules`. This
   repository's own `examples/tanstack-app` hits exactly that: its app-mode
   bundle is excluded from CI with the reason in the workflow, while the SPA
-  target builds.
+  target builds. Point the attr at a **generated** file under `bazel-out` and the
+  problem goes away, because that file sits beside the hermetic npm tree.
+
+`ts_dev_server`'s `vite_config` attr does not have the second limit: it loads a
+copy of the file in `bazel-bin`, so a bare npm specifier resolves through the
+`node_modules` tree, and the boundary that remains — no relative imports — is
+[stated and tested](dev-server.md#vite_config-what-it-may-import). `ts_bundle`
+has not been given the same staging yet, so the two attrs differ on this one
+point.
 
 If your Vite configuration is a program rather than a plugin list, this attr is
 not enough today, and there is no supported way to hand `ts_bundle` a

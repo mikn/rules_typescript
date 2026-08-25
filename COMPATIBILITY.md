@@ -60,17 +60,27 @@ and `ts_bundle`, `ts_dev_server` and `ts_test` generate configuration for
 whatever version that resolves to. So "supported" here means *exercised by a
 test in this repository*, and nothing constrains what you pin.
 
-One lockfile is exercised, and everything runs on it:
+Two lockfiles are exercised, and only one of them is a *lane* — a Vite and a
+vitest that generated configs actually run against. Everything runs on that one:
 
 | Hub | Lockfile | Vite | vitest | What it exercises |
 |---|---|---|---|---|
-| `@npm` | `tests/npm/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` (the whole `tests/vitest` suite), `ts_dev_server` (four servers started for real), `ts_bundle` output (`tests/vite_bundle`), `vite-plugin-bazel`'s own tests, the nested-Bazel integration workspaces, `examples/` |
+| `@npm` | `tests/npm/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` (the whole `tests/vitest` suite), `ts_dev_server` (five servers started for real and interrogated over HTTP), `ts_bundle` output (`tests/vite_bundle`), `vite-plugin-bazel`'s own tests, the nested-Bazel integration workspaces, `examples/` |
+| `@npm_features` | `tests/npm/pnpm-lock-features.yaml` | — | — | pnpm's patched dependencies, npm aliases, peer-dependency variants and per-importer resolution. It resolves neither tool, so it is a second lockfile rather than a second lane |
 
-To re-derive the versions rather than trusting the table:
+To re-derive all of that rather than trusting the table:
 
 ```bash
-grep -nE '^  (vite|vitest)@' tests/npm/pnpm-lock.yaml
+grep -nE '^  (vite|vitest)@' tests/npm/pnpm-lock.yaml tests/npm/pnpm-lock-features.yaml
+bazel query 'filter("behaviour_test$", tests(//tests/dev_server/...))'
 ```
+
+A second lane on a second major is not extra coverage; it is a second lockfile to
+keep in step. The one thing it was there to hold together — the Vite that
+`vite-plugin-bazel` declares a peer range for, and the Vite the ruleset installs —
+is now held by a test instead: `//vite/tests:peer_version_test` reads
+`peerDependencies.vite` out of `vite/package.json` and asserts the installed major
+is one that range names.
 
 The two places a generated config is known to be version-sensitive:
 

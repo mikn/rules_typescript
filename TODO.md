@@ -15,21 +15,18 @@ What is still thin:
   gap against the vision above.
 - A `vite_config` that is a program rather than a plugin list cannot be
   expressed: the attr takes one file and nothing collects that file's own
-  imports. Worse, a `vite_config` **source** file is not hermetic — the generated
-  config imports it by exec-root path, Node realpaths that back into the source
-  tree, and the framework plugin is then only resolvable via a source-tree
-  `node_modules` this project forbids. Pointing `vite_config` at a *generated*
-  file under `bazel-out` works, so the fix is for `ts_bundle` to stage the user's
-  config the way it already stages `staging_srcs`.
+  imports. `ts_bundle` additionally has the hermeticity half of that problem —
+  it imports the user's config by exec-root path, Node realpaths that back into
+  the source tree, and the framework plugin is then only resolvable via a
+  source-tree `node_modules` this project forbids. Pointing `ts_bundle`'s
+  `vite_config` at a *generated* file under `bazel-out` works, so the fix is for
+  it to stage the user's config the way `ts_dev_server` already copies its own
+  and the way `staging_srcs` already stages sources.
 - SvelteKit and Solid Start are detected and deliberately get no bundle target.
   That is honest, and it is not support. Solid Start needs a Vite plugin
   `@solidjs/start` does not ship at all; SvelteKit needs `.svelte` compilation
   plus a second config file beside the Vite config, which the `vite_config`
   contract cannot carry.
-- `ts_dev_server` has no npm resolution path of its own: `resolve.modules` is not
-  a Vite option in any version, so it is dead config, and a bare
-  `import "react"` from a dev-served source resolves only if the consumer happens
-  to have a real root `node_modules`.
 
 ### Current Readiness
 
@@ -39,10 +36,10 @@ What is still thin:
 | Type-checking (tsgo) | Production-ready; imports must be satisfied by a direct dep, checked per target |
 | npm deps (pnpm → Bazel) | Production-ready; one repo per package, patches verified at extension time |
 | node_modules trees | Every *resolution* placed — name, version and peer set (primary flat, the rest under `.pnpm/<name>@<version>[_<peer set>]/`, with a relative link per disagreeing edge) |
-| Gazelle BUILD generation | Production-ready (JS/TS, CSS, assets, path aliases from tsconfig.json, ts_dev_server); alias resolution is deterministic, extension-spelling specifiers resolve, and one scanner is shared with the strict-deps check. CI pins two properties of a run (the output builds; generating twice from scratch is byte-identical); two more were verified by hand against this tree and are not a CI job (the suite still passes; the test-target set is unchanged) |
+| Gazelle BUILD generation | Production-ready (JS/TS, CSS, assets, path aliases from tsconfig.json, ts_dev_server); alias resolution is deterministic, extension-spelling specifiers resolve, and one scanner is shared with the strict-deps check. A run on this clean tree changes zero files (`bazel run //gazelle -- -mode=diff` prints no diff). CI pins two properties of a run (the output builds; generating twice from scratch is byte-identical); two more are verified by hand against this tree and are **not** a CI job (the suite still passes; the test-target set is unchanged) |
 | Testing (vitest) | Solid (DOM run for real, coverage, custom config, snapshots read *and* written, watch mode, debugging). Gap: `coverage_thresholds` enforcement is unproven |
-| Bundling | Vite bundler (production quality), exercised on Vite 8; single-file `vite_config`, and not hermetic as a source file |
-| Dev server + HMR | Serves first-party source with Bazel out of the inner loop; codegen rebuilds and config-aware restarts under ibazel; does not typecheck; no npm resolution path of its own |
+| Bundling | Vite bundler (production quality), exercised on Vite 8; single-file `vite_config`, imported from the source tree and so not hermetic (`ts_dev_server` loads a bin copy; `ts_bundle` does not) |
+| Dev server + HMR | Serves first-party source with Bazel out of the inner loop; resolves bare npm specifiers through the `node_modules` tree via the `bazel:npm-resolve` plugin; codegen rebuilds and config-aware restarts under ibazel; loads `vite_config` from a bin copy; does not typecheck |
 | IDE integration | Generated tsconfig + tsserver hook; `module_name` and `extra_exclude` supported. One `compilerOptions` block cannot satisfy targets that disagree about `strict`/`lib`/`allowJs` |
 | CSS / assets | css_library, css_module, asset_library, json_library rules; CSS module mock in ts_test |
 | Framework integration | TanStack Start and Remix get generated bundle targets, Remix with a nested-Bazel integration test; Next.js has its own `next_build`; SvelteKit and Solid Start are detected and get a named refusal instead of a target |
@@ -59,12 +56,43 @@ to rediscover them. Each names the file to change.
   what makes an untyped package reached transitively (vitest → @vitest/expect →
   chai) resolve to its `@types/*`. The IDE tsconfig the aspect writes still walks
   direct deps, so the editor sees `chai` as untyped where the build does not.
-- **`ts/private/ts_dev_server.bzl` hardcodes
-  `@vitejs/plugin-react/dist/index.mjs`.** The pinned `@vitejs/plugin-react`
-  (4.4.1) has that file, so `react_refresh` works today; 6.1.0 — the first major
-  peering on Vite 8 — ships `dist/index.js`, at which point the dynamic import
-  throws, the `catch` warns, and `react_refresh = True` becomes a silent no-op.
-  Resolve the package's own `exports["."]` instead of a fixed filename.
+- **`//tests/dev_server:dev_with_plugin_behaviour_test` is flaky in its
+  `restarts_on_config_change` subtest.** Seen once in three full
+  `--nocache_test_results` runs: `GET /app.ts: dial tcp: connection reset by
+  peer`. Once the restart count moves, the subtest polls `get(…)` inside
+  `eventually` until the server answers 200 — but `get` calls `t.Fatalf` on a
+  transport error, so a request that lands on the socket the old Vite is closing
+  kills the test instead of counting as one more failed poll. The retry loop needs
+  to tolerate a transport error; the assertion is that the server comes back, not
+  that every request in between connects.
+- **Two of the four Gazelle acceptance properties are hand-verified, not CI.**
+  `//tests/integration:gazelle_roundtrip_test` pins that the output builds and
+  that two from-scratch runs are byte-identical. It does **not** run `bazel test`
+  on what Gazelle wrote and does **not** compare the test-target set, so those two
+  are checked by hand on this tree and nowhere else. The test-set one is the
+  expensive omission: a run that *deletes* a test satisfies both CI properties —
+  that is how seven hand-written `go_test` targets went missing in an earlier
+  round. Until it is a job, the manual check is:
+
+  ```bash
+  bazel query 'tests(//...)' | sort > /tmp/before
+  bazel run //gazelle && bazel query 'tests(//...)' | sort | diff /tmp/before -
+  bazel build //... && bazel test //...
+  ```
+
+- **Gazelle logs `paths entry "…" has 2 targets; using only "…" (first)` on every
+  run, and the discard is real.** `loadTsConfigPaths` in `gazelle/config.go` takes
+  `paths[pattern][0]` and drops the rest of the fallback chain. On this tree all
+  70 lines are the `./bazel-bin/…` mirror that `ts_refresh_tsconfig` writes beside
+  each source entry, so nothing resolvable is lost here and the log is pure noise
+  (`bazel run //gazelle -- -mode=diff 2>&1 | grep -c 'paths entry'`); a consumer
+  whose `tsconfig.json` has a genuine fallback chain loses every entry but the
+  first, silently. Either resolve against the whole list or say which entry was
+  ignored and why.
+- **Inside this repository Gazelle emits `load("@rules_typescript//ts:defs.bzl",
+  …)`,** the external label, which resolves through the module's self-mapping but
+  is not what a maintainer writes by hand — so BUILD files here carry both forms.
+  Cosmetic, and it costs a reader a moment every time.
 - **`vite/bundler.bzl`: a `node_modules()` target not named `node_modules`
   resolves through a sibling that is.** After the wrapper's `ln -sf`, Node
   realpaths through the symlink, so the upward walk starts inside the real tree
@@ -166,7 +194,9 @@ to rediscover them. Each names the file to change.
 - [x] Wire compiled plugin into ts_dev_server via `plugin` attr
 - [x] Generate Vite config for dev mode that dynamically imports the plugin
 - [ ] Handle `rootDirs`-style path mapping (source tree ↔ output tree) — BazelResolver partially handles this
-- [x] Support React Fast Refresh (via `@vitejs/plugin-react`): `react_refresh = True` attr on `ts_dev_server`
+- [x] Support React Fast Refresh (via `@vitejs/plugin-react`): `react_refresh = True` attr on `ts_dev_server`. The entry point comes from the package's own `exports` map, and a load failure throws naming the label and the dep to add -- it used to reach into `dist/index.mjs`, which the installed major does not ship, and warn
+- [x] Resolve bare npm specifiers out of dev-served source: the `bazel:npm-resolve` `pre` plugin locates the package in the `node_modules` tree and hands the id back to Vite's own resolver, so exports maps, conditions and subpaths stay Vite's. `resolve.modules` never did this -- it is a webpack option Vite ignores
+- [x] Load `vite_config` from a copy in bin, so its own bare imports resolve beside the Bazel npm tree rather than in the source tree (`//tests/dev_server:vite_config_boundary_test`)
 
 ### 2.3 ibazel Integration
 - [x] Document the `ibazel run //app:dev` workflow in ts_dev_server.bzl docstring
@@ -494,7 +524,14 @@ generating a target, that produced the worst outcome available: a green
 - [x] Generic CI steps documented (docs/CI_CD.md). `scripts/ci.sh` is deleted: it duplicated the workflow
 
 ### 10.4 BCR Publishing
-- [x] Finalize `.bcr/metadata.json` with real maintainer info
+- [ ] **Blocks submission, needs a human: `.bcr/metadata.json` pairs one person's
+  `name` with a different person's `email` and `github`.** BCR publishes that
+  entry verbatim, so whoever is named there is who the registry says maintains
+  this module. There is at least one source of truth now — the release workflow's
+  notes step reads the file (`jq -r '.maintainers[0]…'` in
+  `.github/workflows/publish-to-bcr.yml`) instead of carrying its own copy, so a
+  correction lands in one place — but nobody has decided *which* of the three
+  fields is the wrong one. Decide before submitting; do not guess.
 - [x] Automate `source.json` integrity hash on release
 - [x] Release tool that bumps, commits and tags (`bazel run //tools/release`); the tarball and integrity hash come from the release workflow, since a locally built archive is not the published one
 - [ ] Submit to BCR
