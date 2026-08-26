@@ -58,10 +58,6 @@ go_sdk.download(version = "1.26.1")
 go_deps = use_extension("@gazelle//:extensions.bzl", "go_deps")
 go_deps.from_file(go_mod = "//gazelle:go.mod")
 
-# The Gazelle extension edits comment blocks the rule API cannot remove, so it
-# reaches the parsed BUILD file through buildtools directly.
-use_repo(go_deps, "com_github_bazelbuild_buildtools")
-
 # ─── crate_universe (Rust crate dependencies for oxc_cli) ───────────────────
 
 crate = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
@@ -150,15 +146,6 @@ npm = use_extension("//npm:extensions.bzl", "npm")
 npm.pnpm(version = "10.32.1")
 npm.translate_lock(pnpm_lock = "//tests/npm:pnpm-lock.yaml")
 
-# postcss-modules, which css_module's compile action runs to derive both the
-# scoped-name map and the .d.ts from it. Non-dev for the same reason as @npm
-# above, and a stronger one: css_module is consumer API, so a dev-only usage
-# would hide the compiler from every consumer of the rule.
-npm.translate_lock(
-    name = "npm_css",
-    pnpm_lock = "//ts/private/css:pnpm-lock.yaml",
-)
-
 # A second hub for the pnpm features that need their own fixture: the main
 # lockfile is copied verbatim into the integration and bootstrap scratch
 # workspaces, which pass no patch files.
@@ -202,7 +189,7 @@ npm_dev.translate_lock(
     pnpm_lock = "//tests/npm:pnpm-lock-features.yaml",
 )
 
-use_repo(npm, "npm", "npm_css", "pnpm")
+use_repo(npm, "npm", "pnpm")
 
 use_repo(npm_dev, "npm_eslint", "npm_features", "npm_tailwind", "npm_workers")
 
