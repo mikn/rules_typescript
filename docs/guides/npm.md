@@ -120,8 +120,8 @@ ts_add_package(
 ```
 
 Both targets `cd` to `$BUILD_WORKSPACE_DIRECTORY` first, so they edit the source
-tree rather than a sandbox. The wrapper is a bash script and the binary is
-published for Linux and macOS only, so this does not work on Windows.
+tree rather than a sandbox. The wrapper is a bash script, so this does not run on
+Windows.
 
 Extra `pnpm add` flags are passed through, with one refusal: `--lockfile-dir` is
 rejected. The `--dir` the target appends overrides a `--dir` of your own, because

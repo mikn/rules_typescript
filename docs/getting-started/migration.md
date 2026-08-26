@@ -66,12 +66,8 @@ Our parser handles the common cases (scoped packages, `@types` pairing, multiple
 
 ### Windows
 
-`rules_ts` + `rules_js` work on Windows. This ruleset does not, for two upstream
-reasons: no tsgo binary is published for Windows, so the default declaration
-emitter has no toolchain, and hermetic pnpm has no Windows build. Runners are a
-Go launcher now, but a few build-action wrappers (the Vite bundler,
-`next_build`) still need a POSIX shell. See
-[COMPATIBILITY.md](https://github.com/mikn/rules_typescript/blob/main/COMPATIBILITY.md#windows).
+`rules_ts` + `rules_js` work on Windows. Windows is not supported right now. It may be considered in the future.
+See [Compatibility](../compatibility.md#windows).
 
 ## Trade-offs: where rules_typescript is better
 
@@ -117,7 +113,7 @@ The first build pays for both toolchains.
 
 ### Gazelle
 
-Open-source BUILD file generation with nine `# gazelle:ts_*` directives,
+Open-source BUILD file generation with ten `# gazelle:ts_*` directives,
 framework auto-detection, codegen auto-detection, and automatic
 lint/dev-server/bundler target generation. `rules_ts` relies on the proprietary
 Aspect CLI.

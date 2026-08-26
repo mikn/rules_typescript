@@ -8,10 +8,13 @@ An opinionated Bazel ruleset for TypeScript, optimised for the **Oxc + Vite** to
 
 This ruleset is designed around **Vite** as the bundler and dev server. A
 framework that ships a Vite plugin is expressible, with the amount of proof
-varying — and with one known limit worth reading before you plan a migration:
-`vite_config` takes a single `.mjs`/`.js` file, so a configuration that imports
-local plugin modules of its own cannot be expressed as one staged file
-([bundling](guides/bundling.md#framework-plugins-via-vite_config)).
+varying. `vite_config` takes a `.ts`, `.mts`, `.mjs` or `.js` config and
+`vite_config_srcs` the local modules it imports; both are staged into
+`bazel-bin` together, so a config split across files resolves its own relative
+imports there
+([bundling](guides/bundling.md#framework-plugins-via-vite_config)). What it may
+*not* be is a program: only the keys the generated config reads reach the build,
+and any other key fails the build naming itself.
 
 | Framework | Gazelle generates a bundle target? | Evidence in this repo |
 |---|---|---|
@@ -44,7 +47,7 @@ a rule of its own — `next_build` runs the framework's own build
 - **tsgo emits declarations and type-checks** — Go port of TypeScript. Unmodified TypeScript compiles: no explicit export annotations required, and the `.d.ts` are what `tsc` would produce. Type errors fail `bazel build` because the declarations are real outputs.
 - **Vite bundles** — production bundles with tree-shaking, code splitting, minification. App mode (HTML + hashed assets) and lib mode.
 - **Isolated declarations, when you want them** — annotate a package's exports and set `declarations = "oxc"` to have Oxc emit its `.d.ts` syntactically. Type-checking then moves off the critical path, which on a deep dependency chain shortens it substantially ([measured](rules/ts-compile.md#cost-of-each-mode)). Opt-in, per package.
-- **Gazelle generates the BUILD files** — targets inferred from the directory tree, imports resolved to labels, lint / bundler / dev-server targets generated, frameworks and codegen auto-detected. Nine `# gazelle:ts_*` directives configure it.
+- **Gazelle generates the BUILD files** — targets inferred from the directory tree, imports resolved to labels, lint / bundler / dev-server targets generated, frameworks and codegen auto-detected. Ten `# gazelle:ts_*` directives configure it.
 - **Deps are what you declared** — a source may import only what a *direct* dep provides. A declaration arriving through another dep's own deps no longer satisfies an import; the build fails naming the file, the specifier and the label to add, and Gazelle writes it.
 - **npm without a store** — one Bazel repository per package, fetched on demand, behind a `@npm` alias hub. A target's npm cost is its own dependency closure, not the whole lockfile, and no `node_modules/` exists in the source tree. A `node_modules` tree places every *resolution* a closure made — name, version and peer set — not one directory per name.
 - **Only Bazelisk required** — Node.js, Go and Rust are fetched hermetically, and [pnpm too](guides/npm.md#hermetic-pnpm) if you want it. pnpm is needed only to edit the lockfile, never to build.
@@ -128,10 +131,8 @@ ts_compile(
 | macOS ARM64 | Supported |
 | Windows x86_64 | **Not supported** |
 
-No tsgo binary and no hermetic pnpm binary are published for Windows — both
-upstream gaps — and a few build actions still run through a bash wrapper.
-Details and what does work:
-[COMPATIBILITY.md](https://github.com/mikn/rules_typescript/blob/main/COMPATIBILITY.md#windows).
+Windows is not supported right now. It may be considered in the future. What runs there today:
+[Compatibility](compatibility.md#windows).
 
 ## Documentation
 

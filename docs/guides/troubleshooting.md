@@ -53,7 +53,7 @@ ts = use_extension("@rules_typescript//ts:extensions.bzl", "ts")
 ts.tsgo(version = "7.0.0-dev.20260311.1")
 ```
 
-On Windows there is no tsgo binary to resolve at all — see
+Windows is not supported, so no tsgo toolchain resolves there — see
 [COMPATIBILITY.md](https://github.com/mikn/rules_typescript/blob/main/COMPATIBILITY.md#windows).
 
 ## compilerOptions.X is set by the rule and cannot be overridden
@@ -65,7 +65,7 @@ the declarations.
 Remove "paths" from compiler_options on //src/app:app.
 ```
 
-Fifteen `compilerOptions` keys encode the sandbox layout or the action's
+Sixteen `compilerOptions` keys encode the sandbox layout or the action's
 declared outputs, so `compiler_options` refuses them rather than applying a
 value that would break the build. The message names the attribute to use
 instead; the full list is in
@@ -295,10 +295,23 @@ no `vite_config`. Details:
 
 ## rule '//app:entry_client' does not exist, after Gazelle on a framework workspace
 
-The generated framework `ts_bundle` names a single-file entry target you declare,
-because `ts_bundle` needs exactly one `.js` and Gazelle merges a directory into
-one target. Until it exists the label dangles and takes down `bazel build //...`
-for the whole workspace, not just that target. Add it:
+The generated framework `ts_bundle` names a single-file entry target, which
+Gazelle writes in the package that holds the framework's client entry — for
+Remix, `app/entry.client.tsx` becomes `//app:entry_client`. The label dangles
+only when nothing in that package maps to the name, and then it takes down
+`bazel build //...` for the whole workspace rather than that one target.
+
+The Gazelle run that wrote the bundle said so:
+
+```
+typescript: Remix detected: no source file in app/ maps to the client entry
+target "entry_client", so the generated entry_point //app:entry_client names
+nothing yet. Add the framework's client entry there, or set entry_point by hand.
+```
+
+Either put the framework's client entry where the framework expects it and
+re-run Gazelle, or declare the target yourself and keep the file out of the
+package target:
 
 ```python
 # app/BUILD.bazel
@@ -312,6 +325,10 @@ ts_compile(
     visibility = ["//visibility:public"],
 )
 ```
+
+Gazelle leaves a target that already exists alone, so a hand-declared entry
+survives every later run. Details:
+[The entry point is generated too](../gazelle/overview.md#the-entry-point-is-generated-too).
 
 ## ts_dev_server: sets react_refresh = True, but @vitejs/plugin-react did not load
 
@@ -336,17 +353,47 @@ server that came up without Fast Refresh; it is a hard failure now, on purpose.
 
 ## [rules_typescript] Failed to load vite_config
 
-`ts_dev_server` loads a **copy** of your `vite_config` from `bazel-bin`, so the
-file's own imports resolve beside the Bazel npm tree rather than in your source
-tree. Only that one file is copied, so:
+`ts_dev_server` and `ts_bundle` both load a **copy** of your `vite_config` from
+`bazel-bin`, so the file's own imports resolve beside the Bazel npm tree rather
+than in your source tree. What is staged there is the config plus the modules
+`vite_config_srcs` declares, and nothing else:
 
-- a **relative** import of a sibling module fails — the message names the file it
-  could not find. Inline the helper, or move the plugin into a published package;
+- a **relative** import of a module that is *not* in `vite_config_srcs` fails —
+  the message names the file it could not find. The fix is to declare it:
+
+  ```python
+  vite_config = "vite.plugins.ts",
+  vite_config_srcs = glob(["plugins/**/*.ts"]),
+  ```
+
+  A module outside the config's own Bazel package cannot be declared, because it
+  would have to stage above the staging root; that is a separate analysis-time
+  error naming the file and the package;
 - a **bare npm** import works, as long as the `node_modules` target is in the same
   Bazel package as the dev server. If you moved one of them, move it back or add a
   `node_modules` target beside the server.
 
 Details: [`vite_config`: what it may import](dev-server.md#vite_config-what-it-may-import).
+
+## [rules_typescript] ts_bundle: the vite_config sets …, which the generated config does not read
+
+The generated config reads a fixed set of keys out of your `vite_config` — and
+they differ between the two rules, because the dev server takes its serve root
+from elsewhere:
+
+| Rule | Keys it reads |
+|---|---|
+| `ts_bundle` | `plugins`, `root` |
+| `ts_dev_server` | `plugins` |
+
+Every other key would be silently discarded, so the load throws instead, naming
+the keys it found and the keys it honours. A framework config that sets `define`,
+`resolve.alias`, `build.target` or `optimizeDeps` hits this — and so does a
+config that carries `root` and builds fine under `ts_bundle` but fails under
+`ts_dev_server`. Move what you need into a plugin, or use the `ts_bundle`
+attribute that owns it (`define`, `env_vars`, `external`, `minify`,
+`split_chunks`). The check runs where the config is loaded rather than at
+analysis time, because only the loaded object says what keys it has.
 
 ## Dev server: Failed to resolve import "some-package"
 

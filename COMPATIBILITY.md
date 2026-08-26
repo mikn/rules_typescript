@@ -28,30 +28,22 @@ toolchains for every tool but no CI coverage.
 
 ### Windows
 
-Windows does not work. The two blocking reasons are upstream, not ours:
+Windows is not supported right now. It may be considered in the future.
 
-- **No tsgo binary is published for Windows.** `TSGO_PLATFORMS` in
-  `ts/private/toolchain.bzl` lists four platforms, none of them Windows, so
-  toolchain resolution finds nothing. `ts_compile`'s default
-  (`declarations = "tsgo"`) has no emitter, which means no `.d.ts` and no
-  type-checking.
-- **Hermetic pnpm has no Windows binary.** `_PNPM_PLATFORMS` in
-  `ts/private/pnpm.bzl` covers Linux and macOS only, so `bazel run //:pnpm`
-  cannot resolve. The `ts_pnpm` / `ts_add_package` wrappers are bash scripts
-  besides.
+What exists there today: a registered Node.js toolchain, a `windows_amd64` entry
+in `//platforms`, and a `node_modules` tree action that runs through a
+cross-platform Node script rather than a shell. That is enough to build a
+`node_modules` directory and nothing else.
 
-Our own remaining shell dependency is much smaller than it was, and is no
-longer about runners: `ts_binary`, `ts_test`, `ts_dev_server` and `npm_bin` run
-through one checked-in Go launcher that reads a per-target JSON config. What
-still needs a POSIX shell on the exec platform is a handful of build-action
-wrappers — the Vite bundler and `next_build` — plus the `node_modules` tree's
-fallback path, which is only taken when no JS runtime toolchain is registered.
+What support would take: a Windows entry in `TSGO_PLATFORMS`
+(`ts/private/toolchain.bzl`) and `_PNPM_PLATFORMS` (`ts/private/pnpm.bzl`), an
+oxc build for the platform, and replacing the build-action wrappers that still
+need a POSIX shell — the Vite bundler, `next_build`, and the `node_modules`
+fallback taken when no JS runtime toolchain is registered. Nothing here has been
+run on Windows, so treat any estimate of the remaining work as untested.
 
-What does exist on Windows: a registered Node.js toolchain, a `windows_amd64`
-entry in `//platforms`, and a `node_modules` tree action that runs through a
-cross-platform Node script rather than shell. That is enough to build a
-`node_modules` directory and nothing else. If you need TypeScript on Bazel on
-Windows today, use [aspect-build/rules_ts](https://github.com/aspect-build/rules_ts).
+If you need TypeScript on Bazel on Windows today, use
+[aspect-build/rules_ts](https://github.com/aspect-build/rules_ts).
 
 ## Vite and vitest
 

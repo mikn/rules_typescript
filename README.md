@@ -26,7 +26,7 @@ a rule of its own — `next_build` runs the framework's own build
 - **tsgo emits declarations and type-checks** — Go port of TypeScript. Unmodified TypeScript compiles: no explicit export annotations required, and the `.d.ts` are what `tsc` would produce. Type errors fail `bazel build` because the declarations are real outputs.
 - **Vite bundles** — production bundles with tree-shaking, code splitting, minification. App mode (HTML + hashed assets) and lib mode.
 - **Isolated declarations, when you want them** — annotate a package's exports and set `declarations = "oxc"` to have Oxc emit its `.d.ts` syntactically. Type-checking then moves off the critical path, which on a deep dependency chain shortens it substantially ([measured](https://mikn.github.io/rules_typescript/rules/ts-compile/#cost-of-each-mode)). Opt-in, per package.
-- **Gazelle generates BUILD files** — infers targets from the directory tree, resolves imports to labels, and generates lint, bundler and dev-server targets. Nine `# gazelle:ts_*` directives configure it.
+- **Gazelle generates BUILD files** — infers targets from the directory tree, resolves imports to labels, and generates lint, bundler and dev-server targets. Ten `# gazelle:ts_*` directives configure it.
 - **Deps are what you declared** — a source may import only what a *direct* dep provides. A declaration that reaches a target through another dep's own deps no longer satisfies an import: the build fails naming the file, the specifier and the label to add, and `bazel run //:gazelle` writes it.
 - **npm without a store** — one Bazel repository per package, fetched on demand, behind a `@npm` alias hub. A target's npm cost is its own dependency closure, not the whole lockfile. A `node_modules` tree places every *resolution* a closure made — name, version and peer set — not one directory per name.
 - **Only Bazelisk required** — Node.js, Go and Rust are fetched hermetically, and [pnpm too](https://mikn.github.io/rules_typescript/guides/npm/#hermetic-pnpm) if you want it. pnpm is needed only to edit the lockfile, never to build.
@@ -40,9 +40,7 @@ actually reach — is fetched hermetically. The first build also compiles
 cached.
 
 Supported platforms: Linux x86_64, Linux ARM64, macOS x86_64, macOS ARM64.
-**Windows is not supported**, and the reason is upstream: no tsgo binary and no
-hermetic pnpm binary are published for it. A few of our own build actions still
-run through a bash wrapper too. See
+**Windows is not supported right now. It may be considered in the future.** See
 [COMPATIBILITY.md](COMPATIBILITY.md#windows).
 
 Vite and vitest are your dependencies, not the ruleset's — they come from your
@@ -194,6 +192,17 @@ Bazel module, a workspace in `.bazelignore` — since nothing in `deps` names
 those files and `tsc` would otherwise walk them under the wrong
 `compilerOptions`.
 
+`nested_tsconfigs` is the attr a real monorepo hits first. One root
+`compilerOptions` block cannot serve a package whose targets set options it
+cannot also be set to — `strict` off, `allowJs`, a `lib` its `target` does not
+imply — and an editor resolves a file to a program by directory, so such a
+package needs its own `tsconfig.json`. The rule generates those files from the
+packages you list, and **fails at analysis time when the list disagrees with the
+graph in either direction**, naming what to add or remove. So a repository with
+one such package fails the snippet above until the list is filled in; it cannot
+be discovered, because `glob()` does not cross a package boundary. See
+[IDE Setup](https://mikn.github.io/rules_typescript/getting-started/ide-setup/#packages-the-root-compileroptions-cannot-fit).
+
 ```bash
 bazel run //:refresh_tsconfig        # writes tsconfig.json, .bazel/npm/, and the hook
 bazel test //:refresh_tsconfig_test  # fails when the checked-in tsconfig is stale
@@ -211,7 +220,7 @@ See **[IDE Setup](https://mikn.github.io/rules_typescript/getting-started/ide-se
 - **[npm Dependencies](https://mikn.github.io/rules_typescript/guides/npm/)** — pnpm lockfile integration, platform-specific packages, bin scripts
 - **[Testing with vitest](https://mikn.github.io/rules_typescript/guides/testing/)** — `ts_test`, snapshots, sharding, watch mode with ibazel
 - **[Bundling](https://mikn.github.io/rules_typescript/guides/bundling/)** — `ts_bundle` with Vite or any `BundlerInfo`-compatible bundler
-- **[Dev Server](https://mikn.github.io/rules_typescript/guides/dev-server/)** — Vite dev server with ibazel HMR
+- **[Dev Server](https://mikn.github.io/rules_typescript/guides/dev-server/)** — a pluggable dev server with ibazel HMR: Vite by default, oj through `server = "@rules_typescript//oj:dev_server"`, one generated config driving either
 - **[Monorepo Layout](https://mikn.github.io/rules_typescript/guides/monorepo/)** — package boundaries, cross-package `.d.ts` caching
 - **[Gazelle Reference](https://mikn.github.io/rules_typescript/gazelle/overview/)** — directives, framework detection, auto-detected lint and codegen targets
 - **[Rules Reference](https://mikn.github.io/rules_typescript/rules/ts-compile/)** — all attributes, providers, and outputs
