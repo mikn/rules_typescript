@@ -13,15 +13,11 @@ What is still thin:
 - Consumers build oxc from Rust source on first use, so cold start is nowhere
   near `rules_go`'s prebuilt-toolchain experience. This is the widest remaining
   gap against the vision above.
-- A `vite_config` that is a program rather than a plugin list cannot be
-  expressed: the attr takes one file and nothing collects that file's own
-  imports. `ts_bundle` additionally has the hermeticity half of that problem —
-  it imports the user's config by exec-root path, Node realpaths that back into
-  the source tree, and the framework plugin is then only resolvable via a
-  source-tree `node_modules` this project forbids. Pointing `ts_bundle`'s
-  `vite_config` at a *generated* file under `bazel-out` works, so the fix is for
-  it to stage the user's config the way `ts_dev_server` already copies its own
-  and the way `staging_srcs` already stages sources.
+- A `vite_config` is loaded through Vite's own config loader after both
+  `ts_bundle` and `ts_dev_server` stage it into bazel-bin with the local modules
+  it imports (`vite_config_srcs`), so it resolves beside the Bazel npm tree
+  rather than through a source-tree `node_modules`. What it still cannot carry is
+  a *second* config file a framework wants beside it — the SvelteKit case below.
 - SvelteKit and Solid Start are detected and deliberately get no bundle target.
   That is honest, and it is not support. Solid Start needs a Vite plugin
   `@solidjs/start` does not ship at all; SvelteKit needs `.svelte` compilation
@@ -38,10 +34,10 @@ What is still thin:
 | node_modules trees | Every *resolution* placed — name, version and peer set (primary flat, the rest under `.pnpm/<name>@<version>[_<peer set>]/`, with a relative link per disagreeing edge) |
 | Gazelle BUILD generation | Production-ready (JS/TS, CSS, assets, path aliases from tsconfig.json, ts_dev_server); alias resolution is deterministic, extension-spelling specifiers resolve, and one scanner is shared with the strict-deps check. A run on this clean tree changes zero files (`bazel run //gazelle -- -mode=diff` prints no diff). CI pins two properties of a run (the output builds; generating twice from scratch is byte-identical); two more are verified by hand against this tree and are **not** a CI job (the suite still passes; the test-target set is unchanged) |
 | Testing (vitest) | Solid (DOM run for real, coverage, custom config, snapshots read *and* written, watch mode, debugging). Gap: `coverage_thresholds` enforcement is unproven |
-| Bundling | Vite bundler (production quality), exercised on Vite 8. `vite_config` composes: a TypeScript config plus the local modules it imports (`vite_config_srcs`), staged into bazel-bin by both `ts_bundle` and `ts_dev_server` and loaded through Vite's own config loader. Gap: a lib-mode bundle (`format = ...`) drops CSS imports; app mode emits them |
-| Dev server + HMR | Pluggable: `ts_dev_server(server = ...)` takes a `DevServerInfo`, Vite by default and oj (`//oj:dev_server`) as the second implementation, one generated config driving either. Serves first-party source with Bazel out of the inner loop; resolves bare npm specifiers through the `node_modules` tree via the `bazel:npm-resolve` plugin; codegen rebuilds and config-aware restarts under ibazel; does not typecheck. oj is not yet usable for an app with npm dependencies -- see below |
+| Bundling | Vite bundler (production quality), exercised on Vite 8. `vite_config` composes: a TypeScript config plus the local modules it imports (`vite_config_srcs`), staged into bazel-bin by both `ts_bundle` and `ts_dev_server` and loaded through Vite's own config loader. Both modes emit CSS: app mode through the HTML, lib mode as a declared `<bundle_name>.css` |
+| Dev server + HMR | Pluggable: `ts_dev_server(server = ...)` takes a `DevServerInfo`, Vite by default and oj (`//oj:dev_server`) as the second implementation, one generated config driving either. Serves first-party source with Bazel out of the inner loop; resolves bare npm specifiers through the `node_modules` tree via the `bazel:npm-resolve` plugin; codegen rebuilds and config-aware restarts under ibazel; does not typecheck. oj reaches npm packages through the same plugin, via a patch carried in `oj/patches/` -- see below |
 | IDE integration | Generated tsconfig + tsserver hook; `module_name` and `extra_exclude` supported. A package whose targets disagree with the root `compilerOptions` gets its own generated tsconfig, declared in `nested_tsconfigs` and staleness-tested; the root excludes those files individually so unclaimed ones stay in its program. Zero tsc errors across the root and all nine nested programs |
-| CSS / assets | css_library, css_module, asset_library, json_library rules; CSS module mock in ts_test. css_library copies the .css into bazel-bin, which is what makes a relative CSS import resolve for a bundler. Tailwind v4 works through `vite_config` in app mode (`//tests/tailwind`) |
+| CSS / assets | css_library, css_module, asset_library, json_library rules; CSS module mock in ts_test. css_library copies the .css into bazel-bin, which is what makes a relative CSS import resolve for a bundler. Tailwind v4 works through `vite_config` in both bundle modes and under both dev servers (`//tests/tailwind`) |
 | Framework integration | TanStack Start and Remix get generated bundle targets, Remix with a nested-Bazel integration test; Next.js has its own `next_build`; SvelteKit and Solid Start are detected and get a named refusal instead of a target |
 | npm publishing | ts_npm_publish with auto-filled main/types/exports |
 | CI/CD | Docs: remote caching (BuildBuddy/EngFlow), RBE, GitLab CI, non-determinism — documented, not exercised by this repo's CI |
@@ -66,11 +62,6 @@ to rediscover them. Each names the file to change.
   `crate.annotation(patches = ...)`, so it is part of the build rather than a
   thing to remember. `//tests/dev_server:dev_oj_behaviour_test` asserts `import
   "zod"` lands in the Bazel tree under oj, the same assertion the Vite lanes get.
-- **A lib-mode `ts_bundle` drops CSS imports.** `mode = "app"` emits the CSS;
-  a bundle with `format = ...` produces no .css at all and strips the import
-  from the .js, Tailwind or not. Reproduced with a plain `css_library` dep, so
-  it is not a Tailwind or a plugin problem. `//tests/tailwind` therefore asserts
-  app mode.
 - **Tailwind v4: `@source` is needed for a bundle, not for the dev server.**
   `@tailwindcss/vite` scans from Vite's resolved `root`. `ts_bundle` sets that to
   the HTML staging directory in app mode, which holds only the HTML, so the files
@@ -533,7 +524,7 @@ generating a target, that produced the worst outcome available: a green
   - [x] Maps Bazel package structure to tsconfig `paths`, including one entry per `module_name` and one per npm package (installed under `npm_dir`)
   - [x] Points at bazel-bin for .d.ts resolution via rootDirs
   - [x] `extra_exclude` keeps TypeScript outside this module's graph out of the program
-- [ ] Per-target compiler options: one root `tsconfig.json` has a single `compilerOptions` block, so targets that disagree about `strict`/`lib`/`allowJs` cannot all be correct in it. Structural, not a bug
+- [x] Per-target compiler options: a package whose targets disagree with the root `compilerOptions` gets its own generated tsconfig, listed in `nested_tsconfigs` and staleness-tested; the root excludes those files one by one. Two targets in *one* package still cannot disagree — tsserver picks a program by directory — and that remains structural
 - [x] VS Code settings template (.vscode/settings.json.template)
 - [x] IDE setup documented as Quick Start step 5 (right after Gazelle)
 - [ ] WebStorm/IntelliJ configuration guide
@@ -577,14 +568,10 @@ generating a target, that produced the worst outcome available: a green
 - [x] Generic CI steps documented (docs/CI_CD.md). `scripts/ci.sh` is deleted: it duplicated the workflow
 
 ### 10.4 BCR Publishing
-- [ ] **Blocks submission, needs a human: `.bcr/metadata.json` pairs one person's
-  `name` with a different person's `email` and `github`.** BCR publishes that
-  entry verbatim, so whoever is named there is who the registry says maintains
-  this module. There is at least one source of truth now — the release workflow's
-  notes step reads the file (`jq -r '.maintainers[0]…'` in
-  `.github/workflows/publish-to-bcr.yml`) instead of carrying its own copy, so a
-  correction lands in one place — but nobody has decided *which* of the three
-  fields is the wrong one. Decide before submitting; do not guess.
+- [x] `.bcr/metadata.json` names one real maintainer (Mikael Knutsson,
+  mikael@lovable.dev, @mikn). It is the single source of truth: the release
+  workflow's notes step reads it (`jq -r '.maintainers[0]…'` in
+  `.github/workflows/publish-to-bcr.yml`) rather than carrying its own copy.
 - [x] Automate `source.json` integrity hash on release
 - [x] Release tool that bumps, commits and tags (`bazel run //tools/release`); the tarball and integrity hash come from the release workflow, since a locally built archive is not the published one
 - [ ] Submit to BCR
@@ -788,8 +775,6 @@ no longer true — but that is the framework's *client* build reached through
 `vite_config`, not its own pipeline: no server build, no SSR, no loaders. Next.js
 goes through `next_build`, which runs the framework's own build rather than
 expressing it. SvelteKit and Solid Start do not bundle at all, by decision (SP4.4,
-SP4.6). And the `vite_config` hook that carries the ones that do work is
-[not hermetic as a source file](#project-vision), so a fresh checkout with no
-source-tree `node_modules` is a case CI does not cover.
+SP4.6).
 
 **Effort estimate:** Sub-project 4 (framework integration: Next.js, Remix, TanStack Start, SvelteKit) represents ~3-6 months per framework to reach production quality. Sub-project 2 HMR (ibazel protocol, React Fast Refresh, <500ms latency) is another 1-2 months. Full feature parity with the JavaScript ecosystem is a multi-year effort.

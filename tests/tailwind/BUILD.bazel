@@ -30,10 +30,6 @@ ts_compile(
     deps = [":styles_css"],
 )
 
-# The bundle is `mode = "app"`. A lib-mode bundle (format = ...) drops CSS
-# imports entirely -- with or without Tailwind -- which is recorded in TODO.md
-# rather than worked around here.
-
 # @tailwindcss/vite reaches tailwindcss and @tailwindcss/oxide by bare specifier
 # from the staged config, so all three have to be in the tree the bundler runs
 # beside -- the platform-specific oxide binary included.
