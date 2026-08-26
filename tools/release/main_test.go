@@ -60,3 +60,18 @@ func contains(haystack, needle string) bool {
 	}
 	return false
 }
+
+// The release-PR path: the bump is already in HEAD, so there is nothing to write
+// and nothing to commit. run() keys the skip on old == version.
+func TestSetModuleVersionIsIdempotent(t *testing.T) {
+	got, old, err := setModuleVersion(moduleFixture, "0.1.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if old != "0.1.0" {
+		t.Errorf("old version = %q, want 0.1.0", old)
+	}
+	if got != moduleFixture {
+		t.Errorf("re-setting the same version rewrote the file:\n%s", got)
+	}
+}
