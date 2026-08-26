@@ -29,6 +29,11 @@ def _css_module_impl(ctx):
     generator = ctx.file._generator
 
     dts_outputs = []
+
+    # A copy in bazel-bin, not the source file, for the reason css_library
+    # copies too: the importer is the compiled .js beside it, so a relative
+    # import resolves in the output tree rather than in the source tree.
+    bin_css_files = []
     for css_file in css_files:
         # The <source>.d.ts name is what TypeScript looks for with
         # allowArbitraryExtensions enabled.
@@ -48,6 +53,19 @@ def _css_module_impl(ctx):
         )
         dts_outputs.append(dts)
 
+        # A generated src is already in bazel-bin, and declaring an output at a
+        # path another rule owns is an error rather than a copy.
+        if css_file.is_source:
+            bin_css = ctx.actions.declare_file(css_file.basename, sibling = css_file)
+            ctx.actions.expand_template(
+                template = css_file,
+                output = bin_css,
+                substitutions = {},
+            )
+            bin_css_files.append(bin_css)
+        else:
+            bin_css_files.append(css_file)
+
     # Build transitive depsets from any css_module deps.
     transitive_css_sets = []
     transitive_dts_sets = []
@@ -57,13 +75,13 @@ def _css_module_impl(ctx):
         if TsDeclarationInfo in dep:
             transitive_dts_sets.append(dep[TsDeclarationInfo].transitive_declaration_files)
 
-    direct_css = depset(css_files)
-    transitive_css = depset(css_files, transitive = transitive_css_sets, order = "postorder")
+    direct_css = depset(bin_css_files)
+    transitive_css = depset(bin_css_files, transitive = transitive_css_sets, order = "postorder")
     direct_dts = depset(dts_outputs)
     transitive_dts = depset(dts_outputs, transitive = transitive_dts_sets, order = "postorder")
 
     return [
-        DefaultInfo(files = depset(css_files + dts_outputs)),
+        DefaultInfo(files = depset(bin_css_files + dts_outputs)),
         CssModuleInfo(
             css_files = direct_css,
             transitive_css_files = transitive_css,
@@ -104,8 +122,10 @@ generated .module.css.d.ts typed declarations) so that:
   1. TypeScript accepts 'import styles from \"./Button.module.css\"' and
      provides typed access to class names (e.g. styles.container).
   2. ts_compile targets can declare a CSS Module dependency without failing.
-  3. The .module.css files are passed through to the bundler (Vite handles
-     CSS Modules natively, applying local scoping and class name mangling).
+  3. The .module.css files are copied untransformed into bazel-bin beside the
+     compiled .js that imports them, which is what lets the bundler resolve
+     the relative import. Vite handles CSS Modules natively from there,
+     applying local scoping and class name mangling.
 
 The generated .d.ts maps each class name found in the CSS to a string:
 

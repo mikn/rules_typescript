@@ -803,6 +803,37 @@ def _registry_for(package_name, registries):
         return registries[scope]
     return registries.get("", DEFAULT_NPM_REGISTRY)
 
+# Bazel verifies a download against an SRI hash, and pnpm writes one per
+# published tarball. The algorithms are named explicitly rather than left to
+# Bazel's checksum parser: a digest it would refuse (`sha1-` from a lockfile old
+# enough to have one) is then reported here, naming the package, instead of
+# arriving as a checksum error naming a URL.
+_INTEGRITY_ALGORITHMS = ("sha512-", "sha384-", "sha256-")
+
+def _verify_integrity(packages):
+    """The `packages:` entries whose resolution carries no usable integrity.
+
+    Pure, so the whole-lockfile check can be unit-tested without a fetch.
+
+    Args:
+        packages: The `packages` map from parse_pnpm_lock.
+
+    Returns:
+        A list of struct(package_id, resolution), ordered by package_id. Empty
+        means every entry can be checked against the bytes it names.
+    """
+    unverifiable = []
+    for package_id in sorted(packages):
+        resolution = packages[package_id].get("resolution", {})
+        integrity = resolution.get("integrity", "")
+        usable = False
+        for algorithm in _INTEGRITY_ALGORITHMS:
+            if integrity.startswith(algorithm):
+                usable = True
+        if not usable:
+            unverifiable.append(struct(package_id = package_id, resolution = resolution))
+    return unverifiable
+
 def _npm_tarball_url(package_name, version, resolution, registries = {}):
     """Returns the tarball URL for an npm package.
 
@@ -1038,6 +1069,7 @@ parse_pnpm_lock = _parse_pnpm_lock
 parse_importers = _parse_importers
 parse_patched_dependencies = _parse_patched_dependencies
 npm_tarball_url = _npm_tarball_url
+verify_integrity = _verify_integrity
 npmrc_registries = _npmrc_registries
 npmrc_assignments = _npmrc_assignments
 package_name_to_label = _package_name_to_label

@@ -37,7 +37,7 @@ What is still thin:
 | Bundling | Vite bundler (production quality), exercised on Vite 8. `vite_config` composes: a TypeScript config plus the local modules it imports (`vite_config_srcs`), staged into bazel-bin by both `ts_bundle` and `ts_dev_server` and loaded through Vite's own config loader. Both modes emit CSS: app mode through the HTML, lib mode as a declared `<bundle_name>.css` |
 | Dev server + HMR | Pluggable: `ts_dev_server(server = ...)` takes a `DevServerInfo`, Vite by default and oj (`//oj:dev_server`) as the second implementation, one generated config driving either. Serves first-party source with Bazel out of the inner loop; resolves bare npm specifiers through the `node_modules` tree via the `bazel:npm-resolve` plugin; codegen rebuilds and config-aware restarts under ibazel; does not typecheck. oj reaches npm packages through the same plugin, via a patch carried in `oj/patches/` -- see below |
 | IDE integration | Generated tsconfig + tsserver hook; `module_name` and `extra_exclude` supported. A package whose targets disagree with the root `compilerOptions` gets its own generated tsconfig, declared in `nested_tsconfigs` and staleness-tested; the root excludes those files individually so unclaimed ones stay in its program. Zero tsc errors across the root and all nine nested programs |
-| CSS / assets | css_library, css_module, asset_library, json_library rules; CSS module mock in ts_test. css_library copies the .css into bazel-bin, which is what makes a relative CSS import resolve for a bundler. Tailwind v4 works through `vite_config` in both bundle modes and under both dev servers (`//tests/tailwind`) |
+| CSS / assets | css_library, css_module, asset_library, json_library rules; CSS module mock in ts_test. All three copy a source src into bazel-bin (a generated one is already there), which is what makes a relative import resolve for a bundler and what a bundle's input depset collects. `ts_bundle` takes `public_dir` and `manifest` in app mode; the manifest's keys are rewritten workspace-relative, so they are usable and configuration-stable. The `.module.css` `.d.ts` key set is compared against postcss-modules' real export map rather than asserted. Tailwind v4 works through `vite_config` in both bundle modes and under both dev servers |
 | Framework integration | TanStack Start and Remix get generated bundle targets, Remix with a nested-Bazel integration test; Next.js has its own `next_build`; SvelteKit and Solid Start are detected and get a named refusal instead of a target |
 | npm publishing | ts_npm_publish with auto-filled main/types/exports |
 | CI/CD | Docs: remote caching (BuildBuddy/EngFlow), RBE, GitLab CI, non-determinism — documented, not exercised by this repo's CI |
@@ -163,6 +163,31 @@ to rediscover them. Each names the file to change.
   (`node:sqlite`, `node:test`) would have Gazelle write an `@npm//:…` label that
   does not exist. `tests/strict_deps/builtins.ts` pins the common case only. Two
   recognisers of one thing; see AGENTS.md.
+- **`coverage = True` never instrumented anything.** `tools/launcher/vitest.go`
+  gated it on `COVERAGE_ENABLED == "true"` -- an env var nothing sets, and Bazel
+  has none. So a `coverage_thresholds` on such a target was silently never
+  checked, which is what "enforcement is unproven" turned out to mean. The attr
+  alone now enables coverage, and `//tests/vitest/thresholds` pins both
+  directions: a target missing its threshold exits non-zero naming it, one
+  meeting it exits zero, and the two compiled tests are byte-identical so the
+  exit statuses can only be about the threshold.
+- **Real CSS module compilation is still not wired, and it is not a sweep item.**
+  `css_module` generates its `.d.ts` by parsing selectors, and nothing compiles
+  the CSS or produces the scoped names -- so the names the types promise and the
+  names a bundler emits remain two independent derivations. They are now
+  *compared*: the fixture dumps postcss-modules' real export map through
+  `css.modules.getJSON` and the test diffs the key sets, which is what caught the
+  `:global`/`:local` combinator form (no parentheses) declaring class names
+  postcss-modules does not export. Closing the gap properly means owning the
+  compilation, which is a project rather than an afternoon.
+- **Gazelle keeps emitting the external `@rules_typescript//` load label inside
+  this repository.** A per-run "generating for self" flag was tried and reverted:
+  `Loads()` has no directory context, so one flag decides for the whole walk --
+  and `e2e/basic`, `examples/*` and the staged workspaces under
+  `tests/integration/` are separate modules whose BUILD files carry these loads
+  and must keep the external form. It also emitted a second, differently-labelled
+  load of the same `.bzl` into any un-normalised file it touched. Cosmetic gain,
+  real regression; it needs a per-directory hook that does not exist.
 - **The consumer audit found no conflict to absorb, so nothing was absorbed.**
   A tree with 16 `ts_compile` targets across 11 packages has **3** multi-target
   packages and **0** conflicts — not one target sets any compiler option at all,

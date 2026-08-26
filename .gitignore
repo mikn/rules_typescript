@@ -44,3 +44,6 @@ SP10_COMPLETION_SUMMARY.md
 
 # oj's config-extraction cache, written into whatever root it serves
 .oj-cache/
+
+# Stray build output: tools/launcher builds to bazel-bin, never the repo root.
+/launcher

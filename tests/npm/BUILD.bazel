@@ -97,6 +97,17 @@ ts_compile(
     deps = ["@npm//:nested-shared"],
 )
 
+# A workspace member imported by its PACKAGE NAME, with no module_name anywhere:
+# //tests/npm/ws-linked declares none and the lockfile is the only place the name
+# `ws-linked` appears. An alias cannot carry it -- Bazel resolves an alias before
+# any rule implementation runs -- so this compiles only because the hub generates
+# a target that declares the name itself.
+ts_compile(
+    name = "ws_linked_consumer",
+    srcs = ["ws_linked_consumer.ts"],
+    deps = ["@npm_features//:ws-linked"],
+)
+
 go_test(
     name = "workspace_relative_link_test",
     size = "small",

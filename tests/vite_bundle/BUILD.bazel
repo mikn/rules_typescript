@@ -1,8 +1,9 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_go//go:def.bzl", "go_test")
 load("@rules_typescript//npm:defs.bzl", "node_modules")
-load("@rules_typescript//ts:defs.bzl", "ts_binary", "ts_bundle", "ts_compile", "ts_dev_server")
+load("@rules_typescript//ts:defs.bzl", "asset_library", "css_module", "ts_binary", "ts_bundle", "ts_compile", "ts_dev_server")
 load("@rules_typescript//vite:bundler.bzl", "vite_bundler")
+load(":bundle_analysis_tests.bzl", "manifest_needs_app_mode_test", "public_dir_needs_app_mode_test")
 
 package(default_visibility = ["//:__pkg__"])
 
@@ -337,6 +338,100 @@ go_test(
     srcs = ["staging_srcs_test.go"],
     data = [":entry_vite_staging"],
     deps = ["//tests/verify"],
+)
+
+# ── CSS modules, assets, publicDir and the manifest, in one app-mode bundle ────
+# The three providers have to reach the bundle action for any of this to build:
+# a .module.css and an .svg are only in the sandbox because CssModuleInfo and
+# AssetInfo are collected alongside CssInfo.
+
+css_module(
+    name = "panel_module_css",
+    srcs = ["panel.module.css"],
+    visibility = ["//visibility:public"],
+)
+
+asset_library(
+    name = "big_logo_svg",
+    srcs = ["big_logo.svg"],
+    visibility = ["//visibility:public"],
+)
+
+# A real binary asset: the copy into bazel-bin has to be byte-exact, which a
+# text-only mechanism would not be.
+asset_library(
+    name = "noise_png",
+    srcs = ["noise.png"],
+    visibility = ["//visibility:public"],
+)
+
+ts_compile(
+    name = "assets_entry",
+    srcs = ["assets_entry.ts"],
+    deps = [
+        ":big_logo_svg",
+        ":noise_png",
+        ":panel_module_css",
+    ],
+)
+
+filegroup(
+    name = "public_files",
+    srcs = glob(["public/**"]),
+)
+
+ts_bundle(
+    name = "assets_app",
+    bundler = ":vite",
+    entry_point = ":assets_entry",
+    html = "index.html",
+    manifest = True,
+    minify = False,
+    mode = "app",
+    public_dir = ":public_files",
+    sourcemap = False,
+    vite_config = "css_exports_plugin.mjs",
+)
+
+go_test(
+    name = "bundle_assets_test",
+    size = "small",
+    srcs = ["bundle_assets_test.go"],
+    data = [
+        "big_logo.svg",
+        "noise.png",
+        ":assets_app",
+        ":panel_module_css",
+        ":public_files",
+    ],
+    deps = ["//tests/verify"],
+)
+
+# Never built: the assertion is the analysis failure, not an output.
+ts_bundle(
+    name = "lib_with_public_dir",
+    bundler = ":vite",
+    entry_point = ":assets_entry",
+    public_dir = ":public_files",
+    tags = ["manual"],
+)
+
+public_dir_needs_app_mode_test(
+    name = "public_dir_needs_app_mode_test",
+    target_under_test = ":lib_with_public_dir",
+)
+
+ts_bundle(
+    name = "lib_with_manifest",
+    bundler = ":vite",
+    entry_point = ":assets_entry",
+    manifest = True,
+    tags = ["manual"],
+)
+
+manifest_needs_app_mode_test(
+    name = "manifest_needs_app_mode_test",
+    target_under_test = ":lib_with_manifest",
 )
 
 # ts_binary can bundle too: the bundle attrs it does not declare must fall back

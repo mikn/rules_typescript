@@ -271,6 +271,84 @@ func TestPlanVitestWritesEmptyCoverageWhenVitestProducedNone(t *testing.T) {
 	}
 }
 
+func TestPlanVitestEnablesCoverageFromTheAttrOnAPlainTestRun(t *testing.T) {
+	r, _ := vitestFixture(t)
+	tmp := t.TempDir()
+	t.Setenv("TEST_TMPDIR", tmp)
+	t.Setenv("COVERAGE_OUTPUT_FILE", "")
+	cfg := vitestConfig()
+	cfg.Vitest.Coverage = true
+	plan, err := MakePlan(cfg, r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer plan.Cleanup()
+	joined := strings.Join(plan.Argv, " ")
+	if !strings.Contains(joined, "--coverage.enabled true") {
+		t.Errorf("coverage = True has to enable coverage under `bazel test`; argv = %q", joined)
+	}
+	if !strings.Contains(joined, "--coverage.reportsDirectory "+filepath.Join(tmp, "coverage")) {
+		t.Errorf("a report written into the runfiles tree would be a write to a test input; argv = %q", joined)
+	}
+}
+
+func TestPlanVitestKeepsOnlyTheFilesBazelInstrumented(t *testing.T) {
+	r, _ := vitestFixture(t)
+	dir := t.TempDir()
+	out := filepath.Join(dir, "coverage.dat")
+	manifest := filepath.Join(dir, "instrumented.txt")
+	if err := os.WriteFile(manifest, []byte(
+		"tests/app/kept.ts\nbazel-out/k8-fastbuild/bin/tests/app/generated.ts\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COVERAGE_OUTPUT_FILE", out)
+	t.Setenv("COVERAGE_MANIFEST", manifest)
+	plan, err := MakePlan(vitestConfig(), r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer plan.Cleanup()
+	if err := os.WriteFile(filepath.Join(dir, "lcov.info"), []byte(
+		"TN:\nSF:_main/tests/app/kept.js\nDA:1,1\nend_of_record\n"+
+			"TN:\nSF:_main/tests/app/generated.js\nDA:1,1\nend_of_record\n"+
+			"TN:\nSF:_main/tests/app/filtered.js\nDA:1,0\nend_of_record\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.PostRun(0); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "TN:\nSF:tests/app/kept.js\nDA:1,1\nend_of_record\n" +
+		"TN:\nSF:tests/app/generated.js\nDA:1,1\nend_of_record\n"
+	if string(got) != want {
+		t.Errorf("lcov = %q, want %q", got, want)
+	}
+}
+
+func TestSelectInstrumentedTreatsAnEmptySelectionAsExcludingEverything(t *testing.T) {
+	in := "SF:tests/app/a.js\nDA:1,1\nend_of_record\n"
+	if got := string(SelectInstrumented([]byte(in), nil)); got != "" {
+		t.Errorf("SelectInstrumented = %q, want an empty report", got)
+	}
+}
+
+func TestCoverageKeyMatchesASourceAgainstWhatWasCompiledFromIt(t *testing.T) {
+	cases := map[string]string{
+		"tests/app/a.ts": "tests/app/a",
+		"bazel-out/k8-fastbuild/bin/tests/app/a.js": "tests/app/a",
+		"  tests/app/a.tsx  ":                       "tests/app/a",
+		"":                                          "",
+	}
+	for in, want := range cases {
+		if got := coverageKey(in); got != want {
+			t.Errorf("coverageKey(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestRewriteLcovOnlyTouchesSourceFileLines(t *testing.T) {
 	in := []byte("SF:_main/a.js\nFN:1,_main/x\nSF:_mainless/b.js\n")
 	got := string(RewriteLcov(in, "_main", ""))

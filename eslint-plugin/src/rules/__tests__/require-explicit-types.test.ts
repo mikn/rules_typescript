@@ -202,6 +202,36 @@ ruleTester.run('require-explicit-types', requireExplicitTypes, {
   // ── Invalid: cases that SHOULD be flagged ───────────────────────────────
   invalid: [
     {
+      name: 'async function is fixed to Promise<T>, not T (TS1064)',
+      code: `export async function fetchOne() { return 1; }`,
+      output: `export async function fetchOne(): Promise<number> { return 1; }`,
+      errors: [{ messageId: 'missingReturnType' }],
+    },
+    {
+      name: 'async arrow is fixed to Promise<T>',
+      code: `export const fetchTwo = async () => "two";`,
+      output: `export const fetchTwo = async (): Promise<string> => "two";`,
+      errors: [{ messageId: 'missingReturnType' }],
+    },
+    {
+      name: 'async method is fixed to Promise<T>',
+      code: `export class Svc { async load() { return "ok"; } }`,
+      output: `export class Svc { async load(): Promise<string> { return "ok"; } }`,
+      errors: [{ messageId: 'missingReturnType' }],
+    },
+    {
+      name: 'generator is reported but never autofixed',
+      code: `export function* gen() { return 1; }`,
+      output: null,
+      errors: [{ messageId: 'missingReturnType' }],
+    },
+    {
+      name: 'generator method is reported but never autofixed',
+      code: `export class Svc { *iter() { return 0; } }`,
+      output: null,
+      errors: [{ messageId: 'missingReturnType' }],
+    },
+    {
       name: 'untyped setter parameter is reported, and never gets a return type',
       code: `export class Box { set value(v) { this.v = v; } }`,
       output: null,

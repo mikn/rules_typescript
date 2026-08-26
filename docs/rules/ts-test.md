@@ -163,9 +163,35 @@ entries are passed through. `global_setup` is the same mechanism for
 
 `bazel coverage //path/to:my_test` works on any `ts_test` with no attribute
 set; `@vitest/coverage-v8` must be in `node_modules`. `coverage = True`
-additionally instruments plain `bazel test` runs. `coverage_thresholds` is only
-enforced when coverage runs — and its enforcement is untested, so treat a
-passing build as unproven rather than as evidence the threshold held.
+additionally instruments plain `bazel test` runs.
+
+`coverage_thresholds` is only enforced when coverage runs, and a run that misses
+one fails: vitest exits non-zero with
+`ERROR: Coverage for lines (50%) does not meet global threshold (90%)` after the
+assertions themselves have passed. `//tests/vitest/thresholds` pins both
+directions — two targets over one library and one test source, differing only in
+the number.
+
+### Which files are reported
+
+`--instrumentation_filter` selects the targets whose files reach the report, and
+`ts_test` reports on the selection and nothing else. Bazel derives a default
+from the targets on the command line — for `bazel coverage //foo:bar_test` that
+is `^//foo[/:]`, so a library in another package is *absent* from the report
+until a wider filter names it:
+
+```bash
+bazel coverage //tests/vitest/coverage:math_coverage_test --combined_report=lcov
+# SF:tests/vitest/coverage/same_package.js only
+
+bazel coverage //tests/vitest/coverage:math_coverage_test --combined_report=lcov \
+    --instrumentation_filter='^//tests/vitest[/:]'
+# adds SF:tests/vitest/math.js
+```
+
+Every target under test carries its own `InstrumentedFilesInfo`, because the
+filter is applied where a target answers for its own label — the libraries in
+`deps`, and the `ts_compile` the macro builds the test sources with.
 
 A test whose pool runs the tests in a second runtime — a
 `@cloudflare/vitest-pool-workers` test in workerd — needs the other provider.

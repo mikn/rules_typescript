@@ -1,0 +1,9 @@
+"""One library, half of it exercised, shared by both threshold targets."""
+
+load("//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "partial",
+    srcs = ["partial.ts"],
+    visibility = ["//tests/vitest/thresholds:__subpackages__"],
+)

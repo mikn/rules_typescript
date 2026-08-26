@@ -230,7 +230,9 @@ func shardFiles(r *Resolver, listPath string) ([]testFile, error) {
 }
 
 // coverageFlags is unconditional on COVERAGE_OUTPUT_FILE so `bazel coverage`
-// works on every ts_test; the attr only adds coverage to plain `bazel test`.
+// works on every ts_test; the attr only adds coverage to plain `bazel test`,
+// where nothing consumes a report -- so it stays out of the runfiles tree the
+// test is running in.
 func coverageFlags(coverageAttr bool) []string {
 	if out := os.Getenv("COVERAGE_OUTPUT_FILE"); out != "" {
 		dir := filepath.Dir(out)
@@ -241,10 +243,14 @@ func coverageFlags(coverageAttr bool) []string {
 			"--coverage.reportsDirectory", dir,
 		}
 	}
-	if coverageAttr && os.Getenv("COVERAGE_ENABLED") == "true" {
-		return []string{"--coverage.enabled", "true"}
+	if !coverageAttr {
+		return nil
 	}
-	return nil
+	flags := []string{"--coverage.enabled", "true"}
+	if tmp := os.Getenv("TEST_TMPDIR"); tmp != "" {
+		flags = append(flags, "--coverage.reportsDirectory", filepath.Join(tmp, "coverage"))
+	}
+	return flags
 }
 
 func writeCoverage(workspace, runDir string) func(int) error {
@@ -252,13 +258,89 @@ func writeCoverage(workspace, runDir string) func(int) error {
 	if out == "" {
 		return nil
 	}
+	manifest := os.Getenv("COVERAGE_MANIFEST")
 	return func(int) error {
 		data, err := os.ReadFile(filepath.Join(filepath.Dir(out), "lcov.info"))
 		if err != nil {
 			return os.WriteFile(out, nil, 0o644)
 		}
-		return os.WriteFile(out, RewriteLcov(data, workspace, runDir), 0o644)
+		lcov := RewriteLcov(data, workspace, runDir)
+		if selected, ok := readCoverageManifest(manifest); ok {
+			lcov = SelectInstrumented(lcov, selected)
+		}
+		return os.WriteFile(out, lcov, 0o644)
 	}
+}
+
+// readCoverageManifest reads the files --instrumentation_filter selected for
+// this test, which Bazel writes from the InstrumentedFilesInfo of every target
+// in the test's dependency graph. A manifest that exists and selects nothing is
+// a filter that excluded everything, which is not the same answer as a run with
+// no manifest at all -- hence the second return value.
+func readCoverageManifest(path string) (map[string]bool, bool) {
+	if path == "" {
+		return nil, false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, false
+	}
+	selected := map[string]bool{}
+	for _, line := range strings.Split(string(data), "\n") {
+		if key := coverageKey(line); key != "" {
+			selected[key] = true
+		}
+	}
+	return selected, true
+}
+
+// SelectInstrumented drops every record naming a file the manifest does not
+// select, which is what makes --instrumentation_filter change the report.
+func SelectInstrumented(data []byte, selected map[string]bool) []byte {
+	text := string(data)
+	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+	kept := make([]string, 0, len(lines))
+
+	// A record runs from its SF: line to end_of_record; whatever precedes the
+	// SF: (lcov's TN: test-name line) belongs to the record that follows it.
+	record, inRecord, keep := []string{}, false, false
+	for _, line := range lines {
+		if rest, isSF := strings.CutPrefix(line, "SF:"); isSF {
+			inRecord, keep = true, selected[coverageKey(rest)]
+		}
+		record = append(record, line)
+		if line == "end_of_record" {
+			if keep {
+				kept = append(kept, record...)
+			}
+			record, inRecord, keep = nil, false, false
+		}
+	}
+	if !inRecord || keep {
+		kept = append(kept, record...)
+	}
+
+	out := strings.Join(kept, "\n")
+	if out != "" && strings.HasSuffix(text, "\n") {
+		out += "\n"
+	}
+	return []byte(out)
+}
+
+// coverageKey identifies a file across the two spellings of it that have to
+// meet: the manifest names the .ts a target declared, the report names the .js
+// the compiler emitted for it.
+func coverageKey(p string) string {
+	p = filepath.ToSlash(strings.TrimSpace(p))
+	if p == "" {
+		return ""
+	}
+	if rest, ok := strings.CutPrefix(p, "bazel-out/"); ok {
+		if parts := strings.SplitN(rest, "/", 3); len(parts) == 3 {
+			p = parts[2]
+		}
+	}
+	return strings.TrimSuffix(p, filepath.Ext(p))
 }
 
 // RewriteLcov turns the source paths vitest reports into the workspace-relative

@@ -142,6 +142,7 @@ ts_refresh_tsconfig(
         "//tests/synthetic/pkg_18",
         "//tests/synthetic/pkg_19",
         "//tests/compiler_options/es_target:legacy",
+        "//tests/npm:ws_linked_consumer",
         "//tests/tailwind:entry",
         "//tests/workers:worker",
         "//tests/workers:_worker_test_compile",

@@ -230,7 +230,32 @@ def _vite_bundler_impl(ctx):
         "  : > \"${EXEC_ROOT}/$6\"\n" +
         "fi\n" +
         "\n" +
-        "exec \"$RUNTIME\" ${RUNTIME_ARGS[@]+\"${RUNTIME_ARGS[@]}\"} \"$VITE_JS\" build --config \"$CONFIG\"\n"
+        "\"$RUNTIME\" ${RUNTIME_ARGS[@]+\"${RUNTIME_ARGS[@]}\"} \"$VITE_JS\" build --config \"$CONFIG\"\n" +
+        "\n" +
+        "# Vite keys the manifest by module id relative to its root, which for an\n" +
+        "# input living in bazel-out is a path escaping the sandbox and naming the\n" +
+        "# build configuration. Rewriting to the workspace-relative tail makes a key\n" +
+        "# something a consumer can look up and stable across -c opt.\n" +
+        "MANIFEST=\"${EXEC_ROOT}/$3/manifest.json\"\n" +
+        "if [[ -f \"${MANIFEST}\" ]]; then\n" +
+        "  \"$RUNTIME\" -e '\n" +
+        "    const fs = require(\"node:fs\");\n" +
+        "    const p = process.argv[1];\n" +
+        "    const strip = (v) =>\n" +
+        "      typeof v === \"string\"\n" +
+        "        ? v.replace(/^.*?bazel-out\\/[^/]+\\/bin\\//, \"\")\n" +
+        "        : v;\n" +
+        "    const src = JSON.parse(fs.readFileSync(p, \"utf8\"));\n" +
+        "    const out = {};\n" +
+        "    for (const [key, entry] of Object.entries(src)) {\n" +
+        "      if (entry && typeof entry === \"object\" && \"src\" in entry) {\n" +
+        "        entry.src = strip(entry.src);\n" +
+        "      }\n" +
+        "      out[strip(key)] = entry;\n" +
+        "    }\n" +
+        "    fs.writeFileSync(p, JSON.stringify(out, null, 2) + \"\\n\");\n" +
+        "  ' \"${MANIFEST}\"\n" +
+        "fi\n"
     )
 
     ctx.actions.write(

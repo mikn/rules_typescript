@@ -39,6 +39,33 @@ if [[ -z "${PNPM_HUB_DIR:-}" ]]; then
   exit 1
 fi
 
+# The appended --dir wins over a user --dir/-C, because pnpm takes the last
+# occurrence. Redirecting the lockfile does not lose to a later occurrence --
+# an appended --lockfile-dir loses to an earlier --lockfile-directory -- so the
+# spellings are rejected instead, and the outcome is checked afterwards for any
+# route this pattern does not know about.
+for arg in "$@"; do
+  normalised="$(printf '%s' "${arg%%=*}" | tr 'A-Z._' 'a-z--')"
+  case "${normalised}" in
+    --lockfile-dir | --lockfile-directory | --config-lockfile-dir | --config-lockfile-directory)
+      echo "ERROR: ${arg%%=*} is not accepted by this target." >&2
+      echo "It would write the lockfile outside ${PNPM_HUB_DIR}, and a pnpm-lock.yaml" >&2
+      echo "no npm.translate_lock() names is a lockfile nothing builds from -- which is" >&2
+      echo "what this target exists to prevent." >&2
+      echo "To edit a different hub, run that hub's own target; a workspace has one per" >&2
+      echo "hub, named after it (bazel run //:add_package_tailwind -- ...). If the hub" >&2
+      echo "has no target yet, declare it with ts_add_package(pnpm_lock = ...)." >&2
+      exit 1
+      ;;
+  esac
+done
+
+# pnpm reads every setting from NPM_CONFIG_<SETTING> too, so the flag rejection
+# above is only half of it.
+while IFS= read -r name; do
+  unset "${name}"
+done < <(env | sed -n 's/^\(\(NPM_CONFIG_\|npm_config_\)[Ll]*[Oo]*[Cc]*[Kk]*[Ff]*[Ii]*[Ll]*[Ee]*[^=]*\)=.*/\1/p')
+
 hub_dir="${BUILD_WORKSPACE_DIRECTORY}/${PNPM_HUB_DIR}"
 if [[ ! -f "${hub_dir}/package.json" ]]; then
   echo "ERROR: ${PNPM_HUB_DIR}/package.json does not exist, so pnpm would create one." >&2
@@ -56,4 +83,24 @@ if [[ ! -x "${pnpm_bin}" ]]; then
 fi
 
 cd "${BUILD_WORKSPACE_DIRECTORY}"
-exec "${pnpm_bin}" add "$@" --lockfile-only --dir "${PNPM_HUB_DIR}"
+
+locks_before="$(mktemp)"
+locks_after="$(mktemp)"
+trap 'rm -f "${locks_before}" "${locks_after}"' EXIT
+find . -name pnpm-lock.yaml -not -path './bazel-*' | LC_ALL=C sort > "${locks_before}"
+
+"${pnpm_bin}" add "$@" --lockfile-only --dir "${PNPM_HUB_DIR}"
+status=$?
+
+find . -name pnpm-lock.yaml -not -path './bazel-*' | LC_ALL=C sort > "${locks_after}"
+strays="$(LC_ALL=C comm -13 "${locks_before}" "${locks_after}" | grep -v "^\./${PNPM_HUB_DIR}/pnpm-lock.yaml\$" || true)"
+if [[ -n "${strays}" ]]; then
+  echo "ERROR: pnpm wrote a lockfile outside ${PNPM_HUB_DIR}:" >&2
+  printf '  %s\n' ${strays} >&2
+  echo "Removing it. Nothing reads a lockfile no npm.translate_lock() names, and" >&2
+  echo "leaving it would shadow the hub's for anyone running pnpm by hand." >&2
+  printf '%s\n' ${strays} | while IFS= read -r stray; do rm -f "${stray}"; done
+  exit 1
+fi
+
+exit "${status}"

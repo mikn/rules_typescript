@@ -39,13 +39,18 @@ def _css_library_impl(ctx):
         # A copy, not a symlink: a bundler realpaths a symlink before resolving
         # what the CSS itself imports, so `@import "tailwindcss"` from a symlink
         # would look for a source-tree node_modules that does not exist.
-        bin_css = ctx.actions.declare_file(css_file.basename, sibling = css_file)
-        ctx.actions.expand_template(
-            template = css_file,
-            output = bin_css,
-            substitutions = {},
-        )
-        bin_css_files.append(bin_css)
+        # A generated src is already in bazel-bin, and declaring an output at a
+        # path another rule owns is an error rather than a copy.
+        if css_file.is_source:
+            bin_css = ctx.actions.declare_file(css_file.basename, sibling = css_file)
+            ctx.actions.expand_template(
+                template = css_file,
+                output = bin_css,
+                substitutions = {},
+            )
+            bin_css_files.append(bin_css)
+        else:
+            bin_css_files.append(css_file)
 
     # Build the transitive depsets from any css_library deps.
     transitive_css_sets = []

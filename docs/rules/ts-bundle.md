@@ -6,7 +6,7 @@ Produces a bundled JavaScript output by collecting transitive `.js` outputs and 
 [`ts_binary`](ts-binary.md) is a separate, runnable rule: it shares many
 attributes but its `bundler` is optional (without one it runs the entry `.js`
 directly) and it does not accept `minify`, `split_chunks`, `mode`, `html`,
-`vite_config` or `staging_srcs`.
+`public_dir`, `manifest`, `vite_config` or `staging_srcs`.
 
 ## Usage
 
@@ -53,7 +53,12 @@ ts_bundle(
 | `env_vars` | `string_dict` | `{}` | Sugar over `define`: `{"VITE_API_URL": "…"}` becomes `import.meta.env.VITE_API_URL` |
 | `mode` | `string` | `"lib"` | `"lib"` (single JS output) or `"app"` (HTML application; requires `html`) |
 | `html` | `label` | `None` | HTML entry point for `mode = "app"`; the output is a directory of hashed assets |
+| `public_dir` | `label` | `None` | Static files Vite copies into the output directory verbatim — no hash, no transform. `mode = "app"` only ([detail](../guides/bundling.md#static-files-public_dir)) |
+| `manifest` | `bool` | `False` | Write `manifest.json` into the output directory, mapping each input to the hashed file it became. `mode = "app"` only |
 | `vite_config` | `label` | `None` | A `.mjs`/`.js` file default-exporting `{plugins: [...]}`. Its plugins run before Bazel's, which is how a framework plugin gets in — TanStack Start's and Remix's do; SvelteKit's and Solid Start's [cannot](../gazelle/overview.md#framework-detection). Vite bundlers only |
 | `staging_srcs` | `label_list` | `[]` | Sources copied into a writable staging directory before Vite runs, for framework plugins that scan route files and write codegen next to them |
 
-See [Bundling](../guides/bundling.md) for the complete guide.
+A `.css`, a `*.module.css` and an asset reach the bundler the same way the `.js`
+does — through the entry point's `CssInfo`, `CssModuleInfo` and `AssetInfo`. See
+[css_library, css_module, asset_library](css-and-assets.md) for what each one
+promises, and [Bundling](../guides/bundling.md) for the complete guide.

@@ -256,6 +256,19 @@ export const requireExplicitTypes = createRule<[RuleOptions], MessageIds>({
     const ignoreDefaultExports =
       context.options[0]?.ignoreDefaultExports ?? false;
 
+    // TS1064 rejects a non-Promise annotation on an async function, and a
+    // generator's Generator<Y, R, N> cannot be recovered from the return
+    // expression alone -- so an unadjusted inference autofixes working code into
+    // code that does not compile.
+    function adjustForFunctionKind(
+      node: { async: boolean; generator: boolean },
+      inferredType: string | null,
+    ): string | null {
+      if (inferredType === null) return null;
+      if (node.generator) return null;
+      return node.async ? `Promise<${inferredType}>` : inferredType;
+    }
+
     function reportMissingReturnType(
       node:
         | TSESTree.FunctionDeclaration
@@ -268,7 +281,7 @@ export const requireExplicitTypes = createRule<[RuleOptions], MessageIds>({
       const body = node.body;
       if (body == null) return;
 
-      const inferredType = inferReturnType(body);
+      const inferredType = adjustForFunctionKind(node, inferReturnType(body));
       const sourceCode = context.sourceCode;
 
       // The annotation anchors on the `)` that closes the parameter list, which
@@ -364,7 +377,8 @@ export const requireExplicitTypes = createRule<[RuleOptions], MessageIds>({
           // reporting one here would autofix working code into broken code.
           if (member.kind !== 'set' && !hasReturnTypeAnnotation(fn)) {
             const body = fn.body;
-            const inferredType = body == null ? null : inferReturnType(body);
+            const inferredType =
+              body == null ? null : adjustForFunctionKind(fn, inferReturnType(body));
             const insertToken =
               body == null ? null : context.sourceCode.getTokenBefore(body);
 

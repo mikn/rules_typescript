@@ -77,6 +77,72 @@ and terser are optional peers and so absent from a tree built from
 re-emits every chunk from its AST and discards whatever a plugin's `renderChunk`
 returned.
 
+## CSS, CSS modules and assets
+
+A stylesheet, a `*.module.css` and an imported asset are part of the module graph
+and need no bundle-level configuration. They reach the bundler through the entry
+point's `CssInfo`, `CssModuleInfo` and `AssetInfo` — the same providers
+[`css_library`, `css_module` and `asset_library`](../rules/css-and-assets.md)
+populate — and each rule copies its files into `bazel-bin` beside the compiled
+`.js` that imports them, so the relative import resolves in the output tree.
+
+The two modes differ in what comes out:
+
+- **App mode** hashes every imported stylesheet and asset
+  (`assets/index-C_rPVxYH.css`, `assets/big_logo-DWeKL6j3.svg`) and rewrites the
+  references in the emitted HTML. An asset under Vite's 4096-byte
+  `assetsInlineLimit` is inlined as a `data:` URI and gets no filename at all.
+- **Lib mode** extracts all CSS into one `<bundle_name>.css` and never
+  references it from the JS. Bazel declares that file explicitly — Vite writes
+  it either way, and an undeclared output goes out with the sandbox — so the
+  consumer of the library has to include it. What lib mode declares is that
+  stylesheet, the entry `.js` and its map, and nothing else: an asset too large
+  to inline is emitted as a loose file, is therefore undeclared, and goes out
+  with the sandbox. App mode is the answer there — a library shipping hashed
+  loose files is not much use to a downstream bundler anyway.
+
+### Static files (`public_dir`)
+
+`public_dir` names the files that must keep the name they were given — a
+`robots.txt`, a favicon referenced from an HTML tag, anything fetched by a URL
+the build never sees. Vite copies them into the output directory verbatim: no
+hash, no transform, no reference rewriting.
+
+```python
+filegroup(
+    name = "public",
+    srcs = glob(["public/**"]),
+)
+
+ts_bundle(
+    name = "app",
+    entry_point = "//src/app",
+    bundler = ":vite",
+    mode = "app",
+    html = "index.html",
+    public_dir = ":public",
+    manifest = True,
+)
+```
+
+The files are staged into a directory of their own under `bazel-bin` before Vite
+sees them, because Vite copies a `publicDir` wholesale and the source package in
+the sandbox also holds the sources, the HTML and the compiled outputs.
+
+Anything *imported* from TypeScript belongs in an `asset_library` instead, where
+it gets a content hash and a cacheable URL.
+
+### The manifest
+
+`manifest = True` writes `manifest.json` into the output directory, mapping each
+input to the hashed file it became, plus the CSS and assets each chunk pulled in.
+Vite's own `index.html` needs none of it — those references are already
+rewritten. It is for a server that renders HTML itself and has to emit script and
+link tags for filenames it did not choose.
+
+Both attrs are app mode only and fail at analysis time in lib mode, which
+declares its output filenames rather than hashing them.
+
 ## Framework plugins via `vite_config`
 
 `vite_config` takes the config file, and `vite_config_srcs` the local modules it
@@ -216,7 +282,7 @@ The two rules are not aliases and their attribute sets differ. Shared:
 | `define` | `string_dict` | `{}` | Global constant replacements |
 
 `ts_bundle` only: `minify`, `split_chunks`, `env_vars`, `mode`, `html`,
-`vite_config`, `staging_srcs` — see the
+`public_dir`, `manifest`, `vite_config`, `staging_srcs` — see the
 [ts_bundle reference](../rules/ts-bundle.md#attributes).
 
 `ts_binary` only: `entry_file` (which `.js` is the entry when the target emits

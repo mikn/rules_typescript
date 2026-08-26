@@ -54,6 +54,12 @@ importers:
       ms-alias:
         specifier: npm:ms@2.1.3
         version: ms@2.1.3
+      # A workspace member whose own target declares no module_name: the name
+      # `ws-linked` exists nowhere but here, so an import of it resolves only if
+      # the hub target the link produces carries it.
+      ws-linked:
+        specifier: workspace:*
+        version: link:packages/ws-linked
     devDependencies:
       '@types/ms':
         specifier: 2.1.0

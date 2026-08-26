@@ -192,6 +192,63 @@ Vite restarts itself when its *own* config file changes but has no concept of
 the thing that generates that config, because natively nothing does. That is
 what `ConfigWatcher` adds.
 
+## Edit-to-HMR latency
+
+The design goal is **under 500 ms from save to browser update**. What that budget
+is spent on:
+
+```
+save ──▶ watcher notices ──▶ transform ──▶ HMR frame ──▶ browser re-executes
+         └───────────────── measured ──────────────┘     └── not measured ──┘
+```
+
+`//tests/dev_server:{dev,dev_with_plugin,dev_oj}_hmr_latency_test` measures the
+left-hand side, for real: each one starts its `ts_dev_server` the way `bazel run`
+does, holds a WebSocket open on the server's HMR endpoint as a browser would,
+saves a file, and times the frame that comes back and the fetch that follows it.
+Timing the transform on its own would prove nothing about the loop, so nothing in
+it is stubbed.
+
+```bash
+# the numbers, on every run
+bazel test //tests/dev_server:dev_hmr_latency_test --test_output=all --test_arg=-test.v
+
+# a longer sample, for comparing a change against main
+bazel test //tests/dev_server/... --test_env=HMR_ITERATIONS=100 \
+    --test_output=all --test_arg=-test.v
+```
+
+The tests run in the ordinary suite, and the only thing asserted is that the
+median stays inside the whole 500 ms budget — some forty times what it measures
+today. A threshold near the measurement would fail whenever CI was busy, which
+teaches everyone to ignore it; at this ceiling the things that trip it are HMR
+falling back to a rebuild, a watcher gone to polling, or the transform moving off
+the warm path.
+
+**One machine's numbers** (Linux, warm server, a two-module fixture, medians of
+50 saves) — useful as a shape, not as a spec:
+
+| server | save → HMR frame | save → new bytes served | what it sent |
+|---|---|---|---|
+| Vite 8.2.2 | 1.8 ms | 4.2 ms | `update` |
+| Vite 8.2.2 + `vite-plugin-bazel` | 1.8 ms | 3.8 ms | `update` |
+| oj 0.1.4 | 11.5 ms | 13.6 ms | `full-reload` |
+
+Two things that table says out loud. The plugin's `bazel-bin` watcher does not
+show up: it is a second watcher in the same process, and the two Vite rows are
+inside each other's run-to-run spread. And oj answers an edit to a plain module
+with a full reload rather than a scoped update, because it treats only a module
+carrying Fast Refresh registrations as an HMR boundary, where Vite honours an
+explicit `import.meta.hot.accept()`. Both are the server telling the browser to
+change; which one you get is the server's decision, and the benchmark records it
+rather than forcing it.
+
+!!! note "Two saves inside 50 ms"
+    Vite's watcher (chokidar) *drops* a second change to the same path within
+    50 ms of the one it emitted — it is not deferred, it never arrives. Nobody
+    types that fast, but a script that writes in a loop will appear to hang, and
+    the benchmark spaces its samples for exactly this reason.
+
 ## Attributes
 
 | Attribute | Type | Default | Description |

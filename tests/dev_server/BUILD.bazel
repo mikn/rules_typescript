@@ -133,6 +133,7 @@ ts_dev_server(
         size = "medium",
         srcs = [
             "dev_server_behaviour_test.go",
+            "devserver_harness_test.go",
             "launcher_config_test.go",
         ],
         data = [
@@ -184,3 +185,39 @@ go_test(
     ],
     deps = ["//tests/verify"],
 )
+
+# The edit-to-HMR benchmark, over both server implementations. It measures the
+# whole loop -- save, watcher, transform, frame on a held-open HMR socket -- so
+# it needs to know where that socket is, which is the one part of the protocol
+# the two servers do not share: Vite upgrades on the base path and only for the
+# "vite-hmr" subprotocol, oj upgrades on /__ws for anything.
+#
+# One lane per server, plus the plugin lane, because the plugin adds a second
+# watcher to the same process and that is exactly the kind of thing that would
+# cost the inner loop without anyone noticing.
+[
+    go_test(
+        name = "{}_hmr_latency_test".format(target),
+        size = "medium",
+        srcs = [
+            "devserver_harness_test.go",
+            "hmr_latency_test.go",
+            "hmr_socket_test.go",
+            "launcher_config_test.go",
+        ],
+        data = [":{}".format(target)],
+        env = {
+            "DEV_IMPL": impl,
+            "DEV_TARGET": target,
+            "HMR_WS_PATH": ws_path,
+            "HMR_WS_PROTOCOL": ws_protocol,
+        },
+        tags = ["requires-network"],
+        deps = ["//tests/verify"],
+    )
+    for target, impl, ws_path, ws_protocol in [
+        ("dev", "vite", "/", "vite-hmr"),
+        ("dev_with_plugin", "vite", "/", "vite-hmr"),
+        ("dev_oj", "oj", "/__ws", ""),
+    ]
+]

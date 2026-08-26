@@ -1,0 +1,31 @@
+.panel {
+  display: flex;
+  padding: 12px;
+}
+
+.panelTitle {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.panel-footer {
+  border-top: 1px solid #ddd;
+}
+
+@keyframes panel-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+:global(.panel-unscoped) {
+  margin: 0;
+}
+
+:global .panelPlain {
+  color: red;
+}
+
+.panelHost :global .panelChild {
+  color: blue;
+}

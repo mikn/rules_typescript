@@ -25,6 +25,7 @@ load(
     "parse_patched_dependencies",
     "parse_pnpm_lock",
     "peer_suffix_dir_name",
+    "verify_integrity",
 )
 
 # A lockfile with one of every block, in the order pnpm writes them.
@@ -529,6 +530,66 @@ def _patch_file_names_test(ctx):
 
 patch_file_names_test = unittest.make(_patch_file_names_test)
 
+# ─── Integrity ────────────────────────────────────────────────────────────────
+#
+# Every `packages:` entry in every lockfile in this repository carries a
+# `sha512-` integrity, so this is the only place the shapes that cannot supply
+# one are represented: a git or remote tarball pnpm could not hash, a `file:`
+# dependency on a local directory, and a digest old enough to predate SRI.
+_UNVERIFIABLE_LOCKFILE = """lockfileVersion: '9.0'
+
+packages:
+
+  hashed@1.0.0:
+    resolution: {integrity: sha512-hashed==}
+
+  tarball-only@2.0.0:
+    resolution: {tarball: https://example.test/tarball-only-2.0.0.tgz}
+
+  local-directory@3.0.0:
+    resolution:
+      directory: packages/local-directory
+      type: directory
+
+  ancient@4.0.0:
+    resolution: {integrity: sha1-YWJj}
+
+snapshots:
+
+  hashed@1.0.0: {}
+
+  tarball-only@2.0.0: {}
+
+  local-directory@3.0.0: {}
+
+  ancient@4.0.0: {}
+"""
+
+def _integrity_test(ctx):
+    env = unittest.begin(ctx)
+    packages = parse_pnpm_lock(_UNVERIFIABLE_LOCKFILE)["packages"]
+    reported = verify_integrity(packages)
+
+    asserts.equals(
+        env,
+        ["ancient@4.0.0", "local-directory@3.0.0", "tarball-only@2.0.0"],
+        [entry.package_id for entry in reported],
+    )
+
+    # The keys travel with the entry so the error can echo the shape it found
+    # rather than switch on the shapes we happen to have seen.
+    by_id = {entry.package_id: entry for entry in reported}
+    asserts.equals(env, ["tarball"], sorted(by_id["tarball-only@2.0.0"].resolution.keys()))
+    asserts.equals(env, ["directory", "type"], sorted(by_id["local-directory@3.0.0"].resolution.keys()))
+
+    # The fixtures the rest of this repository builds from, pinned clean: the
+    # gate is unconditional, so one entry short of a digest fails every build.
+    asserts.equals(env, [], verify_integrity(parse_pnpm_lock(_LOCKFILE)["packages"]))
+
+    return unittest.end(env)
+
+integrity_test = unittest.make(_integrity_test)
+
 # ─── Cycle breaking ───────────────────────────────────────────────────────────
 #
 # A dropped edge and a kept one fail in opposite directions and neither shows up
@@ -679,6 +740,7 @@ def parser_test_suite(name):
         package_extensions_arrive_as_edges_test,
         patched_dependencies_test,
         patch_file_names_test,
+        integrity_test,
         snapshots_keep_peer_variants_test,
         peer_tokens_separate_peer_sets_test,
         importers_resolve_per_importer_test,

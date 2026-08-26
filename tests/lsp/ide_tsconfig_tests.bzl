@@ -1,4 +1,5 @@
-"""Analysis-time proof that the IDE tsconfig carries the ambient @types/* declarations.
+"""Analysis-time proof of what the IDE tsconfig says: ambient types, module paths,
+npm pairing, and the per-package programs the root block cannot carry.
 
 An @types/* package reaches the compiler through the entry point a consumer names
 in `files`, never through a module specifier, so no `paths` entry can stand in
@@ -14,6 +15,20 @@ def _written_config(env):
         outputs = action.outputs.to_list()
         if len(outputs) == 1 and outputs[0].basename.endswith(".json"):
             return json.decode(action.content)
+    return None
+
+def _nested_config(env, dest):
+    """The nested tsconfig written for `dest`, found through the copy it declares.
+
+    Not by basename: the root config and every nested one are single-output .json
+    writes, and _written_config would return whichever came first.
+    """
+    for entry in analysistest.target_under_test(env)[WorkspaceCopyInfo].entries.to_list():
+        if entry.dest != dest:
+            continue
+        for action in analysistest.target_actions(env):
+            if entry.file in action.outputs.to_list():
+                return json.decode(action.content)
     return None
 
 def _installed(env):
@@ -145,3 +160,76 @@ def _module_paths_impl(ctx):
     return analysistest.end(env)
 
 module_paths_test = analysistest.make(_module_paths_impl)
+
+def _transitive_types_pairing_impl(ctx):
+    env = analysistest.begin(ctx)
+    config = _written_config(env)
+    asserts.true(env, config != None, "ide_tsconfig wrote no tsconfig")
+    if config == None:
+        return analysistest.end(env)
+
+    # chai ships no declarations of its own and is reached only transitively
+    # (vitest -> @vitest/expect -> chai). Read from the direct deps alone the
+    # pairing is invisible: the entry still names a directory, but nothing
+    # installs @types/chai's declarations into it, so the editor resolves chai to
+    # a lone package.json where the build resolves it to the types.
+    paths = config["compilerOptions"]["paths"]
+    asserts.equals(
+        env,
+        ["./.bazel/npm/chai"],
+        paths.get("chai"),
+        "an untyped transitive package resolves to its @types/* directory",
+    )
+    asserts.equals(
+        env,
+        None,
+        paths.get("@types/chai"),
+        "and the @types/* package itself gets no entry of its own",
+    )
+
+    installed = _installed(env)
+    asserts.true(
+        env,
+        ".bazel/npm/chai/index.d.ts" in installed,
+        "@types/chai's declarations are what is installed there: " +
+        str([d for d in installed if "chai" in d]),
+    )
+    return analysistest.end(env)
+
+transitive_types_pairing_test = analysistest.make(_transitive_types_pairing_impl)
+
+_MERGED_PACKAGE = "tests/lsp/option_groups"
+
+def _option_merge_impl(ctx):
+    env = analysistest.begin(ctx)
+    config = _nested_config(env, _MERGED_PACKAGE + "/tsconfig.json")
+    asserts.true(env, config != None, "no nested tsconfig was written for " + _MERGED_PACKAGE)
+    if config == None:
+        return analysistest.end(env)
+
+    # One directory, one program: two targets that disagree about nothing get a
+    # single block holding what each of them asked for.
+    options = config["compilerOptions"]
+    asserts.equals(env, True, options.get("noUnusedParameters"), "one target's key survives")
+    asserts.equals(env, True, options.get("noFallthroughCasesInSwitch"), "and so does the other's")
+    asserts.equals(
+        env,
+        ["fallthrough.ts", "params.ts"],
+        config["include"],
+        "both targets' sources are in that program",
+    )
+    return analysistest.end(env)
+
+option_merge_test = analysistest.make(_option_merge_impl)
+
+def _fails_with(message):
+    def _impl(ctx):
+        env = analysistest.begin(ctx)
+        asserts.expect_failure(env, message)
+        return analysistest.end(env)
+
+    return analysistest.make(_impl, expect_failure = True)
+
+option_conflict_test = _fails_with("compilerOptions.noUnusedLocals to ")
+root_value_conflict_test = _fails_with("compilerOptions.strict to ")
+baseline_conflict_test = _fails_with("extend the tsconfig baselines ")

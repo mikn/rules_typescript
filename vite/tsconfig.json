@@ -3,6 +3,8 @@
   "compilerOptions": {
     "composite": false,
     "incremental": false,
+    "module": "preserve",
+    "moduleResolution": "bundler",
     "noEmit": true,
     "rootDir": "."
   },

@@ -68,6 +68,7 @@ nav:
     - ts_binary: rules/ts-binary.md
     - ts_bundle: rules/ts-bundle.md
     - ts_dev_server: rules/ts-dev-server.md
+    - CSS and assets: rules/css-and-assets.md
     - ts_npm_publish: rules/ts-npm-publish.md
     - node_modules: rules/node-modules.md
   - Contributing: contributing.md

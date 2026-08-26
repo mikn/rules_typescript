@@ -27,7 +27,17 @@ bzl_library(
     name = "npm_import",
     srcs = ["npm_import.bzl"],
     deps = [
+        ":workspace_package",
         "//ts/private:ts_npm_package",
+    ],
+)
+
+bzl_library(
+    name = "workspace_package",
+    srcs = ["workspace_package.bzl"],
+    deps = [
+        "//ts/private:providers",
+        "//ts/private:ts_compile",
     ],
 )
 

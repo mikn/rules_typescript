@@ -200,6 +200,28 @@ requires.
   three at every use site, so the lockfile already carries concrete versions and
   injected peers. Tests pin that, so a parser change cannot start reading
   `specifier:` instead of `version:` unnoticed.
+- **New hard error: a `packages:` entry with no usable integrity.** Such an
+  entry was previously downloaded with no verification at all, silently — no
+  warning, no failure. The check runs when the extension is evaluated, over the
+  whole lockfile, so an entry nothing depends on is checked too, and it names
+  every offending package with the `resolution:` keys it does carry.
+  `sha512-`, `sha384-` and `sha256-` are accepted; a pre-SRI `sha1-` is not.
+  There is no opt-out — and nowhere to put one, since a module extension cannot
+  read build flags. The lockfile shapes this rejects are dependencies with no
+  published tarball behind them: a git dependency, a `file:` dependency on a
+  local directory, and a remote tarball pnpm could not hash. The first two
+  already failed, on a fabricated registry URL 404ing; the third is a real
+  capability removal. Depend on such a package as a workspace member (`link:`)
+  or vendor its files. `npm_import`'s `integrity` attribute is now mandatory,
+  so an unverified fetch is no longer expressible.
+- **A `workspace:*` member is importable by its package name with no
+  `module_name`.** The hub target for a pnpm `link:` dependency is a generated
+  rule that declares the name, not an `alias`: Bazel resolves an alias before
+  any rule implementation runs, so the member reached `ts_compile` with no
+  record of the npm name and every member had to restate it as `module_name`.
+  Members that do set it keep working. The checked-in IDE tsconfig still reads
+  the attribute, so set it there too if the editor has to resolve the bare
+  import.
 
 ### Breaking — `ts_add_package`
 
@@ -216,6 +238,9 @@ requires.
   `pnpm_lock = "//:pnpm-lock.yaml"` on the target it generates at the workspace
   root; a hand-written target in a repository with several hubs wants one
   `ts_add_package` per hub, named after it.
+- `--lockfile-dir` is now refused. Only `--dir` was constrained, by appending
+  the hub's own — pnpm takes the last occurrence — and `--lockfile-dir` reached
+  the same stray root `pnpm-lock.yaml` through a flag with nothing to lose to.
 
 ### Breaking — `node_modules` trees
 
@@ -283,6 +308,13 @@ requires.
   node-as-a-build-tool (exec config) from node-as-a-runtime
   (`js_runtime_type`, whose `runtime_binary` is now `cfg = "target"`).
   Registering `@rules_typescript//ts/toolchain:all` picks up both.
+- The `node_modules` tree action now resolves node through `js_tool_type` like
+  every other build action; it was the one left on `js_runtime_type`. Identical
+  where exec and target agree, and the tree is built for the exec platform under
+  cross-compilation. `node_modules` and the `ts_test`-internal tree rule declare
+  `js_tool_type` accordingly, so a setup registering only a JS *runtime*
+  toolchain now fails at analysis instead of building the tree with a
+  target-platform node.
 
 ### Breaking — the IDE tsconfig
 
@@ -430,6 +462,29 @@ requires.
 
 ### Added
 
+- **A `*.module.css` or an imported asset can be bundled.** `ts_bundle` collected
+  only `CssInfo` from its entry point, so a `.module.css` or an `.svg` was never
+  in the sandbox and Vite resolved the relative import onto a `bazel-bin` path
+  holding nothing — and `css_module` and `asset_library` did not copy their
+  sources into `bazel-bin` the way `css_library` deliberately does. Both halves
+  are fixed: all three providers reach the bundle action, and both rules copy.
+  `//tests/vite_bundle:bundle_assets_test` is the proof — an app-mode bundle
+  whose entry imports both, asserting the asset lands under a content hash.
+- **`ts_bundle` gained `public_dir` and `manifest`, both app mode only.**
+  `public_dir` stages a filegroup into a directory of its own and hands it to
+  Vite as `publicDir`, so those files are copied into the bundle verbatim,
+  unhashed — which is the point of the directory. `manifest = True` writes
+  `manifest.json`, mapping each input to the hashed file it became, for a server
+  that renders its own script and link tags. Both fail at analysis time in lib
+  mode, which declares its output filenames rather than hashing them.
+- **The keys a `*.module.css` declaration promises are checked against the ones
+  postcss-modules produces**, by dumping the real export map through
+  `css.modules.getJSON` in a bundle fixture. One divergence is now pinned rather
+  than assumed: postcss-modules also scopes `@keyframes` names, and the
+  generated `.d.ts` declares class names only.
+- **App-mode asset hashing is pinned by a test.** `//tests/vite_bundle:app_mode_test`
+  checked only that some `.js` existed; it now requires the hashed chunk name and
+  requires the emitted HTML to reference that same name.
 - **`bazel coverage` works on a test whose pool runs in a second runtime.**
   `ts_test` gained `coverage_provider` (`"v8"` — vitest's own default — or
   `"istanbul"`). v8 coverage is read out of Node's inspector, which workerd has
@@ -728,8 +783,6 @@ Recorded rather than hidden.
 - `jsdom` and `edge-runtime` are still analysis-only: neither is in a lockfile
   the build reads, so those two `environment` values are pinned by a
   `build_test` rather than by a run. `happy-dom` and `node` do run.
-- `coverage_thresholds` reaches the generated config, but its enforcement is
-  unproven.
 - **`ts_bundle`'s `vite_config` is not hermetic when it is a source file.** The
   generated config imports it by exec-root path; Node realpaths that back into the
   source tree before resolving the config's own bare imports, so the framework

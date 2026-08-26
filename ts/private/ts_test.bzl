@@ -91,7 +91,7 @@ Snapshot testing:
 load("//tools/launcher:launcher.bzl", "LAUNCHER_ATTRS", "declare_launcher", "rlocation_path")
 load("//ts/private:node_modules.bzl", "build_node_modules_action", "collect_npm_packages")
 load("//ts/private:providers.bzl", "CssModuleInfo", "JsInfo", "NpmPackageInfo")
-load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "get_js_runtime")
+load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "JS_TOOL_TOOLCHAIN_TYPE", "get_js_runtime")
 load("//ts/private:ts_compile.bzl", "ts_compile")
 
 # ─── Internal auto node_modules rule ──────────────────────────────────────────
@@ -111,7 +111,7 @@ def _ts_auto_node_modules_impl(ctx):
     input_file_sets = [npm_info.all_files for npm_info in packages_to_link]
 
     # Delegate to the shared cross-platform action helper from node_modules.bzl.
-    # When the JS runtime toolchain is available (which it always is here,
+    # When the JS tool toolchain is available (which it always is here,
     # since _ts_auto_node_modules is only used inside ts_test which requires
     # Node), the action uses Node.js and works on Windows.
     #
@@ -140,10 +140,12 @@ _ts_auto_node_modules = rule(
         ),
     },
     toolchains = [
+        # The tree is built by a build action, so the Node that builds it is the
+        # exec-platform tool, not the runtime the test itself executes on.
         # mandatory = True: _ts_auto_node_modules is only created inside the ts_test
         # macro, which always requires a Node.js runtime.  Requiring the toolchain
         # prevents silent fallback to the bash path on misconfigured setups.
-        config_common.toolchain_type(JS_RUNTIME_TOOLCHAIN_TYPE, mandatory = True),
+        config_common.toolchain_type(JS_TOOL_TOOLCHAIN_TYPE, mandatory = True),
     ],
     doc = "Internal rule: builds a node_modules tree from any deps that provide NpmPackageInfo.",
 )
@@ -689,15 +691,54 @@ def _ts_test_runner_impl(ctx):
         # Exposes the config vitest actually ran with, for debugging and for
         # tests that pin the layering.
         OutputGroupInfo(vitest_config = depset([vitest_config])),
+        # `srcs` is not a source attribute here: the same files reach the
+        # collection through the ts_compile in `compiled_tests`, which answers
+        # to the filter under its own label.
+        coverage_common.instrumented_files_info(
+            ctx,
+            dependency_attributes = ["compiled_tests", "deps"],
+            extensions = _INSTRUMENTED_EXTENSIONS,
+            baseline_coverage_files = [],
+        ),
     ]
+
+# ─── Coverage instrumentation ─────────────────────────────────────────────────
+#
+# --instrumentation_filter is applied where a target answers for its own label,
+# so a dep has to build its own InstrumentedFilesInfo: collecting every `srcs`
+# in the test rule would report a filtered-out library as instrumented.  What
+# Bazel selects reaches the runner as COVERAGE_MANIFEST, and the runner keeps
+# only those files in the lcov it hands back.
+#
+# baseline_coverage_files is empty on purpose: it would name the .ts a target
+# declared, and the runner reports on the .js compiled from it, so the baseline
+# record would be a second name for the same code, carrying no lines at all.
+_INSTRUMENTED_EXTENSIONS = ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"]
+
+def _instrumented_files_aspect_impl(_target, ctx):
+    return coverage_common.instrumented_files_info(
+        ctx,
+        source_attributes = ["srcs"] if hasattr(ctx.rule.attr, "srcs") else [],
+        dependency_attributes = ["deps"] if hasattr(ctx.rule.attr, "deps") else [],
+        extensions = _INSTRUMENTED_EXTENSIONS,
+        baseline_coverage_files = [],
+    )
+
+_instrumented_files_aspect = aspect(
+    implementation = _instrumented_files_aspect_impl,
+    attr_aspects = ["deps"],
+    doc = "Internal: gives every target under test an InstrumentedFilesInfo of its own.",
+)
 
 # Shared attribute dict for both the test and executable runner variants.
 _RUNNER_ATTRS = {
     "compiled_tests": attr.label_list(
+        aspects = [_instrumented_files_aspect],
         doc = "Label of the ts_compile target containing compiled test .js files.",
         allow_files = [".js"],
     ),
     "deps": attr.label_list(
+        aspects = [_instrumented_files_aspect],
         doc = "ts_compile and other targets whose .js files may be available at test runtime. " +
               "Deps that do not provide JsInfo (e.g. css_module, asset_library) are silently " +
               "skipped when collecting transitive .js files.",

@@ -93,3 +93,16 @@ if out="$(run_wrapper "${WS}" "." zod)"; then
 fi
 [[ "${out}" == *"./package.json"* ]] || fail "the error does not name the directory: ${out}"
 pass "a hub with no package.json is refused"
+
+# The same stray lockfile through the one flag the appended --dir does not
+# override: pnpm takes the last --dir, so a user --dir loses, while
+# --lockfile-dir has nothing to lose to and writes pnpm-lock.yaml where it says.
+for form in "--lockfile-dir ." "--lockfile-dir=."; do
+  # shellcheck disable=SC2086 # the two spellings are two words and one on purpose.
+  if out="$(run_wrapper "${WS}" "tests/hub" zod ${form})"; then
+    fail "wrapper ran pnpm with '${form}': ${out}"
+  fi
+  [[ "${out}" == *"--lockfile-dir"* ]] || fail "the error does not name the flag: ${out}"
+  [[ "${out}" == *"tests/hub"* ]] || fail "the error does not name the hub it protects: ${out}"
+done
+pass "--lockfile-dir is refused in both spellings"

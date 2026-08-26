@@ -1,0 +1,34 @@
+"""A generated src: already in bazel-bin, so nothing may copy over it."""
+
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "asset_library", "css_module")
+
+genrule(
+    name = "gen_logo",
+    outs = ["gen_logo.svg"],
+    cmd = "echo '<svg/>' > $@",
+)
+
+genrule(
+    name = "gen_styles",
+    outs = ["gen.module.css"],
+    cmd = "echo '.genClass { color: red; }' > $@",
+)
+
+asset_library(
+    name = "logo",
+    srcs = [":gen_logo"],
+)
+
+css_module(
+    name = "styles",
+    srcs = [":gen_styles"],
+)
+
+build_test(
+    name = "generated_srcs_test",
+    targets = [
+        ":logo",
+        ":styles",
+    ],
+)

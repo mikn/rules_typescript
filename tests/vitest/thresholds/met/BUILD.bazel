@@ -1,0 +1,16 @@
+"""The threshold this test clears.  Its twin in ../missed/ differs by one number."""
+
+load("//ts:defs.bzl", "ts_test")
+
+ts_test(
+    name = "threshold_met_test",
+    srcs = ["partial.test.ts"],
+    coverage = True,
+    coverage_thresholds = {"lines": "50"},
+    visibility = ["//tests/vitest/thresholds:__pkg__"],
+    deps = [
+        "//tests/vitest/thresholds/lib:partial",
+        "@npm//:vitest",
+        "@npm//:vitest_coverage-v8",
+    ],
+)

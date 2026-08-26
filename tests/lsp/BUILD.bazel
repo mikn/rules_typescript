@@ -31,7 +31,13 @@ load("//npm:defs.bzl", "node_modules")
 load("//ts:defs.bzl", "ts_compile")
 load("//ts/private:tsconfig_aspect.bzl", "ide_tsconfig")
 load(":fragment_tests.bzl", "fragment_files", "fragments_reach_private_test")
-load(":ide_tsconfig_tests.bzl", "ambient_types_test", "module_paths_test", "no_ambient_types_test")
+load(
+    ":ide_tsconfig_tests.bzl",
+    "ambient_types_test",
+    "module_paths_test",
+    "no_ambient_types_test",
+    "transitive_types_pairing_test",
+)
 
 package(default_visibility = ["//:__pkg__"])
 
@@ -186,4 +192,27 @@ ide_tsconfig(
 module_paths_test(
     name = "module_paths_test",
     target_under_test = ":module_ide_tsconfig",
+)
+
+# ── The @types/* pairing behind a transitive edge ─────────────────────────────
+# vitest -> @vitest/expect -> chai, where chai ships no declarations at all and
+# @types/chai holds them. Reading the pairing from the direct deps alone loses
+# chai from `paths` entirely, while the tsconfig ts_compile generates for the
+# same target still resolves it -- the divergence this pins.
+ts_compile(
+    name = "transitive_types_fixture",
+    srcs = ["transitive_types_fixture.ts"],
+    tags = ["manual"],
+    deps = ["@npm//:vitest"],
+)
+
+ide_tsconfig(
+    name = "transitive_types_ide_tsconfig",
+    tags = ["manual"],
+    deps = [":transitive_types_fixture"],
+)
+
+transitive_types_pairing_test(
+    name = "transitive_types_pairing_test",
+    target_under_test = ":transitive_types_ide_tsconfig",
 )

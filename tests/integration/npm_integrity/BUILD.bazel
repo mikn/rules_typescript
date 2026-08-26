@@ -1,0 +1,42 @@
+"""Integration test: an npm package Bazel could not verify is a hard error.
+
+The gate lives in the module extension, so it cannot be reached from a Starlark
+unit test -- skylib's unittest cannot catch a `fail()` raised during extension
+evaluation. //tests/npm:parser_tests covers which entries the validator reports;
+this test is the only place the extension's refusal, and the message a consumer
+actually reads, are pinned.
+
+The child workspace lives in workspace/ and keeps its root BUILD file as
+BUILD.bazel.tpl, which the runner renames in the scratch copy: a real
+BUILD.bazel there would make workspace/ a subpackage, and glob() does not see
+into a subpackage.
+
+  bazel test //tests/integration/npm_integrity:npm_integrity_test
+"""
+
+load("@bazel_binaries//:defs.bzl", "bazel_binaries")
+load(
+    "@rules_bazel_integration_test//bazel_integration_test:defs.bzl",
+    "bazel_integration_test",
+    "integration_test_utils",
+)
+
+# `manual` is dropped for the same reason as in //tests/integration: it takes the
+# test out of every wildcard, so nothing ever runs it.
+_NESTED_BAZEL_TAGS = [
+    tag
+    for tag in integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS
+    if tag != "manual"
+] + ["no-sandbox"]
+
+bazel_integration_test(
+    name = "npm_integrity_test",
+    timeout = "long",
+    bazel_binaries = bazel_binaries,
+    bazel_version = bazel_binaries.versions.current,
+    data = ["//:MODULE.bazel"],
+    tags = _NESTED_BAZEL_TAGS,
+    test_runner = "//tests/integration/runners:npm_integrity_runner",
+    workspace_files = integration_test_utils.glob_workspace_files("workspace"),
+    workspace_path = "workspace",
+)

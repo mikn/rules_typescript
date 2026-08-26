@@ -22,6 +22,7 @@ is already the price of the older child-workspace layout.
 # gazelle:exclude new_project
 # gazelle:exclude nextjs
 # gazelle:exclude npm_deps
+# gazelle:exclude npm_integrity
 # gazelle:exclude npmrc_registry
 # gazelle:exclude oxc_declarations
 # gazelle:exclude remix
@@ -39,6 +40,7 @@ _RUNNERS = [
     "new_project",
     "nextjs",
     "npm_deps",
+    "npm_integrity",
     "npmrc_registry",
     "oxc_declarations",
     "remix",

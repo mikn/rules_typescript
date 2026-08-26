@@ -27,6 +27,11 @@ const IDENT_CHAR = /[A-Za-z0-9_-]/;
 
 const SCOPE_GROUP = /^:(global|local)\s*\(/i;
 
+// The combinator form, with no parentheses: everything after it in the selector
+// is scoped the other way. postcss-modules rejects a comma list whose selectors
+// end up in different modes, so one mode per rule is all that has to be tracked.
+const SCOPE_COMBINATOR = /^:(global|local)(?![\w-(])/i;
+
 // Selector text with everything that cannot hold a local class name blanked
 // out: strings, bracketed attribute tests, and anything unscoped. :global(...)
 // turns scoping off for its group, :local(...) back on, and they nest.
@@ -52,6 +57,11 @@ function blankNonSelectorText(prelude, scoped) {
       out += blankNonSelectorText(prelude.slice(open + 1, close), kind === "local");
       out += " ".repeat(end - close);
       i = end;
+    } else if (c === ":" && SCOPE_COMBINATOR.test(prelude.slice(i))) {
+      const match = SCOPE_COMBINATOR.exec(prelude.slice(i));
+      scoped = match[1].toLowerCase() === "local";
+      out += " ".repeat(match[0].length);
+      i += match[0].length;
     } else {
       out += scoped ? c : " ";
       i += 1;

@@ -276,6 +276,53 @@ step from the Vite `config` hook, which wants a `src/app.html` and a
 `svelte.config.js` of its own beside the Vite config — and `.svelte` files are
 not TypeScript, so no `staging_srcs` filegroup Gazelle emits carries the routes.
 
+### Solid Start is out of scope, and what would reopen it
+
+Solid Start is not a gap waiting on effort here. `@solidjs/start` ships no Vite
+plugin at all: its `./config` export has one symbol, `defineConfig`, and what
+that returns is a vinxi app — vinxi owns the server, the router manifest and the
+build, and the object it hands back has no `plugins` array. `ts_bundle`'s
+`vite_config` contract is a default export whose `plugins` are prepended to
+Bazel's, and a vinxi app has no `plugins` to prepend.
+
+What a generated target produces today is a build error, not a bundle:
+`unhandled_keys_js` rejects a `vite_config` whose own keys are not a subset of
+`plugins` and `root`, and a vinxi app is nothing but other keys. That is a
+recent property — before it existed, a generated Solid Start target went
+**green** and emitted a plain Vite bundle with no framework involvement at all,
+which is why this became a decision rather than a backlog item. The refusal
+outlives the fix: an error naming Solid Start and saying bundling it is
+unsupported is more use than one listing the keys of an object the author never
+wrote by hand. Hence `unsupportedBundling` rather than a `frameworkConfigs` entry.
+
+Two changes would each reopen it, and neither is small:
+
+- **`@solidjs/start` ships a Vite plugin.** Upstream's call. With one, Solid
+  Start joins TanStack Start and Remix on the existing path and needs no new rule
+  code: a three-line `solid-vite.config.mjs` naming the plugin, a
+  `frameworkConfigs` entry for the npm deps, stage dirs and client entry, and the
+  refusal deleted.
+- **A `BundlerInfo` implementation drives vinxi.** `ts_bundle` takes any bundler
+  that returns [`BundlerInfo`](../guides/bundling.md#custom-bundler-bundlerinfo-interface),
+  so a rule wrapping vinxi's build as the bundler binary sidesteps the Vite config
+  contract entirely. That is a new bundler integration rather than a framework
+  config, and it is the larger of the two: vinxi's route manifest, server output
+  and multi-target build have no counterpart in either `BundlerInfo` invocation
+  mode today.
+
+Plain Solid is a different question and is not refused: `solid-js` with
+`vite-plugin-solid` is an ordinary Vite plugin, so it goes through `vite_config`
+like any other. Gazelle detects only `@solidjs/start` and `solid-start`, so a
+`solid-js` workspace is never sent down the unsupported path. No test in this
+repository exercises that combination.
+
+!!! note "Documented from the refusal, not from an install"
+
+    `@solidjs/start` is in no `package.json` or lockfile in this repository, so
+    the shape of `defineConfig`'s return value above is taken from the refusal
+    string in `gazelle/framework_bundle.go` and the package's published API, not
+    from a local check. Confirm against the installed package before acting on it.
+
 ### The entry point is yours to declare
 
 `ts_bundle` takes exactly one `.js` as its entry, and Gazelle merges every source

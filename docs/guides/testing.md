@@ -176,8 +176,17 @@ Works on every `ts_test` with nothing to opt into, provided
 additionally instruments plain `bazel test` runs.
 
 `coverage_thresholds` reaches `test.coverage.thresholds` in the generated
-config, and only applies when coverage runs. Its enforcement has no test behind
-it, so do not treat a green build as proof a threshold held.
+config, and only applies when coverage runs. A run that misses a threshold
+fails, after the assertions themselves have passed:
+
+```
+ERROR: Coverage for lines (50%) does not meet global threshold (90%)
+```
+
+Which files are reported is `--instrumentation_filter`'s answer, and Bazel
+derives a default from the targets on the command line, so a library in another
+package is absent from the report until a wider filter names it. See
+[ts_test § Coverage](../rules/ts-test.md#coverage).
 
 `coverage_provider` picks between `"v8"` (vitest's default) and `"istanbul"`.
 A test whose pool runs in a second runtime needs `"istanbul"`: v8 coverage comes

@@ -129,6 +129,27 @@ A package whose targets set **the same** option to **different** values has no
 representation at all — one directory cannot hold both answers. That is an
 error naming both targets, and the fix is to move one into its own package.
 
+**Two different `tsconfig` baselines in one package is the same error.** A
+baseline is nothing but a bag of `compilerOptions`, and TypeScript applies an
+`extends` *array* later-wins, so listing both would let one baseline's keys
+replace the other's for both targets' sources — a silent pick spelled as a
+merge. A package therefore gets at most one baseline, from whichever of its
+targets name one.
+
+A target in that package naming **no** `tsconfig` inherits that baseline in the
+editor, and does not in the build: with no `tsconfig` the rule applies its
+zero-config options (`strict`, `module: Preserve`, `moduleResolution: Bundler`,
+`skipLibCheck`, `esModuleInterop`) instead, which is what the root block already
+holds. What keeps the two from drifting is that every option any target in the
+package sets explicitly is restated in the nested file's own `compilerOptions`,
+which beat every `extends` — so a baseline reaches only keys no target in the
+package has an opinion about. `//vite` is the shape: `:plugin_typecheck` names
+`vite.tsconfig.json` and `:tsup_config` names nothing, and the generated
+`vite/tsconfig.json` pins the `module`/`moduleResolution` both targets ask for
+rather than letting the baseline's `Node16` answer for `tsup.config.ts`. Give the
+odd target the same `tsconfig` — or its own package — when that is not close
+enough.
+
 ### Bare specifiers for first-party packages
 
 A target that sets `module_name = "@acme/ui"` gets `@acme/ui` and `@acme/ui/*`

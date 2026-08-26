@@ -72,6 +72,7 @@ load(
     "semver_gt",
     "semver_parts",
     "snapshot_dir_name",
+    "verify_integrity",
     "versioned_label_name",
 )
 load(
@@ -229,9 +230,18 @@ def _patch_by_package(module_ctx, lock_content, patch_labels):
         )
     return result
 
-def _workspace_link_label(path):
-    """The label of the workspace member a pnpm `link:` target points at."""
-    return "@@//{path}:{target}".format(path = path, target = path.split("/")[-1])
+def _workspace_link_entry(name, path):
+    """The hub's record of one pnpm `link:` dependency.
+
+    The npm name travels beside the label because the hub target has to declare
+    it: an alias would lose it, and the label name cannot carry it back
+    ('types_react' is the label of both '@types/react' and 'types_react').
+    """
+    return "{name}|@@//{path}:{target}".format(
+        name = name,
+        path = path,
+        target = path.split("/")[-1],
+    )
 
 def _platforms_of_package(pkg):
     """The PLATFORMS keys a published tarball is built for.
@@ -344,6 +354,39 @@ def _pick_primary(sids, snapshots, preferred):
             best = sid
     return best
 
+def _check_integrity(packages, pnpm_lock):
+    """Fails unless every `packages:` entry can be checked against its bytes.
+
+    Whole-lockfile and at extension evaluation, for the reason _patch_by_package
+    is: an entry no target depends on is checked too, so which package the error
+    names does not depend on which target someone happened to build. Deciding it
+    inside the fetch instead would make `bazel build //a` pass and
+    `bazel build //b` fail on one lockfile.
+    """
+    unverifiable = verify_integrity(packages)
+    if not unverifiable:
+        return
+    lines = [
+        "  {} -> resolution keys: {}".format(
+            entry.package_id,
+            ", ".join(sorted(entry.resolution.keys())) if entry.resolution else "(none)",
+        )
+        for entry in unverifiable
+    ]
+    fail(
+        "npm: entries in {} whose `resolution:` carries no usable integrity:\n".format(pnpm_lock) +
+        "\n".join(lines) +
+        "\nBazel would fetch these bytes with nothing to check them against, so a " +
+        "registry that answered with something else would be indistinguishable from " +
+        "one that answered correctly.\n" +
+        "A git, `file:` or local-directory dependency has no published tarball to " +
+        "verify: depend on it as a workspace member (a `link:` entry, which becomes a " +
+        "target in your own repository) or vendor its files. An entry that names a " +
+        "`tarball:` but no integrity needs `pnpm install` re-run against a registry " +
+        "that publishes one. A pre-SRI digest (sha1-) is not accepted: re-resolve the " +
+        "lockfile with a current pnpm.",
+    )
+
 def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc):
     """Declares one npm_import per resolved package plus one npm_hub of aliases.
 
@@ -361,6 +404,7 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
     registries = npmrc_registries(module_ctx.read(npmrc)) if npmrc else {}
     parsed = parse_pnpm_lock(lock_content)
     packages = parsed["packages"]
+    _check_integrity(packages, pnpm_lock)
     importers = parse_importers(lock_content)
     patches = _patch_by_package(module_ctx, lock_content, patch_labels)
 
@@ -558,12 +602,19 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
             alias_owner[label] = sid
             aliases[label] = "@{}//:{}".format(repo_of[sid], _alias_target_name(alias))
 
+    # A link claims its label outright, as it did when both lived in one dict:
+    # the member IS what that name means, and two targets of one name in the
+    # generated package would not load at all.
+    links = {}
     for name, path in importers["links"].items():
         if path:
-            aliases[package_name_to_label(name)] = _workspace_link_label(path)
+            label = package_name_to_label(name)
+            links[label] = _workspace_link_entry(name, path)
+            aliases.pop(label, None)
 
     # ── Per-importer packages: what each workspace member actually declared ───
     importer_aliases = {}
+    importer_links = {}
     for path, entry in importers["importers"].items():
         if path == ".":
             continue
@@ -575,11 +626,15 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
             importer_aliases["{}|{}".format(path, label)] = _dep_label(dep_sid, imported_as)
             importer_aliases["{}|{}_bin".format(path, label)] = "@{}//:bin".format(repo_of[dep_sid])
         for dep_name, link_path in entry["links"].items():
-            importer_aliases["{}|{}".format(path, package_name_to_label(dep_name))] = _workspace_link_label(link_path)
+            key = "{}|{}".format(path, package_name_to_label(dep_name))
+            importer_links[key] = _workspace_link_entry(dep_name, link_path)
+            importer_aliases.pop(key, None)
 
     npm_hub(
         name = hub_name,
         aliases = aliases,
         importer_aliases = importer_aliases,
+        links = links,
+        importer_links = importer_links,
         broken_cycle_edges = ["{} -> {}".format(a, b) for (a, b) in broken],
     )

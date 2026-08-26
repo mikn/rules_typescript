@@ -807,6 +807,13 @@
         "./packages/shared/*",
         "./bazel-bin/packages/shared/*"
       ],
+      "packages/ws-linked": [
+        "./packages/ws-linked/index"
+      ],
+      "packages/ws-linked/*": [
+        "./packages/ws-linked/*",
+        "./bazel-bin/packages/ws-linked/*"
+      ],
       "path-exists": [
         "./.bazel/npm/path-exists"
       ],
@@ -1415,6 +1422,13 @@
       ],
       "ws": [
         "./.bazel/npm/ws"
+      ],
+      "ws-linked": [
+        "./packages/ws-linked/index"
+      ],
+      "ws-linked/*": [
+        "./packages/ws-linked/*",
+        "./bazel-bin/packages/ws-linked/*"
       ],
       "ws/*": [
         "./.bazel/npm/ws/*"

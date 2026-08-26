@@ -79,6 +79,16 @@ built from. A source edit and a `ts_codegen` rebuild do not restart; a change to
 the generated config, the npm tree or the toolchain node binary does. See
 [Dev Server](../guides/dev-server.md#watch-mode-with-ibazel-and-who-decides-to-restart).
 
+## Edit-to-HMR latency
+
+The goal is under 500 ms from save to browser update, and
+`//tests/dev_server:{dev,dev_with_plugin,dev_oj}_hmr_latency_test` measures the
+server's share of it by holding a WebSocket open as a browser would and saving a
+file: single-digit milliseconds under Vite, low double digits under oj. The
+suite asserts only that the median stays inside the whole budget. See
+[Dev Server](../guides/dev-server.md#edit-to-hmr-latency) for the numbers and how
+to run a longer sample.
+
 ## Diagnostics
 
 ```bash

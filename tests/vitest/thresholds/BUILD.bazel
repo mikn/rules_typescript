@@ -1,0 +1,23 @@
+"""coverage_thresholds, enforced in both directions.
+
+A threshold is only a guarantee if missing it fails the test, so the pair here
+is one library, one test source, and two ts_test targets whose only difference
+is the number: ../met clears it and ../missed does not.  ../met is an ordinary
+test target; ../missed is `manual` and runs inside enforcement_test, which
+asserts the exit status and the vitest error naming the threshold.
+"""
+
+load("@rules_go//go:def.bzl", "go_test")
+
+# gazelle:exclude *_test.go
+
+go_test(
+    name = "enforcement_test",
+    size = "medium",
+    srcs = ["enforcement_test.go"],
+    data = [
+        "//tests/vitest/thresholds/met:threshold_met_test",
+        "//tests/vitest/thresholds/missed:threshold_missed_test",
+    ],
+    deps = ["//tests/verify"],
+)

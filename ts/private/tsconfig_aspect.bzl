@@ -23,6 +23,7 @@ canonical repository name that changes with every version bump.
 
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("//ts/private:providers.bzl", "NpmPackageInfo", "TsConfigInfo")
+load("//ts/private:ts_compile.bzl", "TsModuleInfo")
 
 TsconfigSourcesInfo = provider(
     doc = "What a workspace-root tsconfig.json needs from the ts_compile targets under it.",
@@ -32,7 +33,7 @@ TsconfigSourcesInfo = provider(
         "npm_paths": "depset of struct(name, version, entry, is_file): npm entry points, relative to the package's own directory.",
         "npm_ambient": "depset of struct(name, version, entry): @types/* entry points to name in the tsconfig `files` array, relative to the package's own directory.",
         "npm_files": "depset of struct(name, version, dest, file): the files an npm entry point needs on disk, and where under the package each one goes.",
-        "option_groups": "depset of struct(package, label, options_json, extends, include): the compilerOptions delta an editor needs for one target, which no single root block can carry -- a target that turns `strict` off, or names a `lib` its target does not imply, is checked correctly by the build and wrongly by the editor unless the editor gets its own program for those files.",
+        "option_groups": "depset of struct(package, label, options_json, extends, include): the compilerOptions one target sets, which no single root block can carry -- a target that turns `strict` off, or names a `lib` its target does not imply, is checked correctly by the build and wrongly by the editor unless the editor gets its own program for those files.",
         "has_content": "Whether anything above is non-empty here or anywhere below, so that a fragment is written only where there is something to say.",
     },
 )
@@ -445,7 +446,18 @@ def _tsconfig_aspect_impl(target, ctx):
     npm_ambient = []
     npm_files = []
     option_groups = []
-    if ctx.rule.kind == "ts_compile":
+    if ctx.rule.kind == "npm_workspace_package":
+        # The hub target carries the npm name a workspace member is imported by,
+        # and it is the only place that name exists -- the member itself never
+        # restates it. Without this the editor cannot resolve the bare specifier
+        # the build resolves fine.
+        module = target[TsModuleInfo]
+        packages = [struct(
+            path = module.source_root,
+            has_index = True,
+            module_name = module.module_name,
+        )]
+    elif ctx.rule.kind == "ts_compile":
         if target.label.package:
             packages = [struct(
                 path = target.label.package,
@@ -480,7 +492,7 @@ def _tsconfig_aspect_impl(target, ctx):
 
 tsconfig_aspect = aspect(
     implementation = _tsconfig_aspect_impl,
-    attr_aspects = ["deps"],
+    attr_aspects = ["deps", "target"],
     doc = """Collects the source roots, path aliases and npm entry points an IDE tsconfig needs.
 
 Also writes one `<target>.tsconfig-fragment.json` per target reached, in the
@@ -555,6 +567,13 @@ def _installed_entry(npm_dir, entry):
     base = "{}/{}".format(npm_dir, entry.name)
     return base + "/" + entry.entry if entry.entry else base
 
+_ONE_ANSWER_PER_DIRECTORY = (
+    "An editor resolves a file to a program by directory, so one\n" +
+    "directory cannot hold both answers -- whichever were written, the\n" +
+    "other target's sources would be checked against the wrong one.\n" +
+    "Move one of them into its own package."
+)
+
 def _nested_configs(sources, root_options):
     """One editor program per package whose options the root block cannot carry.
 
@@ -564,8 +583,16 @@ def _nested_configs(sources, root_options):
     in one directory setting the same key to different values have no
     representation at all, and that is an error rather than a silent pick.
 
+    A `tsconfig` baseline is checked the same way, because it is the same thing: a
+    bag of compilerOptions, applied to whichever sources the file that names it
+    claims. `extends` would take two of them, but TypeScript applies the array
+    later-wins, so listing both would let one baseline's keys replace the other's
+    for both targets' sources -- a silent pick spelled as a merge.
+
     A key whose value already equals the root's is dropped, so a target that only
-    restates the defaults produces no file.
+    restates the defaults produces no file. That subtraction is sound only
+    without a baseline: the root is the FIRST entry of the nested `extends` array,
+    so a baseline after it wins every key the group leaves out.
     """
 
     # Both sides of the equality have to be canonical, or a root value spelled
@@ -575,19 +602,13 @@ def _nested_configs(sources, root_options):
 
     groups = {}
     for entry in sources.option_groups.to_list():
-        options = json.decode(entry.options_json)
-        delta = {
-            key: value
-            for key, value in options.items()
-            if key not in root_options or root_options[key] != value
-        }
         group = groups.setdefault(entry.package, struct(
             options = {},
             owners = {},
             extends = {},
             include = {},
         ))
-        for key, value in delta.items():
+        for key, value in json.decode(entry.options_json).items():
             if key in group.options and group.options[key] != value:
                 fail(
                     "ts_refresh_tsconfig: {} and {} are in the same package and set\n".format(
@@ -599,26 +620,43 @@ def _nested_configs(sources, root_options):
                         json.encode(group.options[key]),
                         json.encode(value),
                     ) +
-                    "An editor resolves a file to a program by directory, so one\n" +
-                    "directory cannot hold both answers -- whichever were written, the\n" +
-                    "other target's sources would be checked against the wrong one.\n" +
-                    "Move one of them into its own package.",
+                    _ONE_ANSWER_PER_DIRECTORY,
                 )
             group.options[key] = value
             group.owners[key] = entry.label
         if entry.extends:
-            group.extends[entry.extends] = True
+            for baseline, owner in group.extends.items():
+                if baseline != entry.extends:
+                    fail(
+                        "ts_refresh_tsconfig: {} and {} are in the same package and\n".format(
+                            owner,
+                            entry.label,
+                        ) +
+                        "  extend the tsconfig baselines {} and {}.\n".format(
+                            json.encode(baseline),
+                            json.encode(entry.extends),
+                        ) +
+                        _ONE_ANSWER_PER_DIRECTORY,
+                    )
+            group.extends[entry.extends] = entry.label
         for path in entry.include:
             group.include[path] = True
 
     out = []
     for package in sorted(groups):
         group = groups[package]
-        if not group.options and not group.extends:
+        options = group.options
+        if not group.extends:
+            options = {
+                key: value
+                for key, value in options.items()
+                if key not in root_options or root_options[key] != value
+            }
+        if not options and not group.extends:
             continue
         out.append(struct(
             package = package,
-            options = group.options,
+            options = options,
             extends = sorted(group.extends),
             include = sorted(group.include),
         ))
