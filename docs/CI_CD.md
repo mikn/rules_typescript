@@ -21,23 +21,16 @@ request against `main`. It has seven jobs.
      `bazel build --config=ci //... --output_groups=+_validation`
    - Matrix: `ubuntu-latest` and `macos-latest`
 
-2. **Vite Plugin Type Check** (`vite-typecheck`)
-   - `pnpm --dir vite install --frozen-lockfile --ignore-scripts`, then
-     `pnpm --dir vite typecheck`. Not a Bazel job: esbuild bundles `vite/src`
-     without checking it, and `//vite:plugin_typecheck` is tagged `manual` until
-     `@types/node` reaches `//tests/npm:pnpm-lock.yaml`, so this is the only
-     thing type-checking the plugin sources
-
-3. **E2E Tests** (`e2e`)
+2. **E2E Tests** (`e2e`)
    - Builds and tests `e2e/basic`, a separate workspace
    - Matrix: `ubuntu-latest` and `macos-latest`
 
-4. **Examples Build** (`examples`)
+3. **Examples Build** (`examples`)
    - One matrix leg per workspace under `examples/` — `basic`, `app`,
      `react-app`, `remix-app`, `tanstack-app`, `nextjs-app` — each a separate
      Bazel invocation of `//...`, `fail-fast: false`
 
-5. **Build Determinism** (`determinism`)
+4. **Build Determinism** (`determinism`)
    - `//tests/smoke:hello` and `//tests/css_module:button_module` built from two
      empty output bases, then three outputs compared byte for byte:
      `tests/smoke/hello.js`, `tests/css_module/Button.module.css.exports.json`
@@ -50,7 +43,7 @@ request against `main`. It has seven jobs.
    - Scratch space comes from `/mnt`, the runner's ephemeral disk: two output
      bases are two full toolchain trees and the root disk does not fit both
 
-6. **Integration Tests** (`integration-tests`)
+5. **Integration Tests** (`integration-tests`)
    - `bazelisk test --config=ci-integration //tests/integration/...`
    - Its own job because each target spawns a nested Bazel and they run
      serially (`exclusive`). This is the only job that runs them: `--config=ci`
@@ -63,7 +56,7 @@ request against `main`. It has seven jobs.
      the whole BCR registry for itself, and the resulting lookup failures read as
      flaky tests rather than as a missing cache
 
-7. **Linting & Code Quality** (`lint`)
+6. **Linting & Code Quality** (`lint`)
    - `buildifier --mode=check -r .`, using the released binary downloaded in the
      job. There is no `buildifier` `bazel_dep`, so
      `bazel run @buildifier//:buildifier` does not work — see
