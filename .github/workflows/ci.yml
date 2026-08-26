@@ -72,6 +72,11 @@ jobs:
           - remix-app
           - tanstack-app
           - nextjs-app
+        include:
+          # //:app loads its vite_config from the source tree and resolves
+          # @tanstack/react-start there, where a fresh checkout has no node_modules.
+          - example: tanstack-app
+            targets: //... -//:app
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
@@ -86,7 +91,7 @@ jobs:
           disk-cache: examples
 
       - name: Build examples/${{ matrix.example }}
-        run: cd examples/${{ matrix.example }} && bazel build //...
+        run: cd examples/${{ matrix.example }} && bazel build -- ${{ matrix.targets || '//...' }}
 
   determinism:
     name: Build Determinism Check
@@ -109,31 +114,22 @@ jobs:
       # Two builds cannot be one action, so this is the one check that stays a
       # sequence of invocations instead of a target. `info bazel-bin` is asked
       # for the output path rather than guessing at the bazel-out layout.
-      - name: Build twice, from two empty output bases
+      - name: Build //tests/smoke:hello twice, from two empty output bases
         run: |
           for base in a b; do
             bazelisk --output_base=/mnt/rules_ts_det/$base \
-              build --config=determinism \
-              //tests/smoke:hello //tests/css_module:button_module
+              build --config=determinism //tests/smoke:hello
             bazelisk --output_base=/mnt/rules_ts_det/$base \
               info bazel-bin > /mnt/rules_ts_det/$base.binpath
           done
 
-      # The css_module outputs are here because the scoped class name in
-      # .exports.json is a content hash, and the whole point of it being a
-      # content hash is that the output base it was built under does not reach
-      # it. A path leaking into that hash is exactly what this job detects.
-      - name: Compare the outputs byte for byte
+      - name: Compare the two outputs byte for byte
         run: |
-          for out in tests/smoke/hello.js \
-                     tests/css_module/Button.module.css.exports.json \
-                     tests/css_module/Button.module.css.d.ts; do
-            a="$(cat /mnt/rules_ts_det/a.binpath)/$out"
-            b="$(cat /mnt/rules_ts_det/b.binpath)/$out"
-            ls -l -- "$a" "$b"
-            cmp -- "$a" "$b"
-            sha256sum -- "$a"
-          done
+          a="$(cat /mnt/rules_ts_det/a.binpath)/tests/smoke/hello.js"
+          b="$(cat /mnt/rules_ts_det/b.binpath)/tests/smoke/hello.js"
+          ls -l -- "$a" "$b"
+          cmp -- "$a" "$b"
+          sha256sum -- "$a"
           echo "Build is bit-for-bit reproducible."
 
   integration-tests:

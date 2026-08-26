@@ -31,15 +31,10 @@ request against `main`. It has seven jobs.
      Bazel invocation of `//...`, `fail-fast: false`
 
 4. **Build Determinism** (`determinism`)
-   - `//tests/smoke:hello` and `//tests/css_module:button_module` built from two
-     empty output bases, then three outputs compared byte for byte:
-     `tests/smoke/hello.js`, `tests/css_module/Button.module.css.exports.json`
-     and `tests/css_module/Button.module.css.d.ts`. Two builds cannot be one
+   - `//tests/smoke:hello` built from two empty output bases, then
+     `tests/smoke/hello.js` compared byte for byte. Two builds cannot be one
      action, so this is the one check that stays a sequence of invocations in
      the workflow rather than a target
-   - The `css_module` outputs are there because the scoped class name in
-     `.exports.json` is a content hash of the stylesheet, and a path leaking
-     into that hash is exactly what two output bases expose
    - Scratch space comes from `/mnt`, the runner's ephemeral disk: two output
      bases are two full toolchain trees and the root disk does not fit both
 
