@@ -35,7 +35,7 @@ What is still thin:
 | Gazelle BUILD generation | Production-ready (JS/TS, CSS, assets, path aliases from tsconfig.json, ts_dev_server); alias resolution is deterministic, extension-spelling specifiers resolve, and one scanner is shared with the strict-deps check. A run on this clean tree changes zero files (`bazel run //gazelle -- -mode=diff` prints no diff). CI pins two properties of a run (the output builds; generating twice from scratch is byte-identical); two more are verified by hand against this tree and are **not** a CI job (the suite still passes; the test-target set is unchanged) |
 | Testing (vitest) | Solid (DOM run for real, coverage, custom config, snapshots read *and* written, watch mode, debugging). Gap: `coverage_thresholds` enforcement is unproven |
 | Bundling | Vite bundler (production quality), exercised on Vite 8. `vite_config` composes: a TypeScript config plus the local modules it imports (`vite_config_srcs`), staged into bazel-bin by both `ts_bundle` and `ts_dev_server` and loaded through Vite's own config loader. Both modes emit CSS: app mode through the HTML, lib mode as a declared `<bundle_name>.css` |
-| Dev server + HMR | Pluggable: `ts_dev_server(server = ...)` takes a `DevServerInfo`, Vite by default and oj (`//oj:dev_server`) as the second implementation, one generated config driving either. Serves first-party source with Bazel out of the inner loop; resolves bare npm specifiers through the `node_modules` tree via the `bazel:npm-resolve` plugin; codegen rebuilds and config-aware restarts under ibazel; does not typecheck. oj reaches npm packages through the same plugin, via a patch carried in `oj/patches/` -- see below |
+| Dev server + HMR | Pluggable: `ts_dev_server(server = ...)` takes a `DevServerInfo`, Vite by default and oj (`//oj:dev_server`) as the second implementation, one generated config driving either. Serves first-party source with Bazel out of the inner loop; resolves bare npm specifiers through the `node_modules` tree via the `bazel:npm-resolve` plugin; codegen rebuilds and config-aware restarts under ibazel; does not typecheck. oj reaches npm packages through the same plugin, unpatched since oj 0.1.6 |
 | IDE integration | Generated tsconfig + tsserver hook; `module_name` and `extra_exclude` supported. A package whose targets disagree with the root `compilerOptions` gets its own generated tsconfig, declared in `nested_tsconfigs` and staleness-tested; the root excludes those files individually so unclaimed ones stay in its program. Zero tsc errors across the root and all nine nested programs |
 | CSS / assets | css_library, css_module, asset_library, json_library rules; CSS module mock in ts_test. All three copy a source src into bazel-bin (a generated one is already there), which is what makes a relative import resolve for a bundler and what a bundle's input depset collects. `ts_bundle` takes `public_dir` and `manifest` in app mode; the manifest's keys are rewritten workspace-relative, so they are usable and configuration-stable. The `.module.css` `.d.ts` key set is compared against postcss-modules' real export map rather than asserted. Tailwind v4 works through `vite_config` in both bundle modes and under both dev servers |
 | Framework integration | TanStack Start and Remix get generated bundle targets, Remix with a nested-Bazel integration test; Next.js has its own `next_build`; SvelteKit and Solid Start are detected and get a named refusal instead of a target |
@@ -52,16 +52,17 @@ to rediscover them. Each names the file to change.
   what makes an untyped package reached transitively (vitest → @vitest/expect →
   chai) resolve to its `@types/*`. The IDE tsconfig the aspect writes still walks
   direct deps, so the editor sees `chai` as untyped where the build does not.
-- **oj carries one patch, in `oj/patches/`.** `oj_server` served a module only
+- **oj carries no patch: the fix went upstream.** `oj_server` served a module only
   when a plugin `load` hook returned its contents, so a plugin that maps a bare
   specifier to a path -- the only way to reach an npm tree that is a build output
   rather than a directory above the importer -- got a 404 for every module it
   resolved correctly. Rollup's contract is that a `resolveId` result naming a real
-  file *is* the module and a null `load` means "read it from disk"; the patch
-  implements that half and is upstreamable as written. Applied through
-  `crate.annotation(patches = ...)`, so it is part of the build rather than a
-  thing to remember. `//tests/dev_server:dev_oj_behaviour_test` asserts `import
-  "zod"` lands in the Bazel tree under oj, the same assertion the Vite lanes get.
+  file *is* the module and a null `load` means "read it from disk". Fixed in
+  [raphamorim/oj#108](https://github.com/raphamorim/oj/pull/108), released as
+  0.1.6, which is what `MODULE.bazel` pins; the carried patch and
+  `crate.annotation(patches = ...)` are gone.
+  `//tests/dev_server:dev_oj_behaviour_test` asserts `import "zod"` lands in the
+  Bazel tree under oj, the same assertion the Vite lanes get.
 - **Tailwind v4: `@source` is needed for a bundle, not for the dev server.**
   `@tailwindcss/vite` scans from Vite's resolved `root`. `ts_bundle` sets that to
   the HTML staging directory in app mode, which holds only the HTML, so the files
