@@ -148,19 +148,6 @@ to rediscover them. Each names the file to change.
   (`node:sqlite`, `node:test`) would have Gazelle write an `@npm//:…` label that
   does not exist. `tests/strict_deps/builtins.ts` pins the common case only. Two
   recognisers of one thing; see AGENTS.md.
-- **The `eslint-plugin` and `tools/isolated-declarations-lint` trees have no
-  buildable targets, and the blocker is a lockfile, not Gazelle.** Every source
-  imports `@typescript-eslint/utils`, which is in none of the three lockfiles the
-  build reads, and with strict deps a hard error no `ts_compile` over those files
-  can build. Both trees carry a `# gazelle:ts_ignore` BUILD file naming exactly
-  this. Unblock: `pnpm add --lockfile-only @typescript-eslint/utils
-  @typescript-eslint/rule-tester @typescript-eslint/parser eslint` into a hub,
-  then delete both directives. Behind that waits a genuine **package-level
-  cycle**: `eslint-plugin/src/index.ts` imports `./rules/…` and
-  `src/rules/…` imports `../utils.js`, which one-target-per-directory cannot
-  express. `# gazelle:ts_package_boundary index-only` does not help; the fix is
-  index-only mode rolling non-boundary descendants into the nearest boundary
-  target.
 - **`_short_digest` is Java's `String.hashCode` masked to 32 bits.** Two peer
   suffixes agreeing on their first 40 sanitised characters *and* colliding on
   that hash merge into one repository, and now also one store directory. A
