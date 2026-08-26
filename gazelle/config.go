@@ -502,8 +502,8 @@ type tsConfigJSON struct {
 //	"@components/*": ["src/components/*"]
 //
 // We convert each path pattern to the simpler prefix→dir form used by tsConfig.pathAliases:
-//   - Strip trailing "/*" from both the alias key and the first target value.
-//   - Use the first target in the array (tsconfig supports fallback arrays; we only need one).
+//   - Strip trailing "/*" from both the alias key and the chosen target value.
+//   - Reduce the fallback array to one target with pickAliasTarget.
 //   - Prepend baseUrl to the target directory when baseUrl is non-empty.
 //
 // Examples (baseUrl = ""):
@@ -532,6 +532,11 @@ func loadTsConfigPaths(tsConfigPath string) map[string]string {
 
 	baseURL := strings.TrimSuffix(tsc.CompilerOptions.BaseURL, "/")
 
+	baseDir := filepath.Dir(tsConfigPath)
+	if baseURL != "" && !filepath.IsAbs(baseURL) {
+		baseDir = filepath.Join(baseDir, filepath.FromSlash(baseURL))
+	}
+
 	// Two patterns can normalise to the same alias key, so iteration order
 	// decides which entry survives, and which order the log lines come out in.
 	patterns := make([]string, 0, len(tsc.CompilerOptions.Paths))
@@ -546,10 +551,10 @@ func loadTsConfigPaths(tsConfigPath string) map[string]string {
 		if len(targets) == 0 {
 			continue
 		}
-		if len(targets) > 1 {
-			log.Printf("typescript: paths entry %q has %d targets; using only %q (first)", aliasPattern, len(targets), targets[0])
+		target := pickAliasTarget(baseDir, aliasPattern, targets)
+		if target == "" {
+			continue
 		}
-		target := targets[0] // use first fallback entry only
 
 		// Strip trailing "/*" wildcard from both sides.
 		aliasKey := strings.TrimSuffix(aliasPattern, "/*")
@@ -557,15 +562,6 @@ func loadTsConfigPaths(tsConfigPath string) map[string]string {
 
 		// Strip leading "./" from the target.
 		targetDir = strings.TrimPrefix(targetDir, "./")
-
-		// A named dot-directory is tool-managed, never a Bazel package:
-		// ts_refresh_tsconfig installs npm declarations under npm_dir
-		// (.bazel/npm by default), one paths entry per package, and treating
-		// those as aliases resolved `import 'zod'` to //.bazel/npm/zod/index.d
-		// instead of @npm//:zod. A bare "." is the baseUrl root, not a dot-dir.
-		if head, _, _ := strings.Cut(targetDir, "/"); len(head) > 1 && head[0] == '.' && head != ".." {
-			continue
-		}
 
 		// Prepend baseUrl when set and target is not absolute.
 		if baseURL != "" && !strings.HasPrefix(targetDir, "/") {
@@ -605,6 +601,111 @@ func loadTsConfigPaths(tsConfigPath string) map[string]string {
 		return nil
 	}
 	return aliases
+}
+
+// pickAliasTarget reduces a compilerOptions.paths fallback array to the single
+// directory Gazelle resolves the alias against, or "" to drop the alias. It
+// prefers the first entry that exists on disk, and falls back to the first
+// usable entry when none do -- an alias may legitimately point at a directory
+// that only a codegen action produces.
+func pickAliasTarget(baseDir, aliasPattern string, targets []string) string {
+	usable := make([]string, 0, len(targets))
+	for _, target := range targets {
+		if aliasTargetIsUsable(target) {
+			usable = append(usable, target)
+		}
+	}
+	if len(usable) == 0 {
+		// A tool-managed dot-directory is meant to be dropped, and every npm
+		// declaration ts_refresh_tsconfig writes takes that path. An alias left
+		// with only output-tree entries is the one worth a word: dropping it
+		// silently replaces ts_compile's analysis error with a missing dep edge.
+		if !anyToolManaged(targets) {
+			log.Printf("typescript: paths entry %q has no target Gazelle can use (%v); no path_alias emitted. "+
+				"An alias under bazel-out/bazel-bin points into the output tree: set module_name on the "+
+				"target that produces those declarations and import it by that name instead.",
+				aliasPattern, targets)
+		}
+		return ""
+	}
+
+	onDisk := make([]string, 0, len(usable))
+	for _, target := range usable {
+		if aliasTargetExists(baseDir, target) {
+			onDisk = append(onDisk, target)
+		}
+	}
+	switch len(onDisk) {
+	case 0:
+		return usable[0]
+	case 1:
+		return onDisk[0]
+	default:
+		log.Printf("typescript: paths entry %q resolves on disk to %d directories; using %q and ignoring %v. "+
+			"Gazelle emits one directory per alias; if imports must resolve through more than one, "+
+			"split the alias or list the extra files in path_alias_srcs.",
+			aliasPattern, len(onDisk), onDisk[0], onDisk[1:])
+		return onDisk[0]
+	}
+}
+
+// aliasTargetIsUsable rejects the two shapes that can never become a legal
+// path_aliases value.
+func aliasTargetIsUsable(target string) bool {
+	head, _, _ := strings.Cut(aliasTargetPath(target), "/")
+
+	// bazel-out, bazel-bin, bazel-testlogs and bazel-<workspace> are the
+	// convenience symlinks; ts_compile fails analysis on an alias under them.
+	if strings.HasPrefix(head, "bazel-") {
+		return false
+	}
+
+	// A named dot-directory is tool-managed, never a Bazel package:
+	// ts_refresh_tsconfig installs npm declarations under npm_dir
+	// (.bazel/npm by default), one paths entry per package, and treating
+	// those as aliases resolved `import 'zod'` to //.bazel/npm/zod/index.d
+	// instead of @npm//:zod. A bare "." is the baseUrl root, not a dot-dir.
+	return len(head) <= 1 || head[0] != '.' || head == ".."
+}
+
+func anyToolManaged(targets []string) bool {
+	for _, target := range targets {
+		head, _, _ := strings.Cut(aliasTargetPath(target), "/")
+		if len(head) > 1 && head[0] == '.' && head != ".." {
+			return true
+		}
+	}
+	return false
+}
+
+func aliasTargetExists(baseDir, target string) bool {
+	rel := aliasTargetPath(target)
+	if rel == "" {
+		rel = "."
+	}
+	full := filepath.FromSlash(rel)
+	if !filepath.IsAbs(full) {
+		full = filepath.Join(baseDir, full)
+	}
+	if _, err := os.Stat(full); err == nil {
+		return true
+	}
+	if strings.HasSuffix(target, "/*") {
+		return false
+	}
+	for _, ext := range []string{".ts", ".tsx", ".d.ts", ".js"} {
+		if _, err := os.Stat(full + ext); err == nil {
+			return true
+		}
+		if _, err := os.Stat(filepath.Join(full, "index"+ext)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func aliasTargetPath(target string) string {
+	return strings.TrimPrefix(strings.TrimSuffix(target, "/*"), "./")
 }
 
 // ---- gazelle_ts.json -------------------------------------------------------

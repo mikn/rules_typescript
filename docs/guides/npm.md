@@ -88,13 +88,35 @@ use_repo(npm, "npm", "pnpm")
 load("@rules_typescript//ts:defs.bzl", "ts_add_package", "ts_pnpm")
 
 ts_pnpm(name = "pnpm")
-ts_add_package(name = "add_package")
+
+ts_add_package(
+    name = "add_package",
+    pnpm_lock = "//:pnpm-lock.yaml",
+)
 ```
 
 ```bash
 bazel run //:pnpm -- --version
 bazel run //:pnpm -- add zod --lockfile-only
 bazel run //:add_package -- zod          # appends --lockfile-only for you
+```
+
+`pnpm_lock` is the hub this target edits, spelled exactly as its
+`npm.translate_lock()` spells it, and pnpm is pointed at that label's directory
+with `--dir`. It is required: a `pnpm add` with no hub resolves against the
+workspace root and writes a `package.json` and `pnpm-lock.yaml` there, which is
+a hub nothing translated. Declaring the label rather than a bare path is what
+makes a lockfile that does not exist, or one this package cannot see, a build
+error instead of a stray file in your tree.
+
+A workspace with several hubs gets one target per hub, named after it, so the
+command a person types says which lockfile is about to be rewritten:
+
+```python
+ts_add_package(
+    name = "add_package_tailwind",
+    pnpm_lock = "//third_party/tailwind:pnpm-lock.yaml",
+)
 ```
 
 Both targets `cd` to `$BUILD_WORKSPACE_DIRECTORY` first, so they edit the source

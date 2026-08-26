@@ -201,6 +201,22 @@ requires.
   injected peers. Tests pin that, so a parser change cannot start reading
   `specifier:` instead of `version:` unnoticed.
 
+### Breaking — `ts_add_package`
+
+- `ts_add_package` now requires `pnpm_lock`, the label of the lockfile of the
+  hub the target edits — the same label that hub's `npm.translate_lock()`
+  reads. pnpm is pointed at that label's directory with `--dir`. Previously
+  there was no hub: `bazel run //:add_package -- <pkg>` resolved against the
+  workspace root, and in a repository whose hubs all live in subdirectories it
+  wrote a brand-new `package.json` and `pnpm-lock.yaml` there while the hub it
+  was meant to edit stayed untouched. A target declared without the attribute
+  now fails at load time, naming itself and the line to add; the lockfile is
+  also an input of the target, so a hub that does not exist, or one the package
+  cannot see, is a build error rather than a stray file. Gazelle writes
+  `pnpm_lock = "//:pnpm-lock.yaml"` on the target it generates at the workspace
+  root; a hand-written target in a repository with several hubs wants one
+  `ts_add_package` per hub, named after it.
+
 ### Breaking — `node_modules` trees
 
 - A tree now places **every** resolved version of a package. One npm name can
@@ -414,6 +430,18 @@ requires.
 
 ### Added
 
+- **`bazel coverage` works on a test whose pool runs in a second runtime.**
+  `ts_test` gained `coverage_provider` (`"v8"` — vitest's own default — or
+  `"istanbul"`). v8 coverage is read out of Node's inspector, which workerd has
+  no equivalent of, so a `@cloudflare/vitest-pool-workers` test needed the
+  transform-time provider; the launcher no longer forces `v8` on the command
+  line, where it outranked every config layer. Two more pieces had to move with
+  it: the Bazel config layer now sets `test.coverage.allowExternal`, without
+  which vitest instruments nothing under Bazel (every file under test is a build
+  output, and its realpath sits outside the vite root), and the lcov rewrite now
+  resolves a source path that escapes the run directory back to its package
+  path. `//tests/workers:worker_test` is the proof: it reports `LH:4 LF:4` for
+  `tests/workers/src/index.js`, from code that ran inside workerd.
 - `ts_compile` can consume a real `tsconfig.json`: the generated config
   `extends` it in place rather than copying it, so relative paths inside it
   still resolve. This unblocks ambient-globals-only packages
@@ -504,6 +532,19 @@ requires.
   638 KB.
 - Gazelle parses `tsconfig.json` as JSONC — comments and trailing commas no
   longer make `compilerOptions.paths` silently disappear.
+- Gazelle picks a `compilerOptions.paths` fallback entry that exists instead of
+  always the first one. Entries under the `bazel-*` convenience symlinks are
+  dropped outright (`ts_compile` fails analysis on an alias pointing into the
+  output tree), as are tool-managed dot-directory entries such as `.bazel/npm`;
+  of what is left, the first that exists on disk becomes the alias, and when
+  none do the first is kept as before. A chain whose first entry is absent and
+  whose second is real used to resolve deps against a directory that is not
+  there. The `paths entry "…" has N targets; using only "…" (first)` line is
+  gone — 74 of them per run on this repository, all the `./bazel-bin/…` mirror
+  `ts_refresh_tsconfig` writes — replaced by one that fires only when two
+  entries in a chain are both real directories, which is the case where a
+  directory really is being ignored. The `path_aliases` attribute is unchanged:
+  still `string_dict`, still one directory per alias.
 - Gazelle names `css_library`, `css_module`, `asset_library` and `json_library`
   targets after the whole filename (`button.css` → `button_css`), so they no
   longer collide with the directory-named `ts_compile` target or with each
@@ -700,11 +741,13 @@ Recorded rather than hidden.
 - The array-`config` form of `ts_test` needs **vitest 3.2 or later**, since
   `test.projects` is the name `test.workspace` was renamed to in 3.2. Every other
   `config` shape works on 3 and 4 alike.
-- Gazelle discards every `compilerOptions.paths` fallback after the first, and
-  logs one `paths entry "…" has 2 targets; using only "…" (first)` line per
-  affected entry. On this repository all of them are the `./bazel-bin/…` mirror
-  `ts_refresh_tsconfig` writes beside each source entry, so nothing resolvable is
-  lost here; a `tsconfig.json` with a genuine fallback chain loses the rest of it.
+- A `compilerOptions.paths` chain still collapses to one directory. Gazelle now
+  picks the first entry that exists on disk rather than the first entry written,
+  which covers every chain whose entries are a real directory plus mirrors of
+  it, but an alias key with two genuinely distinct real directories keeps only
+  one of them for both dep resolution and the generated `tsconfig.json`. That
+  case logs; it is not otherwise handled, and would need `path_aliases` to
+  become a `string_list_dict` end to end.
 - **Two Vite majors cannot coexist in one Bazel package.** After the Vite
   bundler wrapper's `ln -sf`, Node realpaths through the symlink, so the upward
   walk starts inside the real tree and can reach a *sibling* target's

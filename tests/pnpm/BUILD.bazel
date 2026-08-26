@@ -1,0 +1,31 @@
+"""What the :add_package_* targets edit, and what they refuse to."""
+
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load(":add_package_tests.bzl", "hub_test")
+
+hub_test(
+    name = "npm_hub_test",
+    size = "small",
+    hub_dir = "tests/npm",
+    lockfile = "tests/npm/pnpm-lock.yaml",
+    target_under_test = "//:add_package_npm",
+)
+
+hub_test(
+    name = "tailwind_hub_test",
+    size = "small",
+    hub_dir = "tests/tailwind",
+    lockfile = "tests/tailwind/pnpm-lock.yaml",
+    target_under_test = "//:add_package_tailwind",
+)
+
+sh_test(
+    name = "add_package_wrapper_test",
+    size = "small",
+    srcs = ["add_package_wrapper_test.sh"],
+    data = [
+        "fake_pnpm.sh",
+        "//tools:add_package_wrapper.sh",
+    ],
+    deps = ["@bazel_tools//tools/bash/runfiles"],
+)

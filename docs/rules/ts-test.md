@@ -50,6 +50,7 @@ the deps do not describe.
 | `globals` | `bool` | `False` | `test.globals` — global `describe`/`it`/`expect` |
 | `reporters` | `string_list` | `[]` | `test.reporters`, e.g. `["default", "junit"]` |
 | `coverage_thresholds` | `string_dict` | `{}` | `test.coverage.thresholds`, e.g. `{"lines": "80", "perFile": "true"}`. Values that look numeric or boolean are emitted as such |
+| `coverage_provider` | `string` | `""` | `test.coverage.provider`: `"v8"` (vitest's default) or `"istanbul"`. The matching `@vitest/coverage-*` package must be in `deps`. A pool that runs the tests in a second runtime needs `"istanbul"` — see [Coverage](#coverage) |
 | `snapshots` | `label_list` | `[]` | Checked-in `.snap` files, normally `glob(["__snapshots__/*.snap"])`. Listing them is what puts them inside the sandbox, and so what makes a stale one fail — see [Snapshots](#snapshots) |
 | `update_snapshots` | `bool` | `False` | Makes **this** target the executable updater rather than a test. Rarely needed: every `ts_test` already declares `<name>.update_snapshots` |
 
@@ -61,9 +62,9 @@ that layers four sources, lowest precedence first:
 
 | Layer | Contents | Applies to workspace projects too? |
 |-------|----------|---|
-| 1. Bazel | `resolve.preserveSymlinks`, and the CSS-module mock plugin when a dep provides `CssModuleInfo` | yes |
+| 1. Bazel | `resolve.preserveSymlinks`, `test.coverage.allowExternal`, and the CSS-module mock plugin when a dep provides `CssModuleInfo` | yes |
 | 2. user | the `config` attr — a config file or an inline dict | it *is* the projects |
-| 3. attributes | `environment`, `setup_files`, `global_setup`, `globals`, `reporters`, `coverage_thresholds` | yes |
+| 3. attributes | `environment`, `setup_files`, `global_setup`, `globals`, `reporters`, `coverage_thresholds`, `coverage_provider` | yes |
 | 4. snapshots | `test.resolveSnapshotPath`, and in update mode `test.dir`, `test.include` and `cacheDir` | no — root only |
 
 Objects merge key by key; arrays concatenate base-first, matching vite's own
@@ -165,6 +166,36 @@ set; `@vitest/coverage-v8` must be in `node_modules`. `coverage = True`
 additionally instruments plain `bazel test` runs. `coverage_thresholds` is only
 enforced when coverage runs — and its enforcement is untested, so treat a
 passing build as unproven rather than as evidence the threshold held.
+
+A test whose pool runs the tests in a second runtime — a
+`@cloudflare/vitest-pool-workers` test in workerd — needs the other provider.
+v8 coverage is counters read back out of Node's inspector, which workerd has no
+equivalent of; istanbul instruments at transform time, before the code crosses
+the boundary. Set `coverage_provider = "istanbul"` and put
+`@vitest/coverage-istanbul`, pinned to the same version as `vitest`, in `deps`:
+
+```python
+ts_test(
+    name = "worker_test",
+    srcs = ["src/worker.test.ts"],
+    config = "vitest.workers.config.mjs",
+    coverage_provider = "istanbul",
+    deps = [
+        ":worker",
+        "@npm_workers//:cloudflare_vitest-pool-workers",
+        "@npm_workers//:vitest",
+        "@npm_workers//:vitest_coverage-istanbul",
+    ],
+)
+```
+
+Forgetting it does not report zeros: with only `@vitest/coverage-istanbul` in
+`deps`, vitest falls back to its v8 default and the run fails with
+`MISSING DEPENDENCY  Cannot find dependency '@vitest/coverage-v8'`.
+
+Coverage is reported against the compiled `.js` in `bazel-out`, not the `.ts`
+source, so `SF:` paths and line numbers are the compiler's. That is true of
+every `ts_test`, not only the pooled ones.
 
 ## Running tests
 

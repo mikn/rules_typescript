@@ -335,6 +335,12 @@
       "@typescript-eslint/visitor-keys/*": [
         "./.bazel/npm/@typescript-eslint/visitor-keys/dist/*"
       ],
+      "@vitest/coverage-istanbul": [
+        "./.bazel/npm/@vitest/coverage-istanbul/dist/index.d.ts"
+      ],
+      "@vitest/coverage-istanbul/*": [
+        "./.bazel/npm/@vitest/coverage-istanbul/dist/*"
+      ],
       "@vitest/coverage-v8": [
         "./.bazel/npm/@vitest/coverage-v8/dist/index.d.ts"
       ],
@@ -425,11 +431,23 @@
       "ast-v8-to-istanbul/*": [
         "./.bazel/npm/ast-v8-to-istanbul/dist/*"
       ],
+      "baseline-browser-mapping": [
+        "./.bazel/npm/baseline-browser-mapping/dist/index.d.ts"
+      ],
+      "baseline-browser-mapping/*": [
+        "./.bazel/npm/baseline-browser-mapping/dist/*"
+      ],
       "blake3-wasm": [
         "./.bazel/npm/blake3-wasm"
       ],
       "blake3-wasm/*": [
         "./.bazel/npm/blake3-wasm/*"
+      ],
+      "browserslist": [
+        "./.bazel/npm/browserslist/index.d.ts"
+      ],
+      "browserslist/*": [
+        "./.bazel/npm/browserslist/*"
       ],
       "bundle-require": [
         "./.bazel/npm/bundle-require/dist/index.d.ts"
@@ -533,6 +551,12 @@
       "esbuild/*": [
         "./.bazel/npm/esbuild/lib/*"
       ],
+      "escalade": [
+        "./.bazel/npm/escalade/index.d.mts"
+      ],
+      "escalade/*": [
+        "./.bazel/npm/escalade/*"
+      ],
       "escape-string-regexp": [
         "./.bazel/npm/escape-string-regexp"
       ],
@@ -541,13 +565,6 @@
       ],
       "eslint": [
         "./.bazel/npm/eslint/lib/types/index.d.ts"
-      ],
-      "eslint-plugin-isolated-declarations": [
-        "./tools/isolated-declarations-lint/src/index"
-      ],
-      "eslint-plugin-isolated-declarations/*": [
-        "./tools/isolated-declarations-lint/src/*",
-        "./bazel-bin/tools/isolated-declarations-lint/src/*"
       ],
       "eslint-plugin/src": [
         "./eslint-plugin/src/index"
@@ -672,6 +689,12 @@
       ],
       "js-tokens/*": [
         "./.bazel/npm/js-tokens/*"
+      ],
+      "json5": [
+        "./.bazel/npm/json5/lib/index.d.ts"
+      ],
+      "json5/*": [
+        "./.bazel/npm/json5/lib/*"
       ],
       "keyv": [
         "./.bazel/npm/keyv/src/index.d.ts"
@@ -976,6 +999,10 @@
       "tests/compiler_options/baseline/*": [
         "./tests/compiler_options/baseline/*",
         "./bazel-bin/tests/compiler_options/baseline/*"
+      ],
+      "tests/compiler_options/es_target/*": [
+        "./tests/compiler_options/es_target/*",
+        "./bazel-bin/tests/compiler_options/es_target/*"
       ],
       "tests/compiler_options/js_sources/*": [
         "./tests/compiler_options/js_sources/*",
@@ -1290,13 +1317,6 @@
       "tinyrainbow/*": [
         "./.bazel/npm/tinyrainbow/dist/*"
       ],
-      "tools/isolated-declarations-lint/src": [
-        "./tools/isolated-declarations-lint/src/index"
-      ],
-      "tools/isolated-declarations-lint/src/*": [
-        "./tools/isolated-declarations-lint/src/*",
-        "./bazel-bin/tools/isolated-declarations-lint/src/*"
-      ],
       "tree-kill": [
         "./.bazel/npm/tree-kill/index.d.ts"
       ],
@@ -1350,6 +1370,12 @@
       ],
       "unenv/*": [
         "./.bazel/npm/unenv/dist/*"
+      ],
+      "update-browserslist-db": [
+        "./.bazel/npm/update-browserslist-db/index.d.ts"
+      ],
+      "update-browserslist-db/*": [
+        "./.bazel/npm/update-browserslist-db/*"
       ],
       "uri-js": [
         "./.bazel/npm/uri-js/dist/es5/uri.all.d.ts"
@@ -1447,6 +1473,7 @@
     "tests/compiler_options/analysis/zroot.ts",
     "tests/compiler_options/baseline/loose.ts",
     "tests/compiler_options/baseline/loose_check_only.ts",
+    "tests/compiler_options/es_target/legacy.ts",
     "tests/compiler_options/js_sources/esm.mjs",
     "tests/compiler_options/js_sources/legacy.cjs",
     "tests/compiler_options/js_sources/main.ts",

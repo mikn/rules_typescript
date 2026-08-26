@@ -20,21 +20,12 @@
  *     },
  *   ];
  *
- * Usage (legacy .eslintrc — ESLint 8):
+ * Or pick up a bundled config:
  *
- *   {
- *     "plugins": ["@rules_typescript/isolated-declarations"],
- *     "rules": {
- *       "@rules_typescript/isolated-declarations/require-explicit-types": "error"
- *     }
- *   }
+ *   export default [isolatedDeclarations.configs.recommended];
  */
 
 import { requireExplicitTypes } from './rules/require-explicit-types.js';
-
-// ---------------------------------------------------------------------------
-// Plugin definition
-// ---------------------------------------------------------------------------
 
 const plugin = {
   meta: {
@@ -46,19 +37,12 @@ const plugin = {
     'require-explicit-types': requireExplicitTypes,
   },
 
-  /**
-   * Recommended configuration for ESLint flat config (ESLint 9+).
-   *
-   * Enables all rules at "error" severity.  This is intentionally strict:
-   * isolated declarations is all-or-nothing per package.  Use the gradual
-   * rollout approach (see README) to adopt incrementally.
-   */
   configs: {} as Record<string, unknown>,
 };
 
-// Build the recommended config after the plugin object is created, so that
-// self-reference is safe.
+// Built after the plugin object exists, so that the self-reference is safe.
 plugin.configs['recommended'] = {
+  name: 'isolated-declarations/recommended',
   plugins: {
     'isolated-declarations': plugin,
   },
@@ -74,3 +58,4 @@ export { plugin };
 
 // Re-export individual rules for consumers who want fine-grained control.
 export { requireExplicitTypes } from './rules/require-explicit-types.js';
+export type { RuleOptions } from './rules/require-explicit-types.js';

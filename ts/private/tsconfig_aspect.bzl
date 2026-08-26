@@ -321,6 +321,34 @@ _EDITOR_IRRELEVANT_OPTIONS = [
     "paths",
 ]
 
+# The root block's own values, so a target matching them needs no nested config.
+# ts_compile defaults `target` and `jsx_mode` to these.
+_ROOT_TARGET = "ES2022"
+_ROOT_JSX = "react-jsx"
+
+# TypeScript compares these values case-insensitively, and treats `lib` as a set.
+# Two targets spelling one value differently are not a conflict, so the delta is
+# canonicalised before anything compares or emits it.
+_CASE_INSENSITIVE_OPTIONS = [
+    "target",
+    "module",
+    "moduleResolution",
+    "jsx",
+    "moduleDetection",
+    "newLine",
+]
+
+def _canonical_options(options):
+    canonical = dict(options)
+    for key in _CASE_INSENSITIVE_OPTIONS:
+        value = canonical.get(key)
+        if type(value) == "string":
+            canonical[key] = value.lower()
+    lib = canonical.get("lib")
+    if type(lib) == "list":
+        canonical["lib"] = sorted([entry.lower() if type(entry) == "string" else entry for entry in lib])
+    return canonical
+
 def _option_group(target, ctx):
     """The compilerOptions delta one ts_compile target needs, or []."""
 
@@ -370,6 +398,17 @@ def _option_group(target, ctx):
         extends = tsconfig[TsConfigInfo].tsconfig.short_path
     elif getattr(ctx.rule.file, "tsconfig", None):
         extends = ctx.rule.file.tsconfig.short_path
+
+    # target and jsx_mode are rule attrs the build injects, so they never appear
+    # in compiler_options_json. Left out here the editor checks an es2017 or
+    # preserve-JSX target against the root's ES2022/react-jsx and disagrees with
+    # the build -- the divergence a nested config exists to end.
+    if ctx.rule.attr.target and ctx.rule.attr.target.lower() != _ROOT_TARGET.lower():
+        options["target"] = ctx.rule.attr.target
+    if ctx.rule.attr.jsx_mode and ctx.rule.attr.jsx_mode.lower() != _ROOT_JSX.lower():
+        options["jsx"] = ctx.rule.attr.jsx_mode
+
+    options = _canonical_options(options)
 
     if not options and not extends:
         return []
@@ -528,6 +567,12 @@ def _nested_configs(sources, root_options):
     A key whose value already equals the root's is dropped, so a target that only
     restates the defaults produces no file.
     """
+
+    # Both sides of the equality have to be canonical, or a root value spelled
+    # "Preserve" stops matching a group's "preserve" and every package gets a
+    # file it does not need.
+    root_options = _canonical_options(root_options)
+
     groups = {}
     for entry in sources.option_groups.to_list():
         options = json.decode(entry.options_json)
@@ -701,10 +746,10 @@ def _ide_tsconfig_impl(ctx):
         "_comment": _HEADER,
         "compilerOptions": {
             "strict": True,
-            "target": "ES2022",
+            "target": _ROOT_TARGET,
             "module": "Preserve",
             "moduleResolution": "Bundler",
-            "jsx": "react-jsx",
+            "jsx": _ROOT_JSX,
             "declaration": True,
             "sourceMap": True,
             "skipLibCheck": True,

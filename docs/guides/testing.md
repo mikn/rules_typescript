@@ -179,6 +179,12 @@ additionally instruments plain `bazel test` runs.
 config, and only applies when coverage runs. Its enforcement has no test behind
 it, so do not treat a green build as proof a threshold held.
 
+`coverage_provider` picks between `"v8"` (vitest's default) and `"istanbul"`.
+A test whose pool runs in a second runtime needs `"istanbul"`: v8 coverage comes
+out of Node's inspector, which workerd has none of, while istanbul instruments
+at transform time. See
+[ts_test § Coverage](../rules/ts-test.md#coverage).
+
 ## Sharding
 
 `ts_test` distributes test files across shards using `TEST_SHARD_INDEX` and

@@ -21,6 +21,7 @@ ts_test(
         "globals.d.ts",  # keep
     ],
     config = {"test": {"testTimeout": 20000}},
+    coverage_provider = "v8",
     coverage_thresholds = {
         "lines": "0",
         "perFile": "true",

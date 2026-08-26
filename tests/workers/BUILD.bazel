@@ -40,6 +40,9 @@ ts_test(
     size = "medium",
     srcs = ["src/worker.test.ts"],
     config = "vitest.workers.config.mjs",
+    # v8 coverage is counters read back out of node's inspector, which workerd
+    # has none of; istanbul instruments before the code crosses into it.
+    coverage_provider = "istanbul",
     data = ["wrangler.jsonc"],
     lib = [
         "esnext",
@@ -50,6 +53,7 @@ ts_test(
         ":worker",
         "@npm_workers//:cloudflare_vitest-pool-workers",
         "@npm_workers//:vitest",
+        "@npm_workers//:vitest_coverage-istanbul",
     ],
 )
 

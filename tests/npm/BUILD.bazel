@@ -13,6 +13,10 @@ package(default_visibility = ["//:__pkg__"])
 # Go language would add a second target for the same source.
 # gazelle:exclude *_test.go
 
+# @npm is translated from this, and //:add_package_npm edits it; nothing in this
+# package builds it.
+exports_files(["pnpm-lock.yaml"])
+
 # Lockfile-text tests: what the parsers read, and what they must keep ignoring.
 parser_test_suite(name = "parser_tests")
 

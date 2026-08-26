@@ -86,12 +86,33 @@ annotated and it can use `"oxc"`, or it stays on the default.
 | `export function foo() {}` | No `: ReturnType` annotation |
 | `export const fn = () => ...` | No return type on arrow or binding annotation |
 | `export const x = someExpression` | No `: Type` annotation on binding |
+| `export function foo(a) {}` | A parameter has no `: Type` annotation |
+| `export class Foo { bar = 1 }` | A property or method of the class is unannotated |
 | `export default function() {}` | No `: ReturnType` annotation |
+| `export default { a: 1 }` | Expression default export with no type context |
 
-The rule does NOT flag `export type`, `export interface`, `export class`,
-`export enum`, re-exports (`export { x } from '...'`), or ambient
-declarations — so a clean lint run does not guarantee a clean `"oxc"` build.
-Oxc is the authority.
+Where the type is readable straight off the AST — a literal, a uniform array
+literal, a single-`return` body — the report carries an auto-fix, so
+`eslint --fix` annotates it. Everything else is reported with a suggestion
+telling you to annotate by hand; the rule never guesses an object literal's
+shape.
+
+The rule does NOT flag `export type`, `export interface`, `export enum`,
+re-exports (`export { x } from '...'`), or ambient declarations — so a clean
+lint run does not guarantee a clean `"oxc"` build. Oxc is the authority.
+
+### Options
+
+`ignoreDefaultExports` (default `false`) skips every `export default` form:
+
+```js
+rules: {
+  'isolated-declarations/require-explicit-types': [
+    'error',
+    { ignoreDefaultExports: true },
+  ],
+}
+```
 
 ## Adopting it, one package at a time
 
@@ -130,6 +151,8 @@ export default [
   },
 ];
 ```
+
+Or take the bundled config, `isolatedDeclarations.configs.recommended`.
 
 **Step 2.** Pick one package and run the linter on it:
 

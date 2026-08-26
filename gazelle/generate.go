@@ -711,7 +711,9 @@ func emptyResult(args language.GenerateArgs) language.GenerateResult {
 }
 
 // generatePnpmTargets generates :pnpm and :add_package macro invocations at
-// the workspace root when a pnpm-lock.yaml file is detected.
+// the workspace root when a pnpm-lock.yaml file is detected. That lockfile is
+// the hub :add_package edits; the macro has no default for it, because a
+// pnpm add with no hub writes a package.json at the workspace root.
 //
 // Both targets are generated unconditionally once a lockfile is found: they
 // are low-cost no-ops if the user never runs them, and essential for the
@@ -738,6 +740,7 @@ func generatePnpmTargets(args language.GenerateArgs) ([]*rule.Rule, []any) {
 
 	if !ruleExists(args, "ts_add_package", "add_package") {
 		r := rule.NewRule("ts_add_package", "add_package")
+		r.SetAttr("pnpm_lock", "//:pnpm-lock.yaml")
 		gen = append(gen, r)
 		imports = append(imports, nil)
 	}

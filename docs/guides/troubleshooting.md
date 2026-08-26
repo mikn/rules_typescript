@@ -365,14 +365,23 @@ If the specifier is a first-party package name rather than an npm one, it needs
 `module_name` on the `ts_compile` target that produces it; the dev server turns
 each one into a `resolve.alias` pointing at source.
 
-## gazelle: typescript: paths entry "…" has N targets; using only "…" (first)
+## gazelle: typescript: paths entry "…" resolves on disk to N directories
 
-Not an error. `compilerOptions.paths` values are arrays and Gazelle resolves deps
-against the first entry only. With a `tsconfig.json` written by
-`ts_refresh_tsconfig` the discarded entry is the `./bazel-bin/…` mirror of the one
-it kept, so nothing is lost. With a hand-written fallback chain, everything after
-the first entry is being ignored — collapse the chain, or expect deps to be
-resolved from the first path.
+Not an error, but something is being dropped. `compilerOptions.paths` values are
+arrays and a `path_aliases` entry holds one directory, so Gazelle picks one:
+`bazel-*` and tool-managed dot-directory entries are skipped, then the first
+entry that exists on disk wins. This line fires only when two or more entries in
+one chain are real directories — the case where the choice loses something.
+
+A specifier that resolves only through an ignored directory gets no dep edge,
+and the `tsconfig.json` `ts_compile` generates will not carry that directory
+either, so the type-check fails on it too. Split the alias so each key names one
+directory, list the extra files in `path_alias_srcs`, or set `module_name` on the
+target that produces them and depend on it.
+
+The `./bazel-bin/…` mirror that `ts_refresh_tsconfig` writes beside each source
+entry is skipped without a log line; so is a chain whose entries are all absent
+from the working tree, where the first entry is used as before.
 
 ## Snapshot 'x 1' mismatched, or a snapshot vitest says is new
 

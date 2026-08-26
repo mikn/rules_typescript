@@ -16,7 +16,7 @@ func TestEveryAttributeReachesTheGeneratedConfig(t *testing.T) {
 		`setupFiles: [abs("./setup.js")]`,
 		`globals: true`,
 		`reporters: ["default"]`,
-		`coverage: { thresholds: { "lines": 0, "perFile": true } }`,
+		`coverage: { provider: "v8", thresholds: { "lines": 0, "perFile": true } }`,
 		`{"test":{"testTimeout":20000}}`,
 		`merge(merge(bazelLayer, user), attrLayer)`,
 	)

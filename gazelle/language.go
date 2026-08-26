@@ -333,9 +333,9 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 		},
 		// ts_pnpm and ts_add_package are macros generated at the workspace root
 		// when a pnpm-lock.yaml is detected. They wrap the hermetic pnpm binary.
-		// No attrs are managed by Gazelle beyond the name (the macros expand to
-		// sh_binary with sensible defaults). They are kept in Kinds so that
-		// Gazelle can recognise and merge them correctly.
+		// They are kept in Kinds so that Gazelle can recognise and merge them
+		// correctly; the only attr it manages is ts_add_package's pnpm_lock,
+		// which names the hub whose lockfile the target edits.
 		"ts_pnpm": {
 			MatchAny:       false,
 			MatchAttrs:     []string{"name"},
@@ -346,7 +346,7 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 			MatchAny:       false,
 			MatchAttrs:     []string{"name"},
 			NonEmptyAttrs:  map[string]bool{},
-			MergeableAttrs: map[string]bool{},
+			MergeableAttrs: map[string]bool{"pnpm_lock": true},
 		},
 	}
 }

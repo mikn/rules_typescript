@@ -349,3 +349,25 @@ ts_codegen(
 		t.Errorf("ts_codegen cleanup stubs = %v, want [route_tree]", emptied)
 	}
 }
+
+// The macro has no default hub, so a generated :add_package with no pnpm_lock
+// is a BUILD file that does not load.
+func TestGenerate_AddPackageNamesTheRootLockfile(t *testing.T) {
+	res := runGenerate(t, "", map[string]string{
+		"pnpm-lock.yaml": "lockfileVersion: '9.0'\n",
+		"index.ts":       "export const x = 1\n",
+	})
+
+	var addPackage *rule.Rule
+	for _, r := range res.Gen {
+		if r.Kind() == "ts_add_package" {
+			addPackage = r
+		}
+	}
+	if addPackage == nil {
+		t.Fatalf("no ts_add_package generated beside a root pnpm-lock.yaml; got %v", generatedNames(t, res))
+	}
+	if got := addPackage.AttrString("pnpm_lock"); got != "//:pnpm-lock.yaml" {
+		t.Errorf("pnpm_lock = %q, want %q", got, "//:pnpm-lock.yaml")
+	}
+}

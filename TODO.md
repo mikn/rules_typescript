@@ -88,51 +88,66 @@ to rediscover them. Each names the file to change.
   sent. Publishing for real stays a command a human or a release job runs -- it
   needs credentials, is not reproducible, and must not fire because the graph
   changed.
-  Also: `bazel coverage` cannot run a workers test. `coverageFlags` in
-  `tools/launcher/vitest.go` hardcodes `--coverage.provider v8`, which fails
-  inside workerd on `node:inspector/promises`. istanbul runs but reports
-  `All files | 0 | 0 | 0 | 0`, so a provider knob alone does not fix it -- the
-  instrumentation has to reach code executing in another runtime. No CI job runs
-  `bazel coverage`, so this is a limitation rather than a break.
-- **`ts_add_package` writes to the workspace root, not to a hub's directory.**
-  `bazel run //:add_package -- <pkg>` created a new `package.json` and
-  `pnpm-lock.yaml` at the repo root instead of touching
-  `//tests/npm`. `bazel run //:pnpm -- add <pkg> --lockfile-only --dir <dir>` is
-  the working form. The rule should take the hub directory.
+  Also: `bazel coverage` now reports real per-line coverage for code executing
+  inside workerd (`LH:4 LF:4` for `tests/workers/src/index.js`). The diagnosis
+  recorded here before -- that instrumentation had to reach another runtime and a
+  provider knob could not fix it -- was **wrong**. Two things were missing.
+  `test.coverage.allowExternal` must be set: under Bazel every file under test is
+  a build output whose realpath sits outside the vite root, so without it istanbul
+  instruments nothing and writes an empty report while the run stays green. That
+  is the `0 | 0 | 0 | 0` symptom, and removing the one line reproduces it on
+  demand. And istanbul's `SF:` path is an eleven-level escaping relative path that
+  `lcov_merger` passes through verbatim, so the report is not empty but wrong
+  until `RewriteLcov` resolves it against the run directory. `coverageFlags` no
+  longer hardcodes `--coverage.provider v8` (vitest defaults to v8 anyway), so a
+  provider set in a config layer survives; `ts_test` gained a `coverage_provider`
+  attr. Still true: no CI job runs `bazel coverage`.
+- **`ts_add_package` takes the hub whose lockfile it edits.** There is one
+  `//:add_package_<hub>` per `npm.translate_lock()`, each pinned to that hub's
+  `pnpm_lock`, because pnpm rewrites whichever lockfile it resolves against and
+  which hub is being edited belongs in the command a person types. It no longer
+  writes a `package.json` and `pnpm-lock.yaml` to the repository root. Remaining
+  hole: a user-supplied `--lockfile-dir` still escapes the pinned hub — the
+  wrapper appends `--dir` (last one wins) but constrains nothing else.
 - **`//tests/npm/pnpm-lock.yaml` is a curated fixture that `pnpm` regenerates
   destructively.** Its comments say what each entry proves, and it carries a
   workspace link, a non-root importer, and a hand-placed tarball-prefix package
   that nothing depends on. A `pnpm add` against it dropped that package and every
   comment. New third-party dependencies belong in their own hub (`npm_tailwind`,
   `npm_eslint`, `npm_workers`) unless they are testing the translator itself.
-- **`eslint-plugin/` and `tools/isolated-declarations-lint/` are two independent
-  implementations of the same plugin.** Different package names, licences and
-  vitest majors; both now build and test under Bazel. Which one survives is a
-  decision nobody has made.
-- **Two of the four Gazelle acceptance properties are hand-verified, not CI.**
-  `//tests/integration:gazelle_roundtrip_test` pins that the output builds and
-  that two from-scratch runs are byte-identical. It does **not** run `bazel test`
-  on what Gazelle wrote and does **not** compare the test-target set, so those two
-  are checked by hand on this tree and nowhere else. The test-set one is the
-  expensive omission: a run that *deletes* a test satisfies both CI properties —
-  that is how seven hand-written `go_test` targets went missing in an earlier
-  round. Until it is a job, the manual check is:
+- **The plugin licence is undecided, and the merge made it load-bearing.**
+  `tools/isolated-declarations-lint/` was merged into `eslint-plugin/` and
+  deleted. The surviving package declares `Apache-2.0`; the code ported into it
+  came from an `MIT`-declared package, and the repository's only licence file
+  (`/LICENSE`) is MIT. No Apache-2.0 text exists in the tree, and
+  `files: ["dist", "README.md"]` ships neither a licence nor a README (there is
+  no `eslint-plugin/README.md`). Pick one licence, add the matching text, and put
+  it in `files` before publishing.
+- **The Gazelle test-set property is now a CI step, with one gap.**
+  `tools/ci/check_test_sources.sh` asserts every tracked test source on disk is
+  named in some test target's `srcs`, in one loading-phase query (~1.5s, folded
+  into the existing `test` job). It is anchored to something Gazelle does not
+  write, which is why a run that *deletes* a test target cannot satisfy it — the
+  failure mode that lost seven `go_test` targets in an earlier round. Verified
+  red by deleting a `go_test` and a `ts_test` block, then restored.
+  The gap: `tests(//...)` counts `manual`-tagged targets, so the check proves a
+  file is *claimed*, not that `bazel test //...` executes it — a regression that
+  merely tags a test `manual` stays green. Tightening it would go red today on
+  `//tests/vitest/environment:{edge,jsdom}_test`, which are deliberately manual.
+  Two properties are still hand-verified: `bazel test` on what Gazelle wrote, and
+  the roundtrip test's comparison is scoped to a synthetic 3-package child
+  workspace with no Go.
 
-  ```bash
-  bazel query 'tests(//...)' | sort > /tmp/before
-  bazel run //gazelle && bazel query 'tests(//...)' | sort | diff /tmp/before -
-  bazel build //... && bazel test //...
-  ```
-
-- **Gazelle logs `paths entry "…" has 2 targets; using only "…" (first)` on every
-  run, and the discard is real.** `loadTsConfigPaths` in `gazelle/config.go` takes
-  `paths[pattern][0]` and drops the rest of the fallback chain. On this tree all
-  70 lines are the `./bazel-bin/…` mirror that `ts_refresh_tsconfig` writes beside
-  each source entry, so nothing resolvable is lost here and the log is pure noise
-  (`bazel run //gazelle -- -mode=diff 2>&1 | grep -c 'paths entry'`); a consumer
-  whose `tsconfig.json` has a genuine fallback chain loses every entry but the
-  first, silently. Either resolve against the whole list or say which entry was
-  ignored and why.
+- **A `paths` fallback chain resolves against the filesystem, which makes
+  Gazelle's output depend on tree state.** `pickAliasTarget` in
+  `gazelle/config.go` discards entries under the `bazel-*` symlinks and under a
+  tool-managed dot-directory, then takes the first of the rest that exists on
+  disk. So an alias listing a codegen-produced directory ahead of a checked-in
+  one can generate different BUILD content on a fresh clone than on a built tree.
+  Name one directory per alias where that matters. Two cases log: two real
+  directories (one is ignored), and no usable entry at all (no alias emitted —
+  which used to be `ts_compile`'s analysis-time error and would otherwise have
+  become a silent missing dep edge). The ~74 noise lines per run are gone.
 - **Inside this repository Gazelle emits `load("@rules_typescript//ts:defs.bzl",
   …)`,** the external label, which resolves through the module's self-mapping but
   is not what a maintainer writes by hand — so BUILD files here carry both forms.
@@ -148,6 +163,43 @@ to rediscover them. Each names the file to change.
   (`node:sqlite`, `node:test`) would have Gazelle write an `@npm//:…` label that
   does not exist. `tests/strict_deps/builtins.ts` pins the common case only. Two
   recognisers of one thing; see AGENTS.md.
+- **The consumer audit found no conflict to absorb, so nothing was absorbed.**
+  A tree with 16 `ts_compile` targets across 11 packages has **3** multi-target
+  packages and **0** conflicts — not one target sets any compiler option at all,
+  and Gazelle never emits an options attr, so a same-package conflict can only be
+  hand-authored. (The ruleset's own tree: 33 multi-target packages, 0 conflicts.)
+  Two defects found while reading the mechanism *were* worth fixing and are:
+  option values are canonicalised before comparison (TypeScript reads `target`,
+  `module`, `moduleResolution`, `jsx`, `moduleDetection`, `newLine` and `lib`
+  case-insensitively, and `lib` as a set — `"ES2022"` vs `"es2022"` was a hard
+  error), and `target`/`jsx_mode` now reach the editor. Those two stay rule attrs
+  and never appear in `compiler_options_json`, so a package compiled as `es2017`
+  or `jsx_mode = "preserve"` was silently checked against the root's
+  ES2022/react-jsx — exactly the divergence nested configs exist to end. Pinned by
+  `//tests/compiler_options/es_target`. Both sides of the equality have to be
+  canonical: canonicalising only the group's side gives every package a file it
+  does not need.
+- **Differing `extends` merge silently; differing keys are an error.**
+  `_nested_configs` unions `group.extends` into an array while a same-key
+  disagreement fails analysis. `vite/tsconfig.json` shows the effect —
+  `extends: ["../tsconfig.json", "./vite.tsconfig.json"]` over an include list
+  containing a file whose target does not extend that baseline in the build. Same
+  guarantee, opposite treatment. Either conflict-check non-equal non-empty
+  extends sets the way keys are checked, or document that baselines merge.
+- **The nested-config grouping path has no test.** Neither the `fail()` on a
+  same-package conflict nor the merging in `_nested_configs` is covered;
+  `tests/lsp/ide_tsconfig_tests.bzl` covers ambient types and module paths only.
+  An `analysistest` with `expect_failure` on a two-target fixture would pin it —
+  the fixture must not be tagged `manual`, since `_option_group` skips those.
+- **Nested configs are emitted per package, not per source directory.**
+  `dest = group.package + "/tsconfig.json"`. Where a package's targets have
+  disjoint source directories, emitting at the deepest common source directory
+  would give each its own program and dissolve that class of conflict, since
+  tsserver walks up from the file and does not care about package boundaries.
+  Where targets share a directory there is genuinely no representation and the
+  error is right. Blocked on that `dest` and on `ts_refresh_tsconfig`'s per-nested
+  `diff_test`, which assumes a nested config's directory is itself a Bazel
+  package. Not worth building until a real conflict exists.
 - **`_short_digest` is Java's `String.hashCode` masked to 32 bits.** Two peer
   suffixes agreeing on their first 40 sanitised characters *and* colliding on
   that hash merge into one repository, and now also one store directory. A

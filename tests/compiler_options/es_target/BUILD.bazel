@@ -1,0 +1,21 @@
+"""target and jsx_mode are rule attrs, and the editor still has to see them."""
+
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "ts_compile")
+
+package(default_visibility = ["//:__pkg__"])
+
+ts_compile(
+    name = "legacy",
+    srcs = ["legacy.ts"],
+    jsx_mode = "preserve",
+    target = "es2017",
+)
+
+build_test(
+    name = "es_target_test",
+    targets = [":legacy"],
+)
+
+# The generated editor program for this package; see //:refresh_tsconfig.
+exports_files(["tsconfig.json"])

@@ -72,6 +72,7 @@ ts_refresh_tsconfig(
         "tests/compiler_options/ambient/tsconfig.json",
         "tests/compiler_options/analysis/tsconfig.json",
         "tests/compiler_options/baseline/tsconfig.json",
+        "tests/compiler_options/es_target/tsconfig.json",
         "tests/compiler_options/js_sources/tsconfig.json",
         "tests/compiler_options/jsx/tsconfig.json",
         "tests/compiler_options/worker/tsconfig.json",
@@ -140,6 +141,7 @@ ts_refresh_tsconfig(
         "//tests/synthetic/pkg_17",
         "//tests/synthetic/pkg_18",
         "//tests/synthetic/pkg_19",
+        "//tests/compiler_options/es_target:legacy",
         "//tests/tailwind:entry",
         "//tests/workers:worker",
         "//tests/workers:_worker_test_compile",
@@ -167,8 +169,6 @@ ts_refresh_tsconfig(
         "//tests/vitest/setup_files:media",
         "//tests/vitest/workspace:_project_test_compile",
         "//tests/vitest/workspace:styles",
-        "//tools/isolated-declarations-lint/src",
-        "//tools/isolated-declarations-lint/src:_src_test_compile",
         "//vite:plugin_typecheck",
         "//vite:tsup_config",
     ],
@@ -178,11 +178,36 @@ ts_refresh_tsconfig(
 # Run pnpm commands without needing a system-level pnpm installation.
 #
 #   bazel run //:pnpm -- --version
-#   bazel run //:pnpm -- add zod --lockfile-only
-#   bazel run //:add_package -- zod
+#   bazel run //:pnpm -- add zod --lockfile-only --dir tests/tailwind
+#   bazel run //:add_package_tailwind -- zod
 #
-# :add_package automatically appends --lockfile-only so pnpm-lock.yaml is
-# updated without creating a node_modules directory.
+# One :add_package_* per hub, each pinned to the lockfile its
+# npm.translate_lock() in MODULE.bazel reads: pnpm rewrites whichever lockfile
+# it resolves against, so which hub is being edited belongs in the command a
+# person types, not in a default they cannot see. Each appends --lockfile-only,
+# so no node_modules tree is created.
 ts_pnpm(name = "pnpm")
 
-ts_add_package(name = "add_package")
+# @npm. Its lockfile is a curated fixture -- comments, a workspace link, a
+# non-root importer and a tarball-prefix package nothing depends on, none of
+# which survive a `pnpm add`. New third-party dependencies belong in one of the
+# hubs below unless they exist to test the translator itself.
+ts_add_package(
+    name = "add_package_npm",
+    pnpm_lock = "//tests/npm:pnpm-lock.yaml",
+)
+
+ts_add_package(
+    name = "add_package_eslint",
+    pnpm_lock = "//tests/eslint:pnpm-lock.yaml",
+)
+
+ts_add_package(
+    name = "add_package_tailwind",
+    pnpm_lock = "//tests/tailwind:pnpm-lock.yaml",
+)
+
+ts_add_package(
+    name = "add_package_workers",
+    pnpm_lock = "//tests/workers:pnpm-lock.yaml",
+)

@@ -59,4 +59,7 @@ next_build(
 
 ts_pnpm(name = "pnpm")
 
-ts_add_package(name = "add_package")
+ts_add_package(
+    name = "add_package",
+    pnpm_lock = "//:pnpm-lock.yaml",
+)

@@ -273,10 +273,46 @@ func TestPlanVitestWritesEmptyCoverageWhenVitestProducedNone(t *testing.T) {
 
 func TestRewriteLcovOnlyTouchesSourceFileLines(t *testing.T) {
 	in := []byte("SF:_main/a.js\nFN:1,_main/x\nSF:_mainless/b.js\n")
-	got := string(RewriteLcov(in, "_main"))
+	got := string(RewriteLcov(in, "_main", ""))
 	want := "SF:a.js\nFN:1,_main/x\nSF:_mainless/b.js\n"
 	if got != want {
 		t.Errorf("RewriteLcov = %q, want %q", got, want)
+	}
+}
+
+func TestRewriteLcovResolvesBuildOutputsReportedFromOutsideTheRoot(t *testing.T) {
+	runDir := "/w/execroot/_main/bazel-out/k8-fastbuild/bin/tests/workers/t.runfiles"
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{{
+		name: "escaping relative, as istanbul writes an out-of-root module",
+		in:   "SF:../../../../../execroot/_main/bazel-out/k8-fastbuild/bin/tests/workers/src/index.js\n",
+		want: "SF:tests/workers/src/index.js\n",
+	}, {
+		name: "absolute",
+		in:   "SF:/w/execroot/_main/bazel-out/k8-fastbuild/bin/tests/workers/src/index.js\n",
+		want: "SF:tests/workers/src/index.js\n",
+	}, {
+		name: "a path with no bazel-out in it is left alone",
+		in:   "SF:/home/me/src/tests/workers/src/index.js\n",
+		want: "SF:/home/me/src/tests/workers/src/index.js\n",
+	}, {
+		name: "a relative path staying inside the runfiles tree is left alone",
+		in:   "SF:_other/x.js\n",
+		want: "SF:_other/x.js\n",
+	}, {
+		name: "a runfiles path keeps the repository-prefix rule",
+		in:   "SF:_main/tests/vitest/math.js\n",
+		want: "SF:tests/vitest/math.js\n",
+	}}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := string(RewriteLcov([]byte(tc.in), "_main", runDir)); got != tc.want {
+				t.Errorf("RewriteLcov = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 

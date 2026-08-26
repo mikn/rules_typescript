@@ -99,7 +99,7 @@ func planVitest(cfg *Config, r *Resolver, plan *Plan) (*Plan, error) {
 	}
 	plan.Argv = append(append(argv, flags...), files...)
 	plan.UseExec = false
-	plan.PostRun = writeCoverage(cfg.Workspace)
+	plan.PostRun = writeCoverage(cfg.Workspace, plan.Dir)
 	return plan, nil
 }
 
@@ -237,18 +237,17 @@ func coverageFlags(coverageAttr bool) []string {
 		_ = os.MkdirAll(dir, 0o755)
 		return []string{
 			"--coverage.enabled", "true",
-			"--coverage.provider", "v8",
 			"--coverage.reporter", "lcov",
 			"--coverage.reportsDirectory", dir,
 		}
 	}
 	if coverageAttr && os.Getenv("COVERAGE_ENABLED") == "true" {
-		return []string{"--coverage.enabled", "true", "--coverage.provider", "v8"}
+		return []string{"--coverage.enabled", "true"}
 	}
 	return nil
 }
 
-func writeCoverage(workspace string) func(int) error {
+func writeCoverage(workspace, runDir string) func(int) error {
 	out := os.Getenv("COVERAGE_OUTPUT_FILE")
 	if out == "" {
 		return nil
@@ -258,22 +257,49 @@ func writeCoverage(workspace string) func(int) error {
 		if err != nil {
 			return os.WriteFile(out, nil, 0o644)
 		}
-		return os.WriteFile(out, RewriteLcov(data, workspace), 0o644)
+		return os.WriteFile(out, RewriteLcov(data, workspace, runDir), 0o644)
 	}
 }
 
-// RewriteLcov strips the repository prefix vitest reports, which Bazel's
-// lcov_merger expects to be absent.
-func RewriteLcov(data []byte, workspace string) []byte {
-	if workspace == "" {
-		return data
-	}
+// RewriteLcov turns the source paths vitest reports into the workspace-relative
+// ones Bazel's lcov_merger expects.
+func RewriteLcov(data []byte, workspace, runDir string) []byte {
 	prefix := "SF:" + workspace + "/"
 	lines := strings.Split(string(data), "\n")
 	for i, line := range lines {
-		if strings.HasPrefix(line, prefix) {
+		rest, isSF := strings.CutPrefix(line, "SF:")
+		if !isSF {
+			continue
+		}
+		if workspace != "" && strings.HasPrefix(line, prefix) {
 			lines[i] = "SF:" + strings.TrimPrefix(line, prefix)
+			continue
+		}
+		if p, ok := packagePathUnderBazelOut(rest, runDir); ok {
+			lines[i] = "SF:" + p
 		}
 	}
 	return []byte(strings.Join(lines, "\n"))
+}
+
+// packagePathUnderBazelOut recovers the package path of a build output named
+// from outside the vite root, which is how istanbul reports a module a pool
+// resolved through its execroot realpath rather than its runfiles symlink.
+func packagePathUnderBazelOut(p, runDir string) (string, bool) {
+	if !filepath.IsAbs(p) {
+		if runDir == "" {
+			return "", false
+		}
+		p = filepath.Join(runDir, p)
+	}
+	p = filepath.ToSlash(filepath.Clean(p))
+	i := strings.LastIndex(p, "/bazel-out/")
+	if i < 0 {
+		return "", false
+	}
+	parts := strings.SplitN(p[i+len("/bazel-out/"):], "/", 3)
+	if len(parts) != 3 || parts[1] != "bin" || strings.Contains(parts[2], ".runfiles/") {
+		return "", false
+	}
+	return parts[2], true
 }

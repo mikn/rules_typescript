@@ -331,6 +331,7 @@ def _vitest_config_content(
         globals_enabled,
         reporters,
         coverage_thresholds,
+        coverage_provider,
         snapshot_bases = {},
         snapshot_root = "",
         test_include = [],
@@ -380,9 +381,13 @@ def _vitest_config_content(
         # lexical path is a second module identity for the same file, so a
         # workers config sets resolve.preserveSymlinks = false and the user layer
         # wins. See //tests/workers:vitest.workers.config.mjs.
+
+        # A file under test is a build output, so its realpath lies outside the
+        # vite root -- which the coverage default drops before instrumenting.
         "const bazelLayer = {",
         "  resolve: { preserveSymlinks: true },",
         "  plugins: [{}],".format(", ".join(base_plugins)),
+        "  test: { coverage: { allowExternal: true } },",
         "};",
     ]
 
@@ -406,12 +411,17 @@ def _vitest_config_content(
         test_overrides.append("  globals: true,")
     if reporters:
         test_overrides.append("  reporters: {},".format(_js(reporters)))
+    coverage_keys = []
+    if coverage_provider:
+        coverage_keys.append("provider: {}".format(_js(coverage_provider)))
     if coverage_thresholds:
         thresholds = ", ".join([
             "{}: {}".format(_js(k), _js_scalar(coverage_thresholds[k]))
             for k in sorted(coverage_thresholds)
         ])
-        test_overrides.append("  coverage: {{ thresholds: {{ {} }} }},".format(thresholds))
+        coverage_keys.append("thresholds: {{ {} }}".format(thresholds))
+    if coverage_keys:
+        test_overrides.append("  coverage: {{ {} }},".format(", ".join(coverage_keys)))
 
     if test_overrides:
         lines.append("const attrLayer = {\n test: {\n" + "\n".join(test_overrides) + "\n } };")
@@ -586,6 +596,7 @@ def _ts_test_runner_impl(ctx):
             globals_enabled = ctx.attr.globals,
             reporters = ctx.attr.reporters,
             coverage_thresholds = ctx.attr.coverage_thresholds,
+            coverage_provider = ctx.attr.coverage_provider,
             snapshot_bases = _snapshot_bases(ctx.files.srcs),
             snapshot_root = ctx.workspace_name,
             test_include = [
@@ -726,7 +737,8 @@ _RUNNER_ATTRS = {
               "Coverage during `bazel coverage` is always enabled regardless " +
               "of this attr — `bazel coverage //path:test` works on every " +
               "ts_test target without any opt-in.  " +
-              "Requires @vitest/coverage-v8 to be present in node_modules.",
+              "Requires the @vitest/coverage-* package matching " +
+              "`coverage_provider` to be present in node_modules.",
         default = False,
     ),
     "config": attr.label(
@@ -786,6 +798,16 @@ _RUNNER_ATTRS = {
               "like numbers or booleans are emitted as such.  Only enforced when " +
               "coverage runs: `bazel coverage`, or `bazel test` with " +
               "coverage = True.",
+    ),
+    "coverage_provider": attr.string(
+        doc = "Vitest coverage provider (test.coverage.provider): \"v8\" (vitest's " +
+              "own default) or \"istanbul\".  The matching @vitest/coverage-* " +
+              "package must be in the target's deps.  A test whose pool runs in " +
+              "a second runtime needs \"istanbul\", which instruments at " +
+              "transform time; v8 reads counters out of node's inspector, which " +
+              "such a runtime does not have.",
+        default = "",
+        values = ["", "v8", "istanbul"],
     ),
     "update_snapshots": attr.bool(
         doc = "Internal: when True this runner writes snapshots (passes --update). " +
@@ -891,6 +913,7 @@ def ts_test(
         globals = False,
         reporters = [],
         coverage_thresholds = {},
+        coverage_provider = "",
         snapshots = [],
         update_snapshots = False):
     """Compiles TypeScript test files and runs them with vitest.
@@ -990,6 +1013,12 @@ def ts_test(
                            {"lines": "80"}.  Enforced only when coverage runs
                            (`bazel coverage`, or `bazel test` with
                            coverage = True).
+        coverage_provider: Vitest coverage provider, "v8" (vitest's default) or
+                           "istanbul".  A pool that runs the tests in a second
+                           runtime needs "istanbul": v8 coverage is read out of
+                           node's inspector, which that runtime does not have.
+                           The matching @vitest/coverage-* package must be in
+                           deps.
         snapshots:         Checked-in vitest snapshot files
                            (`glob(["__snapshots__/*.snap"])`). Listing them is
                            what makes them readable inside the test sandbox,
@@ -1102,6 +1131,7 @@ def ts_test(
         "environment": environment,
         "coverage": coverage,
         "coverage_thresholds": coverage_thresholds,
+        "coverage_provider": coverage_provider,
         "data": data,
         "global_setup": global_setup_labels,
         "globals": globals,

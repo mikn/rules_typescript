@@ -22,6 +22,15 @@ jobs:
         with:
           bazelisk-version: 1.x
 
+      # `bazel test //...` and a byte-identical Gazelle rerun are both satisfied
+      # by a Gazelle run that deletes a test target, so neither notices a
+      # hand-written rule going missing. This runs before them because it is a
+      # loading-phase query the next step pays for anyway, and it names the
+      # cause when a test simply stops existing.
+      - name: Every test source file is claimed by a test target
+        if: matrix.os == 'ubuntu-latest'
+        run: tools/ci/check_test_sources.sh
+
       # --config=ci is defined in .bazelrc. It expands --config=fast, which
       # drops the exclusive nested-Bazel targets: those run once, on ubuntu, in
       # the integration-tests job. Unfiltered they would run three times per
