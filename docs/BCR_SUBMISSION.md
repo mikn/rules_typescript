@@ -35,7 +35,7 @@ Release versions follow semantic versioning: `X.Y.Z`
 
 ```bash
 # Set version variable
-VERSION="0.1.0"
+VERSION="0.2.0"
 
 # Create and push the tag by hand
 git tag -a "v${VERSION}" -m "rules_typescript ${VERSION}"
@@ -388,7 +388,7 @@ toolchain in rules_typescript uses Python.
 Recalculate the correct hash:
 
 ```bash
-VERSION="0.1.0"
+VERSION="0.2.0"
 TARBALL="rules_typescript-${VERSION}.tar.gz"
 
 # Download from GitHub release
