@@ -1,6 +1,8 @@
 # Monorepo Layout
 
-`rules_typescript` is designed for monorepos. The recommended layout:
+`bazel run //:gazelle` infers the targets from the tree, so the layout is the
+configuration. Every directory holding `.ts` files becomes a `ts_compile` target,
+every test file a `ts_test`:
 
 ```
 my-monorepo/
@@ -99,16 +101,6 @@ producing target; the dependent then gets a `paths` entry pointing at whatever
 and the second is now a hard error. See
 [ts_compile](../rules/ts-compile.md#importing-another-target-by-bare-specifier).
 
-## Using Gazelle
-
-Run Gazelle once to generate BUILD files for the entire monorepo:
-
-```bash
-bazel run //:gazelle
-```
-
-Gazelle creates `ts_compile` targets for every directory with TypeScript files, resolves import paths to Bazel labels, and generates `ts_test` targets for test files. After adding new source files or packages, re-run Gazelle to update BUILD files.
-
 ## Single pnpm Lockfile
 
 Use a single `pnpm-lock.yaml` at the repo root covering all packages, and one
@@ -119,6 +111,13 @@ actually reach. A 2731-entry lockfile does not make a one-package build slow.
 
 pnpm workspaces work: a `workspace:*` dependency resolves to the target in your
 own repository rather than to a download.
+
+Several hubs are supported and are the exception, not the layout to start from:
+reach for one when a closure has no business in the tree your app's tests resolve
+against, or when a lockfile is a curated fixture no `pnpm add` should regenerate.
+The cost is two lockfiles to keep in step, a Gazelle directive per package, and
+one `ts_add_package` target per hub —
+[More than one hub](npm.md#more-than-one-hub).
 
 ## Visibility
 

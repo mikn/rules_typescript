@@ -67,6 +67,21 @@ where the generated config lands. `npm_dir` (default `".bazel/npm"`) is where
 the npm declarations land; `npm_dir = ""` opts out, dropping the npm `paths`
 entries and their files for a workspace that resolves npm types some other way.
 
+!!! warning "It replaces the file at `tsconfig` wholesale"
+    A migrating repository already has a root `tsconfig.json`, and the first
+    `bazel run //:refresh_tsconfig` overwrites it — `include`, `baseUrl`,
+    `module` and every other option in it, not only `paths`. The generated file
+    is a complete config, and it carries nothing over from yours.
+
+    Move your own options before that first run: keep them in a file of another
+    name and name that in `ts_compile(tsconfig = ...)`, which is what the compile
+    actions read
+    ([where compiler options come from](../rules/ts-compile.md#where-compiler-options-come-from)).
+    Pointing `ts_compile` at the generated file instead makes it its own
+    baseline. Or move the generated one aside —
+    `ts_refresh_tsconfig(tsconfig = "tsconfig.bazel.json")` — and `extends` it
+    from yours.
+
 ### Keeping foreign TypeScript out of the program
 
 The generated config sets `include: ["**/*"]`, so `tsc` walks every `.ts` in the
@@ -108,6 +123,23 @@ ts_refresh_tsconfig(
     deps = ["//apps/web", "//apps/worker"],
 )
 ```
+
+Which packages need one is decided by comparing what each target sets against
+the root block, and two details decide the verdict:
+
+- **`target` and `jsx_mode` count.** They are rule attributes rather than
+  `compiler_options` entries, so they used to be invisible here — and the editor
+  then checked an `es2017` or `preserve`-JSX target against the root's `ES2022`
+  and `react-jsx`, which is exactly the divergence a nested config exists to end.
+  A target setting either to something other than the root's value now puts its
+  package on the list.
+- **Values are canonicalised before they are compared.** TypeScript reads
+  `target`, `module`, `moduleResolution`, `jsx`, `moduleDetection` and `newLine`
+  case-insensitively and treats `lib` as a set, so `"Preserve"` and `"preserve"`
+  are not a disagreement and neither is `["esnext", "dom"]` against
+  `["DOM", "ESNext"]`. Both sides of every comparison are folded, which is what
+  keeps a package that merely restates a default off the list — and what keeps two
+  targets spelling one value differently from reading as a conflict.
 
 The rule **fails when that list disagrees with the graph**, in either direction,
 and the message names what to add or remove. It cannot discover the list itself:

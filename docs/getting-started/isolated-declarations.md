@@ -130,11 +130,12 @@ cd path/to/rules_typescript/eslint-plugin
 npm install
 npm run build   # tsup -> dist/
 npm pack
-# produces rules_typescript-eslint-plugin-isolated-declarations-0.1.0.tgz
+# produces rules_typescript-eslint-plugin-isolated-declarations-<version>.tgz,
+# where <version> is the `version` in eslint-plugin/package.json
 
 # In your project:
 npm install --save-dev \
-  path/to/rules_typescript/eslint-plugin/rules_typescript-eslint-plugin-isolated-declarations-0.1.0.tgz \
+  path/to/rules_typescript/eslint-plugin/rules_typescript-eslint-plugin-isolated-declarations-0.2.0.tgz \
   @typescript-eslint/parser \
   eslint
 ```

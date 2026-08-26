@@ -76,9 +76,6 @@ def _ts_lint_impl(ctx):
             "Example: srcs = [\"index.ts\", \"utils.ts\"]",
         )
 
-    # Resolve the linter binary.  Both ctx.executable.linter_binary and the
-    # default oxlint/eslint targets use the same attribute; the rule defaults
-    # differ based on `linter`.
     linter_bin = ctx.executable.linter_binary
 
     # Config file is optional — pass --config only when provided.

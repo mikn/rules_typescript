@@ -161,11 +161,13 @@ gazelle(
 )
 ```
 
-**Step 6.** Write your TypeScript files. Explicit return types are optional — tsgo emits the declarations from the full type program:
+**Step 6.** Write your TypeScript files. Explicit return types are optional —
+tsgo emits the declarations from the full type program, so an inferred one is
+fine:
 
 ```typescript
 // src/lib/math.ts
-export function add(a: number, b: number): number {
+export function add(a: number, b: number) {
   return a + b;
 }
 ```
@@ -182,13 +184,61 @@ bazel run //:gazelle
 bazel build //...
 ```
 
-**Step 9.** Run tests:
+Each `ts_compile` target Gazelle generates produces `.js`, `.js.map`, and `.d.ts`
+outputs per source file — `bazel-bin/src/lib/math.js`, `math.js.map` and
+`math.d.ts` for the file above.
 
-```bash
-bazel test //...
+**Step 9.** Run tests — once there is one. A project with no `*.test.ts` yet has
+no test target, and Bazel treats that as an error rather than a no-op:
+
+```
+$ bazel test //...
+INFO: Found 2 targets and 0 test targets...
+ERROR: No test targets were found, yet testing was requested
 ```
 
-Each `ts_compile` target Gazelle generates produces `.js`, `.js.map`, and `.d.ts` outputs per source file.
+That is Bazel's exit code 4, not a broken setup. Writing the first test needs
+vitest, which comes from your lockfile rather than from the ruleset, so it needs
+the npm setup below first:
+
+```bash
+pnpm init
+pnpm add vitest --lockfile-only
+```
+
+```python
+# MODULE.bazel — add to what Step 3 wrote
+npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
+npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
+use_repo(npm, "npm", "pnpm")
+```
+
+`"pnpm"` is not optional: Gazelle writes a `ts_pnpm` and a `ts_add_package`
+target into your root `BUILD.bazel` as soon as a `pnpm-lock.yaml` exists, and
+both name `@pnpm`. Leave it out and `bazel build //...` aborts with
+`No repository visible as '@pnpm' from main repository`
+([why](../guides/npm.md#setup)).
+
+Then write the test beside the source, re-run Gazelle, and test:
+
+```typescript
+// src/lib/math.test.ts
+import { expect, it } from "vitest";
+
+import { add } from "./math";
+
+it("adds", () => {
+  expect(add(2, 3)).toBe(5);
+});
+```
+
+```bash
+bazel run //:gazelle    # writes ts_test(name = "lib_test", ...)
+bazel test //...        # //src/lib:lib_test  PASSED
+```
+
+The full story — DOM environments, coverage, snapshots, sharding — is in
+[Testing with vitest](../guides/testing.md).
 
 ---
 
@@ -210,13 +260,33 @@ gazelle(
 Most existing TypeScript projects do not annotate every export, and that is
 fine: the `ts_compile` default emits declarations with tsgo, which infers them.
 
-**Step 3.** Run Gazelle:
+**Step 3.** Wire up your `pnpm-lock.yaml`. Do this *before* the first build:
+Gazelle resolves every bare import in your sources to an `@npm//:…` label, so a
+project with any npm dependency at all fails analysis with
+`No repository visible as '@npm' from main repository` until the hub exists.
+
+```python
+# MODULE.bazel
+npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
+npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
+use_repo(npm, "npm", "pnpm")
+```
+
+Both names are needed. `@npm` is the alias hub your `deps` labels spell; `@pnpm`
+backs the `ts_pnpm` and `ts_add_package` targets Gazelle writes into your root
+`BUILD.bazel` the moment it sees a lockfile. Details, including private
+registries and patched dependencies:
+[npm Dependencies](../guides/npm.md).
+
+No `pnpm install` is needed, then or later — the lockfile is the only npm input.
+
+**Step 4.** Run Gazelle:
 
 ```bash
 bazel run //:gazelle
 ```
 
-**Step 4.** Build everything:
+**Step 5.** Build everything:
 
 ```bash
 bazel build //...
@@ -226,7 +296,45 @@ If there are type errors, fix them — real type errors fail the build, because
 the `.d.ts` are outputs of the type-checker. You will not see "missing return
 type" errors: those only apply to `declarations = "oxc"`.
 
-**Step 5.** Optional. Once a package's exports are all annotated, move it to
+!!! warning "A `compilerOptions.paths` alias that crosses a target boundary"
+    Gazelle reads `compilerOptions.paths` out of your `tsconfig.json` and writes
+    a matching `path_aliases` attr on the targets whose imports go through it.
+    `ts_compile` accepts an alias only when it resolves to files *that target*
+    stages, so the near-universal `"@/*": ["src/*"]` — where `@/lib/math` is
+    produced by another package — fails at analysis:
+
+    ```
+    ts_compile: path_aliases["@/"] on @@//src/app:app points at "./src/", where
+    none of this target's inputs live.
+    ```
+
+    Cross-package imports are `module_name`'s job, not `path_aliases`'. Set it on
+    the producing target and drop the alias from the consumer — with a `# keep`
+    above the rule, because Gazelle re-derives the attr from `tsconfig.json` on
+    every run:
+
+    ```python
+    # src/lib/BUILD.bazel
+    ts_compile(
+        name = "lib",
+        srcs = ["math.ts"],
+        module_name = "@/lib",
+        visibility = ["//visibility:public"],
+    )
+
+    # src/app/BUILD.bazel
+    # keep
+    ts_compile(
+        name = "app",
+        srcs = ["main.ts"],
+        deps = ["//src/lib"],
+    )
+    ```
+
+    Your sources and your editor keep importing `@/lib/math` unchanged. See
+    [importing another target by bare specifier](../rules/ts-compile.md#importing-another-target-by-bare-specifier).
+
+**Step 6.** Optional. Once a package's exports are all annotated, move it to
 Oxc's syntactic declaration emit to take type-checking off the critical path.
 See [Isolated Declarations](isolated-declarations.md).
 
@@ -256,4 +364,4 @@ Keep `name = "nodejs"`. `rules_nodejs` keeps the root module's registration of
 that name and ignores every other module's, so your version wins over the one
 `rules_typescript` asks for — and `rules_typescript`'s toolchains resolve the
 repositories that name generates (`nodejs_linux_amd64` and friends). Under any
-other name your registration is simply unused.
+other name your registration is unused, with nothing reporting it.

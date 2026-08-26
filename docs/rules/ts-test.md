@@ -62,13 +62,13 @@ that layers four sources, lowest precedence first:
 
 | Layer | Contents | Applies to workspace projects too? |
 |-------|----------|---|
-| 1. Bazel | `resolve.preserveSymlinks`, `test.coverage.allowExternal`, and the CSS-module mock plugin when a dep provides `CssModuleInfo` | yes |
+| 1. Bazel | `resolve.preserveSymlinks`, `test.coverage.allowExternal`, and the CSS-module plugin when a dep provides `CssModuleInfo` | yes |
 | 2. user | the `config` attr — a config file or an inline dict | it *is* the projects |
 | 3. attributes | `environment`, `setup_files`, `global_setup`, `globals`, `reporters`, `coverage_thresholds`, `coverage_provider` | yes |
 | 4. snapshots | `test.resolveSnapshotPath`, and in update mode `test.dir`, `test.include` and `cacheDir` | no — root only |
 
 Objects merge key by key; arrays concatenate base-first, matching vite's own
-`mergeConfig`. So a user `plugins` list never displaces the CSS-module mock, and
+`mergeConfig`. So a user `plugins` list never displaces the CSS-module plugin, and
 a user `setupFiles` list never displaces `setup_files` — the attribute's entries
 run after the config's. Scalars from a later layer win, which is why
 `environment` overrides an environment set inside `config`.

@@ -5,33 +5,30 @@
 `ts_bundle` requires a `bundler`: there is no bundler-less mode, because an
 artifact that only looks like a bundle is worse than a build error.
 
-## Basic Usage (No Bundling)
-
-`ts_binary` without a `bundler` runs the entry point `.js` directly — nothing is bundled.
-
-```python
-load("@rules_typescript//ts:defs.bzl", "ts_binary")
-
-ts_binary(
-    name = "app",
-    entry_point = "//src/app",
-)
-```
-
-```bash
-bazel run //:app
-```
+A Cloudflare Worker is bundled by wrangler rather than here — see
+[ts_worker_dry_run](../rules/ts-worker-dry-run.md) for building one and checking
+that it still deploys, and
+[Testing § Cloudflare Workers](testing.md#cloudflare-workers) for running its
+tests inside workerd.
 
 ## With Vite
 
+Declare the three targets at the **workspace root** — the location is
+load-bearing, for the reason in
+[where the bundler's tree has to sit](#where-the-bundlers-node_modules-has-to-sit):
+
 ```python
+# BUILD.bazel, at the workspace root
 load("@rules_typescript//vite:bundler.bzl", "vite_bundler")
 load("@rules_typescript//npm:defs.bzl", "node_modules")
 load("@rules_typescript//ts:defs.bzl", "ts_bundle")
 
 node_modules(
     name = "node_modules",
-    deps = ["@npm//:vite"],
+    deps = [
+        "@npm//:vite",
+        "@npm//:zod",
+    ],
 )
 
 vite_bundler(
@@ -49,6 +46,49 @@ ts_bundle(
     minify = True,
     external = ["react", "react-dom"],
 )
+```
+
+### Where the bundler's `node_modules` has to sit
+
+That tree supplies Vite *and* every npm package anything in the bundled graph
+imports; a `ts_compile` dep does not carry its own npm packages into it. A
+package missing from the tree fails the build, naming the file that imported it:
+
+```
+Error: [vite]: Rolldown failed to resolve import "zod" from
+"…/bazel-out/k8-fastbuild/bin/src/lib/math.js".
+```
+
+Adding the package to the tree is necessary and not sufficient. The tree is
+materialised at the target's own name under the **bundler's** package in
+`bazel-bin`, and rolldown resolves a bare specifier by Node's walk-up *from the
+importer* — so the tree has to sit in a directory that is an ancestor of every
+compiled `.js` that imports one. A bundle in `//bundle` cannot serve
+`bin/src/lib/math.js`, and neither can one in `//src/app` when the import is in
+`//src/lib`; a tree at the workspace root serves the whole repository. So a
+per-app bundle target works only when its package sits above all the code it
+bundles, and the root is the answer that always does.
+
+`external` is the other way out, for a specifier you deliberately want left as an
+import for whoever consumes the bundle.
+
+## Running the entry point instead
+
+`ts_binary` with no `bundler` runs the entry point's own `.js` on the JS runtime,
+with the transitive `.js` in its runfiles. Nothing is bundled and nothing is
+concatenated — the imports resolve as written.
+
+```python
+load("@rules_typescript//ts:defs.bzl", "ts_binary")
+
+ts_binary(
+    name = "app",
+    entry_point = "//src/app",
+)
+```
+
+```bash
+bazel run //:app
 ```
 
 ## Chunk splitting
@@ -132,6 +172,18 @@ the sandbox also holds the sources, the HTML and the compiled outputs.
 Anything *imported* from TypeScript belongs in an `asset_library` instead, where
 it gets a content hash and a cacheable URL.
 
+`publicDir` is one directory, and which one it is comes from the declaration
+rather than from whichever files a glob happened to match — otherwise a glob that
+matched only nested files this time would silently move every file's URL. So
+three shapes fail at analysis time, each naming the file:
+
+- a file **outside the package** of the `public_dir` label;
+- a file sitting **directly in that package** rather than in a subdirectory —
+  the package itself would become the URL root. Put the files in `public/` and
+  glob that, as above;
+- files spread across **more than one directory** under the package. Split them,
+  or point `public_dir` at a single directory.
+
 ### The manifest
 
 `manifest = True` writes `manifest.json` into the output directory, mapping each
@@ -148,9 +200,10 @@ declares its output filenames rather than hashing them.
 `vite_config` takes the config file, and `vite_config_srcs` the local modules it
 imports. Both are staged into `bazel-bin` and the generated config loads the
 staged copy, prepending its plugins to Bazel's. That is the hook TanStack Start's
-and Remix's plugins go through — and the two frameworks Gazelle deliberately
-generates nothing for are the ones this hook cannot serve
-([which, and why](../gazelle/overview.md#framework-detection)):
+plugin goes through, and Remix's when a client-only bundle is what you want. Two
+frameworks do not fit through it: SvelteKit, which has a rule of its own instead
+(below), and Solid Start, which has no rule and no bundle target at all
+([why](../gazelle/overview.md#framework-detection)):
 
 ```typescript
 // vite.plugins.ts
@@ -195,9 +248,38 @@ Three things are worth knowing before planning a migration around this:
   expects the dev server to have set — runs in the output tree, not the source
   tree.
 
-If your Vite configuration is a program rather than a plugin list, this attr is
-not enough today, and there is no supported way to hand `ts_bundle` a
-multi-file config.
+### Keys the generated config reads
+
+A multi-file config is exactly what `vite_config_srcs` is for. What is still not
+expressible is a config that *computes* the build, because the generated config
+reads a fixed set of keys out of yours and would silently drop the rest:
+
+| Rule | Keys it reads |
+|---|---|
+| `ts_bundle` | `plugins`, `root` |
+| `ts_dev_server` | `plugins` |
+
+Any other key makes the load throw, naming the keys it found and the keys it
+honours:
+
+```
+[rules_typescript] ts_bundle: the vite_config sets define, resolve, which the generated config does not read. Only plugins, root reach the build; the rest would be
+silently discarded. Move what you need into a plugin, or open an
+issue for the option.
+```
+
+That is deliberate: `define`, `resolve.alias`, `build.target` and `optimizeDeps`
+are the options a real framework config sets, and a bundle that quietly ignored
+half its configuration is worse than a build that stops. Where an attribute owns
+the option, use it — `define`, `env_vars`, `external`, `minify`, `split_chunks`,
+`public_dir`, `manifest`. The check runs where the config is loaded rather than
+at analysis time, because only the loaded object says which keys it has.
+
+The two rules honouring different sets has one practical consequence: a config
+carrying `root` builds under `ts_bundle` and fails under `ts_dev_server`, which
+takes its serve root from the target instead. Under oj, `root` is in the
+provider's `ignored_config_fields` for a different reason — oj takes the served
+directory from argv.
 
 ## Custom Bundler (BundlerInfo Interface)
 
@@ -239,24 +321,43 @@ my_bundler = rule(
   --format esm|cjs|iife
   [--external <pkg>]...
   [--sourcemap]
+  [--define <key>=<value>]...
   [--config <config_file>]   (only when config_file is set)
 ```
 
 Output is expected at `<out-dir>/<bundle_name>.js` (and `.js.map` if `--sourcemap`).
 
+`public_dir` and `manifest` are Vite options and fail at analysis time on a
+target whose bundler is invoked this way.
+
 **Mode 2 — Generated config** (`use_generated_config = True`)
 
-`ts_bundle` generates a `vite.config.mjs` containing all bundle options and invokes:
+`ts_bundle` generates a `vite.config.mjs` containing all bundle options and
+invokes the binary with six positional arguments, all execroot-relative — the
+trailing three are passed as empty strings rather than omitted, so the positions
+never shift:
 
 ```
-<bundler_binary> <absolute_path_to_vite.config.mjs> <entry_path> <out_dir>
+<bundler_binary> \
+  <generated vite.config.mjs> \
+  <entry .js> \
+  <output dir> \
+  <html file>          (app mode only; "" otherwise) \
+  <staging manifest>   ("" when there are no staging_srcs) \
+  <lib-mode stylesheet>  ("" in app mode)
 ```
+
+Lib mode declares the output by name, following Vite's own lib convention:
 
 | Format | Output file |
 |--------|-------------|
 | `esm` | `<bundle_name>.es.js` |
 | `cjs` | `<bundle_name>.cjs.js` |
 | `iife` | `<bundle_name>.iife.js` |
+
+App mode, and lib mode with `split_chunks = True`, declare the directory
+`<name>_bundle/` instead, because the hashed filenames are not known at analysis
+time.
 
 ### BundlerInfo Fields
 
@@ -282,8 +383,8 @@ The two rules are not aliases and their attribute sets differ. Shared:
 | `define` | `string_dict` | `{}` | Global constant replacements |
 
 `ts_bundle` only: `minify`, `split_chunks`, `env_vars`, `mode`, `html`,
-`public_dir`, `manifest`, `vite_config`, `staging_srcs` — see the
-[ts_bundle reference](../rules/ts-bundle.md#attributes).
+`public_dir`, `manifest`, `vite_config`, `vite_config_srcs`, `staging_srcs` — see
+the [ts_bundle reference](../rules/ts-bundle.md#attributes).
 
 `ts_binary` only: `entry_file` (which `.js` is the entry when the target emits
 several) and `node_modules` — see the

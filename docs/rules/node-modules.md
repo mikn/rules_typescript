@@ -1,6 +1,17 @@
 # node_modules
 
-Creates a hermetic `node_modules` directory in the Bazel sandbox containing exactly the specified packages and their transitive dependencies.
+Creates a hermetic `node_modules` directory in the Bazel sandbox holding exactly
+the packages named and their transitive dependencies.
+
+Most workspaces declare few of these by hand. `ts_test` builds its own from
+`deps` ([why and when to override](ts-test.md)), and Gazelle writes the
+`node_modules` a generated `ts_dev_server` or `vite_bundler` needs. A
+`ts_compile` target needs none at all — it reaches npm declarations through
+depsets, not a directory.
+
+What is left is the case Gazelle cannot infer: a program or tool that needs
+packages on disk at runtime, and a `ts_test` whose tree is not the one its `deps`
+describe.
 
 ## Usage
 
@@ -9,32 +20,24 @@ load("@rules_typescript//npm:defs.bzl", "node_modules")
 
 node_modules(
     name = "node_modules",
-    deps = ["@npm//:vitest", "@npm//:react", "@npm//:react-dom"],
+    deps = ["@npm//:vite"],
 )
-```
 
-Reference in `ts_test`:
-
-```python
-ts_test(
-    name = "my_test",
-    srcs = ["my.test.ts"],
-    deps = [":my_lib"],
+ts_dev_server(
+    name = "dev",
+    entry_point = ":app",
     node_modules = ":node_modules",
 )
 ```
+
+One tree can serve several targets in the same package, which keeps one copy in
+the sandbox instead of one per target.
 
 ## Attributes
 
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `deps` | `label_list` | `[]` | npm package targets from `@npm` to include in `node_modules` |
-
-## When to Use
-
-`node_modules` is needed for targets that require `node_modules/` at runtime — vitest requires it to load ESM packages, for example. Pure compilation targets (`ts_compile`) do not need it; they reference npm packages via depsets.
-
-Use one `node_modules` target per test suite or dev server target. Share it across multiple `ts_test` targets in the same package to avoid duplicating the directory tree in the sandbox.
 
 ## The layout
 

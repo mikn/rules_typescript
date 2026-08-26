@@ -4,21 +4,26 @@ An opinionated Bazel ruleset for TypeScript, optimised for the **Oxc + Vite** to
 
 [Oxc](https://oxc.rs/) compiles. [tsgo](https://github.com/microsoft/typescript-go) type-checks. [Vite](https://vite.dev/) bundles. [Gazelle](https://github.com/bazelbuild/bazel-gazelle) generates BUILD files. Write `.ts`, run Gazelle, `bazel build //...`. No `node_modules/`. No system Node. Just Bazelisk.
 
+Starting from an existing TypeScript repository: [Install](#install) below is the
+short version, and the
+[Quick Start](https://mikn.github.io/rules_typescript/getting-started/quickstart/)
+is the same path with the migration questions answered.
+
 **Full documentation: [mikn.github.io/rules_typescript](https://mikn.github.io/rules_typescript)**
 
 ## Built for the Vite Ecosystem
 
-This ruleset is designed around **Vite** as the bundler and dev server. A
-framework that ships a Vite plugin fits, with the amount of proof varying:
+Vite is the bundler and the dev server. A framework that ships a Vite plugin
+fits; the rest is a question of how much of it is proved, and one framework gets
+no bundle target at all.
 
-- **React + Vite** — SPA bundling, React Fast Refresh HMR, CSS modules (`examples/react-app`)
-- **TanStack Start** — the SPA bundle builds in CI (`examples/tanstack-app`, plus an integration test); the app-mode bundle that runs `tanstackStart()` through `vite_config` is excluded from CI with the blocker named in the workflow ([why](https://mikn.github.io/rules_typescript/guides/bundling/#framework-plugins-via-vite_config))
-- **Remix** — client bundle with route-based code splitting via the `@remix-run/dev` Vite plugin. An integration test runs Gazelle over a fresh Remix workspace, builds what it wrote, and asserts a chunk per route (`//tests/integration:remix_test`, plus `examples/remix-app`)
-- **SvelteKit, Solid Start** — detected, and deliberately given **no** bundle target. Gazelle names the framework and says bundling it is unsupported, instead of writing a `ts_bundle` that cannot build; your TypeScript still compiles and tests ([the reason for each](https://mikn.github.io/rules_typescript/gazelle/overview/#framework-detection))
-
-Frameworks that don't use Vite are not a priority. Next.js is the exception with
-a rule of its own — `next_build` runs the framework's own build
-(`examples/nextjs-app`, `//tests/integration:nextjs_test`).
+Non-Vite frameworks are not a priority. Next.js is the exception, with
+`next_build` running the framework's own build from declared inputs and the
+network blocked. `//tests/integration:nextjs_test` covers both routers,
+both API-route flavours, `"use client"`/`"use server"`, middleware, CSS and a
+static image import; `next/font/google` fails with a diagnostic naming the
+download rather than reaching the internet unnoticed
+([docs](https://mikn.github.io/rules_typescript/rules/next-build/)).
 
 ## Key Ideas
 
@@ -42,6 +47,14 @@ cached.
 Supported platforms: Linux x86_64, Linux ARM64, macOS x86_64, macOS ARM64.
 **Windows is not supported right now. It may be considered in the future.** See
 [COMPATIBILITY.md](COMPATIBILITY.md#windows).
+
+**Nothing has shipped yet.** There is no tag, no release and no Bazel Central
+Registry entry, no production users, and pre-1.0 any commit may break the API
+with no deprecation window — the last two rounds of work broke `ts_compile`,
+`ts_test`, the npm extension and the toolchain API. Every break is listed in
+[CHANGELOG.md](CHANGELOG.md) with the edit it requires; read it before moving a
+pin. What that means in full:
+[COMPATIBILITY.md](COMPATIBILITY.md#versioning-policy).
 
 Vite and vitest are your dependencies, not the ruleset's — they come from your
 own lockfile, and the rules generate configuration for whichever version that
@@ -132,8 +145,13 @@ One-time setup in `MODULE.bazel`:
 ```python
 npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
 npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
-use_repo(npm, "npm")
+use_repo(npm, "npm", "pnpm")
 ```
+
+Take `"pnpm"` even if you never run pnpm through Bazel: Gazelle writes a
+`ts_pnpm` and a `ts_add_package` target into your root `BUILD.bazel` as soon as a
+lockfile exists, and without that repo `bazel build //...` aborts with
+`No repository visible as '@pnpm' from main repository`.
 
 Then, per package:
 
@@ -157,11 +175,10 @@ hermetic one — [two lines of setup](https://mikn.github.io/rules_typescript/gu
 `ts_refresh_tsconfig` writes the workspace-root `tsconfig.json` from Bazel's
 build graph: source roots, path aliases, and one `compilerOptions.paths` entry
 per npm package your targets reach, pointing at declarations it installs under
-`.bazel/npm`. Those `paths` entries are the mechanism — you don't maintain them,
-but the file is meant to be checked in, and `test = True` adds a test that fails
-once it goes stale. A tsserver hook is installed alongside it for editors that would
-rather resolve live than reload a tsconfig; it works with VS Code, Neovim,
-Emacs, anything running tsserver.
+`.bazel/npm`. The file is meant to be checked in, and `test = True` adds a test
+that fails once it goes stale. A tsserver hook is installed alongside it for
+editors that would rather resolve live than reload a tsconfig; it works with
+anything running tsserver.
 
 ```python
 # BUILD.bazel
@@ -177,31 +194,10 @@ ts_refresh_tsconfig(
 )
 ```
 
-`deps` is the whole input. An aspect walks `deps` from each entry, so listing a
-target covers everything it depends on — and the attribute default, `deps = []`,
-reaches nothing and writes a `tsconfig.json` with an empty `paths`. `deps` also
-obeys visibility, so a package-private `ts_compile` target cannot be listed
-(Gazelle writes `//visibility:public` on the targets it generates, and so does
-`ts_test` for the targets it generates from your sources). A target's
-`module_name` gets its own `paths` entry, so a first-party package imported by
-bare specifier resolves in the editor too.
-
-`extra_exclude` adds globs to the generated `exclude`. Reach for it when the
-repository holds TypeScript that is not in this module's build graph — a nested
-Bazel module, a workspace in `.bazelignore` — since nothing in `deps` names
-those files and `tsc` would otherwise walk them under the wrong
-`compilerOptions`.
-
-`nested_tsconfigs` is the attr a real monorepo hits first. One root
-`compilerOptions` block cannot serve a package whose targets set options it
-cannot also be set to — `strict` off, `allowJs`, a `lib` its `target` does not
-imply — and an editor resolves a file to a program by directory, so such a
-package needs its own `tsconfig.json`. The rule generates those files from the
-packages you list, and **fails at analysis time when the list disagrees with the
-graph in either direction**, naming what to add or remove. So a repository with
-one such package fails the snippet above until the list is filled in; it cannot
-be discovered, because `glob()` does not cross a package boundary. See
-[IDE Setup](https://mikn.github.io/rules_typescript/getting-started/ide-setup/#packages-the-root-compileroptions-cannot-fit).
+`deps` is the whole input: an aspect walks it, so listing a target covers
+everything it depends on — and the default, `deps = []`, reaches nothing and
+writes an empty `paths`. It obeys visibility like any rule attribute, so a
+package-private target cannot be listed.
 
 ```bash
 bazel run //:refresh_tsconfig        # writes tsconfig.json, .bazel/npm/, and the hook
@@ -210,9 +206,15 @@ bazel test //:refresh_tsconfig_test  # fails when the checked-in tsconfig is sta
 
 Then add to VS Code settings: `"typescript.tsserver.nodeOptions": "--require .bazel/tsserver-hook.js"`
 
-See **[IDE Setup](https://mikn.github.io/rules_typescript/getting-started/ide-setup/)** for all editors, and for `npm_dir`.
+One attr will stop a real monorepo before anything else: `nested_tsconfigs`. One
+root `compilerOptions` block cannot serve a package whose targets set options it
+cannot also be set to, and the rule **fails at analysis time when the list
+disagrees with the graph in either direction** — so a repository with one such
+package fails the snippet above until the list is filled in. That, `extra_exclude`,
+`npm_dir` and the other editors are in
+**[IDE Setup](https://mikn.github.io/rules_typescript/getting-started/ide-setup/)**.
 
-## Feature Highlights
+## Documentation
 
 - **[Quick Start](https://mikn.github.io/rules_typescript/getting-started/quickstart/)** — new project or migrating an existing codebase
 - **[IDE Setup](https://mikn.github.io/rules_typescript/getting-started/ide-setup/)** — a generated `tsconfig.json` plus live tsserver resolution from Bazel's build graph (TypeScript's GOPACKAGESDRIVER)
@@ -225,6 +227,8 @@ See **[IDE Setup](https://mikn.github.io/rules_typescript/getting-started/ide-se
 - **[Gazelle Reference](https://mikn.github.io/rules_typescript/gazelle/overview/)** — directives, framework detection, auto-detected lint and codegen targets
 - **[Rules Reference](https://mikn.github.io/rules_typescript/rules/ts-compile/)** — all attributes, providers, and outputs
 - **[Migration from rules_ts](https://mikn.github.io/rules_typescript/getting-started/migration/)** — differences from aspect-build/rules_ts
+- **[Troubleshooting](https://mikn.github.io/rules_typescript/guides/troubleshooting/)** — the error messages, by message text
+- **[Compatibility](https://mikn.github.io/rules_typescript/compatibility/)** — Bazel and platform support, the Vite/vitest versions the tests exercise, and what "pre-1.0" means here
 
 ## License
 

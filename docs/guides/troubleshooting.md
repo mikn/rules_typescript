@@ -21,6 +21,57 @@ bring the repo into your mapping — but note that the flag then applies to the
 `oxc-bazel` build too, and a non-`stable` channel will fail toolchain
 resolution.
 
+## No repository visible as '@pnpm'
+
+```
+ERROR: no such package '@@[unknown repo 'pnpm' requested from @@ (did you mean
+'npm'?)]//': No repository visible as '@pnpm' from main repository and
+referenced by '//:pnpm'
+```
+
+Gazelle writes `ts_pnpm(name = "pnpm")` and `ts_add_package(name =
+"add_package")` into your root `BUILD.bazel` as soon as a root `pnpm-lock.yaml`
+exists — unconditionally, whether or not you want the hermetic-pnpm workflow —
+and both name `@pnpm`. Take the repo:
+
+```python
+npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
+npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
+use_repo(npm, "npm", "pnpm")
+```
+
+`npm.pnpm(version = …)` is not required with it — a default version is used.
+Nothing runs those two targets on your behalf, and they cost nothing until you
+do. See [npm Dependencies § Setup](npm.md#setup).
+
+## No repository visible as '@npm'
+
+```
+ERROR: no such package '@@[unknown repo 'npm' requested from @@]//': No
+repository visible as '@npm' from main repository and referenced by
+'//src/lib:_lib_test_node_modules'
+```
+
+Gazelle resolved a bare import to an `@npm//:…` label and there is no hub yet.
+Any project with a single npm dependency needs the extension before its first
+build — the three lines above. If the label names a *second* hub
+(`@npm_tools//:…`), that hub is missing from `use_repo`; see
+[more than one hub](npm.md#more-than-one-hub).
+
+## No test targets were found, yet testing was requested
+
+```
+INFO: Found 2 targets and 0 test targets...
+ERROR: No test targets were found, yet testing was requested
+```
+
+Not a broken setup. `bazel test //...` is an error (exit code 4) when the pattern
+matches no test target, and a project with no `*.test.ts` / `*.spec.ts` yet has
+none. Gazelle generates a `ts_test` from the first such file it sees; vitest
+comes from your lockfile, so
+[the quickstart's step 9](../getting-started/quickstart.md#path-a-new-project)
+walks the whole first-test path.
+
 ## BUILD file not found for //:MODULE.bazel
 
 ```
@@ -82,6 +133,47 @@ A path under `bazel-out/` embeds the build configuration, so it stops resolving
 under `-c opt` or a different exec platform. `path_aliases` is for **source**
 directories. To import another target by bare specifier, set `module_name` on
 the target that produces its declarations and depend on it.
+
+## path_aliases points at a directory where none of this target's inputs live
+
+```
+ts_compile: path_aliases["@/"] on @@//src/app:app points at "./src/", where none
+of this target's inputs live.
+```
+
+The near-universal `"@/*": ["src/*"]` in an existing project's `tsconfig.json`,
+met on the first build after Gazelle. Gazelle writes a `path_aliases` entry for
+every alias an import resolves through, and `ts_compile` accepts an alias only
+when it resolves to files *this* target stages — which a cross-package alias
+never does.
+
+Cross-package imports are `module_name`'s job. Set it on the target that produces
+the files, and drop the alias from the consumer with a `# keep` above the rule,
+because Gazelle re-derives the attr from `tsconfig.json` on every run:
+
+```python
+# src/lib/BUILD.bazel
+ts_compile(
+    name = "lib",
+    srcs = ["math.ts"],
+    module_name = "@/lib",
+    visibility = ["//visibility:public"],
+)
+
+# src/app/BUILD.bazel
+# keep
+ts_compile(
+    name = "app",
+    srcs = ["main.ts"],          # import { add } from "@/lib/math";
+    deps = ["//src/lib"],
+)
+```
+
+Your sources and your editor keep the `@/lib/math` specifier and the
+`tsconfig.json` entry behind it. The other way out is `path_alias_srcs`, listing
+the files the alias resolves to — practical only when they are in the same Bazel
+package, since a source file in another package has to be exported to be
+referenced at all.
 
 ## npm: pnpm-lock.yaml declares patchedDependencies with no patch file
 
@@ -287,8 +379,8 @@ If Gazelle generates incorrect `deps` for an import:
 ## typescript: &lt;framework&gt; detected: bundling it is unsupported
 
 Not an error. Gazelle recognised a framework it deliberately generates no bundle
-target for — currently SvelteKit and Solid Start — and named the reason rather
-than writing a `ts_bundle` that cannot build. The rest of the workspace still
+target for — currently Solid Start, and nothing else — and named the reason
+rather than writing a `ts_bundle` that cannot build. The rest of the workspace still
 compiles and tests. For a client-only build, declare a `ts_bundle` by hand with
 no `vite_config`. Details:
 [Framework detection](../gazelle/overview.md#framework-detection).
@@ -298,15 +390,18 @@ no `vite_config`. Details:
 The generated framework `ts_bundle` names a single-file entry target, which
 Gazelle writes in the package that holds the framework's client entry — for
 Remix, `app/entry.client.tsx` becomes `//app:entry_client`. The label dangles
-only when nothing in that package maps to the name, and then it takes down
+when nothing in that package declares the name — no source file maps to it, or a
+`# gazelle:ts_exclude` drops the one that would — and then it takes down
 `bazel build //...` for the whole workspace rather than that one target.
 
 The Gazelle run that wrote the bundle said so:
 
 ```
-typescript: Remix detected: no source file in app/ maps to the client entry
-target "entry_client", so the generated entry_point //app:entry_client names
-nothing yet. Add the framework's client entry there, or set entry_point by hand.
+typescript: Remix detected: nothing in app/ declares the client entry target
+"entry_client" -- no source file there maps to that name, or a ts_exclude
+directive drops it -- so the generated entry_point //app:entry_client names
+nothing yet. Add the framework's client entry there, drop the exclusion, or set
+entry_point by hand.
 ```
 
 Either put the framework's client entry where the framework expects it and
@@ -324,11 +419,93 @@ ts_compile(
     srcs = ["entry.client.tsx"],
     visibility = ["//visibility:public"],
 )
+
+filegroup(
+    name = "sources",
+    srcs = ["entry.client.tsx"],  # plus the package's other sources
+    visibility = ["//visibility:public"],
+)
 ```
+
+The `sources` filegroup is there because `ts_exclude` takes the file out of every
+generated target, that one included, and the framework reads its client entry
+out of the staging root by name.
 
 Gazelle leaves a target that already exists alone, so a hand-declared entry
 survives every later run. Details:
-[The entry point is generated too](../gazelle/overview.md#the-entry-point-is-generated-too).
+[The entry point is yours to declare](../gazelle/overview.md#the-entry-point-is-yours-to-declare).
+
+## ts_dev_server: has no node_modules attr
+
+```
+ts_dev_server: @@//src/app:dev has no node_modules attr, so the app's own
+dependencies are not in runfiles.
+Add node_modules = ":node_modules" pointing at a node_modules() target; the
+generated config resolves every bare specifier through that tree.
+```
+
+Gazelle generates the `ts_dev_server` target with `plugin` set and
+`node_modules` empty — nothing in the source tree says which tree the app should
+resolve against — so the first `bazel run` on a freshly generated target stops
+here. Declare the tree in the dev server's own Bazel package, listing Vite plus
+every npm package the app imports, and Gazelle leaves the attr alone from then
+on:
+
+```python
+node_modules(
+    name = "node_modules",
+    deps = ["@npm//:vite", "@npm//:zod"],
+)
+```
+
+Name it `node_modules` — see the next entry.
+
+## Cannot find package 'rolldown' imported from …/vite/dist/node/chunks/node.js
+
+```
+Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'rolldown' imported from
+…/bin/src/app/dev_node_modules/vite/dist/node/chunks/node.js
+Did you mean to import "file:///…/dev_node_modules/rolldown/dist/parse-ast-index.mjs"?
+```
+
+The `node_modules()` target is named something other than `node_modules`. The
+tree is materialised at the target's own name, and Node resolves a bare specifier
+by walking up for a directory called `node_modules` and nothing else — so Vite 8,
+whose entry imports `rolldown` that way, does not start. The package is right
+there in the tree, which is what the "Did you mean" line is saying.
+
+Rename the target to `node_modules` (one per Bazel package) and update the
+`node_modules` attr that points at it. `@vitejs/plugin-react` fails the same
+walk-up for its `react-refresh` runtime, so `react_refresh = True` needs the same
+name.
+
+## [vite]: failed to resolve import "…" from …/bazel-out/…/bin/…
+
+```
+Error: [vite]: Rolldown failed to resolve import "zod" from
+"…/bazel-out/k8-fastbuild/bin/src/lib/math.js".
+```
+
+("Rollup" rather than "Rolldown" before Vite 8; the cause is the same.)
+
+A `ts_bundle` whose bundler's `node_modules` tree cannot answer a bare specifier
+in the bundled graph. Two separate causes, and the first is the common one:
+
+- **the package is not in the tree.** It supplies Vite *and* every npm package
+  anything in the graph imports; a `ts_compile` dep does not contribute its own.
+  Add it to the `node_modules` target's `deps`;
+- **the tree is in the wrong place.** It is materialised under the *bundler's*
+  package in `bazel-bin`, and rolldown resolves from the importer by Node's
+  walk-up — so the tree has to sit in a directory that is an ancestor of every
+  compiled `.js` doing the importing. A bundle in `//bundle` cannot serve
+  `bin/src/lib/math.js`, and neither can one in `//src/app` when the import is in
+  `//src/lib`. Declare `node_modules`, `vite_bundler` and `ts_bundle` at the
+  workspace root.
+
+Full explanation:
+[where the bundler's node_modules has to sit](bundling.md#where-the-bundlers-node_modules-has-to-sit).
+The third option is `external`, which leaves the specifier as an import for
+whoever consumes the bundle.
 
 ## ts_dev_server: sets react_refresh = True, but @vitejs/plugin-react did not load
 
@@ -445,11 +622,13 @@ Full workflow: [Snapshots](testing.md#snapshots).
 
 ## Slow First Build
 
-The first build downloads a Rust toolchain (and compiles `oxc_cli` from
-source), a tsgo npm tarball, a Node.js tarball, and the npm packages your
-targets actually reach — not the whole lockfile. Subsequent builds are cached.
+The first build downloads a Rust toolchain, a tsgo npm tarball, a Node.js
+tarball, and the npm packages your targets actually reach — not the whole
+lockfile — and then compiles `oxc-bazel` and its crate graph from Rust source.
+That compile is the long pole: budget minutes, and do not `bazel clean`
+afterwards. Everything after it is cached.
 
-To speed up CI, mount a persistent Bazel cache volume:
+To keep paying that once rather than per CI run, mount a persistent cache volume:
 
 ```bash
 docker run -v bazel-cache:/root/.cache/bazel my-image bazel build //...
@@ -457,7 +636,7 @@ docker run -v bazel-cache:/root/.cache/bazel my-image bazel build //...
 
 ## Container Builds
 
-Bazel works correctly inside Docker containers without privileged mode:
+Bazel works inside Docker containers without privileged mode:
 
 ```dockerfile
 FROM ubuntu:24.04
@@ -474,9 +653,6 @@ COPY . .
 RUN bazel build //...
 ```
 
-Key points:
-- Mount a cache volume to avoid re-downloading toolchains on each run.
-- The first build's long pole is Rust: `rules_rust` fetches a toolchain and
-  then compiles `oxc-bazel` and its crate graph from source. Budget minutes, not
-  seconds, and cache it.
-- ARM64 containers are supported — `rules_rust` builds `oxc-bazel` natively and `@typescript/native-preview-linux-arm64` provides tsgo.
+Mount a cache volume, for the reason above. ARM64 containers work: `rules_rust`
+builds `oxc-bazel` natively and `@typescript/native-preview-linux-arm64` provides
+tsgo.

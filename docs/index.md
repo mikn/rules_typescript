@@ -4,17 +4,20 @@ An opinionated Bazel ruleset for TypeScript, optimised for the **Oxc + Vite** to
 
 [Oxc](https://oxc.rs/) compiles. [tsgo](https://github.com/microsoft/typescript-go) type-checks. [Vite](https://vite.dev/) bundles. [Gazelle](https://github.com/bazelbuild/bazel-gazelle) generates BUILD files. Write `.ts`, run Gazelle, `bazel build //...`. No `node_modules/`. No system Node. Just Bazelisk.
 
+**Have a TypeScript monorepo and want a target building?** Go straight to the
+[Quick Start](getting-started/quickstart.md) — five root files, then
+`bazel run //:gazelle`. Nothing on this page or in the rules reference is needed
+first. [Install](#install) and [Quick Example](#quick-example) below are the same
+path in miniature.
+
 ## Built for the Vite Ecosystem
 
-This ruleset is designed around **Vite** as the bundler and dev server. A
-framework that ships a Vite plugin is expressible, with the amount of proof
-varying. `vite_config` takes a `.ts`, `.mts`, `.mjs` or `.js` config and
-`vite_config_srcs` the local modules it imports; both are staged into
-`bazel-bin` together, so a config split across files resolves its own relative
-imports there
-([bundling](guides/bundling.md#framework-plugins-via-vite_config)). What it may
-*not* be is a program: only the keys the generated config reads reach the build,
-and any other key fails the build naming itself.
+Vite is the bundler and the dev server. A framework that ships a Vite plugin is
+expressible: `vite_config` names the config file, `vite_config_srcs` the local
+modules it imports, and the plugins it exports run before Bazel's
+([bundling](guides/bundling.md#framework-plugins-via-vite_config)). What that
+config may *not* be is a program — only the keys the generated config reads reach
+the build, and any other key fails the build naming itself.
 
 | Framework | Gazelle generates a bundle target? | Evidence in this repo |
 |---|---|---|
@@ -24,21 +27,19 @@ and any other key fails the build naming itself.
 | **SvelteKit** | **no**, by decision | Gazelle names the framework and the reason instead |
 | **Solid Start** | **no**, by decision | Gazelle names the framework and the reason instead |
 
-For the two that get no target, that is the whole support statement: a
+For the one that gets no target, that is the whole support statement: a
 `ts_bundle` nothing can build is worse than none, and silence is worse than
 both, so Gazelle logs which framework it saw and why bundling it is
-unsupported. The rest of the workspace still compiles and tests. The two
-reasons, and what a client-only build would take instead, are in
+unsupported. The rest of the workspace still compiles and tests. The reason,
+and what a client-only build would take instead, is in
 [Framework detection](gazelle/overview.md#framework-detection).
 
 `examples/` is in `.bazelignore`, so the example workspaces are separate Bazel
-invocations; CI builds all six of them, with one target excluded and the blocker
-named in the workflow (`examples/tanstack-app`'s app-mode bundle, whose
-`vite_config` resolves `@tanstack/react-start` from the source tree — see
-[bundling](guides/bundling.md#framework-plugins-via-vite_config)).
+invocations; CI builds all six of them in full.
 
 Frameworks that don't use Vite are not a priority. Next.js is the exception with
-a rule of its own — `next_build` runs the framework's own build
+a rule of its own — `next_build` runs the framework's own build, and
+`next_dev_server` and `next_serve` run the app from source or from that build
 (`examples/nextjs-app`, `//tests/integration:nextjs_test`).
 
 ## Key Ideas
@@ -70,6 +71,11 @@ register_toolchains("@rules_typescript//ts/toolchain:all")
 bazel_dep(name = "gazelle", version = "0.47.0")
 ```
 
+Pin a commit, and expect to move it deliberately: pre-1.0 any commit may break
+the API with no deprecation window, and every break is listed in the
+[changelog](changelog.md) with the edit it requires
+([versioning policy](compatibility.md#versioning-policy)).
+
 `bazel_dep` keeps its `version` attribute — bzlmod requires it and ignores the
 value while an override is in place. The quickstart covers the
 [`archive_override` and `local_path_override` alternatives](getting-started/quickstart.md#depending-on-rules_typescript);
@@ -95,11 +101,12 @@ be a package.
 
 ## Quick Example
 
-Write TypeScript with explicit return types on exports:
+Write TypeScript. Export annotations are optional — the default emitter is tsgo,
+which infers them from the full type program:
 
 ```typescript
 // src/math.ts
-export function add(a: number, b: number): number {
+export function add(a: number, b: number) {
   return a + b;
 }
 ```
@@ -111,11 +118,13 @@ bazel run //:gazelle
 bazel build //...
 ```
 
-Gazelle produces:
+Gazelle produces `src/BUILD.bazel`. The target is named after the **directory**,
+not the file — one `ts_compile` per directory, the way one Go package is one
+directory ([naming](gazelle/overview.md#generated-target-names)):
 
 ```python
 ts_compile(
-    name = "math",
+    name = "src",
     srcs = ["math.ts"],
     visibility = ["//visibility:public"],
 )
@@ -142,9 +151,15 @@ Windows is not supported right now. It may be considered in the future. What run
 - [npm Dependencies](guides/npm.md) — pnpm lockfile integration
 - [Testing with vitest](guides/testing.md) — `ts_test`, the vitest config layers, coverage
 - [Bundling](guides/bundling.md) — `ts_bundle` with Vite or custom bundlers
+- [Dev Server](guides/dev-server.md) — Vite or oj behind one generated config
+- [Tailwind v4](guides/tailwind.md) — through `vite_config`, in both bundle modes and under both dev servers
 - [Monorepo Layout](guides/monorepo.md) — package boundaries and cross-package deps
+- [Publishing Packages](guides/publishing.md) — `ts_npm_publish` and the `package.json` template
+- [Troubleshooting](guides/troubleshooting.md) — the error messages, by message text
 - [Gazelle Reference](gazelle/overview.md) — directives, package boundaries, framework detection
 - [Rules Reference](rules/ts-compile.md) — all rule attributes and providers
+- [Migrating from rules_ts](getting-started/migration.md) — where the other ruleset is the better choice
+- [Compatibility](compatibility.md) — Bazel and platform support, the Vite/vitest versions the tests exercise, and what "pre-1.0" means here
 
 ## License
 

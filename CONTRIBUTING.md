@@ -1,7 +1,5 @@
 # Contributing to rules_typescript
 
-Thank you for your interest in contributing. This document covers everything you need to know to get started.
-
 ## Table of Contents
 
 - [Development Environment](#development-environment)
@@ -63,7 +61,8 @@ See [Starlark](#starlark-build-files-and-bzl-files) under Code Style.
 
 ## Code Style
 
-The project enforces consistent style across its four languages:
+One formatter per language. The `lint` CI job checks Starlark and Go; the other
+two are local conventions.
 
 ### Starlark (BUILD files and .bzl files)
 
@@ -117,7 +116,9 @@ bazel build //oxc_cli:oxc-bazel
 
 ### TypeScript (test fixtures and e2e workspaces)
 
-Use **prettier** (if you have it locally). The TypeScript files in `tests/` and `e2e/` are fixtures — prefer minimal, readable code that illustrates the feature under test. No linter enforcement is enforced in CI for these files.
+Use **prettier** (if you have it locally). The TypeScript files in `tests/` and
+`e2e/` are fixtures — prefer minimal, readable code that illustrates the feature
+under test. CI does not lint them.
 
 ---
 
@@ -136,6 +137,29 @@ bazel build //... --output_groups=+_validation
 bazel test //tests/vitest:math_test
 bazel test //gazelle/...
 ```
+
+### Every test source has to be claimed by a target
+
+```bash
+tools/ci/check_test_sources.sh
+```
+
+`bazel test //...` passing does not mean your test ran. A Gazelle run that
+**deletes** a test target satisfies `bazel build //...`, `bazel test //...` and a
+byte-identical Gazelle rerun alike — which is how seven hand-written `go_test`
+targets once went missing. This script compares the test sources on disk against
+the srcs of every test target, and again against only the targets `bazel test
+//...` actually runs, so a target tagged `manual` does not count as coverage.
+
+If a file's only target is `manual`, add the file to `MANUAL_ONLY` inside the
+script **with the reason it cannot run**. The list is exact in both directions:
+tagging a test `manual` fails CI until someone writes the reason down, and
+untagging it fails until the entry is removed.
+
+It is read-only — a loading-phase query and `git ls-files` — and it is the first
+step of the `test` job in CI. One local caveat: `git ls-files` cannot see an
+unstaged new file, so a local run reports green on a test you have not `git add`ed
+yet.
 
 ### Integration tests
 
@@ -179,6 +203,7 @@ bazel test //...
 | LSP | `bazel test //tests/lsp/...` | The tsserver resolution hook against a real tsserver |
 | Gazelle | `bazel test //gazelle/...` | Gazelle extension unit tests |
 | E2E | `cd e2e/basic && bazel build //...` | Real consumer workspace |
+| Test-source coverage | `tools/ci/check_test_sources.sh` | Every tracked test source is claimed by a target that runs |
 
 ---
 
@@ -192,7 +217,11 @@ bazel test //...
    bazel build //... --output_groups=+_validation
    ```
 4. **Update CHANGELOG.md** — add an entry under `[Unreleased]` describing your change.
-5. **Update documentation** — if you're changing the public API (rule attributes, providers, directives), update both `README.md` and `AGENTS.md`.
+5. **Update documentation** — a public-API change (rule attributes, providers,
+   directives) lands with its page under `docs/` in the same PR, plus `README.md`
+   and `AGENTS.md` where they say the same thing. `mkdocs build --strict` runs in
+   the `lint` job, so a nav entry without a page, or a link to a page that does
+   not exist, fails CI.
 6. **Open the PR** against `main` with the provided pull request template filled in.
 7. A maintainer will review and may request changes. Please respond to review comments within a reasonable time (two weeks is a good guideline).
 8. Once approved, a maintainer will squash-merge your PR.

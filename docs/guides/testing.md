@@ -151,19 +151,25 @@ to tell whether your layer landed where you expected.
 
 ## CSS modules
 
-A dep providing `CssModuleInfo` adds a mock plugin to the Bazel layer:
-`*.module.css` imports resolve to a `Proxy` whose every property lookup returns
-the property name, so class names are deterministic without a CSS parse at test
-time.
+A dep providing `CssModuleInfo` adds a plugin to the Bazel layer that answers a
+`*.module.css` import with the export map `css_module` wrote beside the
+stylesheet. So a test sees the class name a bundler emits, not a stand-in:
 
 ```ts
 import styles from "./Button.module.css";
-expect(styles.primary).toBe("primary");
+expect(styles.primary).toMatch(/^_primary_[0-9a-f]{8}$/);
 ```
 
-This used to be shadowed by vite's own CSS plugins, which produced hashed class
-names instead. It now applies, so assertions written against the hashed form
-need updating.
+That is what makes an assertion on a rendered `class` attribute meaningful:
+
+```ts
+render(host);
+expect(host.querySelector("button")?.getAttribute("class")).toBe(styles.button);
+```
+
+A `*.module.css` with no `css_module` target behind it has no map and no
+`.d.ts`; the import then falls back to a proxy returning the property name, so
+such a test runs rather than failing on an unloadable import.
 
 ## Coverage
 
@@ -193,6 +199,139 @@ A test whose pool runs in a second runtime needs `"istanbul"`: v8 coverage comes
 out of Node's inspector, which workerd has none of, while istanbul instruments
 at transform time. See
 [ts_test § Coverage](../rules/ts-test.md#coverage).
+
+## Cloudflare Workers
+
+A Worker's tests can run **inside workerd** rather than in Node, so `SELF.fetch()`
+dispatches to the real `fetch` handler over the real runtime. That comes from
+`@cloudflare/vitest-pool-workers`, and `//tests/workers` is the worked example:
+
+```python
+ts_compile(
+    name = "worker",
+    srcs = ["src/index.ts"],
+    lib = [
+        "esnext",
+        "webworker",
+    ],
+)
+
+ts_test(
+    name = "worker_test",
+    size = "medium",
+    srcs = ["src/worker.test.ts"],
+    config = "vitest.workers.config.mjs",
+    coverage_provider = "istanbul",
+    data = ["wrangler.jsonc"],
+    lib = [
+        "esnext",
+        "webworker",
+    ],
+    types = ["@cloudflare/vitest-pool-workers/types"],
+    deps = [
+        ":worker",
+        "@npm_workers//:cloudflare_vitest-pool-workers",
+        "@npm_workers//:vitest",
+        "@npm_workers//:vitest_coverage-istanbul",
+    ],
+)
+```
+
+```typescript
+import { SELF } from 'cloudflare:test';
+import { describe, expect, it } from 'vitest';
+
+describe('worker', () => {
+  it('answers /health', async () => {
+    const res = await SELF.fetch('https://example.com/health');
+    expect(res.status).toBe(200);
+  });
+});
+```
+
+`lib` names `webworker` because the `Request`/`Response` globals a Worker is
+written against are in no set `target` implies — on the worker target and on the
+test target both.
+
+### The config, and the two lines that are easy to lose
+
+```javascript
+import { join } from 'node:path';
+
+import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
+
+const pkg = process.env.TS_TEST_PACKAGE_DIR;
+
+export default {
+  resolve: { preserveSymlinks: false },
+  plugins: [
+    cloudflareTest({
+      remoteBindings: false,
+      wrangler: { configPath: join(pkg, 'wrangler.jsonc') },
+    }),
+  ],
+};
+```
+
+**`cloudflareTest()` as a plugin, not `test.pool`.** The package exports two
+things and only one is enough. `cloudflarePool()` is a pool initializer: it boots
+workerd and nothing else. `cloudflareTest()` is a Vite plugin that installs that
+pool *and* owns the `cloudflare:test` specifier — its `resolveId` maps it to a
+virtual id and its `load` returns the runtime's bytes. The pool deliberately
+forwards `cloudflare:test` to Vite rather than externalising it to workerd like
+every other `cloudflare:*` specifier, so with no plugin registered nothing
+resolves it and vitest falls back to Node package resolution, which fails.
+
+**`resolve.preserveSymlinks: false`.** `ts_test`'s own Bazel layer turns it *on*,
+because a DOM environment resolves module ids to their realpath and a runfiles
+symlink walks straight out of the sandbox. The pool resolves modules for workerd
+through a second path, where a lexical path is a second module identity for the
+same file. The user layer wins, so the config turns it back off. Leaving it out
+fails as `TypeError: Cannot read properties of undefined (reading 'config')` from
+inside the pool runner — which reads like a wrong plugin API rather than a
+resolution setting.
+
+The one path in that config — the wrangler `configPath` — is absolute, from
+`TS_TEST_PACKAGE_DIR`: a relative path resolves against the Vite root, which is
+the runfiles root rather than the package.
+
+### Two more attrs doing real work
+
+`coverage_provider = "istanbul"`. v8 coverage is counters read back out of Node's
+inspector, and workerd has none — istanbul instruments before the code crosses
+into the runtime. `bazel coverage` then reports real per-line data for code
+running inside workerd.
+
+`types = ["@cloudflare/vitest-pool-workers/types"]`. That is an `exports` subpath
+whose only condition is `types`, which is where the pool puts the ambient
+declaration for `cloudflare:test`. Nothing imports it, and a tsconfig `types`
+entry cannot reach it under a ruleset with no `node_modules`, so it is resolved
+from the package manifest into the program's `files`.
+
+### And whether it still deploys
+
+Running the tests says the Worker works; it does not say the Worker still
+deploys. `ts_worker_dry_run_test` is that question — a `wrangler deploy
+--dry-run` with no credentials and no network, in the same package:
+
+```python
+node_modules(
+    name = "wrangler_node_modules",
+    deps = ["@npm_workers//:wrangler"],
+)
+
+ts_worker_dry_run_test(
+    name = "deploy_dry_run_test",
+    size = "medium",
+    config = "wrangler.jsonc",
+    node_modules = ":wrangler_node_modules",
+    deps = [":worker"],
+)
+```
+
+wrangler needs a tree of its own: the pool's `node_modules` is built from the
+test's `deps`, and wrangler is not one of them. Full reference:
+[ts_worker_dry_run](../rules/ts-worker-dry-run.md).
 
 ## Sharding
 

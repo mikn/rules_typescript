@@ -1,6 +1,11 @@
 # Publishing Packages
 
-`ts_npm_publish` assembles a publishable npm package from a `ts_compile` target. It collects `.js`, `.js.map`, and `.d.ts` outputs, merges them with a `package.json` template, and produces a staging directory and a tarball ready for `npm publish`.
+`ts_npm_publish` assembles a publishable npm package from a `ts_compile` target:
+`.js`, `.js.map` and `.d.ts` outputs, merged with a `package.json` template, into
+a staging directory and a tarball `npm publish` accepts.
+
+Publishing itself is not a rule. It needs credentials, is not reproducible, and
+must not happen because something in the build graph changed.
 
 ## Setup
 
@@ -89,5 +94,3 @@ which publishes as:
   }
 }
 ```
-
-When `version` is set on the rule, the `"version"` field in `package.json` is overwritten with the specified value. Set it to `""` to use whatever is in the template.

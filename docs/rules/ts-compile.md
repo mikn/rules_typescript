@@ -22,7 +22,7 @@ annotations, no tsconfig wiring, no extra flags in `.bazelrc`.
 
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `srcs` | `label_list` | required | `.ts`, `.tsx`, or `.d.ts` files |
+| `srcs` | `label_list` | required | `.ts`, `.tsx`, `.d.ts`, `.js`, `.mjs` or `.cjs` files. A JavaScript src is staged unchanged and joins the type program — the rule sets `allowJs` for it, so its JSDoc types cross the package boundary; add `checkJs` through `compiler_options` to have its own body checked. A `.jsx` file is rejected at analysis time: oxc has no output extension for one, and the message says to rename it `.tsx` |
 | `deps` | `label_list` | `[]` | `ts_compile`, `ts_npm_package`, `css_library`, `css_module`, `asset_library` or `json_library` targets |
 | `target` | `string` | `"es2022"` | ECMAScript target version |
 | `jsx_mode` | `string` | `"react-jsx"` | JSX transform: `react-jsx`, `react`, `preserve`; empty disables JSX |
@@ -125,6 +125,27 @@ tree (bazel-out/k8-fastbuild/bin/packages/ui).
 ```
 
 The supported answer is `module_name` on the producing target.
+
+### Generated and checked-in sources in one target
+
+One tsgo declaration emit has one `rootDir`, and a checked-in source and a
+generated one hang off different roots — the package directory and the package's
+directory in `bazel-bin`. A target holding both fails at analysis under the
+default emit, naming the roots:
+
+```
+ts_compile: srcs on //src/app:app hang off 2 different roots, and one
+declaration emit has one rootDir:
+  bazel-out/k8-fastbuild/bin/src/app
+  src/app
+```
+
+Put the generated sources in their own target and depend on it, or set
+`declarations = "oxc"` (which groups sources by root and runs oxc once per
+group) or `enable_check = False`. Neither of the last two emits from tsgo, so
+neither has a `rootDir` to be single. What the generated sources cannot do is
+use the default emit even on their own — see
+[ts_codegen § Compiling the output](ts-codegen.md#compiling-the-output).
 
 ## Deps have to be direct
 

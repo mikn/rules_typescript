@@ -1,12 +1,12 @@
 # Release Process for rules_typescript
 
-This document describes the complete release process, from development to Bazel
-Central Registry submission.
+Cutting a tag through to a Bazel Central Registry submission.
 
 **Nothing has been released yet.** There are no git tags and no GitHub releases,
 so every version number below (`0.2.0`, `0.2.1`, …) is an example of the shape a
-release takes, not a record of one. The first release will be `0.1.0`. See
-[BCR Submission](BCR_SUBMISSION.md) for current status.
+release takes, not a record of one. `MODULE.bazel` reads `0.2.0` and every
+install snippet on the site names it, so that is the version a first release
+cuts. See [BCR Submission](BCR_SUBMISSION.md) for current status.
 
 ## Prerequisites
 
@@ -122,83 +122,17 @@ Mark the release as a prerelease by hand if the version carries an `-rc.N`,
 
 ## Step 4: Submit to Bazel Central Registry
 
-### 4.1 Fork the BCR
+This is the manual half, and it is written out once — in
+[BCR Submission](BCR_SUBMISSION.md#submission-steps): fork the registry, create
+`modules/rules_typescript/<version>/`, copy `.bcr/metadata.json`,
+`.bcr/source.json` and `.bcr/presubmit.yml` into it, push, open the PR. Follow
+that page rather than a second copy of the same sequence here; two copies is how
+they came to disagree about the version and about whether `presubmit.yml` was
+optional.
 
-1. Go to: https://github.com/bazelbuild/bazel-central-registry
-2. Click "Fork" and create your fork
-
-### 4.2 Create Release Directory
-
-Clone your fork and create the version directory:
-
-```bash
-git clone https://github.com/YOUR_USERNAME/bazel-central-registry.git
-cd bazel-central-registry
-mkdir -p modules/rules_typescript/0.2.0
-```
-
-### 4.3 Copy Files
-
-Copy the metadata and source files:
-
-```bash
-# From your rules_typescript repo
-cp .bcr/metadata.json ../bazel-central-registry/modules/rules_typescript/
-cp .bcr/source.json ../bazel-central-registry/modules/rules_typescript/0.2.0/
-```
-
-### 4.4 Create Additional Files (Optional)
-
-For first-time submissions, you may need to add:
-
-```
-modules/rules_typescript/0.2.0/
-├── source.json              (required)
-├── MODULE.bazel            (optional)
-└── presubmit.yml           (optional, for CI checks)
-```
-
-See examples in the BCR repo for format.
-
-### 4.5 Commit and Push
-
-```bash
-cd bazel-central-registry
-git checkout -b rules_typescript-v0.2.0
-git add modules/rules_typescript/
-git commit -m "Add rules_typescript v0.2.0"
-git push origin rules_typescript-v0.2.0
-```
-
-### 4.6 Create Pull Request
-
-1. Open: https://github.com/bazelbuild/bazel-central-registry/pulls
-2. Click "New pull request"
-3. Select your fork and branch (rules_typescript-v0.2.0)
-4. Fill in the description:
-
-```
-Add rules_typescript v0.2.0
-
-## Summary
-Brief description of changes and improvements in this release.
-
-## Changes
-- Feature 1
-- Feature 2
-- Bug fix 1
-
-## Related Issues
-- Fixes #123 (if applicable)
-
-## BCR Compliance
-- [x] Module files are valid YAML
-- [x] source.json integrity hash is computed
-- [x] Tarball is reproducible
-- [x] All tests pass
-```
-
-5. Click "Create pull request"
+The one thing to check before starting: the `.bcr/source.json` PR the release
+workflow opened has merged, so the file you are copying carries the real
+integrity hash rather than the empty placeholder.
 
 ## Step 5: Respond to BCR Feedback
 
@@ -330,8 +264,9 @@ bazel build --config=determinism //tests/smoke:hello
 # Check git status
 git status
 
-# Recalculate hash
-sha256sum /tmp/rules_typescript-v0.2.0.tar.gz
+# Recalculate hash. The tarball name carries no `v` -- the workflow strips it
+# from the tag before naming the archive.
+sha256sum rules_typescript-0.2.0.tar.gz
 ```
 
 ### "Module files are not valid YAML"

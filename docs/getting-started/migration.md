@@ -1,6 +1,9 @@
 # Migrating from rules_ts
 
-`rules_typescript` is a fresh implementation, not a fork of `rules_ts` from [aspect-build](https://github.com/aspect-build/rules_ts). This page covers the differences honestly — including where `rules_ts` is the better choice.
+`rules_typescript` is a fresh implementation, not a fork of `rules_ts` from
+[aspect-build](https://github.com/aspect-build/rules_ts). `rules_ts` has a
+release, production users and Windows support; this has none of the three, so a
+whole section below is about when to pick it instead.
 
 ## When to use which
 
@@ -12,7 +15,8 @@
 
 **Choose `rules_typescript` (this) if:**
 - You use Vite for bundling and dev serving
-- You want Gazelle to generate all BUILD files (zero manual maintenance)
+- You want Gazelle to generate the BUILD files, and can live with pinning the
+  occasional hand-narrowed attribute with `# keep`
 - You want the `.d.ts` compilation boundary: a body-only change recompiles nothing downstream
 - You want type errors to fail the build without extra flags
 - You use Remix, TanStack Start, or other Vite-based frameworks
@@ -25,11 +29,11 @@
 | **Compiler** | tsc (JavaScript) | Oxc (Rust) |
 | **Type-checker** | tsc | tsgo (Go port of TypeScript) |
 | **Compilation boundary** | tsc project references | `.d.ts` per target |
-| **Bundler** | Bring your own | Vite (first-class, built-in) |
+| **Bundler** | Bring your own | Vite, through `ts_bundle`; any other bundler through `BundlerInfo` |
 | **Dev server** | None built-in | Vite with HMR + React Fast Refresh |
 | **npm management** | rules_js (pnpm virtual store, symlinks) | Own pnpm lockfile reader; one Bazel repository per package, fetched on demand |
 | **BUILD generation** | Aspect CLI (proprietary) | Gazelle (open-source, directives) |
-| **Framework support** | None built-in | Remix and TanStack Start bundle through a Vite-plugin hook; Next.js has its own rule. SvelteKit and Solid Start are detected and deliberately unsupported ([why](../gazelle/overview.md#framework-detection)) |
+| **Framework support** | None built-in | TanStack Start bundles through a Vite-plugin hook; Remix, SvelteKit and Next.js each have a rule of their own. Solid Start is detected and deliberately unsupported ([why](../gazelle/overview.md#framework-detection)) |
 | **Bazel deps** | rules_js + rules_nodejs | rules_nodejs, rules_rust, rules_go + gazelle, rules_shell, bazel_skylib, platforms, toolchain_utils |
 | **Isolated declarations** | Not required | Not required; opt-in per package for throughput |
 | **pnpm** | System install required | Hermetic, opt-in ([two lines](../guides/npm.md#hermetic-pnpm)); Linux and macOS only |
@@ -136,15 +140,27 @@ If you decide to migrate from `rules_ts`:
    ```python
    npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
    npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
-   use_repo(npm, "npm")
+   use_repo(npm, "npm", "pnpm")
    ```
+
+   `"pnpm"` goes in even if you never run pnpm through Bazel — Gazelle writes a
+   `ts_pnpm` and a `ts_add_package` target beside the lockfile and both name
+   `@pnpm` ([why](../guides/npm.md#setup))
 
 3. Keep your `tsconfig.json` out of BUILD `deps`. Either drop it entirely and
    take the zero-config baseline, or pass it as `ts_compile(tsconfig = ...)` to
    have the generated config extend it — see
-   [where compiler options come from](../rules/ts-compile.md#where-compiler-options-come-from)
+   [where compiler options come from](../rules/ts-compile.md#where-compiler-options-come-from).
+   Rename it first if you also run `ts_refresh_tsconfig`, which
+   [overwrites the root `tsconfig.json` in full](ide-setup.md#setup)
 4. Run `bazel run //:gazelle` to regenerate BUILD files
-5. Nothing else. Missing explicit return types are fine — the default emitter
+5. Move cross-package `compilerOptions.paths` aliases to `module_name`. Gazelle
+   turns a `paths` entry into a `path_aliases` attr, which `ts_compile` accepts
+   only for files the same target stages — so `"@/*": ["src/*"]` across two
+   packages fails analysis. The
+   [quickstart](quickstart.md#path-b-existing-project) has the edit; your sources
+   keep importing `@/lib/math` unchanged
+6. Nothing else. Missing explicit return types are fine — the default emitter
    infers them
 
 ### Key conceptual differences

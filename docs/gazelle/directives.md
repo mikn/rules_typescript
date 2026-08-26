@@ -109,6 +109,10 @@ Generated deps in that tree then read `@npm_eslint//:eslint` rather than
 `@npm//:eslint`. Without it the label names a hub the package does not use, which
 is a label that does not exist. Both `npm_eslint` and `@npm_eslint` are accepted.
 
+The directive names a hub; declaring one is `npm.translate_lock(name = ...)` plus
+a matching `use_repo`, and each hub also needs its own `ts_add_package` target —
+see [More than one hub](../guides/npm.md#more-than-one-hub).
+
 ### Path alias for `@/` imports
 
 ```python
@@ -169,9 +173,12 @@ For a generator that writes a whole directory, prefix the outs field with
 # gazelle:ts_codegen prisma_client @npm//:prisma_bin dir:generated/client generate --schema {srcs}
 ```
 
-Gazelle also auto-detects TanStack Router, Prisma, GraphQL codegen and OpenAPI
-generators from `package.json`, so a directive is only needed for generators it
-does not recognise.
+Gazelle also auto-detects Prisma, GraphQL codegen and OpenAPI generators from
+`package.json`, so a directive is only needed for generators it does not
+recognise. TanStack Router is deliberately not among them: its route tree is
+written by the Start Vite plugin during the bundle, into the writable staging
+directory `ts_bundle` hands it, so a second copy in `bazel-bin` only drifts from
+the one the build actually used.
 
 ### Exclude generated files
 

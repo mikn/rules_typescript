@@ -38,8 +38,9 @@ cross-platform Node script rather than a shell. That is enough to build a
 What support would take: a Windows entry in `TSGO_PLATFORMS`
 (`ts/private/toolchain.bzl`) and `_PNPM_PLATFORMS` (`ts/private/pnpm.bzl`), an
 oxc build for the platform, and replacing the build-action wrappers that still
-need a POSIX shell — the Vite bundler, `next_build`, and the `node_modules`
-fallback taken when no JS runtime toolchain is registered. Nothing here has been
+need a POSIX shell — the Vite bundler, the framework build rules (`next_build`,
+), and the `node_modules` fallback taken when no
+JS runtime toolchain is registered. Nothing here has been
 run on Windows, so treat any estimate of the remaining work as untested.
 
 If you need TypeScript on Bazel on Windows today, use
@@ -52,18 +53,23 @@ and `ts_bundle`, `ts_dev_server` and `ts_test` generate configuration for
 whatever version that resolves to. So "supported" here means *exercised by a
 test in this repository*, and nothing constrains what you pin.
 
-Two lockfiles are exercised, and only one of them is a *lane* — a Vite and a
-vitest that generated configs actually run against. Everything runs on that one:
+There is **one lane** — one Vite version and one vitest version — even though
+the workspace translates several lockfiles. Four of them resolve one or both
+tools, and they agree on the version, so no test in this repository runs a
+generated config against a second major:
 
 | Hub | Lockfile | Vite | vitest | What it exercises |
 |---|---|---|---|---|
-| `@npm` | `tests/npm/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` (the whole `tests/vitest` suite), `ts_dev_server` (five servers started for real and interrogated over HTTP), `ts_bundle` output (`tests/vite_bundle`), `vite-plugin-bazel`'s own tests, the nested-Bazel integration workspaces, `examples/` |
-| `@npm_features` | `tests/npm/pnpm-lock-features.yaml` | — | — | pnpm's patched dependencies, npm aliases, peer-dependency variants and per-importer resolution. It resolves neither tool, so it is a second lockfile rather than a second lane |
+| `@npm` | `tests/npm/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` (the whole `tests/vitest` suite), `ts_dev_server` (seven servers started for real and interrogated over HTTP), `ts_bundle` output (`tests/vite_bundle`), `vite-plugin-bazel`'s own tests, the nested-Bazel integration workspaces, `examples/` |
+| `@npm_tailwind` | `tests/tailwind/pnpm-lock.yaml` | 8.2.2 | — | Tailwind v4 through `vite_config`: app mode, lib mode, and the dev server under both implementations |
+| `@npm_workers` | `tests/workers/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` with the Workers pool (vitest inside workerd) and `ts_worker_dry_run_test` |
+| `@npm_eslint` | `tests/eslint/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | the ESLint plugin's own `ts_test` targets, against `@typescript-eslint`'s rule tester |
+| `@npm_features` | `tests/npm/pnpm-lock-features.yaml` | — | — | pnpm's patched dependencies, npm aliases, peer-dependency variants and per-importer resolution. It resolves neither tool |
 
 To re-derive all of that rather than trusting the table:
 
 ```bash
-grep -nE '^  (vite|vitest)@' tests/npm/pnpm-lock.yaml tests/npm/pnpm-lock-features.yaml
+grep -rnE '^  (vite|vitest)@' --include=pnpm-lock.yaml .
 bazel query 'filter("behaviour_test$", tests(//tests/dev_server/...))'
 ```
 
@@ -97,7 +103,8 @@ tag, no release and no Bazel Central Registry entry, and consumers pin a commit.
 
 **Pre-1.0 (current):** any commit may break the API, with no deprecation
 window and no compatibility shim. Breaks are listed in
-[CHANGELOG.md](CHANGELOG.md) with the edit each one requires, which is the
+[CHANGELOG.md](https://github.com/mikn/rules_typescript/blob/main/CHANGELOG.md)
+with the edit each one requires, which is the
 migration path. The last two rounds of work broke `ts_compile`, `ts_test`, the
 npm extension and the toolchain API; read the changelog before bumping a pin.
 

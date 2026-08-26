@@ -27,8 +27,22 @@ If you would rather not install pnpm at all, see
 ```python
 npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
 npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
-use_repo(npm, "npm")
+use_repo(npm, "npm", "pnpm")
 ```
+
+`"npm"` is the alias hub your labels spell. `"pnpm"` is not optional either, even
+if you never intend to run pnpm through Bazel: the next `bazel run //:gazelle`
+writes a `ts_pnpm` and a `ts_add_package` target into your root `BUILD.bazel` —
+unconditionally, as soon as a `pnpm-lock.yaml` exists — and both name `@pnpm`.
+Without the repo, `bazel build //...` stops before it builds anything:
+
+```
+ERROR: no such package '@@[unknown repo 'pnpm' requested from @@ …]//': No
+repository visible as '@pnpm' from main repository and referenced by '//:pnpm'
+```
+
+Nothing runs those two targets on your behalf, and they cost nothing until you
+do — [Hermetic pnpm](#hermetic-pnpm) is what they are for.
 
 **Step 3.** Reference packages in BUILD files:
 
@@ -72,19 +86,11 @@ time, or on CI.
 ## Hermetic pnpm
 
 The extension also downloads a standalone pnpm binary, so lockfile edits need no
-system install. It is not wired up by default — add the two macros to your root
-`BUILD.bazel` and take the repo in `MODULE.bazel`:
+system install. Gazelle has already written the two macros for you — this is what
+the `ts_pnpm` and `ts_add_package` targets in your root `BUILD.bazel` are:
 
 ```python
-# MODULE.bazel
-npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
-npm.pnpm(version = "10.32.1")   # optional; a default version is used otherwise
-npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
-use_repo(npm, "npm", "pnpm")
-```
-
-```python
-# BUILD.bazel
+# BUILD.bazel — what `bazel run //:gazelle` writes beside a root pnpm-lock.yaml
 load("@rules_typescript//ts:defs.bzl", "ts_add_package", "ts_pnpm")
 
 ts_pnpm(name = "pnpm")
@@ -93,6 +99,17 @@ ts_add_package(
     name = "add_package",
     pnpm_lock = "//:pnpm-lock.yaml",
 )
+```
+
+The `@pnpm` repo they need came from Step 2. To choose the pnpm version rather
+than take the default:
+
+```python
+# MODULE.bazel
+npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
+npm.pnpm(version = "10.32.1")   # optional; a default version is used otherwise
+npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
+use_repo(npm, "npm", "pnpm")
 ```
 
 ```bash
@@ -123,12 +140,151 @@ Both targets `cd` to `$BUILD_WORKSPACE_DIRECTORY` first, so they edit the source
 tree rather than a sandbox. The wrapper is a bash script, so this does not run on
 Windows.
 
-Extra `pnpm add` flags are passed through, with one refusal: `--lockfile-dir` is
-rejected. The `--dir` the target appends overrides a `--dir` of your own, because
-pnpm takes the last occurrence, but `--lockfile-dir` is a different flag with
-nothing to lose to — so it would write a `pnpm-lock.yaml` outside the hub, which
-is the stray lockfile these targets exist to prevent. To edit another hub, run
-that hub's own target.
+### What the wrapper guarantees
+
+Extra `pnpm add` flags are passed through, and the wrapper's whole job is that
+the lockfile it rewrites is the hub's. That takes three things, not one, because
+pnpm has three routes to the same setting.
+
+**Redirecting the lockfile is refused, in four spellings.** The `--dir` the
+target appends overrides a `--dir` of your own, because pnpm takes the last
+occurrence. `--lockfile-dir` has nothing to lose to — an appended
+`--lockfile-dir` loses to an *earlier* `--lockfile-directory` — so the flag is
+rejected instead:
+
+```
+--lockfile-dir  --lockfile-directory  --config-lockfile-dir  --config-lockfile-directory
+```
+
+Each argument is normalised before the comparison: case-folded, `.` and `_`
+turned into `-`, and anything after an `=` stripped. So `--LOCKFILE_DIR=x` and
+`--config.lockfile-directory=x` are refused too.
+
+**Everything spelled `NPM_CONFIG_*` or `npm_config_*` is unset.** pnpm reads
+settings from the environment as well as from flags, so the flag check alone
+would not catch a redirect that arrived that way. The scrub is blunter than its
+intent — the `sed` that selects the names matches those two prefixes followed by
+anything at all, since every letter of the `lockfile` it looks for in between is
+optional, so `NPM_CONFIG_REGISTRY` goes with `NPM_CONFIG_LOCKFILE_DIR` — and it
+is also narrower: a mixed-case `Npm_Config_lockfile_dir` survives, and the
+after-the-fact check below is what covers that one.
+
+**The outcome is checked afterwards.** The wrapper lists every `pnpm-lock.yaml`
+in the tree before and after the run, and any new one outside the hub is
+**deleted and the target exits non-zero** — a lockfile no `npm.translate_lock()`
+names is a lockfile nothing builds from, and leaving it would shadow the hub's
+for anyone running pnpm by hand. That last check is what covers a route this
+pattern does not know about.
+
+Two more refusals before pnpm runs at all: no `PNPM_HUB_DIR` (the target was not
+generated by `ts_add_package`), and no `package.json` beside the hub's lockfile —
+pnpm would create one.
+
+To edit another hub, run that hub's own target.
+
+## More than one hub
+
+A workspace can translate several lockfiles. Each one is its own alias hub, named
+by `npm.translate_lock`'s `name` attr, and the name is what `use_repo` takes and
+what BUILD labels spell:
+
+```python
+# MODULE.bazel
+npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
+npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")                       # name defaults to "npm"
+npm.translate_lock(name = "npm_tools", pnpm_lock = "//tools:pnpm-lock.yaml")
+use_repo(npm, "npm", "npm_tools", "pnpm")
+```
+
+```python
+deps = ["@npm_tools//:eslint"]
+```
+
+Reasons to split rather than to add to one lockfile: a closure that has no
+business in the tree an app's tests resolve against (eslint's, say), and a
+curated fixture lockfile that no `pnpm add` should regenerate. Against that, two
+lockfiles are two things to keep in step and a package resolved in both is
+fetched twice. One root lockfile remains the default answer —
+[Monorepo Layout](monorepo.md#single-pnpm-lockfile) — and this is the escape
+hatch.
+
+Three things follow from a second hub, and each is a place a workspace gets it
+wrong:
+
+- **Gazelle has to be told**, per package, which hub that tree's imports come
+  from: `# gazelle:ts_npm_hub npm_tools`. Otherwise generated deps name `@npm`,
+  which for those packages is a label that does not exist. See
+  [More than one npm hub](../gazelle/directives.md#more-than-one-npm-hub).
+- **One `ts_add_package` target per hub.** pnpm rewrites whichever lockfile it
+  resolves against, so which hub is being edited belongs in the command a person
+  types rather than in a default they cannot see:
+
+  ```python
+  ts_add_package(
+      name = "add_package_tools",
+      pnpm_lock = "//tools:pnpm-lock.yaml",
+  )
+  ```
+
+  `bazel run //:add_package_tools -- eslint` then says out loud what it is about
+  to rewrite.
+- **A dev-only hub stays out of consumers' lock files.** A hub declared through
+  `use_extension(..., dev_dependency = True)` is invisible when your module is
+  not the root — which is what you want for a fixture, and not what you want for
+  a hub a public rule's action depends on.
+
+## Private and scoped registries
+
+A pnpm lockfile records a package's `name@version` and its integrity and says
+nothing about where the bytes came from — there is no registry field anywhere in
+it. `.npmrc` is the only record, so a workspace whose packages do not come from
+`registry.npmjs.org` cannot be fetched without handing it over:
+
+```python
+npm.translate_lock(
+    pnpm_lock = "//:pnpm-lock.yaml",
+    npmrc = "//:.npmrc",
+)
+```
+
+Two kinds of line decide a URL, and they are the only lines the extension reads:
+
+```
+registry=https://npm.example.com/          # the default for everything
+@acme:registry=https://npm.example.com/    # the default for one scope
+```
+
+A `tarball:` in the lockfile's `resolution:` is an absolute URL pnpm already
+resolved, and it wins over both.
+
+**Credentials are read somewhere else, on purpose.** The extension's result is
+serialised into `MODULE.bazel.lock`, which is committed, and a repository rule's
+attribute values go into it verbatim — so a token that reached an attribute would
+be a token in git. The extension therefore takes the registry lines and nothing
+else, and each package's own fetch reads the `.npmrc` again for
+`//host/path/:_authToken=` or `:_auth=`. What lands in the lock is the file's
+label.
+
+```
+//npm.example.com/:_authToken=${NPM_TOKEN}
+```
+
+`${VAR}` is expanded from the fetch environment, which is how a token stays out
+of the workspace entirely; changing the variable refetches, because reading it
+registers it. Credentials are keyed by `//host/path/` with the **longest**
+matching prefix winning, so a registry mounted on a path — an Artifactory repo,
+say — carries its own token without claiming the whole host.
+
+Two things this deliberately does not do:
+
+- **`~/.npmrc` is not consulted, and cannot be.** It lies outside the workspace,
+  so Bazel cannot make it an input, and two machines with different user-level
+  files would fetch different bytes from one lockfile and one lock. The part that
+  legitimately varies per machine is the token, which `${VAR}` covers.
+- **`username` / `_password` fail** with a message naming the file and the scope.
+  npm stores `_password` base64-encoded and Starlark has no way to decode it
+  (there is no `chr()`). Use `_authToken` — `npm config set //host/:_authToken`
+  writes it — or `_auth`, which is the same base64 blob.
 
 ## Patched dependencies
 
@@ -391,8 +547,8 @@ bazel query 'kind(ts_npm_package, deps(//path/to:my_test))' | wc -l
 That counts the package targets the target can reach — very nearly the set of
 repositories Bazel would fetch, since a package present under an npm alias name
 contributes a second target in the same repository. On this repository's own
-lockfile a vitest test target reaches 74 targets in 74 repositories; the two
-counts coincide because no alias falls inside that closure.
+lockfile `//tests/vitest:math_test` reaches 111 targets in 111 repositories; the
+two counts coincide because no alias falls inside that closure.
 
 There is one npm implementation. The single-repository layout, its
 `npm_translate_lock` repository rule and the `npm.translate_lock(lazy = ...)`
