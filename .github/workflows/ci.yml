@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: bazel-contrib/setup-bazel@0.14.0
+      - uses: bazel-contrib/setup-bazel@0.18.0
         with:
           bazelisk-version: 1.x
 
@@ -50,7 +50,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: bazel-contrib/setup-bazel@0.14.0
+      - uses: bazel-contrib/setup-bazel@0.18.0
         with:
           bazelisk-version: 1.x
 
@@ -83,7 +83,7 @@ jobs:
 
       # 432 of every example's ~700 actions are the same oxc/Rust + toolchain
       # prefix, so one key shared by all six legs, not one per leg (10 GB cap).
-      - uses: bazel-contrib/setup-bazel@0.14.0
+      - uses: bazel-contrib/setup-bazel@0.18.0
         with:
           bazelisk-version: 1.x
           bazelisk-cache: true
@@ -99,7 +99,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: bazel-contrib/setup-bazel@0.14.0
+      - uses: bazel-contrib/setup-bazel@0.18.0
         with:
           bazelisk-version: 1.x
 
@@ -138,7 +138,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: bazel-contrib/setup-bazel@0.14.0
+      - uses: bazel-contrib/setup-bazel@0.18.0
         with:
           bazelisk-version: 1.x
 
@@ -203,7 +203,7 @@ jobs:
 
       # docs.yml builds the site only on push to main, so until now a PR that
       # broke the nav or a page reference was caught after it had already merged.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: 3.x
 
