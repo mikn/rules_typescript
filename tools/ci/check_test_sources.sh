@@ -40,6 +40,11 @@ MANUAL_ONLY=$(
 # from the test lockfile, so the targets are built but cannot be run.
 tests/vitest/environment/edge.test.ts
 tests/vitest/environment/jsdom.test.ts
+# Meant to fail: it misses the coverage threshold its target sets, which is the
+# assertion. //tests/vitest/thresholds:enforcement_test runs it and asserts the
+# failure, so `bazel test //...` running it directly would report a red test for
+# a passing behaviour.
+tests/vitest/thresholds/missed/partial.test.ts
 ALLOWLIST
 )
 
