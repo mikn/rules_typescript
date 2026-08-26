@@ -68,7 +68,7 @@ against:
 ```python
 module(name = "my_project", version = "0.0.0")
 
-bazel_dep(name = "rules_typescript", version = "0.1.0")
+bazel_dep(name = "rules_typescript", version = "0.2.0")
 git_override(
     module_name = "rules_typescript",
     remote = "https://github.com/mikn/rules_typescript.git",

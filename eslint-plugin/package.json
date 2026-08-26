@@ -1,6 +1,6 @@
 {
   "name": "@rules_typescript/eslint-plugin-isolated-declarations",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "ESLint plugin for isolated declarations \u2014 enforces explicit return types on exports to enable fast per-file .d.ts emit",
   "license": "MIT",
   "type": "module",

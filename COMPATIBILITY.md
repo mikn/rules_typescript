@@ -100,8 +100,8 @@ The two places a generated config is known to be version-sensitive:
 ## Versioning Policy
 
 This project follows [Semantic Versioning 2.0.0](https://semver.org/) from 1.0
-onward. It has not reached 0.1.0 yet: there is no tag, no release and no Bazel
-Central Registry entry, and consumers pin a commit.
+onward. Nothing has shipped yet: `MODULE.bazel` reads 0.2.0, but there is no
+tag, no release and no Bazel Central Registry entry, and consumers pin a commit.
 
 **Pre-1.0 (current):** any commit may break the API, with no deprecation
 window and no compatibility shim. Breaks are listed in

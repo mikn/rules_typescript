@@ -37,7 +37,7 @@ scoop install bazelisk
 ## Depending on rules_typescript
 
 There is no Bazel Central Registry entry and no tagged release yet, so a bare
-`bazel_dep(name = "rules_typescript", version = "0.1.0")` has nothing to
+`bazel_dep(name = "rules_typescript", version = "0.2.0")` has nothing to
 resolve against. Until the ruleset is published to the BCR, pin it with a
 non-registry override. All three forms below keep `bazel_dep` in place —
 bzlmod still requires the `version` attribute, and ignores its value while an
@@ -46,7 +46,7 @@ override is active.
 ### git_override — the pre-BCR default
 
 ```python
-bazel_dep(name = "rules_typescript", version = "0.1.0")
+bazel_dep(name = "rules_typescript", version = "0.2.0")
 git_override(
     module_name = "rules_typescript",
     remote = "https://github.com/mikn/rules_typescript.git",
@@ -72,7 +72,7 @@ curl -sL "https://github.com/mikn/rules_typescript/archive/$COMMIT.tar.gz" \
 ```
 
 ```python
-bazel_dep(name = "rules_typescript", version = "0.1.0")
+bazel_dep(name = "rules_typescript", version = "0.2.0")
 archive_override(
     module_name = "rules_typescript",
     urls = ["https://github.com/mikn/rules_typescript/archive/<sha>.tar.gz"],
@@ -84,7 +84,7 @@ archive_override(
 ### local_path_override — working against a checkout
 
 ```python
-bazel_dep(name = "rules_typescript", version = "0.1.0")
+bazel_dep(name = "rules_typescript", version = "0.2.0")
 local_path_override(
     module_name = "rules_typescript",
     path = "../rules_typescript",
@@ -120,7 +120,7 @@ module(
     version = "0.0.0",
 )
 
-bazel_dep(name = "rules_typescript", version = "0.1.0")
+bazel_dep(name = "rules_typescript", version = "0.2.0")
 git_override(
     module_name = "rules_typescript",
     remote = "https://github.com/mikn/rules_typescript.git",

@@ -3,9 +3,9 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
-Nothing here has been released. There is no git tag, no GitHub release and no
-Bazel Central Registry entry; `0.1.0` is the version string in `MODULE.bazel`,
-not a shipped artifact. Consumers pin a commit
+Nothing here has been released yet. There is no git tag, no GitHub release and
+no Bazel Central Registry entry; `0.2.0` is the version string in
+`MODULE.bazel`, not a shipped artifact. Consumers pin a commit
 ([quickstart](https://mikn.github.io/rules_typescript/getting-started/quickstart/#depending-on-rules_typescript)),
 so every entry below is a change against whatever commit you pinned last.
 
@@ -13,7 +13,7 @@ Pre-1.0, breaking changes land without a deprecation path. The breaking
 sections are the migration guide: every break is listed with the edit it
 requires.
 
-## [Unreleased]
+## [0.2.0]
 
 ### Breaking — `ts_compile`
 

@@ -113,19 +113,26 @@ Flags:`)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("[1/3] MODULE.bazel: module version %s -> %s\n", old, version)
-	if !*dryRun {
-		if err := os.WriteFile(modulePath, []byte(after), 0o644); err != nil {
+	// A release PR may already carry the bump, in which case there is nothing to
+	// write and `git commit` would fail with an empty index rather than tag.
+	if old == version {
+		fmt.Printf("[1/3] MODULE.bazel: already %s\n", version)
+		fmt.Println("[2/3] commit MODULE.bazel: nothing to commit, version already in HEAD")
+	} else {
+		fmt.Printf("[1/3] MODULE.bazel: module version %s -> %s\n", old, version)
+		if !*dryRun {
+			if err := os.WriteFile(modulePath, []byte(after), 0o644); err != nil {
+				return err
+			}
+		}
+
+		fmt.Println("[2/3] commit MODULE.bazel")
+		if err := r.gitWrite("add", "MODULE.bazel"); err != nil {
 			return err
 		}
-	}
-
-	fmt.Println("[2/3] commit MODULE.bazel")
-	if err := r.gitWrite("add", "MODULE.bazel"); err != nil {
-		return err
-	}
-	if err := r.gitWrite("commit", "-m", "chore: release "+tag); err != nil {
-		return err
+		if err := r.gitWrite("commit", "-m", "chore: release "+tag); err != nil {
+			return err
+		}
 	}
 
 	fmt.Printf("[3/3] tag %s\n", tag)

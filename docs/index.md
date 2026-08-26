@@ -55,7 +55,7 @@ a rule of its own — `next_build` runs the framework's own build
 with `git_override`. Add to `MODULE.bazel`:
 
 ```python
-bazel_dep(name = "rules_typescript", version = "0.1.0")
+bazel_dep(name = "rules_typescript", version = "0.2.0")
 git_override(
     module_name = "rules_typescript",
     remote = "https://github.com/mikn/rules_typescript.git",
