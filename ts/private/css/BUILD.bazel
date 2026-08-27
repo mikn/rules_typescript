@@ -21,7 +21,11 @@ exports_files([
 ])
 
 node_modules(
-    name = "compiler_node_modules",
+    # Named node_modules, not compiler_node_modules: Node's upward walk only
+    # treats a directory with that exact name as a resolution root, so esbuild's
+    # shim would otherwise skip this tree and find the *consumer's* top-level
+    # one -- where the platform binary is not ours and not executable.
+    name = "node_modules",
     deps = [
         # Not @npm: that hub's name is the consumer's to claim -- the npm
         # extension gives the root module's translate_lock priority -- so a
@@ -42,7 +46,7 @@ esbuild_bundle(
     out = "css_module_compile.mjs",
     banner = "import { createRequire } from \"node:module\"; const require = createRequire(import.meta.url);",
     entry_point = "compile.ts",
-    node_modules = ":compiler_node_modules",
+    node_modules = ":node_modules",
 )
 
 # The bundler and vitest halves: the plugin that hands Vite the naming function
@@ -57,7 +61,7 @@ esbuild_bundle(
     ],
     out = "css_module_vite_plugin.mjs",
     entry_point = "vite_plugin.ts",
-    node_modules = ":compiler_node_modules",
+    node_modules = ":node_modules",
 )
 
 # esbuild strips types without checking them, so this is the type check for the

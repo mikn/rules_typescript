@@ -900,7 +900,10 @@ Recorded rather than hidden.
   *consumer* registered under that name. `//ts/private/css:compiler_node_modules`
   hit this: `css_module` runs for every consumer, so its compiler tree now takes
   esbuild from `@npm_css`, the ruleset's own hub. Three example workspaces failed
-  with `no such target '@npm//:esbuild'` before the fix. Still latent, because
+  with `no such target '@npm//:esbuild'` before the fix. Owning the hub was only
+  half of it — the tree also had to be *named* `node_modules`, per the gap below
+  about a differently-named tree, or esbuild's shim walks past it and spawns the
+  consumer's platform binary instead (`EACCES`, in the fourth example). Still latent, because
   nothing outside this repository builds them:
   `//ts/private/css:compiler_typecheck` and the targets in `//vite` take
   `types_node`, `esbuild`, `vite` and `tsup` from `@npm`. There is no test
