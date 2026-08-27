@@ -548,6 +548,17 @@ requires.
 
 ### Fixed
 
+- **A consumer on rules_rust 0.73 or newer can build again.** 0.73 refuses a
+  `crate_universe` hub declared by a non-root module unless the rendering is
+  pinned by a checked-in `lockfile`, because repinning cannot cross a module
+  boundary. Both hubs now ship one — `oxc_cli/Cargo.Bazel.lock` for `@crates`
+  and `oj/Cargo.Bazel.lock` for `@oj_crates`, each beside the `Cargo.lock` that
+  pins its cargo resolution. Nothing about the rendering changed; the pinning is
+  what was missing, and without it every consumer, example and integration test
+  failed at analysis with "is in a non-root module but has no lockfile".
+  Repinning is documented in
+  [CONTRIBUTING.md](https://github.com/mikn/rules_typescript/blob/main/CONTRIBUTING.md#repinning-crate-dependencies).
+
 - **An npm package's declaration entry point is resolved the way a resolver
   resolves it.** `_exports_types` read `exports["."]` looking for a `types` key
   directly under it, and returned nothing for a plain-string `exports["."]` with

@@ -114,6 +114,29 @@ The Rust CLI lives in `oxc_cli/`. Build with:
 bazel build //oxc_cli:oxc-bazel
 ```
 
+#### Repinning crate dependencies
+
+Two `crate_universe` hubs are pinned by checked-in lockfiles, because
+rules_rust refuses a hub without one when rules_typescript is a dependency
+rather than the root module — a consumer cannot repin across the module
+boundary:
+
+| Hub          | Rendering            | Cargo resolution      |
+| ------------ | -------------------- | --------------------- |
+| `@crates`    | `oxc_cli/Cargo.Bazel.lock` | `oxc_cli/Cargo.lock` |
+| `@oj_crates` | `oj/Cargo.Bazel.lock`      | `oj/Cargo.lock`      |
+
+After editing `oxc_cli/Cargo.toml` or the `crate.spec` for `oj` in
+`MODULE.bazel`, regenerate all four:
+
+```bash
+CARGO_BAZEL_REPIN=1 bazel query "@crates//:all + @oj_crates//:all"
+```
+
+A rules_rust bump also invalidates the renderings: the digest covers the cargo
+and rustc versions rules_rust pins, so repin in the same commit as the bump.
+Without it, every build fails with "The current `lockfile` is out of date".
+
 ### TypeScript (test fixtures and e2e workspaces)
 
 Use **prettier** (if you have it locally). The TypeScript files in `tests/` and
