@@ -402,6 +402,17 @@ def _generate_dev_config(
         "// Build the list of directories Vite's dev server is allowed to serve.\n" +
         "const fsAllow = [workspaceRoot, bazelBin];\n" +
         "if (nodeModulesPath) fsAllow.push(nodeModulesPath);\n" +
+        "\n" +
+        "// Vite matches a request against the resolved path, so an allow entry that\n" +
+        "// is still a symlink never matches it: on macOS /var is /private/var, and\n" +
+        "// bazel-bin is a symlink on every platform. Both forms are kept because\n" +
+        "// which one a request arrives as depends on how the server was started.\n" +
+        "for (const dir of [...fsAllow]) {\n" +
+        "  try {\n" +
+        "    const real = fs.realpathSync(dir);\n" +
+        "    if (real !== dir) fsAllow.push(real);\n" +
+        "  } catch {}\n" +
+        "}\n" +
         "\n"
     )
 

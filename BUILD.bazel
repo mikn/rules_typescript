@@ -61,6 +61,10 @@ ts_refresh_tsconfig(
         "**/examples",
         "**/tests/integration",
     ],
+    # A darwin-only optionalDependency that ships fsevents.d.ts, so it is not
+    # caught by the declaration-free filter: with it in, the checked-in file
+    # differs per host and //:refresh_tsconfig_test fails on the other one.
+    host_only_packages = ["fsevents"],
     # A package needs its own editor program when its targets set compilerOptions
     # the root block cannot also be set to. tsserver resolves a file to a program
     # by directory, so the root program would otherwise check these against the

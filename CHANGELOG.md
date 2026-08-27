@@ -548,6 +548,22 @@ requires.
 
 ### Fixed
 
+- **The dev server serves its own workspace on macOS.** Vite matches a request
+  against the resolved path, and `server.fs.allow` held the unresolved one, so
+  on a host where the workspace sits under a symlink — `/var` is `/private/var`
+  on macOS — every module was outside the allow list and the server answered
+  `403`. Nine dev-server and Tailwind tests failed there and passed on Linux.
+  The allow list now carries both forms.
+
+- **The generated IDE tsconfig no longer differs per host.**
+  `ts_refresh_tsconfig` gains `host_only_packages`, and the workspace's own
+  target names `fsevents` in it. pnpm resolves an `optionalDependencies` entry
+  only where its `os`/`cpu` match, so a package that exists on one developer's
+  machine and not another's put a `paths` entry in a checked-in file — and
+  `//:refresh_tsconfig_test` then failed for everyone on the other platform.
+  Packages shipping no declarations were already dropped, which covered the
+  platform binaries; `fsevents` ships `fsevents.d.ts` and slipped through.
+
 - **A consumer on rules_rust 0.73 or newer can build again.** 0.73 refuses a
   `crate_universe` hub declared by a non-root module unless the rendering is
   pinned by a checked-in `lockfile`, because repinning cannot cross a module

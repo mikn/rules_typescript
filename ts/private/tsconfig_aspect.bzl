@@ -514,24 +514,32 @@ def _collect(sources, field):
     # materialised.
     return depset(transitive = [getattr(s, field) for s in sources]).to_list()
 
-def _npm_view(sources):
+def _npm_view(sources, host_only = []):
     """The npm entry points to write, the ambient ones, and the files each needs.
 
     Two versions of one package name would fight over the same paths key and the
     same directory, so the lowest version wins for the whole package.
+
+    host_only names packages left out entirely: a package pnpm resolves on some
+    hosts and not others is one a checked-in file cannot name without differing
+    per host, and the declaration-free platform binaries are already dropped
+    upstream of here.
     """
+    skip = {name: True for name in host_only}
     chosen = {}
     for entry in _collect(sources, "npm_paths") + _collect(sources, "npm_ambient"):
+        if entry.name in skip:
+            continue
         if entry.name not in chosen or entry.version < chosen[entry.name]:
             chosen[entry.name] = entry.version
 
     entries = sorted(
-        [e for e in _collect(sources, "npm_paths") if chosen[e.name] == e.version],
+        [e for e in _collect(sources, "npm_paths") if chosen.get(e.name) == e.version],
         key = lambda e: e.name,
     )
     ambient = {}
     for entry in _collect(sources, "npm_ambient"):
-        if chosen[entry.name] == entry.version:
+        if chosen.get(entry.name) == entry.version:
             ambient[entry.name] = entry.entry
     files = sorted(
         [f for f in _collect(sources, "npm_files") if chosen.get(f.name) == f.version],
@@ -725,7 +733,7 @@ def _ide_tsconfig_impl(ctx):
 
     packages = _packages(sources)
     aliases = sorted([(a.prefix, a.dir) for a in _collect(sources, "aliases")])
-    npm_entries, npm_ambient, npm_files = _npm_view(sources)
+    npm_entries, npm_ambient, npm_files = _npm_view(sources, ctx.attr.host_only_packages)
 
     paths = {}
     copies = []
@@ -895,6 +903,16 @@ _IDE_ATTRS = {
 The aspect walks `deps` from here, so a target whose sources another listed
 target already depends on does not need its own entry.""",
     ),
+    "host_only_packages": attr.string_list(
+        doc = """npm packages to leave out of the generated `paths` map.
+
+pnpm resolves an `optionalDependencies` entry only on the hosts its `os`/`cpu`
+fields match, so a package that exists on one developer's machine and not
+another's makes a checked-in tsconfig differ per host -- and the staleness test
+then fails for everyone on the other platform. Packages shipping no
+declarations are already dropped, which covers the platform binaries; this is
+for one that does ship them, such as `fsevents`.""",
+    ),
     "npm_dir": attr.string(
         default = ".bazel/npm",
         doc = """Workspace-relative directory the npm declarations are installed in.
@@ -942,7 +960,7 @@ checked-in copy has gone stale.""",
 
 def _ide_hook_data_impl(ctx):
     sources = [dep[TsconfigSourcesInfo] for dep in ctx.attr.deps]
-    npm_entries, _, _ = _npm_view(sources)
+    npm_entries, _, _ = _npm_view(sources, ctx.attr.host_only_packages)
 
     data = {
         "_comment": _HEADER,
@@ -1069,6 +1087,7 @@ def ts_refresh_tsconfig(
         npm_dir = ".bazel/npm",
         tsconfig = "tsconfig.json",
         extra_exclude = [],
+        host_only_packages = [],
         nested_tsconfigs = [],
         test = False):
     """Declares the IDE tsconfig, the run target that installs it, and its staleness test.
@@ -1086,6 +1105,11 @@ def ts_refresh_tsconfig(
                   Globs added to the generated `exclude`, for TypeScript trees
                   that are not in this module's build graph. Anchor each with
                   `**/`.
+        host_only_packages:
+                  npm packages left out of the generated `paths`, for ones pnpm
+                  resolves on only some hosts (an `optionalDependencies` entry
+                  whose `os`/`cpu` matches) and that ship declarations, so the
+                  checked-in file does not differ per host.
         nested_tsconfigs:
                   Packages that need their own editor program, as
                   workspace-relative paths to the tsconfig.json each one gets
@@ -1106,6 +1130,7 @@ def ts_refresh_tsconfig(
         deps = deps,
         npm_dir = npm_dir,
         extra_exclude = extra_exclude,
+        host_only_packages = host_only_packages,
         nested_tsconfigs = nested_tsconfigs,
         tsconfig_path = tsconfig,
     )
@@ -1118,6 +1143,7 @@ def ts_refresh_tsconfig(
     ide_hook_data(
         name = name + ".hook_data",
         deps = deps,
+        host_only_packages = host_only_packages,
         npm_dir = npm_dir,
     )
     refresh_workspace_files(
