@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/mikn/rules_typescript/tests/integration/harness"
@@ -18,6 +19,11 @@ const (
 	stagedPackageJSON = "        \"package.json\",\n"
 	stagedRoutes      = "        \"//app/routes:sources\",\n"
 	stagedApp         = "        \"//app:sources\",\n"
+	stagedPanel       = "        \"//app/routes/panel:sources\",\n"
+
+	panelTitleImport     = `import { panelTitle } from "./title";`
+	panelTitleMarker     = "acme-panel-route-marker"
+	panelColocatedMarker = "acme-panel-colocated-marker"
 )
 
 // routeChunk finds the Rollup chunk Remix emitted for one route. The hash in
@@ -37,15 +43,31 @@ func routeChunk(it *harness.IT, assets, route string) string {
 	return ""
 }
 
+// stagedSource matches name inside the "sources" filegroup's srcs, so a hit
+// cannot come from the ts_compile that lists the same file in the same file.
+func stagedSource(name string) string {
+	return `(?s)filegroup\(\s*name = "sources",\s*srcs = \[[^]]*"` +
+		regexp.QuoteMeta(name) + `"`
+}
+
+// requireMarkerChunk asserts some chunk carries marker. A folder route's chunk
+// is named after its module rather than its directory, so the marker is what
+// identifies it.
+func requireMarkerChunk(it *harness.IT, assets, marker string) {
+	for _, name := range it.Glob(assets, "", ".js") {
+		if it.Contains(filepath.Join(assets, name), marker) {
+			return
+		}
+	}
+	it.Fail("no chunk in %s carries %q — the staged source never reached the bundle", assets, marker)
+}
+
 func main() {
 	harness.Run(harness.Config{
 		Name:         "remix",
 		WorkspaceRel: "tests/integration/remix/workspace",
 		Lockfile:     "examples/remix-app/pnpm-lock.yaml",
-		Renames: map[string]string{
-			"BUILD.bazel.tpl":     "BUILD.bazel",
-			"app/BUILD.bazel.tpl": "app/BUILD.bazel",
-		},
+		Renames:      map[string]string{"BUILD.bazel.tpl": "BUILD.bazel"},
 	}, func(it *harness.IT) {
 		it.MustBazel("run", "//:gazelle")
 		it.Pass("bazel run //:gazelle")
@@ -72,6 +94,49 @@ func main() {
 		it.BazelStdout("query", "//app:entry_client")
 		it.Pass("the generated entry_point label resolves to a real target")
 
+		// app/ ships no BUILD file at all, so both targets in it are generated:
+		// the single-file entry the bundle needs, and the package target that
+		// must not also compile that file.
+		appBuild := it.Path("app", "BUILD.bazel")
+		for _, want := range []string{
+			`name = "entry_client"`,
+			`srcs = ["entry.client.tsx"]`,
+			`"@npm//:remix-run_react"`,
+		} {
+			it.RequireContains(appBuild, want, "generated app/BUILD.bazel does not contain %s", want)
+		}
+		it.Pass("Gazelle generated the single-file client entry target")
+
+		// A folder route (app/routes/panel/route.tsx) is not in any framework's
+		// static stage-dir list, so it reaches the bundle only through a
+		// filegroup Gazelle emits and a staging_srcs label Gazelle adds.
+		panelDir := it.Path("app", "routes", "panel")
+		panelBuild := filepath.Join(panelDir, "BUILD.bazel")
+		it.RequireContains(panelBuild, "# Remix route routes/panel → /panel (parent root)",
+			"generated app/routes/panel/BUILD.bazel does not annotate the route")
+		for _, src := range []string{"route.tsx", "title.ts"} {
+			it.RequireMatches(panelBuild, stagedSource(src),
+				"the sources filegroup in app/routes/panel/BUILD.bazel does not name %s", src)
+		}
+		it.RequireContains(build, stagedPanel,
+			"staging_srcs does not name the folder route, so the bundle never sees it")
+		it.Pass("Gazelle staged the folder route and annotated its URL")
+
+		// The second run is where the two halves used to part company: the
+		// ts_compile picked the new colocated module up and the staged filegroup
+		// did not, so Remix resolved an import against a file the staging tree
+		// did not hold. One run cannot show that.
+		it.Write(filepath.Join(panelDir, "subtitle.ts"),
+			"export const panelSubtitle = \""+panelColocatedMarker+"\";\n")
+		routeFile := filepath.Join(panelDir, "route.tsx")
+		it.Replace(routeFile, panelTitleImport,
+			"import { panelSubtitle } from \"./subtitle\";\n"+panelTitleImport)
+		it.Replace(routeFile, "<h1>{panelTitle}</h1>", "<h1>{panelTitle}{panelSubtitle}</h1>")
+		it.MustBazel("run", "//:gazelle")
+		it.RequireMatches(panelBuild, stagedSource("subtitle.ts"),
+			"the second run left the sources filegroup naming the files the first run saw")
+		it.Pass("a second Gazelle run keeps the staged sources in step with the directory")
+
 		it.Replace(build, sourceViteConfig, generatedViteConfig)
 		it.MustBazel("build", "//...")
 		it.Pass("bazel build //...")
@@ -94,6 +159,13 @@ func main() {
 				"%s does not contain %q — the staged route source was not what Remix compiled", chunk, marker)
 			it.Pass("route %s compiled from its staged source", route)
 		}
+
+		// The folder route and the module the second run added: both had to be
+		// staged for Remix to resolve the import at all, so a chunk carrying the
+		// colocated marker is the end-to-end proof of the staging fix.
+		requireMarkerChunk(it, assets, panelTitleMarker)
+		requireMarkerChunk(it, assets, panelColocatedMarker)
+		it.Pass("the folder route and its colocated module both reached the bundle")
 
 		// Remix reads the project config from the staging root, so package.json
 		// has to be staged with the sources rather than left at the source root.

@@ -36,19 +36,36 @@ Typical patterns:
      The shell wrapper invokes $NODE_BINARY, which ts_codegen sets from the
      js_tool toolchain.
 
-         sh_binary(name = "gen_routes", srcs = ["generate-routes.sh"])
+         sh_binary(name = "gen_schema", srcs = ["generate-schema.sh"])
          ts_codegen(
-             name = "route_tree",
-             srcs = glob(["src/routes/**/*.tsx"]),
-             outs = ["src/routeTree.gen.ts"],
-             generator = ":gen_routes",
-             args = ["--routes-dir", "{srcs_dir}", "--out", "{out}"],
+             name = "schema",
+             srcs = ["schema.json"],
+             outs = ["schema.gen.ts"],
+             generator = ":gen_schema",
+             args = ["--in", "{srcs}", "--out", "{out}"],
              node_modules = ":node_modules",
          )
 
      The shell wrapper receives NODE_PATH and TS_CODEGEN_NODE_MODULES env
      variables automatically when node_modules is set, enabling Node.js
      to find npm packages.
+
+  3. A generator this ruleset ships:
+     //tools/codegen:tanstack_routes writes a TanStack Router route tree.
+
+         ts_codegen(
+             name = "route_tree",
+             srcs = glob(["**/*.tsx"]),
+             outs = ["routeTree.gen.expected.ts"],
+             generator = "@rules_typescript//tools/codegen:tanstack_routes",
+             args = ["--out", "{out}", "--srcs", "{srcs}"],
+             node_modules = "//:router_generator_node_modules",
+         )
+
+     A route tree has to be checked in -- the routes are typed against it, and
+     one ts_compile cannot hold both it and them -- so pair the target with
+     refresh_workspace_files and diff_test. examples/tanstack-app/src/routes
+     is the worked example.
 
 Placeholder substitution in args:
   {srcs_dir}         → execroot-relative directory of the first src file

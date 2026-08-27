@@ -25,6 +25,14 @@ def _esbuild_bundle_impl(ctx):
     args.add("--platform=node")
     args.add("--format=esm")
     args.add("--target=" + ctx.attr.target)
+
+    # Without this esbuild walks up from the entry point's REAL path -- the
+    # source tree, since srcs reach the sandbox as symlinks -- and applies the
+    # workspace tsconfig.json's `paths`, resolving a bundled npm package to the
+    # //:refresh_tsconfig .d.ts tree instead of to node_modules.
+    args.add("--tsconfig-raw={}")
+    if ctx.attr.banner:
+        args.add("--banner:js=" + ctx.attr.banner)
     args.add_all(ctx.attr.external, format_each = "--external:%s")
     args.add("--outfile=" + out.path)
 
@@ -69,6 +77,13 @@ esbuild_bundle = rule(
         "external": attr.string_list(
             doc = "Module specifiers left unbundled (esbuild --external:).",
         ),
+        "banner": attr.string(
+            doc = """Text prepended to the bundle (esbuild --banner:js=).
+
+An ESM bundle has no `require`, so a CJS dependency that require()s a node
+builtin fails at load time. The fix is a createRequire banner, which esbuild's
+own `__require` shim then picks up.""",
+        ),
         "target": attr.string(
             doc = "esbuild --target value, e.g. 'node20'.",
             default = "node20",
@@ -76,7 +91,8 @@ esbuild_bundle = rule(
     },
     doc = """Bundles TypeScript into a single ESM file with esbuild.
 
-Used inside this ruleset to build vite-plugin-bazel.  It is not part of the
-public rule surface: ts_bundle is the rule for bundling application code.
+Used inside this ruleset to build vite-plugin-bazel and css_module's
+postcss-modules compiler.  It is not part of the public rule surface:
+ts_bundle is the rule for bundling application code.
 """,
 )

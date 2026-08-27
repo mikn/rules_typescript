@@ -612,6 +612,12 @@
       "flatted/*": [
         "./.bazel/npm/flatted/types/*"
       ],
+      "generic-names": [
+        "./.bazel/npm/generic-names/index.d.ts"
+      ],
+      "generic-names/*": [
+        "./.bazel/npm/generic-names/*"
+      ],
       "happy-dom": [
         "./.bazel/npm/happy-dom"
       ],
@@ -828,6 +834,24 @@
       ],
       "postcss-load-config/*": [
         "./.bazel/npm/postcss-load-config/src/*"
+      ],
+      "postcss-modules": [
+        "./.bazel/npm/postcss-modules/index.d.ts"
+      ],
+      "postcss-modules/*": [
+        "./.bazel/npm/postcss-modules/*"
+      ],
+      "postcss-selector-parser": [
+        "./.bazel/npm/postcss-selector-parser/postcss-selector-parser.d.ts"
+      ],
+      "postcss-selector-parser/*": [
+        "./.bazel/npm/postcss-selector-parser/*"
+      ],
+      "postcss-value-parser": [
+        "./.bazel/npm/postcss-value-parser"
+      ],
+      "postcss-value-parser/*": [
+        "./.bazel/npm/postcss-value-parser/*"
       ],
       "postcss/*": [
         "./.bazel/npm/postcss/lib/*"
@@ -1287,6 +1311,10 @@
       ],
       "ts-interface-checker/*": [
         "./.bazel/npm/ts-interface-checker/dist/*"
+      ],
+      "ts/private/css/*": [
+        "./ts/private/css/*",
+        "./bazel-bin/ts/private/css/*"
       ],
       "tsup": [
         "./.bazel/npm/tsup/dist/index.d.ts"

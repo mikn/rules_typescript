@@ -349,6 +349,13 @@ css_module(
     name = "panel_module_css",
     srcs = ["panel.module.css"],
     visibility = ["//visibility:public"],
+    deps = [":panel_base_module_css"],
+)
+
+css_module(
+    name = "panel_base_module_css",
+    srcs = ["panel_base.module.css"],
+    visibility = ["//visibility:public"],
 )
 
 asset_library(

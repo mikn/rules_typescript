@@ -1,0 +1,11 @@
+.panel {
+  display: flex;
+}
+
+.panelTitle {
+  font-weight: 600;
+}
+
+.panel-footer {
+  border-top: 1px solid #ddd;
+}

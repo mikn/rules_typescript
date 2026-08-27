@@ -8,6 +8,7 @@ go_library(
         "exec_other.go",
         "exec_unix.go",
         "main.go",
+        "next.go",
         "node.go",
         "plan.go",
         "resolve.go",
@@ -30,6 +31,7 @@ go_test(
     name = "launcher_test",
     srcs = [
         "config_test.go",
+        "next_test.go",
         "plan_test.go",
         "resolve_test.go",
     ],

@@ -26,6 +26,13 @@ const (
 	ModeVitest    = "vitest"
 	ModeDevServer = "devserver"
 	ModeWrangler  = "wrangler"
+	ModeNext      = "next"
+)
+
+// The two Next.js CLI commands this launcher drives, one per rule.
+const (
+	nextCommandDev   = "dev"
+	nextCommandStart = "start"
 )
 
 // Config is the whole contract between the Starlark rules and this binary.
@@ -42,6 +49,30 @@ type Config struct {
 	Vitest    *VitestConfig    `json:"vitest,omitempty"`
 	DevServer *DevServerConfig `json:"dev_server,omitempty"`
 	Wrangler  *WranglerConfig  `json:"wrangler,omitempty"`
+	Next      *NextConfig      `json:"next,omitempty"`
+}
+
+// NextConfig runs the Next.js CLI. `next dev` serves the source tree, so it
+// needs only the project directory; `next start` serves a build, so the
+// launcher stages that build into a writable directory alongside the config and
+// the files Next.js serves from the project root rather than from .next.
+type NextConfig struct {
+	Command       string   `json:"command"`
+	NodeModules   string   `json:"node_modules"`
+	ProjectDir    string   `json:"project_dir,omitempty"`
+	BuildDir      string   `json:"build_dir,omitempty"`
+	ConfigFile    string   `json:"config_file,omitempty"`
+	ProjectFiles  []string `json:"project_files,omitempty"`
+	PackagePrefix string   `json:"package_prefix,omitempty"`
+	Port          int      `json:"port"`
+}
+
+// rule names the rule this config came from, for diagnostics.
+func (n *NextConfig) rule() string {
+	if n.Command == nextCommandDev {
+		return "next_dev_server"
+	}
+	return "next_serve"
 }
 
 // NodeConfig runs one .js entry point.
@@ -94,6 +125,7 @@ type DevServerConfig struct {
 	Argv            []string `json:"argv"`
 	RunsInJsRuntime bool     `json:"runs_in_js_runtime,omitempty"`
 	Plugin          string   `json:"plugin,omitempty"`
+	CSSModulePlugin string   `json:"css_module_plugin,omitempty"`
 	UserConfig      string   `json:"user_config,omitempty"`
 	BundlerBinary   string   `json:"bundler_binary,omitempty"`
 	Port            int      `json:"port"`
@@ -209,10 +241,28 @@ func (c *Config) validate() error {
 		if c.Wrangler.ConfigFile == "" || c.Wrangler.NodeModules == "" {
 			return errors.New(`mode "wrangler" requires wrangler.config_file and wrangler.node_modules`)
 		}
+	case ModeNext:
+		if c.Next == nil {
+			return errors.New(`mode "next" requires a "next" section`)
+		}
+		if c.Next.NodeModules == "" {
+			return errors.New(`mode "next" requires next.node_modules`)
+		}
+		switch c.Next.Command {
+		case nextCommandDev:
+		case nextCommandStart:
+			if c.Next.BuildDir == "" {
+				return errors.New(`next.command "start" requires next.build_dir`)
+			}
+		default:
+			return fmt.Errorf("unknown next.command %q (want %q or %q)",
+				c.Next.Command, nextCommandDev, nextCommandStart)
+		}
 	case "":
 		return errors.New(`missing "mode"`)
 	default:
-		return fmt.Errorf("unknown mode %q (want %q, %q, %q or %q)", c.Mode, ModeNode, ModeVitest, ModeDevServer, ModeWrangler)
+		return fmt.Errorf("unknown mode %q (want %q, %q, %q, %q or %q)",
+			c.Mode, ModeNode, ModeVitest, ModeDevServer, ModeWrangler, ModeNext)
 	}
 	return nil
 }

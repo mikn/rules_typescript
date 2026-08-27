@@ -155,138 +155,19 @@ func TestNpmBinLabel_OpenAPITypescript(t *testing.T) {
 	}
 }
 
-// ---- isInsideRoutesSegment tests -------------------------------------------
+// ---- TanStack routes ------------------------------------------------------
 
-func TestIsInsideRoutesSegment_True(t *testing.T) {
-	cases := []string{
-		"src/routes",
-		"src/routes/users",
-		"app/routes/posts/$id",
-	}
-	for _, rel := range cases {
-		if !isInsideRoutesSegment(rel) {
-			t.Errorf("isInsideRoutesSegment(%q): expected true", rel)
+// A TanStack routes directory gets NO ts_codegen. The Start Vite plugin writes
+// the route tree into the staging directory during the bundle, and the rule
+// this used to emit named a generator label that has never existed in the
+// ruleset, so it could not build.
+func TestDetectCodegen_NoTanStackRouteTree(t *testing.T) {
+	for _, pkg := range []string{"@tanstack/react-router", "@tanstack/react-start", "@tanstack/start"} {
+		tc := makeTcWithNpm(pkg)
+		got := detectCodegen("src/routes", []string{"index.tsx", "about.tsx"}, tc)
+		if len(got) != 0 {
+			t.Errorf("detectCodegen with %s: got %d patterns, want none", pkg, len(got))
 		}
-	}
-}
-
-func TestIsInsideRoutesSegment_False(t *testing.T) {
-	cases := []string{
-		"src/components",
-		"src/router", // "router" != "routes"
-		"routes-config",
-	}
-	for _, rel := range cases {
-		if isInsideRoutesSegment(rel) {
-			t.Errorf("isInsideRoutesSegment(%q): expected false", rel)
-		}
-	}
-}
-
-// ---- isRoutesRoot tests ----------------------------------------------------
-
-func TestIsRoutesRoot_True(t *testing.T) {
-	cases := []string{
-		"routes",
-		"src/routes",
-		"app/routes",
-	}
-	for _, rel := range cases {
-		if !isRoutesRoot(rel) {
-			t.Errorf("isRoutesRoot(%q): expected true", rel)
-		}
-	}
-}
-
-func TestIsRoutesRoot_False(t *testing.T) {
-	cases := []string{
-		"src/routes/users",
-		"src/routes/posts/$id",
-	}
-	for _, rel := range cases {
-		if isRoutesRoot(rel) {
-			t.Errorf("isRoutesRoot(%q): expected false", rel)
-		}
-	}
-}
-
-// ---- detectTanStackRoutes tests --------------------------------------------
-
-func TestDetectTanStackRoutes_Detected(t *testing.T) {
-	tc := makeTcWithNpm("@tanstack/react-router")
-	files := []string{"index.tsx", "about.tsx", "routeTree.gen.ts"}
-	p := detectTanStackRoutes("src/routes", files, tc)
-	if p == nil {
-		t.Fatal("expected detectTanStackRoutes to return a pattern, got nil")
-	}
-	if p.Name != "route_tree" {
-		t.Errorf("Name: got %q, want %q", p.Name, "route_tree")
-	}
-	if len(p.Outs) != 1 || p.Outs[0] != "routeTree.gen.ts" {
-		t.Errorf("Outs: got %v, want [routeTree.gen.ts]", p.Outs)
-	}
-	if p.Generator != "@rules_typescript//tools/codegen:tanstack_routes" {
-		t.Errorf("Generator: got %q", p.Generator)
-	}
-}
-
-func TestDetectTanStackRoutes_TanStackStart(t *testing.T) {
-	tc := makeTcWithNpm("@tanstack/start")
-	p := detectTanStackRoutes("src/routes", []string{"index.tsx"}, tc)
-	if p == nil {
-		t.Fatal("expected detection with @tanstack/start npm package")
-	}
-}
-
-func TestDetectTanStackRoutes_NotInsideRoutesDir(t *testing.T) {
-	tc := makeTcWithNpm("@tanstack/react-router")
-	p := detectTanStackRoutes("src/components", []string{"Button.tsx"}, tc)
-	if p != nil {
-		t.Error("expected nil when not inside a routes/ directory")
-	}
-}
-
-func TestDetectTanStackRoutes_NoTsxFiles(t *testing.T) {
-	tc := makeTcWithNpm("@tanstack/react-router")
-	// No .tsx files — only a generated file.
-	p := detectTanStackRoutes("src/routes", []string{"routeTree.gen.ts"}, tc)
-	if p != nil {
-		t.Error("expected nil when no non-generated .tsx files present")
-	}
-}
-
-func TestDetectTanStackRoutes_MissingNpmPackage(t *testing.T) {
-	// npmPackages is set but doesn't include tanstack router.
-	tc := makeTcWithNpm("react")
-	p := detectTanStackRoutes("src/routes", []string{"index.tsx"}, tc)
-	if p != nil {
-		t.Error("expected nil when @tanstack/* not in npm deps")
-	}
-}
-
-func TestDetectTanStackRoutes_FallbackToFrameworkWhenNoLockfile(t *testing.T) {
-	// npmPackages is nil (no lockfile) but framework was detected.
-	tc := makeTcWithFramework(FrameworkTanStack)
-	p := detectTanStackRoutes("src/routes", []string{"index.tsx"}, tc)
-	if p == nil {
-		t.Fatal("expected detection via framework fallback when npmPackages is nil")
-	}
-}
-
-func TestDetectTanStackRoutes_NoFrameworkNoLockfile(t *testing.T) {
-	tc := makeTcWithFramework(FrameworkNone) // no npm, no framework
-	p := detectTanStackRoutes("src/routes", []string{"index.tsx"}, tc)
-	if p != nil {
-		t.Error("expected nil when neither npm packages nor framework detected")
-	}
-}
-
-func TestDetectTanStackRoutes_OnlyEmittedAtRoutesRoot(t *testing.T) {
-	tc := makeTcWithNpm("@tanstack/react-router")
-	// Sub-directory inside routes/ — should NOT emit.
-	p := detectTanStackRoutes("src/routes/users", []string{"index.tsx"}, tc)
-	if p != nil {
-		t.Error("expected nil for sub-directory inside routes/; target should only be at routes/ root")
 	}
 }
 

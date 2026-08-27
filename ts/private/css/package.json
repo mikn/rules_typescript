@@ -1,0 +1,9 @@
+{
+  "name": "rules_typescript_css_compiler",
+  "version": "0.0.0",
+  "private": true,
+  "dependencies": {
+    "postcss": "8.5.26",
+    "postcss-modules": "9.0.1"
+  }
+}

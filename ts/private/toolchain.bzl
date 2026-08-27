@@ -115,9 +115,10 @@ def get_tsgo_toolchain(ctx):
 
 # ─── Supported platforms ──────────────────────────────────────────────────────
 
-# The platforms tsgo has a published binary for; keys of
-# //platforms:platforms.bzl%PLATFORMS.  Windows is absent from
-# @typescript/native-preview.
+# The platforms this ruleset declares a tsgo toolchain for; keys of
+# //platforms:platforms.bzl%PLATFORMS.  Not the platforms
+# @typescript/native-preview publishes -- it has win32 builds too, and Windows is
+# unsupported here for the reasons in COMPATIBILITY.md#windows.
 TSGO_PLATFORMS = ["linux_amd64", "linux_arm64", "darwin_amd64", "darwin_arm64"]
 
 # oxc-bazel needs no such list: it is built from source by rules_rust for

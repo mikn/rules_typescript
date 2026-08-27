@@ -1,9 +1,7 @@
-# gazelle:ts_exclude entry.client.tsx
 load("@rules_typescript//ts:defs.bzl", "ts_compile")
 
-# entry.client.tsx is excluded from the generated :app target via ts_exclude above.
-# It is compiled separately as a single-file target so that ts_bundle can use it
-# as entry_point (ts_bundle requires exactly 1 .js output from the entry target).
+# Generated: Gazelle gives the client entry a single-file target of its own,
+# because ts_bundle takes exactly one .js from entry_point.
 ts_compile(
     name = "entry_client",
     srcs = ["entry.client.tsx"],

@@ -1,5 +1,4 @@
-# gazelle:ts_exclude main.tsx
-load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_dev_server")
+load("@rules_typescript//ts:defs.bzl", "ts_compile")
 
 exports_files([
     "index.ts",
@@ -15,26 +14,11 @@ ts_compile(
     deps = ["//src/lib"],
 )
 
-# main.tsx: the real React SPA entry point for Vite bundling.
-# Depends on react-dom (for createRoot) and tanstack_react-router (for RouterProvider).
-# gazelle:ts_exclude main.tsx prevents Gazelle from merging this into :app above.
+# ts_bundle demands an entry_point and the Start plugin replaces the client
+# input with its own virtual module, so main.tsx is empty and this target inert.
 ts_compile(
     name = "main",
     srcs = ["main.tsx"],
-    visibility = ["//visibility:public"],
-    deps = [
-        "//src/lib",
-        "@npm//:react",
-        "@npm//:react-dom",
-        "@npm//:tanstack_react-router",
-    ],
-)
-
-ts_dev_server(
-    name = "dev",
-    entry_point = ":app",
-    plugin = "@rules_typescript//vite:vite_plugin_bazel",
-    port = 5173,
     visibility = ["//visibility:public"],
 )
 

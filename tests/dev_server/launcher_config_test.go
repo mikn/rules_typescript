@@ -17,6 +17,7 @@ type launcherConfig struct {
 		ConfigFile  string `json:"config_file"`
 		NodeModules string `json:"node_modules"`
 		Plugin      string `json:"plugin"`
+		CSSModule   string `json:"css_module_plugin"`
 		UserConfig  string `json:"user_config"`
 	} `json:"dev_server"`
 }
@@ -32,9 +33,10 @@ func readLauncherConfig(t *testing.T, tree *verify.Tree, target string) launcher
 func (c launcherConfig) env(tree *verify.Tree, workspace string) []string {
 	env := []string{"BUILD_WORKSPACE_DIRECTORY=" + workspace}
 	for name, rlocation := range map[string]string{
-		"NODE_MODULES_PATH":     c.DevServer.NodeModules,
-		"VITE_PLUGIN_PATH":      c.DevServer.Plugin,
-		"VITE_USER_CONFIG_PATH": c.DevServer.UserConfig,
+		"NODE_MODULES_PATH":           c.DevServer.NodeModules,
+		"VITE_PLUGIN_PATH":            c.DevServer.Plugin,
+		"VITE_CSS_MODULE_PLUGIN_PATH": c.DevServer.CSSModule,
+		"VITE_USER_CONFIG_PATH":       c.DevServer.UserConfig,
 	} {
 		if rlocation == "" {
 			continue

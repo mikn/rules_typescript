@@ -7,6 +7,8 @@ Demonstrates the hybrid monorepo pattern with rules_typescript:
 
 Run `bazel run //:gazelle` to regenerate BUILD files.
 Run `bazel build //:app` to build the Next.js application.
+Run `bazel run //:dev` for `next dev` over the source tree.
+Run `bazel run //:serve` to serve the build and see the SSR routes answer.
 Run `bazel build //packages/shared` to build the shared library.
 Run `bazel build //...` to build everything.
 Run `bazel build //... --output_groups=+_validation` to type-check with tsgo.
@@ -14,7 +16,7 @@ Run `bazel build //... --output_groups=+_validation` to type-check with tsgo.
 
 load("@gazelle//:def.bzl", "gazelle")
 load("@rules_typescript//npm:defs.bzl", "node_modules")
-load("@rules_typescript//ts:defs.bzl", "next_build", "ts_add_package", "ts_pnpm")
+load("@rules_typescript//ts:defs.bzl", "next_build", "next_dev_server", "next_serve", "ts_add_package", "ts_pnpm")
 
 gazelle(
     name = "gazelle",
@@ -38,22 +40,18 @@ node_modules(
 
 # ── Next.js application build ─────────────────────────────────────────────────
 # Produces a .next/ directory containing server bundles, static assets, and
-# route manifests. The shared package sources are staged at their workspace-
-# relative paths so that relative imports resolve without transpilePackages.
+# route manifests. The shared package's compiled output is staged at its
+# workspace-relative path, so the app's relative import resolves to
+# packages/shared/src/index.js without transpilePackages.
 next_build(
     name = "app",
-    srcs = glob(
-        [
-            "app/**/*.tsx",
-            "app/**/*.ts",
-        ],
-        allow_empty = True,
-    ),
+    srcs = glob([
+        "app/**",
+        "pages/**",
+    ]),
     config = "next.config.mjs",
     node_modules = ":node_modules",
-    staging_srcs = [
-        "//packages/shared/src:sources",
-    ],
+    staging_srcs = ["//packages/shared/src"],
     tsconfig = "tsconfig.json",
 )
 
@@ -62,4 +60,22 @@ ts_pnpm(name = "pnpm")
 ts_add_package(
     name = "add_package",
     pnpm_lock = "//:pnpm-lock.yaml",
+)
+
+# ── Running the app ───────────────────────────────────────────────────────────
+# `next dev` reads its routes from source, so it takes no srcs: an edit reaches
+# the response through Next.js's own watcher rather than through a rebuild.
+next_dev_server(
+    name = "dev",
+    node_modules = ":node_modules",
+)
+
+# `next start` over the build. The dynamic routes -- /dynamic and /ssr -- render
+# per request here, which is what a static export cannot do: both echo the Host
+# the request carried.
+next_serve(
+    name = "serve",
+    build = ":app",
+    config = "next.config.mjs",
+    node_modules = ":node_modules",
 )

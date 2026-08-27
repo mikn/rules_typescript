@@ -1,0 +1,83 @@
+"""Analysis-time coverage for svelte_library.
+
+The fixtures are `manual`: compiling them needs the svelte npm package, which
+this workspace's lockfile does not carry. The analysis tests below reach them by
+label, and //tests/integration:svelte_test runs the compiler for real.
+
+# gazelle:exclude nested
+"""
+
+load("//npm:defs.bzl", "node_modules")
+load("//ts:defs.bzl", "css_library", "svelte_library")
+load(
+    ":svelte_library_tests.bzl",
+    "client_argv_test",
+    "declared_outputs_test",
+    "forwarded_deps_test",
+    "providers_test",
+    "server_argv_test",
+)
+
+node_modules(
+    name = "node_modules",
+    tags = ["manual"],
+    deps = [],
+)
+
+css_library(
+    name = "theme",
+    srcs = ["theme.css"],
+    tags = ["manual"],
+)
+
+svelte_library(
+    name = "components",
+    srcs = [
+        "Card.svelte",
+        "nested/Plain.svelte",
+    ],
+    node_modules = ":node_modules",
+    tags = ["manual"],
+)
+
+svelte_library(
+    name = "components_with_deps",
+    srcs = ["Themed.svelte"],
+    node_modules = ":node_modules",
+    tags = ["manual"],
+    deps = [":theme"],
+)
+
+svelte_library(
+    name = "components_ssr",
+    srcs = ["Badge.svelte"],
+    dev = True,
+    generate = "server",
+    node_modules = ":node_modules",
+    tags = ["manual"],
+)
+
+declared_outputs_test(
+    name = "declared_outputs_test",
+    target_under_test = ":components",
+)
+
+providers_test(
+    name = "providers_test",
+    target_under_test = ":components",
+)
+
+forwarded_deps_test(
+    name = "forwarded_deps_test",
+    target_under_test = ":components_with_deps",
+)
+
+client_argv_test(
+    name = "client_argv_test",
+    target_under_test = ":components",
+)
+
+server_argv_test(
+    name = "server_argv_test",
+    target_under_test = ":components_ssr",
+)

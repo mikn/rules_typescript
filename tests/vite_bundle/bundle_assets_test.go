@@ -1,8 +1,10 @@
 package vite_bundle_test
 
 import (
+	"maps"
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -154,35 +156,70 @@ func TestManifestKeysAreWorkspaceRelative(t *testing.T) {
 	}
 }
 
-// The .d.ts css_module generates is a promise about the keys of the object Vite
-// hands the importer. postcss-modules is what actually produces that object, so
-// the fixture bundle dumps its export map through css.modules.getJSON and the
-// two key sets are compared -- rather than the .d.ts being trusted on its own.
-func TestCssModuleKeysMatchDeclaration(t *testing.T) {
+// The acceptance property of css_module, asserted end to end: the class name
+// the .d.ts promises is the class name in the browser.
+//
+// Three artefacts, three derivations, no exceptions between them:
+//
+//  1. panel.module.css.d.ts       — what TypeScript typechecked against;
+//  2. panel.module.css.exports.json — the map css_module's own postcss-modules
+//     run produced, and generated that .d.ts from;
+//  3. css-module-exports.json     — the map the BUNDLE's postcss-modules
+//     produced, dumped by css_exports_plugin.mjs through css.modules.getJSON.
+//
+// (3) is the independent witness: it is the consumer's Vite, its own bundled
+// copy of postcss-modules, reporting what it actually handed the importer. Keys
+// AND values, because a key-set match with different values is exactly the bug
+// this rule exists to remove -- a typed API whose strings are fiction.
+//
+// And the values are then looked for in the emitted stylesheet, because a map
+// the bundler agrees with still proves nothing if no rule carries the name.
+func TestCssModuleNamesAreTheDeclaredNames(t *testing.T) {
 	tree := verify.New(t)
+	bundle := tree.Dir(assetsBundle)
 
 	exportsByFile := map[string]map[string]string{}
-	tree.Dir(assetsBundle).File("css-module-exports.json").JSON(&exportsByFile)
-	real, ok := exportsByFile["panel.module.css"]
+	bundle.File("css-module-exports.json").JSON(&exportsByFile)
+	fromBundle, ok := exportsByFile["panel.module.css"]
 	if !ok {
 		t.Fatalf("the bundle recorded no exports for panel.module.css: %v", exportsByFile)
 	}
 
-	// css_module declares class names, and postcss-modules also scopes the
-	// @keyframes name in the same file. Listing it is what keeps the rest of
-	// this an exact comparison.
-	omitted := map[string]bool{"panel-fade": true}
+	fromBazel := map[string]string{}
+	tree.File("tests/vite_bundle/panel.module.css.exports.json").JSON(&fromBazel)
+	if len(fromBazel) == 0 {
+		t.Fatal("panel.module.css.exports.json is empty")
+	}
 
-	var want []string
-	for name := range real {
-		if !omitted[name] {
-			want = append(want, name)
+	for name, want := range fromBazel {
+		got, present := fromBundle[name]
+		if !present {
+			t.Errorf("css_module declares %q; the bundle exports no such name", name)
+			continue
+		}
+		if got != want {
+			t.Errorf("%q: css_module named it %q, the bundle named it %q", name, want, got)
 		}
 	}
-	got := declaredKeys(tree.File("tests/vite_bundle/panel.module.css.d.ts").Text())
-	sort.Strings(want)
-	if strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Errorf("panel.module.css.d.ts declares %v, postcss-modules exports %v", got, want)
+	for name := range fromBundle {
+		if _, present := fromBazel[name]; !present {
+			t.Errorf("the bundle exports %q; css_module's map does not declare it, so no .d.ts does", name)
+		}
+	}
+
+	declared := declaredKeys(tree.File("tests/vite_bundle/panel.module.css.d.ts").Text())
+	want := slices.Sorted(maps.Keys(fromBazel))
+	if strings.Join(declared, ",") != strings.Join(want, ",") {
+		t.Errorf("panel.module.css.d.ts declares %v, the export map holds %v", declared, want)
+	}
+
+	// The name has to be in the stylesheet the browser loads, not merely in a
+	// map two implementations agree on. `composes` puts several names in one
+	// value; each of them is a class the browser is given.
+	for _, exported := range fromBazel {
+		for _, class := range strings.Fields(exported) {
+			bundle.AnyContains("*.css", class)
+		}
 	}
 }
 

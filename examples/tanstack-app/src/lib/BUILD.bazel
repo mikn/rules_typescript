@@ -17,6 +17,7 @@ ts_compile(
     ],
     visibility = ["//visibility:public"],
     deps = [
+        "//src/routes",  # keep
         "@npm//:tanstack_react-router",
         "@npm//:zod",
     ],
@@ -30,7 +31,11 @@ ts_test(
     ],
     deps = [
         ":lib",
+        "//src/routes",
+        "@npm//:react",  # keep
+        "@npm//:react-dom",  # keep
         "@npm//:tanstack_react-router",
+        "@npm//:tanstack_react-start",  # keep
         "@npm//:vitest",
         "@npm//:zod",
     ],

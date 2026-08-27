@@ -1,8 +1,5 @@
 /**
- * Application entry point — exported for ts_binary to bundle.
- *
- * Re-exports the router (the core artifact of a TanStack Router app).
- * In a real app, this would also render the RouterProvider.
+ * Application entry point — re-exports the router factory the Start plugin uses.
  */
-export { router } from "../lib";
+export { getRouter } from "../lib";
 export type { AppRouter } from "../lib";

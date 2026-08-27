@@ -7,7 +7,7 @@ describe("user config merges with the generated config", () => {
     expect(answer).toBe(42);
   });
 
-  it("still mocks CSS modules through the Bazel-owned plugin", () => {
-    expect(buttonClass()).toBe("button");
+  it("still answers CSS modules through the Bazel-owned plugin", () => {
+    expect(buttonClass()).toMatch(/^_button_[0-9a-f]{8}$/);
   });
 });

@@ -68,6 +68,8 @@ CssModuleInfo = provider(
     fields = {
         "css_files": "depset of File: .module.css files this target itself produces; empty on a target that only forwards them.",
         "transitive_css_files": "depset of File: Transitive closure of all .module.css files.",
+        "exports_files": "depset of File: <source>.exports.json, the scoped-name map postcss-modules produced for each direct src. Its keys are what the .d.ts declares and its values are the class names the bundler must emit.",
+        "transitive_exports_files": "depset of File: Transitive closure of all .exports.json maps.",
     },
 )
 

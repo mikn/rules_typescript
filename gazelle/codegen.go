@@ -1,7 +1,11 @@
 package typescript
 
 // codegen.go implements auto-detection of code generation patterns for
-// well-known tools (TanStack Router, Prisma, GraphQL Codegen, OpenAPI).
+// well-known tools (Prisma, GraphQL Codegen, OpenAPI).
+//
+// TanStack Router is deliberately absent: its route tree is written by the
+// Start Vite plugin during the bundle, into the writable staging directory
+// ts_bundle hands it, so a second generator in bazel-bin only drifts from it.
 //
 // Detection works at the directory level: detectCodegen scans the file list
 // and the npm dependency set and emits one CodegenPattern per recognised tool.
@@ -168,108 +172,27 @@ func detectCodegen(rel string, files []string, tc *tsConfig) []CodegenPattern {
 
 	fs := fileSet(files)
 
-	// 1. TanStack Router / TanStack Start route generation.
-	if p := detectTanStackRoutes(rel, files, tc); p != nil {
-		patterns = append(patterns, *p)
-	}
-
-	// 2. Prisma client generation.
+	// 1. Prisma client generation.
 	if p := detectPrisma(fs, tc); p != nil {
 		patterns = append(patterns, *p)
 	}
 
-	// 3. GraphQL codegen.
+	// 2. GraphQL codegen.
 	if p := detectGraphQLCodegen(files, fs, tc); p != nil {
 		patterns = append(patterns, *p)
 	}
 
-	// 4. OpenAPI / Swagger.
+	// 3. OpenAPI / Swagger.
 	if p := detectOpenAPI(fs, tc); p != nil {
 		patterns = append(patterns, *p)
 	}
 
-	// 5. Custom generators from # gazelle:ts_codegen directives.
+	// 4. Custom generators from # gazelle:ts_codegen directives.
 	for _, custom := range tc.customCodegens {
 		patterns = append(patterns, custom)
 	}
 
 	return patterns
-}
-
-// ---- detector: TanStack Router routes --------------------------------------
-
-// detectTanStackRoutes detects the TanStack Router route generation pattern.
-//
-// Trigger conditions (all must be true):
-//  1. The directory path contains a "routes" component.
-//  2. @tanstack/react-router or @tanstack/react-start is in npm deps.
-//  3. The directory contains at least one non-generated .tsx file.
-//
-// When npmPackages is nil (no lockfile loaded) we rely on the already-detected
-// framework field in tc to avoid the false-positive risk.
-func detectTanStackRoutes(rel string, files []string, tc *tsConfig) *CodegenPattern {
-	// Condition 1: must be inside a routes/ directory.
-	if !isInsideRoutesSegment(rel) {
-		return nil
-	}
-
-	// Condition 2: npm dependency check.
-	// When a package map is available, check explicitly.
-	// Fall back to the detectedFramework heuristic when no map is available.
-	if tc.npmPackages != nil {
-		if !hasAnyNpmPackage(tc,
-			"@tanstack/react-router",
-			"@tanstack/react-start",
-			"@tanstack/start",
-		) {
-			return nil
-		}
-	} else if tc.detectedFramework != FrameworkTanStack {
-		// No lockfile and no detected framework — skip.
-		return nil
-	}
-
-	// Condition 3: must have at least one non-generated .tsx route file.
-	if !hasTsxFiles(files) {
-		return nil
-	}
-
-	// Only emit this target once, at the routes/ root directory.
-	// Child route subdirectories are handled by the TanStack plugin via
-	// AdjustGenerateResult; they do not need a separate ts_codegen target.
-	// We identify the routes/ root as the directory whose last path component
-	// is "routes" OR whose parent's last component is "routes" and has no
-	// further routes/ ancestor (depth == 1 inside routes/).
-	if !isRoutesRoot(rel) {
-		return nil
-	}
-
-	return &CodegenPattern{
-		Name:        "route_tree",
-		Srcs:        []string{"glob([\"*.tsx\"])"},
-		Outs:        []string{"routeTree.gen.ts"},
-		Generator:   "@rules_typescript//tools/codegen:tanstack_routes",
-		Args:        []string{"--routesDirectory", "{srcs_dir}", "--generatedRouteTree", "{out}"},
-		NodeModules: true,
-		Comment:     "# TanStack Router: generated route tree from .tsx route files",
-	}
-}
-
-// isInsideRoutesSegment returns true when any path component of rel equals
-// "routes".
-func isInsideRoutesSegment(rel string) bool {
-	for _, part := range strings.Split(rel, "/") {
-		if part == "routes" {
-			return true
-		}
-	}
-	return false
-}
-
-// isRoutesRoot returns true when rel ends with the "routes" segment, meaning
-// this directory IS the routes/ root (not a sub-directory inside it).
-func isRoutesRoot(rel string) bool {
-	return path.Base(rel) == "routes"
 }
 
 // ---- detector: Prisma ------------------------------------------------------

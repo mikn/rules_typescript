@@ -30,7 +30,7 @@ import { requireExplicitTypes } from './rules/require-explicit-types.js';
 const plugin = {
   meta: {
     name: '@rules_typescript/eslint-plugin-isolated-declarations',
-    version: '0.1.0',
+    version: '0.2.0',
   },
 
   rules: {

@@ -31,3 +31,25 @@ ts_test(
         "@npm//:vitest",
     ],
 )
+
+# ── The rendered class attribute ──────────────────────────────────────────────
+# A DOM environment, because the claim is about an attribute in a document
+# rather than about the value of an import.
+
+ts_compile(
+    name = "panel",
+    srcs = ["Panel.ts"],
+    deps = [":button_module"],
+)
+
+ts_test(
+    name = "panel_dom_test",
+    srcs = ["Panel.dom.test.ts"],
+    environment = "happy-dom",
+    deps = [
+        ":button_module",
+        ":panel",
+        "@npm//:happy-dom",
+        "@npm//:vitest",
+    ],
+)

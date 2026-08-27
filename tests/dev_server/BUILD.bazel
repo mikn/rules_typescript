@@ -1,6 +1,6 @@
 load("@rules_go//go:def.bzl", "go_test")
 load("@rules_typescript//npm:defs.bzl", "node_modules")
-load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_dev_server")
+load("@rules_typescript//ts:defs.bzl", "css_module", "ts_compile", "ts_dev_server")
 
 package(default_visibility = ["//:__pkg__"])
 
@@ -22,6 +22,15 @@ ts_compile(
     srcs = ["dev_app.ts"],
     enable_check = False,
     deps = ["//tests/dev_server/lib"],
+)
+
+# A stylesheet the dev-server lanes serve, and the export map css_module wrote
+# for it. Not in any dev server's graph: :css_module_test copies the stylesheet
+# into the throwaway workspace it serves, which is what a source tree looks like
+# to a running server, and compares what comes back against this map.
+css_module(
+    name = "panel_module_css",
+    srcs = ["panel.module.css"],
 )
 
 # One tree for every dev server here, and it has to be named "node_modules":
@@ -164,6 +173,35 @@ ts_dev_server(
         # The same assertions against oj: what the seam is for is that one
         # generated config drives either implementation.
         ("dev_oj", "5179", "0", "0", "0", "oj"),
+    ]
+]
+
+# A .module.css through a running server, per implementation: the class names it
+# serves have to be the ones the .d.ts was generated from, or the dev loop and
+# the build disagree about every one of them.
+[
+    go_test(
+        name = "{}_css_module_test".format(target),
+        size = "medium",
+        srcs = [
+            "css_module_test.go",
+            "devserver_harness_test.go",
+            "launcher_config_test.go",
+        ],
+        data = [
+            ":panel_module_css",
+            ":{}".format(target),
+        ],
+        env = {
+            "DEV_IMPL": impl,
+            "DEV_TARGET": target,
+        },
+        tags = ["requires-network"],
+        deps = ["//tests/verify"],
+    )
+    for target, impl in [
+        ("dev", "vite"),
+        ("dev_oj", "oj"),
     ]
 ]
 

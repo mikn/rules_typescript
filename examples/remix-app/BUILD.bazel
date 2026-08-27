@@ -56,16 +56,17 @@ The three key pieces that make Remix work in the Bazel sandbox:
      passes buildDirectory = process.env["VITE_OUT_DIR"] to the Remix plugin,
      redirecting output into app_remix_bundle/client/ — inside the declared dir.
 
-── What does NOT work with full SSR Remix in Bazel ────────────────────────────
+── Full SSR Remix: remix_build, not ts_bundle ──────────────────────────────────
 
-Full SSR Remix (ssr: true, the default) requires:
-  1. A server entry (app/entry.server.tsx).
-  2. A separate server bundle build (outputs to buildDirectory/server/).
-  3. A Node.js adapter (@remix-run/node or @remix-run/express).
+The dual-output model (client + server) does not fit ts_bundle: `remix
+vite:build` is two `vite build` invocations of one config, and the second moves
+into client/ the browser asset manifest the first could not emit. SPA mode is
+what fits here, and it is a different thing rather than a smaller one -- with
+ssr: false a `loader` export is a hard build error.
 
-The dual-output model (client + server) is architecturally incompatible with
-ts_bundle's single declared_directory output. Use SPA mode for Bazel-native
-Remix deployments.
+For loaders, actions and resource routes, use remix_build (docs/rules/remix-
+build.md), which runs the whole thing as one action and declares one directory
+holding both halves.
 
 ── Route compilation model ──────────────────────────────────────────────────────
 
@@ -95,12 +96,13 @@ gazelle(
 #   //app:app           — root component (root.tsx)
 #   //app/routes:routes — route components
 #
-# entry_client uses # gazelle:ts_exclude entry.client.tsx in app/BUILD.bazel
-# to keep it as a single-file target (ts_bundle requires exactly 1 .js output).
+# Gazelle writes entry_client as a single-file target of its own, because
+# ts_bundle requires exactly 1 .js output from entry_point.
 
 # node_modules tree with vite, remix, and their transitive deps.
 node_modules(
     name = "node_modules",
+    visibility = ["//visibility:public"],
     deps = [
         "@npm//:react",
         "@npm//:react-dom",
@@ -160,8 +162,8 @@ ts_bundle(
     #   package.json at <staging>/package.json
     #   routes at <staging>/app/routes/*.tsx
     staging_srcs = [
-        "package.json",
         "index.html",
+        "package.json",
         "//app:sources",
         "//app/routes:sources",
     ],

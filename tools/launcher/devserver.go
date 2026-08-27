@@ -121,9 +121,10 @@ func planDevServer(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, 
 	}
 
 	for name, rl := range map[string]string{
-		"VITE_PLUGIN_PATH":      d.Plugin,
-		"VITE_USER_CONFIG_PATH": d.UserConfig,
-		"BUNDLER_BINARY":        d.BundlerBinary,
+		"VITE_PLUGIN_PATH":            d.Plugin,
+		"VITE_CSS_MODULE_PLUGIN_PATH": d.CSSModulePlugin,
+		"VITE_USER_CONFIG_PATH":       d.UserConfig,
+		"BUNDLER_BINARY":              d.BundlerBinary,
 	} {
 		if rl == "" {
 			continue

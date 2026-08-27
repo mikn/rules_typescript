@@ -974,6 +974,7 @@ def _ts_compile_impl(ctx):
     transitive_js_map_sets = []
     transitive_css_sets = []
     transitive_css_module_sets = []
+    transitive_css_exports_sets = []
     transitive_asset_sets = []
 
     # What the direct deps produce themselves, which is the set an import has to
@@ -1036,6 +1037,7 @@ def _ts_compile_impl(ctx):
             direct_provided_sets.append(dep[CssInfo].css_files)
         if CssModuleInfo in dep:
             transitive_css_module_sets.append(dep[CssModuleInfo].transitive_css_files)
+            transitive_css_exports_sets.append(dep[CssModuleInfo].transitive_exports_files)
             direct_provided_sets.append(dep[CssModuleInfo].css_files)
         if AssetInfo in dep:
             transitive_asset_sets.append(dep[AssetInfo].transitive_asset_files)
@@ -1397,6 +1399,7 @@ def _ts_compile_impl(ctx):
     # in the transitive ones.
     transitive_css = depset(transitive = transitive_css_sets, order = "postorder")
     transitive_css_modules = depset(transitive = transitive_css_module_sets, order = "postorder")
+    transitive_css_exports = depset(transitive = transitive_css_exports_sets, order = "postorder")
     transitive_assets = depset(transitive = transitive_asset_sets, order = "postorder")
 
     providers = [
@@ -1449,6 +1452,8 @@ def _ts_compile_impl(ctx):
     providers.append(CssModuleInfo(
         css_files = depset(),
         transitive_css_files = transitive_css_modules,
+        exports_files = depset(),
+        transitive_exports_files = transitive_css_exports,
     ))
 
     # Propagate AssetInfo so ts_compile targets can carry asset deps.

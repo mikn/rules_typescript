@@ -438,6 +438,56 @@ func (l *Log) DumpTail(lines int) {
 	fmt.Fprintln(os.Stderr, strings.Join(all, "\n"))
 }
 
+// Runfile resolves a path in the TEST's own runfiles -- the outer repository's,
+// which is where a tool the assertions need (a Node binary, say) comes from. The
+// child workspace has its own outputs and knows nothing about these.
+func (it *IT) Runfile(rel string) string {
+	rf, err := runfiles.New()
+	if err != nil {
+		it.Fail("cannot open runfiles: %v", err)
+	}
+	path, err := rf.Rlocation(rel)
+	if err != nil {
+		it.Fail("cannot resolve runfile %s: %v", rel, err)
+	}
+	return path
+}
+
+// Exec runs a command outside Bazel and keeps its output alongside the nested
+// build logs, so a failing assertion has the same paper trail as a failing build.
+func (it *IT) Exec(logName, name string, args ...string) (*Log, error) {
+	fmt.Printf("INFO: %s %s\n", name, strings.Join(args, " "))
+	cmd := exec.Command(name, args...)
+	cmd.Dir = it.WorkspaceDir
+	out := &strings.Builder{}
+	cmd.Stdout = out
+	cmd.Stderr = out
+	err := cmd.Run()
+	log := &Log{Path: it.Scratch(logName), Text: out.String()}
+	if writeErr := os.WriteFile(log.Path, []byte(log.Text), 0o644); writeErr != nil {
+		it.Fail("cannot write %s: %v", log.Path, writeErr)
+	}
+	return log, err
+}
+
+// Glob returns the names of the entries in dir whose name starts with prefix and
+// ends with suffix. Rollup names every chunk with a content hash, so the two ends
+// are all a test can pin.
+func (it *IT) Glob(dir, prefix, suffix string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		it.Fail("cannot read %s: %v", dir, err)
+	}
+	var found []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasPrefix(name, prefix) && strings.HasSuffix(name, suffix) {
+			found = append(found, name)
+		}
+	}
+	return found
+}
+
 func (it *IT) Read(path string) string {
 	text, err := os.ReadFile(path)
 	if err != nil {

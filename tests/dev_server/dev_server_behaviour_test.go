@@ -173,6 +173,14 @@ func TestDevServerBehaviour(t *testing.T) {
 		t.Errorf("the config installs no bazel:npm-resolve plugin, so no bare npm "+
 			"specifier can resolve: plugins = %v", cfg.Plugins)
 	}
+	// css_module already decided the class names and wrote a .d.ts from them.
+	// Without this plugin the server scopes every *.module.css a second time and
+	// serves names no declaration in the build describes.
+	if !slices.Contains(cfg.Plugins, "rules-typescript:css-modules") {
+		t.Errorf("the config installs no rules-typescript:css-modules plugin, so a "+
+			"served *.module.css would carry names the .d.ts does not declare: "+
+			"plugins = %v", cfg.Plugins)
+	}
 	if cfg.ResolveModules != nil {
 		t.Errorf("the config sets resolve.modules = %v, which is a webpack option Vite "+
 			"ignores; whatever it was meant to do is not being done", cfg.ResolveModules)

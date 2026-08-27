@@ -189,6 +189,7 @@ def _generate_dev_config(
         modules,
         runtime_rl,
         server_input_js,
+        css_module_plugin_rl,
         user_config_rl = ""):
     """Generates a vite.config.mjs for dev server mode.
 
@@ -244,6 +245,7 @@ def _generate_dev_config(
         "//   BUILD_WORKSPACE_DIRECTORY — workspace root (set by `bazel run`)\n" +
         "//   BAZEL_BIN_DIR             — absolute path to the bazel-bin symlink\n" +
         "//   NODE_MODULES_PATH         — absolute path to the Bazel-generated node_modules\n" +
+        "//   VITE_CSS_MODULE_PLUGIN_PATH — absolute path to css_module_vite_plugin.mjs\n" +
         (
             "//   VITE_PLUGIN_PATH           — absolute path to vite_plugin_bazel.mjs\n" if plugin_rl else ""
         ) +
@@ -398,6 +400,15 @@ def _generate_dev_config(
     if user_config_rl:
         config_content += LOAD_USER_CONFIG_JS
 
+    # The bundler half of css_module: without it Vite mints its own class names
+    # and a served *.module.css carries names the generated .d.ts never declared.
+    config_content += (
+        "const { cssModulesPlugin } = await import(\n" +
+        "  process.env['VITE_CSS_MODULE_PLUGIN_PATH'],\n" +
+        ");\n" +
+        "\n"
+    )
+
     config_content += (
         "// Build the list of directories Vite's dev server is allowed to serve.\n" +
         "const fsAllow = [workspaceRoot, bazelBin];\n" +
@@ -443,6 +454,7 @@ def _generate_dev_config(
     # User plugins first: a framework transform has to see a module before the
     # Bazel ones. The npm resolver last, so anything above it can claim an id.
     config_content += "const plugins = [{}];\n".format("..._userPlugins" if user_config_rl else "")
+    config_content += "plugins.push(cssModulesPlugin());\n"
     if react_refresh:
         config_content += (
             "// React Fast Refresh — preserves component state across HMR updates.\n" +
@@ -684,6 +696,7 @@ def _ts_dev_server_impl(ctx):
         modules,
         rlocation_path(ctx, runtime_binary),
         _server_config_input_js(server_info, server_binary_rl),
+        rlocation_path(ctx, ctx.file._css_module_plugin),
         user_config_rl,
     )
 
@@ -707,6 +720,7 @@ def _ts_dev_server_impl(ctx):
         dev_server["plugin"] = plugin_rl
     if user_config:
         dev_server["user_config"] = user_config_rl
+    dev_server["css_module_plugin"] = rlocation_path(ctx, ctx.file._css_module_plugin)
 
     # A non-Vite dev server is invoked from a wrapper that reads BUNDLER_BINARY.
     if bundler_info:
@@ -733,7 +747,7 @@ def _ts_dev_server_impl(ctx):
         if provider in entry_point
     ]
 
-    explicit_runfiles = [config_file, runtime_binary] + launcher.files
+    explicit_runfiles = [config_file, runtime_binary, ctx.file._css_module_plugin] + launcher.files
     explicit_runfiles.extend(node_modules_files)
     explicit_runfiles.extend(plugin_files)
     explicit_runfiles.extend(staged_config.files)
@@ -772,6 +786,10 @@ ts_dev_server = rule(
         config_common.toolchain_type(JS_RUNTIME_TOOLCHAIN_TYPE, mandatory = False),
     ],
     attrs = LAUNCHER_ATTRS | {
+        "_css_module_plugin": attr.label(
+            default = Label("//ts/private/css:css_module_vite_plugin"),
+            allow_single_file = True,
+        ),
         "entry_point": attr.label(
             doc = "The ts_compile target that is the application entry point. " +
                   "Must provide JsInfo.",

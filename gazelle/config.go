@@ -150,6 +150,11 @@ type tsConfig struct {
 	// (FrameworkNone) means no framework was detected.
 	detectedFramework Framework
 
+	// svelteKitAssets is the directory kit.files.assets names in
+	// svelte.config.js -- a documented relocatable option, so the default
+	// "static" cannot be assumed. Read once at the root and inherited.
+	svelteKitAssets string
+
 	// packageBoundaryMode controls how package boundaries are detected.
 	// "every-dir" (default): every directory with .ts files gets a ts_compile.
 	// "index-only": only directories with index.ts/tsx (old behaviour).
@@ -802,6 +807,9 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 	// not been set yet (fresh zero value = FrameworkNone and no parent set it).
 	if rel == "" && tc.detectedFramework == FrameworkNone {
 		tc.detectedFramework = detectFramework(c.RepoRoot)
+	}
+	if rel == "" && tc.detectedFramework == FrameworkSvelteKit {
+		tc.svelteKitAssets, _ = svelteKitAssetsTree(c.RepoRoot)
 	}
 
 	// Detect linter config for this directory.

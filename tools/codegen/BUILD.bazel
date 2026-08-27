@@ -1,0 +1,12 @@
+"""Generators for ts_codegen, shipped so a workspace does not have to write one."""
+
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+
+# TanStack Router route tree. Point a ts_codegen at it with:
+#   args = ["--out", "{out}", "--srcs", "{srcs}"]
+# and a node_modules providing @tanstack/router-generator.
+sh_binary(
+    name = "tanstack_routes",
+    srcs = ["tanstack_routes.sh"],
+    visibility = ["//visibility:public"],
+)

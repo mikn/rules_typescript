@@ -1,61 +1,31 @@
 """Root BUILD file for the examples/tanstack-app workspace.
 
+A real TanStack Start app: file-based routes, a server function, and a Zod
+`validateSearch`, built by Bazel into the client and server halves the framework
+emits.
+
 Demonstrates:
-  - Gazelle for auto-generating BUILD files from TypeScript sources
-  - TanStack Router type-safe routing with React
-  - @tanstack/react-router npm dep (ships its own .d.ts)
-  - @tanstack/react-start v1.121+ (pure Vite plugin, Vinxi dropped)
-  - Zod validation for route parameters
-  - vitest tests
-  - Vite SPA bundling (ts_bundle, app mode)
+  - Gazelle generating BUILD files, including the framework bundle wiring below
+  - @tanstack/react-start as a plain Vite plugin (no Vinxi, no Nitro)
+  - ts_bundle staging the sources so the plugin can scan routes and write its
+    own route tree, and writing both environments into one declared directory
+  - vitest tests and tsgo type-checking
 
-Run `bazel run //:gazelle` to regenerate BUILD files from TypeScript sources.
-Run `bazel build //...` to compile all packages.
-Run `bazel test //...` to run the vitest test suite.
-Run `bazel build //... --output_groups=+_validation` to type-check with tsgo.
-Run `bazel build //:spa` to produce a deployable SPA bundle.
-Run `bazel build //:app` to produce the tanstackStart() bundle (client + server).
-Run `bazel build //:spa_tanstack` to attempt tanstackStart() bundle (see below).
+    bazel build //...          compile + type-check
+    bazel test //...           vitest, and the route-tree staleness test
+    bazel build //:app         client/ + server/ under bazel-bin/app_bundle
+    bazel run //:gazelle       regenerate BUILD files
 
-NOTE on @tanstack/react-start and the Bazel sandbox:
-@tanstack/react-start is a full-stack SSR framework plugin. After applying the
-two fixes in this commit, tanstackStart() can be loaded and its plugins can run
-inside Bazel without crashing on startup. The two fixes are:
+Adding a route needs one more step than Gazelle -- see the README.
 
-  Fix 1 — vite.root:
-    tanstackStart resolves src/ relative to vite.root. Our generated config sets
-    vite.root = htmlDir (the HTML staging dir, a path under bazel-out). We now
-    allow the user vite config to export `root`, which overrides htmlDir. The
-    tanstack-vite.config.mjs exports root = dirname(fileURLToPath(import.meta.url)),
-    i.e. the package source directory in the exec root.
-
-  Fix 2 — routeTree.gen.ts code generation:
-    @tanstack/router-generator used to run unconditionally in configResolved and
-    write routeTree.gen.ts back to the source tree, causing permission errors in
-    the Bazel sandbox. Passing router.enableRouteGeneration=false skips the run()
-    call entirely. The example uses programmatic routing (src/lib/router.ts), so
-    no generated route tree is needed.
-
-What :spa_tanstack actually does:
-  tanstackStart() installs Vite builder environments (client + server) and uses
-  a custom builder.buildApp to produce BOTH a client bundle and an SSR server
-  bundle. The :spa_tanstack target is experimental — it loads tanstackStart() via
-  vite_config = "tanstack-vite.config.mjs" and attempts a full plugin-driven build.
-  Results depend on whether the required SSR entry files and server dependencies
-  are present in the sandbox.
-
-  The :spa target (plain Vite, no vite_config) produces a deployable SPA bundle
-  with TanStack Router.
-
-What :spa is:
-  Plain Vite app-mode bundling with @tanstack/react-router for routing. No SSR
-  infrastructure needed. Use this for production SPA deployments.
+index.html and //src/app:main are inert here: ts_bundle requires both in app
+mode, and the Start plugin overrides the client input with
+virtual:tanstack-start-client-entry and emits no HTML at all.
 """
 
 load("@gazelle//:def.bzl", "gazelle")
-load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("@rules_typescript//npm:defs.bzl", "node_modules")
-load("@rules_typescript//ts:defs.bzl", "ts_binary", "ts_bundle")
+load("@rules_typescript//ts:defs.bzl", "ts_add_package", "ts_bundle", "ts_pnpm")
 load("@rules_typescript//vite:bundler.bzl", "vite_bundler")
 
 # Run "bazel run //:gazelle" to auto-generate BUILD files.
@@ -64,36 +34,12 @@ gazelle(
     gazelle = "@rules_typescript//gazelle:gazelle_ts",
 )
 
-# Bundle the application entry point into a single ESM file (placeholder, no Vite).
-ts_binary(
-    name = "app_bundle",
-    entry_point = "//src/app",
-    format = "esm",
-    sourcemap = True,
-)
-
-# ── TanStack Router route tree code generation ───────────────────────────────
-#
-# node_modules tree for the router generator.  The generator imports from
-# @tanstack/router-generator which in turn needs its own transitive deps.
-# We use a separate target so the heavy generator deps don't pollute the
-# runtime node_modules used by the Vite bundler.
+# The route-tree generator's npm tree, separate from the app's:
+# @tanstack/router-generator pulls deps nothing in the app imports.
 node_modules(
     name = "router_generator_node_modules",
     visibility = ["//visibility:public"],
-    deps = [
-        "@npm//:tanstack_router-generator",
-    ],
-)
-
-# Shell binary wrapping the TanStack Router generator.
-# generate-routes.sh embeds the generator script inline (no separate .mjs file
-# needed as a build input) and invokes $NODE_BINARY, which ts_codegen sets from
-# the js_runtime toolchain when registering the action.
-sh_binary(
-    name = "generate_routes",
-    srcs = ["generate-routes.sh"],
-    visibility = ["//visibility:public"],
+    deps = ["@npm//:tanstack_router-generator"],
 )
 
 # Named "node_modules" on purpose: Node resolves a module's realpath before
@@ -119,64 +65,8 @@ vite_bundler(
     vite = "@npm//:vite",
 )
 
-# SPA bundle: app mode — produces a deployable directory with index.html +
-# hashed JS/CSS/asset references. Entry point is src/app:main (main.tsx
-# renders the React app into #root). Plain Vite, no framework plugin — the
-# recommended production target.
-ts_bundle(
-    name = "spa",
-    bundler = ":vite",
-    entry_point = "//src/app:main",
-    html = "index.html",
-    minify = False,
-    mode = "app",
-    sourcemap = False,
-)
-
-# Experimental TanStack Start bundle: loads tanstackStart() Vite plugin via
-# vite_config. Two startup issues are fixed (vite.root and enableRouteGeneration
-# — see tanstack-vite.config.mjs for details). tanstackStart() installs Vite
-# builder environments for client + server SSR; whether the full build
-# completes depends on SSR entry file availability in the sandbox.
-#
-# Tagged "manual" because tanstackStart() requires full SSR infrastructure
-# (route manifest from file-based routing, server entry points, Nitro/H3)
-# that this SPA example does not provide. The target is here to verify the
-# two startup fixes work and to document the remaining SSR gap.
-# Run explicitly: bazel build //:spa_tanstack
-ts_bundle(
-    name = "spa_tanstack",
-    bundler = ":vite",
-    entry_point = "//src/app:main",
-    html = "index.html",
-    minify = False,
-    mode = "app",
-    sourcemap = False,
-    staging_srcs = [
-        "index.html",
-        # Route files — the framework plugin scans these for route discovery
-        "//src/routes:__root.tsx",
-        "//src/routes:index.tsx",
-        "//src/routes:about.tsx",
-        "//src/routes:users.tsx",
-        # App entry
-        "//src/app:main.tsx",
-        "//src/app:index.ts",
-        # Lib (router + params)
-        "//src/lib:router.ts",
-        "//src/lib:params.ts",
-        "//src/lib:index.ts",
-        # Components
-        "//src/components:Layout.tsx",
-        "//src/components:UserCard.tsx",
-        "//src/components:index.ts",
-    ],
-    tags = ["manual"],
-    vite_config = "tanstack-vite.config.mjs",
-)
-
-# TanStack Start bundle: tanstackStart() via vite_config, writing its client
-# and server environments into the one declared output directory.
+# TanStack Start bundle: the plugin's two Vite environments write client/ and
+# server/ inside the one directory ts_bundle declares.
 ts_bundle(
     name = "app",
     bundler = ":vite",
@@ -185,10 +75,17 @@ ts_bundle(
     mode = "app",
     staging_srcs = [
         "index.html",
-        "//src/routes:sources",
         "//src/app:sources",
-        "//src/lib:sources",
         "//src/components:sources",
+        "//src/lib:sources",
+        "//src/routes:sources",
     ],
     vite_config = "tanstack-vite.config.mjs",
+)
+
+ts_pnpm(name = "pnpm")
+
+ts_add_package(
+    name = "add_package",
+    pnpm_lock = "//:pnpm-lock.yaml",
 )

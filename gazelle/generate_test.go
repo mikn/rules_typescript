@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
@@ -24,7 +25,19 @@ func runGenerate(t *testing.T, rel string, files map[string]string) language.Gen
 	}
 	var names []string
 	for name, content := range files {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+		full := filepath.Join(dir, name)
+		// A trailing slash declares a directory the generator has to see on
+		// disk without putting a file in RegularFiles.
+		if strings.HasSuffix(name, "/") {
+			if err := os.MkdirAll(full, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		names = append(names, name)

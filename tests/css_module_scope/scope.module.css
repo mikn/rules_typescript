@@ -1,5 +1,8 @@
-/* :local(...) is the explicit form of the default scoping: declared.
-   :global(...) escapes scoping: not declared. */
+/* :local(...) is the explicit form of the default scoping: exported.
+   :global(...) escapes scoping: not exported.
+
+   A :local group nested inside a :global group is not expressible --
+   postcss-modules rejects it -- so there is no fixture for it here. */
 
 :local(.foo) {
   color: red;
@@ -13,11 +16,9 @@
   color: green;
 }
 
-/* A :local group nested inside a :global group scopes again. */
-:global(.outerGlobal :local(.innerLocal)) {
-  color: teal;
-}
-
+/* The block forms export their class names. postcss-modules then drops the
+   block itself, emitting no rule for either -- the export is the only trace
+   left, and the bundler behaves the same way because it runs this library. */
 :local {
   .blockLocal {
     color: pink;

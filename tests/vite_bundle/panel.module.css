@@ -29,3 +29,11 @@
 .panelHost :global .panelChild {
   color: blue;
 }
+
+/* A name from another file, whose hash is that file's own. The bundler resolves
+   the composed stylesheet itself, so this is where its naming and Bazel's have
+   to agree across two files rather than one. */
+.panelComposed {
+  composes: accent from "./panel_base.module.css";
+  padding: 4px;
+}

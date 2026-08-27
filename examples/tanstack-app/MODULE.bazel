@@ -14,6 +14,7 @@ module(
 
 bazel_dep(name = "rules_typescript", version = "0.2.0")
 bazel_dep(name = "rules_shell", version = "0.6.1")
+bazel_dep(name = "bazel_skylib", version = "1.9.0")
 
 register_toolchains("@rules_typescript//ts/toolchain:all")
 
@@ -30,6 +31,6 @@ local_path_override(
 # pnpm_lock defaults to //:pnpm-lock.yaml, so the explicit arg is optional.
 npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
 npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
-use_repo(npm, "npm")
+use_repo(npm, "npm", "pnpm")
 
 bazel_dep(name = "gazelle", version = "0.47.0")

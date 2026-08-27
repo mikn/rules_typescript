@@ -1,6 +1,6 @@
 // Test that CSS module imports work in Node.js test environment.
-// The auto-generated vitest config mocks .module.css imports to return
-// a Proxy that returns the property name for every class name lookup.
+// The auto-generated vitest config answers a .module.css import with the export
+// map css_module wrote, so these are the class names a bundler emits.
 import { describe, it, expect } from "vitest";
 import { getButtonClass, getContainerClass, getLabelClass } from "./Button";
 
@@ -27,7 +27,6 @@ describe("CSS module import in Node test", () => {
     const button = getButtonClass();
     const container = getContainerClass();
     const label = getLabelClass();
-    // The Proxy mock returns the property name, so they should all differ.
     expect(button).not.toBe(container);
     expect(button).not.toBe(label);
     expect(container).not.toBe(label);

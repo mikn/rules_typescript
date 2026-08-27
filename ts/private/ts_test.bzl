@@ -25,7 +25,7 @@ Who controls the test environment:
   The user does, through `config` (a vitest config file or an inline dict) and
   through the environment attributes (setup_files, global_setup, environment,
   globals, reporters, coverage_thresholds, data).  rules_typescript keeps only
-  what Bazel must own — the CSS-module mock for CssModuleInfo deps, npm
+  what Bazel must own — the CSS-module plugin for CssModuleInfo deps, npm
   resolution inside the runfiles tree, and the coverage output paths — and
   MERGES the user's config on top of it instead of being replaced by it.  The
   layering and its precedence are described under "Vitest config generation"
@@ -157,7 +157,7 @@ _ts_auto_node_modules = rule(
 # generated file is an *entry* config that layers three sources, lowest
 # precedence first:
 #
-#   1. the Bazel layer   — machinery rules_typescript owns (the CSS-module mock
+#   1. the Bazel layer   — machinery rules_typescript owns (the CSS-module
 #                          plugin when a dep provides CssModuleInfo)
 #   2. the user layer    — the `config` attr: either a vitest config file
 #                          (.ts/.mts/.js/.mjs) or an inline dict
@@ -169,38 +169,11 @@ _ts_auto_node_modules = rule(
 #
 # Objects are merged key by key; arrays are concatenated (base first), which
 # matches vite's own mergeConfig, so a user `plugins` list never displaces the
-# CSS-module mock and a user `setupFiles` list never displaces `setup_files`.
+# CSS-module plugin and a user `setupFiles` list never displaces `setup_files`.
 # Scalars from a later layer win.
 #
 # Bazel's coverage output wiring stays on the vitest command line, where it
 # outranks every layer: `bazel coverage` must write lcov where Bazel expects it.
-
-_CSS_MODULE_MOCK_PLUGIN = """\
-// Transforms *.module.css imports into a Proxy whose every property lookup
-// returns the property name, so class names stay deterministic without a CSS
-// parse at test time.
-//
-// The resolved id must not itself look like a CSS request: vite's own css
-// plugins key off the .css suffix and would transform the module we return,
-// putting their hashed class names back in place of the mock.
-const cssModulesMockPlugin = {
-  name: 'rules-ts-css-modules-mock',
-  enforce: 'pre',
-  resolveId(id) {
-    const path = id.split('?')[0];
-    if (path.endsWith('.module.css')) {
-      return '\\0css-module:' + path + '.mock.mjs';
-    }
-    return null;
-  },
-  load(id) {
-    if (id.startsWith('\\0css-module:')) {
-      return 'export default new Proxy({}, { get: (_, k) => typeof k === "string" ? k : undefined });';
-    }
-    return null;
-  },
-};
-"""
 
 _SNAPSHOT_HELPERS = """\
 const snapshotBase = (testPath) => {
@@ -324,7 +297,7 @@ def _snapshot_layer(snapshot_bases, snapshot_root, test_include, update_snapshot
 
 def _vitest_config_content(
         config_rf,
-        css_module_mock,
+        css_module_plugin_rf,
         user_config_rf,
         user_config_json,
         environment,
@@ -352,6 +325,12 @@ def _vitest_config_content(
     ]
     if snapshot_bases:
         lines.append("import { readFileSync } from 'node:fs';")
+    if css_module_plugin_rf:
+        # The plugin that answers a *.module.css import with the export map
+        # css_module wrote, so a test reads the class name the browser gets.
+        lines.append("import {{ cssModulesTestPlugin }} from '{}';".format(
+            _relative_import(config_rf, css_module_plugin_rf),
+        ))
     if user_config_rf:
         lines.append("import userConfigExport from '{}';".format(
             _relative_import(config_rf, user_config_rf),
@@ -368,10 +347,7 @@ def _vitest_config_content(
             _SNAPSHOT_HELPERS,
         ]
 
-    base_plugins = []
-    if css_module_mock:
-        lines.append(_CSS_MODULE_MOCK_PLUGIN)
-        base_plugins.append("cssModulesMockPlugin")
+    base_plugins = ["cssModulesTestPlugin()"] if css_module_plugin_rf else []
 
     lines += [
         # Every path vitest is handed is a runfiles symlink; resolving them to
@@ -504,14 +480,19 @@ def _ts_test_runner_impl(ctx):
     node_modules_files = ctx.files.node_modules
 
     # A *.module.css anywhere in the closure means something under test imports
-    # one, which Node cannot load; the generated config mocks it.  ts_compile
+    # one, which Node cannot load; the generated config answers it.  ts_compile
     # always advertises CssModuleInfo, so the depset has to be the test — the
     # provider's presence alone would install the plugin everywhere.
-    needs_css_module_mock = False
+    needs_css_module_plugin = False
+    css_module_sets = []
     for dep in ctx.attr.deps:
-        if CssModuleInfo in dep and dep[CssModuleInfo].transitive_css_files.to_list():
-            needs_css_module_mock = True
-            break
+        if CssModuleInfo not in dep:
+            continue
+        info = dep[CssModuleInfo]
+        css_module_sets.append(info.transitive_css_files)
+        css_module_sets.append(info.transitive_exports_files)
+        if not needs_css_module_plugin and info.transitive_css_files.to_list():
+            needs_css_module_plugin = True
 
     # Resolve vitest binary.
     # When set via the `vitest` attr, the label points to an npm_bin wrapper
@@ -583,13 +564,29 @@ def _ts_test_runner_impl(ctx):
             output = user_config,
             substitutions = {},
         )
+
+    # A copy beside the generated config, for the reason above: vitest resolves
+    # the config's imports against the real file in bin, and the path arithmetic
+    # from there to another package's output tree is not the path arithmetic from
+    # the runfiles tree. Two outputs of this target in one directory is.
+    css_module_plugin = None
+    if needs_css_module_plugin:
+        css_module_plugin = ctx.actions.declare_file(
+            "_{}_css_modules.mjs".format(ctx.label.name),
+        )
+        ctx.actions.expand_template(
+            template = ctx.file._css_module_plugin,
+            output = css_module_plugin,
+            substitutions = {},
+        )
+
     setup_js = [f for f in ctx.files.setup_files if f.extension in ("js", "mjs", "cjs")]
     global_setup_js = [f for f in ctx.files.global_setup if f.extension in ("js", "mjs", "cjs")]
     ctx.actions.write(
         output = vitest_config,
         content = _vitest_config_content(
             config_rf = rlocation_path(ctx, vitest_config),
-            css_module_mock = needs_css_module_mock,
+            css_module_plugin_rf = rlocation_path(ctx, css_module_plugin) if css_module_plugin else None,
             user_config_rf = rlocation_path(ctx, user_config) if user_config else None,
             user_config_json = ctx.attr.config_json,
             environment = ctx.attr.environment,
@@ -669,10 +666,15 @@ def _ts_test_runner_impl(ctx):
         runfiles_files.append(runtime_binary)
     if user_config:
         runfiles_files.append(user_config)
+    if css_module_plugin:
+        runfiles_files.append(css_module_plugin)
 
     runfiles = ctx.runfiles(
         files = runfiles_files,
-        transitive_files = transitive_js,
+        # The stylesheets as well as the .js: the plugin above answers a
+        # *.module.css import out of the export map beside it, which is only in
+        # the sandbox because it is named here.
+        transitive_files = depset(transitive = [transitive_js] + css_module_sets),
         root_symlinks = launcher.root_symlinks,
     )
     for target in ctx.attr.data + ctx.attr.setup_files + ctx.attr.global_setup:
@@ -747,6 +749,10 @@ _RUNNER_ATTRS = {
         doc = "A node_modules target providing the runtime npm dependency tree.",
         allow_files = True,
     ),
+    "_css_module_plugin": attr.label(
+        default = Label("//ts/private/css:css_module_vite_plugin"),
+        allow_single_file = True,
+    ),
     "vitest": attr.label(
         doc = "Explicit label for the vitest binary.",
         allow_single_file = True,
@@ -785,7 +791,7 @@ _RUNNER_ATTRS = {
     "config": attr.label(
         doc = "A vitest config file (.ts/.mts/.js/.mjs).  It is MERGED into the " +
               "generated config rather than replacing it, so the Bazel-owned " +
-              "machinery (CSS-module mock, module resolution) survives.  A " +
+              "machinery (CSS-module plugin, module resolution) survives.  A " +
               "config that default-exports an array is read as a list of " +
               "vitest projects (test.projects).  Files it imports relatively " +
               "must be listed in `data`.",

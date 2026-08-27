@@ -1,7 +1,7 @@
 /**
  * Public API for the lib package.
  */
-export { router } from "./router";
+export { getRouter } from "./router";
 export type { AppRouter } from "./router";
 export {
   UsersSearchSchema,

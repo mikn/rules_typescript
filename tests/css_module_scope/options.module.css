@@ -1,0 +1,7 @@
+.kebab-cased {
+  color: red;
+}
+
+:global(.left-alone) {
+  color: blue;
+}
