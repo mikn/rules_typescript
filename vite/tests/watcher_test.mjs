@@ -141,9 +141,41 @@ async function installPlugin(plugin, server) {
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
 
+class Skipped extends Error {}
+const skip = (why) => {
+  throw new Skipped(why);
+};
+
+// fs.watch reaches the filesystem through FSEvents on macOS, and a sandboxed CI
+// runner can leave a recursive watch that never fires at all -- which makes the
+// two fallback tests below time out and the third, asserting that nothing
+// arrives after stop(), vacuously green. Probing once tells the three of them
+// apart from a real regression.
+let fsWatchDelivers = null;
+async function fsWatchDeliversEvents() {
+  if (fsWatchDelivers !== null) return fsWatchDelivers;
+  const bin = newBazelBin();
+  let fired = false;
+  const probe = fs.watch(bin, { recursive: true, persistent: true }, () => {
+    fired = true;
+  });
+  try {
+    fs.writeFileSync(path.join(bin, 'probe.js'), '1');
+    const deadline = Date.now() + 5000;
+    while (!fired && Date.now() < deadline) await sleep(20);
+  } finally {
+    probe.close();
+  }
+  fsWatchDelivers = fired;
+  return fired;
+}
+
+const NO_FS_EVENTS = 'recursive fs.watch delivered no events in this environment';
+
 // ── The fs.watch fallback: real files, real events ───────────────────────────
 
 test('fs.watch fallback reports a newly written .js file', async () => {
+  if (!(await fsWatchDeliversEvents())) skip(NO_FS_EVENTS);
   const bin = newBazelBin();
   const batches = [];
   const watcher = new BazelWatcher({
@@ -163,6 +195,7 @@ test('fs.watch fallback reports a newly written .js file', async () => {
 });
 
 test('fs.watch fallback coalesces a rebuild burst and drops non-.js outputs', async () => {
+  if (!(await fsWatchDeliversEvents())) skip(NO_FS_EVENTS);
   const bin = newBazelBin();
   const batches = [];
   const watcher = new BazelWatcher({
@@ -193,6 +226,7 @@ test('fs.watch fallback coalesces a rebuild burst and drops non-.js outputs', as
 });
 
 test('fs.watch fallback stops reporting after stop()', async () => {
+  if (!(await fsWatchDeliversEvents())) skip(NO_FS_EVENTS);
   const bin = newBazelBin();
   const batches = [];
   const watcher = new BazelWatcher({
@@ -385,15 +419,22 @@ test('hmr: false starts no watcher at all', async () => {
 });
 
 let failed = 0;
+let skipped = 0;
 for (const [name, fn] of tests) {
   try {
     await fn();
     process.stdout.write(`PASS: ${name}\n`);
   } catch (err) {
+    if (err instanceof Skipped) {
+      skipped++;
+      process.stdout.write(`SKIP: ${name} -- ${err.message}\n`);
+      continue;
+    }
     failed++;
     process.stdout.write(`FAIL: ${name}\n${err && err.stack ? err.stack : err}\n`);
   }
 }
 
-process.stdout.write(`\n${tests.length - failed}/${tests.length} passed\n`);
+const passed = tests.length - failed - skipped;
+process.stdout.write(`\n${passed}/${tests.length} passed${skipped ? `, ${skipped} skipped` : ''}\n`);
 process.exit(failed === 0 ? 0 : 1);
