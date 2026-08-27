@@ -59,6 +59,8 @@ func (l *tsLang) KnownDirectives() []string {
 		directivePathAlias,
 		// Append a Bazel label to every ts_test deps list in this tree.
 		directiveRuntimeDep,
+		// Append a Bazel label to every ts_compile and ts_test deps list here.
+		directiveAmbientTypes,
 		// Add a file glob pattern to exclude from source targets.
 		directiveExclude,
 		// Register a custom ts_codegen target via a directive.

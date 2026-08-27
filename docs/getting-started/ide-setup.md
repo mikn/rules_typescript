@@ -287,6 +287,30 @@ The checked-in `tsconfig.json` does not change either. It stays what
   package or a renamed alias contributes nothing. `bazel clean` is not the answer
   and is not needed.
 
+## Where the editor is more permissive than the build
+
+One divergence is deliberate and worth knowing, because it is the direction that
+hides an error rather than inventing one.
+
+`ts_compile` names only a target's **direct** `@types/*` deps in the tsconfig it
+gives tsgo, so a global reaches a target because that target asked for it. The
+editor program has one root `compilerOptions` block for the whole workspace, and
+its ambient entries are the **union** of every `@types/*` package anywhere in the
+graph. So a file using `process` type-checks in the editor even when its own
+target never declared `@types/node` — and then fails `bazel build` with the
+strict-deps error naming the label to add.
+
+The union is the right trade for an editor: narrowing it per target would need a
+tsconfig per target, and a package only gets its own program when its
+`compilerOptions` genuinely disagree with the root
+([`nested_tsconfigs`](../rules/ts-compile.md)). Narrowing it globally would make
+the editor wrong for every target that *does* declare the dep.
+
+What to do about it: treat `bazel build` as the authority, and declare ambient
+packages up front rather than discovering them one failure at a time —
+[`# gazelle:ts_ambient_types`](../gazelle/directives.md#declare-ambient-types-once-for-the-whole-repo)
+does that for a whole tree in one line.
+
 ## Editor configuration
 
 The generated `tsconfig.json` needs no editor setup — every editor already reads

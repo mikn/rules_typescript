@@ -294,6 +294,41 @@ ts_compile(
 )
 ```
 
+## Cannot find type definition file for 'vite/client'
+
+```
+app.ts(1,23): error TS2688: Cannot find type definition file for 'vite/client'.
+```
+
+From a `/// <reference types="vite/client" />` — the line Vite's own project
+template puts at the top of `src/vite-env.d.ts`. Adding a dep does not fix it:
+a `reference types` directive resolves through TypeScript's *type-reference*
+resolver, which walks `node_modules/@types` and `typeRoots`, not the `paths` map
+that carries npm deps here. There is no `node_modules` for it to walk, so the
+directive cannot resolve however the target is declared.
+
+Delete the directive and ask for the same globals through the rule instead:
+
+```python
+ts_compile(
+    name = "app",
+    srcs = ["src/main.ts"],
+    vite_types = True,   # import.meta.env, import.meta.hot, asset imports
+)
+```
+
+`vite_types` prepends an ambient shim that is deliberately standalone — it
+declares the Vite client globals without referencing `vite/client`, so `vite`
+does not become a compile-time dependency. Anything else the directive was
+reaching for is an ordinary `@types/*` package: name it in `deps`, or in
+[`# gazelle:ts_ambient_types`](../gazelle/directives.md#declare-ambient-types-once-for-the-whole-repo)
+if the whole tree needs it.
+
+Gazelle does not rewrite the directive for you, and neither the import scanner
+nor the strict-deps checker reads it — both skip line comments, and
+`types="x"` is ambiguous between `@types/x` and `x` with nothing here able to
+choose, so guessing would emit a label that does not exist.
+
 ## ts_test: vitest not found
 
 ```

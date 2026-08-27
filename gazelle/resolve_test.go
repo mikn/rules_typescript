@@ -763,3 +763,52 @@ func TestNormalizeNpmHub(t *testing.T) {
 		}
 	}
 }
+
+// TestResolveImports_AmbientTypesReachEveryCheckedKind: an ambient declaration
+// has no import, so the dep cannot come from the import list -- including for a
+// file whose only use of the package is a global and which imports nothing at
+// all. That is the case the directive exists for, and the one the resolver's
+// empty-imports guard used to return before.
+func TestResolveImports_AmbientTypesReachEveryCheckedKind(t *testing.T) {
+	newConfig := func() *config.Config {
+		c := emptyConfig()
+		c.Exts[languageName] = makeConfig("", []rule.Directive{
+			directive("ts_ambient_types", "@npm//:types_node"),
+		})
+		return c
+	}
+	from := label.New("", "src/app", "app")
+
+	for _, tt := range []struct {
+		kind    string
+		imports any
+		want    []string
+	}{
+		{"ts_compile", []string{"zod"}, []string{"@npm//:types_node", "@npm//:zod"}},
+		{"ts_compile", nil, []string{"@npm//:types_node"}},
+		{"ts_compile", []string{}, []string{"@npm//:types_node"}},
+		{"ts_compile", []string{"node:fs"}, []string{"@npm//:types_node"}},
+		{"ts_test", []string{"zod"}, []string{"@npm//:types_node", "@npm//:zod"}},
+		{"ts_test", nil, []string{"@npm//:types_node"}},
+	} {
+		c := newConfig()
+		ix := buildIndex(t, c)
+		r := rule.NewRule(tt.kind, "app")
+		resolveImports(c, ix, r, tt.imports, from)
+		if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("%s with imports %v: deps = %v, want %v", tt.kind, tt.imports, got, tt.want)
+		}
+	}
+
+	// A kind tsgo does not type-check gets nothing: an ambient declaration
+	// cannot reach a filegroup or a css_module.
+	for _, kind := range []string{"filegroup", "css_module", "ts_lint"} {
+		c := newConfig()
+		ix := buildIndex(t, c)
+		r := rule.NewRule(kind, "thing")
+		resolveImports(c, ix, r, nil, from)
+		if r.Attr("deps") != nil {
+			t.Errorf("%s: deps = %v, want unset", kind, r.AttrStrings("deps"))
+		}
+	}
+}

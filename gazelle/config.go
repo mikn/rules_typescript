@@ -94,6 +94,14 @@ const (
 	//   # gazelle:ts_runtime_dep @npm//:happy-dom
 	directiveRuntimeDep = "ts_runtime_dep"
 
+	// directiveAmbientTypes appends a Bazel label to every generated ts_compile
+	// and ts_test deps list in the directory tree. An ambient declaration has no
+	// import to infer a dep from, so this is the one dep the resolver cannot
+	// derive -- and the reason a migration would otherwise mean editing every
+	// target that touches `process` or `Buffer`.
+	//   # gazelle:ts_ambient_types @npm//:types_node
+	directiveAmbientTypes = "ts_ambient_types"
+
 	// directiveExclude registers an additional file glob pattern to exclude
 	// from source targets. The value is a filepath.Match-style pattern matched
 	// against the file basename.
@@ -238,6 +246,11 @@ type tsConfig struct {
 	// statically imported (e.g. "happy-dom", "@vitest/coverage-v8").
 	runtimeDepsTest []string
 
+	// ambientTypes is the list of Bazel label strings appended to every
+	// generated ts_compile and ts_test deps list in this tree, for @types
+	// packages whose declarations are ambient and so have no import.
+	ambientTypes []string
+
 	// declarations is the .d.ts emitter for generated ts_compile rules:
 	// "tsgo" (default, no attribute emitted) or "oxc". Set via
 	// # gazelle:ts_declarations.
@@ -285,6 +298,10 @@ func (tc *tsConfig) clone() *tsConfig {
 	if len(tc.excludePatterns) > 0 {
 		cp.excludePatterns = make([]string, len(tc.excludePatterns))
 		copy(cp.excludePatterns, tc.excludePatterns)
+	}
+	if len(tc.ambientTypes) > 0 {
+		cp.ambientTypes = make([]string, len(tc.ambientTypes))
+		copy(cp.ambientTypes, tc.ambientTypes)
 	}
 	if len(tc.runtimeDepsTest) > 0 {
 		cp.runtimeDepsTest = make([]string, len(tc.runtimeDepsTest))
@@ -988,6 +1005,11 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 				lbl := strings.TrimSpace(d.Value)
 				if lbl != "" {
 					tc.runtimeDepsTest = append(tc.runtimeDepsTest, lbl)
+				}
+			case directiveAmbientTypes:
+				lbl := strings.TrimSpace(d.Value)
+				if lbl != "" {
+					tc.ambientTypes = append(tc.ambientTypes, lbl)
 				}
 			case directiveExclude:
 				pattern := strings.TrimSpace(d.Value)

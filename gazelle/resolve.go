@@ -80,6 +80,21 @@ func importsForRule(_ *config.Config, r *rule.Rule, f *rule.File) []resolve.Impo
 	return specs
 }
 
+// The kinds whose sources tsgo type-checks, which is what makes an ambient
+// declaration reach them.
+var ambientTypesKinds = map[string]bool{"ts_compile": true, "ts_test": true}
+
+func asImports(importsIface any) ([]string, bool) {
+	if importsIface == nil {
+		return nil, false
+	}
+	imports, ok := importsIface.([]string)
+	if !ok || len(imports) == 0 {
+		return nil, false
+	}
+	return imports, true
+}
+
 // ---- Resolve (dep resolver) ------------------------------------------------
 
 // resolveImports converts raw import strings (stored in GenerateResult.Imports)
@@ -91,14 +106,6 @@ func resolveImports(
 	importsIface any,
 	from label.Label,
 ) {
-	if importsIface == nil {
-		return
-	}
-	imports, ok := importsIface.([]string)
-	if !ok || len(imports) == 0 {
-		return
-	}
-
 	tc := getConfig(c)
 
 	var deps []string
@@ -109,6 +116,24 @@ func resolveImports(
 			seen[dep] = struct{}{}
 			deps = append(deps, dep)
 		}
+	}
+
+	// Ambient declarations have no import to infer a dep from, so they are the
+	// one thing this resolver cannot derive and Gazelle cannot repair. A file
+	// using only `process` has no imports at all, hence before the guard below.
+	if ambientTypesKinds[r.Kind()] {
+		for _, lbl := range tc.ambientTypes {
+			addDep(lbl)
+		}
+	}
+
+	imports, ok := asImports(importsIface)
+	if !ok {
+		if len(deps) > 0 {
+			sort.Strings(deps)
+			r.SetAttr("deps", deps)
+		}
+		return
 	}
 
 	for _, imp := range imports {

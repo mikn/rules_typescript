@@ -507,6 +507,18 @@ requires.
 
 ### Added
 
+- **`# gazelle:ts_ambient_types` declares ambient `@types` for a whole tree.**
+  Every dep Gazelle writes comes from a specifier in a source file, so an
+  *ambient* declaration — `process`, `Buffer`, `__dirname`, a test global — has
+  nothing to infer from. It was therefore the one strict-deps failure
+  `bazel run //:gazelle` could not repair, and adopting the ruleset on an
+  existing codebase meant adding `@types/node` to every target that touched one
+  by hand. The directive appends its labels to every generated `ts_compile` and
+  `ts_test` in the tree, including a target that imports nothing at all, and is
+  inherited by subdirectories so a subtree can add its own. It changes nothing
+  about what the compiler accepts: the dep must exist, and `ts_compile` still
+  names only direct `@types/*` deps in the tsconfig.
+
 - **SvelteKit, Remix SSR and Svelte components have rules.** `sveltekit_build`
   and `remix_build` each wrap the framework's own Vite build as one action and
   return **both** halves — the browser bundle under `client/`, the request
@@ -889,6 +901,64 @@ query anyone can run against their own lockfile.
   targets a target can reach, and on this repository's own lockfile a vitest
   test target reaches 74 of them, in 74 repositories.
 
+### Decisions, not gaps
+
+Four entries used to sit in "Known gaps" that are not defects. Each was checked
+against the code rather than reasoned about, and each is recorded here so the
+next reader does not "fix" it and inherit the reason it is this way.
+
+- **Ambient globals reach a target from its direct `@types/*` deps only.** This
+  is the strict-deps doctrine applied to declarations nothing imports: declaring
+  `@types/node` is how a target asks for `process`. Transitive `@types`
+  declarations still arrive as inputs; they are simply not named in the
+  tsconfig's `files`. The reason it used to read as a gap is ergonomic — an
+  ambient global has no specifier, so it is the one dep Gazelle cannot infer and
+  the one strict-deps failure `bazel run //:gazelle` cannot repair. That half is
+  now addressed by `# gazelle:ts_ambient_types`, above. One divergence remains
+  deliberate: the editor's single root program unions every ambient entry in the
+  graph, so an undeclared global type-checks in the editor and fails the build.
+  Narrowing it per target would need a tsconfig per target; `bazel build` is the
+  authority, and
+  [ide-setup.md](https://mikn.github.io/rules_typescript/getting-started/ide-setup/)
+  says so.
+
+- **`skipLibCheck: true` stays in the zero-config baseline.** The recorded text
+  was factually right and still not a defect. Running tsgo over the Workers
+  fixture three ways settles it: with the rule's `lib = ["es2022"]`, zero errors;
+  without `lib` and `skipLibCheck: true`, one error, at the *use site*
+  (`TS2339: Property 'default' does not exist on type 'CacheStorage'`); without
+  `lib` and `skipLibCheck: false`, that same use-site error **plus** two masked
+  `TS2403` declaration conflicts. So unmasking surfaces noise and fixes nothing
+  — what bites is TypeScript preferring a lib declaration over an ambient one,
+  and narrowing `lib` is the fix. It is a documented `ts_compile` attribute with
+  a worked Cloudflare example and two `build_test`s behind it. Removing
+  `skipLibCheck` from the baseline would buy the `TS2403` noise for no benefit.
+
+- **The array `config` form of `ts_test` requires vitest 3.2 or later.** Not
+  unfinished work: `test.workspace` and `test.projects` are mutually exclusive
+  spellings — vitest 4 removed the former and throws on it, and vitest below 3.2
+  does not know the latter — so the generated config must pick one, and it picks
+  what the only tested lane requires. Supporting 3.0/3.1 would mean sniffing
+  vitest's version at config-load time plus a second lockfile lane, which
+  COMPATIBILITY.md rules out by policy. This entry previously also claimed the
+  other `config` shapes "work on 3 and 4 alike"; no lockfile here resolves
+  vitest 3, so that was unbacked. What is true is that the other shapes use no
+  version-sensitive key.
+
+- **`/// <reference types="x" />` is not checked because it is not a live
+  channel here.** The old entry called it "a real resolution channel", and that
+  premise was the wrong part. A `reference types` directive resolves through
+  TypeScript's type-reference resolver — `node_modules/@types` and `typeRoots` —
+  not the `paths` map that carries npm deps, and there is no `node_modules` to
+  walk, so it cannot resolve however the target is declared. Verified: tsgo
+  reports `TS2688: Cannot find type definition file for 'x'`, loudly rather than
+  silently. Gazelle also could not name a label for it — `types="x"` means
+  `@types/x` or `x`, and nothing here can choose, so a guess would emit a target
+  that does not exist. The remedy is the rule (`vite_types = True`, or an
+  ordinary `@types/*` dep) and is now in troubleshooting keyed by that exact
+  message. Both the import scanner and the strict-deps checker skip line
+  comments, and a scanner-parity case pins the directive as read by neither.
+
 ### Known gaps
 
 Recorded rather than hidden.
@@ -910,12 +980,6 @@ Recorded rather than hidden.
   pinning the rule yet.
 - **Windows is unsupported**, not partially supported. See
   [COMPATIBILITY.md](https://github.com/mikn/rules_typescript/blob/main/COMPATIBILITY.md#platforms).
-- Ambient globals reach a target from its **direct** `@types/*` deps only.
-  TypeScript with a real `node_modules` also picks up transitively installed
-  ones; here declaring the dep is how a target asks for them.
-- `skipLibCheck: true` masks ambient-vs-lib conflicts, so what bites a Workers
-  package is a lib declaration winning over an ambient one at the use site.
-  Unsettled.
 - `jsdom` and `edge-runtime` are still analysis-only: neither is in a lockfile
   the build reads, so those two `environment` values are pinned by a
   `build_test` rather than by a run. `happy-dom` and `node` do run.
@@ -927,9 +991,6 @@ Recorded rather than hidden.
   works, because it sits beside the hermetic tree. The fix is for `ts_bundle` to
   stage the file the way `ts_dev_server` already copies its own; `ts_dev_server`
   is no longer affected.
-- The array-`config` form of `ts_test` needs **vitest 3.2 or later**, since
-  `test.projects` is the name `test.workspace` was renamed to in 3.2. Every other
-  `config` shape works on 3 and 4 alike.
 - A `compilerOptions.paths` chain still collapses to one directory. Gazelle now
   picks the first entry that exists on disk rather than the first entry written,
   which covers every chain whose entries are a real directory plus mirrors of
@@ -957,9 +1018,6 @@ Recorded rather than hidden.
   wrong under cross-compilation.
 - No libc (glibc vs musl) `constraint_setting`. Nothing would reference it
   until npm's platform `select()` lands.
-- The strict-deps check does not read `/// <reference types="x" />`. It is a
-  real resolution channel, but Gazelle generates no dep for it, so checking it
-  would produce failures Gazelle cannot fix.
 - `eslint-plugin/**` and `tools/isolated-declarations-lint/**` have no buildable
   targets, and the blocker is a lockfile rather than Gazelle: every source there
   imports `@typescript-eslint/utils`, which no lockfile the build reads contains,

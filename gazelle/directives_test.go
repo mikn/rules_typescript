@@ -272,6 +272,34 @@ func TestDirective_RuntimeDep_AppendedToParent(t *testing.T) {
 	}
 }
 
+// ---- ts_ambient_types directive tests --------------------------------------
+
+func TestDirective_AmbientTypes_Single(t *testing.T) {
+	tc := makeConfig("", []rule.Directive{
+		directive(directiveAmbientTypes, "@npm//:types_node"),
+	})
+	if len(tc.ambientTypes) != 1 || tc.ambientTypes[0] != "@npm//:types_node" {
+		t.Errorf("ambientTypes: got %v, want [@npm//:types_node]", tc.ambientTypes)
+	}
+}
+
+// The whole point is declaring it once at the root, so a child directory must
+// inherit it without the parent's slice being mutated by the child's append.
+func TestDirective_AmbientTypes_InheritsWithoutAliasing(t *testing.T) {
+	parent := makeConfig("", []rule.Directive{
+		directive(directiveAmbientTypes, "@npm//:types_node"),
+	})
+	child := parent.clone()
+	child.ambientTypes = append(child.ambientTypes, "@npm//:types_react")
+
+	if len(parent.ambientTypes) != 1 {
+		t.Errorf("the child's append mutated the parent: %v", parent.ambientTypes)
+	}
+	if len(child.ambientTypes) != 2 || child.ambientTypes[0] != "@npm//:types_node" {
+		t.Errorf("child ambientTypes: got %v, want the parent entry plus its own", child.ambientTypes)
+	}
+}
+
 // ---- ts_exclude directive tests --------------------------------------------
 
 func TestDirective_Exclude_Single(t *testing.T) {

@@ -73,6 +73,15 @@ var scannerCases = []struct {
 		decoys: []string{"acme-ambient"},
 	},
 	{
+		// A triple-slash directive resolves through TypeScript's type-reference
+		// resolver, not module resolution, so neither side may treat it as a
+		// specifier: the build would demand a dep Gazelle cannot name, since
+		// types="x" means either @types/x or x and nothing here can choose.
+		name:   "triple-slash reference directive",
+		source: "/// <reference types=\"acme-types-ref\" />\n/// <reference path=\"./acme-path-ref.d.ts\" />\nexport const v = 1;\n",
+		decoys: []string{"acme-types-ref", "./acme-path-ref.d.ts"},
+	},
+	{
 		name:   "template literal",
 		source: "export const s = `import { x } from \"acme-template\"`;\n",
 		decoys: []string{"acme-template"},

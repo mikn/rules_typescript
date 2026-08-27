@@ -16,6 +16,7 @@ Directives go in `BUILD.bazel` files as comments and control how Gazelle generat
 | `# gazelle:ts_target_name my_lib` | Override the default target name (which is the directory basename) |
 | `# gazelle:ts_path_alias @/ src/` | Map a TypeScript path alias to a workspace-relative directory |
 | `# gazelle:ts_runtime_dep @npm//:happy-dom` | Append a label to every generated `ts_test` deps list |
+| `# gazelle:ts_ambient_types @npm//:types_node` | Append a label to every generated `ts_compile` and `ts_test` deps list |
 | `# gazelle:ts_exclude *.generated.ts` | Exclude files matching this pattern from source targets |
 | `# gazelle:ts_warn_unresolved true` | Warn when an import cannot be resolved to a Bazel label |
 | `# gazelle:ts_codegen <name> <generator> <outs> [args…]` | Register a `ts_codegen` target in this directory |
@@ -255,6 +256,36 @@ declaration, and are not re-emitted.
 ```
 
 These labels are appended to every generated `ts_test` deps list in the repo.
+
+### Declare ambient `@types` once for the whole repo
+
+```python
+# BUILD.bazel (repo root)
+
+# gazelle:ts_ambient_types @npm//:types_node
+```
+
+Appended to every generated `ts_compile` and `ts_test` deps list in the tree —
+including a target whose sources import nothing at all, which is exactly the
+case that needs it.
+
+This is the one dep Gazelle cannot infer. Every other dep comes from a specifier
+in a source file; an **ambient** declaration is one nothing imports, so a file
+using `process`, `Buffer` or `__dirname` gives the resolver nothing to work
+from. Without this directive, a strict-deps failure over a global is the one
+failure `bazel run //:gazelle` cannot repair, and adopting the ruleset on an
+existing codebase means adding `@types/node` to every target that touches one by
+hand.
+
+Scope it by putting the directive in a subdirectory's BUILD file instead of the
+root — it is inherited by that directory's tree only. Labels accumulate down the
+tree rather than replacing each other, so a root `@npm//:types_node` and a
+`web/BUILD.bazel` `@npm//:types_react` both apply under `web/`.
+
+It does not widen what the compiler accepts: the dep still has to exist, and
+`ts_compile` still names only *direct* `@types/*` deps in the tsconfig's `files`
+([why](../rules/ts-compile.md)). The directive is how a tree says "every target
+here asks for these globals" in one line rather than N.
 
 ### Suppress generation for a directory
 
