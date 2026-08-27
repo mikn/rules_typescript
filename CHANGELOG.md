@@ -963,6 +963,22 @@ next reader does not "fix" it and inherit the reason it is this way.
 
 Recorded rather than hidden.
 
+- **Gazelle's Node-builtin list is checked against the Node it runs.** The list
+  was hand-maintained beside a strict-deps checker that asks `builtinModules`,
+  and it was missing 15 bare names — `sys` and the `_http_*`, `_stream_*` and
+  `_tls_*` legacy aliases. So `import "sys"` had Gazelle write `@npm//:sys`, a
+  label no hub declares, while the checker treated the same specifier as a
+  builtin. The mechanism this entry used to describe is impossible, and is now
+  written out: a module Node exposes only under `node:` was never at risk,
+  because `resolveNpmPackage` answers on the prefix first. A second defect in
+  the same helper went with it — under `# gazelle:ts_warn_unresolved` every
+  builtin sub-path (`fs/promises`, `timers/promises`, `stream/web`,
+  `util/types`) logged "unresolved import" although resolution had correctly
+  declined it. `tests/strict_deps/builtins_test.go` now reads
+  `builtinModules` out of the same toolchain Node the check action runs and
+  asserts set equality, so a `node_version` bump surfaces as a failing test
+  rather than as a label that does not resolve.
+
 - **A ruleset-internal target must not depend on `@npm`.** The npm extension
   gives the root module's `translate_lock` priority for a hub name, which is what
   lets a consumer spell its own packages `@npm//:react` — and it means a target
@@ -1003,10 +1019,6 @@ Recorded rather than hidden.
   walk starts inside the real tree and can reach a *sibling* target's
   `node_modules` in the same package. A `node_modules()` target not named
   `node_modules` therefore resolves through whichever sibling is.
-- Gazelle's Node-builtin list is hand-maintained while the strict-deps checker
-  uses `builtinModules`. Both reduce to the bare name, so `fs/promises` agrees;
-  a name Node exposes only under `node:` (`node:sqlite`, `node:test`) would have
-  Gazelle write a label that does not exist.
 - `_short_digest` is Java's `String.hashCode` masked to 32 bits. Two peer
   suffixes agreeing on their first 40 sanitised characters *and* colliding on
   that hash merge into one repository, and now also one store directory. The

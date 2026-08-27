@@ -158,12 +158,16 @@ to rediscover them. Each names the file to change.
   realpaths through the symlink, so the upward walk starts inside the real tree
   and reaches another target's `<pkg>/node_modules` in the same Bazel package.
   Consequence: **two Vite majors cannot coexist in one Bazel package.**
-- **Gazelle's `isNodeBuiltin` is a hand-maintained list; the strict-deps checker
-  uses `new Set(builtinModules)`.** Both reduce to the bare package name, so
-  `fs/promises` agrees — but a name Node exposes only under `node:`
-  (`node:sqlite`, `node:test`) would have Gazelle write an `@npm//:…` label that
-  does not exist. `tests/strict_deps/builtins.ts` pins the common case only. Two
-  recognisers of one thing; see AGENTS.md.
+- **Gazelle's node-builtin list is still hand-written; it is no longer
+  unchecked.** The list omitted 15 names `builtinModules` reports — `sys` and
+  the legacy `_http_*`/`_stream_*`/`_tls_*` modules — so a bare `import "sys"`
+  had Gazelle write `@npm//:sys`, a label no hub declares, while the checker
+  treated it as a builtin. `//tests/strict_deps:checker_test` now compares the
+  list against the toolchain node's own `builtinModules`, so a `node_version`
+  bump that adds a bare builtin fails there and names it. A prefix-only module
+  (`node:sqlite`, `node:test`) was never at risk: `resolveNpmPackage` answers on
+  the prefix before any name is consulted. Two recognisers of one thing; see
+  AGENTS.md.
 - **`coverage = True` never instrumented anything.** `tools/launcher/vitest.go`
   gated it on `COVERAGE_ENABLED == "true"` -- an env var nothing sets, and Bazel
   has none. So a `coverage_thresholds` on such a target was silently never

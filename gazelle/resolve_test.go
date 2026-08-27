@@ -1,7 +1,11 @@
 package typescript
 
 import (
+	"bytes"
+	"log"
+	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
@@ -215,6 +219,40 @@ func TestResolveImports_TsTestGetsRuntimeDeps(t *testing.T) {
 	resolveImports(c, ix, tsCompile, []string{"zod"}, from)
 	if got, want := tsCompile.AttrStrings("deps"), []string{"@npm//:zod"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("ts_compile deps = %v, want %v", got, want)
+	}
+}
+
+// A builtin's sub-path resolves to no label by design, so a warning about it
+// sends the reader after a dep that cannot exist.
+func TestResolveImports_WarnUnresolvedSkipsBuiltinSubPaths(t *testing.T) {
+	c := emptyConfig()
+	c.Exts[languageName] = makeConfig("", []rule.Directive{
+		directive("ts_warn_unresolved", "true"),
+	})
+	ix := buildIndex(t, c)
+	from := label.New("", "src/app", "app")
+
+	var logged bytes.Buffer
+	flags := log.Flags()
+	log.SetOutput(&logged)
+	log.SetFlags(0)
+	t.Cleanup(func() {
+		log.SetOutput(os.Stderr)
+		log.SetFlags(flags)
+	})
+
+	r := rule.NewRule("ts_compile", "app")
+	resolveImports(c, ix, r, []string{
+		"fs/promises", "timers/promises", "stream/web", "util/types", "virtual:routes",
+	}, from)
+
+	for _, imp := range []string{"fs/promises", "timers/promises", "stream/web", "util/types"} {
+		if strings.Contains(logged.String(), imp) {
+			t.Errorf("warned about the builtin %q:\n%s", imp, logged.String())
+		}
+	}
+	if !strings.Contains(logged.String(), "virtual:routes") {
+		t.Errorf("no warning for an import nothing resolves:\n%s", logged.String())
 	}
 }
 
@@ -711,6 +749,10 @@ func TestResolveImport_BareSpecifiers(t *testing.T) {
 		{"bare builtin", "path", ""},
 		{"bare builtin sub-path", "fs/promises", ""},
 		{"prefixed builtin", "node:path", ""},
+		// The legacy names builtinModules still reports are builtins too, so
+		// neither gets a hub label.
+		{"legacy bare builtin", "sys", ""},
+		{"legacy underscore builtin", "_stream_readable", ""},
 		// Everything else still gets the hub label.
 		{"npm package", "zod", "@npm//:zod"},
 		{"scoped npm package", "@tanstack/router", "@npm//:tanstack_router"},

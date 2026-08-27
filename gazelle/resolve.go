@@ -139,7 +139,7 @@ func resolveImports(
 	for _, imp := range imports {
 		resolved := resolveImport(c, ix, tc, imp, from)
 		if resolved == "" {
-			if tc.warnUnresolved && !isNodeBuiltin(imp) {
+			if tc.warnUnresolved && !isNodeBuiltin(barePackageName(imp)) {
 				log.Printf("gazelle: WARNING: unresolved import %q in //%s:%s (tried: relative, path-alias, npm)", imp, from.Pkg, from.Name)
 			}
 			continue
@@ -520,6 +520,38 @@ func barePackageName(imp string) string {
 
 // ---- built-in module helpers -----------------------------------------------
 
+// Every bare name the toolchain node reports in `builtinModules`, which is what
+// the strict-deps check resolves against: a name missing here becomes an
+// `@npm//:<name>` label no hub declares.
+var nodeBuiltins = map[string]bool{
+	"_http_agent": true, "_http_client": true, "_http_common": true,
+	"_http_incoming": true, "_http_outgoing": true, "_http_server": true,
+	"_stream_duplex": true, "_stream_passthrough": true, "_stream_readable": true,
+	"_stream_transform": true, "_stream_wrap": true, "_stream_writable": true,
+	"_tls_common": true, "_tls_wrap": true,
+	"assert": true, "async_hooks": true, "buffer": true, "child_process": true,
+	"cluster": true, "console": true, "constants": true, "crypto": true,
+	"dgram": true, "diagnostics_channel": true, "dns": true, "domain": true,
+	"events": true, "fs": true, "http": true, "http2": true, "https": true,
+	"inspector": true, "module": true, "net": true, "os": true, "path": true,
+	"perf_hooks": true, "process": true, "punycode": true, "querystring": true,
+	"readline": true, "repl": true, "stream": true, "string_decoder": true,
+	"sys": true, "timers": true, "tls": true, "trace_events": true, "tty": true,
+	"url": true, "util": true, "v8": true, "vm": true, "wasi": true,
+	"worker_threads": true, "zlib": true,
+}
+
+// NodeBuiltins is exported for //tests/strict_deps:checker_test, which compares
+// the list against the node the strict-deps check runs.
+func NodeBuiltins() []string {
+	names := make([]string, 0, len(nodeBuiltins))
+	for name := range nodeBuiltins {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // isNodeBuiltin returns true for Node.js built-in module specifiers such as
 // "node:fs", "node:path", "fs", "path", "os", etc. These are never resolvable
 // to a Bazel label so they should not produce a warning even when
@@ -528,18 +560,7 @@ func isNodeBuiltin(imp string) bool {
 	if strings.HasPrefix(imp, "node:") {
 		return true
 	}
-	// Well-known Node.js built-in names (without the node: prefix).
-	switch imp {
-	case "assert", "async_hooks", "buffer", "child_process", "cluster",
-		"console", "constants", "crypto", "dgram", "diagnostics_channel",
-		"dns", "domain", "events", "fs", "http", "http2", "https",
-		"inspector", "module", "net", "os", "path", "perf_hooks",
-		"process", "punycode", "querystring", "readline", "repl",
-		"stream", "string_decoder", "timers", "tls", "trace_events",
-		"tty", "url", "util", "v8", "vm", "wasi", "worker_threads", "zlib":
-		return true
-	}
-	return false
+	return nodeBuiltins[imp]
 }
 
 // ---- extension helpers -----------------------------------------------------

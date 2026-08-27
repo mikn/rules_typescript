@@ -7,7 +7,8 @@ whole package builds; the cases that must FAIL cannot be build targets, so
 checker_test.go drives the checker directly over hand-written manifests, and
 scanner_test.go pins that Gazelle and the checker recognise the same imports --
 a specifier only one of them sees is either drift Gazelle cannot fix or drift
-the build never notices.
+the build never notices. builtins_test.go is the same pinning for the other
+table the two share: the built-in names, against the node the check runs on.
 """
 
 load("@rules_go//go:def.bzl", "go_test")
@@ -92,6 +93,7 @@ go_test(
     name = "checker_test",
     size = "small",
     srcs = [
+        "builtins_test.go",
         "checker_test.go",
         "scanner_test.go",
     ],
