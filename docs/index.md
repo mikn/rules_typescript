@@ -22,25 +22,33 @@ the build, and any other key fails the build naming itself.
 | Framework | Gazelle generates a bundle target? | Evidence in this repo |
 |---|---|---|
 | **React + Vite** | n/a — plain Vite, no framework plugin | `examples/react-app`: SPA bundling, React Fast Refresh HMR, CSS modules |
-| **TanStack Start** | yes | `examples/tanstack-app` (SPA target), `//tests/integration:vite_bundle_test`. The app-mode target that runs `tanstackStart()` is excluded from CI |
-| **Remix** | yes | `//tests/integration:remix_test` — Gazelle over a fresh workspace, then a build of what it wrote, asserting one chunk per route. Plus `examples/remix-app` |
-| **SvelteKit** | **no**, by decision | Gazelle names the framework and the reason instead |
+| **TanStack Start** | yes | `//tests/integration:tanstack_test` — server functions reach the client through a generated handler id, route markers appear exactly once, and the route paths are stable across runs. Plus `examples/tanstack-app` and `//tests/integration:vite_bundle_test` |
+| **Remix** | yes — SPA and SSR | `//tests/integration:remix_test` for the SPA path: Gazelle over a fresh workspace, then a build of what it wrote, asserting one chunk per route. `//tests/integration:remix_ssr_test` builds through [`remix_build`](rules/remix-build.md) and asserts the build manifest carries every route, nesting and folder routes included. Plus `examples/remix-app` |
+| **SvelteKit** | yes | [`sveltekit_build`](rules/sveltekit-build.md) returns both halves. `//tests/integration:sveltekit_test` asserts `client/` holds hashed chunks, that both of the two Vite passes land, and that `server/manifest.js` carries a route id per route directory, `[slug]` pattern included. `.svelte` components compile through [`svelte_library`](rules/svelte-library.md), covered by `//tests/integration:svelte_test` (browser and SSR outputs) |
 | **Solid Start** | **no**, by decision | Gazelle names the framework and the reason instead |
 
-For the one that gets no target, that is the whole support statement: a
-`ts_bundle` nothing can build is worse than none, and silence is worse than
-both, so Gazelle logs which framework it saw and why bundling it is
-unsupported. The rest of the workspace still compiles and tests. The reason,
-and what a client-only build would take instead, is in
+For Solid Start, that is the whole support statement: a `ts_bundle` nothing can
+build is worse than none, and silence is worse than both, so Gazelle logs which
+framework it saw and why bundling it is unsupported — `@solidjs/start` ships no
+Vite plugin, and `defineConfig()` returns a vinxi app rather than the default
+export with a `plugins` array that `vite_config` consumes. The rest of the
+workspace still compiles and tests. The reason, and what a client-only build
+would take instead, is in
 [Framework detection](gazelle/overview.md#framework-detection).
+
+TanStack Start gets a bundle but no dev server, for a reason of the same kind:
+its SSR module runner inlines `react/jsx-runtime` rather than externalising it
+against a `node_modules` tree that is a build output. Gazelle names that too
+instead of writing a dev target that answers 500.
 
 `examples/` is in `.bazelignore`, so the example workspaces are separate Bazel
 invocations; CI builds all six of them in full.
 
 Frameworks that don't use Vite are not a priority. Next.js is the exception with
-a rule of its own — `next_build` runs the framework's own build, and
-`next_dev_server` and `next_serve` run the app from source or from that build
-(`examples/nextjs-app`, `//tests/integration:nextjs_test`).
+a rule of its own — [`next_build`](rules/next-build.md) runs the framework's own
+build, and [`next_dev_server` and `next_serve`](rules/next-run.md) run the app
+from source or from that build (`examples/nextjs-app`,
+`//tests/integration:nextjs_test`).
 
 ## Key Ideas
 

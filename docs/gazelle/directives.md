@@ -42,8 +42,120 @@ ts_compile(
 
 `visibility` is the case that bites, because it is a *merged* attribute and every
 rule Gazelle generates carries `//visibility:public` — so without `# keep` a
-hand-narrowed visibility widens back on every run, silently. See
+hand-narrowed visibility widens back on every run. See
 [getting the clean-tree diff to empty](overview.md#getting-the-clean-tree-diff-to-empty).
+
+### Attributes Gazelle owns
+
+Gazelle recomputes these from the tree on every run, so a value it cannot derive
+is **replaced** unless a `# keep` holds it. The set is not framework-specific —
+`ts_compile.deps` is as much Gazelle's as `next_build.staging_srcs` is:
+
+| Rule | Attributes Gazelle owns |
+|------|-------------------------|
+| `ts_compile` | `srcs`, `deps`, `visibility`, `path_aliases`, `declarations` |
+| `ts_test` | `srcs`, `deps` |
+| `ts_lint` | `srcs`, `linter`, `linter_binary`, `config`, `fail_on_warnings` |
+| `css_library`, `css_module`, `asset_library`, `json_library` | `srcs`, `deps`, `visibility` |
+| `ts_codegen` | `outs`, `out_dir`, `visibility` |
+| `next_build` | `srcs` (a `glob()`), `staging_srcs`, `config`, `tsconfig`, `node_modules` |
+| `next_dev_server` | `node_modules` |
+| `sveltekit_build` | `srcs` (a `glob()`), `staging_srcs`, `config`, `svelte_config`, `node_modules` |
+| `ts_bundle` (framework root) | `staging_srcs`, `entry_point`, `html`, `vite_config`, `mode`, `bundler` |
+| `vite_bundler` | `vite`, `node_modules` |
+| `node_modules` (framework root) | `deps` |
+| `filegroup(name = "sources")` | `srcs`, `visibility` |
+
+`ts_dev_server` is the exception: it is written once, when no rule of that name
+exists, and left alone from then on. Its attributes are yours after the first
+run, `# keep` or not.
+
+`# keep` works at three granularities, and all three are honoured on both write
+paths — the merger's, and the direct write a `glob()` needs because the merger
+cannot merge a call expression:
+
+```python
+next_build(
+    name = "app",
+    # A single pattern Gazelle did not derive: an assets tree the framework
+    # config points somewhere unconventional.
+    srcs = glob([
+        "app/**",
+        "content/**",  # keep
+    ]),
+    # A dep no import implies: next/image loads sharp at runtime.
+    node_modules = ":node_modules",
+    staging_srcs = [
+        "//lib",
+        "//vendor:vendor_hand",  # keep
+    ],
+    # keep
+    config = "custom.next.config.mjs",
+)
+```
+
+A run that drops a value from one of these attributes names it:
+
+```
+typescript: next_build(app) in BUILD.bazel: Gazelle generates staging_srcs and
+recomputed it from the tree, so "//vendor:vendor_hand" is no longer declared. A
+value Gazelle cannot derive needs a "# keep" comment on its own line to survive
+the next run; "# keep" above the attribute hands the whole attribute back to you.
+```
+
+That line is the contract's other half. A declared build input disappearing in
+silence is the failure this extension exists to remove, and a Gazelle run
+deleting one is the same failure inverted — so every dropped value is named,
+whether it was a stale label Gazelle itself wrote or an edit of yours. Naming
+them is an addition: Gazelle's Go extension drops the same values silently, and
+what survives a run is identical either way.
+
+One value is deliberately not named: one whose file or package is no longer on
+disk. Deleting a staged directory drops the label that named it, and telling you
+to hold that label with `# keep` would have you name a source nothing provides —
+which fails analysis instead of surviving the run. An ordinary deletion is
+therefore silent, and a value whose target is still there is not.
+
+#### Values Gazelle cannot merge
+
+`# keep` decides what survives among plain strings and plain lists of plain
+strings — the two shapes Gazelle's merger reconciles value by value. A value in
+any other shape it cannot merge at all: a module-level variable, two lists
+joined with `+`, a `select()`, or a list with one variable element.
+
+**What happens then is Gazelle's decision, not this extension's**, and it goes
+two ways depending on the shape: a bare variable is replaced with the value
+Gazelle derived, and whatever the variable held is gone; two lists joined with
+`+` are refused, and the attribute keeps your expression while Gazelle stops
+recomputing it. This is the same behaviour `rules_go`'s extension has, for the
+same reason — the decision lives in Gazelle's merger, which both extensions
+call. What this extension adds is that neither outcome is silent:
+
+```
+typescript: BUILD.bazel:28: next_build(app) declares staging_srcs as an
+expression Gazelle's merger cannot reconcile value by value, so staging_srcs is
+no longer an attribute Gazelle maintains: it either replaces the whole
+expression, losing what it computed, or leaves it untouched and stops updating
+it. A "# keep" comment above the attribute makes that yours deliberately.
+```
+
+Either way the attribute has stopped being maintained, so treat that line as a
+decision to make rather than a warning to live with. Two ways to resolve it:
+put `# keep` above the attribute and own it, or rewrite the value as a plain
+list of strings with `# keep` on the entries Gazelle cannot derive, which hands
+the attribute back to it.
+
+A `glob()` is the one shape this extension decides itself, because the merger
+never sees it: `srcs` on `next_build` and `sveltekit_build` is written directly.
+A `glob()` whose arguments are not plain lists of strings is left alone —
+`rule.ParseGlobExpr` reads only part of such a call, so rewriting from what it
+read would drop the rest — and the run says so in the merger's own words, the
+file and the span of the value:
+
+```
+typescript: BUILD.bazel:28.20-28.25: could not merge expression -- next_build(app)
+declares srcs that is not a glob() of plain strings, so Gazelle left it alone.
+```
 
 ## Examples
 

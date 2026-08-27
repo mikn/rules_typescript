@@ -71,6 +71,11 @@ nav:
     - ts_worker_dry_run: rules/ts-worker-dry-run.md
     - ts_lint: rules/ts-lint.md
     - ts_codegen: rules/ts-codegen.md
+    - next_build: rules/next-build.md
+    - next_run: rules/next-run.md
+    - remix_build: rules/remix-build.md
+    - sveltekit_build: rules/sveltekit-build.md
+    - svelte_library: rules/svelte-library.md
     - CSS and assets: rules/css-and-assets.md
     - ts_npm_publish: rules/ts-npm-publish.md
     - node_modules: rules/node-modules.md

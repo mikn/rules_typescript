@@ -255,10 +255,10 @@ and the table says which is which:
 | `@tanstack/react-router`, `@tanstack/start` | the Vite bundle targets |
 | `@remix-run/dev`, `@remix-run/react` | the Vite bundle targets |
 | `next` | `node_modules` + `next_build` — its own rule, not Vite |
-| `@sveltejs/kit` | nothing, plus a message saying why |
+| `@sveltejs/kit` | `node_modules` + `sveltekit_build` — its own rule, not Vite |
 | `@solidjs/start`, `solid-start` | nothing, plus a message saying why |
 
-For the last two, no BUILD file a user could write closes the gap, so emitting a
+For the last one, no BUILD file a user could write closes the gap, so emitting a
 `ts_bundle` would only produce a target that fails `bazel build //...` — and a
 target silently missing is worse still. Gazelle logs the framework, the reason,
 and the fallback:
@@ -271,10 +271,12 @@ plugins array) cannot consume. Your TypeScript still compiles and tests; for a
 client-only build, declare a ts_bundle by hand with no vite_config.
 ```
 
-SvelteKit's reason is different in kind: its plugin runs SvelteKit's own sync
-step from the Vite `config` hook, which wants a `src/app.html` and a
-`svelte.config.js` of its own beside the Vite config — and `.svelte` files are
-not TypeScript, so no `staging_srcs` filegroup Gazelle emits carries the routes.
+SvelteKit is off the `ts_bundle` path for a reason of the same kind: its plugin
+runs SvelteKit's own sync step from the Vite `config` hook, which wants a
+`src/app.html` and a `svelte.config.js` of its own beside the Vite config, and it
+reads the route tree off `process.cwd()` rather than through imports. That is
+what `sveltekit_build` owns instead — it globs `src/` and the assets tree, and
+TypeScript outside them reaches the build through `staging_srcs`.
 
 ### Solid Start is out of scope, and what would reopen it
 
@@ -323,30 +325,50 @@ repository exercises that combination.
     string in `gazelle/framework_bundle.go` and the package's published API, not
     from a local check. Confirm against the installed package before acting on it.
 
-### The entry point is yours to declare
+### The entry point is generated
 
 `ts_bundle` takes exactly one `.js` as its entry, and Gazelle merges every source
 in a directory into one target — so the framework's conventional client entry has
-to be its own single-file target, which is what the generated `entry_point` label
-names. Mark that file excluded and declare the target:
+to be its own single-file target. Gazelle writes that target: it recognises the
+file the `entry_point` label names, gives it a single-file `ts_compile`, and
+leaves it out of the directory-wide one.
 
 ```python
-# app/BUILD.bazel
-# gazelle:ts_exclude entry.client.tsx
-
-load("@rules_typescript//ts:defs.bzl", "ts_compile")
-
+# app/BUILD.bazel — generated
 ts_compile(
     name = "entry_client",
     srcs = ["entry.client.tsx"],
     visibility = ["//visibility:public"],
 )
+
+ts_compile(
+    name = "app",
+    srcs = ["root.tsx"],
+    visibility = ["//visibility:public"],
+)
 ```
 
-Until that target exists the generated `entry_point` names nothing, and
-`bazel build //...` fails on the dangling label — for the whole workspace, not
-just that one target. `//tests/integration:remix_test` pins both halves: green
-with the target present, and failing on exactly that label without it.
+Nothing to declare, and nothing to exclude. The pre-0.2 recipe — a
+`# gazelle:ts_exclude` on the entry file plus a hand-written `ts_compile` — still
+works, but it now costs the maintenance the generated target gets: the exclusion
+drops the file before the generator sees it, so an import added to the entry never
+reaches the deps of the target compiling it and `ts_compile`'s strict-deps check
+fails on that import. The run says so:
+
+```
+typescript: Remix detected: a ts_exclude directive drops app/entry.client.tsx,
+the bundle's client entry, so Gazelle generates no "entry_client" target and does
+not maintain the one you wrote in its place -- an import added to the entry never
+reaches its deps, and ts_compile's strict-deps check fails on that import. Drop
+the directive and the hand-written target: Gazelle writes the single-file entry
+target itself now.
+```
+
+When nothing in that package maps to the entry name at all — no such file, or
+Gazelle's own `exclude` drops it — no bundle target is generated either, since
+`entry_point` would name nothing and a dangling label fails
+`bazel build //...` for the whole workspace rather than for that one target.
+`//tests/integration:remix_test` pins both halves.
 
 ## Import Resolution
 

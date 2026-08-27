@@ -106,10 +106,16 @@ requires.
   `reporters`, `coverage_thresholds`.
 - `environment` is emitted into the config instead of being passed on the
   command line, and is no longer validated against a fixed set of names.
-- The CSS-module mock now actually takes effect. Class names from
-  `*.module.css` imports change from vite's hashed form to the plain property
-  name — the behaviour the docs always described. **Expect snapshot and
-  assertion updates in tests that touched CSS-module class names.**
+- **A `*.module.css` import resolves to the real export map, not a stand-in.**
+  The Bazel layer's plugin reads `<source>.exports.json` — the map `css_module`
+  wrote and generated the `.d.ts` from — so `styles.button` is the scoped string
+  a bundler emits (`_button_<8 hex>`), and a test can assert on a rendered
+  `class` attribute. It was a `Proxy` returning the property name, so
+  `expect(styles.button).toBe("button")` and every assertion on a rendered class
+  attribute were assertions about a string no browser ever sees. **Expect
+  snapshot and assertion updates in tests that touched CSS-module class names.**
+  A `*.module.css` with no `css_module` target behind it keeps the proxy: there
+  is no map and no `.d.ts` to agree with.
 - The auto-generated `node_modules` tree moved to a per-target directory, so a
   package may now hold more than one `ts_test`.
 - The config that actually ran is readable:
@@ -347,11 +353,50 @@ requires.
   `ts_npm_publish` and `next_build` now do too — `register_toolchains("@rules_typescript//ts/toolchain:all")`
   covers all of them. `css_module` and `ts_npm_publish` used to shell out to the
   host `awk`.
-- `css_module` extracts class names by parsing the stylesheet rather than
-  regex-matching `.name` anywhere in the file. Declaration values
-  (`url(logo.png)` no longer declares `png`), strings, at-rule preludes,
-  `@keyframes` bodies and `:global(...)` groups contribute no names, and a name
-  that is not a bare TypeScript identifier is emitted quoted
+- `css_module` **compiles** the stylesheet with postcss-modules instead of
+  extracting class names from it. Each src gains a second output,
+  `<source>.exports.json`, holding the export map postcss-modules produced, and
+  the `.d.ts` is generated from that map's keys — one derivation of the name
+  set, where there used to be one in Bazel and a different one in the bundler.
+  Consequences:
+  - The declared key set grows. `@keyframes` names, `#id` selectors and
+    `@value` names are exports and are now declared, so `styles["panel-fade"]`
+    type-checks. Code that walked `keyof typeof styles` exhaustively sees new
+    members.
+  - `composes: x from "./other.module.css"` works, which means it also fails on
+    bad input: postcss-modules errors on a name it cannot find, and the other
+    file has to be in `deps`.
+  - Constructs postcss-modules rejects now fail the build. `:local(...)` inside
+    a `:global(...)` group is the one this repo's own fixture used.
+  - The values are scoped names Bazel decided:
+    `_<name>_<sha256 of the stylesheet, 8 hex>`, from
+    `ts/private/css/scoped_name.ts`, with no path in the hash. **Class names in
+    a bundle change shape** — `_panel_t1r4u_1` becomes `_panel_<8 hex>` — so a
+    snapshot or a stylesheet override written against the old form moves.
+  - The knobs that change the answer are attributes of the rule
+    (`locals_convention`, `scope_behaviour`, `hash_prefix`, `export_globals`),
+    not of a `vite_config`, because the rule is what wrote the `.d.ts`. Setting
+    one of them — or `generateScopedName`, or `css.modules = false` — on the
+    bundler side is now a **hard build failure** naming the attribute to use
+    instead. It was silently authoritative before.
+  - The guard that catches a bundler-side override tests a mark on the function
+    rather than its identity. A framework plugin that drives its own
+    `createBuilder` — TanStack Start does — makes Vite resolve the config once
+    per environment and run the plugin factory again for each, so the function
+    on the resolved config is a different closure from the one the checking
+    instance closed over even though both came from the ruleset.
+  - `ts_bundle`, `ts_dev_server` and `ts_test` install a Bazel-owned Vite plugin
+    that hands Vite that map, so the bundler's own CSS-modules pass reproduces
+    the names rather than inventing its own.
+    `//tests/vite_bundle:bundle_assets_test` compares the `.d.ts`, the export
+    map and a map the real bundle dumped through `css.modules.getJSON` — keys
+    *and* values, no exceptions — and looks for every value in the emitted
+    stylesheet.
+  - A new non-dev npm hub, `@npm_css` (`ts/private/css/pnpm-lock.yaml`, 17
+    pure-JS packages), lands in every consumer's `MODULE.bazel.lock`. It is the
+    compiler, so it cannot be dev-only: `css_module` is consumer API.
+    `bazel run //:add_package_css -- <pkg>` edits it.
+- A name that is not a bare TypeScript identifier is emitted quoted
   (`readonly "button-primary": string`) instead of as a syntax error.
 - `ts_npm_publish` stages into `<name>_pkg/package/` instead of `<name>_pkg/`,
   and its `package.json` is rewritten through `JSON.parse`/`JSON.stringify`, so
@@ -462,6 +507,27 @@ requires.
 
 ### Added
 
+- **SvelteKit, Remix SSR and Svelte components have rules.** `sveltekit_build`
+  and `remix_build` each wrap the framework's own Vite build as one action and
+  return **both** halves — the browser bundle under `client/`, the request
+  handler under `server/` — staged from declared inputs with the network
+  blocked. `svelte_library` compiles `.svelte` files, which `ts_compile` cannot
+  read, into files the rest of the graph can carry. SvelteKit was previously
+  refused by decision; Gazelle now generates `sveltekit_build` instead of
+  naming a reason. Four integration tests carry the claims:
+  `sveltekit_test` (hashed chunks in `client/`, both Vite passes landing,
+  `server/manifest.js` holding a route id per route directory with the `[slug]`
+  pattern included), `remix_ssr_test` (the build manifest carries every route,
+  nesting and folder routes included), `svelte_test` (browser and SSR component
+  output) and `tanstack_test` (server functions reach the client through a
+  generated handler id, route markers appear exactly once, route paths stable
+  across runs).
+
+- **`next_dev_server` and `next_serve`.** Two ways to run what `next_build`
+  compiles: `next dev` over your source tree for the inner loop, and
+  `next start` over a staged copy of the build to check that the built app
+  really server-renders. Gazelle writes the dev target beside `next_build`.
+
 - **A `*.module.css` or an imported asset can be bundled.** `ts_bundle` collected
   only `CssInfo` from its entry point, so a `.module.css` or an `.svg` was never
   in the sandbox and Vite resolved the relative import onto a `bazel-bin` path
@@ -477,11 +543,13 @@ requires.
   `manifest.json`, mapping each input to the hashed file it became, for a server
   that renders its own script and link tags. Both fail at analysis time in lib
   mode, which declares its output filenames rather than hashing them.
-- **The keys a `*.module.css` declaration promises are checked against the ones
-  postcss-modules produces**, by dumping the real export map through
-  `css.modules.getJSON` in a bundle fixture. One divergence is now pinned rather
-  than assumed: postcss-modules also scopes `@keyframes` names, and the
-  generated `.d.ts` declares class names only.
+- **The keys and values a `*.module.css` declaration promises are checked against
+  the ones the bundler really emitted**, by dumping the real export map through
+  `css.modules.getJSON` in a bundle fixture and comparing it to both the `.d.ts`
+  and `<source>.exports.json` — keys and values, no exceptions — then looking for
+  every value in the emitted stylesheet. The `@keyframes` divergence this bullet
+  used to record is gone: the declaration is generated from the export map, so
+  those names are declared like any other export.
 - **App-mode asset hashing is pinned by a test.** `//tests/vite_bundle:app_mode_test`
   checked only that some `.js` existed; it now requires the hashed chunk name and
   requires the emitted HTML to reference that same name.
@@ -547,6 +615,32 @@ requires.
   which is enough for what they pin: that the attr is not a fixed list.
 
 ### Fixed
+
+- **Gazelle converges instead of writing once and walking away.** The framework
+  generators were create-if-absent: `if !ruleExists(...)` meant the second run
+  emitted no candidate at all, so the merger never saw one and the rule froze at
+  whatever the first run wrote. A file added to a staged directory was then
+  absent from the build with nothing failing. They now regenerate on every run,
+  and `TestConvergeAfterMutation` pins the property the way it actually matters
+  — generate, mutate the tree, generate again, and require what one generation
+  over the mutated tree produces — across six workspace shapes and every
+  mutation kind, 58 cases.
+
+- **A value Gazelle drops is named, and a deleted one is not.** Gazelle owns the
+  attributes it declares mergeable and recomputes them on every run; the set is
+  now derived from `Kinds()` rather than hand-listed, which is how
+  `ts_compile.deps` came to be unguarded while four framework rules were
+  guarded. Every dropped value is reported with the `# keep` that would hold it.
+  Two things are deliberately *not* reported: a value whose file or package is
+  gone from disk — an ordinary deletion, where `# keep` would name a source
+  nothing provides and fail analysis instead of surviving — and nothing at all
+  when `# keep` is already there. An expression the merger cannot reconcile
+  value by value (a variable, `a + b`, a `select()`) is reported as no longer
+  maintained: rules_go's extension replaces some of those shapes and refuses
+  others, in silence, and this extension keeps that behaviour and announces it
+  rather than diverging from it. `TestHandAuthoredAttrValue`,
+  `TestNonLiteralAttrValue` and `TestDeletedPathIsNotReportedAsDropped` pin all
+  three halves.
 
 - **The dev server serves its own workspace on macOS.** Vite matches a request
   against the resolved path, and `server.fs.allow` held the unresolved one, so

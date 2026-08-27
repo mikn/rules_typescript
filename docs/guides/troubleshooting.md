@@ -389,24 +389,43 @@ no `vite_config`. Details:
 
 The generated framework `ts_bundle` names a single-file entry target, which
 Gazelle writes in the package that holds the framework's client entry — for
-Remix, `app/entry.client.tsx` becomes `//app:entry_client`. The label dangles
-when nothing in that package declares the name — no source file maps to it, or a
-`# gazelle:ts_exclude` drops the one that would — and then it takes down
-`bazel build //...` for the whole workspace rather than that one target.
+Remix, `app/entry.client.tsx` becomes `//app:entry_client`. Nothing in that
+package declares that name when no source file maps to it, or when a
+`# gazelle:ts_exclude` drops the one that would.
 
-The Gazelle run that wrote the bundle said so:
+Gazelle does not leave a bundle naming a label like that behind: it generates no
+`ts_bundle` at all, and withdraws one it wrote earlier, because an unresolvable
+label takes down `bazel build //...` for the whole workspace rather than that one
+target. The run says both halves:
 
 ```
+typescript: Remix detected: ts_bundle(app_remix) is being withdrawn -- its
+entry_point "//app:entry_client" names a target nothing declares any more, and
+an unresolvable label fails analysis for every target that reaches it. A bundle
+you maintain yourself needs a "# keep" comment above the rule to survive this.
 typescript: Remix detected: nothing in app/ declares the client entry target
 "entry_client" -- no source file there maps to that name, or a ts_exclude
-directive drops it -- so the generated entry_point //app:entry_client names
-nothing yet. Add the framework's client entry there, drop the exclusion, or set
-entry_point by hand.
+directive drops it -- so no app_remix bundle target was generated: entry_point
+//app:entry_client would name nothing, and an unresolvable label fails analysis
+for every target that reaches it. Add the framework's client entry there, drop
+the exclusion, or declare the bundle by hand with a "# keep" comment above the
+rule -- without one the next run that does find an entry rewrites it.
 ```
 
-Either put the framework's client entry where the framework expects it and
-re-run Gazelle, or declare the target yourself and keep the file out of the
-package target:
+So the missing rule reaches you from a bundle Gazelle is not maintaining: one
+carrying a `# keep`, or one whose `entry_point` you pointed at a target of your
+own. Setting `entry_point` by hand on the generated bundle is not the escape —
+there is no generated bundle to set it on, and the next run that does find an
+entry rewrites the attribute.
+
+Put the framework's client entry where the framework expects it, drop any
+`# gazelle:ts_exclude` covering it, and re-run Gazelle: it writes the single-file
+`ts_compile`, the `sources` filegroup and the bundle itself.
+
+Declaring the target by hand instead still works, but Gazelle then maintains
+neither it nor the bundle's `entry_point`, and both are attributes it owns — so
+the hand-written pair needs a `# keep` above each to survive later runs, and its
+`deps` stop tracking the entry's imports:
 
 ```python
 # app/BUILD.bazel
@@ -414,9 +433,11 @@ package target:
 
 load("@rules_typescript//ts:defs.bzl", "ts_compile")
 
+# keep
 ts_compile(
     name = "entry_client",
     srcs = ["entry.client.tsx"],
+    deps = ["@npm//:remix-run_react"],  # yours to keep current
     visibility = ["//visibility:public"],
 )
 
@@ -429,11 +450,8 @@ filegroup(
 
 The `sources` filegroup is there because `ts_exclude` takes the file out of every
 generated target, that one included, and the framework reads its client entry
-out of the staging root by name.
-
-Gazelle leaves a target that already exists alone, so a hand-declared entry
-survives every later run. Details:
-[The entry point is yours to declare](../gazelle/overview.md#the-entry-point-is-yours-to-declare).
+out of the staging root by name. Details:
+[The entry point is generated](../gazelle/overview.md#the-entry-point-is-generated).
 
 ## ts_dev_server: has no node_modules attr
 

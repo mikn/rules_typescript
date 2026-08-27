@@ -183,6 +183,13 @@ Every `ts_npm_package` provides: `JsInfo` + `TsDeclarationInfo` +
 `NpmPackageInfo` (whose `direct_deps` carries the per-dependent resolution the
 `node_modules` links are built from).
 `css_library`/`css_module`/`asset_library`/`json_library` provide `TsDeclarationInfo` (for .d.ts stubs).
+`css_module` additionally provides `CssModuleInfo`, whose `exports_files` carry
+the `<source>.exports.json` its compile action wrote — the same map the `.d.ts`
+keys came from, so anything that needs the runtime values reads that file rather
+than deriving names a second time. `ts_bundle`, `ts_dev_server` and `ts_test`
+all install `//ts/private/css:css_module_vite_plugin`, which is how that map
+reaches the bundler; a fourth consumer must install it too rather than let Vite
+scope the stylesheet again.
 
 ## npm Internals
 
@@ -280,14 +287,27 @@ The mechanism is three parts:
 3. Gazelle auto-generates `node_modules` + `vite_bundler` + `ts_bundle` + `filegroup` targets at the workspace root
 
 **Detecting a framework and being able to bundle it are separate facts, and
-`gazelle/framework_bundle.go` has a map for each.** `frameworkConfigs` gets bundle
-targets; `unsupportedBundling` gets a named log line and no targets. SvelteKit and
-Solid Start are in the second map — SvelteKit's plugin runs its own sync step from
-the Vite `config` hook and its `.svelte` routes are not TypeScript, and
-`@solidjs/start` ships no Vite plugin at all (`defineConfig()` returns a vinxi
-app, which the `vite_config` contract cannot consume). A framework in NEITHER map
-is the one outcome to avoid: no target and no explanation. If you add a framework,
-add it to one of the two.
+`gazelle/framework_bundle.go` has a map for each.** `frameworkConfigs` gets
+`ts_bundle` targets; `unsupportedBundling` gets a named log line and no targets.
+Only Solid Start is in the second map now — `@solidjs/start` ships no Vite plugin
+at all (`defineConfig()` returns a vinxi app, which the `vite_config` contract
+cannot consume). A framework in NEITHER map is the one outcome to avoid: no target
+and no explanation. If you add a framework, add it to one of the two — or, when
+`ts_bundle` genuinely cannot host it, to a generation path of its own.
+
+Two frameworks have such a path, each with a rule that owns a staging root and
+runs the framework's own build in it: `next_build` (`generateNextJSBundle`) and
+`sveltekit_build` (`generateSvelteKitBundle`, in `gazelle/sveltekit_bundle.go`).
+SvelteKit's reason is worth knowing before reaching for `ts_bundle` again: it
+resolves `svelte.config.js`, `src/app.html` and the route tree against
+`process.cwd()`, and its plugin forces `root: cwd` back over any override, so
+`VITE_STAGING_ROOT` — `ts_bundle`'s whole redirection mechanism — is inert for it.
+`generateSvelteKitBundle` also suppresses TypeScript targets under `src/`: a BUILD
+file there would make a subpackage, and the `glob(["src/**"])` feeding the bundle
+does not descend into one. Suppression only stops Gazelle writing one — a BUILD
+file already in the tree gets named in the log, and the `sveltekit_build` macro
+fails on it via `native.subpackages()`, because a partial route tree still builds
+green.
 
 The generated `entry_point` names a single-file `ts_compile` the user declares
 (`# gazelle:ts_exclude <entry>` plus the target), because `ts_bundle` needs
@@ -367,4 +387,11 @@ puts the working directory in the user's source tree.
 - **A `catch` that warns is how a feature becomes a no-op.** `react_refresh = True` reached into `@vitejs/plugin-react/dist/index.mjs`, a filename that major no longer shipped, and served without Fast Refresh behind a `console.warn`. Fail with the label and the fix, or do not catch.
 - **Silence in a metadata map is not an answer.** `_exports_types` read `exports["."]` and stopped, so a string-valued entry with no `types` key — most of npm, and every `@types/*` package — resolved to nothing and the `paths` entry pointed at a directory. Read what the map designates, then fall through to the fields it is silent about.
 - **A real version bump is a test.** Only moving `@npm` to Vite 8 / vitest 4 fired `test.workspace`, the react entry point and the declaration-entry fallback. Two hubs on two majors looked like coverage of exactly that and supplied none of it.
+- **esbuild reads the workspace `tsconfig.json`, and that is not hermetic.**
+  `srcs` reach the sandbox as symlinks, so esbuild walks up from the entry
+  point's REAL path, finds the source-tree `tsconfig.json`, and applies its
+  `paths` — which `//:refresh_tsconfig` fills with `.bazel/npm/**` `.d.ts`
+  files. A bundled npm package then resolved to a declaration file. Every
+  `esbuild_bundle` passes `--tsconfig-raw={}`; the only reason nothing noticed
+  earlier is that the vite plugin's single import is `--external`.
 - **Formatting drift hides real drift.** For two rounds `bazel run //gazelle` could not be applied here, because ten fixtures differed from Gazelle's own rendering and nobody could tell those files from the ones it was actually changing. Keep the clean-tree diff empty so the next non-empty one means something.

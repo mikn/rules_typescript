@@ -87,19 +87,40 @@ declare const styles: {
 export default styles;
 ```
 
-Keys come from selectors: declaration values, comments, strings, at-rule
-preludes, `@keyframes` bodies and `:global(…)` groups contribute none, while
-`:local(…)` — the explicit spelling of the default — does. The *values* are
-scoped names, and nothing in Bazel decides them: Vite runs postcss-modules,
-which derives each one from the CSS text. Under `ts_test` the import is mocked
-with a proxy that returns the semantic name instead, so a unit test asserts
-`"panel"` rather than a hash it cannot predict.
+Keys and values come from one place. The action runs postcss-modules over the
+stylesheet, writes the export map it produced to `<source>.exports.json`, and
+generates the declaration from that map's keys — so the keys are exactly what
+the stylesheet exports. `@keyframes` names, `#id` selectors and `@value` names
+are exports and are declared, so `styles["panel-fade"]` type-checks.
+`composes: … from "./other.module.css"` resolves, which also means it fails on
+bad input: postcss-modules errors on a name it cannot find, and the other file
+has to be in `deps`.
 
-One key set divergence is known: postcss-modules also scopes and exports
-`@keyframes` names, and the generated declaration omits them, so
-`styles["panel-fade"]` exists at runtime and does not type-check.
-`//tests/vite_bundle:bundle_assets_test` pins this by comparing the declaration
-against the export map postcss-modules actually produced.
+The values are scoped names Bazel decides:
+
+```
+_<local name>_<first 8 hex of sha256(hash_prefix + stylesheet bytes)>
+```
+
+A pure function of the local name and the stylesheet's own bytes — no filename,
+no cwd, no line number — so a build in a different sandbox or output base mints
+the same name. `ts_bundle`, `ts_dev_server` and `ts_test` install a Bazel-owned
+Vite plugin that hands Vite that map, so the bundler's own CSS-modules pass
+reproduces the names rather than inventing its own. Under `ts_test` the import
+resolves to the same map, so a unit test asserts the string the bundle really
+emits rather than a proxy's echo of the property name.
+
+Four attributes change the answer, and they belong on the rule because the rule
+is what wrote the declaration: `locals_convention`, `scope_behaviour`,
+`hash_prefix` and `export_globals`. Setting the bundler-side equivalent instead
+— `css.modules.generateScopedName`, or `css.modules = false` — is a hard build
+failure naming the attribute to use, because it would silently make the
+declaration a lie.
+
+`//tests/vite_bundle:bundle_assets_test` pins the agreement: it compares the
+declaration, the export map, and a map dumped from the real bundle through
+`css.modules.getJSON` — keys *and* values, no exceptions — and looks for every
+value in the emitted stylesheet.
 
 `asset_library` and `json_library` promise a `string` URL and the parsed JSON
 shape respectively. JSON is deliberately not an `asset_library` extension:

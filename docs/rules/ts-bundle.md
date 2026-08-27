@@ -67,7 +67,7 @@ ts_bundle(
 | `manifest` | `bool` | `False` | Write `manifest.json` into the output directory, mapping each input to the hashed file it became. `mode = "app"` only |
 | `vite_config` | `label` | `None` | A `.ts`/`.mts`/`.mjs`/`.js` file default-exporting `{plugins: [...]}`. Its plugins run before Bazel's, which is how a framework plugin gets in — TanStack Start's and Remix's do; SvelteKit's and Solid Start's [cannot](../gazelle/overview.md#framework-detection). Vite bundlers only |
 | `vite_config_srcs` | `label_list` | `[]` | The local modules `vite_config` imports. The config and these are staged together under `bazel-bin`, each at its path relative to the config's package, so a relative import resolves there as it does in the source tree. Without it only the config is staged and its relative imports fail, naming the file; a file outside the config's package is an analysis-time error |
-| `staging_srcs` | `label_list` | `[]` | Sources copied into a writable staging directory before Vite runs, for framework plugins that scan route files and write codegen next to them |
+| `staging_srcs` | `label_list` | `[]` | Sources copied into a writable staging directory before Vite runs, for framework plugins that scan route files and write codegen next to them. Gazelle generates this on a framework root and recomputes it every run, so a label it cannot derive needs a `# keep` on its line — see [Attributes Gazelle owns on the framework rules](../gazelle/directives.md#attributes-gazelle-owns) |
 
 Of the loaded `vite_config`, this rule reads `plugins` and `root`. Any other key
 fails the build naming itself, rather than producing a bundle that quietly

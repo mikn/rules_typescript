@@ -112,6 +112,25 @@ dev server to catch type errors today, set up
 [IDE integration](../getting-started/ide-setup.md) before you rely on this
 instead.
 
+## CSS module class names match the declaration
+
+A `*.module.css` served by the dev server carries the same class names
+`css_module` generated its `.d.ts` from, not names Vite minted on its own. The
+dev server installs the CSS-modules plugin unconditionally — it needs no
+attribute and no `vite_config` — so `styles.button` in a served module is the
+string the `.d.ts` declares and the string a `ts_test` asserts on.
+
+Serving a source tree, there is no `<file>.exports.json` beside the stylesheet
+to read, so the name is recomputed. It lands on the same answer because it is a
+pure function of the same bytes: see
+[css_module](../rules/css-and-assets.md#what-the-declarations-promise).
+
+Setting `css.modules.generateScopedName` or `css.modules = false` in a
+`vite_config` is a hard failure naming the `css_module` attribute to use
+instead, for the same reason it is in a bundle: it would make the declaration a
+lie. A framework plugin that resolves the config once per environment is not
+mistaken for such an override.
+
 ## The plugin, and what it buys
 
 The `plugin` attribute wires `vite-plugin-bazel`. It is what:

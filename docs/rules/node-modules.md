@@ -37,7 +37,7 @@ the sandbox instead of one per target.
 
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `deps` | `label_list` | `[]` | npm package targets from `@npm` to include in `node_modules` |
+| `deps` | `label_list` | `[]` | npm package targets from `@npm` to include in `node_modules`. On a framework root Gazelle generates this list from the framework's own requirements and recomputes it every run, so a package no import implies — `sharp`, which `next/image` loads at runtime — needs a `# keep` on its line to survive; see [Attributes Gazelle owns on the framework rules](../gazelle/directives.md#attributes-gazelle-owns) |
 
 ## The layout
 

@@ -65,6 +65,16 @@ generated config against a second major:
 | `@npm_workers` | `tests/workers/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` with the Workers pool (vitest inside workerd) and `ts_worker_dry_run_test` |
 | `@npm_eslint` | `tests/eslint/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | the ESLint plugin's own `ts_test` targets, against `@typescript-eslint`'s rule tester |
 | `@npm_features` | `tests/npm/pnpm-lock-features.yaml` | — | — | pnpm's patched dependencies, npm aliases, peer-dependency variants and per-importer resolution. It resolves neither tool |
+| `@npm_css` | `ts/private/css/pnpm-lock.yaml` | — | — | `css_module`'s own compiler: postcss 8.5.26 and postcss-modules 9.0.1. The one hub here that is **not** a fixture — it ships to consumers, because `css_module` is consumer API |
+
+`@npm_css` is a compatibility surface of its own. `css_module` derives the class
+names and the `.d.ts` with *its* postcss-modules, and the bundler reproduces
+them with the CSS-modules implementation built into *your* Vite. The two agree
+today, and the ruleset does not leave that to chance: the naming function is
+handed to Vite rather than reimplemented, so only a genuine divergence in what
+counts as a local name could split them — and the plugin raises an error naming
+both sides if it ever does, rather than shipping a bundle whose class names no
+declaration knows about.
 
 To re-derive all of that rather than trusting the table:
 

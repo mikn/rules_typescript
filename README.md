@@ -14,12 +14,28 @@ is the same path with the migration questions answered.
 ## Built for the Vite Ecosystem
 
 Vite is the bundler and the dev server. A framework that ships a Vite plugin
-fits; the rest is a question of how much of it is proved, and one framework gets
-no bundle target at all.
+fits; the rest is a question of how much of it is proved.
+
+| Framework | What you get | Proved by |
+|---|---|---|
+| **React + Vite** | plain Vite: SPA bundle, Fast Refresh HMR, CSS modules | `examples/react-app` |
+| **TanStack Start** | bundle, no dev server | `tanstack_test`: server functions reach the client through a generated handler id, route markers appear once, route paths stable across runs |
+| **Remix** | SPA bundle **and** SSR via [`remix_build`](https://mikn.github.io/rules_typescript/rules/remix-build/) | `remix_test` (one chunk per route) and `remix_ssr_test` (build manifest carries every route, nesting and folder routes included) |
+| **SvelteKit** | SSR via [`sveltekit_build`](https://mikn.github.io/rules_typescript/rules/sveltekit-build/), components via [`svelte_library`](https://mikn.github.io/rules_typescript/rules/svelte-library/) | `sveltekit_test`: hashed chunks in `client/`, both Vite passes landing, `server/manifest.js` carrying a route id per route directory (`[slug]` included). `svelte_test` for browser and SSR component output |
+| **Solid Start** | no bundle target, by decision | Gazelle names the framework and why: `@solidjs/start` ships no Vite plugin, and `defineConfig()` returns a vinxi app rather than the `plugins` array `vite_config` consumes |
+
+Where a target cannot be built, Gazelle says so instead of writing one: a
+`ts_bundle` nothing can build is worse than none, and silence is worse than
+both. That is why TanStack Start gets a bundle but no dev server — its SSR
+module runner inlines `react/jsx-runtime` rather than externalising it against a
+`node_modules` tree that is a build output.
 
 Non-Vite frameworks are not a priority. Next.js is the exception, with
 `next_build` running the framework's own build from declared inputs and the
-network blocked. `//tests/integration:nextjs_test` covers both routers,
+network blocked, and
+[`next_dev_server` and `next_serve`](https://mikn.github.io/rules_typescript/rules/next-run/)
+running the app from source or from that build.
+`//tests/integration:nextjs_test` covers both routers,
 both API-route flavours, `"use client"`/`"use server"`, middleware, CSS and a
 static image import; `next/font/google` fails with a diagnostic naming the
 download rather than reaching the internet unnoticed
@@ -31,7 +47,8 @@ download rather than reaching the internet unnoticed
 - **tsgo emits declarations and type-checks** — Go port of TypeScript. Unmodified TypeScript compiles: no explicit export annotations required, and the `.d.ts` are what `tsc` would produce. Type errors fail `bazel build` because the declarations are real outputs.
 - **Vite bundles** — production bundles with tree-shaking, code splitting, minification. App mode (HTML + hashed assets) and lib mode.
 - **Isolated declarations, when you want them** — annotate a package's exports and set `declarations = "oxc"` to have Oxc emit its `.d.ts` syntactically. Type-checking then moves off the critical path, which on a deep dependency chain shortens it substantially ([measured](https://mikn.github.io/rules_typescript/rules/ts-compile/#cost-of-each-mode)). Opt-in, per package.
-- **Gazelle generates BUILD files** — infers targets from the directory tree, resolves imports to labels, and generates lint, bundler and dev-server targets. Ten `# gazelle:ts_*` directives configure it.
+- **Gazelle generates BUILD files** — infers targets from the directory tree, resolves imports to labels, and generates lint, bundler and dev-server targets. Ten `# gazelle:ts_*` directives configure it. It regenerates the attributes it owns on every run, so a value it cannot derive needs `# keep` — and it names every value it drops rather than deleting one in silence ([the contract](https://mikn.github.io/rules_typescript/gazelle/directives/#attributes-gazelle-owns)).
+- **CSS modules are typed once and scoped once** — `css_module` runs postcss-modules, then generates both the `.d.ts` and the scoped-name map from that one result, and hands the map to Vite. So `styles.button` type-checks against the keys the stylesheet really exports — `@keyframes`, `#id` and `@value` names included — `composes: … from "./other.module.css"` resolves through `deps`, and the class name in a test is the one in the bundle ([docs](https://mikn.github.io/rules_typescript/rules/css-and-assets/)).
 - **Deps are what you declared** — a source may import only what a *direct* dep provides. A declaration that reaches a target through another dep's own deps no longer satisfies an import: the build fails naming the file, the specifier and the label to add, and `bazel run //:gazelle` writes it.
 - **npm without a store** — one Bazel repository per package, fetched on demand, behind a `@npm` alias hub. A target's npm cost is its own dependency closure, not the whole lockfile. A `node_modules` tree places every *resolution* a closure made — name, version and peer set — not one directory per name.
 - **Only Bazelisk required** — Node.js, Go and Rust are fetched hermetically, and [pnpm too](https://mikn.github.io/rules_typescript/guides/npm/#hermetic-pnpm) if you want it. pnpm is needed only to edit the lockfile, never to build.
