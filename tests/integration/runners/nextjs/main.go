@@ -382,21 +382,33 @@ func main() {
 		// to fail, and it has to say why: an ENETUNREACH out of a webpack loader
 		// is not something a user can act on.
 		fontLog, err := it.BazelLog("font.log", "build", "//:font_app")
-		if err == nil {
+		switch {
+		// block-network is declared on the action -- asserted above -- but only a
+		// sandbox with a network namespace of its own enforces it, and a nested
+		// Bazel does not always get one: a runner that denies unprivileged user
+		// namespaces leaves the inner build on processwrapper-sandbox, which
+		// honours the requirement by ignoring it. The declaration still holds
+		// there; it is the effect that cannot be observed, so name which of the
+		// two this run actually measured rather than blaming the rule.
+		case err == nil && fontLog.Matches(`NextBuild //:font_app[^\n]*(processwrapper-sandbox|standalone|local)`):
+			it.Pass("next/font/google: this sandbox does not enforce block-network, so the failure " +
+				"it should produce is unobservable here -- the declaration is asserted above")
+		case err == nil:
 			fontLog.DumpTail(60)
 			it.Fail("//:font_app built a next/font/google import with the network blocked")
-		}
-		for _, expected := range []string{
-			"Failed to fetch `Inter` from Google Fonts",
-			"next_build: `next build` failed while reaching for the network.",
-			"allow_network = True",
-		} {
-			if !fontLog.Contains(expected) {
-				fontLog.DumpTail(60)
-				it.Fail("the next/font failure does not mention %q", expected)
+		default:
+			for _, expected := range []string{
+				"Failed to fetch `Inter` from Google Fonts",
+				"next_build: `next build` failed while reaching for the network.",
+				"allow_network = True",
+			} {
+				if !fontLog.Contains(expected) {
+					fontLog.DumpTail(60)
+					it.Fail("the next/font failure does not mention %q", expected)
+				}
 			}
+			it.Pass("next/font/google fails under the blocked network, naming the cause and the opt-out")
 		}
-		it.Pass("next/font/google fails under the blocked network, naming the cause and the opt-out")
 
 		// ── Negative: config_srcs is what resolves the config's sibling ───────
 		buildFile := it.Path("BUILD.bazel")

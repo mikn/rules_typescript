@@ -134,8 +134,13 @@ staging_srcs = [
 The action runs with `block-network`. `next build` reaches for the network on its
 own initiative, so the sandbox takes the option away rather than the rule
 trusting an environment variable to have covered every path. The enforcement is
-the sandbox's: a build run with `--spawn_strategy=local` has no sandbox and so no
-network boundary either.
+the sandbox's, and only a sandbox that can create a network namespace of its own
+provides it: `--spawn_strategy=local` has no sandbox and so no boundary, and
+`processwrapper-sandbox` — what Bazel falls back to where unprivileged user
+namespaces are unavailable, including a Bazel nested inside another Bazel's
+sandbox — honours the requirement by ignoring it. The requirement is still on the
+action, which `bazel aquery 'mnemonic("NextBuild", //:your_target)'` will show;
+whether it bites depends on how the build is run.
 
 `next/font/google` is the one common feature this rejects: it downloads the font
 CSS and the woff2 payloads while compiling. `next/font/local` is unaffected — the
