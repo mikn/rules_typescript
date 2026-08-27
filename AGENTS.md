@@ -395,3 +395,17 @@ puts the working directory in the user's source tree.
   `esbuild_bundle` passes `--tsconfig-raw={}`; the only reason nothing noticed
   earlier is that the vite plugin's single import is `--external`.
 - **Formatting drift hides real drift.** For two rounds `bazel run //gazelle` could not be applied here, because ten fixtures differed from Gazelle's own rendering and nobody could tell those files from the ones it was actually changing. Keep the clean-tree diff empty so the next non-empty one means something.
+- **Every hub name is the consumer's to claim.** `npm/extensions.bzl` gives the
+  root module's `translate_lock` priority for *any* hub name, so none of them is
+  privileged: a ruleset-internal target naming `@npm//:x` resolves into whatever
+  lockfile the consumer registered, and the `dev_dependency` hubs do not exist
+  for a consumer at all. `//vite:esbuild_node_modules` named `@npm//:esbuild`,
+  and it feeds `//vite:vite_plugin_bazel` — which `ts_dev_server` takes through
+  its `plugin` attr, and which Gazelle writes when it *generates* a dev server
+  (it leaves an existing one alone). `plugin` has no default, and no workspace
+  here set it, so nothing had reached the label and no build had failed: three
+  of this repo's six examples have no esbuild in their lockfile and would have.
+  Reachability, not correctness, is what decided that — the `@npm` labels still
+  in `//vite` and `//ts/private/css` are unreached rather than sanctioned. What
+  pins the rule is two trees, `//vite:esbuild_node_modules` and
+  `//ts/private/css:node_modules`, declared in `tests/npm/BUILD.bazel`.

@@ -4,6 +4,7 @@ load("@rules_go//go:def.bzl", "go_test")
 load("//npm:defs.bzl", "node_modules")
 load("//ts:defs.bzl", "ts_compile")
 load(":exports_types_tests.bzl", "declaration_entry_test", "exports_types_test_suite")
+load(":hub_provenance_tests.bzl", "hub_provenance_test")
 load(":parser_tests.bzl", "parser_test_suite")
 load(":resolution_tests.bzl", "conflicting_direct_peers_test", "conflicting_direct_versions_test")
 
@@ -361,4 +362,20 @@ node_modules(
 conflicting_direct_peers_test(
     name = "npm_conflicting_direct_peers_test",
     target_under_test = ":conflicting_direct_peers",
+)
+
+# Both bundles are consumer API -- //vite's through ts_dev_server's `plugin`
+# attr, the css one as a private attr default on ts_test/ts_bundle/ts_dev_server.
+hub_provenance_test(
+    name = "vite_plugin_hub_test",
+    size = "small",
+    hub = "npm_css",
+    target_under_test = "//vite:esbuild_node_modules",
+)
+
+hub_provenance_test(
+    name = "css_compiler_hub_test",
+    size = "small",
+    hub = "npm_css",
+    target_under_test = "//ts/private/css:node_modules",
 )

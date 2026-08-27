@@ -26,6 +26,22 @@ Bazelisk against it, so 9.x is the only version with evidence behind it.
 CI runs `ubuntu-latest` and `macos-latest`. Linux ARM64 and macOS x86_64 have
 toolchains for every tool but no CI coverage.
 
+### musl
+
+Only glibc linux is supported. `NODE_PLATFORMS` (`ts/private/runtime.bzl`),
+`TSGO_PLATFORMS` (`ts/private/toolchain.bzl`) and `_PNPM_PLATFORMS`
+(`ts/private/pnpm.bzl`) are enumerations of the platform vocabulary, all glibc, and
+`//platforms` has no musl key. Node.js publishes no official musl tarball, so
+there is nothing to register even if you wanted to.
+
+So a `libc: [musl]` tarball in `pnpm-lock.yaml` matches no platform, and
+the `npm` extension drops it instead of declaring a repository for it — the same path a
+tarball with `cpu: [ppc64]` or `os: [aix]` already takes. It is never fetched,
+never extracted, and never staged into an action.
+
+If you build on a musl host, this does not help you: the Node the ruleset
+downloads is still the glibc build.
+
 ### Windows
 
 Windows is not supported right now. It may be considered in the future.
@@ -65,7 +81,7 @@ generated config against a second major:
 | `@npm_workers` | `tests/workers/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` with the Workers pool (vitest inside workerd) and `ts_worker_dry_run_test` |
 | `@npm_eslint` | `tests/eslint/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | the ESLint plugin's own `ts_test` targets, against `@typescript-eslint`'s rule tester |
 | `@npm_features` | `tests/npm/pnpm-lock-features.yaml` | — | — | pnpm's patched dependencies, npm aliases, peer-dependency variants and per-importer resolution. It resolves neither tool |
-| `@npm_css` | `ts/private/css/pnpm-lock.yaml` | — | — | `css_module`'s own compiler: postcss 8.5.26 and postcss-modules 9.0.1. The one hub here that is **not** a fixture — it ships to consumers, because `css_module` is consumer API |
+| `@npm_css` | `ts/private/css/pnpm-lock.yaml` | — | — | the packages the ruleset's own build actions run: postcss 8.5.26 and postcss-modules 9.0.1 for `css_module`'s compiler, and the esbuild that bundles `vite-plugin-bazel`. The one hub here that is **not** a fixture — it ships to consumers, because both bundles are consumer API |
 
 `@npm_css` is a compatibility surface of its own. `css_module` derives the class
 names and the `.d.ts` with *its* postcss-modules, and the bundler reproduces

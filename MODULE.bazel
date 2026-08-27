@@ -148,20 +148,18 @@ register_toolchains(
 
 # ─── npm dependencies ────────────────────────────────────────────────────────
 
-# Non-dev even though the lockfile is a test fixture: //vite:esbuild_node_modules
-# resolves @npm//:esbuild in this module's repo mapping, and the target it feeds,
-# //vite:vite_plugin_bazel, is consumer API (ts_dev_server's `plugin` attr). A
-# dev-only usage hides @npm from this module whenever rules_typescript is not the
-# root, so sourcing //vite's esbuild from outside the test fixture has to come
-# first.
+# @npm's name is the consumer's to claim: the extension gives the root module's
+# translate_lock priority for any hub name, so a target here naming @npm resolves
+# into the consumer's lockfile, not this fixture. Non-dev only because //vite's
+# and //ts/private/css's typecheck targets still name it in this module's mapping.
 npm = use_extension("//npm:extensions.bzl", "npm")
 npm.pnpm(version = "10.32.1")
 npm.translate_lock(pnpm_lock = "//tests/npm:pnpm-lock.yaml")
 
 # postcss-modules, which css_module's compile action runs to derive both the
-# scoped-name map and the .d.ts from it. Non-dev for the same reason as @npm
-# above, and a stronger one: css_module is consumer API, so a dev-only usage
-# would hide the compiler from every consumer of the rule.
+# scoped-name map and the .d.ts from it, plus the esbuild that bundles //vite's
+# plugin. Non-dev because both of those bundles are consumer API, so a dev-only
+# usage would hide them from every consumer of the rules.
 npm.translate_lock(
     name = "npm_css",
     pnpm_lock = "//ts/private/css:pnpm-lock.yaml",

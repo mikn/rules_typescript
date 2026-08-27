@@ -97,6 +97,18 @@ packages:
     peerDependencies:
       react: 19.2.4
 
+  '@oxlint/linux-x64-gnu@0.16.6':
+    resolution: {integrity: sha512-gnu==}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@oxlint/linux-x64-musl@0.16.6':
+    resolution: {integrity: sha512-musl==}
+    cpu: [x64]
+    os: [linux]
+    libc: [musl]
+
   esbuild@0.27.3:
     resolution: {integrity: sha512-old==}
 
@@ -114,6 +126,10 @@ snapshots:
   '@dub/analytics@0.0.32(react@19.2.4)':
     dependencies:
       react: 19.2.4
+
+  '@oxlint/linux-x64-gnu@0.16.6': {}
+
+  '@oxlint/linux-x64-musl@0.16.6': {}
 
   esbuild@0.27.3: {}
 
@@ -153,6 +169,8 @@ def _catalogs_and_overrides_are_not_packages_test(ctx):
 
     asserts.equals(env, [
         "@dub/analytics@0.0.32",
+        "@oxlint/linux-x64-gnu@0.16.6",
+        "@oxlint/linux-x64-musl@0.16.6",
         "esbuild@0.27.3",
         "esbuild@0.28.1",
         "lodash@4.18.1",
@@ -162,6 +180,23 @@ def _catalogs_and_overrides_are_not_packages_test(ctx):
     return unittest.end(env)
 
 catalogs_and_overrides_are_not_packages_test = unittest.make(_catalogs_and_overrides_are_not_packages_test)
+
+def _platform_constraints_are_read_test(ctx):
+    env = unittest.begin(ctx)
+    packages = parse_pnpm_lock(_LOCKFILE)["packages"]
+
+    gnu = packages["@oxlint/linux-x64-gnu@0.16.6"]
+    musl = packages["@oxlint/linux-x64-musl@0.16.6"]
+    asserts.equals(env, ["linux"], gnu["os"])
+    asserts.equals(env, ["x64"], gnu["cpu"])
+    asserts.equals(env, ["glibc"], gnu.get("libc"))
+    asserts.equals(env, ["musl"], musl.get("libc"))
+
+    asserts.equals(env, [], packages["lodash@4.18.1"].get("libc"))
+
+    return unittest.end(env)
+
+platform_constraints_are_read_test = unittest.make(_platform_constraints_are_read_test)
 
 def _overrides_arrive_pre_resolved_test(ctx):
     env = unittest.begin(ctx)
@@ -736,6 +771,7 @@ def parser_test_suite(name):
         name,
         catalogs_are_not_importers_test,
         catalogs_and_overrides_are_not_packages_test,
+        platform_constraints_are_read_test,
         overrides_arrive_pre_resolved_test,
         package_extensions_arrive_as_edges_test,
         patched_dependencies_test,

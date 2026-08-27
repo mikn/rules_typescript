@@ -4,6 +4,10 @@ One table, loaded by everything that needs to talk about a platform: the
 toolchain declarations (which constraints a toolchain's binary satisfies), the
 repository rules that download per-platform binaries (npm's naming for the same
 platform), and this package's `platform()` / `config_setting()` targets.
+
+`npm_libc` is pnpm's `libc:` field. There is no musl key: every registered node,
+tsgo and pnpm toolchain is glibc-only, so a `libc: [musl]` tarball matches no
+platform here and is never declared.
 """
 
 PLATFORMS = {
@@ -12,30 +16,35 @@ PLATFORMS = {
         cpu = "@platforms//cpu:x86_64",
         npm_os = "linux",
         npm_cpu = "x64",
+        npm_libc = "glibc",
     ),
     "linux_arm64": struct(
         os = "@platforms//os:linux",
         cpu = "@platforms//cpu:aarch64",
         npm_os = "linux",
         npm_cpu = "arm64",
+        npm_libc = "glibc",
     ),
     "darwin_amd64": struct(
         os = "@platforms//os:macos",
         cpu = "@platforms//cpu:x86_64",
         npm_os = "darwin",
         npm_cpu = "x64",
+        npm_libc = "",
     ),
     "darwin_arm64": struct(
         os = "@platforms//os:macos",
         cpu = "@platforms//cpu:aarch64",
         npm_os = "darwin",
         npm_cpu = "arm64",
+        npm_libc = "",
     ),
     "windows_amd64": struct(
         os = "@platforms//os:windows",
         cpu = "@platforms//cpu:x86_64",
         npm_os = "win32",
         npm_cpu = "x64",
+        npm_libc = "",
     ),
 }
 

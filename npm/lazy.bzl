@@ -243,16 +243,27 @@ def _workspace_link_entry(name, path):
         target = path.split("/")[-1],
     )
 
-def _platforms_of_package(pkg):
+def platforms_of_package(pkg):
     """The PLATFORMS keys a published tarball is built for.
 
     Empty means the package targets a platform this ruleset has no vocabulary
-    for (`os: [aix]`), and nothing may reference it.
+    for (`os: [aix]`, `libc: [musl]`), and nothing may reference it.
+
+    Args:
+        pkg: A `packages:` entry from parse_pnpm_lock.
+
+    Returns:
+        A sorted list of PLATFORMS keys.
     """
     return [
         key
         for key in _ALL_PLATFORMS
-        if pkg_matches_platform(pkg, PLATFORMS[key].npm_os, PLATFORMS[key].npm_cpu)
+        if pkg_matches_platform(
+            pkg,
+            PLATFORMS[key].npm_os,
+            PLATFORMS[key].npm_cpu,
+            PLATFORMS[key].npm_libc,
+        )
     ]
 
 def _dedup(items):
@@ -419,7 +430,7 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
         pkg = packages.get(snap["package_id"])
         if pkg == None:
             continue
-        plats = _platforms_of_package(pkg)
+        plats = platforms_of_package(pkg)
         if not plats:
             continue
         live[sid] = snap

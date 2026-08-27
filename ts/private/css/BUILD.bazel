@@ -26,6 +26,7 @@ node_modules(
     # shim would otherwise skip this tree and find the *consumer's* top-level
     # one -- where the platform binary is not ours and not executable.
     name = "node_modules",
+    visibility = ["//tests/npm:__pkg__"],
     deps = [
         # Not @npm: that hub's name is the consumer's to claim -- the npm
         # extension gives the root module's translate_lock priority -- so a

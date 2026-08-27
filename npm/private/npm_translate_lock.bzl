@@ -119,6 +119,7 @@ def _new_pkg_entry():
         "peerDependencies": {},
         "os": [],
         "cpu": [],
+        "libc": [],
     }
 
 def _record_package(packages, current_pkg_key, current_pkg):
@@ -424,14 +425,10 @@ def _parse_pnpm_lock(content):
             if kv_k == "resolution":
                 state["current_pkg"]["resolution"] = _parse_inline_resolution(kv_v)
                 state["current_section"] = None
-            elif kv_k == "os":
-                # e.g. "os: [linux]" or "os: [darwin, linux]" — extract the list items.
+            elif kv_k in ("os", "cpu", "libc"):
+                # e.g. "os: [darwin, linux]", "cpu: [x64]", "libc: [musl]".
                 inner = kv_v.strip().strip("[]")
-                state["current_pkg"]["os"] = [x.strip() for x in inner.split(",") if x.strip()]
-            elif kv_k == "cpu":
-                # e.g. "cpu: [x64]" or "cpu: [arm64, x64]"
-                inner = kv_v.strip().strip("[]")
-                state["current_pkg"]["cpu"] = [x.strip() for x in inner.split(",") if x.strip()]
+                state["current_pkg"][kv_k] = [x.strip() for x in inner.split(",") if x.strip()]
             elif kv_k not in ("dependencies", "optionalDependencies", "peerDependencies"):
                 pass
             continue
@@ -979,30 +976,34 @@ def _semver_gt(a_parts, b_parts):
 
 # ─── Platform constraints ─────────────────────────────────────────────────────
 #
-# `os:`/`cpu:` on a `packages:` entry says which platforms the published tarball
-# is FOR. Reading the host to decide which of them to declare would bake the
-# machine that ran the module extension into MODULE.bazel.lock -- a file that is
-# committed and shared. So nothing here looks at the host: every platform's
+# `os:`/`cpu:`/`libc:` on a `packages:` entry says which platforms the published
+# tarball is FOR. Reading the host to decide which of them to declare would bake
+# the machine that ran the module extension into MODULE.bazel.lock -- a file that
+# is committed and shared. So nothing here looks at the host: every platform's
 # packages are declared, and the choice is a select() resolved at analysis time.
 
-def _pkg_matches_platform(pkg, npm_os, npm_cpu):
-    """Whether a package's os/cpu constraints admit the given platform.
+def _pkg_matches_platform(pkg, npm_os, npm_cpu, npm_libc):
+    """Whether a package's os/cpu/libc constraints admit the given platform.
 
-    An absent constraint admits everything; both present must both match.
+    An absent constraint admits everything; every one present must match.
 
     Args:
-        pkg:     A `packages:` entry from _parse_pnpm_lock.
-        npm_os:  pnpm's name for the OS ("linux", "darwin", "win32", ...).
-        npm_cpu: pnpm's name for the CPU ("x64", "arm64", ...).
+        pkg:      A `packages:` entry from _parse_pnpm_lock.
+        npm_os:   pnpm's name for the OS ("linux", "darwin", "win32", ...).
+        npm_cpu:  pnpm's name for the CPU ("x64", "arm64", ...).
+        npm_libc: pnpm's name for the platform's libc ("glibc"), "" off linux.
 
     Returns:
         bool
     """
     pkg_os = pkg.get("os", [])
     pkg_cpu = pkg.get("cpu", [])
+    pkg_libc = pkg.get("libc", [])
     if pkg_os and npm_os not in pkg_os:
         return False
     if pkg_cpu and npm_cpu not in pkg_cpu:
+        return False
+    if pkg_libc and npm_libc not in pkg_libc:
         return False
     return True
 

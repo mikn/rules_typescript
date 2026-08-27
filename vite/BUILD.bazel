@@ -68,7 +68,9 @@ bzl_library(
 # node_modules tree for the plugin build action below.
 node_modules(
     name = "esbuild_node_modules",
-    deps = ["@npm//:esbuild"],
+    # Not @npm: that name resolves into the consumer's lockfile, which need not
+    # have esbuild at all, and the bundle this feeds is consumer API.
+    deps = ["@npm_css//:esbuild"],
 )
 
 # Build the vite-plugin-bazel TypeScript source into a single bundled ESM file.

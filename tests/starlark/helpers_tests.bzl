@@ -7,6 +7,7 @@ test, or not at all.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
+load("//npm:lazy.bzl", "platforms_of_package")
 load(
     "//npm/private:npm_translate_lock.bzl",
     "dep_snapshot_id",
@@ -294,20 +295,55 @@ semver_gt_test = unittest.make(_semver_gt_test)
 def _pkg_matches_platform_test(ctx):
     env = unittest.begin(ctx)
 
-    asserts.true(env, pkg_matches_platform({}, "linux", "x64"), "no constraint admits everything")
-    asserts.true(env, pkg_matches_platform({"os": ["linux"]}, "linux", "arm64"), "os-only match")
-    asserts.false(env, pkg_matches_platform({"os": ["darwin"]}, "linux", "x64"), "os mismatch")
-    asserts.false(env, pkg_matches_platform({"cpu": ["arm64"]}, "linux", "x64"), "cpu mismatch")
+    asserts.true(env, pkg_matches_platform({}, "linux", "x64", "glibc"), "no constraint admits everything")
+    asserts.true(env, pkg_matches_platform({"os": ["linux"]}, "linux", "arm64", "glibc"), "os-only match")
+    asserts.false(env, pkg_matches_platform({"os": ["darwin"]}, "linux", "x64", "glibc"), "os mismatch")
+    asserts.false(env, pkg_matches_platform({"cpu": ["arm64"]}, "linux", "x64", "glibc"), "cpu mismatch")
 
-    # Both present: both must match.
+    # All present: all must match.
     both = {"os": ["linux"], "cpu": ["x64"]}
-    asserts.true(env, pkg_matches_platform(both, "linux", "x64"), "both match")
-    asserts.false(env, pkg_matches_platform(both, "linux", "arm64"), "cpu half of a pair mismatches")
-    asserts.false(env, pkg_matches_platform(both, "darwin", "x64"), "os half of a pair mismatches")
+    asserts.true(env, pkg_matches_platform(both, "linux", "x64", "glibc"), "all match")
+    asserts.false(env, pkg_matches_platform(both, "linux", "arm64", "glibc"), "cpu half of a pair mismatches")
+    asserts.false(env, pkg_matches_platform(both, "darwin", "x64", "glibc"), "os half of a pair mismatches")
+
+    # libc is the only axis on which a native sidecar's two linux builds differ:
+    # @oxlint/linux-x64-gnu and @oxlint/linux-x64-musl agree on os and cpu.
+    gnu = {"os": ["linux"], "cpu": ["x64"], "libc": ["glibc"]}
+    musl = {"os": ["linux"], "cpu": ["x64"], "libc": ["musl"]}
+    asserts.true(env, pkg_matches_platform(gnu, "linux", "x64", "glibc"), "glibc package on a glibc platform")
+    asserts.false(env, pkg_matches_platform(musl, "linux", "x64", "glibc"), "musl package on a glibc platform")
+    asserts.false(env, pkg_matches_platform({"libc": ["glibc"]}, "darwin", "arm64", ""), "darwin names no libc")
 
     return unittest.end(env)
 
 pkg_matches_platform_test = unittest.make(_pkg_matches_platform_test)
+
+def _platforms_of_package_test(ctx):
+    env = unittest.begin(ctx)
+
+    asserts.equals(
+        env,
+        ["linux_amd64"],
+        platforms_of_package({"os": ["linux"], "cpu": ["x64"], "libc": ["glibc"]}),
+        "a glibc sidecar reaches only the glibc platform",
+    )
+    asserts.equals(
+        env,
+        [],
+        platforms_of_package({"os": ["linux"], "cpu": ["x64"], "libc": ["musl"]}),
+        "a musl sidecar reaches no platform, so nothing declares it",
+    )
+    asserts.equals(
+        env,
+        ["linux_amd64", "linux_arm64"],
+        platforms_of_package({"os": ["linux"]}),
+        "a libc-less linux package reaches every linux platform",
+    )
+    asserts.equals(env, [], platforms_of_package({"os": ["aix"]}), "an unnameable platform reaches none")
+
+    return unittest.end(env)
+
+platforms_of_package_test = unittest.make(_platforms_of_package_test)
 
 def helpers_test_suite(name):
     unittest.suite(
@@ -323,4 +359,5 @@ def helpers_test_suite(name):
         semver_parts_test,
         semver_gt_test,
         pkg_matches_platform_test,
+        platforms_of_package_test,
     )

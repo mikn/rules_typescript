@@ -654,6 +654,47 @@ requires.
   `TestNonLiteralAttrValue` and `TestDeletedPathIsNotReportedAsDropped` pin all
   three halves.
 
+- **Gazelle's Node-builtin list is checked against the Node it runs.** The list
+  was hand-maintained beside a strict-deps checker that asks `builtinModules`,
+  and it was missing 15 bare names — `sys` and the `_http_*`, `_stream_*` and
+  `_tls_*` legacy aliases. So `import "sys"` had Gazelle write `@npm//:sys`, a
+  label no hub declares, while the checker treated the same specifier as a
+  builtin. The mechanism this entry used to describe is impossible, and is now
+  written out: a module Node exposes only under `node:` was never at risk,
+  because `resolveNpmPackage` answers on the prefix first. A second defect in
+  the same helper went with it — under `# gazelle:ts_warn_unresolved` every
+  builtin sub-path (`fs/promises`, `timers/promises`, `stream/web`,
+  `util/types`) logged "unresolved import" although resolution had correctly
+  declined it. `tests/strict_deps/builtins_test.go` now reads
+  `builtinModules` out of the same toolchain Node the check action runs and
+  asserts set equality, so a `node_version` bump surfaces as a failing test
+  rather than as a label that does not resolve.
+
+- **A consumer whose lockfile has no esbuild can build the dev-server plugin.**
+  `//vite:esbuild_node_modules` named `@npm//:esbuild`, and the npm extension
+  gives the *root* module's `translate_lock` priority for a hub name — that is
+  what lets a consumer write `@npm//:react` — so inside a consumer's build
+  `@npm` is their lockfile, not this repository's fixture. That tree feeds
+  `//vite:vite_plugin_bazel`, which `ts_dev_server` takes through `plugin` and
+  which Gazelle writes when it generates a dev server. Nothing had reached it
+  (`plugin` has no default and no workspace here set one), so no build had
+  failed yet; three of six examples would have. It now takes esbuild from
+  `@npm_css`, the ruleset's own non-dev hub, which already pinned the version.
+  Two guards: `examples/react-app` carries the `plugin` attr Gazelle would have
+  written, putting the link on a CI leg for the first time, and
+  `//tests/npm:vite_plugin_hub_test` / `:css_compiler_hub_test` assert by aquery
+  that neither tree draws from `@npm`.
+
+- **A musl-only tarball is no longer fetched, extracted or staged.** pnpm's
+  `libc:` field fell through the lockfile parser's ignoring branch, so a
+  `libc: [musl]` package was selected on glibc linux like any other. The parser
+  now carries `libc` alongside `os` and `cpu`, and package selection rejects a
+  package whose `libc` does not include the target's — matching npm's own
+  `checkPlatform`, which treats a libc-declaring package as unsatisfied wherever
+  the current libc is unknown, so darwin and Windows reject it too. Measured on
+  this repository: `oxlint_linux-x64-musl` went from 6 occurrences in
+  `MODULE.bazel.lock` to 0.
+
 - **The dev server serves its own workspace on macOS.** Vite matches a request
   against the resolved path, and `server.fs.allow` held the unresolved one, so
   on a host where the workspace sits under a symlink — `/var` is `/private/var`
@@ -945,6 +986,24 @@ next reader does not "fix" it and inherit the reason it is this way.
   vitest 3, so that was unbacked. What is true is that the other shapes use no
   version-sensitive key.
 
+- **`jsdom` and `edge-runtime` stay analysis-only.** `environment` is a string
+  the rule forwards to `test.environment`, and nothing in `ts_test` branches on
+  its value, so the two values that *do* run already pin both sides of the only
+  per-value axis there is: a browser-like environment realpaths module ids and
+  needs the generated config's `resolve.preserveSymlinks`, the node one does not,
+  and `//tests/workers` covers the third case where a pool wants it false and the
+  user layer wins. Both absent values were installed in a scratch hub and run
+  once out of tree, and both passed with no change to the rule — what was
+  missing was continuous proof, not working behaviour. Carrying them in tree
+  costs a fifth lockfile pinning Vite and vitest against a one-lane property no
+  test enforces, and jsdom's half also buys a silent coupling to `node_version`
+  (jsdom 30 wants node `^22.22.2`; the toolchain is 22.14.0, so the pin would sit
+  at 29) plus 126 lines of its declaration closure in the checked-in
+  `tsconfig.json`. So both stay `manual` behind a `build_test`, and the record is
+  machine-checked rather than prose: `MANUAL_ONLY` in
+  `tools/ci/check_test_sources.sh` names both files with the reason and is exact
+  in both directions, so untagging either fails CI until the entry goes with it.
+
 - **`/// <reference types="x" />` is not checked because it is not a live
   channel here.** The old entry called it "a real resolution channel", and that
   premise was the wrong part. A `reference types` directive resolves through
@@ -963,86 +1022,79 @@ next reader does not "fix" it and inherit the reason it is this way.
 
 Recorded rather than hidden.
 
-- **Gazelle's Node-builtin list is checked against the Node it runs.** The list
-  was hand-maintained beside a strict-deps checker that asks `builtinModules`,
-  and it was missing 15 bare names — `sys` and the `_http_*`, `_stream_*` and
-  `_tls_*` legacy aliases. So `import "sys"` had Gazelle write `@npm//:sys`, a
-  label no hub declares, while the checker treated the same specifier as a
-  builtin. The mechanism this entry used to describe is impossible, and is now
-  written out: a module Node exposes only under `node:` was never at risk,
-  because `resolveNpmPackage` answers on the prefix first. A second defect in
-  the same helper went with it — under `# gazelle:ts_warn_unresolved` every
-  builtin sub-path (`fs/promises`, `timers/promises`, `stream/web`,
-  `util/types`) logged "unresolved import" although resolution had correctly
-  declined it. `tests/strict_deps/builtins_test.go` now reads
-  `builtinModules` out of the same toolchain Node the check action runs and
-  asserts set equality, so a `node_version` bump surfaces as a failing test
-  rather than as a label that does not resolve.
 
-- **A ruleset-internal target must not depend on `@npm`.** The npm extension
-  gives the root module's `translate_lock` priority for a hub name, which is what
-  lets a consumer spell its own packages `@npm//:react` — and it means a target
-  inside this ruleset reaching for `@npm//:x` resolves into whatever lockfile the
-  *consumer* registered under that name. `//ts/private/css:compiler_node_modules`
-  hit this: `css_module` runs for every consumer, so its compiler tree now takes
-  esbuild from `@npm_css`, the ruleset's own hub. Three example workspaces failed
-  with `no such target '@npm//:esbuild'` before the fix. Owning the hub was only
-  half of it — the tree also had to be *named* `node_modules`, per the gap below
-  about a differently-named tree, or esbuild's shim walks past it and spawns the
-  consumer's platform binary instead (`EACCES`, in the fourth example). Still latent, because
-  nothing outside this repository builds them:
-  `//ts/private/css:compiler_typecheck` and the targets in `//vite` take
-  `types_node`, `esbuild`, `vite` and `tsup` from `@npm`. There is no test
-  pinning the rule yet.
+- **Three `@npm` labels remain in ruleset packages, unreached rather than
+  sanctioned.** `//vite:plugin_typecheck` (`@npm//:types_node`, `@npm//:vite`),
+  `//vite:tsup_config` (`@npm//:tsup`) and `//ts/private/css:compiler_typecheck`
+  (`@npm//:types_node`). A dangling label in a co-resident package costs a
+  consumer nothing until something asks for it, and `rdeps` says nothing
+  consumer-facing does. They are arguably right by intent — they type-check
+  ruleset sources against the version lane the consumer actually runs, the same
+  rationale as `//vite/tests:peer_version_test`. Making the invariant absolute
+  means either adding `@types/node`, `vite` and `tsup` to the non-dev hub, which
+  grows every consumer's `MODULE.bazel.lock` for targets no consumer builds, or
+  moving the targets into packages consumers never load, which needs
+  `ts_compile` srcs to cross a package boundary. The reachable one is fixed; the
+  invariant is narrowed to reachability rather than declared absolute.
+
+- **`_short_digest` is Java's `String.hashCode` masked to 32 bits.** Two peer
+  suffixes agreeing on their first 40 sanitised characters *and* colliding on
+  that hash merge into one repository, and one store directory. A real hash
+  function is not available in Starlark, so the bound is not eliminated. A fix
+  was built and rejected: minting tokens once over the hub's enumerated snapshot
+  dict, keyed `(name, version, token)` with a counted suffix, does remove the
+  within-hub collision and keeps existing repository names stable — and it broke
+  `//tests/integration:tanstack_test`, whose generated tree then held a dangling
+  link to `tiny-invariant`. Store-path and repository-name derivation are read by
+  more code than the change touched, and nothing pins that agreement, so the
+  collision bound stays until something does. Cross-hub is a second, untouched
+  case: `_store_path` and `_package_key` in `ts/private/node_modules.bzl` carry
+  no hub component.
+
+- **There is still no libc `constraint_setting`.** The first sentence of this
+  entry survives; only its reason has changed. Selection no longer needs one —
+  `libc:` is honoured in the parser and the matcher — so what a
+  `constraint_setting` would add is the ability to *register* a musl toolchain,
+  and Node.js publishes no official musl tarball to register.
+
+- **A `compilerOptions.paths` chain still collapses to one directory, and that
+  is now a decision rather than unfinished work.** Gazelle picks the first entry
+  that exists on disk, which covers every chain that is one real directory plus
+  output-tree mirrors of it: of 448 `paths` keys in this repository's own root
+  tsconfig, 78 are chains and not one has a second entry surviving the `bazel-*`
+  filter. A key with two genuinely distinct real directories keeps one, and logs
+  which it used and which it dropped; a specifier only the dropped directory
+  provides fails with `TS2307`. Widening `path_aliases` to a `string_list_dict`
+  end to end — what this entry used to prescribe — was built and rejected as
+  insufficient. `_validate_path_aliases` requires every alias directory to hold
+  one of that target's own staged inputs and Gazelle emits no
+  `path_alias_srcs`, so a generated chain naming an unstaged directory replaces
+  a loud `TS2307` with an analysis failure in a BUILD file Gazelle wrote itself.
+  The workspace-root tsconfig is also a union over every target beneath it and
+  `TsconfigSourcesInfo.aliases` carries no ordering index, so two targets would
+  disagree about fallback order and the editor's order would drift from the
+  build's — the one thing the aspect exists to prevent. That is a provider
+  change plus a conflict policy, not a type widening.
+
+- **`vite/bundler.bzl` borrows the name `node_modules` in the package output
+  directory, which a sibling `node_modules()` target may already own.** Under
+  the default sandbox each action sees only its own tree, so the wrapper's
+  `ln -sf` plants the name fresh and resolution stays inside the intended tree —
+  two Vite majors in one package do build. With sandboxing off
+  (`--spawn_strategy=local`) the sibling's real tree already holds the name: the
+  link lands inside another target's declared output and the action runs the
+  sibling's Vite, silently, because every file it finds is a real file of a real
+  version. Nesting each tree at `<target>/node_modules` does not fix it: the
+  generated config sits outside the tree and its `import { defineConfig } from
+  "vite"` resolves by walking up out of it, so removing the link breaks a
+  renamed tree outright. Order of work if taken on: drop that import first
+  (`defineConfig` is an identity function, and `ts_dev_server` already loads its
+  plugin by absolute path), then the link, then the tree layout — which moves a
+  public output path and needs a breaking-change entry. Until then, one tree per
+  Bazel package, or one per package per Vite major.
+
 - **Windows is unsupported**, not partially supported. See
   [COMPATIBILITY.md](https://github.com/mikn/rules_typescript/blob/main/COMPATIBILITY.md#platforms).
-- `jsdom` and `edge-runtime` are still analysis-only: neither is in a lockfile
-  the build reads, so those two `environment` values are pinned by a
-  `build_test` rather than by a run. `happy-dom` and `node` do run.
-- **`ts_bundle`'s `vite_config` is not hermetic when it is a source file.** The
-  generated config imports it by exec-root path; Node realpaths that back into the
-  source tree before resolving the config's own bare imports, so the framework
-  plugin is only found through a source-tree `node_modules` — which this project
-  forbids and no CI job exercises. A *generated* `vite_config` under `bazel-out`
-  works, because it sits beside the hermetic tree. The fix is for `ts_bundle` to
-  stage the file the way `ts_dev_server` already copies its own; `ts_dev_server`
-  is no longer affected.
-- A `compilerOptions.paths` chain still collapses to one directory. Gazelle now
-  picks the first entry that exists on disk rather than the first entry written,
-  which covers every chain whose entries are a real directory plus mirrors of
-  it, but an alias key with two genuinely distinct real directories keeps only
-  one of them for both dep resolution and the generated `tsconfig.json`. That
-  case logs; it is not otherwise handled, and would need `path_aliases` to
-  become a `string_list_dict` end to end.
-- **Two Vite majors cannot coexist in one Bazel package.** After the Vite
-  bundler wrapper's `ln -sf`, Node realpaths through the symlink, so the upward
-  walk starts inside the real tree and can reach a *sibling* target's
-  `node_modules` in the same package. A `node_modules()` target not named
-  `node_modules` therefore resolves through whichever sibling is.
-- `_short_digest` is Java's `String.hashCode` masked to 32 bits. Two peer
-  suffixes agreeing on their first 40 sanitised characters *and* colliding on
-  that hash merge into one repository, and now also one store directory. The
-  bound pre-dates resolution keying (same token) and is not eliminated; a real
-  hash function is not available in Starlark.
-- The `node_modules` tree action resolves node through `js_runtime_type` (the
-  target platform) rather than `js_tool_type` (the exec platform). Every other
-  build action was moved; this one was not. Harmless while exec == target,
-  wrong under cross-compilation.
-- No libc (glibc vs musl) `constraint_setting`. Nothing would reference it
-  until npm's platform `select()` lands.
-- `eslint-plugin/**` and `tools/isolated-declarations-lint/**` have no buildable
-  targets, and the blocker is a lockfile rather than Gazelle: every source there
-  imports `@typescript-eslint/utils`, which no lockfile the build reads contains,
-  and with strict deps a hard error nothing over those files can compile. Both
-  trees carry a `# gazelle:ts_ignore` naming exactly that. Behind it waits a
-  genuine package-level cycle between `eslint-plugin/src` and `src/rules`, which
-  one-target-per-directory cannot express.
-- The IDE `tsconfig.json` has a single `compilerOptions` block, so targets that
-  disagree about `strict`, `allowJs` or `lib` cannot all be correct in it. The
-  generated `paths` are a coverage mechanism, not a per-target compiler-option
-  mechanism; a target whose own options differ is checked correctly by
-  `bazel build` and approximately by the editor. Sources that belong to no
-  `ts_compile` target are not in the program's `paths` at all.
 
 ## [0.1.0] — never released
 

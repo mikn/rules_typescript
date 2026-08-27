@@ -17,6 +17,7 @@ ts_compile(
 ts_dev_server(
     name = "dev",
     entry_point = ":app",
+    plugin = "@rules_typescript//vite:vite_plugin_bazel",
     port = 5173,
     visibility = ["//visibility:public"],
 )
