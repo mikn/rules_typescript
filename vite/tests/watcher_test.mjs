@@ -198,9 +198,13 @@ test('fs.watch fallback coalesces a rebuild burst and drops non-.js outputs', as
   if (!(await fsWatchDeliversEvents())) skip(NO_FS_EVENTS);
   const bin = newBazelBin();
   const batches = [];
+  // The debounce is trailing, so a burst coalesces while the gaps between
+  // events stay under it -- and on macOS the gaps are FSEvents flush intervals,
+  // which 200ms did not cover. The window is incidental to what is asserted.
+  const debounceMs = 1000;
   const watcher = new BazelWatcher({
     bazelBin: bin,
-    debounceMs: 200,
+    debounceMs: debounceMs,
     onRebuild: (changed) => batches.push([...changed].sort()),
   });
 
@@ -213,7 +217,7 @@ test('fs.watch fallback coalesces a rebuild burst and drops non-.js outputs', as
     fs.writeFileSync(path.join(bin, 'styles.css'), 'a{}');
 
     await waitUntil('the coalesced batch', () => batches.length > 0);
-    await sleep(400);
+    await sleep(debounceMs * 1.5);
 
     assert.equal(batches.length, 1, `expected one batch, got ${batches.length}`);
     assert.deepEqual(batches[0], [
