@@ -27,8 +27,11 @@ load(
 _NESTED_BAZEL_TAGS = [
     tag
     for tag in integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS
-    if tag != "manual"
-] + ["no-sandbox"]
+    if tag not in ("manual", "exclusive")
+] + [
+    "cpu:2",
+    "no-sandbox",
+]
 
 bazel_integration_test(
     name = "npmrc_registry_test",

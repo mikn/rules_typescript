@@ -63,13 +63,26 @@ load(
 )
 
 # integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS is ["exclusive", "manual"].
-# `manual` is dropped deliberately: it took these tests out of every wildcard,
-# which meant nothing ever ran them.
+# Both are dropped deliberately. `manual` took these tests out of every
+# wildcard, which meant nothing ever ran them. `exclusive` serialised all of
+# them: 18 nested Bazel invocations one after another, which is the whole cost
+# of the integration lane. Nothing in them shares mutable state -- the harness
+# gives each its own workspace, output base and scratch dir under
+# scratchRoot()/<name>, the two runners that bind a port take a
+# kernel-assigned one, and the shared repository and disk caches are both
+# content-addressed and safe for concurrent Bazel servers. What `exclusive` was
+# buying is two things, and "cpu:2" plus a warm cache covers both: a bound on
+# how many nested servers run at once, which Bazel now derives from the
+# machine, and -- measured -- the fact that cold, concurrent servers all miss
+# the shared caches at once and all download the same 4GB. Hence the cache
+# restore in the CI job: with it the suite is parallel-safe, without it
+# serialising the downloads is the only thing that saves it.
 _NESTED_BAZEL_TAGS = [
     tag
     for tag in integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS
-    if tag != "manual"
+    if tag not in ("manual", "exclusive")
 ] + [
+    "cpu:2",
     "no-sandbox",
     # These point a nested Bazel at this source tree via RULES_TS_ROOT, so the
     # ruleset's .bzl files are read without being action inputs -- and glob()

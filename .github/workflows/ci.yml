@@ -150,7 +150,23 @@ jobs:
           sudo chown "$(id -u):$(id -g)" /mnt/rules_ts_it
           df -h /mnt
 
-      # Own job rather than the matrix: these are `exclusive`, so they serialize.
+      # /mnt is recreated every run, so without this every one of the 18 nested
+      # builds starts from nothing: the first pays ~4GB of downloads and none of
+      # them reuses an action a sibling already ran. Both caches are
+      # content-addressed, so restoring a stale one is a miss and never a wrong
+      # answer. This is also what makes the tests safe to run concurrently --
+      # cold, they would all miss and all download at once.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            /mnt/rules_ts_it/repository_cache
+            /mnt/rules_ts_it/disk_cache
+          key: nested-bazel-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'tests/npm/pnpm-lock.yaml', 'oxc_cli/Cargo.lock') }}
+          restore-keys: |
+            nested-bazel-${{ runner.os }}-
+
+      # No longer serial: the tests carry "cpu:2" instead of "exclusive", so
+      # Bazel runs as many as the runner has cores for.
       - name: Integration suite
         run: |
           bazelisk test --config=ci-integration //tests/integration/... \

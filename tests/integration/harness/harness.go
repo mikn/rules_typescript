@@ -151,17 +151,24 @@ func (it *IT) prepare(cfg Config, workspaceSrc string) error {
 // of them re-fetch the whole BCR registry at once and the concurrent DNS
 // lookups start failing ("Unknown host: bcr.bazel.build") on a different
 // subset of tests each run.
+// Both caches are shared across the suite and both are content-addressed, so
+// concurrent nested servers are safe. The disk cache is what stops every test
+// rebuilding oxc-bazel and re-extracting the toolchains its neighbour just did:
+// each test has its own output base, so without it there is no reuse at all.
 func (it *IT) shareRepositoryCache() error {
-	cache := filepath.Join(scratchRoot(), "repository_cache")
-	if err := os.MkdirAll(cache, 0o755); err != nil {
-		return err
+	repo := filepath.Join(scratchRoot(), "repository_cache")
+	disk := filepath.Join(scratchRoot(), "disk_cache")
+	for _, dir := range []string{repo, disk} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
 	}
 	f, err := os.OpenFile(filepath.Join(it.WorkspaceDir, ".bazelrc"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	_, err = fmt.Fprintf(f, "\ncommon --repository_cache=%s\n", cache)
+	_, err = fmt.Fprintf(f, "\ncommon --repository_cache=%s\ncommon --disk_cache=%s\n", repo, disk)
 	return err
 }
 

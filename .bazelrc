@@ -48,7 +48,8 @@ test:ci --config=fast
 test:ci --cache_test_results=no
 
 # The lane the fast one leaves out: `bazel test --config=ci-integration
-# //tests/integration/...`. Those targets are `exclusive`, so they serialize.
+# //tests/integration/...`. Those targets carry "cpu:2", so Bazel bounds how
+# many nested Bazel servers run at once by the machine's cores.
 build:ci-integration --verbose_failures
 
 # Two output bases, one target, compared byte for byte. Convenience symlinks
