@@ -33,7 +33,7 @@ build --experimental_convenience_symlinks=normal
 #   bazel test --config=fast //...
 # A tag filter cannot go the other way -- nothing re-includes a `manual`
 # target -- which is why those tests carry `exclusive` and not `manual`.
-test:fast --test_tag_filters=-exclusive
+test:fast --test_tag_filters=-nested-bazel
 
 # ── CI lanes ─────────────────────────────────────────────────────────────────
 # The stages CI runs, named here rather than in a driver script, so that

@@ -150,17 +150,15 @@ jobs:
           sudo chown "$(id -u):$(id -g)" /mnt/rules_ts_it
           df -h /mnt
 
-      # /mnt is recreated every run, so without this every one of the 18 nested
-      # builds starts from nothing: the first pays ~4GB of downloads and none of
-      # them reuses an action a sibling already ran. Both caches are
-      # content-addressed, so restoring a stale one is a miss and never a wrong
-      # answer. This is also what makes the tests safe to run concurrently --
-      # cold, they would all miss and all download at once.
+      # /mnt is recreated every run, so without this the suite fetches ~4GB
+      # every time -- and it is what makes running the tests concurrently safe
+      # rather than harmful: cold, they would all miss this cache at once and
+      # all download the same artifacts. Content-addressed, so a stale restore
+      # is a miss and never a wrong answer.
       - uses: actions/cache@v4
         with:
           path: |
             /mnt/rules_ts_it/repository_cache
-            /mnt/rules_ts_it/disk_cache
           key: nested-bazel-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'tests/npm/pnpm-lock.yaml', 'oxc_cli/Cargo.lock') }}
           restore-keys: |
             nested-bazel-${{ runner.os }}-
