@@ -23,7 +23,11 @@ exports_files([
 node_modules(
     name = "compiler_node_modules",
     deps = [
-        "@npm//:esbuild",
+        # Not @npm: that hub's name is the consumer's to claim -- the npm
+        # extension gives the root module's translate_lock priority -- so a
+        # ruleset-internal target reaching for @npm resolves into whatever
+        # lockfile the consumer registered.
+        "@npm_css//:esbuild",
         "@npm_css//:postcss",
         "@npm_css//:postcss-modules",
     ],

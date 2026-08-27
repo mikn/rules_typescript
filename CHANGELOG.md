@@ -893,6 +893,18 @@ query anyone can run against their own lockfile.
 
 Recorded rather than hidden.
 
+- **A ruleset-internal target must not depend on `@npm`.** The npm extension
+  gives the root module's `translate_lock` priority for a hub name, which is what
+  lets a consumer spell its own packages `@npm//:react` — and it means a target
+  inside this ruleset reaching for `@npm//:x` resolves into whatever lockfile the
+  *consumer* registered under that name. `//ts/private/css:compiler_node_modules`
+  hit this: `css_module` runs for every consumer, so its compiler tree now takes
+  esbuild from `@npm_css`, the ruleset's own hub. Three example workspaces failed
+  with `no such target '@npm//:esbuild'` before the fix. Still latent, because
+  nothing outside this repository builds them:
+  `//ts/private/css:compiler_typecheck` and the targets in `//vite` take
+  `types_node`, `esbuild`, `vite` and `tsup` from `@npm`. There is no test
+  pinning the rule yet.
 - **Windows is unsupported**, not partially supported. See
   [COMPATIBILITY.md](https://github.com/mikn/rules_typescript/blob/main/COMPATIBILITY.md#platforms).
 - Ambient globals reach a target from its **direct** `@types/*` deps only.
