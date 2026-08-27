@@ -99,18 +99,6 @@
       "@eslint/core/*": [
         "./.bazel/npm/@eslint/core/dist/esm/*"
       ],
-      "@eslint/eslintrc": [
-        "./.bazel/npm/@eslint/eslintrc/dist/eslintrc.d.cts"
-      ],
-      "@eslint/eslintrc/*": [
-        "./.bazel/npm/@eslint/eslintrc/dist/*"
-      ],
-      "@eslint/js": [
-        "./.bazel/npm/@eslint/js/types/index.d.ts"
-      ],
-      "@eslint/js/*": [
-        "./.bazel/npm/@eslint/js/types/*"
-      ],
       "@eslint/object-schema": [
         "./.bazel/npm/@eslint/object-schema/dist/cjs/index.d.cts"
       ],
@@ -182,24 +170,6 @@
       ],
       "@jridgewell/trace-mapping/*": [
         "./.bazel/npm/@jridgewell/trace-mapping/types/*"
-      ],
-      "@nodelib/fs.scandir": [
-        "./.bazel/npm/@nodelib/fs.scandir/out/index.d.ts"
-      ],
-      "@nodelib/fs.scandir/*": [
-        "./.bazel/npm/@nodelib/fs.scandir/out/*"
-      ],
-      "@nodelib/fs.stat": [
-        "./.bazel/npm/@nodelib/fs.stat/out/index.d.ts"
-      ],
-      "@nodelib/fs.stat/*": [
-        "./.bazel/npm/@nodelib/fs.stat/out/*"
-      ],
-      "@nodelib/fs.walk": [
-        "./.bazel/npm/@nodelib/fs.walk/out/index.d.ts"
-      ],
-      "@nodelib/fs.walk/*": [
-        "./.bazel/npm/@nodelib/fs.walk/out/*"
       ],
       "@oxc-project/types": [
         "./.bazel/npm/@oxc-project/types/types.d.ts"
@@ -407,12 +377,6 @@
       "ajv/*": [
         "./.bazel/npm/ajv/lib/*"
       ],
-      "ansi-styles": [
-        "./.bazel/npm/ansi-styles"
-      ],
-      "ansi-styles/*": [
-        "./.bazel/npm/ansi-styles/*"
-      ],
       "any-promise": [
         "./.bazel/npm/any-promise/index.d.ts"
       ],
@@ -431,6 +395,12 @@
       "ast-v8-to-istanbul/*": [
         "./.bazel/npm/ast-v8-to-istanbul/dist/*"
       ],
+      "balanced-match": [
+        "./.bazel/npm/balanced-match/dist/esm/index.d.ts"
+      ],
+      "balanced-match/*": [
+        "./.bazel/npm/balanced-match/dist/esm/*"
+      ],
       "baseline-browser-mapping": [
         "./.bazel/npm/baseline-browser-mapping/dist/index.d.ts"
       ],
@@ -442,6 +412,12 @@
       ],
       "blake3-wasm/*": [
         "./.bazel/npm/blake3-wasm/*"
+      ],
+      "brace-expansion": [
+        "./.bazel/npm/brace-expansion/dist/esm/index.d.ts"
+      ],
+      "brace-expansion/*": [
+        "./.bazel/npm/brace-expansion/dist/esm/*"
       ],
       "browserslist": [
         "./.bazel/npm/browserslist/index.d.ts"
@@ -461,23 +437,11 @@
       "cac/*": [
         "./.bazel/npm/cac/dist/*"
       ],
-      "callsites": [
-        "./.bazel/npm/callsites"
-      ],
-      "callsites/*": [
-        "./.bazel/npm/callsites/*"
-      ],
       "chai": [
         "./.bazel/npm/chai"
       ],
       "chai/*": [
         "./.bazel/npm/chai/*"
-      ],
-      "chalk": [
-        "./.bazel/npm/chalk"
-      ],
-      "chalk/*": [
-        "./.bazel/npm/chalk/*"
       ],
       "chokidar": [
         "./.bazel/npm/chokidar/esm/index.d.ts"
@@ -573,6 +537,12 @@
         "./eslint-plugin/src/*",
         "./bazel-bin/eslint-plugin/src/*"
       ],
+      "eslint-scope": [
+        "./.bazel/npm/eslint-scope/lib/index.d.ts"
+      ],
+      "eslint-scope/*": [
+        "./.bazel/npm/eslint-scope/lib/*"
+      ],
       "eslint-visitor-keys": [
         "./.bazel/npm/eslint-visitor-keys/dist/eslint-visitor-keys.d.cts"
       ],
@@ -581,6 +551,18 @@
       ],
       "eslint/*": [
         "./.bazel/npm/eslint/lib/types/*"
+      ],
+      "espree": [
+        "./.bazel/npm/espree/dist/espree.d.ts"
+      ],
+      "espree/*": [
+        "./.bazel/npm/espree/dist/*"
+      ],
+      "esrecurse": [
+        "./.bazel/npm/esrecurse"
+      ],
+      "esrecurse/*": [
+        "./.bazel/npm/esrecurse/*"
       ],
       "estree-walker": [
         "./.bazel/npm/estree-walker/types/index.d.ts"
@@ -600,23 +582,11 @@
       "fast-deep-equal/*": [
         "./.bazel/npm/fast-deep-equal/*"
       ],
-      "fast-glob": [
-        "./.bazel/npm/fast-glob/out/index.d.ts"
-      ],
-      "fast-glob/*": [
-        "./.bazel/npm/fast-glob/out/*"
-      ],
       "fast-json-stable-stringify": [
         "./.bazel/npm/fast-json-stable-stringify/index.d.ts"
       ],
       "fast-json-stable-stringify/*": [
         "./.bazel/npm/fast-json-stable-stringify/*"
-      ],
-      "fastq": [
-        "./.bazel/npm/fastq"
-      ],
-      "fastq/*": [
-        "./.bazel/npm/fastq/*"
       ],
       "fdir": [
         "./.bazel/npm/fdir/dist/index.d.mts"
@@ -642,12 +612,6 @@
       "flatted/*": [
         "./.bazel/npm/flatted/types/*"
       ],
-      "globals": [
-        "./.bazel/npm/globals"
-      ],
-      "globals/*": [
-        "./.bazel/npm/globals/*"
-      ],
       "happy-dom": [
         "./.bazel/npm/happy-dom"
       ],
@@ -665,12 +629,6 @@
       ],
       "ignore/*": [
         "./.bazel/npm/ignore/*"
-      ],
-      "import-fresh": [
-        "./.bazel/npm/import-fresh/index.d.ts"
-      ],
-      "import-fresh/*": [
-        "./.bazel/npm/import-fresh/*"
       ],
       "jiti": [
         "./.bazel/npm/jiti/lib/jiti.d.mts"
@@ -755,6 +713,12 @@
       ],
       "miniflare/*": [
         "./.bazel/npm/miniflare/dist/src/*"
+      ],
+      "minimatch": [
+        "./.bazel/npm/minimatch/dist/esm/index.d.ts"
+      ],
+      "minimatch/*": [
+        "./.bazel/npm/minimatch/dist/esm/*"
       ],
       "mlly": [
         "./.bazel/npm/mlly/dist/index.d.ts"
@@ -868,12 +832,6 @@
       "postcss/*": [
         "./.bazel/npm/postcss/lib/*"
       ],
-      "queue-microtask": [
-        "./.bazel/npm/queue-microtask"
-      ],
-      "queue-microtask/*": [
-        "./.bazel/npm/queue-microtask/*"
-      ],
       "readdirp": [
         "./.bazel/npm/readdirp/esm/index.d.ts"
       ],
@@ -885,12 +843,6 @@
       ],
       "resolve-from/*": [
         "./.bazel/npm/resolve-from/*"
-      ],
-      "reusify": [
-        "./.bazel/npm/reusify/reusify.d.ts"
-      ],
-      "reusify/*": [
-        "./.bazel/npm/reusify/*"
       ],
       "rolldown": [
         "./.bazel/npm/rolldown/dist/index.d.mts"
@@ -940,12 +892,6 @@
       ],
       "std-env/*": [
         "./.bazel/npm/std-env/dist/*"
-      ],
-      "strip-json-comments": [
-        "./.bazel/npm/strip-json-comments"
-      ],
-      "strip-json-comments/*": [
-        "./.bazel/npm/strip-json-comments/*"
       ],
       "sucrase": [
         "./.bazel/npm/sucrase/dist/types/index.d.ts"
