@@ -19,7 +19,12 @@ import (
 //go:embed module_bazel.txt
 var moduleSnapshot embed.FS
 
-const minBazelVersion = "9.0.0"
+// The floor the ruleset supports, and the version its own CI runs. They are
+// not the same number: 9.x is the supported range, and only the pin is tested.
+const (
+	minBazelVersion    = "9.0.0"
+	pinnedBazelVersion = "9.2.0"
+)
 
 type file struct {
 	path string
@@ -39,7 +44,7 @@ func run(args []string) error {
 	fs.SetOutput(os.Stdout)
 	dir := fs.String("dir", "my_project", "directory to scaffold, relative to the directory you ran bazel from")
 	rulesPath := fs.String("rules-path", "", "path to a local rules_typescript checkout; adds a local_path_override instead of using the registry version")
-	bazelVersion := fs.String("bazel-version", minBazelVersion, "value written to .bazelversion (the minimum rules_typescript supports)")
+	bazelVersion := fs.String("bazel-version", pinnedBazelVersion, "value written to .bazelversion (the version rules_typescript pins; 9.0.0+ is supported)")
 	force := fs.Bool("force", false, "overwrite files that already exist")
 	dryRun := fs.Bool("dry-run", false, "list the files that would be written without writing them")
 	fs.Usage = func() {
@@ -139,7 +144,7 @@ Next:
 
 The only prerequisite is Bazelisk (or Bazel %s+). Rust, Go, Node.js and the npm
 packages are all fetched by Bazel.
-`, rel, *bazelVersion)
+`, rel, minBazelVersion)
 	return nil
 }
 
