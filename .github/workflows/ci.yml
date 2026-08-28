@@ -160,13 +160,15 @@ jobs:
           external-cache: true
           disk-cache: true
 
-      # Each nested Bazel keeps its own output base; together they need tens of
-      # GB, which the runner's root disk does not have and /mnt does.
-      - name: Provision scratch space on the ephemeral disk
+      # Each nested Bazel keeps its own output base and together they need tens
+      # of GB. /mnt is no longer a separate ephemeral disk on this image -- it
+      # is a directory on the root filesystem, which is why the free space is
+      # recorded here and again after the suite.
+      - name: Provision scratch space
         run: |
           sudo mkdir -p /mnt/rules_ts_it
           sudo chown "$(id -u):$(id -g)" /mnt/rules_ts_it
-          df -h /mnt
+          df -h /mnt /
 
       # /mnt is recreated every run, so without this the suite fetches ~4GB
       # every time -- and it is what makes running the tests concurrently safe
@@ -186,8 +188,37 @@ jobs:
       # Bazel runs as many as the runner has cores for.
       - name: Integration suite
         run: |
+          set -o pipefail
           bazelisk test --config=ci-integration //tests/integration/... \
-            --test_env=RULES_TS_IT_SCRATCH=/mnt/rules_ts_it
+            --test_env=RULES_TS_IT_SCRATCH=/mnt/rules_ts_it 2>&1 \
+            | tee "${RUNNER_TEMP}/integration.log"
+
+      # Bazel intermittently fails to stage a node_modules tree into the
+      # sandbox -- "[unix_jni.cc:281] <path> (No such file or directory)" for a
+      # directory inside its own output base, on a different path each time. It
+      # has never reproduced outside CI, so the state at the moment of failure
+      # is the evidence that is missing: whether the path is absent, a symlink,
+      # or a dangling one, and whether the volume simply filled up.
+      - name: Diagnose a sandbox staging failure
+        if: failure()
+        run: |
+          df -h /mnt /
+          log="${RUNNER_TEMP}/integration.log"
+          [ -f "$log" ] || { echo "no suite log"; exit 0; }
+          paths=$(grep -oE '\[unix_jni\.cc:[0-9]+\] [^ ]+' "$log" \
+            | awk '{print $2}' | sort -u)
+          [ -n "$paths" ] || { echo "no unix_jni path in the log"; exit 0; }
+          for p in $paths; do
+            echo "=== reported missing: $p"
+            cur="$p"
+            while [ "$cur" != "/" ] && [ ! -e "$cur" ] && [ ! -L "$cur" ]; do
+              echo "    absent: $cur"
+              cur=$(dirname "$cur")
+            done
+            echo "    first existing ancestor:"
+            ls -ld "$cur"
+            ls -la "$cur" | head -40
+          done
 
   lint:
     name: Linting & Code Quality
