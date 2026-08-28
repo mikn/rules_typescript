@@ -2,6 +2,8 @@
 
 `ts_binary` and `ts_bundle` collect transitive `.js` outputs and hand them to a
 pluggable bundler. `ts_bundle` requires a `bundler` and has no bundler-less mode.
+Vite is the only bundler this ruleset ships; another one plugs in through
+[`BundlerInfo`](#custom-bundler-bundlerinfo-interface).
 
 A Cloudflare Worker is bundled by wrangler. See
 [ts_worker_dry_run](../rules/ts-worker-dry-run.md) for building one and checking
@@ -344,6 +346,10 @@ own lib convention:
 
 App mode, and lib mode with `split_chunks = True`, declare that directory
 itself, because the hashed filenames are not known at analysis time.
+
+oj is a [dev server](dev-server.md#choosing-the-server) here and not a bundler.
+Its binary has a `build` subcommand, but only `oj dev` accepts `--config`, so it
+does not fit mode 2, and nothing in the ruleset returns `BundlerInfo` for it.
 
 ### BundlerInfo Fields
 

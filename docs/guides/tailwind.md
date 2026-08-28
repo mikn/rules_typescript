@@ -120,10 +120,10 @@ ts_dev_server(
 ```
 
 `@tailwindcss/vite` is built on Vite-only APIs: a `ResolvedConfig` handed to
-`configResolved`, and `config.createResolver`. Whether it runs in another
-server's plugin host is what `//tests/tailwind:tailwind_dev_oj_test` checks.
-Expect a plugin reaching for an API oj's host does not supply when swapping the
-server under a framework plugin. See
+`configResolved`, and `config.createResolver`. Whether such a plugin runs in
+another server's plugin host is a question per plugin.
+`//tests/tailwind:tailwind_dev_oj_test` starts the target above and asserts the
+served stylesheet carries the generated rules. See
 [Choosing the server](dev-server.md#choosing-the-server).
 
 ## Its Own npm Hub

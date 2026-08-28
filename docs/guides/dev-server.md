@@ -1,9 +1,12 @@
 # Dev Server
 
-`ts_dev_server` starts a Vite dev server for a TypeScript application. `bazel
-run //src/app:dev` builds the target once and then leaves Bazel out of the inner
-loop: Vite transforms first-party source in memory, so a save reaches the browser
-without a Bazel analysis-and-action cycle in between.
+`ts_dev_server` starts a dev server for a TypeScript application. `bazel run
+//src/app:dev` builds the target once and then leaves Bazel out of the inner
+loop: the server transforms first-party source in memory, so a save reaches the
+browser without a Bazel analysis-and-action cycle in between.
+
+Vite is the default implementation and oj is selected per target; both read the
+same generated Vite config. See [Choosing the server](#choosing-the-server).
 
 ## Setup
 
@@ -47,18 +50,62 @@ bazel run //src/app:dev     # start it
 ibazel run //src/app:dev    # same, plus codegen rebuilds and config-aware restarts
 ```
 
-Open the app at its package path: Vite's root is the workspace root, so
+Open the app at its package path: the serve root is the workspace root, so
 `http://localhost:5173/` is a 404 and the app is one directory deeper.
 
 ```
 http://localhost:5173/src/app/          # the package holding index.html
 ```
 
+## Choosing the Server
+
+`ts_dev_server` takes a `DevServerInfo`, and the implementation is a per-target
+choice. oj ([raphamorim/oj](https://github.com/raphamorim/oj), a Rust-native
+build tool) is the second shipped one:
+
+```python
+ts_dev_server(
+    name = "dev",
+    entry_point = ":app",
+    node_modules = ":node_modules",   # oj needs no @npm//:vite in here
+    server = "@rules_typescript//oj:dev_server",
+)
+```
+
+oj has no npm package and no release binary. `MODULE.bazel` pins the crate at
+`=0.1.6` through its `oj_crates` extension and Bazel builds it from source, so
+the first build of a target selecting it is a Rust compile. The binary is
+native; the toolchain Node is still on PATH, since oj's plugin host is a Node
+process.
+
+The provider declares two structural differences. oj takes the directory it
+serves from a positional argument, not from the config's `root`. And a field one
+server does not read is an analysis-time error on a target that set the attr
+reaching it: `open = True` against oj fails naming both. `react_refresh` is the
+same — oj applies Fast Refresh itself, so setting it would instrument every
+component twice.
+
+!!! note "oj 0.1.6"
+    Until oj 0.1.6, `oj_server` served a module only when a plugin `load` hook
+    returned its contents. The resolver plugin maps a bare specifier to a path in
+    the Bazel tree and leaves the contents to the server, so it got a 404 for
+    every module it resolved correctly, and `import "react"` did not resolve under
+    oj at all. Rollup's contract is that a `resolveId` result naming a real file is
+    the module, and a `load` returning nothing means read it from disk. Fixed
+    upstream in
+    [raphamorim/oj#108](https://github.com/raphamorim/oj/pull/108); `MODULE.bazel`
+    pins 0.1.6 and carries no patch.
+
+Bringing your own is a rule returning `DevServerInfo`. A server shipping as an
+npm package sets `server_in_tree` (a path inside the `node_modules` tree, since a
+file inside a TreeArtifact has no label at analysis time); a native binary sets
+`server_binary`. Exactly one.
+
 ## What Is Served from Where
 
-| | `ts_bundle` (`vite build`) | `ts_dev_server` (`vite dev`) |
+| | `ts_bundle` (`vite build`) | `ts_dev_server` |
 |---|---|---|
-| first-party `.ts` | Bazel compiles it; the plugin redirects imports to `bazel-bin` | served as source, transformed by Vite in memory |
+| first-party `.ts` | Bazel compiles it; the plugin redirects imports to `bazel-bin` | served as source, transformed by the server in memory |
 | `ts_codegen` output | from `bazel-bin` | from `bazel-bin` |
 | npm packages | the `node_modules` tree | the `node_modules` tree, via the `bazel:npm-resolve` plugin |
 | assets, passthrough `.d.ts` | from `bazel-bin` | from `bazel-bin` |
@@ -88,6 +135,9 @@ a `ts_bundle`.
 A package the tree does not carry produces Vite's `Failed to resolve import` at
 the moment the browser asks for the module; add it to the `node_modules` target's
 `deps`.
+
+oj resolves a bare specifier through the same plugin in the same generated
+config.
 
 ## Type Checking
 
@@ -127,6 +177,8 @@ The `plugin` attribute wires `vite-plugin-bazel`, which:
 **Gazelle** sets `plugin = "@rules_typescript//vite:vite_plugin_bazel"` on first
 generation of a `ts_dev_server` target only; it can be removed.
 
+Nothing in `//tests/dev_server` starts oj with it.
+
 ## React Fast Refresh
 
 `react_refresh = True` loads `@vitejs/plugin-react`, which preserves component
@@ -152,6 +204,9 @@ ts_dev_server(
 The entry point comes from that package's own `exports` map, which survives the
 `dist/` reorganisations it makes between majors. If the plugin cannot be loaded
 the dev server fails to start, naming the target and the dep to add.
+
+The attribute is Vite's: `react_refresh = True` against oj is an analysis-time
+error, since oj applies Fast Refresh itself.
 
 `@vitejs/plugin-react` finds its `react-refresh` runtime by the same walk-up Vite
 uses for `rolldown`, a second reason the target has to be
@@ -218,6 +273,9 @@ hence the warning on the last two rows.
 Vite restarts on a change to its own config file but has no concept of the thing
 that generates it; `ConfigWatcher` watches those inputs.
 
+Both watchers are `vite-plugin-bazel`'s, so a target without the `plugin` attr
+keeps its server process across rebuilds and compares no digests.
+
 ## Edit-to-HMR Latency
 
 The design goal is under 500 ms from save to browser update:
@@ -271,12 +329,12 @@ sent` line in the log says which message arrived.
 | `entry_point` | `label` | required | `ts_compile` target for the application entry point |
 | `port` | `int` | `5173` | Dev server port |
 | `host` | `string` | `"localhost"` | Dev server host. Set to `"0.0.0.0"` to bind on all interfaces |
-| `open` | `bool` | `False` | Open the browser automatically on start |
-| `node_modules` | `label` | `None` | `node_modules` target providing Vite and the application's runtime deps; also what makes a bare npm import resolve — see [above](#how-a-bare-npm-specifier-resolves) |
+| `open` | `bool` | `False` | Open the browser automatically on start. Vite only: `True` against oj is an analysis-time error |
+| `node_modules` | `label` | `None` | `node_modules` target providing the application's runtime deps, plus Vite on the Vite path; also what makes a bare npm import resolve — see [above](#how-a-bare-npm-specifier-resolves) |
 | `plugin` | `label` | `None` | Compiled `vite-plugin-bazel` `.mjs` — see [above](#vite-plugin-bazel) |
-| `server` | `label` | `@rules_typescript//vite:dev_server` | `DevServerInfo`-providing target choosing the implementation. `@rules_typescript//oj:dev_server` selects oj — see [below](#choosing-the-server) |
-| `bundler` | `label` | `None` | `BundlerInfo`-providing target, for a non-Vite dev server. The Vite path does not need it |
-| `react_refresh` | `bool` | `False` | React Fast Refresh via `@vitejs/plugin-react`; requires `@npm//:vitejs_plugin-react` in the `node_modules` deps — see [above](#react-fast-refresh) |
+| `server` | `label` | `@rules_typescript//vite:dev_server` | `DevServerInfo`-providing target choosing the implementation. `@rules_typescript//oj:dev_server` selects oj — see [above](#choosing-the-server) |
+| `bundler` | `label` | `None` | `BundlerInfo`-providing target, for a custom dev server that needs a bundler binary in runfiles. Neither shipped server does |
+| `react_refresh` | `bool` | `False` | React Fast Refresh via `@vitejs/plugin-react`; requires `@npm//:vitejs_plugin-react` in the `node_modules` deps, and fails against oj — see [above](#react-fast-refresh) |
 | `vite_config_srcs` | `label_list` | `[]` | The local modules `vite_config` imports, staged beside it |
 | `vite_config` | `label` | `None` | A `.ts`/`.mts`/`.mjs`/`.js` file default-exporting `{plugins: [...]}`, prepended to Bazel's plugins — see [above](#vite_config-what-it-may-import) |
 
@@ -290,50 +348,12 @@ npm tree instead of externalising it, and React's CJS entry then evaluates
 works around it. `bazel build` of the bundle is unaffected;
 `examples/tanstack-app/README.md` has the trace.
 
-## Choosing the Server
-
-`ts_dev_server` takes a `DevServerInfo`, and the implementation is a per-target
-choice. Vite is the default; oj ([raphamorim/oj](https://github.com/raphamorim/oj),
-a Rust-native build tool) is the second shipped one, and reads the same generated
-config:
-
-```python
-ts_dev_server(
-    name = "dev",
-    entry_point = ":app",
-    node_modules = ":node_modules",   # oj needs no @npm//:vite in here
-    server = "@rules_typescript//oj:dev_server",
-)
-```
-
-The provider declares two structural differences. oj takes the directory it
-serves from a positional argument, not from the config's `root`. And a field one
-server does not read is an analysis-time error on a target that set the attr
-reaching it: `open = True` against oj fails naming both. `react_refresh` is the
-same — oj applies Fast Refresh itself, so setting it would instrument every
-component twice.
-
-!!! note "oj 0.1.6"
-    Until oj 0.1.6, `oj_server` served a module only when a plugin `load` hook
-    returned its contents. The resolver plugin maps a bare specifier to a path in
-    the Bazel tree and leaves the contents to the server, so it got a 404 for
-    every module it resolved correctly, and `import "react"` did not resolve under
-    oj at all. Rollup's contract is that a `resolveId` result naming a real file is
-    the module, and a `load` returning nothing means read it from disk. Fixed
-    upstream in
-    [raphamorim/oj#108](https://github.com/raphamorim/oj/pull/108); `MODULE.bazel`
-    pins 0.1.6 and carries no patch.
-
-Bringing your own is a rule returning `DevServerInfo`. A server shipping as an
-npm package sets `server_in_tree` (a path inside the `node_modules` tree, since a
-file inside a TreeArtifact has no label at analysis time); a native binary sets
-`server_binary`. Exactly one.
-
 ## Diagnostics
 
 The launcher never reaches for a host `node` or `vite`: a missing JS runtime
-toolchain fails at analysis time, and a missing `node_modules` or vite fails the
-launcher with a message. To see what it resolved:
+toolchain fails at analysis time, and a missing `node_modules` — or a missing
+vite on the Vite path — fails the launcher with a message. To see what it
+resolved:
 
 ```bash
 bazel run //src/app:dev -- --dump-config

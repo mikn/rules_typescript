@@ -479,9 +479,10 @@ generated config resolves every bare specifier through that tree.
 
 Gazelle generates the `ts_dev_server` target with `plugin` set and
 `node_modules` empty, because nothing in the source tree says which tree the app
-resolves against. Declare it in the dev server's own Bazel package, listing Vite
-plus every npm package the app imports; Gazelle leaves the attr alone from then
-on:
+resolves against. Declare it in the dev server's own Bazel package, listing
+every npm package the app imports, plus `@npm//:vite` under the default server;
+an oj target needs the app's own packages and no vite. Gazelle leaves the attr
+alone from then on:
 
 ```python
 node_modules(
@@ -554,6 +555,10 @@ node_modules(
 
 The target name matters too: the plugin resolves the `react-refresh` runtime by
 Node's own walk-up, which only looks in directories called `node_modules`.
+
+Under oj this error does not arise. `react_refresh = True` is rejected at
+analysis time instead, because oj applies Fast Refresh itself and stacking
+`@vitejs/plugin-react` on top would instrument every component twice.
 
 ## [rules_typescript] Failed to load vite_config
 
