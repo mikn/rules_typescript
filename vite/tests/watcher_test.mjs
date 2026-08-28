@@ -172,6 +172,45 @@ async function fsWatchDeliversEvents() {
 
 const NO_FS_EVENTS = 'recursive fs.watch delivered no events in this environment';
 
+const ARM_SENTINEL = '__arm__.js';
+const ARM_DEADLINE_MS = 30000;
+
+/**
+ * Start `watcher` and return only once its fs.watch is delivering events.
+ *
+ * `fs.watch` returns before the OS has armed the watch. On macOS recursive mode
+ * is FSEvents, armed on a run loop, and a write landing before the stream
+ * exists is dropped rather than delivered late -- so a burst issued straight
+ * after start() can be lost whole and no deadline recovers it. Writing a
+ * sentinel until one comes back is the only way to know the stream is live.
+ * `batches` is left empty and quiescent, so the caller asserts on its own
+ * writes alone.
+ */
+async function startArmed(watcher, bin, batches, debounceMs) {
+  await watcher.start();
+  const sentinel = path.join(bin, ARM_SENTINEL);
+  const deadline = Date.now() + ARM_DEADLINE_MS;
+  for (let n = 0; batches.length === 0; n += 1) {
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `fs.watch never armed for ${bin}: ${n} sentinel writes in ` +
+          `${ARM_DEADLINE_MS} ms produced no batch`,
+      );
+    }
+    fs.writeFileSync(sentinel, String(n));
+    // A delivered event only becomes a batch after the trailing debounce, so
+    // an attempt has to outlast one or every attempt reads as a loss.
+    await waitUntil('a sentinel batch', () => batches.length > 0, debounceMs + 500).catch(
+      () => {},
+    );
+  }
+  for (let seen = -1; seen !== batches.length; ) {
+    seen = batches.length;
+    await sleep(Math.max(debounceMs * 2, 200));
+  }
+  batches.length = 0;
+}
+
 // ── The fs.watch fallback: real files, real events ───────────────────────────
 
 test('fs.watch fallback reports a newly written .js file', async () => {
@@ -184,7 +223,7 @@ test('fs.watch fallback reports a newly written .js file', async () => {
     onRebuild: (changed) => batches.push([...changed]),
   });
 
-  await watcher.start();
+  await startArmed(watcher, bin, batches, 20);
   try {
     fs.writeFileSync(path.join(bin, 'app.js'), 'export const a = 1;\n');
     await waitUntil('the first rebuild batch', () => batches.length > 0);
@@ -208,7 +247,7 @@ test('fs.watch fallback coalesces a rebuild burst and drops non-.js outputs', as
     onRebuild: (changed) => batches.push([...changed].sort()),
   });
 
-  await watcher.start();
+  await startArmed(watcher, bin, batches, debounceMs);
   try {
     fs.mkdirSync(path.join(bin, 'app'), { recursive: true });
     fs.writeFileSync(path.join(bin, 'a.js'), '1');
@@ -250,7 +289,9 @@ test('fs.watch fallback stops reporting after stop()', async () => {
     onRebuild: (changed) => batches.push([...changed]),
   });
 
-  await watcher.start();
+  // Armed first: an unarmed watcher reports nothing either, and would pass
+  // this without stop() having done anything.
+  await startArmed(watcher, bin, batches, 20);
   await watcher.stop();
   fs.writeFileSync(path.join(bin, 'late.js'), '1');
   await sleep(300);
