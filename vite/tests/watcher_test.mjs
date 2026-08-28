@@ -219,11 +219,22 @@ test('fs.watch fallback coalesces a rebuild burst and drops non-.js outputs', as
     await waitUntil('the coalesced batch', () => batches.length > 0);
     await sleep(debounceMs * 1.5);
 
+    // What the real fs.watch path can promise: the burst arrives as one batch,
+    // and nothing that is not a .js under bazel-bin is in it. Which of the two
+    // .js files arrive is FSEvents' business -- it coalesces per directory, so
+    // writing a.js, a.js.map and styles.css into one directory can surface a
+    // single event, and if it names one of the two filtered files the a.js
+    // event is simply never delivered. The exact set is asserted in the
+    // injected-source test above, where delivery is deterministic.
     assert.equal(batches.length, 1, `expected one batch, got ${batches.length}`);
-    assert.deepEqual(batches[0], [
-      path.join(bin, 'a.js'),
-      path.join(bin, 'app', 'b.js'),
-    ]);
+    const allowed = [path.join(bin, 'a.js'), path.join(bin, 'app', 'b.js')];
+    assert.ok(batches[0].length > 0, 'the batch is empty');
+    for (const entry of batches[0]) {
+      assert.ok(
+        allowed.includes(entry),
+        `${entry} is in the batch and is not one of the two .js files written`,
+      );
+    }
   } finally {
     await watcher.stop();
   }
