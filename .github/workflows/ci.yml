@@ -21,6 +21,10 @@ jobs:
       - uses: bazel-contrib/setup-bazel@0.18.0
         with:
           bazelisk-version: 1.x
+          bazelisk-cache: true
+          repository-cache: true
+          external-cache: true
+          disk-cache: true
 
       # `bazel test //...` and a byte-identical Gazelle rerun are both satisfied
       # by a Gazelle run that deletes a test target, so neither notices a
@@ -53,6 +57,10 @@ jobs:
       - uses: bazel-contrib/setup-bazel@0.18.0
         with:
           bazelisk-version: 1.x
+          bazelisk-cache: true
+          repository-cache: true
+          external-cache: true
+          disk-cache: true
 
       - name: Build e2e/basic
         run: cd e2e/basic && bazel build //...
@@ -102,6 +110,12 @@ jobs:
       - uses: bazel-contrib/setup-bazel@0.18.0
         with:
           bazelisk-version: 1.x
+          bazelisk-cache: true
+          repository-cache: true
+          external-cache: true
+          # No disk-cache on purpose: this job builds one target twice from two
+          # empty output bases and compares the bytes, so a cache hit on the
+          # second build would compare it against a copy of the first.
 
       # Two output bases are two full toolchain trees; the runner's root disk
       # does not fit both and /mnt, the ephemeral disk, does.
@@ -141,6 +155,10 @@ jobs:
       - uses: bazel-contrib/setup-bazel@0.18.0
         with:
           bazelisk-version: 1.x
+          bazelisk-cache: true
+          repository-cache: true
+          external-cache: true
+          disk-cache: true
 
       # Each nested Bazel keeps its own output base; together they need tens of
       # GB, which the runner's root disk does not have and /mnt does.
@@ -159,6 +177,7 @@ jobs:
         with:
           path: |
             /mnt/rules_ts_it/repository_cache
+            /mnt/rules_ts_it/disk_cache
           key: nested-bazel-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'tests/npm/pnpm-lock.yaml', 'oxc_cli/Cargo.lock') }}
           restore-keys: |
             nested-bazel-${{ runner.os }}-
