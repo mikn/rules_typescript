@@ -56,12 +56,11 @@ printf '%s\n' "$MANUAL_ONLY" \
   | sed -e 's/#.*//' -e 's/[[:space:]]*$//' \
   | awk 'NF' | LC_ALL=C sort -u > "$work/manual_allowed"
 
-# A directory holding its own MODULE.bazel/WORKSPACE.bazel is a separate
-# workspace that `//...` does not descend into, so its test files are not this
-# workspace's to claim; .bazelignore roots are invisible to `//...` for the same
-# practical reason.
+# A directory holding its own MODULE.bazel is a separate workspace that `//...`
+# does not descend into, so its test files are not this workspace's to claim;
+# .bazelignore roots are invisible to `//...` for the same practical reason.
 {
-  git ls-files '*/MODULE.bazel' '*/WORKSPACE.bazel' | sed 's|/[^/]*$||'
+  git ls-files '*/MODULE.bazel' | sed 's|/[^/]*$||'
   if [ -f .bazelignore ]; then
     sed -e 's/#.*//' -e 's:/*[[:space:]]*$::' .bazelignore
   fi

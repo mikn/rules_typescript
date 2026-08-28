@@ -9,7 +9,7 @@ that simulate real user scenarios end-to-end:
 
 Each test workspace lives in a subdirectory of this package and contains:
   - MODULE.bazel (with {RULES_TS_ROOT} placeholder substituted at runtime)
-  - BUILD.bazel, .bazelrc, .bazelversion, WORKSPACE.bazel
+  - BUILD.bazel, .bazelrc, .bazelversion
   - TypeScript source files
 
 The runner is a `go_binary` in //tests/integration/runners, one per test, over

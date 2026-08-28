@@ -5,7 +5,7 @@ An opinionated Bazel ruleset for TypeScript, optimised for the **Oxc + Vite** to
 Rust and Go do the work: [Oxc](https://oxc.rs/) compiles, [tsgo](https://github.com/microsoft/typescript-go) type-checks. Bundling and dev serving speak one generated [Vite](https://vite.dev/) config, run by Vite or by [oj](https://github.com/raphamorim/oj). [Gazelle](https://github.com/bazelbuild/bazel-gazelle) writes the BUILD files. Write `.ts`, run Gazelle, `bazel build //...`. No `node_modules/`. No system Node. Just Bazelisk.
 
 Coming from an existing TypeScript monorepo, the
-[Quick Start](getting-started/quickstart.md) is the whole path: five root files,
+[Quick Start](getting-started/quickstart.md) is the whole path: four root files,
 then `bazel run //:gazelle`. [Install](#install) and
 [Quick Example](#quick-example) below are the short version.
 
