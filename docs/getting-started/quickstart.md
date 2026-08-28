@@ -105,13 +105,7 @@ Once a version is published to the BCR, drop the override; the plain
 9.2.0
 ```
 
-**Step 2.** Create an empty `WORKSPACE.bazel` (optional — `MODULE.bazel` marks
-the root in Bazel 9; every workspace in this repo carries one):
-
-```
-```
-
-**Step 3.** Create `MODULE.bazel`, pinning `rules_typescript` with
+**Step 2.** Create `MODULE.bazel`, pinning `rules_typescript` with
 `git_override` (see
 [Depending on rules_typescript](#depending-on-rules_typescript) for the
 `archive_override` alternative):
@@ -134,7 +128,7 @@ register_toolchains("@rules_typescript//ts/toolchain:all")
 bazel_dep(name = "gazelle", version = "0.47.0")
 ```
 
-**Step 4.** Create `.bazelrc`:
+**Step 3.** Create `.bazelrc`:
 
 ```
 build --incompatible_strict_action_env
@@ -149,7 +143,7 @@ The `--output_groups=+_validation` line makes type errors fail `bazel build`, th
 `@rules_rust//...` flag here is rejected outright (see
 [Troubleshooting](../guides/troubleshooting.md#no-repository-visible-as-rules_rust)).
 
-**Step 5.** Create `BUILD.bazel` at the repo root. It has to exist even when
+**Step 4.** Create `BUILD.bazel` at the repo root. It has to exist even when
 empty: `rules_rust`'s crate fetching resolves `//:MODULE.bazel`, which requires
 the repo root to be a Bazel package:
 
@@ -162,7 +156,7 @@ gazelle(
 )
 ```
 
-**Step 6.** Write your TypeScript files. Explicit return types are optional;
+**Step 5.** Write your TypeScript files. Explicit return types are optional;
 tsgo emits the declarations from the full type program:
 
 ```typescript
@@ -172,13 +166,13 @@ export function add(a: number, b: number) {
 }
 ```
 
-**Step 7.** Generate BUILD files:
+**Step 6.** Generate BUILD files:
 
 ```bash
 bazel run //:gazelle
 ```
 
-**Step 8.** Build and type-check:
+**Step 7.** Build and type-check:
 
 ```bash
 bazel build //...
@@ -188,7 +182,7 @@ Each `ts_compile` target Gazelle generates produces `.js`, `.js.map`, and
 `.d.ts` per source file: `bazel-bin/src/lib/math.js`, `math.js.map` and
 `math.d.ts` for the file above.
 
-**Step 9.** Run tests, once there is one. With no `*.test.ts` there is no test
+**Step 8.** Run tests, once there is one. With no `*.test.ts` there is no test
 target, and Bazel treats that as an error:
 
 ```
@@ -244,7 +238,7 @@ coverage, snapshots and sharding.
 ## Path B: Existing Project
 
 **Step 1.** Set up the same root files as Path A: `.bazelversion`,
-`MODULE.bazel`, `.bazelrc`, and the optional `WORKSPACE.bazel`.
+`MODULE.bazel` and `.bazelrc`.
 
 **Step 2.** Create `BUILD.bazel` at the repo root. No escape hatch is needed:
 

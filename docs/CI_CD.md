@@ -101,8 +101,8 @@ manual-only and has to be named in the script's `MANUAL_ONLY` list **with a
 reason**. The list is exact in both directions: tagging a test `manual` fails
 until someone writes down why, and untagging it fails until the entry is removed.
 
-Directories holding their own `MODULE.bazel`/`WORKSPACE.bazel`, and
-`.bazelignore` roots, are out of scope: `//...` does not descend into them.
+Directories holding their own `MODULE.bazel`, and `.bazelignore` roots, are out
+of scope: `//...` does not descend into them.
 
 The script is read-only: a loading-phase `bazel query` and `git ls-files`, no
 Gazelle run and no writes. `git ls-files` cannot see an unstaged new file, so a

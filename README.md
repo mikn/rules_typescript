@@ -79,10 +79,7 @@ is version-sensitive, are in
 9.2.0
 ```
 
-**Step 2.** Create an empty `WORKSPACE.bazel` (optional — `MODULE.bazel`
-marks the root in Bazel 9; every workspace in this repo carries one).
-
-**Step 3.** Add to `MODULE.bazel`. The ruleset is not on the Bazel Central
+**Step 2.** Add to `MODULE.bazel`. The ruleset is not on the Bazel Central
 Registry yet, so `bazel_dep` alone has nothing to resolve against; pin it from
 git:
 
@@ -105,7 +102,7 @@ Pin a full commit SHA, not a branch. bzlmod still requires `version` on
 `archive_override` (smaller fetch) and `local_path_override` forms are in
 [Depending on rules_typescript](https://mikn.github.io/rules_typescript/getting-started/quickstart/#depending-on-rules_typescript).
 
-**Step 4.** Add to `.bazelrc`:
+**Step 3.** Add to `.bazelrc`:
 
 ```
 build --incompatible_strict_action_env
@@ -118,7 +115,7 @@ Those three lines are the whole file. Do not add an `@rules_rust` flag:
 module, so Bazel cannot resolve the label and rejects the invocation with
 `No repository visible as '@rules_rust' from main repository`.
 
-**Step 5.** Add to `BUILD.bazel` at the repository root. The file has to exist
+**Step 4.** Add to `BUILD.bazel` at the repository root. The file has to exist
 even if empty: `rules_rust` resolves `//:MODULE.bazel` while fetching crates,
 which requires the root to be a Bazel package:
 
@@ -131,7 +128,7 @@ gazelle(
 )
 ```
 
-**Step 6.** Write TypeScript. Export annotations are optional: tsgo emits the
+**Step 5.** Write TypeScript. Export annotations are optional: tsgo emits the
 declarations from the full type program, so an inferred return type is fine:
 
 ```typescript
@@ -140,7 +137,7 @@ export function add(a: number, b: number) {
 }
 ```
 
-**Step 7.** Generate BUILD files, build, and test:
+**Step 6.** Generate BUILD files, build, and test:
 
 ```bash
 bazel run //:gazelle
