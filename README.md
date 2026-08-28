@@ -2,7 +2,7 @@
 
 An opinionated Bazel ruleset for TypeScript, optimised for the **Oxc + Vite** toolchain rather than broad compatibility with every JS build tool. If your stack is TypeScript, Vite, and a Vite-based framework — this replaces `tsc`, your bundler, and your dev server with a single hermetic build. If you need `tsc` compatibility or non-Vite toolchains, see [aspect-build/rules_ts](https://github.com/aspect-build/rules_ts).
 
-[Oxc](https://oxc.rs/) compiles. [tsgo](https://github.com/microsoft/typescript-go) type-checks. [Vite](https://vite.dev/) bundles. [Gazelle](https://github.com/bazelbuild/bazel-gazelle) generates BUILD files. Write `.ts`, run Gazelle, `bazel build //...`. No `node_modules/`. No system Node. Just Bazelisk.
+Rust and Go do the work: [Oxc](https://oxc.rs/) compiles, [tsgo](https://github.com/microsoft/typescript-go) type-checks. Bundling and dev serving speak one generated [Vite](https://vite.dev/) config, run by Vite or by [oj](https://github.com/raphamorim/oj). [Gazelle](https://github.com/bazelbuild/bazel-gazelle) writes the BUILD files. Write `.ts`, run Gazelle, `bazel build //...`. No `node_modules/`. No system Node. Just Bazelisk.
 
 Coming from an existing TypeScript repository: [Install](#install) is the short
 path, and the
@@ -13,7 +13,8 @@ covers the migration questions.
 
 ## Built for the Vite Ecosystem
 
-Vite is the bundler and the dev server. Frameworks that ship a Vite plugin fit.
+Vite bundles, and Vite or oj serves. Frameworks that ship a Vite plugin fit
+either, because both read the same generated config.
 
 - **React + Vite** — plain Vite: SPA bundle, CSS modules, and Fast Refresh HMR under `react_refresh = True`.
 - **Remix** — SPA bundle **and** SSR via [`remix_build`](https://mikn.github.io/rules_typescript/rules/remix-build/). Routes get their own chunks.
@@ -38,6 +39,7 @@ opt-out. See
 - **Oxc compiles** — Rust-based TypeScript/JSX transformer. `.js` + `.js.map` per file, and `.d.ts` too under `declarations = "oxc"`.
 - **tsgo type-checks** — Go port of TypeScript, and it emits the declarations too, so unmodified TypeScript compiles: no export annotations required, and the `.d.ts` are what `tsc` would produce. Type errors fail `bazel build`.
 - **Vite bundles** — production bundles with tree-shaking, code splitting, minification. App mode (HTML + hashed assets) and lib mode.
+- **The dev server is swappable** — `ts_dev_server(server = ...)` takes any target providing `DevServerInfo`. Vite is the default; `@rules_typescript//oj:dev_server` selects [oj](https://github.com/raphamorim/oj), a Rust-native server that adopts the same generated Vite config and needs no `@npm//:vite` in the tree. What each server does not read is declared in its provider, so a target depending on a field its server ignores fails at analysis time naming both.
 - **Isolated declarations** — annotate a package's exports and set `declarations = "oxc"`, and Oxc emits its `.d.ts` syntactically, which moves type-checking off the critical path and shortens a deep dependency chain substantially. Opt-in, per package — see [Cost of each mode](https://mikn.github.io/rules_typescript/rules/ts-compile/#cost-of-each-mode).
 - **Gazelle generates BUILD files** — infers targets from the directory tree, resolves imports to labels, generates lint, bundler and dev-server targets, and takes eleven `# gazelle:ts_*` directives. It regenerates the attributes it owns on every run and names every value it drops, so a value it cannot derive needs `# keep` — see [Attributes Gazelle owns](https://mikn.github.io/rules_typescript/gazelle/directives/#attributes-gazelle-owns).
 - **CSS modules** — `css_module` runs postcss-modules once, generates the `.d.ts` and the scoped-name map from that result, and hands the map to Vite. `styles.button` type-checks against the keys the stylesheet exports, and the class name in a test is the one in the bundle — see [CSS and assets](https://mikn.github.io/rules_typescript/rules/css-and-assets/).

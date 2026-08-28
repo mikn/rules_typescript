@@ -163,6 +163,12 @@ would otherwise generate two targets named `components`) and keeps files that
 share a stem apart (`logo.svg` and `logo.json`). A tie that survives both gets a
 numeric suffix on the later name (`_2`).
 
+The generated `ts_dev_server` gets `plugin` set and no `server`, so it runs the
+default Vite implementation. Gazelle writes the rule only when the package has
+no `dev` target yet, so a hand-added
+`server = "@rules_typescript//oj:dev_server"` survives later runs. See
+[Choosing the server](../guides/dev-server.md#choosing-the-server).
+
 ## Automatic Lint Targets
 
 When a linter config file is present in the current directory or any ancestor, Gazelle automatically generates a `ts_lint` target alongside each `ts_compile` target. The lint target name is the compile target name with `_lint` appended.

@@ -2,20 +2,58 @@
 
 An opinionated Bazel ruleset for TypeScript, optimised for the **Oxc + Vite** toolchain rather than broad compatibility with every JS build tool. If your stack is TypeScript, Vite, and a Vite-based framework — this replaces `tsc`, your bundler, and your dev server with a single hermetic build. If you need `tsc` compatibility or non-Vite toolchains, see [aspect-build/rules_ts](https://github.com/aspect-build/rules_ts) ([comparison](getting-started/migration.md)).
 
-[Oxc](https://oxc.rs/) compiles. [tsgo](https://github.com/microsoft/typescript-go) type-checks. [Vite](https://vite.dev/) bundles. [Gazelle](https://github.com/bazelbuild/bazel-gazelle) generates BUILD files. Write `.ts`, run Gazelle, `bazel build //...`. No `node_modules/`. No system Node. Just Bazelisk.
+Rust and Go do the work: [Oxc](https://oxc.rs/) compiles, [tsgo](https://github.com/microsoft/typescript-go) type-checks. Bundling and dev serving speak one generated [Vite](https://vite.dev/) config, run by Vite or by [oj](https://github.com/raphamorim/oj). [Gazelle](https://github.com/bazelbuild/bazel-gazelle) writes the BUILD files. Write `.ts`, run Gazelle, `bazel build //...`. No `node_modules/`. No system Node. Just Bazelisk.
 
 Coming from an existing TypeScript monorepo, the
 [Quick Start](getting-started/quickstart.md) is the whole path: five root files,
 then `bazel run //:gazelle`. [Install](#install) and
 [Quick Example](#quick-example) below are the short version.
 
+## Why Bazel for TypeScript
+
+A TypeScript monorepo tends to reach a point where the build is the least
+predictable thing in it. `tsc -b` invalidates whole projects rather than the
+files that changed, `node_modules/` is one mutable directory that every tool
+reads slightly differently, and CI repeats work someone already did locally.
+Bazel answers those with a graph it can prune precisely. The usual objection is
+what adoption costs: BUILD files to maintain, and an editor, bundler and dev
+server that all have to keep working.
+
+What this ruleset does about each:
+
+- **A type error fails `bazel build`.** tsgo runs as a build action rather than
+  a separate `tsc --noEmit` job. Declarations are real outputs, so a package
+  type-checks against what its dependency emits.
+- **A package rebuilds when its own inputs change.** Direct dependencies are
+  enforced: a source may import only what a direct dep provides, so the graph
+  Bazel prunes is the graph the code has. The build names the file, the
+  specifier and the label to add, and Gazelle writes it.
+- **npm cost is per target.** One Bazel repository per package, fetched on
+  demand. A target pays for its own closure instead of the whole lockfile, and
+  the source tree holds no `node_modules/`.
+- **The editor keeps working.** `ts_refresh_tsconfig` writes a checked-in
+  `tsconfig.json` out of the build graph, so tsserver, a plain `tsc` run and a
+  coding agent's language server all resolve what Bazel resolves. See
+  [IDE Setup](getting-started/ide-setup.md).
+- **Bazel is out of the inner loop.** `ts_dev_server` hands the source tree to
+  Vite or oj and steps back; HMR is the dev server's, not a rebuild.
+- **Bazelisk is the only prerequisite.** Node.js, Go and Rust are fetched
+  hermetically, and pnpm too if you want it.
+
+The costs are real and worth naming. BUILD files live in your tree even though
+Gazelle generates them. The first build compiles `oxc-bazel` from Rust source,
+which dominates the wall time. The stack is Vite-shaped.
+[Migrating from rules_ts](getting-started/migration.md) is the comparison to
+read when `tsc` compatibility or a non-Vite bundler matters more than any of the
+above.
+
 ## Built for the Vite Ecosystem
 
-Vite is the bundler and the dev server. A framework that ships a Vite plugin
-fits: `vite_config` names the config file, `vite_config_srcs` the local modules
-it imports, and the plugins it exports run before Bazel's. Only the keys the
-generated config reads reach the build; any other key fails the build, naming
-itself. See
+Vite bundles, and Vite or oj serves. A framework that ships a Vite plugin fits
+either, because both read the same generated config: `vite_config` names the
+config file, `vite_config_srcs` the local modules it imports, and the plugins it
+exports run before Bazel's. Only the keys the generated config reads reach the
+build; any other key fails the build, naming itself. See
 [Framework plugins via `vite_config`](guides/bundling.md#framework-plugins-via-vite_config).
 
 | Framework | Gazelle generates a bundle target? | What you get |
@@ -48,6 +86,7 @@ from source or from that build (`examples/nextjs-app`).
 - **Oxc compiles** — Rust-based TypeScript/JSX transformer. `.js` + `.js.map` per file, and `.d.ts` too under `declarations = "oxc"`.
 - **tsgo emits declarations and type-checks** — Go port of TypeScript, and the default emitter. Unmodified TypeScript compiles: no export annotations required, and the `.d.ts` are what `tsc` would produce. Type errors fail `bazel build`; the declarations are real outputs.
 - **Vite bundles** — production bundles with tree-shaking, code splitting, minification. App mode (HTML + hashed assets) and lib mode.
+- **The dev server is swappable** — `ts_dev_server(server = ...)` takes any target providing `DevServerInfo`. Vite is the default; `@rules_typescript//oj:dev_server` selects oj, which adopts the same generated config and needs no `@npm//:vite` in the tree. Each server declares the config fields it does not read, so a target depending on one fails at analysis time naming the field and the server. See [Choosing the server](guides/dev-server.md#choosing-the-server).
 - **Isolated declarations** — annotate a package's exports, set `declarations = "oxc"`, and Oxc emits the `.d.ts` syntactically. Type-checking leaves the critical path, which shortens a deep dependency chain substantially. Opt-in, per package. See [Cost of each mode](rules/ts-compile.md#cost-of-each-mode).
 - **Gazelle generates the BUILD files** — targets inferred from the directory tree, imports resolved to labels, lint / bundler / dev-server targets generated, frameworks and codegen auto-detected. Eleven `# gazelle:ts_*` directives configure it.
 - **Direct dependencies** — a source may import only what a direct dep provides. A declaration arriving through another dep's own deps does not satisfy an import; the build names the file, the specifier and the label to add, and Gazelle writes it.

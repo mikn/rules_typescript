@@ -76,7 +76,7 @@ agree on the version, so no test runs a generated config against a second major:
 
 | Hub | Lockfile | Vite | vitest | Coverage |
 |---|---|---|---|---|
-| `@npm` | `tests/npm/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` (the whole `tests/vitest` suite), `ts_dev_server` (seven servers started for real and interrogated over HTTP), `ts_bundle` output (`tests/vite_bundle`), `vite-plugin-bazel`'s own tests, and the `lsp`, `npm_deps` and `vite_bundle` integration workspaces |
+| `@npm` | `tests/npm/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` (the whole `tests/vitest` suite), `ts_dev_server` (seven servers started for real and interrogated over HTTP, six under Vite and one under oj), `ts_bundle` output (`tests/vite_bundle`), `vite-plugin-bazel`'s own tests, and the `lsp`, `npm_deps` and `vite_bundle` integration workspaces |
 | `@npm_tailwind` | `tests/tailwind/pnpm-lock.yaml` | 8.2.2 | — | Tailwind v4 through `vite_config`: app mode, lib mode, and the dev server under both implementations |
 | `@npm_workers` | `tests/workers/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` with the Workers pool (vitest inside workerd), `ts_worker_dry_run_test` |
 | `@npm_eslint` | `tests/eslint/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | the ESLint plugin's own `ts_test` target, against `@typescript-eslint`'s rule tester |
@@ -131,6 +131,27 @@ The two places a generated config is known to be version-sensitive:
   later. `test.workspace`, the name it replaced, was removed in vitest 4, which
   throws on it.
 
+## oj
+
+oj is the second `ts_dev_server` implementation, and unlike Vite it comes from
+this ruleset rather than from your lockfile. It publishes no npm package and no
+release binary, so cargo is the only channel to pin it from: `MODULE.bazel`'s
+`oj_crates` extension pins the crate at `=0.1.6` and rules_rust builds it from
+source. The first build of a target selecting oj is a Rust compile.
+
+What tests it:
+
+| Target | What it covers |
+|---|---|
+| `//tests/dev_server:dev_oj_behaviour_test` | the assertions the six Vite lanes make, against the same generated config |
+| `//tests/dev_server:dev_oj_css_module_test` | a served `*.module.css` carrying the class names the `.d.ts` was generated from |
+| `//tests/dev_server:dev_oj_hmr_latency_test` | edit-to-HMR, over oj's own `/__ws` socket |
+| `//tests/tailwind:tailwind_dev_oj_test` | `@tailwindcss/vite`, a Vite-API plugin, in oj's plugin host |
+
+oj is not a bundler here. Nothing in the ruleset returns `BundlerInfo` for it,
+and `oj build` takes no `--config`, so `ts_bundle`'s generated-config contract
+does not reach it.
+
 ## Versioning Policy
 
 This project follows [Semantic Versioning 2.0.0](https://semver.org/) from 1.0
@@ -175,6 +196,8 @@ Breaks get a changelog entry with the required edit.
 May change in any commit, without a changelog entry.
 
 - `ts_dev_server`, `ts_codegen`, `ts_lint`, `ts_npm_publish`, `next_build` rules
+- `DevServerInfo` and the two implementations of it, `//vite:dev_server` and
+  `//oj:dev_server`
 - `vite_bundler` and the Vite plugin (`vite/src/`)
 - Gazelle codegen auto-detection and framework bundle generation
 - `gazelle_ts.json` — deprecated; Gazelle prints a warning and reads

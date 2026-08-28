@@ -1,6 +1,6 @@
 # ts_bundle
 
-Produces a bundled JavaScript output by collecting transitive `.js` outputs and invoking a pluggable bundler. The `bundler` attr is required.
+Produces a bundled JavaScript output by collecting transitive `.js` outputs and invoking a pluggable bundler. The `bundler` attr is required. Vite is the only bundler this ruleset ships; another one plugs in through [`BundlerInfo`](../guides/bundling.md#custom-bundler-bundlerinfo-interface).
 
 [`ts_binary`](ts-binary.md) is a separate, runnable rule. Its `bundler` is
 optional (without one it runs the entry `.js` directly), and it does not accept

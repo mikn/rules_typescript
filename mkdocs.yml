@@ -1,6 +1,6 @@
 site_name: rules_typescript
 site_url: https://mikn.github.io/rules_typescript
-site_description: Opinionated Bazel rules for TypeScript + Vite. Oxc compiles, tsgo type-checks, Vite bundles.
+site_description: Opinionated Bazel rules for TypeScript + Vite. Oxc compiles, tsgo type-checks, Vite bundles, and Vite or oj serves the same generated config.
 repo_url: https://github.com/mikn/rules_typescript
 repo_name: mikn/rules_typescript
 

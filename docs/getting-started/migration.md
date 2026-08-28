@@ -13,7 +13,7 @@ release, production users and Windows support. This has none of the three.
 - You're already invested in `rules_js` and the Aspect ecosystem
 
 **Choose `rules_typescript` (this) if:**
-- You use Vite for bundling and dev serving
+- You bundle with Vite, and dev-serve with Vite or oj
 - You want Gazelle to generate the BUILD files, and can live with pinning the
   occasional hand-narrowed attribute with `# keep`
 - You want the `.d.ts` compilation boundary: a body-only change recompiles nothing downstream
@@ -29,7 +29,7 @@ release, production users and Windows support. This has none of the three.
 | **Type-checker** | tsc | tsgo (Go port of TypeScript) |
 | **Compilation boundary** | tsc project references | `.d.ts` per target |
 | **Bundler** | Bring your own | Vite, through `ts_bundle`; any other bundler through `BundlerInfo` |
-| **Dev server** | None built-in | Vite with HMR + React Fast Refresh |
+| **Dev server** | None built-in | Vite or oj, chosen per target, with HMR and React Fast Refresh |
 | **npm management** | rules_js (pnpm virtual store, symlinks) | Own pnpm lockfile reader; one Bazel repository per package, fetched on demand |
 | **BUILD generation** | Aspect CLI (proprietary) | Gazelle (open-source, directives) |
 | **Framework support** | None built-in | TanStack Start bundles through a Vite-plugin hook; Remix, SvelteKit and Next.js each have a rule of their own. Solid Start is detected and deliberately unsupported (see [framework detection](../gazelle/overview.md#framework-detection)) |
@@ -103,7 +103,10 @@ the dependency graph.
 
 ### Vite-native
 
-Bundling, dev server, HMR, React Fast Refresh, framework Vite plugins — all built-in. `rules_ts` has no bundler or dev server; you wire those yourself.
+Bundling, dev serving, HMR, React Fast Refresh and framework Vite plugins are
+built in, and all of them go through one generated Vite config. Vite runs it, or
+oj does: `ts_dev_server(server = ...)` is a per-target choice. `rules_ts` has no
+bundler and no dev server; you wire those yourself.
 
 ### No JS-ruleset Layer
 
