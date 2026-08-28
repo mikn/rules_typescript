@@ -1,0 +1,22 @@
+"""The threshold this test misses, so it fails: half of the library it imports
+is never called.
+
+`manual` because it is meant to fail; //tests/vitest/thresholds:enforcement_test
+runs it and asserts the failure.
+"""
+
+load("//ts:defs.bzl", "ts_test")
+
+ts_test(
+    name = "threshold_missed_test",
+    srcs = ["partial.test.ts"],
+    coverage = True,
+    coverage_thresholds = {"lines": "90"},
+    tags = ["manual"],
+    visibility = ["//tests/vitest/thresholds:__pkg__"],
+    deps = [
+        "//tests/vitest/thresholds/lib:partial",
+        "@npm//:vitest",
+        "@npm//:vitest_coverage-v8",
+    ],
+)

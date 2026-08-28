@@ -14,12 +14,3 @@ ts_test(
         "@npm//:vitest",
     ],
 )
-
-# Filegroup exporting production source files for use in next_build.staging_srcs.
-# These sources are staged at their workspace-relative paths so relative
-# imports in the Next.js app (e.g. from "../../packages/shared/src/...") work.
-filegroup(
-    name = "sources",
-    srcs = ["index.ts"],
-    visibility = ["//visibility:public"],
-)

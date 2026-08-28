@@ -1,6 +1,8 @@
 package typescript
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
@@ -128,41 +130,53 @@ func TestDirective_PackageBoundary_TrueValueSetsFlag(t *testing.T) {
 	}
 }
 
-// ---- ts_isolated_declarations directive tests ------------------------------
+// ---- ts_declarations directive tests ---------------------------------------
 
-func TestDirective_IsolatedDeclarations_DefaultIsTrue(t *testing.T) {
+func TestDirective_Declarations_DefaultIsTsgo(t *testing.T) {
 	tc := makeConfig("", nil)
-	if !tc.isolatedDeclarations {
-		t.Error("isolatedDeclarations should default to true")
+	if tc.declarations != "tsgo" {
+		t.Errorf("declarations should default to \"tsgo\", got %q", tc.declarations)
 	}
 }
 
-func TestDirective_IsolatedDeclarations_FalseDisables(t *testing.T) {
+func TestDirective_Declarations_Oxc(t *testing.T) {
 	tc := makeConfig("", []rule.Directive{
-		directive(directiveIsolatedDeclarations, "false"),
+		directive(directiveDeclarations, "oxc"),
 	})
-	if tc.isolatedDeclarations {
-		t.Error("ts_isolated_declarations false should set isolatedDeclarations = false")
+	if tc.declarations != "oxc" {
+		t.Errorf("ts_declarations oxc should set declarations = \"oxc\", got %q", tc.declarations)
 	}
 }
 
-func TestDirective_IsolatedDeclarations_TrueExplicit(t *testing.T) {
+func TestDirective_Declarations_TsgoExplicit(t *testing.T) {
 	tc := makeConfig("", []rule.Directive{
-		directive(directiveIsolatedDeclarations, "true"),
+		directive(directiveDeclarations, "tsgo"),
 	})
-	if !tc.isolatedDeclarations {
-		t.Error("ts_isolated_declarations true should set isolatedDeclarations = true")
+	if tc.declarations != "tsgo" {
+		t.Errorf("ts_declarations tsgo should set declarations = \"tsgo\", got %q", tc.declarations)
 	}
 }
 
-func TestDirective_IsolatedDeclarations_InheritedByChild(t *testing.T) {
+// An unrecognised value must not silently pick an emitter: a typo that flipped
+// a tree to oxc would demand explicit types on every export with no diagnostic
+// pointing at the directive.
+func TestDirective_Declarations_InvalidValueKeepsPrevious(t *testing.T) {
+	tc := makeConfig("", []rule.Directive{
+		directive(directiveDeclarations, "swc"),
+	})
+	if tc.declarations != "tsgo" {
+		t.Errorf("invalid ts_declarations value should keep the previous emitter, got %q", tc.declarations)
+	}
+}
+
+func TestDirective_Declarations_InheritedByChild(t *testing.T) {
 	tc := makeChildConfig(
-		[]rule.Directive{directive(directiveIsolatedDeclarations, "false")},
+		[]rule.Directive{directive(directiveDeclarations, "oxc")},
 		"src/lib",
 		nil,
 	)
-	if tc.isolatedDeclarations {
-		t.Error("child should inherit isolatedDeclarations = false from parent")
+	if tc.declarations != "oxc" {
+		t.Errorf("child should inherit declarations = \"oxc\" from parent, got %q", tc.declarations)
 	}
 }
 
@@ -258,6 +272,34 @@ func TestDirective_RuntimeDep_AppendedToParent(t *testing.T) {
 	}
 }
 
+// ---- ts_ambient_types directive tests --------------------------------------
+
+func TestDirective_AmbientTypes_Single(t *testing.T) {
+	tc := makeConfig("", []rule.Directive{
+		directive(directiveAmbientTypes, "@npm//:types_node"),
+	})
+	if len(tc.ambientTypes) != 1 || tc.ambientTypes[0] != "@npm//:types_node" {
+		t.Errorf("ambientTypes: got %v, want [@npm//:types_node]", tc.ambientTypes)
+	}
+}
+
+// The whole point is declaring it once at the root, so a child directory must
+// inherit it without the parent's slice being mutated by the child's append.
+func TestDirective_AmbientTypes_InheritsWithoutAliasing(t *testing.T) {
+	parent := makeConfig("", []rule.Directive{
+		directive(directiveAmbientTypes, "@npm//:types_node"),
+	})
+	child := parent.clone()
+	child.ambientTypes = append(child.ambientTypes, "@npm//:types_react")
+
+	if len(parent.ambientTypes) != 1 {
+		t.Errorf("the child's append mutated the parent: %v", parent.ambientTypes)
+	}
+	if len(child.ambientTypes) != 2 || child.ambientTypes[0] != "@npm//:types_node" {
+		t.Errorf("child ambientTypes: got %v, want the parent entry plus its own", child.ambientTypes)
+	}
+}
+
 // ---- ts_exclude directive tests --------------------------------------------
 
 func TestDirective_Exclude_Single(t *testing.T) {
@@ -285,9 +327,9 @@ func TestDirective_Exclude_AppendedToParent(t *testing.T) {
 // Verify that modifying a child's pathAliases does not mutate the parent's map.
 func TestConfig_Clone_MapIsolation_PathAliases(t *testing.T) {
 	parent := &tsConfig{
-		packageBoundaryMode:  boundaryEveryDir,
-		isolatedDeclarations: true,
-		pathAliases:          map[string]string{"@/": "src/"},
+		packageBoundaryMode: boundaryEveryDir,
+		declarations:        "tsgo",
+		pathAliases:         map[string]string{"@/": "src/"},
 	}
 	child := parent.clone()
 	child.pathAliases["@extra/"] = "extra/"
@@ -304,9 +346,9 @@ func TestConfig_Clone_MapIsolation_PathAliases(t *testing.T) {
 // parent's slice backing array.
 func TestConfig_Clone_SliceIsolation_RuntimeDeps(t *testing.T) {
 	parent := &tsConfig{
-		packageBoundaryMode:  boundaryEveryDir,
-		isolatedDeclarations: true,
-		runtimeDepsTest:      []string{"@npm//:a"},
+		packageBoundaryMode: boundaryEveryDir,
+		declarations:        "tsgo",
+		runtimeDepsTest:     []string{"@npm//:a"},
 	}
 	child := parent.clone()
 	child.runtimeDepsTest = append(child.runtimeDepsTest, "@npm//:b")
@@ -320,14 +362,53 @@ func TestConfig_Clone_SliceIsolation_RuntimeDeps(t *testing.T) {
 // parent's slice backing array.
 func TestConfig_Clone_SliceIsolation_ExcludePatterns(t *testing.T) {
 	parent := &tsConfig{
-		packageBoundaryMode:  boundaryEveryDir,
-		isolatedDeclarations: true,
-		excludePatterns:      []string{"*.gen.ts"},
+		packageBoundaryMode: boundaryEveryDir,
+		declarations:        "tsgo",
+		excludePatterns:     []string{"*.gen.ts"},
 	}
 	child := parent.clone()
 	child.excludePatterns = append(child.excludePatterns, "*.auto.ts")
 
 	if len(parent.excludePatterns) != 1 {
 		t.Errorf("parent excludePatterns mutated: got %v, want [*.gen.ts]", parent.excludePatterns)
+	}
+}
+
+// ---- tsconfig.json paths ---------------------------------------------------
+
+// TestLoadTsConfigPaths_CollidingPatternsPickTheSameEntryEveryTime covers two
+// paths patterns that normalise to one alias key. Whichever entry wins, it has
+// to be the same entry on every run: the alias map is written into generated
+// path_aliases attributes and drives dep resolution.
+func TestLoadTsConfigPaths_CollidingPatternsPickTheSameEntryEveryTime(t *testing.T) {
+	dir := t.TempDir()
+	tsConfigPath := filepath.Join(dir, "tsconfig.json")
+	contents := `{
+  "compilerOptions": {
+    "paths": {
+      "@x/*": ["wildcard/*"],
+      "@x/": ["exact/dir/"],
+      "@y/*": ["y/*"]
+    }
+  }
+}`
+	if err := os.WriteFile(tsConfigPath, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	const runs = 200
+	seen := make(map[string]int)
+	for i := 0; i < runs; i++ {
+		aliases := loadTsConfigPaths(tsConfigPath)
+		if got := aliases["@y/"]; got != "y/" {
+			t.Fatalf("run %d: non-colliding entry changed: aliases[\"@y/\"] = %q, want %q", i, got, "y/")
+		}
+		seen[aliases["@x/"]]++
+	}
+	if len(seen) != 1 {
+		t.Fatalf("colliding alias key resolved %d different ways across %d runs: %v", len(seen), runs, seen)
+	}
+	if _, ok := seen["wildcard/"]; !ok {
+		t.Fatalf("colliding alias key resolved to %v, want the last entry in sorted pattern order (%q)", seen, "wildcard/")
 	}
 }

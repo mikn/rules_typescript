@@ -1,0 +1,43 @@
+"""JavaScript in srcs: staged as-is, and part of the type program."""
+
+load("@rules_go//go:def.bzl", "go_test")
+load("//ts:defs.bzl", "ts_compile")
+
+package(default_visibility = ["//:__pkg__"])
+
+# main.ts imports "./math.js" and assigns add()'s result to a number. That only
+# checks if math.js is in the program AND its JSDoc is read, so the build is the
+# assertion for allowJs. checkJs additionally puts math.js's own body under
+# strict checking.
+ts_compile(
+    name = "app",
+    srcs = [
+        "main.ts",
+        "math.js",
+    ],
+    compiler_options = {"checkJs": True},
+)
+
+# No TypeScript at all: oxc gets nothing to do, and the declarations tsgo emits
+# have to follow tsc's naming for the two module-specific extensions.
+ts_compile(
+    name = "flavours",
+    srcs = [
+        "esm.mjs",
+        "legacy.cjs",
+    ],
+)
+
+go_test(
+    name = "js_sources_test",
+    size = "small",
+    srcs = ["js_sources_test.go"],
+    data = [
+        ":app",
+        ":flavours",
+    ],
+    deps = ["//tests/verify"],
+)
+
+# The generated editor program for this package; see //:refresh_tsconfig.
+exports_files(["tsconfig.json"])

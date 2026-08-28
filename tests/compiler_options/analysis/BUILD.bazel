@@ -1,0 +1,197 @@
+"""Analysis-time coverage: the generated tsconfig, the oxc argv, and the guards."""
+
+# The target below has srcs in these directories; a BUILD file in any of them
+# would turn it into a package and make those labels cross a package boundary.
+# gazelle:exclude nested
+
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "css_library", "ts_compile")
+load(
+    ":analysis_tests.bzl",
+    "alias_into_output_tree_test",
+    "alias_without_inputs_test",
+    "bazel_owned_option_test",
+    "declaration_map_without_tsgo_test",
+    "exec_root_source_test",
+    "forwarded_files_test",
+    "generated_tsconfig_test",
+    "jsx_source_test",
+    "mixed_source_roots_test",
+    "oxc_command_line_test",
+    "quoted_option_test",
+    "rejected_tsgo_arg_test",
+)
+
+package(default_visibility = ["//:__pkg__"])
+
+# One target holding a subtree, a JavaScript source and a declaration map: the
+# subject of the content assertions below. The nested source sorts first, so a
+# strip prefix or a rootDir taken from srcs[0] would be the nested directory.
+ts_compile(
+    name = "everything",
+    srcs = [
+        "nested/leaf.ts",
+        "util.js",
+        "zroot.ts",
+    ],
+    compiler_options = {"checkJs": True},
+    declaration_map = True,
+    tsgo_args = ["--noErrorTruncation"],
+)
+
+generated_tsconfig_test(
+    name = "generated_tsconfig_test",
+    target_under_test = ":everything",
+)
+
+oxc_command_line_test(
+    name = "oxc_command_line_test",
+    target_under_test = ":everything",
+)
+
+build_test(
+    name = "allowed_tsgo_arg_test",
+    targets = [":everything"],
+)
+
+# A src from another package hangs off the exec root, which is the shape a
+# ts_compile in the top-level package has for all of its srcs.
+ts_compile(
+    name = "from_exec_root",
+    srcs = ["//tests/compiler_options/subtree:root.ts"],
+    tags = ["manual"],
+)
+
+exec_root_source_test(
+    name = "exec_root_source_test",
+    target_under_test = ":from_exec_root",
+)
+
+css_library(
+    name = "styles",
+    srcs = ["styles.css"],
+)
+
+ts_compile(
+    name = "with_css",
+    srcs = ["styled.ts"],
+    deps = [":styles"],
+)
+
+forwarded_files_test(
+    name = "forwarded_files_test",
+    target_under_test = ":with_css",
+)
+
+# Never built: the value is nonsense to tsgo, and an analysis test reads the
+# action it would have run rather than running it.
+ts_compile(
+    name = "quoted_option",
+    srcs = ["lone.ts"],
+    compiler_options = {"jsxFactory": "a\"b\\c"},
+    tags = ["manual"],
+)
+
+quoted_option_test(
+    name = "quoted_option_test",
+    target_under_test = ":quoted_option",
+)
+
+# ── The guards ───────────────────────────────────────────────────────────────
+
+ts_compile(
+    name = "owned_option",
+    srcs = ["lone.ts"],
+    compiler_options = {"outDir": "somewhere-else"},
+    tags = ["manual"],
+)
+
+bazel_owned_option_test(
+    name = "bazel_owned_option_test",
+    target_under_test = ":owned_option",
+)
+
+ts_compile(
+    name = "alias_into_output_tree",
+    srcs = ["lone.ts"],
+    path_aliases = {"@gen/": "bazel-out/k8-fastbuild/bin/somewhere/"},
+    tags = ["manual"],
+)
+
+alias_into_output_tree_test(
+    name = "alias_into_output_tree_test",
+    target_under_test = ":alias_into_output_tree",
+)
+
+ts_compile(
+    name = "alias_without_inputs",
+    srcs = ["lone.ts"],
+    path_aliases = {"@elsewhere/": "some/other/package/src/"},
+    tags = ["manual"],
+)
+
+alias_without_inputs_test(
+    name = "alias_without_inputs_test",
+    target_under_test = ":alias_without_inputs",
+)
+
+ts_compile(
+    name = "rejected_tsgo_arg",
+    srcs = ["lone.ts"],
+    tags = ["manual"],
+    tsgo_args = ["--outDir=/tmp/elsewhere"],
+)
+
+rejected_tsgo_arg_test(
+    name = "rejected_tsgo_arg_test",
+    target_under_test = ":rejected_tsgo_arg",
+)
+
+ts_compile(
+    name = "declaration_map_without_tsgo",
+    srcs = ["lone.ts"],
+    declaration_map = True,
+    declarations = "oxc",
+    tags = ["manual"],
+)
+
+declaration_map_without_tsgo_test(
+    name = "declaration_map_without_tsgo_test",
+    target_under_test = ":declaration_map_without_tsgo",
+)
+
+genrule(
+    name = "gen_ts",
+    outs = ["generated/gen.ts"],
+    cmd = "echo 'export const generated = 1;' > $@",
+)
+
+# A checked-in source and a generated one hang off different roots, and one
+# declaration emit has one rootDir.
+ts_compile(
+    name = "mixed_source_roots",
+    srcs = [
+        "lone.ts",
+        ":gen_ts",
+    ],
+    tags = ["manual"],
+)
+
+mixed_source_roots_test(
+    name = "mixed_source_roots_test",
+    target_under_test = ":mixed_source_roots",
+)
+
+ts_compile(
+    name = "jsx_source",
+    srcs = ["widget.jsx"],
+    tags = ["manual"],
+)
+
+jsx_source_test(
+    name = "jsx_source_test",
+    target_under_test = ":jsx_source",
+)
+
+# The generated editor program for this package; see //:refresh_tsconfig.
+exports_files(["tsconfig.json"])

@@ -1,0 +1,34 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+# gazelle:prefix github.com/mikn/rules_typescript/tools/quickstart
+
+# The scaffold pins the same rules_typescript and gazelle versions this module
+# declares, so the template reads them out of a copy rather than restating them.
+genrule(
+    name = "module_snapshot",
+    srcs = ["//:MODULE.bazel"],
+    outs = ["module_bazel.txt"],
+    cmd = "cp $< $@",
+)
+
+go_library(
+    name = "quickstart_lib",
+    srcs = ["main.go"],
+    # keep
+    embedsrcs = [":module_snapshot"],
+    importpath = "github.com/mikn/rules_typescript/tools/quickstart",
+    visibility = ["//visibility:private"],
+)
+
+go_binary(
+    name = "quickstart",
+    embed = [":quickstart_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "quickstart_test",
+    size = "small",
+    srcs = ["main_test.go"],
+    embed = [":quickstart_lib"],
+)

@@ -1,7 +1,10 @@
 /**
- * Pure arithmetic helpers WITHOUT explicit return types.
- * This tests that isolated_declarations = false allows these to compile
- * even though TypeScript cannot infer the return type in isolation.
+ * Pure arithmetic helpers WITHOUT explicit return types — the shape isolated
+ * declarations rejects and that real codebases are full of.
+ *
+ * Under the default declarations = "tsgo" these compile unmodified AND their
+ * emitted .d.ts carry the inferred `number` return types. A syntactic emitter
+ * would have had to widen them.
  */
 
 export function add(a: number, b: number) {

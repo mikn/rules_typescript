@@ -1,79 +1,211 @@
 /**
  * ESLint rule: `isolated-declarations/require-explicit-types`
  *
- * Reports exported bindings that lack explicit type annotations.
- * This is required for TypeScript's isolated declarations mode, which
- * enables per-file `.d.ts` emit without a type-inference pass — the
- * architectural keystone of fast incremental builds in rules_typescript.
+ * Reports exported bindings, parameters and class members that lack explicit
+ * type annotations, which is what TypeScript's `isolatedDeclarations` mode
+ * requires in order to emit a `.d.ts` per file without a type-inference pass.
  *
- * Without explicit return types (and explicit variable types for some
- * patterns), `tsc --isolatedDeclarations` (and oxc's isolated declarations
- * emit) cannot generate a correct `.d.ts` file from a single source file in
- * isolation.  Every implicit-return-type export is therefore a build-cache
- * invalidation risk: changing the return type of an internal helper can
- * silently change the `.d.ts` of the exporting module, forcing all
- * downstream packages to recompile.
- *
- * What this rule enforces
- * ──────────────────────
- * 1. Exported function declarations must have a `: ReturnType` annotation.
- * 2. Exported arrow function / function expression variables must have either:
- *      a. A `: () => ReturnType` annotation on the binding, OR
- *      b. A `: ReturnType` annotation on the function expression itself.
- * 3. Exported non-function variable declarations must have an explicit `: Type`
- *    annotation on the binding.
- * 4. Export-default expressions (values, not function declarations) are
- *    flagged when they have no type context.
- *
- * Edge cases handled
- * ──────────────────
- * - Overload signatures: the implementation signature must still have a
- *   return type even though the overload signatures are flagged separately.
- * - Generics: `<T>(x: T): T => x` is fine because the return type is present;
- *   `<T>(x: T) => x` is flagged.
- * - Conditional types in return position: `(): A extends B ? C : D` is fine.
- * - `export * from ...` and `export { x } from ...` re-exports are NOT
- *   flagged because they don't declare new bindings in this module.
- * - `export type` declarations are never flagged (type-only exports).
- * - `declare` ambient declarations are never flagged (they are declaration
- *   files already).
+ * Types that are readable straight off the AST (literals, uniform array
+ * literals, single-`return` bodies) come with an auto-fix; everything else is
+ * reported with a suggestion telling the developer to annotate by hand.
  */
 
-import { ESLintUtils, TSESTree, AST_NODE_TYPES } from '@typescript-eslint/utils';
+import { AST_NODE_TYPES, ESLintUtils } from '@typescript-eslint/utils';
+import type { TSESTree } from '@typescript-eslint/utils';
+import type {
+  RuleContext,
+  RuleListener,
+} from '@typescript-eslint/utils/ts-eslint';
 import {
+  hasBindingTypeAnnotation,
   hasReturnTypeAnnotation,
   hasTypeAnnotation,
-  isOverloadSignature,
 } from '../utils.js';
 
-// ---------------------------------------------------------------------------
-// Message IDs
-// ---------------------------------------------------------------------------
-
-type MessageId =
-  | 'missingFunctionReturnType'
+type MessageIds =
+  | 'missingReturnType'
   | 'missingVariableType'
-  | 'missingDefaultExportType';
+  | 'missingParameterType'
+  | 'missingPropertyType'
+  | 'missingDefaultExportType'
+  | 'cannotInferType';
 
-// ---------------------------------------------------------------------------
-// Rule definition
-// ---------------------------------------------------------------------------
+export interface RuleOptions {
+  /** Skip every `export default` form. Defaults to `false`. */
+  ignoreDefaultExports?: boolean;
+}
+
+function inferLiteralType(node: TSESTree.Expression): string | null {
+  switch (node.type) {
+    case AST_NODE_TYPES.Literal: {
+      if (typeof node.value === 'string') return 'string';
+      if (typeof node.value === 'number') return 'number';
+      if (typeof node.value === 'boolean') return 'boolean';
+      if (node.value === null) return 'null';
+      if ('bigint' in node && node.bigint !== undefined) return 'bigint';
+      return null;
+    }
+
+    case AST_NODE_TYPES.TemplateLiteral:
+      return 'string';
+
+    case AST_NODE_TYPES.UnaryExpression: {
+      if (node.operator === 'void') return 'undefined';
+      if (
+        (node.operator === '-' || node.operator === '+') &&
+        node.argument.type === AST_NODE_TYPES.Literal &&
+        typeof node.argument.value === 'number'
+      ) {
+        return 'number';
+      }
+      if (
+        node.operator === '!' &&
+        node.argument.type === AST_NODE_TYPES.Literal
+      ) {
+        return 'boolean';
+      }
+      return null;
+    }
+
+    case AST_NODE_TYPES.Identifier: {
+      if (node.name === 'undefined') return 'undefined';
+      if (node.name === 'NaN' || node.name === 'Infinity') return 'number';
+      return null;
+    }
+
+    case AST_NODE_TYPES.ArrayExpression: {
+      if (node.elements.length === 0) return 'never[]';
+      const elementTypes = new Set<string>();
+      for (const el of node.elements) {
+        if (el === null || el.type === AST_NODE_TYPES.SpreadElement) {
+          return null;
+        }
+        const elType = inferLiteralType(el);
+        if (elType === null) return null;
+        elementTypes.add(elType);
+      }
+      if (elementTypes.size === 1) {
+        const [elType] = [...elementTypes];
+        return `${elType}[]`;
+      }
+      if (elementTypes.size <= 4) {
+        return `(${[...elementTypes].sort().join(' | ')})[]`;
+      }
+      return null;
+    }
+
+    case AST_NODE_TYPES.ObjectExpression:
+      // A structural annotation synthesised from an object literal would be
+      // verbose and would silently lose optionality and method signatures.
+      return null;
+
+    default:
+      return null;
+  }
+}
+
+function inferReturnType(
+  body: TSESTree.BlockStatement | TSESTree.Expression,
+): string | null {
+  if (body.type === AST_NODE_TYPES.BlockStatement) {
+    if (body.body.length !== 1) return null;
+    const stmt = body.body[0];
+    if (stmt === undefined || stmt.type !== AST_NODE_TYPES.ReturnStatement) {
+      return null;
+    }
+    if (stmt.argument == null) return 'void';
+    return inferLiteralType(stmt.argument);
+  }
+
+  return inferLiteralType(body);
+}
+
+function getDeclaratorName(declarator: TSESTree.VariableDeclarator): string {
+  if (declarator.id.type === AST_NODE_TYPES.Identifier) {
+    return declarator.id.name;
+  }
+  return '<destructured>';
+}
+
+function unwrapParam(param: TSESTree.Parameter): TSESTree.Identifier | null {
+  switch (param.type) {
+    case AST_NODE_TYPES.Identifier:
+      return param;
+    case AST_NODE_TYPES.AssignmentPattern:
+      return param.left.type === AST_NODE_TYPES.Identifier ? param.left : null;
+    case AST_NODE_TYPES.RestElement:
+      return param.argument.type === AST_NODE_TYPES.Identifier
+        ? param.argument
+        : null;
+    default:
+      return null;
+  }
+}
+
+function getParamName(param: TSESTree.Parameter): string {
+  switch (param.type) {
+    case AST_NODE_TYPES.Identifier:
+      return param.name;
+    case AST_NODE_TYPES.AssignmentPattern:
+      return param.left.type === AST_NODE_TYPES.Identifier
+        ? param.left.name
+        : '<pattern>';
+    case AST_NODE_TYPES.RestElement:
+      return param.argument.type === AST_NODE_TYPES.Identifier
+        ? `...${param.argument.name}`
+        : '...rest';
+    default:
+      return '<pattern>';
+  }
+}
+
+function getKeyName(
+  key: TSESTree.Expression | TSESTree.PrivateIdentifier,
+): string | null {
+  if (key.type === AST_NODE_TYPES.Identifier) {
+    return key.name;
+  }
+  if (key.type === AST_NODE_TYPES.PrivateIdentifier) {
+    return `#${key.name}`;
+  }
+  if (key.type === AST_NODE_TYPES.Literal) {
+    return String(key.value);
+  }
+  return null;
+}
+
+/** Default-export forms that already describe themselves in a `.d.ts`. */
+const SELF_DESCRIBING_DEFAULT_EXPORTS: ReadonlySet<string> = new Set<string>([
+  AST_NODE_TYPES.ClassDeclaration,
+  AST_NODE_TYPES.FunctionDeclaration,
+  AST_NODE_TYPES.Identifier,
+  AST_NODE_TYPES.Literal,
+  AST_NODE_TYPES.TemplateLiteral,
+  AST_NODE_TYPES.TSDeclareFunction,
+  AST_NODE_TYPES.TSEnumDeclaration,
+  AST_NODE_TYPES.TSInterfaceDeclaration,
+  AST_NODE_TYPES.TSModuleDeclaration,
+  AST_NODE_TYPES.TSTypeAliasDeclaration,
+]);
 
 const createRule = ESLintUtils.RuleCreator(
   (name) =>
     `https://github.com/mikn/rules_typescript/blob/main/eslint-plugin/docs/rules/${name}.md`,
 );
 
-export const requireExplicitTypes = createRule<[], MessageId>({
+export const requireExplicitTypes = createRule<[RuleOptions], MessageIds>({
   name: 'require-explicit-types',
+
   meta: {
     type: 'problem',
+    fixable: 'code',
+    hasSuggestions: true,
     docs: {
       description:
         'Require explicit type annotations on exported bindings for isolated declarations compatibility',
     },
     messages: {
-      missingFunctionReturnType:
+      missingReturnType:
         "Exported function '{{name}}' is missing an explicit return type annotation. " +
         'Add a return type (e.g. `function {{name}}(): ReturnType`) to enable isolated ' +
         'declarations emit without a type-inference pass. ' +
@@ -85,199 +217,282 @@ export const requireExplicitTypes = createRule<[], MessageId>({
         '.d.ts can be emitted without type inference. ' +
         'See: https://www.typescriptlang.org/tsconfig#isolatedDeclarations',
 
+      missingParameterType:
+        "Parameter '{{name}}' of exported function '{{fnName}}' is missing an explicit " +
+        'type annotation. Every parameter of an exported function must be typed for ' +
+        'isolated declarations emit. ' +
+        'See: https://www.typescriptlang.org/tsconfig#isolatedDeclarations',
+
+      missingPropertyType:
+        "Property '{{name}}' of exported class '{{className}}' is missing an explicit " +
+        'type annotation. ' +
+        'See: https://www.typescriptlang.org/tsconfig#isolatedDeclarations',
+
       missingDefaultExportType:
         'Default export is missing an explicit type annotation. ' +
         'Wrap in a typed variable (`const value: Type = ...; export default value`) ' +
         'or add a return-type annotation to the function. ' +
         'See: https://www.typescriptlang.org/tsconfig#isolatedDeclarations',
+
+      cannotInferType:
+        'Cannot infer the type automatically. Please add an explicit type annotation manually.',
     },
-    schema: [],
+    schema: [
+      {
+        type: 'object',
+        properties: {
+          ignoreDefaultExports: {
+            type: 'boolean',
+          },
+        },
+        additionalProperties: false,
+      },
+    ],
   },
-  defaultOptions: [],
 
-  create(context) {
-    // ── Named export declarations ────────────────────────────────────────
-    function checkExportNamedDeclaration(
-      node: TSESTree.ExportNamedDeclaration,
-    ): void {
-      const { declaration } = node;
-      if (declaration == null) {
-        // `export { x }` or `export { x } from "..."` — re-export, skip.
-        return;
-      }
+  defaultOptions: [{ ignoreDefaultExports: false }],
 
-      // `export type { ... }` — type-only, skip.
-      if (node.exportKind === 'type') {
-        return;
-      }
+  create(context: RuleContext<MessageIds, [RuleOptions]>): RuleListener {
+    const ignoreDefaultExports =
+      context.options[0]?.ignoreDefaultExports ?? false;
 
-      if (declaration.type === AST_NODE_TYPES.FunctionDeclaration) {
-        // Skip overload signatures (no body) — the implementation signature
-        // that follows will be checked in its own ExportNamedDeclaration.
-        if (isOverloadSignature(declaration)) {
-          return;
-        }
-        if (!hasReturnTypeAnnotation(declaration)) {
-          const funcName =
-            declaration.id?.name ?? '<anonymous>';
-          context.report({
-            node: declaration,
-            messageId: 'missingFunctionReturnType',
-            data: { name: funcName },
-          });
-        }
-        return;
-      }
-
-      // TSDeclareFunction covers `export declare function foo(): void` — skip.
-      if (declaration.type === AST_NODE_TYPES.TSDeclareFunction) {
-        return;
-      }
-
-      if (declaration.type === AST_NODE_TYPES.VariableDeclaration) {
-        // Skip `declare const` / `declare let` — ambient declarations.
-        if ((declaration as TSESTree.VariableDeclaration & { declare?: boolean }).declare === true) {
-          return;
-        }
-
-        for (const declarator of declaration.declarations) {
-          const init = declarator.init;
-          const bindingName = getBindingName(declarator.id);
-
-          // Function expression / arrow function: check for return type on
-          // the function itself OR a full type annotation on the binding.
-          if (
-            init != null &&
-            (init.type === AST_NODE_TYPES.ArrowFunctionExpression ||
-              init.type === AST_NODE_TYPES.FunctionExpression)
-          ) {
-            const hasBindingType = declarator.id.typeAnnotation != null;
-            const hasFunctionReturnType = hasReturnTypeAnnotation(init);
-            if (!hasBindingType && !hasFunctionReturnType) {
-              context.report({
-                node: declarator,
-                messageId: 'missingFunctionReturnType',
-                data: { name: bindingName },
-              });
-            }
-            continue;
-          }
-
-          // Non-function variable: must have an explicit binding type.
-          if (!hasTypeAnnotation(declarator)) {
-            context.report({
-              node: declarator,
-              messageId: 'missingVariableType',
-              data: { name: bindingName },
-            });
-          }
-        }
-        return;
-      }
-
-      // TSTypeAliasDeclaration, TSInterfaceDeclaration, TSEnumDeclaration,
-      // ClassDeclaration — these are their own types and isolated declarations
-      // handles them differently; don't flag.
+    // TS1064 rejects a non-Promise annotation on an async function, and a
+    // generator's Generator<Y, R, N> cannot be recovered from the return
+    // expression alone -- so an unadjusted inference autofixes working code into
+    // code that does not compile.
+    function adjustForFunctionKind(
+      node: { async: boolean; generator: boolean },
+      inferredType: string | null,
+    ): string | null {
+      if (inferredType === null) return null;
+      if (node.generator) return null;
+      return node.async ? `Promise<${inferredType}>` : inferredType;
     }
 
-    // ── Default export declarations ──────────────────────────────────────
-    function checkExportDefaultDeclaration(
-      node: TSESTree.ExportDefaultDeclaration,
+    function reportMissingReturnType(
+      node:
+        | TSESTree.FunctionDeclaration
+        | TSESTree.FunctionExpression
+        | TSESTree.ArrowFunctionExpression,
+      name: string,
     ): void {
-      // ExportDefaultDeclaration.exportKind is always 'value' in the current
-      // @typescript-eslint AST spec.  The check below is kept as a guard for
-      // future spec changes but is currently unreachable.
+      if (hasReturnTypeAnnotation(node)) return;
 
-      const { declaration } = node;
+      const body = node.body;
+      if (body == null) return;
 
-      if (declaration.type === AST_NODE_TYPES.FunctionDeclaration) {
-        // Overload signatures are not directly emitted as default exports,
-        // but if the function has no body it's a bare overload — skip.
-        if (isOverloadSignature(declaration)) {
-          return;
-        }
-        if (!hasReturnTypeAnnotation(declaration)) {
-          const funcName = declaration.id?.name ?? 'default';
-          context.report({
-            node: declaration,
-            messageId: 'missingFunctionReturnType',
-            data: { name: funcName },
-          });
-        }
+      const inferredType = adjustForFunctionKind(node, inferReturnType(body));
+      const sourceCode = context.sourceCode;
+
+      // The annotation anchors on the `)` that closes the parameter list, which
+      // is the token before `{` for a function and before `=>` for an arrow.
+      let closingParen: ReturnType<typeof sourceCode.getTokenBefore>;
+      if (node.type === AST_NODE_TYPES.ArrowFunctionExpression) {
+        const arrowToken = sourceCode.getTokenBefore(body, {
+          filter: (t) => t.type === 'Punctuator' && t.value === '=>',
+        });
+        if (arrowToken == null) return;
+        closingParen = sourceCode.getTokenBefore(arrowToken);
+      } else {
+        closingParen = sourceCode.getTokenBefore(body);
+      }
+      if (closingParen == null) return;
+
+      const anchor = closingParen;
+      if (inferredType !== null) {
+        context.report({
+          node,
+          messageId: 'missingReturnType',
+          data: { name },
+          fix: (fixer) => fixer.insertTextAfter(anchor, `: ${inferredType}`),
+        });
         return;
       }
 
-      if (declaration.type === AST_NODE_TYPES.ArrowFunctionExpression) {
-        if (!hasReturnTypeAnnotation(declaration)) {
-          context.report({
-            node: declaration,
-            messageId: 'missingDefaultExportType',
-          });
-        }
-        return;
-      }
-
-      // `export default <identifier>` — the identifier was declared
-      // elsewhere; we don't flag it here since the declaration site is
-      // responsible for the type annotation.
-      if (declaration.type === AST_NODE_TYPES.Identifier) {
-        return;
-      }
-
-      // `export default <literal>` — literals are self-typed; skip.
-      if (
-        declaration.type === AST_NODE_TYPES.Literal ||
-        declaration.type === AST_NODE_TYPES.TemplateLiteral
-      ) {
-        return;
-      }
-
-      // `export default class { ... }` — classes are handled by tsc.
-      if (declaration.type === AST_NODE_TYPES.ClassDeclaration) {
-        return;
-      }
-
-      // TypeScript-specific declaration types are self-describing.
-      if (
-        declaration.type === AST_NODE_TYPES.TSDeclareFunction ||
-        declaration.type === AST_NODE_TYPES.TSInterfaceDeclaration ||
-        declaration.type === AST_NODE_TYPES.TSTypeAliasDeclaration ||
-        declaration.type === AST_NODE_TYPES.TSEnumDeclaration ||
-        declaration.type === AST_NODE_TYPES.TSModuleDeclaration
-      ) {
-        return;
-      }
-
-      // `export default <expression>` without a type context — flag it.
-      // This catches patterns like `export default { foo: 1 }` where the
-      // object literal type isn't statically knowable without inference.
       context.report({
-        node: declaration,
-        messageId: 'missingDefaultExportType',
+        node,
+        messageId: 'missingReturnType',
+        data: { name },
+        suggest: [{ messageId: 'cannotInferType', fix: () => null }],
       });
     }
 
+    function reportMissingVariableType(
+      declarator: TSESTree.VariableDeclarator,
+      varName: string,
+    ): void {
+      if (hasTypeAnnotation(declarator)) return;
+
+      const init = declarator.init;
+      const inferredType = init == null ? null : inferLiteralType(init);
+      const idNode = declarator.id;
+
+      if (inferredType !== null) {
+        context.report({
+          node: declarator,
+          messageId: 'missingVariableType',
+          data: { name: varName },
+          fix: (fixer) => fixer.insertTextAfter(idNode, `: ${inferredType}`),
+        });
+        return;
+      }
+
+      context.report({
+        node: declarator,
+        messageId: 'missingVariableType',
+        data: { name: varName },
+        suggest: [{ messageId: 'cannotInferType', fix: () => null }],
+      });
+    }
+
+    function checkFunctionParams(
+      params: TSESTree.Parameter[],
+      fnName: string,
+    ): void {
+      for (const param of params) {
+        const paramNode = unwrapParam(param);
+        if (paramNode === null) continue;
+        if (paramNode.typeAnnotation == null) {
+          context.report({
+            node: param,
+            messageId: 'missingParameterType',
+            data: { name: getParamName(param), fnName },
+          });
+        }
+      }
+    }
+
+    function checkExportedClass(node: TSESTree.ClassDeclaration): void {
+      const className = node.id?.name ?? '<anonymous>';
+
+      for (const member of node.body.body) {
+        if (member.type === AST_NODE_TYPES.MethodDefinition) {
+          // A constructor's return type is the class itself.
+          if (member.kind === 'constructor') continue;
+          if (member.computed) continue;
+
+          const fn = member.value;
+          const methodName = getKeyName(member.key) ?? '<computed>';
+          // TS1095: annotating a setter's return type is a compile error, so
+          // reporting one here would autofix working code into broken code.
+          if (member.kind !== 'set' && !hasReturnTypeAnnotation(fn)) {
+            const body = fn.body;
+            const inferredType =
+              body == null ? null : adjustForFunctionKind(fn, inferReturnType(body));
+            const insertToken =
+              body == null ? null : context.sourceCode.getTokenBefore(body);
+
+            if (inferredType !== null && insertToken != null) {
+              context.report({
+                node: member,
+                messageId: 'missingReturnType',
+                data: { name: `${className}.${methodName}` },
+                fix: (fixer) =>
+                  fixer.insertTextAfter(insertToken, `: ${inferredType}`),
+              });
+            } else {
+              context.report({
+                node: member,
+                messageId: 'missingReturnType',
+                data: { name: `${className}.${methodName}` },
+                suggest: [{ messageId: 'cannotInferType', fix: () => null }],
+              });
+            }
+          }
+
+          checkFunctionParams(fn.params, `${className}.${methodName}`);
+          continue;
+        }
+
+        if (member.type === AST_NODE_TYPES.PropertyDefinition) {
+          if (member.computed) continue;
+          if (member.typeAnnotation != null) continue;
+          context.report({
+            node: member,
+            messageId: 'missingPropertyType',
+            data: { name: getKeyName(member.key) ?? '<computed>', className },
+          });
+        }
+      }
+    }
+
     return {
-      ExportNamedDeclaration: checkExportNamedDeclaration,
-      ExportDefaultDeclaration: checkExportDefaultDeclaration,
+      'ExportNamedDeclaration > FunctionDeclaration'(
+        node: TSESTree.FunctionDeclaration,
+      ): void {
+        const name = node.id?.name ?? '<anonymous>';
+        reportMissingReturnType(node, name);
+        checkFunctionParams(node.params, name);
+      },
+
+      'ExportDefaultDeclaration > FunctionDeclaration'(
+        node: TSESTree.FunctionDeclaration,
+      ): void {
+        if (ignoreDefaultExports) return;
+        const name = node.id?.name ?? 'default';
+        reportMissingReturnType(node, name);
+        checkFunctionParams(node.params, name);
+      },
+
+      ExportNamedDeclaration(node: TSESTree.ExportNamedDeclaration): void {
+        const decl = node.declaration;
+        if (decl == null) return;
+        if (node.exportKind === 'type') return;
+
+        if (decl.type === AST_NODE_TYPES.VariableDeclaration) {
+          if (decl.declare === true) return;
+
+          for (const declarator of decl.declarations) {
+            const init = declarator.init;
+            if (init == null) continue;
+
+            const varName = getDeclaratorName(declarator);
+            if (
+              init.type === AST_NODE_TYPES.ArrowFunctionExpression ||
+              init.type === AST_NODE_TYPES.FunctionExpression
+            ) {
+              // `const fn: () => string = () => 'x'` is already emittable: the
+              // binding annotation describes the signature, so annotating the
+              // function would rewrite code that is correct as written.
+              if (hasBindingTypeAnnotation(declarator)) continue;
+              reportMissingReturnType(init, varName);
+              checkFunctionParams(init.params, varName);
+            } else {
+              reportMissingVariableType(declarator, varName);
+            }
+          }
+        }
+
+        if (decl.type === AST_NODE_TYPES.ClassDeclaration) {
+          checkExportedClass(decl);
+        }
+      },
+
+      ExportDefaultDeclaration(node: TSESTree.ExportDefaultDeclaration): void {
+        if (ignoreDefaultExports) return;
+        const decl = node.declaration;
+
+        if (
+          decl.type === AST_NODE_TYPES.ArrowFunctionExpression ||
+          decl.type === AST_NODE_TYPES.FunctionExpression
+        ) {
+          reportMissingReturnType(decl, 'default');
+          checkFunctionParams(decl.params, 'default');
+          return;
+        }
+
+        if (decl.type === AST_NODE_TYPES.ClassDeclaration) {
+          checkExportedClass(decl);
+          return;
+        }
+
+        if (SELF_DESCRIBING_DEFAULT_EXPORTS.has(decl.type)) return;
+
+        context.report({
+          node: decl,
+          messageId: 'missingDefaultExportType',
+        });
+      },
     };
   },
 });
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Extracts a human-readable name from a binding pattern for error messages.
- *
- * Returns the identifier name for simple bindings, or a placeholder for
- * destructuring patterns.
- */
-function getBindingName(node: TSESTree.BindingName): string {
-  if (node.type === AST_NODE_TYPES.Identifier) {
-    return node.name;
-  }
-  // Destructuring patterns: `const { a, b } = ...` — just return a generic name.
-  return '<destructured>';
-}

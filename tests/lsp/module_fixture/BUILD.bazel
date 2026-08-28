@@ -1,0 +1,19 @@
+"""A first-party package imported by the bare specifier it declares.
+
+Analysed, never built: what the generated tsconfig says about `module_name` is
+decided at analysis time, and //tests/lsp:module_paths_test is where it is read.
+"""
+
+load("//ts:defs.bzl", "ts_compile")
+
+# The module_name is the point of the fixture, and a generated target would not
+# declare one.
+# gazelle:ts_ignore
+
+ts_compile(
+    name = "widget",
+    srcs = ["index.ts"],
+    module_name = "@acme/widget",
+    tags = ["manual"],
+    visibility = ["//tests/lsp:__pkg__"],
+)

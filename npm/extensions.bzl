@@ -13,14 +13,14 @@ for its own tests.  Non-root registrations for a name are silently skipped when
 the root module has already claimed that name.
 """
 
-load("//ts/private:npm_translate_lock.bzl", "npm_translate_lock")
+load("//npm:lazy.bzl", "declare_lazy_npm_repos")
 load("//ts/private:pnpm.bzl", "DEFAULT_PNPM_VERSION", "pnpm_repo")
 
 def _npm_impl(module_ctx):
     # Collect registrations in two passes:
     #   1. Root-module registrations take priority.
     #   2. Non-root registrations only fill in names not already claimed.
-    claimed = {}  # name → pnpm_lock label
+    claimed = {}  # name → the translate_lock tag that owns it
 
     # Pass 1: root module.
     for mod in module_ctx.modules:
@@ -28,7 +28,7 @@ def _npm_impl(module_ctx):
             continue
         for lock_tag in mod.tags.translate_lock:
             if lock_tag.name not in claimed:
-                claimed[lock_tag.name] = lock_tag.pnpm_lock
+                claimed[lock_tag.name] = lock_tag
 
     # Pass 2: non-root modules (fill in unclaimed names only).
     for mod in module_ctx.modules:
@@ -36,12 +36,15 @@ def _npm_impl(module_ctx):
             continue
         for lock_tag in mod.tags.translate_lock:
             if lock_tag.name not in claimed:
-                claimed[lock_tag.name] = lock_tag.pnpm_lock
+                claimed[lock_tag.name] = lock_tag
 
-    for name, pnpm_lock in claimed.items():
-        npm_translate_lock(
-            name = name,
-            pnpm_lock = pnpm_lock,
+    for name, lock_tag in claimed.items():
+        declare_lazy_npm_repos(
+            module_ctx,
+            name,
+            lock_tag.pnpm_lock,
+            lock_tag.patches,
+            lock_tag.npmrc,
         )
 
     # ── pnpm hermetic binary ──────────────────────────────────────────────────
@@ -66,8 +69,66 @@ def _npm_impl(module_ctx):
     )
 
 _translate_lock_tag = tag_class(attrs = {
-    "name": attr.string(default = "npm"),
+    "name": attr.string(
+        default = "npm",
+        doc = """The alias hub's repository name, which is also what use_repo takes and what
+BUILD labels spell (`@npm//:react`).
+
+One call per lockfile: a workspace translating several gets one hub each, and a
+package's imports resolve into exactly one of them -- which Gazelle needs telling
+per package, with `# gazelle:ts_npm_hub <name>`. Only the root module's
+registration for a name takes effect; a non-root module's is skipped, which is
+what lets a consumer supply its own lockfile under the name rules_typescript uses
+for its own tests.""",
+    ),
     "pnpm_lock": attr.label(mandatory = True, allow_single_file = True),
+    "npmrc": attr.label(
+        allow_single_file = True,
+        doc = """The workspace .npmrc, when packages come from anywhere but registry.npmjs.org.
+
+A pnpm lockfile records name@version and integrity and says nothing about the
+registry, so a private or scoped registry is unreachable without this file:
+
+    npm.translate_lock(
+        pnpm_lock = "//:pnpm-lock.yaml",
+        npmrc = "//:.npmrc",
+    )
+
+`registry=` and `@scope:registry=` are read by the extension. Credentials
+(`//host/:_authToken=`, `//host/:_auth=`) are NOT: they are read by each package's
+own fetch, because the extension's result is written to MODULE.bazel.lock, which
+is committed. `${VAR}` interpolation is resolved at fetch time from the
+environment, which is how a token stays out of the workspace entirely.
+
+`~/.npmrc` is deliberately not consulted. Bazel cannot make a file outside the
+workspace an input, so reading it would mean one lockfile and one lock fetching
+different bytes on two machines.""",
+    ),
+    "patches": attr.label_list(
+        allow_files = True,
+        doc = """The patch files named by the lockfile's `patchedDependencies`.
+
+pnpm keeps the patch paths in pnpm-workspace.yaml, which the extension cannot
+turn into labels: a path like `patches/foo.patch` says nothing about where the
+consumer's Bazel package boundaries fall. So pass the files as labels and the
+extension pairs each one with its lockfile entry by filename, which is pnpm's
+own naming (`<name with / replaced by __>@<version>.patch`):
+
+    npm.translate_lock(
+        pnpm_lock = "//:pnpm-lock.yaml",
+        patches = ["//patches:@acme__diffs@1.3.1.patch"],
+    )
+
+Each label is then resolved to a file and checked against the sha256 the
+lockfile records beside the entry, so a label that names nothing readable, or a
+file pnpm never saw, fails here rather than wherever the patch mattered. So does
+an entry with no matching file, and a file no entry claims.
+
+A scoped package's patch keeps the leading '@' of its name, and a target name
+starting with '@' cannot come out of `glob()` -- glob prefixes ':' onto such a
+result and `exports_files` rejects it, failing the whole package. List those
+files literally.""",
+    ),
 })
 
 _pnpm_tag = tag_class(

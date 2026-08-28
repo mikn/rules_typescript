@@ -1,0 +1,29 @@
+load("@rules_go//go:def.bzl", "go_test")
+load("//ts:defs.bzl", "css_module")
+
+# `composes ... from` resolves in bazel-bin, where the dep's copy of its
+# stylesheet is, so the dep has to be an input to this target's compile action.
+
+css_module(
+    name = "theme_module_css",
+    srcs = ["theme.module.css"],
+    visibility = ["//visibility:public"],
+)
+
+css_module(
+    name = "card_module_css",
+    srcs = ["card.module.css"],
+    visibility = ["//visibility:public"],
+    deps = [":theme_module_css"],
+)
+
+go_test(
+    name = "css_module_composes_test",
+    size = "small",
+    srcs = ["css_module_composes_test.go"],
+    data = [
+        ":card_module_css",
+        ":theme_module_css",
+    ],
+    deps = ["//tests/verify"],
+)

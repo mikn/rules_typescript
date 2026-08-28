@@ -1,0 +1,83 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//npm:defs.bzl", "node_modules")
+load("//ts:defs.bzl", "ts_compile", "ts_test", "ts_worker_dry_run_test")
+
+package(default_visibility = ["//:__pkg__"])
+
+# @npm_workers is translated from these; nothing in this package builds them.
+exports_files([
+    "package.json",
+    "pnpm-lock.yaml",
+])
+
+# The targets below have srcs in src/; a BUILD file there would turn it into a
+# package and make those labels cross a package boundary.
+# gazelle:exclude src
+
+# gazelle:ts_npm_hub npm_workers
+
+# The worker itself. `webworker` is in no set `target` implies, so without lib
+# the Request/Response globals it is written against do not resolve.
+ts_compile(
+    name = "worker",
+    srcs = ["src/index.ts"],
+    lib = [
+        "esnext",
+        "webworker",
+    ],
+)
+
+# The tests run inside workerd, from the .js Bazel compiled. `cloudflare:test`
+# is owned by the pool's own Vite plugin, which is why the config installs
+# cloudflareTest() rather than setting test.pool -- see vitest.workers.config.mjs.
+#
+# `types` names an `exports` subpath whose only condition is `types`, which is
+# where the pool puts the ambient declaration for that module: nothing imports
+# it, and tsconfig `types` cannot reach it under a ruleset with no node_modules,
+# so it is resolved from the manifest into the program's `files`.
+ts_test(
+    name = "worker_test",
+    size = "medium",
+    srcs = ["src/worker.test.ts"],
+    config = "vitest.workers.config.mjs",
+    # v8 coverage is counters read back out of node's inspector, which workerd
+    # has none of; istanbul instruments before the code crosses into it.
+    coverage_provider = "istanbul",
+    data = ["wrangler.jsonc"],
+    lib = [
+        "esnext",
+        "webworker",
+    ],
+    types = ["@cloudflare/vitest-pool-workers/types"],
+    deps = [
+        ":worker",
+        "@npm_workers//:cloudflare_vitest-pool-workers",
+        "@npm_workers//:vitest",
+        "@npm_workers//:vitest_coverage-istanbul",
+    ],
+)
+
+build_test(
+    name = "worker_builds_test",
+    targets = [":worker"],
+)
+
+# wrangler needs its own tree: the pool's node_modules is built from the test's
+# deps, and wrangler is not one of them.
+node_modules(
+    name = "wrangler_node_modules",
+    deps = ["@npm_workers//:wrangler"],
+)
+
+# Does this worker still deploy? Everything a deploy does up to the upload, with
+# no credentials and nothing sent.
+ts_worker_dry_run_test(
+    name = "deploy_dry_run_test",
+    size = "medium",
+    config = "wrangler.jsonc",
+    node_modules = ":wrangler_node_modules",
+    deps = [":worker"],
+)
+
+# The generated editor program for this package; see //:refresh_tsconfig.
+exports_files(["tsconfig.json"])

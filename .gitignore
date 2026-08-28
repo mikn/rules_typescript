@@ -9,8 +9,24 @@ bazel-*
 # Bazel lock files (large, regenerated)
 MODULE.bazel.lock
 
+# Everything //:refresh_tsconfig installs except the root tsconfig.json, which
+# stays checked in (//:refresh_tsconfig_test diffs it)
+.bazel/
+
 # Node modules (managed by Bazel, not checked in)
 node_modules/
+
+# Cargo build output (oxc_cli is built by Bazel via rules_rust; a cargo
+# target/ is local scratch only)
+target/
+
+# Next.js build output
+.next/
+# SvelteKit build output and generated types
+.svelte-kit/
+# ESLint plugin build output (built on demand: see the isolated-declarations
+# guide, which packs the plugin from source)
+eslint-plugin/dist/
 
 # IDE
 .vscode/settings.json
@@ -27,3 +43,9 @@ Thumbs.db
 RELEASE_CHECKLIST.md
 RELEASE_NOTES.md
 SP10_COMPLETION_SUMMARY.md
+
+# oj's config-extraction cache, written into whatever root it serves
+.oj-cache/
+
+# Stray build output: tools/launcher builds to bazel-bin, never the repo root.
+/launcher

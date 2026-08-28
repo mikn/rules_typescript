@@ -18,16 +18,30 @@ The hybrid pattern:
 Shared libraries provide JsInfo (compiled .js files). next_build creates a
 staging directory that contains:
 
-  1. The app source files (.tsx, .ts from srcs attr).
+  1. The app source files (.tsx, .ts, .css, public/ assets from srcs attr).
   2. A symlink to the Bazel-built node_modules tree.
-  3. The user's next.config.mjs (from config attr).
+  3. The user's next.config.mjs (from config attr) and anything it imports
+     (from config_srcs attr).
   4. An optional tsconfig.json (from tsconfig attr).
   5. Source files from staging_srcs, placed at their package-relative paths
      so that Next.js resolves them via relative imports or path mappings.
 
-Output: a declare_directory artifact containing the `.next/` build output.
-The `.next/cache/` subdirectory is excluded to keep the output hermetic and
-cacheable by Bazel's remote cache.
+Nothing else is in the staging directory, which is what makes the file list a
+real declaration: an import of a file the target does not list fails to resolve
+rather than picking the file up off the developer's disk.
+
+The action runs with `block-network`, so `next build` cannot download anything.
+`next/font/google` fetches its woff2 payloads at build time and therefore fails
+here; `allow_network = True` opts a target out and says so in the BUILD file.
+
+Output: one declare_directory artifact holding the `.next/` build output. A
+whole-directory output is right for this rule -- `next start` reads the tree by
+name, and the file set depends on the routes Next.js decided to prerender -- so
+the pruning is subtractive: `cache/` (a local incremental cache), `trace` and
+`diagnostics/` (build telemetry carrying absolute paths and wall-clock times)
+are removed. What remains is still not byte-reproducible: Next.js bakes the
+absolute project path into its server bundles, and BUILD_ID is a random nanoid
+unless next.config sets `generateBuildId`.
 
 Usage:
 
@@ -66,22 +80,52 @@ With shared packages (staging_srcs pattern):
     )
 """
 
-load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "get_js_runtime")
+load("//ts/private:runtime.bzl", "JS_TOOL_TOOLCHAIN_TYPE", "get_js_tool")
 
 def _shell_escape(s):
     """Escapes a string for safe embedding in a double-quoted shell string."""
     return s.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$").replace("`", "\\`")
 
+# Build telemetry Next.js writes beside the real output: `trace` records the
+# absolute staging path of every span, `diagnostics/` the build wall clock.
+# Both differ between two otherwise identical builds, and nothing serves them.
+_TELEMETRY_OUTPUTS = ["trace", "diagnostics"]
+
+_NETWORK_FAILURE_PATTERN = "ENETUNREACH|EAI_AGAIN|ECONNREFUSED|getaddrinfo|from Google Fonts"
+
+_NETWORK_DIAGNOSTIC = """next_build: `next build` failed while reaching for the network.
+
+This action runs with the network blocked, so nothing it builds may depend on a
+download. `next/font/google` is the usual cause: it fetches the font CSS and the
+woff2 payloads from fonts.googleapis.com while compiling.
+
+Either declare the font locally -- `next/font/local`, with the font files listed
+in `srcs` -- or set `allow_network = True` on this next_build target to accept a
+build whose output depends on the network."""
+
+def _staging_dest(src, pkg, attr):
+    """Path, relative to the staging root, that `src` is copied to."""
+    short = src.short_path
+    if not pkg:
+        return short
+    if short.startswith(pkg + "/"):
+        return short[len(pkg) + 1:]
+
+    # Falling back to the basename put two files from different packages at the
+    # same staging path, and neither where an import pointed.
+    fail(("next_build: %s in `%s` is outside this target's package (%s), so it has no " +
+          "path inside the Next.js project root. Files from another package go in " +
+          "`staging_srcs`, which stages them at their workspace-relative paths.") %
+         (short, attr, pkg))
+
 # ─── Rule implementation ────────────────────────────────────────────────────────
 
 def _next_build_impl(ctx):
-    # Resolve the JS runtime from the toolchain.
-    runtime_binary = None
-    runtime_args = []
-    js_runtime = get_js_runtime(ctx)
-    if js_runtime:
-        runtime_binary = js_runtime.runtime_binary
-        runtime_args = js_runtime.args_prefix
+    # `next build` runs inside the action, so node comes from the js_tool
+    # (exec platform) toolchain.
+    js_tool = get_js_tool(ctx)
+    runtime_binary = js_tool.runtime_binary
+    runtime_args = js_tool.args_prefix
 
     # ── Collect node_modules ──────────────────────────────────────────────────
     # Use the DefaultInfo file list to get the directory artifact directly.
@@ -137,26 +181,20 @@ def _next_build_impl(ctx):
 
     pkg = ctx.label.package
 
+    # srcs and config_srcs are project files: they land at the path they have
+    # inside the package, which is the Next.js project root in staging.
+    #   pkg = "apps/web", short = "apps/web/app/page.tsx" → dest = "app/page.tsx"
+    #   pkg = "",         short = "src/app/page.tsx"      → dest = "src/app/page.tsx"
     for src in srcs:
-        short = src.short_path
-        # Strip the package prefix from the short path to get a path relative
-        # to the package directory (= the Next.js project root in staging).
-        # Examples:
-        #   pkg = "apps/web", short = "apps/web/app/page.tsx" → dest = "app/page.tsx"
-        #   pkg = "",         short = "src/app/page.tsx"       → dest = "src/app/page.tsx"
-        if pkg and short.startswith(pkg + "/"):
-            dest_rel = short[len(pkg) + 1:]
-        elif not pkg:
-            # Root package: short_path is already workspace-relative and correct.
-            dest_rel = short
-        else:
-            # Fallback: use basename (should not happen for properly structured sources).
-            dest_rel = src.basename
-        manifest_lines.append("{}\t{}".format(dest_rel, src.path))
+        manifest_lines.append("{}\t{}".format(_staging_dest(src, pkg, "srcs"), src.path))
+
+    for src in ctx.files.config_srcs:
+        manifest_lines.append("{}\t{}".format(_staging_dest(src, pkg, "config_srcs"), src.path))
 
     for src in staging_srcs_files:
         # staging_srcs files land at their workspace-relative paths.
         short = src.short_path
+
         # short_path can start with "../" for external repo files — skip those.
         if short.startswith("../"):
             continue
@@ -169,18 +207,9 @@ def _next_build_impl(ctx):
     )
 
     # ── Generate the wrapper script ───────────────────────────────────────────
-    # The wrapper script:
-    #  1. Creates a writable staging directory *inside* the declared output dir
-    #     at OUT_DIR/_staging to stay within the writable sandbox tree (RBE-safe).
-    #  2. Copies source files (from manifest) into the staging dir.
-    #  3. Symlinks the node_modules tree into the staging dir.
-    #  4. Copies the next.config file into the staging dir.
-    #  5. Copies the tsconfig.json into the staging dir (if provided).
-    #  6. Generates a minimal package.json in the staging dir (required by Next.js).
-    #  7. Runs `next build` inside the staging dir.
-    #  8. Moves the .next/ output to OUT_DIR, removes .next/cache/ and _staging.
+    # The staging root goes *inside* the declared output dir so it stays within
+    # the sandbox-writable tree, which is what makes this work on RBE.
 
-    # Escape paths for embedding in the shell script.
     manifest_path = _shell_escape(manifest.path)
     node_modules_path_esc = _shell_escape(node_modules_path)
     out_dir_path_esc = _shell_escape(out_dir.path)
@@ -191,12 +220,7 @@ def _next_build_impl(ctx):
     # Escape the label name once and reuse everywhere it appears in shell context.
     label_name_esc = _shell_escape(ctx.label.name)
 
-    # Runtime invocation.
-    if runtime_binary:
-        runtime_rel_esc = _shell_escape(runtime_binary.path)
-        runtime_cmd = '"${EXEC_ROOT}/' + runtime_rel_esc + '"'
-    else:
-        runtime_cmd = '"node"'
+    runtime_cmd = '"${EXEC_ROOT}/' + _shell_escape(runtime_binary.path) + '"'
 
     runtime_args_str = " ".join(['"{}"'.format(_shell_escape(a)) for a in runtime_args])
 
@@ -210,6 +234,19 @@ def _next_build_impl(ctx):
     env_exports = ""
     for k, v in ctx.attr.env.items():
         env_exports += 'export {}="{}"\n'.format(k, _shell_escape(v))
+
+    # A build that runs with the network blocked fails deep inside a webpack
+    # loader, so the wrapper names the cause rather than leaving the user to
+    # recognise ENETUNREACH.
+    network_diagnostic_block = ""
+    if not ctx.attr.allow_network:
+        network_diagnostic_block = (
+            '  if grep -qE "' + _NETWORK_FAILURE_PATTERN + '" "${BUILD_LOG}"; then\n' +
+            "    cat >&2 <<'NEXT_BUILD_NETWORK_EOF'\n" +
+            _NETWORK_DIAGNOSTIC + "\n" +
+            "NEXT_BUILD_NETWORK_EOF\n" +
+            "  fi\n"
+        )
 
     wrapper_content = (
         "#!/usr/bin/env bash\n" +
@@ -231,7 +268,7 @@ def _next_build_impl(ctx):
         'mkdir -p "${STAGING_DIR}"\n' +
         "\n" +
         "# Copy source files from the manifest into the staging directory.\n" +
-        'while IFS=$\'\\t\' read -r DEST SRC; do\n' +
+        "while IFS=$'\\t' read -r DEST SRC; do\n" +
         '  [[ -z "${DEST}" ]] && continue\n' +
         '  DEST_ABS="${STAGING_DIR}/${DEST}"\n' +
         '  mkdir -p "$(dirname "${DEST_ABS}")"\n' +
@@ -244,22 +281,18 @@ def _next_build_impl(ctx):
         (
             "# Copy next.config into staging dir.\n" +
             'cp -f "${EXEC_ROOT}/' + config_path_esc + '" "${STAGING_DIR}/' + config_basename_esc + '"\n' +
-            "\n"
-            if config_file else ""
+            "\n" if config_file else ""
         ) +
         (
             "# Copy tsconfig.json into staging dir.\n" +
             'cp -f "${EXEC_ROOT}/' + tsconfig_path_esc + '" "${STAGING_DIR}/tsconfig.json"\n' +
-            "\n"
-            if tsconfig_file else ""
+            "\n" if tsconfig_file else ""
         ) +
-        "# Generate a minimal package.json so Next.js can determine the project name.\n" +
-        "# Next.js requires package.json to exist in the project directory.\n" +
-        "# Include devDependencies for typescript/@types so Next.js does not try to\n" +
-        "# auto-install them via npm (which would fail in the Bazel sandbox).\n" +
+        "# Next.js requires a package.json in the project directory. Naming\n" +
+        "# typescript here would not help: Next.js resolves those modules rather\n" +
+        "# than reading the manifest, so the node_modules tree is what carries them.\n" +
         'if [[ ! -f "${STAGING_DIR}/package.json" ]]; then\n' +
-        "  printf '{\"name\":\"%s\",\"version\":\"0.0.0\",\"private\":true," +
-        "\"devDependencies\":{\"typescript\":\"*\",\"@types/react\":\"*\",\"@types/node\":\"*\"}}\\n' " +
+        "  printf '{\"name\":\"%s\",\"version\":\"0.0.0\",\"private\":true}\\n' " +
         '"' + label_name_esc + '" > "${STAGING_DIR}/package.json"\n' +
         "fi\n" +
         "\n" +
@@ -268,26 +301,46 @@ def _next_build_impl(ctx):
         "\n" +
         "# Next.js build configuration for hermetic Bazel actions.\n" +
         "# Disable telemetry to avoid network calls.\n" +
-        'export NEXT_TELEMETRY_DISABLED=1\n' +
+        "export NEXT_TELEMETRY_DISABLED=1\n" +
         "# Skip Next.js's Node.js require() patching which can fail in sandbox envs.\n" +
-        'export NEXT_PRIVATE_SKIP_PATCHING=1\n' +
+        "export NEXT_PRIVATE_SKIP_PATCHING=1\n" +
         "\n" +
         "# Run next build inside the staging directory.\n" +
-        'RUNTIME_ARGS=(' + runtime_args_str + ')\n' +
+        "RUNTIME_ARGS=(" + runtime_args_str + ")\n" +
         'NEXT_BIN="${NM_ACTUAL}/next/dist/bin/next"\n' +
+        "NEXT_CMD=(" + runtime_cmd + ")\n" +
+        'if [[ -n "${RUNTIME_ARGS[*]+set}" ]]; then\n' +
+        '  NEXT_CMD+=("${RUNTIME_ARGS[@]}")\n' +
+        "fi\n" +
+        'NEXT_CMD+=("${NEXT_BIN}" build)\n' +
         "\n" +
         'cd "${STAGING_DIR}"\n' +
         "\n" +
-        'if [[ -n "${RUNTIME_ARGS[*]+set}" ]]; then\n' +
-        '  ' + runtime_cmd + ' "${RUNTIME_ARGS[@]}" "${NEXT_BIN}" build\n' +
-        'else\n' +
-        '  ' + runtime_cmd + ' "${NEXT_BIN}" build\n' +
-        'fi\n' +
+        "# The log is kept only to classify a failure; a successful build deletes\n" +
+        "# it before the output directory is handed back to Bazel.\n" +
+        'BUILD_LOG="${OUT_DIR}/_next_build.log"\n' +
+        "set +e\n" +
+        '"${NEXT_CMD[@]}" 2>&1 | tee "${BUILD_LOG}"\n' +
+        'NEXT_STATUS="${PIPESTATUS[0]}"\n' +
+        "set -e\n" +
+        'if [[ "${NEXT_STATUS}" -ne 0 ]]; then\n' +
+        network_diagnostic_block +
+        '  exit "${NEXT_STATUS}"\n' +
+        "fi\n" +
+        'rm -f "${BUILD_LOG}"\n' +
         "\n" +
-        "# Move the .next/ output to OUT_DIR.\n" +
-        "# Remove .next/cache/ to keep the Bazel output hermetic and cacheable.\n" +
-        'mv "${STAGING_DIR}/.next/"* "${OUT_DIR}/" 2>/dev/null || true\n' +
-        'rm -rf "${OUT_DIR}/cache" 2>/dev/null || true\n' +
+        "# Move the .next/ output to OUT_DIR, minus the local cache and the\n" +
+        "# build telemetry: neither is served, and both differ run to run.\n" +
+        'if [[ ! -d "${STAGING_DIR}/.next" ]]; then\n' +
+        '  echo "next_build: next build wrote no .next directory" >&2\n' +
+        "  exit 1\n" +
+        "fi\n" +
+        'mv "${STAGING_DIR}/.next/"* "${OUT_DIR}/"\n' +
+        'rm -rf "${OUT_DIR}/cache"\n' +
+        "".join([
+            'rm -rf "${OUT_DIR}/' + name + '"\n'
+            for name in _TELEMETRY_OUTPUTS
+        ]) +
         "# Clean up the staging directory from inside OUT_DIR.\n" +
         'rm -rf "${OUT_DIR}/_staging"\n'
     )
@@ -300,13 +353,21 @@ def _next_build_impl(ctx):
     )
 
     # ── Build the action input depset ─────────────────────────────────────────
-    direct_inputs = [manifest, wrapper] + srcs + staging_srcs_files + nm_files
+    direct_inputs = (
+        [manifest, wrapper, runtime_binary] +
+        srcs + ctx.files.config_srcs + staging_srcs_files + nm_files
+    )
     if config_file:
         direct_inputs.append(config_file)
     if tsconfig_file:
         direct_inputs.append(tsconfig_file)
-    if runtime_binary:
-        direct_inputs.append(runtime_binary)
+
+    # `next build` reaches the network on its own initiative -- telemetry,
+    # next/font/google -- so the sandbox takes the option away instead of the
+    # rule trusting an env var to have covered every caller.
+    execution_requirements = {"block-network": ""}
+    if ctx.attr.allow_network:
+        execution_requirements = {"requires-network": ""}
 
     # ── Run the build action ──────────────────────────────────────────────────
     ctx.actions.run(
@@ -315,7 +376,7 @@ def _next_build_impl(ctx):
         executable = wrapper,
         mnemonic = "NextBuild",
         progress_message = "NextBuild %{label}",
-        # Next.js needs network-free operation. Tell it not to use telemetry etc.
+        execution_requirements = execution_requirements,
         env = {
             "NEXT_TELEMETRY_DISABLED": "1",
         },
@@ -334,7 +395,9 @@ next_build = rule(
     attrs = {
         "srcs": attr.label_list(
             doc = "TypeScript/TSX source files for the Next.js application " +
-                  "(app/ directory, pages/ directory, lib/ files, etc.).",
+                  "(app/ directory, pages/ directory, lib/ files, etc.). Every file " +
+                  "must be inside this target's package; one from elsewhere has no " +
+                  "path inside the project root and belongs in `staging_srcs`.",
             allow_files = True,
             mandatory = True,
         ),
@@ -375,6 +438,30 @@ referenced from the Next.js app's BUILD file.
                   "When omitted, Next.js uses its default configuration.",
             allow_single_file = True,
         ),
+        "config_srcs": attr.label_list(
+            doc = """Extra files the `config` file imports, staged beside it.
+
+`config` is a single file, so a next.config.mjs that imports a sibling module
+fails with ERR_MODULE_NOT_FOUND unless that module is staged too. These files
+land at the same project-relative paths as `srcs`:
+
+    next_build(
+        name = "app",
+        config = "next.config.mjs",       # imports "./next.shared.mjs"
+        config_srcs = ["next.shared.mjs"],
+        ...
+    )
+""",
+            allow_files = True,
+        ),
+        "allow_network": attr.bool(
+            doc = "Let `next build` reach the network. The action is otherwise " +
+                  "run with `block-network`, which fails any build that depends " +
+                  "on a download -- `next/font/google` is the usual one. Setting " +
+                  "this to True makes the output depend on a remote host, so the " +
+                  "same inputs no longer imply the same output.",
+            default = False,
+        ),
         "tsconfig": attr.label(
             doc = "An optional tsconfig.json file to stage into the Next.js project " +
                   "directory. When provided, Next.js and its SWC compiler will use " +
@@ -384,19 +471,26 @@ referenced from the Next.js app's BUILD file.
         ),
         "env": attr.string_dict(
             doc = "Additional environment variables to set for the next build action. " +
-                  "NEXT_TELEMETRY_DISABLED and NEXT_PRIVATE_STANDALONE are always set.",
+                  "NEXT_TELEMETRY_DISABLED and NEXT_PRIVATE_SKIP_PATCHING are always set.",
             default = {},
         ),
     },
     toolchains = [
-        config_common.toolchain_type(JS_RUNTIME_TOOLCHAIN_TYPE, mandatory = False),
+        config_common.toolchain_type(JS_TOOL_TOOLCHAIN_TYPE, mandatory = True),
     ],
     doc = """Builds a Next.js application with `next build`.
 
+Requires the js_tool toolchain (Node.js on the exec platform).
+
 Produces a `.next/` directory artifact containing the compiled Next.js output
-(server bundles, static assets, route manifests, etc.). The `.next/cache/`
-directory is excluded from the output to keep the artifact hermetic and
-cacheable by Bazel's remote cache.
+(server bundles, static assets, route manifests, etc.). `cache/`, `trace` and
+`diagnostics/` are removed from it: they are a local incremental cache and
+build telemetry, they carry absolute paths and wall-clock times, and nothing
+serves from them.
+
+The action runs with the network blocked. `next/font/google` downloads its
+fonts while compiling, so it fails here with a diagnostic naming the cause;
+`allow_network = True` accepts that non-hermeticity for a target that needs it.
 
 The rule creates a writable staging directory *inside* the declared output
 directory (`OUT_DIR/_staging`) so it is always within the sandbox-writable tree.

@@ -16,8 +16,8 @@ ts_compile(
         "index.ts",
         "user.ts",
     ],
-    deps = ["@npm//:zod"],
     visibility = ["//visibility:public"],
+    deps = ["@npm//:zod"],
 )
 
 # Run vitest tests against the compiled schema logic.

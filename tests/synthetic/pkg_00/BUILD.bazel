@@ -7,5 +7,6 @@ ts_compile(
         "types.ts",
         "utils.ts",
     ],
+    # keep
     visibility = ["//tests/synthetic:__subpackages__"],
 )

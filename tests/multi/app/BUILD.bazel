@@ -1,8 +1,17 @@
+load("@rules_typescript//ts:defs.bzl", "ts_dev_server")
 load("//ts:defs.bzl", "ts_compile")
 
 ts_compile(
     name = "app",
     srcs = ["main.ts"],
-    visibility = ["//tests:__subpackages__"],
+    visibility = ["//visibility:public"],
     deps = ["//tests/multi/lib"],
+)
+
+ts_dev_server(
+    name = "dev",
+    entry_point = ":app",
+    plugin = "@rules_typescript//vite:vite_plugin_bazel",
+    port = 5173,
+    visibility = ["//visibility:public"],
 )

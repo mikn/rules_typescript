@@ -1,28 +1,48 @@
-load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("@rules_go//go:def.bzl", "go_test")
 load("@rules_typescript//npm:defs.bzl", "node_modules")
-load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_dev_server")
+load("@rules_typescript//ts:defs.bzl", "css_module", "ts_compile", "ts_dev_server")
+
+package(default_visibility = ["//:__pkg__"])
+
+# The go_test targets are hand-named after the sh_tests they replaced, so the
+# Go language would add a second target for the same source.
+# gazelle:exclude *_test.go
 
 # Compile the minimal app entry point.
 ts_compile(
     name = "app",
     srcs = ["app.ts"],
     enable_check = False,
-    isolated_declarations = False,
 )
 
-# Build a node_modules tree with vite.
-# Must be named "node_modules" for Node.js ESM resolution to work correctly.
+# The dev servers' entry point, and a //:refresh_tsconfig root: its dep on a
+# `module_name` package feeds both the vite config alias and the IDE paths entry.
+ts_compile(
+    name = "dev_app",
+    srcs = ["dev_app.ts"],
+    enable_check = False,
+    deps = ["//tests/dev_server/lib"],
+)
+
+# A stylesheet the dev-server lanes serve, and the export map css_module wrote
+# for it. Not in any dev server's graph: :css_module_test copies the stylesheet
+# into the throwaway workspace it serves, which is what a source tree looks like
+# to a running server, and compares what comes back against this map.
+css_module(
+    name = "panel_module_css",
+    srcs = ["panel.module.css"],
+)
+
+# One tree for every dev server here, and it has to be named "node_modules":
+# a package inside it resolves its own dependencies by Node's up-walk, which only
+# looks in directories of that name. @vitejs/plugin-react reaching react-refresh
+# is exactly that, and a tree named anything else silently loses Fast Refresh.
 node_modules(
     name = "node_modules",
-    deps = ["@npm//:vite"],
-)
-
-# node_modules tree that also includes @vitejs/plugin-react for react_refresh tests.
-node_modules(
-    name = "node_modules_react",
     deps = [
         "@npm//:vite",
         "@npm//:vitejs_plugin-react",
+        "@npm//:zod",
     ],
 )
 
@@ -31,7 +51,7 @@ node_modules(
 # `bazel run //tests/dev_server:dev` would start the Vite dev server.
 ts_dev_server(
     name = "dev",
-    entry_point = ":app",
+    entry_point = ":dev_app",
     node_modules = ":node_modules",
     port = 5173,
 )
@@ -40,7 +60,7 @@ ts_dev_server(
 # This demonstrates SP2.2: building the plugin inside Bazel and wiring it in.
 ts_dev_server(
     name = "dev_with_plugin",
-    entry_point = ":app",
+    entry_point = ":dev_app",
     node_modules = ":node_modules",
     plugin = "//vite:vite_plugin_bazel",
     port = 5174,
@@ -49,54 +69,193 @@ ts_dev_server(
 # Dev server with React Fast Refresh — preserves component state across HMR.
 ts_dev_server(
     name = "dev_with_react_refresh",
-    entry_point = ":app",
-    node_modules = ":node_modules_react",
-    react_refresh = True,
+    entry_point = ":dev_app",
+    node_modules = ":node_modules",
     port = 5175,
+    react_refresh = True,
 )
 
 # Dev server with both React Fast Refresh and vite-plugin-bazel.
 ts_dev_server(
     name = "dev_with_react_refresh_and_plugin",
-    entry_point = ":app",
-    node_modules = ":node_modules_react",
+    entry_point = ":dev_app",
+    node_modules = ":node_modules",
     plugin = "//vite:vite_plugin_bazel",
-    react_refresh = True,
     port = 5176,
+    react_refresh = True,
 )
 
-# Automated test that verifies the generated runner script and config
-# are well-formed without actually starting the server.
-sh_test(
-    name = "dev_server_test",
-    size = "small",
-    srcs = ["verify_dev_server.sh"],
-    data = [":dev"],
+# A user-supplied vite_config, the shape a framework plugin needs: a bare npm
+# import for the plugin package, and a plugins array. The rule loads a copy of it
+# in bin, so that bare import resolves through the Bazel npm tree.
+ts_dev_server(
+    name = "dev_with_user_config",
+    entry_point = ":dev_app",
+    node_modules = ":node_modules",
+    port = 5177,
+    vite_config = "user_config.mjs",
 )
 
-# Test the plugin-enabled variant.
-sh_test(
-    name = "dev_server_with_plugin_test",
-    size = "small",
-    srcs = ["verify_dev_server_plugin.sh"],
-    data = [":dev_with_plugin"],
+# The composed form: the same config whose relative import used to fail, with the
+# sibling it imports declared. Both are staged, so `./user_config_helper.mjs`
+# resolves in the staged tree exactly as it does in the source tree.
+ts_dev_server(
+    name = "dev_with_composed_user_config",
+    entry_point = ":dev_app",
+    node_modules = ":node_modules",
+    port = 5180,
+    vite_config = "user_config_relative.mjs",
+    vite_config_srcs = ["user_config_helper.mjs"],
 )
 
-# Test the React Fast Refresh variant.
-sh_test(
-    name = "dev_server_react_refresh_test",
-    size = "small",
-    srcs = ["verify_dev_server_react_refresh.sh"],
-    data = [":dev_with_react_refresh"],
+# The same app under oj instead of Vite, which is the point of the server attr:
+# one generated config, two implementations reading it. oj needs no @npm//:vite
+# in the tree -- it is here only because the Vite variants above share this one.
+ts_dev_server(
+    name = "dev_oj",
+    entry_point = ":dev_app",
+    node_modules = ":node_modules",
+    port = 5179,
+    server = "//oj:dev_server",
 )
 
-# Test React Fast Refresh combined with vite-plugin-bazel.
-# Uses a dedicated script so the combined variant's specific config is validated
-# directly, without fallback logic that could mask failures by finding the
-# simpler react_refresh-only variant's config.
-sh_test(
-    name = "dev_server_react_refresh_and_plugin_test",
-    size = "small",
-    srcs = ["verify_dev_server_react_refresh_plugin.sh"],
-    data = [":dev_with_react_refresh_and_plugin"],
+# The other side of that boundary: only the config file itself is copied, so its
+# relative import of a sibling module resolves nowhere. :vite_config_boundary_test
+# starts this one and asserts it dies naming the file it could not load.
+ts_dev_server(
+    name = "dev_with_relative_user_config",
+    entry_point = ":dev_app",
+    node_modules = ":node_modules",
+    port = 5178,
+    vite_config = "user_config_relative.mjs",
 )
+
+# Each variant is started for real and interrogated over HTTP; the env says which
+# target to run, the port the rule was given (the evaluated config has to report
+# it), and which of the two plugins the response must show evidence of.
+# The server itself is started on a kernel-assigned port: on the configured one,
+# two concurrent `bazel test` runs make Vite increment past the collision and one
+# run then answers the other's requests.
+[
+    go_test(
+        name = "{}_behaviour_test".format(target),
+        size = "medium",
+        srcs = [
+            "dev_server_behaviour_test.go",
+            "devserver_harness_test.go",
+            "launcher_config_test.go",
+        ],
+        data = [
+            "read_config.mjs",
+            ":{}".format(target),
+            "//ts/toolchain:node_resolved",
+        ],
+        env = {
+            "DEV_BAZEL_PLUGIN": bazel_plugin,
+            "DEV_IMPL": impl,
+            "DEV_PORT": port,
+            "DEV_REACT_REFRESH": react_refresh,
+            "DEV_TARGET": target,
+            "DEV_USER_CONFIG": user_config,
+        },
+        tags = ["requires-network"],
+        deps = ["//tests/verify"],
+    )
+    for target, port, bazel_plugin, react_refresh, user_config, impl in [
+        ("dev", "5173", "0", "0", "0", "vite"),
+        ("dev_with_plugin", "5174", "1", "0", "0", "vite"),
+        ("dev_with_react_refresh", "5175", "0", "1", "0", "vite"),
+        ("dev_with_react_refresh_and_plugin", "5176", "1", "1", "0", "vite"),
+        ("dev_with_user_config", "5177", "0", "0", "1", "vite"),
+        # Same assertions, but the plugin comes from a module the config imports
+        # relatively -- which only resolves because vite_config_srcs staged it.
+        ("dev_with_composed_user_config", "5180", "0", "0", "1", "vite"),
+        # The same assertions against oj: what the seam is for is that one
+        # generated config drives either implementation.
+        ("dev_oj", "5179", "0", "0", "0", "oj"),
+    ]
+]
+
+# A .module.css through a running server, per implementation: the class names it
+# serves have to be the ones the .d.ts was generated from, or the dev loop and
+# the build disagree about every one of them.
+[
+    go_test(
+        name = "{}_css_module_test".format(target),
+        size = "medium",
+        srcs = [
+            "css_module_test.go",
+            "devserver_harness_test.go",
+            "launcher_config_test.go",
+        ],
+        data = [
+            ":panel_module_css",
+            ":{}".format(target),
+        ],
+        env = {
+            "DEV_IMPL": impl,
+            "DEV_TARGET": target,
+        },
+        tags = ["requires-network"],
+        deps = ["//tests/verify"],
+    )
+    for target, impl in [
+        ("dev", "vite"),
+        ("dev_oj", "oj"),
+    ]
+]
+
+# What a vite_config can and cannot import, and where the rule loads it from.
+# No server comes up here: a config that fails to load fails before Vite listens.
+go_test(
+    name = "vite_config_boundary_test",
+    size = "small",
+    srcs = [
+        "launcher_config_test.go",
+        "vite_config_boundary_test.go",
+    ],
+    data = [
+        "user_config_helper.mjs",
+        ":dev_with_react_refresh",
+        ":dev_with_relative_user_config",
+        ":dev_with_user_config",
+        "//ts/toolchain:node_resolved",
+    ],
+    deps = ["//tests/verify"],
+)
+
+# The edit-to-HMR benchmark, over both server implementations. It measures the
+# whole loop -- save, watcher, transform, frame on a held-open HMR socket -- so
+# it needs to know where that socket is, which is the one part of the protocol
+# the two servers do not share: Vite upgrades on the base path and only for the
+# "vite-hmr" subprotocol, oj upgrades on /__ws for anything.
+#
+# One lane per server, plus the plugin lane, because the plugin adds a second
+# watcher to the same process and that is exactly the kind of thing that would
+# cost the inner loop without anyone noticing.
+[
+    go_test(
+        name = "{}_hmr_latency_test".format(target),
+        size = "medium",
+        srcs = [
+            "devserver_harness_test.go",
+            "hmr_latency_test.go",
+            "hmr_socket_test.go",
+            "launcher_config_test.go",
+        ],
+        data = [":{}".format(target)],
+        env = {
+            "DEV_IMPL": impl,
+            "DEV_TARGET": target,
+            "HMR_WS_PATH": ws_path,
+            "HMR_WS_PROTOCOL": ws_protocol,
+        },
+        tags = ["requires-network"],
+        deps = ["//tests/verify"],
+    )
+    for target, impl, ws_path, ws_protocol in [
+        ("dev", "vite", "/", "vite-hmr"),
+        ("dev_with_plugin", "vite", "/", "vite-hmr"),
+        ("dev_oj", "oj", "/__ws", ""),
+    ]
+]

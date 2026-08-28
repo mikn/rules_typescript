@@ -10,6 +10,5 @@ export default defineConfig({
   treeshake: true,
   target: 'node18',
   // vite is a peer dep — never bundle it.
-  // chokidar ships with vite 6.x; mark external so the peer supplies it.
-  external: ['vite', 'chokidar'],
+  external: ['vite'],
 });

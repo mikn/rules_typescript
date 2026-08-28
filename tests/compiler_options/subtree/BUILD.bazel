@@ -1,0 +1,39 @@
+"""srcs spanning a subtree, and relative imports written with a .js extension."""
+
+# The target below has srcs in these directories; a BUILD file in any of them
+# would turn it into a package and make those labels cross a package boundary.
+# gazelle:exclude nested
+# gazelle:exclude nested/deep
+
+load("@rules_go//go:def.bzl", "go_test")
+load("//ts:defs.bzl", "ts_compile")
+
+package(default_visibility = ["//:__pkg__"])
+
+# One target, three directory levels. Every output keeps its package-relative
+# path, and root.ts reaches the other two through ".js" specifiers that resolve
+# to the .ts files -- which is how TypeScript's own ESM output is written.
+#
+# The srcs order matters to this test: the nested sources sort first, so a strip
+# prefix taken from srcs[0] is the deepest directory rather than the package.
+ts_compile(
+    name = "tree",
+    srcs = [
+        "nested/deep/leaf.ts",
+        "nested/helper.ts",
+        "root.ts",
+    ],
+)
+
+go_test(
+    name = "subtree_test",
+    size = "small",
+    srcs = ["subtree_test.go"],
+    data = [":tree"],
+    deps = ["//tests/verify"],
+)
+
+# //tests/compiler_options/analysis:from_exec_root compiles this file from
+# another package, which is how a src whose source root is the exec root gets
+# into a test target here.
+exports_files(["root.ts"])

@@ -1,0 +1,11 @@
+load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+# Target that @npm//:nested-shared aliases to. The alias is only correct when
+# the link: path is resolved against its importer (tests/npm/nested); resolving
+# it as a root-relative path yields the invalid label "@@//../../packages/...".
+ts_compile(
+    name = "nested-shared",
+    srcs = ["index.ts"],
+    module_name = "nested-shared",
+    visibility = ["//visibility:public"],
+)

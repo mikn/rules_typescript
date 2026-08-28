@@ -1,15 +1,4 @@
-/**
- * React application entry point.
- *
- * Renders the RouterProvider with TanStack Router into the DOM.
- * This file is the entry point for the Vite SPA bundle.
- */
-
-import { createRoot } from "react-dom/client";
-import { RouterProvider } from "@tanstack/react-router";
-import { router } from "../lib";
-
-const rootEl = document.getElementById("root");
-if (!rootEl) throw new Error("No #root element found");
-
-createRoot(rootEl).render(<RouterProvider router={router} />);
+// ts_bundle requires an entry_point, but TanStack Start replaces the client
+// environment's Rollup input with virtual:tanstack-start-client-entry, so
+// nothing here reaches the bundle. See the README for why it stays anyway.
+export {};

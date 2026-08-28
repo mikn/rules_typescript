@@ -1,5 +1,13 @@
-load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("@rules_go//go:def.bzl", "go_test")
+load("@rules_typescript//ts:defs.bzl", "json_library", "ts_compile")
 load("//ts:defs.bzl", "ts_lint")
+
+# The go_test targets are hand-named after the sh_tests they replaced, so the
+# Go language would add a second target for the same source.
+# gazelle:exclude *_test.go
+
+# violations.ts exists to fail the linter, so no generated target may lint it.
+# gazelle:ts_exclude violations.ts
 
 # ── oxlint config ─────────────────────────────────────────────────────────────
 # The oxlint.json enables the no-var rule so that violations.ts fails.
@@ -21,9 +29,10 @@ filegroup(
 )
 
 # ── Violation target ───────────────────────────────────────────────────────────
-# violations.ts uses 'var' which triggers no-var.  This target intentionally
-# FAILS the lint action.  Tag it manual so `bazel test //...` skips it;
-# the real_lint_test below exercises it explicitly via a shell subprocess.
+# violations.ts uses 'var', which oxlint.json's no-var rejects, so building this
+# target fails. NOTHING BUILDS IT: asserting that a build fails needs a Bazel
+# that can be allowed to fail, which is the nested one in //tests/integration.
+# It is a fixture waiting for that test, not coverage.
 ts_lint(
     name = "violations_lint",
     srcs = ["violations.ts"],
@@ -33,12 +42,32 @@ ts_lint(
 )
 
 # ── Integration test ──────────────────────────────────────────────────────────
-# Verifies that:
-#   1. clean.ts produces a stamp (lint passes).
-#   2. violations.ts causes the lint action to fail.
-sh_test(
+# The stamp is only written when the linter exits 0, so its presence is the
+# assertion that a real oxlint ran and passed on clean.ts.
+go_test(
     name = "real_lint_test",
     size = "small",
-    srcs = ["verify_real_lint.sh"],
+    srcs = ["real_lint_test.go"],
     data = [":clean_lint_stamp"],
+    deps = ["//tests/verify"],
+)
+
+json_library(
+    name = "oxlint_json",
+    srcs = ["oxlint.json"],
+    visibility = ["//visibility:public"],
+)
+
+ts_compile(
+    name = "lint_real",
+    srcs = ["clean.ts"],
+    visibility = ["//visibility:public"],
+)
+
+ts_lint(
+    name = "lint_real_lint",
+    srcs = ["clean.ts"],
+    config = "//tests/lint_real:oxlint.json",
+    linter = "oxlint",
+    linter_binary = "@npm//:oxlint_bin",
 )

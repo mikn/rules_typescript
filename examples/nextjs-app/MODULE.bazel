@@ -17,7 +17,7 @@ module(
     version = "0.0.0",
 )
 
-bazel_dep(name = "rules_typescript", version = "0.1.0")
+bazel_dep(name = "rules_typescript", version = "0.2.0")
 
 register_toolchains("@rules_typescript//ts/toolchain:all")
 

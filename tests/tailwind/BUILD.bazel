@@ -1,0 +1,140 @@
+load("@rules_go//go:def.bzl", "go_test")
+load("//npm:defs.bzl", "node_modules")
+load("//ts:defs.bzl", "css_library", "ts_bundle", "ts_compile", "ts_dev_server")
+load("//vite:bundler.bzl", "vite_bundler")
+
+package(default_visibility = ["//:__pkg__"])
+
+# gazelle:exclude *_test.go
+
+# @npm_tailwind is translated from these; nothing in this package builds them.
+exports_files([
+    "package.json",
+    "pnpm-lock.yaml",
+])
+
+# The vite_config is loaded by Vite, not compiled by ts_compile, so Gazelle must
+# not claim it as a source of :entry -- it is already an input to :app. It still
+# needs a type check, and one the IDE tsconfig can see, which is :tailwind_config
+# below (the same split as //vite:tsup_config).
+# gazelle:ts_exclude tailwind_config.ts
+
+css_library(
+    name = "styles_css",
+    srcs = ["styles.css"],
+)
+
+ts_compile(
+    name = "entry",
+    srcs = ["entry.ts"],
+    deps = [":styles_css"],
+)
+
+# @tailwindcss/vite reaches tailwindcss and @tailwindcss/oxide by bare specifier
+# from the staged config, so all three have to be in the tree the bundler runs
+# beside -- the platform-specific oxide binary included.
+node_modules(
+    name = "node_modules",
+    deps = [
+        "@npm_tailwind//:tailwindcss",
+        "@npm_tailwind//:tailwindcss_vite",
+        "@npm_tailwind//:vite",
+    ],
+)
+
+vite_bundler(
+    name = "vite",
+    node_modules = ":node_modules",
+    vite = "@npm_tailwind//:vite",
+)
+
+ts_bundle(
+    name = "app",
+    bundler = ":vite",
+    entry_point = ":entry",
+    html = "index.html",
+    minify = False,
+    mode = "app",
+    sourcemap = False,
+    vite_config = "tailwind_config.ts",
+)
+
+go_test(
+    name = "tailwind_output_test",
+    size = "small",
+    srcs = ["tailwind_output_test.go"],
+    data = [
+        ":app",
+        ":lib",
+    ],
+    deps = ["//tests/verify"],
+)
+
+# Vite loads this config; nothing compiles it, so this target is its type check.
+ts_compile(
+    name = "tailwind_config",
+    srcs = ["tailwind_config.ts"],
+    compiler_options = {
+        "module": "Preserve",
+        "moduleResolution": "Bundler",
+    },
+    deps = [
+        "@npm_tailwind//:tailwindcss_vite",
+        "@npm_tailwind//:vite",
+    ],
+)
+
+# The same entry as a library bundle. Lib mode extracts CSS into one stylesheet
+# and never references it from the JS, so the only thing that made it survive is
+# Bazel declaring it: an undeclared output goes out with the sandbox.
+ts_bundle(
+    name = "lib",
+    bundle_name = "lib",
+    bundler = ":vite",
+    entry_point = ":entry",
+    format = "esm",
+    minify = False,
+    sourcemap = False,
+    vite_config = "tailwind_config.ts",
+)
+
+# The dev server path. Tailwind resolves `@import "tailwindcss"` from the CSS's
+# own location through enhanced-resolve, which is not Node's ESM resolver and has
+# no node_modules above a source-tree CSS to walk up to.
+ts_dev_server(
+    name = "dev",
+    entry_point = ":entry",
+    node_modules = ":node_modules",
+    port = 5181,
+    vite_config = "tailwind_config.ts",
+)
+
+[
+    go_test(
+        name = "tailwind_dev_{}_test".format(impl),
+        size = "medium",
+        srcs = ["tailwind_dev_test.go"],
+        data = [
+            ":{}".format(target),
+            "//ts/toolchain:node_resolved",
+        ],
+        env = {"DEV_TARGET": target},
+        deps = ["//tests/verify"],
+    )
+    for impl, target in [
+        ("vite", "dev"),
+        ("oj", "dev_oj"),
+    ]
+]
+
+# The same under oj. @tailwindcss/vite is built on Vite-only APIs -- a
+# ResolvedConfig handed to configResolved, config.createResolver -- so whether it
+# runs at all in another server's plugin host is a question, not a given.
+ts_dev_server(
+    name = "dev_oj",
+    entry_point = ":entry",
+    node_modules = ":node_modules",
+    port = 5182,
+    server = "//oj:dev_server",
+    vite_config = "tailwind_config.ts",
+)

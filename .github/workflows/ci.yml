@@ -18,15 +18,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: bazel-contrib/setup-bazel@0.14.0
+      - uses: bazel-contrib/setup-bazel@0.18.0
         with:
           bazelisk-version: 1.x
+          bazelisk-cache: true
+          repository-cache: true
+          external-cache: true
+          disk-cache: true
 
+      # `bazel test //...` and a byte-identical Gazelle rerun are both satisfied
+      # by a Gazelle run that deletes a test target, so neither notices a
+      # hand-written rule going missing. This runs before them because it is a
+      # loading-phase query the next step pays for anyway, and it names the
+      # cause when a test simply stops existing.
+      - name: Every test source file is claimed by a test target
+        if: matrix.os == 'ubuntu-latest'
+        run: tools/ci/check_test_sources.sh
+
+      # --config=ci is defined in .bazelrc. It expands --config=fast, which
+      # drops the exclusive nested-Bazel targets: those run once, on ubuntu, in
+      # the integration-tests job. Unfiltered they would run three times per
+      # push — twice here across the OS matrix, once there.
       - name: Run all tests
-        run: bazel test //... --cache_test_results=no
+        run: bazel test --config=ci //...
 
       - name: Type checking (validation)
-        run: bazel build //... --output_groups=+_validation
+        run: bazel build --config=ci //... --output_groups=+_validation
 
   e2e:
     name: E2E Tests
@@ -37,9 +54,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: bazel-contrib/setup-bazel@0.14.0
+      - uses: bazel-contrib/setup-bazel@0.18.0
         with:
           bazelisk-version: 1.x
+          bazelisk-cache: true
+          repository-cache: true
+          external-cache: true
+          disk-cache: true
 
       - name: Build e2e/basic
         run: cd e2e/basic && bazel build //...
@@ -52,17 +73,33 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        example: [basic, app]
+        example:
+          - basic
+          - app
+          - react-app
+          - remix-app
+          - tanstack-app
+          - nextjs-app
+        include:
+          # //:app loads its vite_config from the source tree and resolves
+          # @tanstack/react-start there, where a fresh checkout has no node_modules.
+          - example: tanstack-app
+            targets: //... -//:app
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
 
-      - uses: bazel-contrib/setup-bazel@0.14.0
+      # 432 of every example's ~700 actions are the same oxc/Rust + toolchain
+      # prefix, so one key shared by all six legs, not one per leg (10 GB cap).
+      - uses: bazel-contrib/setup-bazel@0.18.0
         with:
           bazelisk-version: 1.x
+          bazelisk-cache: true
+          repository-cache: true
+          disk-cache: examples
 
       - name: Build examples/${{ matrix.example }}
-        run: cd examples/${{ matrix.example }} && bazel build //... || echo "Example may have incomplete features"
+        run: cd examples/${{ matrix.example }} && bazel build -- ${{ matrix.targets || '//...' }}
 
   determinism:
     name: Build Determinism Check
@@ -70,39 +107,87 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: bazel-contrib/setup-bazel@0.14.0
+      - uses: bazel-contrib/setup-bazel@0.18.0
         with:
           bazelisk-version: 1.x
+          bazelisk-cache: true
+          repository-cache: true
+          external-cache: true
+          # No disk-cache on purpose: this job builds one target twice from two
+          # empty output bases and compares the bytes, so a cache hit on the
+          # second build would compare it against a copy of the first.
 
-      - name: Verify determinism
-        run: bash scripts/verify_determinism.sh
+      # Two output bases are two full toolchain trees; the runner's root disk
+      # does not fit both and /mnt, the ephemeral disk, does.
+      - name: Provision scratch space on the ephemeral disk
+        run: |
+          sudo mkdir -p /mnt/rules_ts_det
+          sudo chown "$(id -u):$(id -g)" /mnt/rules_ts_det
+          df -h /mnt
 
-  bootstrap-tests:
-    name: Bootstrap Integration Tests
+      # Two builds cannot be one action, so this is the one check that stays a
+      # sequence of invocations instead of a target. `info bazel-bin` is asked
+      # for the output path rather than guessing at the bazel-out layout.
+      - name: Build //tests/smoke:hello twice, from two empty output bases
+        run: |
+          for base in a b; do
+            bazelisk --output_base=/mnt/rules_ts_det/$base \
+              build --config=determinism //tests/smoke:hello
+            bazelisk --output_base=/mnt/rules_ts_det/$base \
+              info bazel-bin > /mnt/rules_ts_det/$base.binpath
+          done
+
+      - name: Compare the two outputs byte for byte
+        run: |
+          a="$(cat /mnt/rules_ts_det/a.binpath)/tests/smoke/hello.js"
+          b="$(cat /mnt/rules_ts_det/b.binpath)/tests/smoke/hello.js"
+          ls -l -- "$a" "$b"
+          cmp -- "$a" "$b"
+          sha256sum -- "$a"
+          echo "Build is bit-for-bit reproducible."
+
+  integration-tests:
+    name: Integration Tests (nested Bazel)
     runs-on: ubuntu-latest
-    env:
-      # Each bootstrap test locates the rules_typescript checkout by looking
-      # for this env var first.  Set it once at the job level so all steps
-      # inherit it automatically.
-      RULES_TYPESCRIPT_ROOT: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v4
 
-      - uses: bazel-contrib/setup-bazel@0.14.0
+      - uses: bazel-contrib/setup-bazel@0.18.0
         with:
           bazelisk-version: 1.x
+          bazelisk-cache: true
+          repository-cache: true
+          external-cache: true
+          disk-cache: true
 
-      - name: New project journey
-        run: RULES_TYPESCRIPT_ROOT=${{ github.workspace }} bash tests/bootstrap/test_new_project.sh
+      # Each nested Bazel keeps its own output base; together they need tens of
+      # GB, which the runner's root disk does not have and /mnt does.
+      - name: Provision scratch space on the ephemeral disk
+        run: |
+          sudo mkdir -p /mnt/rules_ts_it
+          sudo chown "$(id -u):$(id -g)" /mnt/rules_ts_it
+          df -h /mnt
 
-      - name: Existing project (no explicit return types)
-        run: RULES_TYPESCRIPT_ROOT=${{ github.workspace }} bash tests/bootstrap/test_existing_project.sh
+      # /mnt is recreated every run, so without this the suite fetches ~4GB
+      # every time -- and it is what makes running the tests concurrently safe
+      # rather than harmful: cold, they would all miss this cache at once and
+      # all download the same artifacts. Content-addressed, so a stale restore
+      # is a miss and never a wrong answer.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            /mnt/rules_ts_it/repository_cache
+            /mnt/rules_ts_it/disk_cache
+          key: nested-bazel-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'tests/npm/pnpm-lock.yaml', 'oxc_cli/Cargo.lock') }}
+          restore-keys: |
+            nested-bazel-${{ runner.os }}-
 
-      - name: npm dependency resolution
-        run: RULES_TYPESCRIPT_ROOT=${{ github.workspace }} bash tests/bootstrap/test_npm_deps.sh
-
-      - name: Gazelle roundtrip (e2e/basic)
-        run: RULES_TYPESCRIPT_ROOT=${{ github.workspace }} bash tests/bootstrap/test_gazelle_roundtrip.sh
+      # No longer serial: the tests carry "cpu:2" instead of "exclusive", so
+      # Bazel runs as many as the runner has cores for.
+      - name: Integration suite
+        run: |
+          bazelisk test --config=ci-integration //tests/integration/... \
+            --test_env=RULES_TS_IT_SCRATCH=/mnt/rules_ts_it
 
   lint:
     name: Linting & Code Quality
@@ -110,10 +195,52 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: bazel-contrib/setup-bazel@0.14.0
-        with:
-          bazelisk-version: 1.x
-
-      - name: Run buildifier
+      # There is no buildifier bazel_dep in MODULE.bazel: `bazel run
+      # @buildifier//:buildifier` fails with "No repository visible as
+      # '@buildifier'", so the released binary is what actually runs the check.
+      - name: Install buildifier
         run: |
-          bazel run @buildifier//:buildifier -- -r . -exclude_patterns='bazel-*,.*' || echo "Buildifier check complete"
+          curl -fsSL -o /usr/local/bin/buildifier \
+            https://github.com/bazelbuild/buildtools/releases/download/v8.2.1/buildifier-linux-amd64
+          chmod +x /usr/local/bin/buildifier
+          buildifier --version
+
+      - name: Check BUILD and .bzl formatting
+        run: buildifier --mode=check -r .
+
+      # setup-go, not Bazel: gofmt and go vet read the go.work module graph
+      # straight off the source tree, so no part of this comes from the build
+      # graph and there is nothing for a Bazel invocation to contribute.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache-dependency-path: |
+            go.work.sum
+            gazelle/go.sum
+
+      - name: Check Go formatting
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "gofmt is not clean. Run gofmt -w on:"
+            printf '%s\n' "$unformatted"
+            exit 1
+          fi
+
+      # tools/quickstart is named out rather than excluded: its go:embed target is
+      # a genrule output, and `go list` failing there aborts a whole ./... pattern.
+      - name: Vet Go
+        run: |
+          go vet ./gazelle/... ./tests/... ./ts/... \
+            ./tools/copy_to_workspace/... ./tools/launcher/... ./tools/release/...
+
+      # docs.yml builds the site only on push to main, so until now a PR that
+      # broke the nav or a page reference was caught after it had already merged.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: 3.x
+
+      - name: Build the docs site
+        run: |
+          pip install mkdocs-material
+          mkdocs build --strict --site-dir "$RUNNER_TEMP/site"

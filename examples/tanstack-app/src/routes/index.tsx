@@ -1,17 +1,23 @@
-/**
- * Index route component — renders the home page (/).
- */
+import { createFileRoute } from "@tanstack/react-router";
+import { createServerFn } from "@tanstack/react-start";
 
-import type { ReactElement } from "react";
+// The plugin splits this handler into its own server-only module and keys it in
+// the server bundle's resolver by sha256("<root-relative path>--<name>").
+const readGreeting = createServerFn().handler(
+  () => "greeting-served-by-the-server-bundle",
+);
 
-export function IndexComponent(): ReactElement {
+function IndexComponent() {
+  const greeting = Route.useLoaderData();
   return (
     <div className="page page--home">
-      <h1>Welcome to the TanStack Router example</h1>
-      <p>
-        This is a <strong>rules_typescript</strong> example showing how to
-        compile a TanStack Router app with Bazel.
-      </p>
+      <h1>tanstack-index-route-marker</h1>
+      <p>{greeting}</p>
     </div>
   );
 }
+
+export const Route = createFileRoute("/")({
+  loader: () => readGreeting(),
+  component: IndexComponent,
+});

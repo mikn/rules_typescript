@@ -32,5 +32,5 @@ ts_codegen(
 ts_compile(
     name = "record_lib",
     srcs = [":generated_record"],
-    isolated_declarations = True,
+    declarations = "oxc",
 )

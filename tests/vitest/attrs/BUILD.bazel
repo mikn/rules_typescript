@@ -1,0 +1,51 @@
+"""Every environment-shaping attribute, and the config layering, in one target.
+
+config_layers_test is the checked-in proof that each attribute reaches the
+vitest config and that the layers stack in the documented order; `attrs_test`
+itself proves the `globals` and `setup_files` halves end to end.
+"""
+
+load("@rules_go//go:def.bzl", "go_test")
+load("//tests/vitest:vitest_config.bzl", "vitest_config")
+load("//ts:defs.bzl", "ts_test")
+
+# The go_test is hand-named after the sh_test it replaced, so the Go language
+# would add a second target for the same source.
+# gazelle:exclude *_test.go
+
+ts_test(
+    name = "attrs_test",
+    srcs = [
+        "attrs.test.ts",
+        # Declarations only: nothing imports it, so it is not inferable.
+        "globals.d.ts",  # keep
+    ],
+    config = {"test": {"testTimeout": 20000}},
+    coverage_provider = "v8",
+    coverage_thresholds = {
+        "lines": "0",
+        "perFile": "true",
+    },
+    environment = "node",
+    globals = True,
+    reporters = ["default"],
+    setup_files = [
+        "setup.ts",
+        "globals.d.ts",
+    ],
+    deps = ["@npm//:vitest"],  # keep
+)
+
+vitest_config(
+    name = "attrs_test_config",
+    testonly = True,
+    test = ":attrs_test",
+)
+
+go_test(
+    name = "config_layers_test",
+    size = "small",
+    srcs = ["config_layers_test.go"],
+    data = [":attrs_test_config"],
+    deps = ["//tests/verify"],
+)

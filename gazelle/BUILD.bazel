@@ -3,21 +3,33 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 # gazelle:prefix github.com/mikn/rules_typescript/gazelle
 
+# The go_library here is `typescript` and the gazelle() runner is `gazelle`, so
+# the Go language would generate a go_test embedding the runner.
+# gazelle:exclude *_test.go
+
 go_library(
     name = "typescript",
     srcs = [
         "codegen.go",
         "config.go",
         "framework_bundle.go",
+        "framework_entry.go",
+        "framework_next.go",
         "generate.go",
         "imports.go",
+        "jsonc.go",
+        "keep.go",
         "language.go",
         "resolve.go",
+        "rollup.go",
+        "sveltekit_bundle.go",
     ],
     importpath = "github.com/mikn/rules_typescript/gazelle",
     visibility = ["//visibility:public"],
     deps = [
+        "//gazelle/remix",
         "//gazelle/tanstack",
+        "@com_github_bazelbuild_buildtools//build",
         "@gazelle//config",
         "@gazelle//label",
         "@gazelle//language",
@@ -31,10 +43,29 @@ go_test(
     name = "typescript_test",
     srcs = [
         "codegen_test.go",
+        "converge_cases_test.go",
+        "converge_test.go",
         "directives_test.go",
+        "framework_bundle_test.go",
+        "framework_entry_test.go",
+        "framework_next_test.go",
+        "generate_test.go",
         "imports_test.go",
+        "jsonc_test.go",
+        "keep_test.go",
+        "remix_staging_test.go",
+        "resolve_test.go",
+        "sveltekit_bundle_test.go",
     ],
     embed = [":typescript"],
+    deps = [
+        "@com_github_bazelbuild_buildtools//build",
+        "@gazelle//config",
+        "@gazelle//label",
+        "@gazelle//merger",
+        "@gazelle//resolve",
+        "@gazelle//rule",
+    ],
 )
 
 gazelle_binary(

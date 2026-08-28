@@ -1,6 +1,13 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@rules_go//go:def.bzl", "go_test")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
-load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//ts:defs.bzl", "ts_lint")
+
+# gazelle:ts_exclude clean.ts
+
+# The go_test targets are hand-named after the sh_tests they replaced, so the
+# Go language would add a second target for the same source.
+# gazelle:exclude *_test.go
 
 # ── Fake linter binary ─────────────────────────────────────────────────────────
 # A shell script that accepts the same CLI flags as oxlint/eslint but always
@@ -27,10 +34,48 @@ filegroup(
     output_group = "_validation",
 )
 
+# ── fail_on_warnings uses each linter's own flag ───────────────────────────────
+# Each stub accepts only its own linter's spelling, so these targets build only
+# when ts_lint passes the flag that matches the `linter` attr.
+sh_binary(
+    name = "fake_oxlint",
+    srcs = ["fake_oxlint.sh"],
+)
+
+sh_binary(
+    name = "fake_eslint",
+    srcs = ["fake_eslint.sh"],
+)
+
+ts_lint(
+    name = "oxlint_warnings_lint",
+    srcs = ["clean.ts"],
+    fail_on_warnings = True,
+    linter = "oxlint",
+    linter_binary = ":fake_oxlint",
+)
+
+ts_lint(
+    name = "eslint_warnings_lint",
+    srcs = ["clean.ts"],
+    fail_on_warnings = True,
+    linter = "eslint",
+    linter_binary = ":fake_eslint",
+)
+
+build_test(
+    name = "warning_flags_test",
+    targets = [
+        ":eslint_warnings_lint",
+        ":oxlint_warnings_lint",
+    ],
+)
+
 # ── Smoke test ─────────────────────────────────────────────────────────────────
-sh_test(
+go_test(
     name = "lint_smoke_test",
     size = "small",
-    srcs = ["verify_lint.sh"],
+    srcs = ["lint_smoke_test.go"],
     data = [":clean_lint_stamp"],
+    deps = ["//tests/verify"],
 )

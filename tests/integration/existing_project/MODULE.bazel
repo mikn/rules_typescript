@@ -1,4 +1,4 @@
-"""Integration test: existing project with isolated declarations disabled.
+"""Integration test: an existing project with no export type annotations.
 
 The {RULES_TS_ROOT} placeholder is substituted at test runtime by test_runner.sh
 with the absolute path to the rules_typescript checkout.

@@ -1,0 +1,59 @@
+"""Rules whose actions run Node must resolve it for the exec platform.
+
+Every target under test here is analysed with --platforms=windows_amd64 (see
+exec_node_test.bzl); the assertion is that none of their actions reaches for the
+Windows Node.
+"""
+
+load("@rules_typescript//npm:defs.bzl", "node_modules")
+load("@rules_typescript//vite:bundler.bzl", "vite_bundler")
+load("//ts:defs.bzl", "css_module", "json_library")
+load(":exec_node_test.bzl", "exec_node_action_test", "exec_node_bundler_test")
+
+css_module(
+    name = "styles",
+    srcs = ["styles.module.css"],
+    tags = ["manual"],
+)
+
+exec_node_action_test(
+    name = "css_module_exec_node_test",
+    mnemonic = "CssModuleDts",
+    target_under_test = ":styles",
+)
+
+json_library(
+    name = "config",
+    srcs = ["config.json"],
+    tags = ["manual"],
+)
+
+exec_node_action_test(
+    name = "json_library_exec_node_test",
+    mnemonic = "JsonLibraryDts",
+    target_under_test = ":config",
+)
+
+exec_node_action_test(
+    name = "vite_plugin_exec_node_test",
+    mnemonic = "EsbuildBundle",
+    target_under_test = "//vite:vite_plugin_bazel",
+)
+
+node_modules(
+    name = "vite_node_modules",
+    tags = ["manual"],
+    deps = ["@npm//:vite"],
+)
+
+vite_bundler(
+    name = "vite",
+    node_modules = ":vite_node_modules",
+    tags = ["manual"],
+    vite = "@npm//:vite",
+)
+
+exec_node_bundler_test(
+    name = "vite_bundler_exec_node_test",
+    target_under_test = ":vite",
+)

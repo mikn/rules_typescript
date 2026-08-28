@@ -1,16 +1,17 @@
 package typescript
 
 import (
-	"log"
 	"os"
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/bazelbuild/bazel-gazelle/language"
 	"github.com/bazelbuild/bazel-gazelle/rule"
 
+	"github.com/mikn/rules_typescript/gazelle/remix"
 	"github.com/mikn/rules_typescript/gazelle/tanstack"
 )
 
@@ -194,6 +195,19 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		return emptyResult(args)
 	}
 
+	// SvelteKit's route tree is the framework's own, not a TypeScript package.
+	if svelteKitOwnsDir(args.Rel, tc) {
+		warnSvelteKitSrcPackage(args)
+		return emptyResult(args)
+	}
+
+	// Next.js's route trees likewise: next_build stages them by glob, and a
+	// BUILD file inside one would make a subpackage the glob cannot see into.
+	if nextOwnsDir(args.Rel, tc) {
+		warnNextOwnedPackage(args)
+		return emptyResult(args)
+	}
+
 	// Collect TypeScript, CSS, and asset source files from the regular files list.
 	var (
 		srcFiles       []string // non-test, non-generated .ts/.tsx files
@@ -202,6 +216,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		cssModuleFiles []string // *.module.css files (default import → typed styles)
 		assetFiles     []string // image/font/svg asset files (NOT json)
 		jsonFiles      []string // .json data files → json_library (typed .d.ts)
+		excludedSrcs   []string // .ts/.tsx a ts_exclude directive dropped
 		hasIndex       bool
 	)
 
@@ -234,6 +249,10 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 			continue
 		}
 		if isConfiguredExclude(f, tc.excludePatterns) {
+			excludedSrcs = append(excludedSrcs, f)
+			continue
+		}
+		if nextOwnsFile(args.Rel, f, tc) {
 			continue
 		}
 		if isTestFile(f) {
@@ -243,6 +262,24 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		srcFiles = append(srcFiles, f)
 		if isIndexFile(f) {
 			hasIndex = true
+		}
+	}
+
+	// Two targets over one source declare the same .js and .d.ts, which Bazel
+	// rejects as conflicting actions rather than tolerating as a duplicate.
+	srcsBeforeClaim := append([]string(nil), srcFiles...)
+	if claimed := claimedSrcs(args, tc); len(claimed) > 0 {
+		srcFiles = dropClaimed(srcFiles, claimed)
+		testFiles = dropClaimed(testFiles, claimed)
+		cssFiles = dropClaimed(cssFiles, claimed)
+		cssModuleFiles = dropClaimed(cssModuleFiles, claimed)
+		assetFiles = dropClaimed(assetFiles, claimed)
+		jsonFiles = dropClaimed(jsonFiles, claimed)
+		hasIndex = false
+		for _, f := range srcFiles {
+			if isIndexFile(f) {
+				hasIndex = true
+			}
 		}
 	}
 
@@ -273,6 +310,29 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		isBoundary = len(srcFiles) > 0 || hasIndex || args.Rel == "" || tc.packageBoundary
 	}
 
+	// In index-only mode a plain subdirectory is not a package, so its files
+	// belong to this target rather than to one of their own. Rolling them up is
+	// what keeps an ordinary shape -- a barrel re-exporting ./rules, and ./rules
+	// importing ../utils -- from becoming a cycle between two Bazel packages
+	// when at file granularity there is no cycle.
+	//
+	// A directory that is not a boundary claims nothing at all, so no BUILD file
+	// appears in it to make those rolled-up labels cross a package boundary.
+	if tc.packageBoundaryMode == boundaryIndexOnly {
+		if !isBoundary {
+			return language.GenerateResult{}
+		}
+		rolledSrcs, rolledTests := rolledUpSrcs(args.Dir, tc.excludePatterns)
+		if claimed := claimedSrcs(args, tc); len(claimed) > 0 {
+			rolledSrcs = dropClaimed(rolledSrcs, claimed)
+			rolledTests = dropClaimed(rolledTests, claimed)
+		}
+		srcFiles = append(srcFiles, rolledSrcs...)
+		testFiles = append(testFiles, rolledTests...)
+		sort.Strings(srcFiles)
+		sort.Strings(testFiles)
+	}
+
 	totalNonTS := len(cssFiles) + len(cssModuleFiles) + len(assetFiles) + len(jsonFiles)
 	if !isBoundary && len(srcFiles) == 0 && len(testFiles) == 0 && totalNonTS == 0 {
 		// No TypeScript, CSS, asset, or JSON files and not a boundary: nothing to do.
@@ -283,14 +343,40 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	var empty []*rule.Rule
 	var imports []any
 
+	// The framework client entry gets its own single-file target, so it leaves
+	// the directory-wide one. Only a second compile action is the problem, so
+	// srcsWithEntry -- the package as it is on disk -- is what everything else
+	// still reads: the staged sources, the linter, and the sibling test's tree.
+	srcsWithEntry := srcFiles
+	entryFile, entryName, hasEntry := frameworkEntrySrc(args.Rel, tc, srcFiles)
+	if hasEntry && entryName == targetNameForDir(tc, args.Rel) {
+		hasEntry = reportEntryNameCollision(args, tc, entryName)
+	}
+	if hasEntry {
+		srcFiles = dropClaimed(srcFiles, map[string]struct{}{entryFile: {}})
+	} else if claimed, _, ok := frameworkEntrySrc(args.Rel, tc, srcsBeforeClaim); ok {
+		// A target that is not Gazelle's compiles the entry, and the staged tree
+		// still needs the file itself.
+		srcsWithEntry = append(append([]string(nil), srcFiles...), claimed)
+	} else {
+		reportHandMaintainedEntry(args, tc, excludedSrcs)
+	}
+	sort.Strings(srcsWithEntry)
+
+	// Assigned up front so the names cannot collide with each other or with
+	// the TypeScript targets below.
+	reserved := reservedTSTargetNames(tc, args.Rel)
+	if hasEntry {
+		reserved[entryName] = struct{}{}
+	}
+	libNames := assetTargetNames(reserved, cssFiles, cssModuleFiles, assetFiles, jsonFiles)
+
 	// ---- css_library targets -----------------------------------------------
 	// Generate one css_library rule per plain .css file (side-effect imports).
-	// The rule name is the basename without the .css extension.
 
 	sort.Strings(cssFiles)
 	for _, f := range cssFiles {
-		ruleName := strings.TrimSuffix(f, ".css")
-		r := rule.NewRule("css_library", ruleName)
+		r := rule.NewRule("css_library", libNames[f])
 		r.SetAttr("srcs", []string{f})
 		r.SetAttr("visibility", []string{"//visibility:public"})
 		gen = append(gen, r)
@@ -302,17 +388,10 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 
 	// ---- css_module targets ------------------------------------------------
 	// Generate one css_module rule per *.module.css file (default imports).
-	// Rule name: strip ".module.css" from the basename, e.g.
-	//   "Button.module.css" → "button_module"
-	//   "foo.module.css"    → "foo_module"
 
 	sort.Strings(cssModuleFiles)
 	for _, f := range cssModuleFiles {
-		// Strip ".module.css" and append "_module" to clearly distinguish these
-		// targets from plain css_library targets.
-		stem := strings.TrimSuffix(f, ".module.css")
-		ruleName := strings.ToLower(stem) + "_module"
-		r := rule.NewRule("css_module", ruleName)
+		r := rule.NewRule("css_module", libNames[f])
 		r.SetAttr("srcs", []string{f})
 		r.SetAttr("visibility", []string{"//visibility:public"})
 		gen = append(gen, r)
@@ -323,18 +402,10 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 
 	// ---- asset_library targets ---------------------------------------------
 	// Generate one asset_library rule per image/font/SVG file.
-	// Rule name: file stem (without extension), with dots replaced by
-	// underscores, e.g.:
-	//   "logo.svg"   → "logo"
-	//   "hero.png"   → "hero"
 
 	sort.Strings(assetFiles)
 	for _, f := range assetFiles {
-		ext := path.Ext(f)
-		stem := strings.TrimSuffix(f, ext)
-		// Replace dots in stem (e.g. "logo.2x.png" → "logo_2x") for valid target names.
-		ruleName := strings.ReplaceAll(stem, ".", "_")
-		r := rule.NewRule("asset_library", ruleName)
+		r := rule.NewRule("asset_library", libNames[f])
 		r.SetAttr("srcs", []string{f})
 		r.SetAttr("visibility", []string{"//visibility:public"})
 		gen = append(gen, r)
@@ -345,17 +416,10 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 
 	// ---- json_library targets ----------------------------------------------
 	// Generate one json_library rule per .json file (typed declarations).
-	// Rule name: file stem (without extension), with dots replaced by
-	// underscores, e.g.:
-	//   "config.json"  → "config"
-	//   "schema.json"  → "schema"
 
 	sort.Strings(jsonFiles)
 	for _, f := range jsonFiles {
-		stem := strings.TrimSuffix(f, ".json")
-		// Replace dots in stem for valid target names.
-		ruleName := strings.ReplaceAll(stem, ".", "_")
-		r := rule.NewRule("json_library", ruleName)
+		r := rule.NewRule("json_library", libNames[f])
 		r.SetAttr("srcs", []string{f})
 		r.SetAttr("visibility", []string{"//visibility:public"})
 		gen = append(gen, r)
@@ -374,31 +438,23 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		r.SetAttr("srcs", srcFiles)
 		r.SetAttr("visibility", []string{"//visibility:public"})
 
-		// When isolated_declarations is disabled via directive, emit the
-		// attribute explicitly so the rule falls back to the full
-		// ts_compile_legacy behaviour.
-		if !tc.isolatedDeclarations {
-			r.SetAttr("isolated_declarations", false)
-		}
-
-		// Propagate path aliases from tsconfig.json / directives / gazelle_ts.json
-		// into the generated ts_compile rule so that tsgo type-checking can resolve
-		// source-level path aliases (e.g. "@/components") without emitting
-		// false "Cannot find module" errors.
-		if len(tc.pathAliases) > 0 {
-			r.SetAttr("path_aliases", tc.pathAliases)
+		// Only emit the attribute when it differs from the rule default.
+		if tc.declarations != "" && tc.declarations != "tsgo" {
+			r.SetAttr("declarations", tc.declarations)
 		}
 
 		// Collect imports for all src files.
-		var allImports []string
-		for _, f := range srcFiles {
-			filePath := filepath.Join(args.Dir, f)
-			imps, err := extractImports(filePath)
-			if err != nil {
-				log.Printf("typescript: error reading %s: %v", filePath, err)
-				continue
-			}
-			allImports = append(allImports, imps...)
+		allImports := importsIn(args.Dir, srcFiles)
+
+		if hasEntry {
+			reportEntryImportCycle(args, tc, entryFile, entryName, srcFiles, allImports)
+		}
+
+		// Aliases let tsgo resolve source-level specifiers like "@/components".
+		// One tsconfig `paths` map serves a whole workspace, so a target takes
+		// only the entries it can carry -- see usedPathAliases.
+		if used := usedPathAliases(tc, args.Rel, srcFiles, allImports); len(used) > 0 {
+			r.SetAttr("path_aliases", used)
 		}
 
 		gen = append(gen, r)
@@ -411,7 +467,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		if tc.linterConfig != "" && tc.linterType != "" {
 			lintName := name + "_lint"
 			lr := rule.NewRule("ts_lint", lintName)
-			lr.SetAttr("srcs", srcFiles)
+			lr.SetAttr("srcs", srcsWithEntry)
 			lr.SetAttr("linter", tc.linterType)
 			if binLabel := linterBinaryLabel(tc.linterType); binLabel != "" {
 				lr.SetAttr("linter_binary", binLabel)
@@ -441,6 +497,26 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		}
 	}
 
+	// ---- framework client entry target -------------------------------------
+	// The single-file ts_compile the generated ts_bundle's entry_point names.
+
+	// Re-emitted on every run: srcs and deps are mergeable, and emitting the
+	// candidate is what keeps a single-file target following its own imports.
+	if hasEntry {
+		entryImports := importsIn(args.Dir, []string{entryFile})
+		r := frameworkEntryRule(entryName, entryFile, tc)
+		if used := usedPathAliases(tc, args.Rel, []string{entryFile}, entryImports); len(used) > 0 {
+			r.SetAttr("path_aliases", used)
+		}
+		gen = append(gen, r)
+		imports = append(imports, uniqueImports(entryImports))
+	} else if name, ok := frameworkEntryTargetName(args.Rel, tc); ok &&
+		ruleExists(args, "ts_compile", name) && !frameworkEntryFileExists(args.RegularFiles, name) {
+		// The entry was renamed or moved away, so the rule left behind names a
+		// source that is gone -- which fails `bazel build //...` outright.
+		empty = append(empty, rule.NewRule("ts_compile", name))
+	}
+
 	// ---- ts_dev_server target (app packages only) --------------------------
 	// Generate a ts_dev_server target when this directory looks like an
 	// application entry point. Detection heuristics (in priority order):
@@ -459,9 +535,9 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	// alone (Gazelle's merge strategy handles updates to other attrs).
 
 	if isBoundary && len(srcFiles) > 0 {
-		_, hasAppEntry := detectAppEntryPoint(srcFiles)
+		_, hasAppEntry := detectAppEntryPoint(srcsWithEntry)
 		hasHTML := hasIndexHTML(args.Dir)
-		if hasAppEntry || hasHTML {
+		if (hasAppEntry || hasHTML) && !reportUnsupportedDevServer(tc.detectedFramework) {
 			libName := targetNameForDir(tc, args.Rel)
 			devName := "dev"
 
@@ -494,22 +570,17 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		}
 	}
 
+	// The framework bundle owns node_modules(name = "node_modules") at the
+	// workspace root; the stale-rule cleanup below must not delete it.
+	frameworkOwnsNodeModules := args.Rel == "" && tc.detectedFramework != FrameworkNone
+
 	// ---- ts_test targets ---------------------------------------------------
 
 	if len(testFiles) > 0 {
 		sort.Strings(testFiles)
 
 		// Collect all imports from test files for dep resolution.
-		var allImports []string
-		for _, f := range testFiles {
-			filePath := filepath.Join(args.Dir, f)
-			imps, err := extractImports(filePath)
-			if err != nil {
-				log.Printf("typescript: error reading %s: %v", filePath, err)
-				continue
-			}
-			allImports = append(allImports, imps...)
-		}
+		allImports := importsIn(args.Dir, testFiles)
 
 		// Also collect npm imports from production source files in this package.
 		// ts_test auto-generates a node_modules tree from its own @npm// deps, so
@@ -519,27 +590,17 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		// node_modules tree would be missing packages needed by the SUT.
 		var allPackageImports []string
 		allPackageImports = append(allPackageImports, allImports...)
-		for _, f := range srcFiles {
-			filePath := filepath.Join(args.Dir, f)
-			imps, err := extractImports(filePath)
-			if err != nil {
-				log.Printf("typescript: error reading %s: %v", filePath, err)
-				continue
-			}
-			allPackageImports = append(allPackageImports, imps...)
-		}
+		allPackageImports = append(allPackageImports, importsIn(args.Dir, srcsWithEntry)...)
 
 		name := testTargetName(targetNameForDir(tc, args.Rel))
 
 		r := rule.NewRule("ts_test", name)
 		r.SetAttr("srcs", testFiles)
 
-		// When isolated_declarations is disabled via directive, emit the
-		// attribute explicitly so the internal ts_compile inside ts_test also
-		// runs in legacy (non-isolated) mode, consistent with ts_compile targets
-		// in the same package.
-		if !tc.isolatedDeclarations {
-			r.SetAttr("isolated_declarations", false)
+		// Same emitter as the ts_compile targets in this package, so the internal
+		// ts_compile inside ts_test does not disagree with its siblings.
+		if tc.declarations != "" && tc.declarations != "tsgo" {
+			r.SetAttr("declarations", tc.declarations)
 		}
 
 		// ts_test auto-builds a node_modules tree from its @npm// deps, so no
@@ -570,7 +631,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 			// target was also being deleted. This prevents Gazelle from deleting
 			// user-managed Vite node_modules targets at the workspace root or in
 			// packages that never had ts_test.
-			if hadTestTarget {
+			if hadTestTarget && !frameworkOwnsNodeModules {
 				for _, r := range args.File.Rules {
 					if r.Name() == "node_modules" && r.Kind() == "node_modules" {
 						empty = append(empty, rule.NewRule("node_modules", "node_modules"))
@@ -587,7 +648,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	//
 	// Exception: if any ts_test rule in this BUILD file has an explicit node_modules
 	// attr set, the user is managing node_modules manually and we must not delete it.
-	if len(testFiles) > 0 && args.File != nil {
+	if len(testFiles) > 0 && args.File != nil && !frameworkOwnsNodeModules {
 		hasManualNodeModules := false
 		for _, existingRule := range args.File.Rules {
 			if existingRule.Kind() == "ts_test" && existingRule.Attr("node_modules") != nil {
@@ -623,17 +684,22 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	// pattern but still exist in the current BUILD file. This allows Gazelle
 	// to clean up stale auto-generated ts_codegen rules when the trigger files
 	// are removed (e.g. schema.prisma deleted).
+	//
+	// Only the names the built-in detectors use: `outs` is mergeable, so an
+	// empty rule strips it from whatever it matches, hand-written or not.
 	if args.File != nil {
-		// Build a set of names that were just generated so we know which
-		// existing ts_codegen rules are stale.
 		generatedNames := make(map[string]bool, len(codegenPatterns))
 		for _, p := range codegenPatterns {
 			generatedNames[p.Name] = true
 		}
 		for _, existingRule := range args.File.Rules {
-			if existingRule.Kind() == "ts_codegen" && !generatedNames[existingRule.Name()] {
-				empty = append(empty, rule.NewRule("ts_codegen", existingRule.Name()))
+			if existingRule.Kind() != "ts_codegen" {
+				continue
 			}
+			if generatedNames[existingRule.Name()] || !detectorCodegenNames[existingRule.Name()] {
+				continue
+			}
+			empty = append(empty, rule.NewRule("ts_codegen", existingRule.Name()))
 		}
 	}
 
@@ -658,22 +724,31 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	// These targets are only emitted at the root; sub-packages handle their
 	// own ts_compile targets via the normal path above.
 	if args.Rel == "" && tc.detectedFramework != FrameworkNone {
-		bundleRules, bundleImports := generateFrameworkBundle(args, tc)
+		bundleRules, bundleImports, bundleEmpty := generateFrameworkBundle(args, tc)
 		gen = append(gen, bundleRules...)
 		imports = append(imports, bundleImports...)
+		empty = append(empty, bundleEmpty...)
+		reportMissingFrameworkEntry(args, tc)
 	}
 
 	// ---- filegroup "sources" for framework staging_srcs --------------------
 	// When a framework is detected and this directory is one of the stage dirs,
 	// generate a "sources" filegroup that exports all non-test .ts/.tsx files.
 	// The root ts_bundle staging_srcs references these filegroups via labels
-	// like //src/routes:sources. Only emit when there are actual source files.
-	if args.Rel != "" && tc.detectedFramework != FrameworkNone && isStagedDir(args.Rel, tc) && len(srcFiles) > 0 {
-		if !ruleExists(args, "filegroup", "sources") {
-			if fg := generateSourcesFilegroup(srcFiles); fg != nil {
-				gen = append(gen, fg)
-				imports = append(imports, nil)
-			}
+	// like //src/routes:sources.
+	//
+	// The directory listing, not srcFiles: the framework's plugin reads the
+	// route or entry off the staging tree by name, so ts_exclude and a sibling
+	// target's claim -- which decide what compiles here, not what exists --
+	// must not take a file out of the staged copy.
+	//
+	// Re-emitted even when the rule is already in the BUILD file: filegroup.srcs
+	// is mergeable, and skipping the existing rule freezes the staged tree at
+	// what the first run saw, so a route added later never reaches the bundle.
+	if args.Rel != "" && tc.detectedFramework != FrameworkNone && isStagedDir(args.Rel, tc) {
+		if fg := generateSourcesFilegroup(stagedSources(args.RegularFiles)); fg != nil {
+			gen = append(gen, fg)
+			imports = append(imports, nil)
 		}
 	}
 
@@ -690,6 +765,15 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	if tc.detectedFramework == FrameworkTanStack {
 		result = tanstack.AdjustGenerateResult(args, result)
 	}
+
+	// The Remix plugin does the same for app/: it annotates route targets with
+	// the route tree, stages the folder routes the static stage-dir list cannot
+	// name, and names the conventions it refuses to apply.
+	if tc.detectedFramework == FrameworkRemix {
+		result = remix.AdjustGenerateResult(args, result)
+	}
+
+	reportManagedAttrDrops(args, result.Gen)
 
 	return result
 }
@@ -711,7 +795,9 @@ func emptyResult(args language.GenerateArgs) language.GenerateResult {
 }
 
 // generatePnpmTargets generates :pnpm and :add_package macro invocations at
-// the workspace root when a pnpm-lock.yaml file is detected.
+// the workspace root when a pnpm-lock.yaml file is detected. That lockfile is
+// the hub :add_package edits; the macro has no default for it, because a
+// pnpm add with no hub writes a package.json at the workspace root.
 //
 // Both targets are generated unconditionally once a lockfile is found: they
 // are low-cost no-ops if the user never runs them, and essential for the
@@ -738,6 +824,7 @@ func generatePnpmTargets(args language.GenerateArgs) ([]*rule.Rule, []any) {
 
 	if !ruleExists(args, "ts_add_package", "add_package") {
 		r := rule.NewRule("ts_add_package", "add_package")
+		r.SetAttr("pnpm_lock", "//:pnpm-lock.yaml")
 		gen = append(gen, r)
 		imports = append(imports, nil)
 	}
@@ -746,6 +833,109 @@ func generatePnpmTargets(args language.GenerateArgs) ([]*rule.Rule, []any) {
 }
 
 // ---- helper functions ------------------------------------------------------
+
+// detectorCodegenNames mirrors the names the detectors in codegen.go emit.
+// Change one there, change it here.
+var detectorCodegenNames = map[string]bool{
+	"route_tree":    true,
+	"prisma_client": true,
+	"graphql_types": true,
+	"api_types":     true,
+}
+
+// compilingKinds declare a per-source output for every src they list.
+var compilingKinds = map[string]bool{
+	"ts_compile":    true,
+	"ts_test":       true,
+	"css_library":   true,
+	"css_module":    true,
+	"asset_library": true,
+	"json_library":  true,
+}
+
+// claimedSrcs returns the srcs of the rules in this build file that Gazelle is
+// not about to write. A glob() srcs expression reads as no names.
+func claimedSrcs(args language.GenerateArgs, tc *tsConfig) map[string]struct{} {
+	if args.File == nil {
+		return nil
+	}
+	ours := reservedTSTargetNames(tc, args.Rel)
+	claimed := make(map[string]struct{})
+	for _, r := range args.File.Rules {
+		// Gazelle writes neither attribute, so what they name survives the merge
+		// and is compiled -- including on the ts_test Gazelle owns.
+		if r.Kind() == "ts_test" {
+			for _, attr := range []string{"setup_files", "global_setup"} {
+				for _, src := range r.AttrStrings(attr) {
+					claimed[src] = struct{}{}
+				}
+			}
+		}
+		if !compilingKinds[r.Kind()] {
+			continue
+		}
+		if _, mine := ours[r.Name()]; mine {
+			continue
+		}
+		for _, src := range r.AttrStrings("srcs") {
+			claimed[src] = struct{}{}
+		}
+	}
+	return claimed
+}
+
+func dropClaimed(files []string, claimed map[string]struct{}) []string {
+	var kept []string
+	for _, f := range files {
+		if _, taken := claimed[f]; !taken {
+			kept = append(kept, f)
+		}
+	}
+	return kept
+}
+
+// usedPathAliases narrows the inherited alias map to the entries this target can
+// carry: the ones its own imports resolve through, plus the ones whose directory
+// holds its own sources.
+//
+// The second set carries the alias into the IDE tsconfig, which only learns an
+// alias exists from the targets that declare it. It covers directive-declared
+// aliases only: one read back out of a generated tsconfig is an echo, not a
+// declaration.
+func usedPathAliases(tc *tsConfig, rel string, srcs, imports []string) map[string]string {
+	if len(tc.pathAliases) == 0 {
+		return nil
+	}
+	used := make(map[string]string)
+	for _, imp := range imports {
+		if m, ok := matchPathAlias(tc, imp); ok {
+			used[m.prefix] = m.dir
+		}
+	}
+	for prefix, dir := range tc.pathAliases {
+		if tc.aliasesFromDirectives && aliasCoversSrcs(dir, rel, srcs) {
+			used[prefix] = dir
+		}
+	}
+	return used
+}
+
+// aliasCoversSrcs mirrors ts_compile's _validate_path_aliases: an alias holds only
+// when one of the target's own sources sits at or under its directory.
+func aliasCoversSrcs(dir, rel string, srcs []string) bool {
+	norm := strings.TrimSuffix(dir, "/")
+	if norm == "" {
+		return false
+	}
+	prefix := norm + "/"
+	for _, src := range srcs {
+		p := path.Join(rel, src)
+		if p == norm || strings.HasPrefix(p, prefix) {
+			return true
+		}
+	}
+	return false
+}
 
 // targetNameForDir returns the Bazel target name for the primary ts_compile
 // rule in a directory. Uses the configured override if present, otherwise the
@@ -764,6 +954,56 @@ func targetNameForDir(tc *tsConfig, rel string) string {
 // with a given library target name.
 func testTargetName(libName string) string {
 	return libName + "_test"
+}
+
+// reservedTSTargetNames returns the target names the TypeScript rules in a
+// directory own. Non-TypeScript libraries must avoid these.
+func reservedTSTargetNames(tc *tsConfig, rel string) map[string]struct{} {
+	name := targetNameForDir(tc, rel)
+	reserved := map[string]struct{}{
+		name:                 {},
+		name + "_lint":       {},
+		testTargetName(name): {},
+		"dev":                {},
+		"node_modules":       {},
+	}
+	// The framework entry target: leaving it out let claimedSrcs read Gazelle's
+	// own rule as a hand-written claim, freezing that rule after run 1.
+	if entry, ok := frameworkEntryTargetName(rel, tc); ok {
+		reserved[entry] = struct{}{}
+	}
+	return reserved
+}
+
+// assetTargetNames names every css/asset/json source file in a package. Keeping
+// the extension ("logo.svg" → "logo_svg") is what stops these targets colliding
+// with the directory-named ts_compile target and with each other; a numeric
+// suffix breaks any tie that survives that.
+func assetTargetNames(reserved map[string]struct{}, groups ...[]string) map[string]string {
+	var all []string
+	for _, g := range groups {
+		all = append(all, g...)
+	}
+	sort.Strings(all)
+
+	names := make(map[string]string, len(all))
+	used := make(map[string]struct{}, len(reserved)+len(all))
+	for n := range reserved {
+		used[n] = struct{}{}
+	}
+	for _, f := range all {
+		base := strings.ReplaceAll(f, ".", "_")
+		name := base
+		for i := 2; ; i++ {
+			if _, taken := used[name]; !taken {
+				break
+			}
+			name = base + "_" + strconv.Itoa(i)
+		}
+		used[name] = struct{}{}
+		names[f] = name
+	}
+	return names
 }
 
 // uniqueImports deduplicates and returns sorted import specifiers. The sorted

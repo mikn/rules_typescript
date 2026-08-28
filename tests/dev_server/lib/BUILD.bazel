@@ -1,0 +1,16 @@
+"""A first-party package imported by its bare specifier, not by relative path.
+
+The dev server has to alias `@devserver/lib` to this directory's source for
+`bazel run` to serve it without a Bazel round trip.
+"""
+
+load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+package(default_visibility = ["//tests/dev_server:__pkg__"])
+
+ts_compile(
+    name = "lib",
+    srcs = ["index.ts"],
+    module_name = "@devserver/lib",
+    visibility = ["//visibility:public"],
+)

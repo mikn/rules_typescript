@@ -52,15 +52,23 @@
  * Bazel-declared directory, which Bazel accepts (declared_directory contains
  * all files produced by the action, including subdirectories).
  *
- * ── What still does NOT work with full SSR Remix in Bazel ─────────────────────
+ * ── Full SSR Remix goes through remix_build, not through here ────────────────
  *
- * Full SSR Remix (ssr: true, the default) requires:
- *   1. A server entry (app/entry.server.tsx).
- *   2. A separate server bundle build.
- *   3. A Node.js adapter (@remix-run/node or @remix-run/express).
+ * Full SSR Remix (ssr: true, the default) is two `vite build` invocations of
+ * one config, in an order where the second moves files the first wrote. That
+ * does not fit ts_bundle, whose wrapper runs exactly one `vite build` and whose
+ * generated config reads only `plugins` and `root`.
  *
- * This is architecturally incompatible with ts_bundle's single-output model.
- * Use SPA mode for Bazel-native Remix deployments.
+ * The rule for it is remix_build, which runs `remix vite:build` as one action
+ * and returns client/ and server/ together. Its config needs none of the
+ * VITE_STAGING_ROOT / VITE_OUT_DIR plumbing below -- the rule builds inside a
+ * staging root it owns and moves the result into the declared output:
+ *
+ *   import { vitePlugin as remix } from "@remix-run/dev";
+ *   export default { plugins: [remix()] };
+ *
+ * See docs/rules/remix-build.md and //tests/integration:remix_ssr_test, which
+ * builds both halves and then runs the server one.
  *
  * ── Local (non-Bazel) use ─────────────────────────────────────────────────────
  *

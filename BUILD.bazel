@@ -1,7 +1,11 @@
 # Root BUILD file for rules_typescript
 
-load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+# oj writes its config-extraction cache into the directory it serves, so a
+# workspace where the oj dev server has ever run has one of these at its root.
+# gazelle:exclude .oj-cache
+
 load("//ts:defs.bzl", "ts_add_package", "ts_pnpm")
+load("//ts/private:tsconfig_aspect.bzl", "ts_refresh_tsconfig")
 
 exports_files([
     "MODULE.bazel",
@@ -9,31 +13,216 @@ exports_files([
 ])
 
 # ── IDE Integration ────────────────────────────────────────────────────────────
-# Run `bazel run //:refresh_tsconfig` to regenerate the workspace-root
-# tsconfig.json that IDEs (VS Code, WebStorm, etc.) use for code intelligence.
+# The workspace-root tsconfig.json IDEs read is a declared output, written from
+# an aspect over the ts_compile graph: source roots, `path_aliases`, and the
+# .d.ts entry point NpmPackageInfo names for every npm package a target imports.
 #
-# The script queries all ts_compile targets, collects their package paths,
-# and writes a tsconfig.json with:
-#   - rootDirs including bazel-bin so the IDE can find compiled .d.ts files
-#   - paths mapping @/<pkg> aliases to source directories
-#   - references pointing at per-package tsconfig.json files (when present)
+#   bazel run //:refresh_tsconfig        installs it in the source tree, with
+#                                        the npm .d.ts files under .bazel/npm
+#   bazel test //:refresh_tsconfig_test  fails when the checked-in copy is stale
 #
-# Re-run this whenever you add or remove ts_compile targets.
-sh_binary(
+# `deps` is what the IDE sees, and a rule's deps obey visibility. The aspect
+# walks `deps`, so this list is roots only: every ts_compile target a root
+# depends on comes along. Gazelle writes `//visibility:public` on every
+# ts_compile it generates, so a workspace whose BUILD files come from gazelle can
+# list any of them; the fixtures here are hand-written, and each package grants
+# `//:__pkg__` instead.
+#
+# The `_<test>_compile` entries are the ts_compile targets ts_test generates for
+# a test's own sources; naming them is what puts `vitest` among the npm paths
+# entries, since nothing else in the graph depends on a test's own sources.
+#
+# The guard fixtures under //tests/compiler_options/analysis stay out: their
+# analysis is meant to fail, so listing one here fails this target instead. So do
+# the fixtures that exist only to be read by an analysis test of the generated
+# file, //tests/lsp/module_fixture among them -- what they declare belongs in
+# that test, not in the checked-in tsconfig.
+#
+# extra_exclude names the TypeScript that is not in this module's graph at all.
+# e2e/, examples/ and tests/integration/ are separate Bazel modules, each with
+# its own MODULE.bazel and its own tsconfig, and all three are in .bazelignore --
+# so nothing here reaches them, and `include: ["**/*"]` would type-check them
+# against the wrong compilerOptions.
+#
+# What `tsc -p tsconfig.json` still reports is the fixtures that typecheck only
+# under their own per-target options -- `strict` off, `allowJs`, `lib:
+# webworker`, `allowImportingTsExtensions`, a `jsxImportSource` -- plus the
+# ambient .d.ts one of them uses to shim `node:fs` with a narrower signature than
+# @types/node's, which no include/exclude isolates from the rest of the program.
+# One root compilerOptions cannot satisfy them; per-package tsconfigs and a
+# narrow `include` were both considered and rejected. Everything else it reports
+# is a specifier nothing in the graph declares: a source file no ts_compile
+# target claims yet (run gazelle), or a bare import of a pnpm workspace link,
+# which resolves once the linked ts_compile declares a `module_name`.
+ts_refresh_tsconfig(
     name = "refresh_tsconfig",
-    srcs = ["//tools:refresh_tsconfig.sh"],
-    visibility = ["//visibility:public"],
+    extra_exclude = [
+        "**/e2e",
+        "**/examples",
+        "**/tests/integration",
+    ],
+    # A darwin-only optionalDependency that ships fsevents.d.ts, so it is not
+    # caught by the declaration-free filter: with it in, the checked-in file
+    # differs per host and //:refresh_tsconfig_test fails on the other one.
+    host_only_packages = ["fsevents"],
+    # A package needs its own editor program when its targets set compilerOptions
+    # the root block cannot also be set to. tsserver resolves a file to a program
+    # by directory, so the root program would otherwise check these against the
+    # wrong options -- which is what the 9 tsc errors against the root tsconfig
+    # were. Declared rather than discovered: glob() cannot cross a package
+    # boundary, and the rule fails when this disagrees with the graph.
+    nested_tsconfigs = [
+        "tests/compiler_options/tsconfig.json",
+        "tests/compiler_options/ambient/tsconfig.json",
+        "tests/compiler_options/analysis/tsconfig.json",
+        "tests/compiler_options/baseline/tsconfig.json",
+        "tests/compiler_options/es_target/tsconfig.json",
+        "tests/compiler_options/js_sources/tsconfig.json",
+        "tests/compiler_options/jsx/tsconfig.json",
+        "tests/compiler_options/worker/tsconfig.json",
+        "tests/workers/tsconfig.json",
+        "vite/tsconfig.json",
+    ],
+    test = True,
+    deps = [
+        "//eslint-plugin/src",
+        # The generated per-test compile target: without it the IDE has no
+        # program covering a test file, and its imports resolve to nothing.
+        "//eslint-plugin/src:_src_test_compile",
+        "//packages/nested-shared",
+        "//packages/shared",
+        "//tests/ambient_npm_types:consumer",
+        "//tests/ambient_npm_types:consumer_no_types",
+        "//tests/assets:header_lib",
+        "//tests/bundle:app",
+        "//tests/codegen:consumer_compile",
+        "//tests/compile_layout:siblings",
+        "//tests/compiler_options:ts_extension_imports",
+        "//tests/compiler_options:webworker_lib",
+        "//tests/compiler_options/ambient:app",
+        "//tests/compiler_options/analysis:everything",
+        "//tests/compiler_options/analysis:from_exec_root",
+        "//tests/compiler_options/analysis:quoted_option",
+        "//tests/compiler_options/analysis:with_css",
+        "//tests/compiler_options/baseline:loose",
+        "//tests/compiler_options/baseline:loose_check_only",
+        "//tests/compiler_options/js_sources:app",
+        "//tests/compiler_options/js_sources:flavours",
+        "//tests/compiler_options/jsx:view",
+        "//tests/compiler_options/module_name/consumer:app",
+        "//tests/compiler_options/path_aliases:app",
+        "//tests/compiler_options/source_maps:mapped",
+        "//tests/compiler_options/source_maps:unmapped",
+        "//tests/compiler_options/subtree:tree",
+        "//tests/compiler_options/worker",
+        "//tests/css:button_lib",
+        "//tests/css_module:button_lib",
+        "//tests/css_module_test:_button_test_compile",
+        "//tests/css_module_test:button",
+        "//tests/dev_server:app",
+        "//tests/dev_server:dev_app",
+        "//tests/json:app_lib",
+        "//tests/lsp:ambient_fixture",
+        "//tests/lsp:plain_fixture",
+        "//tests/multi/app",
+        "//tests/npm:app",
+        "//tests/npm:nested_workspace_consumer",
+        "//tests/npm:workspace_consumer",
+        "//tests/npm_publish:math",
+        "//tests/smoke:button",
+        "//tests/smoke:hello",
+        "//tests/strict_deps:builtins",
+        "//tests/strict_deps:declared",
+        "//tests/strict_deps:relative",
+        "//tests/strict_deps:scanner_forms",
+        "//tests/synthetic/pkg_10",
+        "//tests/synthetic/pkg_11",
+        "//tests/synthetic/pkg_12",
+        "//tests/synthetic/pkg_13",
+        "//tests/synthetic/pkg_14",
+        "//tests/synthetic/pkg_15",
+        "//tests/synthetic/pkg_16",
+        "//tests/synthetic/pkg_17",
+        "//tests/synthetic/pkg_18",
+        "//tests/synthetic/pkg_19",
+        "//tests/compiler_options/es_target:legacy",
+        "//tests/npm:ws_linked_consumer",
+        "//tests/tailwind:entry",
+        "//tests/workers:worker",
+        "//tests/workers:_worker_test_compile",
+        "//tests/tailwind:tailwind_config",
+        "//tests/validation:annotated_oxc",
+        "//tests/validation:correct",
+        "//tests/validation:inferred",
+        "//tests/vite_bundle:entry",
+        "//tests/vite_bundle:env_entry",
+        "//tests/vitest:_math_test_compile",
+        "//tests/vitest:math",
+        "//tests/vitest/attrs:_attrs_test_compile",
+        "//tests/vitest/attrs:_attrs_test_setup",
+        "//tests/vitest/config_dict:_define_test_compile",
+        "//tests/vitest/config_merge:_merge_test_compile",
+        "//tests/vitest/config_merge:styles",
+        "//tests/vitest/coverage:_math_coverage_test_compile",
+        "//tests/vitest/data:_fixture_test_compile",
+        "//tests/vitest/environment:_edge_test_compile",
+        "//tests/vitest/environment:_jsdom_test_compile",
+        "//tests/vitest/global_setup:_injected_test_compile",
+        "//tests/vitest/global_setup:_injected_test_global_setup",
+        "//tests/vitest/setup_files:_media_test_compile",
+        "//tests/vitest/setup_files:_media_test_setup",
+        "//tests/vitest/setup_files:media",
+        "//tests/vitest/workspace:_project_test_compile",
+        "//tests/vitest/workspace:styles",
+        # The css_module compiler and its Vite plugin: TypeScript that no
+        # ts_compile in a test tree reaches, so the IDE needs it named here.
+        "//ts/private/css:compiler_typecheck",
+        "//vite:plugin_typecheck",
+        "//vite:tsup_config",
+    ],
 )
 
 # ── Hermetic pnpm ─────────────────────────────────────────────────────────────
 # Run pnpm commands without needing a system-level pnpm installation.
 #
 #   bazel run //:pnpm -- --version
-#   bazel run //:pnpm -- add zod --lockfile-only
-#   bazel run //:add_package -- zod
+#   bazel run //:pnpm -- add zod --lockfile-only --dir tests/tailwind
+#   bazel run //:add_package_tailwind -- zod
 #
-# :add_package automatically appends --lockfile-only so pnpm-lock.yaml is
-# updated without creating a node_modules directory.
+# One :add_package_* per hub, each pinned to the lockfile its
+# npm.translate_lock() in MODULE.bazel reads: pnpm rewrites whichever lockfile
+# it resolves against, so which hub is being edited belongs in the command a
+# person types, not in a default they cannot see. Each appends --lockfile-only,
+# so no node_modules tree is created.
 ts_pnpm(name = "pnpm")
 
-ts_add_package(name = "add_package")
+# @npm. Its lockfile is a curated fixture -- comments, a workspace link, a
+# non-root importer and a tarball-prefix package nothing depends on, none of
+# which survive a `pnpm add`. New third-party dependencies belong in one of the
+# hubs below unless they exist to test the translator itself.
+ts_add_package(
+    name = "add_package_npm",
+    pnpm_lock = "//tests/npm:pnpm-lock.yaml",
+)
+
+ts_add_package(
+    name = "add_package_eslint",
+    pnpm_lock = "//tests/eslint:pnpm-lock.yaml",
+)
+
+ts_add_package(
+    name = "add_package_tailwind",
+    pnpm_lock = "//tests/tailwind:pnpm-lock.yaml",
+)
+
+ts_add_package(
+    name = "add_package_workers",
+    pnpm_lock = "//tests/workers:pnpm-lock.yaml",
+)
+
+# The one hub that is not a fixture: css_module's compiler runs from it, so it
+# ships to consumers.
+ts_add_package(
+    name = "add_package_css",
+    pnpm_lock = "//ts/private/css:pnpm-lock.yaml",
+)

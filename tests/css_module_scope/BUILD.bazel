@@ -1,0 +1,30 @@
+load("@rules_go//go:def.bzl", "go_test")
+load("//ts:defs.bzl", "css_module")
+
+css_module(
+    name = "scope_module_css",
+    srcs = ["scope.module.css"],
+    visibility = ["//visibility:public"],
+)
+
+# The postcss-modules knobs that change which keys the .d.ts declares are
+# attributes of the rule, because the rule is what writes the .d.ts.
+css_module(
+    name = "options_module_css",
+    srcs = ["options.module.css"],
+    export_globals = True,
+    hash_prefix = "salt",
+    locals_convention = "camelCaseOnly",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "css_module_scope_test",
+    size = "small",
+    srcs = ["css_module_scope_test.go"],
+    data = [
+        ":options_module_css",
+        ":scope_module_css",
+    ],
+    deps = ["//tests/verify"],
+)

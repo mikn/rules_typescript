@@ -1,5 +1,11 @@
-load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("@rules_go//go:def.bzl", "go_test")
 load("//ts:defs.bzl", "ts_compile")
+
+package(default_visibility = ["//:__pkg__"])
+
+# The go_test targets are hand-named after the sh_tests they replaced, so the
+# Go language would add a second target for the same source.
+# gazelle:exclude *_test.go
 
 ts_compile(
     name = "hello",
@@ -14,12 +20,13 @@ ts_compile(
     ],
 )
 
-sh_test(
+go_test(
     name = "smoke_output_test",
     size = "small",
-    srcs = ["verify_smoke.sh"],
+    srcs = ["smoke_output_test.go"],
     data = [
         ":button",
         ":hello",
     ],
+    deps = ["//tests/verify"],
 )

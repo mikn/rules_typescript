@@ -48,9 +48,9 @@ jobs:
             exit 1
           fi
 
-          # Validate JSON
-          python3 -c "import json; json.load(open('.bcr/metadata.json'))" || exit 1
-          python3 -c "import json; json.load(open('.bcr/source.json'))" || exit 1
+          # -e also rejects a file that parses to nothing at all
+          jq -e . .bcr/metadata.json > /dev/null || exit 1
+          jq -e . .bcr/source.json > /dev/null || exit 1
 
           echo "All metadata files validated"
 
@@ -185,7 +185,7 @@ jobs:
           ## BCR Metadata
           - Module: rules_typescript
           - Compatibility Level: 0
-          - Maintainer: Nicholas Gasior (nicholas@lovable.app)
+          - Maintainer: $(jq -r '.maintainers[0] | "\(.name) (\(.email))"' .bcr/metadata.json)
           - Repository: https://github.com/mikn/rules_typescript
 
           ## Next Steps for BCR Submission

@@ -4,30 +4,29 @@ ts_binary:
   - Takes an entry_point label (a ts_compile target)
   - Collects all transitive .js outputs from the target graph
   - Optionally invokes a pluggable bundler (via BundlerInfo) to produce a bundle
-  - Generates a runner script so `bazel run //target` works
+  - Writes a launcher config so `bazel run //target` works
   - Is executable = True
 
 When a `bundler` attribute is provided (a target returning BundlerInfo), the
-bundler CLI is invoked with a standard set of arguments and the runner script
-executes the bundled output. Without a bundler the runner executes the entry
+bundler CLI is invoked with a standard set of arguments and the launcher
+executes the bundled output. Without a bundler the launcher executes the entry
 point .js file directly (use ts_bundle for a non-executable bundle artifact).
 
-Runner script behaviour:
-  - Resolves $RUNFILES_DIR (set by `bazel run`) as the runfiles root.
+Launcher behaviour (//tools/launcher, driven by the generated JSON config):
+  - Resolves every path through the runfiles library, so a manifest-only
+    runfiles layout works exactly like a symlink tree.
   - Looks up the Node runtime from the JS runtime toolchain if registered,
     otherwise falls back to system `node`.
   - Prepends toolchain args_prefix (e.g. --experimental-vm-modules) before the
     entry point path.
   - Forwards all positional arguments passed after `--` on the command line.
+  - `TS_LAUNCHER_DUMP_CONFIG=1 bazel run //target` prints what it would exec.
 """
 
+load("//tools/launcher:launcher.bzl", "LAUNCHER_ATTRS", "declare_launcher", "rlocation_path")
 load("//ts/private:providers.bzl", "BundlerInfo", "JsInfo")
 load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "get_js_runtime")
-load("//ts/private:ts_bundle.bzl", "create_bundle_action")
-
-def _shell_escape(s):
-    """Escapes a string for safe embedding in a double-quoted shell string."""
-    return s.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$").replace("`", "\\`")
+load("//ts/private:ts_bundle.bzl", "BUNDLE_ACTION_ATTRS", "create_bundle_action")
 
 # ─── Executable implementation ─────────────────────────────────────────────────
 
@@ -50,20 +49,6 @@ def _ts_binary_impl(ctx):
         runtime_binary = js_runtime.runtime_binary
         runtime_args = js_runtime.args_prefix
 
-    # Helper: convert a file's short_path to its runfiles-tree-relative path.
-    #
-    # Bazel runfiles layout with --nolegacy_external_runfiles (bzlmod default):
-    #   $RUNFILES_DIR/_main/<short_path>          for main-workspace files
-    #   $RUNFILES_DIR/<repo_name>/<path>          for external-repo files
-    #
-    # File.short_path encoding:
-    #   main-workspace:   "path/to/file"          (no prefix)
-    #   external-repo:    "../repo_name/path"      (leading "../")
-    def _rl(short_path):
-        if short_path.startswith("../"):
-            return short_path[3:]  # strip leading "../"
-        return "_main/" + short_path
-
     bundler_target = ctx.attr.bundler
     bundle_out = None
     extra_outputs = []
@@ -75,7 +60,7 @@ def _ts_binary_impl(ctx):
         bundle_out = bundle_result.bundle_out
         extra_outputs = bundle_result.outputs
 
-        entry_path = _shell_escape(_rl(bundle_out.short_path))
+        entry_file = bundle_out
 
         runtime_depset = depset(
             ([runtime_binary] if runtime_binary else []),
@@ -87,13 +72,14 @@ def _ts_binary_impl(ctx):
         entry_js_files = entry_js_info.js_files.to_list()
         if not entry_js_files:
             fail(
-            "ts_binary: entry_point '{ep}' provides JsInfo but has no direct .js outputs.\n".format(ep = ctx.attr.entry_point.label) +
-            "Ensure the ts_compile target at entry_point has at least one .ts source file in srcs.",
-        )
+                "ts_binary: entry_point '{ep}' provides JsInfo but has no direct .js outputs.\n".format(ep = ctx.attr.entry_point.label) +
+                "Ensure the ts_compile target at entry_point has at least one .ts source file in srcs.",
+            )
         if len(entry_js_files) != 1:
             # If entry_file is set, use it to select the right .js file.
             if ctx.attr.entry_file:
                 wanted = ctx.attr.entry_file
+
                 # Normalize: if user passed "index.ts", convert to "index.js"
                 for ext in [".ts", ".tsx"]:
                     if wanted.endswith(ext):
@@ -101,11 +87,12 @@ def _ts_binary_impl(ctx):
                 match = [f for f in entry_js_files if f.basename == wanted]
                 if not match:
                     fail(
-                    "ts_binary: entry_file '{ef}' not found in entry_point '{ep}'.\n".format(
-                        ef = ctx.attr.entry_file, ep = ctx.attr.entry_point.label,
-                    ) +
-                    "Available .js files: {avail}".format(avail = ", ".join([f.basename for f in entry_js_files])),
-                )
+                        "ts_binary: entry_file '{ef}' not found in entry_point '{ep}'.\n".format(
+                            ef = ctx.attr.entry_file,
+                            ep = ctx.attr.entry_point.label,
+                        ) +
+                        "Available .js files: {avail}".format(avail = ", ".join([f.basename for f in entry_js_files])),
+                    )
                 entry_js_file = match[0]
             else:
                 # No entry_file specified — try "index.js" convention.
@@ -114,72 +101,43 @@ def _ts_binary_impl(ctx):
                     entry_js_file = index_match[0]
                 else:
                     fail(
-                    "ts_binary: entry_point '{ep}' produces {n} .js files: {files}.\n".format(
-                        ep = ctx.attr.entry_point.label,
-                        n = len(entry_js_files),
-                        files = ", ".join([f.basename for f in entry_js_files]),
-                    ) +
-                    "Set entry_file = \"index.ts\" (or the filename you want), or " +
-                    "add an index.ts to the ts_compile target to use the default convention.",
-                )
+                        "ts_binary: entry_point '{ep}' produces {n} .js files: {files}.\n".format(
+                            ep = ctx.attr.entry_point.label,
+                            n = len(entry_js_files),
+                            files = ", ".join([f.basename for f in entry_js_files]),
+                        ) +
+                        "Set entry_file = \"index.ts\" (or the filename you want), or " +
+                        "add an index.ts to the ts_compile target to use the default convention.",
+                    )
         else:
             entry_js_file = entry_js_files[0]
-        entry_path = _shell_escape(_rl(entry_js_file.short_path))
+        entry_file = entry_js_file
 
         runtime_depset = depset(
             ([runtime_binary] if runtime_binary else []),
             transitive = [entry_js_info.transitive_js_files, entry_js_info.transitive_js_map_files],
         )
 
-    # ── Optional node_modules for NODE_PATH ────────────────────────────────────
+    # ── Launcher config ────────────────────────────────────────────────────────
     node_modules_files = ctx.files.node_modules
-    node_modules_path = _shell_escape(_rl(node_modules_files[0].short_path)) if node_modules_files else ""
+    config = {
+        "label": str(ctx.label),
+        "mode": "node",
+        "workspace": ctx.workspace_name,
+        "runtime_args": runtime_args,
+        "node": {
+            "entry": rlocation_path(ctx, entry_file),
+        },
+    }
+    if runtime_binary:
+        config["runtime"] = rlocation_path(ctx, runtime_binary)
+    if node_modules_files:
+        config["node"]["node_modules"] = rlocation_path(ctx, node_modules_files[0])
 
-    # ── Generate the runner script ─────────────────────────────────────────────
-    runtime_path = _shell_escape(_rl(runtime_binary.short_path)) if runtime_binary else ""
-    runtime_args_str = " ".join(["\"{}\"".format(_shell_escape(a)) for a in runtime_args])
-
-    runner = ctx.actions.declare_file("{}_runner.sh".format(ctx.label.name))
-    runner_content = (
-        "#!/usr/bin/env bash\n" +
-        "# Bazel-generated runner for " + str(ctx.label) + "\n" +
-        "set -euo pipefail\n" +
-        "\n" +
-        "# Resolve the runfiles root.\n" +
-        "# `bazel run` sets RUNFILES_DIR; fall back to the .runfiles sibling of\n" +
-        "# the script for direct invocation.\n" +
-        "RUNFILES=\"${RUNFILES_DIR:-${BASH_SOURCE[0]}.runfiles}\"\n" +
-        "\n" +
-        "# Optional node_modules for NODE_PATH.\n" +
-        "NODE_MODULES_REL=\"" + node_modules_path + "\"\n" +
-        "if [[ -n \"$NODE_MODULES_REL\" && -d \"${RUNFILES}/${NODE_MODULES_REL}\" ]]; then\n" +
-        "  export NODE_PATH=\"${RUNFILES}/${NODE_MODULES_REL}:${NODE_PATH:-}\"\n" +
-        "fi\n" +
-        "\n" +
-        "# Resolve the JS runtime binary.\n" +
-        "RUNTIME_REL=\"" + runtime_path + "\"\n" +
-        "RUNTIME_ARGS=(" + runtime_args_str + ")\n" +
-        "if [[ -z \"$RUNTIME_REL\" ]]; then\n" +
-        "  # No toolchain runtime: use system node.\n" +
-        "  RUNTIME=\"node\"\n" +
-        "else\n" +
-        "  RUNTIME=\"${RUNFILES}/${RUNTIME_REL}\"\n" +
-        "fi\n" +
-        "\n" +
-        "# Entry point (absolute path via runfiles).\n" +
-        "ENTRY=\"${RUNFILES}/" + entry_path + "\"\n" +
-        "\n" +
-        "exec \"$RUNTIME\" \"${RUNTIME_ARGS[@]}\" \"$ENTRY\" \"$@\"\n"
-    )
-
-    ctx.actions.write(
-        output = runner,
-        content = runner_content,
-        is_executable = True,
-    )
+    launcher = declare_launcher(ctx, config)
 
     # ── Runfiles ───────────────────────────────────────────────────────────────
-    explicit_runfiles = list(node_modules_files)
+    explicit_runfiles = list(node_modules_files) + launcher.files
     if runtime_binary:
         explicit_runfiles.append(runtime_binary)
     if bundle_out:
@@ -189,6 +147,7 @@ def _ts_binary_impl(ctx):
     runfiles = ctx.runfiles(
         files = explicit_runfiles,
         transitive_files = runtime_depset,
+        root_symlinks = launcher.root_symlinks,
     )
 
     # ── Providers ──────────────────────────────────────────────────────────────
@@ -219,7 +178,7 @@ def _ts_binary_impl(ctx):
 
     return [
         DefaultInfo(
-            executable = runner,
+            executable = launcher.executable,
             files = default_files,
             runfiles = runfiles,
         ),
@@ -235,7 +194,7 @@ ts_binary = rule(
     toolchains = [
         config_common.toolchain_type(JS_RUNTIME_TOOLCHAIN_TYPE, mandatory = False),
     ],
-    attrs = {
+    attrs = LAUNCHER_ATTRS | BUNDLE_ACTION_ATTRS | {
         "entry_point": attr.label(
             doc = "The ts_compile target whose output is the binary entry point.",
             providers = [JsInfo],

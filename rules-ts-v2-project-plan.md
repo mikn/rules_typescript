@@ -1,5 +1,9 @@
 # rules_typescript: Project Plan
 
+_Historical planning document — a record of what was planned, not of what
+shipped. Rule names and phase boundaries here are planning-era; `ts/defs.bzl`
+is the authority on the current API._
+
 ## Thesis
 
 TypeScript on Bazel should feel like Go on Bazel. Developers write `.ts` files, never touch BUILD files, and get hermetic cached builds with sub-second incremental feedback. The architectural keystone is **isolated declarations**: by enforcing explicit return types on exports, `.d.ts` emit becomes a per-file syntactic transform (no type checker), which makes the compilation model structurally identical to Go's per-package model and unlocks fine-grained Bazel targets.

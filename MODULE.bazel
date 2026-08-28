@@ -2,17 +2,17 @@
 
 module(
     name = "rules_typescript",
-    version = "0.1.0",
+    version = "0.2.0",
     compatibility_level = 0,
 )
 
 # ─── Bazel dependencies ─────────────────────────────────────────────────────
 
-bazel_dep(name = "bazel_skylib", version = "1.9.0")
-bazel_dep(name = "platforms", version = "1.0.0")
-bazel_dep(name = "rules_nodejs", version = "6.7.3")
-bazel_dep(name = "rules_rust", version = "0.69.0")
-bazel_dep(name = "rules_shell", version = "0.6.1")
+bazel_dep(name = "bazel_skylib", version = "1.9.2")
+bazel_dep(name = "platforms", version = "1.1.0")
+bazel_dep(name = "rules_nodejs", version = "6.7.5")
+bazel_dep(name = "rules_rust", version = "0.73.0")
+bazel_dep(name = "rules_shell", version = "0.8.0")
 bazel_dep(name = "toolchain_utils", version = "1.3.0")
 
 bazel_dep(name = "rules_bazel_integration_test", version = "0.37.1", dev_dependency = True)
@@ -33,11 +33,22 @@ bazel_dep(name = "rules_go", version = "0.60.0")
 rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
 rust.toolchain(
     edition = "2024",
-    versions = ["1.94.0"],
+    versions = ["1.98.0"],
 )
 use_repo(rust, "rust_toolchains")
 
 register_toolchains("@rust_toolchains//:all")
+
+# cargo resolves a binary-only crate through artifact-dependencies, which is
+# nightly-gated. These tools run only when the oj_crates repo below is
+# generated; every rust_binary in this module still builds on the stable
+# toolchain pinned above.
+rust_host_tools = use_extension("@rules_rust//rust:extensions.bzl", "rust_host_tools")
+rust_host_tools.host_tools(
+    name = "rust_host_tools_nightly",
+    version = "nightly",
+)
+use_repo(rust_host_tools, "rust_host_tools_nightly")
 
 # ─── Go toolchain (for Gazelle extension) ────────────────────────────────────
 
@@ -47,15 +58,47 @@ go_sdk.download(version = "1.26.1")
 go_deps = use_extension("@gazelle//:extensions.bzl", "go_deps")
 go_deps.from_file(go_mod = "//gazelle:go.mod")
 
+# The Gazelle extension edits comment blocks the rule API cannot remove, so it
+# reaches the parsed BUILD file through buildtools directly.
+use_repo(go_deps, "com_github_bazelbuild_buildtools")
+
 # ─── crate_universe (Rust crate dependencies for oxc_cli) ───────────────────
 
 crate = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
 crate.from_cargo(
     name = "crates",
     cargo_lockfile = "//oxc_cli:Cargo.lock",
+    # rules_rust refuses a crate_universe hub without one from a non-root
+    # module: a consumer cannot repin across the module boundary, so the
+    # rendering has to be pinned here. Repin with CARGO_BAZEL_REPIN=1.
+    lockfile = "//oxc_cli:Cargo.Bazel.lock",
     manifests = ["//oxc_cli:Cargo.toml"],
 )
-use_repo(crate, "crates")
+
+# oj ships neither an npm package nor a release binary, so cargo is the only
+# channel it can be pinned from. It is a pure binary crate, hence gen_binaries
+# rather than a dep of the manifest above -- whose graph it must stay out of,
+# rolldown being the heaviest thing either tool pulls.
+crate.spec(
+    artifact = "bin",
+    package = "oj",
+    repositories = ["oj_crates"],
+    version = "=0.1.6",
+)
+crate.annotation(
+    crate = "oj",
+    gen_all_binaries = True,
+    repositories = ["oj_crates"],
+)
+crate.from_specs(
+    name = "oj_crates",
+    # A spec-only hub resolves its own manifest, but rules_rust 0.73 reads this
+    # path unconditionally once `lockfile` stops it from repinning.
+    cargo_lockfile = "//oj:Cargo.lock",
+    host_tools = "@rust_host_tools_nightly",
+    lockfile = "//oj:Cargo.Bazel.lock",
+)
+use_repo(crate, "crates", "oj_crates")
 
 # ─── Node.js toolchain (via rules_nodejs) ───────────────────────────────────
 
@@ -79,32 +122,95 @@ use_repo(
 # ─── TypeScript toolchains ──────────────────────────────────────────────────
 
 ts = use_extension("//ts:extensions.bzl", "ts")
-ts.oxc_toolchain(
-    name = "oxc",
+use_repo(
+    ts,
+    "tsgo_darwin_amd64",
+    "tsgo_darwin_arm64",
+    "tsgo_linux_amd64",
+    "tsgo_linux_arm64",
 )
-ts.tsgo_toolchain(
-    name = "tsgo",
-    tsgo_version = "7.0.0-dev.20260311.1",
-)
-use_repo(ts, "oxc", "tsgo")
 
-# Toolchain registration is the CONSUMER's responsibility.
-# rules_typescript does NOT register its own toolchains — consumers must add:
+# Toolchain registration is the CONSUMER's responsibility — consumers add:
 #
 #   register_toolchains("@rules_typescript//ts/toolchain:all")
 #
-# to their own MODULE.bazel. This matches the rules_go pattern where consumers
-# explicitly opt in to toolchain registration.
+# to their own MODULE.bazel, matching the rules_go pattern.
 #
-# For the main repo's own tests, we register them here:
-register_toolchains("//ts/toolchain:all")
+# dev_dependency is what makes that contract true. Toolchain resolution collects
+# register_toolchains() from every module in the graph, not just the root, so a
+# non-dev call here would register these toolchains for every consumer whether
+# they asked or not. Marked dev, the call applies only when rules_typescript is
+# itself the root module, i.e. for this repo's own tests.
+register_toolchains(
+    "//ts/toolchain:all",
+    dev_dependency = True,
+)
 
 # ─── npm dependencies ────────────────────────────────────────────────────────
 
+# @npm's name is the consumer's to claim: the extension gives the root module's
+# translate_lock priority for any hub name, so a target here naming @npm resolves
+# into the consumer's lockfile, not this fixture. Non-dev only because //vite's
+# and //ts/private/css's typecheck targets still name it in this module's mapping.
 npm = use_extension("//npm:extensions.bzl", "npm")
 npm.pnpm(version = "10.32.1")
 npm.translate_lock(pnpm_lock = "//tests/npm:pnpm-lock.yaml")
-use_repo(npm, "npm", "pnpm")
+
+# postcss-modules, which css_module's compile action runs to derive both the
+# scoped-name map and the .d.ts from it, plus the esbuild that bundles //vite's
+# plugin. Non-dev because both of those bundles are consumer API, so a dev-only
+# usage would hide them from every consumer of the rules.
+npm.translate_lock(
+    name = "npm_css",
+    pnpm_lock = "//ts/private/css:pnpm-lock.yaml",
+)
+
+# A second hub for the pnpm features that need their own fixture: the main
+# lockfile is copied verbatim into the integration and bootstrap scratch
+# workspaces, which pass no patch files.
+#
+# Nothing outside //tests/npm names @npm_features, so this hub and its patched
+# nanoid have no business in a consumer's MODULE.bazel.lock.
+npm_dev = use_extension("//npm:extensions.bzl", "npm", dev_dependency = True)
+
+# Tailwind v4's own hub. //tests/npm's lockfile is a curated fixture -- its
+# comments say what each entry is there to prove, and it carries a workspace
+# link and a non-root importer that no `pnpm add` regenerates -- so Tailwind's
+# thirteen platform-gated oxide packages get their own lock rather than
+# re-resolving that one.
+npm_dev.translate_lock(
+    name = "npm_tailwind",
+    pnpm_lock = "//tests/tailwind:pnpm-lock.yaml",
+)
+
+# The @typescript-eslint packages, which only //eslint-plugin imports. Their
+# own hub for the same reason Tailwind has one, plus a second: eslint pulls a
+# large closure that has no business in the tree an app's tests resolve
+# against.
+npm_dev.translate_lock(
+    name = "npm_eslint",
+    pnpm_lock = "//tests/eslint:pnpm-lock.yaml",
+)
+
+# Cloudflare Workers: the vitest pool that runs tests inside workerd, and the
+# wrangler that deploys them. One hub for both, since the pool depends on
+# wrangler and miniflare anyway.
+npm_dev.translate_lock(
+    name = "npm_workers",
+    pnpm_lock = "//tests/workers:pnpm-lock.yaml",
+)
+npm_dev.translate_lock(
+    name = "npm_features",
+    patches = [
+        "//tests/npm:patches/@types__ms@2.1.0.patch",
+        "//tests/npm:patches/nanoid@3.3.11.patch",
+    ],
+    pnpm_lock = "//tests/npm:pnpm-lock-features.yaml",
+)
+
+use_repo(npm, "npm", "npm_css", "pnpm")
+
+use_repo(npm_dev, "npm_eslint", "npm_features", "npm_tailwind", "npm_workers")
 
 # ─── Bazel integration test binaries (dev only) ──────────────────────────────
 

@@ -1,6 +1,8 @@
 # Monorepo Layout
 
-`rules_typescript` is designed for monorepos. The recommended layout:
+`bazel run //:gazelle` infers the targets from the tree, so the layout is the
+configuration. Every directory holding `.ts` files becomes a `ts_compile` target,
+every test file a `ts_test`:
 
 ```
 my-monorepo/
@@ -24,11 +26,16 @@ my-monorepo/
 
 ## Package Boundaries
 
-A directory should have its own `ts_compile` target when:
+Gazelle's default is **every-dir**: every directory holding `.ts` files gets its
+own `ts_compile` target, the way every directory with `.go` files is a Go
+package. You do not choose boundaries — you choose whether to depart from that,
+with `# gazelle:ts_package_boundary index-only` for the older
+`index.ts`-marks-a-package behaviour, or `# gazelle:ts_target_name` to rename
+one.
 
-1. It has an `index.ts` that forms a public API (Gazelle auto-detects this).
-2. Other packages import from it — cross-package imports must go through the `ts_compile` target.
-3. It will be published as a separate npm package.
+Hand-written targets are worth it when a directory is a genuine unit: a public
+API behind an `index.ts`, something other packages import, something published
+as its own npm package.
 
 ```python
 # packages/utils/BUILD.bazel
@@ -76,22 +83,57 @@ ts_compile(
 )
 ```
 
-If `lib/math.ts` changes but its exported types don't change, `app` is not recompiled. Bazel's content-based caching uses the `.d.ts` fingerprint as the dependency boundary.
+If `lib/math.ts` changes but its exported types don't change, `app` is not
+recompiled. Bazel's content-based caching uses the `.d.ts` fingerprint as the
+dependency boundary.
 
-## Using Gazelle
+Every import has to be satisfied by a **direct** dep. A `.d.ts` that reaches a
+target through another dep's own deps does not count, so the `deps` list above is
+the whole truth about what `apps/server` may import — and `bazel run //:gazelle`
+keeps it that way. See
+[Deps have to be direct](../rules/ts-compile.md#deps-have-to-be-direct).
 
-Run Gazelle once to generate BUILD files for the entire monorepo:
-
-```bash
-bazel run //:gazelle
-```
-
-Gazelle creates `ts_compile` targets for every directory with TypeScript files, resolves import paths to Bazel labels, and generates `ts_test` targets for test files. After adding new source files or packages, re-run Gazelle to update BUILD files.
+Relative imports across packages work as written. For a bare specifier —
+`import { Button } from "@acme/ui"` — set `module_name = "@acme/ui"` on the
+producing target; the dependent then gets a `paths` entry pointing at whatever
+`.d.ts` Bazel produced for it. Do not hand-write that entry, and do not point
+`path_aliases` into `bazel-out/`: both break under a different configuration,
+and the second is now a hard error. See
+[ts_compile](../rules/ts-compile.md#importing-another-target-by-bare-specifier).
 
 ## Single pnpm Lockfile
 
-Use a single `pnpm-lock.yaml` at the repo root covering all packages. The `npm_translate_lock` extension reads this one file and creates the `@npm` repository that all packages share. This is simpler than per-package lockfiles and avoids version conflicts.
+Use a single `pnpm-lock.yaml` at the repo root covering all packages, and one
+`npm.translate_lock` call for it. That avoids the version conflicts per-package
+lockfiles create, and it costs nothing in fetch time: the extension declares one
+Bazel repository per package and Bazel fetches only the ones your targets
+actually reach. A 2731-entry lockfile does not make a one-package build slow.
+
+pnpm workspaces work: a `workspace:*` dependency resolves to the target in your
+own repository rather than to a download.
+
+Several hubs are supported and are the exception, not the layout to start from:
+reach for one when a closure has no business in the tree your app's tests resolve
+against, or when a lockfile is a curated fixture no `pnpm add` should regenerate.
+The cost is two lockfiles to keep in step, a Gazelle directive per package, and
+one `ts_add_package` target per hub —
+[More than one hub](npm.md#more-than-one-hub).
 
 ## Visibility
 
-Set `visibility = ["//visibility:public"]` on packages that other workspaces depend on. Keep leaf-node packages at `["//visibility:private"]` unless needed externally.
+Set `visibility = ["//visibility:public"]` on packages that other packages depend
+on. Keep leaf-node packages at `["//visibility:private"]` unless needed
+externally. Gazelle takes the other line and writes `//visibility:public` on every
+`ts_compile` target it generates.
+
+That choice has one non-obvious consequence: `ts_refresh_tsconfig`'s `deps` is a
+normal rule attribute, so it obeys visibility too. A package-private target
+cannot be listed there, and the IDE's `tsconfig.json` will not carry a `paths`
+entry for it — the aspect never reaches it. In a hand-written monorepo, the
+targets you want your editor to see need a visibility grant to the root package.
+See [IDE Setup](../getting-started/ide-setup.md#setup).
+
+`ts_test` follows the same line for the `ts_compile` targets it generates from
+your sources: they take the test's `visibility`, and are public when it declares
+none. That is what lets an IDE tsconfig see the npm packages only a test
+declares.

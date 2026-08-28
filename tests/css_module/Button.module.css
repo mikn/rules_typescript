@@ -26,3 +26,32 @@
   font-size: 14px;
   font-weight: 500;
 }
+
+/* A declaration value is not a selector: url(logo.png) and 1.5em must not
+   become class names. */
+.icon {
+  background-image: url(logo.png);
+  font: 1.5em/1.2 sans-serif;
+  content: ".fake-class";
+}
+
+/* Kebab-case names are not valid TS identifiers and must be quoted. */
+.button-primary {
+  background-color: #0070f3;
+}
+
+@media (min-width: 600px) {
+  .media-only {
+    display: grid;
+  }
+}
+
+@keyframes spin-frames {
+  from {
+    transform: rotate(0deg);
+  }
+}
+
+:global(.no-scope) {
+  margin: 0;
+}

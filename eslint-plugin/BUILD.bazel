@@ -1,0 +1,28 @@
+load("@rules_typescript//ts:defs.bzl", "json_library")
+
+# The @typescript-eslint packages every source here imports live in their own
+# hub, not the default one: //tests/npm's lockfile is a curated fixture and
+# eslint's closure has no business in it.
+# gazelle:ts_npm_hub npm_eslint
+
+# index-only, so src/ is one package and src/rules/ is part of it. One target
+# per directory makes this a cycle -- the barrel re-exports ./rules and ./rules
+# imports ../utils -- which at file granularity does not exist.
+# gazelle:ts_package_boundary index-only
+
+# A stale pnpm install from before this tree was built by Bazel. It is
+# gitignored, so it is invisible in a clean checkout and its BUILD files are
+# noise here -- Gazelle has already generated a go_library inside it once.
+# gazelle:exclude node_modules
+# gazelle:exclude dist
+
+# The tsup config type-checks only under `module: Preserve` with bundler
+# resolution, which Gazelle cannot infer.
+# gazelle:ts_exclude tsup.config.ts
+# gazelle:ts_exclude vitest.config.ts
+
+json_library(
+    name = "package-lock_json",
+    srcs = ["package-lock.json"],
+    visibility = ["//visibility:public"],
+)

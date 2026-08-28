@@ -1,0 +1,40 @@
+"""An @types/* dep supplies its ambient globals.
+
+The sources use `process`, `setTimeout`, `Buffer` and `node:fs`, none of which
+any `lib` declares, so compiling :consumer is the assertion.
+"""
+
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "ts_compile")
+load(":ambient_tests.bzl", "ambient_entry_test", "no_ambient_entry_test")
+
+package(default_visibility = ["//:__pkg__"])
+
+ts_compile(
+    name = "consumer",
+    srcs = ["ambient_globals.ts"],
+    deps = ["@npm//:types_node"],
+)
+
+# A node global with no @types/node to declare it: analysed, never built, since
+# not compiling is the point.
+ts_compile(
+    name = "consumer_no_types",
+    srcs = ["undeclared_global.ts"],
+    tags = ["manual"],
+)
+
+build_test(
+    name = "ambient_globals_test",
+    targets = [":consumer"],
+)
+
+ambient_entry_test(
+    name = "ambient_entry_test",
+    target_under_test = ":consumer",
+)
+
+no_ambient_entry_test(
+    name = "no_ambient_entry_test",
+    target_under_test = ":consumer_no_types",
+)

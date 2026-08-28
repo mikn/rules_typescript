@@ -1,31 +1,54 @@
-"""Coverage test for ts_test bazel coverage integration.
+"""`bazel coverage` on a ts_test, and what --instrumentation_filter selects.
 
-Run with:
     bazel coverage //tests/vitest/coverage:math_coverage_test --combined_report=lcov
 
-This produces an lcov report at bazel-out/_coverage/_coverage_report.dat.
+writes an lcov report to bazel-out/_coverage/_coverage_report.dat.  Bazel derives
+a default --instrumentation_filter from the targets on the command line, here
+`^//tests/vitest/coverage[/:]`, so the two modules this test exercises land on
+opposite sides of it: `same_package.js` is reported and `tests/vitest/math.js`
+is not, until a wider filter selects it:
 
-Requires @vitest/coverage-v8 in the npm deps (included here as a runtime dep).
-The coverage provider is automatically selected when COVERAGE_OUTPUT_FILE is set
-by Bazel during 'bazel coverage' runs.
+    --instrumentation_filter='^//tests/vitest[/:]'    both
+    --instrumentation_filter='-tests/vitest'          neither
+
+Requires @vitest/coverage-v8 in the npm deps.  The provider is selected
+automatically when Bazel sets COVERAGE_OUTPUT_FILE.
 """
 
-load("//ts:defs.bzl", "ts_test")
+load("//ts:defs.bzl", "ts_compile", "ts_test")
+load(":instrumentation_tests.bzl", "selects_both_packages_test", "selects_nothing_test", "selects_one_package_test")
 
-# Separate coverage test package avoids action-graph conflicts with the
-# non-coverage math_test in //tests/vitest.  Both tests compile math.test.ts
-# but with different dep sets; placing this in its own package ensures the
-# output paths are distinct.
-#
-# Note: math.test.ts is duplicated here because Bazel does not allow source
-# files to be shared across packages as srcs.
+ts_compile(
+    name = "same_package",
+    srcs = ["same_package.ts"],
+)
+
+# math.test.ts is duplicated from //tests/vitest rather than shared: Bazel does
+# not allow a source file to be a src in two packages, and two ts_test targets
+# over one source in one package would declare the same compiled .js twice.
 ts_test(
     name = "math_coverage_test",
     srcs = ["math.test.ts"],
     coverage = True,
     deps = [
+        ":same_package",
         "//tests/vitest:math",
         "@npm//:vitest",
         "@npm//:vitest_coverage-v8",
     ],
+)
+
+selects_both_packages_test(
+    name = "selects_both_packages",
+    target_under_test = ":math_coverage_test",
+)
+
+selects_one_package_test(
+    name = "selects_one_package",
+    target_under_test = ":math_coverage_test",
+)
+
+selects_nothing_test(
+    name = "selects_nothing",
+    target_under_test = ":math_coverage_test",
 )

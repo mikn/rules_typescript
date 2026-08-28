@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
@@ -70,13 +71,12 @@ const (
 	//   # gazelle:ts_warn_unresolved true
 	directiveWarnUnresolved = "ts_warn_unresolved"
 
-	// directiveIsolatedDeclarations controls whether the generated ts_compile
-	// rules set isolated_declarations = False. The default (true) means no
-	// attribute is emitted (the rule default is true). Set to "false" to
-	// generate ts_compile rules with isolated_declarations = False throughout
-	// the directory tree.
-	//   # gazelle:ts_isolated_declarations false
-	directiveIsolatedDeclarations = "ts_isolated_declarations"
+	// directiveDeclarations selects the .d.ts emitter on generated ts_compile
+	// rules. Accepted values: "tsgo" / "oxc". Default: "tsgo", which is the rule
+	// default, so no attribute is emitted. Set to "oxc" once every export in the
+	// tree carries an explicit type, to take type-checking off the critical path.
+	//   # gazelle:ts_declarations oxc
+	directiveDeclarations = "ts_declarations"
 
 	// directivePathAlias adds a TypeScript path alias mapping. The value is
 	// "<alias> <dir>" where alias is the path alias prefix (e.g. "@/") and dir
@@ -93,6 +93,14 @@ const (
 	// imported (e.g. happy-dom, @vitest/coverage-v8).
 	//   # gazelle:ts_runtime_dep @npm//:happy-dom
 	directiveRuntimeDep = "ts_runtime_dep"
+
+	// directiveAmbientTypes appends a Bazel label to every generated ts_compile
+	// and ts_test deps list in the directory tree. An ambient declaration has no
+	// import to infer a dep from, so this is the one dep the resolver cannot
+	// derive -- and the reason a migration would otherwise mean editing every
+	// target that touches `process` or `Buffer`.
+	//   # gazelle:ts_ambient_types @npm//:types_node
+	directiveAmbientTypes = "ts_ambient_types"
 
 	// directiveExclude registers an additional file glob pattern to exclude
 	// from source targets. The value is a filepath.Match-style pattern matched
@@ -114,6 +122,17 @@ const (
 	// When the <outs_csv> value starts with "dir:" the remainder is treated as
 	// the out_dir value and the Outs slice is left empty.
 	directiveCodegen = "ts_codegen"
+
+	// directiveNpmHub names the repo that npm deps in this tree resolve into.
+	//
+	//	# gazelle:ts_npm_hub npm_eslint
+	//
+	// A workspace can have more than one npm hub -- a curated fixture lockfile
+	// and a real one, a tool's dependencies kept out of the app's closure -- and
+	// which one a package's imports come from is a property of the package, not
+	// of the whole repo. Without this the generated label named a hub the
+	// package does not use, which is a label that does not exist.
+	directiveNpmHub = "ts_npm_hub"
 )
 
 // packageBoundaryMode values.
@@ -139,6 +158,11 @@ type tsConfig struct {
 	// (FrameworkNone) means no framework was detected.
 	detectedFramework Framework
 
+	// svelteKitAssets is the directory kit.files.assets names in
+	// svelte.config.js -- a documented relocatable option, so the default
+	// "static" cannot be assumed. Read once at the root and inherited.
+	svelteKitAssets string
+
 	// packageBoundaryMode controls how package boundaries are detected.
 	// "every-dir" (default): every directory with .ts files gets a ts_compile.
 	// "index-only": only directories with index.ts/tsx (old behaviour).
@@ -154,6 +178,10 @@ type tsConfig struct {
 	// to allow individual directories to opt-in regardless of index.ts.
 	packageBoundary bool
 
+	// npmHub is the repo label prefix that a bare specifier resolves into,
+	// e.g. "@npm". Set by directiveNpmHub and inherited by child directories.
+	npmHub string
+
 	// ignore suppresses ts_compile / ts_test generation in this directory.
 	ignore bool
 
@@ -166,6 +194,10 @@ type tsConfig struct {
 	// tsconfig.json, gazelle_ts.json (deprecated), or # gazelle:ts_path_alias
 	// directives. Directives take priority over file-based sources.
 	pathAliases map[string]string
+
+	// aliasesFromDirectives records that pathAliases was declared rather than
+	// read back out of a tsconfig this ruleset generated. Inherited downward.
+	aliasesFromDirectives bool
 
 	// npmPackages holds the set of npm package names known to the workspace.
 	// Keys are npm package names (e.g. "react"); values are the Bazel label
@@ -214,11 +246,15 @@ type tsConfig struct {
 	// statically imported (e.g. "happy-dom", "@vitest/coverage-v8").
 	runtimeDepsTest []string
 
-	// isolatedDeclarations controls whether the generated ts_compile rules
-	// set isolated_declarations = False. The default (true) means no
-	// attribute is emitted. Set to false via # gazelle:ts_isolated_declarations
-	// false to generate ts_compile rules with isolated_declarations = False.
-	isolatedDeclarations bool
+	// ambientTypes is the list of Bazel label strings appended to every
+	// generated ts_compile and ts_test deps list in this tree, for @types
+	// packages whose declarations are ambient and so have no import.
+	ambientTypes []string
+
+	// declarations is the .d.ts emitter for generated ts_compile rules:
+	// "tsgo" (default, no attribute emitted) or "oxc". Set via
+	// # gazelle:ts_declarations.
+	declarations string
 
 	// customCodegens holds ts_codegen patterns parsed from
 	// # gazelle:ts_codegen directives. Each directive contributes one entry.
@@ -235,8 +271,9 @@ func getConfig(c *config.Config) *tsConfig {
 		return v.(*tsConfig)
 	}
 	return &tsConfig{
-		packageBoundaryMode:  boundaryEveryDir,
-		isolatedDeclarations: true,
+		packageBoundaryMode: boundaryEveryDir,
+		declarations:        "tsgo",
+		npmHub:              defaultNpmHub,
 	}
 }
 
@@ -261,6 +298,10 @@ func (tc *tsConfig) clone() *tsConfig {
 	if len(tc.excludePatterns) > 0 {
 		cp.excludePatterns = make([]string, len(tc.excludePatterns))
 		copy(cp.excludePatterns, tc.excludePatterns)
+	}
+	if len(tc.ambientTypes) > 0 {
+		cp.ambientTypes = make([]string, len(tc.ambientTypes))
+		copy(cp.ambientTypes, tc.ambientTypes)
 	}
 	if len(tc.runtimeDepsTest) > 0 {
 		cp.runtimeDepsTest = make([]string, len(tc.runtimeDepsTest))
@@ -463,7 +504,8 @@ func linterConfigLabel(configPath string) string {
 // ---- tsconfig.json reading -------------------------------------------------
 
 // tsConfigJSON is a minimal representation of tsconfig.json used only for
-// reading compilerOptions.paths and compilerOptions.baseUrl.
+// reading compilerOptions.paths and compilerOptions.baseUrl. tsconfig.json is
+// JSONC, so it is decoded with unmarshalJSONC rather than encoding/json.
 type tsConfigJSON struct {
 	CompilerOptions struct {
 		BaseURL string              `json:"baseUrl"`
@@ -482,8 +524,8 @@ type tsConfigJSON struct {
 //	"@components/*": ["src/components/*"]
 //
 // We convert each path pattern to the simpler prefix→dir form used by tsConfig.pathAliases:
-//   - Strip trailing "/*" from both the alias key and the first target value.
-//   - Use the first target in the array (tsconfig supports fallback arrays; we only need one).
+//   - Strip trailing "/*" from both the alias key and the chosen target value.
+//   - Reduce the fallback array to one target with pickAliasTarget.
 //   - Prepend baseUrl to the target directory when baseUrl is non-empty.
 //
 // Examples (baseUrl = ""):
@@ -502,7 +544,7 @@ func loadTsConfigPaths(tsConfigPath string) map[string]string {
 		return nil
 	}
 	var tsc tsConfigJSON
-	if err := json.Unmarshal(data, &tsc); err != nil {
+	if err := unmarshalJSONC(data, &tsc); err != nil {
 		log.Printf("typescript: failed to parse %s: %v", tsConfigPath, err)
 		return nil
 	}
@@ -512,15 +554,29 @@ func loadTsConfigPaths(tsConfigPath string) map[string]string {
 
 	baseURL := strings.TrimSuffix(tsc.CompilerOptions.BaseURL, "/")
 
+	baseDir := filepath.Dir(tsConfigPath)
+	if baseURL != "" && !filepath.IsAbs(baseURL) {
+		baseDir = filepath.Join(baseDir, filepath.FromSlash(baseURL))
+	}
+
+	// Two patterns can normalise to the same alias key, so iteration order
+	// decides which entry survives, and which order the log lines come out in.
+	patterns := make([]string, 0, len(tsc.CompilerOptions.Paths))
+	for aliasPattern := range tsc.CompilerOptions.Paths {
+		patterns = append(patterns, aliasPattern)
+	}
+	sort.Strings(patterns)
+
 	aliases := make(map[string]string, len(tsc.CompilerOptions.Paths))
-	for aliasPattern, targets := range tsc.CompilerOptions.Paths {
+	for _, aliasPattern := range patterns {
+		targets := tsc.CompilerOptions.Paths[aliasPattern]
 		if len(targets) == 0 {
 			continue
 		}
-		if len(targets) > 1 {
-			log.Printf("typescript: paths entry %q has %d targets; using only %q (first)", aliasPattern, len(targets), targets[0])
+		target := pickAliasTarget(baseDir, aliasPattern, targets)
+		if target == "" {
+			continue
 		}
-		target := targets[0] // use first fallback entry only
 
 		// Strip trailing "/*" wildcard from both sides.
 		aliasKey := strings.TrimSuffix(aliasPattern, "/*")
@@ -536,6 +592,18 @@ func loadTsConfigPaths(tsConfigPath string) map[string]string {
 			} else {
 				targetDir = baseURL + "/" + targetDir
 			}
+		}
+
+		// An identity mapping is not an alias. ts_refresh_tsconfig emits two
+		// paths entries per first-party package: the wildcard form maps the
+		// package path to itself, and the bare form maps it to its own entry
+		// point. Echoing either into every generated target's path_aliases
+		// churns every BUILD file and tells Gazelle nothing it cannot read
+		// off the package path.
+		normKey := strings.TrimSuffix(aliasKey, "/")
+		normDir := strings.TrimSuffix(targetDir, "/")
+		if normKey == normDir || normKey == strings.TrimSuffix(normDir, "/index") {
+			continue
 		}
 
 		// Ensure the alias key ends with "/" only when it was a wildcard pattern.
@@ -555,6 +623,111 @@ func loadTsConfigPaths(tsConfigPath string) map[string]string {
 		return nil
 	}
 	return aliases
+}
+
+// pickAliasTarget reduces a compilerOptions.paths fallback array to the single
+// directory Gazelle resolves the alias against, or "" to drop the alias. It
+// prefers the first entry that exists on disk, and falls back to the first
+// usable entry when none do -- an alias may legitimately point at a directory
+// that only a codegen action produces.
+func pickAliasTarget(baseDir, aliasPattern string, targets []string) string {
+	usable := make([]string, 0, len(targets))
+	for _, target := range targets {
+		if aliasTargetIsUsable(target) {
+			usable = append(usable, target)
+		}
+	}
+	if len(usable) == 0 {
+		// A tool-managed dot-directory is meant to be dropped, and every npm
+		// declaration ts_refresh_tsconfig writes takes that path. An alias left
+		// with only output-tree entries is the one worth a word: dropping it
+		// silently replaces ts_compile's analysis error with a missing dep edge.
+		if !anyToolManaged(targets) {
+			log.Printf("typescript: paths entry %q has no target Gazelle can use (%v); no path_alias emitted. "+
+				"An alias under bazel-out/bazel-bin points into the output tree: set module_name on the "+
+				"target that produces those declarations and import it by that name instead.",
+				aliasPattern, targets)
+		}
+		return ""
+	}
+
+	onDisk := make([]string, 0, len(usable))
+	for _, target := range usable {
+		if aliasTargetExists(baseDir, target) {
+			onDisk = append(onDisk, target)
+		}
+	}
+	switch len(onDisk) {
+	case 0:
+		return usable[0]
+	case 1:
+		return onDisk[0]
+	default:
+		log.Printf("typescript: paths entry %q resolves on disk to %d directories; using %q and ignoring %v. "+
+			"Gazelle emits one directory per alias; if imports must resolve through more than one, "+
+			"split the alias or list the extra files in path_alias_srcs.",
+			aliasPattern, len(onDisk), onDisk[0], onDisk[1:])
+		return onDisk[0]
+	}
+}
+
+// aliasTargetIsUsable rejects the two shapes that can never become a legal
+// path_aliases value.
+func aliasTargetIsUsable(target string) bool {
+	head, _, _ := strings.Cut(aliasTargetPath(target), "/")
+
+	// bazel-out, bazel-bin, bazel-testlogs and bazel-<workspace> are the
+	// convenience symlinks; ts_compile fails analysis on an alias under them.
+	if strings.HasPrefix(head, "bazel-") {
+		return false
+	}
+
+	// A named dot-directory is tool-managed, never a Bazel package:
+	// ts_refresh_tsconfig installs npm declarations under npm_dir
+	// (.bazel/npm by default), one paths entry per package, and treating
+	// those as aliases resolved `import 'zod'` to //.bazel/npm/zod/index.d
+	// instead of @npm//:zod. A bare "." is the baseUrl root, not a dot-dir.
+	return len(head) <= 1 || head[0] != '.' || head == ".."
+}
+
+func anyToolManaged(targets []string) bool {
+	for _, target := range targets {
+		head, _, _ := strings.Cut(aliasTargetPath(target), "/")
+		if len(head) > 1 && head[0] == '.' && head != ".." {
+			return true
+		}
+	}
+	return false
+}
+
+func aliasTargetExists(baseDir, target string) bool {
+	rel := aliasTargetPath(target)
+	if rel == "" {
+		rel = "."
+	}
+	full := filepath.FromSlash(rel)
+	if !filepath.IsAbs(full) {
+		full = filepath.Join(baseDir, full)
+	}
+	if _, err := os.Stat(full); err == nil {
+		return true
+	}
+	if strings.HasSuffix(target, "/*") {
+		return false
+	}
+	for _, ext := range []string{".ts", ".tsx", ".d.ts", ".js"} {
+		if _, err := os.Stat(full + ext); err == nil {
+			return true
+		}
+		if _, err := os.Stat(filepath.Join(full, "index"+ext)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func aliasTargetPath(target string) string {
+	return strings.TrimPrefix(strings.TrimSuffix(target, "/*"), "./")
 }
 
 // ---- gazelle_ts.json -------------------------------------------------------
@@ -640,8 +813,9 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 	} else {
 		// Fresh root config: apply defaults.
 		tc = &tsConfig{
-			packageBoundaryMode:  boundaryEveryDir,
-			isolatedDeclarations: true,
+			packageBoundaryMode: boundaryEveryDir,
+			declarations:        "tsgo",
+			npmHub:              defaultNpmHub,
 		}
 	}
 
@@ -650,6 +824,9 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 	// not been set yet (fresh zero value = FrameworkNone and no parent set it).
 	if rel == "" && tc.detectedFramework == FrameworkNone {
 		tc.detectedFramework = detectFramework(c.RepoRoot)
+	}
+	if rel == "" && tc.detectedFramework == FrameworkSvelteKit {
+		tc.svelteKitAssets, _ = svelteKitAssetsTree(c.RepoRoot)
 	}
 
 	// Detect linter config for this directory.
@@ -740,7 +917,7 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 	// Reset per-directory flags that should not propagate past a directory.
 	// packageBoundary (explicit opt-in for a single dir in index-only mode)
 	// and targetName are directory-scoped. packageBoundaryMode, ignore,
-	// isolatedDeclarations, and the list fields are inherited downward.
+	// declarations, and the list fields are inherited downward.
 	tc.packageBoundary = false
 	tc.targetName = ""
 
@@ -784,12 +961,18 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 				} else {
 					tc.ignore = true
 				}
+			case directiveNpmHub:
+				tc.npmHub = normalizeNpmHub(d.Value)
 			case directiveTargetName:
 				tc.targetName = d.Value
 			case directiveWarnUnresolved:
 				tc.warnUnresolved = d.Value == "true"
-			case directiveIsolatedDeclarations:
-				tc.isolatedDeclarations = d.Value != "false"
+			case directiveDeclarations:
+				if d.Value == "oxc" || d.Value == "tsgo" {
+					tc.declarations = d.Value
+				} else {
+					log.Printf("gazelle: ts_declarations: expected \"tsgo\" or \"oxc\", got %q; keeping %q", d.Value, tc.declarations)
+				}
 			case directivePathAlias:
 				// # gazelle:ts_path_alias <alias> <dir>
 				// On first encounter in this BUILD file, seed the directive map
@@ -811,6 +994,7 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 					dir := strings.TrimSpace(parts[1])
 					if alias != "" && dir != "" {
 						directiveAliases[alias] = dir
+						tc.aliasesFromDirectives = true
 					} else {
 						log.Printf("typescript: invalid ts_path_alias value %q (want \"<alias> <dir>\")", d.Value)
 					}
@@ -821,6 +1005,11 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 				lbl := strings.TrimSpace(d.Value)
 				if lbl != "" {
 					tc.runtimeDepsTest = append(tc.runtimeDepsTest, lbl)
+				}
+			case directiveAmbientTypes:
+				lbl := strings.TrimSpace(d.Value)
+				if lbl != "" {
+					tc.ambientTypes = append(tc.ambientTypes, lbl)
 				}
 			case directiveExclude:
 				pattern := strings.TrimSpace(d.Value)
@@ -913,4 +1102,24 @@ func parseCodegenDirective(value string) *CodegenPattern {
 	}
 
 	return &cp
+}
+
+// defaultNpmHub is the repo npm_translate_lock creates when given no name, and
+// so the hub a workspace that never sets directiveNpmHub is using.
+const defaultNpmHub = "@npm"
+
+// normalizeNpmHub accepts a hub as a repo name or as a repo label, since both
+// are how one gets written in a BUILD file, and returns the label form. An
+// empty value resets to the default rather than producing "//:react", which
+// would silently resolve to a target in the current repo.
+func normalizeNpmHub(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.TrimSuffix(value, "//")
+	if value == "" {
+		return defaultNpmHub
+	}
+	if !strings.HasPrefix(value, "@") {
+		return "@" + value
+	}
+	return value
 }

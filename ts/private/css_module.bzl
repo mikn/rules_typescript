@@ -1,15 +1,19 @@
-"""css_module rule — processes .module.css files and generates typed .d.ts declarations.
+"""css_module rule — compiles .module.css files and generates typed .d.ts declarations.
 
 CSS Modules (*.module.css) differ from plain CSS:
   - They are imported with a default import:  import styles from "./Button.module.css"
   - The import value is an object mapping class names to opaque strings.
   - TypeScript needs a typed .d.ts declaration for each .module.css file.
 
-This rule:
-  1. Parses class names from the .module.css source using a shell/awk action.
-  2. Generates a typed .d.ts declaration for each file.
-  3. Propagates both the .css and .d.ts files through CssModuleInfo and
-     TsDeclarationInfo so that ts_compile can consume them.
+This rule runs postcss-modules -- the library Vite itself bundles -- over each
+source and writes the export map it produced to <source>.exports.json. The
+.d.ts is generated from that map's keys, so the declared names and the runtime
+names are one derivation rather than two that can disagree.
+
+The scoped name in the map comes from a ruleset-owned generator
+(ts/private/css/scoped_name.ts): `_<local name>_<sha256 of the stylesheet>`.
+It reads no filename, no working directory and no line number, so the same
+bytes produce the same name in any sandbox or output base.
 
 The generated .d.ts looks like:
     declare const styles: {
@@ -20,114 +24,105 @@ The generated .d.ts looks like:
 """
 
 load("//ts/private:providers.bzl", "CssModuleInfo", "TsDeclarationInfo")
+load("//ts/private:runtime.bzl", "JS_TOOL_TOOLCHAIN_TYPE", "get_js_tool")
 
-# ── Typed .d.ts generation ───────────────────────────────────────────────────
-#
-# We use a run_shell action with awk to extract CSS class names and emit the
-# typed declaration.  This avoids any dependency on Python, Node.js, or other
-# external tools at generation time.
-#
-# The awk script matches the most common class selector forms:
-#   .className {          → extract "className"
-#   .className,           → extract "className" (multi-selector)
-#   .className:hover {    → extract "className" (pseudo-class)
-#   .className.another {  → extract "className" only (first segment)
-#
-# Composing (composes: other from ...) is not extracted since it is not a
-# locally-defined class.
-#
-# The awk script:
-#   1. Finds all occurrences of .[ident] in the input using a while/match loop.
-#   2. De-duplicates class names while preserving first-occurrence order.
-#   3. Writes the .d.ts header, one line per class, then the footer.
+_LOCALS_CONVENTIONS = ["", "camelCase", "camelCaseOnly", "dashes", "dashesOnly", "all", "none"]
+_SCOPE_BEHAVIOURS = ["", "local", "global"]
 
-_EXTRACT_CLASSES_CMD = r"""
-css_in="$1"
-dts_out="$2"
-
-awk '
-BEGIN {
-    n = 0
-    in_comment = 0
-}
-/\/\*/ { in_comment = 1 }
-/\*\// { in_comment = 0; next }
-in_comment { next }
-/^[[:space:]]*composes:/ { next }
-{
-    line = $0
-    while (match(line, /\.[a-zA-Z_][a-zA-Z0-9_-]*/)) {
-        cls = substr(line, RSTART + 1, RLENGTH - 1)
-        if (!(cls in seen)) {
-            seen[cls] = 1
-            order[n++] = cls
-        }
-        line = substr(line, RSTART + RLENGTH)
-    }
-}
-END {
-    print "declare const styles: {"
-    for (i = 0; i < n; i++) {
-        print "  readonly " order[i] ": string;"
-    }
-    print "};"
-    print "export default styles;"
-}
-' "$css_in" > "$dts_out"
-"""
+def _compile_options(ctx):
+    options = {}
+    if ctx.attr.locals_convention:
+        options["localsConvention"] = ctx.attr.locals_convention
+    if ctx.attr.scope_behaviour:
+        options["scopeBehaviour"] = ctx.attr.scope_behaviour
+    if ctx.attr.hash_prefix:
+        options["hashPrefix"] = ctx.attr.hash_prefix
+    if ctx.attr.export_globals:
+        options["exportGlobals"] = True
+    return json.encode(options)
 
 def _css_module_impl(ctx):
-    css_files = ctx.files.srcs
+    js_tool = get_js_tool(ctx)
+    compiler = ctx.file._compiler
+    options = _compile_options(ctx)
 
+    transitive_css_sets = []
+    transitive_dts_sets = []
+    transitive_exports_sets = []
+    for dep in ctx.attr.deps:
+        if CssModuleInfo in dep:
+            transitive_css_sets.append(dep[CssModuleInfo].transitive_css_files)
+            transitive_exports_sets.append(dep[CssModuleInfo].transitive_exports_files)
+        if TsDeclarationInfo in dep:
+            transitive_dts_sets.append(dep[TsDeclarationInfo].transitive_declaration_files)
+
+    bin_css_files = []
     dts_outputs = []
-    for css_file in css_files:
-        # Emit the .d.ts next to the .css source.
-        # The module.css.d.ts name is important: TypeScript requires the
-        # declaration file to be named <source>.d.ts when
-        # allowArbitraryExtensions is enabled.
-        dts = ctx.actions.declare_file(css_file.basename + ".d.ts", sibling = css_file)
+    exports_outputs = []
 
-        ctx.actions.run_shell(
-            inputs = [css_file],
-            outputs = [dts],
-            command = _EXTRACT_CLASSES_CMD,
-            arguments = [css_file.path, dts.path],
+    for css_file in ctx.files.srcs:
+        # A copy in bazel-bin, not the source file, for the reason css_library
+        # copies too: the importer is the compiled .js beside it, so a relative
+        # import resolves in the output tree rather than in the source tree.
+        # A generated src is already in bazel-bin, and declaring an output at a
+        # path another rule owns is an error rather than a copy.
+        if css_file.is_source:
+            bin_css = ctx.actions.declare_file(css_file.basename, sibling = css_file)
+            ctx.actions.expand_template(
+                template = css_file,
+                output = bin_css,
+                substitutions = {},
+            )
+        else:
+            bin_css = css_file
+        bin_css_files.append(bin_css)
+
+        # The <source>.d.ts name is what TypeScript looks for with
+        # allowArbitraryExtensions enabled.
+        dts = ctx.actions.declare_file(css_file.basename + ".d.ts", sibling = css_file)
+        exports_json = ctx.actions.declare_file(css_file.basename + ".exports.json", sibling = css_file)
+
+        # Compiling the bin copy rather than the source is what lets
+        # `composes: x from "./other.module.css"` resolve: a dep's copy is the
+        # file beside this one in the output tree.
+        ctx.actions.run(
+            inputs = depset([bin_css, compiler], transitive = transitive_css_sets),
+            outputs = [dts, exports_json],
+            executable = js_tool.runtime_binary,
+            arguments = js_tool.args_prefix + [
+                compiler.path,
+                bin_css.path,
+                exports_json.path,
+                dts.path,
+                options,
+            ],
             mnemonic = "CssModuleDts",
             progress_message = "CssModuleDts %{label}",
         )
         dts_outputs.append(dts)
-
-    # Build transitive depsets from any css_module deps.
-    transitive_css_sets = []
-    transitive_dts_sets = []
-    for dep in ctx.attr.deps:
-        if CssModuleInfo in dep:
-            transitive_css_sets.append(dep[CssModuleInfo].transitive_css_files)
-        if TsDeclarationInfo in dep:
-            transitive_dts_sets.append(dep[TsDeclarationInfo].transitive_declaration_files)
-
-    direct_css = depset(css_files)
-    transitive_css = depset(css_files, transitive = transitive_css_sets, order = "postorder")
-    direct_dts = depset(dts_outputs)
-    transitive_dts = depset(dts_outputs, transitive = transitive_dts_sets, order = "postorder")
+        exports_outputs.append(exports_json)
 
     return [
-        DefaultInfo(files = depset(css_files + dts_outputs)),
+        DefaultInfo(files = depset(bin_css_files + dts_outputs + exports_outputs)),
         CssModuleInfo(
-            css_files = direct_css,
-            transitive_css_files = transitive_css,
+            css_files = depset(bin_css_files),
+            transitive_css_files = depset(bin_css_files, transitive = transitive_css_sets, order = "postorder"),
+            exports_files = depset(exports_outputs),
+            transitive_exports_files = depset(exports_outputs, transitive = transitive_exports_sets, order = "postorder"),
         ),
         # Expose the generated .d.ts files through TsDeclarationInfo so that
         # ts_compile can pick them up as declaration inputs for type-checking.
         TsDeclarationInfo(
-            declaration_files = direct_dts,
-            transitive_declaration_files = transitive_dts,
-            type_roots = depset([]),
+            declaration_files = depset(dts_outputs),
+            transitive_declaration_files = depset(dts_outputs, transitive = transitive_dts_sets, order = "postorder"),
         ),
     ]
 
 css_module = rule(
     implementation = _css_module_impl,
+    toolchains = [
+        config_common.toolchain_type(JS_TOOL_TOOLCHAIN_TYPE, mandatory = True),
+    ],
     attrs = {
         "srcs": attr.label_list(
             doc = "CSS Module source files (*.module.css).",
@@ -138,8 +133,26 @@ css_module = rule(
             doc = "Other css_module targets whose CSS this target composes from.",
             providers = [[CssModuleInfo]],
         ),
+        "locals_convention": attr.string(
+            doc = "postcss-modules `localsConvention`: rewrites the exported keys.",
+            values = _LOCALS_CONVENTIONS,
+        ),
+        "scope_behaviour": attr.string(
+            doc = "postcss-modules `scopeBehaviour`: 'local' (the default) or 'global'.",
+            values = _SCOPE_BEHAVIOURS,
+        ),
+        "hash_prefix": attr.string(
+            doc = "Salts the content hash in every scoped name produced for these srcs.",
+        ),
+        "export_globals": attr.bool(
+            doc = "postcss-modules `exportGlobals`: also export names :global(...) left unscoped.",
+        ),
+        "_compiler": attr.label(
+            default = Label("//ts/private/css:css_module_compile"),
+            allow_single_file = True,
+        ),
     },
-    doc = """Processes CSS Module files and generates typed TypeScript declarations.
+    doc = """Compiles CSS Module files and generates typed TypeScript declarations.
 
 A css_module target provides CssModuleInfo and TsDeclarationInfo (with
 generated .module.css.d.ts typed declarations) so that:
@@ -147,19 +160,30 @@ generated .module.css.d.ts typed declarations) so that:
   1. TypeScript accepts 'import styles from \"./Button.module.css\"' and
      provides typed access to class names (e.g. styles.container).
   2. ts_compile targets can declare a CSS Module dependency without failing.
-  3. The .module.css files are passed through to the bundler (Vite handles
-     CSS Modules natively, applying local scoping and class name mangling).
+  3. The .module.css files are copied untransformed into bazel-bin beside the
+     compiled .js that imports them, which is what lets the bundler resolve
+     the relative import.
 
-The generated .d.ts maps each class name found in the CSS to a string:
+Each source additionally produces <source>.exports.json, the export map
+postcss-modules computed:
 
-    declare const styles: {
-      readonly container: string;
-      readonly button: string;
-    };
-    export default styles;
+    {"container": "_container_7416ac39", "button": "_button_7416ac39"}
 
-Class names are extracted via regex — this handles the common cases but does
-not parse @import, @media blocks, or :global() selectors specially.
+The keys are what the .d.ts declares, and the values are the class names a
+bundler must emit. Nothing here transforms the stylesheet -- the bundler still
+emits the bytes -- but the naming decision is made once, here, and recorded.
+
+Anything that changes the answer is an attribute of this rule rather than of
+the bundler's config, because the .d.ts is written from the answer: a
+`localsConvention` set on the bundler side would rename the keys the .d.ts
+already declared.
+
+The exported keys are postcss-modules': every locally scoped class, id and
+@keyframes name, plus @value names, and NOT a name a :global(...) group left
+alone. `composes` values name several classes, and one from another file
+resolves through `deps`.
+
+Requires the js_tool toolchain (Node.js on the exec platform).
 
 Example:
     css_module(

@@ -1,19 +1,47 @@
 site_name: rules_typescript
 site_url: https://mikn.github.io/rules_typescript
+site_description: Opinionated Bazel rules for TypeScript + Vite. Oxc compiles, tsgo type-checks, Vite bundles.
 repo_url: https://github.com/mikn/rules_typescript
 repo_name: mikn/rules_typescript
 
 theme:
   name: material
+  icon:
+    repo: fontawesome/brands/github
   features:
     - navigation.sections
     - navigation.expand
+    - navigation.top
+    - navigation.instant
+    - navigation.instant.progress
     - content.code.copy
+    - content.code.annotate
     - search.suggest
+    - search.highlight
+    - toc.follow
   palette:
-    - scheme: default
-      primary: blue
-      accent: blue
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/mikn/rules_typescript
 
 nav:
   - Home: index.md
@@ -27,6 +55,7 @@ nav:
     - Testing with vitest: guides/testing.md
     - Bundling with Vite: guides/bundling.md
     - Dev Server: guides/dev-server.md
+    - Tailwind v4: guides/tailwind.md
     - Monorepo Layout: guides/monorepo.md
     - Publishing Packages: guides/publishing.md
     - Troubleshooting: guides/troubleshooting.md
@@ -39,17 +68,40 @@ nav:
     - ts_binary: rules/ts-binary.md
     - ts_bundle: rules/ts-bundle.md
     - ts_dev_server: rules/ts-dev-server.md
+    - ts_worker_dry_run: rules/ts-worker-dry-run.md
+    - ts_lint: rules/ts-lint.md
+    - ts_codegen: rules/ts-codegen.md
+    - next_build: rules/next-build.md
+    - next_run: rules/next-run.md
+    - remix_build: rules/remix-build.md
+    - sveltekit_build: rules/sveltekit-build.md
+    - svelte_library: rules/svelte-library.md
+    - CSS and assets: rules/css-and-assets.md
     - ts_npm_publish: rules/ts-npm-publish.md
     - node_modules: rules/node-modules.md
+  - Compatibility: compatibility.md
   - Contributing: contributing.md
   - Changelog: changelog.md
+  - Maintainers:
+    - CI/CD: CI_CD.md
+    - Release Process: RELEASE_PROCESS.md
+    - BCR Submission: BCR_SUBMISSION.md
 
 markdown_extensions:
   - admonition
+  - pymdownx.details
   - pymdownx.highlight:
       anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
   - pymdownx.superfences
   - pymdownx.tabbed:
       alternate_style: true
+  - pymdownx.snippets:
+      base_path: ['.']
+      check_paths: true
+  - attr_list
+  - md_in_html
   - toc:
       permalink: true

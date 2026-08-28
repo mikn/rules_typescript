@@ -2,8 +2,14 @@ load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 
 package(default_visibility = [
     "//npm:__subpackages__",
+    "//oj:__subpackages__",
     "//ts:__subpackages__",
     "//vite:__subpackages__",
+])
+
+exports_files([
+    "npm_package_json.mjs",
+    "svelte_compile.mjs",
 ])
 
 bzl_library(
@@ -12,10 +18,52 @@ bzl_library(
 )
 
 bzl_library(
+    name = "asset_library",
+    srcs = ["asset_library.bzl"],
+    deps = [
+        ":providers",
+    ],
+)
+
+bzl_library(
     name = "css_library",
     srcs = ["css_library.bzl"],
     deps = [
         ":providers",
+    ],
+)
+
+bzl_library(
+    name = "css_module",
+    srcs = ["css_module.bzl"],
+    deps = [
+        ":providers",
+        ":runtime",
+    ],
+)
+
+bzl_library(
+    name = "json_library",
+    srcs = ["json_library.bzl"],
+    deps = [
+        ":providers",
+        ":runtime",
+    ],
+)
+
+bzl_library(
+    name = "pnpm",
+    srcs = ["pnpm.bzl"],
+    deps = [
+        "@rules_shell//shell:rules_bzl",
+    ],
+)
+
+bzl_library(
+    name = "ts_codegen",
+    srcs = ["ts_codegen.bzl"],
+    deps = [
+        ":runtime",
     ],
 )
 
@@ -29,18 +77,8 @@ bzl_library(
 )
 
 bzl_library(
-    name = "ts_check",
-    srcs = ["ts_check.bzl"],
-    deps = [
-        ":providers",
-        ":ts_config_gen",
-        ":toolchain",
-    ],
-)
-
-bzl_library(
-    name = "ts_config_gen",
-    srcs = ["ts_config_gen.bzl"],
+    name = "ts_config",
+    srcs = ["ts_config.bzl"],
     deps = [
         ":providers",
     ],
@@ -50,7 +88,9 @@ bzl_library(
     name = "ts_test",
     srcs = ["ts_test.bzl"],
     deps = [
+        ":node_modules",
         ":providers",
+        ":runtime",
         ":ts_compile",
     ],
 )
@@ -60,7 +100,6 @@ bzl_library(
     srcs = ["ts_bundle.bzl"],
     deps = [
         ":providers",
-        ":runtime",
     ],
 )
 
@@ -92,6 +131,39 @@ bzl_library(
 )
 
 bzl_library(
+    name = "next_server",
+    srcs = ["next_server.bzl"],
+    deps = [
+        ":runtime",
+    ],
+)
+
+bzl_library(
+    name = "remix_build",
+    srcs = ["remix_build.bzl"],
+    deps = [
+        ":runtime",
+    ],
+)
+
+bzl_library(
+    name = "svelte_library",
+    srcs = ["svelte_library.bzl"],
+    deps = [
+        ":providers",
+        ":runtime",
+    ],
+)
+
+bzl_library(
+    name = "sveltekit_build",
+    srcs = ["sveltekit_build.bzl"],
+    deps = [
+        ":runtime",
+    ],
+)
+
+bzl_library(
     name = "ts_npm_package",
     srcs = ["ts_npm_package.bzl"],
     deps = [
@@ -100,31 +172,27 @@ bzl_library(
 )
 
 bzl_library(
-    name = "npm_translate_lock",
-    srcs = ["npm_translate_lock.bzl"],
-    deps = [
-        ":ts_npm_package",
-    ],
-)
-
-bzl_library(
     name = "node_modules",
     srcs = ["node_modules.bzl"],
     deps = [
         ":providers",
+        ":runtime",
     ],
 )
 
 bzl_library(
     name = "toolchain",
     srcs = ["toolchain.bzl"],
+    deps = [
+        "//platforms",
+    ],
 )
 
 bzl_library(
     name = "runtime",
     srcs = ["runtime.bzl"],
     deps = [
-        ":toolchain",
+        "//platforms",
     ],
 )
 
@@ -141,5 +209,15 @@ bzl_library(
     srcs = ["ts_npm_publish.bzl"],
     deps = [
         ":providers",
+        ":runtime",
+    ],
+)
+
+bzl_library(
+    name = "tsconfig_aspect",
+    srcs = ["tsconfig_aspect.bzl"],
+    deps = [
+        ":providers",
+        "@bazel_skylib//rules:diff_test",
     ],
 )

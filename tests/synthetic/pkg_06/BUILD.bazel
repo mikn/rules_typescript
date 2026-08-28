@@ -7,8 +7,7 @@ ts_compile(
         "types.ts",
         "utils.ts",
     ],
+    # keep
     visibility = ["//tests/synthetic:__subpackages__"],
-    deps = [
-        "//tests/synthetic/pkg_02",
-    ],
+    deps = ["//tests/synthetic/pkg_02"],
 )

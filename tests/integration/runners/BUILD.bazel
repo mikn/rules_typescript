@@ -1,0 +1,67 @@
+"""Test runners for the nested-Bazel integration tests.
+
+One `go_binary` per test, each holding only that test's assertions; everything
+they share lives in //tests/integration/harness. `bazel_integration_test`'s
+`test_runner` is any executable target -- the macro passes its `$(location)` to
+a wrapper that execs it -- so these need not be shell scripts.
+
+Each main.go sits in its own directory but stays in this package: a BUILD file
+of its own would make it a subpackage, and //.bazelrc's --deleted_packages list
+is already the price of the older child-workspace layout.
+"""
+
+# The ignore directive protects this file; only exclude keeps Gazelle out of
+# the subdirs, whose BUILD files would break the srcs above.
+# gazelle:ignore
+# gazelle:exclude codegen
+# gazelle:exclude css_assets
+# gazelle:exclude dev_server
+# gazelle:exclude existing_project
+# gazelle:exclude gazelle_roundtrip
+# gazelle:exclude lsp
+# gazelle:exclude new_project
+# gazelle:exclude nextjs
+# gazelle:exclude npm_deps
+# gazelle:exclude npm_integrity
+# gazelle:exclude npmrc_registry
+# gazelle:exclude oxc_declarations
+# gazelle:exclude remix
+# gazelle:exclude remix_ssr
+# gazelle:exclude svelte
+# gazelle:exclude sveltekit
+# gazelle:exclude tanstack
+# gazelle:exclude vite_bundle
+
+load("@rules_go//go:def.bzl", "go_binary")
+
+_RUNNERS = [
+    "codegen",
+    "css_assets",
+    "dev_server",
+    "existing_project",
+    "gazelle_roundtrip",
+    "lsp",
+    "new_project",
+    "nextjs",
+    "npm_deps",
+    "npm_integrity",
+    "npmrc_registry",
+    "oxc_declarations",
+    "remix",
+    "remix_ssr",
+    "svelte",
+    "sveltekit",
+    "tanstack",
+    "vite_bundle",
+]
+
+[
+    go_binary(
+        name = name + "_runner",
+        testonly = True,
+        srcs = ["%s/main.go" % name],
+        visibility = ["//tests/integration:__subpackages__"],
+        deps = ["//tests/integration/harness"],
+    )
+    for name in _RUNNERS
+]

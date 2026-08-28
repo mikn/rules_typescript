@@ -1,0 +1,87 @@
+# @npm_css is translated from these. Unlike the hubs under tests/, this one is
+# not a fixture: css_module's compile action runs postcss-modules from it, so it
+# ships to consumers.
+# gazelle:ts_ignore
+
+load("@rules_typescript//npm:defs.bzl", "node_modules")
+load("@rules_typescript//ts:defs.bzl", "ts_compile")
+load("//vite:plugin.bzl", "esbuild_bundle")
+
+package(default_visibility = [
+    "//ts:__subpackages__",
+    "//vite:__subpackages__",
+])
+
+exports_files([
+    "package.json",
+    "pnpm-lock.yaml",
+    # The one definition of the scoped name. //vite adds it to the plugin
+    # bundle so the bundler-side fallback cannot drift from this one.
+    "scoped_name.ts",
+])
+
+node_modules(
+    # Named node_modules, not compiler_node_modules: Node's upward walk only
+    # treats a directory with that exact name as a resolution root, so esbuild's
+    # shim would otherwise skip this tree and find the *consumer's* top-level
+    # one -- where the platform binary is not ours and not executable.
+    name = "node_modules",
+    visibility = ["//tests/npm:__pkg__"],
+    deps = [
+        # Not @npm: that hub's name is the consumer's to claim -- the npm
+        # extension gives the root module's translate_lock priority -- so a
+        # ruleset-internal target reaching for @npm resolves into whatever
+        # lockfile the consumer registered.
+        "@npm_css//:esbuild",
+        "@npm_css//:postcss",
+        "@npm_css//:postcss-modules",
+    ],
+)
+
+esbuild_bundle(
+    name = "css_module_compile",
+    srcs = [
+        "compile.ts",
+        "scoped_name.ts",
+    ],
+    out = "css_module_compile.mjs",
+    banner = "import { createRequire } from \"node:module\"; const require = createRequire(import.meta.url);",
+    entry_point = "compile.ts",
+    node_modules = ":node_modules",
+)
+
+# The bundler and vitest halves: the plugin that hands Vite the naming function
+# this package's compile action already used, and the vitest plugin that answers
+# a .module.css import with the map it wrote. Bundled separately from the
+# compiler because it runs inside the consumer's Vite, not in a Bazel action.
+esbuild_bundle(
+    name = "css_module_vite_plugin",
+    srcs = [
+        "scoped_name.ts",
+        "vite_plugin.ts",
+    ],
+    out = "css_module_vite_plugin.mjs",
+    entry_point = "vite_plugin.ts",
+    node_modules = ":node_modules",
+)
+
+# esbuild strips types without checking them, so this is the type check for the
+# sources :css_module_compile bundles.
+ts_compile(
+    name = "compiler_typecheck",
+    srcs = [
+        "compile.ts",
+        "scoped_name.ts",
+        "vite_plugin.ts",
+    ],
+    compiler_options = {
+        "module": "Preserve",
+        "moduleResolution": "Bundler",
+    },
+    visibility = ["//:__pkg__"],
+    deps = [
+        "@npm//:types_node",
+        "@npm_css//:postcss",
+        "@npm_css//:postcss-modules",
+    ],
+)

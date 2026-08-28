@@ -1,24 +1,22 @@
 import { describe, expect, it } from "vitest";
 
-import { router } from "./router";
+import { getRouter } from "./router";
 import type { AppRouter } from "./router";
 
-describe("router", () => {
-  it("is created", () => {
-    expect(router).toBeDefined();
-  });
-
-  it("satisfies AppRouter interface", () => {
-    // Type-level check: router is assignable to AppRouter.
-    const typed: AppRouter = router;
-    expect(typed).toBeDefined();
-  });
-
-  it("has navigate function", () => {
+describe("getRouter", () => {
+  it("builds a router from the generated route tree", () => {
+    const router: AppRouter = getRouter();
     expect(typeof router.navigate).toBe("function");
   });
 
-  it("has a state", () => {
-    expect(router.state).toBeDefined();
+  it("builds a fresh router per call, as SSR needs", () => {
+    expect(getRouter()).not.toBe(getRouter());
+  });
+
+  it("knows every file route", () => {
+    const ids = Object.keys(getRouter().routesById);
+    expect(ids).toContain("/");
+    expect(ids).toContain("/about");
+    expect(ids).toContain("/users");
   });
 });

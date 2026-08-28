@@ -1,22 +1,34 @@
 # Bazel Central Registry (BCR) Submission Guide
 
-This document describes how to submit rules_typescript to the Bazel Central Registry and manage releases.
+**Current status: nothing has been released.** There are no git tags, no GitHub
+releases, and `.bcr/metadata.json` still has an empty `versions` list, so
+`registry.bazel.build/modules/rules_typescript` does not exist. `.bcr/source.json`
+is a placeholder — its URL points at a tarball that was never published and its
+`integrity` is empty; the release workflow fills both in when a tag is pushed.
+Until then consumers pin
+the ruleset with a non-registry override, per
+[Depending on rules_typescript](getting-started/quickstart.md#depending-on-rules_typescript).
 
 ## Overview
 
-The release and BCR publishing process is fully automated using GitHub Actions:
+**The release half is automated; the BCR submission is not.** Pushing a tag does
+everything up to and including the `.bcr/source.json` PR. Getting that into the
+registry is a pull request a person opens against someone else's repository, and
+nothing here can do it for you.
 
-1. **Release Workflow** (`.github/workflows/release.yml`)
-   - Triggered on git tag push (e.g., `git tag v0.1.0`)
-   - Creates GitHub release with tarball and attestation
-   - Generates SHA256 integrity hash
-   - Prepares BCR metadata
+1. **Release Workflow** (`.github/workflows/release.yml`) — automated
+   - Triggered on git tag push (e.g. `git tag v0.2.0`)
+   - Builds the `git archive` tarball, computes the SHA256 in hex and SRI form
+   - Creates the GitHub release with a build-provenance attestation
+   - Opens the PR that fills in `.bcr/source.json`
 
-2. **Publish to BCR Workflow** (`.github/workflows/publish-to-bcr.yml`)
-   - Validates BCR metadata
-   - Verifies release artifacts
-   - Provides submission checklist
-   - Can be triggered manually or automatically after release
+2. **Publish to BCR Workflow** (`.github/workflows/publish-to-bcr.yml`) — a
+   pre-flight check, not a publisher. It asserts that `.bcr/metadata.json`,
+   `.bcr/source.json` and `.bcr/presubmit.yml` exist and that the two JSON files
+   parse (`jq -e`), `HEAD`s the tarball URL (a warning, not a failure), prints the
+   manual submission checklist, and uploads the three files as an artifact. It
+   opens no pull request against the registry. Follow
+   [Submission Steps](#submission-steps) below.
 
 ## Release Process
 
@@ -26,26 +38,26 @@ Release versions follow semantic versioning: `X.Y.Z`
 
 ```bash
 # Set version variable
-VERSION="0.1.0"
+VERSION="0.2.0"
 
-# Create and push tag (optionally use scripts/release.sh)
+# Create and push the tag by hand
 git tag -a "v${VERSION}" -m "rules_typescript ${VERSION}"
 git push origin "v${VERSION}"
 ```
 
-Or use the provided release script:
+Or use the release tool, which does the local half:
 
 ```bash
-bash scripts/release.sh 0.1.0
-git push origin v0.1.0
+bazel run //tools/release -- 0.2.0 --dry-run   # print every step, mutate nothing
+bazel run //tools/release -- 0.2.0 --push      # bump, commit, tag, push
 ```
 
-The script will:
-- Update MODULE.bazel version
-- Create git tag
-- Build tarball
-- Compute SHA256 hash
-- Update .bcr/source.json
+It bumps `module(version)` in `MODULE.bazel`, commits that, and creates the
+annotated tag `v<version>`. It deliberately does **not** build a tarball or
+compute an integrity hash: an archive built locally is not the archive GitHub
+publishes, so a locally computed hash would be wrong. Everything downstream of
+the tag — `git archive`, the GitHub release, the SRI hash and the
+`.bcr/source.json` update — is `.github/workflows/release.yml`.
 
 ### 2. GitHub Release Creation
 
@@ -57,8 +69,8 @@ When you push the tag, GitHub Actions automatically:
 - Updates BCR metadata files
 
 The release workflow output includes:
-- **version**: Semantic version (e.g., 0.1.0)
-- **tarball**: Compressed archive (e.g., rules_typescript-0.1.0.tar.gz)
+- **version**: Semantic version (e.g., 0.2.0)
+- **tarball**: Compressed archive (e.g., rules_typescript-0.2.0.tar.gz)
 - **sha256**: Integrity hash in SRI format (sha256-...)
 
 ### 3. Verify Release Artifacts
@@ -71,8 +83,8 @@ After the workflow completes:
 
 ```bash
 # Verify integrity
-wget https://github.com/mikn/rules_typescript/releases/download/v0.1.0/rules_typescript-0.1.0.tar.gz
-sha256sum rules_typescript-0.1.0.tar.gz
+wget https://github.com/mikn/rules_typescript/releases/download/v0.2.0/rules_typescript-0.2.0.tar.gz
+sha256sum rules_typescript-0.2.0.tar.gz
 ```
 
 ## BCR Submission Process
@@ -88,7 +100,7 @@ sha256sum rules_typescript-0.1.0.tar.gz
 
 The BCR submission must be done via GitHub PR to https://github.com/bazelbuild/bazel-central-registry
 
-#### Option A: Manual Submission (Recommended)
+#### Copy the metadata into a BCR fork
 
 1. Fork https://github.com/bazelbuild/bazel-central-registry
 
@@ -100,58 +112,57 @@ The BCR submission must be done via GitHub PR to https://github.com/bazelbuild/b
 
 3. Create a feature branch:
    ```bash
-   git checkout -b rules_typescript-v0.1.0
+   git checkout -b rules_typescript-v0.2.0
    ```
 
 4. Create the module directory:
    ```bash
-   mkdir -p modules/rules_typescript/0.1.0
+   mkdir -p modules/rules_typescript/0.2.0
    ```
 
 5. Copy metadata files from rules_typescript repo:
    ```bash
    # Get the files
    cp /path/to/rules_typescript/.bcr/metadata.json modules/rules_typescript/
-   cp /path/to/rules_typescript/.bcr/source.json modules/rules_typescript/0.1.0/
-   cp /path/to/rules_typescript/.bcr/presubmit.yml modules/rules_typescript/0.1.0/
+   cp /path/to/rules_typescript/.bcr/source.json modules/rules_typescript/0.2.0/
+   cp /path/to/rules_typescript/.bcr/presubmit.yml modules/rules_typescript/0.2.0/
    ```
 
 6. Verify the files:
    ```bash
    cat modules/rules_typescript/metadata.json
-   cat modules/rules_typescript/0.1.0/source.json
-   cat modules/rules_typescript/0.1.0/presubmit.yml
+   cat modules/rules_typescript/0.2.0/source.json
+   cat modules/rules_typescript/0.2.0/presubmit.yml
    ```
 
 7. Commit and push:
    ```bash
    git add modules/rules_typescript/
-   git commit -m "Add rules_typescript 0.1.0"
-   git push origin rules_typescript-v0.1.0
+   git commit -m "Add rules_typescript 0.2.0"
+   git push origin rules_typescript-v0.2.0
    ```
 
 8. Create PR on GitHub:
    - Go to https://github.com/bazelbuild/bazel-central-registry
    - Click "New Pull Request"
    - Select your fork and branch
-   - Fill PR title: "Add rules_typescript 0.1.0"
+   - Fill PR title: "Add rules_typescript 0.2.0"
    - Fill PR description with details from release notes
 
-#### Option B: Automated Submission (via GitHub Actions)
+#### The pre-flight check
 
-Trigger the publish-to-bcr workflow manually:
+Not an alternative route — there is only the manual one above. This validates
+what you are about to copy and prints the same checklist:
 
 ```bash
 gh workflow run publish-to-bcr.yml \
-  -f version=0.1.0 \
+  -f version=0.2.0 \
   -R mikn/rules_typescript
 ```
 
-This workflow:
-- Validates all metadata files
-- Verifies release availability
-- Generates submission checklist
-- Provides detailed instructions
+It also runs automatically when a release is published, which is when its
+findings are most use: a missing `.bcr/presubmit.yml` or an unparseable
+`source.json` fails the job before anyone has opened a registry PR.
 
 ### BCR Metadata Files
 
@@ -164,9 +175,9 @@ Contains module-level information (shared across all versions):
   "homepage": "https://github.com/mikn/rules_typescript",
   "maintainers": [
     {
-      "name": "Nicholas Gasior",
-      "email": "nicholas@lovable.app",
-      "github": "mikn"
+      "name": "Your Name",
+      "email": "you@example.com",
+      "github": "your-github-handle"
     }
   ],
   "repository": ["github:mikn/rules_typescript"],
@@ -183,9 +194,9 @@ Version-specific release information:
 
 ```json
 {
-  "url": "https://github.com/mikn/rules_typescript/releases/download/v0.1.0/rules_typescript-0.1.0.tar.gz",
+  "url": "https://github.com/mikn/rules_typescript/releases/download/v0.2.0/rules_typescript-0.2.0.tar.gz",
   "integrity": "sha256-<base64-hash>",
-  "strip_prefix": "rules_typescript-0.1.0"
+  "strip_prefix": "rules_typescript-0.2.0"
 }
 ```
 
@@ -243,27 +254,27 @@ The oxc Rust CLI requires the Rust toolchain. It's automatically built by Bazel'
 
 Include this if the standard tarball extraction and build procedure needs documentation.
 
-## Automating with Release Script
-
-The `scripts/release.sh` automates most of the release process:
+## Automating with the release tool
 
 ```bash
-bash scripts/release.sh 0.1.0
+bazel run //tools/release -- 0.2.0 --push
 ```
 
-This script:
+The tool:
 1. Validates the version format
 2. Checks the git working tree is clean
-3. Updates MODULE.bazel version
+3. Updates `module(version)` in MODULE.bazel
 4. Commits the change
-5. Creates a git tag
-6. Builds the release tarball
-7. Computes SHA256 hash
-8. Updates .bcr/source.json
+5. Creates the annotated tag `v0.2.0`
+6. Pushes it (with `--push`), which starts the Release workflow
+
+The tarball, the SHA256 SRI hash and the `.bcr/source.json` update happen in
+`.github/workflows/release.yml`, from the tag. `--dry-run` prints every step and
+changes nothing.
 
 **After running the script:**
 ```bash
-git push origin v0.1.0
+git push origin v0.2.0
 ```
 
 This triggers the GitHub Actions release workflow.
@@ -323,8 +334,8 @@ Before cutting a release:
 
 For the actual release:
 
-- [ ] Tag version using `git tag v0.1.0` or `bash scripts/release.sh 0.1.0`
-- [ ] Push tag: `git push origin v0.1.0`
+- [ ] Tag version using `git tag v0.2.0` or `bazel run //tools/release -- 0.2.0`
+- [ ] Push tag: `git push origin v0.2.0`
 - [ ] Verify GitHub Actions workflows complete successfully
 - [ ] Download tarball and verify integrity
 - [ ] Check .bcr/metadata.json is correct
@@ -358,23 +369,28 @@ Common issues:
 
 ### BCR Metadata Issues
 
-Validate files locally:
+The BCR PR's own presubmit validates all three files and names the file and line
+it rejected — that is the authority. For a faster local check on the two JSON
+files, with nothing to install:
 
 ```bash
-# Validate JSON
-python3 -c "import json; json.load(open('.bcr/metadata.json'))"
-python3 -c "import json; json.load(open('.bcr/source.json'))"
-
-# Validate YAML
-python3 -c "import yaml; yaml.safe_load(open('.bcr/presubmit.yml'))"
+python3 -m json.tool .bcr/metadata.json  > /dev/null
+python3 -m json.tool .bcr/source.json    > /dev/null
 ```
+
+`json.tool` is stdlib, so any `python3` will do. There is no stdlib equivalent
+for `.bcr/presubmit.yml`; leave that one to the presubmit rather than installing
+a YAML parser for it.
+
+This is a maintainer's local convenience, not a dependency: no rule, action or
+toolchain in rules_typescript uses Python.
 
 ### Integrity Hash Mismatch
 
 Recalculate the correct hash:
 
 ```bash
-VERSION="0.1.0"
+VERSION="0.2.0"
 TARBALL="rules_typescript-${VERSION}.tar.gz"
 
 # Download from GitHub release
@@ -396,7 +412,7 @@ Update .bcr/source.json with the correct integrity value.
 3. **Test before submission**: Run the e2e/basic tests to ensure module works
 4. **Clear descriptions**: Provide detailed release notes and PR descriptions
 5. **Respond quickly**: BCR maintainers may request changes or clarifications
-6. **Semantic versioning**: Follow SemVer for version numbering (e.g., 0.1.0, not v0.1.0)
+6. **Semantic versioning**: Follow SemVer for version numbering (e.g., 0.2.0, not v0.2.0)
 7. **Minimal files**: Only include necessary files in tarball, exclude test artifacts and caches
 
 ## References

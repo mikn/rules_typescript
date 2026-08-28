@@ -1,0 +1,13 @@
+"""Platform definitions and the config_settings that select on them."""
+
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load(":platforms.bzl", "declare_platforms")
+
+package(default_visibility = ["//visibility:public"])
+
+declare_platforms()
+
+bzl_library(
+    name = "platforms",
+    srcs = ["platforms.bzl"],
+)

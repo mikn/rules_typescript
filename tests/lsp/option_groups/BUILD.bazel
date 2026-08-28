@@ -1,0 +1,146 @@
+"""The nested-config grouping path: what merges in one package, and what cannot.
+
+Six ts_compile targets in ONE package, read by three `ide_tsconfig` targets that
+each name a different pair. The grouping in `_nested_configs` is per package, so
+the pair a given `ide_tsconfig` lists is the whole group it sees -- which is what
+lets one package hold a merging pair and two irreconcilable ones side by side.
+
+None of the six is `manual`: `_option_group` skips a manual target, so a manual
+fixture would contribute no group and all three tests fail. They are therefore
+built by `bazel build //...` and have to type-check under their own options. The
+three `ide_tsconfig` targets are manual instead -- two are meant to fail analysis.
+
+Nothing outside this package depends on any of it, which keeps the package out of
+//:refresh_tsconfig's `deps` and out of its `nested_tsconfigs` list.
+"""
+
+# The fixtures declare the compilerOptions that are the point of the test, and a
+# generated target would declare none of them.
+# gazelle:ts_ignore
+
+# ts_compile baselines, not data: they are named by the tsconfig attr.
+# gazelle:exclude one.tsconfig.json
+# gazelle:exclude two.tsconfig.json
+
+load(
+    "//tests/lsp:ide_tsconfig_tests.bzl",
+    "baseline_conflict_test",
+    "option_conflict_test",
+    "option_merge_test",
+    "root_value_conflict_test",
+)
+load("//ts:defs.bzl", "ts_compile")
+load("//ts/private:tsconfig_aspect.bzl", "ide_tsconfig")
+
+# ── Same key, different values: no representation at all ──────────────────────
+ts_compile(
+    name = "locals_on",
+    srcs = ["locals_on.ts"],
+    compiler_options = {"noUnusedLocals": True},
+)
+
+ts_compile(
+    name = "locals_off",
+    srcs = ["locals_off.ts"],
+    compiler_options = {"noUnusedLocals": False},
+)
+
+ide_tsconfig(
+    name = "conflict_ide_tsconfig",
+    tags = ["manual"],
+    deps = [
+        ":locals_off",
+        ":locals_on",
+    ],
+)
+
+option_conflict_test(
+    name = "option_conflict_test",
+    target_under_test = ":conflict_ide_tsconfig",
+)
+
+# ── One target restating a root value, the other disagreeing ─────────────────
+# The conflict is checked on what each target sets, not on its delta from the
+# root. Comparing deltas hid exactly this pair: `strict = True` equals the root
+# so it subtracted to nothing, leaving `strict = False` to answer for both
+# targets' sources.
+ts_compile(
+    name = "strict_root",
+    srcs = ["strict_root.ts"],
+    compiler_options = {"strict": True},
+)
+
+ts_compile(
+    name = "strict_off",
+    srcs = ["strict_off.ts"],
+    compiler_options = {"strict": False},
+)
+
+ide_tsconfig(
+    name = "root_value_conflict_ide_tsconfig",
+    tags = ["manual"],
+    deps = [
+        ":strict_off",
+        ":strict_root",
+    ],
+)
+
+root_value_conflict_test(
+    name = "root_value_conflict_test",
+    target_under_test = ":root_value_conflict_ide_tsconfig",
+)
+
+# ── Different baselines: the same disagreement, spelled as an extends chain ───
+ts_compile(
+    name = "base_one",
+    srcs = ["base_one.ts"],
+    tsconfig = "one.tsconfig.json",
+)
+
+ts_compile(
+    name = "base_two",
+    srcs = ["base_two.ts"],
+    tsconfig = "two.tsconfig.json",
+)
+
+ide_tsconfig(
+    name = "baseline_conflict_ide_tsconfig",
+    tags = ["manual"],
+    deps = [
+        ":base_one",
+        ":base_two",
+    ],
+)
+
+baseline_conflict_test(
+    name = "baseline_conflict_test",
+    target_under_test = ":baseline_conflict_ide_tsconfig",
+)
+
+# ── Different keys: one program that satisfies both targets ───────────────────
+ts_compile(
+    name = "params",
+    srcs = ["params.ts"],
+    compiler_options = {"noUnusedParameters": True},
+)
+
+ts_compile(
+    name = "fallthrough",
+    srcs = ["fallthrough.ts"],
+    compiler_options = {"noFallthroughCasesInSwitch": True},
+)
+
+ide_tsconfig(
+    name = "merge_ide_tsconfig",
+    nested_tsconfigs = ["tests/lsp/option_groups/tsconfig.json"],
+    tags = ["manual"],
+    deps = [
+        ":fallthrough",
+        ":params",
+    ],
+)
+
+option_merge_test(
+    name = "option_merge_test",
+    target_under_test = ":merge_ide_tsconfig",
+)

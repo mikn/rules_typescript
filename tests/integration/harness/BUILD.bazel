@@ -1,0 +1,19 @@
+"""Shared preamble for the nested-Bazel integration tests.
+
+Scratch layout, workspace staging, RULES_TS_ROOT resolution and inner-Bazel
+invocation live here; each //tests/integration/runners binary keeps only its
+own assertions.
+"""
+
+# gazelle:ignore
+
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "harness",
+    testonly = True,
+    srcs = ["harness.go"],
+    importpath = "github.com/mikn/rules_typescript/tests/integration/harness",
+    visibility = ["//tests/integration:__subpackages__"],
+    deps = ["@rules_go//go/runfiles"],
+)

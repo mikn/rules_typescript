@@ -62,7 +62,37 @@ func importsForRule(_ *config.Config, r *rule.Rule, f *rule.File) []resolve.Impo
 		}
 	}
 
+	// A workspace link's package name: no path key covers it, and an unindexed
+	// bare specifier is indistinguishable from an npm package.
+	if moduleName := r.AttrString("module_name"); moduleName != "" {
+		specs = append(specs, resolve.ImportSpec{Lang: languageName, Imp: moduleName})
+		for _, src := range srcs {
+			if isIndexFile(src) {
+				continue
+			}
+			specs = append(specs, resolve.ImportSpec{
+				Lang: languageName,
+				Imp:  path.Join(moduleName, dropTsExtension(src)),
+			})
+		}
+	}
+
 	return specs
+}
+
+// The kinds whose sources tsgo type-checks, which is what makes an ambient
+// declaration reach them.
+var ambientTypesKinds = map[string]bool{"ts_compile": true, "ts_test": true}
+
+func asImports(importsIface any) ([]string, bool) {
+	if importsIface == nil {
+		return nil, false
+	}
+	imports, ok := importsIface.([]string)
+	if !ok || len(imports) == 0 {
+		return nil, false
+	}
+	return imports, true
 }
 
 // ---- Resolve (dep resolver) ------------------------------------------------
@@ -76,14 +106,6 @@ func resolveImports(
 	importsIface any,
 	from label.Label,
 ) {
-	if importsIface == nil {
-		return
-	}
-	imports, ok := importsIface.([]string)
-	if !ok || len(imports) == 0 {
-		return
-	}
-
 	tc := getConfig(c)
 
 	var deps []string
@@ -96,10 +118,28 @@ func resolveImports(
 		}
 	}
 
+	// Ambient declarations have no import to infer a dep from, so they are the
+	// one thing this resolver cannot derive and Gazelle cannot repair. A file
+	// using only `process` has no imports at all, hence before the guard below.
+	if ambientTypesKinds[r.Kind()] {
+		for _, lbl := range tc.ambientTypes {
+			addDep(lbl)
+		}
+	}
+
+	imports, ok := asImports(importsIface)
+	if !ok {
+		if len(deps) > 0 {
+			sort.Strings(deps)
+			r.SetAttr("deps", deps)
+		}
+		return
+	}
+
 	for _, imp := range imports {
 		resolved := resolveImport(c, ix, tc, imp, from)
 		if resolved == "" {
-			if tc.warnUnresolved && !isNodeBuiltin(imp) {
+			if tc.warnUnresolved && !isNodeBuiltin(barePackageName(imp)) {
 				log.Printf("gazelle: WARNING: unresolved import %q in //%s:%s (tried: relative, path-alias, npm)", imp, from.Pkg, from.Name)
 			}
 			continue
@@ -141,6 +181,12 @@ func resolveImport(
 	case isPathAlias(tc, imp):
 		return resolvePathAlias(c, ix, tc, imp, from)
 	default:
+		// A module_name before an npm package: the hub has no such package.
+		if lbl, selfImport := lookupInIndex(ix, imp, from); lbl != "" {
+			return lbl
+		} else if selfImport {
+			return ""
+		}
 		return resolveNpmPackage(tc, imp)
 	}
 }
@@ -153,49 +199,54 @@ func isRelativeImport(imp string) bool {
 }
 
 // resolveRelative resolves a relative import specifier (e.g. "./utils") to a
-// Bazel label. It tries, in order:
-//  1. Exact file match in the same Bazel package.
-//  2. Directory with index.ts → sibling package.
-//  3. Rule index lookup using the computed workspace-relative path.
+// Bazel label, by asking the rule index for every module path the specifier
+// could name and falling back to a constructed label when none is indexed.
 func resolveRelative(
 	_ *config.Config,
 	ix *resolve.RuleIndex,
 	imp string,
 	from label.Label,
 ) string {
-	// Compute the workspace-relative path for the import target.
 	// from.Pkg is the package directory (rel), e.g. "src/components/button".
 	targetRel := path.Clean(path.Join(from.Pkg, imp))
 
-	// 1. Try the exact path as-is in the index.
-	if lbl, selfImport := lookupInIndex(ix, targetRel, from); lbl != "" {
-		return lbl
-	} else if selfImport {
-		// Import resolves to the same package → no dep needed.
-		return ""
-	}
-
-	// 2. Try common extensions if not already present.
-	for _, ext := range []string{".ts", ".tsx", ".js", ".json", ".module.css", ".css"} {
-		if lbl, selfImport := lookupInIndex(ix, targetRel+ext, from); lbl != "" {
+	for _, key := range moduleIndexKeys(targetRel, relativeImportExtensions) {
+		if lbl, selfImport := lookupInIndex(ix, key, from); lbl != "" {
 			return lbl
 		} else if selfImport {
 			return ""
 		}
 	}
 
-	// 3. Try treating it as a directory import (index.ts convention).
+	return labelForUnindexed(targetRel, from)
+}
+
+// relativeImportExtensions are the source extensions a relative specifier may
+// have omitted, in the order TypeScript tries them.
+var relativeImportExtensions = []string{".ts", ".tsx", ".js", ".json", ".module.css", ".css"}
+
+// moduleIndexKeys returns the import paths the module at targetRel could be
+// indexed under, in TypeScript's resolution order.
+//
+// Dropping the extension is what resolves a specifier that spells one out --
+// "./x.js" for x.ts, "./x.ts" under allowImportingTsExtensions -- since
+// importsForRule indexes a .ts/.tsx/.js src without it. The strict-deps checker
+// in ts/private/ts_compile.bzl drops it too; only one of them doing so leaves a
+// dep this tool cannot generate and the build rejects.
+func moduleIndexKeys(targetRel string, extensions []string) []string {
+	bare := dropTsExtension(targetRel)
+
+	keys := []string{targetRel}
+	if bare != targetRel {
+		keys = append(keys, bare)
+	}
+	for _, ext := range extensions {
+		keys = append(keys, bare+ext)
+	}
 	for _, ext := range []string{".ts", ".tsx"} {
-		if lbl, selfImport := lookupInIndex(ix, path.Join(targetRel, "index")+ext, from); lbl != "" {
-			return lbl
-		} else if selfImport {
-			return ""
-		}
+		keys = append(keys, path.Join(bare, "index")+ext)
 	}
-
-	// 4. Fall back to constructing a label from the path, using the directory
-	//    basename as the target name.
-	return labelFromRel(targetRel)
+	return keys
 }
 
 // lookupInIndex searches the RuleIndex for a ts_compile rule that exports the
@@ -222,49 +273,116 @@ func lookupInIndex(ix *resolve.RuleIndex, impPath string, from label.Label) (str
 	return "", false
 }
 
-// labelFromRel constructs a best-effort Bazel label from a workspace-relative
-// path when the rule index doesn't have an entry. The target name is the
-// basename of the path, consistent with the naming convention used in
-// targetNameForDir.
-func labelFromRel(rel string) string {
-	// Drop any file extension.
-	rel = dropTsExtension(rel)
-	// Handle index file: use the directory as the target.
-	if path.Base(rel) == "index" {
-		rel = path.Dir(rel)
+// labelForUnindexed names the package that would have to provide the module at
+// rel, for when no indexed rule does.
+//
+// The package is the module's DIRECTORY: a file path read as a directory leaves
+// "no such package", which reads as a defect here rather than a missing target.
+func labelForUnindexed(rel string, from label.Label) string {
+	pkg := path.Clean(rel)
+	if namesAFile(pkg) {
+		pkg = path.Dir(pkg)
 	}
-	pkg := rel
-	name := path.Base(pkg)
-	if pkg == "" || pkg == "." {
+	if pkg == "" || pkg == "." || pkg == "/" || pkg == ".." || strings.HasPrefix(pkg, "../") {
 		return ""
 	}
-	lbl := label.New("", pkg, name)
-	return lbl.String()
+	// A module in the importing package that no rule claims: a label on our own
+	// package would be a cycle, and the file is nowhere else.
+	if pkg == from.Pkg {
+		return ""
+	}
+	return label.New("", pkg, path.Base(pkg)).String()
+}
+
+// namesAFile reports whether rel's last segment is a file. Only an extension
+// this extension classifies counts -- a dot in a directory name is not one.
+func namesAFile(rel string) bool {
+	base := path.Base(rel)
+	if base == "index" {
+		return true
+	}
+	return dropTsExtension(base) != base ||
+		isCSSFile(base) || isJSONFile(base) || isAssetFile(base)
 }
 
 // ---- path alias resolution -------------------------------------------------
 
-// isPathAlias returns true if the import matches any configured path alias
-// prefix.
-func isPathAlias(tc *tsConfig, imp string) bool {
-	for prefix := range tc.pathAliases {
-		if strings.HasPrefix(imp, prefix) {
-			return true
+// aliasMatch is the alias applied to one import specifier: the key that
+// matched, the workspace-relative directory it maps to, and the leftover.
+type aliasMatch struct {
+	prefix string
+	dir    string
+	rest   string
+}
+
+// matchPathAlias picks the alias entry that resolves imp, if any.
+//
+// Longest matching key wins: TypeScript's own rule for compilerOptions.paths
+// (findBestPatternMatch scores candidates by prefix length), under which a
+// wildcard-free key spanning the whole specifier always beats a wildcard one.
+// Comparing keys is also what keeps the winner off Go's map iteration order.
+func matchPathAlias(tc *tsConfig, imp string) (aliasMatch, bool) {
+	var best aliasMatch
+	found := false
+	for prefix, dir := range tc.pathAliases {
+		rest, ok := aliasRest(prefix, imp)
+		if !ok {
+			continue
 		}
+		if found && !aliasKeyBeats(prefix, best.prefix) {
+			continue
+		}
+		best, found = aliasMatch{prefix: prefix, dir: dir, rest: rest}, true
 	}
-	return false
+	return best, found
+}
+
+// aliasKeyBeats reports whether alias key a takes precedence over key b.
+func aliasKeyBeats(a, b string) bool {
+	if len(a) != len(b) {
+		return len(a) > len(b)
+	}
+	return a < b
+}
+
+// aliasRest matches one alias key against a specifier and returns what follows
+// the key.
+//
+// A trailing slash marks a key from a wildcard entry ("@/*": ["src/*"]), which
+// matches anything it prefixes. A key without one names a single module
+// ("@shared": ["src/shared/index"]) and matches only that name or a path under
+// it, never a longer name that starts with the same characters.
+func aliasRest(prefix, imp string) (string, bool) {
+	if strings.HasSuffix(prefix, "/") {
+		if strings.HasPrefix(imp, prefix) {
+			return imp[len(prefix):], true
+		}
+		return "", false
+	}
+	if imp == prefix {
+		return "", true
+	}
+	if strings.HasPrefix(imp, prefix+"/") {
+		return imp[len(prefix)+1:], true
+	}
+	return "", false
+}
+
+// isPathAlias returns true if the import matches any configured path alias.
+func isPathAlias(tc *tsConfig, imp string) bool {
+	_, ok := matchPathAlias(tc, imp)
+	return ok
 }
 
 // resolvePathAlias expands a path alias import to a workspace-relative path,
 // then delegates to the index / label construction.
 //
 // Resolution order for an alias like "@/utils/helpers" (alias "@/" → "src/"):
-//  1. Exact path:          src/utils/helpers
-//  2. With extension:      src/utils/helpers.ts / .tsx / .js
-//  3. Index file:          src/utils/helpers/index(.ts/.tsx)
-//  4. Parent directory:    src/utils (handles non-barrel sub-path imports that
-//                          point to files compiled into the parent package)
-//  5. labelFromRel fallback for when the target hasn't been indexed yet.
+//  1. Every key moduleIndexKeys yields for src/utils/helpers.
+//  2. Bare index file:     src/utils/helpers/index (no extension)
+//  3. Parent directory:    src/utils (handles non-barrel sub-path imports that
+//     point to files compiled into the parent package)
+//  4. labelForUnindexed for when nothing provides the target.
 func resolvePathAlias(
 	_ *config.Config,
 	ix *resolve.RuleIndex,
@@ -272,59 +390,33 @@ func resolvePathAlias(
 	imp string,
 	from label.Label,
 ) string {
-	for prefix, dir := range tc.pathAliases {
-		if !strings.HasPrefix(imp, prefix) {
-			continue
-		}
-		rest := imp[len(prefix):]
-		// dir is workspace-relative, e.g. "src/"
-		dir = strings.TrimSuffix(dir, "/")
-		targetRel := path.Join(dir, rest)
-
-		if lbl, selfImport := lookupInIndex(ix, targetRel, from); lbl != "" {
-			return lbl
-		} else if selfImport {
-			return ""
-		}
-		for _, ext := range []string{".ts", ".tsx", ".js"} {
-			if lbl, selfImport := lookupInIndex(ix, targetRel+ext, from); lbl != "" {
-				return lbl
-			} else if selfImport {
-				return ""
-			}
-		}
-		// Try index file convention.
-		for _, ext := range []string{".ts", ".tsx"} {
-			if lbl, selfImport := lookupInIndex(ix, path.Join(targetRel, "index")+ext, from); lbl != "" {
-				return lbl
-			} else if selfImport {
-				return ""
-			}
-		}
-		// Fallback: legacy bare index lookup (no extension).
-		if lbl, selfImport := lookupInIndex(ix, path.Join(targetRel, "index"), from); lbl != "" {
-			return lbl
-		} else if selfImport {
-			return ""
-		}
-
-		// Sub-path fallback: "@/utils/helpers" might refer to a file compiled
-		// into the parent package (//src/utils:utils) rather than a dedicated
-		// sub-package.  Walk up one directory and try to find a target there.
-		// Example: "@/utils/helpers" → "src/utils/helpers" (miss) →
-		//          try "src/utils" → found //src/utils:utils → return it.
-		parent := path.Dir(targetRel)
-		if parent != "." && parent != targetRel {
-			if lbl, selfImport := lookupInIndex(ix, parent, from); lbl != "" {
-				return lbl
-			} else if selfImport {
-				return ""
-			}
-		}
-
-		return labelFromRel(targetRel)
+	m, ok := matchPathAlias(tc, imp)
+	if !ok {
+		return ""
 	}
-	return ""
+	targetRel := path.Join(strings.TrimSuffix(m.dir, "/"), m.rest)
+	bare := dropTsExtension(targetRel)
+
+	keys := moduleIndexKeys(targetRel, []string{".ts", ".tsx", ".js"})
+	// Legacy bare index lookup (no extension).
+	keys = append(keys, path.Join(bare, "index"))
+	// Sub-path fallback: "@/utils/helpers" might refer to a file compiled into
+	// the parent package (//src/utils:utils) rather than a dedicated
+	// sub-package. Example: "@/utils/helpers" → "src/utils/helpers" (miss) →
+	// try "src/utils" → found //src/utils:utils → return it.
+	if parent := path.Dir(bare); parent != "." && parent != bare {
+		keys = append(keys, parent)
+	}
+
+	for _, key := range keys {
+		if lbl, selfImport := lookupInIndex(ix, key, from); lbl != "" {
+			return lbl
+		} else if selfImport {
+			return ""
+		}
+	}
+
+	return labelForUnindexed(targetRel, from)
 }
 
 // ---- npm package resolution ------------------------------------------------
@@ -334,7 +426,7 @@ func resolvePathAlias(
 // then falls back to the default @npm//:target-name convention.
 //
 // The label format matches what rules_typescript's npm_translate_lock generates:
-//   - "vitest"             → "@npm//:vitest"
+//   - "vitest"             → "@npm//:vitest" (or the ts_npm_hub hub)
 //   - "@types/react"       → "@npm//:types_react"
 //   - "@tanstack/router"   → "@npm//:tanstack_router"
 func resolveNpmPackage(tc *tsConfig, imp string) string {
@@ -345,6 +437,15 @@ func resolveNpmPackage(tc *tsConfig, imp string) string {
 
 	// Bare specifiers must not contain a leading dot or slash.
 	if strings.HasPrefix(imp, ".") || strings.HasPrefix(imp, "/") {
+		return ""
+	}
+
+	// A specifier carrying a URI scheme is not an npm package. Bundlers
+	// synthesise modules behind one ("virtual:routes"), the package is
+	// declared ambiently rather than installed, and a Bazel target name
+	// cannot contain ':' -- so emitting a label here produces one that
+	// fails to parse rather than one that merely does not exist.
+	if strings.Contains(imp, ":") {
 		return ""
 	}
 
@@ -359,12 +460,23 @@ func resolveNpmPackage(tc *tsConfig, imp string) string {
 		}
 	}
 
-	// Default convention: @npm//:target-name.
-	// The target name is derived from the npm package name by dropping the
-	// leading "@" for scoped packages and replacing "/" with "_", which
-	// matches the _package_name_to_label function in npm_translate_lock.bzl.
+	// A built-in spelled without the prefix is not a package: no hub declares a
+	// target, and strict deps resolves it against Node's own builtinModules.
+	if isNodeBuiltin(pkgName) {
+		return ""
+	}
+
+	// Default convention: <hub>//:target-name, the hub being @npm unless
+	// directiveNpmHub named another. The target name is derived from the npm
+	// package name by dropping the leading "@" for scoped packages and
+	// replacing "/" with "_", which matches the _package_name_to_label
+	// function in npm_translate_lock.bzl.
+	hub := tc.npmHub
+	if hub == "" {
+		hub = defaultNpmHub
+	}
 	targetName := npmPackageToLabelName(pkgName)
-	return "@npm//:" + targetName
+	return hub + "//:" + targetName
 }
 
 // npmPackageToLabelName converts an npm package name to a Bazel label name
@@ -408,6 +520,38 @@ func barePackageName(imp string) string {
 
 // ---- built-in module helpers -----------------------------------------------
 
+// Every bare name the toolchain node reports in `builtinModules`, which is what
+// the strict-deps check resolves against: a name missing here becomes an
+// `@npm//:<name>` label no hub declares.
+var nodeBuiltins = map[string]bool{
+	"_http_agent": true, "_http_client": true, "_http_common": true,
+	"_http_incoming": true, "_http_outgoing": true, "_http_server": true,
+	"_stream_duplex": true, "_stream_passthrough": true, "_stream_readable": true,
+	"_stream_transform": true, "_stream_wrap": true, "_stream_writable": true,
+	"_tls_common": true, "_tls_wrap": true,
+	"assert": true, "async_hooks": true, "buffer": true, "child_process": true,
+	"cluster": true, "console": true, "constants": true, "crypto": true,
+	"dgram": true, "diagnostics_channel": true, "dns": true, "domain": true,
+	"events": true, "fs": true, "http": true, "http2": true, "https": true,
+	"inspector": true, "module": true, "net": true, "os": true, "path": true,
+	"perf_hooks": true, "process": true, "punycode": true, "querystring": true,
+	"readline": true, "repl": true, "stream": true, "string_decoder": true,
+	"sys": true, "timers": true, "tls": true, "trace_events": true, "tty": true,
+	"url": true, "util": true, "v8": true, "vm": true, "wasi": true,
+	"worker_threads": true, "zlib": true,
+}
+
+// NodeBuiltins is exported for //tests/strict_deps:checker_test, which compares
+// the list against the node the strict-deps check runs.
+func NodeBuiltins() []string {
+	names := make([]string, 0, len(nodeBuiltins))
+	for name := range nodeBuiltins {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // isNodeBuiltin returns true for Node.js built-in module specifiers such as
 // "node:fs", "node:path", "fs", "path", "os", etc. These are never resolvable
 // to a Bazel label so they should not produce a warning even when
@@ -416,18 +560,7 @@ func isNodeBuiltin(imp string) bool {
 	if strings.HasPrefix(imp, "node:") {
 		return true
 	}
-	// Well-known Node.js built-in names (without the node: prefix).
-	switch imp {
-	case "assert", "async_hooks", "buffer", "child_process", "cluster",
-		"console", "constants", "crypto", "dgram", "diagnostics_channel",
-		"dns", "domain", "events", "fs", "http", "http2", "https",
-		"inspector", "module", "net", "os", "path", "perf_hooks",
-		"process", "punycode", "querystring", "readline", "repl",
-		"stream", "string_decoder", "timers", "tls", "trace_events",
-		"tty", "url", "util", "v8", "vm", "wasi", "worker_threads", "zlib":
-		return true
-	}
-	return false
+	return nodeBuiltins[imp]
 }
 
 // ---- extension helpers -----------------------------------------------------
@@ -441,4 +574,3 @@ func dropTsExtension(name string) string {
 	}
 	return name
 }
-

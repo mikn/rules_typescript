@@ -1,0 +1,42 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "launcher",
+    srcs = [
+        "config.go",
+        "devserver.go",
+        "exec_other.go",
+        "exec_unix.go",
+        "main.go",
+        "next.go",
+        "node.go",
+        "plan.go",
+        "resolve.go",
+        "run.go",
+        "vitest.go",
+        "wrangler.go",
+    ],
+    importpath = "github.com/mikn/rules_typescript/tools/launcher",
+    visibility = ["//visibility:public"],
+    deps = ["@rules_go//go/runfiles"],
+)
+
+go_binary(
+    name = "ts_launcher",
+    embed = [":launcher"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "launcher_test",
+    srcs = [
+        "config_test.go",
+        "next_test.go",
+        "plan_test.go",
+        "resolve_test.go",
+    ],
+    # keep: this package's library is `launcher`, not the `launcher_lib` the Go
+    # naming convention picks for a main package.
+    embed = [":launcher"],
+    deps = ["@rules_go//go/runfiles"],
+)

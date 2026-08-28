@@ -1,0 +1,74 @@
+"""Runtime tests for vite-plugin-bazel, against the bundle a dev server loads.
+
+The plugin's HMR watcher had no test at all, which is how `import('chokidar')`
+survived: chokidar is bundled inside Vite's dist, never resolvable as a package,
+so every ibazel rebuild was dropped without a word.
+"""
+
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("@rules_typescript//npm:defs.bzl", "node_modules")
+load("@rules_typescript//ts:defs.bzl", "ts_test")
+load("@rules_typescript//vite:bundler.bzl", "vite_bundler")
+
+# The vitest major the ruleset's own test path runs on, against the Vite major
+# the plugin declares. The hub's Vite and the plugin's peerDependencies range are
+# in two different files now, so this is the only thing holding them together.
+ts_test(
+    name = "peer_version_test",
+    size = "small",
+    srcs = ["peer_version.test.ts"],
+    data = ["//vite:package.json"],
+    deps = [
+        "@npm//:types_node",
+        "@npm//:vite",
+        "@npm//:vitest",
+    ],
+)
+
+sh_test(
+    name = "watcher_test",
+    size = "small",
+    srcs = ["watcher_test.sh"],
+    data = [
+        "watcher_test.mjs",
+        "//ts/toolchain:node_resolved",
+        "//vite:vite_plugin_bazel",
+    ],
+)
+
+# Dev serves source and prod serves bazel-bin .js, so the same specifier takes
+# two code paths. This is the test that they stay the same MODULE.
+sh_test(
+    name = "resolution_parity_test",
+    size = "small",
+    srcs = ["resolution_parity_test.sh"],
+    data = [
+        "resolution_parity_test.mjs",
+        "//ts/toolchain:node_resolved",
+        "//vite:vite_plugin_bazel",
+    ],
+)
+
+# The wrapper under test only needs to run far enough to reach the runtime, so
+# the runtime is a stub and the node_modules tree is never built.
+node_modules(
+    name = "stub_node_modules",
+    deps = ["@npm//:vite"],
+)
+
+vite_bundler(
+    name = "stub_bundler",
+    node_modules = ":stub_node_modules",
+    runtime = "stub_runtime.sh",
+    vite = "@npm//:vite",
+)
+
+sh_test(
+    name = "wrapper_config_node_modules_test",
+    size = "small",
+    srcs = ["wrapper_config_node_modules_test.sh"],
+    data = [
+        "stub_runtime.sh",
+        ":stub_bundler",
+    ],
+)

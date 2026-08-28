@@ -1,13 +1,18 @@
 """Root BUILD file for the nextjs integration test workspace.
 
-Hand-written to demonstrate the full next_build setup:
-  - node_modules() rule with Next.js deps
-  - next_build() wrapping `next build`
-  - staging_srcs for the shared lib sources
+Hand-written to exercise every Next.js convention next_build claims to support:
+App Router pages, a route handler, the Pages Router with getServerSideProps, a
+Pages API route, a "use client" component calling a "use server" action,
+middleware, a global stylesheet, and a statically imported image -- and the two
+ways to run it: `next dev` over the source tree and `next start` over the build.
+
+Everything the app needs is declared. The staging directory holds nothing else,
+so an undeclared file does not resolve -- which is why `public/**` and the CSS
+are in `srcs` rather than picked up off disk.
 """
 
 load("@rules_typescript//npm:defs.bzl", "node_modules")
-load("@rules_typescript//ts:defs.bzl", "next_build")
+load("@rules_typescript//ts:defs.bzl", "next_build", "next_dev_server", "next_serve", "ts_compile")
 
 # ── node_modules tree for Next.js ─────────────────────────────────────────────
 node_modules(
@@ -16,32 +21,119 @@ node_modules(
         "@npm//:next",
         "@npm//:react",
         "@npm//:react-dom",
-        "@npm//:typescript",
-        "@npm//:types_react",
         "@npm//:types_node",
+        "@npm//:types_react",
+        "@npm//:typescript",
     ],
 )
 
-# ── staging_srcs filegroup ────────────────────────────────────────────────────
-# Expose src/lib sources so the next_build action can stage them.
+# ── staging_srcs, form 1: .ts sources ─────────────────────────────────────────
 filegroup(
     name = "lib_sources",
     srcs = glob(["src/lib/**/*.ts"]),
     visibility = ["//visibility:public"],
 )
 
+# ── staging_srcs, form 2: a ts_compile target ─────────────────────────────────
+# staging_srcs takes any target's files, so this stages compiled .js next to the
+# .d.ts that types it -- the hybrid boundary, where Next.js bundles the .js and
+# type-checks the import through the declaration.
+ts_compile(
+    name = "shared",
+    srcs = ["shared/version.ts"],
+    visibility = ["//visibility:public"],
+)
+
+# next/font/google downloads its woff2 payloads while compiling, so this page is
+# in no target that is expected to build; :font_app exists to pin the failure.
+_FONT_PROBE = ["src/app/font_probe/**"]
+
+_APP_SRCS = glob(
+    [
+        "src/app/**/*.tsx",
+        "src/app/**/*.ts",
+        "src/app/**/*.css",
+        "src/pages/**/*.tsx",
+        "src/pages/**/*.ts",
+        "src/middleware.ts",
+        "public/**",
+    ],
+    allow_empty = True,
+    exclude = _FONT_PROBE,
+)
+
+_FONT_PROBE_SRCS = glob(
+    _FONT_PROBE,
+    allow_empty = True,
+)
+
 # ── Next.js application build ─────────────────────────────────────────────────
 next_build(
     name = "app",
-    srcs = glob(
-        [
-            "src/app/**/*.tsx",
-            "src/app/**/*.ts",
-        ],
-        allow_empty = True,
-    ),
-    staging_srcs = [":lib_sources"],
+    srcs = _APP_SRCS,
     config = "next.config.mjs",
-    tsconfig = "tsconfig.json",
+    config_srcs = ["next.shared.mjs"],
     node_modules = ":node_modules",
+    staging_srcs = [
+        ":lib_sources",
+        ":shared",
+    ],
+    tsconfig = "tsconfig.json",
+)
+
+# ── The network boundary ──────────────────────────────────────────────────────
+# The same app plus one next/font/google page. `manual` because it is expected
+# to fail: the runner builds it to prove the block-network default is in force
+# and that the failure names next/font instead of leaving ENETUNREACH to be read.
+next_build(
+    name = "font_app",
+    srcs = _APP_SRCS + _FONT_PROBE_SRCS,
+    config = "next.config.mjs",
+    config_srcs = ["next.shared.mjs"],
+    node_modules = ":node_modules",
+    staging_srcs = [
+        ":lib_sources",
+        ":shared",
+    ],
+    tags = ["manual"],
+    tsconfig = "tsconfig.json",
+)
+
+# The opt-out. `manual`, and the runner only analyses it: building it would
+# reach fonts.googleapis.com, which is the whole reason it has to be asked for.
+next_build(
+    name = "font_app_networked",
+    srcs = _APP_SRCS + _FONT_PROBE_SRCS,
+    allow_network = True,
+    config = "next.config.mjs",
+    config_srcs = ["next.shared.mjs"],
+    node_modules = ":node_modules",
+    staging_srcs = [
+        ":lib_sources",
+        ":shared",
+    ],
+    tags = ["manual"],
+    tsconfig = "tsconfig.json",
+)
+
+# ── Running the app ───────────────────────────────────────────────────────────
+# The ports here are defaults: the runner passes `--port` with one the kernel
+# assigned, so two concurrent runs cannot answer each other's requests.
+
+next_dev_server(
+    name = "dev",
+    node_modules = ":node_modules",
+    port = 3141,
+)
+
+# `srcs` is what Next.js serves from the project root rather than from .next:
+# public/ is never copied into the build output, and next.shared.mjs is what the
+# config imports.
+next_serve(
+    name = "serve",
+    srcs = glob(["public/**"]) + ["next.shared.mjs"],
+    build = ":app",
+    config = "next.config.mjs",
+    node_modules = ":node_modules",
+    port = 3142,
 )

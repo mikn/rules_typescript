@@ -1,0 +1,39 @@
+"""A user vitest config must MERGE with the generated one, not replace it.
+
+The test needs both layers at once: the virtual module comes from a plugin in
+vitest.config.mts, the CSS-module import from the plugin ts_test generates for
+the CssModuleInfo dep -- which answers it with the scoped name css_module
+computed, so the expectation is the shape of a real class name.
+"""
+
+load("//ts:defs.bzl", "css_module", "ts_compile", "ts_test")
+
+package(default_visibility = ["//:__pkg__"])
+
+css_module(
+    name = "button_module",
+    srcs = ["Button.module.css"],
+)
+
+ts_compile(
+    name = "styles",
+    srcs = ["styles.ts"],
+    deps = [":button_module"],
+)
+
+ts_test(
+    name = "merge_test",
+    srcs = [
+        "merge.test.ts",
+        "virtual.d.ts",
+    ],
+    config = "vitest.config.mts",
+    deps = [
+        ":button_module",
+        ":styles",
+        "@npm//:vitest",
+        # The config's own bare import; without it in the tree the config that
+        # installs the plugin below cannot load.
+        "@npm//:zod",
+    ],
+)

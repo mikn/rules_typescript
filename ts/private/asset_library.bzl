@@ -25,9 +25,8 @@ which parses the JSON at build time and generates a fully-typed .d.ts:
         srcs = ["config.json"],
     )
 
-The generated declarations vary by asset type:
-  .svg / .png / .jpg / .gif / .webp → 'declare const asset: string; export default asset;'
-  .woff / .woff2 / .ttf / .eot      → 'declare const asset: string; export default asset;'
+Every supported type imports as a URL string, so each declaration is
+'declare const asset: string; export default asset;'.
 """
 
 load("//ts/private:providers.bzl", "AssetInfo", "TsDeclarationInfo")
@@ -42,34 +41,35 @@ declare const asset: string;
 export default asset;
 """
 
-# Map of extension (without dot) → declaration content.
-_DTS_BY_EXT = {
-    "svg": _URL_DTS,
-    "png": _URL_DTS,
-    "jpg": _URL_DTS,
-    "jpeg": _URL_DTS,
-    "gif": _URL_DTS,
-    "webp": _URL_DTS,
-    "woff": _URL_DTS,
-    "woff2": _URL_DTS,
-    "ttf": _URL_DTS,
-    "eot": _URL_DTS,
-}
-
 def _asset_library_impl(ctx):
     asset_files = ctx.files.srcs
 
     dts_outputs = []
-    for asset_file in asset_files:
-        ext = asset_file.extension.lower()
-        content = _DTS_BY_EXT.get(ext, _URL_DTS)
 
+    # A copy in bazel-bin, not the source file, for the reason css_library
+    # copies too: the importer is the compiled .js beside it, so a relative
+    # import resolves in the output tree rather than in the source tree.
+    bin_asset_files = []
+    for asset_file in asset_files:
         # The .d.ts must be named <basename>.d.ts so that TypeScript resolves
         # it when allowArbitraryExtensions is enabled:
         #   logo.svg  →  logo.svg.d.ts
         dts = ctx.actions.declare_file(asset_file.basename + ".d.ts", sibling = asset_file)
-        ctx.actions.write(output = dts, content = content)
+        ctx.actions.write(output = dts, content = _URL_DTS)
         dts_outputs.append(dts)
+
+        # A generated src is already in bazel-bin, and declaring an output at a
+        # path another rule owns is an error rather than a copy.
+        if asset_file.is_source:
+            bin_asset = ctx.actions.declare_file(asset_file.basename, sibling = asset_file)
+            ctx.actions.expand_template(
+                template = asset_file,
+                output = bin_asset,
+                substitutions = {},
+            )
+            bin_asset_files.append(bin_asset)
+        else:
+            bin_asset_files.append(asset_file)
 
     # Build transitive depsets from any asset_library deps.
     transitive_asset_sets = []
@@ -80,13 +80,13 @@ def _asset_library_impl(ctx):
         if TsDeclarationInfo in dep:
             transitive_dts_sets.append(dep[TsDeclarationInfo].transitive_declaration_files)
 
-    direct_assets = depset(asset_files)
-    transitive_assets = depset(asset_files, transitive = transitive_asset_sets, order = "postorder")
+    direct_assets = depset(bin_asset_files)
+    transitive_assets = depset(bin_asset_files, transitive = transitive_asset_sets, order = "postorder")
     direct_dts = depset(dts_outputs)
     transitive_dts = depset(dts_outputs, transitive = transitive_dts_sets, order = "postorder")
 
     return [
-        DefaultInfo(files = depset(asset_files + dts_outputs)),
+        DefaultInfo(files = depset(bin_asset_files + dts_outputs)),
         AssetInfo(
             asset_files = direct_assets,
             transitive_asset_files = transitive_assets,
@@ -94,7 +94,6 @@ def _asset_library_impl(ctx):
         TsDeclarationInfo(
             declaration_files = direct_dts,
             transitive_declaration_files = transitive_dts,
-            type_roots = depset([]),
         ),
     ]
 
@@ -118,7 +117,7 @@ asset_library = rule(
     implementation = _asset_library_impl,
     attrs = {
         "srcs": attr.label_list(
-            doc = "Static asset source files (images, SVGs, fonts, JSON).",
+            doc = "Static asset source files: images, SVGs and fonts. JSON goes to json_library.",
             allow_files = _ASSET_EXTENSIONS,
             mandatory = True,
         ),
@@ -135,8 +134,9 @@ generated ambient .d.ts declarations) so that:
   1. TypeScript (allowArbitraryExtensions: true) does not error when a .tsx
      or .ts file imports an asset file like './logo.svg'.
   2. ts_compile targets can declare an asset dependency without failing.
-  3. The asset files are passed through to the output tree so bundlers
-     (e.g. Vite) can copy, hash, and reference them in the bundle.
+  3. The asset files are copied untransformed into bazel-bin beside the
+     compiled .js that imports them, which is what lets a bundler resolve the
+     relative import and then copy, hash and reference the asset.
 
 Supported file types:
   Images:  .svg, .png, .jpg, .jpeg, .gif, .webp

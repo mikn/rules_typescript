@@ -1,4 +1,5 @@
-load("@rules_typescript//ts:defs.bzl", "ts_codegen", "ts_compile")
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("@rules_typescript//ts:defs.bzl", "refresh_workspace_files", "ts_codegen", "ts_compile")
 
 exports_files([
     "about.tsx",
@@ -14,6 +15,7 @@ ts_compile(
         "__root.tsx",
         "about.tsx",
         "index.tsx",
+        "routeTree.gen.ts",  # keep
         "users.tsx",
     ],
     visibility = ["//visibility:public"],
@@ -21,32 +23,39 @@ ts_compile(
         "//src/components",
         "@npm//:react",
         "@npm//:tanstack_react-router",
+        "@npm//:tanstack_react-start",
+        "@npm//:zod",
     ],
 )
 
-# Generate routeTree.gen.ts from the route files.
-#
-# @tanstack/router-generator scans the routes directory and emits a typed
-# route tree.  The output lives in bazel-bin/src/routes/routeTree.gen.ts and
-# can be consumed by a ts_compile target as a source file.
-#
-# The generator executable (//:generate_routes) is a shell binary that invokes
-# generate-routes.mjs via the $NODE_BINARY provided by ts_codegen from the
-# js_runtime toolchain.  The node_modules tree (//:router_generator_node_modules)
-# provides @tanstack/router-generator and its transitive deps at action time.
+# The route tree is generated AND checked in -- see the README for why both.
+# `# keep` on outs: Gazelle prunes a ts_codegen attr it did not itself write.
 ts_codegen(
     name = "route_tree",
-    srcs = glob(["*.tsx"]),
-    outs = ["routeTree.gen.ts"],
+    srcs = glob(["**/*.tsx"]),
+    outs = ["routeTree.gen.expected.ts"],  # keep
     args = [
-        "--routes-dir",
-        "{srcs_dir}",
         "--out",
         "{out}",
+        "--srcs",
+        "{srcs}",
     ],
-    generator = "//:generate_routes",
+    generator = "@rules_typescript//tools/codegen:tanstack_routes",
     node_modules = "//:router_generator_node_modules",
+)
+
+refresh_workspace_files(
+    name = "update_route_tree",
+    files = {":route_tree": "src/routes/routeTree.gen.ts"},
     visibility = ["//visibility:public"],
+)
+
+diff_test(
+    name = "route_tree_test",
+    size = "small",
+    failure_message = "src/routes/routeTree.gen.ts is stale: run `bazel run //src/routes:update_route_tree`.",
+    file1 = ":route_tree",
+    file2 = "routeTree.gen.ts",
 )
 
 filegroup(

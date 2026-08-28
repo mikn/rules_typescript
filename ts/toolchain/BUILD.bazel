@@ -1,55 +1,54 @@
-"""Toolchain type declarations and toolchain targets for oxc-bazel, tsgo, and the JS runtime."""
+"""Toolchain types and instances: the oxc and tsgo compilers, and the JS runtime in both its roles."""
 
-load("//ts/private:runtime.bzl", "declare_node_runtime_toolchains")
-load("//ts/private:toolchain.bzl", "declare_oxc_toolchains", "declare_tsgo_toolchains")
-load(":resolved_node.bzl", node_resolved = "resolved")
-load(":resolved_oxc.bzl", oxc_resolved = "resolved")
-load(":resolved_tsgo.bzl", tsgo_resolved = "resolved")
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load("//ts/private:runtime.bzl", "declare_node_runtime_toolchains", "declare_node_tool_toolchains")
+load("//ts/private:toolchain.bzl", "declare_oxc_toolchain", "declare_tsgo_toolchains")
+load(":resolved.bzl", "node_resolved", "oxc_resolved", "tsgo_resolved")
 
 package(default_visibility = ["//visibility:public"])
 
+bzl_library(
+    name = "defs",
+    srcs = [
+        "defs.bzl",
+        "resolved.bzl",
+    ],
+    deps = [
+        "//ts/private:runtime",
+        "//ts/private:toolchain",
+    ],
+)
+
 # ─── Toolchain types ───────────────────────────────────────────────────────────
 
-toolchain_type(
-    name = "oxc_toolchain_type",
-    visibility = ["//visibility:public"],
-)
+# oxc and tsgo are compilers: they run on the exec platform, so their
+# toolchains are exec_compatible_with-constrained and place no constraint on
+# the target platform.
+toolchain_type(name = "oxc_toolchain_type")
 
-toolchain_type(
-    name = "tsgo_toolchain_type",
-    visibility = ["//visibility:public"],
-)
+toolchain_type(name = "tsgo_toolchain_type")
 
-toolchain_type(
-    name = "js_runtime_type",
-    visibility = ["//visibility:public"],
-)
+# The JS runtime a built program executes on (target platform).
+toolchain_type(name = "js_runtime_type")
+
+# A JS runtime used as a build tool (exec platform).
+toolchain_type(name = "js_tool_type")
 
 # ─── Toolchain instances ───────────────────────────────────────────────────────
 #
-# These macros expand to:
-#   oxc_toolchain(name = "oxc_<platform>_impl", ...)
-#   toolchain(name = "oxc_<platform>", toolchain_type = ":oxc_toolchain_type", ...)
-#
-# Each macro call creates targets for linux_amd64, darwin_amd64, darwin_arm64.
-# Register them in MODULE.bazel:
-#   register_toolchains("//ts/toolchain:oxc_linux_amd64", ...)
+# One toolchain() per platform per type, over the keys of
+# //platforms:platforms.bzl%PLATFORMS.  Consumers register them all with:
+#   register_toolchains("@rules_typescript//ts/toolchain:all")
 
-declare_oxc_toolchains(name = "oxc")
+declare_oxc_toolchain(name = "oxc")
 
 declare_tsgo_toolchains(name = "tsgo")
 
 declare_node_runtime_toolchains(name = "node")
 
+declare_node_tool_toolchains(name = "node_tool")
+
 # ─── Resolved toolchain targets ───────────────────────────────────────────────
-#
-# These targets expose the active toolchain binary as a runnable Bazel target
-# via the @toolchain_utils//toolchain:resolved.bzl pattern.
-#
-# Usage:
-#   bazel run //ts/toolchain:oxc_resolved -- --help
-#   bazel run //ts/toolchain:tsgo_resolved -- --version
-#   bazel run //ts/toolchain:node_resolved -- --version
 
 oxc_resolved(
     name = "oxc_resolved",

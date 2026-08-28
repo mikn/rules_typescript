@@ -1,0 +1,27 @@
+"""ts_test setup_files: a test whose subject only works once a setup file ran."""
+
+load("//ts:defs.bzl", "ts_compile", "ts_test")
+
+package(default_visibility = ["//:__pkg__"])
+
+ts_compile(
+    name = "media",
+    srcs = [
+        "globals.d.ts",
+        "media.ts",
+    ],
+)
+
+ts_test(
+    name = "media_test",
+    srcs = ["media.test.ts"],
+    setup_files = [
+        "setup_polyfills.ts",
+        "setup_order.ts",
+        "globals.d.ts",
+    ],
+    deps = [
+        ":media",
+        "@npm//:vitest",
+    ],
+)

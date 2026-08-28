@@ -1,0 +1,13 @@
+<!doctype html>
+<html>
+  <head>
+    <title>tailwind fixture</title>
+  </head>
+  <body>
+    <!-- Deliberately NOT the classes entry.ts names. In app mode this file is
+         the whole of Vite's root, so if it repeated them it would satisfy the
+         assertions on its own and @source would never be exercised. -->
+    <div class="grid justify-between">from the html</div>
+    <script type="module" src="./entry.js"></script>
+  </body>
+</html>

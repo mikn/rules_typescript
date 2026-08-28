@@ -1,172 +1,64 @@
 #!/usr/bin/env bash
-# test_resolve_integration.sh — Integration tests for the tsserver-hook
-# monkey-patch (Tests 1-5 from the LSP test plan).
+# test_resolve_integration.sh — the tsserver hook's monkey-patch, end to end.
 #
-# Usage (direct, from workspace root):
-#   bash tests/lsp/test_resolve_integration.sh
-#
-# Usage (via Bazel):
 #   bazel test //tests/lsp:test_resolve_integration --test_output=all
 #
-# What it tests:
-#   1. Hook loads without errors (no TypeError on modern TypeScript).
-#   2. ts._bazelPatched is set to true after the hook is loaded.
-#   3. ts.resolveModuleName is replaced by the Bazel wrapper function.
-#   4. ts.resolveModuleName("zod", ...) resolves to a .d.ts in the Bazel
-#      output base (when npm packages are available).
-#   5. ts.resolveModuleName("vitest", ...) resolves similarly.
-#   6. Path-alias and unknown module resolution do not throw.
-#
-# Prerequisites:
-#   bazel build @npm//...   (or bazel build //...) must have run to populate
-#   the @npm external repo.
-#
-# Exit code: 0 = all assertions passed, non-zero = failure.
+# The subject is the patched ts.resolveModuleName, so every assertion is in
+# resolve_test.mjs and this file is the shim around it: node from the JS runtime
+# toolchain, typescript/zod/vitest from the lockfile via
+# //tests/lsp:lsp_node_modules. The hook's resolution cache is pre-populated
+# through TSSERVER_HOOK_PRELOAD_MAP so the assertions do not race the background
+# worker; what the worker itself produces is //tests/lsp:test_resolution_map's
+# job.
 
-set -euo pipefail
+# --- begin runfiles.bash initialization v3 ---
+# Copy-pasted from the Bazel Bash runfiles library v3.
+set -uo pipefail; set +e; f=bazel_tools/tools/bash/runfiles/runfiles.bash
+# shellcheck disable=SC1090
+source "${RUNFILES_DIR:-/dev/null}/$f" 2>/dev/null || \
+  source "$(grep -sm1 "^$f " "${RUNFILES_MANIFEST_FILE:-/dev/null}" | cut -f2- -d' ')" 2>/dev/null || \
+  source "$0.runfiles/$f" 2>/dev/null || \
+  source "$(grep -sm1 "^$f " "$0.runfiles_manifest" | cut -f2- -d' ')" 2>/dev/null || \
+  source "$(grep -sm1 "^$f " "$0.exe.runfiles_manifest" | cut -f2- -d' ')" 2>/dev/null || \
+  { echo>&2 "ERROR: cannot find $f"; exit 1; }; f=; set -e
+# --- end runfiles.bash initialization v3 ---
 
-pass() { echo "PASS: $*"; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
-skip() { echo "SKIP: $*"; }
 
-# ── Locate files ───────────────────────────────────────────────────────────────
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-_realpath() {
-  python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$1"
+# rlocation answers an absent runfile with a non-zero exit and no output, which
+# would otherwise become an empty path handed to node.
+runfile() {
+  local resolved
+  resolved="$(rlocation "${TEST_WORKSPACE:-_main}/$1")" || resolved=""
+  [[ -n "${resolved}" && -e "${resolved}" ]] || fail "missing runfile: $1"
+  printf '%s\n' "${resolved}"
 }
 
-if [[ -n "${TEST_SRCDIR:-}" ]]; then
-  _RUNFILES_MAIN="${TEST_SRCDIR}/_main"
-  [[ -d "${_RUNFILES_MAIN}" ]] || _RUNFILES_MAIN="${TEST_SRCDIR}"
-  TOOLS_DIR="${_RUNFILES_MAIN}/tools"
-  TESTS_LSP_DIR="${_RUNFILES_MAIN}/tests/lsp"
+NODE="$(runfile ts/toolchain/node_resolved/node)"
+HOOK_JS="$(runfile tools/tsserver-hook.js)"
+DTS_ENTRY_MJS="$(runfile tests/lsp/dts_entry.mjs)"
+RESOLVE_TEST_MJS="$(runfile tests/lsp/resolve_test.mjs)"
+NODE_MODULES="$(runfile tests/lsp/lsp_node_modules)"
+[[ -d "${NODE_MODULES}" ]] || fail "not a node_modules tree: ${NODE_MODULES}"
 
-  _MODULE_SYMLINK="${_RUNFILES_MAIN}/MODULE.bazel"
-  if [[ -L "${_MODULE_SYMLINK}" ]]; then
-    WORKSPACE_ROOT="$(dirname "$(_realpath "${_MODULE_SYMLINK}")")"
-  elif [[ -f "${_MODULE_SYMLINK}" ]]; then
-    WORKSPACE_ROOT="$(_realpath "$(dirname "${_MODULE_SYMLINK}")")"
-  else
-    WORKSPACE_ROOT="$(dirname "$(dirname "$(_realpath "${SCRIPT_DIR}")")")"
-  fi
-else
-  WORKSPACE_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-  TOOLS_DIR="${WORKSPACE_ROOT}/tools"
-  TESTS_LSP_DIR="${WORKSPACE_ROOT}/tests/lsp"
-fi
+echo "INFO: node $("${NODE}" --version)"
 
-HOOK_JS="${TOOLS_DIR}/tsserver-hook.js"
-RESOLVE_TEST_MJS="${TESTS_LSP_DIR}/resolve_test.mjs"
+# What a ts_path_alias directive puts in the cache: the "@/" prefix mapped to a
+# directory, so "@/lib/math" must come back as <dir>/lib/math.ts.
+ALIAS_DIR="${TEST_TMPDIR:?TEST_TMPDIR is unset}/alias_root"
+mkdir -p "${ALIAS_DIR}/lib" "${ALIAS_DIR}/app"
+echo 'export const add = (a: number, b: number): number => a + b;' > "${ALIAS_DIR}/lib/math.ts"
 
-[[ -f "${HOOK_JS}" ]] || fail "tsserver-hook.js not found at ${HOOK_JS}"
-[[ -f "${RESOLVE_TEST_MJS}" ]] || fail "resolve_test.mjs not found at ${RESOLVE_TEST_MJS}"
-
-echo "INFO: workspace_root = ${WORKSPACE_ROOT}"
-echo "INFO: hook           = ${HOOK_JS}"
-echo "INFO: resolve_test   = ${RESOLVE_TEST_MJS}"
-
-# ── Node.js available? ────────────────────────────────────────────────────────
-command -v node >/dev/null 2>&1 || fail "node not found on PATH"
-echo "INFO: node $(node --version)"
-
-# ── Test A: Hook loads without TypeError on modern TypeScript ─────────────────
-echo "INFO: testing hook loads without errors..."
-TSSERVER_HOOK_NO_WORKER=1 node --require "${HOOK_JS}" --eval "process.exit(0)"
-pass "hook loads without errors"
-
-# ── Derive Bazel output base ───────────────────────────────────────────────────
-BAZEL_OUTPUT_BASE=""
-
-if [[ -n "${TEST_SRCDIR:-}" ]]; then
-  if [[ "${TEST_SRCDIR}" == */execroot/* ]]; then
-    BAZEL_OUTPUT_BASE="${TEST_SRCDIR%%/execroot/*}"
-  fi
-fi
-
-if [[ -z "${BAZEL_OUTPUT_BASE}" ]]; then
-  BAZEL_OUTPUT_BASE="$(bazel info output_base 2>/dev/null || true)"
-fi
-
-echo "INFO: bazel_output_base = ${BAZEL_OUTPUT_BASE:-<not found>}"
-
-# ── Locate npm .d.ts paths ────────────────────────────────────────────────────
-# These are optional: if npm packages aren't built the tests skip gracefully.
-ZOD_DTS="skip"
-VITEST_DTS="skip"
-
-if [[ -n "${BAZEL_OUTPUT_BASE}" ]]; then
-  _NPM_DIR=""
-  for _CANDIDATE in \
-    "${BAZEL_OUTPUT_BASE}/external/+npm+npm" \
-    "${BAZEL_OUTPUT_BASE}/external/npm"
-  do
-    if [[ -f "${_CANDIDATE}/BUILD.bazel" ]]; then
-      _NPM_DIR="${_CANDIDATE}"
-      break
-    fi
-  done
-
-  if [[ -n "${_NPM_DIR}" ]]; then
-    _ZOD_CANDIDATE="${_NPM_DIR}/zod__3_24_2/index.d.ts"
-    _VITEST_CANDIDATE="${_NPM_DIR}/vitest__3_0_9/dist/index.d.ts"
-    [[ -f "${_ZOD_CANDIDATE}" ]]    && ZOD_DTS="${_ZOD_CANDIDATE}"
-    [[ -f "${_VITEST_CANDIDATE}" ]] && VITEST_DTS="${_VITEST_CANDIDATE}"
-  else
-    echo "INFO: @npm external directory not found — npm resolution tests will be skipped"
-  fi
-fi
-
-echo "INFO: zod_dts    = ${ZOD_DTS}"
-echo "INFO: vitest_dts = ${VITEST_DTS}"
-
-# ── Build TSSERVER_HOOK_PRELOAD_MAP ───────────────────────────────────────────
-# Pre-populate the hook's resolution cache synchronously so the test does not
-# have to wait for the async worker thread to finish.
-PRELOAD_MAP="{}"
-
-if [[ "${ZOD_DTS}" != "skip" ]] || [[ "${VITEST_DTS}" != "skip" ]]; then
-  # Build JSON using Python to avoid quoting issues with shell.
-  PRELOAD_MAP="$(python3 - "${ZOD_DTS}" "${VITEST_DTS}" << 'PYEOF'
-import json, sys
-zod = sys.argv[1]
-vitest = sys.argv[2]
-m = {}
-if zod != "skip":
-    m["zod"] = zod
-if vitest != "skip":
-    m["vitest"] = vitest
-print(json.dumps(m))
-PYEOF
-)"
-fi
-
+PACKAGE_MAP="$("${NODE}" "${DTS_ENTRY_MJS}" "${NODE_MODULES}" zod vitest)"
+PRELOAD_MAP="$(M="${PACKAGE_MAP}" A="${ALIAS_DIR}" "${NODE}" --eval \
+  'const m = JSON.parse(process.env.M); m["__alias__@/"] = process.env.A; process.stdout.write(JSON.stringify(m))')"
 echo "INFO: preload_map = ${PRELOAD_MAP}"
 
-# ── Pre-check: TypeScript must be resolvable by Node ─────────────────────────
-# The resolve_test.mjs requires('typescript'). If typescript isn't installed
-# (it's not in the main repo's lockfile — only in example workspaces), skip
-# rather than fail. This matches how Go tests handle optional tools.
-if ! node -e "require('typescript')" 2>/dev/null; then
-  echo "SKIP: typescript module not available — skipping resolve integration test"
-  echo "      (install typescript globally or add to the lockfile to enable)"
-  echo ""
-  echo "ALL PASSED (with skips)"
-  exit 0
-fi
+read -r ZOD_DTS VITEST_DTS <<< "$(M="${PACKAGE_MAP}" "${NODE}" --eval \
+  'const m = JSON.parse(process.env.M); process.stdout.write(m.zod + " " + m.vitest)')"
 
-# ── Test B-G: Run the Node.js integration script ──────────────────────────────
-# TSSERVER_HOOK_NO_WORKER=1: skip the background worker thread so the test
-# process exits promptly.  The cache is pre-populated via PRELOAD_MAP.
-echo "INFO: running resolve_test.mjs..."
+NODE_PATH="${NODE_MODULES}" \
 TSSERVER_HOOK_PRELOAD_MAP="${PRELOAD_MAP}" \
 TSSERVER_HOOK_NO_WORKER=1 \
-node \
-  --require "${HOOK_JS}" \
-  "${RESOLVE_TEST_MJS}" \
-  "${ZOD_DTS}" \
-  "${VITEST_DTS}" \
-  "${WORKSPACE_ROOT}"
-
-echo ""
-echo "ALL PASSED"
+  "${NODE}" --require "${HOOK_JS}" "${RESOLVE_TEST_MJS}" \
+    "${ZOD_DTS}" "${VITEST_DTS}" "${ALIAS_DIR}"

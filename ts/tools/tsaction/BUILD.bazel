@@ -1,0 +1,16 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+# gazelle:ignore
+
+go_library(
+    name = "tsaction_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/mikn/rules_typescript/ts/tools/tsaction",
+    visibility = ["//visibility:private"],
+)
+
+go_binary(
+    name = "tsaction",
+    embed = [":tsaction_lib"],
+    visibility = ["//visibility:public"],
+)

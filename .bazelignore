@@ -1,3 +1,5 @@
+.bazel
+oxc_cli/target
 e2e
 examples
 site

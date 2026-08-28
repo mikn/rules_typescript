@@ -1,0 +1,16 @@
+load("//ts:defs.bzl", "ts_compile", "ts_test")
+
+ts_compile(
+    name = "widget",
+    srcs = ["widget.ts"],
+)
+
+ts_test(
+    name = "widget_test",
+    srcs = ["widget.test.ts"],
+    snapshots = ["__snapshots__/widget.test.ts.snap"],
+    deps = [
+        ":widget",
+        "@npm//:vitest",
+    ],
+)

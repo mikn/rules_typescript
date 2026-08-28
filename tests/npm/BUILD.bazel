@@ -1,8 +1,41 @@
-load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("@rules_go//go:def.bzl", "go_test")
+load("//npm:defs.bzl", "node_modules")
 load("//ts:defs.bzl", "ts_compile")
+load(":exports_types_tests.bzl", "declaration_entry_test", "exports_types_test_suite")
+load(":hub_provenance_tests.bzl", "hub_provenance_test")
+load(":parser_tests.bzl", "parser_test_suite")
+load(":resolution_tests.bzl", "conflicting_direct_peers_test", "conflicting_direct_versions_test")
 
-# Expose the lockfile so bootstrap tests can declare it as a data dep.
+package(default_visibility = ["//:__pkg__"])
+
+# The go_test targets are hand-named after the sh_tests they replaced, so the
+# Go language would add a second target for the same source.
+# gazelle:exclude *_test.go
+
+# @npm is translated from this, and //:add_package_npm edits it; nothing in this
+# package builds it.
 exports_files(["pnpm-lock.yaml"])
+
+# Lockfile-text tests: what the parsers read, and what they must keep ignoring.
+parser_test_suite(name = "parser_tests")
+
+# Manifest-text tests: which .d.ts a published package designates as its own
+# entry point, over the manifests of packages in this repo's lockfiles.
+exports_types_test_suite(name = "exports_types_tests")
+
+# The end of that resolution: the ruleset's own Vite plugin type-checks against
+# the declarations of the Vite it depends on, named as a file. Nothing else
+# fails when it does not -- tsgo reports no error for a bare specifier it cannot
+# type, and the plugin's own peer range is checked in a different lane
+# (//vite/tests:peer_version_test), against the runtime package.
+declaration_entry_test(
+    name = "vite_plugin_declaration_entry_test",
+    size = "small",
+    npm_package = "@npm//:vite",
+    target_under_test = "//vite:plugin_typecheck",
+)
 
 ts_compile(
     name = "app",
@@ -15,40 +48,334 @@ ts_compile(
 #   shared: {specifier: workspace:*, version: link:packages/shared}
 # → alias(name = "shared", actual = "@@//packages/shared:shared")
 #
-# This target verifies that the @npm alias resolves to the workspace package.
-# type-checking is disabled because workspace package resolution via bare
-# specifier names requires additional path alias configuration in production use;
-# the alias target generation in @npm is the key feature being tested here.
+# This target verifies that the @npm alias resolves to the workspace package,
+# and type-checks: Bazel resolves the alias before Starlark sees it, so the
+# bare specifier is recoverable only from module_name on the aliased target.
 ts_compile(
     name = "workspace_consumer",
     srcs = ["workspace_consumer.ts"],
     deps = ["@npm//:shared"],
-    enable_check = False,
 )
 
 # Test that npm_bin targets are generated and executable.
 # nanoid_bin is a simple bin with no npm dependencies, making it ideal for testing.
-sh_test(
+go_test(
     name = "npm_bin_test",
     size = "small",
-    srcs = ["verify_bin_scripts.sh"],
+    srcs = ["npm_bin_test.go"],
     data = ["@npm//:nanoid_bin"],
+    deps = ["//tests/verify"],
 )
 
 # Test that multi-version npm packages generate versioned Bazel labels.
-# The lockfile includes @vitest/pretty-format at 3.0.9 and 3.2.4, which
-# triggers the multi-version label generation path in npm_translate_lock.
+# The lockfile includes @rolldown/pluginutils at 1.0.0-rc.3 and 1.0.1, which
+# triggers the multi-version label generation path in npm_translate_lock. The
+# prerelease is the half that pins the sanitiser: a label may not hold `.` or
+# `-`, and both survive the version only as `_`.
 # This verifies:
-#   @npm//:vitest_pretty-format_3_0_9  (versioned, specific)
-#   @npm//:vitest_pretty-format_3_2_4  (versioned, specific)
-#   @npm//:vitest_pretty-format        (alias → highest = 3.2.4)
-sh_test(
+#   @npm//:rolldown_pluginutils_1_0_0_rc_3  (versioned, specific)
+#   @npm//:rolldown_pluginutils_1_0_1       (versioned, specific)
+#   @npm//:rolldown_pluginutils             (alias → highest = 1.0.1)
+go_test(
     name = "npm_multi_version_test",
     size = "small",
-    srcs = ["verify_multi_version.sh"],
+    srcs = ["npm_multi_version_test.go"],
     data = [
-        "@npm//:vitest_pretty-format_3_0_9",
-        "@npm//:vitest_pretty-format_3_2_4",
-        "@npm//:vitest_pretty-format",
+        "@npm//:rolldown_pluginutils",
+        "@npm//:rolldown_pluginutils_1_0_0_rc_3",
+        "@npm//:rolldown_pluginutils_1_0_1",
     ],
+    deps = ["//tests/verify"],
+)
+
+# Same feature from a NON-ROOT importer: pnpm-lock.yaml has importer
+# tests/npm/nested with `version: link:../../../packages/nested-shared`, which
+# only yields a valid label once resolved against the importer path. Treating
+# it as root-relative produces "@@//../../../packages/nested-shared:...".
+ts_compile(
+    name = "nested_workspace_consumer",
+    srcs = ["nested_workspace_consumer.ts"],
+    deps = ["@npm//:nested-shared"],
+)
+
+# A workspace member imported by its PACKAGE NAME, with no module_name anywhere:
+# //tests/npm/ws-linked declares none and the lockfile is the only place the name
+# `ws-linked` appears. An alias cannot carry it -- Bazel resolves an alias before
+# any rule implementation runs -- so this compiles only because the hub generates
+# a target that declares the name itself.
+ts_compile(
+    name = "ws_linked_consumer",
+    srcs = ["ws_linked_consumer.ts"],
+    deps = ["@npm_features//:ws-linked"],
+)
+
+go_test(
+    name = "workspace_relative_link_test",
+    size = "small",
+    srcs = ["workspace_relative_link_test.go"],
+    data = ["@npm//:nested-shared"],
+    deps = ["//tests/verify"],
+)
+
+# Test that a tarball with an unpredictable top-level directory is extracted
+# correctly: @types/express-serve-static-core@4.19.6 packs its files under
+# "express-serve-static-core v4.19/".
+go_test(
+    name = "npm_tarball_prefix_test",
+    size = "small",
+    srcs = ["npm_tarball_prefix_test.go"],
+    data = ["@npm//:types_express-serve-static-core"],
+    deps = ["//tests/verify"],
+)
+
+# A pnpm patch has to reach the files a build sees. The registry tarball is
+# byte-identical either way -- `packages:` records the integrity of the unpatched
+# publish -- so a patch that quietly fails to apply produces a green build that
+# ships the wrong package. The fixture patch rewrites nanoid's "sideEffects".
+go_test(
+    name = "npm_patched_dependency_test",
+    size = "small",
+    srcs = ["npm_patched_dependency_test.go"],
+    data = [
+        "@npm_features//:nanoid",
+        "@npm_features//:types_ms",
+    ],
+    deps = ["//tests/verify"],
+)
+
+# Two npm alias specifiers in the fixture lockfile, each reachable by exactly
+# one route: ms-alias is declared by the workspace root and nothing else,
+# nano-alias by zod and nothing else.
+node_modules(
+    name = "importer_alias_node_modules",
+    deps = ["@npm_features//:ms-alias"],
+)
+
+node_modules(
+    name = "package_alias_node_modules",
+    deps = ["@npm_features//:zod"],
+)
+
+go_test(
+    name = "npm_alias_test",
+    size = "small",
+    srcs = ["npm_alias_test.go"],
+    data = [
+        ":importer_alias_node_modules",
+        ":package_alias_node_modules",
+    ],
+    deps = ["//tests/verify"],
+)
+
+# ── Peer-dependency variants and per-importer resolution ─────────────────────
+#
+# pnpm resolves a package once PER PEER SET, and the fixture lockfile has
+# ansi-styles@6.2.3 resolved twice: once against ansi-regex@5.0.1 for the
+# workspace member app-a, once against ansi-regex@6.2.2 for app-b. Both
+# resolutions are the same tarball; only the transitive versions differ.
+#
+# Two things have to hold, and each fails silently on its own:
+#   the graph keeps the variants apart   -- otherwise both members get whichever
+#                                          snapshot the reader saw last
+#   the label names the member's own     -- otherwise a flat hub hands both
+#                                          members the highest version
+#
+# Nothing in the built output would look wrong either way: every version present
+# is a real version of a real package. Only the tree contents tell them apart.
+node_modules(
+    name = "peer_variant_a_node_modules",
+    deps = ["@npm_features//app-a:ansi-styles"],
+)
+
+node_modules(
+    name = "peer_variant_b_node_modules",
+    deps = ["@npm_features//app-b:ansi-styles"],
+)
+
+node_modules(
+    name = "importer_a_node_modules",
+    deps = ["@npm_features//app-a:ansi-regex"],
+)
+
+node_modules(
+    name = "importer_b_node_modules",
+    deps = ["@npm_features//app-b:ansi-regex"],
+)
+
+go_test(
+    name = "npm_peer_variant_test",
+    size = "small",
+    srcs = ["npm_peer_variant_test.go"],
+    data = [
+        ":importer_a_node_modules",
+        ":importer_b_node_modules",
+        ":peer_variant_a_node_modules",
+        ":peer_variant_b_node_modules",
+    ],
+    deps = ["//tests/verify"],
+)
+
+# Both peer resolutions of ONE version in one tree. app-a's ansi-styles is
+# declared here; the other resolution arrives only through wrap-ansi, which
+# depends on ansi-styles@6.2.3(ansi-regex@6.2.2).
+#
+# The two share a tarball, so a tree keyed by name@version has one directory for
+# them and one `node_modules/ansi-regex` inside it -- and whichever resolution
+# loses, its dependents import the other one's peer. Nothing about that looks
+# wrong: both ansi-regex versions are real, and the ansi-styles files are
+# byte-identical either way.
+node_modules(
+    name = "peer_variant_both_node_modules",
+    deps = [
+        "@npm_features//:wrap-ansi",
+        "@npm_features//app-a:ansi-styles",
+    ],
+)
+
+# ── The graph does not depend on the machine that read the lockfile ──────────
+#
+# fsevents@2.3.3 is `os: [darwin]`. Filtering the lockfile against the host's
+# os/cpu -- which is what the module extension used to do -- makes @npm//:fsevents
+# exist on a Mac and not exist on Linux, and the extension's result is recorded in
+# MODULE.bazel.lock, a file that is committed and shared. So the label has to
+# resolve here, on Linux, and the choice of which platform's package a build
+# actually pulls has to be a select() resolved at analysis time instead.
+go_test(
+    name = "npm_platform_independent_graph_test",
+    size = "small",
+    srcs = ["npm_platform_independent_graph_test.go"],
+    data = ["@npm//:fsevents"],
+    deps = ["//tests/verify"],
+)
+
+# A workspace member's directory can be named after an npm package -- a member at
+# `ms/` alongside a dependency on `ms`. The hub then needs the target `:ms` and
+# the package `ms/` at once, which is the one way per-importer packages could
+# have collided with the flat namespace.
+build_test(
+    name = "npm_importer_package_name_collision_test",
+    targets = [
+        "@npm_features//:ms",
+        "@npm_features//ms:zod",
+    ],
+)
+
+# ── Two versions of one name, in one closure ────────────────────────────────
+#
+# test-exclude's closure resolves three names twice, nested three deep:
+#
+#   test-exclude -> minimatch@10.2.4 -> brace-expansion@5.0.4 -> balanced-match@4.0.4
+#   glob         -> minimatch@9.0.9  -> brace-expansion@2.0.2 -> balanced-match@1.0.2
+#
+# A tree keyed by name alone has one minimatch directory, so one of those two
+# chains is silently overwritten by the other and glob ends up loading whichever
+# minimatch was copied last. Nothing about the result looks wrong: both versions
+# are real versions of the real package.
+node_modules(
+    name = "multi_version_node_modules",
+    deps = ["@npm//:test-exclude"],
+)
+
+go_test(
+    name = "npm_multi_version_tree_test",
+    size = "small",
+    srcs = ["npm_multi_version_tree_test.go"],
+    data = [
+        ":multi_version_node_modules",
+        ":peer_variant_both_node_modules",
+        ":scoped_multi_version_node_modules",
+    ],
+    deps = ["//tests/verify"],
+)
+
+# The same tree read as an ACTION input rather than through runfiles. The two
+# stage a TreeArtifact differently, and the layout leans on links that are
+# relative and internal to the tree -- a symlink naming an exec-root path is only
+# valid inside the action that created it, so the distinction is load-bearing and
+# not something to assume. Every path but the last three is reached through at
+# least one of those links.
+genrule(
+    name = "multi_version_through_action",
+    srcs = [":multi_version_node_modules"],
+    outs = ["multi_version_through_action.txt"],
+    cmd = """set -eu
+d=$(location :multi_version_node_modules)
+for p in \
+  glob/node_modules/minimatch \
+  .pnpm/minimatch@9.0.9/node_modules/minimatch/node_modules/brace-expansion \
+  .pnpm/brace-expansion@2.0.2/node_modules/brace-expansion/node_modules/balanced-match \
+  minimatch \
+  brace-expansion \
+  balanced-match
+do
+  printf '%s %s\\n' "$$p" "$$(awk -F'"' '/"version"/{print $$4; exit}' "$$d/$$p/package.json")"
+done > $@
+""",
+)
+
+diff_test(
+    name = "npm_multi_version_action_input_test",
+    size = "small",
+    file1 = ":multi_version_through_action",
+    file2 = "multi_version_through_action.expected",
+)
+
+# A scoped name resolved twice, inside one plugin's closure: @vitejs/plugin-react
+# depends on @rolldown/pluginutils@1.0.0-rc.3 while rolldown, reached through the
+# vite it declares as a peer, depends on 1.0.1. The store path for a scoped
+# package is one directory, not two, so the name is flattened there and spelled
+# out again inside it -- pnpm's own convention -- and the link from the dependent
+# is two segments deeper than an unscoped one.
+node_modules(
+    name = "scoped_multi_version_node_modules",
+    deps = ["@npm//:vitejs_plugin-react"],
+)
+
+# Both versions named directly, which is the one arrangement no tree can hold.
+node_modules(
+    name = "conflicting_direct_versions",
+    tags = ["manual"],
+    deps = [
+        "@npm//:minimatch",
+        "@npm//:minimatch_9_0_9",
+    ],
+)
+
+conflicting_direct_versions_test(
+    name = "npm_conflicting_direct_versions_test",
+    target_under_test = ":conflicting_direct_versions",
+)
+
+# Two peer resolutions of ONE version, named directly, which is the same
+# arrangement one level narrower: the files are identical, but the two disagree
+# about what ansi-styles' own `import "ansi-regex"` resolves to, and
+# node_modules/ansi-styles/node_modules holds one answer.
+node_modules(
+    name = "conflicting_direct_peers",
+    tags = ["manual"],
+    deps = [
+        "@npm_features//app-a:ansi-styles",
+        "@npm_features//app-b:ansi-styles",
+    ],
+)
+
+conflicting_direct_peers_test(
+    name = "npm_conflicting_direct_peers_test",
+    target_under_test = ":conflicting_direct_peers",
+)
+
+# Both bundles are consumer API -- //vite's through ts_dev_server's `plugin`
+# attr, the css one as a private attr default on ts_test/ts_bundle/ts_dev_server.
+hub_provenance_test(
+    name = "vite_plugin_hub_test",
+    size = "small",
+    hub = "npm_css",
+    target_under_test = "//vite:esbuild_node_modules",
+)
+
+hub_provenance_test(
+    name = "css_compiler_hub_test",
+    size = "small",
+    hub = "npm_css",
+    target_under_test = "//ts/private/css:node_modules",
 )

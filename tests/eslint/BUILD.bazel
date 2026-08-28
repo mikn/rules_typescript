@@ -1,0 +1,10 @@
+# @npm_eslint is translated from these; nothing in this package builds them.
+# The @typescript-eslint closure lives here rather than in //tests/npm because
+# that lockfile is a curated fixture -- its comments say what each entry proves,
+# and a `pnpm add` against it silently drops them.
+# gazelle:ts_ignore
+
+exports_files([
+    "package.json",
+    "pnpm-lock.yaml",
+])

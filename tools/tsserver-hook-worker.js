@@ -3,27 +3,49 @@
  *
  * Runs in a worker thread (spawned by tsserver-hook.js).
  * Builds a resolution map from:
- *   1. npm packages in the Bazel @npm external repo (from `bazel info output_base`).
- *   2. Internal ts_compile packages (from `bazel query`).
- *   3. Path-alias directives (# gazelle:ts_path_alias) in BUILD files.
+ *   1. The npm packages, ts_compile packages, declared module names and path
+ *      aliases named in .bazel/tsserver-hook-data.json, which
+ *      `bazel run //:refresh_tsconfig` writes from the build graph.
+ *   2. The .tsconfig-fragment.json files tsconfig_aspect's `ide_fragments`
+ *      output group writes into bazel-out, one per target. A rule's `deps` obey
+ *      visibility and an aspect's edges do not, so these cover the targets the
+ *      data file cannot name -- and they are optional: without the .bazelrc
+ *      lines that request the group there are none, and (1) is the whole map.
+ *   3. Path-alias directives (# gazelle:ts_path_alias) in BUILD files, for
+ *      directives added since the last refresh.
  *
  * Sends the map to the main thread via postMessage, then sets up file-system
- * watches to rebuild the map when BUILD files or pnpm-lock.yaml change.
+ * watches to rebuild the map when that data, a BUILD file or pnpm-lock.yaml
+ * changes.
  *
  * Design constraints:
  *   - Zero npm dependencies (Node.js builtins only).
- *   - Must not block — all Bazel invocations use execSync with a timeout.
- *   - Must degrade gracefully if Bazel is unavailable.
+ *   - Never runs Bazel: this is an editor process, and asking the Bazel server
+ *     anything from here would block on the lock a build holds. Everything
+ *     Bazel knows arrives through files a build already wrote.
+ *   - Must degrade gracefully when any of them is absent or stale. Nothing
+ *     enters the map without the path it names existing on disk, which is also
+ *     what keeps a fragment left behind by a deleted target from being wrong.
  */
 
 'use strict';
 
 const { parentPort, workerData } = require('worker_threads');
-const { execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
-const { workspaceRoot, outputBase: providedOutputBase } = workerData;
+const { workspaceRoot, dataFile: providedDataFile } = workerData;
+
+// Where `bazel run //:refresh_tsconfig` installs the graph data, workspace-relative.
+const HOOK_DATA = '.bazel/tsserver-hook-data.json';
+
+// One per target, written by tsconfig_aspect's `ide_fragments` output group.
+const FRAGMENT_SUFFIX = '.tsconfig-fragment.json';
+const FRAGMENT_FORMAT = 'tsconfig-fragment-v1';
+
+// The rule attribute's default, so fragment npm entries still resolve when no
+// data file says where the declarations were installed.
+const DEFAULT_NPM_DIR = '.bazel/npm';
 
 const DEBUG = !!process.env.TSSERVER_HOOK_DEBUG;
 
@@ -44,292 +66,357 @@ function log(msg) {
  */
 function buildResolutionMap() {
   const map = {};
+  const data = readHookData();
+  // `npm_dir = ""` on the rule is a deliberate opt-out of npm entries, so an
+  // empty string in the data file is null here, not the default.
+  const configured = data ? data.npmDir : DEFAULT_NPM_DIR;
+  const npmDir = configured ? path.join(workspaceRoot, configured) : null;
 
-  // Step 1: npm packages from the Bazel external @npm repo
-  // Use the pre-computed output base (from workerData.outputBase) when
-  // available — this is critical when the worker runs inside a `bazel test`
-  // invocation that holds the Bazel server lock, preventing `bazel info` from
-  // running concurrently.
-  let resolvedOutputBase = (providedOutputBase || '').trim();
-
-  if (!resolvedOutputBase) {
-    try {
-      resolvedOutputBase = execSync('bazel info output_base', {
-        cwd: workspaceRoot,
-        encoding: 'utf8',
-        timeout: 15000,
-        stdio: ['ignore', 'pipe', 'ignore'],
-      }).trim();
-    } catch (e) {
-      log(`bazel info output_base failed: ${e.message} — skipping npm resolution`);
-    }
-  }
-
-  if (resolvedOutputBase) {
-    const npmDir = findNpmExternalDir(resolvedOutputBase);
-    if (npmDir) {
-      log(`scanning npm packages in ${npmDir}`);
-      scanNpmPackages(npmDir, map);
-    } else {
-      log('no @npm external dir found — skipping npm resolution');
-    }
-  }
-
-  // Step 2: internal ts_compile packages
-  try {
-    const queryResult = execSync(
-      "bazel query 'kind(\"ts_compile rule\", //...)' --output=package 2>/dev/null",
-      {
-        cwd: workspaceRoot,
-        encoding: 'utf8',
-        timeout: 45000,
-        stdio: ['ignore', 'pipe', 'ignore'],
-        shell: true,
-      }
-    ).trim();
-
-    if (queryResult) {
-      const packages = queryResult.split('\n').filter(Boolean);
-      log(`found ${packages.length} ts_compile packages`);
-      for (const pkg of packages) {
-        const srcDir = path.join(workspaceRoot, pkg);
-        const binDir = path.join(workspaceRoot, 'bazel-bin', pkg);
-        scanPackageForResolution(pkg, srcDir, binDir, map);
+  if (!data) {
+    log(
+      `no hook data at ${path.join(workspaceRoot, HOOK_DATA)} — ` +
+        'run `bazel run //:refresh_tsconfig` to generate it'
+    );
+  } else {
+    // Step 1: npm packages, installed in the workspace by refresh_tsconfig.
+    // Only the packages the aspect reached are listed, which is the same set
+    // the generated tsconfig.json exposes.
+    let resolved = 0;
+    for (const pkg of npmDir ? data.npmPackages || [] : []) {
+      if (!pkg || !pkg.name || map[pkg.name]) continue;
+      const dtsPath = resolveInstalledPackage(npmDir, pkg);
+      if (dtsPath) {
+        map[pkg.name] = dtsPath;
+        resolved += 1;
+        log(`npm: ${pkg.name} → ${dtsPath}`);
+      } else {
+        log(`npm: ${pkg.name} has no declarations under ${npmDir}`);
       }
     }
-  } catch (e) {
-    log(`bazel query failed: ${e.message} — skipping internal package resolution`);
+    log(`npm: resolved ${resolved} of ${(data.npmPackages || []).length} packages`);
+
+    // Step 2: internal ts_compile packages.
+    for (const pkg of data.packages || []) {
+      const srcDir = path.join(workspaceRoot, pkg);
+      const binDir = path.join(workspaceRoot, 'bazel-bin', pkg);
+      scanPackageForResolution(pkg, srcDir, binDir, map);
+    }
+
+    // Step 2b: the bare specifiers targets declared with `module_name`. Same
+    // directories as step 2, under the name an import actually writes.
+    for (const module of data.modules || []) {
+      if (!module || !module.name || !module.package || map[module.name]) continue;
+      scanPackageForResolution(
+        module.name,
+        path.join(workspaceRoot, module.package),
+        path.join(workspaceRoot, 'bazel-bin', module.package),
+        map
+      );
+    }
+
+    // Step 3: the path aliases the build graph carries.
+    for (const alias of data.aliases || []) {
+      if (!alias || !alias.prefix || !alias.dir) continue;
+      const key = `__alias__${alias.prefix.replace(/\/$/, '')}/`;
+      if (map[key]) continue;
+      map[key] = path.join(workspaceRoot, alias.dir.replace(/\/$/, ''));
+      log(`path alias: ${alias.prefix} → ${map[key]}`);
+    }
   }
 
-  // Step 3: path aliases from BUILD files
+  // Step 4: the aspect's per-target fragments, which reach the targets no rule
+  // can name. They augment what the data file already resolved, never replace
+  // it, and there are none at all until a build requests the output group.
+  let tree = { packages: [], aliases: [] };
   try {
-    scanPathAliases(workspaceRoot, map);
+    tree = walkWorkspace(workspaceRoot);
   } catch (e) {
-    log(`scanPathAliases failed: ${e.message}`);
+    log(`workspace walk failed: ${e.message}`);
+  }
+  mergeFragments(readFragments(tree.packages), npmDir, map);
+
+  // Step 5: path aliases from BUILD files, which cover directives added since
+  // the last refresh. The graph wins over them: it is what the build resolves.
+  for (const alias of tree.aliases) {
+    const key = `__alias__${alias.prefix}/`;
+    if (map[key]) continue;
+    map[key] = path.join(workspaceRoot, alias.dir);
+    log(`path alias (BUILD): ${alias.prefix} → ${map[key]}`);
   }
 
   return map;
 }
 
+// ── Fragments ────────────────────────────────────────────────────────────────
+
 /**
- * Locate the @npm external repo directory under `output_base/external/`.
- * Handles the three known canonical name forms:
- *   - +npm+npm       (bzlmod, typical)
- *   - npm            (legacy WORKSPACE)
- *   - *npm*          (any variant containing "npm" with a BUILD.bazel)
+ * Every `<config>/bin` a build could have written fragments into.
  *
- * Returns the directory path, or null if not found.
+ * One target built in two configurations writes two fragments under two
+ * different config directories, so the roots are deduped by real path and
+ * sorted: the merge is then the same whatever order the filesystem lists them
+ * in.
  *
- * @param {string} outputBase
- * @returns {string | null}
+ * @returns {string[]}
  */
-function findNpmExternalDir(outputBase) {
-  const externalDir = path.join(outputBase, 'external');
-  if (!fs.existsSync(externalDir)) return null;
-
-  // Quick check for well-known names first.
-  for (const candidate of [
-    path.join(externalDir, '+npm+npm'),
-    path.join(externalDir, 'npm'),
-  ]) {
-    if (
-      fs.existsSync(candidate) &&
-      fs.existsSync(path.join(candidate, 'BUILD.bazel'))
-    ) {
-      // Verify it looks like our npm repo (contains ts_npm_package rules).
-      try {
-        const content = fs.readFileSync(
-          path.join(candidate, 'BUILD.bazel'),
-          'utf8'
-        );
-        if (content.includes('ts_npm_package')) {
-          return candidate;
-        }
-      } catch (_) {
-        // ignore
-      }
+function fragmentRoots() {
+  const roots = new Set();
+  const add = (p) => {
+    try {
+      if (fs.statSync(p).isDirectory()) roots.add(fs.realpathSync(p));
+    } catch (_) {
+      // Not a directory the convenience symlinks produced here.
     }
-  }
+  };
 
-  // Fallback: scan external/ for any directory whose name contains "npm" and
-  // whose BUILD.bazel contains ts_npm_package rules.
+  add(path.join(workspaceRoot, 'bazel-bin'));
+  const outDir = path.join(workspaceRoot, 'bazel-out');
+  let configs = [];
   try {
-    const entries = fs.readdirSync(externalDir);
-    for (const entry of entries) {
-      if (!entry.includes('npm')) continue;
-      const candidate = path.join(externalDir, entry);
-      const buildPath = path.join(candidate, 'BUILD.bazel');
-      if (!fs.existsSync(buildPath)) continue;
+    configs = fs.readdirSync(outDir);
+  } catch (_) {
+    // No bazel-out symlink: --experimental_convenience_symlinks=ignore, or no
+    // build yet.
+  }
+  for (const config of configs) {
+    add(path.join(outDir, config, 'bin'));
+  }
+  return [...roots].sort();
+}
+
+/**
+ * The fragments found under every config root, one per target label.
+ *
+ * Discovery is rooted in the source tree rather than in a recursive walk of
+ * bazel-out: a fragment lives at `<config>/bin/<package>/<target>` +
+ * FRAGMENT_SUFFIX, so `packageDirs` is the complete list of directories to look
+ * in, and a fragment whose package has since been deleted is never opened.
+ *
+ * @param {string[]} packageDirs - Workspace-relative dirs holding a BUILD file.
+ * @returns {Array<{label: string, packages: string[], modules: Array<{name: string, package: string}>, aliases: Array<{prefix: string, dir: string}>, npm: Array<{name: string, version: string, entry: string, isFile: boolean}>}>}
+ */
+function readFragments(packageDirs) {
+  const seen = new Set();
+  const fragments = [];
+  let files = 0;
+
+  for (const root of fragmentRoots()) {
+    for (const pkg of packageDirs) {
+      let names;
       try {
-        const content = fs.readFileSync(buildPath, 'utf8');
-        if (content.includes('ts_npm_package')) {
-          return candidate;
-        }
+        names = fs.readdirSync(path.join(root, pkg));
       } catch (_) {
-        // ignore
+        continue;
+      }
+      for (const name of names.sort()) {
+        if (!name.endsWith(FRAGMENT_SUFFIX)) continue;
+        files += 1;
+        const fragment = parseFragment(path.join(root, pkg, name));
+        // The same label under a second configuration says the same thing about
+        // the source tree, and counting it twice would make the merge depend on
+        // how many configurations happen to be in bazel-out.
+        if (!fragment || seen.has(fragment.label)) continue;
+        seen.add(fragment.label);
+        fragments.push(fragment);
       }
     }
-  } catch (_) {
-    // ignore
   }
 
+  log(`fragments: ${fragments.length} labels from ${files} files`);
+  return fragments;
+}
+
+/**
+ * One fragment file: a JSON object per line, the first naming the format and the
+ * target label. Returns null for anything that is not a fragment this version
+ * understands.
+ *
+ * @param {string} file
+ * @returns {object | null}
+ */
+function parseFragment(file) {
+  let lines;
+  try {
+    lines = fs.readFileSync(file, 'utf8').split('\n');
+  } catch (e) {
+    log(`fragment ${file} unreadable: ${e.message}`);
+    return null;
+  }
+
+  const fragment = { label: null, packages: [], modules: [], aliases: [], npm: [] };
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    let record;
+    try {
+      record = JSON.parse(line);
+    } catch (e) {
+      log(`fragment ${file} is not JSON per line: ${e.message}`);
+      return null;
+    }
+    if (record.format !== undefined) {
+      if (record.format !== FRAGMENT_FORMAT || typeof record.label !== 'string') {
+        log(`fragment ${file} has format ${record.format}, want ${FRAGMENT_FORMAT}`);
+        return null;
+      }
+      fragment.label = record.label;
+    } else if (typeof record.package === 'string') {
+      fragment.packages.push(record.package);
+      if (typeof record.module === 'string' && record.module) {
+        fragment.modules.push({ name: record.module, package: record.package });
+      }
+    } else if (typeof record.alias === 'string' && typeof record.dir === 'string') {
+      fragment.aliases.push({
+        prefix: record.alias.replace(/\/$/, ''),
+        dir: record.dir.replace(/\/$/, ''),
+      });
+    } else if (typeof record.npm === 'string') {
+      fragment.npm.push({
+        name: record.npm,
+        version: String(record.version || ''),
+        entry: record.entry || '',
+        isFile: !!record.file,
+      });
+    }
+  }
+
+  if (!fragment.label) {
+    log(`fragment ${file} names no label`);
+    return null;
+  }
+  return fragment;
+}
+
+const byKey = ([a], [b]) => (a < b ? -1 : a > b ? 1 : 0);
+
+/**
+ * Fold the fragments into `map`, leaving every key the data file already
+ * resolved alone.
+ *
+ * @param {object[]} fragments
+ * @param {string | null} npmDir - The installed npm tree, or null when npm_dir is off.
+ * @param {Record<string, string>} map
+ */
+function mergeFragments(fragments, npmDir, map) {
+  const packages = new Set();
+  const modules = new Map();
+  const aliases = new Map();
+  const npm = new Map();
+
+  for (const fragment of fragments) {
+    for (const pkg of fragment.packages) packages.add(pkg);
+    for (const module of fragment.modules) {
+      if (!modules.has(module.name)) modules.set(module.name, module.package);
+    }
+    for (const alias of fragment.aliases) {
+      if (alias.prefix && alias.dir && !aliases.has(alias.prefix)) {
+        aliases.set(alias.prefix, alias.dir);
+      }
+    }
+    for (const entry of fragment.npm) {
+      const chosen = npm.get(entry.name);
+      // Two versions of one name would fight over the same directory under
+      // npmDir. The generated tsconfig gives the whole name to the lowest
+      // version, so the hook has to agree or the two disagree about one import.
+      if (!chosen || entry.version < chosen.version) npm.set(entry.name, entry);
+    }
+  }
+
+  for (const [name, entry] of npmDir ? [...npm].sort(byKey) : []) {
+    if (map[name]) continue;
+    // Only the first-party half of a fragment is self-contained. An npm .d.ts
+    // lives in an external repository no workspace-relative path reaches, so it
+    // resolves here only if `bazel run //:refresh_tsconfig` installed it -- and
+    // that target's own deps decide what it installs.
+    const dtsPath = resolveInstalledPackage(npmDir, {
+      name,
+      entry: entry.entry,
+      isFile: entry.isFile,
+    });
+    if (!dtsPath) continue;
+    map[name] = dtsPath;
+    log(`fragment npm: ${name} → ${dtsPath}`);
+  }
+
+  for (const pkg of [...packages].sort()) {
+    if (map[pkg]) continue;
+    scanPackageForResolution(
+      pkg,
+      path.join(workspaceRoot, pkg),
+      path.join(workspaceRoot, 'bazel-bin', pkg),
+      map
+    );
+  }
+
+  for (const [name, pkg] of [...modules].sort(byKey)) {
+    if (map[name]) continue;
+    scanPackageForResolution(
+      name,
+      path.join(workspaceRoot, pkg),
+      path.join(workspaceRoot, 'bazel-bin', pkg),
+      map
+    );
+  }
+
+  for (const [prefix, dir] of [...aliases].sort(byKey)) {
+    const key = `__alias__${prefix}/`;
+    if (map[key]) continue;
+    const absDir = path.join(workspaceRoot, dir);
+    // The data file is rewritten whole on every refresh; a fragment is not, so
+    // a renamed alias leaves the old one in bazel-out until that target is next
+    // built. A directory that is gone is how that shows up.
+    if (!fs.existsSync(absDir)) {
+      log(`fragment alias: ${prefix} → ${absDir} (gone, skipped)`);
+      continue;
+    }
+    map[key] = absDir;
+    log(`fragment alias: ${prefix} → ${absDir}`);
+  }
+}
+
+/**
+ * The graph data `bazel run //:refresh_tsconfig` writes, or null.
+ *
+ * @returns {object | null}
+ */
+function readHookData() {
+  const candidates = [
+    providedDataFile,
+    process.env.TSSERVER_HOOK_DATA,
+    path.join(workspaceRoot, HOOK_DATA),
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(fs.readFileSync(candidate, 'utf8'));
+    } catch (e) {
+      log(`hook data at ${candidate} unusable: ${e.message}`);
+    }
+  }
   return null;
 }
 
 /**
- * Scan the @npm external repo directory and populate `map` with
- * package-name → absolute .d.ts path entries.
+ * The .d.ts one installed npm package resolves to, or null.
  *
- * The @npm repo layout (generated by npm_translate_lock) is:
- *   <npmDir>/<pkg>__<version>/  — extracted package tarballs
+ * `entry` is what the aspect knew: the package's own exports["."].types when it
+ * declares one, otherwise the directory whose package.json names the rest.
  *
- * We read the BUILD.bazel to find ts_npm_package() stanzas (which carry
- * the authoritative exports_types field), then fall back to reading
- * package.json directly.
- *
- * @param {string} npmDir
- * @param {Record<string, string>} map
+ * @param {string} npmDir - Absolute path to the installed npm tree.
+ * @param {{name: string, entry: string, isFile: boolean}} pkg
+ * @returns {string | null}
  */
-function scanNpmPackages(npmDir, map) {
-  const buildPath = path.join(npmDir, 'BUILD.bazel');
-
-  // Prefer the BUILD.bazel parsing approach (same logic as refresh_tsconfig.sh)
-  // because it gives us the authoritative exports_types path.
-  if (fs.existsSync(buildPath)) {
-    try {
-      const content = fs.readFileSync(buildPath, 'utf8');
-      const parsed = parseTsNpmPackageStanzas(content, npmDir);
-
-      for (const [pkgName, dtsPath] of Object.entries(parsed)) {
-        if (fs.existsSync(dtsPath)) {
-          map[pkgName] = dtsPath;
-          log(`npm (BUILD.bazel): ${pkgName} → ${dtsPath}`);
-        }
-      }
-      return; // BUILD.bazel approach succeeded
-    } catch (e) {
-      log(`BUILD.bazel parse failed: ${e.message} — falling back to package.json scan`);
-    }
+function resolveInstalledPackage(npmDir, pkg) {
+  const target = path.join(npmDir, pkg.name, pkg.entry || '');
+  if (pkg.isFile) {
+    return isDtsFile(target) && fs.existsSync(target) ? target : null;
   }
-
-  // Fallback: scan package.json files directly (for repos without BUILD.bazel).
+  let pkgJson = {};
   try {
-    const entries = fs.readdirSync(npmDir);
-    for (const entry of entries) {
-      const pkgJsonPath = path.join(npmDir, entry, 'package.json');
-      if (!fs.existsSync(pkgJsonPath)) continue;
-
-      try {
-        const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
-        const name = pkgJson.name;
-        if (!name) continue;
-
-        // Skip if already mapped (BUILD.bazel approach takes precedence).
-        if (map[name]) continue;
-
-        const dtsPath = resolvePackageDts(pkgJson, path.join(npmDir, entry));
-        if (dtsPath) {
-          map[name] = dtsPath;
-          log(`npm (package.json): ${name} → ${dtsPath}`);
-        }
-      } catch (_) {
-        // Malformed package — skip.
-      }
-    }
+    pkgJson = JSON.parse(fs.readFileSync(path.join(target, 'package.json'), 'utf8'));
   } catch (_) {
-    // ignore
+    // No package.json: resolvePackageDts still tries index.d.ts.
   }
-}
-
-/**
- * Parse ts_npm_package() stanzas from a BUILD.bazel string.
- * Returns a map of package_name → absolute .d.ts path.
- *
- * @param {string} content  - Contents of the BUILD.bazel file.
- * @param {string} npmDir   - Absolute path to the @npm external repo root.
- * @returns {Record<string, string>}
- */
-function parseTsNpmPackageStanzas(content, npmDir) {
-  const result = {};
-  const stanzaMarker = 'ts_npm_package(';
-  let i = 0;
-
-  while (true) {
-    const start = content.indexOf(stanzaMarker, i);
-    if (start === -1) break;
-
-    // Find the matching closing paren by tracking depth.
-    let depth = 0;
-    let j = start + stanzaMarker.length - 1; // position of opening "("
-    while (j < content.length) {
-      if (content[j] === '(') depth++;
-      else if (content[j] === ')') {
-        depth--;
-        if (depth === 0) break;
-      }
-      j++;
-    }
-
-    const stanza = content.slice(start, j + 1);
-    i = j + 1;
-
-    const pkgNameMatch = stanza.match(/\bpackage_name\s*=\s*"([^"]+)"/);
-    const exportsTypesMatch = stanza.match(/\bexports_types\s*=\s*"([^"]+)"/);
-    const pkgDirMatch = stanza.match(/\bpackage_dir\s*=\s*"([^"]+)"/);
-    const isTypesMatch = stanza.match(/\bis_types_package\s*=\s*(True|False)/);
-
-    if (!pkgNameMatch) continue;
-
-    const pkgName = pkgNameMatch[1];
-    const isTypes = isTypesMatch ? isTypesMatch[1] === 'True' : false;
-
-    // Skip @types/* packages — they are paired to runtime packages.
-    if (isTypes) continue;
-
-    // First occurrence wins.
-    if (result[pkgName]) continue;
-
-    let dtsRel = exportsTypesMatch ? exportsTypesMatch[1] : null;
-
-    if (!dtsRel && pkgDirMatch) {
-      // Derive package subdir from package_dir field.
-      let pkgSubdir = pkgDirMatch[1];
-      if (pkgSubdir.endsWith('/package.json')) {
-        pkgSubdir = pkgSubdir.slice(0, -'/package.json'.length);
-      }
-      const pkgJsonPath = path.join(npmDir, pkgSubdir, 'package.json');
-      if (fs.existsSync(pkgJsonPath)) {
-        try {
-          const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
-          const typesField = pkgJson.types || pkgJson.typings || '';
-          if (typesField) {
-            const normalized = typesField.replace(/^\.\//, '');
-            dtsRel = `${pkgSubdir}/${normalized}`;
-          } else {
-            const idx = path.join(npmDir, pkgSubdir, 'index.d.ts');
-            if (fs.existsSync(idx)) {
-              dtsRel = `${pkgSubdir}/index.d.ts`;
-            }
-          }
-        } catch (_) {
-          // ignore
-        }
-      }
-    }
-
-    if (!dtsRel) continue;
-
-    const absDts = path.join(npmDir, dtsRel);
-    if (
-      absDts.endsWith('.d.ts') ||
-      absDts.endsWith('.d.mts') ||
-      absDts.endsWith('.d.cts')
-    ) {
-      result[pkgName] = absDts;
-    }
-  }
-
-  return result;
+  return resolvePackageDts(pkgJson, target);
 }
 
 /**
@@ -389,7 +476,9 @@ function isDtsFile(p) {
  *
  * Prefers .d.ts in bazel-bin (post-build) over .ts source (pre-build).
  *
- * @param {string} pkg     - Package path relative to workspace root, e.g. "src/utils".
+ * @param {string} pkg     - The map key: a package path relative to the
+ *                           workspace root, e.g. "src/utils", or the bare
+ *                           specifier a target declared with `module_name`.
  * @param {string} srcDir  - Absolute path to the package source directory.
  * @param {string} binDir  - Absolute path to the package in bazel-bin.
  * @param {Record<string, string>} map
@@ -412,25 +501,52 @@ function scanPackageForResolution(pkg, srcDir, binDir, map) {
 }
 
 /**
- * Walk BUILD files in the workspace and extract # gazelle:ts_path_alias
- * directives.  Each directive maps an alias prefix to a source directory.
+ * One walk of the source tree, for the two things it is the authority on: the
+ * # gazelle:ts_path_alias directives in BUILD files, and where the Bazel
+ * packages are.
  *
- * The alias is stored with the "__alias__" prefix so the main thread can
- * distinguish it from direct module-name mappings.
+ * Directive format:  # gazelle:ts_path_alias <alias_prefix> <workspace-relative-dir>
  *
- * Format:  # gazelle:ts_path_alias <alias_prefix> <workspace-relative-dir>
+ * The package list is what makes fragment discovery cheap and self-cleaning: a
+ * fragment can only sit under a package directory, so nothing else in bazel-out
+ * has to be read, and a package that no longer exists in the source tree is not
+ * looked in.
  *
  * @param {string} root
- * @param {Record<string, string>} map
+ * @returns {{packages: string[], aliases: Array<{prefix: string, dir: string}>}}
  */
-function scanPathAliases(root, map) {
+function walkWorkspace(root) {
   const re = /^\s*#\s*gazelle:ts_path_alias\s+(\S+)\s+(\S+)/;
-
-  // Walk the workspace tree, stopping at nested workspace boundaries.
   const BOUNDARY_FILES = new Set(['MODULE.bazel', 'WORKSPACE', 'WORKSPACE.bazel']);
-  const PRUNE_DIRS = new Set([
-    'node_modules', 'dist', 'build', '.next', '.nuxt',
-  ]);
+  const PRUNE_DIRS = new Set(['node_modules', 'dist', 'build', '.next', '.nuxt']);
+  const BUILD_FILES = new Set(['BUILD.bazel', 'BUILD']);
+
+  const packages = [];
+  const aliases = [];
+  const seenPrefix = new Set();
+
+  function readDirectives(filePath) {
+    let lines;
+    try {
+      lines = fs.readFileSync(filePath, 'utf8').split('\n');
+    } catch (_) {
+      return;
+    }
+    for (const line of lines) {
+      const m = line.match(re);
+      if (!m) continue;
+      const prefix = m[1]; // e.g. "@/"
+      const dir = m[2]; // e.g. "src/"
+      // Only safe characters: this is the one input that is text rather than
+      // graph, so a prefix gazelle would accept can still be refused here.
+      if (!/^[A-Za-z0-9@/_.*-]+$/.test(prefix)) continue;
+      if (!/^[A-Za-z0-9@/_.*-]+$/.test(dir)) continue;
+      const stripped = prefix.replace(/\/$/, '');
+      if (seenPrefix.has(stripped)) continue; // First occurrence wins.
+      seenPrefix.add(stripped);
+      aliases.push({ prefix: stripped, dir: dir.replace(/\/$/, '') });
+    }
+  }
 
   function walk(dir, isRoot) {
     let entries;
@@ -440,49 +556,33 @@ function scanPathAliases(root, map) {
       return;
     }
 
-    // Check for child workspace boundary (skip everything except root).
-    if (!isRoot) {
-      const isBoundary = entries.some(
-        (e) => e.isFile() && BOUNDARY_FILES.has(e.name)
-      );
-      if (isBoundary) return;
+    // A child workspace's directives and packages are that workspace's, not
+    // this one's.
+    if (!isRoot && entries.some((e) => e.isFile() && BOUNDARY_FILES.has(e.name))) {
+      return;
     }
 
+    // Sorted, so which BUILD file wins a repeated alias prefix does not depend
+    // on the order the filesystem happens to list directories in.
+    entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+
+    let isPackage = false;
     for (const entry of entries) {
       if (entry.name.startsWith('.') || entry.name.startsWith('bazel-')) continue;
       if (PRUNE_DIRS.has(entry.name)) continue;
 
-      if (entry.isFile() && (entry.name === 'BUILD.bazel' || entry.name === 'BUILD')) {
-        const filePath = path.join(dir, entry.name);
-        try {
-          const lines = fs.readFileSync(filePath, 'utf8').split('\n');
-          for (const line of lines) {
-            const m = line.match(re);
-            if (!m) continue;
-            const aliasPrefix = m[1]; // e.g. "@/"
-            const aliasDir = m[2];    // e.g. "src/"
-
-            // Validate: only safe characters.
-            if (!/^[A-Za-z0-9@/_.*-]+$/.test(aliasPrefix)) continue;
-            if (!/^[A-Za-z0-9@/_.*-]+$/.test(aliasDir)) continue;
-
-            const key = `__alias__${aliasPrefix.replace(/\/$/, '')}/`;
-            if (map[key]) continue; // First occurrence wins.
-
-            const absDir = path.join(workspaceRoot, aliasDir.replace(/\/$/, ''));
-            map[key] = absDir;
-            log(`path alias: ${aliasPrefix} → ${absDir}`);
-          }
-        } catch (_) {
-          // ignore unreadable BUILD files
-        }
+      if (entry.isFile() && BUILD_FILES.has(entry.name)) {
+        isPackage = true;
+        readDirectives(path.join(dir, entry.name));
       } else if (entry.isDirectory()) {
         walk(path.join(dir, entry.name), false);
       }
     }
+    if (isPackage) packages.push(path.relative(root, dir));
   }
 
   walk(root, true);
+  return { packages: packages.sort(), aliases };
 }
 
 // ── Initial build ─────────────────────────────────────────────────────────────
@@ -516,9 +616,10 @@ function scheduleRebuild(delay) {
   }, delay);
 }
 
-// Watch root-level BUILD files and pnpm-lock.yaml (most likely to change when
-// packages are added or removed).
+// Watch the generated graph data, the root-level BUILD files and
+// pnpm-lock.yaml: between them, everything that changes what resolves.
 const rootWatchPaths = [
+  providedDataFile || path.join(workspaceRoot, HOOK_DATA),
   path.join(workspaceRoot, 'BUILD.bazel'),
   path.join(workspaceRoot, 'BUILD'),
   path.join(workspaceRoot, 'pnpm-lock.yaml'),
@@ -536,13 +637,13 @@ for (const watchPath of rootWatchPaths) {
   }
 }
 
-// Watch bazel-bin for new .d.ts files (generated after `bazel build`).
-// Use recursive watch so nested packages are covered.
+// Watch bazel-bin for the two things a `bazel build` adds: .d.ts files, and the
+// aspect's fragments. Use recursive watch so nested packages are covered.
 const bazelBin = path.join(workspaceRoot, 'bazel-bin');
 if (fs.existsSync(bazelBin)) {
   try {
     fs.watch(bazelBin, { recursive: true, persistent: false }, (_event, filename) => {
-      if (filename && filename.endsWith('.d.ts')) {
+      if (filename && (filename.endsWith('.d.ts') || filename.endsWith(FRAGMENT_SUFFIX))) {
         log(`bazel-bin changed: ${filename}`);
         scheduleRebuild(500);
       }

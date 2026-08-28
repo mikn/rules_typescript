@@ -1,0 +1,12 @@
+diff --git a/index.d.ts b/index.d.ts
+--- a/index.d.ts
++++ b/index.d.ts
+@@ -5,7 +5,7 @@
+  * @param {{long: boolean}} options
+  * @return {String}
+  */
+-declare function ms(value: number, options?: { long: boolean }): string;
++declare function ms(value: number, options?: { long?: boolean }): string;
+ 
+ /**
+  * Parse the given `value` and return milliseconds.

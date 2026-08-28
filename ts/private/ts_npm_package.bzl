@@ -26,6 +26,21 @@ def _is_js(f):
     """Returns True for .js/.mjs/.cjs files (excludes .d.ts which has extension 'ts')."""
     return f.extension in ("js", "mjs", "cjs") and not _is_dts(f)
 
+def _ambient_entry(package_root, dts_files, exports_types):
+    """The .d.ts whose ambient declarations stand for the whole types package.
+
+    tsconfig `typeRoots` cannot name it: TypeScript reads a typeRoot as a
+    directory whose *children* are the type packages, and one-repo-per-package
+    gives every package its own repo root with no such shared parent. So the
+    entry point is named directly instead, in the consumer's `files`.
+    """
+    if exports_types:
+        return exports_types
+    for f in dts_files:
+        if f.dirname == package_root and f.basename == "index.d.ts":
+            return f
+    return None
+
 # ─── Rule implementation ───────────────────────────────────────────────────────
 
 def _ts_npm_package_impl(ctx):
@@ -40,17 +55,16 @@ def _ts_npm_package_impl(ctx):
     # Also collect declarations from an explicitly linked @types dep.
     # Do NOT call .to_list() — use depset transitive to avoid materialization.
     types_dts_direct = depset()
-    types_roots_sets = []
     if ctx.attr.types_dep:
         types_info = ctx.attr.types_dep
         if TsDeclarationInfo in types_info:
             # Pull the direct declaration_files (not full transitive) of the
             # @types package as the direct contribution of this npm target.
             types_dts_direct = types_info[TsDeclarationInfo].declaration_files
-            types_roots_sets.append(types_info[TsDeclarationInfo].type_roots)
 
     # Collect transitive data from npm dep targets.
     transitive_js_sets = [depset(js_files)]
+
     # Start the dts transitive set with this package's own files plus the
     # types dep's full transitive declarations (without materializing them).
     transitive_dts_sets = [depset(dts_files), types_dts_direct]
@@ -68,26 +82,35 @@ def _ts_npm_package_impl(ctx):
             transitive_js_sets.append(dep[JsInfo].transitive_js_files)
         if TsDeclarationInfo in dep:
             transitive_dts_sets.append(dep[TsDeclarationInfo].transitive_declaration_files)
-            types_roots_sets.append(dep[TsDeclarationInfo].type_roots)
         if NpmPackageInfo in dep:
             direct_npm_dep_infos.append(dep[NpmPackageInfo])
             transitive_npm_dep_sets.append(dep[NpmPackageInfo].transitive_deps)
             transitive_pkg_dir_sets.append(dep[NpmPackageInfo].transitive_package_dirs)
 
-    # For @types/* packages, the type_roots field should contain .d.ts files
-    # from this package so downstream consumers can resolve types.  TypeScript
-    # typeRoots requires directories, but Bazel File objects are always files.
-    # Instead we populate type_roots with the .d.ts files themselves — the
-    # consuming rule (ts_config_gen) uses the files' dirname to derive the
-    # typeRoots entry.  This avoids the mismatch of passing a package.json
-    # file where a directory is expected.
-    type_roots = []
-    if ctx.attr.is_types_package:
-        type_roots = dts_files
-
     # Direct declaration files = this package's own .d.ts + the types dep's
     # direct declarations (not the full transitive closure).
     direct_decls = depset(dts_files, transitive = [types_dts_direct])
+
+    # The declaration files the manifest designated behind a subpath, resolved
+    # against what the package actually shipped. Matching on the package-relative
+    # suffix is what the two have in common: the dict is written at repo-rule
+    # time from the manifest, and these Files carry a repo-prefixed exec path.
+    package_root = package_dir.dirname
+    subpath_types = {}
+    for subpath, rel in ctx.attr.subpath_types.items():
+        want = package_root + "/" + rel
+        for f in dts_files:
+            if f.path == want:
+                subpath_types[subpath] = f
+                break
+
+    ambient_types_file = None
+    if ctx.attr.is_types_package:
+        ambient_types_file = _ambient_entry(
+            package_dir.dirname,
+            dts_files,
+            ctx.file.exports_types,
+        )
 
     return [
         DefaultInfo(
@@ -105,18 +128,16 @@ def _ts_npm_package_impl(ctx):
                 transitive = transitive_dts_sets,
                 order = "postorder",
             ),
-            type_roots = depset(
-                type_roots,
-                transitive = types_roots_sets,
-            ),
         ),
         NpmPackageInfo(
             package_name = ctx.attr.package_name,
             package_version = ctx.attr.package_version,
+            peer_id = ctx.attr.peer_id,
             package_dir = package_dir,
             all_files = depset(all_files),
             js_files = depset(js_files),
             declaration_files = direct_decls,
+            direct_deps = direct_npm_dep_infos,
             transitive_deps = depset(
                 # Include direct dep NpmPackageInfo instances so that
                 # consumers can find them in the flattened transitive list.
@@ -129,6 +150,8 @@ def _ts_npm_package_impl(ctx):
                 order = "postorder",
             ),
             exports_types_file = ctx.file.exports_types,
+            subpath_types = subpath_types,
+            ambient_types_file = ambient_types_file,
         ),
     ]
 
@@ -145,13 +168,21 @@ ts_npm_package = rule(
             doc = "The resolved npm package version.",
             mandatory = True,
         ),
+        "peer_id": attr.string(
+            doc = "Filesystem-safe token naming the peer set this resolution was made " +
+                  "against, empty when pnpm resolved the package only one way. Written by " +
+                  "npm_import from the snapshot key's peer suffix; two snapshots sharing " +
+                  "name@version differ only here.",
+        ),
         "package_dir": attr.label(
-            doc = "The root directory of the extracted npm package.",
+            doc = "The package.json at the root of the extracted npm package; its directory is the package root.",
             allow_single_file = True,
+            mandatory = True,
         ),
         "package_files": attr.label_list(
             doc = "All files in the package directory.",
             allow_files = True,
+            mandatory = True,
         ),
         "deps": attr.label_list(
             doc = "Other ts_npm_package targets that this package depends on.",
@@ -164,6 +195,15 @@ ts_npm_package = rule(
         "is_types_package": attr.bool(
             doc = "True if this package is a @types/* declaration package.",
             default = False,
+        ),
+        "subpath_types": attr.string_dict(
+            doc = "Each non-root `exports` subpath that designates a declaration, " +
+                  "mapped to that declaration's package-relative path. A consumer " +
+                  "naming one in `compiler_options[\"types\"]` gets the file in its " +
+                  "tsconfig `files`, which is the only way an ambient module a " +
+                  "package ships behind a subpath reaches the program: tsconfig " +
+                  "`types` resolves through node_modules, and npm packages reach " +
+                  "the compiler through `paths`.",
         ),
         "exports_types": attr.label(
             doc = "The specific .d.ts file exposed via exports['.']['types'] in package.json. " +

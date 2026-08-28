@@ -1,0 +1,15 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "copy_to_workspace_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/mikn/rules_typescript/tools/copy_to_workspace",
+    visibility = ["//visibility:private"],
+    deps = ["@rules_go//go/runfiles"],
+)
+
+go_binary(
+    name = "copy_to_workspace",
+    embed = [":copy_to_workspace_lib"],
+    visibility = ["//visibility:public"],
+)

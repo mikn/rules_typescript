@@ -1,13 +1,14 @@
 # Testing with vitest
 
-`ts_test` compiles TypeScript test files and runs them with vitest inside the Bazel sandbox.
+`ts_test` compiles TypeScript test files and runs them with vitest inside the
+Bazel sandbox. The full attribute table is in the
+[ts_test reference](../rules/ts-test.md); this page is the guide.
 
 ## Setup
 
 ```python
 # BUILD.bazel
 load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_test")
-load("@rules_typescript//npm:defs.bzl", "node_modules")
 
 ts_compile(
     name = "math",
@@ -15,9 +16,41 @@ ts_compile(
     visibility = ["//visibility:private"],
 )
 
+ts_test(
+    name = "math_test",
+    srcs = ["math.test.ts"],
+    deps = [":math", "@npm//:vitest"],
+)
+```
+
+```bash
+bazel test //path/to:math_test
+```
+
+No `node_modules` target is needed. `ts_test` builds a per-target
+`node_modules` tree from every dep that provides `NpmPackageInfo`, plus their
+transitive npm deps. List every npm package the run needs — imported by the
+tests *and* by the production code under test — in `deps`; a `ts_compile` dep
+does not contribute its own npm packages to the tree. Gazelle does this for you.
+
+Two consequences worth knowing. The test's own sources are checked for
+undeclared imports like any other `ts_compile` sources, so an import that only
+some dep's own deps provide fails the build with the label to add
+([why](../rules/ts-compile.md#deps-have-to-be-direct)). And the tree places
+every *resolution* the closure made rather than one directory per name, so a test
+whose dependencies disagree about a package — its version, or the peers it was
+resolved against — gets what each of them resolved
+([layout](../rules/node-modules.md#the-layout)).
+
+Pass `node_modules` explicitly only when `deps` is a `select()` (a macro cannot
+iterate one) or when the tree you need is not the one the deps describe:
+
+```python
+load("@rules_typescript//npm:defs.bzl", "node_modules")
+
 node_modules(
     name = "node_modules",
-    deps = ["@npm//:vitest"],
+    deps = ["@npm//:vitest", "@npm//:happy-dom"],
 )
 
 ts_test(
@@ -28,92 +61,342 @@ ts_test(
 )
 ```
 
-```bash
-bazel test //path/to:math_test
-```
+## Controlling the test environment
 
-## Attributes
+A vitest config is always generated and always passed with `--config`, so vitest
+never picks up a stray config from the runfiles tree. Everything you set
+composes with it rather than replacing it — see
+[the generated vitest config](../rules/ts-test.md#the-generated-vitest-config)
+for the precedence rules.
 
-| Attribute | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `srcs` | `label_list` | required | `.ts`/`.tsx` test files |
-| `deps` | `label_list` | `[]` | `ts_compile` or npm targets the tests import |
-| `node_modules` | `label` | `None` | A `node_modules` target for runtime npm resolution |
-| `vitest` | `label` | `None` | Explicit vitest binary label (auto-detected from `node_modules` when absent) |
-| `runtime` | `label` | `None` | Per-target JS runtime binary override |
-| `env` | `string_dict` | `{}` | Additional environment variables |
-| `size` | `string` | `"medium"` | Bazel test size |
-| `update_snapshots` | `bool` | `False` | When True, produces an executable that runs `vitest run --update` and writes snapshot files back to the source tree |
-
-## Sharding
-
-`ts_test` supports Bazel test sharding. Pass `--test_sharding_strategy=explicit` and set `shard_count` on the target to distribute test files across parallel runners.
-
-## Snapshot Testing
-
-Vitest snapshot files (`.snap`) must live in the source tree, but the Bazel sandbox is read-only. Two supported workflows:
-
-**Recommended: `update_snapshots = True`**
+### DOM tests and polyfills
 
 ```python
 ts_test(
-    name = "my_test",
+    name = "component_test",
     srcs = ["Button.test.tsx"],
-    deps = [":button"],
-    node_modules = ":node_modules",
+    deps = [
+        ":button",
+        "@npm//:react",
+        "@npm//:happy-dom",
+        "@npm//:testing-library_react",
+        "@npm//:vitest",
+    ],
+    environment = "happy-dom",
+    setup_files = ["setupTests.ts"],
+)
+```
+
+`environment` is any value vitest accepts — `node`, `jsdom`, `happy-dom`,
+`edge-runtime`, or a custom environment package — and the matching package has
+to be in `deps`. (Scoped npm names take their label form: `@testing-library/react`
+is `@npm//:testing-library_react`.) `setup_files` entries run before every test
+file, which is where `matchMedia`, `ResizeObserver`, `PointerEvent` and friends
+belong. TypeScript entries are compiled with the same `deps` as the tests.
+
+A DOM environment needs no sandbox flags: the generated config sets
+`resolve.preserveSymlinks`, without which vitest's web transform resolves every
+runfiles symlink to its target and walks out of the sandbox
+(`Failed to load url … Does the file exist?`).
+
+`global_setup` is the same mechanism for `test.globalSetup`, which runs once
+around the whole run rather than per file.
+
+### An existing vitest config
+
+```python
+ts_test(
+    name = "component_test",
+    srcs = ["Button.test.tsx"],
+    deps = [":button", "@npm//:react", "@npm//:vitest"],
+    config = "vitest.config.ts",
+    data = ["test/fixtures.json", "test/msw-handlers.ts"],
+)
+```
+
+Anything the config imports relatively belongs in `data`; it is not a build
+input otherwise. A config that default-exports an array is read as a list of
+vitest projects, and each project in it gets the Bazel and attribute layers too
+— that array becomes `test.projects`, which needs vitest 3.2 or later
+([detail](../rules/ts-test.md#a-config-file)). Every other `config` shape runs
+on any vitest 3 or 4.
+
+Small adjustments do not need a file at all — `config` also takes a dict:
+
+```python
+config = {"test": {"testTimeout": 30000, "retry": 2}},
+```
+
+### Other knobs
+
+```python
+ts_test(
+    name = "math_test",
+    srcs = ["math.test.ts"],
+    deps = [":math", "@npm//:vitest"],
+    globals = True,                          # global describe/it/expect
+    reporters = ["default", "junit"],
+    coverage_thresholds = {"lines": "80"},
+)
+```
+
+### Seeing what ran
+
+```bash
+bazel build //path/to:math_test --output_groups=vitest_config
+```
+
+That writes out the merged config the runner passed to vitest — the fastest way
+to tell whether your layer landed where you expected.
+
+## CSS modules
+
+A dep providing `CssModuleInfo` adds a plugin to the Bazel layer that answers a
+`*.module.css` import with the export map `css_module` wrote beside the
+stylesheet. So a test sees the class name a bundler emits, not a stand-in:
+
+```ts
+import styles from "./Button.module.css";
+expect(styles.primary).toMatch(/^_primary_[0-9a-f]{8}$/);
+```
+
+That is what makes an assertion on a rendered `class` attribute meaningful:
+
+```ts
+render(host);
+expect(host.querySelector("button")?.getAttribute("class")).toBe(styles.button);
+```
+
+A `*.module.css` with no `css_module` target behind it has no map and no
+`.d.ts`; the import then falls back to a proxy returning the property name, so
+such a test runs rather than failing on an unloadable import.
+
+## Coverage
+
+```bash
+bazel coverage //path/to:math_test
+```
+
+Works on every `ts_test` with nothing to opt into, provided
+`@vitest/coverage-v8` is in the `node_modules` tree. `coverage = True`
+additionally instruments plain `bazel test` runs.
+
+`coverage_thresholds` reaches `test.coverage.thresholds` in the generated
+config, and only applies when coverage runs. A run that misses a threshold
+fails, after the assertions themselves have passed:
+
+```
+ERROR: Coverage for lines (50%) does not meet global threshold (90%)
+```
+
+Which files are reported is `--instrumentation_filter`'s answer, and Bazel
+derives a default from the targets on the command line, so a library in another
+package is absent from the report until a wider filter names it. See
+[ts_test § Coverage](../rules/ts-test.md#coverage).
+
+`coverage_provider` picks between `"v8"` (vitest's default) and `"istanbul"`.
+A test whose pool runs in a second runtime needs `"istanbul"`: v8 coverage comes
+out of Node's inspector, which workerd has none of, while istanbul instruments
+at transform time. See
+[ts_test § Coverage](../rules/ts-test.md#coverage).
+
+## Cloudflare Workers
+
+A Worker's tests can run **inside workerd** rather than in Node, so `SELF.fetch()`
+dispatches to the real `fetch` handler over the real runtime. That comes from
+`@cloudflare/vitest-pool-workers`, and `//tests/workers` is the worked example:
+
+```python
+ts_compile(
+    name = "worker",
+    srcs = ["src/index.ts"],
+    lib = [
+        "esnext",
+        "webworker",
+    ],
 )
 
 ts_test(
-    name = "update_snapshots",
-    srcs = ["Button.test.tsx"],
-    deps = [":button"],
-    node_modules = ":node_modules",
-    update_snapshots = True,  # produces an executable, not a test
+    name = "worker_test",
+    size = "medium",
+    srcs = ["src/worker.test.ts"],
+    config = "vitest.workers.config.mjs",
+    coverage_provider = "istanbul",
+    data = ["wrangler.jsonc"],
+    lib = [
+        "esnext",
+        "webworker",
+    ],
+    types = ["@cloudflare/vitest-pool-workers/types"],
+    deps = [
+        ":worker",
+        "@npm_workers//:cloudflare_vitest-pool-workers",
+        "@npm_workers//:vitest",
+        "@npm_workers//:vitest_coverage-istanbul",
+    ],
 )
 ```
 
-To create or update snapshots:
+```typescript
+import { SELF } from 'cloudflare:test';
+import { describe, expect, it } from 'vitest';
 
-```bash
-bazel run //path/to:update_snapshots
+describe('worker', () => {
+  it('answers /health', async () => {
+    const res = await SELF.fetch('https://example.com/health');
+    expect(res.status).toBe(200);
+  });
+});
 ```
 
-Vitest runs with `--update` from the workspace root, so snapshot files are written to the correct `__snapshots__` directory alongside your source files. Commit the resulting `.snap` files to version control.
+`lib` names `webworker` because the `Request`/`Response` globals a Worker is
+written against are in no set `target` implies — on the worker target and on the
+test target both.
 
-**Alternative: `--sandbox_writable_path`**
+### The config, and the two lines that are easy to lose
 
-```bash
-bazel test //path/to:my_test \
-  --sandbox_writable_path=$(pwd)/src/components/__snapshots__
+```javascript
+import { join } from 'node:path';
+
+import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
+
+const pkg = process.env.TS_TEST_PACKAGE_DIR;
+
+export default {
+  resolve: { preserveSymlinks: false },
+  plugins: [
+    cloudflareTest({
+      remoteBindings: false,
+      wrangler: { configPath: join(pkg, 'wrangler.jsonc') },
+    }),
+  ],
+};
 ```
 
-## Watch Mode
+**`cloudflareTest()` as a plugin, not `test.pool`.** The package exports two
+things and only one is enough. `cloudflarePool()` is a pool initializer: it boots
+workerd and nothing else. `cloudflareTest()` is a Vite plugin that installs that
+pool *and* owns the `cloudflare:test` specifier — its `resolveId` maps it to a
+virtual id and its `load` returns the runtime's bytes. The pool deliberately
+forwards `cloudflare:test` to Vite rather than externalising it to workerd like
+every other `cloudflare:*` specifier, so with no plugin registered nothing
+resolves it and vitest falls back to Node package resolution, which fails.
 
-Use [ibazel](https://github.com/bazelbuild/bazel-watcher) to watch test files and re-run them on every change:
+**`resolve.preserveSymlinks: false`.** `ts_test`'s own Bazel layer turns it *on*,
+because a DOM environment resolves module ids to their realpath and a runfiles
+symlink walks straight out of the sandbox. The pool resolves modules for workerd
+through a second path, where a lexical path is a second module identity for the
+same file. The user layer wins, so the config turns it back off. Leaving it out
+fails as `TypeError: Cannot read properties of undefined (reading 'config')` from
+inside the pool runner — which reads like a wrong plugin API rather than a
+resolution setting.
+
+The one path in that config — the wrangler `configPath` — is absolute, from
+`TS_TEST_PACKAGE_DIR`: a relative path resolves against the Vite root, which is
+the runfiles root rather than the package.
+
+### Two more attrs doing real work
+
+`coverage_provider = "istanbul"`. v8 coverage is counters read back out of Node's
+inspector, and workerd has none — istanbul instruments before the code crosses
+into the runtime. `bazel coverage` then reports real per-line data for code
+running inside workerd.
+
+`types = ["@cloudflare/vitest-pool-workers/types"]`. That is an `exports` subpath
+whose only condition is `types`, which is where the pool puts the ambient
+declaration for `cloudflare:test`. Nothing imports it, and a tsconfig `types`
+entry cannot reach it under a ruleset with no `node_modules`, so it is resolved
+from the package manifest into the program's `files`.
+
+### And whether it still deploys
+
+Running the tests says the Worker works; it does not say the Worker still
+deploys. `ts_worker_dry_run_test` is that question — a `wrangler deploy
+--dry-run` with no credentials and no network, in the same package:
+
+```python
+node_modules(
+    name = "wrangler_node_modules",
+    deps = ["@npm_workers//:wrangler"],
+)
+
+ts_worker_dry_run_test(
+    name = "deploy_dry_run_test",
+    size = "medium",
+    config = "wrangler.jsonc",
+    node_modules = ":wrangler_node_modules",
+    deps = [":worker"],
+)
+```
+
+wrangler needs a tree of its own: the pool's `node_modules` is built from the
+test's `deps`, and wrangler is not one of them. Full reference:
+[ts_worker_dry_run](../rules/ts-worker-dry-run.md).
+
+## Sharding
+
+`ts_test` distributes test files across shards using `TEST_SHARD_INDEX` and
+`TEST_TOTAL_SHARDS`. Set `shard_count` on the target and pass
+`--test_sharding_strategy=explicit`.
+
+## Snapshots
+
+`toMatchSnapshot()` works, and the `.snap` files stay where a plain `vitest` run
+keeps them — `<package>/__snapshots__/<source>.snap`, beside your `.ts` rather
+than in `bazel-out`. Adopting `ts_test` renames nothing.
+
+Two halves, and both are needed. Reading: list the files in `snapshots`, which is
+what puts them inside the sandbox.
+
+```python
+ts_test(
+    name = "widget_test",
+    srcs = ["widget.test.ts"],
+    snapshots = glob(["__snapshots__/*.snap"]),
+    deps = [":widget", "@npm//:vitest"],
+)
+```
+
+Writing: run the updater that every `ts_test` declares next to itself.
 
 ```bash
-# Install ibazel
+bazel run //path/to:widget_test.update_snapshots
+```
+
+It writes into your checkout. Commit the result. `--sandbox_writable_path` is not
+part of this any more, and neither is a second hand-written target.
+
+The `snapshots` attr is not cosmetic. `ts_test` runs vitest in read-only snapshot
+mode, so a snapshot the test cannot read is a failure — where an unlisted one
+used to look like a *new* snapshot, get written into the sandbox, and let the test
+pass on what it had just written.
+
+## Watch mode
+
+Use [ibazel](https://github.com/bazelbuild/bazel-watcher) to re-run tests on
+every change:
+
+```bash
 go install github.com/bazelbuild/bazel-watcher/cmd/ibazel@latest
 
-# Watch a single test target
 ibazel test //path/to:my_test
-
-# Watch all tests in the repo
 ibazel test //...
 ```
 
-ibazel monitors the build graph and re-runs tests whenever a source file or dependency changes. Only the affected targets are rebuilt and re-tested.
+ibazel watches the build graph, so only affected targets are rebuilt and
+re-tested.
 
-## Build Feedback
-
-To see which targets were (re)built or cached:
+To see what the test launcher resolved rather than what it ran:
 
 ```bash
-# Show results for up to 10 targets (default is 1)
-bazel test //... --show_result=10
-
-# Show results for all targets (unlimited)
-bazel test //... --show_result=0
+bazel run //path/to:my_test -- --dump-config
 ```
 
-Add `test --show_result=20` to `.bazelrc` for a persistent setting.
+## Build feedback
+
+```bash
+bazel test //... --show_result=10   # default is 1
+bazel test //... --show_result=0    # all targets
+```
+
+Add `test --show_result=20` to `.bazelrc` to make it permanent.

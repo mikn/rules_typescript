@@ -1,0 +1,10 @@
+"""global_setup runs once for the whole run and hands values to the tests."""
+
+load("//ts:defs.bzl", "ts_test")
+
+ts_test(
+    name = "injected_test",
+    srcs = ["injected.test.ts"],
+    global_setup = ["setup_once.ts"],
+    deps = ["@npm//:vitest"],
+)

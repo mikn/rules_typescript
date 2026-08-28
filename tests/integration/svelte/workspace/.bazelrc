@@ -1,0 +1,9 @@
+# Integration test workspace for svelte_library.
+
+build --incompatible_strict_action_env
+build --nolegacy_external_runfiles
+
+build --output_groups=+_validation
+
+test --test_output=errors
+test --test_summary=terse

@@ -1,18 +1,17 @@
-/**
- * About route component — renders the about page (/about).
- */
+import { createFileRoute } from "@tanstack/react-router";
 
-import type { ReactElement } from "react";
-
-export function AboutComponent(): ReactElement {
+function AboutComponent() {
   return (
     <div className="page page--about">
-      <h1>About</h1>
+      <h1>tanstack-about-route-marker</h1>
       <p>
-        This example demonstrates TanStack Router with Bazel and
-        rules_typescript. Routes are compiled and type-checked using oxc and
-        tsgo.
+        Routes are compiled and type-checked by ts_compile, and bundled from the
+        staged sources by the TanStack Start Vite plugin.
       </p>
     </div>
   );
 }
+
+export const Route = createFileRoute("/about")({
+  component: AboutComponent,
+});

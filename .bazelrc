@@ -10,6 +10,16 @@ build --nolegacy_external_runfiles
 # on a single target without waiting for tsgo).
 build --output_groups=+_validation
 
+# Feed the tsserver hook from every target, not just the ones a rule can name.
+# The aspect propagates along dependency edges that already exist and creates
+# none, so it reaches package-private targets with no visibility grant, and its
+# `ide_fragments` group writes one .tsconfig-fragment.json per target reached.
+# `+group` is additive, so this composes with the line above and with any
+# --output_groups a command line adds. Drop both lines to opt out: the hook
+# falls back to .bazel/tsserver-hook-data.json alone.
+build --aspects=//ts/private:tsconfig_aspect.bzl%tsconfig_aspect
+build --output_groups=+ide_fragments
+
 # Test output
 test --test_output=errors
 test --test_summary=terse
@@ -17,8 +27,34 @@ test --test_summary=terse
 # Convenience
 build --experimental_convenience_symlinks=normal
 
-# Rust toolchain
-build --@rules_rust//rust/toolchain/channel=stable
+# ── Fast lane ────────────────────────────────────────────────────────────────
+# Everything except the nested-Bazel integration tests, which are `exclusive`
+# (each spawns its own Bazel, ~3 minutes apiece):
+#   bazel test --config=fast //...
+# A tag filter cannot go the other way -- nothing re-includes a `manual`
+# target -- which is why those tests carry `exclusive` and not `manual`.
+test:fast --test_tag_filters=-nested-bazel
+
+# ── CI lanes ─────────────────────────────────────────────────────────────────
+# The stages CI runs, named here rather than in a driver script, so that
+# `bazel test --config=ci //...` locally is the same invocation
+# .github/workflows/ci.yml makes.
+#
+# e2e/ and examples/ are separate workspaces (see .bazelignore), so their legs
+# are `cd` + a fresh bazel in the workflow, not configs — a config cannot
+# change workspace.
+build:ci --verbose_failures
+test:ci --config=fast
+test:ci --cache_test_results=no
+
+# The lane the fast one leaves out: `bazel test --config=ci-integration
+# //tests/integration/...`. Those targets carry "cpu:2", so Bazel bounds how
+# many nested Bazel servers run at once by the machine's cores.
+build:ci-integration --verbose_failures
+
+# Two output bases, one target, compared byte for byte. Convenience symlinks
+# are off because both builds would otherwise race for the same bazel-bin.
+build:determinism --experimental_convenience_symlinks=ignore
 
 # ── Integration test child workspaces ────────────────────────────────────────
 # Each subdirectory under tests/integration/ is a separate Bazel workspace
@@ -27,7 +63,9 @@ build --@rules_rust//rust/toolchain/channel=stable
 # .bazelignore) still allows glob() in tests/integration/BUILD.bazel to see
 # the workspace files for inclusion in bazel_integration_test targets.
 #
-# To regenerate this list after adding new workspaces, run:
-#   tools/update_deleted_packages.sh  (or compute manually)
-build --deleted_packages=tests/integration/new_project,tests/integration/npm_deps,tests/integration/existing_project,tests/integration/css_assets,tests/integration/vite_bundle,tests/integration/dev_server,tests/integration/codegen,tests/integration/gazelle_roundtrip,tests/integration/lsp,tests/integration/nextjs
-query --deleted_packages=tests/integration/new_project,tests/integration/npm_deps,tests/integration/existing_project,tests/integration/css_assets,tests/integration/vite_bundle,tests/integration/dev_server,tests/integration/codegen,tests/integration/gazelle_roundtrip,tests/integration/lsp,tests/integration/nextjs
+# Only the older layout needs an entry here: those child workspaces sit directly
+# in tests/integration/<name>/ with a real BUILD.bazel. Prefer the newer
+# tests/integration/npmrc_registry layout -- child workspace under workspace/
+# with a BUILD.bazel.tpl -- which needs no entry at all.
+build --deleted_packages=tests/integration/new_project,tests/integration/npm_deps,tests/integration/existing_project,tests/integration/css_assets,tests/integration/vite_bundle,tests/integration/dev_server,tests/integration/codegen,tests/integration/gazelle_roundtrip,tests/integration/lsp,tests/integration/nextjs,tests/integration/oxc_declarations
+query --deleted_packages=tests/integration/new_project,tests/integration/npm_deps,tests/integration/existing_project,tests/integration/css_assets,tests/integration/vite_bundle,tests/integration/dev_server,tests/integration/codegen,tests/integration/gazelle_roundtrip,tests/integration/lsp,tests/integration/nextjs,tests/integration/oxc_declarations
