@@ -6,8 +6,9 @@ read:
 1. A workspace-root `tsconfig.json` whose `compilerOptions.paths` names every
    source root, path alias, `module_name` and npm package your targets reach.
    This is the primary mechanism, and the file is meant to be checked in.
-2. A **tsserver hook** that resolves the same set live, following `bazel build`
-   outputs with no tsconfig reload. It is a layer on top of the generated file.
+2. A **tsserver plugin** that resolves the same set live, following `bazel build`
+   outputs with no tsconfig reload. It is a layer on top of the generated file,
+   and it needs editor configuration; the generated file needs none.
 
 ## Setup
 
@@ -39,7 +40,7 @@ depends on. Two constraints:
   is listable, and the npm packages only a test declares reach the tsconfig.
   `visibility` on the `ts_test` narrows them again, and the generated targets
   follow it. Hand-written private targets are covered by
-  [Complete coverage for the hook](#complete-coverage-for-the-hook).
+  [Complete coverage for the resolution map](#complete-coverage-for-the-resolution-map).
 
 Then run it:
 
@@ -53,8 +54,10 @@ That writes, into the source tree:
 |---|---|
 | `tsconfig.json` | Compiler options and the `paths` map. **Check this in** |
 | `.bazel/npm/` | The `.d.ts` (and `package.json`) of every npm package the `paths` entries name, plus a `.gitignore` of `*` |
-| `.bazel/tsserver-hook-data.json` | The same graph facts, in the shape the hook reads |
-| `.bazel/tsserver-hook.js` | The resolution hook |
+| `.bazel/tsserver-hook-data.json` | The same graph facts, in the shape the plugin reads |
+| `.bazel/node_modules/@rules_typescript/tsserver-plugin/` | The tsserver plugin, as a package tsserver can load by name |
+| `.bazel/tsserver-hook.js` | A preload variant for a client that resolves through the public `ts.resolveModuleName`; see [What the preload does not reach](#what-the-preload-does-not-reach) |
+| `.bazel/tsserver-hook-resolver.js` | The map builder both front-ends share |
 | `.bazel/tsserver-hook-worker.js` | Its background worker |
 
 Two attributes move the first two. `tsconfig` (default `"tsconfig.json"`) is
@@ -216,7 +219,7 @@ tsconfig.json is stale: run `bazel run //:refresh_tsconfig`.
 
 Turn it on once the file is checked in.
 
-## Complete Coverage for the Hook
+## Complete Coverage for the Resolution Map
 
 `deps` is a rule attribute, so it reaches only what this workspace's visibility
 lets a rule name. An **aspect** propagates along the dependency edges a build
@@ -230,11 +233,11 @@ build --output_groups=+ide_fragments
 
 Every target whose closure holds a source root, a path alias or an npm entry
 then gets a `<target>.tsconfig-fragment.json` beside its other outputs in
-`bazel-out`, and the hook merges what it finds there into the map. `+group` is
+`bazel-out`, and the resolver merges what it finds there into the map. `+group` is
 additive, so this composes with `--output_groups=+_validation` and with anything
 a command line adds, and any ordinary `bazel build` refreshes the fragments.
 
-**Both lines are optional.** Without them nothing writes fragments and the hook
+**Both lines are optional.** Without them nothing writes fragments and the plugin
 works from `.bazel/tsserver-hook-data.json` alone. Fragments augment that file;
 they never replace it, and every key it resolved wins over a fragment that
 disagrees.
@@ -256,7 +259,7 @@ visibility.
 
 The checked-in `tsconfig.json` does not change either. It stays what
 `refresh_tsconfig` generates from `deps`, which is what a fresh clone, a plain
-`tsc` run and every non-hook editor read. Fragments are a hook-only mechanism.
+`tsc` run and every editor read. Fragments reach the plugin only.
 
 ### Cost
 
@@ -264,7 +267,7 @@ The checked-in `tsconfig.json` does not change either. It stays what
   any one fragment is a complete answer for its own subgraph, which makes a
   partially built `bazel-out` usable.
 - **A deleted or renamed target leaves its fragment behind**, because nothing
-  cleans `bazel-out`. The hook opens fragments only under directories the source
+  cleans `bazel-out`. The resolver opens fragments only under directories the source
   tree still has a BUILD file for, and nothing enters the map unless the path it
   names exists on disk, so a stale fragment contributes nothing. `bazel clean` is
   not needed.
@@ -292,58 +295,140 @@ does that for a whole tree in one line.
 ## Editor Configuration
 
 The generated `tsconfig.json` needs no editor setup; every editor already reads
-it. The rest of this section is for the optional hook.
+it, and it is what makes a Bazel-built declaration resolve in a fresh clone.
+The rest of this section is for the plugin, which adds live resolution on top.
+
+tsserver loads a plugin by name from a probe location. The plugin is installed as
+a package under `.bazel/node_modules/`, so the probe location is `.bazel` and the
+name is `@rules_typescript/tsserver-plugin`. Every recipe below is those two
+facts in one editor's spelling.
 
 ### VS Code
 
-Add to `.vscode/settings.json`:
+`.vscode/settings.json`:
 
 ```json
 {
-  "typescript.tsserver.nodeOptions": "--require .bazel/tsserver-hook.js"
+  "typescript.tsserver.pluginPaths": [".bazel"]
 }
 ```
+
+That is the whole of it. VS Code passes no `--globalPlugins`, so the plugin has
+to be named in the config the editor is using as well — but the generated
+`tsconfig.json` already names it, and `bazel run //:refresh_tsconfig` keeps it
+there. Do not add the entry by hand to a config that macro owns: the next
+refresh rewrites the file whole and drops it, and tsserver logs and ignores a
+plugin it cannot load, so the only symptom is imports quietly going unresolved
+again.
+
+A workspace whose editor config is its own file — `ts_refresh_tsconfig(tsconfig
+= "tsconfig.bazel.json")` with a hand-written `tsconfig.json` that `extends` it
+— inherits the entry through `extends` and needs nothing either.
 
 Restart the TS server: `Cmd+Shift+P` → `TypeScript: Restart TS Server`.
 
-### Neovim (coc-tsserver)
-
-Add to `coc-settings.json`:
-
-```json
-{
-  "tsserver.tsserver.nodeOptions": "--require .bazel/tsserver-hook.js"
-}
-```
-
-### Neovim (nvim-lspconfig + typescript-language-server)
+### Neovim (nvim-lspconfig with typescript-language-server)
 
 ```lua
 require('lspconfig').ts_ls.setup({
   init_options = {
-    tsserver = {
-      nodeOptions = "--require .bazel/tsserver-hook.js",
+    plugins = {
+      { name = "@rules_typescript/tsserver-plugin", location = ".bazel" },
     },
   },
 })
 ```
 
+`typescript-language-server` turns its `plugins` option into tsserver's
+`--globalPlugins` and `--pluginProbeLocations`, so no `compilerOptions.plugins`
+entry is needed with it.
+
+### Neovim (coc-tsserver)
+
+`coc-settings.json`:
+
+```json
+{
+  "tsserver.globalPlugins": [
+    { "name": "@rules_typescript/tsserver-plugin", "location": ".bazel" }
+  ]
+}
+```
+
 ### Emacs (lsp-mode)
 
 ```elisp
-(setq lsp-clients-typescript-server-args
-  '("--stdio" "--tsserver-path" "tsserver"
-    "--tsserver-log-verbosity" "off"
-    "--tsserver-nodeOptions" "--require .bazel/tsserver-hook.js"))
+(setq lsp-clients-typescript-plugins
+  (vector (list :name "@rules_typescript/tsserver-plugin"
+                :location ".bazel")))
 ```
 
-### Any Editor with tsserver
+### tsserver Directly
 
-The hook works with any editor that runs tsserver through Node.js. Pass `--require .bazel/tsserver-hook.js` as a Node flag when starting tsserver.
+Any client that spawns tsserver itself takes the two flags:
+
+```
+--globalPlugins @rules_typescript/tsserver-plugin
+--pluginProbeLocations /abs/path/to/workspace/.bazel
+```
+
+## Coding Agent Harnesses
+
+A coding agent that reads TypeScript usually runs a language server of its own
+rather than an editor's. Claude Code, for example, installs
+`typescript-language-server` and `typescript`. The short answer for those:
+
+**The generated `tsconfig.json` works with no configuration at all.** It is a
+checked-in file with a `paths` map, which is the mechanism every TypeScript tool
+already reads. An agent's language server resolves a Bazel-built `.d.ts` through
+it without knowing Bazel exists, and resolves it to the real declarations rather
+than to `any` — a nonexistent member on an imported symbol is still an error.
+Keep the file current with `bazel run //:refresh_tsconfig`, which the
+[staleness test](#staleness-test) will ask for.
+
+**The plugin needs the harness to let you configure the server**, which is the
+part that varies. If the harness exposes LSP `initializationOptions`, pass the
+`plugins` entry from the
+[nvim-lspconfig recipe](#neovim-nvim-lspconfig-with-typescript-language-server) —
+`typescript-language-server` is what most of them run. If it does not, the plugin
+cannot be reached and the `tsconfig.json` is the whole answer.
+
+Two things to know before reaching for a generic mechanism:
+
+- **`NODE_OPTIONS` is not a way in.** It propagates into the forked tsserver, so
+  the preload does load there, but loading is not the same as taking effect; see
+  [What the preload does not reach](#what-the-preload-does-not-reach).
+- **A relative path in `NODE_OPTIONS` is worse than useless.** Node resolves
+  `--require ./x.js` against the process's cwd, and from any other directory the
+  process fails to start at all — `Cannot find module`, with
+  `requireStack: [ 'internal/preload' ]`, exit 1. An agent's language server
+  would die rather than degrade. Absolute paths only.
+
+To check what your harness actually gives you, ask its language server for
+diagnostics on a file importing a Bazel-built package. `TS2307 Cannot find
+module` before `bazel run //:refresh_tsconfig` and no diagnostic after it means
+the `tsconfig.json` path works. `TSSERVER_HOOK_DEBUG=1` in the server's
+environment makes the plugin report on its stderr whether it loaded and how many
+entries its map holds.
+
+### What the Preload Does Not Reach
+
+`.bazel/tsserver-hook.js` patches the `typescript` module's exported
+`resolveModuleName`. That reaches a client which builds a `LanguageService` host
+itself and routes resolution through the public API. It does **not** reach a
+standalone tsserver process, and every editor above spawns one.
+
+Two measured facts, in case the distinction matters to you. `lib/tsserver.js`
+loads its bundle as `require("./typescript.js")`, which the preload's matcher
+does not accept, so the patch never installs. Widen the matcher so it does
+install, and a real tsserver still reports `TS2307` for the same import: the
+language service resolves through its `LanguageServiceHost`, not through the
+export. Decorating that host is what the plugin does, and it is why the plugin
+exists.
 
 ## How It Works
 
-The hook is TypeScript's equivalent of Go's
+The plugin is TypeScript's equivalent of Go's
 [GOPACKAGESDRIVER](https://jayconrod.com/posts/125/go-editor-support-in-bazel-workspaces),
 with one difference: **it never runs Bazel**. Everything Bazel knows arrives
 through `.bazel/tsserver-hook-data.json`, which `refresh_tsconfig` wrote at
@@ -388,13 +473,17 @@ the fragments naming the packages `deps` could not reach.
 
 npm resolution is bounded by the refresh. The packages that resolve are the ones
 reachable from `deps` when `refresh_tsconfig` last ran, in both the `paths`
-entries and the hook, so an import pulling in a package none of those targets
+entries and the plugin, so an import pulling in a package none of those targets
 reached is unknown until you re-run the target. The staleness test asks for that
 same re-run.
 
 ## Debugging
 
-Set `TSSERVER_HOOK_DEBUG=1` in your environment to see resolution decisions in the tsserver log.
+Set `TSSERVER_HOOK_DEBUG=1` in the environment the language server starts in.
+The plugin and its worker then report on the server process's stderr: whether the
+plugin loaded, which project it decorated, how many entries the map holds, and
+each invalidation. It is the server's stderr and not the tsserver log, so where
+it surfaces depends on the client.
 
 ## Debugging Tests in vs Code
 

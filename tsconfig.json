@@ -1432,6 +1432,11 @@
         "./.bazel/npm/zod/*"
       ]
     },
+    "plugins": [
+      {
+        "name": "@rules_typescript/tsserver-plugin"
+      }
+    ],
     "rootDirs": [
       ".",
       "./bazel-bin"

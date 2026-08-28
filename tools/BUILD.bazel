@@ -1,6 +1,6 @@
 # Tools shipped with rules_typescript.
 # Shell scripts referenced by macros in ts/private/pnpm.bzl; the tsserver hook
-# scripts //:refresh_tsconfig copies into a consumer workspace.
+# and plugin scripts //:refresh_tsconfig copies into a consumer workspace.
 
 package(default_visibility = ["//visibility:public"])
 
@@ -8,5 +8,21 @@ exports_files([
     "add_package_wrapper.sh",
     "pnpm_wrapper.sh",
     "tsserver-hook.js",
+    "tsserver-hook-resolver.js",
     "tsserver-hook-worker.js",
+    "tsserver-plugin.js",
+    "tsserver-plugin-package.json",
 ])
+
+# tsserver loads a plugin as a package directory, so that directory gets its own
+# copy of the two files the plugin requires. A second label is what lets one
+# source file reach a second destination in refresh_workspace_files.
+filegroup(
+    name = "tsserver-plugin-resolver",
+    srcs = ["tsserver-hook-resolver.js"],
+)
+
+filegroup(
+    name = "tsserver-plugin-worker",
+    srcs = ["tsserver-hook-worker.js"],
+)

@@ -1,0 +1,7 @@
+{
+  "name": "@rules_typescript/tsserver-plugin",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Bazel-aware module resolution for tsserver, installed by `bazel run //:refresh_tsconfig`.",
+  "main": "index.js"
+}
