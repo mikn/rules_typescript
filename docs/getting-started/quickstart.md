@@ -102,7 +102,7 @@ Once a version is published to the BCR, drop the override; the plain
 **Step 1.** Create `.bazelversion`:
 
 ```
-9.0.0
+9.2.0
 ```
 
 **Step 2.** Create an empty `WORKSPACE.bazel` (optional — `MODULE.bazel` marks

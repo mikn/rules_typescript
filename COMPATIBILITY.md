@@ -10,7 +10,7 @@
 | < 7.0 | Not supported (no bzlmod) |
 
 rules_typescript requires bzlmod (MODULE.bazel). WORKSPACE-based setups are not
-supported. `.bazelversion` in this repository pins 9.0.0 and CI installs
+supported. `.bazelversion` in this repository pins 9.2.0 and CI installs
 Bazelisk against it.
 
 ## Platforms

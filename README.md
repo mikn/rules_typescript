@@ -74,7 +74,7 @@ is version-sensitive, are in
 **Step 1.** Create `.bazelversion`:
 
 ```
-9.0.0
+9.2.0
 ```
 
 **Step 2.** Create an empty `WORKSPACE.bazel` (optional — `MODULE.bazel`
