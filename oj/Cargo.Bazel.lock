@@ -1,5 +1,5 @@
 {
-  "checksum": "a4c6a67f3be929a36562692dd0b06b78eb1624c8f5da93a22be4cbf91a86077a",
+  "checksum": "8f1903447faec5dc43eeee821348ce3a17360d7cd7572f513932c2b1745496a7",
   "crates": {
     "adler2 2.0.1": {
       "name": "adler2",
@@ -11562,7 +11562,13 @@
       "repository": {
         "Http": {
           "url": "https://static.crates.io/crates/oj/0.1.6/download",
-          "sha256": "86ab8be1e0ed9cb839f2d06139d4ac390926ddc0ea2af3a2a3ce940549b7cf7e"
+          "sha256": "86ab8be1e0ed9cb839f2d06139d4ac390926ddc0ea2af3a2a3ce940549b7cf7e",
+          "patch_args": [
+            "-p1"
+          ],
+          "patches": [
+            "@@//oj/patches:0001-accept-a-config-path-on-oj-build.patch"
+          ]
         }
       },
       "targets": [

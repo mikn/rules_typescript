@@ -85,9 +85,18 @@ crate.spec(
     repositories = ["oj_crates"],
     version = "=0.1.6",
 )
+
+# `oj build` discovers a Vite config by convention from its positional ROOT and
+# has no flag to name one, so a generated config that lives outside the app tree
+# cannot reach it -- and passing the path positionally makes oj read it as ROOT.
+# `oj dev --config` already exists; the patch gives build the same flag on the
+# same mechanism. rules_rust keys annotations on (crate, version) and fails on a
+# duplicate, so this is the crate's one annotation rather than a second.
 crate.annotation(
     crate = "oj",
     gen_all_binaries = True,
+    patch_args = ["-p1"],
+    patches = ["//oj/patches:0001-accept-a-config-path-on-oj-build.patch"],
     repositories = ["oj_crates"],
 )
 crate.from_specs(
