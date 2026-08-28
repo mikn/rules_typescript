@@ -9,7 +9,7 @@
  * The subject is a real tsserver process, spoken to over its own JSON protocol
  * -- not a language service this file assembled. That distinction is the whole
  * point: tsserver resolves through its LanguageServiceHost, so a mechanism that
- * only reaches ts.resolveModuleName is invisible here. Four assertions:
+ * only reaches ts.resolveModuleName is invisible here. Five assertions:
  *
  *   installed  the plugin package is where refresh_tsconfig's manifest says.
  *              tsserver logs and ignores a plugin it cannot load, so without
@@ -20,6 +20,9 @@
  *   resolved   with the plugin, `import { z } from "zod"` reaches zero
  *              diagnostics. The map arrives from the worker thread, so this
  *              polls until the deadline rather than asking once.
+ *   vscode     the same, with the plugin named in the fixture's tsconfig and NO
+ *              --globalPlugins -- the one path VS Code has, since it passes
+ *              only a probe location.
  *   real       a bogus member on `z` is still rejected, and the type it is
  *              rejected against comes from the declarations Bazel installed. A
  *              stub, an `any`, or a widened import passes `resolved` and fails
@@ -65,8 +68,12 @@ const describe = (diagnostics) =>
 /** A tsserver process, driven over stdin/stdout with its line-delimited JSON. */
 function startServer({ plugin }) {
   const args = [tsserverJs, '--disableAutomaticTypingAcquisition'];
-  if (plugin) {
+  if (plugin === 'global') {
     args.push('--globalPlugins', PLUGIN_NAME, '--pluginProbeLocations', PROBE_DIR);
+  } else if (plugin === 'tsconfig') {
+    // What VS Code passes: the probe location alone. The plugin is named in
+    // the fixture's tsconfig, which is where the generator now puts it.
+    args.push('--pluginProbeLocations', PROBE_DIR);
   }
 
   const proc = spawn(process.execPath, args, {
@@ -175,7 +182,7 @@ async function main() {
   }
 
   {
-    const server = startServer({ plugin: true });
+    const server = startServer({ plugin: 'global' });
     try {
       server.open(GOOD);
       server.open(BAD);
@@ -206,6 +213,26 @@ async function main() {
         );
       } else {
         pass(`real: z.${BOGUS_MEMBER}() is rejected against ${ZOD_DECLARATIONS}`);
+      }
+    } finally {
+      server.stop();
+    }
+  }
+
+  {
+    const server = startServer({ plugin: 'tsconfig' });
+    try {
+      server.open(GOOD);
+      const good = await settle(server, GOOD, (d) => d.length === 0);
+      if (good.length === 0) {
+        pass('vscode: a probe location alone loads the plugin named in tsconfig');
+      } else {
+        fail(
+          'vscode: a probe location alone loads the plugin named in tsconfig',
+          `${describe(good)} -- tsserver logs and ignores a plugin it cannot load, ` +
+            'so this is what an editor that passes no --globalPlugins sees. ' +
+            `tsserver stderr: ${server.stderr() || '(empty)'}`
+        );
       }
     } finally {
       server.stop();

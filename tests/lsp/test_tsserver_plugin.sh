@@ -68,6 +68,9 @@ touch "${WORKSPACE_ROOT}/MODULE.bazel"
 # by directory, so this is the program tsserver builds for these files, and
 # "zod" is reachable from it only through the plugin. The staged root config,
 # which does have a zod entry, claims neither file.
+#
+# `plugins` mirrors what the generator writes into a root config, and carries
+# the vscode assertion: a client that passes no --globalPlugins has only this.
 FIXTURE="${WORKSPACE_ROOT}/fixture"
 mkdir -p "${FIXTURE}/src"
 cat > "${FIXTURE}/tsconfig.json" <<'EOF'
@@ -78,7 +81,8 @@ cat > "${FIXTURE}/tsconfig.json" <<'EOF'
     "moduleResolution": "Bundler",
     "strict": true,
     "noEmit": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "plugins": [{ "name": "@rules_typescript/tsserver-plugin" }]
   },
   "include": ["src"]
 }

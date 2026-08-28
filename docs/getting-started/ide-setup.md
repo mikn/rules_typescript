@@ -313,16 +313,17 @@ facts in one editor's spelling.
 }
 ```
 
-VS Code passes no `--globalPlugins`, so the plugin also has to be named in the
-config the editor is using:
+That is the whole of it. VS Code passes no `--globalPlugins`, so the plugin has
+to be named in the config the editor is using as well — but the generated
+`tsconfig.json` already names it, and `bazel run //:refresh_tsconfig` keeps it
+there. Do not add the entry by hand to a config that macro owns: the next
+refresh rewrites the file whole and drops it, and tsserver logs and ignores a
+plugin it cannot load, so the only symptom is imports quietly going unresolved
+again.
 
-```json
-{
-  "compilerOptions": {
-    "plugins": [{ "name": "@rules_typescript/tsserver-plugin" }]
-  }
-}
-```
+A workspace whose editor config is its own file — `ts_refresh_tsconfig(tsconfig
+= "tsconfig.bazel.json")` with a hand-written `tsconfig.json` that `extends` it
+— inherits the entry through `extends` and needs nothing either.
 
 Restart the TS server: `Cmd+Shift+P` → `TypeScript: Restart TS Server`.
 
