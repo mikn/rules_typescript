@@ -381,7 +381,13 @@ func main() {
 		// next/font/google downloads its payloads while compiling. The build has
 		// to fail, and it has to say why: an ENETUNREACH out of a webpack loader
 		// is not something a user can act on.
-		fontLog, err := it.BazelLog("font.log", "build", "//:font_app")
+		//
+		// --disk_cache= because what is asserted here is what the SANDBOX does,
+		// not what the action key says. A sandbox that cannot enforce
+		// block-network builds this successfully (handled below), and that
+		// success is a legitimate action result -- which a later run on a
+		// sandbox that CAN enforce it would then be served instead of executing.
+		fontLog, err := it.BazelLog("font.log", "build", "--disk_cache=", "//:font_app")
 		switch {
 		// block-network is declared on the action -- asserted above -- but only a
 		// sandbox with a network namespace of its own enforces it, and a nested
