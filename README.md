@@ -181,8 +181,11 @@ in git.
 build graph: source roots, path aliases, and one `compilerOptions.paths` entry
 per npm package your targets reach that ships declarations, pointing at the
 copies it installs under `.bazel/npm`. The file is meant to be checked in, and
-`test = True` adds a test that fails once it goes stale. A tsserver hook is installed alongside it for
-editors that resolve live, and works with anything running tsserver.
+`test = True` adds a test that fails once it goes stale. Because it is an ordinary
+checked-in config, an editor, a plain `tsc` run and a coding agent's language
+server all resolve Bazel's declarations through it with no setup. A tsserver
+plugin is installed alongside it for editors that want live resolution instead of
+a re-run; that one needs configuring.
 
 ```python
 # BUILD.bazel
@@ -203,11 +206,14 @@ everything it depends on; the default, `deps = []`, writes an empty `paths`. It
 obeys visibility, so a package-private target cannot be listed.
 
 ```bash
-bazel run //:refresh_tsconfig        # writes tsconfig.json, .bazel/npm/, and the hook
+bazel run //:refresh_tsconfig        # writes tsconfig.json, .bazel/npm/, and the plugin
 bazel test //:refresh_tsconfig_test  # fails when the checked-in tsconfig is stale
 ```
 
-Then add to VS Code settings: `"typescript.tsserver.nodeOptions": "--require .bazel/tsserver-hook.js"`
+The plugin is optional. To turn it on, point tsserver's plugin probe at `.bazel`
+and name `@rules_typescript/tsserver-plugin` — per editor, and for a coding
+agent's language server, in
+[IDE Setup](https://mikn.github.io/rules_typescript/getting-started/ide-setup/#editor-configuration).
 
 `nested_tsconfigs` lists the packages that need their own editor program, as
 workspace-relative paths to the `tsconfig.json` each one gets. A package belongs

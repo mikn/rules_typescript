@@ -1,4 +1,5 @@
-"""Tests for the tsserver resolution hook (//tools:tsserver-hook.js).
+"""Tests for the tsserver resolution plugin and hook (//tools:tsserver-plugin.js,
+//tools:tsserver-hook.js).
 
   :test_resolution_map          the worker over what //:refresh_tsconfig really
                                 generates for this repo, staged into a scratch
@@ -18,11 +19,15 @@
   :test_resolve_integration     the monkey-patch itself -- ts.resolveModuleName
                                 returns lockfile .d.ts paths and follows
                                 ts_path_alias prefixes.
-  :test_tsserver_diagnostics    gold test: a TypeScript language service with
-                                the hook active type-checks `import from "zod"`
-                                against zod's real declarations.
+  :test_tsserver_diagnostics    a TypeScript language service with the hook
+                                active type-checks `import from "zod"` against
+                                zod's real declarations.
+  :test_tsserver_plugin         gold test: a real tsserver process, driven over
+                                its own protocol, with the plugin refresh_tsconfig
+                                installs. The only test here whose subject is
+                                what an editor actually runs.
 
-The last two get node from the JS runtime toolchain and typescript/zod/vitest
+The last three get node from the JS runtime toolchain and typescript/zod/vitest
 from the lockfile via :lsp_node_modules, so they need nothing from the host.
 """
 
@@ -41,9 +46,9 @@ load(
 
 package(default_visibility = ["//:__pkg__"])
 
-# typescript is a genuine dependency of the LSP path, not a stand-in: the hook
-# patches real TypeScript's module-level resolveModuleName, and tsgo has no
-# equivalent surface.
+# typescript is a genuine dependency of the LSP path, not a stand-in: these
+# tests run real TypeScript -- its tsserver binary and its resolveModuleName --
+# and tsgo has no equivalent surface.
 node_modules(
     name = "lsp_node_modules",
     testonly = True,
@@ -64,6 +69,7 @@ sh_test(
         # them here is what makes the npm entry points under test the real ones.
         "//:refresh_tsconfig",
         "//tools:tsserver-hook.js",
+        "//tools:tsserver-hook-resolver.js",
         "//tools:tsserver-hook-worker.js",
         "//ts/toolchain:node_resolved",
     ],
@@ -121,6 +127,7 @@ sh_test(
         "resolve_test.mjs",
         ":lsp_node_modules",
         "//tools:tsserver-hook.js",
+        "//tools:tsserver-hook-resolver.js",
         "//ts/toolchain:node_resolved",
     ],
     deps = ["@bazel_tools//tools/bash/runfiles"],
@@ -135,6 +142,24 @@ sh_test(
         "tsserver_diag_test.mjs",
         ":lsp_node_modules",
         "//tools:tsserver-hook.js",
+        "//tools:tsserver-hook-resolver.js",
+        "//ts/toolchain:node_resolved",
+    ],
+    deps = ["@bazel_tools//tools/bash/runfiles"],
+)
+
+# The plugin is the only mechanism a standalone tsserver observes, so this is
+# the test that fails when editor resolution regresses. It stages the real
+# refresh_tsconfig manifest, so a plugin package installed to the wrong path
+# fails here too.
+sh_test(
+    name = "test_tsserver_plugin",
+    size = "small",
+    srcs = ["test_tsserver_plugin.sh"],
+    data = [
+        "tsserver_plugin_test.mjs",
+        ":lsp_node_modules",
+        "//:refresh_tsconfig",
         "//ts/toolchain:node_resolved",
     ],
     deps = ["@bazel_tools//tools/bash/runfiles"],

@@ -1,0 +1,141 @@
+/**
+ * tsserver-plugin.js — Bazel-aware module resolution for a real tsserver process.
+ *
+ * The TypeScript equivalent of GOPACKAGESDRIVER. Installed by
+ * `bazel run //:refresh_tsconfig` as
+ * .bazel/node_modules/@rules_typescript/tsserver-plugin/index.js and enabled the
+ * way tsserver enables any plugin: a `plugins` entry naming
+ * "@rules_typescript/tsserver-plugin" plus `.bazel` among the plugin probe
+ * locations (`typescript.tsserver.pluginPaths` in VS Code).
+ *
+ * A plugin is the extension point that reaches tsserver's own resolution. The
+ * language service resolves through its LanguageServiceHost -- the Project --
+ * and never through the public ts.resolveModuleName, so decorating the host is
+ * what a standalone tsserver observes; patching the module export is not.
+ *
+ * Design constraints:
+ *   - Zero npm dependencies (Node.js builtins only).
+ *   - Never runs Bazel: nothing here needs a `bazel` on PATH or a turn at the
+ *     server lock.
+ *   - Must not crash before refresh_tsconfig has ever run: with no map, every
+ *     literal falls through to the host's own resolution.
+ *   - The map is built off-thread, so create() returns without waiting for it.
+ *     Each later map arrival invalidates the projects that use it.
+ */
+
+'use strict';
+
+const path = require('path');
+
+const { createResolutionSource, findWorkspaceRoot } = require('./tsserver-hook-resolver.js');
+
+const WORKER_PATH = path.join(__dirname, 'tsserver-hook-worker.js');
+
+function debug(msg) {
+  if (process.env.TSSERVER_HOOK_DEBUG) {
+    process.stderr.write(`[tsserver-plugin] ${msg}\n`);
+  }
+}
+
+// One worker per workspace root, however many projects the editor opens in it.
+const sourcesByRoot = new Map();
+
+function sourceFor(workspaceRoot) {
+  const existing = sourcesByRoot.get(workspaceRoot);
+  if (existing) return existing;
+
+  const projects = new Set();
+  const entry = {
+    projects,
+    source: createResolutionSource({
+      workspaceRoot,
+      workerPath: WORKER_PATH,
+      onUpdate: () => {
+        for (const project of projects) {
+          if (project.isClosed && project.isClosed()) {
+            projects.delete(project);
+            continue;
+          }
+          invalidateResolutions(project);
+        }
+      },
+    }),
+  };
+  sourcesByRoot.set(workspaceRoot, entry);
+  return entry;
+}
+
+// An unchanged source file keeps its resolutions when the program is rebuilt, so
+// a map that arrives after the program was built has to say so explicitly.
+function invalidateResolutions(project) {
+  try {
+    const cache = project.resolutionCache;
+    if (cache && typeof cache.onChangesAffectModuleResolution === 'function') {
+      cache.onChangesAffectModuleResolution();
+    }
+    project.markAsDirty();
+    const service = project.projectService;
+    if (
+      service &&
+      typeof service.delayUpdateProjectGraphAndEnsureProjectStructureForOpenFiles === 'function'
+    ) {
+      service.delayUpdateProjectGraphAndEnsureProjectStructureForOpenFiles(project);
+    }
+    debug(`invalidated resolutions for ${project.getProjectName()}`);
+  } catch (e) {
+    debug(`could not invalidate ${project.getProjectName()}: ${e.message}`);
+  }
+}
+
+module.exports = function init() {
+  return {
+    create(info) {
+      const project = info.project;
+      const host = info.languageServiceHost;
+
+      const { source, projects } = sourceFor(findWorkspaceRoot(project.getCurrentDirectory()));
+      projects.add(project);
+
+      // A tsconfig reload re-enables every plugin on a project whose host we
+      // already decorated, and each pass would otherwise wrap the last one.
+      if (host.resolveModuleNameLiterals && host.resolveModuleNameLiterals.bazelAware) {
+        return info.languageService;
+      }
+
+      const original =
+        typeof host.resolveModuleNameLiterals === 'function'
+          ? host.resolveModuleNameLiterals.bind(host)
+          : undefined;
+
+      host.resolveModuleNameLiterals = function bazelResolveModuleNameLiterals(
+        moduleLiterals,
+        containingFile,
+        redirectedReference,
+        options,
+        containingSourceFile,
+        reusedNames
+      ) {
+        const hits = moduleLiterals.map((literal) => source.resolve(literal.text));
+        if (hits.every(Boolean)) return hits;
+
+        // The fallback is asked for the whole array, so its answers stay index-aligned.
+        const fallback = original
+          ? original(
+              moduleLiterals,
+              containingFile,
+              redirectedReference,
+              options,
+              containingSourceFile,
+              reusedNames
+            )
+          : [];
+
+        return hits.map((hit, i) => hit || fallback[i] || { resolvedModule: undefined });
+      };
+      host.resolveModuleNameLiterals.bazelAware = true;
+
+      debug(`resolving ${project.getProjectName()} through Bazel`);
+      return info.languageService;
+    },
+  };
+};

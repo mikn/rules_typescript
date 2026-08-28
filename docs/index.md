@@ -185,7 +185,7 @@ runs there today: [Compatibility](compatibility.md#windows).
 
 - [Quick Start](getting-started/quickstart.md) — new project or migrating an existing one
 - [Isolated Declarations](getting-started/isolated-declarations.md) — the opt-in throughput mode
-- [IDE Setup](getting-started/ide-setup.md) — the generated `tsconfig.json`, plus the tsserver hook for any editor that runs tsserver
+- [IDE Setup](getting-started/ide-setup.md) — the generated `tsconfig.json`, the tsserver plugin, and what a coding agent's language server needs
 - [npm Dependencies](guides/npm.md) — pnpm lockfile integration
 - [Testing with vitest](guides/testing.md) — `ts_test`, the vitest config layers, coverage
 - [Bundling](guides/bundling.md) — `ts_bundle` with Vite or custom bundlers

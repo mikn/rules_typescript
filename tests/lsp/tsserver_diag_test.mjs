@@ -1,5 +1,6 @@
 /**
- * tsserver_diag_test.mjs — the gold test for tools/tsserver-hook.js.
+ * tsserver_diag_test.mjs — what tools/tsserver-hook.js does to a language
+ * service that resolves through ts.resolveModuleName.
  *
  * Run by tests/lsp/test_tsserver_diagnostics.sh, which supplies typescript and
  * zod from the lockfile and pre-populates the hook's cache:
@@ -21,10 +22,13 @@
  *   direct    ts.resolveModuleName("zod", ...) returns the exact .d.ts path.
  *
  * Why ts.createLanguageService and not the standalone tsserver.js process:
- * tsserver.js is a self-contained bundle that never calls require('typescript'),
- * so the Module._load patch is invisible to it. The hook targets editors that
- * load TypeScript as a module (neovim, emacs lsp-mode, VS Code), and
- * createLanguageService is that same API surface.
+ * because that process is not what this file's subject serves. tsserver.js does
+ * reach `./typescript.js` through require, but its language service resolves
+ * through its LanguageServiceHost, so replacing the module's resolveModuleName
+ * changes nothing it does -- which is what tools/tsserver-plugin.js and
+ * :test_tsserver_plugin exist for. The hook's own consumers are tools that call
+ * ts.resolveModuleName themselves, and a host that delegates to it, as the
+ * `resolved` block below does, is that surface.
  */
 
 import { createRequire } from 'module';
