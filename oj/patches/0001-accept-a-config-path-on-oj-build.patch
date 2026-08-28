@@ -1,0 +1,76 @@
+Accept an explicit config path on `oj build`.
+
+`oj dev` takes `--config <PATH>`. `oj build` takes only `[ROOT] --out --ssr
+--mode`, so the only way to tell it which Vite config to read is to put the file
+where its ROOT-relative convention search looks. A build system that generates
+the config into an output tree has nothing to put there, and handing the path
+over positionally instead makes oj read it as ROOT.
+
+Both commands already share the mechanism. `set_vite_config_override` pins what
+`vite_config_file` returns, and `build()` canonicalizes ROOT and then calls
+`adopt_vite_config_values` in the same order `DevServer::build_app` does. This
+threads the new flag into that same call and resolves a relative path against
+the canonical ROOT the way dev does, so the two commands cannot disagree about
+which file is the config.
+
+The TanStack Start branch is left alone, which is what dev does too: there the
+flag reaches `DevServer` and not `start_dev`.
+
+Filed upstream as https://github.com/raphamorim/oj/pull/110; carried here so a
+`ts_bundle` implementation backed by `oj build` can name its config the way
+`//oj:dev_server` already does.
+
+diff --git a/src/build.rs b/src/build.rs
+--- a/src/build.rs
++++ b/src/build.rs
+@@ -1353,11 +1353,21 @@ pub async fn build(
+     out: Option<PathBuf>,
+     ssr: Option<String>,
+     mode: &str,
++    config_path: Option<PathBuf>,
+ ) -> anyhow::Result<()> {
+     let root = root
+         .canonicalize()
+         .with_context(|| format!("app root not found: {}", root.display()))?;
+ 
++    if let Some(cfg) = &config_path {
++        let cfg = if cfg.is_absolute() {
++            cfg.clone()
++        } else {
++            root.join(cfg)
++        };
++        oj_server::plugins::set_vite_config_override(cfg);
++    }
++
+     let mut config =
+         oj_config::load_with(&root, "build", mode).map_err(|e| anyhow::anyhow!("{e}"))?;
+     oj_server::plugins::adopt_vite_config_values(&mut config, &root);
+diff --git a/src/main.rs b/src/main.rs
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -62,6 +62,8 @@ enum Command {
+         ssr: Option<String>,
+         #[arg(long)]
+         mode: Option<String>,
++        #[arg(long)]
++        config: Option<PathBuf>,
+     },
+     Preview {
+         root: Option<PathBuf>,
+@@ -139,6 +141,7 @@ async fn run() -> anyhow::Result<()> {
+             out,
+             ssr,
+             mode,
++            config,
+         } => {
+             let root = root.unwrap_or_else(|| {
+                 let playground = PathBuf::from("playground");
+@@ -152,7 +155,7 @@ async fn run() -> anyhow::Result<()> {
+             if oj_server::is_tanstack_start_app(&root) {
+                 start_dev::start_build(root).await
+             } else {
+-                build::build(root, out, ssr, &mode).await
++                build::build(root, out, ssr, &mode, config).await
+             }
+         }
+         Command::Preview {
