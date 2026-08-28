@@ -11,7 +11,7 @@
 
 rules_typescript requires bzlmod (MODULE.bazel). WORKSPACE-based setups are not
 supported. `.bazelversion` in this repository pins 9.0.0 and CI installs
-Bazelisk against it, so 9.x is the only version with evidence behind it.
+Bazelisk against it.
 
 ## Platforms
 
@@ -30,34 +30,35 @@ toolchains for every tool but no CI coverage.
 
 Only glibc linux is supported. `NODE_PLATFORMS` (`ts/private/runtime.bzl`),
 `TSGO_PLATFORMS` (`ts/private/toolchain.bzl`) and `_PNPM_PLATFORMS`
-(`ts/private/pnpm.bzl`) are enumerations of the platform vocabulary, all glibc, and
+(`ts/private/pnpm.bzl`) enumerate the platform vocabulary, all glibc, and
 `//platforms` has no musl key. Node.js publishes no official musl tarball, so
-there is nothing to register even if you wanted to.
+there is nothing to register.
 
-So a `libc: [musl]` tarball in `pnpm-lock.yaml` matches no platform, and
-the `npm` extension drops it instead of declaring a repository for it — the same path a
-tarball with `cpu: [ppc64]` or `os: [aix]` already takes. It is never fetched,
-never extracted, and never staged into an action.
+A `libc: [musl]` tarball in `pnpm-lock.yaml` therefore matches no platform, and
+the `npm` extension drops it without declaring a repository for it — the same
+path a tarball with `cpu: [ppc64]` or `os: [aix]` already takes. It is never
+fetched, never extracted, and never staged into an action.
 
-If you build on a musl host, this does not help you: the Node the ruleset
-downloads is still the glibc build.
+On a musl host the Node the ruleset downloads is still the glibc build.
 
 ### Windows
 
 Windows is not supported right now. It may be considered in the future.
 
 What exists there today: a registered Node.js toolchain, a `windows_amd64` entry
-in `//platforms`, and a `node_modules` tree action that runs through a
-cross-platform Node script rather than a shell. That is enough to build a
-`node_modules` directory and nothing else.
+in `//platforms`, and a `node_modules` tree action driven by a cross-platform
+Node script with no shell dependency. That builds a `node_modules` directory and
+nothing else.
 
-What support would take: a Windows entry in `TSGO_PLATFORMS`
-(`ts/private/toolchain.bzl`) and `_PNPM_PLATFORMS` (`ts/private/pnpm.bzl`), an
-oxc build for the platform, and replacing the build-action wrappers that still
-need a POSIX shell — the Vite bundler, the framework build rules (`next_build`,
-), and the `node_modules` fallback taken when no
-JS runtime toolchain is registered. Nothing here has been
-run on Windows, so treat any estimate of the remaining work as untested.
+Support would take a Windows entry in `TSGO_PLATFORMS`
+(`ts/private/toolchain.bzl`) and `_PNPM_PLATFORMS` (`ts/private/pnpm.bzl`), and
+replacements for the build-action wrappers that still need a POSIX shell: the
+Vite bundler, the framework build rules (`next_build`, `remix_build`,
+`sveltekit_build`), and the `node_modules` fallback taken when no JS runtime
+toolchain is registered. oxc needs no entry: `oxc-bazel` is built from source by
+rules_rust for whichever exec platform the build runs on, so one toolchain
+covers every platform. None of this has been run on Windows, so any estimate of
+the remaining work is untested.
 
 If you need TypeScript on Bazel on Windows today, use
 [aspect-build/rules_ts](https://github.com/aspect-build/rules_ts).
@@ -66,60 +67,69 @@ If you need TypeScript on Bazel on Windows today, use
 
 Neither is a dependency of this ruleset. Both come from your `pnpm-lock.yaml`,
 and `ts_bundle`, `ts_dev_server` and `ts_test` generate configuration for
-whatever version that resolves to. So "supported" here means *exercised by a
-test in this repository*, and nothing constrains what you pin.
+whatever version that resolves to. "Supported" here means a test in this
+repository exercises that version; nothing constrains what you pin.
 
-There is **one lane** — one Vite version and one vitest version — even though
-the workspace translates several lockfiles. Four of them resolve one or both
-tools, and they agree on the version, so no test in this repository runs a
-generated config against a second major:
+There is **one lane** — one Vite version and one vitest version. The workspace
+translates several lockfiles; four of them resolve one or both tools, and they
+agree on the version, so no test runs a generated config against a second major:
 
-| Hub | Lockfile | Vite | vitest | What it exercises |
+| Hub | Lockfile | Vite | vitest | Coverage |
 |---|---|---|---|---|
-| `@npm` | `tests/npm/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` (the whole `tests/vitest` suite), `ts_dev_server` (seven servers started for real and interrogated over HTTP), `ts_bundle` output (`tests/vite_bundle`), `vite-plugin-bazel`'s own tests, the nested-Bazel integration workspaces, `examples/` |
+| `@npm` | `tests/npm/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` (the whole `tests/vitest` suite), `ts_dev_server` (seven servers started for real and interrogated over HTTP), `ts_bundle` output (`tests/vite_bundle`), `vite-plugin-bazel`'s own tests, and the `lsp`, `npm_deps` and `vite_bundle` integration workspaces |
 | `@npm_tailwind` | `tests/tailwind/pnpm-lock.yaml` | 8.2.2 | — | Tailwind v4 through `vite_config`: app mode, lib mode, and the dev server under both implementations |
-| `@npm_workers` | `tests/workers/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` with the Workers pool (vitest inside workerd) and `ts_worker_dry_run_test` |
-| `@npm_eslint` | `tests/eslint/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | the ESLint plugin's own `ts_test` targets, against `@typescript-eslint`'s rule tester |
-| `@npm_features` | `tests/npm/pnpm-lock-features.yaml` | — | — | pnpm's patched dependencies, npm aliases, peer-dependency variants and per-importer resolution. It resolves neither tool |
-| `@npm_css` | `ts/private/css/pnpm-lock.yaml` | — | — | the packages the ruleset's own build actions run: postcss 8.5.26 and postcss-modules 9.0.1 for `css_module`'s compiler, and the esbuild that bundles `vite-plugin-bazel`. The one hub here that is **not** a fixture — it ships to consumers, because both bundles are consumer API |
+| `@npm_workers` | `tests/workers/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` with the Workers pool (vitest inside workerd), `ts_worker_dry_run_test` |
+| `@npm_eslint` | `tests/eslint/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | the ESLint plugin's own `ts_test` target, against `@typescript-eslint`'s rule tester |
+| `@npm_features` | `tests/npm/pnpm-lock-features.yaml` | — | — | pnpm's patched dependencies, npm aliases, peer-dependency variants, per-importer resolution; resolves neither tool |
+| `@npm_css` | `ts/private/css/pnpm-lock.yaml` | — | — | the packages the ruleset's own build actions run: postcss 8.5.26 and postcss-modules 9.0.1 for `css_module`'s compiler, and the esbuild that bundles `vite-plugin-bazel`. The one hub here that is **not** a fixture — both bundles ship to consumers as API |
+
+The `examples/` modules and the `svelte` and `sveltekit` integration workspaces
+are separate Bazel modules with their own lockfiles, outside the table above.
+Five of the six examples resolve Vite 8.2.2 and vitest 4.1.11; `examples/basic`
+has no npm dependencies. Four integration workspaces copy an example's lockfile
+in at test time: `nextjs` from `examples/nextjs-app`, `remix` and `remix_ssr`
+from `examples/remix-app`, `tanstack` from `examples/tanstack-app`.
 
 `@npm_css` is a compatibility surface of its own. `css_module` derives the class
-names and the `.d.ts` with *its* postcss-modules, and the bundler reproduces
-them with the CSS-modules implementation built into *your* Vite. The two agree
-today, and the ruleset does not leave that to chance: the naming function is
-handed to Vite rather than reimplemented, so only a genuine divergence in what
-counts as a local name could split them — and the plugin raises an error naming
-both sides if it ever does, rather than shipping a bundle whose class names no
-declaration knows about.
+names and the `.d.ts` with its own postcss-modules; the bundler reproduces them
+with the CSS-modules implementation built into your Vite. The naming function is
+handed to Vite, so only a divergence in what counts as a local name can split
+the two, and the plugin then errors with both sides named.
 
-To re-derive all of that rather than trusting the table:
+To re-derive the table from the repository:
 
 ```bash
 grep -rnE '^  (vite|vitest)@' --include=pnpm-lock.yaml .
 bazel query 'filter("behaviour_test$", tests(//tests/dev_server/...))'
 ```
 
-A second lane on a second major is not extra coverage; it is a second lockfile to
-keep in step. The one thing it was there to hold together — the Vite that
-`vite-plugin-bazel` declares a peer range for, and the Vite the ruleset installs —
-is now held by a test instead: `//vite/tests:peer_version_test` reads
-`peerDependencies.vite` out of `vite/package.json` and asserts the installed major
-is one that range names.
+No hub carries a second major. One importer in the tree resolves Vite 7: the
+SvelteKit integration workspace (`tests/integration/sveltekit/workspace`, Vite
+7.1.5). It builds through a hand-written config, so no generated config runs
+against a Vite 7. The grep prints two further majors, `vite@7.3.1` and
+`vite@5.4.21` in `examples/remix-app/pnpm-lock.yaml`. Both arrive transitively
+under `@remix-run/dev`, through `vite-node` and `@vanilla-extract/integration`.
+That example's own `vite` is 8.2.2, and its generated configs get that one.
+
+The Vite that `vite-plugin-bazel` declares a peer range for and the Vite the
+ruleset installs are held together by `//vite/tests:peer_version_test`, which
+reads `peerDependencies.vite` out of `vite/package.json` and asserts the
+installed major is one that range names.
 
 The two places a generated config is known to be version-sensitive:
 
 - **`ts_bundle`** emits `build.rollupOptions.output.manualChunks` for
-  `split_chunks`, and `minify = True` emits `true` rather than naming a
-  minifier. Both are spellings every generation from 6 onward honours; the
-  vendor-splitting plugin `split_chunks` used to emit was removed in Vite 7,
-  and naming `esbuild` picks a minifier that is an optional peer and so absent
-  from a tree built from `deps = ["@npm//:vite"]`. `minify = False` also pins
-  `output.minify: false`, because the dead-code pass otherwise re-emits each
-  chunk from its AST and discards what a plugin's `renderChunk` returned.
+  `split_chunks`, and `minify = True` emits `true` without naming a minifier.
+  Both spellings are honoured by every generation from 6 onward. The
+  vendor-splitting plugin `split_chunks` used to emit was removed in Vite 7, and
+  naming `esbuild` picks a minifier that is an optional peer, absent from a tree
+  built from `deps = ["@npm//:vite"]`. `minify = False` also pins
+  `output.minify: false`: the dead-code pass otherwise re-emits each chunk from
+  its AST and discards what a plugin's `renderChunk` returned.
 - **`ts_test`** reads a `config` file that default-exports an array as a list of
   vitest projects and emits `test.projects`. That option is vitest 3.2 and
-  later: `test.workspace`, the name it replaced, was removed in vitest 4, which
-  throws on it rather than ignoring it.
+  later. `test.workspace`, the name it replaced, was removed in vitest 4, which
+  throws on it.
 
 ## Versioning Policy
 
@@ -130,19 +140,21 @@ tag, no release and no Bazel Central Registry entry, and consumers pin a commit.
 **Pre-1.0 (current):** any commit may break the API, with no deprecation
 window and no compatibility shim. Breaks are listed in
 [CHANGELOG.md](https://github.com/mikn/rules_typescript/blob/main/CHANGELOG.md)
-with the edit each one requires, which is the
-migration path. The last two rounds of work broke `ts_compile`, `ts_test`, the
-npm extension and the toolchain API; read the changelog before bumping a pin.
+with the edit each one requires. `ts_compile`, `ts_test`, the npm extension
+and the toolchain API have all broken pre-1.0; read the changelog before bumping
+a pin.
 
 **Post-1.0 (future):** major versions for breaking changes, minor for features,
 patch for fixes.
 
 ## Public API Surface
 
-Everything is unstable pre-1.0. The distinction below is about how likely a
-thing is to move, not a guarantee.
+Everything is unstable pre-1.0. The split below ranks how likely a thing is to
+move.
 
-### Load-bearing — breaks get a changelog entry with the required edit
+### Load-bearing
+
+Breaks get a changelog entry with the required edit.
 
 - `ts_compile`, `ts_test`, `ts_binary`, `ts_bundle`, `ts_config`,
   `node_modules` and `ts_refresh_tsconfig` rules and their documented
@@ -158,7 +170,9 @@ thing is to move, not a guarantee.
 - Gazelle `ts_compile` / `ts_test` generation and all `# gazelle:ts_*`
   directives
 
-### Volatile — may change in any commit, without a changelog entry
+### Volatile
+
+May change in any commit, without a changelog entry.
 
 - `ts_dev_server`, `ts_codegen`, `ts_lint`, `ts_npm_publish`, `next_build` rules
 - `vite_bundler` and the Vite plugin (`vite/src/`)

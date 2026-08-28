@@ -8,7 +8,7 @@ information.
 
 Install and configuration: [the package README](../../README.md).
 
-## Rule details
+## Rule Details
 
 Reported:
 
@@ -34,23 +34,24 @@ export { helper } from './helper.js';
 export default identity;                         // a named binding, typed at its own site
 ```
 
-Also skipped: constructors, computed class members, and setter return types —
-annotating a setter is a compile error (TS1095), so reporting one would fix
-working code into broken code.
+Also skipped: constructors, computed class members, and setter return types.
+Annotating a setter is a compile error, TS1095.
 
-## Auto-fixes and suggestions
+## Auto-Fixes and Suggestions
 
 A report carries an auto-fix when the type is readable off the AST: literals
 (`string`, `number`, `boolean`, `null`, `bigint`), template literals,
 `undefined`/`NaN`/`Infinity`, negated and signed literals, array literals whose
 elements are all inferable (`never[]` when empty, `T[]` when uniform, a union of
 up to four members otherwise), and function bodies that are a single `return` of
-one of those — or a bare `return`, giving `void`.
+one of those — or a bare `return`, giving `void`. An `async` function's inferred
+type is wrapped in `Promise<>`; a generator gets no fix.
 
-Everything else gets a suggestion telling you to annotate by hand. Object
-literals are never inferred: a structural annotation synthesised from one is
-verbose and silently drops optionality and method signatures. Parameters and
-class properties are never auto-fixed.
+A binding or return type that cannot be read off the AST gets a suggestion to
+annotate by hand. Object literals are never inferred: a structural annotation
+synthesised from one is verbose and drops optionality and method signatures.
+Parameters, class properties and an expression default export carry neither a
+fix nor a suggestion.
 
 ## Options
 
@@ -67,7 +68,7 @@ rules: {
 }
 ```
 
-## When not to use it
+## When Not to Use It
 
 When the package stays on an inference-based declaration emitter. Under that
-mode the annotations buy nothing the type-check was not already computing.
+mode the annotations add nothing the type-check was not already computing.

@@ -2,7 +2,7 @@
 
 A React component library with TSX compilation, DOM testing, and Vite bundling.
 
-## What this demonstrates
+## What This Demonstrates
 
 - TSX compilation with oxc (React components)
 - `@types/react` automatic pairing (types resolved from `@npm//:types_react`)
@@ -41,7 +41,7 @@ examples/react-app/
       index.ts            # Barrel re-export
 ```
 
-## Quick start
+## Quick Start
 
 ```bash
 bazel build //...    # compile + type-check (validation is on by default via .bazelrc)
@@ -49,7 +49,7 @@ bazel test //...     # run vitest tests (unit + DOM)
 bazel run //:gazelle # regenerate BUILD files from source
 ```
 
-## How it works
+## How It Works
 
 Four packages demonstrate the React component library pattern. `//src/hooks` defines a `useCounter` hook with `@npm//:react` as a dep. `//src/components` depends on `//src/hooks` and `@npm//:react` for TSX compilation -- when `@npm//:react` appears in deps, rules_typescript automatically pairs it with `@npm//:types_react` for type resolution. `//src/validation` uses `zod` independently. `//src/app` composes them into the root `App.tsx`.
 
@@ -57,6 +57,6 @@ The DOM test in `src/components/dom/` uses `@testing-library/react` under a happ
 
 JSX return types require `import type { ReactElement } from "react"` because `React.JSX.Element` is not a global in `@types/react` 19. All exported symbols need explicit type annotations for oxc's isolated declarations mode.
 
-## Using as a template
+## Using as a Template
 
 Copy this directory. Remove the `local_path_override` block in `MODULE.bazel` and set the `rules_typescript` version to the published BCR version. Keep `pnpm-lock.yaml` checked in -- run `pnpm install` to update it when adding new npm dependencies.

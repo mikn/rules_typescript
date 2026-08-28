@@ -1,15 +1,15 @@
 # Quick Start
 
-The only prerequisite is **Bazelisk** (or Bazel 9+ directly). Everything else — the Rust toolchain, Go toolchain, Node.js runtime, and all npm packages — is fetched hermetically by Bazel on the first build.
-
-The first build fetches a Rust toolchain, a Go SDK, Node.js and tsgo, and then
-**compiles `oxc-bazel` from Rust source**. That compile dominates: expect
-minutes, and expect it to scale with your machine rather than your project.
-Everything after it is cached; small changes rebuild in milliseconds.
+The only prerequisite is **Bazelisk** (or Bazel 9+ directly). Bazel fetches
+everything else hermetically on the first build: the Rust toolchain, the Go
+SDK, the Node.js runtime, tsgo, and the npm packages your targets reach. It
+also compiles `oxc-bazel` from Rust source, which dominates the wall time:
+expect minutes at any project size. After that everything is cached, and small
+changes rebuild in milliseconds.
 
 Choose your path:
 
-- [Depending on rules_typescript](#depending-on-rules_typescript) — how to pin the ruleset before it reaches the Bazel Central Registry
+- [Depending on rules_typescript](#depending-on-rules_typescript) — pinning the ruleset before it reaches the Bazel Central Registry
 - [Path A: New project](#path-a-new-project) — starting from scratch
 - [Path B: Existing project](#path-b-existing-project) — migrating a TypeScript codebase
 
@@ -36,14 +36,14 @@ scoop install bazelisk
 
 ## Depending on rules_typescript
 
-There is no Bazel Central Registry entry and no tagged release yet, so a bare
-`bazel_dep(name = "rules_typescript", version = "0.2.0")` has nothing to
-resolve against. Until the ruleset is published to the BCR, pin it with a
-non-registry override. All three forms below keep `bazel_dep` in place —
-bzlmod still requires the `version` attribute, and ignores its value while an
-override is active.
+`rules_typescript` has no Bazel Central Registry entry and no tagged release
+yet, so a bare `bazel_dep(name = "rules_typescript", version = "0.2.0")`
+resolves against nothing. Pin it with a non-registry override. All three forms
+below keep the `bazel_dep` line, which is what makes the module a direct
+dependency. bzlmod ignores the `version` value while a non-registry override is
+active, and accepts the line with no `version` at all.
 
-### git_override — the pre-BCR default
+### git_override
 
 ```python
 bazel_dep(name = "rules_typescript", version = "0.2.0")
@@ -54,16 +54,15 @@ git_override(
 )
 ```
 
-Pin a full 40-character commit SHA rather than a branch name: `git_override`
-re-resolves a branch whenever the repository cache is cold, which makes the
-build non-reproducible.
+Use a full 40-character commit SHA. `git_override` re-resolves a branch name
+whenever the repository cache is cold, which makes the build non-reproducible.
 
-### archive_override — smaller fetch
+### archive_override
 
 `git_override` runs a full `git clone` and pays for the whole history, which
 still carries ~200 MB of cargo build output that was tracked by mistake before
-it was removed. A codeload tarball is a single snapshot instead — under 1 MB —
-so prefer this form on CI. Compute the integrity hash for the commit you want:
+it was removed. A codeload tarball is a single snapshot of about 1.3 MB; prefer
+it on CI. Compute the integrity hash for the commit you want:
 
 ```bash
 COMMIT=<full 40-char sha>
@@ -81,7 +80,9 @@ archive_override(
 )
 ```
 
-### local_path_override — working against a checkout
+### local_path_override
+
+For a checkout on disk:
 
 ```python
 bazel_dep(name = "rules_typescript", version = "0.2.0")
@@ -91,7 +92,7 @@ local_path_override(
 )
 ```
 
-Once a version is published to the BCR, drop the override and the plain
+Once a version is published to the BCR, drop the override; the plain
 `bazel_dep` line resolves on its own.
 
 ---
@@ -104,15 +105,16 @@ Once a version is published to the BCR, drop the override and the plain
 9.0.0
 ```
 
-**Step 2.** Create `WORKSPACE.bazel` (empty file — required by Bazel 9):
+**Step 2.** Create an empty `WORKSPACE.bazel` (optional — `MODULE.bazel` marks
+the root in Bazel 9; every workspace in this repo carries one):
 
 ```
 ```
 
-**Step 3.** Create `MODULE.bazel`. `rules_typescript` is not on the Bazel
-Central Registry yet, so pin it from git with `git_override` — see
-[Depending on rules_typescript](#depending-on-rules_typescript) above for the
-full explanation and the `archive_override` alternative:
+**Step 3.** Create `MODULE.bazel`, pinning `rules_typescript` with
+`git_override` (see
+[Depending on rules_typescript](#depending-on-rules_typescript) for the
+`archive_override` alternative):
 
 ```python
 module(
@@ -142,15 +144,14 @@ build --output_groups=+_validation
 
 The `--output_groups=+_validation` line makes type errors fail `bazel build`, the same as `go build`.
 
-That is the whole file. In particular you do **not** need any
-`@rules_rust//...` flag: `rules_rust` is a transitive dependency of
-`rules_typescript`, not of your module, so `@rules_rust` is not visible from
-your repository and Bazel rejects the flag outright (see
+`rules_rust` reaches your build as a transitive dependency of
+`rules_typescript`, so `@rules_rust` is not visible from your repository: a
+`@rules_rust//...` flag here is rejected outright (see
 [Troubleshooting](../guides/troubleshooting.md#no-repository-visible-as-rules_rust)).
 
-**Step 5.** Create `BUILD.bazel` at the repo root. It may be empty, but it has
-to exist — `rules_rust`'s crate fetching resolves `//:MODULE.bazel`, which
-requires the repo root to be a Bazel package:
+**Step 5.** Create `BUILD.bazel` at the repo root. It has to exist even when
+empty: `rules_rust`'s crate fetching resolves `//:MODULE.bazel`, which requires
+the repo root to be a Bazel package:
 
 ```python
 load("@gazelle//:def.bzl", "gazelle")
@@ -161,9 +162,8 @@ gazelle(
 )
 ```
 
-**Step 6.** Write your TypeScript files. Explicit return types are optional —
-tsgo emits the declarations from the full type program, so an inferred one is
-fine:
+**Step 6.** Write your TypeScript files. Explicit return types are optional;
+tsgo emits the declarations from the full type program:
 
 ```typescript
 // src/lib/math.ts
@@ -184,12 +184,12 @@ bazel run //:gazelle
 bazel build //...
 ```
 
-Each `ts_compile` target Gazelle generates produces `.js`, `.js.map`, and `.d.ts`
-outputs per source file — `bazel-bin/src/lib/math.js`, `math.js.map` and
+Each `ts_compile` target Gazelle generates produces `.js`, `.js.map`, and
+`.d.ts` per source file: `bazel-bin/src/lib/math.js`, `math.js.map` and
 `math.d.ts` for the file above.
 
-**Step 9.** Run tests — once there is one. A project with no `*.test.ts` yet has
-no test target, and Bazel treats that as an error rather than a no-op:
+**Step 9.** Run tests, once there is one. With no `*.test.ts` there is no test
+target, and Bazel treats that as an error:
 
 ```
 $ bazel test //...
@@ -197,9 +197,8 @@ INFO: Found 2 targets and 0 test targets...
 ERROR: No test targets were found, yet testing was requested
 ```
 
-That is Bazel's exit code 4, not a broken setup. Writing the first test needs
-vitest, which comes from your lockfile rather than from the ruleset, so it needs
-the npm setup below first:
+The exit code is 4. vitest comes from your lockfile, so the first test needs
+the npm setup:
 
 ```bash
 pnpm init
@@ -213,13 +212,13 @@ npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
 use_repo(npm, "npm", "pnpm")
 ```
 
-`"pnpm"` is not optional: Gazelle writes a `ts_pnpm` and a `ts_add_package`
-target into your root `BUILD.bazel` as soon as a `pnpm-lock.yaml` exists, and
-both name `@pnpm`. Leave it out and `bazel build //...` aborts with
-`No repository visible as '@pnpm' from main repository`
-([why](../guides/npm.md#setup)).
+`"pnpm"` is not optional: Gazelle writes `ts_pnpm` and `ts_add_package`
+targets naming `@pnpm` into your root `BUILD.bazel` as soon as a
+`pnpm-lock.yaml` exists. Leave it out and `bazel build //...` aborts with
+`No repository visible as '@pnpm' from main repository`. See
+[npm Dependencies](../guides/npm.md#setup).
 
-Then write the test beside the source, re-run Gazelle, and test:
+Write the test beside the source, re-run Gazelle, and test:
 
 ```typescript
 // src/lib/math.test.ts
@@ -237,14 +236,15 @@ bazel run //:gazelle    # writes ts_test(name = "lib_test", ...)
 bazel test //...        # //src/lib:lib_test  PASSED
 ```
 
-The full story — DOM environments, coverage, snapshots, sharding — is in
-[Testing with vitest](../guides/testing.md).
+See [Testing with vitest](../guides/testing.md) for DOM environments,
+coverage, snapshots and sharding.
 
 ---
 
 ## Path B: Existing Project
 
-**Step 1.** Set up the same four root files as Path A (`.bazelversion`, `WORKSPACE.bazel`, `MODULE.bazel`, `.bazelrc`).
+**Step 1.** Set up the same root files as Path A: `.bazelversion`,
+`MODULE.bazel`, `.bazelrc`, and the optional `WORKSPACE.bazel`.
 
 **Step 2.** Create `BUILD.bazel` at the repo root. No escape hatch is needed:
 
@@ -257,12 +257,12 @@ gazelle(
 )
 ```
 
-Most existing TypeScript projects do not annotate every export, and that is
-fine: the `ts_compile` default emits declarations with tsgo, which infers them.
+Explicit return types stay optional: the `ts_compile` default emits
+declarations with tsgo, which infers them.
 
-**Step 3.** Wire up your `pnpm-lock.yaml`. Do this *before* the first build:
-Gazelle resolves every bare import in your sources to an `@npm//:…` label, so a
-project with any npm dependency at all fails analysis with
+**Step 3.** Wire up your `pnpm-lock.yaml` before the first build. Gazelle
+resolves every bare import to an `@npm//:…` label, so a project with any npm
+dependency fails analysis with
 `No repository visible as '@npm' from main repository` until the hub exists.
 
 ```python
@@ -272,13 +272,12 @@ npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
 use_repo(npm, "npm", "pnpm")
 ```
 
-Both names are needed. `@npm` is the alias hub your `deps` labels spell; `@pnpm`
-backs the `ts_pnpm` and `ts_add_package` targets Gazelle writes into your root
-`BUILD.bazel` the moment it sees a lockfile. Details, including private
-registries and patched dependencies:
-[npm Dependencies](../guides/npm.md).
+Both names are needed: `@npm` is the alias hub your `deps` labels spell, and
+`@pnpm` backs the `ts_pnpm` and `ts_add_package` targets Gazelle writes into
+your root `BUILD.bazel`. See [npm Dependencies](../guides/npm.md) for private
+registries and patched dependencies.
 
-No `pnpm install` is needed, then or later — the lockfile is the only npm input.
+`pnpm install` is never needed: the lockfile is the only npm input.
 
 **Step 4.** Run Gazelle:
 
@@ -292,26 +291,25 @@ bazel run //:gazelle
 bazel build //...
 ```
 
-If there are type errors, fix them — real type errors fail the build, because
-the `.d.ts` are outputs of the type-checker. You will not see "missing return
-type" errors: those only apply to `declarations = "oxc"`.
+Type errors fail the build, because the `.d.ts` are outputs of the
+type-checker. "Missing return type" errors apply only to
+`declarations = "oxc"`.
 
 !!! warning "A `compilerOptions.paths` alias that crosses a target boundary"
-    Gazelle reads `compilerOptions.paths` out of your `tsconfig.json` and writes
+    Gazelle reads `compilerOptions.paths` from your `tsconfig.json` and writes
     a matching `path_aliases` attr on the targets whose imports go through it.
-    `ts_compile` accepts an alias only when it resolves to files *that target*
-    stages, so the near-universal `"@/*": ["src/*"]` — where `@/lib/math` is
-    produced by another package — fails at analysis:
+    `ts_compile` accepts an alias only when it resolves to files the same target
+    stages, so `"@/*": ["src/*"]` fails at analysis when `@/lib/math` comes from
+    another package:
 
     ```
     ts_compile: path_aliases["@/"] on @@//src/app:app points at "./src/", where
     none of this target's inputs live.
     ```
 
-    Cross-package imports are `module_name`'s job, not `path_aliases`'. Set it on
-    the producing target and drop the alias from the consumer — with a `# keep`
-    above the rule, because Gazelle re-derives the attr from `tsconfig.json` on
-    every run:
+    Cross-package imports are `module_name`'s job. Set it on the producing
+    target and drop the alias from the consumer, with a `# keep` above the
+    rule, since Gazelle re-derives the attr from `tsconfig.json` on every run:
 
     ```python
     # src/lib/BUILD.bazel
@@ -335,8 +333,8 @@ type" errors: those only apply to `declarations = "oxc"`.
     [importing another target by bare specifier](../rules/ts-compile.md#importing-another-target-by-bare-specifier).
 
 **Step 6.** Optional. Once a package's exports are all annotated, move it to
-Oxc's syntactic declaration emit to take type-checking off the critical path.
-See [Isolated Declarations](isolated-declarations.md).
+Oxc's syntactic declaration emit, which takes type-checking off the critical
+path. See [Isolated Declarations](isolated-declarations.md).
 
 ---
 
@@ -362,6 +360,6 @@ node.toolchain(
 
 Keep `name = "nodejs"`. `rules_nodejs` keeps the root module's registration of
 that name and ignores every other module's, so your version wins over the one
-`rules_typescript` asks for — and `rules_typescript`'s toolchains resolve the
+`rules_typescript` asks for. `rules_typescript`'s toolchains resolve the
 repositories that name generates (`nodejs_linux_amd64` and friends). Under any
-other name your registration is unused, with nothing reporting it.
+other name your registration is silently unused.

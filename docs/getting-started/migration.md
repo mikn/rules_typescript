@@ -2,10 +2,9 @@
 
 `rules_typescript` is a fresh implementation, not a fork of `rules_ts` from
 [aspect-build](https://github.com/aspect-build/rules_ts). `rules_ts` has a
-release, production users and Windows support; this has none of the three, so a
-whole section below is about when to pick it instead.
+release, production users and Windows support. This has none of the three.
 
-## When to use which
+## When to Use Which
 
 **Choose `rules_ts` (Aspect) if:**
 - You need full `tsc` compatibility for every TypeScript edge case, including decorator metadata
@@ -33,33 +32,32 @@ whole section below is about when to pick it instead.
 | **Dev server** | None built-in | Vite with HMR + React Fast Refresh |
 | **npm management** | rules_js (pnpm virtual store, symlinks) | Own pnpm lockfile reader; one Bazel repository per package, fetched on demand |
 | **BUILD generation** | Aspect CLI (proprietary) | Gazelle (open-source, directives) |
-| **Framework support** | None built-in | TanStack Start bundles through a Vite-plugin hook; Remix, SvelteKit and Next.js each have a rule of their own. Solid Start is detected and deliberately unsupported ([why](../gazelle/overview.md#framework-detection)) |
+| **Framework support** | None built-in | TanStack Start bundles through a Vite-plugin hook; Remix, SvelteKit and Next.js each have a rule of their own. Solid Start is detected and deliberately unsupported (see [framework detection](../gazelle/overview.md#framework-detection)) |
 | **Bazel deps** | rules_js + rules_nodejs | rules_nodejs, rules_rust, rules_go + gazelle, rules_shell, bazel_skylib, platforms, toolchain_utils |
 | **Isolated declarations** | Not required | Not required; opt-in per package for throughput |
-| **pnpm** | System install required | Hermetic, opt-in ([two lines](../guides/npm.md#hermetic-pnpm)); Linux and macOS only |
+| **pnpm** | System install required | Hermetic, opt-in ([hermetic pnpm](../guides/npm.md#hermetic-pnpm)); Linux and macOS only |
 | **BCR** | Published, stable | Not published; no tag or release either — consumers pin a commit |
 | **Production users** | Many companies | None yet |
 | **Windows** | Supported | Not supported |
 
 ## Trade-offs: where rules_ts is better
 
-### tsc edge-case compatibility
+### tsc Edge-Case Compatibility
 
 Oxc is not tsc. Decorator metadata (`emitDecoratorMetadata`) may behave
 differently, very new TypeScript syntax can lag tsc by a few weeks, and exotic
-`tsconfig.json` options may not be handled identically. Note this applies to
-the JavaScript transform only — declarations come from tsgo by default, so the
-`.d.ts` are what TypeScript itself would emit.
+`tsconfig.json` options may not be handled identically. This applies to the
+JavaScript transform only. Declarations come from tsgo by default, so the `.d.ts`
+are what TypeScript itself would emit.
 
-### Mature ecosystem
+### Mature Ecosystem
 
 `rules_ts` is published on BCR, used in production by real companies, and
-battle-tested at scale. `rules_typescript` has no release at all — no tag, no
-BCR entry, no production users — and its API broke repeatedly in the last two
-rounds of work (see the [changelog](../changelog.md)). Expect rough edges and
-expect to read a changelog when you move a pin.
+battle-tested at scale. `rules_typescript` has no tag, no BCR entry and no
+production users, and its API has broken repeatedly pre-1.0. Expect rough edges,
+and read the [changelog](../changelog.md) when you move a pin.
 
-### npm handling
+### npm Handling
 
 `rules_js`'s pnpm virtual store with symlinks handles more edge cases than our lockfile parser:
 - Nested `node_modules` patterns
@@ -70,31 +68,32 @@ Our parser handles the common cases (scoped packages, `@types` pairing, multiple
 
 ### Windows
 
-`rules_ts` + `rules_js` work on Windows. Windows is not supported right now. It may be considered in the future.
-See [Compatibility](../compatibility.md#windows).
+`rules_ts` + `rules_js` work on Windows. Windows is not supported here right
+now; it may be considered in the future. See
+[Compatibility](../compatibility.md#windows).
 
 ## Trade-offs: where rules_typescript is better
 
-### Compilation speed
+### Compilation Speed
 
 Oxc is a Rust transformer with no type program, so the per-file transform is far
-cheaper than tsc's. No like-for-like comparison against `rules_ts` has been run
-here, so take no multiplier from this page. What has been measured is this
-ruleset against itself: a rebuild of 1,000 files across 20 packages after
-touching every source takes 6.3s with tsgo emitting declarations and 2.7s with
-oxc emitting them and nothing type-checking
-([method and caveats](../rules/ts-compile.md#cost-of-each-mode)).
+cheaper than tsc's. No like-for-like comparison against `rules_ts` has been run.
+Measured against this ruleset itself: a rebuild of 1,000 files across 20 packages
+after touching every source takes 6.3s with tsgo emitting declarations and 2.7s
+with oxc emitting them and nothing type-checking. See
+[Cost of each mode](../rules/ts-compile.md#cost-of-each-mode) for method and
+caveats.
 
-### Deps that mean something
+### Direct Dependencies
 
-An import has to be satisfied by a direct dep: a declaration arriving through
-another dep's own deps does not count, and the build says so with the label to
-add. `rules_ts` passes the whole transitive closure to `tsc`, so a target can
-compile against a dependency it never declared and break when an unrelated
-package drops one. The cost here is that BUILD files must be accurate, which is
-why Gazelle generates them from the same specifier scanner the check uses.
+An import has to be satisfied by a direct dep. A declaration arriving through
+another dep's own deps does not count, and the error names the label to add.
+`rules_ts` passes the whole transitive closure to `tsc`, so a target can compile
+against a dependency it never declared and break when an unrelated package drops
+one. BUILD files must therefore be accurate; Gazelle generates them from the
+same specifier scanner the check uses.
 
-### Incremental boundary
+### Incremental Boundary
 
 Each target's `.d.ts` is a real Bazel artifact, so changing a function body
 without changing its exported types leaves that artifact byte-identical and no
@@ -106,30 +105,30 @@ the dependency graph.
 
 Bundling, dev server, HMR, React Fast Refresh, framework Vite plugins — all built-in. `rules_ts` has no bundler or dev server; you wire those yourself.
 
-### No JS-ruleset layer
+### No JS-ruleset Layer
 
 There is no `rules_js` and no virtual store: the ruleset reads `pnpm-lock.yaml`
 itself and declares one Bazel repository per package behind a `@npm` alias hub.
-Fewer moving parts *in the JS layer* — but not a smaller dependency chain
-overall. Oxc is Rust, so `rules_rust` and a Rust toolchain come along; Gazelle
-is Go, so `rules_go`, `gazelle` and a Go SDK do too. `rules_ts` needs neither.
-The first build pays for both toolchains.
+That is fewer moving parts in the JS layer and a larger dependency chain overall.
+Oxc is Rust, so `rules_rust` and a Rust toolchain come along; Gazelle is Go, so
+`rules_go`, `gazelle` and a Go SDK do too. The first build pays for both
+toolchains. `rules_ts` needs neither.
 
 ### Gazelle
 
-Open-source BUILD file generation with ten `# gazelle:ts_*` directives,
+Open-source BUILD file generation with eleven `# gazelle:ts_*` directives,
 framework auto-detection, codegen auto-detection, and automatic
 lint/dev-server/bundler target generation. `rules_ts` relies on the proprietary
 Aspect CLI.
 
-### No system prerequisites but Bazelisk
+### System Prerequisites
 
-Node.js, Go and Rust are downloaded hermetically. pnpm can be too — it is
-opt-in, [two lines of setup](../guides/npm.md#hermetic-pnpm) — and is needed
-only to edit the lockfile, never to build or test. `rules_ts` requires a system
-Node.js and pnpm.
+Bazelisk is the only one. Node.js, Go and Rust are downloaded hermetically. pnpm
+can be too, in [two lines of setup](../guides/npm.md#hermetic-pnpm), and is
+needed only to edit the lockfile, never to build or test. `rules_ts` requires a
+system Node.js and pnpm.
 
-## Migration steps
+## Migration Steps
 
 If you decide to migrate from `rules_ts`:
 
@@ -143,9 +142,9 @@ If you decide to migrate from `rules_ts`:
    use_repo(npm, "npm", "pnpm")
    ```
 
-   `"pnpm"` goes in even if you never run pnpm through Bazel — Gazelle writes a
-   `ts_pnpm` and a `ts_add_package` target beside the lockfile and both name
-   `@pnpm` ([why](../guides/npm.md#setup))
+   `"pnpm"` goes in even if you never run pnpm through Bazel: Gazelle writes a
+   `ts_pnpm` and a `ts_add_package` target beside the lockfile, and both name
+   `@pnpm`. See [Setup](../guides/npm.md#setup).
 
 3. Keep your `tsconfig.json` out of BUILD `deps`. Either drop it entirely and
    take the zero-config baseline, or pass it as `ts_compile(tsconfig = ...)` to
@@ -156,27 +155,36 @@ If you decide to migrate from `rules_ts`:
 4. Run `bazel run //:gazelle` to regenerate BUILD files
 5. Move cross-package `compilerOptions.paths` aliases to `module_name`. Gazelle
    turns a `paths` entry into a `path_aliases` attr, which `ts_compile` accepts
-   only for files the same target stages — so `"@/*": ["src/*"]` across two
+   only for files the same target stages, so `"@/*": ["src/*"]` across two
    packages fails analysis. The
    [quickstart](quickstart.md#path-b-existing-project) has the edit; your sources
    keep importing `@/lib/math` unchanged
 6. Nothing else. Missing explicit return types are fine — the default emitter
    infers them
 
-### Key conceptual differences
+### Key Conceptual Differences
 
 **The tsconfig is generated, but yours can be the baseline.** `ts_compile`
-generates a tsconfig per target — it owns `rootDirs`, `paths`, the `@types`
-`files` list and the emit shape, which a user file cannot supply — and `extends` yours in place
-when you pass `tsconfig`. Attributes (`lib`, `types`, `jsx_import_source`,
-`compiler_options`) sit between the two.
+generates a tsconfig per target and owns `rootDirs`, `paths`, the `@types`
+`files` list and the emit shape, none of which a user file can supply. Pass
+`tsconfig` and the generated config `extends` yours in place. Attributes (`lib`,
+`types`, `jsx_import_source`, `compiler_options`) sit between the two.
 
 **One Bazel repository per npm package.** `rules_ts` with `rules_js` builds a
 pnpm virtual store of symlinks. Here each package is its own external
-repository, fetched when something needs it, with `@npm` holding nothing but
-aliases into them. Labels are unchanged from a consumer's point of view:
-`@npm//:react`, `@npm//:types_react`, `@npm//:vitest_bin`.
+repository, fetched when something needs it, and `@npm` holds only aliases into
+them. Consumer labels are unchanged: `@npm//:react`, `@npm//:types_react`,
+`@npm//:vitest_bin`.
 
-**Isolated declarations are opt-in.** Every target starts on `declarations = "tsgo"`, which needs no annotations. Add `# gazelle:ts_declarations oxc` to a package once its exports are annotated, to move type-checking off the critical path.
+**Isolated declarations are opt-in.** Every target starts on
+`declarations = "tsgo"`, which needs no annotations. Add
+`# gazelle:ts_declarations oxc` to a package once its exports are annotated, to
+move type-checking off the critical path.
 
-**`node_modules` is automatic.** `ts_test` builds its `node_modules` tree from deps automatically. No manual `node_modules` target needed (unless overriding for specific cases). It is not pnpm's virtual store: a name's primary resolution sits flat at the top level and every other resolution of that name — another version, or the same version resolved against different peers — gets its own store directory plus a link from the dependent that resolved to it, which is the part of pnpm's layout that Node's resolution actually needs.
+**`node_modules` is automatic.** `ts_test` builds its `node_modules` tree from
+deps; a manual `node_modules` target is needed only to override a specific case.
+The layout is its own, not pnpm's virtual store. A name's primary resolution sits
+flat at the top level. Every other resolution of that name — another version, or
+the same version resolved against different peers — gets its own store directory
+plus a link from the dependent that resolved to it, which is the part of pnpm's
+layout Node's resolution needs.

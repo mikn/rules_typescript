@@ -1,12 +1,9 @@
 # next_build
 
-Wraps `next build` as a single Bazel action. Next.js owns the compilation; the
-rule owns what the compiler is allowed to see and what comes back out.
-
-The action stages a Next.js project directory from declared inputs alone — the
-sources, a `node_modules` tree, the config, an optional `tsconfig.json` — runs
-`next build` in it with the network blocked, and returns the `.next/` directory
-as one output artifact.
+Wraps `next build` as a single Bazel action. The action stages a Next.js project
+directory from declared inputs alone — the sources, a `node_modules` tree, the
+config, an optional `tsconfig.json` — runs `next build` in it with the network
+blocked, and returns the `.next/` directory as one output artifact.
 
 ## Usage
 
@@ -47,45 +44,53 @@ next_build(
 
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `srcs` | `label_list` | required | Every project file Next.js reads: routes, components, stylesheets, `middleware.ts`, `public/` assets. Each lands at its path relative to the target's package, so a file from another package is an error naming `staging_srcs` |
-| `node_modules` | `label` | required | A [`node_modules`](node-modules.md) target holding `next`, `react`, `react-dom` and the app's dependencies — plus `typescript` and the `@types` packages, which `next build` otherwise npm-installs itself, with no network to do it |
-| `staging_srcs` | `label_list` | `[]` | Files from other targets, staged at their workspace-relative paths. Both a `filegroup` of `.ts` sources and a `ts_compile` target work — see below |
-| `config` | `label` | `None` | The `next.config.{mjs,js,ts}` file. Without one Next.js uses its defaults |
-| `config_srcs` | `label_list` | `[]` | Modules `config` imports. `config` is a single file, so a config with a sibling import fails with `ERR_MODULE_NOT_FOUND` until that sibling is listed here |
-| `tsconfig` | `label` | `None` | A `tsconfig.json` staged into the project root. Without it Next.js writes its own default, and any `paths` aliases the app relies on are gone |
-| `env` | `string_dict` | `{}` | Extra environment variables for the build. `NEXT_TELEMETRY_DISABLED` and `NEXT_PRIVATE_SKIP_PATCHING` are always set |
+| `srcs` | `label_list` | required | Every project file Next.js reads: routes, components, stylesheets, `middleware.ts`, `public/` assets |
+| `node_modules` | `label` | required | A [`node_modules`](node-modules.md) target holding `next`, `react`, `react-dom`, `typescript`, the `@types` packages and the app's dependencies |
+| `staging_srcs` | `label_list` | `[]` | Files from other targets, staged at their workspace-relative paths |
+| `config` | `label` | `None` | The `next.config.{mjs,js,ts}` file |
+| `config_srcs` | `label_list` | `[]` | Modules `config` imports, staged beside it |
+| `tsconfig` | `label` | `None` | A `tsconfig.json` staged into the project root |
+| `env` | `string_dict` | `{}` | Extra environment variables for the build |
 | `allow_network` | `bool` | `False` | Let `next build` reach the network. See [Hermeticity](#hermeticity) |
 
-## What `srcs` has to cover
+Each `srcs` file lands at its path relative to the target's package; a file from
+another package has no path inside the project root and fails with an error
+naming `staging_srcs`. `next build` npm-installs `typescript` and the `@types`
+packages itself when they are missing, and the action has no network to do it
+with, so the `node_modules` tree carries them. Without `config`, Next.js uses
+its defaults; without `tsconfig`, it writes its own default and any `paths`
+aliases the app relies on are gone. `config` is a single file, so a config with
+a sibling import fails with `ERR_MODULE_NOT_FOUND` until that sibling is listed
+in `config_srcs`. `NEXT_TELEMETRY_DISABLED` and `NEXT_PRIVATE_SKIP_PATCHING` are
+always set.
 
-The staging directory contains nothing but the declared inputs, which is what
-makes `srcs` a real declaration — and also means an omission shows up as a
-module-resolution failure rather than as a file quietly read off the developer's
-disk. Three that are easy to miss:
+## Files `srcs` must list
+
+The staging directory contains the declared inputs and nothing else, so an
+omission surfaces as a module-resolution failure. Three are easy to miss:
 
 - **Stylesheets.** `import "./globals.css"` is
   `Module not found: Can't resolve './globals.css'` until `**/*.css` is in
   `srcs`.
 - **`public/`.** A static `import logo from "../../public/logo.png"` is
-  `Module not found` until `public/**` is in `srcs`. (Nothing else needs
-  `public/` at build time — see
-  [The output is not a deployment unit](#the-output-is-not-a-deployment-unit).)
+  `Module not found` until `public/**` is in `srcs`. Nothing else needs
+  `public/` at build time — see [Serving the output](#serving-the-output).
 - **`middleware.ts`.** It sits beside `app/`, not under it, so an `app/**` glob
-  misses it — and this one does not fail. The build stays green with an empty
-  `middleware-manifest.json`, so the middleware silently stops existing. Worth
-  an assertion on the output rather than trust.
+  misses it. Nothing imports it, so no failing import names the omission.
+  Assert on the output: the compiled middleware under `server/` and the matcher
+  in `server/middleware-manifest.json`.
 
-Everything else is ordinary: App Router pages and layouts, `route.ts` handlers,
-Pages Router pages with `getServerSideProps`, `pages/api/*`, and a `"use client"`
-component calling a `"use server"` action all compile with no extra attrs.
+App Router pages and layouts, `route.ts` handlers, Pages Router pages with
+`getServerSideProps`, `pages/api/*`, and a `"use client"` component calling a
+`"use server"` action all compile with no extra attrs.
 
-### Under Gazelle, `srcs` is generated
+### Gazelle-generated `srcs`
 
 The Gazelle extension writes `srcs` as a `glob()` over the directories Next.js
-owns and recomputes it on every run, so it covers the three above without being
-told. It also **owns the attribute**: a pattern you add that Gazelle does not
-derive is dropped on the next run unless a `# keep` holds it, and the same goes
-for `staging_srcs`, `config` and `tsconfig`.
+owns and recomputes it on every run, so it covers the three above. It also
+**owns the attribute**: a pattern you add that Gazelle does not derive is
+dropped on the next run unless a `# keep` holds it, and the same goes for
+`staging_srcs`, `config` and `tsconfig`.
 
 ```python
 srcs = glob([
@@ -97,7 +102,7 @@ srcs = glob([
 The run names every value it drops. Full contract:
 [Attributes Gazelle owns on the framework rules](../gazelle/directives.md#attributes-gazelle-owns).
 
-## staging_srcs: sources or compiled output
+## staging_srcs
 
 `staging_srcs` takes any target's files, which gives two shapes for a shared
 package:
@@ -112,15 +117,15 @@ staging_srcs = [
 The second is the hybrid boundary: `ts_compile` stages `index.js` beside the
 `index.d.ts` that types it, so Next.js bundles already-compiled JavaScript and
 type-checks the import through the declaration. Shared code compiles once and is
-cached by Bazel instead of being recompiled by every app that imports it.
+cached by Bazel.
 
 Either way the files land at their workspace-relative paths, so a relative
 import (`../../packages/shared/src/index`) resolves with no `transpilePackages`
 rewriting.
 
 Under Gazelle, `staging_srcs` is generated from the packages it finds outside the
-owned directories — so a label it cannot derive, like a `filegroup` you wrote over
-a vendored tree, needs a `# keep` on its line:
+owned directories. A label it cannot derive, like a `filegroup` you wrote over a
+vendored tree, needs a `# keep` on its line:
 
 ```python
 staging_srcs = [
@@ -131,24 +136,21 @@ staging_srcs = [
 
 ## Hermeticity
 
-The action runs with `block-network`. `next build` reaches for the network on its
-own initiative, so the sandbox takes the option away rather than the rule
-trusting an environment variable to have covered every path. The enforcement is
-the sandbox's, and only a sandbox that can create a network namespace of its own
-provides it: `--spawn_strategy=local` has no sandbox and so no boundary, and
-`processwrapper-sandbox` — what Bazel falls back to where unprivileged user
-namespaces are unavailable, including a Bazel nested inside another Bazel's
-sandbox — honours the requirement by ignoring it. The requirement is still on the
-action, which `bazel aquery 'mnemonic("NextBuild", //:your_target)'` will show;
-whether it bites depends on how the build is run.
+The action runs with `block-network`, because `next build` reaches for the
+network on its own initiative. Enforcement is the sandbox's: only a sandbox that
+can create a network namespace of its own provides it. `--spawn_strategy=local`
+has no sandbox and so no boundary, and `processwrapper-sandbox` — Bazel's
+fallback where unprivileged user namespaces are unavailable, including a Bazel
+nested inside another Bazel's sandbox — honours the requirement by ignoring it.
+The requirement is on the action either way, which
+`bazel aquery 'mnemonic("NextBuild", //:your_target)'` shows.
 
 `next/font/google` is the one common feature this rejects: it downloads the font
-CSS and the woff2 payloads while compiling. `next/font/local` is unaffected — the
-font file is an input like any other, and lands in `static/media/` — so the
-choice is between declaring the font and accepting a download.
+CSS and the woff2 payloads while compiling. `next/font/local` is unaffected: the
+font file is an input like any other, and lands in `static/media/`.
 
-The build fails, and the wrapper names the cause instead of leaving an
-`ENETUNREACH` from inside a webpack loader to be interpreted:
+The wrapper names the cause; the failure would otherwise arrive as an
+`ENETUNREACH` from inside a webpack loader:
 
 ```
 next_build: `next build` failed while reaching for the network.
@@ -158,40 +160,36 @@ in `srcs` -- or set `allow_network = True` on this next_build target to accept a
 build whose output depends on the network.
 ```
 
-An app that fetches at build time — `generateStaticParams` or a prerendered page
-calling an API — hits the same wall, and the same diagnostic.
+The diagnostic is keyed on the build log: the wrapper prints it when a failed
+build's output matches `ENETUNREACH`, `EAI_AGAIN`, `ECONNREFUSED`, `getaddrinfo`
+or `from Google Fonts`. A failure matching none of them exits with Next.js's own
+message alone.
 
-`allow_network = True` swaps `block-network` for `requires-network`. It is the
-honest form of the trade: the target's output now depends on a remote host, and
-the BUILD file says so.
+`allow_network = True` swaps `block-network` for `requires-network`. The
+target's output then depends on a remote host.
 
-### The output is not byte-reproducible
+### Reproducibility
 
-Two builds of identical inputs do not produce identical bytes, and this is not
-cheaply fixable:
+Two builds of identical inputs do not produce identical bytes:
 
-- Next.js bakes the absolute project path into its server bundles — under
-  sandboxing that path includes the sandbox run number. Not fixable from here.
-- `BUILD_ID` is a random nanoid. Next.js takes it from `generateBuildId` in
-  `next.config` and falls back to nanoid; no environment variable overrides it,
-  so `generateBuildId` is the only way to pin it.
+- Next.js bakes the absolute project path into its server bundles. Under
+  sandboxing that path includes the sandbox run number.
+- `BUILD_ID` is a random nanoid unless `next.config` sets `generateBuildId`.
 - The server-actions encryption key is a fresh AES-GCM key per build unless
-  `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` is set — which the `env` attr can do.
-  Worth pinning for its own sake: two builds otherwise disagree about how to
-  decrypt an action's arguments, which a rolling deploy notices.
-
-Assert on behaviour, not on bytes.
+  `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` is set, which the `env` attr can do.
+  Pin it: two builds otherwise disagree about how to decrypt an action's
+  arguments, which a rolling deploy notices.
 
 ## Output
 
 One directory artifact, `<name>_next_out`, holding the `.next/` tree: `server/`
 (route bundles, prerendered HTML, the route and middleware manifests), `static/`
-(client chunks, `css/`, `media/`), `BUILD_ID`, `types/`, and the top-level
-manifests `next start` reads.
+(client chunks, `css/`, `media/`), `BUILD_ID`, and the top-level manifests
+`next start` reads.
 
-A whole-directory output is right here: the consumer is `next start`, which
-reads the tree by name, and the file set depends on which routes Next.js decided
-to prerender. The pruning is therefore subtractive — these are removed:
+The consumer is `next start`, which reads the tree by name, and the file set
+depends on which routes Next.js prerendered, so the pruning is subtractive.
+These are removed:
 
 | Removed | Why |
 |---------|-----|
@@ -199,13 +197,13 @@ to prerender. The pruning is therefore subtractive — these are removed:
 | `trace` | Every build span, tagged with the absolute staging path and a timestamp |
 | `diagnostics/` | Build timings |
 
-Nothing serves from any of them.
+Nothing serves from any of them. Everything else `next build` writes stays.
 
-Where each convention lands, if you need to assert on the output:
+Where each convention lands:
 
 | Convention | Output |
 |------------|--------|
-| App Router page | `server/app/<route>/page.js`, plus `.html`/`.rsc`/`.meta` when prerendered |
+| App Router page | `server/app/<route>/page.js`, plus `server/app/<route>.html` and its `.rsc`/`.meta` siblings when prerendered |
 | Route handler | `server/app/<route>/route.js` |
 | Pages Router page | `server/pages/<route>.js`, or just `<route>.html` when static |
 | Pages API route | `server/pages/api/<route>.js` |
@@ -218,16 +216,16 @@ Where each convention lands, if you need to assert on the output:
 Which routes were prerendered and which stayed dynamic is in
 `prerender-manifest.json`: a `force-dynamic` route is absent from it.
 
-### The output is not a deployment unit
+### Serving the Output
 
-`next build` does not copy `public/` into `.next` — it is served from the project
-directory at request time — and serving also needs the config, a `package.json`
-and the npm tree beside the output. The artifact is the build product;
-Serving it is a separate concern: the output is a `.next` directory, and what runs it is outside this rule.
+`next build` does not copy `public/` into `.next`; Next.js serves it from the
+project directory at request time. Serving also needs the config, a
+`package.json` and the npm tree beside the output. What runs the artifact is
+outside this rule.
 
-## Type checking
+## Type Checking
 
 `next build` runs TypeScript itself, over the staged `tsconfig.json`. A type
 error in any staged file fails the Bazel action, including a file that arrived
 through `staging_srcs`. There is no separate validation action and no `deps`
-attr: the type check is part of the build.
+attr.

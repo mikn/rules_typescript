@@ -15,7 +15,7 @@
 
 ## Development Environment
 
-The only prerequisite is **Bazelisk** (or Bazel 9+). All other dependencies — the Rust toolchain, Go toolchain, Node.js, and npm packages — are fetched hermetically by Bazel on the first build.
+The only prerequisite is **Bazelisk** (or Bazel 9+). Every other dependency — the Rust toolchain, Go toolchain, Node.js, and npm packages — is fetched hermetically by Bazel on the first build.
 
 ### Install Bazelisk
 
@@ -32,7 +32,7 @@ chmod +x ~/.local/bin/bazel
 scoop install bazelisk
 ```
 
-### Clone and verify
+### Clone and Verify
 
 ```bash
 git clone https://github.com/mikn/rules_typescript
@@ -49,9 +49,9 @@ bazel test //...
 ```
 
 The first build fetches a Rust toolchain, a Go SDK, Node.js and tsgo, then
-compiles `oxc-bazel` and its crate graph from source. That Rust compile is the
-long pole — budget minutes, and do not `bazel clean` afterwards. Subsequent
-builds are fast via Bazel's content-addressed cache.
+compiles `oxc-bazel` and its crate graph from source. The Rust compile takes
+minutes. Subsequent builds are fast via Bazel's content-addressed cache, so do
+not `bazel clean` afterwards.
 
 ### Optional: buildifier for Starlark formatting
 
@@ -61,8 +61,8 @@ See [Starlark](#starlark-build-files-and-bzl-files) under Code Style.
 
 ## Code Style
 
-One formatter per language. The `lint` CI job checks Starlark and Go; the other
-two are local conventions.
+One formatter per language. The `lint` CI job checks Starlark and Go; Rust and
+TypeScript formatting are local conventions.
 
 ### Starlark (BUILD files and .bzl files)
 
@@ -114,12 +114,12 @@ The Rust CLI lives in `oxc_cli/`. Build with:
 bazel build //oxc_cli:oxc-bazel
 ```
 
-#### Repinning crate dependencies
+#### Repinning Crate Dependencies
 
-Two `crate_universe` hubs are pinned by checked-in lockfiles, because
-rules_rust refuses a hub without one when rules_typescript is a dependency
-rather than the root module — a consumer cannot repin across the module
-boundary:
+Two `crate_universe` hubs are pinned by checked-in lockfiles. rules_rust
+requires a lockfile for a hub declared by a non-root module, and rules_typescript
+is a dependency in a consumer's build, where repinning across the module boundary
+is not possible:
 
 | Hub          | Rendering            | Cargo resolution      |
 | ------------ | -------------------- | --------------------- |
@@ -140,7 +140,7 @@ Without it, every build fails with "The current `lockfile` is out of date".
 ### TypeScript (test fixtures and e2e workspaces)
 
 Use **prettier** (if you have it locally). The TypeScript files in `tests/` and
-`e2e/` are fixtures — prefer minimal, readable code that illustrates the feature
+`e2e/` are fixtures — keep them minimal and readable, illustrating the feature
 under test. CI does not lint them.
 
 ---
@@ -161,7 +161,7 @@ bazel test //tests/vitest:math_test
 bazel test //gazelle/...
 ```
 
-### Every test source has to be claimed by a target
+### Test Source Coverage
 
 ```bash
 tools/ci/check_test_sources.sh
@@ -169,26 +169,27 @@ tools/ci/check_test_sources.sh
 
 `bazel test //...` passing does not mean your test ran. A Gazelle run that
 **deletes** a test target satisfies `bazel build //...`, `bazel test //...` and a
-byte-identical Gazelle rerun alike — which is how seven hand-written `go_test`
-targets once went missing. This script compares the test sources on disk against
-the srcs of every test target, and again against only the targets `bazel test
-//...` actually runs, so a target tagged `manual` does not count as coverage.
+byte-identical Gazelle rerun alike. This script compares the test sources on disk
+against the srcs of every test target, and again against only the targets
+`bazel test //...` actually runs, so a target tagged `manual` does not count as
+coverage.
 
 If a file's only target is `manual`, add the file to `MANUAL_ONLY` inside the
 script **with the reason it cannot run**. The list is exact in both directions:
 tagging a test `manual` fails CI until someone writes the reason down, and
 untagging it fails until the entry is removed.
 
-It is read-only — a loading-phase query and `git ls-files` — and it is the first
-step of the `test` job in CI. One local caveat: `git ls-files` cannot see an
-unstaged new file, so a local run reports green on a test you have not `git add`ed
-yet.
+The script is read-only: a loading-phase query and `git ls-files`. It is the
+first step of the `test` job in CI. One local caveat — `git ls-files` cannot see
+an unstaged new file, so a local run reports green on a test you have not
+`git add`ed yet.
 
-### Integration tests
+### Integration Tests
 
 Integration tests spin up an isolated Bazel workspace each to verify end-to-end
-user journeys. They are part of `bazel test //...` — tagged `exclusive`, so they
-run serially rather than being skipped — and need no environment variable:
+user journeys. They are part of `bazel test //...`, need no environment variable,
+and carry the tags `nested-bazel` and `cpu:2`, so Bazel runs as many at once as
+the machine has cores for:
 
 ```bash
 bazel test //tests/integration/...
@@ -199,13 +200,14 @@ bazel test //tests/integration:npm_deps_test --test_output=all
 bazel test //tests/integration:gazelle_roundtrip_test --test_output=all
 ```
 
-They are slow (each spawns a nested Bazel). To iterate on everything else:
+They are slow (each spawns a nested Bazel). To iterate on everything else, use
+`--config=fast`, whose `--test_tag_filters=-nested-bazel` drops them:
 
 ```bash
 bazel test --config=fast //...
 ```
 
-### End-to-end workspace tests
+### End-To-End Workspace Tests
 
 ```bash
 cd e2e/basic
@@ -213,7 +215,7 @@ bazel build //...
 bazel test //...
 ```
 
-### Test matrix summary
+### Test Matrix Summary
 
 | Suite | Command | What it covers |
 |---|---|---|
@@ -222,7 +224,7 @@ bazel test //...
 | Vitest | `bazel test //tests/vitest/...` | ts_test + vitest runner |
 | Bundle | `bazel test //tests/bundle/...` | ts_binary bundling |
 | npm | `bazel test //tests/npm/...` | npm package targets from pnpm-lock.yaml |
-| Integration | `bazel test //tests/integration/...` | Full user-journey tests, each in a nested Bazel workspace (`exclusive`, serial) |
+| Integration | `bazel test //tests/integration/...` | Full user-journey tests, each in a nested Bazel workspace (tagged `nested-bazel`) |
 | LSP | `bazel test //tests/lsp/...` | The tsserver resolution hook against a real tsserver |
 | Gazelle | `bazel test //gazelle/...` | Gazelle extension unit tests |
 | E2E | `cd e2e/basic && bazel build //...` | Real consumer workspace |
@@ -233,7 +235,8 @@ bazel test //...
 ## Pull Request Process
 
 1. **Fork** the repository and create your branch from `main`.
-2. **Write tests** for new behaviour. The project has coverage at multiple levels (unit, integration, e2e) — add tests at the appropriate level.
+2. **Write tests** for new behaviour. The project has coverage at unit,
+   integration and e2e level — add tests at the appropriate one.
 3. **Run the full test suite** before opening a PR:
    ```bash
    bazel test //...
@@ -249,10 +252,10 @@ bazel test //...
 7. A maintainer will review and may request changes. Please respond to review comments within a reasonable time (two weeks is a good guideline).
 8. Once approved, a maintainer will squash-merge your PR.
 
-### What makes a good PR
+### What Makes a Good PR
 
 - **One logical change per PR.** Stacked changes are welcome as separate PRs with clear dependency notes.
-- **Breaking changes are fine pre-1.0 — undocumented ones are not.** There is no deprecation window and no compatibility shim (see COMPATIBILITY.md). Every break needs a CHANGELOG entry stating the edit a consumer has to make.
+- **Every breaking change carries a CHANGELOG entry** stating the edit a consumer has to make. Pre-1.0 there is no deprecation window and no compatibility shim (see COMPATIBILITY.md).
 - **No `bazel clean`** in scripts or documentation. Trust the cache.
 - **Never reference `bazel-out/` directly** in Starlark. Use `ctx.bin_dir.path`, `File.path`, `File.dirname`.
 
@@ -296,7 +299,8 @@ docs: update COMPATIBILITY.md for Bazel 9.x support
 chore(toolchain): bump oxc to 0.120.0
 ```
 
-The subject line should be 72 characters or fewer. Use the body to explain *why*, not *what*.
+The subject line is 72 characters or fewer. The body carries the reason for the
+change.
 
 ---
 
@@ -323,7 +327,8 @@ There is no separate CLA to sign.
 
 ## Gazelle Extension Architecture
 
-The Gazelle extension lives in `gazelle/` and is a standard Gazelle language extension written in Go. A brief map for newcomers:
+The Gazelle extension lives in `gazelle/` and is a standard Gazelle language
+extension written in Go.
 
 | File | Role |
 |---|---|
@@ -333,13 +338,20 @@ The Gazelle extension lives in `gazelle/` and is a standard Gazelle language ext
 | `gazelle/resolve.go` | Import resolution — maps import specifiers to Bazel labels |
 | `gazelle/imports.go` | Import extraction from TypeScript sources |
 | `gazelle/jsonc.go` | JSONC parser, so a commented `tsconfig.json` still yields its `paths` |
-| `gazelle/framework_bundle.go` | Framework bundle targets (Vite, Remix, TanStack Start) |
+| `gazelle/framework_bundle.go` | Vite-based framework bundle targets — TanStack Start, Remix, SvelteKit (Next.js has its own, `framework_next.go`) |
 | `gazelle/codegen.go` | Auto-detected codegen targets |
 
-For a deeper walkthrough of the design (package boundary heuristics, import resolution strategy, directive reference, `gazelle_ts.json` migration notes), read **AGENTS.md** — it is the authoritative architectural document for contributors working on the codebase.
+**AGENTS.md** is the architectural reference for contributors: package boundary
+heuristics, import resolution strategy, the directive reference, and
+`gazelle_ts.json` migration notes.
 
-The Gazelle extension is built as a Go binary and registered via `MODULE.bazel`. Consumers run it with:
+The extension is compiled into the `gazelle_binary` `//gazelle:gazelle_ts`, with
+the `gazelle` runner beside it:
 
 ```bash
-bazel run //:gazelle
+bazel run //gazelle:gazelle
 ```
+
+A consumer workspace declares its own `gazelle` target pointing at
+`@rules_typescript//gazelle:gazelle_ts` — `e2e/basic/BUILD.bazel` is the worked
+example — and runs `bazel run //:gazelle`.
