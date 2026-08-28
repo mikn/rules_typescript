@@ -2,11 +2,11 @@
 
 Cutting a tag through to a Bazel Central Registry submission.
 
-**Nothing has been released yet.** There are no git tags and no GitHub releases,
-so every version number below (`0.2.0`, `0.2.1`, …) is an example of the shape a
-release takes, not a record of one. `MODULE.bazel` reads `0.2.0` and every
-install snippet on the site names it, so that is the version a first release
-cuts. See [BCR Submission](BCR_SUBMISSION.md) for current status.
+Nothing has been released yet: there are no git tags and no GitHub releases, so
+every version number below (`0.2.0`, `0.2.1`, …) shows the shape a release takes.
+`MODULE.bazel` reads `0.2.0` and every install snippet on the site names it, so
+that is the version a first release cuts. See
+[BCR Submission](BCR_SUBMISSION.md) for current status.
 
 ## Prerequisites
 
@@ -56,7 +56,7 @@ The tool acts on the checkout you ran `bazel` from (`BUILD_WORKING_DIRECTORY`)
 and:
 
 1. Validates the version format
-2. Refuses if the tag already exists or the working tree is dirty
+2. Stops if the tag already exists or the working tree is dirty
 3. Rewrites the version inside `module()` in `MODULE.bazel` — and only there,
    so `bazel_dep` versions are untouched
 4. Commits `MODULE.bazel` as `chore: release v0.2.0`
@@ -65,9 +65,9 @@ and:
 It stops there. Everything downstream of the tag belongs to
 `.github/workflows/release.yml`: it builds the tarball with `git archive`,
 computes the SRI hash, publishes the GitHub release with a build-provenance
-attestation, and opens the PR that fills in `.bcr/source.json`. Producing a
-tarball locally would produce a *different* archive from the published one, and
-so a wrong integrity hash.
+attestation, and opens the PR that fills in `.bcr/source.json`. A tarball built
+locally is a different archive from the published one, and so carries a wrong
+integrity hash.
 
 ### Example Output
 
@@ -89,7 +89,7 @@ That starts .github/workflows/release.yml: tarball, GitHub release, and the
 
 ## Step 2: Push to GitHub
 
-Pushing the tag is what starts the Release workflow:
+Pushing the tag starts the Release workflow:
 
 ```bash
 git push origin v0.2.0
@@ -116,23 +116,21 @@ gh run list --workflow=release.yml
 gh release view v0.2.0
 ```
 
-Mark the release as a prerelease by hand if the version carries an `-rc.N`,
-`-alpha.N`, or `-beta.N` suffix — the workflow publishes with
-`prerelease: false`.
+The workflow publishes with `prerelease: false`, so mark the release as a
+prerelease by hand if the version carries an `-rc.N`, `-alpha.N`, or `-beta.N`
+suffix.
 
 ## Step 4: Submit to Bazel Central Registry
 
-This is the manual half, and it is written out once — in
+This is the manual half, written out once in
 [BCR Submission](BCR_SUBMISSION.md#submission-steps): fork the registry, create
 `modules/rules_typescript/<version>/`, copy `.bcr/metadata.json`,
 `.bcr/source.json` and `.bcr/presubmit.yml` into it, push, open the PR. Follow
-that page rather than a second copy of the same sequence here; two copies is how
-they came to disagree about the version and about whether `presubmit.yml` was
-optional.
+that page.
 
-The one thing to check before starting: the `.bcr/source.json` PR the release
-workflow opened has merged, so the file you are copying carries the real
-integrity hash rather than the empty placeholder.
+Check one thing before starting: the `.bcr/source.json` PR the release workflow
+opened has merged, so the file you are copying carries the real integrity hash
+and not the empty placeholder.
 
 ## Step 5: Respond to BCR Feedback
 
@@ -249,7 +247,7 @@ bazel run //tools/release -- 0.2.1
 
 ### "Integrity hash is different"
 
-This usually means the tarball is different. Causes:
+The tarball differs. Causes:
 
 - Different git commit used
 - Timestamps in generated files
@@ -279,8 +277,8 @@ python3 -m json.tool .bcr/metadata.json > /dev/null
 python3 -m json.tool .bcr/source.json   > /dev/null
 ```
 
-A maintainer's convenience, not a dependency — nothing in the ruleset itself uses
-Python.
+This is a maintainer's local convenience. No rule, action or toolchain in
+rules_typescript uses Python.
 
 ## Next Steps
 
@@ -294,4 +292,4 @@ Users can add this to their MODULE.bazel file and use rules_typescript.
 
 ---
 
-For questions or issues, see [CI_CD.md](./CI_CD.md) or the main [the documentation index](index.md).
+For questions or issues, see [CI_CD.md](./CI_CD.md) or [the documentation index](index.md).

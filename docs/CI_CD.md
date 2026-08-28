@@ -1,23 +1,26 @@
 # CI/CD & Production Readiness
 
 The pipeline this repository runs, and the release path out of it. The remote
-cache and RBE sections further down are configurations for a *consumer*
-workspace, and nothing here runs them — each says so where it starts.
+cache and remote execution sections further down describe configurations for a
+consumer workspace, which this repository's CI does not run.
 
 ## GitHub Actions CI
 
 `.github/workflows/ci.yml` runs on every push to `main`/`develop` and every pull
-request against `main`. It has seven jobs.
+request against `main`. It has six jobs.
+
+The five jobs that run Bazel set it up with `bazel-contrib/setup-bazel@0.18.0`:
+bazelisk and repository caches in all of them, the external cache in all but
+`examples`, and a disk cache where the job wants one.
 
 ### Workflow Jobs
 
 1. **Unit Tests & Type Checking** (`test`)
-   - First, on ubuntu only: `tools/ci/check_test_sources.sh` — every tracked
-     test source on disk has to be claimed by a test target that actually runs.
-     It goes first because it is a loading-phase query the next step pays for
-     anyway, and because it names the cause when a test simply stops existing
+   - On ubuntu only, first: `tools/ci/check_test_sources.sh` — every tracked
+     test source has to be claimed by a test target that actually runs. It goes
+     first because it is a loading-phase query the next step pays for anyway
      (see [below](#every-test-source-is-claimed-by-a-target))
-   - Then `bazel test --config=ci //...`, then
+   - `bazel test --config=ci //...`, then
      `bazel build --config=ci //... --output_groups=+_validation`
    - Matrix: `ubuntu-latest` and `macos-latest`
 
@@ -28,75 +31,88 @@ request against `main`. It has seven jobs.
 3. **Examples Build** (`examples`)
    - One matrix leg per workspace under `examples/` — `basic`, `app`,
      `react-app`, `remix-app`, `tanstack-app`, `nextjs-app` — each a separate
-     Bazel invocation of `//...`, `fail-fast: false`
+     Bazel invocation, `fail-fast: false`. Every leg builds `//...` except
+     `tanstack-app`, which builds `//... -//:app`: `//:app` loads its
+     `vite_config` from the source tree and resolves `@tanstack/react-start`
+     there, where a fresh checkout has no `node_modules`
+   - All six legs share one disk cache key (`disk-cache: examples`). Most of each
+     example's actions are the same oxc/Rust and toolchain prefix, and six keys
+     would not fit GitHub's 10 GB cache limit
 
-4. **Build Determinism** (`determinism`)
+4. **Build Determinism Check** (`determinism`)
    - `//tests/smoke:hello` built from two empty output bases, then
      `tests/smoke/hello.js` compared byte for byte. Two builds cannot be one
-     action, so this is the one check that stays a sequence of invocations in
-     the workflow rather than a target
-   - Scratch space comes from `/mnt`, the runner's ephemeral disk: two output
-     bases are two full toolchain trees and the root disk does not fit both
+     action, so this check stays a sequence of invocations
+   - No disk cache: a hit on the second build would compare it against a copy of
+     the first
+   - Scratch space is `/mnt`, the runner's ephemeral disk. Two output bases are
+     two full toolchain trees, which the root disk does not fit
 
-5. **Integration Tests** (`integration-tests`)
-   - `bazelisk test --config=ci-integration //tests/integration/...`
-   - Its own job because each target spawns a nested Bazel and they run
-     serially (`exclusive`). This is the only job that runs them: `--config=ci`
-     in the `test` job expands `--config=fast`, which filters them out so they
-     do not run three times per push
-   - Each nested Bazel has its own output base, so the harness gives them all one
-     **shared repository cache** — it appends `common --repository_cache=<shared>`
-     to every staged workspace's `.bazelrc` (`prepare()` in
-     `tests/integration/harness/harness.go`). Without it each workspace fetches
-     the whole BCR registry for itself, and the resulting lookup failures read as
-     flaky tests rather than as a missing cache
+5. **Integration Tests (nested Bazel)** (`integration-tests`)
+   - `bazelisk test --config=ci-integration //tests/integration/... --test_env=RULES_TS_IT_SCRATCH=/mnt/rules_ts_it`
+   - The only job that runs them. `--config=ci` in the `test` job expands
+     `--config=fast`, whose `--test_tag_filters=-nested-bazel` filters them out;
+     unfiltered they would run three times per push
+   - The targets carry `cpu:2` in place of `exclusive`, so Bazel bounds how many
+     nested Bazel servers run at once by the machine's cores
+   - Each nested Bazel keeps its own output base; together they need tens of GB,
+     which the root disk does not have and `/mnt` does
+   - The harness appends `common --repository_cache=<shared>` and
+     `common --disk_cache=<shared>` to every staged workspace's `.bazelrc`
+     (`prepare()` in `tests/integration/harness/harness.go`). Without it each
+     workspace fetches the whole BCR registry for itself, and the resulting
+     lookup failures read as flaky tests
+   - `/mnt` is recreated every run, so an `actions/cache@v4` step restores
+     `/mnt/rules_ts_it/repository_cache` and `/mnt/rules_ts_it/disk_cache` under
+     the key `nested-bazel-<runner.os>-<hash of MODULE.bazel,
+     tests/npm/pnpm-lock.yaml, oxc_cli/Cargo.lock>`. Cold, the concurrent servers
+     all miss the shared cache at once and fetch the same artifacts, a measured
+     ~4GB (`tests/integration/tags.bzl`). The cache is content-addressed, so a
+     stale restore is a miss, never a wrong answer
 
 6. **Linting & Code Quality** (`lint`)
-   - `buildifier --mode=check -r .`, using the released binary downloaded in the
-     job. There is no `buildifier` `bazel_dep`, so
-     `bazel run @buildifier//:buildifier` does not work — see
+   - `buildifier --mode=check -r .`, using the released `v8.2.1` binary
+     downloaded in the job. There is no `buildifier` `bazel_dep`, so
+     `bazel run @buildifier//:buildifier` fails with "No repository visible as
+     '@buildifier'". See
      [CONTRIBUTING.md](contributing.md#starlark-build-files-and-bzl-files)
    - `gofmt -l .` (a non-empty result fails) and `go vet` over the Go modules,
-     both through `actions/setup-go` rather than Bazel: they read the `go.work`
-     module graph straight off the source tree, so nothing about them comes from
-     the build graph. `tools/quickstart` is named out of the `go vet` patterns
-     rather than excluded, because its `go:embed` target is a genrule output and
-     `go list` failing there aborts the whole `./...` pattern
+     both through `actions/setup-go`: they read the `go.work` module graph off
+     the source tree, so nothing about them comes from the build graph.
+     `tools/quickstart` is named out of the `go vet` patterns because its
+     `go:embed` target is a genrule output and `go list` failing there aborts the
+     whole `./...` pattern
    - `mkdocs build --strict` into a temporary site directory. `docs.yml` builds
-     the site only on push to `main`, so until this step existed a PR that broke
-     the nav or a page reference was caught after it had merged
+     the site only on push to `main`, so without this step a broken nav or page
+     reference is caught only after merge
 
-### Every test source is claimed by a target
+### Every Test Source Is Claimed by a Target
 
 `bazel build //...`, `bazel test //...` and a byte-identical Gazelle rerun are
-all satisfied by a Gazelle run that **deletes** a test target — which is how
-seven hand-written `go_test` targets once went missing. `check_test_sources.sh`
-is not: the set of test files on disk is not something Gazelle writes, so it
-cannot be brought back into agreement by damaging the BUILD files.
+all satisfied by a Gazelle run that **deletes** a test target.
+`check_test_sources.sh` is not: the set of test files on disk is not something
+Gazelle writes.
 
-Tagging a test `manual` is the same regression wearing a disguise — the target
-still exists, still claims its srcs, and `bazel test //...` still passes, because
-`//...` skips it. So each file's claim is checked twice: once against every test
-target, and once against only the targets `bazel test //...` runs. A file with the
-first claim but not the second is manual-only and has to be named in the script's
-`MANUAL_ONLY` list **with a reason**. That list is exact in both directions:
-tagging a test `manual` fails until someone writes down why, and untagging it
-fails until the entry is removed.
+Tagging a test `manual` defeats the same three checks — the target still exists,
+still claims its srcs, and `//...` skips it. Each file's claim is therefore
+checked twice: against every test target, and against only the targets
+`bazel test //...` runs. A file with the first claim but not the second is
+manual-only and has to be named in the script's `MANUAL_ONLY` list **with a
+reason**. The list is exact in both directions: tagging a test `manual` fails
+until someone writes down why, and untagging it fails until the entry is removed.
 
 Directories holding their own `MODULE.bazel`/`WORKSPACE.bazel`, and
-`.bazelignore` roots, are out of scope — `//...` does not descend into them, so
-their test files are not this workspace's to claim.
+`.bazelignore` roots, are out of scope: `//...` does not descend into them.
 
-The script is read-only: a loading-phase `bazel query` and `git ls-files`. It
-never runs Gazelle and never writes to the source tree. One limit that matters
-locally: `git ls-files` cannot see an unstaged new file, so a local run reports
-green on a test that has no target yet.
+The script is read-only: a loading-phase `bazel query` and `git ls-files`, no
+Gazelle run and no writes. `git ls-files` cannot see an unstaged new file, so a
+local run reports green on a test that has no target yet.
 
 ### Triggering CI
 
 Pushes to `main` and `develop`, and pull requests against `main`. There is no
-`workflow_dispatch` trigger, so the Actions tab offers no "Run workflow" button
-— re-run a failed job, or push.
+`workflow_dispatch` trigger, so the Actions tab offers no "Run workflow" button:
+re-run a failed job, or push.
 
 ## Running CI Locally
 
@@ -105,11 +121,13 @@ groups, so the local command and the workflow step are the same command.
 
 ```bash
 # The main workspace: tests, then type-checking. --config=ci expands
-# --config=fast, so the exclusive nested-Bazel targets are skipped.
+# --config=fast, whose --test_tag_filters=-nested-bazel drops the
+# nested-Bazel targets.
 bazel test --config=ci //...
 bazel build --config=ci //... --output_groups=+_validation
 
-# The nested-Bazel suite, which serializes (~3 minutes per target).
+# The nested-Bazel suite (~3 minutes per target, as many at once as the
+# machine has cores for).
 bazel test --config=ci-integration //tests/integration/...
 
 # e2e/ and examples/ are separate workspaces (.bazelignore), so they are
@@ -120,13 +138,9 @@ cd examples/basic && bazel build //...
 
 ## Determinism Verification
 
-A cache is only worth having if the same source produces the same bytes, so this
-is the property every cache claim on this page rests on.
-
 Two builds cannot be a single Bazel action, so the check is a sequence of
-invocations. The `determinism` job runs this shape over two targets and three
-outputs (see [Workflow Jobs](#workflow-jobs) job 5); one target is enough to
-reproduce it locally:
+invocations. The `determinism` job runs this shape over `//tests/smoke:hello`
+(see [Workflow Jobs](#workflow-jobs) job 4). The same sequence runs locally:
 
 ```bash
 for base in a b; do
@@ -139,32 +153,32 @@ cmp \
 ```
 
 `--config=determinism` turns off the convenience symlinks, which the two builds
-would otherwise race for. `bazel info bazel-bin` is asked for the output path
-rather than guessing at the `bazel-out` layout. Separate output bases are used
-instead of `bazel clean`, which preserves the repository cache.
+would otherwise race for. `bazel info bazel-bin` supplies the output path, so the
+`bazel-out` layout is never guessed at. Separate output bases stand in for
+`bazel clean` and preserve the repository cache.
 
 ## Known Sources of Non-Determinism
 
-Eight places non-determinism can enter, what the current answer is for each, and
-what a rule of your own has to do to stay out of trouble.
+Eight places non-determinism can enter, the current status of each, and what a
+rule of your own has to do.
 
 ### 1. Build Timestamps in Compiled Output
 
-**Risk**: Some compilers embed the current timestamp in their outputs.
-**Status in rules_typescript**: `oxc` does not embed timestamps in compiled `.js` or `.js.map` files. `tsgo` does not embed timestamps in `.d.ts` files. Verified by the `determinism` CI job.
-**Mitigation**: If you add a custom `genrule` that runs a tool with `date` or similar, the output will be non-deterministic. Pass `--no-timestamp` or equivalent to that tool.
+**Risk**: A compiler that embeds the current timestamp in its output.
+**Status in rules_typescript**: `oxc` embeds no timestamp in compiled `.js` or `.js.map` files; `tsgo` embeds none in `.d.ts` files. The `determinism` CI job checks the compiled `.js` of `//tests/smoke:hello`.
+**Mitigation**: A `genrule` running a tool that calls `date` is non-deterministic. Pass `--no-timestamp` or the equivalent to that tool.
 
 ### 2. File Ordering in Directory Outputs
 
-**Risk**: When a rule uses `ctx.actions.declare_directory`, file ordering inside the directory depends on the filesystem's readdir order. Different kernels or filesystems may return files in different orders.
-**Status in rules_typescript**: Affected rules include `ts_bundle` (Vite output directory), `ts_npm_publish` (staging directory), and `node_modules` (tree artifact). These are staging directories, not inputs to further compilation, so ordering only matters if you compare the directories byte-for-byte.
-**Mitigation**: Use `diff -r` (which is order-insensitive for directory comparisons) rather than `tar c ... | sha256sum` when checking directory artifacts.
+**Risk**: With `ctx.actions.declare_directory`, file ordering inside the directory follows the filesystem's readdir order, which varies across kernels and filesystems.
+**Status in rules_typescript**: The rules with a declared output directory — `ts_bundle`, `ts_npm_publish`, `node_modules`, `ts_codegen`, `next_build`, `remix_build`, `sveltekit_build` — are all staging directories, never inputs to further compilation, so ordering matters only in a byte-for-byte directory comparison.
+**Mitigation**: Check directory artifacts with `diff -r`, which is order-insensitive; `tar c ... | sha256sum` is not.
 
 ### 3. Vite Bundle Content Hashes
 
-**Risk**: Vite (and Rollup underneath it) generates chunk file names using a content hash. The hash algorithm is deterministic, but the chunk boundaries depend on module graph traversal order, which can change if `import()` statements are added or removed.
-**Status**: Vite bundle outputs are deterministic for a fixed source tree. A source change causes all dependent chunk hashes to change, which is expected and correct.
-**Mitigation**: None needed — this is correct behaviour. Do not compare Vite output hashes across different source versions.
+**Risk**: Vite (and Rollup underneath it) names chunk files by content hash. The algorithm is deterministic, but chunk boundaries depend on module graph traversal order, which changes when `import()` statements are added or removed.
+**Status**: Deterministic for a fixed source tree. A source change changes every dependent chunk hash, which is correct.
+**Mitigation**: None needed. Do not compare Vite output hashes across source versions.
 
 ### 4. npm Package Download Order
 
@@ -177,36 +191,36 @@ ordering dependency.
 
 ### 5. tsgo (TypeScript Native) Internal Parallelism
 
-**Risk**: `tsgo` uses goroutines for type-checking. Internal ordering of diagnostic messages may vary across runs on different hardware.
-**Status**: tsgo `.d.ts` outputs are deterministic (Go's `sort.Slice` is not random). Diagnostic message ordering is consistent within a single binary but may differ between tsgo versions.
+**Risk**: `tsgo` type-checks with goroutines, so diagnostic message ordering can vary between runs on different hardware.
+**Status**: tsgo `.d.ts` outputs are deterministic (Go's `sort.Slice` is not random). Diagnostic ordering is consistent within one binary and may differ between tsgo versions.
 **Mitigation**: Pin the tsgo version. This repository pins it as `_DEFAULT_TSGO_VERSION` in `ts/extensions.bzl`; a consumer overrides it with `ts.tsgo(version = ...)` on the `ts` module extension.
 
 ### 6. Environment Variable Leaks
 
-**Risk**: If an action reads an environment variable that is not declared in its `env` map, the value leaks from the host environment and can cause different outputs on different machines.
-**Status**: Bazel's sandbox blocks undeclared env vars for rules that use `use_default_shell_env = False`. All rules in rules_typescript use the sandbox with no default shell env.
-**Mitigation**: Run with `--incompatible_strict_action_env` to hard-fail if any action reads an undeclared env var.
+**Risk**: An action reading an env var it does not declare in its `env` map takes the host's value, which differs between machines.
+**Status**: Bazel's sandbox blocks undeclared env vars for rules with `use_default_shell_env = False`. Every rule in rules_typescript uses the sandbox with no default shell env.
+**Mitigation**: `--incompatible_strict_action_env`, set in this repository's `.bazelrc`, replaces the inherited client environment with a fixed one, so an action that reads a var it never declared reads the same value on every machine.
 
 ### 7. Host Interpreters and Utilities
 
-**Risk**: An action that shells out to whatever interpreter or coreutil the host
-happens to have produces whatever that version produces.
-**Status**: not applicable to this ruleset. There is no Python anywhere in it —
-the house rule is Starlark's `json.decode`/`json.encode` or awk. `package.json`
-generation in `ts_npm_publish` runs a JS script through the registered JS runtime
-toolchain, its patch is Starlark-encoded JSON, and staging and tarballing are a
-checked-in Go binary rather than `install` and `tar`. The one host dependency
-left is `bash`, for a handful of build-action wrappers (the Vite bundler,
-`next_build`, and the `node_modules` fallback
-taken only when no JS runtime toolchain is registered).
-**Mitigation**: none needed. If you add a `genrule` of your own, reach for a
-toolchain input rather than a host binary.
+**Risk**: An action shelling out to a host interpreter or coreutil produces
+whatever that version produces.
+**Status**: not applicable. There is no Python in the ruleset — the house rule is
+Starlark's `json.decode`/`json.encode` or awk. `package.json` generation in
+`ts_npm_publish` runs a JS script through the registered JS runtime toolchain
+with a Starlark-encoded JSON patch, and staging and tarballing are a checked-in
+Go binary in place of `install` and `tar`. The one host dependency left is
+`bash`, for the Vite bundler, the framework builds (`next_build`, `remix_build`,
+`sveltekit_build`), and the `node_modules` fallback taken when no JS runtime
+toolchain is registered.
+**Mitigation**: none needed. In a `genrule` of your own, reach for a toolchain
+input.
 
 ### 8. Gazelle-Generated BUILD Files
 
-**Risk**: Gazelle updates BUILD files in-place. If two developers run Gazelle on different OS/filesystem configurations (e.g. different file listing order), the generated files may differ.
-**Status**: The Gazelle TypeScript extension sorts all generated `srcs`, `deps`, and other list attributes. Generated BUILD files are fully deterministic for a fixed source tree.
-**Mitigation**: Enforce a Gazelle check step in CI: `bazel run //:gazelle && git diff --exit-code`. This ensures the checked-in BUILD files always match what Gazelle would generate.
+**Risk**: Gazelle updates BUILD files in place. Two developers on different OS/filesystem configurations (e.g. different file listing order) can generate different files.
+**Status**: The Gazelle TypeScript extension sorts every generated `srcs`, `deps` and other list attribute. Generated BUILD files are deterministic for a fixed source tree.
+**Mitigation**: Add a CI step `bazel run //:gazelle && git diff --exit-code`, so the checked-in BUILD files match what Gazelle generates.
 
 ### Summary Table
 
@@ -219,13 +233,12 @@ toolchain input rather than a host binary.
 | node_modules tree | Runtime | Yes | per-package isolation |
 | Gazelle BUILD generation | Repo structure | Yes | sorted output |
 
-## What this pipeline does and does not guarantee
+## Guarantees
 
-- **Determinism** is verified by the `determinism` CI job, over the targets it
-  names — it is not a blanket property of every rule. `next_build` in particular
-  is not byte-reproducible: Next.js bakes the project path into its server
-  bundles and mints a random `BUILD_ID`. So "cache hits are safe" holds for what
-  the job covers and is an assumption everywhere else.
+- **Determinism** is verified by the `determinism` CI job over the targets it
+  names, and is not a blanket property of every rule. `next_build` is not
+  byte-reproducible: Next.js bakes the project path into its server bundles and
+  mints a random `BUILD_ID`.
 - **A release tarball** is `git archive` over a tag, so it is a function of the
   commit.
 - **Sandbox isolation** is the sandbox's, with no default shell env — see
@@ -235,9 +248,8 @@ toolchain input rather than a host binary.
 
 ### Prerequisites
 
-- Clean working tree (no uncommitted changes)
-- Git tags properly configured
-- Valid semantic version (X.Y.Z or X.Y.Z-prerelease)
+- Clean working tree
+- A valid semantic version (X.Y.Z or X.Y.Z-prerelease)
 
 ### Cutting a Release
 
@@ -246,54 +258,80 @@ bazel run //tools/release -- 0.2.0 --dry-run   # prints every step, writes nothi
 bazel run //tools/release -- 0.2.0 --push
 ```
 
-The tool validates the version, refuses a dirty tree or an existing tag,
+The tool validates the version, stops on a dirty tree or an existing tag,
 rewrites the version inside `module()` in `MODULE.bazel` (and nowhere else, so
 `bazel_dep` versions survive), commits, tags, and optionally pushes. It works on
 the checkout you ran `bazel` from, via `BUILD_WORKING_DIRECTORY`.
 
 Everything after the tag is `.github/workflows/release.yml`: `git archive`
 tarball, SRI hash, GitHub release with a provenance attestation, and the PR that
-fills in `.bcr/source.json`. A locally built tarball would differ from the
-published one, and so carry the wrong integrity hash — which is why the tool
-does not build one.
+fills in `.bcr/source.json`. The tool builds no tarball, because a locally built
+one would differ from the published one and carry the wrong integrity hash.
 
 Full walkthrough: [Release Process](RELEASE_PROCESS.md).
 
 ## BCR (Bazel Central Registry) Publishing
 
-`.bcr/metadata.json` (module-level, one file for every version) and
-`.bcr/source.json` (the tarball URL, its SRI hash and `strip_prefix`) are what a
-BCR submission carries. Both are computed and committed by the `update-bcr` job
-in `.github/workflows/release.yml`; the field-by-field walkthrough, the
-`presubmit.yml` matrix and the submission steps are in
-[BCR Submission](BCR_SUBMISSION.md).
+A BCR submission carries three files: `.bcr/metadata.json` (module-level, one
+file for every version), `.bcr/source.json` (the tarball URL, its SRI hash and
+`strip_prefix`) and `.bcr/presubmit.yml`. The `update-bcr` job in
+`.github/workflows/release.yml` rewrites `source.json` and opens a PR with it;
+`metadata.json` and `presubmit.yml` are hand-maintained, and the job only prints
+them back for the log. The field-by-field walkthrough, the `presubmit.yml`
+matrix and the submission steps are in [BCR Submission](BCR_SUBMISSION.md).
 
-One detail worth knowing before reading a mismatched hash: `<VERSION>` is the tag
-with its leading `v` stripped, which the workflow does once
-(`VERSION="${TAG#v}"`) before building all three strings. So the `v` appears in
-the release *path* and nowhere else — the tarball is
+Two workflows touch the `.bcr` files, and they split the work. `update-bcr`
+computes and writes: it reads the SRI hash off the `release` job it depends on,
+rewrites `source.json`, and opens the PR. `publish-bcr`, the only job in
+`.github/workflows/publish-to-bcr.yml`, writes nothing to the repository. It
+checks that all three `.bcr` files exist and that the two JSON ones parse
+(`jq -e`), `HEAD`s the tarball URL and confirms the GitHub release exists (both
+print a warning and carry on, neither fails the job), prints the manual
+submission checklist, and uploads the three files as a 30-day artifact. Neither
+job opens the pull request against the registry; that is done by hand.
+
+Only `release.yml` runs from a tag push. `publish-to-bcr.yml` triggers on
+`workflow_dispatch` and on `release: [published]`, and the release that
+`release.yml` creates does not fire it: GitHub starts no workflow run from an
+event created with the default `GITHUB_TOKEN`, which is what
+`softprops/action-gh-release` uses here. A release published by hand does fire
+it.
+
+Run it by hand after the `source.json` PR merges:
+
+```bash
+gh workflow run publish-to-bcr.yml -f version=0.2.0 -R mikn/rules_typescript
+```
+
+It reads `.bcr/source.json` off the checked-out branch. Run any earlier than
+that and it validates and uploads the previous version's URL and hash. On a
+release event it also runs `gh release edit --notes`, which replaces the release
+notes with one line pointing at the metadata; the step ends in `|| true`, so it
+never fails the job.
+
+`<VERSION>` is the tag with its leading `v` stripped, which the workflow does
+once (`VERSION="${TAG#v}"`) before building all three strings. The `v` therefore
+appears in the release path and nowhere else: the tarball is
 `rules_typescript-0.2.0.tar.gz` under tag `v0.2.0`, and `strip_prefix` matches
-the `git archive --prefix` that produced it.
+the `git archive --prefix` that produced it. That is the first thing to check
+against a mismatched hash.
 
 ## Remote Caching
 
 !!! note "Documented, not exercised"
-    Nothing in this repository's own CI uses `--remote_cache`, `--disk_cache` or
-    RBE. The setups below are configurations we believe are right rather than
-    ones we run, and no cache-hit figure on this page was measured here.
+    Nothing in this repository's own CI uses `--remote_cache` or RBE. The setups
+    below are configurations we believe are right but do not run, and no
+    cache-hit figure on this page was measured here.
 
-A remote cache lets one machine reuse another's action outputs. What makes that
-safe rather than merely fast is determinism, which the `determinism` job checks
-over the targets it names — see [above](#determinism-verification) for what that
-does and does not cover.
+A remote cache lets one machine reuse another's action outputs. Determinism is
+what makes that safe; see
+[Determinism Verification](#determinism-verification) for what is checked.
 
 ### BuildBuddy Setup
 
-[BuildBuddy](https://www.buildbuddy.io) is a hosted remote cache with a free tier.
-
-1. Create a free account at https://app.buildbuddy.io and get your API key.
-
-2. Add to your workspace `.bazelrc`:
+[BuildBuddy](https://www.buildbuddy.io) is a hosted remote cache with a free
+tier. Create an account at https://app.buildbuddy.io for an API key, then add to
+your workspace `.bazelrc`:
 
 ```
 # Remote cache via BuildBuddy.
@@ -306,13 +344,11 @@ build:bb --bes_backend=grpcs://remote.buildbuddy.io
 build:bb --bes_results_url=https://app.buildbuddy.io/invocation/
 ```
 
-3. Use the flag to activate remote caching:
-
 ```bash
 bazel build //... --config=bb
 ```
 
-For CI, add `--config=bb` to all `bazel build` / `bazel test` invocations (see the GitHub Actions template).
+For CI, add `--config=bb` to every `bazel build` / `bazel test` invocation.
 
 ### EngFlow Setup
 
@@ -344,37 +380,33 @@ build:local-cache --remote_cache=http://localhost:9090
 
 ### Verifying Hermeticity
 
-All actions in rules_typescript run inside the Bazel sandbox with no network access by default. To confirm there are no hidden external dependencies:
+All actions run inside the Bazel sandbox. To take the network away from them and confirm there are no hidden external dependencies:
 
 ```bash
 bazel build //... --sandbox_default_allow_network=false
 ```
 
-A clean build should succeed without any network errors. If an action fails, it is downloading something it should not be, and the rule needs to declare that dependency explicitly.
+A clean build succeeds with no network errors. An action that fails here is downloading something, and the rule needs to declare that dependency explicitly.
 
-Common sources of non-hermeticity to watch for:
+Common sources of non-hermeticity:
 - Shell scripts that call `curl` or `wget` without declaring network access.
 - Node scripts that call `npm install` at build time.
 - Toolchain binaries that phone home on first run (common with some TypeScript tools).
 
 ### Cache Hit Rate Tuning
 
-To maximise cache hit rates:
-
-1. **Use `--remote_upload_local_results`**: ensures local developer builds populate the shared cache.
-2. **Keep `--workspace_status_command` outputs stable**: stamp variables embedded in binaries bust the cache for every commit. Avoid stamping library targets.
+1. **`--remote_upload_local_results`**: local developer builds populate the shared cache.
+2. **Keep `--workspace_status_command` outputs stable**: stamp variables embedded in binaries bust the cache for every commit. Do not stamp library targets.
 3. **Check for volatile env leaks**: `bazel build //... --action_env` shows every env var that actions see; only variables that affect outputs should be present.
 
 ---
 
 ## Remote Execution
 
-Remote execution (RBE) runs actions on a pool of workers instead of locally. Same
-caveat as remote caching: nothing here is exercised by this repository's CI.
+Remote execution (RBE) runs actions on a pool of workers. Same caveat as remote
+caching: nothing here is exercised by this repository's CI.
 
 ### Prerequisites
-
-Before enabling RBE:
 
 1. A compatible RBE backend (BuildBuddy RBE, EngFlow, Google RBE, or self-hosted).
 2. A Docker image containing the build toolchain (oxc-bazel, Node.js, tsgo).
@@ -382,7 +414,7 @@ Before enabling RBE:
 
 ### Platform Constraints
 
-RBE requires Bazel to know the execution platform so it can select the correct toolchain binaries. Add a `platforms` target to your workspace:
+Bazel selects toolchain binaries by execution platform, so RBE needs one declared. Add a `platforms` target to your workspace:
 
 ```python
 # platforms/BUILD.bazel
@@ -404,15 +436,15 @@ build:rbe --platforms=//platforms:linux_x86_64
 
 ### Toolchain Binary Compatibility
 
-rules_typescript downloads platform-specific binaries for:
+The toolchain binaries an executor runs:
 
 | Tool | Source | Platforms |
 |------|--------|-----------|
-| `oxc-bazel` | Built from Rust source via rules_rust | linux-x64, linux-arm64, darwin-x64, darwin-arm64 |
+| `oxc-bazel` | Built from Rust source via rules_rust | whichever exec platform the build runs on |
 | `tsgo` | Downloaded npm package | linux-x64, linux-arm64, darwin-x64, darwin-arm64 |
-| Node.js | JS runtime toolchain | linux/mac/win, x86_64/arm64 |
+| Node.js | JS runtime toolchain | linux and macOS on x86_64/arm64, Windows on x86_64 |
 
-These binaries are statically linked (oxc-bazel, tsgo) or self-contained (Node.js), so they run on any modern Linux RBE worker without additional library dependencies.
+`oxc-bazel` is compiled on the executor itself, so it matches whatever the worker runs. `tsgo` and Node.js are self-contained downloads. None of the three needs a library the worker does not already have.
 
 ### BuildBuddy RBE Setup
 
@@ -427,9 +459,9 @@ build:rbe --jobs=100
 build:rbe --remote_instance_name=rules_typescript
 ```
 
-The one host utility rules_typescript needs on an executor is `bash`, which the
-BuildBuddy image has. Everything else an action runs — node, tsgo, oxc, pnpm — is
-a toolchain input, and there is no Python anywhere in the ruleset.
+The one host utility an executor needs is `bash`, which the BuildBuddy image
+has. Everything else an action runs — node, tsgo, oxc, pnpm — is a toolchain
+input.
 
 ### EngFlow RBE Setup
 
@@ -442,12 +474,12 @@ build:rbe --remote_instance_name=default
 
 ### Custom Executor Image
 
-If you need a custom executor image (e.g. for additional system tools), build one from the minimal image below:
+For additional system tools, build on the minimal image:
 
 ```dockerfile
 FROM ubuntu:22.04
 # Only a POSIX shell is needed: the Vite bundler and the framework build rules
-# (next_build) wraps its action in bash.
+# (next_build, remix_build, sveltekit_build) wrap their actions in bash.
 # Everything else runs a declared binary — no host tar, no python, no coreutils
 # dependency.
 RUN apt-get update && apt-get install -y \
@@ -459,19 +491,19 @@ Push to a container registry and configure in EngFlow or your self-hosted RBE cl
 
 ### Testing RBE Locally
 
-To test RBE connectivity without running your entire build:
+To test RBE connectivity without running the whole build:
 
 ```bash
 bazel build //tests/smoke:hello --config=rbe --verbose_failures
 ```
 
-A successful build confirms that the RBE worker can receive actions and the toolchain binaries are executable on the remote platform.
+A successful build confirms the RBE worker receives actions and the toolchain binaries are executable on the remote platform.
 
 ---
 
 ## GitLab CI Template
 
-Add this file as `.gitlab-ci.yml` (or import it from a shared template repository):
+Add this as `.gitlab-ci.yml`, or import it from a shared template repository:
 
 ```yaml
 # GitLab CI/CD template for rules_typescript workspaces.
@@ -552,7 +584,7 @@ determinism:
   allow_failure: false
 ```
 
-To configure the output_base for the local Bazel cache so GitLab's `cache:` key works correctly, add a `.bazelrc` entry:
+For GitLab's `cache:` key to cover the local Bazel cache, point the output base into it:
 
 ```
 # .bazelrc  (add to the repo-level file)
@@ -565,12 +597,11 @@ startup --output_base=/root/.cache/bazel/output
 
 ### Determinism Failures
 
-`cmp` naming the differing byte offset is the first thing to read: a difference
-early in a `.js` is usually a path that leaked in, and one late is usually a
-timestamp. Then work through
-[Known Sources of Non-Determinism](#known-sources-of-non-determinism) — the two
-that reach a plain `ts_compile` target are a `genrule` of your own calling a host
-tool, and an undeclared env var.
+Read the differing byte offset `cmp` names first: a difference early in a `.js`
+is usually a path that leaked in, one late is usually a timestamp. Then work
+through [Known Sources of Non-Determinism](#known-sources-of-non-determinism).
+The two that reach a plain `ts_compile` target are a `genrule` of your own
+calling a host tool, and an undeclared env var.
 
 ### Release Tool Issues
 
@@ -584,11 +615,8 @@ tool, and an undeclared env var.
 
 ### CI Failures
 
-Check logs in GitHub Actions:
-1. Click workflow run
-2. Expand failed job
-3. Review error output
-4. Compare with local reproduction: `bazel test --config=ci //...`
+Open the failed job's log in GitHub Actions, then reproduce locally with
+`bazel test --config=ci //...`.
 
 ## Related Documentation
 

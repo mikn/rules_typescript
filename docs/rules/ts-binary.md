@@ -1,14 +1,14 @@
 # ts_binary
 
-Produces a **runnable** target from a `ts_compile` entry point. Without a
-bundler it runs that target's entry `.js` on the JS runtime; with one it bundles
-first and runs the bundle.
+Produces a runnable target from a `ts_compile` entry point. Without a bundler it
+runs that target's entry `.js` on the JS runtime; with one it bundles first and
+runs the bundle.
 
 `ts_binary` and [`ts_bundle`](ts-bundle.md) are separate rules with overlapping
-attributes, not aliases. Reach for `ts_binary` when you want `bazel run`; reach
-for `ts_bundle` when you want a bundle as a build artifact — it requires a
-`bundler` and adds the app-mode, HTML, `vite_config` and `staging_srcs` surface
-that framework builds need.
+attributes, not aliases. `ts_binary` is the rule for `bazel run`. `ts_bundle`
+produces a bundle as a build artifact, requires a `bundler`, and adds the
+app-mode, HTML, `vite_config` and `staging_srcs` surface that framework builds
+need.
 
 ## Usage
 
@@ -28,7 +28,7 @@ ts_binary(
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `entry_point` | `label` | required | `ts_compile` target providing `JsInfo` |
-| `entry_file` | `string` | `""` | Which source's `.js` is the entry when the target emits several, e.g. `"main.ts"`. `index.js` is used by convention when unset |
+| `entry_file` | `string` | `""` | Which source's `.js` is the entry when the target emits several, e.g. `"main.ts"`; `index.js` by convention when unset |
 | `bundler` | `label` | `None` | Target providing `BundlerInfo`. When set, the bundle is what runs |
 | `bundle_name` | `string` | rule name | Output file name (without `.js`) |
 | `format` | `string` | `"esm"` | Output format: `esm`, `cjs`, `iife` |
@@ -43,8 +43,8 @@ accept them.
 ## Without a Bundler
 
 Without a `bundler`, `ts_binary` runs the entry point's own `.js` file on the JS
-runtime, with the transitive `.js` outputs in its runfiles — the imports resolve
-as written. It does not concatenate anything.
+runtime, with the transitive `.js` outputs in its runfiles. The imports resolve
+as written; nothing is concatenated.
 
 ## With Vite
 

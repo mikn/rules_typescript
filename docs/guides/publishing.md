@@ -32,11 +32,9 @@ bazel build //:lib_pkg
 
 ## Outputs
 
-Two outputs are produced:
-
 | Output | Description |
 |--------|-------------|
-| `lib_pkg_pkg/package/` | Staging directory. The `package/` level is the npm convention, so the tarball gets the prefix `npm publish` expects without a rewrite step |
+| `lib_pkg_pkg/package/` | Staging directory; the `package/` level is npm's convention |
 | `lib_pkg_pkg.tar` | Tarball with the `package/` prefix, ready for `npm publish` |
 
 ## Publishing
@@ -58,13 +56,13 @@ npm publish $(bazel cquery --output=files //:lib_pkg | grep '\.tar$')
 ## package.json Template
 
 The template is read as JSON and re-emitted as pretty-printed JSON, so its
-formatting is not preserved and does not matter.
+formatting is not preserved.
 
 Three fields are filled in **only when the template does not declare them** —
 `main`, `types` and `exports` — from the entry point the rule identifies
 (`index.js`/`index.d.ts`, or the single `.js` output when there is exactly one).
-Declaring one keeps your value verbatim; to suppress the auto-fill for a field
-you do not want, declare it empty (`"main": ""`).
+Declaring one keeps your value verbatim; declare it empty (`"main": ""`) to
+suppress the auto-fill for a field you do not want.
 
 `version` is different: when the rule's `version` attr is set it **replaces**
 whatever the template has. Leave the attr at `""` to keep the template's.

@@ -5,11 +5,10 @@ Two ways to run the app [`next_build`](next-build.md) compiles.
 | Rule | Command | Project directory | What it is for |
 | --- | --- | --- | --- |
 | `next_dev_server` | `next dev` | your source tree | the inner loop: an edit reaches the response through Next.js's watcher, with no rebuild |
-| `next_serve` | `next start` | a staged copy of the build | checking that the built app really server-renders |
+| `next_serve` | `next start` | a staged copy of the build | server-rendering the built app |
 
 Neither rule generates a config. Next.js reads `next.config.*` from its project
-directory and that file is yours; what the rules supply is the Bazel-built npm
-tree.
+directory; what the rules supply is the Bazel-built npm tree.
 
 ## Usage
 
@@ -51,9 +50,9 @@ bazel run //:serve                    # next start, over the build
 bazel run //:serve -- --port 41234    # any port, e.g. one a test reserved
 ```
 
-Gazelle generates the `dev` target beside `next_build`. It does not generate
+Gazelle generates the `dev` target beside `next_build` and does not generate
 `serve`: which files a served app needs beside `.next`, and on which port, is a
-deployment decision rather than a layout one.
+deployment decision.
 
 ## Attributes
 
@@ -71,17 +70,20 @@ Shared by both rules:
 | Attribute | Meaning |
 | --- | --- |
 | `build` | The `next_build` target whose `.next` directory to serve. Mandatory. |
-| `config` | The same `next.config` file the build was given. `next start` reads it for what applies at request time: rewrites, headers, image domains, `basePath`. |
+| `config` | The same `next.config` file the build was given. |
 | `srcs` | Files staged beside the build output at their package-relative paths. |
 
-## How imports resolve without a node_modules symlink
+`next start` reads `config` for what applies at request time: rewrites, headers,
+image domains, `basePath`.
+
+## Module Resolution
 
 Next.js seeds webpack's `resolve.modules` from `NODE_PATH`
 (`next/dist/build/webpack-config.js`), and Node's own CJS resolution reads it
 too. Both rules set it to the Bazel npm tree, so the app's bare imports resolve
-there and nothing has to plant a `node_modules` symlink in a source directory.
+there and no `node_modules` symlink is planted in a source directory.
 
-## `next_serve` copies the build output
+## What `next_serve` stages
 
 The staged project directory holds a **copy** of `.next`, not a symlink into
 `bazel-bin`. The image optimizer writes into `.next/cache` when it serves
@@ -92,45 +94,38 @@ discarded when the server exits.
 Next.js serves it from the project root at request time. It reaches the staged
 directory through `srcs`, which is also where a module the config imports goes.
 
-This makes `next_serve` a way to *run* the build, not a deployment artifact. The
-deployable unit is the build output plus the config, `public/` and the npm tree
-— which is what the rule assembles at run time. `output: "standalone"` is
-untested here.
+`next_serve` runs the build; it is not a deployment artifact. The deployable
+unit is the build output plus the config, `public/` and the npm tree, which is
+what the rule assembles at run time. `output: "standalone"` is untested here.
 
-## What `next dev` writes into your source tree
+## What `next dev` writes
 
 `next dev` treats its project directory as its own: it writes `.next/` and
 `next-env.d.ts` there, and adds `.next/types/**/*.ts` to the `include` of
-`tsconfig.json`. `distDir` is a `next.config` setting, and the rule does not own
-your config, so this is Next.js's own behaviour showing through rather than
-something the rule can redirect. All three are the paths a Next.js project
-gitignores anyway.
+`tsconfig.json`. `distDir` is a `next.config` setting and the rule does not own
+your config, so this is Next.js's own behaviour showing through. All three are
+the paths a Next.js project gitignores anyway.
 
 ## Turbopack
 
 Unsupported. `next dev --turbo` replaces the module resolution `NODE_PATH`
 feeds, and nothing here is tested against it.
 
-## What a test can assert
+## Testing
 
 `//tests/integration:nextjs_test` starts both servers on a kernel-assigned port
-and asserts over HTTP. The assertions that actually separate a server-rendered
-route from a file that was prerendered:
+and asserts over HTTP:
 
-- two requests to a `force-dynamic` route return **different** HTML (the route
-  renders a per-request nonce), and that route is **absent** from
-  `prerender-manifest.json` while a sibling static route is present — the pair
-  is what proves Next.js classified them differently rather than prerendering
-  everything;
-- a value the request supplied — the `Host` header — appears in the
-  server-rendered HTML, for both the App Router (`headers()`) and the Pages
-  Router (`getServerSideProps`);
+- two requests to a `force-dynamic` route return different HTML: the route
+  renders a per-request nonce. Before the servers start, the same test reads
+  `prerender-manifest.json` out of the build — that route is absent from it
+  while a sibling static route is present;
+- the `Host` header the request supplied appears in the server-rendered HTML,
+  for both the App Router (`headers()`) and the Pages Router
+  (`getServerSideProps`);
 - the middleware's response header is set, which only exists on a served
   response;
 - both API-route flavours answer with their JSON;
-- `/_next/image?url=…` answers with an image, which is also the reason the build
-  output is copied rather than served read-only.
-
-For `next_dev_server` there is one more, and it is the whole point of the rule:
-edit a source file, then request the route again. The new bytes are served with
-no Bazel invocation in between.
+- `/_next/image?url=…` answers with an image;
+- for `next_dev_server`, a source file edited while the server runs is served
+  on the next request, with no Bazel invocation in between.

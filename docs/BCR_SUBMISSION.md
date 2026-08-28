@@ -1,20 +1,19 @@
 # Bazel Central Registry (BCR) Submission Guide
 
-**Current status: nothing has been released.** There are no git tags, no GitHub
+Current status: nothing has been released. There are no git tags, no GitHub
 releases, and `.bcr/metadata.json` still has an empty `versions` list, so
-`registry.bazel.build/modules/rules_typescript` does not exist. `.bcr/source.json`
-is a placeholder — its URL points at a tarball that was never published and its
-`integrity` is empty; the release workflow fills both in when a tag is pushed.
-Until then consumers pin
-the ruleset with a non-registry override, per
+`registry.bazel.build/modules/rules_typescript` does not exist.
+`.bcr/source.json` is a placeholder: its URL points at a tarball that was never
+published and its `integrity` is empty. The release workflow fills both in when a
+tag is pushed. Until then consumers pin the ruleset with a non-registry override,
+per
 [Depending on rules_typescript](getting-started/quickstart.md#depending-on-rules_typescript).
 
 ## Overview
 
-**The release half is automated; the BCR submission is not.** Pushing a tag does
-everything up to and including the `.bcr/source.json` PR. Getting that into the
-registry is a pull request a person opens against someone else's repository, and
-nothing here can do it for you.
+Pushing a tag does everything up to and including the `.bcr/source.json` PR.
+Getting that into the registry is a pull request a person opens by hand against
+another repository.
 
 1. **Release Workflow** (`.github/workflows/release.yml`) — automated
    - Triggered on git tag push (e.g. `git tag v0.2.0`)
@@ -23,11 +22,12 @@ nothing here can do it for you.
    - Opens the PR that fills in `.bcr/source.json`
 
 2. **Publish to BCR Workflow** (`.github/workflows/publish-to-bcr.yml`) — a
-   pre-flight check, not a publisher. It asserts that `.bcr/metadata.json`,
-   `.bcr/source.json` and `.bcr/presubmit.yml` exist and that the two JSON files
-   parse (`jq -e`), `HEAD`s the tarball URL (a warning, not a failure), prints the
-   manual submission checklist, and uploads the three files as an artifact. It
-   opens no pull request against the registry. Follow
+   pre-flight check. It asserts that `.bcr/metadata.json`, `.bcr/source.json` and
+   `.bcr/presubmit.yml` exist and that the two JSON files parse (`jq -e`),
+   `HEAD`s the tarball URL (a warning, not a failure), prints the manual
+   submission checklist, and uploads the three files as an artifact. On a
+   release event it also rewrites that release's notes to point at the metadata.
+   It opens no pull request against the registry. The manual route is
    [Submission Steps](#submission-steps) below.
 
 ## Release Process
@@ -52,12 +52,13 @@ bazel run //tools/release -- 0.2.0 --dry-run   # print every step, mutate nothin
 bazel run //tools/release -- 0.2.0 --push      # bump, commit, tag, push
 ```
 
-It bumps `module(version)` in `MODULE.bazel`, commits that, and creates the
-annotated tag `v<version>`. It deliberately does **not** build a tarball or
-compute an integrity hash: an archive built locally is not the archive GitHub
-publishes, so a locally computed hash would be wrong. Everything downstream of
-the tag — `git archive`, the GitHub release, the SRI hash and the
-`.bcr/source.json` update — is `.github/workflows/release.yml`.
+It validates the version format, checks that the git working tree is clean, bumps
+`module(version)` in `MODULE.bazel`, commits that, creates the annotated tag
+`v<version>`, and with `--push` pushes it, which starts the Release workflow. It
+builds no tarball and computes no integrity hash: an archive built locally is not
+the archive GitHub publishes. Everything downstream of the tag — `git archive`,
+the GitHub release, the SRI hash and the `.bcr/source.json` update — is
+`.github/workflows/release.yml`.
 
 ### 2. GitHub Release Creation
 
@@ -66,12 +67,14 @@ When you push the tag, GitHub Actions automatically:
 - Builds the release tarball
 - Generates SLSA attestation for supply chain security
 - Creates a GitHub Release
-- Updates BCR metadata files
+- Opens a PR updating `.bcr/source.json`
 
 The release workflow output includes:
 - **version**: Semantic version (e.g., 0.2.0)
 - **tarball**: Compressed archive (e.g., rules_typescript-0.2.0.tar.gz)
-- **sha256**: Integrity hash in SRI format (sha256-...)
+- **sha256**: The hash in hex, as `sha256sum` prints it
+- **integrity**: The same hash in SRI format (`sha256-<base64>`), which is what
+  `.bcr/source.json` carries
 
 ### 3. Verify Release Artifacts
 
@@ -100,7 +103,7 @@ sha256sum rules_typescript-0.2.0.tar.gz
 
 The BCR submission must be done via GitHub PR to https://github.com/bazelbuild/bazel-central-registry
 
-#### Copy the metadata into a BCR fork
+#### Copy the Metadata into a BCR Fork
 
 1. Fork https://github.com/bazelbuild/bazel-central-registry
 
@@ -149,10 +152,10 @@ The BCR submission must be done via GitHub PR to https://github.com/bazelbuild/b
    - Fill PR title: "Add rules_typescript 0.2.0"
    - Fill PR description with details from release notes
 
-#### The pre-flight check
+#### The Pre-Flight Check
 
-Not an alternative route — there is only the manual one above. This validates
-what you are about to copy and prints the same checklist:
+The steps above are the only submission route. This workflow validates what you
+are about to copy and prints the same checklist:
 
 ```bash
 gh workflow run publish-to-bcr.yml \
@@ -160,9 +163,10 @@ gh workflow run publish-to-bcr.yml \
   -R mikn/rules_typescript
 ```
 
-It also runs automatically when a release is published, which is when its
-findings are most use: a missing `.bcr/presubmit.yml` or an unparseable
-`source.json` fails the job before anyone has opened a registry PR.
+It also lists `release: [published]` as a trigger, but the release
+`release.yml` creates does not fire it: GitHub starts no workflow run from an
+event raised with the default `GITHUB_TOKEN`. A release published by hand does
+fire it. See [CI/CD](CI_CD.md#bcr-bazel-central-registry-publishing).
 
 ### BCR Metadata Files
 
@@ -186,7 +190,7 @@ Contains module-level information (shared across all versions):
 }
 ```
 
-**Note**: The `versions` and `yanked_versions` arrays are maintained by the BCR system and should not be manually edited.
+**Note**: The BCR system maintains the `versions` and `yanked_versions` arrays. Do not edit them by hand.
 
 #### .bcr/source.json
 
@@ -225,23 +229,28 @@ bcr_test_module:
         - "//..."
       test_targets:
         - "//..."
+      build_flags:
+        - "--keep_going"
+      test_flags:
+        - "--test_output=short"
 ```
 
 Defines:
 - **module_path**: Path to test module within the repository
 - **matrix**: Combinations of platforms and Bazel versions to test
-- **tasks**: Build and test commands to run
+- **tasks**: Build and test targets, plus the flags each invocation gets
 
 ### Adding SOURCE.md (Optional)
 
-For complex build requirements, add `.bcr/SOURCE.md`:
+For complex build requirements, add `SOURCE.md` at the repository root, which is
+where `publish-to-bcr.yml` looks for it:
 
 ```markdown
 # Building rules_typescript from source
 
 ## Prerequisites
-- Bazel 8+
-- Rust 1.94+
+- Bazel 9+
+- Rust 1.98+
 - Go 1.26+
 
 ## Build Instructions
@@ -252,32 +261,7 @@ The oxc Rust CLI requires the Rust toolchain. It's automatically built by Bazel'
 
 ```
 
-Include this if the standard tarball extraction and build procedure needs documentation.
-
-## Automating with the release tool
-
-```bash
-bazel run //tools/release -- 0.2.0 --push
-```
-
-The tool:
-1. Validates the version format
-2. Checks the git working tree is clean
-3. Updates `module(version)` in MODULE.bazel
-4. Commits the change
-5. Creates the annotated tag `v0.2.0`
-6. Pushes it (with `--push`), which starts the Release workflow
-
-The tarball, the SHA256 SRI hash and the `.bcr/source.json` update happen in
-`.github/workflows/release.yml`, from the tag. `--dry-run` prints every step and
-changes nothing.
-
-**After running the script:**
-```bash
-git push origin v0.2.0
-```
-
-This triggers the GitHub Actions release workflow.
+Add this when the standard tarball extraction and build procedure needs documentation.
 
 ## CI/CD Workflows
 
@@ -294,8 +278,8 @@ This triggers the GitHub Actions release workflow.
 4. Generate SLSA build provenance attestation
 5. Create GitHub Release with tarball
 6. Upload release info for BCR workflow
-7. Update BCR metadata files
-8. Create PR with updated .bcr/source.json
+7. Rewrite `.bcr/source.json` with the URL, integrity hash and strip_prefix
+8. Create PR with the updated .bcr/source.json
 
 **Outputs**:
 - GitHub Release with tarball and attestation
@@ -316,7 +300,8 @@ This triggers the GitHub Actions release workflow.
 4. Verify release exists on GitHub
 5. Check tarball download availability
 6. Generate submission summary and checklist
-7. Comment on release with BCR info
+7. On a release event, replace the release notes with a line pointing at the BCR
+   metadata (`gh release edit --notes`), which overwrites the generated notes
 8. Upload metadata artifacts for reference
 
 ## Release Checklist
@@ -327,7 +312,7 @@ Before cutting a release:
 - [ ] CI tests pass (unit tests, E2E, examples)
 - [ ] Type checking passes (validation)
 - [ ] Determinism check passes
-- [ ] Bootstrap tests pass
+- [ ] Integration tests pass
 - [ ] README is up-to-date
 - [ ] CHANGELOG or release notes prepared
 - [ ] MODULE.bazel version is in main branch (can be done by release script)
@@ -370,20 +355,19 @@ Common issues:
 ### BCR Metadata Issues
 
 The BCR PR's own presubmit validates all three files and names the file and line
-it rejected — that is the authority. For a faster local check on the two JSON
-files, with nothing to install:
+it rejected. It is the authority. For a faster local check on the two JSON files,
+with nothing to install:
 
 ```bash
 python3 -m json.tool .bcr/metadata.json  > /dev/null
 python3 -m json.tool .bcr/source.json    > /dev/null
 ```
 
-`json.tool` is stdlib, so any `python3` will do. There is no stdlib equivalent
-for `.bcr/presubmit.yml`; leave that one to the presubmit rather than installing
-a YAML parser for it.
+`json.tool` is stdlib, so any `python3` will do. `.bcr/presubmit.yml` has no
+stdlib equivalent; the presubmit covers that one.
 
-This is a maintainer's local convenience, not a dependency: no rule, action or
-toolchain in rules_typescript uses Python.
+This is a maintainer's local convenience. No rule, action or toolchain in
+rules_typescript uses Python.
 
 ### Integrity Hash Mismatch
 

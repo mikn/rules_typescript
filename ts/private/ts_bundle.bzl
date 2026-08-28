@@ -26,9 +26,10 @@ Generated-config interface (BundlerInfo.use_generated_config = True, used by Vit
   In app mode (mode="app"), the output is a declared_directory:
     <name>_bundle/  (directory containing HTML + hashed JS/CSS/assets)
 
-When split_chunks=True (lib mode only), chunk splitting is enabled and the rule
-declares the output directory instead of a single file:
+split_chunks=True enables chunk splitting in both modes. In lib mode the
+single-file output becomes a directory instead:
     <name>_bundle/  (directory containing all chunks)
+In app mode the output is that directory already.
 
 env_vars attr: a string_dict that is sugar over the define attr.  Each entry
     {key: value} is translated to define["import.meta.env.<key>"] = '"<value>"'.

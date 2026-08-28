@@ -5,18 +5,16 @@ whose types a `.d.ts` emitter cannot read straight off the syntax, which is
 what TypeScript's [`isolatedDeclarations`](https://www.typescriptlang.org/tsconfig#isolatedDeclarations)
 mode requires.
 
-## Why isolated declarations wants this
+## Isolated Declarations
 
-Normally TypeScript writes `math.d.ts` by running type inference — it has to
-work out what `add()` returns, which means loading this file, its imports,
-their declarations, and so on. Under isolated declarations each file's `.d.ts`
-is derived from that file's syntax alone, so declaration emit never waits for
-an upstream type-check.
+Under `isolatedDeclarations` each file's `.d.ts` is derived from that file's
+syntax alone, so declaration emit never waits for an upstream type-check.
+Inference-based emit writes `math.d.ts` by working out what `add()` returns,
+which means loading this file, its imports, and their declarations.
 
-The catch is that a syntactic emitter faced with an un-annotated export cannot
-fail loudly — it can only widen. An object of five `RegExp`s becomes `{}`; a
-`RegExp` becomes `unknown`. The target still builds, and the damage surfaces
-later in a consumer, against the wrong file:
+A syntactic emitter faced with an un-annotated export widens it. An object of
+five `RegExp`s becomes `{}`; a `RegExp` becomes `unknown`. The target still
+builds, and the error surfaces later in a consumer, against the wrong file:
 
 ```
 parseDomain.ts(95,51): error TS2339: Property 'idPreview' does not exist on type '{}'.
@@ -24,7 +22,7 @@ parseDomain.ts(96,41): error TS18046: 'UUID_PATTERN' is of type 'unknown'.
 ```
 
 This rule reports the missing annotations at their own source location, in your
-editor, before that happens.
+editor.
 
 ## Install
 
@@ -36,17 +34,18 @@ directory of the `rules_typescript` repository and install the tarball:
 # in a rules_typescript checkout:
 cd eslint-plugin
 npm install && npm run build && npm pack
-# -> rules_typescript-eslint-plugin-isolated-declarations-0.1.0.tgz
+# -> rules_typescript-eslint-plugin-isolated-declarations-0.2.0.tgz
 
 # in your project:
 npm install --save-dev \
-  /path/to/rules_typescript/eslint-plugin/rules_typescript-eslint-plugin-isolated-declarations-0.1.0.tgz \
+  /path/to/rules_typescript/eslint-plugin/rules_typescript-eslint-plugin-isolated-declarations-0.2.0.tgz \
   @typescript-eslint/parser \
   eslint
 ```
 
-Once it is published, the same two peers plus
-`@rules_typescript/eslint-plugin-isolated-declarations` by name is all it takes.
+Once it is published, install
+`@rules_typescript/eslint-plugin-isolated-declarations` by name alongside the
+same two peers.
 
 Requires ESLint 9+ (flat config) and `@typescript-eslint/parser` 8+, both peer
 dependencies. The rule is purely syntactic: it reads the AST only, so no
@@ -54,7 +53,7 @@ dependencies. The rule is purely syntactic: it reads the AST only, so no
 
 ## Usage
 
-Take the bundled config:
+The bundled config:
 
 ```js
 // eslint.config.js
@@ -65,12 +64,10 @@ export default [isolatedDeclarations.configs.recommended];
 
 `configs.recommended` registers the plugin under the `isolated-declarations`
 namespace and turns `require-explicit-types` on at `error`. It is the only
-bundled config, and it is deliberately all-or-nothing: isolated declarations is
-a per-package property, and a package with one un-annotated export does not
-have it.
+bundled config.
 
-Or wire it up yourself, if you want a different severity, namespace, or file
-scope:
+For a different severity, namespace, or file scope, wire the plugin up
+directly:
 
 ```js
 import isolatedDeclarations from '@rules_typescript/eslint-plugin-isolated-declarations';
@@ -88,9 +85,9 @@ The default export is the plugin object. `plugin` is also a named export, and
 `requireExplicitTypes` is exported directly for consumers who assemble their own
 rule sets.
 
-Both an ESM and a CommonJS entry point ship. Because the entry has named
-exports alongside the default one, `require()` hands back the module namespace,
-so a CommonJS config reaches the plugin through `.default`:
+Both an ESM and a CommonJS entry point ship. The entry has named exports
+alongside the default one, so `require()` hands back the module namespace, and a
+CommonJS config reaches the plugin through `.default`:
 
 ```js
 // eslint.config.cjs
@@ -100,7 +97,7 @@ const isolatedDeclarations =
 module.exports = [isolatedDeclarations.configs.recommended];
 ```
 
-## What `require-explicit-types` flags
+## Reported Exports
 
 | Export pattern | Reported when |
 |----------------|---------------|
@@ -118,23 +115,24 @@ auto-fix, so `eslint --fix` annotates it: literals (`string`, `number`,
 negated and signed literals, array literals whose elements are all inferable
 (`never[]` when empty, `T[]` when uniform, a union of up to four members
 otherwise), and function bodies that are a single `return` of one of those (or
-a bare `return`, giving `void`).
+a bare `return`, giving `void`). An `async` function's inferred type is wrapped
+in `Promise<>`; a generator gets no fix.
 
-Everything else is reported with a suggestion telling you to annotate by hand.
-Object literals are never inferred — a structural annotation synthesised from
-one is verbose and silently drops optionality and method signatures. Parameters
-and class properties are likewise never auto-fixed.
+A binding or return type that cannot be read off the AST is reported with a
+suggestion to annotate by hand. Object literals are never inferred: a structural
+annotation synthesised from one is verbose and drops optionality and method
+signatures. Parameters, class properties and an expression default export carry
+neither a fix nor a suggestion.
 
-### What it does not flag
+### Not Reported
 
 `export type`, `export interface`, `export enum`, `export declare`, re-exports
 (`export { x } from './y'`), a default export of a bare identifier or a literal,
 constructors, setter return types (annotating one is a compile error, TS1095),
 and computed class members.
 
-That list is why a clean run of this rule is a good signal and not a guarantee:
-the emitter you point at the package is the authority on whether its
-declarations can be emitted syntactically.
+A clean run of this rule does not guarantee the package emits declarations
+syntactically; the emitter itself decides that.
 
 ## Options
 

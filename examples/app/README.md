@@ -2,7 +2,7 @@
 
 A standard TypeScript library/service workflow with npm deps, vitest testing, and bundling.
 
-## What this demonstrates
+## What This Demonstrates
 
 - npm dependency management (`zod`) via pnpm lockfile
 - `ts_test` with vitest (auto-generates `node_modules` from `@npm` deps)
@@ -30,7 +30,7 @@ examples/app/
       BUILD.bazel     # ts_compile with cross-package dep
 ```
 
-## Quick start
+## Quick Start
 
 ```bash
 bazel build //...    # compile + type-check (validation is on by default via .bazelrc)
@@ -38,7 +38,7 @@ bazel test //...     # run vitest tests
 bazel run //:gazelle # regenerate BUILD files from source
 ```
 
-## How it works
+## How It Works
 
 The `//src/schema` package uses `zod` as an npm dependency for runtime validation. The `ts_compile` target lists `@npm//:zod` in `deps`, which provides `.d.ts` files at compile time. The `ts_test` target runs vitest against the schema logic -- it lists its `@npm` deps directly and `ts_test` auto-generates the `node_modules` tree needed at runtime. No manual `node_modules` target is required.
 
@@ -46,6 +46,6 @@ The `//src/app` package depends on `//src/schema` via the `.d.ts` boundary. The 
 
 Exported zod schemas need explicit type annotations for oxc's isolated declarations mode. For example, `export const UserSchema: z.ZodObject<{...}> = z.object({...})` rather than relying on type inference.
 
-## Using as a template
+## Using as a Template
 
 Copy this directory. Remove the `local_path_override` block in `MODULE.bazel` and set the `rules_typescript` version to the published BCR version. Keep `pnpm-lock.yaml` checked in -- run `pnpm install` to update it when adding new npm dependencies.

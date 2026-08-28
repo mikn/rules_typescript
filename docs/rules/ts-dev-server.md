@@ -1,12 +1,12 @@
 # ts_dev_server
 
 Starts a Vite dev server for a TypeScript application. Vite transforms
-first-party source in memory, so Bazel is out of the edit → browser loop;
-`bazel-bin` supplies only what Vite cannot produce itself (`ts_codegen` output,
-the npm tree, assets, passthrough `.d.ts`).
+first-party source in memory, so Bazel is out of the edit-to-browser loop;
+`bazel-bin` supplies what Vite cannot produce itself (`ts_codegen` output, the
+npm tree, assets, passthrough `.d.ts`).
 
-The dev server **does not type-check** — that is native Vite parity, and it
-makes your editor and `bazel build` the things that report type errors.
+The dev server does not type-check, which is native Vite parity: type errors come
+from your editor and `bazel build`.
 
 ## Usage
 
@@ -41,52 +41,54 @@ ibazel run //src/app:dev   # codegen rebuilds and config-aware restarts
 | `port` | `int` | `5173` | Dev server port |
 | `host` | `string` | `"localhost"` | Dev server host. Set to `"0.0.0.0"` to bind on all interfaces |
 | `open` | `bool` | `False` | Open the browser automatically on start |
-| `node_modules` | `label` | `None` | `node_modules` target providing Vite and the application's runtime deps. Also what makes a bare npm import resolve at all — see [npm resolution](#npm-resolution) |
+| `node_modules` | `label` | `None` | `node_modules` target providing Vite and the application's runtime deps; also what makes a bare npm import resolve — see [npm resolution](#npm-resolution) |
 | `plugin` | `label` | `None` | Compiled `vite-plugin-bazel` `.mjs` file. It resolves generated code out of `bazel-bin`, invalidates precisely on a rebuild, and makes the restart decision. Without it `bazel-bin` is invisible to Vite |
+| `server` | `label` | `@rules_typescript//vite:dev_server` | `DevServerInfo`-providing target choosing the implementation. `@rules_typescript//oj:dev_server` selects oj — see [Dev Server](../guides/dev-server.md#choosing-the-server) |
 | `bundler` | `label` | `None` | `BundlerInfo`-providing target, for a non-Vite dev server. The Vite path resolves Vite from `node_modules` and does not need it |
 | `react_refresh` | `bool` | `False` | React Fast Refresh via `@vitejs/plugin-react`, so component state survives an HMR update. Requires `@npm//:vitejs_plugin-react` in the `node_modules` deps; the dev server fails to start if the plugin cannot be loaded |
-| `vite_config` | `label` | `None` | A `.mjs`/`.js` file default-exporting `{plugins: [...]}`, prepended to Bazel's plugins. This is how framework plugins run in the dev server — TanStack Start's and Remix's do; SvelteKit's and Solid Start's [cannot](../gazelle/overview.md#framework-detection). Loaded from a copy in `bazel-bin`, which bounds what it may import |
+| `vite_config_srcs` | `label_list` | `[]` | The local modules `vite_config` imports, staged beside it so its relative imports resolve |
+| `vite_config` | `label` | `None` | A `.ts`/`.mts`/`.mjs`/`.js` file default-exporting `{plugins: [...]}`, prepended to Bazel's plugins. This is how a framework plugin runs in the dev server; SvelteKit's and Solid Start's [cannot](../gazelle/overview.md#framework-detection), and TanStack Start's loads but does not serve. Loaded from a copy in `bazel-bin`, which bounds what it may import |
 
-## npm resolution
+## npm Resolution
 
 A bare specifier in dev-served source resolves through the `node_modules` tree,
 via a generated `bazel:npm-resolve` plugin at `enforce: 'pre'`. Vite has no
-search-path option — it walks up from the importer looking for a `node_modules`
-directory, and above a checked-in source file there is none, because the tree is a
-Bazel output elsewhere. The plugin locates `<tree>/<package>/package.json` and
-hands the id back to Vite's own resolver anchored there, so exports maps,
-conditions and subpaths are interpreted by Vite rather than reimplemented by the
-rule. A package the tree does not carry produces Vite's ordinary
-`Failed to resolve import`; add it to the `node_modules` target's `deps`.
+search-path option and finds no `node_modules` above a checked-in source file, so
+the plugin locates `<tree>/<package>/package.json` and hands the id back to Vite's
+own resolver anchored there; exports maps, conditions and subpaths stay Vite's. A
+package the tree does not carry produces Vite's `Failed to resolve import`; add it
+to the `node_modules` target's `deps`.
 
 ## What a `vite_config` may import
 
-The rule loads a **copy of the file in `bazel-bin`**, not your source file, so its
-own imports resolve beside the Bazel npm tree instead of in the source tree. A
-bare npm specifier resolves through the tree the `node_modules` attr built,
-provided that target is in the same Bazel package as the dev server; a relative
-import does not, and the server exits with
-`[rules_typescript] Failed to load vite_config` naming the file. Pinned by
-`//tests/dev_server:vite_config_boundary_test`; details in
+The rule loads a copy of the file in `bazel-bin`, so its own imports resolve
+beside the Bazel npm tree. A bare npm specifier resolves through the tree the
+`node_modules` attr built, provided that target is in the same Bazel package as
+the dev server. A relative import resolves only if the module is declared in
+`vite_config_srcs`; otherwise the server exits with
+`[rules_typescript] Failed to load vite_config` naming the file.
+`//tests/dev_server:vite_config_boundary_test` covers every side of that
+boundary; details in
 [Dev Server](../guides/dev-server.md#vite_config-what-it-may-import).
 
 ## Restarts
 
 One Vite process lives across every rebuild: `ibazel` SIGTERMs the launcher and
-the launcher deliberately survives it, so the restart decision is made in the
-process, by comparing content digests of the inputs the generated config was
-built from. A source edit and a `ts_codegen` rebuild do not restart; a change to
-the generated config, the npm tree or the toolchain node binary does. See
-[Dev Server](../guides/dev-server.md#watch-mode-with-ibazel-and-who-decides-to-restart).
+the launcher survives it, so the restart decision is made in the process, by
+comparing content digests of the inputs the generated config was built from. A
+source edit and a `ts_codegen` rebuild do not restart it; a change to the
+generated config, the npm tree or the toolchain node binary does. See
+[Dev Server](../guides/dev-server.md#watch-mode-with-ibazel).
 
-## Edit-to-HMR latency
+## Edit-to-HMR Latency
 
-The goal is under 500 ms from save to browser update, and
+The goal is under 500 ms from save to browser update.
 `//tests/dev_server:{dev,dev_with_plugin,dev_oj}_hmr_latency_test` measures the
 server's share of it by holding a WebSocket open as a browser would and saving a
-file: single-digit milliseconds under Vite, low double digits under oj. The
-suite asserts only that the median stays inside the whole budget. See
-[Dev Server](../guides/dev-server.md#edit-to-hmr-latency) for the numbers and how
+file. The browser's own re-execution is outside the measurement. The suite
+asserts only that the median stays inside the whole budget, and logs the
+distribution it measured on every run. See
+[Dev Server](../guides/dev-server.md#edit-to-hmr-latency) for those logs and how
 to run a longer sample.
 
 ## Diagnostics

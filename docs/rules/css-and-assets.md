@@ -1,14 +1,14 @@
 # css_library, css_module, asset_library, json_library
 
-Four rules put non-TypeScript files into the module graph. Each one generates the
-ambient declaration TypeScript needs (`allowArbitraryExtensions`), and each one
-propagates its files through a provider so that a bundler or dev server
-downstream can find them.
+Four rules put non-TypeScript files into the module graph. Each generates the
+ambient declaration TypeScript needs (`allowArbitraryExtensions`) and propagates
+its files through a provider, so a bundler or dev server downstream can find
+them.
 
 | Rule | Files | Import form | Provider |
 |------|-------|-------------|----------|
 | `css_library` | `.css` | `import "./button.css"` (side effect) | `CssInfo` |
-| `css_module` | `*.module.css` | `import styles from "./Button.module.css"` | `CssModuleInfo` |
+| `css_module` | `.css` (Gazelle routes `*.module.css` here) | `import styles from "./Button.module.css"` | `CssModuleInfo` |
 | `asset_library` | `.svg .png .jpg .jpeg .gif .webp .woff .woff2 .ttf .eot` | `import logo from "./logo.svg"` (URL string) | `AssetInfo` |
 | `json_library` | `.json` | `import config from "./config.json"` (fully typed) | — |
 
@@ -38,42 +38,40 @@ ts_compile(
 ```
 
 Gazelle writes all four for you, one target per file, named after the file with
-its dots turned into underscores (`Panel.module.css` → `panel_module_css`).
+its dots turned into underscores (`Panel.module.css` → `Panel_module_css`).
 
-## A dep on any of them means the consumer bundles
+## Imports Are Not Rewritten
 
-`ts_compile` does not rewrite the import. `Button.js` in `bazel-bin` still says
-`import "./button.css"`, because that import is the only carrier of both facts a
-consumer needs: that this module requires that stylesheet, and in what order
-relative to the others. Node cannot load it:
+`ts_compile` leaves the import alone. `Button.js` in `bazel-bin` still says
+`import "./button.css"`, the carrier of both facts a consumer needs: that this
+module requires that stylesheet, and in what order relative to the others. Node
+cannot load it:
 
 ```
 $ node bazel-bin/tests/css/Button.js
 TypeError [ERR_UNKNOWN_FILE_EXTENSION]: Unknown file extension ".css"
 ```
 
-That is not a bug to route around — it is what "this is bundler-targeted code"
-looks like. A target with a `css_library`, `css_module` or `asset_library` dep is
-consumed by [`ts_bundle`](ts-bundle.md), by
-[`ts_dev_server`](ts-dev-server.md), or by a downstream bundler reading the
-published package. Running its `.js` under bare `node` is not among the options.
+A target with a `css_library`, `css_module` or `asset_library` dep is consumed
+by [`ts_bundle`](ts-bundle.md), by [`ts_dev_server`](ts-dev-server.md), or by a
+downstream bundler reading the published package.
 
 ## The files are copied into `bazel-bin`
 
-Each rule copies its sources into `bazel-bin` beside the compiled `.js` and puts
-the copies — not the source files — in its provider. The importer is that
-compiled `.js`, and `import "./button.css"` resolves relative to the importer, so
-a stylesheet that existed only in the source tree would not be where the bundler
-looks.
+`css_library`, `css_module` and `asset_library` copy their sources into
+`bazel-bin` beside the compiled `.js` and put the copies, not the source files,
+in the provider. The importer is that compiled `.js`, and
+`import "./button.css"` resolves relative to the importer, so a stylesheet that
+existed only in the source tree would not be where the bundler looks.
 
-They are copies rather than symlinks because a bundler resolves a symlink to its
-real path before resolving what the file itself imports: `@import "tailwindcss"`
+They are copies, not symlinks, because a bundler resolves a symlink to its real
+path before resolving what the file itself imports: `@import "tailwindcss"`
 reached through a symlink would look for a source-tree `node_modules` that a
 Bazel build does not have.
 
-## What the declarations promise
+## What the Declarations Promise
 
-`css_library` emits an empty declaration — a side-effect import has no export
+`css_library` emits an empty declaration; a side-effect import has no export
 surface to describe.
 
 `css_module` emits the keys:
@@ -87,14 +85,14 @@ declare const styles: {
 export default styles;
 ```
 
-Keys and values come from one place. The action runs postcss-modules over the
-stylesheet, writes the export map it produced to `<source>.exports.json`, and
-generates the declaration from that map's keys — so the keys are exactly what
-the stylesheet exports. `@keyframes` names, `#id` selectors and `@value` names
-are exports and are declared, so `styles["panel-fade"]` type-checks.
-`composes: … from "./other.module.css"` resolves, which also means it fails on
-bad input: postcss-modules errors on a name it cannot find, and the other file
-has to be in `deps`.
+The action runs postcss-modules over the stylesheet, writes the export map it
+produced to `<source>.exports.json`, and generates the declaration from that
+map's keys, so the declared keys are exactly what the stylesheet exports.
+`@keyframes` names, `#id` selectors and `@value` names are exports and are
+declared, so `styles["panel-fade"]` type-checks.
+`composes: … from "./other.module.css"` resolves, and fails on bad input:
+postcss-modules errors on a name it cannot find, and the other file has to be in
+`deps`.
 
 The values are scoped names Bazel decides:
 
@@ -102,38 +100,31 @@ The values are scoped names Bazel decides:
 _<local name>_<first 8 hex of sha256(hash_prefix + stylesheet bytes)>
 ```
 
-A pure function of the local name and the stylesheet's own bytes — no filename,
-no cwd, no line number — so a build in a different sandbox or output base mints
-the same name. `ts_bundle`, `ts_dev_server` and `ts_test` install a Bazel-owned
-Vite plugin that hands Vite that map, so the bundler's own CSS-modules pass
-reproduces the names rather than inventing its own. Under `ts_test` the import
-resolves to the same map, so a unit test asserts the string the bundle really
-emits rather than a proxy's echo of the property name.
+The name is a pure function of the local name and the stylesheet's own bytes: no
+filename, no cwd, no line number, so a build in a different sandbox or output
+base mints the same name. `ts_bundle`, `ts_dev_server` and `ts_test` install a
+Bazel-owned Vite plugin that hands Vite that map, so the bundler's own
+CSS-modules pass reproduces the names. Under `ts_test` the import resolves to
+the same map, so a unit test asserts the string the bundle really emits.
 
-Four attributes change the answer, and they belong on the rule because the rule
-is what wrote the declaration: `locals_convention`, `scope_behaviour`,
-`hash_prefix` and `export_globals`. Setting the bundler-side equivalent instead
-— `css.modules.generateScopedName`, or `css.modules = false` — is a hard build
-failure naming the attribute to use, because it would silently make the
-declaration a lie.
-
-`//tests/vite_bundle:bundle_assets_test` pins the agreement: it compares the
-declaration, the export map, and a map dumped from the real bundle through
-`css.modules.getJSON` — keys *and* values, no exceptions — and looks for every
-value in the emitted stylesheet.
+Four attributes change the answer, and they belong on the rule that wrote the
+declaration: `locals_convention`, `scope_behaviour`, `hash_prefix` and
+`export_globals`. Setting one of them under `css.modules` in the bundler config
+is a hard build failure naming the attribute to use, and so are
+`css.modules.generateScopedName` and `css.modules = false`.
 
 `asset_library` and `json_library` promise a `string` URL and the parsed JSON
-shape respectively. JSON is deliberately not an `asset_library` extension:
-`json_library` parses the file at build time and generates real property types,
-which an ambient `string` declaration would throw away.
+shape respectively. JSON is not an `asset_library` extension: `json_library`
+parses the file at build time and generates real property types, which an
+ambient `string` declaration would throw away.
 
-## In a bundle
+## In a Bundle
 
 App mode hashes every imported stylesheet and asset and rewrites the references
-in the HTML. Lib mode extracts all CSS into one declared `<bundle_name>.css`
-and does not reference it from the JS, so the consumer has to include it.
+in the HTML. Lib mode extracts all CSS into one declared `<bundle_name>.css` and
+does not reference it from the JS, so the consumer has to include it.
 
-For static files that must keep the name they were given — `robots.txt`, a
-favicon named from an HTML tag — use `ts_bundle`'s `public_dir` instead of an
+Static files that must keep the name they were given — `robots.txt`, a favicon
+named from an HTML tag — go in `ts_bundle`'s `public_dir` and not an
 `asset_library`: those are copied verbatim, unhashed. See
 [Bundling](../guides/bundling.md#css-css-modules-and-assets).

@@ -72,7 +72,7 @@ nav:
     - ts_lint: rules/ts-lint.md
     - ts_codegen: rules/ts-codegen.md
     - next_build: rules/next-build.md
-    - next_run: rules/next-run.md
+    - next_dev_server / next_serve: rules/next-run.md
     - remix_build: rules/remix-build.md
     - sveltekit_build: rules/sveltekit-build.md
     - svelte_library: rules/svelte-library.md

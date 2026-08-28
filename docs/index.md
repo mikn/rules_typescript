@@ -4,61 +4,54 @@ An opinionated Bazel ruleset for TypeScript, optimised for the **Oxc + Vite** to
 
 [Oxc](https://oxc.rs/) compiles. [tsgo](https://github.com/microsoft/typescript-go) type-checks. [Vite](https://vite.dev/) bundles. [Gazelle](https://github.com/bazelbuild/bazel-gazelle) generates BUILD files. Write `.ts`, run Gazelle, `bazel build //...`. No `node_modules/`. No system Node. Just Bazelisk.
 
-**Have a TypeScript monorepo and want a target building?** Go straight to the
-[Quick Start](getting-started/quickstart.md) — five root files, then
-`bazel run //:gazelle`. Nothing on this page or in the rules reference is needed
-first. [Install](#install) and [Quick Example](#quick-example) below are the same
-path in miniature.
+Coming from an existing TypeScript monorepo, the
+[Quick Start](getting-started/quickstart.md) is the whole path: five root files,
+then `bazel run //:gazelle`. [Install](#install) and
+[Quick Example](#quick-example) below are the short version.
 
 ## Built for the Vite Ecosystem
 
-Vite is the bundler and the dev server. A framework that ships a Vite plugin is
-expressible: `vite_config` names the config file, `vite_config_srcs` the local
-modules it imports, and the plugins it exports run before Bazel's
-([bundling](guides/bundling.md#framework-plugins-via-vite_config)). What that
-config may *not* be is a program — only the keys the generated config reads reach
-the build, and any other key fails the build naming itself.
+Vite is the bundler and the dev server. A framework that ships a Vite plugin
+fits: `vite_config` names the config file, `vite_config_srcs` the local modules
+it imports, and the plugins it exports run before Bazel's. Only the keys the
+generated config reads reach the build; any other key fails the build, naming
+itself. See
+[Framework plugins via `vite_config`](guides/bundling.md#framework-plugins-via-vite_config).
 
-| Framework | Gazelle generates a bundle target? | Evidence in this repo |
+| Framework | Gazelle generates a bundle target? | What you get |
 |---|---|---|
-| **React + Vite** | n/a — plain Vite, no framework plugin | `examples/react-app`: SPA bundling, React Fast Refresh HMR, CSS modules |
-| **TanStack Start** | yes | `//tests/integration:tanstack_test` — server functions reach the client through a generated handler id, route markers appear exactly once, and the route paths are stable across runs. Plus `examples/tanstack-app` and `//tests/integration:vite_bundle_test` |
-| **Remix** | yes — SPA and SSR | `//tests/integration:remix_test` for the SPA path: Gazelle over a fresh workspace, then a build of what it wrote, asserting one chunk per route. `//tests/integration:remix_ssr_test` builds through [`remix_build`](rules/remix-build.md) and asserts the build manifest carries every route, nesting and folder routes included. Plus `examples/remix-app` |
-| **SvelteKit** | yes | [`sveltekit_build`](rules/sveltekit-build.md) returns both halves. `//tests/integration:sveltekit_test` asserts `client/` holds hashed chunks, that both of the two Vite passes land, and that `server/manifest.js` carries a route id per route directory, `[slug]` pattern included. `.svelte` components compile through [`svelte_library`](rules/svelte-library.md), covered by `//tests/integration:svelte_test` (browser and SSR outputs) |
-| **Solid Start** | **no**, by decision | Gazelle names the framework and the reason instead |
+| **React + Vite** | n/a — plain Vite, no framework plugin | SPA bundle, CSS modules, Fast Refresh HMR under `react_refresh = True` |
+| **TanStack Start** | yes | `client/` and `server/server.mjs`, no dev server; server functions reach the client through a generated handler id |
+| **Remix** | yes | SPA bundle with per-route chunks, and SSR via [`remix_build`](rules/remix-build.md) |
+| **SvelteKit** | yes | `client/` and `server/manifest.js` via [`sveltekit_build`](rules/sveltekit-build.md); `.svelte` components via [`svelte_library`](rules/svelte-library.md) |
+| **Solid Start** | no | Gazelle logs the framework and the reason |
 
-For Solid Start, that is the whole support statement: a `ts_bundle` nothing can
-build is worse than none, and silence is worse than both, so Gazelle logs which
-framework it saw and why bundling it is unsupported — `@solidjs/start` ships no
-Vite plugin, and `defineConfig()` returns a vinxi app rather than the default
-export with a `plugins` array that `vite_config` consumes. The rest of the
-workspace still compiles and tests. The reason, and what a client-only build
-would take instead, is in
+Solid Start gets no bundle target: `ts_bundle`'s `vite_config` contract is a
+default export with a `plugins` array, `@solidjs/start` ships no Vite plugin,
+and its `defineConfig()` returns a vinxi app. TanStack Start gets no dev
+server: its SSR module runner inlines `react/jsx-runtime` instead of
+externalising it against a `node_modules` tree that is a build output. Gazelle
+logs the framework and the reason in both cases, and the workspace still
+compiles and tests. See
 [Framework detection](gazelle/overview.md#framework-detection).
 
-TanStack Start gets a bundle but no dev server, for a reason of the same kind:
-its SSR module runner inlines `react/jsx-runtime` rather than externalising it
-against a `node_modules` tree that is a build output. Gazelle names that too
-instead of writing a dev target that answers 500.
-
 `examples/` is in `.bazelignore`, so the example workspaces are separate Bazel
-invocations; CI builds all six of them in full.
+invocations; CI builds all six.
 
 Frameworks that don't use Vite are not a priority. Next.js is the exception with
-a rule of its own — [`next_build`](rules/next-build.md) runs the framework's own
+a rule of its own: [`next_build`](rules/next-build.md) runs the framework's own
 build, and [`next_dev_server` and `next_serve`](rules/next-run.md) run the app
-from source or from that build (`examples/nextjs-app`,
-`//tests/integration:nextjs_test`).
+from source or from that build (`examples/nextjs-app`).
 
 ## Key Ideas
 
-- **Oxc compiles** — Rust-based TypeScript/JSX transformer. `.js` + `.js.map` per file, hundreds of files in milliseconds, and `.d.ts` too under `declarations = "oxc"`.
-- **tsgo emits declarations and type-checks** — Go port of TypeScript. Unmodified TypeScript compiles: no explicit export annotations required, and the `.d.ts` are what `tsc` would produce. Type errors fail `bazel build` because the declarations are real outputs.
+- **Oxc compiles** — Rust-based TypeScript/JSX transformer. `.js` + `.js.map` per file, and `.d.ts` too under `declarations = "oxc"`.
+- **tsgo emits declarations and type-checks** — Go port of TypeScript, and the default emitter. Unmodified TypeScript compiles: no export annotations required, and the `.d.ts` are what `tsc` would produce. Type errors fail `bazel build`; the declarations are real outputs.
 - **Vite bundles** — production bundles with tree-shaking, code splitting, minification. App mode (HTML + hashed assets) and lib mode.
-- **Isolated declarations, when you want them** — annotate a package's exports and set `declarations = "oxc"` to have Oxc emit its `.d.ts` syntactically. Type-checking then moves off the critical path, which on a deep dependency chain shortens it substantially ([measured](rules/ts-compile.md#cost-of-each-mode)). Opt-in, per package.
-- **Gazelle generates the BUILD files** — targets inferred from the directory tree, imports resolved to labels, lint / bundler / dev-server targets generated, frameworks and codegen auto-detected. Ten `# gazelle:ts_*` directives configure it.
-- **Deps are what you declared** — a source may import only what a *direct* dep provides. A declaration arriving through another dep's own deps no longer satisfies an import; the build fails naming the file, the specifier and the label to add, and Gazelle writes it.
-- **npm without a store** — one Bazel repository per package, fetched on demand, behind a `@npm` alias hub. A target's npm cost is its own dependency closure, not the whole lockfile, and no `node_modules/` exists in the source tree. A `node_modules` tree places every *resolution* a closure made — name, version and peer set — not one directory per name.
+- **Isolated declarations** — annotate a package's exports, set `declarations = "oxc"`, and Oxc emits the `.d.ts` syntactically. Type-checking leaves the critical path, which shortens a deep dependency chain substantially. Opt-in, per package. See [Cost of each mode](rules/ts-compile.md#cost-of-each-mode).
+- **Gazelle generates the BUILD files** — targets inferred from the directory tree, imports resolved to labels, lint / bundler / dev-server targets generated, frameworks and codegen auto-detected. Eleven `# gazelle:ts_*` directives configure it.
+- **Direct dependencies** — a source may import only what a direct dep provides. A declaration arriving through another dep's own deps does not satisfy an import; the build names the file, the specifier and the label to add, and Gazelle writes it.
+- **How npm packages are fetched** — one Bazel repository per package, fetched on demand, behind a `@npm` alias hub. A target's npm cost is its own closure, not the whole lockfile, and the source tree holds no `node_modules/`. A materialised tree carries one entry per resolution — name, version and peer set — rather than one directory per name.
 - **Only Bazelisk required** — Node.js, Go and Rust are fetched hermetically, and [pnpm too](guides/npm.md#hermetic-pnpm) if you want it. pnpm is needed only to edit the lockfile, never to build.
 
 ## Install
@@ -79,16 +72,15 @@ register_toolchains("@rules_typescript//ts/toolchain:all")
 bazel_dep(name = "gazelle", version = "0.47.0")
 ```
 
-Pin a commit, and expect to move it deliberately: pre-1.0 any commit may break
-the API with no deprecation window, and every break is listed in the
-[changelog](changelog.md) with the edit it requires
-([versioning policy](compatibility.md#versioning-policy)).
+Move the pin deliberately: pre-1.0, any commit may break the API with no
+deprecation window. Every break is listed in the [changelog](changelog.md) with
+the edit it requires, and the
+[versioning policy](compatibility.md#versioning-policy) has the rest.
 
 `bazel_dep` keeps its `version` attribute — bzlmod requires it and ignores the
 value while an override is in place. The quickstart covers the
 [`archive_override` and `local_path_override` alternatives](getting-started/quickstart.md#depending-on-rules_typescript);
-the plain `bazel_dep` line starts resolving on its own once a version reaches
-the BCR.
+the plain `bazel_dep` line resolves on its own once a version reaches the BCR.
 
 Add to `.bazelrc`:
 
@@ -98,10 +90,10 @@ build --nolegacy_external_runfiles
 build --output_groups=+_validation
 ```
 
-That is all of it. No `@rules_rust` flag belongs here — `rules_rust` is a
-transitive dependency of `rules_typescript`, so Bazel cannot resolve the label
-from your repository and fails the invocation
-([troubleshooting](guides/troubleshooting.md#no-repository-visible-as-rules_rust)).
+No `@rules_rust` flag belongs here. `rules_rust` is a transitive dependency of
+`rules_typescript`, so Bazel cannot resolve the label from your repository and
+fails the invocation. See
+[Troubleshooting](guides/troubleshooting.md#no-repository-visible-as-rules_rust).
 
 Your repository root also needs a `BUILD.bazel` (empty is fine) — `rules_rust`
 resolves `//:MODULE.bazel` while fetching crates, and that requires the root to
@@ -109,8 +101,7 @@ be a package.
 
 ## Quick Example
 
-Write TypeScript. Export annotations are optional — the default emitter is tsgo,
-which infers them from the full type program:
+Write TypeScript. Export annotations are optional under tsgo:
 
 ```typescript
 // src/math.ts
@@ -126,9 +117,9 @@ bazel run //:gazelle
 bazel build //...
 ```
 
-Gazelle produces `src/BUILD.bazel`. The target is named after the **directory**,
-not the file — one `ts_compile` per directory, the way one Go package is one
-directory ([naming](gazelle/overview.md#generated-target-names)):
+Gazelle produces `src/BUILD.bazel`, one `ts_compile` per directory, named after
+the directory. See
+[Generated target names](gazelle/overview.md#generated-target-names).
 
 ```python
 ts_compile(
@@ -148,14 +139,14 @@ ts_compile(
 | macOS ARM64 | Supported |
 | Windows x86_64 | **Not supported** |
 
-Windows is not supported right now. It may be considered in the future. What runs there today:
-[Compatibility](compatibility.md#windows).
+Windows is not supported right now; it may be considered in the future. What
+runs there today: [Compatibility](compatibility.md#windows).
 
 ## Documentation
 
 - [Quick Start](getting-started/quickstart.md) — new project or migrating an existing one
 - [Isolated Declarations](getting-started/isolated-declarations.md) — the opt-in throughput mode
-- [IDE Setup](getting-started/ide-setup.md) — the live tsserver resolution hook, for any editor that runs tsserver
+- [IDE Setup](getting-started/ide-setup.md) — the generated `tsconfig.json`, plus the tsserver hook for any editor that runs tsserver
 - [npm Dependencies](guides/npm.md) — pnpm lockfile integration
 - [Testing with vitest](guides/testing.md) — `ts_test`, the vitest config layers, coverage
 - [Bundling](guides/bundling.md) — `ts_bundle` with Vite or custom bundlers
@@ -167,7 +158,7 @@ Windows is not supported right now. It may be considered in the future. What run
 - [Gazelle Reference](gazelle/overview.md) — directives, package boundaries, framework detection
 - [Rules Reference](rules/ts-compile.md) — all rule attributes and providers
 - [Migrating from rules_ts](getting-started/migration.md) — where the other ruleset is the better choice
-- [Compatibility](compatibility.md) — Bazel and platform support, the Vite/vitest versions the tests exercise, and what "pre-1.0" means here
+- [Compatibility](compatibility.md) — Bazel and platform support, the Vite/vitest versions the tests exercise, and the pre-1.0 policy
 
 ## License
 
