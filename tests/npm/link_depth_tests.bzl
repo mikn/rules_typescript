@@ -36,15 +36,15 @@ _EDGES = {
 def _depth(path):
     return len(path.split("/"))
 
-def _chained_link_is_copied_instead(ctx):
+def _chained_link_is_materialised_instead(ctx):
     env = unittest.begin(ctx)
     plan = node_modules_testing.plan_links(_EDGES, _STORE_PATHS)
 
     asserts.equals(
         env,
         [("vite@7.3.1", "vite-node/node_modules/vite")],
-        plan.copies,
-        "vite has links of its own, so it is copied to vite-node rather than linked",
+        plan.materialise,
+        "vite has links of its own, so it is placed under vite-node rather than linked to",
     )
 
     # Its picomatch link is re-emitted for the position the copy sits at, and the
@@ -80,12 +80,12 @@ def _no_link_lands_on_a_package_that_has_links(ctx):
             )
     return unittest.end(env)
 
-chained_link_is_copied_test = unittest.make(_chained_link_is_copied_instead)
+chained_link_is_materialised_test = unittest.make(_chained_link_is_materialised_instead)
 no_link_lands_on_a_package_that_has_links_test = unittest.make(_no_link_lands_on_a_package_that_has_links)
 
 def link_depth_test_suite(name):
     unittest.suite(
         name,
-        chained_link_is_copied_test,
+        chained_link_is_materialised_test,
         no_link_lands_on_a_package_that_has_links_test,
     )
