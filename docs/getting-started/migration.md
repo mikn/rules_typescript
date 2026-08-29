@@ -30,12 +30,12 @@ release, production users and Windows support. This has none of the three.
 | **Compilation boundary** | tsc project references | `.d.ts` per target |
 | **Bundler** | Bring your own | Vite, through `ts_bundle`; any other bundler through `BundlerInfo` |
 | **Dev server** | None built-in | Vite or oj, chosen per target, with HMR and React Fast Refresh |
-| **npm management** | rules_js (pnpm virtual store, symlinks) | Own pnpm lockfile reader; one Bazel repository per package, fetched on demand |
+| **npm management** | rules_js (pnpm virtual store, symlinks) | Own pnpm lockfile reader — a `pnpm-lock.yaml` is required, npm and yarn lockfiles are not read; one Bazel repository per package, fetched on demand |
 | **BUILD generation** | Aspect CLI (proprietary) | Gazelle (open-source, directives) |
 | **Framework support** | None built-in | TanStack Start bundles through a Vite-plugin hook; Remix, SvelteKit and Next.js each have a rule of their own. Solid Start is detected and deliberately unsupported (see [framework detection](../gazelle/overview.md#framework-detection)) |
 | **Bazel deps** | rules_js + rules_nodejs | rules_nodejs, rules_rust, rules_go + gazelle, rules_shell, bazel_skylib, platforms, toolchain_utils |
 | **Isolated declarations** | Not required | Not required; opt-in per package for throughput |
-| **pnpm** | System install required | Hermetic, opt-in ([hermetic pnpm](../guides/npm.md#hermetic-pnpm)); Linux and macOS only |
+| **pnpm** | System install required | Hermetic, always downloaded ([hermetic pnpm](../guides/npm.md#hermetic-pnpm)); Linux and macOS only |
 | **BCR** | Published, stable | Not published; no tag or release either — consumers pin a commit |
 | **Production users** | Many companies | None yet |
 | **Windows** | Supported | Not supported |

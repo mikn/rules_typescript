@@ -45,7 +45,7 @@ opt-out. See
 - **CSS modules** — `css_module` runs postcss-modules once, generates the `.d.ts` and the scoped-name map from that result, and hands the map to Vite. `styles.button` type-checks against the keys the stylesheet exports, and the class name in a test is the one in the bundle — see [CSS and assets](https://mikn.github.io/rules_typescript/rules/css-and-assets/).
 - **Direct dependencies** — a source may import only what a direct dep provides. A declaration arriving through another dep's own deps does not satisfy an import: the build fails naming the file, the specifier and the label to add, and `bazel run //:gazelle` writes it.
 - **How npm packages are fetched** — one Bazel repository per package, fetched on demand, behind a `@npm` alias hub, so a target fetches only its own dependency closure. A generated `node_modules` tree holds every resolution that closure made — name, version and peer set — flat where a name resolved once, keyed by resolution where it did not.
-- **Zero prerequisites** — only Bazelisk needed; Node.js, Go and Rust are fetched hermetically, and [pnpm too](https://mikn.github.io/rules_typescript/guides/npm/#hermetic-pnpm) if you want it. pnpm edits the lockfile; a build never needs it.
+- **Zero prerequisites** — only Bazelisk needed; Node.js, Go, Rust and [pnpm](https://mikn.github.io/rules_typescript/guides/npm/#hermetic-pnpm) are all fetched hermetically. A `pnpm-lock.yaml` is the one npm input there is — no npm or yarn lockfile is read — but the pnpm binary itself is only for editing that file, never for a build.
 
 ## Requirements
 
