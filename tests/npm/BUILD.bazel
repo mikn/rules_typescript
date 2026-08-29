@@ -5,6 +5,7 @@ load("//npm:defs.bzl", "node_modules")
 load("//ts:defs.bzl", "ts_compile")
 load(":exports_types_tests.bzl", "declaration_entry_test", "exports_types_test_suite")
 load(":hub_provenance_tests.bzl", "hub_provenance_test")
+load(":link_depth_tests.bzl", "link_depth_test_suite")
 load(":parser_tests.bzl", "parser_test_suite")
 load(":resolution_tests.bzl", "conflicting_direct_peers_test", "conflicting_direct_versions_test")
 
@@ -20,6 +21,8 @@ exports_files(["pnpm-lock.yaml"])
 
 # Lockfile-text tests: what the parsers read, and what they must keep ignoring.
 parser_test_suite(name = "parser_tests")
+
+link_depth_test_suite(name = "link_depth_tests")
 
 # Manifest-text tests: which .d.ts a published package designates as its own
 # entry point, over the manifests of packages in this repo's lockfiles.
