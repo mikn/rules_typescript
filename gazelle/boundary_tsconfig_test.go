@@ -145,3 +145,48 @@ func TestBoundaryTsConfig_DefaultStillSplitsEveryDirectory(t *testing.T) {
 		t.Errorf("every-dir mode generated nothing for a directory with sources")
 	}
 }
+
+// The same worker tree with the declaration a directory down, where the
+// roll-up rather than this directory's own file list is what finds it. Being
+// rolled up changes nothing about why the test target needs it: an ambient
+// declaration has no export for a dep edge to carry.
+func TestBoundaryTsConfig_RolledUpAmbientDeclarationReachesTheTest(t *testing.T) {
+	res := generateTree(t, map[string]string{
+		"worker/package.json": `{"name":"w"}`,
+		"worker/tsconfig.json": `{
+  "compilerOptions": { "strict": true },
+  "include": ["src/**/*.ts"]
+}`,
+		"worker/src/worker-configuration.d.ts": "declare type ZzEnv = { KV: string };\n",
+		"worker/src/index.ts":                  "export const handler = (env: ZzEnv) => env.KV;\n",
+		"worker/src/index.test.ts":             "import { handler } from \"./index\";\nexport const t = handler;\n",
+	}, []rule.Directive{directive(directivePackageBoundary, "tsconfig")}, "worker")
+
+	var compile, test *rule.Rule
+	for _, r := range res.Gen {
+		switch r.Kind() {
+		case "ts_compile":
+			compile = r
+		case "ts_test":
+			test = r
+		}
+	}
+	if compile == nil || test == nil {
+		t.Fatalf("want a ts_compile and a ts_test, got %v", generatedNames(t, res))
+	}
+	// The declaration is in the roll-up's srcs group and named again in its
+	// ambient group, so counting is what catches it being listed twice.
+	const decl = "src/worker-configuration.d.ts"
+	for _, r := range []*rule.Rule{compile, test} {
+		srcs := r.AttrStrings("srcs")
+		n := 0
+		for _, s := range srcs {
+			if s == decl {
+				n++
+			}
+		}
+		if n != 1 {
+			t.Errorf("%s srcs %v: %s listed %d times, want exactly 1", r.Name(), srcs, decl, n)
+		}
+	}
+}

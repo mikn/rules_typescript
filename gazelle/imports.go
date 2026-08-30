@@ -102,6 +102,91 @@ func ScanImports(src string) []Import {
 	return found
 }
 
+// hasModuleSyntax reports whether a top-level `import` or `export` makes src a
+// module rather than a script. An `import(...)` type query is neither, and a
+// `declare module` block's exports are its own, not the file's.
+func hasModuleSyntax(src string) bool {
+	depth := 0
+	lastWord := ""
+	lastKind := kindNone
+	lastPunct := byte(0)
+
+	i, n := 0, len(src)
+	for i < n {
+		c := src[i]
+
+		switch {
+		case c == ' ' || c == '\t' || c == '\r' || c == '\n':
+			i++
+
+		case c == '/' && i+1 < n && src[i+1] == '/':
+			for i < n && src[i] != '\n' {
+				i++
+			}
+
+		case c == '/' && i+1 < n && src[i+1] == '*':
+			i += 2
+			for i < n && !(src[i] == '*' && i+1 < n && src[i+1] == '/') {
+				i++
+			}
+			i = min(i+2, n)
+
+		case c == '/' && regexCanStart(lastKind, lastWord, lastPunct):
+			i = skipRegexLiteral(src, i)
+			lastKind = kindPunct
+
+		case c == '`':
+			i, _ = skipTemplateLiteral(src, i, 1)
+			lastKind = kindString
+
+		case c == '"' || c == '\'':
+			_, i = readStringLiteral(src, i)
+			lastKind = kindString
+
+		case isWordChar(c):
+			start := i
+			for i < n && isWordChar(src[i]) {
+				i++
+			}
+			lastWord = src[start:i]
+			lastKind = kindWord
+			if depth == 0 && (lastWord == "export" || (lastWord == "import" && !callFollows(src, i))) {
+				return true
+			}
+
+		case c == '(' && lastKind == kindWord:
+			lastKind = kindCall
+			i++
+
+		default:
+			if c == '{' {
+				depth++
+			} else if c == '}' && depth > 0 {
+				depth--
+			}
+			lastPunct = c
+			lastKind = kindPunct
+			i++
+		}
+	}
+
+	return false
+}
+
+func callFollows(src string, i int) bool {
+	for i < len(src) {
+		switch src[i] {
+		case ' ', '\t', '\r', '\n':
+			i++
+		case '(':
+			return true
+		default:
+			return false
+		}
+	}
+	return false
+}
+
 // extractImports parses a TypeScript/TSX file and returns its specifiers,
 // deduplicated, in the order they first appear.
 func extractImports(path string) ([]string, error) {

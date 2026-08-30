@@ -1,0 +1,26 @@
+"""Scratch: the exact shape Gazelle now generates for an ambient .d.ts."""
+
+load("//ts:defs.bzl", "ts_compile", "ts_test")
+
+package(default_visibility = ["//:__pkg__"])
+
+ts_compile(
+    name = "zz_ambient_e2e",
+    srcs = [
+        "worker.ts",
+        "worker-configuration.d.ts",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+ts_test(
+    name = "zz_ambient_e2e_test",
+    srcs = [
+        "worker.test.ts",
+        "worker-configuration.d.ts",
+    ],
+    deps = [
+        ":zz_ambient_e2e",
+        "@npm//:vitest",
+    ],
+)
