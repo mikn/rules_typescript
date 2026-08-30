@@ -711,3 +711,32 @@ func TestPlanDevServerSubstitutesThePortIntoArgvWithoutRepeatingIt(t *testing.T)
 	}
 	_ = real
 }
+
+// A dev server told where to put its scratch has to find the directory there.
+// oj runs its config extraction in a Node sidecar and discards the entire vite
+// config if that sidecar fails, so a missing cache directory costs
+// server.fs.allow and resolve.alias silently.
+func TestPlanDevServerCreatesTheScratchDirectoriesItNames(t *testing.T) {
+	r, _ := devServerFixture(t)
+	ws := devServerWorkspace(t)
+	cfg := devServerConfig()
+	cfg.DevServer.ScratchDir = "tests/app/dev_dev"
+
+	plan, err := MakePlan(cfg, r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"OJ_CACHE_DIR", "TSR_TMP_DIR"} {
+		dir := plan.EnvOverrides[name]
+		if dir == "" {
+			t.Errorf("%s is unset", name)
+			continue
+		}
+		if !strings.HasPrefix(dir, filepath.Join(ws, "bazel-bin")) {
+			t.Errorf("%s = %q, want it under bazel-bin, not in the source tree", name, dir)
+		}
+		if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+			t.Errorf("%s names %q, which is not a directory (%v)", name, dir, err)
+		}
+	}
+}

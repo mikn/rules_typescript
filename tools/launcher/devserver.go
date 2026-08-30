@@ -173,9 +173,20 @@ func planDevServer(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, 
 	// walked by anything that lists the workspace, and dirty a tree a build is
 	// entitled to find clean. Vite's own cacheDir is set in the generated
 	// config, which is the same decision made where Vite reads it.
+	// Created, not just named. oj's config extraction runs a Node sidecar with
+	// the cache root in its environment and drops the whole config on any
+	// failure -- `.output().ok()?` -- so a directory that does not exist yet
+	// costs `server.fs.allow` and `resolve.alias` with no diagnostic anywhere.
 	scratch := filepath.Join(bazelBin, filepath.FromSlash(d.ScratchDir))
-	plan.setEnv("OJ_CACHE_DIR", filepath.Join(scratch, "oj-cache"))
-	plan.setEnv("TSR_TMP_DIR", filepath.Join(scratch, "tanstack-tmp"))
+	for name, dir := range map[string]string{
+		"OJ_CACHE_DIR": filepath.Join(scratch, "oj-cache"),
+		"TSR_TMP_DIR":  filepath.Join(scratch, "tanstack-tmp"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, fmt.Errorf("ts_dev_server: cannot create %s at %s: %w", name, dir, err)
+		}
+		plan.setEnv(name, dir)
+	}
 
 	anchor, err := anchorNodeModules(workspace, nodeModules, plan)
 	if err != nil {
