@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -58,9 +59,7 @@ func planWrangler(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, e
 		return nil, err
 	}
 	stagedConfig := filepath.Join(scratch, filepath.Base(configFile))
-	if err := copyFile(configFile, stagedConfig); err != nil {
-		return nil, err
-	}
+	staged := make(map[string]bool, len(w.WorkerFiles))
 	for _, rl := range w.WorkerFiles {
 		src, err := r.Path(rl)
 		if err != nil {
@@ -74,7 +73,31 @@ func planWrangler(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, e
 		if err := copyFile(src, filepath.Join(scratch, filepath.FromSlash(rel))); err != nil {
 			return nil, err
 		}
+		staged[rel] = true
 	}
+
+	configText, err := os.ReadFile(configFile)
+	if err != nil {
+		return nil, err
+	}
+	retargeted := retargetMain(string(configText), func(rel string) bool { return staged[rel] })
+	if err := os.WriteFile(stagedConfig, []byte(retargeted), 0o644); err != nil {
+		return nil, err
+	}
+
+	// esbuild -- the bundler wrangler runs over the worker -- resolves a bare
+	// specifier by walking up from the importing file, and the importing file is
+	// the staged copy. Without a node_modules beside it, a worker that imports
+	// any npm package at all fails to bundle, and wrangler's own nodejs_compat
+	// preset (unenv) fails with it. NODE_PATH does not cover either: it is not
+	// consulted by esbuild, nor by an ESM import.
+	linkedTree := filepath.Join(scratch, "node_modules")
+	if err := os.Symlink(nodeModules, linkedTree); err != nil {
+		return nil, err
+	}
+	// Run wrangler through the link, not through its own path in the runfiles:
+	// a package it imports is a sibling of the link, not of the tree.
+	entry = filepath.Join(linkedTree, filepath.FromSlash(w.WranglerInTree))
 
 	home := filepath.Join(scratch, ".home")
 	if err := os.MkdirAll(home, 0o755); err != nil {
@@ -88,6 +111,12 @@ func planWrangler(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, e
 	plan.setEnv("WRANGLER_SEND_METRICS", "false")
 	plan.setEnv("CI", "true")
 	plan.setEnv("NODE_PATH", nodeModules)
+	// Node resolves a module to its realpath before looking for sibling
+	// packages, so without this the link above buys nothing: the realpath of
+	// node_modules/wrangler is the tree's own directory, whose name is the
+	// Bazel target's and not "node_modules". wrangler's nodejs_compat preset
+	// (unenv) is imported that way and would not resolve.
+	plan.setEnv("NODE_OPTIONS", "--preserve-symlinks --preserve-symlinks-main")
 
 	outDir := filepath.Join(scratch, "dist")
 	plan.Dir = scratch
@@ -117,4 +146,37 @@ func copyFile(src, dest string) error {
 	defer out.Close()
 	_, err = io.Copy(out, in)
 	return err
+}
+
+// mainEntry matches the `main` key of a wrangler config and captures its value.
+// The config is JSONC, so it is not parsed: a round trip through a JSON encoder
+// would drop the comments a human wrote and hand them back a file they do not
+// recognise in the error messages.
+var mainEntry = regexp.MustCompile(`("main"\s*:\s*")([^"]*)(")`)
+
+// retargetMain points a `main` that names a TypeScript entry at the JavaScript
+// Bazel compiled from it.
+//
+// wrangler compiles TypeScript itself, so a worker's config names the .ts file
+// -- which is what `wrangler dev` needs, and what every worker in a real repo
+// therefore says. Bazel stages what it built, so the file beside the staged
+// config is the .js, and wrangler stops at "The entry-point file at
+// src/index.ts was not found". Requiring the config to name the .js instead
+// would fix the dry run by breaking the dev command.
+//
+// A `main` whose compiled sibling was not staged is left exactly as written, so
+// wrangler still reports the entry point the author named.
+func retargetMain(config string, staged func(rel string) bool) string {
+	return mainEntry.ReplaceAllStringFunc(config, func(match string) string {
+		groups := mainEntry.FindStringSubmatch(match)
+		ext := filepath.Ext(groups[2])
+		if ext != ".ts" && ext != ".tsx" {
+			return match
+		}
+		compiled := strings.TrimSuffix(groups[2], ext) + ".js"
+		if !staged(strings.TrimPrefix(compiled, "./")) {
+			return match
+		}
+		return groups[1] + compiled + groups[3]
+	})
 }
