@@ -80,7 +80,7 @@ func TestLoadTsConfigPaths_JSONC(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := loadTsConfigPaths(path)
+	got := loadTsConfigPaths(path, "")
 	want := map[string]string{
 		"@/":           "src/",
 		"@components/": "src/components/",
@@ -105,7 +105,7 @@ func TestLoadTsConfigPaths_AliasValueWithDoubleSlash(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := loadTsConfigPaths(path)
+	got := loadTsConfigPaths(path, "")
 	if got["cdn"] != "https://cdn.example.com//assets" {
 		t.Errorf("alias value mangled: got %q", got["cdn"])
 	}
@@ -130,7 +130,7 @@ func TestLoadTsConfigPaths_SkipsToolManagedDirs(t *testing.T) {
 		t.Fatalf("write tsconfig: %v", err)
 	}
 
-	got := loadTsConfigPaths(path)
+	got := loadTsConfigPaths(path, "")
 	want := map[string]string{"@/": "src/"}
 	if len(got) != len(want) {
 		t.Fatalf("loadTsConfigPaths: got %v, want %v", got, want)
@@ -159,7 +159,7 @@ func TestLoadTsConfigPaths_SkipsFirstPartyPackageSelfEntries(t *testing.T) {
 		t.Fatalf("write tsconfig: %v", err)
 	}
 
-	got := loadTsConfigPaths(path)
+	got := loadTsConfigPaths(path, "")
 	want := map[string]string{"@acme/ui": "packages/ui/index", "@/": "src/"}
 	if len(got) != len(want) {
 		t.Fatalf("loadTsConfigPaths: got %v, want %v", got, want)
@@ -238,7 +238,7 @@ func TestLoadTsConfigPaths_FallbackChains(t *testing.T) {
 			var logs bytes.Buffer
 			restore := log.Writer()
 			log.SetOutput(&logs)
-			got := loadTsConfigPaths(path)
+			got := loadTsConfigPaths(path, "")
 			log.SetOutput(restore)
 
 			if !reflect.DeepEqual(got, tc.want) {
@@ -248,5 +248,44 @@ func TestLoadTsConfigPaths_FallbackChains(t *testing.T) {
 				t.Errorf("logged %v, want %v: %s", gotLog, tc.wantLog, logs.String())
 			}
 		})
+	}
+}
+
+// A tsconfig's `paths` are relative to that tsconfig, and its targets become
+// Bazel labels, which are relative to the repo root. Those are the same thing
+// only when the tsconfig is at the repo root -- which is the shape of every
+// example in this repo and of almost no monorepo, where the app is a workspace
+// member in a subdirectory.
+func TestLoadTsConfigPaths_TargetsAreRelativeToTheRepoRootNotTheTsConfig(t *testing.T) {
+	repo := t.TempDir()
+	app := filepath.Join(repo, "web")
+	if err := os.MkdirAll(filepath.Join(app, "shared"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	tsconfig := `{
+  "compilerOptions": {
+    "paths": {
+      "#shared/*": ["./shared/*"],
+      "@platform/auth": ["./lib/auth/platform-adapter.ts"]
+    }
+  }
+}`
+	path := filepath.Join(app, "tsconfig.json")
+	if err := os.WriteFile(path, []byte(tsconfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := loadTsConfigPaths(path, "web")
+	want := map[string]string{
+		"#shared/":       "web/shared/",
+		"@platform/auth": "web/lib/auth/platform-adapter.ts",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("loadTsConfigPaths: got %v, want %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("alias %q = %q, want %q", k, got[k], v)
+		}
 	}
 }

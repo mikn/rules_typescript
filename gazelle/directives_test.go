@@ -399,7 +399,7 @@ func TestLoadTsConfigPaths_CollidingPatternsPickTheSameEntryEveryTime(t *testing
 	const runs = 200
 	seen := make(map[string]int)
 	for i := 0; i < runs; i++ {
-		aliases := loadTsConfigPaths(tsConfigPath)
+		aliases := loadTsConfigPaths(tsConfigPath, "")
 		if got := aliases["@y/"]; got != "y/" {
 			t.Fatalf("run %d: non-colliding entry changed: aliases[\"@y/\"] = %q, want %q", i, got, "y/")
 		}
