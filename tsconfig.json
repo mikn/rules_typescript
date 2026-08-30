@@ -51,7 +51,7 @@
         "./.bazel/npm/@cloudflare/vitest-pool-workers/dist/pool/*"
       ],
       "@cloudflare/workers-types": [
-        "./.bazel/npm/@cloudflare/workers-types"
+        "./.bazel/npm/@cloudflare/workers-types/index.d.ts"
       ],
       "@cloudflare/workers-types/*": [
         "./.bazel/npm/@cloudflare/workers-types/*"
@@ -363,7 +363,7 @@
         "./.bazel/npm/acorn/dist/acorn.d.mts"
       ],
       "acorn-jsx": [
-        "./.bazel/npm/acorn-jsx"
+        "./.bazel/npm/acorn-jsx/index.d.ts"
       ],
       "acorn-jsx/*": [
         "./.bazel/npm/acorn-jsx/*"
@@ -522,7 +522,7 @@
         "./.bazel/npm/escalade/*"
       ],
       "escape-string-regexp": [
-        "./.bazel/npm/escape-string-regexp"
+        "./.bazel/npm/escape-string-regexp/index.d.ts"
       ],
       "escape-string-regexp/*": [
         "./.bazel/npm/escape-string-regexp/*"
@@ -595,7 +595,7 @@
         "./.bazel/npm/fdir/dist/*"
       ],
       "find-up": [
-        "./.bazel/npm/find-up"
+        "./.bazel/npm/find-up/index.d.ts"
       ],
       "find-up/*": [
         "./.bazel/npm/find-up/*"
@@ -625,13 +625,13 @@
         "./.bazel/npm/happy-dom/*"
       ],
       "has-flag": [
-        "./.bazel/npm/has-flag"
+        "./.bazel/npm/has-flag/index.d.ts"
       ],
       "has-flag/*": [
         "./.bazel/npm/has-flag/*"
       ],
       "ignore": [
-        "./.bazel/npm/ignore"
+        "./.bazel/npm/ignore/index.d.ts"
       ],
       "ignore/*": [
         "./.bazel/npm/ignore/*"
@@ -691,7 +691,7 @@
         "./.bazel/npm/lines-and-columns/build/*"
       ],
       "locate-path": [
-        "./.bazel/npm/locate-path"
+        "./.bazel/npm/locate-path/index.d.ts"
       ],
       "locate-path/*": [
         "./.bazel/npm/locate-path/*"
@@ -709,7 +709,7 @@
         "./.bazel/npm/magicast/dist/*"
       ],
       "make-dir": [
-        "./.bazel/npm/make-dir"
+        "./.bazel/npm/make-dir/index.d.ts"
       ],
       "make-dir/*": [
         "./.bazel/npm/make-dir/*"
@@ -752,13 +752,13 @@
         "./.bazel/npm/obug/dist/*"
       ],
       "p-limit": [
-        "./.bazel/npm/p-limit"
+        "./.bazel/npm/p-limit/index.d.ts"
       ],
       "p-limit/*": [
         "./.bazel/npm/p-limit/*"
       ],
       "p-locate": [
-        "./.bazel/npm/p-locate"
+        "./.bazel/npm/p-locate/index.d.ts"
       ],
       "p-locate/*": [
         "./.bazel/npm/p-locate/*"
@@ -785,13 +785,13 @@
         "./bazel-bin/packages/ws-linked/*"
       ],
       "path-exists": [
-        "./.bazel/npm/path-exists"
+        "./.bazel/npm/path-exists/index.d.ts"
       ],
       "path-exists/*": [
         "./.bazel/npm/path-exists/*"
       ],
       "path-key": [
-        "./.bazel/npm/path-key"
+        "./.bazel/npm/path-key/index.d.ts"
       ],
       "path-key/*": [
         "./.bazel/npm/path-key/*"
@@ -863,7 +863,7 @@
         "./.bazel/npm/readdirp/esm/*"
       ],
       "resolve-from": [
-        "./.bazel/npm/resolve-from"
+        "./.bazel/npm/resolve-from/index.d.ts"
       ],
       "resolve-from/*": [
         "./.bazel/npm/resolve-from/*"
@@ -894,7 +894,7 @@
         "./.bazel/npm/sharp/dist/*"
       ],
       "shebang-regex": [
-        "./.bazel/npm/shebang-regex"
+        "./.bazel/npm/shebang-regex/index.d.ts"
       ],
       "shebang-regex/*": [
         "./.bazel/npm/shebang-regex/*"
@@ -1408,7 +1408,7 @@
         "./.bazel/npm/ws/*"
       ],
       "yocto-queue": [
-        "./.bazel/npm/yocto-queue"
+        "./.bazel/npm/yocto-queue/index.d.ts"
       ],
       "yocto-queue/*": [
         "./.bazel/npm/yocto-queue/*"
