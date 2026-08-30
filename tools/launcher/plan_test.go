@@ -712,10 +712,8 @@ func TestPlanDevServerSubstitutesThePortIntoArgvWithoutRepeatingIt(t *testing.T)
 	_ = real
 }
 
-// A dev server told where to put its scratch has to find the directory there.
-// oj runs its config extraction in a Node sidecar and discards the entire vite
-// config if that sidecar fails, so a missing cache directory costs
-// server.fs.allow and resolve.alias silently.
+// A dev server told where to put its scratch has to find the directory there:
+// a tool handed a path that does not exist may or may not create one.
 func TestPlanDevServerCreatesTheScratchDirectoriesItNames(t *testing.T) {
 	r, _ := devServerFixture(t)
 	ws := devServerWorkspace(t)
@@ -726,7 +724,7 @@ func TestPlanDevServerCreatesTheScratchDirectoriesItNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"OJ_CACHE_DIR", "TSR_TMP_DIR"} {
+	for _, name := range []string{"TSR_TMP_DIR"} {
 		dir := plan.EnvOverrides[name]
 		if dir == "" {
 			t.Errorf("%s is unset", name)

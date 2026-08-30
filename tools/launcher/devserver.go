@@ -173,20 +173,25 @@ func planDevServer(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, 
 	// walked by anything that lists the workspace, and dirty a tree a build is
 	// entitled to find clean. Vite's own cacheDir is set in the generated
 	// config, which is the same decision made where Vite reads it.
-	// Created, not just named. oj's config extraction runs a Node sidecar with
-	// the cache root in its environment and drops the whole config on any
-	// failure -- `.output().ok()?` -- so a directory that does not exist yet
-	// costs `server.fs.allow` and `resolve.alias` with no diagnostic anywhere.
+	// TanStack Start's route generator writes .tanstack/ into whatever it takes
+	// as its temp directory, which is the workspace root unless it is told
+	// otherwise. Created rather than only named: a tool given a directory that
+	// does not exist may or may not make one.
+	//
+	// oj's cache is the other half of this and is NOT relocated here. It can be
+	// -- OJ_CACHE_DIR exists in the pinned rev (raphamorim/oj#120) -- but doing
+	// so made //tests/dev_server:dev_oj_behaviour_test fail on macOS only, with
+	// `server.fs.allow` and `resolve.alias` silently absent: oj extracts a vite
+	// config through a Node sidecar and `adopt_vite_config_values` discards the
+	// whole config on any failure (`.output().ok()?`), so the cause is invisible
+	// from the outside and did not reproduce on Linux. .oj-cache stays in the
+	// workspace, gitignored and bazelignored, until that is understood.
 	scratch := filepath.Join(bazelBin, filepath.FromSlash(d.ScratchDir))
-	for name, dir := range map[string]string{
-		"OJ_CACHE_DIR": filepath.Join(scratch, "oj-cache"),
-		"TSR_TMP_DIR":  filepath.Join(scratch, "tanstack-tmp"),
-	} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return nil, fmt.Errorf("ts_dev_server: cannot create %s at %s: %w", name, dir, err)
-		}
-		plan.setEnv(name, dir)
+	tsrTmp := filepath.Join(scratch, "tanstack-tmp")
+	if err := os.MkdirAll(tsrTmp, 0o755); err != nil {
+		return nil, fmt.Errorf("ts_dev_server: cannot create TSR_TMP_DIR at %s: %w", tsrTmp, err)
 	}
+	plan.setEnv("TSR_TMP_DIR", tsrTmp)
 
 	anchor, err := anchorNodeModules(workspace, nodeModules, plan)
 	if err != nil {
