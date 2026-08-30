@@ -308,7 +308,7 @@ func TestDevServerBehaviour(t *testing.T) {
 		// bazel-bin; oj serves the file where it lies. Neither may be a path the
 		// host happened to have.
 		if !strings.Contains(m.finalURL, "/node_modules/zod/") &&
-			!strings.Contains(m.finalURL, "/.vite-cache/deps/") {
+			!strings.Contains(m.finalURL, "/vite-cache/deps/") {
 			t.Errorf("`import \"zod\"` resolved to %q, which is neither a Bazel npm "+
 				"tree nor this target's dependency cache", m.finalURL)
 		}

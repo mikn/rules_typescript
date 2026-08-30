@@ -523,7 +523,7 @@ def _generate_dev_config(
         "  // node_modules/.vite is the default, and the launcher just pointed that\n" +
         "  // name at a read-only Bazel output. Pre-bundling is not optional here:\n" +
         "  // react and friends ship CJS, and the browser needs the ESM it writes.\n" +
-        "  cacheDir: path.join(bazelBin, " + json.encode(_bin_relative(config_file).rsplit("/", 1)[0] + "/.vite-cache") + "),\n" +
+        "  cacheDir: path.join(bazelBin, " + json.encode(_bin_relative(config_file).rsplit("/", 1)[0] + "/vite-cache") + "),\n" +
         "\n" +
         "  // Suppress the 'public dir does not exist' warning when no public/\n" +
         "  // directory exists in the workspace root.\n" +
@@ -714,6 +714,9 @@ def _ts_dev_server_impl(ctx):
         "argv": server_info.argv,
         "runs_in_js_runtime": server_info.runs_in_js_runtime,
         "port": ctx.attr.port,
+        # The same directory the generated config points cacheDir at: one place
+        # under bazel-bin for whatever a dev server insists on writing.
+        "scratch_dir": _bin_relative(config_file).rsplit("/", 1)[0],
     }
     if server_info.server_in_tree:
         dev_server["server_in_tree"] = server_info.server_in_tree

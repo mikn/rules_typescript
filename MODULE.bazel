@@ -84,7 +84,7 @@ crate.spec(
     git = "https://github.com/mikn/oj",
     package = "oj",
     repositories = ["oj_crates"],
-    rev = "c0ea7f68d9b118d2d90bd84938a10251e8b21c65",
+    rev = "b86a02b5f2de34a660ced6a928ae296530d541e2",
 )
 
 # A git source rather than the crates.io release, because the fixes oj needs to
@@ -92,8 +92,11 @@ crate.spec(
 # plus one commit per gap and nothing else, each open as its own PR:
 # raphamorim/oj#115 (the injected-head-scripts virtual module), #116
 # (tsr.config.json reaching the route generator), #117 (package.json "imports"
-# over the seam conventions), #118 (the declare-module footer), and #110 (an
-# explicit config path on `oj build`). `git diff v0.1.8..<rev>` is the whole of
+# over the seam conventions), #118 (the declare-module footer), #119 (--config
+# reaching the Start dev server, without which ts_dev_server's port and every
+# other config field are silently ignored there), #120 (OJ_CACHE_DIR, so a dev
+# server writes nothing into the workspace it serves), and #110 (an explicit
+# config path on `oj build`). `git diff v0.1.8..<rev>` is the whole of
 # what is carried. This is a git source rather than crate.annotation(patches = ...)
 # on purpose: an annotation's patches are labels, and crate_universe renders
 # them into the checked-in lockfile already canonicalised. `//oj/patches:x`
@@ -107,7 +110,6 @@ crate.annotation(
     gen_all_binaries = True,
     repositories = ["oj_crates"],
 )
-
 crate.from_specs(
     name = "oj_crates",
     # A spec-only hub resolves its own manifest, but rules_rust 0.73 reads this

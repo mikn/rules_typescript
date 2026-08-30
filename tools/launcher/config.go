@@ -128,7 +128,10 @@ type DevServerConfig struct {
 	CSSModulePlugin string   `json:"css_module_plugin,omitempty"`
 	UserConfig      string   `json:"user_config,omitempty"`
 	BundlerBinary   string   `json:"bundler_binary,omitempty"`
-	Port            int      `json:"port"`
+	// ScratchDir is this target's directory under bazel-bin, where a dev server
+	// that insists on writing somewhere is pointed instead of the source tree.
+	ScratchDir string `json:"scratch_dir,omitempty"`
+	Port       int    `json:"port"`
 }
 
 // LoadConfig reads the config for this launcher.

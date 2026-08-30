@@ -167,6 +167,16 @@ func planDevServer(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, 
 	}
 	plan.setEnv("BAZEL_BIN_DIR", bazelBin)
 
+	// A dev server's scratch belongs in the output tree, not in the sources it
+	// is serving. Left alone, oj writes .oj-cache/ and TanStack Start writes
+	// .tanstack/ into the workspace root, where they survive the server, get
+	// walked by anything that lists the workspace, and dirty a tree a build is
+	// entitled to find clean. Vite's own cacheDir is set in the generated
+	// config, which is the same decision made where Vite reads it.
+	scratch := filepath.Join(bazelBin, filepath.FromSlash(d.ScratchDir))
+	plan.setEnv("OJ_CACHE_DIR", filepath.Join(scratch, "oj-cache"))
+	plan.setEnv("TSR_TMP_DIR", filepath.Join(scratch, "tanstack-tmp"))
+
 	anchor, err := anchorNodeModules(workspace, nodeModules, plan)
 	if err != nil {
 		return nil, err
