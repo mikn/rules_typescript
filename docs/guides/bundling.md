@@ -348,7 +348,7 @@ App mode, and lib mode with `split_chunks = True`, declare that directory
 itself, because the hashed filenames are not known at analysis time.
 
 oj is a [dev server](dev-server.md#choosing-the-server) here and not a bundler.
-Its binary has a `build` subcommand, and the patch in `oj/patches/` gives that
+Its binary has a `build` subcommand, and the oj revision this module pins gives that
 subcommand the `--config` flag `oj dev` already had. What is still missing is a
 rule: nothing in the ruleset returns `BundlerInfo` for oj, and `oj build`'s CLI
 matches neither invocation mode, since it takes its root positionally and names

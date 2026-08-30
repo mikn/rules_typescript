@@ -293,6 +293,13 @@ TypeScript's type-reference resolver, which walks `node_modules/@types` and
 `typeRoots`, not the `paths` map that carries npm deps here. There is no
 `node_modules` to walk, so no `deps` entry makes it resolve.
 
+One caveat: while `bazel run //:dev` is running there *is* a `node_modules` at
+the workspace root — the dev server links the npm tree in so bare specifiers
+resolve (see [Dev Server](dev-server.md#how-a-bare-npm-specifier-resolves)). Your
+editor may then resolve this directive, and bare imports with no `deps` entry,
+for as long as the server runs. `bazel build` never does; a green editor and a
+red build means the link is what your editor found.
+
 Delete the directive and ask for the same globals through the rule:
 
 ```python

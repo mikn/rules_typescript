@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -251,4 +252,18 @@ func write(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
+}
+
+// depURL is the first URL a served module imports, in whichever form the server
+// rewrites to: a pre-bundled dependency lands under the cacheDir the rule sets
+// inside bazel-bin, Vite names an un-optimised file directly (/@fs/<abs>), and
+// oj names an id its plugin container resolved (/@id/<hex>) and redirects to
+// the file. All three are "the URL this module's dependency is at"; where it
+// lands is the assertion, not how it is spelled.
+func depURL(body string) string {
+	m := regexp.MustCompile(`"(/(?:@(?:fs|id)/|bazel-bin/)[^"]+)"`).FindStringSubmatch(body)
+	if m == nil {
+		return ""
+	}
+	return m[1]
 }

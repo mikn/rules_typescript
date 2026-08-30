@@ -15,5 +15,8 @@ go_library(
     srcs = ["harness.go"],
     importpath = "github.com/mikn/rules_typescript/tests/integration/harness",
     visibility = ["//tests/integration:__subpackages__"],
-    deps = ["@rules_go//go/runfiles"],
+    deps = [
+        "//tests/hmrsocket",
+        "@rules_go//go/runfiles",
+    ],
 )

@@ -44,7 +44,7 @@ func planNext(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, error
 			n.rule(), cfg.Label, nextBin)
 	}
 
-	port, args := nextPort(n.Port, args)
+	port, args := portOverride(n.Port, args)
 	plan.prependPath("NODE_PATH", nodeModules)
 	plan.setEnv("NEXT_TELEMETRY_DISABLED", "1")
 
@@ -81,11 +81,12 @@ func planNext(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, error
 	return plan, nil
 }
 
-// nextPort lets an argument override the port the rule was given, so a test can
-// take a kernel-assigned one. The override is consumed rather than appended:
-// Next.js takes the last of a repeated --port, so appending would leave the
-// launcher's own message naming a port nothing is listening on.
-func nextPort(port int, args []string) (int, []string) {
+// portOverride lets an argument override the port the rule was given, so a test
+// can take a kernel-assigned one. The override is consumed rather than appended:
+// a server that takes the last of a repeated --port would leave the launcher's
+// own message naming a port nothing is listening on, and one that rejects a
+// repeated --port would not start at all.
+func portOverride(port int, args []string) (int, []string) {
 	kept := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
 		flag, value := args[i], ""

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -11,7 +12,7 @@ import (
 // target selected. A server inside the npm tree is a path joined onto the
 // resolved tree, because a file inside a TreeArtifact has no label to resolve;
 // a native binary is a runfile. ts_dev_server guarantees exactly one is set.
-func serverCommand(cfg *Config, r *Resolver, configFile, nodeModules string) ([]string, string, error) {
+func serverCommand(cfg *Config, r *Resolver, configFile, nodeModules string, port int) ([]string, string, error) {
 	d := cfg.DevServer
 	var argv []string
 	var serverPath string
@@ -67,10 +68,22 @@ func serverCommand(cfg *Config, r *Resolver, configFile, nodeModules string) ([]
 		}
 		root = cwd
 	}
+	named := false
 	for _, a := range d.Argv {
+		if strings.Contains(a, "{port}") {
+			named = true
+		}
 		a = strings.ReplaceAll(a, "{config}", configFile)
 		a = strings.ReplaceAll(a, "{root}", root)
+		a = strings.ReplaceAll(a, "{port}", strconv.Itoa(port))
 		argv = append(argv, a)
+	}
+	// A server whose argv does not name the port reads it from the config, and
+	// the flag is how an override reaches it -- Vite's CLI --port beats what the
+	// config says. One whose argv does name it has already been given the same
+	// number, and passing it twice is an error rather than a later-wins.
+	if !named {
+		argv = append(argv, "--port", strconv.Itoa(port))
 	}
 	return argv, serverPath, nil
 }
@@ -107,7 +120,10 @@ func planDevServer(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, 
 	// walk up to, so without this the dev server answers 500 for that stylesheet.
 	plan.prependPath("NODE_PATH", nodeModules)
 
-	argv, serverPath, err := serverCommand(cfg, r, configFile, nodeModules)
+	// A server whose argv names the port takes the override there; one that reads
+	// it from the config still gets it appended, which is where it looked before.
+	port, args := portOverride(d.Port, args)
+	argv, serverPath, err := serverCommand(cfg, r, configFile, nodeModules, port)
 	if err != nil {
 		return nil, err
 	}
@@ -151,14 +167,50 @@ func planDevServer(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, 
 	}
 	plan.setEnv("BAZEL_BIN_DIR", bazelBin)
 
+	// A dev server's scratch belongs in the output tree, not in the sources it
+	// is serving. Left alone, oj writes .oj-cache/ and TanStack Start writes
+	// .tanstack/ into the workspace root, where they survive the server, get
+	// walked by anything that lists the workspace, and dirty a tree a build is
+	// entitled to find clean. Vite's own cacheDir is set in the generated
+	// config, which is the same decision made where Vite reads it.
+	// TanStack Start's route generator writes .tanstack/ into whatever it takes
+	// as its temp directory, which is the workspace root unless it is told
+	// otherwise. Created rather than only named: a tool given a directory that
+	// does not exist may or may not make one.
+	//
+	// oj's cache is the other half of this and is NOT relocated here. It can be
+	// -- OJ_CACHE_DIR exists in the pinned rev (raphamorim/oj#120) -- but doing
+	// so made //tests/dev_server:dev_oj_behaviour_test fail on macOS only, with
+	// `server.fs.allow` and `resolve.alias` silently absent: oj extracts a vite
+	// config through a Node sidecar and `adopt_vite_config_values` discards the
+	// whole config on any failure (`.output().ok()?`), so the cause is invisible
+	// from the outside and did not reproduce on Linux. .oj-cache stays in the
+	// workspace, gitignored and bazelignored, until that is understood.
+	scratch := filepath.Join(bazelBin, filepath.FromSlash(d.ScratchDir))
+	tsrTmp := filepath.Join(scratch, "tanstack-tmp")
+	if err := os.MkdirAll(tsrTmp, 0o755); err != nil {
+		return nil, fmt.Errorf("ts_dev_server: cannot create TSR_TMP_DIR at %s: %w", tsrTmp, err)
+	}
+	plan.setEnv("TSR_TMP_DIR", tsrTmp)
+
+	anchor, err := anchorNodeModules(workspace, nodeModules, plan)
+	if err != nil {
+		return nil, err
+	}
+
 	plan.Messages = append(plan.Messages,
-		fmt.Sprintf("[ts_dev_server] Starting dev server on port %d...", d.Port),
+		fmt.Sprintf("[ts_dev_server] Starting dev server on port %d...", port),
 		fmt.Sprintf("[ts_dev_server] Workspace: %s", workspace),
 		fmt.Sprintf("[ts_dev_server] bazel-bin: %s", bazelBin),
 		fmt.Sprintf("[ts_dev_server] node_modules: %s", nodeModules),
 		fmt.Sprintf("[ts_dev_server] Config: %s", configFile),
 		fmt.Sprintf("[ts_dev_server] Server: %s", serverPath),
 	)
+	if anchor != "" {
+		plan.Messages = append(plan.Messages, fmt.Sprintf(
+			"[ts_dev_server] Linked %s -> the npm tree; removed on Ctrl-C. "+
+				"Add `node_modules` (no trailing slash) to .gitignore.", anchor))
+	}
 
 	plan.Argv = append(argv, args...)
 	plan.UseExec = false
@@ -166,4 +218,59 @@ func planDevServer(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, 
 	// that and pick the new .js up through its watcher, so only Ctrl-C stops it.
 	plan.Supervise = SuperviseOptions{IgnoreTerm: true, ExitZeroOnInterrupt: true}
 	return plan, nil
+}
+
+// anchorNodeModules links the npm tree in as <workspace>/node_modules, and
+// returns the link it created, or "" when one was already there.
+//
+// This is what makes a bare `import "react"` resolve at all in the parts of a
+// bundler that no plugin can reach. Vite's SSR externalisation and its
+// optimizeDeps.include resolution both call the resolver directly rather than
+// through the plugin container, and both walk the directory chain up from the
+// importer -- or, for a package in resolve.dedupe, up from `root` regardless of
+// the importer. Above a checked-in source file there is nothing to find: the
+// npm tree is a Bazel output somewhere else entirely. Naming it here is the
+// only place the walk can see it, and it is what a bundler outside Bazel would
+// have found anyway.
+//
+// An existing path is never replaced. A real directory is somebody's install
+// and a link to another tree belongs to another dev server; either way the two
+// answers cannot both be right, so the launcher says which two and stops.
+func anchorNodeModules(workspace, nodeModules string, plan *Plan) (string, error) {
+	link := filepath.Join(workspace, "node_modules")
+	switch target, err := os.Readlink(link); {
+	case err == nil && target == nodeModules:
+		return "", nil
+	case err == nil:
+		return "", fmt.Errorf(
+			"ts_dev_server: %s is already a symlink to a different npm tree:\n"+
+				"                 have %s\n"+
+				"                 want %s\n"+
+				"A dev server resolves bare specifiers by walking up from the "+
+				"workspace root, so the two trees cannot both be there. Stop the "+
+				"other dev server, or point both targets at one node_modules().",
+			link, target, nodeModules)
+	}
+	if _, err := os.Lstat(link); err == nil {
+		return "", fmt.Errorf(
+			"ts_dev_server: %s already exists and is not a symlink.\n"+
+				"That is usually a `pnpm install` tree. The dev server resolves "+
+				"through the Bazel npm tree at\n"+
+				"                 %s\n"+
+				"and will not delete an install to get there -- remove it yourself "+
+				"if Bazel should own the dependencies.", link, nodeModules)
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+	if err := os.Symlink(nodeModules, link); err != nil {
+		return "", fmt.Errorf(
+			"ts_dev_server: could not link %s -> %s: %w\n"+
+				"On Windows a symlink needs Developer Mode or an elevated shell.",
+			link, nodeModules, err)
+	}
+	// ibazel SIGTERMs the launcher on every rebuild and Supervise.IgnoreTerm
+	// swallows it, so this runs on Ctrl-C rather than once per rebuild. Remove
+	// the link only -- never its target, which is the Bazel tree.
+	plan.Cleanup = func() { os.Remove(link) }
+	return link, nil
 }

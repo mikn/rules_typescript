@@ -29,11 +29,47 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
 
 	"github.com/mikn/rules_typescript/tests/integration/harness"
 )
+
+// isHMRUpdate separates the frames that mean "this changed" from the ones a
+// server sends anyway. Vite's are "update" and "full-reload"; a route edit that
+// invalidates the SSR graph produces one or the other depending on whether the
+// module self-accepts.
+func isHMRUpdate(frame string) bool {
+	var payload struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal([]byte(frame), &payload); err != nil {
+		return false
+	}
+	return payload.Type == "update" || payload.Type == "full-reload"
+}
+
+// firstLine keeps an HMR frame legible in the log; the payload carries the whole
+// module graph delta and only its shape matters here.
+func firstLine(frame string) string {
+	if i := strings.IndexByte(frame, '\n'); i >= 0 {
+		return frame[:i]
+	}
+	if len(frame) > 160 {
+		return frame[:160] + "..."
+	}
+	return frame
+}
+
+// The module the served document tells the browser to import to hydrate with.
+// The Start plugin names it through a virtual id, so the path is the framework's
+// to choose and only its shape is stable.
+var clientEntryRE = regexp.MustCompile(`import\("(/@id/[^"]+client-entry[^"]*)"\)`)
 
 const (
 	// The plugin keys a server function by sha256 over the vite-root-relative
@@ -260,6 +296,132 @@ func main() {
 		it.Write(build, buildText)
 		it.MustBazel("build", "//...")
 		it.Pass("bazel build //... is green again")
+
+		// ── the dev server ──
+		// SSR is the half that a Bazel npm tree breaks: Vite decides whether a
+		// package is external without consulting any plugin, and a package it
+		// cannot resolve is inlined -- so react/jsx-runtime's CJS gets evaluated
+		// as ESM and every route answers 500 with an error-overlay page that is
+		// still text/html. So the assertions are over what the routes RENDER.
+		it.RequireContains(build, `ts_dev_server(`,
+			"Gazelle generated no dev server for a TanStack Start app")
+		it.RequireContains(build, `name = "dev"`, "the generated dev server is not named dev")
+		it.Pass("Gazelle generated the dev server beside the bundle")
+
+		treeBefore := it.Read(it.Path("src", "routes", "routeTree.gen.ts"))
+
+		srv := it.Serve("dev_server.log", "//:dev")
+		for _, probe := range []struct{ path, want string }{
+			{"/", "acme-index-route-marker"},
+			{"/about", "acme-about-route-marker"},
+		} {
+			status, body := it.Get(srv, probe.path)
+			if status != 200 {
+				it.Fail("GET %s returned %d, want 200\n%s\n%s", probe.path, status, body, srv.Output())
+			}
+			if !strings.Contains(body, probe.want) {
+				it.Fail("GET %s did not server-render %s -- 200 with no route in it is what the "+
+					"dev overlay answers\n%s\n%s", probe.path, probe.want, body, srv.Output())
+			}
+		}
+		it.Pass("the dev server renders every route server-side")
+
+		// The client half is a separate failure: SSR can be perfect while the
+		// entry the document asks for 404s, and the page is then inert.
+		_, index := it.Get(srv, "/")
+		entry := clientEntryRE.FindStringSubmatch(index)
+		if entry == nil {
+			it.Fail("the served document names no client entry to hydrate with\n%s", index)
+		}
+		if status, body := it.Get(srv, entry[1]); status != 200 {
+			it.Fail("the client entry %s answers %d, want 200\n%s", entry[1], status, body)
+		}
+		it.Pass("the document's client entry is served")
+
+		if out := srv.Output(); strings.Contains(out, "module is not defined") ||
+			strings.Contains(out, "Failed to resolve dependency") {
+			it.Fail("the dev server resolved a package into the wrong module system:\n%s", out)
+		}
+		it.Pass("no package was inlined that should have been external")
+
+		// ── HMR: an edit has to reach the browser ──
+		// A dev server that serves the first request correctly and then never
+		// changes again is the failure this catches, and for an SSR framework it
+		// has two halves: the frame that tells the browser something changed, and
+		// the server's own module graph, which renders the next document. A stale
+		// graph keeps serving the old markup with no error anywhere.
+		sock := it.DialHMR(srv, "/", "vite-hmr")
+
+		// Seat the route in the client graph the way a browser does. Vite pushes
+		// a client update only for modules a client has actually imported; SSR
+		// rendering the route does not put it there, and without this the socket
+		// sees the connection greeting and nothing else.
+		if status, body := it.Get(srv, "/src/routes/about.tsx"); status != 200 {
+			it.Fail("GET /src/routes/about.tsx returned %d, want 200\n%s", status, body)
+		}
+
+		about := it.Path("src", "routes", "about.tsx")
+		original := it.Read(about)
+		it.Write(about, strings.Replace(original,
+			"acme-about-route-marker", "acme-about-route-EDITED", 1))
+		it.OnCleanup(func() { _ = os.WriteFile(about, []byte(original), 0o644) })
+
+		// The server's own graph first: this is the half that decides what the
+		// next document says, and a stale one serves the old markup with no error
+		// anywhere. Polled, because the write and the next render are not ordered.
+		deadline := time.Now().Add(60 * time.Second)
+		for {
+			_, body := it.Get(srv, "/about")
+			if strings.Contains(body, "acme-about-route-EDITED") {
+				break
+			}
+			if time.Now().After(deadline) {
+				it.Fail("editing a route left /about server-rendering the old marker, "+
+					"so the SSR module graph never saw the edit\n%s\n%s", body, srv.Output())
+			}
+			time.Sleep(250 * time.Millisecond)
+		}
+		it.Pass("the edit reached the server-rendered document")
+
+		// And the browser was told. Not merely "a frame": Vite greets a new client
+		// with {"type":"connected"} and pings it thereafter, so taking the first
+		// frame would pass with no edit at all. Frames buffer, so anything sent
+		// while the poll above was running is still here.
+		update, seen := "", []string{}
+		for wait := 30 * time.Second; update == ""; {
+			started := time.Now()
+			frame, err := sock.Next(wait)
+			if err != nil {
+				it.Fail("the document changed but no HMR update reached the browser: %v\n"+
+					"frames seen: %q\n%s", err, seen, srv.Output())
+			}
+			seen = append(seen, firstLine(frame))
+			if isHMRUpdate(frame) {
+				update = frame
+			}
+			if wait -= time.Since(started); wait <= 0 {
+				it.Fail("the document changed but only non-update frames arrived: %q\n%s",
+					seen, srv.Output())
+			}
+		}
+		it.Pass("the edit reached the HMR socket: %s", firstLine(update))
+
+		it.Write(about, original)
+
+		// The framework's own route generator runs while it serves. If it writes
+		// a tree the Bazel generator would not, `bazel run //:dev` silently makes
+		// :route_tree_test red.
+		srv.Stop()
+		if it.Read(it.Path("src", "routes", "routeTree.gen.ts")) != treeBefore {
+			it.Fail("serving rewrote src/routes/routeTree.gen.ts, so the dev server and " +
+				"//src/routes:route_tree disagree about the route tree")
+		}
+		it.MustBazel("test", "//src/routes:route_tree_test")
+		it.Pass("serving leaves the checked-in route tree alone")
+
+		it.RequireNoFile(it.Path("node_modules"),
+			"the npm tree link was left at the workspace root after the server stopped")
+		it.Pass("the workspace npm link is removed when the server stops")
 
 		// ── adding a route: the break, the named remedy, and the fix ──
 		it.Write(it.Path("src", "routes", "about.$slug.tsx"), paramRoute)

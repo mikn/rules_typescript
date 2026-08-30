@@ -406,6 +406,15 @@ func devServerFixture(t *testing.T) (*Resolver, map[string]string) {
 	})
 }
 
+// devServerWorkspace is a real directory, because planDevServer links the npm
+// tree into it as node_modules.
+func devServerWorkspace(t *testing.T) string {
+	t.Helper()
+	ws := t.TempDir()
+	t.Setenv("BUILD_WORKSPACE_DIRECTORY", ws)
+	return ws
+}
+
 func devServerConfig() *Config {
 	return &Config{
 		Label:   "//tests/app:dev",
@@ -425,23 +434,25 @@ func devServerConfig() *Config {
 
 func TestPlanDevServerRunsViteFromTheNodeModulesTree(t *testing.T) {
 	r, real := devServerFixture(t)
-	t.Setenv("BUILD_WORKSPACE_DIRECTORY", "/workspace/root")
+	ws := devServerWorkspace(t)
 	plan, err := MakePlan(devServerConfig(), r, []string{"--host"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	vite := filepath.Join(real["_main/tests/app/node_modules"], "vite", "bin", "vite.js")
+	// The port is passed on the command line even though the config carries it:
+	// only the flag survives a server that does not read the config.
 	want := []string{
 		real["+node+/bin/node"], vite, "dev", "--config",
-		real["_main/tests/app/dev_vite.config.mjs"], "--host",
+		real["_main/tests/app/dev_vite.config.mjs"], "--port", "5173", "--host",
 	}
 	if strings.Join(plan.Argv, "\x00") != strings.Join(want, "\x00") {
 		t.Errorf("argv = %q, want %q", plan.Argv, want)
 	}
-	if plan.Dir != "/workspace/root" {
+	if plan.Dir != ws {
 		t.Errorf("dir = %q, want the workspace root", plan.Dir)
 	}
-	if plan.EnvOverrides["BAZEL_BIN_DIR"] != "/workspace/root/bazel-bin" {
+	if plan.EnvOverrides["BAZEL_BIN_DIR"] != filepath.Join(ws, "bazel-bin") {
 		t.Errorf("BAZEL_BIN_DIR = %q", plan.EnvOverrides["BAZEL_BIN_DIR"])
 	}
 	if plan.EnvOverrides["VITE_PLUGIN_PATH"] != real["_main/vite/vite_plugin_bazel.mjs"] {
@@ -476,14 +487,14 @@ func ojDevServerConfig() *Config {
 
 func TestPlanDevServerRunsANativeServerWithoutTheJsRuntime(t *testing.T) {
 	r, real := devServerFixture(t)
-	t.Setenv("BUILD_WORKSPACE_DIRECTORY", "/workspace/root")
+	ws := devServerWorkspace(t)
 	plan, err := MakePlan(ojDevServerConfig(), r, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []string{
 		real["_main/oj/oj"], "dev", "--config",
-		real["_main/tests/app/dev_vite.config.mjs"], "/workspace/root",
+		real["_main/tests/app/dev_vite.config.mjs"], ws, "--port", "5173",
 	}
 	if strings.Join(plan.Argv, "\x00") != strings.Join(want, "\x00") {
 		t.Errorf("argv = %q, want %q", plan.Argv, want)
@@ -589,5 +600,141 @@ func TestEnvironCollapsesDuplicateKeys(t *testing.T) {
 	}
 	if !slices.Contains(got, "KEEP_ME=yes") {
 		t.Error("Environ dropped an inherited variable")
+	}
+}
+
+// The npm tree is a Bazel output with no node_modules above the source that
+// imports from it, so the launcher links it in at the workspace root. These
+// pin what it does with whatever is already sitting on that name -- getting it
+// wrong serves a stale install, or deletes one.
+
+func TestPlanDevServerLinksTheNpmTreeIntoTheWorkspace(t *testing.T) {
+	r, real := devServerFixture(t)
+	ws := devServerWorkspace(t)
+	plan, err := MakePlan(devServerConfig(), r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(ws, "node_modules")
+	target, err := os.Readlink(link)
+	if err != nil {
+		t.Fatalf("no node_modules link at the workspace root: %v", err)
+	}
+	if target != real["_main/tests/app/node_modules"] {
+		t.Errorf("link -> %q, want the npm tree %q", target, real["_main/tests/app/node_modules"])
+	}
+	if plan.Cleanup == nil {
+		t.Fatal("a link the launcher made has to come back off")
+	}
+	plan.Cleanup()
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		t.Errorf("cleanup left %s behind (%v)", link, err)
+	}
+}
+
+func TestPlanDevServerKeepsAnIdenticalLinkAndDoesNotRemoveIt(t *testing.T) {
+	r, real := devServerFixture(t)
+	ws := devServerWorkspace(t)
+	link := filepath.Join(ws, "node_modules")
+	if err := os.Symlink(real["_main/tests/app/node_modules"], link); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := MakePlan(devServerConfig(), r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Another dev server on the same tree may own it; removing it would break a
+	// server this process never started.
+	if plan.Cleanup != nil {
+		plan.Cleanup()
+	}
+	if _, err := os.Lstat(link); err != nil {
+		t.Errorf("a link it did not create was removed anyway: %v", err)
+	}
+}
+
+func TestPlanDevServerRefusesALinkToAnotherTree(t *testing.T) {
+	r, _ := devServerFixture(t)
+	ws := devServerWorkspace(t)
+	other := t.TempDir()
+	link := filepath.Join(ws, "node_modules")
+	if err := os.Symlink(other, link); err != nil {
+		t.Fatal(err)
+	}
+	_, err := MakePlan(devServerConfig(), r, nil)
+	if err == nil {
+		t.Fatal("two npm trees cannot both be at the workspace root")
+	}
+	if !strings.Contains(err.Error(), other) {
+		t.Errorf("the error does not name the tree already there: %v", err)
+	}
+	if target, _ := os.Readlink(link); target != other {
+		t.Errorf("the existing link was replaced with %q", target)
+	}
+}
+
+func TestPlanDevServerRefusesToDeleteAnInstalledNodeModules(t *testing.T) {
+	r, _ := devServerFixture(t)
+	ws := devServerWorkspace(t)
+	link := filepath.Join(ws, "node_modules")
+	if err := os.MkdirAll(filepath.Join(link, "left-behind"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := MakePlan(devServerConfig(), r, nil)
+	if err == nil {
+		t.Fatal("a real node_modules directory must not be taken over silently")
+	}
+	if _, statErr := os.Stat(filepath.Join(link, "left-behind")); statErr != nil {
+		t.Errorf("the existing install was disturbed: %v", statErr)
+	}
+}
+
+// A server that names the port in its own argv -- oj does, because its TanStack
+// Start path never reads the config -- has to be given it once. Passing it twice
+// is not a later-wins: oj exits with "cannot be used multiple times".
+func TestPlanDevServerSubstitutesThePortIntoArgvWithoutRepeatingIt(t *testing.T) {
+	r, real := devServerFixture(t)
+	devServerWorkspace(t)
+	cfg := devServerConfig()
+	cfg.DevServer.Argv = []string{"dev", "--config", "{config}", "--port", "{port}", "{root}"}
+
+	plan, err := MakePlan(cfg, r, []string{"--port", "4321"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(strings.Join(plan.Argv, " "), "--port"); got != 1 {
+		t.Errorf("argv names --port %d times, want once: %q", got, plan.Argv)
+	}
+	// And the override is what it was given, not the port the rule configured.
+	if !slices.Contains(plan.Argv, "4321") || slices.Contains(plan.Argv, "5173") {
+		t.Errorf("argv = %q, want the overriding port 4321", plan.Argv)
+	}
+	_ = real
+}
+
+// A dev server told where to put its scratch has to find the directory there:
+// a tool handed a path that does not exist may or may not create one.
+func TestPlanDevServerCreatesTheScratchDirectoriesItNames(t *testing.T) {
+	r, _ := devServerFixture(t)
+	ws := devServerWorkspace(t)
+	cfg := devServerConfig()
+	cfg.DevServer.ScratchDir = "tests/app/dev_dev"
+
+	plan, err := MakePlan(cfg, r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"TSR_TMP_DIR"} {
+		dir := plan.EnvOverrides[name]
+		if dir == "" {
+			t.Errorf("%s is unset", name)
+			continue
+		}
+		if !strings.HasPrefix(dir, filepath.Join(ws, "bazel-bin")) {
+			t.Errorf("%s = %q, want it under bazel-bin, not in the source tree", name, dir)
+		}
+		if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+			t.Errorf("%s names %q, which is not a directory (%v)", name, dir, err)
+		}
 	}
 }

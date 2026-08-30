@@ -7,14 +7,22 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime/debug"
+	"strconv"
 	"strings"
+	"sync"
+	"syscall"
+	"time"
 
 	"github.com/bazelbuild/rules_go/go/runfiles"
+
+	"github.com/mikn/rules_typescript/tests/hmrsocket"
 )
 
 type Config struct {
@@ -475,6 +483,123 @@ func (it *IT) Exec(logName, name string, args ...string) (*Log, error) {
 		it.Fail("cannot write %s: %v", log.Path, writeErr)
 	}
 	return log, err
+}
+
+// Server is a `bazel run` target left running, and the base URL it answers on.
+type Server struct {
+	Base string
+	Log  string
+
+	cmd  *exec.Cmd
+	out  *strings.Builder
+	stop func()
+	once sync.Once
+}
+
+// Stop shuts the server down early, for a test that needs to look at what it
+// left behind. Stopping twice is safe; cleanup calls it again.
+func (s *Server) Stop() {
+	s.once.Do(s.stop)
+}
+
+// Output is everything the server has written so far. A dev server reports most
+// of what goes wrong on stderr and still answers 200, so an assertion that only
+// reads the response body can pass over a broken one.
+func (s *Server) Output() string { return s.out.String() }
+
+// Serve starts a `bazel run` target on a free port and waits for it to answer,
+// returning the base URL. The target is stopped when the test ends.
+//
+// The launcher ignores SIGTERM (that is how a dev server survives an ibazel
+// rebuild) and bazel is its parent, so the whole process group is signalled.
+func (it *IT) Serve(logName, target string, args ...string) *Server {
+	port := freePort(it)
+	run := append([]string{"run", target, "--", "--port", strconv.Itoa(port)}, args...)
+	fmt.Printf("INFO: bazel %s\n", strings.Join(run, " "))
+	cmd := it.command(run)
+	out := &strings.Builder{}
+	cmd.Stdout = out
+	cmd.Stderr = out
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		it.Fail("cannot start %s: %v", target, err)
+	}
+
+	srv := &Server{
+		Base: fmt.Sprintf("http://localhost:%d", port),
+		Log:  it.Scratch(logName),
+		cmd:  cmd,
+		out:  out,
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	srv.stop = func() {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGINT)
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			<-done
+		}
+		_ = os.WriteFile(srv.Log, []byte(out.String()), 0o644)
+	}
+	it.OnCleanup(srv.Stop)
+
+	deadline := time.Now().Add(3 * time.Minute)
+	for time.Now().Before(deadline) {
+		select {
+		case err := <-done:
+			_ = os.WriteFile(srv.Log, []byte(out.String()), 0o644)
+			it.Fail("%s exited before it answered (%v):\n%s", target, err, out.String())
+		default:
+		}
+		if resp, err := http.Get(srv.Base + "/"); err == nil {
+			resp.Body.Close()
+			return srv
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	_ = os.WriteFile(srv.Log, []byte(out.String()), 0o644)
+	it.Fail("%s never answered on %s:\n%s", target, srv.Base, out.String())
+	return nil
+}
+
+// Get fetches a path from the running server and returns the status and body.
+func (it *IT) Get(srv *Server, path string) (int, string) {
+	resp, err := http.Get(srv.Base + path)
+	if err != nil {
+		it.Fail("GET %s: %v\n%s", path, err, srv.Output())
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		it.Fail("reading GET %s: %v", path, err)
+	}
+	return resp.StatusCode, string(body)
+}
+
+// DialHMR opens an HMR client against a running server, so a test can ask
+// whether an edit was published rather than only whether the next request
+// happens to render the new bytes.
+func (it *IT) DialHMR(srv *Server, path, protocol string) *hmrsocket.Socket {
+	sock, err := hmrsocket.Dial(strings.TrimPrefix(srv.Base, "http://"), path, protocol)
+	if err != nil {
+		it.Fail("%v\n%s", err, srv.Output())
+	}
+	it.OnCleanup(sock.Close)
+	return sock
+}
+
+// freePort asks the kernel for one. The configured port would collide between
+// two concurrent runs, and Vite silently increments past a collision -- so one
+// run would answer the other's requests.
+func freePort(it *IT) int {
+	listener, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		it.Fail("cannot reserve a port: %v", err)
+	}
+	defer listener.Close()
+	return listener.Addr().(*net.TCPAddr).Port
 }
 
 // Glob returns the names of the entries in dir whose name starts with prefix and

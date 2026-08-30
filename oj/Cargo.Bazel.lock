@@ -1,5 +1,5 @@
 {
-  "checksum": "8f1903447faec5dc43eeee821348ce3a17360d7cd7572f513932c2b1745496a7",
+  "checksum": "291d6b60a3d3b91790129d10a45b8e6dfb00848d20ba0cc66900b86b06477b3e",
   "crates": {
     "adler2 2.0.1": {
       "name": "adler2",
@@ -11555,20 +11555,17 @@
       ],
       "license_file": "LICENSE-APACHE"
     },
-    "oj 0.1.6": {
+    "oj 0.1.8": {
       "name": "oj",
-      "version": "0.1.6",
+      "version": "0.1.8",
       "package_url": null,
       "repository": {
-        "Http": {
-          "url": "https://static.crates.io/crates/oj/0.1.6/download",
-          "sha256": "86ab8be1e0ed9cb839f2d06139d4ac390926ddc0ea2af3a2a3ce940549b7cf7e",
-          "patch_args": [
-            "-p1"
-          ],
-          "patches": [
-            "@@//oj/patches:0001-accept-a-config-path-on-oj-build.patch"
-          ]
+        "Git": {
+          "remote": "https://github.com/mikn/oj",
+          "commitish": {
+            "Rev": "b86a02b5f2de34a660ced6a928ae296530d541e2"
+          },
+          "strip_prefix": "crates/oj"
         }
       },
       "targets": [
@@ -11617,27 +11614,27 @@
               "target": "notify"
             },
             {
-              "id": "oj_cache 0.1.6",
+              "id": "oj_cache 0.1.8",
               "target": "oj_cache"
             },
             {
-              "id": "oj_compiler 0.1.6",
+              "id": "oj_compiler 0.1.8",
               "target": "oj_compiler"
             },
             {
-              "id": "oj_config 0.1.6",
+              "id": "oj_config 0.1.8",
               "target": "oj_config"
             },
             {
-              "id": "oj_css 0.1.6",
+              "id": "oj_css 0.1.8",
               "target": "oj_css"
             },
             {
-              "id": "oj_env 0.1.6",
+              "id": "oj_env 0.1.8",
               "target": "oj_env"
             },
             {
-              "id": "oj_server 0.1.6",
+              "id": "oj_server 0.1.8",
               "target": "oj_server"
             },
             {
@@ -11672,7 +11669,7 @@
           "selects": {}
         },
         "edition": "2021",
-        "version": "0.1.6"
+        "version": "0.1.8"
       },
       "license": "MIT",
       "license_ids": [
@@ -11680,14 +11677,17 @@
       ],
       "license_file": null
     },
-    "oj_cache 0.1.6": {
+    "oj_cache 0.1.8": {
       "name": "oj_cache",
-      "version": "0.1.6",
+      "version": "0.1.8",
       "package_url": null,
       "repository": {
-        "Http": {
-          "url": "https://static.crates.io/crates/oj_cache/0.1.6/download",
-          "sha256": "ab46719f1c3d919f05e26756116db6b97cc8d571b43c3ae5c5141795674f1e41"
+        "Git": {
+          "remote": "https://github.com/mikn/oj",
+          "commitish": {
+            "Rev": "b86a02b5f2de34a660ced6a928ae296530d541e2"
+          },
+          "strip_prefix": "crates/oj_cache"
         }
       },
       "targets": [
@@ -11727,7 +11727,7 @@
           "selects": {}
         },
         "edition": "2021",
-        "version": "0.1.6"
+        "version": "0.1.8"
       },
       "license": "MIT",
       "license_ids": [
@@ -11735,14 +11735,17 @@
       ],
       "license_file": null
     },
-    "oj_compiler 0.1.6": {
+    "oj_compiler 0.1.8": {
       "name": "oj_compiler",
-      "version": "0.1.6",
+      "version": "0.1.8",
       "package_url": null,
       "repository": {
-        "Http": {
-          "url": "https://static.crates.io/crates/oj_compiler/0.1.6/download",
-          "sha256": "e7fdce3ed45c325cb907fdbbef23fa6b8c4d29d8d1a41f825260a27ea3b690a8"
+        "Git": {
+          "remote": "https://github.com/mikn/oj",
+          "commitish": {
+            "Rev": "b86a02b5f2de34a660ced6a928ae296530d541e2"
+          },
+          "strip_prefix": "crates/oj_compiler"
         }
       },
       "targets": [
@@ -11838,7 +11841,7 @@
           "selects": {}
         },
         "edition": "2021",
-        "version": "0.1.6"
+        "version": "0.1.8"
       },
       "license": "MIT",
       "license_ids": [
@@ -11846,14 +11849,17 @@
       ],
       "license_file": null
     },
-    "oj_config 0.1.6": {
+    "oj_config 0.1.8": {
       "name": "oj_config",
-      "version": "0.1.6",
+      "version": "0.1.8",
       "package_url": null,
       "repository": {
-        "Http": {
-          "url": "https://static.crates.io/crates/oj_config/0.1.6/download",
-          "sha256": "eb5e1e860e55b98a95ecb6799615bfd7688186f764279565e2192423766c1922"
+        "Git": {
+          "remote": "https://github.com/mikn/oj",
+          "commitish": {
+            "Rev": "b86a02b5f2de34a660ced6a928ae296530d541e2"
+          },
+          "strip_prefix": "crates/oj_config"
         }
       },
       "targets": [
@@ -11921,7 +11927,7 @@
           "selects": {}
         },
         "edition": "2021",
-        "version": "0.1.6"
+        "version": "0.1.8"
       },
       "license": "MIT",
       "license_ids": [
@@ -11929,14 +11935,17 @@
       ],
       "license_file": null
     },
-    "oj_css 0.1.6": {
+    "oj_css 0.1.8": {
       "name": "oj_css",
-      "version": "0.1.6",
+      "version": "0.1.8",
       "package_url": null,
       "repository": {
-        "Http": {
-          "url": "https://static.crates.io/crates/oj_css/0.1.6/download",
-          "sha256": "bbb378ad6152e118d0599560b1bdb57082d6f339e7e27f49ae402aa6ee862f74"
+        "Git": {
+          "remote": "https://github.com/mikn/oj",
+          "commitish": {
+            "Rev": "b86a02b5f2de34a660ced6a928ae296530d541e2"
+          },
+          "strip_prefix": "crates/oj_css"
         }
       },
       "targets": [
@@ -11972,7 +11981,7 @@
           "selects": {}
         },
         "edition": "2021",
-        "version": "0.1.6"
+        "version": "0.1.8"
       },
       "license": "MIT",
       "license_ids": [
@@ -11980,14 +11989,17 @@
       ],
       "license_file": null
     },
-    "oj_env 0.1.6": {
+    "oj_env 0.1.8": {
       "name": "oj_env",
-      "version": "0.1.6",
+      "version": "0.1.8",
       "package_url": null,
       "repository": {
-        "Http": {
-          "url": "https://static.crates.io/crates/oj_env/0.1.6/download",
-          "sha256": "2754bbfc8269a360ea0d2f557f0e19a1e130fa50886a5c23aa28403e8bf02cde"
+        "Git": {
+          "remote": "https://github.com/mikn/oj",
+          "commitish": {
+            "Rev": "b86a02b5f2de34a660ced6a928ae296530d541e2"
+          },
+          "strip_prefix": "crates/oj_env"
         }
       },
       "targets": [
@@ -12019,7 +12031,7 @@
           "selects": {}
         },
         "edition": "2021",
-        "version": "0.1.6"
+        "version": "0.1.8"
       },
       "license": "MIT",
       "license_ids": [
@@ -12027,14 +12039,17 @@
       ],
       "license_file": null
     },
-    "oj_graph 0.1.6": {
+    "oj_graph 0.1.8": {
       "name": "oj_graph",
-      "version": "0.1.6",
+      "version": "0.1.8",
       "package_url": null,
       "repository": {
-        "Http": {
-          "url": "https://static.crates.io/crates/oj_graph/0.1.6/download",
-          "sha256": "f0b5e958613b292c024f09d289e0944ab46a723c4cb7f6d96bbaee715bbefd94"
+        "Git": {
+          "remote": "https://github.com/mikn/oj",
+          "commitish": {
+            "Rev": "b86a02b5f2de34a660ced6a928ae296530d541e2"
+          },
+          "strip_prefix": "crates/oj_graph"
         }
       },
       "targets": [
@@ -12057,7 +12072,7 @@
           "**"
         ],
         "edition": "2021",
-        "version": "0.1.6"
+        "version": "0.1.8"
       },
       "license": "MIT",
       "license_ids": [
@@ -12065,14 +12080,17 @@
       ],
       "license_file": null
     },
-    "oj_resolver 0.1.6": {
+    "oj_resolver 0.1.8": {
       "name": "oj_resolver",
-      "version": "0.1.6",
+      "version": "0.1.8",
       "package_url": null,
       "repository": {
-        "Http": {
-          "url": "https://static.crates.io/crates/oj_resolver/0.1.6/download",
-          "sha256": "ebd3193ce6dfe085fe8dd3d43f78826b888f80850418fe4316f9f54b00acfdd6"
+        "Git": {
+          "remote": "https://github.com/mikn/oj",
+          "commitish": {
+            "Rev": "b86a02b5f2de34a660ced6a928ae296530d541e2"
+          },
+          "strip_prefix": "crates/oj_resolver"
         }
       },
       "targets": [
@@ -12108,7 +12126,7 @@
           "selects": {}
         },
         "edition": "2021",
-        "version": "0.1.6"
+        "version": "0.1.8"
       },
       "license": "MIT",
       "license_ids": [
@@ -12116,14 +12134,17 @@
       ],
       "license_file": null
     },
-    "oj_server 0.1.6": {
+    "oj_server 0.1.8": {
       "name": "oj_server",
-      "version": "0.1.6",
+      "version": "0.1.8",
       "package_url": null,
       "repository": {
-        "Http": {
-          "url": "https://static.crates.io/crates/oj_server/0.1.6/download",
-          "sha256": "921d9e93fa401ec640546f75085c0afc904fec8a08a6a0d42eee1e12b3aa14f6"
+        "Git": {
+          "remote": "https://github.com/mikn/oj",
+          "commitish": {
+            "Rev": "b86a02b5f2de34a660ced6a928ae296530d541e2"
+          },
+          "strip_prefix": "crates/oj_server"
         }
       },
       "targets": [
@@ -12168,31 +12189,31 @@
               "target": "notify"
             },
             {
-              "id": "oj_cache 0.1.6",
+              "id": "oj_cache 0.1.8",
               "target": "oj_cache"
             },
             {
-              "id": "oj_compiler 0.1.6",
+              "id": "oj_compiler 0.1.8",
               "target": "oj_compiler"
             },
             {
-              "id": "oj_config 0.1.6",
+              "id": "oj_config 0.1.8",
               "target": "oj_config"
             },
             {
-              "id": "oj_css 0.1.6",
+              "id": "oj_css 0.1.8",
               "target": "oj_css"
             },
             {
-              "id": "oj_env 0.1.6",
+              "id": "oj_env 0.1.8",
               "target": "oj_env"
             },
             {
-              "id": "oj_graph 0.1.6",
+              "id": "oj_graph 0.1.8",
               "target": "oj_graph"
             },
             {
-              "id": "oj_resolver 0.1.6",
+              "id": "oj_resolver 0.1.8",
               "target": "oj_resolver"
             },
             {
@@ -12234,7 +12255,7 @@
           }
         },
         "edition": "2021",
-        "version": "0.1.6"
+        "version": "0.1.8"
       },
       "license": "MIT",
       "license_ids": [
@@ -33133,7 +33154,7 @@
     }
   },
   "binary_crates": [
-    "oj 0.1.6"
+    "oj 0.1.8"
   ],
   "workspace_members": {
     "direct-cargo-bazel-deps 0.0.1": ""

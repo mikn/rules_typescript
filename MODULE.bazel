@@ -81,22 +81,33 @@ crate.from_cargo(
 # rolldown being the heaviest thing either tool pulls.
 crate.spec(
     artifact = "bin",
+    git = "https://github.com/mikn/oj",
     package = "oj",
     repositories = ["oj_crates"],
-    version = "=0.1.6",
+    rev = "b86a02b5f2de34a660ced6a928ae296530d541e2",
 )
 
-# `oj build` discovers a Vite config by convention from its positional ROOT and
-# has no flag to name one, so a generated config that lives outside the app tree
-# cannot reach it -- and passing the path positionally makes oj read it as ROOT.
-# `oj dev --config` already exists; the patch gives build the same flag on the
-# same mechanism. rules_rust keys annotations on (crate, version) and fails on a
-# duplicate, so this is the crate's one annotation rather than a second.
+# A git source rather than the crates.io release, because the fixes oj needs to
+# serve a TanStack Start app are not released yet. That rev is upstream main
+# plus one commit per gap and nothing else, each open as its own PR:
+# raphamorim/oj#115 (the injected-head-scripts virtual module), #116
+# (tsr.config.json reaching the route generator), #117 (package.json "imports"
+# over the seam conventions), #118 (the declare-module footer), #119 (--config
+# reaching the Start dev server, without which ts_dev_server's port and every
+# other config field are silently ignored there), #120 (OJ_CACHE_DIR, so a dev
+# server writes nothing into the workspace it serves), and #110 (an explicit
+# config path on `oj build`). `git diff v0.1.8..<rev>` is the whole of
+# what is carried. This is a git source rather than crate.annotation(patches = ...)
+# on purpose: an annotation's patches are labels, and crate_universe renders
+# them into the checked-in lockfile already canonicalised. `//oj/patches:x`
+# becomes `@@//oj/patches:x`, which means THIS repo here and the consumer's own
+# repo downstream, so a patched hub can only ever work in one of the two. There
+# is no spelling that works in both -- the root module's canonical name is "",
+# and `@@rules_typescript+` does not resolve here. Drop this block for a plain
+# version pin once the PRs land in a release.
 crate.annotation(
     crate = "oj",
     gen_all_binaries = True,
-    patch_args = ["-p1"],
-    patches = ["//oj/patches:0001-accept-a-config-path-on-oj-build.patch"],
     repositories = ["oj_crates"],
 )
 crate.from_specs(
@@ -117,7 +128,7 @@ node.toolchain(
     # in ts/private/runtime.bzl constructs repo labels as "nodejs_<platform>",
     # which requires this prefix to match.
     name = "nodejs",
-    node_version = "22.14.0",
+    node_version = "22.23.1",
 )
 use_repo(
     node,

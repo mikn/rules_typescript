@@ -156,12 +156,48 @@ with the plugin in place and with it removed.
 
 ## Dev Server
 
-There is no dev-server target. A Start dev server does not work against a
-Bazel-only npm tree: Vite's SSR module runner inlines `react/jsx-runtime` rather
-than externalising it, since the npm tree is a build output and not a directory
-the importer can walk up to, and React's CJS entry then evaluates `module` in an
-ESM context. Every request answers 500. Gazelle logs that reason when it walks
-the workspace.
+```bash
+bazel run //:dev        # Vite, http://localhost:5173, SSR and all
+bazel run //:dev_oj     # the same app under oj, http://localhost:5174
+```
+
+`//:dev` takes the same `vite_config` as `//:app`, so the Start plugin owns
+routing, the server functions and the client entry exactly as it does in the
+build. Gazelle generates it beside `ts_bundle` for that reason: a per-package dev
+target would not have the config, and without the plugin there is no app.
+
+Starting it links the npm tree in as `node_modules` at the workspace root, and
+removes the link on Ctrl-C. Vite decides SSR externalisation and
+`optimizeDeps.include` without consulting any plugin — both walk up from the
+importer, or from the Vite root — so a tree that is only a Bazel output is
+invisible to them, and `react/jsx-runtime` gets inlined as CJS into an ESM
+evaluator. The link is what makes both resolve. See
+[the dev server guide](../../docs/guides/dev-server.md#how-a-bare-npm-specifier-resolves).
+
+### Two files that name this app's layout
+
+This app does not use the framework's default paths: the router entry is
+`src/lib/router.ts` (so the lib package owns it and its test) and the route tree
+is `src/routes/routeTree.gen.ts` (so the tree and the routes it types are one
+`ts_compile`). Vite learns both from `tanstack-vite.config.mjs`. Two other
+readers cannot see that file, so they are told directly:
+
+| file | reader | what it says |
+| --- | --- | --- |
+| `tsr.config.json` | `@tanstack/router-generator` | where the routes are and where the tree goes |
+| `package.json` `imports` | any bundler resolving `#tanstack-router-entry` | where `getRouter` is |
+
+Both are standard framework/Node mechanisms rather than anything this ruleset
+invented, and Vite ignores them because the plugin's own options win.
+
+oj detects a TanStack Start app from `src/routes` plus the dependency and serves
+it through its own adapter rather than the Vite plugin -- a second implementation
+of the same app, which is what makes the two files above worth having: they are
+the only description of this layout that both can read.
+
+The Start plugin regenerates `src/routes/routeTree.gen.ts` while it serves.
+`:route_tree` passes `--start-router` so it emits the same `declare module`
+footer, which makes that write a no-op and keeps `:route_tree_test` green.
 
 ## Using as a Template
 

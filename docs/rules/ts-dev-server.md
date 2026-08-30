@@ -52,17 +52,22 @@ ibazel run //src/app:dev   # codegen rebuilds and config-aware restarts
 | `bundler` | `label` | `None` | `BundlerInfo`-providing target, for a custom dev server that needs a bundler binary in runfiles. Neither shipped server does |
 | `react_refresh` | `bool` | `False` | React Fast Refresh via `@vitejs/plugin-react`, so component state survives an HMR update. Requires `@npm//:vitejs_plugin-react` in the `node_modules` deps; the dev server fails to start if the plugin cannot be loaded. An analysis-time error against oj, which applies Fast Refresh itself |
 | `vite_config_srcs` | `label_list` | `[]` | The local modules `vite_config` imports, staged beside it so its relative imports resolve |
-| `vite_config` | `label` | `None` | A `.ts`/`.mts`/`.mjs`/`.js` file default-exporting `{plugins: [...]}`, prepended to Bazel's plugins. This is how a framework plugin runs in the dev server; SvelteKit's and Solid Start's [cannot](../gazelle/overview.md#framework-detection), and TanStack Start's loads but does not serve. Loaded from a copy in `bazel-bin`, which bounds what it may import |
+| `vite_config` | `label` | `None` | A `.ts`/`.mts`/`.mjs`/`.js` file default-exporting `{plugins: [...]}`, prepended to Bazel's plugins. This is how a framework plugin runs in the dev server; SvelteKit's and Solid Start's [cannot](../gazelle/overview.md#framework-detection), and TanStack Start's both bundles and serves. Loaded from a copy in `bazel-bin`, which bounds what it may import |
 
 ## npm Resolution
 
-A bare specifier in dev-served source resolves through the `node_modules` tree,
-via a generated `bazel:npm-resolve` plugin at `enforce: 'pre'`. Vite has no
-search-path option and finds no `node_modules` above a checked-in source file, so
-the plugin locates `<tree>/<package>/package.json` and hands the id back to Vite's
-own resolver anchored there; exports maps, conditions and subpaths stay Vite's. A
-package the tree does not carry produces Vite's `Failed to resolve import`; add it
-to the `node_modules` target's `deps`.
+Starting the server links the `node_modules` tree in at the workspace root, and
+removes the link on Ctrl-C, so a bare specifier resolves by the ordinary walk up
+from the importer. That is what SSR externalisation and `optimizeDeps.include`
+need: both resolve without going through the plugin container, so no plugin can
+answer for them. A generated `bazel:npm-resolve` plugin stays behind it at
+`enforce: 'post'` for importers the walk cannot reach. Exports maps, conditions
+and subpaths stay Vite's. A package the tree does not carry produces Vite's
+`Failed to resolve import`; add it to the `node_modules` target's `deps`.
+
+An existing `node_modules` is never replaced: a real directory or a link to
+another tree is an error naming both, not something to overwrite. Add
+`node_modules` to `.gitignore` without a trailing slash — the entry is a symlink.
 
 ## What a `vite_config` may import
 

@@ -1,0 +1,8 @@
+# The npm-tree link a dev server makes at the workspace root while it runs: it
+# is what puts the Bazel tree on a bare specifier's resolution path, and it is
+# not source. Gazelle would otherwise descend it.
+node_modules
+
+# oj's cache, for anyone running `oj dev` directly rather than through
+# ts_dev_server -- the rule points OJ_CACHE_DIR into bazel-bin instead.
+.oj-cache
