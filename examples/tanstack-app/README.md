@@ -157,7 +157,8 @@ with the plugin in place and with it removed.
 ## Dev Server
 
 ```bash
-bazel run //:dev        # http://localhost:5173, SSR and all
+bazel run //:dev        # Vite, http://localhost:5173, SSR and all
+bazel run //:dev_oj     # the same app under oj, http://localhost:5174
 ```
 
 `//:dev` takes the same `vite_config` as `//:app`, so the Start plugin owns
@@ -188,6 +189,11 @@ readers cannot see that file, so they are told directly:
 
 Both are standard framework/Node mechanisms rather than anything this ruleset
 invented, and Vite ignores them because the plugin's own options win.
+
+oj detects a TanStack Start app from `src/routes` plus the dependency and serves
+it through its own adapter rather than the Vite plugin -- a second implementation
+of the same app, which is what makes the two files above worth having: they are
+the only description of this layout that both can read.
 
 The Start plugin regenerates `src/routes/routeTree.gen.ts` while it serves.
 `:route_tree` passes `--start-router` so it emits the same `declare module`

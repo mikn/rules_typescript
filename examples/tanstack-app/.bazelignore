@@ -1,0 +1,6 @@
+# A dev server writes both of these into the workspace while it runs: oj its
+# asset and module cache, ts_dev_server the npm-tree link that puts the Bazel
+# tree on a bare specifier's resolution path. Neither is source, and Gazelle
+# would otherwise generate a BUILD file per cached blob.
+.oj-cache
+node_modules

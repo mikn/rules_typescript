@@ -1,5 +1,5 @@
 {
-  "checksum": "176de61a87f8d0585746ae726881a072167b1966c00feb766796b5709a088837",
+  "checksum": "babe434594f1f07ac7652ad08419f64dec5320c9f1b3cff627c84b32c987c2f9",
   "crates": {
     "adler2 2.0.1": {
       "name": "adler2",
@@ -11560,15 +11560,12 @@
       "version": "0.1.8",
       "package_url": null,
       "repository": {
-        "Http": {
-          "url": "https://static.crates.io/crates/oj/0.1.8/download",
-          "sha256": "613740e018d7285054532daaa1f21f1dd4e37fe29716acc07bd57893371603a1",
-          "patch_args": [
-            "-p1"
-          ],
-          "patches": [
-            "@@//oj/patches:0001-accept-a-config-path-on-oj-build.patch"
-          ]
+        "Git": {
+          "remote": "https://github.com/mikn/oj",
+          "commitish": {
+            "Rev": "c0ea7f68d9b118d2d90bd84938a10251e8b21c65"
+          },
+          "strip_prefix": "crates/oj"
         }
       },
       "targets": [
@@ -11685,9 +11682,12 @@
       "version": "0.1.8",
       "package_url": null,
       "repository": {
-        "Http": {
-          "url": "https://static.crates.io/crates/oj_cache/0.1.8/download",
-          "sha256": "4f3ea0e8b051bdd2e21c4014288f2b157e860b1d210d1e17c0bcb0c6e563340d"
+        "Git": {
+          "remote": "https://github.com/mikn/oj",
+          "commitish": {
+            "Rev": "c0ea7f68d9b118d2d90bd84938a10251e8b21c65"
+          },
+          "strip_prefix": "crates/oj_cache"
         }
       },
       "targets": [
@@ -11740,9 +11740,12 @@
       "version": "0.1.8",
       "package_url": null,
       "repository": {
-        "Http": {
-          "url": "https://static.crates.io/crates/oj_compiler/0.1.8/download",
-          "sha256": "134aa5563e8775f6bef2461ff59cd98b916286ccb775f66a6017bd54bf351fb8"
+        "Git": {
+          "remote": "https://github.com/mikn/oj",
+          "commitish": {
+            "Rev": "c0ea7f68d9b118d2d90bd84938a10251e8b21c65"
+          },
+          "strip_prefix": "crates/oj_compiler"
         }
       },
       "targets": [
@@ -11851,9 +11854,12 @@
       "version": "0.1.8",
       "package_url": null,
       "repository": {
-        "Http": {
-          "url": "https://static.crates.io/crates/oj_config/0.1.8/download",
-          "sha256": "0031eda128fd88977a1f7971cdf3322da704c678c214d4d6d6747445772f27e0"
+        "Git": {
+          "remote": "https://github.com/mikn/oj",
+          "commitish": {
+            "Rev": "c0ea7f68d9b118d2d90bd84938a10251e8b21c65"
+          },
+          "strip_prefix": "crates/oj_config"
         }
       },
       "targets": [
@@ -11934,9 +11940,12 @@
       "version": "0.1.8",
       "package_url": null,
       "repository": {
-        "Http": {
-          "url": "https://static.crates.io/crates/oj_css/0.1.8/download",
-          "sha256": "1bb408cf1163d6f11d275f083f648a51187fb0060304f6a8544d09041b1c581c"
+        "Git": {
+          "remote": "https://github.com/mikn/oj",
+          "commitish": {
+            "Rev": "c0ea7f68d9b118d2d90bd84938a10251e8b21c65"
+          },
+          "strip_prefix": "crates/oj_css"
         }
       },
       "targets": [
@@ -11985,9 +11994,12 @@
       "version": "0.1.8",
       "package_url": null,
       "repository": {
-        "Http": {
-          "url": "https://static.crates.io/crates/oj_env/0.1.8/download",
-          "sha256": "8402fcba29026d337837ca870bd97d7aee3700061d8f5729201668e792b4e681"
+        "Git": {
+          "remote": "https://github.com/mikn/oj",
+          "commitish": {
+            "Rev": "c0ea7f68d9b118d2d90bd84938a10251e8b21c65"
+          },
+          "strip_prefix": "crates/oj_env"
         }
       },
       "targets": [
@@ -12032,9 +12044,12 @@
       "version": "0.1.8",
       "package_url": null,
       "repository": {
-        "Http": {
-          "url": "https://static.crates.io/crates/oj_graph/0.1.8/download",
-          "sha256": "d465c78c634c8933429492bc6fea549cc003c0a0a4dd18e96cf70a04db58fea1"
+        "Git": {
+          "remote": "https://github.com/mikn/oj",
+          "commitish": {
+            "Rev": "c0ea7f68d9b118d2d90bd84938a10251e8b21c65"
+          },
+          "strip_prefix": "crates/oj_graph"
         }
       },
       "targets": [
@@ -12070,9 +12085,12 @@
       "version": "0.1.8",
       "package_url": null,
       "repository": {
-        "Http": {
-          "url": "https://static.crates.io/crates/oj_resolver/0.1.8/download",
-          "sha256": "8df7f236b55a981554b31f7f2ff2fdd98278123514f0c9bdbaba1bbbafc00de5"
+        "Git": {
+          "remote": "https://github.com/mikn/oj",
+          "commitish": {
+            "Rev": "c0ea7f68d9b118d2d90bd84938a10251e8b21c65"
+          },
+          "strip_prefix": "crates/oj_resolver"
         }
       },
       "targets": [
@@ -12121,18 +12139,12 @@
       "version": "0.1.8",
       "package_url": null,
       "repository": {
-        "Http": {
-          "url": "https://static.crates.io/crates/oj_server/0.1.8/download",
-          "sha256": "d225c06738bbc256ba41639a5c39e6d419e0b042b439095e8e32db17153a3d43",
-          "patch_args": [
-            "-p1"
-          ],
-          "patches": [
-            "@@//oj/patches:0002-provide-the-injected-head-scripts-virtual-module.patch",
-            "@@//oj/patches:0003-let-tsr-config-json-configure-the-route-generator.patch",
-            "@@//oj/patches:0004-let-package-imports-override-the-framework-seam-conventions.patch",
-            "@@//oj/patches:0005-emit-the-start-declare-module-footer.patch"
-          ]
+        "Git": {
+          "remote": "https://github.com/mikn/oj",
+          "commitish": {
+            "Rev": "c0ea7f68d9b118d2d90bd84938a10251e8b21c65"
+          },
+          "strip_prefix": "crates/oj_server"
         }
       },
       "targets": [

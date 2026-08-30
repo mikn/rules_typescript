@@ -1775,8 +1775,7 @@ dependencies = [
 [[package]]
 name = "oj"
 version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "613740e018d7285054532daaa1f21f1dd4e37fe29716acc07bd57893371603a1"
+source = "git+https://github.com/mikn/oj?rev=c0ea7f68d9b118d2d90bd84938a10251e8b21c65#c0ea7f68d9b118d2d90bd84938a10251e8b21c65"
 dependencies = [
  "anyhow",
  "arcstr",
@@ -1802,8 +1801,7 @@ dependencies = [
 [[package]]
 name = "oj_cache"
 version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f3ea0e8b051bdd2e21c4014288f2b157e860b1d210d1e17c0bcb0c6e563340d"
+source = "git+https://github.com/mikn/oj?rev=c0ea7f68d9b118d2d90bd84938a10251e8b21c65#c0ea7f68d9b118d2d90bd84938a10251e8b21c65"
 dependencies = [
  "blake3",
  "serde",
@@ -1813,8 +1811,7 @@ dependencies = [
 [[package]]
 name = "oj_compiler"
 version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "134aa5563e8775f6bef2461ff59cd98b916286ccb775f66a6017bd54bf351fb8"
+source = "git+https://github.com/mikn/oj?rev=c0ea7f68d9b118d2d90bd84938a10251e8b21c65#c0ea7f68d9b118d2d90bd84938a10251e8b21c65"
 dependencies = [
  "glob",
  "memchr",
@@ -1838,8 +1835,7 @@ dependencies = [
 [[package]]
 name = "oj_config"
 version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0031eda128fd88977a1f7971cdf3322da704c678c214d4d6d6747445772f27e0"
+source = "git+https://github.com/mikn/oj?rev=c0ea7f68d9b118d2d90bd84938a10251e8b21c65#c0ea7f68d9b118d2d90bd84938a10251e8b21c65"
 dependencies = [
  "oxc_allocator 0.146.0",
  "oxc_codegen 0.146.0",
@@ -1856,8 +1852,7 @@ dependencies = [
 [[package]]
 name = "oj_css"
 version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1bb408cf1163d6f11d275f083f648a51187fb0060304f6a8544d09041b1c581c"
+source = "git+https://github.com/mikn/oj?rev=c0ea7f68d9b118d2d90bd84938a10251e8b21c65#c0ea7f68d9b118d2d90bd84938a10251e8b21c65"
 dependencies = [
  "grass",
  "lightningcss",
@@ -1866,8 +1861,7 @@ dependencies = [
 [[package]]
 name = "oj_env"
 version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8402fcba29026d337837ca870bd97d7aee3700061d8f5729201668e792b4e681"
+source = "git+https://github.com/mikn/oj?rev=c0ea7f68d9b118d2d90bd84938a10251e8b21c65#c0ea7f68d9b118d2d90bd84938a10251e8b21c65"
 dependencies = [
  "serde_json",
 ]
@@ -1875,14 +1869,12 @@ dependencies = [
 [[package]]
 name = "oj_graph"
 version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d465c78c634c8933429492bc6fea549cc003c0a0a4dd18e96cf70a04db58fea1"
+source = "git+https://github.com/mikn/oj?rev=c0ea7f68d9b118d2d90bd84938a10251e8b21c65#c0ea7f68d9b118d2d90bd84938a10251e8b21c65"
 
 [[package]]
 name = "oj_resolver"
 version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8df7f236b55a981554b31f7f2ff2fdd98278123514f0c9bdbaba1bbbafc00de5"
+source = "git+https://github.com/mikn/oj?rev=c0ea7f68d9b118d2d90bd84938a10251e8b21c65#c0ea7f68d9b118d2d90bd84938a10251e8b21c65"
 dependencies = [
  "oxc_resolver",
  "thiserror",
@@ -1891,8 +1883,7 @@ dependencies = [
 [[package]]
 name = "oj_server"
 version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d225c06738bbc256ba41639a5c39e6d419e0b042b439095e8e32db17153a3d43"
+source = "git+https://github.com/mikn/oj?rev=c0ea7f68d9b118d2d90bd84938a10251e8b21c65#c0ea7f68d9b118d2d90bd84938a10251e8b21c65"
 dependencies = [
  "anyhow",
  "axum",

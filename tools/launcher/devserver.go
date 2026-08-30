@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -11,7 +12,7 @@ import (
 // target selected. A server inside the npm tree is a path joined onto the
 // resolved tree, because a file inside a TreeArtifact has no label to resolve;
 // a native binary is a runfile. ts_dev_server guarantees exactly one is set.
-func serverCommand(cfg *Config, r *Resolver, configFile, nodeModules string) ([]string, string, error) {
+func serverCommand(cfg *Config, r *Resolver, configFile, nodeModules string, port int) ([]string, string, error) {
 	d := cfg.DevServer
 	var argv []string
 	var serverPath string
@@ -67,10 +68,22 @@ func serverCommand(cfg *Config, r *Resolver, configFile, nodeModules string) ([]
 		}
 		root = cwd
 	}
+	named := false
 	for _, a := range d.Argv {
+		if strings.Contains(a, "{port}") {
+			named = true
+		}
 		a = strings.ReplaceAll(a, "{config}", configFile)
 		a = strings.ReplaceAll(a, "{root}", root)
+		a = strings.ReplaceAll(a, "{port}", strconv.Itoa(port))
 		argv = append(argv, a)
+	}
+	// A server whose argv does not name the port reads it from the config, and
+	// the flag is how an override reaches it -- Vite's CLI --port beats what the
+	// config says. One whose argv does name it has already been given the same
+	// number, and passing it twice is an error rather than a later-wins.
+	if !named {
+		argv = append(argv, "--port", strconv.Itoa(port))
 	}
 	return argv, serverPath, nil
 }
@@ -107,7 +120,10 @@ func planDevServer(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, 
 	// walk up to, so without this the dev server answers 500 for that stylesheet.
 	plan.prependPath("NODE_PATH", nodeModules)
 
-	argv, serverPath, err := serverCommand(cfg, r, configFile, nodeModules)
+	// A server whose argv names the port takes the override there; one that reads
+	// it from the config still gets it appended, which is where it looked before.
+	port, args := portOverride(d.Port, args)
+	argv, serverPath, err := serverCommand(cfg, r, configFile, nodeModules, port)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +173,7 @@ func planDevServer(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, 
 	}
 
 	plan.Messages = append(plan.Messages,
-		fmt.Sprintf("[ts_dev_server] Starting dev server on port %d...", d.Port),
+		fmt.Sprintf("[ts_dev_server] Starting dev server on port %d...", port),
 		fmt.Sprintf("[ts_dev_server] Workspace: %s", workspace),
 		fmt.Sprintf("[ts_dev_server] bazel-bin: %s", bazelBin),
 		fmt.Sprintf("[ts_dev_server] node_modules: %s", nodeModules),

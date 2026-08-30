@@ -440,9 +440,11 @@ func TestPlanDevServerRunsViteFromTheNodeModulesTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	vite := filepath.Join(real["_main/tests/app/node_modules"], "vite", "bin", "vite.js")
+	// The port is passed on the command line even though the config carries it:
+	// only the flag survives a server that does not read the config.
 	want := []string{
 		real["+node+/bin/node"], vite, "dev", "--config",
-		real["_main/tests/app/dev_vite.config.mjs"], "--host",
+		real["_main/tests/app/dev_vite.config.mjs"], "--port", "5173", "--host",
 	}
 	if strings.Join(plan.Argv, "\x00") != strings.Join(want, "\x00") {
 		t.Errorf("argv = %q, want %q", plan.Argv, want)
@@ -492,7 +494,7 @@ func TestPlanDevServerRunsANativeServerWithoutTheJsRuntime(t *testing.T) {
 	}
 	want := []string{
 		real["_main/oj/oj"], "dev", "--config",
-		real["_main/tests/app/dev_vite.config.mjs"], ws,
+		real["_main/tests/app/dev_vite.config.mjs"], ws, "--port", "5173",
 	}
 	if strings.Join(plan.Argv, "\x00") != strings.Join(want, "\x00") {
 		t.Errorf("argv = %q, want %q", plan.Argv, want)
@@ -685,4 +687,27 @@ func TestPlanDevServerRefusesToDeleteAnInstalledNodeModules(t *testing.T) {
 	if _, statErr := os.Stat(filepath.Join(link, "left-behind")); statErr != nil {
 		t.Errorf("the existing install was disturbed: %v", statErr)
 	}
+}
+
+// A server that names the port in its own argv -- oj does, because its TanStack
+// Start path never reads the config -- has to be given it once. Passing it twice
+// is not a later-wins: oj exits with "cannot be used multiple times".
+func TestPlanDevServerSubstitutesThePortIntoArgvWithoutRepeatingIt(t *testing.T) {
+	r, real := devServerFixture(t)
+	devServerWorkspace(t)
+	cfg := devServerConfig()
+	cfg.DevServer.Argv = []string{"dev", "--config", "{config}", "--port", "{port}", "{root}"}
+
+	plan, err := MakePlan(cfg, r, []string{"--port", "4321"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(strings.Join(plan.Argv, " "), "--port"); got != 1 {
+		t.Errorf("argv names --port %d times, want once: %q", got, plan.Argv)
+	}
+	// And the override is what it was given, not the port the rule configured.
+	if !slices.Contains(plan.Argv, "4321") || slices.Contains(plan.Argv, "5173") {
+		t.Errorf("argv = %q, want the overriding port 4321", plan.Argv)
+	}
+	_ = real
 }

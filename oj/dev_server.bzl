@@ -17,7 +17,9 @@ declared in the provider rather than handled in the launcher.
 oj takes the directory it serves from a positional argument; the `root` in the
 config is not read. So `{root}` is in its argv, and `root` is in
 `ignored_config_fields` -- a config field oj does without rather than one it
-drops.
+drops. `server.port` is the same shape and worse to get wrong: on the TanStack
+Start path oj never reads the config at all, so a port left only in the config
+is silently the default 5199 and `ts_dev_server(port = ...)` does nothing.
 
 The rest of `ignored_config_fields` is what oj genuinely does not read. oj
 adopts `base`, `publicDir`, `server.port`, `server.host`, `server.fs.allow`,
@@ -43,7 +45,7 @@ def _oj_dev_server_impl(ctx):
     return [DevServerInfo(
         server_binary = ctx.executable.oj,
         server_in_tree = "",
-        argv = ["dev", "--config", "{config}", "{root}"],
+        argv = ["dev", "--config", "{config}", "--port", "{port}", "{root}"],
         config_dialect = "vite",
         runs_in_js_runtime = False,
         ignored_config_fields = [

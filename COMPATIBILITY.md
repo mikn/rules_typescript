@@ -151,7 +151,7 @@ What tests it:
 | `//tests/tailwind:tailwind_dev_oj_test` | `@tailwindcss/vite`, a Vite-API plugin, in oj's plugin host |
 
 oj is not a bundler here. Nothing in the ruleset returns `BundlerInfo` for it.
-The carried patch in `oj/patches/` gives `oj build` the `--config` flag `oj dev`
+The oj revision this module pins gives `oj build` the `--config` flag `oj dev`
 already had, so a generated config can now name itself to a build, but
 `oj build`'s CLI still matches neither `BundlerInfo` invocation mode.
 

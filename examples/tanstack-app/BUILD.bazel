@@ -14,7 +14,7 @@ Demonstrates:
     bazel build //...          compile + type-check
     bazel test //...           vitest, and the route-tree staleness test
     bazel build //:app         client/ + server/ under bazel-bin/app_bundle
-    bazel run //:dev           dev server with SSR on :5173
+    bazel run //:dev           dev server with SSR on :5173 (oj: //:dev_oj)
     bazel run //:gazelle       regenerate BUILD files
 
 Adding a route needs one more step than Gazelle -- see the README.
@@ -26,7 +26,7 @@ virtual:tanstack-start-client-entry and emits no HTML at all.
 
 load("@gazelle//:def.bzl", "gazelle")
 load("@rules_typescript//npm:defs.bzl", "node_modules")
-load("@rules_typescript//ts:defs.bzl", "ts_add_package", "ts_bundle", "ts_dev_server", "ts_pnpm")
+load("@rules_typescript//ts:defs.bzl", "json_library", "ts_add_package", "ts_bundle", "ts_dev_server", "ts_pnpm")
 load("@rules_typescript//vite:bundler.bzl", "vite_bundler")
 
 # Run "bazel run //:gazelle" to auto-generate BUILD files.
@@ -54,6 +54,8 @@ node_modules(
         "@npm//:react-dom",
         "@npm//:tanstack_react-router",
         "@npm//:tanstack_react-start",
+        # keep: oj's Start adapter runs the route generator out of the app's own
+        # tree; the Vite plugin bundles its own, so Gazelle does not know to add it.
         "@npm//:tanstack_router-generator",
         "@npm//:vite",
         "@npm//:zod",
@@ -77,6 +79,7 @@ ts_bundle(
     mode = "app",
     staging_srcs = [
         "index.html",
+        ":tsr_config_json",
         "//src/app:sources",
         "//src/components:sources",
         "//src/lib:sources",
@@ -99,4 +102,23 @@ ts_dev_server(
     entry_point = "//src/app:main",
     node_modules = ":node_modules",
     vite_config = "tanstack-vite.config.mjs",
+)
+
+# The same app under oj instead of Vite. oj detects a TanStack Start app from
+# src/routes plus the dependency, and serves it through its own adapter rather
+# than the Vite plugin; what it shares with //:dev is this workspace's own
+# description of its layout (tsr.config.json and package.json "imports").
+ts_dev_server(
+    name = "dev_oj",
+    entry_point = "//src/app:main",
+    node_modules = ":node_modules",
+    port = 5174,
+    server = "@rules_typescript//oj:dev_server",
+    vite_config = "tanstack-vite.config.mjs",
+)
+
+json_library(
+    name = "tsr_config_json",
+    srcs = ["tsr.config.json"],
+    visibility = ["//visibility:public"],
 )

@@ -1,4 +1,0 @@
-# Patches applied to the oj crate graph by MODULE.bazel's oj_crates extension.
-# gazelle:ts_ignore
-
-exports_files(glob(["*.patch"]))

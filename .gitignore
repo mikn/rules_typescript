@@ -13,8 +13,12 @@ MODULE.bazel.lock
 # stays checked in (//:refresh_tsconfig_test diffs it)
 .bazel/
 
-# Node modules (managed by Bazel, not checked in)
+# Node modules (managed by Bazel, not checked in). No trailing slash: the dev
+# server links the npm tree in, and a trailing slash matches only a directory.
 node_modules
+
+# oj writes its asset and module cache into the workspace it serves.
+.oj-cache
 
 # Cargo build output (oxc_cli is built by Bazel via rules_rust; a cargo
 # target/ is local scratch only)
