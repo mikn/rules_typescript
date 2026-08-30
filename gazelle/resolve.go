@@ -492,9 +492,8 @@ func resolvePathAlias(
 //   - "@types/react"       → "@npm//:types_react"
 //   - "@tanstack/router"   → "@npm//:tanstack_router"
 func resolveNpmPackage(tc *tsConfig, imp string) string {
-	// Skip Node.js built-in modules (e.g. "node:fs", "node:path").
 	if strings.HasPrefix(imp, "node:") {
-		return ""
+		return nodeTypesDep(tc)
 	}
 
 	// Bare specifiers must not contain a leading dot or slash.
@@ -522,10 +521,8 @@ func resolveNpmPackage(tc *tsConfig, imp string) string {
 		}
 	}
 
-	// A built-in spelled without the prefix is not a package: no hub declares a
-	// target, and strict deps resolves it against Node's own builtinModules.
 	if isNodeBuiltin(pkgName) {
-		return ""
+		return nodeTypesDep(tc)
 	}
 
 	// Default convention: <hub>//:target-name, the hub being @npm unless
@@ -582,6 +579,18 @@ func barePackageName(imp string) string {
 
 // ---- built-in module helpers -----------------------------------------------
 
+const nodeTypesPackage = "@types/node"
+
+// Node supplies the built-in module but not its declarations. No inventory
+// entry means no dep: a label no hub declares turns a type error into an
+// analysis failure.
+func nodeTypesDep(tc *tsConfig) string {
+	if !hasNpmPackage(tc, nodeTypesPackage) {
+		return ""
+	}
+	return resolveNpmPackage(tc, nodeTypesPackage)
+}
+
 // Every bare name the toolchain node reports in `builtinModules`, which is what
 // the strict-deps check resolves against: a name missing here becomes an
 // `@npm//:<name>` label no hub declares.
@@ -615,9 +624,7 @@ func NodeBuiltins() []string {
 }
 
 // isNodeBuiltin returns true for Node.js built-in module specifiers such as
-// "node:fs", "node:path", "fs", "path", "os", etc. These are never resolvable
-// to a Bazel label so they should not produce a warning even when
-// warnUnresolved is enabled.
+// "node:fs", "node:path", "fs", "path", "os", etc.
 func isNodeBuiltin(imp string) bool {
 	if strings.HasPrefix(imp, "node:") {
 		return true

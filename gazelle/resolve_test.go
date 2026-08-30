@@ -1026,3 +1026,122 @@ func TestResolveImports_QueriedTextAssetResolvesToItsAssetLibrary(t *testing.T) 
 		}
 	}
 }
+
+// A `node:` import is invisible to the runtime dep graph but not to the type
+// checker: without @types/node tsgo reports TS2591 for every `process`, and
+// TS2304/TS2552 for the names that follow.
+func TestResolveNpmPackage_NodeBuiltinTakesTheTypes(t *testing.T) {
+	tc := makeConfig("", nil)
+	tc.npmPackages = map[string]string{
+		"@types/node": "@npm//:types_node",
+		"react":       "@npm//:react",
+	}
+
+	for imp, want := range map[string]string{
+		"node:fs":          "@npm//:types_node",
+		"node:path":        "@npm//:types_node",
+		"node:fs/promises": "@npm//:types_node",
+		"node:sqlite":      "@npm//:types_node",
+		"fs":               "@npm//:types_node",
+		"path":             "@npm//:types_node",
+		"react":            "@npm//:react",
+	} {
+		if got := resolveNpmPackage(tc, imp); got != want {
+			t.Errorf("resolveNpmPackage(%q) = %q, want %q", imp, got, want)
+		}
+	}
+}
+
+// The inventory entry supplies the label, exactly as it does for every other
+// npm dep: the existence gate means the entry is always there, so a ts_npm_hub
+// directive never gets to rewrite it.
+func TestResolveNpmPackage_NodeBuiltinTakesTheInventoryLabel(t *testing.T) {
+	tc := makeConfig("", nil)
+	tc.npmHub = "@npm_tools"
+	tc.npmPackages = map[string]string{"@types/node": "@npm//:types_node"}
+
+	if got := resolveNpmPackage(tc, "node:fs"); got != "@npm//:types_node" {
+		t.Errorf("resolveNpmPackage(\"node:fs\") = %q, want the inventory's @types/node label", got)
+	}
+}
+
+// A dep on a target no hub declares fails analysis, which is strictly worse
+// than the type error it would have fixed.
+func TestResolveNpmPackage_NodeBuiltinWithoutTypesNode(t *testing.T) {
+	withoutTypes := makeConfig("", nil)
+	withoutTypes.npmPackages = map[string]string{"react": "@npm//:react"}
+
+	noInventory := makeConfig("", nil)
+
+	for name, tc := range map[string]*tsConfig{
+		"lockfile without @types/node": withoutTypes,
+		"no lockfile at all":           noInventory,
+	} {
+		for _, imp := range []string{"node:fs", "fs", "node:path"} {
+			if got := resolveNpmPackage(tc, imp); got != "" {
+				t.Errorf("%s: resolveNpmPackage(%q) = %q, want no dep", name, imp, got)
+			}
+		}
+	}
+}
+
+// A repo that installed the browserify shim of a built-in name means the
+// package, not Node's module.
+func TestResolveNpmPackage_InstalledShimBeatsTheBuiltin(t *testing.T) {
+	tc := makeConfig("", nil)
+	tc.npmPackages = map[string]string{
+		"@types/node": "@npm//:types_node",
+		"path":        "@npm//:path",
+	}
+
+	if got := resolveNpmPackage(tc, "path"); got != "@npm//:path" {
+		t.Errorf("resolveNpmPackage(%q) = %q, want the installed package", "path", got)
+	}
+	if got := resolveNpmPackage(tc, "node:path"); got != "@npm//:types_node" {
+		t.Errorf("resolveNpmPackage(%q) = %q, want @types/node", "node:path", got)
+	}
+}
+
+// The declarations reach the rule from the import alone: a package that never
+// touches a Node global has no ambient types to declare, so the directive the
+// sibling case relies on is not what carries this.
+func TestResolveImports_NodeBuiltinDepWithoutAnAmbientDirective(t *testing.T) {
+	c := emptyConfig()
+	tc := makeConfig("", nil)
+	tc.npmPackages = map[string]string{
+		"@types/node": "@npm//:types_node",
+		"zod":         "@npm//:zod",
+	}
+	c.Exts[languageName] = tc
+
+	ix := buildIndex(t, c)
+	r := rule.NewRule("ts_compile", "app")
+	resolveImports(c, ix, r, []string{"node:fs", "node:path", "zod"}, label.New("", "src/app", "app"))
+
+	want := []string{"@npm//:types_node", "@npm//:zod"}
+	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+		t.Errorf("deps = %v, want %v", got, want)
+	}
+}
+
+// The strip runs ahead of resolution, so a built-in carrying a loader hint is
+// still a built-in: `fs?raw` is not a package named "fs?raw", and the
+// declarations dep survives either spelling with or without the suffix.
+func TestResolveImports_NodeBuiltinWithABundlerQuerySuffix(t *testing.T) {
+	c := emptyConfig()
+	tc := makeConfig("", nil)
+	tc.npmPackages = map[string]string{"@types/node": "@npm//:types_node"}
+	c.Exts[languageName] = tc
+
+	ix := buildIndex(t, c)
+	want := []string{"@npm//:types_node"}
+
+	for _, imp := range []string{"node:fs?raw", "fs?raw", "node:fs", "fs"} {
+		r := rule.NewRule("ts_compile", "app")
+		resolveImports(c, ix, r, []string{imp}, label.New("", "src", "src"))
+
+		if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: deps = %v, want %v", imp, got, want)
+		}
+	}
+}

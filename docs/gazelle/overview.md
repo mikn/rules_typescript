@@ -389,9 +389,12 @@ stem under each known extension, and `<stem>/index.ts[x]`. NodeNext-style `.js`
 specifiers over `.ts` sources therefore resolve to the target that owns the
 source.
 
-Node built-ins get no dep, with or without the `node:` prefix: `import "path"`
-and `import "node:path"` are both left alone, matching what the strict-deps check
-exempts.
+Node built-ins resolve to `@types/node`, with or without the `node:` prefix:
+`import "path"` and `import "node:path"` both take the declarations dep, since
+Node supplies the module at runtime but nothing supplies its types. A package
+installed under a built-in's name (the browserify `path` shim, say) still wins.
+When the lockfile has no `@types/node` the import gets no dep at all — a label
+no hub declares would turn a type error into an analysis failure.
 
 When several alias entries match one specifier (a tsconfig declaring both
 `"@shared"` and `"@shared/*"`), the longest matching alias key wins, which is
