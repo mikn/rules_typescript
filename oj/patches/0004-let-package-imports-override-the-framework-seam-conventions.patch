@@ -32,7 +32,7 @@ needs the Vite config to reach `start_dev`, which today receives none. This is
 the smaller half: it gives an app a way to say what oj cannot yet infer.
 
 Carried here so //oj:dev_server can serve an app that configures its router
-entry. Reported upstream; no open PR covers it as of oj 0.1.8.
+entry. Filed upstream as https://github.com/raphamorim/oj/pull/117.
 
 diff --git a/src/assets/start/build.mjs b/src/assets/start/build.mjs
 --- a/src/assets/start/build.mjs

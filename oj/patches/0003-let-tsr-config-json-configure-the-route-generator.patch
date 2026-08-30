@@ -19,7 +19,7 @@ supplied when the app has not set them, which leaves an app with no
 tsr.config.json behaving exactly as before.
 
 Carried here so //oj:dev_server can serve an app whose layout is not the
-framework default. Reported upstream; no open PR covers it as of oj 0.1.8.
+framework default. Filed upstream as https://github.com/raphamorim/oj/pull/116.
 
 diff --git a/src/assets/start/generate.mjs b/src/assets/start/generate.mjs
 --- a/src/assets/start/generate.mjs

@@ -19,11 +19,12 @@ emitted, matching the adapter's synthesized start entry. Anything an app put in
 `routeTreeFileFooter` follows it, exactly as the plugin appends the app's own
 footer after its declaration.
 
-Depends on the tsr.config.json patch: the footer's import path is relative to
-the configured `generatedRouteTree`, so it has to be the configured one.
+Applied after the tsr.config.json patch, and uses the configured
+`generatedRouteTree` because that patch is carried too. The upstream PR is
+standalone against oj's main, where the tree path is still a constant.
 
 Carried here so `oj dev` leaves a checked-in route tree byte-identical.
-Reported upstream; no open PR covers it as of oj 0.1.8.
+Filed upstream as https://github.com/raphamorim/oj/pull/118.
 
 diff --git a/src/assets/start/generate.mjs c/src/assets/start/generate.mjs
 --- a/src/assets/start/generate.mjs
