@@ -1,12 +1,13 @@
 """Which declaration a package's own metadata designates, and that it reaches tsgo.
 
 Every manifest below is the published `package.json` of a package in one of this
-repo's lockfiles, quoted rather than composed, and `files` is the declarations
-that tarball actually ships. Invented fixtures cannot pin this: the shapes that
-break a resolver are the ones npm publishers reach for -- a bare string entry, a
-`types` condition two levels down, an array fallback, a conditions map with no
-subpaths at all -- and a hand-written table would only ever contain the shapes
-already handled.
+repo's lockfiles -- formdata-node, which is in a consumer's, is the exception --
+quoted rather than composed, and `files` is the declarations that tarball
+actually ships. Invented fixtures cannot pin this: the shapes that break a
+resolver are the ones npm publishers reach for -- a bare string entry, a `types`
+condition two levels down, an array fallback, a conditions map with no subpaths
+at all -- and a hand-written table would only ever contain the shapes already
+handled.
 
 What the rows pin, beyond one expected path each:
 
@@ -27,10 +28,15 @@ What the rows pin, beyond one expected path each:
   EXISTENCE. A manifest may name a declaration the tarball omits -- six packages
   in this closure do. Taking the name on trust generates a target whose source
   does not exist, which fails only once some action wants the file.
+
+  FORM. The answer is written into a label-valued attribute, so a path whose
+  first segment starts with `@` -- formdata-node keeps its declarations in a
+  directory called `@type` -- is read as a repository name unless it is written
+  as a path, and Bazel rejects the entire generated repository over it.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
-load("//npm/private:npm_import.bzl", "exports_types")
+load("//npm/private:npm_import.bzl", "exports_types", "package_stanza")
 load("//ts/private:providers.bzl", "NpmPackageInfo")
 
 _CASES = [
@@ -324,6 +330,40 @@ _CASES = [
         expected = "index.d.ts",
     ),
     struct(
+        package = "formdata-node@4.4.1",
+        shape = "declarations under a directory named `@type`",
+        manifest = """{
+          "name": "formdata-node",
+          "version": "4.4.1",
+          "main": "./lib/cjs/index.js",
+          "module": "./lib/esm/browser.js",
+          "types": "./@type/index.d.ts",
+          "exports": {
+            ".": {
+              "node": {
+                "types": "./@type/index.d.ts",
+                "import": "./lib/esm/index.js",
+                "require": "./lib/cjs/index.js"
+              },
+              "browser": {
+                "types": "./@type/browser.d.ts",
+                "import": "./lib/esm/browser.js",
+                "require": "./lib/cjs/browser.js"
+              },
+              "default": "./lib/esm/index.js"
+            },
+            "./package.json": "./package.json",
+            "./file-from-path": {
+              "types": "./@type/fileFromPath.d.ts",
+              "import": "./lib/esm/fileFromPath.js",
+              "require": "./lib/cjs/fileFromPath.js"
+            }
+          }
+        }""",
+        files = ["@type/browser.d.ts", "@type/fileFromPath.d.ts", "@type/index.d.ts"],
+        expected = "@type/index.d.ts",
+    ),
+    struct(
         package = "balanced-match@1.0.2",
         shape = "a package that ships no declarations and claims none",
         manifest = """{
@@ -357,8 +397,46 @@ def _published_shapes_test(ctx):
 
 published_shapes_test = unittest.make(_published_shapes_test)
 
+# Resolved against this package because the one the BUILD file is generated into
+# exists only inside a fetch; whether a string names a path or a repository is
+# the same question in either.
+_GENERATED_PACKAGE = Label("//tests/npm:BUILD.bazel")
+
+def _written_attribute(stanza, attribute):
+    prefix = '    {} = "'.format(attribute)
+    for line in stanza.split("\n"):
+        if line.startswith(prefix):
+            return line[len(prefix):].removesuffix('",')
+    return ""
+
+def _written_form_test(ctx):
+    env = unittest.begin(ctx)
+
+    for case in _CASES:
+        if not case.expected:
+            continue
+        package_name, _, version = case.package.rpartition("@")
+        stanza = package_stanza(
+            struct(version = version, peer_id = "", types_dep = "", is_types_package = False),
+            "pkg",
+            package_name,
+            "",
+            exports_types(json.decode(case.manifest), _shipping(case.files)),
+            {},
+        )
+        asserts.equals(
+            env,
+            case.expected,
+            _GENERATED_PACKAGE.relative(_written_attribute(stanza, "exports_types")).name,
+            "{}: exports_types names a file in the package, not a repository".format(case.package),
+        )
+
+    return unittest.end(env)
+
+written_form_test = unittest.make(_written_form_test)
+
 def exports_types_test_suite(name):
-    unittest.suite(name, published_shapes_test)
+    unittest.suite(name, published_shapes_test, written_form_test)
 
 def _written_tsconfig(env):
     for action in analysistest.target_actions(env):

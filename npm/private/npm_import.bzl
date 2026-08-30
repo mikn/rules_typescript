@@ -409,6 +409,45 @@ def _label_list_expr(rctx_name, platforms, common, by_platform, indent = "      
         return ""
     return " + ".join(parts)
 
+def _package_relative_label(path):
+    """A path inside the package, written so a label attribute reads it as one.
+
+    A first segment starting with `@` -- formdata-node keeps its declarations in
+    a directory called `@type` -- is otherwise a repository reference, and Bazel
+    rejects the entire generated repository rather than the one attribute.
+    """
+    return ":" + path
+
+def _package_stanza(attrs, target_name, package_name, deps_expr, declaration_entry, subpath_declarations):
+    """The ts_npm_package call for one name this package is imported under."""
+    stanza = [
+        "ts_npm_package(",
+        '    name = "{}",'.format(target_name),
+        '    package_name = "{}",'.format(package_name),
+        '    package_version = "{}",'.format(attrs.version),
+    ]
+    if attrs.peer_id:
+        stanza.append('    peer_id = "{}",'.format(attrs.peer_id))
+    stanza += [
+        '    package_dir = ":package.json",',
+        '    package_files = glob(["**/*"], exclude_directories = 1, allow_empty = True),',
+    ]
+    if deps_expr:
+        stanza.append("    deps = {},".format(deps_expr))
+    if attrs.types_dep:
+        stanza.append('    types_dep = "{}",'.format(attrs.types_dep))
+    if attrs.is_types_package:
+        stanza.append("    is_types_package = True,")
+    if declaration_entry:
+        stanza.append('    exports_types = "{}",'.format(_package_relative_label(declaration_entry)))
+    if subpath_declarations:
+        stanza.append("    subpath_types = {")
+        for subpath in sorted(subpath_declarations.keys()):
+            stanza.append('        "{}": "{}",'.format(subpath, subpath_declarations[subpath]))
+        stanza.append("    },")
+    stanza.append(")\n")
+    return "\n".join(stanza)
+
 def _apply_patch(rctx):
     """Applies the package's pnpm patch, failing the fetch if it does not land.
 
@@ -488,42 +527,20 @@ def _npm_import_impl(rctx):
     declaration_entry = _exports_types(pkg_json, _rctx_has_file(rctx))
     subpath_declarations = _exports_subpath_types(pkg_json, _rctx_has_file(rctx))
 
-    def _package_stanza(target_name, package_name):
-        stanza = [
-            "ts_npm_package(",
-            '    name = "{}",'.format(target_name),
-            '    package_name = "{}",'.format(package_name),
-            '    package_version = "{}",'.format(rctx.attr.version),
-        ]
-        if rctx.attr.peer_id:
-            stanza.append('    peer_id = "{}",'.format(rctx.attr.peer_id))
-        stanza += [
-            '    package_dir = "package.json",',
-            '    package_files = glob(["**/*"], exclude_directories = 1, allow_empty = True),',
-        ]
-        deps_expr = _label_list_expr(
-            rctx.attr.package,
-            rctx.attr.platforms,
-            rctx.attr.deps,
-            rctx.attr.platform_deps,
-        )
-        if deps_expr:
-            stanza.append("    deps = {},".format(deps_expr))
-        if rctx.attr.types_dep:
-            stanza.append('    types_dep = "{}",'.format(rctx.attr.types_dep))
-        if rctx.attr.is_types_package:
-            stanza.append("    is_types_package = True,")
-        if declaration_entry:
-            stanza.append('    exports_types = "{}",'.format(declaration_entry))
-        if subpath_declarations:
-            stanza.append("    subpath_types = {")
-            for subpath in sorted(subpath_declarations.keys()):
-                stanza.append('        "{}": "{}",'.format(subpath, subpath_declarations[subpath]))
-            stanza.append("    },")
-        stanza.append(")\n")
-        return "\n".join(stanza)
-
-    lines.append(_package_stanza("pkg", rctx.attr.package))
+    deps_expr = _label_list_expr(
+        rctx.attr.package,
+        rctx.attr.platforms,
+        rctx.attr.deps,
+        rctx.attr.platform_deps,
+    )
+    lines.append(_package_stanza(
+        rctx.attr,
+        "pkg",
+        rctx.attr.package,
+        deps_expr,
+        declaration_entry,
+        subpath_declarations,
+    ))
 
     # An npm alias (`h3-v2: npm:h3@2.0.1`) is the same files installed under a
     # second name. package_name is what the node_modules tree builder writes on
@@ -531,7 +548,14 @@ def _npm_import_impl(rctx):
     # `import "h3-v2"` looks, and pointing a Bazel alias at :pkg would produce
     # node_modules/h3 instead.
     for target_name, alias_package in rctx.attr.aliases.items():
-        lines.append(_package_stanza(target_name, alias_package))
+        lines.append(_package_stanza(
+            rctx.attr,
+            target_name,
+            alias_package,
+            deps_expr,
+            declaration_entry,
+            subpath_declarations,
+        ))
 
     # Native binaries a bin script resolves at runtime live in sibling
     # repositories, so they are declared as targets rather than located by
@@ -742,9 +766,11 @@ npm_hub = repository_rule(
           "package per workspace member holding that member's own resolution.",
 )
 
-# Exported for the tests that pin the credential rules and the declaration a
-# package designates; the paths above are the only production callers.
+# Exported for the tests that pin the credential rules, the declaration a package
+# designates, and the BUILD text it is written into; the paths above are the only
+# production callers.
 exports_types = _exports_types
 exports_subpath_types = _exports_subpath_types
+package_stanza = _package_stanza
 npmrc_auth = _npmrc_auth
 npmrc_auth_fields = _npmrc_auth_fields
