@@ -84,7 +84,7 @@ crate.spec(
     git = "https://github.com/mikn/oj",
     package = "oj",
     repositories = ["oj_crates"],
-    rev = "1a64a0a13e346495abafd3555588f1e545c4bf0d",
+    rev = "8b0502fae6b6fb0cd0a2a52505a7c31d85e39953",
 )
 
 # A git source rather than the crates.io release, because the fixes oj needs to
