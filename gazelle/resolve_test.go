@@ -351,8 +351,9 @@ func TestLabelForUnindexed(t *testing.T) {
 		"src/lib/index.ts":          "//src/lib",
 		"src/lib/index":             "//src/lib",
 		"src/lib":                   "//src/lib",
-		// A dot in a directory name is not an extension.
-		"src/lib.v2": "//src/lib.v2",
+		// A dotted last segment reads as a file: a directory really named that
+		// way loses one dep, where fabricating cost the whole build.
+		"src/lib.v2": "",
 		// Nothing outside the workspace, and nothing for the importer's own
 		// package: a label on that would be a cycle.
 		"index.ts":     "",
@@ -906,6 +907,23 @@ func TestResolveImports_BundlerQuerySuffixNamesTheSameFile(t *testing.T) {
 	}
 }
 
+// An extension the ruleset does not classify cannot be turned into a package:
+// //pkg/SKILL.mdx is a directory Bazel will not find, and it fails the whole
+// build rather than the one target missing a dep.
+func TestLabelForUnindexed_UnclassifiedExtensionFabricatesNothing(t *testing.T) {
+	from := label.New("", "src/app", "app")
+	for _, rel := range []string{
+		"src/lib/SKILL.mdx",
+		"src/lib/notes.rst",
+		"src/lib/schema.graphql",
+		"src/lib/widget.js.bin",
+	} {
+		if got := labelForUnindexed(rel, from); got != "" {
+			t.Errorf("labelForUnindexed(%q) = %q, want %q", rel, got, "")
+		}
+	}
+}
+
 // An npm specifier carries them too: `virtual:x` is excluded elsewhere for the
 // same reason, but `?worker` is a plain package with a loader hint on it.
 func TestResolveImports_QuerySuffixOnNpmPackage(t *testing.T) {
@@ -920,5 +938,91 @@ func TestResolveImports_QuerySuffixOnNpmPackage(t *testing.T) {
 	want := []string{"@npm//:comlink"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("deps = %v, want %v", got, want)
+	}
+}
+
+func TestResolveImports_UnclassifiedExtensionWarnsInsteadOfFabricating(t *testing.T) {
+	c := emptyConfig()
+	c.Exts[languageName] = makeConfig("", []rule.Directive{
+		directive("ts_warn_unresolved", "true"),
+	})
+	ix := buildIndex(t, c)
+	from := label.New("", "src/app", "app")
+
+	var logged bytes.Buffer
+	flags := log.Flags()
+	log.SetOutput(&logged)
+	log.SetFlags(0)
+	t.Cleanup(func() {
+		log.SetOutput(os.Stderr)
+		log.SetFlags(flags)
+	})
+
+	r := rule.NewRule("ts_compile", "app")
+	resolveImports(c, ix, r, []string{"../lib/notes.rst"}, from)
+
+	if r.Attr("deps") != nil {
+		t.Errorf("deps = %v, want unset", r.AttrStrings("deps"))
+	}
+	if !strings.Contains(logged.String(), "../lib/notes.rst") {
+		t.Errorf("no warning for the unresolved import:\n%s", logged.String())
+	}
+}
+
+// A text asset beside a source has to be both generated and resolvable: the
+// two halves only contain the failure together.
+func TestResolveRelative_TextAssetBesideASource(t *testing.T) {
+	res, c := runGenerateWithConfig(t, "widget", map[string]string{
+		"SKILL.md":       "# skill\n",
+		"wrangler.jsonc": "{ /* comment */ }\n",
+		"widget.ts":      "export const w = 1;\n",
+	})
+
+	lang := &tsLang{}
+	ix := resolve.NewRuleIndex(func(*rule.Rule, string) resolve.Resolver { return lang })
+	for _, r := range res.Gen {
+		ix.AddRule(c, r, rule.EmptyFile("BUILD.bazel", "widget"))
+	}
+	ix.Finish()
+
+	from := label.New("", "widget", "widget")
+	for imp, want := range map[string]string{
+		"./SKILL.md":       ":SKILL_md",
+		"./wrangler.jsonc": ":wrangler_jsonc",
+	} {
+		if got := resolveRelative(c, ix, imp, from); got != want {
+			t.Errorf("resolveRelative(%q) = %q, want %q", imp, got, want)
+		}
+	}
+}
+
+// Dropping the query and classifying the extension are separate halves of the
+// same failure, and only together do they carry `./SKILL.md?raw`: the strip
+// runs before any branch, so the fallback sees a `.md` the index now claims.
+func TestResolveImports_QueriedTextAssetResolvesToItsAssetLibrary(t *testing.T) {
+	res, c := runGenerateWithConfig(t, "widget", map[string]string{
+		"SKILL.md":       "# skill\n",
+		"wrangler.jsonc": "{ /* comment */ }\n",
+		"widget.ts":      "export const w = 1;\n",
+	})
+
+	lang := &tsLang{}
+	ix := resolve.NewRuleIndex(func(*rule.Rule, string) resolve.Resolver { return lang })
+	for _, r := range res.Gen {
+		ix.AddRule(c, r, rule.EmptyFile("BUILD.bazel", "widget"))
+	}
+	ix.Finish()
+
+	from := label.New("", "widget", "widget")
+	for imp, want := range map[string][]string{
+		"./SKILL.md?raw":       {":SKILL_md"},
+		"./wrangler.jsonc?raw": {":wrangler_jsonc"},
+		"./SKILL.md?url":       {":SKILL_md"},
+	} {
+		r := rule.NewRule("ts_compile", "widget")
+		resolveImports(c, ix, r, []string{imp}, from)
+		if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+			t.Errorf("resolveImports(%q) deps = %v, want %v", imp, got, want)
+		}
 	}
 }

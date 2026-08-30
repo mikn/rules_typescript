@@ -9,7 +9,7 @@ them.
 |------|-------|-------------|----------|
 | `css_library` | `.css` | `import "./button.css"` (side effect) | `CssInfo` |
 | `css_module` | `.css` (Gazelle routes `*.module.css` here) | `import styles from "./Button.module.css"` | `CssModuleInfo` |
-| `asset_library` | `.svg .png .jpg .jpeg .gif .webp .woff .woff2 .ttf .eot` | `import logo from "./logo.svg"` (URL string) | `AssetInfo` |
+| `asset_library` | `.svg .png .jpg .jpeg .gif .webp .woff .woff2 .ttf .eot .md .txt .jsonc` | `import logo from "./logo.svg"` (URL string) | `AssetInfo` |
 | `json_library` | `.json` | `import config from "./config.json"` (fully typed) | — |
 
 ```python
@@ -116,7 +116,9 @@ is a hard build failure naming the attribute to use, and so are
 `asset_library` and `json_library` promise a `string` URL and the parsed JSON
 shape respectively. JSON is not an `asset_library` extension: `json_library`
 parses the file at build time and generates real property types, which an
-ambient `string` declaration would throw away.
+ambient `string` declaration would throw away. `.jsonc` goes the other way and
+stays with `asset_library`: the comments the dialect exists for are what that
+build-time parse rejects.
 
 ## In a Bundle
 

@@ -17,12 +17,26 @@ asset_library(
     visibility = ["//visibility:public"],
 )
 
+# ── Text assets ───────────────────────────────────────────────────────────────
+
+asset_library(
+    name = "docs",
+    srcs = [
+        "SKILL.md",
+        "config.jsonc",
+    ],
+    visibility = ["//visibility:public"],
+)
+
 # ── TypeScript compilation with an asset dep ──────────────────────────────────
 
 ts_compile(
     name = "header_lib",
     srcs = ["Header.tsx"],
-    deps = [":icons"],
+    deps = [
+        ":docs",
+        ":icons",
+    ],
 )
 
 # ── Verification test ─────────────────────────────────────────────────────────
@@ -33,6 +47,7 @@ go_test(
     size = "small",
     srcs = ["asset_output_test.go"],
     data = [
+        ":docs",
         ":header_lib",
         ":icons",
     ],

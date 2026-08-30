@@ -51,13 +51,17 @@ func isCSSModuleFile(name string) bool {
 }
 
 // isAssetFile returns true for static asset files that should be handled by
-// asset_library (images, SVGs, fonts). NOTE: .json files are NOT included here;
-// they are handled by json_library (see isJSONFile).
+// asset_library (images, SVGs, fonts, text). NOTE: .json files are NOT included
+// here; they are handled by json_library (see isJSONFile).
+//
+// .jsonc is an asset and not JSON here: the comments the dialect exists for are
+// what json_library's build-time parse rejects.
 func isAssetFile(name string) bool {
 	ext := strings.ToLower(path.Ext(name))
 	switch ext {
 	case ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp",
-		".woff", ".woff2", ".ttf", ".eot":
+		".woff", ".woff2", ".ttf", ".eot",
+		".md", ".txt", ".jsonc":
 		return true
 	}
 	return false
