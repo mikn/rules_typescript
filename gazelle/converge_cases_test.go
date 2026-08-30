@@ -87,6 +87,7 @@ func convergeCases() []convergeCase {
 				"src/routes/home.ts":     "export const home = 1;\n",
 				"src/lib/helper.ts":      "export const helper = 1;\n",
 				"src/lib/helper.test.ts": "export const t = 1;\n",
+				"src/lib/helper.doc.ts":  "export * from \"./helper\";\n",
 			},
 			mutations: []convergeMutation{
 				{kind: "add_colocated_module", write: map[string]string{"src/routes/home.data.ts": "export const data = 1;\n"}},
@@ -104,6 +105,7 @@ func convergeCases() []convergeCase {
 				{kind: "add_shared_dir_with_ts", write: map[string]string{"lib2/extra.ts": "export const extra = 1;\n"}},
 				{kind: "add_file_to_existing_target", write: map[string]string{"src/lib/format.ts": "export const format = 1;\n"}},
 				{kind: "delete_route", remove: []string{"src/routes/home.ts"}},
+				{kind: "delete_doc", remove: []string{"src/lib/helper.doc.ts"}},
 			},
 		},
 		{
@@ -175,6 +177,16 @@ func convergeCases() []convergeCase {
 					stage: []string{"lib2/extra.ts"},
 				},
 				{kind: "add_file_to_existing_target", write: map[string]string{"lib/format.ts": "export const format = 1;\n"}},
+				{
+					kind:  "add_doc_beside_shared_ts",
+					write: map[string]string{"lib/greeting.doc.ts": "export * from \"./greeting\";\n"},
+					stage: []string{"lib/greeting.doc.ts"},
+				},
+				{
+					kind:  "add_doc_only_dir",
+					write: map[string]string{"gallery/tour.doc.ts": "export * from \"../lib/greeting\";\n"},
+					stage: []string{"gallery/tour.doc.ts"},
+				},
 				{kind: "delete_route", remove: []string{"app/dashboard"}},
 			},
 		},

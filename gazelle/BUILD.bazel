@@ -48,6 +48,7 @@ go_test(
         "converge_cases_test.go",
         "converge_test.go",
         "directives_test.go",
+        "doc_targets_test.go",
         "framework_bundle_test.go",
         "framework_entry_test.go",
         "framework_next_test.go",

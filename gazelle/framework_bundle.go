@@ -356,7 +356,7 @@ func packageStagingLabels(absDir, rel string, tc *tsConfig) []string {
 		return nil
 	}
 	var css, cssModules, assets, jsons []string
-	hasTS := false
+	hasTS, hasDoc := false, false
 	for _, e := range entries {
 		name := e.Name()
 		switch {
@@ -372,6 +372,8 @@ func packageStagingLabels(absDir, rel string, tc *tsConfig) []string {
 			css = append(css, name)
 		case !isTypeScriptFile(name), isGeneratedFile(name), isTestFile(name):
 		case isConfiguredExclude(name, local.excludePatterns), nextOwnsFile(rel, name, local):
+		case isDocFile(name):
+			hasDoc = true
 		default:
 			hasTS = true
 		}
@@ -380,6 +382,9 @@ func packageStagingLabels(absDir, rel string, tc *tsConfig) []string {
 	var labels []string
 	if hasTS {
 		labels = append(labels, dirTargetLabel(rel, targetNameForDir(local, rel)))
+	}
+	if hasDoc {
+		labels = append(labels, dirTargetLabel(rel, docTargetName(targetNameForDir(local, rel))))
 	}
 	names := assetTargetNames(reservedTSTargetNames(local, rel), css, cssModules, assets, jsons)
 	for _, group := range [][]string{css, cssModules, assets, jsons} {

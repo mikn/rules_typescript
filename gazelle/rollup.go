@@ -32,6 +32,7 @@ func rolledUpSrcs(dir string, excludes []string) (srcs, tests []string) {
 type rolledUpFiles struct {
 	srcs  []string
 	tests []string
+	docs  []string
 	// ambient names the srcs entries that declare globals. Nothing imports one,
 	// so every target that needs it needs it in its own srcs.
 	ambient    []string
@@ -86,6 +87,10 @@ func rolledUpIn(mode string, dir string, excludes []string) rolledUpFiles {
 					out.tests = append(out.tests, joined)
 					continue
 				}
+				if isDocFile(name) {
+					out.docs = append(out.docs, joined)
+					continue
+				}
 				out.srcs = append(out.srcs, joined)
 				if isAmbientDeclaration(filepath.Join(dir, rel), name) {
 					out.ambient = append(out.ambient, joined)
@@ -126,7 +131,7 @@ func rolledUpIn(mode string, dir string, excludes []string) rolledUpFiles {
 		}
 		walk(sub)
 	}
-	for _, g := range [][]string{out.srcs, out.tests, out.ambient, out.css, out.cssModules, out.assets, out.json} {
+	for _, g := range [][]string{out.srcs, out.tests, out.docs, out.ambient, out.css, out.cssModules, out.assets, out.json} {
 		sort.Strings(g)
 	}
 	return out
