@@ -406,6 +406,15 @@ func devServerFixture(t *testing.T) (*Resolver, map[string]string) {
 	})
 }
 
+// devServerWorkspace is a real directory, because planDevServer links the npm
+// tree into it as node_modules.
+func devServerWorkspace(t *testing.T) string {
+	t.Helper()
+	ws := t.TempDir()
+	t.Setenv("BUILD_WORKSPACE_DIRECTORY", ws)
+	return ws
+}
+
 func devServerConfig() *Config {
 	return &Config{
 		Label:   "//tests/app:dev",
@@ -425,7 +434,7 @@ func devServerConfig() *Config {
 
 func TestPlanDevServerRunsViteFromTheNodeModulesTree(t *testing.T) {
 	r, real := devServerFixture(t)
-	t.Setenv("BUILD_WORKSPACE_DIRECTORY", "/workspace/root")
+	ws := devServerWorkspace(t)
 	plan, err := MakePlan(devServerConfig(), r, []string{"--host"})
 	if err != nil {
 		t.Fatal(err)
@@ -438,10 +447,10 @@ func TestPlanDevServerRunsViteFromTheNodeModulesTree(t *testing.T) {
 	if strings.Join(plan.Argv, "\x00") != strings.Join(want, "\x00") {
 		t.Errorf("argv = %q, want %q", plan.Argv, want)
 	}
-	if plan.Dir != "/workspace/root" {
+	if plan.Dir != ws {
 		t.Errorf("dir = %q, want the workspace root", plan.Dir)
 	}
-	if plan.EnvOverrides["BAZEL_BIN_DIR"] != "/workspace/root/bazel-bin" {
+	if plan.EnvOverrides["BAZEL_BIN_DIR"] != filepath.Join(ws, "bazel-bin") {
 		t.Errorf("BAZEL_BIN_DIR = %q", plan.EnvOverrides["BAZEL_BIN_DIR"])
 	}
 	if plan.EnvOverrides["VITE_PLUGIN_PATH"] != real["_main/vite/vite_plugin_bazel.mjs"] {
@@ -476,14 +485,14 @@ func ojDevServerConfig() *Config {
 
 func TestPlanDevServerRunsANativeServerWithoutTheJsRuntime(t *testing.T) {
 	r, real := devServerFixture(t)
-	t.Setenv("BUILD_WORKSPACE_DIRECTORY", "/workspace/root")
+	ws := devServerWorkspace(t)
 	plan, err := MakePlan(ojDevServerConfig(), r, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []string{
 		real["_main/oj/oj"], "dev", "--config",
-		real["_main/tests/app/dev_vite.config.mjs"], "/workspace/root",
+		real["_main/tests/app/dev_vite.config.mjs"], ws,
 	}
 	if strings.Join(plan.Argv, "\x00") != strings.Join(want, "\x00") {
 		t.Errorf("argv = %q, want %q", plan.Argv, want)
@@ -589,5 +598,91 @@ func TestEnvironCollapsesDuplicateKeys(t *testing.T) {
 	}
 	if !slices.Contains(got, "KEEP_ME=yes") {
 		t.Error("Environ dropped an inherited variable")
+	}
+}
+
+// The npm tree is a Bazel output with no node_modules above the source that
+// imports from it, so the launcher links it in at the workspace root. These
+// pin what it does with whatever is already sitting on that name -- getting it
+// wrong serves a stale install, or deletes one.
+
+func TestPlanDevServerLinksTheNpmTreeIntoTheWorkspace(t *testing.T) {
+	r, real := devServerFixture(t)
+	ws := devServerWorkspace(t)
+	plan, err := MakePlan(devServerConfig(), r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(ws, "node_modules")
+	target, err := os.Readlink(link)
+	if err != nil {
+		t.Fatalf("no node_modules link at the workspace root: %v", err)
+	}
+	if target != real["_main/tests/app/node_modules"] {
+		t.Errorf("link -> %q, want the npm tree %q", target, real["_main/tests/app/node_modules"])
+	}
+	if plan.Cleanup == nil {
+		t.Fatal("a link the launcher made has to come back off")
+	}
+	plan.Cleanup()
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		t.Errorf("cleanup left %s behind (%v)", link, err)
+	}
+}
+
+func TestPlanDevServerKeepsAnIdenticalLinkAndDoesNotRemoveIt(t *testing.T) {
+	r, real := devServerFixture(t)
+	ws := devServerWorkspace(t)
+	link := filepath.Join(ws, "node_modules")
+	if err := os.Symlink(real["_main/tests/app/node_modules"], link); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := MakePlan(devServerConfig(), r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Another dev server on the same tree may own it; removing it would break a
+	// server this process never started.
+	if plan.Cleanup != nil {
+		plan.Cleanup()
+	}
+	if _, err := os.Lstat(link); err != nil {
+		t.Errorf("a link it did not create was removed anyway: %v", err)
+	}
+}
+
+func TestPlanDevServerRefusesALinkToAnotherTree(t *testing.T) {
+	r, _ := devServerFixture(t)
+	ws := devServerWorkspace(t)
+	other := t.TempDir()
+	link := filepath.Join(ws, "node_modules")
+	if err := os.Symlink(other, link); err != nil {
+		t.Fatal(err)
+	}
+	_, err := MakePlan(devServerConfig(), r, nil)
+	if err == nil {
+		t.Fatal("two npm trees cannot both be at the workspace root")
+	}
+	if !strings.Contains(err.Error(), other) {
+		t.Errorf("the error does not name the tree already there: %v", err)
+	}
+	if target, _ := os.Readlink(link); target != other {
+		t.Errorf("the existing link was replaced with %q", target)
+	}
+}
+
+func TestPlanDevServerRefusesToDeleteAnInstalledNodeModules(t *testing.T) {
+	r, _ := devServerFixture(t)
+	ws := devServerWorkspace(t)
+	link := filepath.Join(ws, "node_modules")
+	if err := os.MkdirAll(filepath.Join(link, "left-behind"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := MakePlan(devServerConfig(), r, nil)
+	if err == nil {
+		t.Fatal("a real node_modules directory must not be taken over silently")
+	}
+	if _, statErr := os.Stat(filepath.Join(link, "left-behind")); statErr != nil {
+		t.Errorf("the existing install was disturbed: %v", statErr)
 	}
 }

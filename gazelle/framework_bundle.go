@@ -80,6 +80,13 @@ type FrameworkBundleConfig struct {
 	// Typically matches AppName (e.g. "app") or a framework-specific name
 	// (e.g. "app_remix").
 	BundleName string
+
+	// DevServerName is the ts_dev_server target name, or "" for a framework
+	// whose dev server has not been made to work under Bazel. It lives beside
+	// the bundle rather than in the app package because it needs the same
+	// vite_config: without the framework's own Vite plugin there is no app to
+	// serve, and only this generator knows the config's filename.
+	DevServerName string
 }
 
 // frameworkConfigs maps each detected Framework to its bundle configuration.
@@ -90,6 +97,7 @@ var frameworkConfigs = map[Framework]FrameworkBundleConfig{
 	FrameworkTanStack: {
 		AppName:        "app",
 		BundleName:     "app",
+		DevServerName:  "dev",
 		ViteConfigFile: "tanstack-vite.config.mjs",
 		NpmDeps: []string{
 			"vite",
@@ -131,12 +139,13 @@ var unsupportedBundling = map[Framework]string{
 		"which ts_bundle's vite_config contract (a default export with a plugins array) cannot consume",
 }
 
-// unsupportedDevServer carries, per framework, why ts_dev_server cannot serve
-// its app, so Gazelle emits no dev target instead of one that answers 500.
+// unsupportedDevServer carries, per framework, why no PACKAGE-level dev target
+// is generated, so Gazelle stays quiet about it only when it has a reason.
+// A framework whose dev server needs the framework vite_config gets one beside
+// the bundle instead -- FrameworkBundleConfig.DevServerName.
 var unsupportedDevServer = map[Framework]string{
-	FrameworkTanStack: "its SSR module runner inlines react/jsx-runtime instead of externalising it " +
-		"against a node_modules tree that is a build output, and React's CJS entry then " +
-		"evaluates `module` in an ESM context",
+	FrameworkTanStack: "its dev server needs the same vite_config the bundle uses, so the " +
+		"ts_dev_server is generated at the workspace root beside ts_bundle rather than here",
 }
 
 // reportUnsupportedDevServer reports the skipped dev target once, naming why.
@@ -145,8 +154,8 @@ func reportUnsupportedDevServer(f Framework) bool {
 	if !ok {
 		return false
 	}
-	log.Printf("typescript: %s detected: no ts_dev_server generated — %s. "+
-		"Build the bundle instead.", frameworkName(f), reason)
+	log.Printf("typescript: %s detected: no ts_dev_server generated here — %s.",
+		frameworkName(f), reason)
 	return true
 }
 
@@ -238,6 +247,11 @@ func generateFrameworkBundle(
 				"yourself needs a \"# keep\" comment above the rule to survive this.",
 				frameworkName(tc.detectedFramework), cfg.BundleName, have)
 			empty = append(empty, rule.NewRule("ts_bundle", cfg.BundleName))
+			// The dev server names the same entry_point, so it is dangling for
+			// the same reason. Leaving it behind fails analysis workspace-wide.
+			if cfg.DevServerName != "" {
+				empty = append(empty, rule.NewRule("ts_dev_server", cfg.DevServerName))
+			}
 		}
 		return gen, imports, empty
 	}
@@ -257,6 +271,16 @@ func generateFrameworkBundle(
 	}
 	gen = append(gen, tb)
 	imports = append(imports, nil)
+
+	// ---- ts_dev_server target ----------------------------------------------
+	if cfg.DevServerName != "" {
+		ds := rule.NewRule("ts_dev_server", cfg.DevServerName)
+		ds.SetAttr("entry_point", entryPoint)
+		ds.SetAttr("node_modules", ":"+nodeModulesName)
+		ds.SetAttr("vite_config", cfg.ViteConfigFile)
+		gen = append(gen, ds)
+		imports = append(imports, nil)
+	}
 
 	return gen, imports, empty
 }

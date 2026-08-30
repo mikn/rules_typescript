@@ -85,6 +85,16 @@ ts_dev_server(
     react_refresh = True,
 )
 
+# A vite_config naming a package in optimizeDeps.include -- the one resolution
+# path no plugin can reach, and so the direct test of the workspace npm link.
+ts_dev_server(
+    name = "dev_with_optimize_deps",
+    entry_point = ":dev_app",
+    node_modules = ":node_modules",
+    port = 5181,
+    vite_config = "optimize_deps_config.mjs",
+)
+
 # A user-supplied vite_config, the shape a framework plugin needs: a bare npm
 # import for the plugin package, and a plugins array. The rule loads a copy of it
 # in bin, so that bare import resolves through the Bazel npm tree.
@@ -175,6 +185,22 @@ ts_dev_server(
         ("dev_oj", "5179", "0", "0", "0", "oj"),
     ]
 ]
+
+go_test(
+    name = "optimize_deps_test",
+    size = "medium",
+    srcs = [
+        "devserver_harness_test.go",
+        "launcher_config_test.go",
+        "optimize_deps_test.go",
+    ],
+    data = [
+        ":dev_with_optimize_deps",
+        "//ts/toolchain:node_resolved",
+    ],
+    tags = ["requires-network"],
+    deps = ["//tests/verify"],
+)
 
 # A .module.css through a running server, per implementation: the class names it
 # serves have to be the ones the .d.ts was generated from, or the dev loop and

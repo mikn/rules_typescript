@@ -31,9 +31,16 @@ import (
 	"encoding/hex"
 	"fmt"
 	"path/filepath"
+	"regexp"
+	"strings"
 
 	"github.com/mikn/rules_typescript/tests/integration/harness"
 )
+
+// The module the served document tells the browser to import to hydrate with.
+// The Start plugin names it through a virtual id, so the path is the framework's
+// to choose and only its shape is stable.
+var clientEntryRE = regexp.MustCompile(`import\("(/@id/[^"]+client-entry[^"]*)"\)`)
 
 const (
 	// The plugin keys a server function by sha256 over the vite-root-relative
@@ -260,6 +267,68 @@ func main() {
 		it.Write(build, buildText)
 		it.MustBazel("build", "//...")
 		it.Pass("bazel build //... is green again")
+
+		// ── the dev server ──
+		// SSR is the half that a Bazel npm tree breaks: Vite decides whether a
+		// package is external without consulting any plugin, and a package it
+		// cannot resolve is inlined -- so react/jsx-runtime's CJS gets evaluated
+		// as ESM and every route answers 500 with an error-overlay page that is
+		// still text/html. So the assertions are over what the routes RENDER.
+		it.RequireContains(build, `ts_dev_server(`,
+			"Gazelle generated no dev server for a TanStack Start app")
+		it.RequireContains(build, `name = "dev"`, "the generated dev server is not named dev")
+		it.Pass("Gazelle generated the dev server beside the bundle")
+
+		treeBefore := it.Read(it.Path("src", "routes", "routeTree.gen.ts"))
+
+		srv := it.Serve("dev_server.log", "//:dev")
+		for _, probe := range []struct{ path, want string }{
+			{"/", "acme-index-route-marker"},
+			{"/about", "acme-about-route-marker"},
+		} {
+			status, body := it.Get(srv, probe.path)
+			if status != 200 {
+				it.Fail("GET %s returned %d, want 200\n%s\n%s", probe.path, status, body, srv.Output())
+			}
+			if !strings.Contains(body, probe.want) {
+				it.Fail("GET %s did not server-render %s -- 200 with no route in it is what the "+
+					"dev overlay answers\n%s\n%s", probe.path, probe.want, body, srv.Output())
+			}
+		}
+		it.Pass("the dev server renders every route server-side")
+
+		// The client half is a separate failure: SSR can be perfect while the
+		// entry the document asks for 404s, and the page is then inert.
+		_, index := it.Get(srv, "/")
+		entry := clientEntryRE.FindStringSubmatch(index)
+		if entry == nil {
+			it.Fail("the served document names no client entry to hydrate with\n%s", index)
+		}
+		if status, body := it.Get(srv, entry[1]); status != 200 {
+			it.Fail("the client entry %s answers %d, want 200\n%s", entry[1], status, body)
+		}
+		it.Pass("the document's client entry is served")
+
+		if out := srv.Output(); strings.Contains(out, "module is not defined") ||
+			strings.Contains(out, "Failed to resolve dependency") {
+			it.Fail("the dev server resolved a package into the wrong module system:\n%s", out)
+		}
+		it.Pass("no package was inlined that should have been external")
+
+		// The framework's own route generator runs while it serves. If it writes
+		// a tree the Bazel generator would not, `bazel run //:dev` silently makes
+		// :route_tree_test red.
+		srv.Stop()
+		if it.Read(it.Path("src", "routes", "routeTree.gen.ts")) != treeBefore {
+			it.Fail("serving rewrote src/routes/routeTree.gen.ts, so the dev server and " +
+				"//src/routes:route_tree disagree about the route tree")
+		}
+		it.MustBazel("test", "//src/routes:route_tree_test")
+		it.Pass("serving leaves the checked-in route tree alone")
+
+		it.RequireNoFile(it.Path("node_modules"),
+			"the npm tree link was left at the workspace root after the server stopped")
+		it.Pass("the workspace npm link is removed when the server stops")
 
 		// ── adding a route: the break, the named remedy, and the fix ──
 		it.Write(it.Path("src", "routes", "about.$slug.tsx"), paramRoute)

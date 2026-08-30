@@ -3,15 +3,24 @@
 #
 # Takes --out <file> and --srcs "<route> <route> ...", and reads NODE_BINARY and
 # TS_CODEGEN_NODE_MODULES, all of which ts_codegen sets.
+#
+# --start-router <path> makes it a TanStack START tree rather than a plain
+# Router one: the framework's own Vite plugin appends a `declare module` footer
+# naming the router entry, and regenerates the tree in dev. Without the same
+# footer here, running the dev server rewrites the checked-in file and the
+# staleness test that guards it goes red. <path> is the router entry as the tree
+# file imports it, e.g. ../lib/router.ts
 set -euo pipefail
 
 node="${NODE_BINARY:-node}"
 out=""
 srcs=""
+start_router=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --out) out="$2"; shift 2 ;;
     --srcs) srcs="$2"; shift 2 ;;
+    --start-router) start_router="$2"; shift 2 ;;
     *) echo "tanstack_routes: unexpected argument '$1'" >&2; exit 1 ;;
   esac
 done
@@ -52,7 +61,7 @@ cat > "$work/generate.mjs" <<'MJS'
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 
-const [routesDir, treeFile] = process.argv.slice(2);
+const [routesDir, treeFile, startRouter] = process.argv.slice(2);
 const require_ = createRequire(resolve(process.env.TS_CODEGEN_NODE_MODULES) + "/_anchor.cjs");
 const { Generator, getConfig } = require_("@tanstack/router-generator");
 
@@ -64,6 +73,24 @@ const config = await getConfig(
     target: "react",
     routeFileIgnorePattern: "routeTree\\.gen\\.ts",
     disableLogging: true,
+    // Byte-for-byte what @tanstack/start-plugin-core's moduleDeclaration()
+    // appends, so the dev server regenerating this file is a no-op.
+    ...(startRouter
+      ? {
+          routeTreeFileFooter: [
+            [
+              `import type { getRouter } from '${startRouter}'`,
+              "import type { createStart } from '@tanstack/react-start'",
+              "declare module '@tanstack/react-start' {",
+              "  interface Register {",
+              "    ssr: true",
+              "    router: Awaited<ReturnType<typeof getRouter>>",
+              "  }",
+              "}",
+            ].join("\n"),
+          ],
+        }
+      : {}),
   },
   // configDirectory: keeps a stray tsr.config.json outside src/routes out of it.
   routesDirectory,
@@ -71,5 +98,5 @@ const config = await getConfig(
 await new Generator({ config, root: routesDirectory }).run();
 MJS
 
-"$node" "$work/generate.mjs" "$work/routes" "$work/routes/routeTree.gen.ts"
+"$node" "$work/generate.mjs" "$work/routes" "$work/routes/routeTree.gen.ts" "$start_router"
 cp "$work/routes/routeTree.gen.ts" "$out"

@@ -151,6 +151,11 @@ func planDevServer(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, 
 	}
 	plan.setEnv("BAZEL_BIN_DIR", bazelBin)
 
+	anchor, err := anchorNodeModules(workspace, nodeModules, plan)
+	if err != nil {
+		return nil, err
+	}
+
 	plan.Messages = append(plan.Messages,
 		fmt.Sprintf("[ts_dev_server] Starting dev server on port %d...", d.Port),
 		fmt.Sprintf("[ts_dev_server] Workspace: %s", workspace),
@@ -159,6 +164,11 @@ func planDevServer(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, 
 		fmt.Sprintf("[ts_dev_server] Config: %s", configFile),
 		fmt.Sprintf("[ts_dev_server] Server: %s", serverPath),
 	)
+	if anchor != "" {
+		plan.Messages = append(plan.Messages, fmt.Sprintf(
+			"[ts_dev_server] Linked %s -> the npm tree; removed on Ctrl-C. "+
+				"Add `node_modules` (no trailing slash) to .gitignore.", anchor))
+	}
 
 	plan.Argv = append(argv, args...)
 	plan.UseExec = false
@@ -166,4 +176,59 @@ func planDevServer(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, 
 	// that and pick the new .js up through its watcher, so only Ctrl-C stops it.
 	plan.Supervise = SuperviseOptions{IgnoreTerm: true, ExitZeroOnInterrupt: true}
 	return plan, nil
+}
+
+// anchorNodeModules links the npm tree in as <workspace>/node_modules, and
+// returns the link it created, or "" when one was already there.
+//
+// This is what makes a bare `import "react"` resolve at all in the parts of a
+// bundler that no plugin can reach. Vite's SSR externalisation and its
+// optimizeDeps.include resolution both call the resolver directly rather than
+// through the plugin container, and both walk the directory chain up from the
+// importer -- or, for a package in resolve.dedupe, up from `root` regardless of
+// the importer. Above a checked-in source file there is nothing to find: the
+// npm tree is a Bazel output somewhere else entirely. Naming it here is the
+// only place the walk can see it, and it is what a bundler outside Bazel would
+// have found anyway.
+//
+// An existing path is never replaced. A real directory is somebody's install
+// and a link to another tree belongs to another dev server; either way the two
+// answers cannot both be right, so the launcher says which two and stops.
+func anchorNodeModules(workspace, nodeModules string, plan *Plan) (string, error) {
+	link := filepath.Join(workspace, "node_modules")
+	switch target, err := os.Readlink(link); {
+	case err == nil && target == nodeModules:
+		return "", nil
+	case err == nil:
+		return "", fmt.Errorf(
+			"ts_dev_server: %s is already a symlink to a different npm tree:\n"+
+				"                 have %s\n"+
+				"                 want %s\n"+
+				"A dev server resolves bare specifiers by walking up from the "+
+				"workspace root, so the two trees cannot both be there. Stop the "+
+				"other dev server, or point both targets at one node_modules().",
+			link, target, nodeModules)
+	}
+	if _, err := os.Lstat(link); err == nil {
+		return "", fmt.Errorf(
+			"ts_dev_server: %s already exists and is not a symlink.\n"+
+				"That is usually a `pnpm install` tree. The dev server resolves "+
+				"through the Bazel npm tree at\n"+
+				"                 %s\n"+
+				"and will not delete an install to get there -- remove it yourself "+
+				"if Bazel should own the dependencies.", link, nodeModules)
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+	if err := os.Symlink(nodeModules, link); err != nil {
+		return "", fmt.Errorf(
+			"ts_dev_server: could not link %s -> %s: %w\n"+
+				"On Windows a symlink needs Developer Mode or an elevated shell.",
+			link, nodeModules, err)
+	}
+	// ibazel SIGTERMs the launcher on every rebuild and Supervise.IgnoreTerm
+	// swallows it, so this runs on Ctrl-C rather than once per rebuild. Remove
+	// the link only -- never its target, which is the Bazel tree.
+	plan.Cleanup = func() { os.Remove(link) }
+	return link, nil
 }

@@ -14,7 +14,7 @@ MODULE.bazel.lock
 .bazel/
 
 # Node modules (managed by Bazel, not checked in)
-node_modules/
+node_modules
 
 # Cargo build output (oxc_cli is built by Bazel via rules_rust; a cargo
 # target/ is local scratch only)

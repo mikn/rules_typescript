@@ -107,7 +107,7 @@ file inside a TreeArtifact has no label at analysis time); a native binary sets
 |---|---|---|
 | first-party `.ts` | Bazel compiles it; the plugin redirects imports to `bazel-bin` | served as source, transformed by the server in memory |
 | `ts_codegen` output | from `bazel-bin` | from `bazel-bin` |
-| npm packages | the `node_modules` tree | the `node_modules` tree, via the `bazel:npm-resolve` plugin |
+| npm packages | the `node_modules` tree | the `node_modules` tree, linked in at the workspace root |
 | assets, passthrough `.d.ts` | from `bazel-bin` | from `bazel-bin` |
 
 Generated code is recognised by the absence of a checked-in source file.
@@ -124,20 +124,40 @@ importer looking for a `node_modules` directory, and above a checked-in source
 file there is never one — the npm tree is a Bazel output elsewhere.
 (`resolve.modules` is a webpack option; Vite ignores it.)
 
-The rule installs a plugin, `bazel:npm-resolve`, at `enforce: 'pre'`. For a bare
-specifier it looks for `<tree>/<package>/package.json` and, if that file exists,
-hands the id back to Vite's own resolver with that manifest as the importer,
-which does have a `node_modules` above it. Exports maps, conditions and subpaths
-therefore stay Vite's: the plugin decides where to look, never what a specifier
-means. `import "zod/v4"` and a conditional `exports` behave in dev as they do in
-a `ts_bundle`.
+So the launcher puts the tree on that walk. Starting a dev server links it in as
+`<workspace>/node_modules`, and removes the link on Ctrl-C. From there every
+resolver finds the packages the way it would outside Bazel, including the two
+that no plugin can reach:
+
+- **SSR externalisation.** Whether a package is external is decided on the raw
+  specifier before the plugin container ever sees it. A package that does not
+  resolve is treated as not-external and inlined, so a CJS entry like
+  `react/jsx-runtime` ends up evaluated as ESM — `module is not defined`, on
+  every request.
+- **`optimizeDeps.include`.** Resolved with no importer at all, walking up from
+  `root`. This is what a framework plugin uses to name the dependencies the
+  browser needs pre-bundled from CJS.
+
+An existing `node_modules` is never replaced. A real directory (a `pnpm install`)
+or a link to a different tree makes the dev server stop and say so rather than
+pick one; two npm trees cannot both be at the workspace root, so two dev servers
+using different `node_modules()` targets cannot run at once.
+
+Add `node_modules` to `.gitignore` **without a trailing slash** — `node_modules/`
+matches a directory, and this is a symlink.
+
+A plugin, `bazel:npm-resolve`, stays behind it at `enforce: 'post'` as a
+fallback: it locates `<tree>/<package>/package.json` and hands the id back to the
+resolver anchored there, for an importer the walk cannot reach and for a server
+that does no walk of its own. Exports maps, conditions and subpaths stay the
+resolver's either way, so `import "zod/v4"` and a conditional `exports` behave in
+dev as they do in a `ts_bundle`.
 
 A package the tree does not carry produces Vite's `Failed to resolve import` at
 the moment the browser asks for the module; add it to the `node_modules` target's
 `deps`.
 
-oj resolves a bare specifier through the same plugin in the same generated
-config.
+oj serves from the same generated config and the same link.
 
 ## Type Checking
 

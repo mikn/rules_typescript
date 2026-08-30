@@ -31,15 +31,18 @@ This rule generates:
      - Sets `root` to the workspace root (BUILD_WORKSPACE_DIRECTORY when running
        under `bazel run`, or the runfiles directory otherwise).
      - Configures `server.fs.allow` to serve files from bazel-bin.
-     - Installs the `bazel:npm-resolve` plugin, which is what makes a bare
-       `import "react"` from first-party source resolve at all. Vite has no
+     - Installs the `bazel:npm-resolve` plugin at `enforce: 'post'`, a fallback
+       behind the <workspace>/node_modules link the launcher makes. Vite has no
        search-path option (`resolve.modules` is webpack's): it resolves a bare
-       specifier by walking up from the importer, and nothing above a checked-in
-       source file is a node_modules directory -- the npm tree is a Bazel
-       output. The plugin hands the specifier straight back to Vite's own
-       resolver, anchored at that package's package.json inside the tree, so
-       exports maps, conditions and subpaths stay Vite's to interpret rather
-       than this rule's to reimplement.
+       specifier by walking up from the importer, or from `root` for a package
+       in resolve.dedupe and for optimizeDeps.include, and nothing above a
+       checked-in source file is a node_modules directory -- the npm tree is a
+       Bazel output. Neither of those two walks goes through the plugin
+       container, which is why the link and not a plugin is the mechanism. The
+       plugin still catches an importer the walk cannot reach, by handing the
+       specifier back to the resolver anchored at that package's package.json
+       inside the tree, so exports maps, conditions and subpaths stay Vite's to
+       interpret rather than this rule's to reimplement.
      - Loads @vitejs/plugin-react (`react_refresh = True`) at the entry point
        that package's own `exports` map declares.
      - Imports the `vite_config` file from a copy in bazel-bin rather than from
@@ -429,14 +432,19 @@ def _generate_dev_config(
 
     if node_modules_rl:
         config_content += (
-            "// Vite resolves a bare specifier by walking up from the importer, and above\n" +
-            "// a checked-in source file there is no node_modules to find -- the npm tree\n" +
-            "// is a Bazel output elsewhere. So the id goes back to Vite's own resolver\n" +
-            "// with an importer that does have it above them: the package's own manifest\n" +
-            "// inside the tree. Exports maps, conditions and subpaths stay Vite's.\n" +
+            "// A fallback, not the mechanism: the launcher links the npm tree in as\n" +
+            "// <workspace>/node_modules, so the walk up from an importer finds it the\n" +
+            "// way it would outside Bazel. This catches what that walk cannot see --\n" +
+            "// an importer outside the workspace, or a server whose resolver does no\n" +
+            "// walk at all -- by handing the id back with an importer that has the\n" +
+            "// tree above it: the package's own manifest. Exports maps, conditions and\n" +
+            "// subpaths stay the resolver's. It runs 'post' so it only fires where the\n" +
+            "// primary resolver came back empty; at 'pre' it rewrote every bare\n" +
+            "// importer into the tree, which reads to Vite as a node_modules-internal\n" +
+            "// import and opts the module out of dependency optimisation.\n" +
             "const bazelNpmResolve = {\n" +
             "  name: 'bazel:npm-resolve',\n" +
-            "  enforce: 'pre',\n" +
+            "  enforce: 'post',\n" +
             "  async resolveId(id, importer, options) {\n" +
             "    if (id.startsWith('.') || id.startsWith('/') || id.includes(':') || id.includes('\\0')) {\n" +
             "      return null;\n" +
@@ -501,9 +509,9 @@ def _generate_dev_config(
         "\n" +
         "  resolve: {\n" +
         "    // A first-party module_name resolves to source; a bare npm specifier is\n" +
-        "    // left to the bazel:npm-resolve plugin, which Vite runs before its own\n" +
-        "    // resolver. There is no resolve.modules: that is a webpack option, and\n" +
-        "    // Vite ignores it.\n" +
+        "    // left to the resolver's own walk up from the importer, which the\n" +
+        "    // launcher's <workspace>/node_modules link puts the Bazel tree on. There\n" +
+        "    // is no resolve.modules: that is a webpack option, and Vite ignores it.\n" +
         "    alias: firstPartyAliases,\n" +
         "  },\n" +
         "\n" +
@@ -512,12 +520,10 @@ def _generate_dev_config(
     )
 
     config_content += (
-        "  // Disable dependency pre-bundling when using a Bazel node_modules tree.\n" +
-        "  // The Bazel tree already has all packages at the correct versions;\n" +
-        "  // pre-bundling would re-process them unnecessarily.\n" +
-        "  optimizeDeps: {\n" +
-        "    noDiscovery: nodeModulesPath !== null,\n" +
-        "  },\n" +
+        "  // node_modules/.vite is the default, and the launcher just pointed that\n" +
+        "  // name at a read-only Bazel output. Pre-bundling is not optional here:\n" +
+        "  // react and friends ship CJS, and the browser needs the ESM it writes.\n" +
+        "  cacheDir: path.join(bazelBin, " + json.encode(_bin_relative(config_file).rsplit("/", 1)[0] + "/.vite-cache") + "),\n" +
         "\n" +
         "  // Suppress the 'public dir does not exist' warning when no public/\n" +
         "  // directory exists in the workspace root.\n" +
@@ -542,7 +548,6 @@ _CONFIG_FIELD_ATTRS = {
     "server.open": "open",
     "server.watch.paths": None,
     "root": None,
-    "optimizeDeps.noDiscovery": None,
 }
 
 def _check_ignored_fields(ctx, server_info):

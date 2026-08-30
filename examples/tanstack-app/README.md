@@ -156,12 +156,26 @@ with the plugin in place and with it removed.
 
 ## Dev Server
 
-There is no dev-server target. A Start dev server does not work against a
-Bazel-only npm tree: Vite's SSR module runner inlines `react/jsx-runtime` rather
-than externalising it, since the npm tree is a build output and not a directory
-the importer can walk up to, and React's CJS entry then evaluates `module` in an
-ESM context. Every request answers 500. Gazelle logs that reason when it walks
-the workspace.
+```bash
+bazel run //:dev        # http://localhost:5173, SSR and all
+```
+
+`//:dev` takes the same `vite_config` as `//:app`, so the Start plugin owns
+routing, the server functions and the client entry exactly as it does in the
+build. Gazelle generates it beside `ts_bundle` for that reason: a per-package dev
+target would not have the config, and without the plugin there is no app.
+
+Starting it links the npm tree in as `node_modules` at the workspace root, and
+removes the link on Ctrl-C. Vite decides SSR externalisation and
+`optimizeDeps.include` without consulting any plugin — both walk up from the
+importer, or from the Vite root — so a tree that is only a Bazel output is
+invisible to them, and `react/jsx-runtime` gets inlined as CJS into an ESM
+evaluator. The link is what makes both resolve. See
+[the dev server guide](../../docs/guides/dev-server.md#how-a-bare-npm-specifier-resolves).
+
+The Start plugin regenerates `src/routes/routeTree.gen.ts` while it serves.
+`:route_tree` passes `--start-router` so it emits the same `declare module`
+footer, which makes that write a no-op and keeps `:route_tree_test` green.
 
 ## Using as a Template
 

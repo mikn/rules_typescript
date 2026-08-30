@@ -25,7 +25,8 @@ adopts `base`, `publicDir`, `server.port`, `server.host`, `server.fs.allow`,
 `optimizeDeps` and `build.rollupOptions` from a Vite config, and loads
 `plugins` through its Node plugin host. It does not read `server.open` or
 `server.watch`: it has its own watcher, so a target relying on Vite's watcher
-paths to see a rebuild has to say so.
+paths to see a rebuild has to say so. Nor `cacheDir`: oj's cache root is
+`<root>/.oj-cache`, with no setting to move it.
 
 oj applies React Fast Refresh itself, so `react_refresh = True` is an error
 against it rather than a no-op: @vitejs/plugin-react on top of a transform that
@@ -47,9 +48,9 @@ def _oj_dev_server_impl(ctx):
         runs_in_js_runtime = False,
         ignored_config_fields = [
             "root",
+            "cacheDir",
             "server.open",
             "server.watch.paths",
-            "optimizeDeps.noDiscovery",
         ],
         native_react_refresh = True,
         runtime_deps = depset([ctx.executable.oj]),

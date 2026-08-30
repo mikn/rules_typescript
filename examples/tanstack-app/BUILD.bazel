@@ -14,6 +14,7 @@ Demonstrates:
     bazel build //...          compile + type-check
     bazel test //...           vitest, and the route-tree staleness test
     bazel build //:app         client/ + server/ under bazel-bin/app_bundle
+    bazel run //:dev           dev server with SSR on :5173
     bazel run //:gazelle       regenerate BUILD files
 
 Adding a route needs one more step than Gazelle -- see the README.
@@ -25,7 +26,7 @@ virtual:tanstack-start-client-entry and emits no HTML at all.
 
 load("@gazelle//:def.bzl", "gazelle")
 load("@rules_typescript//npm:defs.bzl", "node_modules")
-load("@rules_typescript//ts:defs.bzl", "ts_add_package", "ts_bundle", "ts_pnpm")
+load("@rules_typescript//ts:defs.bzl", "ts_add_package", "ts_bundle", "ts_dev_server", "ts_pnpm")
 load("@rules_typescript//vite:bundler.bzl", "vite_bundler")
 
 # Run "bazel run //:gazelle" to auto-generate BUILD files.
@@ -88,4 +89,13 @@ ts_pnpm(name = "pnpm")
 ts_add_package(
     name = "add_package",
     pnpm_lock = "//:pnpm-lock.yaml",
+)
+
+# The dev server: the same vite_config the bundle uses, so the Start plugin owns
+# routing, SSR and the client entry here exactly as it does in the build.
+ts_dev_server(
+    name = "dev",
+    entry_point = "//src/app:main",
+    node_modules = ":node_modules",
+    vite_config = "tanstack-vite.config.mjs",
 )

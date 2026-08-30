@@ -288,11 +288,11 @@ func TestDevServerBehaviour(t *testing.T) {
 	})
 
 	// ── 4b: a bare npm specifier ──────────────────────────────────────────────
-	// The npm tree is a Bazel output, and nothing above a checked-in source file
-	// is a node_modules directory, so without the resolver plugin this request is
-	// an unresolved-import error. The response says which file Vite chose, and
-	// that file has to be served too -- resolving into a directory server.fs.allow
-	// does not reach would only move the failure one request later.
+	// The npm tree is a Bazel output; what puts it on the walk up from a
+	// checked-in source file is the <workspace>/node_modules link the launcher
+	// makes. The response says which file the server chose, and that file has to
+	// be served too -- resolving into a directory server.fs.allow does not reach
+	// would only move the failure one request later.
 	t.Run("resolves_npm_from_bazel_tree", func(t *testing.T) {
 		r := get(t, base, "/npm_entry.js")
 		if r.status != 200 {
@@ -304,9 +304,14 @@ func TestDevServerBehaviour(t *testing.T) {
 			t.Fatalf("nothing in the response points at a resolved dependency:\n%s", r.body)
 		}
 		m := get(t, base, dep)
-		if !strings.Contains(m.finalURL, "/node_modules/zod/") {
-			t.Errorf("`import \"zod\"` resolved to %q, which is not in a Bazel npm tree",
-				m.finalURL)
+		// Two landings are both the Bazel tree. Vite pre-bundles the package and
+		// serves the rewrite out of cacheDir, which this rule points inside
+		// bazel-bin; oj serves the file where it lies. Neither may be a path the
+		// host happened to have.
+		if !strings.Contains(m.finalURL, "/node_modules/zod/") &&
+			!strings.Contains(m.finalURL, "/.vite-cache/deps/") {
+			t.Errorf("`import \"zod\"` resolved to %q, which is neither a Bazel npm "+
+				"tree nor this target's dependency cache", m.finalURL)
 		}
 		if m.status != 200 {
 			t.Errorf("the resolved dependency %s answers %d, want 200\n%s", dep, m.status, m.body)
@@ -435,7 +440,7 @@ func TestDevServerBehaviour(t *testing.T) {
 // are "the URL this module's dependency is at"; where it lands is the assertion,
 // not how it is spelled.
 func depURL(body string) string {
-	m := regexp.MustCompile(`"(/@(?:fs|id)/[^"]+)"`).FindStringSubmatch(body)
+	m := regexp.MustCompile(`"(/(?:@(?:fs|id)/|bazel-bin/)[^"]+)"`).FindStringSubmatch(body)
 	if m == nil {
 		return ""
 	}

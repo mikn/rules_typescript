@@ -22,6 +22,12 @@ ts_codegen(
         "{out}",
         "--srcs",
         "{srcs}",
+        # A Start app: the tree carries the framework's Register declaration,
+        # naming the same router entry tanstack-vite.config.mjs points at. The
+        # dev server's own generator writes the same footer, so serving does
+        # not make the checked-in tree stale.
+        "--start-router",
+        "../lib/router.ts",
     ],
     generator = "@rules_typescript//tools/codegen:tanstack_routes",
     node_modules = "//:router_generator_node_modules",
