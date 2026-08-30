@@ -18,9 +18,11 @@ What the rows pin, beyond one expected path each:
   still produces a real .d.ts of a real build.
 
   FALLBACK. `exports` is authoritative about what it designates and silent about
-  the rest; `types`/`typings` is where the silent majority of npm publishes. A
-  package that resolves to nothing is a package whose typecheck runs against no
-  declarations at all, which no error mentions.
+  the rest; `types`/`typings` is where the silent majority of npm publishes; and
+  a package that designates nothing at all may still ship index.d.ts, which is
+  where TypeScript's own resolution ends. A package that resolves to nothing is
+  a package whose typecheck runs against no declarations at all, which no error
+  mentions.
 
   EXISTENCE. A manifest may name a declaration the tarball omits -- six packages
   in this closure do. Taking the name on trust generates a target whose source
@@ -308,6 +310,18 @@ _CASES = [
         }""",
         files = [],
         expected = "",
+    ),
+    struct(
+        package = "@cloudflare/workers-types@4.20260420.1",
+        shape = "designates nothing and ships index.d.ts, TypeScript's own last resort",
+        manifest = """{
+          "name": "@cloudflare/workers-types",
+          "description": "TypeScript typings for Cloudflare Workers",
+          "license": "MIT OR Apache-2.0",
+          "version": "4.20260420.1"
+        }""",
+        files = ["index.d.ts", "2023-07-01/index.d.ts"],
+        expected = "index.d.ts",
     ),
     struct(
         package = "balanced-match@1.0.2",

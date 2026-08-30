@@ -306,7 +306,14 @@ def _exports_types(pkg_json, has_file):
             named = _declaration_field(value, has_file)
             if named:
                 return named
-    return ""
+
+    # A manifest that designates nothing has not said there are no declarations.
+    # TypeScript's own resolution ends at <pkg>/index.d.ts, and a types-only
+    # package can therefore ship one and no `types` field at all --
+    # @cloudflare/workers-types is exactly that. Without this, asking for it in
+    # compilerOptions.types resolves to nothing and its globals never join the
+    # program, which no error mentions.
+    return "index.d.ts" if has_file("index.d.ts") else ""
 
 def _exports_subpath_types(pkg_json, has_file):
     """The declaration each non-root `exports` subpath designates, keyed by subpath.
