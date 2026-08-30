@@ -164,7 +164,9 @@ func TestGenerate_RuleNamesUnchangedForPlainTSPackage(t *testing.T) {
 }
 
 // runGenerateWithBuild is runGenerate with a BUILD file in the directory, so
-// that both its directives and its existing rules reach the generator.
+// that both its directives and its existing rules reach the generator. A name
+// carrying a slash is written into a subdirectory, which Gazelle walks
+// separately and so leaves out of RegularFiles.
 func runGenerateWithBuild(t *testing.T, rel, build string, files map[string]string) language.GenerateResult {
 	t.Helper()
 
@@ -175,10 +177,16 @@ func runGenerateWithBuild(t *testing.T, rel, build string, files map[string]stri
 	}
 	var names []string
 	for name, content := range files {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+		full := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		names = append(names, name)
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(name, "/") {
+			names = append(names, name)
+		}
 	}
 	sort.Strings(names)
 

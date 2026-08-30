@@ -49,6 +49,25 @@ func importsForRule(_ *config.Config, r *rule.Rule, f *rule.File) []resolve.Impo
 
 	srcs := r.AttrStrings("srcs")
 	for _, src := range srcs {
+		// A ts_codegen label in srcs: its outs are modules of this target, and
+		// this target is the only label an importer can depend on -- ts_compile
+		// deps take JsInfo, which ts_codegen does not return.
+		if isLabelSrc(src) {
+			for _, out := range codegenOutsOf(f, strings.TrimPrefix(src, ":")) {
+				specs = append(specs, resolve.ImportSpec{
+					Lang: languageName,
+					Imp:  path.Join(pkg, dropTsExtension(out)),
+				})
+				if isIndexFile(path.Base(out)) {
+					specs = append(specs, resolve.ImportSpec{
+						Lang: languageName,
+						Imp:  path.Join(pkg, path.Dir(out)),
+					})
+				}
+			}
+			continue
+		}
+
 		// Emit the import path without extension so that
 		// both "./Button" and "./Button.tsx" resolve to this rule.
 		withoutExt := dropTsExtension(src)
@@ -69,7 +88,7 @@ func importsForRule(_ *config.Config, r *rule.Rule, f *rule.File) []resolve.Impo
 	if moduleName := r.AttrString("module_name"); moduleName != "" {
 		specs = append(specs, resolve.ImportSpec{Lang: languageName, Imp: moduleName})
 		for _, src := range srcs {
-			if isIndexFile(src) {
+			if isIndexFile(src) || isLabelSrc(src) {
 				continue
 			}
 			specs = append(specs, resolve.ImportSpec{
@@ -80,6 +99,24 @@ func importsForRule(_ *config.Config, r *rule.Rule, f *rule.File) []resolve.Impo
 	}
 
 	return specs
+}
+
+// isLabelSrc reports whether a srcs entry names a target rather than a file.
+func isLabelSrc(src string) bool {
+	return strings.HasPrefix(src, ":") || strings.HasPrefix(src, "//") || strings.HasPrefix(src, "@")
+}
+
+// codegenOutsOf returns the outs of the ts_codegen named name in f.
+func codegenOutsOf(f *rule.File, name string) []string {
+	if f == nil {
+		return nil
+	}
+	for _, r := range f.Rules {
+		if r.Kind() == "ts_codegen" && r.Name() == name {
+			return r.AttrStrings("outs")
+		}
+	}
+	return nil
 }
 
 // The kinds whose sources tsgo type-checks, which is what makes an ambient

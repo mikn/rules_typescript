@@ -20,7 +20,7 @@ Directives go in `BUILD.bazel` files as comments and control how Gazelle generat
 | `# gazelle:ts_ambient_types @npm//:types_node` | Append a label to every generated `ts_compile` and `ts_test` deps list |
 | `# gazelle:ts_exclude *.generated.ts` | Exclude files matching this pattern from source targets |
 | `# gazelle:ts_warn_unresolved true` | Warn when an import cannot be resolved to a Bazel label |
-| `# gazelle:ts_codegen <name> <generator> <outs> [args…]` | Register a `ts_codegen` target in this directory |
+| `# gazelle:ts_codegen <name> <generator> <outs> [srcs:<csv>] [args…]` | Register a `ts_codegen` target in this directory |
 | `# gazelle:ts_npm_hub npm_eslint` | Resolve bare specifiers in this tree into that npm hub repo, not the default `@npm` |
 
 That is the complete set: eleven directives. Gazelle warns on an unknown
@@ -318,9 +318,32 @@ Gazelle will not generate `ts_compile` or `ts_test` targets in `legacy-code/` or
 # gazelle:ts_codegen api_types @npm//:openapi-typescript_bin api-types.ts {srcs} -o {out}
 ```
 
-The fields are `<name> <generator_label> <outs> [args…]`, where `<outs>` is a
-comma-separated list of output file names and everything after it is passed to
-the generator. `{srcs}` and `{out}` are substituted.
+The fields are `<name> <generator_label> <outs> [srcs:<csv>] [args…]`, where
+`<outs>` is a comma-separated list of output file names and everything after the
+optional `srcs:` field is passed to the generator. `{srcs}` and `{out}` are
+substituted. Without a `srcs:` field the generator reads the directory's own
+TypeScript sources, which is what a route-tree or barrel generator wants; a
+generator that reads a schema names it:
+
+```python
+# gazelle:ts_codegen schema_types //tools:schemagen schema.gen.ts srcs:schema.graphql --out {out}
+```
+
+The directive is inherited by subdirectories the way every directive is, but the
+target it names is written in the one directory the directive was written in.
+
+Alongside the `ts_codegen`, Gazelle writes `<name>_compile`: the `ts_compile`
+that takes the codegen label in `srcs`, with `declarations = "oxc"`. That is the
+target an import of a generated module resolves to — `ts_compile.deps` takes
+providers `ts_codegen` does not return, so the generated source reaches a compile
+through `srcs`, and under the default `declarations = "tsgo"` emit one target
+cannot hold both checked-in and generated sources. See
+[Compiling the output](../rules/ts-codegen.md#compiling-the-output).
+
+A declared out that is also checked in is kept out of the package's
+`ts_compile.srcs`: a file that is both a source and an output of its package is
+a conflicting declaration Bazel rejects. Deleting the checked-in copy is
+optional, and nothing changes on the day you do.
 
 For a generator that writes a whole directory, prefix the outs field with
 `dir:`:

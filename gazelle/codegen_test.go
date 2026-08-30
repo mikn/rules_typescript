@@ -1,8 +1,16 @@
 package typescript
 
 import (
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/bazelbuild/bazel-gazelle/config"
+	"github.com/bazelbuild/bazel-gazelle/label"
+	"github.com/bazelbuild/bazel-gazelle/language"
+	"github.com/bazelbuild/bazel-gazelle/resolve"
 	"github.com/bazelbuild/bazel-gazelle/rule"
 )
 
@@ -374,6 +382,7 @@ func TestDetectCodegen_CustomDirectivesIncluded(t *testing.T) {
 			Srcs:      []string{"input.ts"},
 			Outs:      []string{"output.ts"},
 			Generator: "@npm//:my-tool_bin",
+			Dir:       "src",
 		},
 	}
 	patterns := detectCodegen("src", []string{"input.ts"}, tc)
@@ -385,7 +394,7 @@ func TestDetectCodegen_CustomDirectivesIncluded(t *testing.T) {
 // ---- parseCodegenDirective tests -------------------------------------------
 
 func TestParseCodegenDirective_BasicSingleOut(t *testing.T) {
-	cp := parseCodegenDirective("api_types @npm//:openapi-typescript_bin api-types.ts {srcs} -o {out}")
+	cp := parseCodegenDirective("", "api_types @npm//:openapi-typescript_bin api-types.ts {srcs} -o {out}")
 	if cp == nil {
 		t.Fatal("expected non-nil result")
 	}
@@ -404,7 +413,7 @@ func TestParseCodegenDirective_BasicSingleOut(t *testing.T) {
 }
 
 func TestParseCodegenDirective_MultipleOuts(t *testing.T) {
-	cp := parseCodegenDirective("my_gen @npm//:tool_bin types.ts,client.ts generate")
+	cp := parseCodegenDirective("", "my_gen @npm//:tool_bin types.ts,client.ts generate")
 	if cp == nil {
 		t.Fatal("expected non-nil result")
 	}
@@ -417,7 +426,7 @@ func TestParseCodegenDirective_MultipleOuts(t *testing.T) {
 }
 
 func TestParseCodegenDirective_DirOutput(t *testing.T) {
-	cp := parseCodegenDirective("prisma_client @npm//:prisma_bin dir:generated/client generate --schema {srcs}")
+	cp := parseCodegenDirective("", "prisma_client @npm//:prisma_bin dir:generated/client generate --schema {srcs}")
 	if cp == nil {
 		t.Fatal("expected non-nil result")
 	}
@@ -434,14 +443,14 @@ func TestParseCodegenDirective_DirOutput(t *testing.T) {
 
 func TestParseCodegenDirective_TooFewFields(t *testing.T) {
 	// Only 2 fields — needs at least 3.
-	cp := parseCodegenDirective("my_gen @npm//:tool_bin")
+	cp := parseCodegenDirective("", "my_gen @npm//:tool_bin")
 	if cp != nil {
 		t.Errorf("expected nil for directive with too few fields, got %+v", cp)
 	}
 }
 
 func TestParseCodegenDirective_EmptyValue(t *testing.T) {
-	cp := parseCodegenDirective("")
+	cp := parseCodegenDirective("", "")
 	if cp != nil {
 		t.Errorf("expected nil for empty directive value")
 	}
@@ -449,7 +458,7 @@ func TestParseCodegenDirective_EmptyValue(t *testing.T) {
 
 func TestParseCodegenDirective_EmptyDirAfterPrefix(t *testing.T) {
 	// "dir:" with nothing after it should fail.
-	cp := parseCodegenDirective("my_gen @npm//:tool_bin dir: generate")
+	cp := parseCodegenDirective("", "my_gen @npm//:tool_bin dir: generate")
 	if cp != nil {
 		t.Errorf("expected nil for empty dir: value")
 	}
@@ -457,7 +466,7 @@ func TestParseCodegenDirective_EmptyDirAfterPrefix(t *testing.T) {
 
 func TestParseCodegenDirective_ArgsOptional(t *testing.T) {
 	// No args — only name + generator + outs.
-	cp := parseCodegenDirective("gen @npm//:tool_bin output.ts")
+	cp := parseCodegenDirective("", "gen @npm//:tool_bin output.ts")
 	if cp == nil {
 		t.Fatal("expected non-nil result when args omitted")
 	}
@@ -523,5 +532,286 @@ func TestDirective_Codegen_ChildCanAddToParent(t *testing.T) {
 	)
 	if len(tc.customCodegens) != 2 {
 		t.Fatalf("expected 2 custom codegens (parent + child), got %d: %v", len(tc.customCodegens), tc.customCodegens)
+	}
+}
+
+// ---- the generated-code workflow -------------------------------------------
+
+// indexGenerated puts a generate result's rules in one BUILD file and indexes
+// them, which is what lets a src label reach the ts_codegen it names.
+func indexGenerated(t *testing.T, c *config.Config, pkg string, res language.GenerateResult) *resolve.RuleIndex {
+	t.Helper()
+	f := rule.EmptyFile("BUILD.bazel", pkg)
+	for _, r := range res.Gen {
+		r.Insert(f)
+	}
+	lang := &tsLang{}
+	ix := resolve.NewRuleIndex(func(*rule.Rule, string) resolve.Resolver { return lang })
+	for _, r := range f.Rules {
+		ix.AddRule(c, r, f)
+	}
+	ix.Finish()
+	return ix
+}
+
+// depsFor resolves one import from the repository root package against ix.
+func depsFor(t *testing.T, c *config.Config, ix *resolve.RuleIndex, imp string) []string {
+	t.Helper()
+	r := rule.NewRule("ts_compile", "app")
+	resolveImports(c, ix, r, []string{imp}, label.New("", "", "app"))
+	return r.AttrStrings("deps")
+}
+
+// The directive names a target, so a run has to write one. Parsing it into a
+// CodegenPattern that never reaches a BUILD file is the whole bug.
+func TestGenerate_CodegenDirectiveEmitsTheRule(t *testing.T) {
+	res := runGenerateWithBuild(t, "api", `
+# gazelle:ts_codegen schema_gen //tools:schemagen schema.gen.ts --out {out} --srcs {srcs}
+`, map[string]string{
+		"client.ts": "import type { S } from './schema.gen';\nexport type C = S;\n",
+	})
+
+	r := generatedRule(res, "schema_gen")
+	if r == nil {
+		t.Fatalf("no ts_codegen for the directive; generated %v", generatedNames(t, res))
+	}
+	if r.Kind() != "ts_codegen" {
+		t.Errorf("schema_gen kind = %s, want ts_codegen", r.Kind())
+	}
+	if got, want := r.AttrStrings("outs"), []string{"schema.gen.ts"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("outs = %v, want %v", got, want)
+	}
+	if got := r.AttrString("generator"); got != "//tools:schemagen" {
+		t.Errorf("generator = %q, want //tools:schemagen", got)
+	}
+	if got, want := r.AttrStrings("srcs"), []string{"client.ts"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("srcs = %v, want %v (the directory's own sources)", got, want)
+	}
+}
+
+// A directive reaches every child directory, but the target it names belongs in
+// the one package it was written in.
+func TestDetectCodegen_DirectiveOnlyFiresInItsOwnDirectory(t *testing.T) {
+	tc := makeTcWithNpm("react")
+	tc.customCodegens = []CodegenPattern{{
+		Name:      "my_gen",
+		Srcs:      []string{"input.ts"},
+		Outs:      []string{"output.ts"},
+		Generator: "@npm//:my-tool_bin",
+		Dir:       "src",
+	}}
+	if got := detectCodegen("src/nested", []string{"input.ts"}, tc); len(got) != 0 {
+		t.Errorf("child directory got %v, want no patterns", got)
+	}
+}
+
+// The generated module has to reach a compile through srcs -- ts_compile deps
+// take JsInfo, which ts_codegen does not return -- so the import resolves to
+// the compile that carries the codegen label.
+func TestGenerate_ImportOfADeclaredButAbsentModuleResolves(t *testing.T) {
+	res := runGenerateWithBuild(t, "api", `
+# gazelle:ts_codegen schema_gen //tools:schemagen schema.gen.ts --out {out} --srcs {srcs}
+`, map[string]string{
+		"client.ts": "import type { S } from './schema.gen';\nexport type C = S;\n",
+	})
+
+	compile := generatedRule(res, "schema_gen_compile")
+	if compile == nil {
+		t.Fatalf("no companion ts_compile generated; got %v", generatedNames(t, res))
+	}
+	assertRule(t, generatedNames(t, res), "schema_gen_compile", "ts_compile")
+	if got, want := compile.AttrStrings("srcs"), []string{":schema_gen"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("companion srcs = %v, want %v", got, want)
+	}
+	if got := compile.AttrString("declarations"); got != "oxc" {
+		t.Errorf("companion declarations = %q, want oxc", got)
+	}
+
+	c := emptyConfig()
+	got := depsFor(t, c, indexGenerated(t, c, "api", res), "./api/schema.gen")
+	if want := []string{"//api:schema_gen_compile"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("deps for ./api/schema.gen = %v, want %v", got, want)
+	}
+}
+
+// The out is checked in until the day it is not, and a file that is both a
+// source and an output is a declaration Bazel rejects outright.
+func TestGenerate_CodegenOutOnDiskIsNotAlsoASrc(t *testing.T) {
+	res := runGenerateWithBuild(t, "api", `
+# gazelle:ts_codegen schema_gen //tools:schemagen schema.ts srcs:schema.graphql --out {out}
+`, map[string]string{
+		"schema.graphql": "type Query { a: Int }\n",
+		"schema.ts":      "export type S = number;\n",
+		"client.ts":      "import type { S } from './schema';\nexport type C = S;\n",
+	})
+
+	compile := generatedRule(res, "api")
+	if compile == nil {
+		t.Fatalf("no ts_compile generated; got %v", generatedNames(t, res))
+	}
+	if got, want := compile.AttrStrings("srcs"), []string{"client.ts"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("ts_compile srcs = %v, want %v", got, want)
+	}
+
+	gen := generatedRule(res, "schema_gen")
+	if gen == nil {
+		t.Fatalf("no ts_codegen for the directive; generated %v", generatedNames(t, res))
+	}
+	if got, want := gen.AttrStrings("srcs"), []string{"schema.graphql"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("ts_codegen srcs = %v, want %v", got, want)
+	}
+
+	c := emptyConfig()
+	got := depsFor(t, c, indexGenerated(t, c, "api", res), "./api/schema")
+	if want := []string{"//api:schema_gen_compile"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("deps for ./api/schema = %v, want %v", got, want)
+	}
+}
+
+// A *.gen.ts no ts_codegen declares keeps the treatment it has always had: out
+// of srcs, and no target claiming to produce it.
+func TestGenerate_UndeclaredGeneratedFileStaysOutOfSrcs(t *testing.T) {
+	res := runGenerate(t, "api", map[string]string{
+		"client.ts":     "export const a = 1;\n",
+		"schema.gen.ts": "export type S = number;\n",
+	})
+
+	compile := generatedRule(res, "api")
+	if compile == nil {
+		t.Fatalf("no ts_compile generated; got %v", generatedNames(t, res))
+	}
+	if got, want := compile.AttrStrings("srcs"), []string{"client.ts"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("ts_compile srcs = %v, want %v", got, want)
+	}
+	for _, r := range res.Gen {
+		if r.Kind() == "ts_codegen" {
+			t.Errorf("ts_codegen %q generated for an undeclared *.gen.ts", r.Name())
+		}
+	}
+}
+
+// The rule a previous run wrote is the same claim as the pattern behind it, and
+// the second run has only the BUILD file to read it from.
+func TestGenerate_OutOfAnExistingCodegenRuleIsNotASrc(t *testing.T) {
+	res := runGenerateWithBuild(t, "api", `
+ts_codegen(
+    name = "schema_gen",
+    srcs = ["schema.graphql"],
+    outs = ["schema.ts"],
+    generator = "//tools:schemagen",
+)
+`, map[string]string{
+		"schema.graphql": "type Query { a: Int }\n",
+		"schema.ts":      "export type S = number;\n",
+		"client.ts":      "import type { S } from './schema';\nexport type C = S;\n",
+	})
+
+	compile := generatedRule(res, "api")
+	if compile == nil {
+		t.Fatalf("no ts_compile generated; got %v", generatedNames(t, res))
+	}
+	if got, want := compile.AttrStrings("srcs"), []string{"client.ts"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("ts_compile srcs = %v, want %v", got, want)
+	}
+}
+
+// The bug this whole change is about is a directive that does nothing without
+// saying so, and a directive whose srcs default finds nothing is that again.
+func TestGenerate_CodegenWithNothingToReadIsReported(t *testing.T) {
+	logged := captureLog(t, func() {
+		runGenerateWithBuild(t, "api", `
+# gazelle:ts_codegen schema_gen //tools:schemagen schema.gen.ts --out {out}
+`, map[string]string{"schema.graphql": "type Query { a: Int }\n"})
+	})
+	if !strings.Contains(logged, "schema_gen") {
+		t.Errorf("no warning for a codegen with no srcs to read; logged %q", logged)
+	}
+}
+
+// A package whose only TypeScript is generated: nothing on disk to make it a
+// boundary, and the targets still have to appear.
+func TestGenerate_PackageWithOnlyGeneratedSources(t *testing.T) {
+	res := runGenerateWithBuild(t, "api", `
+# gazelle:ts_codegen schema_gen //tools:schemagen schema.gen.ts srcs:schema.graphql --out {out}
+`, map[string]string{"schema.graphql": "type Query { a: Int }\n"})
+
+	byName := generatedNames(t, res)
+	assertRule(t, byName, "schema_gen", "ts_codegen")
+	assertRule(t, byName, "schema_gen_compile", "ts_compile")
+
+	c := emptyConfig()
+	got := depsFor(t, c, indexGenerated(t, c, "api", res), "./api/schema.gen")
+	if want := []string{"//api:schema_gen_compile"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("deps for ./api/schema.gen = %v, want %v", got, want)
+	}
+}
+
+// The claim has to hold wherever the file turns up. In index-only mode a
+// subdirectory is not a package, so its files are rolled into this one -- and a
+// rolled-up file a ts_codegen declares would otherwise reach a css_library and
+// be a source and an output of the same package.
+func TestGenerate_RolledUpCodegenOutIsNotAlsoASrc(t *testing.T) {
+	res := runGenerateWithBuild(t, "api", `
+# gazelle:ts_package_boundary index-only
+# gazelle:ts_codegen theme_gen //tools:themegen sub/theme.css srcs:tokens.json --out {out}
+`, map[string]string{
+		"index.ts":      "export const a = 1;\n",
+		"tokens.json":   "{}\n",
+		"sub/theme.css": ".a {}\n",
+	})
+
+	for _, r := range res.Gen {
+		if r.Kind() != "css_library" {
+			continue
+		}
+		for _, src := range r.AttrStrings("srcs") {
+			if src == "sub/theme.css" {
+				t.Errorf("css_library %q compiles sub/theme.css, which ts_codegen theme_gen declares as an out", r.Name())
+			}
+		}
+	}
+	if gen := generatedRule(res, "theme_gen"); gen == nil {
+		t.Fatalf("no ts_codegen for the directive; generated %v", generatedNames(t, res))
+	}
+}
+
+// The whole cycle, not the pieces: generate, merge, index, resolve, write. An
+// import of a module only the generator will ever produce has to come out of it
+// as a dep, and since an unclassified extension now resolves to nothing rather
+// than to a fabricated package, a miss here is silence instead of a build
+// failure that names the file.
+func TestConverge_GeneratedModuleResolvesThroughTheWholeCycle(t *testing.T) {
+	repoRoot := t.TempDir()
+	for name, content := range map[string]string{
+		"BUILD.bazel":        "",
+		"api/BUILD.bazel":    "# gazelle:ts_codegen schema_gen //tools:schemagen schema.gen.ts srcs:schema.graphql --out {out}\n",
+		"api/schema.graphql": "type Query { a: Int }\n",
+		"api/client.ts":      "import type { S } from \"./schema.gen\";\nexport type C = S;\n",
+	} {
+		full := filepath.Join(repoRoot, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	convergeGazelle(t, repoRoot)
+
+	data, err := os.ReadFile(filepath.Join(repoRoot, "api", "BUILD.bazel"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	build := string(data)
+	for _, want := range []string{
+		`ts_codegen(`,
+		`name = "schema_gen"`,
+		`name = "schema_gen_compile"`,
+		`":schema_gen_compile"`,
+	} {
+		if !strings.Contains(build, want) {
+			t.Errorf("api/BUILD.bazel is missing %s:\n%s", want, build)
+		}
 	}
 }

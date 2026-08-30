@@ -3,6 +3,7 @@ package typescript
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"testing"
 
@@ -15,6 +16,15 @@ import (
 // the given root directives, and generates rules for rel -- which is what a
 // boundary mode needs: the answer depends on directories other than rel.
 func generateTree(t *testing.T, files map[string]string, directives []rule.Directive, rel string) language.GenerateResult {
+	t.Helper()
+	return generateTreeWithBuild(t, files, directives, rel, "")
+}
+
+// generateTreeWithBuild is generateTree with a BUILD file in the generated
+// directory. A directive that names a target has to be read there: the pattern
+// carries the directory it was declared in, and one target belongs in one
+// package.
+func generateTreeWithBuild(t *testing.T, files map[string]string, directives []rule.Directive, rel, build string) language.GenerateResult {
 	t.Helper()
 	repoRoot := t.TempDir()
 	for name, content := range files {
@@ -32,6 +42,12 @@ func generateTree(t *testing.T, files map[string]string, directives []rule.Direc
 	rootFile.Directives = directives
 	configureTsConfig(c, "", rootFile)
 
+	dir := filepath.Join(repoRoot, rel)
+	buildFile, err := rule.LoadData(filepath.Join(dir, "BUILD.bazel"), rel, []byte(build))
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	var walked string
 	for _, part := range splitRel(rel) {
 		if walked == "" {
@@ -39,10 +55,13 @@ func generateTree(t *testing.T, files map[string]string, directives []rule.Direc
 		} else {
 			walked = walked + "/" + part
 		}
+		if walked == rel {
+			configureTsConfig(c, walked, buildFile)
+			continue
+		}
 		configureTsConfig(c, walked, nil)
 	}
 
-	dir := filepath.Join(repoRoot, rel)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -56,7 +75,7 @@ func generateTree(t *testing.T, files map[string]string, directives []rule.Direc
 	sort.Strings(names)
 
 	return generateRules(language.GenerateArgs{
-		Config: c, Dir: dir, Rel: rel, RegularFiles: names,
+		Config: c, Dir: dir, Rel: rel, File: buildFile, RegularFiles: names,
 	})
 }
 
@@ -187,6 +206,62 @@ func TestBoundaryTsConfig_RolledUpAmbientDeclarationReachesTheTest(t *testing.T)
 		}
 		if n != 1 {
 			t.Errorf("%s srcs %v: %s listed %d times, want exactly 1", r.Name(), srcs, decl, n)
+		}
+	}
+}
+
+// The roll-up and a ts_codegen's outs both decide what a target's srcs contain,
+// and a file claimed by both is a source and an output of one package -- which
+// Bazel rejects outright. The out stays checked in until the day it does not,
+// so the claim has to reach every kind the walk collects, not the TypeScript
+// ones alone.
+func TestBoundaryTsConfig_RolledUpCodegenOutIsNotAlsoASrc(t *testing.T) {
+	res := generateTreeWithBuild(t, map[string]string{
+		"worker/tsconfig.json":      `{"include": ["src/**/*.ts"]}`,
+		"worker/src/schema.graphql": "type Query { a: Int }\n",
+		"worker/src/schema.gen.ts":  "export type S = number;\n",
+		"worker/src/schema.json":    `{"a": 1}`,
+		"worker/src/worker.ts":      "export const w = 1;\n",
+	}, []rule.Directive{directive(directivePackageBoundary, "tsconfig")}, "worker",
+		"# gazelle:ts_codegen schema_gen //tools:schemagen src/schema.gen.ts,src/schema.json srcs:src/schema.graphql --out {out}\n")
+
+	compile := generatedRule(res, "worker")
+	if compile == nil {
+		t.Fatalf("no ts_compile named worker; got %v", generatedNames(t, res))
+	}
+	if got := compile.AttrStrings("srcs"); slices.Contains(got, "src/schema.gen.ts") {
+		t.Errorf("ts_compile srcs = %v: the declared out is also a source", got)
+	}
+	for _, r := range res.Gen {
+		if r.Kind() != "json_library" {
+			continue
+		}
+		if got := r.AttrStrings("srcs"); slices.Contains(got, "src/schema.json") {
+			t.Errorf("json_library %s srcs = %v: the declared out is also a source", r.Name(), got)
+		}
+	}
+}
+
+// A generator that names no srcs reads the sources of the target it sits beside,
+// and in a boundary mode that target covers the whole subtree. Read before the
+// roll-up it would get the one directory the BUILD file is in -- for a worker
+// root, nothing at all, and the rule disappears with only a log line.
+func TestBoundaryTsConfig_CodegenWithoutSrcsReadsTheRolledUpSources(t *testing.T) {
+	res := generateTreeWithBuild(t, map[string]string{
+		"worker/tsconfig.json": `{"include": ["src/**/*.ts"]}`,
+		"worker/src/worker.ts": "export const w = 1;\n",
+		"worker/src/util.ts":   "export const u = 2;\n",
+	}, []rule.Directive{directive(directivePackageBoundary, "tsconfig")}, "worker",
+		"# gazelle:ts_codegen types_gen //tools:typegen types.gen.ts --out {out}\n")
+
+	gen := generatedRule(res, "types_gen")
+	if gen == nil {
+		t.Fatalf("no ts_codegen named types_gen; got %v", generatedNames(t, res))
+	}
+	got := gen.AttrStrings("srcs")
+	for _, want := range []string{"src/util.ts", "src/worker.ts"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("ts_codegen srcs = %v, missing %s", got, want)
 		}
 	}
 }
