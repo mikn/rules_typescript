@@ -1,5 +1,5 @@
 {
-  "checksum": "d52d674d7c718cfff761f9aada588c8236c2b8d45af20095db60c11c1aa7203f",
+  "checksum": "32285c607a3f89e81b8d53f34ee605d8614f978d3d6c1c6bc0f6d2202f793511",
   "crates": {
     "adler2 2.0.1": {
       "name": "adler2",
@@ -11563,7 +11563,7 @@
         "Git": {
           "remote": "https://github.com/mikn/oj",
           "commitish": {
-            "Rev": "1a64a0a13e346495abafd3555588f1e545c4bf0d"
+            "Rev": "d7a75bc59feb525a47aa500c256bea93cb5f5c5e"
           },
           "strip_prefix": "crates/oj"
         }
@@ -11685,7 +11685,7 @@
         "Git": {
           "remote": "https://github.com/mikn/oj",
           "commitish": {
-            "Rev": "1a64a0a13e346495abafd3555588f1e545c4bf0d"
+            "Rev": "d7a75bc59feb525a47aa500c256bea93cb5f5c5e"
           },
           "strip_prefix": "crates/oj_cache"
         }
@@ -11743,7 +11743,7 @@
         "Git": {
           "remote": "https://github.com/mikn/oj",
           "commitish": {
-            "Rev": "1a64a0a13e346495abafd3555588f1e545c4bf0d"
+            "Rev": "d7a75bc59feb525a47aa500c256bea93cb5f5c5e"
           },
           "strip_prefix": "crates/oj_compiler"
         }
@@ -11857,7 +11857,7 @@
         "Git": {
           "remote": "https://github.com/mikn/oj",
           "commitish": {
-            "Rev": "1a64a0a13e346495abafd3555588f1e545c4bf0d"
+            "Rev": "d7a75bc59feb525a47aa500c256bea93cb5f5c5e"
           },
           "strip_prefix": "crates/oj_config"
         }
@@ -11943,7 +11943,7 @@
         "Git": {
           "remote": "https://github.com/mikn/oj",
           "commitish": {
-            "Rev": "1a64a0a13e346495abafd3555588f1e545c4bf0d"
+            "Rev": "d7a75bc59feb525a47aa500c256bea93cb5f5c5e"
           },
           "strip_prefix": "crates/oj_css"
         }
@@ -11997,7 +11997,7 @@
         "Git": {
           "remote": "https://github.com/mikn/oj",
           "commitish": {
-            "Rev": "1a64a0a13e346495abafd3555588f1e545c4bf0d"
+            "Rev": "d7a75bc59feb525a47aa500c256bea93cb5f5c5e"
           },
           "strip_prefix": "crates/oj_env"
         }
@@ -12047,7 +12047,7 @@
         "Git": {
           "remote": "https://github.com/mikn/oj",
           "commitish": {
-            "Rev": "1a64a0a13e346495abafd3555588f1e545c4bf0d"
+            "Rev": "d7a75bc59feb525a47aa500c256bea93cb5f5c5e"
           },
           "strip_prefix": "crates/oj_graph"
         }
@@ -12088,7 +12088,7 @@
         "Git": {
           "remote": "https://github.com/mikn/oj",
           "commitish": {
-            "Rev": "1a64a0a13e346495abafd3555588f1e545c4bf0d"
+            "Rev": "d7a75bc59feb525a47aa500c256bea93cb5f5c5e"
           },
           "strip_prefix": "crates/oj_resolver"
         }
@@ -12142,7 +12142,7 @@
         "Git": {
           "remote": "https://github.com/mikn/oj",
           "commitish": {
-            "Rev": "1a64a0a13e346495abafd3555588f1e545c4bf0d"
+            "Rev": "d7a75bc59feb525a47aa500c256bea93cb5f5c5e"
           },
           "strip_prefix": "crates/oj_server"
         }

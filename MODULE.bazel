@@ -84,7 +84,7 @@ crate.spec(
     git = "https://github.com/mikn/oj",
     package = "oj",
     repositories = ["oj_crates"],
-    rev = "1a64a0a13e346495abafd3555588f1e545c4bf0d",
+    rev = "d7a75bc59feb525a47aa500c256bea93cb5f5c5e",
 )
 
 # A git source rather than the crates.io release, because the fixes oj needs to
@@ -96,7 +96,13 @@ crate.spec(
 # reaching the Start dev server, without which ts_dev_server's port and every
 # other config field are silently ignored there), #120 (OJ_CACHE_DIR, so a dev
 # server writes nothing into the workspace it serves), and #110 (an explicit
-# config path on `oj build`). `git diff v0.1.8..<rev>` is the whole of
+# config path on `oj build`). Two more are carried and deliberately NOT filed:
+# the vite config extractor decides whether it is the entry module by comparing
+# `import.meta.url` against `argv[1]`, which disagree the moment a symlink is in
+# the path -- every path under /var on macOS -- and then silently does nothing;
+# and the caller cannot tell that apart from a config with no values in it, so
+# it carries on with server.fs.allow and resolve.alias quietly absent. Both are
+# fixed on the branch. `git diff v0.1.8..<rev>` is the whole of
 # what is carried. This is a git source rather than crate.annotation(patches = ...)
 # on purpose: an annotation's patches are labels, and crate_universe renders
 # them into the checked-in lockfile already canonicalised. `//oj/patches:x`
