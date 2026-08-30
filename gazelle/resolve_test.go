@@ -854,3 +854,27 @@ func TestResolveImports_AmbientTypesReachEveryCheckedKind(t *testing.T) {
 		}
 	}
 }
+
+// A directory import names the directory the index file is in, which is only
+// the target's own package when the file sits directly in it. A rolled-up
+// src/index.ts belongs to the package above, and indexing the directory import
+// under that package makes `../src` resolve to a package that does not exist.
+func TestImportsForRule_DirectoryImportNamesTheIndexFilesOwnDirectory(t *testing.T) {
+	r, f := newRule(indexedRule{
+		kind: "ts_compile", name: "worker", pkg: "workers/w",
+		srcs: []string{"src/index.ts", "src/handlers/index.ts", "index.ts"},
+	})
+
+	got := specStrings(importsForRule(nil, r, f))
+	for _, want := range []string{"workers/w/src", "workers/w/src/handlers", "workers/w"} {
+		found := false
+		for _, g := range got {
+			if g == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("specs %v: missing the directory import %q", got, want)
+		}
+	}
+}
