@@ -597,6 +597,18 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		r := rule.NewRule("ts_test", name)
 		r.SetAttr("srcs", testFiles)
 
+		// A vitest config beside the tests names the pool, the environment and
+		// the deps to inline. Dropped, the tests run in plain Node: a worker's
+		// `defineWorkersConfig` pool becomes no pool, and a dependency that only
+		// resolves through Vite fails at import time.
+		if cfg := vitestConfigIn(args.Dir); cfg != "" {
+			r.SetAttr("config", cfg)
+			// The config is a module the runner imports, so what it imports is a
+			// dep of the test like any other. `defineWorkersConfig` comes from the
+			// pool package, and without it the runner dies before the first test.
+			allPackageImports = append(allPackageImports, importsIn(args.Dir, []string{cfg})...)
+		}
+
 		// Same emitter as the ts_compile targets in this package, so the internal
 		// ts_compile inside ts_test does not disagree with its siblings.
 		if tc.declarations != "" && tc.declarations != "tsgo" {
@@ -1117,4 +1129,22 @@ func buildCodegenRule(p CodegenPattern) *rule.Rule {
 	r.SetAttr("visibility", []string{"//visibility:public"})
 
 	return r
+}
+
+// vitestConfigNames are the file names vitest itself looks for, in its own
+// order of preference.
+var vitestConfigNames = []string{
+	"vitest.config.ts", "vitest.config.mts", "vitest.config.cts",
+	"vitest.config.js", "vitest.config.mjs", "vitest.config.cjs",
+}
+
+// vitestConfigIn returns the vitest config file in dir, or "" when there is
+// none.
+func vitestConfigIn(dir string) string {
+	for _, name := range vitestConfigNames {
+		if st, err := os.Stat(filepath.Join(dir, name)); err == nil && !st.IsDir() {
+			return name
+		}
+	}
+	return ""
 }
