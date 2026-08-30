@@ -1775,7 +1775,7 @@ dependencies = [
 [[package]]
 name = "oj"
 version = "0.1.8"
-source = "git+https://github.com/mikn/oj?rev=8b0502fae6b6fb0cd0a2a52505a7c31d85e39953#8b0502fae6b6fb0cd0a2a52505a7c31d85e39953"
+source = "git+https://github.com/mikn/oj?rev=1a64a0a13e346495abafd3555588f1e545c4bf0d#1a64a0a13e346495abafd3555588f1e545c4bf0d"
 dependencies = [
  "anyhow",
  "arcstr",
@@ -1801,7 +1801,7 @@ dependencies = [
 [[package]]
 name = "oj_cache"
 version = "0.1.8"
-source = "git+https://github.com/mikn/oj?rev=8b0502fae6b6fb0cd0a2a52505a7c31d85e39953#8b0502fae6b6fb0cd0a2a52505a7c31d85e39953"
+source = "git+https://github.com/mikn/oj?rev=1a64a0a13e346495abafd3555588f1e545c4bf0d#1a64a0a13e346495abafd3555588f1e545c4bf0d"
 dependencies = [
  "blake3",
  "serde",
@@ -1811,7 +1811,7 @@ dependencies = [
 [[package]]
 name = "oj_compiler"
 version = "0.1.8"
-source = "git+https://github.com/mikn/oj?rev=8b0502fae6b6fb0cd0a2a52505a7c31d85e39953#8b0502fae6b6fb0cd0a2a52505a7c31d85e39953"
+source = "git+https://github.com/mikn/oj?rev=1a64a0a13e346495abafd3555588f1e545c4bf0d#1a64a0a13e346495abafd3555588f1e545c4bf0d"
 dependencies = [
  "glob",
  "memchr",
@@ -1835,7 +1835,7 @@ dependencies = [
 [[package]]
 name = "oj_config"
 version = "0.1.8"
-source = "git+https://github.com/mikn/oj?rev=8b0502fae6b6fb0cd0a2a52505a7c31d85e39953#8b0502fae6b6fb0cd0a2a52505a7c31d85e39953"
+source = "git+https://github.com/mikn/oj?rev=1a64a0a13e346495abafd3555588f1e545c4bf0d#1a64a0a13e346495abafd3555588f1e545c4bf0d"
 dependencies = [
  "oxc_allocator 0.146.0",
  "oxc_codegen 0.146.0",
@@ -1852,7 +1852,7 @@ dependencies = [
 [[package]]
 name = "oj_css"
 version = "0.1.8"
-source = "git+https://github.com/mikn/oj?rev=8b0502fae6b6fb0cd0a2a52505a7c31d85e39953#8b0502fae6b6fb0cd0a2a52505a7c31d85e39953"
+source = "git+https://github.com/mikn/oj?rev=1a64a0a13e346495abafd3555588f1e545c4bf0d#1a64a0a13e346495abafd3555588f1e545c4bf0d"
 dependencies = [
  "grass",
  "lightningcss",
@@ -1861,7 +1861,7 @@ dependencies = [
 [[package]]
 name = "oj_env"
 version = "0.1.8"
-source = "git+https://github.com/mikn/oj?rev=8b0502fae6b6fb0cd0a2a52505a7c31d85e39953#8b0502fae6b6fb0cd0a2a52505a7c31d85e39953"
+source = "git+https://github.com/mikn/oj?rev=1a64a0a13e346495abafd3555588f1e545c4bf0d#1a64a0a13e346495abafd3555588f1e545c4bf0d"
 dependencies = [
  "serde_json",
 ]
@@ -1869,12 +1869,12 @@ dependencies = [
 [[package]]
 name = "oj_graph"
 version = "0.1.8"
-source = "git+https://github.com/mikn/oj?rev=8b0502fae6b6fb0cd0a2a52505a7c31d85e39953#8b0502fae6b6fb0cd0a2a52505a7c31d85e39953"
+source = "git+https://github.com/mikn/oj?rev=1a64a0a13e346495abafd3555588f1e545c4bf0d#1a64a0a13e346495abafd3555588f1e545c4bf0d"
 
 [[package]]
 name = "oj_resolver"
 version = "0.1.8"
-source = "git+https://github.com/mikn/oj?rev=8b0502fae6b6fb0cd0a2a52505a7c31d85e39953#8b0502fae6b6fb0cd0a2a52505a7c31d85e39953"
+source = "git+https://github.com/mikn/oj?rev=1a64a0a13e346495abafd3555588f1e545c4bf0d#1a64a0a13e346495abafd3555588f1e545c4bf0d"
 dependencies = [
  "oxc_resolver",
  "thiserror",
@@ -1883,7 +1883,7 @@ dependencies = [
 [[package]]
 name = "oj_server"
 version = "0.1.8"
-source = "git+https://github.com/mikn/oj?rev=8b0502fae6b6fb0cd0a2a52505a7c31d85e39953#8b0502fae6b6fb0cd0a2a52505a7c31d85e39953"
+source = "git+https://github.com/mikn/oj?rev=1a64a0a13e346495abafd3555588f1e545c4bf0d#1a64a0a13e346495abafd3555588f1e545c4bf0d"
 dependencies = [
  "anyhow",
  "axum",
