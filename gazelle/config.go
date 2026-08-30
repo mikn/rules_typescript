@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
 	"github.com/bazelbuild/bazel-gazelle/rule"
@@ -504,19 +505,135 @@ func linterConfigLabel(configPath string) string {
 // ---- tsconfig.json reading -------------------------------------------------
 
 // tsConfigJSON is a minimal representation of tsconfig.json used only for
-// reading compilerOptions.paths and compilerOptions.baseUrl. tsconfig.json is
-// JSONC, so it is decoded with unmarshalJSONC rather than encoding/json.
+// reading extends, compilerOptions.paths and compilerOptions.baseUrl.
+// tsconfig.json is JSONC, so it is decoded with unmarshalJSONC rather than
+// encoding/json.
 type tsConfigJSON struct {
+	Extends         tsConfigExtends `json:"extends"`
 	CompilerOptions struct {
 		BaseURL string              `json:"baseUrl"`
 		Paths   map[string][]string `json:"paths"`
 	} `json:"compilerOptions"`
 }
 
+// tsConfigExtends is the list of configs a tsconfig inherits from, written as
+// one specifier or, since TypeScript 5.0, an array of them.
+type tsConfigExtends []string
+
+func (e *tsConfigExtends) UnmarshalJSON(data []byte) error {
+	var single string
+	if err := json.Unmarshal(data, &single); err == nil {
+		*e = tsConfigExtends{single}
+		return nil
+	}
+	var many []string
+	if err := json.Unmarshal(data, &many); err != nil {
+		return err
+	}
+	*e = many
+	return nil
+}
+
+// resolvedTsConfig is an extends chain flattened to the compilerOptions that
+// win, each paired with the directory of the config that wrote it: a relative
+// value resolves against its own file, not against the leaf.
+type resolvedTsConfig struct {
+	baseURL    string
+	baseURLDir string
+	paths      map[string][]string
+	pathsDir   string
+}
+
+// resolveTsConfigChain reads a tsconfig and, depth first, the configs it
+// extends, and returns what a leaf-wins merge leaves standing. tsc replaces an
+// inherited compilerOptions key wholesale instead of merging it key by key, so
+// paths always arrives from exactly one file in the chain.
+func resolveTsConfigChain(tsConfigPath string, ancestors map[string]bool) *resolvedTsConfig {
+	tsConfigPath = filepath.Clean(tsConfigPath)
+	// Only an ancestor repeat is a cycle. A config reached twice down two
+	// branches is read twice, because merge order decides which one wins.
+	if ancestors[tsConfigPath] {
+		return nil
+	}
+	ancestors[tsConfigPath] = true
+	defer delete(ancestors, tsConfigPath)
+
+	data, err := os.ReadFile(tsConfigPath)
+	if err != nil {
+		return nil
+	}
+	var tsc tsConfigJSON
+	if err := unmarshalJSONC(data, &tsc); err != nil {
+		log.Printf("typescript: failed to parse %s: %v", tsConfigPath, err)
+		return nil
+	}
+
+	dir := filepath.Dir(tsConfigPath)
+	resolved := &resolvedTsConfig{}
+	for _, spec := range tsc.Extends {
+		basePath, ok := resolveExtendsSpecifier(dir, spec)
+		if !ok {
+			continue
+		}
+		if base := resolveTsConfigChain(basePath, ancestors); base != nil {
+			resolved.override(base)
+		}
+	}
+	resolved.override(&resolvedTsConfig{
+		baseURL:    tsc.CompilerOptions.BaseURL,
+		baseURLDir: dir,
+		paths:      tsc.CompilerOptions.Paths,
+		pathsDir:   dir,
+	})
+	return resolved
+}
+
+func (r *resolvedTsConfig) override(other *resolvedTsConfig) {
+	if other.baseURL != "" {
+		r.baseURL, r.baseURLDir = other.baseURL, other.baseURLDir
+	}
+	if other.paths != nil {
+		r.paths, r.pathsDir = other.paths, other.pathsDir
+	}
+}
+
+// resolveExtendsSpecifier turns an extends value into a path on disk. A bare or
+// scoped specifier resolves through node_modules, which a Bazel checkout does
+// not have, so it is reported and skipped.
+func resolveExtendsSpecifier(dir, spec string) (string, bool) {
+	if spec == "" {
+		return "", false
+	}
+	relative := strings.HasPrefix(spec, "./") || strings.HasPrefix(spec, "../")
+	if !relative && !filepath.IsAbs(spec) {
+		warnNodeModulesExtends(dir, spec)
+		return "", false
+	}
+	if !strings.HasSuffix(spec, ".json") {
+		spec += ".json"
+	}
+	if !relative {
+		return spec, true
+	}
+	return filepath.Join(dir, filepath.FromSlash(spec)), true
+}
+
+var nodeModulesExtendsWarned sync.Map
+
+func warnNodeModulesExtends(dir, spec string) {
+	if _, warned := nodeModulesExtendsWarned.LoadOrStore(spec, true); warned {
+		return
+	}
+	log.Printf("typescript: the tsconfig in %s extends %q, which resolves through node_modules; "+
+		"Gazelle reads only configs on disk and skips it. Any paths or baseUrl that config "+
+		"contributes are missing from the generated targets: inline them, or extend a "+
+		"checked-in config instead.", dir, spec)
+}
+
 // loadTsConfigPaths reads compilerOptions.paths and compilerOptions.baseUrl
-// from a tsconfig.json file. The baseUrl (if present) is used to resolve the
-// target directories in the paths entries. Returns nil when the file does not
-// exist or has no paths.
+// from a tsconfig.json file and the chain of configs it extends. The baseUrl
+// (if present) is used to resolve the target directories in the paths entries.
+// Returns nil when the file does not exist or the chain has no paths.
 //
 // The paths format in tsconfig is:
 //
@@ -546,37 +663,42 @@ type tsConfigJSON struct {
 //	"@/*": ["./*"]            → "@/" → "src/"
 //	"utils": ["utils/index"]  → "utils" → "src/utils/index"
 func loadTsConfigPaths(tsConfigPath, pkgRel string) map[string]string {
-	data, err := os.ReadFile(tsConfigPath)
-	if err != nil {
-		return nil
-	}
-	var tsc tsConfigJSON
-	if err := unmarshalJSONC(data, &tsc); err != nil {
-		log.Printf("typescript: failed to parse %s: %v", tsConfigPath, err)
-		return nil
-	}
-	if len(tsc.CompilerOptions.Paths) == 0 {
+	resolved := resolveTsConfigChain(tsConfigPath, map[string]bool{})
+	if resolved == nil || len(resolved.paths) == 0 {
 		return nil
 	}
 
-	baseURL := strings.TrimSuffix(tsc.CompilerOptions.BaseURL, "/")
+	baseURL := strings.TrimSuffix(resolved.baseURL, "/")
 
-	baseDir := filepath.Dir(tsConfigPath)
+	// Targets hang off the directory of the config that wrote the value they
+	// are relative to, which stops being the leaf as soon as extends is used.
+	originDir := resolved.pathsDir
+	if baseURL != "" {
+		originDir = resolved.baseURLDir
+	}
+	originRel := repoRelDir(pkgRel, filepath.Dir(tsConfigPath), originDir)
+	if strings.HasPrefix(originRel, "../") {
+		log.Printf("typescript: %s inherits paths from %s, outside the repository; "+
+			"no label can name that directory, so no path_alias is emitted.", tsConfigPath, originDir)
+		return nil
+	}
+
+	baseDir := originDir
 	if baseURL != "" && !filepath.IsAbs(baseURL) {
 		baseDir = filepath.Join(baseDir, filepath.FromSlash(baseURL))
 	}
 
 	// Two patterns can normalise to the same alias key, so iteration order
 	// decides which entry survives, and which order the log lines come out in.
-	patterns := make([]string, 0, len(tsc.CompilerOptions.Paths))
-	for aliasPattern := range tsc.CompilerOptions.Paths {
+	patterns := make([]string, 0, len(resolved.paths))
+	for aliasPattern := range resolved.paths {
 		patterns = append(patterns, aliasPattern)
 	}
 	sort.Strings(patterns)
 
-	aliases := make(map[string]string, len(tsc.CompilerOptions.Paths))
+	aliases := make(map[string]string, len(resolved.paths))
 	for _, aliasPattern := range patterns {
-		targets := tsc.CompilerOptions.Paths[aliasPattern]
+		targets := resolved.paths[aliasPattern]
 		if len(targets) == 0 {
 			continue
 		}
@@ -623,8 +745,8 @@ func loadTsConfigPaths(tsConfigPath, pkgRel string) map[string]string {
 		}
 
 		// From tsconfig-relative to repo-relative, which is what a label needs.
-		if pkgRel != "" && pkgRel != "." && !strings.HasPrefix(targetDir, "/") {
-			targetDir = path.Join(pkgRel, targetDir) + trailingSlash(targetDir)
+		if originRel != "" && originRel != "." && !strings.HasPrefix(targetDir, "/") {
+			targetDir = path.Join(originRel, targetDir) + trailingSlash(targetDir)
 		}
 
 		if aliasKey != "" {
@@ -635,6 +757,17 @@ func loadTsConfigPaths(tsConfigPath, pkgRel string) map[string]string {
 		return nil
 	}
 	return aliases
+}
+
+func repoRelDir(pkgRel, leafDir, dir string) string {
+	if dir == leafDir {
+		return pkgRel
+	}
+	rel, err := filepath.Rel(leafDir, dir)
+	if err != nil {
+		return pkgRel
+	}
+	return path.Join(pkgRel, filepath.ToSlash(rel))
 }
 
 // pickAliasTarget reduces a compilerOptions.paths fallback array to the single
