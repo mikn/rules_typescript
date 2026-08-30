@@ -280,6 +280,17 @@ node_modules(
 )
 
 go_test(
+    name = "resolution_mode_test",
+    size = "small",
+    srcs = ["resolution_mode_test.go"],
+    data = [
+        ":multi_version_node_modules",
+        "//ts/toolchain:node_resolved",
+    ],
+    deps = ["//tests/verify"],
+)
+
+go_test(
     name = "npm_multi_version_tree_test",
     size = "small",
     srcs = ["npm_multi_version_tree_test.go"],
