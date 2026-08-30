@@ -55,6 +55,7 @@ go_test(
         "keep_test.go",
         "remix_staging_test.go",
         "resolve_test.go",
+        "rollup_assets_test.go",
         "sveltekit_bundle_test.go",
     ],
     embed = [":typescript"],

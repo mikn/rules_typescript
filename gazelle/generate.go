@@ -322,13 +322,17 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		if !isBoundary {
 			return language.GenerateResult{}
 		}
-		rolledSrcs, rolledTests := rolledUpSrcs(args.Dir, tc.excludePatterns)
+		rolled := rolledUp(args.Dir, tc.excludePatterns)
 		if claimed := claimedSrcs(args, tc); len(claimed) > 0 {
-			rolledSrcs = dropClaimed(rolledSrcs, claimed)
-			rolledTests = dropClaimed(rolledTests, claimed)
+			rolled.srcs = dropClaimed(rolled.srcs, claimed)
+			rolled.tests = dropClaimed(rolled.tests, claimed)
 		}
-		srcFiles = append(srcFiles, rolledSrcs...)
-		testFiles = append(testFiles, rolledTests...)
+		srcFiles = append(srcFiles, rolled.srcs...)
+		testFiles = append(testFiles, rolled.tests...)
+		cssFiles = append(cssFiles, rolled.css...)
+		cssModuleFiles = append(cssModuleFiles, rolled.cssModules...)
+		assetFiles = append(assetFiles, rolled.assets...)
+		jsonFiles = append(jsonFiles, rolled.json...)
 		sort.Strings(srcFiles)
 		sort.Strings(testFiles)
 	}
@@ -992,7 +996,9 @@ func assetTargetNames(reserved map[string]struct{}, groups ...[]string) map[stri
 		used[n] = struct{}{}
 	}
 	for _, f := range all {
-		base := strings.ReplaceAll(f, ".", "_")
+		// A rolled-up file arrives as a path, and two directories can hold the
+		// same basename.
+		base := strings.ReplaceAll(strings.ReplaceAll(f, "/", "_"), ".", "_")
 		name := base
 		for i := 2; ; i++ {
 			if _, taken := used[name]; !taken {
