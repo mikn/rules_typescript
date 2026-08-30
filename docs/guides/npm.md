@@ -17,8 +17,12 @@ pnpm add react react-dom --lockfile-only
 
 `--lockfile-only` updates the lockfile without creating a `node_modules/`
 directory. No `node_modules/` exists in the source tree; Bazel materialises one
-inside the sandbox for the targets that need it. To avoid installing pnpm at all,
-see [Hermetic pnpm](#hermetic-pnpm).
+inside the sandbox for the targets that need it.
+
+A `pnpm-lock.yaml` is the only npm input these rules read — there is no npm or
+yarn lockfile path — so this step is not optional. The pnpm that writes it can
+be: the extension downloads its own, and `bazel run //:pnpm` runs that one
+without a system install. See [Hermetic pnpm](#hermetic-pnpm).
 
 **Step 2.** Add to `MODULE.bazel`:
 
@@ -84,8 +88,9 @@ time, or on CI.
 
 ## Hermetic pnpm
 
-The extension also downloads a standalone pnpm binary, so lockfile edits need no
-system install. Gazelle has already written the two macros:
+The extension downloads a standalone pnpm binary whether or not you ask for one,
+so lockfile edits need no system install. Gazelle has already written the two
+macros:
 
 ```python
 # BUILD.bazel — what `bazel run //:gazelle` writes beside a root pnpm-lock.yaml
@@ -99,7 +104,8 @@ ts_add_package(
 )
 ```
 
-The `@pnpm` repo they need came from Step 2. To choose the pnpm version:
+The `@pnpm` repo they need came from Step 2. `npm.pnpm()` only pins which version
+is downloaded; leaving it out gets a default, not nothing:
 
 ```python
 # MODULE.bazel
