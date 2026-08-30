@@ -12,7 +12,6 @@ package dev_server_test
 
 import (
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -58,15 +57,4 @@ func TestOptimizeDepsIncludeResolvesThroughTheWorkspaceLink(t *testing.T) {
 	if m := get(t, base, dep); m.status != 200 {
 		t.Errorf("the pre-bundled dependency %s answers %d, want 200\n%s", dep, m.status, m.body)
 	}
-}
-
-// depURL is the URL the response points its dependency at, however the server
-// spells the rewrite: a pre-bundled dep lands under the cacheDir this rule sets
-// inside bazel-bin, an un-optimised one under /@fs/ or /@id/.
-func depURL(body string) string {
-	m := regexp.MustCompile(`"(/(?:@(?:fs|id)/|bazel-bin/)[^"]+)"`).FindStringSubmatch(body)
-	if m == nil {
-		return ""
-	}
-	return m[1]
 }

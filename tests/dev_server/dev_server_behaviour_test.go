@@ -45,7 +45,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -432,19 +431,6 @@ func TestDevServerBehaviour(t *testing.T) {
 			t.Errorf("the server never came back after restarting\n%s", srv.log(t))
 		}
 	})
-}
-
-// depURL is the first URL a served module imports, in whichever form the server
-// rewrites to: Vite names the resolved file directly (/@fs/<abs>), oj names an
-// id its plugin container resolved (/@id/<hex>) and redirects to the file. Both
-// are "the URL this module's dependency is at"; where it lands is the assertion,
-// not how it is spelled.
-func depURL(body string) string {
-	m := regexp.MustCompile(`"(/(?:@(?:fs|id)/|bazel-bin/)[^"]+)"`).FindStringSubmatch(body)
-	if m == nil {
-		return ""
-	}
-	return m[1]
 }
 
 // restartCount is how many times the plugin has decided the running server is
