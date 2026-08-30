@@ -527,6 +527,13 @@ type tsConfigJSON struct {
 //   - Strip trailing "/*" from both the alias key and the chosen target value.
 //   - Reduce the fallback array to one target with pickAliasTarget.
 //   - Prepend baseUrl to the target directory when baseUrl is non-empty.
+//   - Prepend pkgRel, the tsconfig's own directory relative to the repo root.
+//
+// That last step is what makes the result a Bazel path. A tsconfig's `paths`
+// are written relative to the tsconfig; the aliases feed label construction,
+// which is relative to the repo root. Those coincide only when the tsconfig is
+// at the repo root -- not the case for a workspace member such as `web/`,
+// where "./shared/*" means web/shared, and a label of //shared names nothing.
 //
 // Examples (baseUrl = ""):
 //
@@ -538,7 +545,7 @@ type tsConfigJSON struct {
 //
 //	"@/*": ["./*"]            → "@/" → "src/"
 //	"utils": ["utils/index"]  → "utils" → "src/utils/index"
-func loadTsConfigPaths(tsConfigPath string) map[string]string {
+func loadTsConfigPaths(tsConfigPath, pkgRel string) map[string]string {
 	data, err := os.ReadFile(tsConfigPath)
 	if err != nil {
 		return nil
@@ -613,6 +620,11 @@ func loadTsConfigPaths(tsConfigPath string) map[string]string {
 		// Ensure the target dir ends with "/" when the alias has a wildcard.
 		if strings.HasSuffix(aliasPattern, "/*") && !strings.HasSuffix(targetDir, "/") {
 			targetDir = targetDir + "/"
+		}
+
+		// From tsconfig-relative to repo-relative, which is what a label needs.
+		if pkgRel != "" && pkgRel != "." && !strings.HasPrefix(targetDir, "/") {
+			targetDir = path.Join(pkgRel, targetDir) + trailingSlash(targetDir)
 		}
 
 		if aliasKey != "" {
@@ -854,7 +866,7 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 	// the path alias mapping. This is the lower-priority source: gazelle_ts.json
 	// (loaded below) overrides tsconfig.json when both are present.
 	tsConfigCandidate := filepath.Join(currentDir, "tsconfig.json")
-	if tsConfigAliases := loadTsConfigPaths(tsConfigCandidate); tsConfigAliases != nil {
+	if tsConfigAliases := loadTsConfigPaths(tsConfigCandidate, rel); tsConfigAliases != nil {
 		tc.pathAliases = tsConfigAliases
 	}
 
@@ -1122,4 +1134,13 @@ func normalizeNpmHub(value string) string {
 		return "@" + value
 	}
 	return value
+}
+
+// trailingSlash preserves the "/" that path.Join drops, which is what tells a
+// wildcard alias apart from an exact one downstream.
+func trailingSlash(p string) string {
+	if strings.HasSuffix(p, "/") {
+		return "/"
+	}
+	return ""
 }
