@@ -291,6 +291,12 @@ generated config, so they are written exactly as they would be in the package's
 own tsconfig. Other path-valued options are not rewritten: they resolve against
 the generated config's directory, so they belong in the `tsconfig` file.
 
+`types` names a file this target can see. It is not what puts a *dep's* globals
+in scope: a `.d.ts` in another target's `srcs` with no top-level import or
+export declares globals, and those reach every target that depends on it,
+however far down the graph the declaration sits -- the scope a single `tsc` run
+over the same sources would give it.
+
 ## Which Tool Emits the Declarations
 
 Oxc always does the JavaScript transform. `declarations` decides which tool

@@ -74,11 +74,13 @@ def _asset_library_impl(ctx):
     # Build transitive depsets from any asset_library deps.
     transitive_asset_sets = []
     transitive_dts_sets = []
+    global_entry_sets = []
     for dep in ctx.attr.deps:
         if AssetInfo in dep:
             transitive_asset_sets.append(dep[AssetInfo].transitive_asset_files)
         if TsDeclarationInfo in dep:
             transitive_dts_sets.append(dep[TsDeclarationInfo].transitive_declaration_files)
+            global_entry_sets.append(dep[TsDeclarationInfo].transitive_global_entry_files)
 
     direct_assets = depset(bin_asset_files)
     transitive_assets = depset(bin_asset_files, transitive = transitive_asset_sets, order = "postorder")
@@ -94,6 +96,8 @@ def _asset_library_impl(ctx):
         TsDeclarationInfo(
             declaration_files = direct_dts,
             transitive_declaration_files = transitive_dts,
+            global_entry_files = depset(),
+            transitive_global_entry_files = depset(transitive = global_entry_sets, order = "postorder"),
         ),
     ]
 

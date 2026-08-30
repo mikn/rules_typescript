@@ -128,6 +128,8 @@ def _ts_npm_package_impl(ctx):
                 transitive = transitive_dts_sets,
                 order = "postorder",
             ),
+            global_entry_files = depset(),
+            transitive_global_entry_files = depset(),
         ),
         NpmPackageInfo(
             package_name = ctx.attr.package_name,

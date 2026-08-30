@@ -270,8 +270,9 @@ def _generate_tsconfig(
         srcs:         Source files to type-check (.ts/.tsx/.js/.mjs/.cjs plus
                       ambient .d.ts).
         npm_pkg_dirs: (package_name, path, is_file) triples for npm deps.
-        ambient_dts:  Entry-point .d.ts of each @types/* dep, listed in `files`
-                      so its ambient declarations join the program.
+        ambient_dts:  The .d.ts whose declarations are global rather than
+                      imported: each @types/* dep's entry point, and each dep
+                      target's global-declaration entry. Listed in `files`.
         module_paths: struct(module_name, declaration_root, source_root) from
                       every dep that declared a module_name.
         extends_file: The user's tsconfig.json, or None for zero-config.
@@ -408,8 +409,8 @@ def _generate_tsconfig(
     for src in srcs:
         include.append(include_entry(tsconfig_dir, src.dirname, src.basename))
 
-    # An ambient package declares globals nothing imports, so `include` -- which
-    # only ever names this target's own srcs -- would leave it out of the program.
+    # Globals are declared, never imported, so `include` -- which only ever names
+    # this target's own srcs -- would leave every one of them out of the program.
     files = [
         include_entry(tsconfig_dir, f.dirname, f.basename)
         for f in ambient_dts or []
@@ -871,6 +872,142 @@ def _strict_deps_check(
     )
     return struct(stamp = stamp, checker = checker)
 
+# ─── Global declarations ─────────────────────────────────────────────────────
+#
+# A .d.ts with no top-level import or export declares globals, and a global
+# belongs to every program the file is part of. `include` names only a target's
+# own srcs, so a dep's global .d.ts has no route into a consumer's program;
+# `files` is that route, the one an @types/* package's globals already take.
+#
+# Which srcs are global cannot be decided here, because Starlark cannot read a
+# file. So an action decides, and writes its answer as a generated .d.ts of
+# references to the global ones: a file whose contents are known only after it
+# runs, but whose path a consumer's `files` can name at analysis time.
+
+_GLOBAL_DTS_MJS = """\
+import { readFileSync, writeFileSync } from "node:fs";
+
+function* tokens(source) {
+  const isWordChar = (c) => /[A-Za-z0-9_$]/.test(c);
+  let i = 0;
+  while (i < source.length) {
+    const c = source[i];
+    if (c === "/" && source[i + 1] === "/") {
+      while (i < source.length && source[i] !== "\\n") i += 1;
+      continue;
+    }
+    if (c === "/" && source[i + 1] === "*") {
+      i += 2;
+      while (i < source.length && !(source[i] === "*" && source[i + 1] === "/")) i += 1;
+      i += 2;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") {
+      i += 1;
+      while (i < source.length && source[i] !== c) i += source[i] === "\\\\" ? 2 : 1;
+      i += 1;
+      yield { kind: "string" };
+      continue;
+    }
+    if (isWordChar(c)) {
+      let word = "";
+      while (i < source.length && isWordChar(source[i])) {
+        word += source[i];
+        i += 1;
+      }
+      yield { kind: "word", value: word };
+      continue;
+    }
+    i += 1;
+    if (c !== " " && c !== "\\t" && c !== "\\r" && c !== "\\n") yield { kind: "punct", value: c };
+  }
+}
+
+// TypeScript's own test: a top-level import or export declaration makes the
+// file a module, and everything it declares is scoped to it.
+function isModule(source) {
+  let depth = 0;
+  let pending = "";
+  let prev = null;
+  for (const token of tokens(source)) {
+    // `import(...)` is a type query, `import.meta` an expression, and
+    // `export as namespace X` declares a UMD global rather than an export.
+    if (pending === "import" && !(token.kind === "punct" && (token.value === "(" || token.value === "."))) return true;
+    if (pending === "export" && !(token.kind === "word" && token.value === "as")) return true;
+    pending = "";
+    if (depth === 0 &&
+        token.kind === "word" &&
+        (token.value === "import" || token.value === "export") &&
+        !(prev && prev.kind === "punct" && prev.value === ".")) {
+      pending = token.value;
+    }
+    if (token.kind === "punct") {
+      if (token.value === "{" || token.value === "(" || token.value === "[") depth += 1;
+      if (token.value === "}" || token.value === ")" || token.value === "]") depth -= 1;
+    }
+    prev = token;
+  }
+  return pending !== "";
+}
+
+const [entryPath, ...rest] = process.argv.slice(2);
+const manifest = [];
+for (const arg of rest) {
+  if (arg.startsWith("@")) manifest.push(...readFileSync(arg.slice(1), "utf8").split("\\n"));
+  else manifest.push(arg);
+}
+
+const references = [];
+for (const entry of manifest) {
+  if (entry === "") continue;
+  const field = entry.split("\\t");
+  if (isModule(readFileSync(field[0], "utf8"))) continue;
+  references.push('/// <reference path="' + field[1] + '" />');
+}
+writeFileSync(entryPath, references.join("\\n") + "\\n");
+"""
+
+def _global_dts_entry(ctx, dts_srcs):
+    """Registers the action that writes this target's global-declaration entry.
+
+    Args:
+        ctx:      Rule context.
+        dts_srcs: The .d.ts files in srcs, module-scoped ones included.
+
+    Returns:
+        File: a generated .d.ts referencing the global ones among them.
+    """
+    js_tool = get_js_tool(ctx)
+    if not js_tool:
+        fail(
+            "ts_compile: telling a global .d.ts in {} from a module-scoped one ".format(ctx.label) +
+            "needs a JS tool toolchain, and none is registered.\nAdd to MODULE.bazel:\n" +
+            "    register_toolchains(\"@rules_typescript//ts/toolchain:all\")",
+        )
+
+    scanner = ctx.actions.declare_file("{}.globals.mjs".format(ctx.label.name))
+    ctx.actions.write(output = scanner, content = _GLOBAL_DTS_MJS)
+    entry = ctx.actions.declare_file("{}.globals.d.ts".format(ctx.label.name))
+
+    manifest = ctx.actions.args()
+    manifest.use_param_file("@%s", use_always = True)
+    manifest.set_param_file_format("multiline")
+    for f in dts_srcs:
+        manifest.add("{}\t{}".format(
+            f.path,
+            _relative_path(entry.dirname, f.dirname) + "/" + f.basename,
+        ))
+
+    ctx.actions.run(
+        inputs = depset(dts_srcs + [scanner]),
+        outputs = [entry],
+        executable = js_tool.runtime_binary,
+        arguments = js_tool.args_prefix + [scanner.path, entry.path, manifest],
+        mnemonic = "TsGlobalDts",
+        progress_message = "TsGlobalDts %{label}",
+    )
+    return entry
+
 # ─── Attribute validation ────────────────────────────────────────────────────
 
 def _classify_srcs(ctx):
@@ -970,6 +1107,7 @@ def _ts_compile_impl(ctx):
 
     # Collect transitive deps.
     transitive_dts_sets = []
+    global_entry_sets = []
     transitive_js_sets = []
     transitive_js_map_sets = []
     transitive_css_sets = []
@@ -1017,6 +1155,7 @@ def _ts_compile_impl(ctx):
     for dep in ctx.attr.deps:
         if TsDeclarationInfo in dep:
             transitive_dts_sets.append(dep[TsDeclarationInfo].transitive_declaration_files)
+            global_entry_sets.append(dep[TsDeclarationInfo].transitive_global_entry_files)
             direct_provided_sets.append(dep[TsDeclarationInfo].declaration_files)
 
             # Direct deps only: declaring @types/foo is how a target asks for
@@ -1105,6 +1244,7 @@ def _ts_compile_impl(ctx):
             npm_pkg_dirs.append((pkg_name, pkg_dir, False))
 
     dep_dts_depset = depset(transitive = transitive_dts_sets, order = "postorder")
+    dep_globals_depset = depset(transitive = global_entry_sets, order = "postorder")
 
     # module_name deps: every module reachable from here, direct or not, since a
     # bare specifier in a dep's .d.ts has to resolve too.
@@ -1311,7 +1451,8 @@ def _ts_compile_impl(ctx):
             ctx = ctx,
             srcs = check_srcs,
             npm_pkg_dirs = npm_pkg_dirs if npm_pkg_dirs else None,
-            ambient_dts = [ambient_dts[path] for path in sorted(ambient_dts)],
+            ambient_dts = [ambient_dts[path] for path in sorted(ambient_dts)] +
+                          dep_globals_depset.to_list(),
             module_paths = module_paths,
             extends_file = ctx.file.tsconfig,
             allow_js = bool(js_srcs),
@@ -1329,7 +1470,7 @@ def _ts_compile_impl(ctx):
         tsgo_inputs = depset(
             check_srcs + [tsconfig, tsgo.tsgo_binary] + tsconfig_chain +
             ctx.files.path_alias_srcs + strict_deps_inputs,
-            transitive = [dep_dts_depset, npm_pkg_dirs_depset],
+            transitive = [dep_dts_depset, dep_globals_depset, npm_pkg_dirs_depset],
         )
         if not tsgo_emits_dts:
             # Diagnostics only. Stays in the _validation output group so it runs
@@ -1402,6 +1543,8 @@ def _ts_compile_impl(ctx):
     transitive_css_exports = depset(transitive = transitive_css_exports_sets, order = "postorder")
     transitive_assets = depset(transitive = transitive_asset_sets, order = "postorder")
 
+    own_global_entries = [_global_dts_entry(ctx, passthrough_dts)] if passthrough_dts else []
+
     providers = [
         # This target's own outputs. A dep's files reach a consumer through the
         # provider that describes them, not through this one.
@@ -1415,6 +1558,12 @@ def _ts_compile_impl(ctx):
         TsDeclarationInfo(
             declaration_files = direct_dts,
             transitive_declaration_files = transitive_dts,
+            global_entry_files = depset(own_global_entries),
+            transitive_global_entry_files = depset(
+                own_global_entries,
+                transitive = global_entry_sets,
+                order = "postorder",
+            ),
         ),
     ]
 
@@ -1489,7 +1638,9 @@ ts_compile = rule(
                 them type-checked. Under declarations = "tsgo" each one also
                 gets a declaration (.d.ts / .d.mts / .d.cts), the same as tsc.
 .d.ts           ambient declarations: type context for the check, passed
-                straight through to consumers, never in `include`.
+                straight through to consumers, never in `include`. One with no
+                top-level import or export declares globals, and those are in
+                scope in every target that depends on this one.
 
 Paths are kept relative to the target's package, so srcs may span a subtree.
 """,

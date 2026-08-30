@@ -48,6 +48,7 @@ def _css_module_impl(ctx):
 
     transitive_css_sets = []
     transitive_dts_sets = []
+    global_entry_sets = []
     transitive_exports_sets = []
     for dep in ctx.attr.deps:
         if CssModuleInfo in dep:
@@ -55,6 +56,7 @@ def _css_module_impl(ctx):
             transitive_exports_sets.append(dep[CssModuleInfo].transitive_exports_files)
         if TsDeclarationInfo in dep:
             transitive_dts_sets.append(dep[TsDeclarationInfo].transitive_declaration_files)
+            global_entry_sets.append(dep[TsDeclarationInfo].transitive_global_entry_files)
 
     bin_css_files = []
     dts_outputs = []
@@ -115,6 +117,8 @@ def _css_module_impl(ctx):
         TsDeclarationInfo(
             declaration_files = depset(dts_outputs),
             transitive_declaration_files = depset(dts_outputs, transitive = transitive_dts_sets, order = "postorder"),
+            global_entry_files = depset(),
+            transitive_global_entry_files = depset(transitive = global_entry_sets, order = "postorder"),
         ),
     ]
 
