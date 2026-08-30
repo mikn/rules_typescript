@@ -8,6 +8,7 @@ load(":hub_provenance_tests.bzl", "hub_provenance_test")
 load(":link_depth_tests.bzl", "link_depth_test_suite")
 load(":parser_tests.bzl", "parser_test_suite")
 load(":resolution_tests.bzl", "conflicting_direct_peers_test", "conflicting_direct_versions_test")
+load(":types_only_tests.bzl", "types_only_test_suite")
 load(":workspace_link_tests.bzl", "workspace_link_test_suite")
 
 package(default_visibility = ["//:__pkg__"])
@@ -30,6 +31,8 @@ link_depth_test_suite(name = "link_depth_tests")
 exports_types_test_suite(name = "exports_types_tests")
 
 workspace_link_test_suite(name = "workspace_link_tests")
+
+types_only_test_suite(name = "types_only_tests")
 
 # The end of that resolution: the ruleset's own Vite plugin type-checks against
 # the declarations of the Vite it depends on, named as a file. Nothing else
