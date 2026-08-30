@@ -180,6 +180,7 @@ func resolveImport(
 	imp string,
 	from label.Label,
 ) string {
+	imp = dropBundlerQuery(imp)
 	switch {
 	case isRelativeImport(imp):
 		return resolveRelative(c, ix, imp, from)
@@ -194,6 +195,20 @@ func resolveImport(
 		}
 		return resolveNpmPackage(tc, imp)
 	}
+}
+
+// dropBundlerQuery removes a bundler's query suffix from a specifier.
+//
+// `./config.json?raw`, `./icon.svg?url` and `./thread?worker` each name the
+// same file as the specifier without the suffix; the query only tells the
+// bundler how to load it. Left on, it reaches the label, and //pkg/file.json?raw
+// is a package that can never exist -- so one of these fails analysis for the
+// whole build rather than dropping a single dep.
+func dropBundlerQuery(imp string) string {
+	if i := strings.IndexByte(imp, '?'); i >= 0 {
+		return imp[:i]
+	}
+	return imp
 }
 
 // ---- relative import resolution --------------------------------------------
