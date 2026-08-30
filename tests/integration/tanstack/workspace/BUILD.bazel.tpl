@@ -9,7 +9,7 @@ load("@rules_typescript//npm:defs.bzl", "node_modules")
 
 gazelle(
     name = "gazelle",
-    gazelle = "@rules_typescript//gazelle:gazelle_ts",
+    gazelle = "@rules_typescript//gazelle:gazelle_typescript",
 )
 
 # The route-tree generator's npm tree, separate from the app's.

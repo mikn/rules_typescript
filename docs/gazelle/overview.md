@@ -11,9 +11,14 @@ load("@gazelle//:def.bzl", "gazelle")
 
 gazelle(
     name = "gazelle",
-    gazelle = "@rules_typescript//gazelle:gazelle_ts",
+    gazelle = "@rules_typescript//gazelle:gazelle_typescript",
 )
 ```
+
+`gazelle_typescript` carries the TypeScript language alone. The other binary in
+that package, `gazelle_ts`, also carries Go and proto — rules_typescript uses it
+to generate BUILD files for its own `.go` sources — so in a polyglot repo it
+rewrites Go BUILD files you never asked it about.
 
 Add `gazelle` to `MODULE.bazel`:
 

@@ -202,7 +202,7 @@ register_toolchains("@rules_typescript//ts/toolchain:all")
 # bazel run //:gazelle — regenerate every BUILD file from the .ts sources.
 gazelle(
     name = "gazelle",
-    gazelle = "@rules_typescript//gazelle:gazelle_ts",
+    gazelle = "@rules_typescript//gazelle:gazelle_typescript",
 )
 `, "the Gazelle entry point"},
 		{"src/BUILD.bazel", "# Package boundary, so //src/... resolves.\n", "keeps src/ a package"},

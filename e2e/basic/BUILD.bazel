@@ -9,7 +9,7 @@ load("@rules_typescript//ts:defs.bzl", "ts_binary")
 
 gazelle(
     name = "gazelle",
-    gazelle = "@rules_typescript//gazelle:gazelle_ts",
+    gazelle = "@rules_typescript//gazelle:gazelle_typescript",
 )
 
 # Bundle the app entry point, pulling in the transitive //src/lib dependency.

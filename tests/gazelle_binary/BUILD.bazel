@@ -1,0 +1,18 @@
+load("@rules_go//go:def.bzl", "go_test")
+
+# gazelle:prefix github.com/mikn/rules_typescript/tests/gazelle_binary
+
+go_test(
+    name = "gazelle_binary_test",
+    size = "small",
+    srcs = ["language_set_test.go"],
+    data = [
+        "//gazelle:gazelle_ts",
+        "//gazelle:gazelle_typescript",
+    ],
+    env = {
+        "GAZELLE_TS": "$(rlocationpath //gazelle:gazelle_ts)",
+        "GAZELLE_TYPESCRIPT": "$(rlocationpath //gazelle:gazelle_typescript)",
+    },
+    deps = ["@rules_go//go/runfiles"],
+)

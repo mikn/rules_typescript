@@ -8,7 +8,7 @@ load("@gazelle//:def.bzl", "gazelle")
 
 gazelle(
     name = "gazelle",
-    gazelle = "@rules_typescript//gazelle:gazelle_ts",
+    gazelle = "@rules_typescript//gazelle:gazelle_typescript",
 )
 
 # Node resolves the exec-root vite_config symlink to the source file before its
