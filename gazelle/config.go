@@ -251,6 +251,13 @@ type tsConfig struct {
 	// packages whose declarations are ambient and so have no import.
 	ambientTypes []string
 
+	// tsconfigAmbientTypes is the same thing read out of the nearest
+	// tsconfig.json rather than declared by a directive. Kept apart because the
+	// two combine differently down the tree: a directive appends to what it
+	// inherits, while a tsconfig replaces it, the way tsc gives a file exactly
+	// one project.
+	tsconfigAmbientTypes []string
+
 	// declarations is the .d.ts emitter for generated ts_compile rules:
 	// "tsgo" (default, no attribute emitted) or "oxc". Set via
 	// # gazelle:ts_declarations.
@@ -302,6 +309,10 @@ func (tc *tsConfig) clone() *tsConfig {
 	if len(tc.ambientTypes) > 0 {
 		cp.ambientTypes = make([]string, len(tc.ambientTypes))
 		copy(cp.ambientTypes, tc.ambientTypes)
+	}
+	if len(tc.tsconfigAmbientTypes) > 0 {
+		cp.tsconfigAmbientTypes = make([]string, len(tc.tsconfigAmbientTypes))
+		copy(cp.tsconfigAmbientTypes, tc.tsconfigAmbientTypes)
 	}
 	if len(tc.runtimeDepsTest) > 0 {
 		cp.runtimeDepsTest = make([]string, len(tc.runtimeDepsTest))
@@ -510,6 +521,9 @@ type tsConfigJSON struct {
 	CompilerOptions struct {
 		BaseURL string              `json:"baseUrl"`
 		Paths   map[string][]string `json:"paths"`
+		// A pointer because "types": [] and no "types" key at all mean
+		// opposite things to tsc: none, versus every @types package in scope.
+		Types *[]string `json:"types"`
 	} `json:"compilerOptions"`
 }
 
@@ -869,6 +883,12 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 	if tsConfigAliases := loadTsConfigPaths(tsConfigCandidate, rel); tsConfigAliases != nil {
 		tc.pathAliases = tsConfigAliases
 	}
+	if _, err := os.Stat(tsConfigCandidate); err == nil {
+		// The nearest tsconfig replaces the inherited answer rather than adding
+		// to it: tsc gives a file one project, not the union of the projects
+		// above it.
+		tc.tsconfigAmbientTypes = loadTsConfigAmbientTypes(tsConfigCandidate)
+	}
 
 	// Always check for a gazelle_ts.json in the current directory. A local
 	// file overrides any settings inherited from a parent directory, allowing
@@ -1143,4 +1163,100 @@ func trailingSlash(p string) string {
 		return "/"
 	}
 	return ""
+}
+
+// ---- compilerOptions.types -------------------------------------------------
+
+// loadTsConfigAmbientTypes reads compilerOptions.types out of a tsconfig.json
+// and returns the npm labels it names. Returns nil when the file does not exist
+// or names nothing resolvable.
+//
+// An ambient declaration is by definition never imported, so `types` is the
+// only place its dependency is written down. Without it the target compiles
+// without `ExportedHandler`, `process` or `ImportMetaEnv` and tsgo reports the
+// error TypeScript itself would not.
+//
+// A `types` entry is resolved the way tsc resolves it: a bare name comes from
+// typeRoots, so "node" means @types/node, while a scoped or sub-path name is a
+// package in its own right ("vite/client" is vite's). An entry that names a
+// file in the tree rather than a package resolves to no label at all -- the
+// label it would otherwise produce does not parse, and one of those fails the
+// whole build rather than the single target that asked for it.
+//
+// With no `types` key tsc includes every @types package in scope, which under
+// pnpm's isolated node_modules is exactly the ones the package.json declares.
+func loadTsConfigAmbientTypes(tsConfigPath string) []string {
+	data, err := os.ReadFile(tsConfigPath)
+	if err != nil {
+		return nil
+	}
+	var tsc tsConfigJSON
+	if err := unmarshalJSONC(data, &tsc); err != nil {
+		return nil
+	}
+	if tsc.CompilerOptions.Types == nil {
+		return declaredTypesPackages(filepath.Join(filepath.Dir(tsConfigPath), "package.json"))
+	}
+	var labels []string
+	seen := make(map[string]struct{})
+	for _, entry := range *tsc.CompilerOptions.Types {
+		lbl := ambientTypeLabel(entry)
+		if lbl == "" {
+			continue
+		}
+		if _, dup := seen[lbl]; dup {
+			continue
+		}
+		seen[lbl] = struct{}{}
+		labels = append(labels, lbl)
+	}
+	return labels
+}
+
+// ambientTypeLabel converts one compilerOptions.types entry to an @npm label,
+// returning "" for an entry that names a file rather than a package.
+func ambientTypeLabel(entry string) string {
+	entry = strings.TrimSpace(entry)
+	if entry == "" {
+		return ""
+	}
+	if strings.HasPrefix(entry, ".") || strings.HasPrefix(entry, "/") || strings.HasSuffix(entry, ".d.ts") {
+		return ""
+	}
+	if strings.HasPrefix(entry, "@") || strings.Contains(entry, "/") {
+		return npmLabel(barePackageName(entry))
+	}
+	return npmLabel("@types/" + entry)
+}
+
+// packageJSONTypeDeps is the sliver of a package.json that says which @types
+// packages a directory can see.
+type packageJSONTypeDeps struct {
+	Dependencies    map[string]string `json:"dependencies"`
+	DevDependencies map[string]string `json:"devDependencies"`
+}
+
+func declaredTypesPackages(packageJSONPath string) []string {
+	data, err := os.ReadFile(packageJSONPath)
+	if err != nil {
+		return nil
+	}
+	var pkg packageJSONTypeDeps
+	if err := json.Unmarshal(data, &pkg); err != nil {
+		return nil
+	}
+	var names []string
+	for _, deps := range []map[string]string{pkg.Dependencies, pkg.DevDependencies} {
+		for name := range deps {
+			if strings.HasPrefix(name, "@types/") {
+				names = append(names, name)
+			}
+		}
+	}
+	sort.Strings(names)
+	labels := make([]string, 0, len(names))
+	for _, name := range names {
+		labels = append(labels, npmLabel(name))
+	}
+	return labels
 }
