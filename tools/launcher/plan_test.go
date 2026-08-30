@@ -724,7 +724,7 @@ func TestPlanDevServerCreatesTheScratchDirectoriesItNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"TSR_TMP_DIR"} {
+	for _, name := range []string{"OJ_CACHE_DIR", "TSR_TMP_DIR"} {
 		dir := plan.EnvOverrides[name]
 		if dir == "" {
 			t.Errorf("%s is unset", name)

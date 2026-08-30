@@ -84,20 +84,37 @@ crate.spec(
     git = "https://github.com/mikn/oj",
     package = "oj",
     repositories = ["oj_crates"],
-    rev = "b86a02b5f2de34a660ced6a928ae296530d541e2",
+    rev = "91970c006406fdfcf1909711ab4196f850c97431",
 )
 
 # A git source rather than the crates.io release, because the fixes oj needs to
 # serve a TanStack Start app are not released yet. That rev is upstream main
-# plus one commit per gap and nothing else, each open as its own PR:
-# raphamorim/oj#115 (the injected-head-scripts virtual module), #116
-# (tsr.config.json reaching the route generator), #117 (package.json "imports"
-# over the seam conventions), #118 (the declare-module footer), #119 (--config
-# reaching the Start dev server, without which ts_dev_server's port and every
-# other config field are silently ignored there), #120 (OJ_CACHE_DIR, so a dev
-# server writes nothing into the workspace it serves), and #110 (an explicit
-# config path on `oj build`). `git diff v0.1.8..<rev>` is the whole of
-# what is carried. This is a git source rather than crate.annotation(patches = ...)
+# plus one commit per gap and nothing else, and every one of them is open as its
+# own PR upstream:
+#
+#   raphamorim/oj#110  an explicit config path on `oj build`
+#   raphamorim/oj#115  the injected-head-scripts virtual module, without which
+#                      every document request dies in the ESM loader
+#   raphamorim/oj#116  tsr.config.json reaches the route generator, so an app
+#                      whose tree is not at the default path gets one tree
+#   raphamorim/oj#117  package.json "imports" beats the hardcoded src/router,
+#                      so a configured `router.entry` resolves
+#   raphamorim/oj#118  the declare-module footer the framework's own plugin
+#                      appends, so serving leaves a checked-in tree alone
+#   raphamorim/oj#119  --config reaches the Start dev server; without it
+#                      ts_dev_server's port and every other field are ignored
+#   raphamorim/oj#120  OJ_CACHE_DIR, so a dev server writes nothing into the
+#                      workspace it is serving
+#   raphamorim/oj#121  an extraction that produced no values says so instead of
+#                      looking like a config with nothing in it
+#   raphamorim/oj#123  the extractor compares realpaths to decide it is the
+#                      entry module; a symlink anywhere in the path (every path
+#                      under /var on macOS) otherwise makes it skip its own body
+#                      and exit 0 in silence
+#
+# `git diff v0.1.8..<rev>` is the whole of what is carried, and the pin goes back
+# to a plain version once they land in a release. This is a git source rather
+# than crate.annotation(patches = ...)
 # on purpose: an annotation's patches are labels, and crate_universe renders
 # them into the checked-in lockfile already canonicalised. `//oj/patches:x`
 # becomes `@@//oj/patches:x`, which means THIS repo here and the consumer's own
