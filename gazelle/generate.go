@@ -308,6 +308,10 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	case boundaryIndexOnly:
 		// Old behaviour: require index.ts or explicit directive.
 		isBoundary = tc.packageBoundary || hasIndex || args.Rel == ""
+	case boundaryTsConfig:
+		// One target per TypeScript project, which is the directory holding
+		// the tsconfig that names the sources.
+		isBoundary = tc.packageBoundary || args.Rel == "" || dirHasTsConfig(args.Dir)
 	default: // boundaryEveryDir
 		// New default: any directory with .ts files (or the repo root) is a boundary.
 		isBoundary = len(srcFiles) > 0 || hasIndex || args.Rel == "" || tc.packageBoundary
@@ -321,11 +325,11 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	//
 	// A directory that is not a boundary claims nothing at all, so no BUILD file
 	// appears in it to make those rolled-up labels cross a package boundary.
-	if tc.packageBoundaryMode == boundaryIndexOnly {
+	if tc.packageBoundaryMode != boundaryEveryDir {
 		if !isBoundary {
 			return language.GenerateResult{}
 		}
-		rolled := rolledUp(args.Dir, tc.excludePatterns)
+		rolled := rolledUpIn(tc.packageBoundaryMode, args.Dir, tc.excludePatterns)
 		if claimed := claimedSrcs(args, tc); len(claimed) > 0 {
 			rolled.srcs = dropClaimed(rolled.srcs, claimed)
 			rolled.tests = dropClaimed(rolled.tests, claimed)

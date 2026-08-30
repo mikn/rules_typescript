@@ -403,13 +403,13 @@ func dirTargetLabel(rel, name string) string {
 	}
 }
 
-// In index-only mode a plain subdirectory's sources roll up into its nearest
-// package, and generation there emits nothing to name.
+// Outside every-dir mode a plain subdirectory's sources roll up into its
+// nearest package, and generation there emits nothing to name.
 func dirGetsItsOwnTargets(absDir string, tc *tsConfig, rel string) bool {
-	if rel == "" || tc.packageBoundaryMode != boundaryIndexOnly {
+	if rel == "" || tc.packageBoundaryMode == boundaryEveryDir {
 		return true
 	}
-	return dirIsItsOwnPackage(absDir)
+	return dirIsItsOwnPackageIn(tc.packageBoundaryMode, absDir)
 }
 
 // ---- helpers ---------------------------------------------------------------
@@ -640,12 +640,12 @@ func generationCanStage(absDir, rel string, tc *tsConfig) bool {
 			frameworkName(tc.detectedFramework), rel, stageByHandAdvice)
 		return false
 	}
-	if tc.packageBoundaryMode == boundaryIndexOnly && !dirIsItsOwnPackage(absDir) {
-		log.Printf("typescript: %s detected: %s holds staged sources but index-only package "+
+	if tc.packageBoundaryMode != boundaryEveryDir && !dirIsItsOwnPackageIn(tc.packageBoundaryMode, absDir) {
+		log.Printf("typescript: %s detected: %s holds staged sources but %s package "+
 			"boundaries roll them into the nearest package, so no \"sources\" filegroup is "+
-			"written there and the bundle does not name it. Add an index.ts, a "+
-			"# gazelle:ts_package_boundary true, or %s",
-			frameworkName(tc.detectedFramework), rel, stageByHandAdvice)
+			"written there and the bundle does not name it. Make it a boundary of its own "+
+			"with a # gazelle:ts_package_boundary true, or %s",
+			frameworkName(tc.detectedFramework), rel, tc.packageBoundaryMode, stageByHandAdvice)
 		return false
 	}
 	return true

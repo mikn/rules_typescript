@@ -10,6 +10,7 @@ Directives go in `BUILD.bazel` files as comments and control how Gazelle generat
 | `# gazelle:ts_declarations tsgo` | Return a subdirectory to the default emitter after a parent set `oxc` |
 | `# gazelle:ts_package_boundary every-dir` | (default) Every directory with `.ts` files becomes a package |
 | `# gazelle:ts_package_boundary index-only` | Only directories with `index.ts`/`.tsx` become packages (pre-0.2.0 behaviour) |
+| `# gazelle:ts_package_boundary tsconfig` | Only directories holding a `tsconfig.json` become packages, so one target covers one TypeScript project |
 | `# gazelle:ts_package_boundary true` | Mark this single directory as a boundary (useful in index-only mode without `index.ts`) |
 | `# gazelle:ts_ignore` | Suppress TypeScript rule generation for this directory and its children |
 | `# gazelle:ts_ignore false` | Re-enable generation after a parent used `ts_ignore` |
@@ -203,6 +204,25 @@ up into the nearest ancestor that is one, and no BUILD file is written there. Th
 dissolves the commonest package-level cycle, where a barrel re-exports `./rules`
 while `./rules` imports `../utils`: a cycle between two Bazel packages and none
 between files.
+
+### One Target per TypeScript Project
+
+```python
+# gazelle:ts_package_boundary tsconfig
+```
+
+A directory is a package when it holds a `tsconfig.json`, and everything below
+it that does not hold one of its own rolls up into it. The unit is then the same
+one `tsc` compiles, which is the only way to express two shapes that are legal
+in a single program and impossible to split across Bazel packages:
+
+- An ambient declaration that types sources in another directory, and refers
+  back to them. `wrangler types` writes exactly this: a `worker-configuration.d.ts`
+  beside the tsconfig declaring the globals `src/` is written against, holding a
+  `typeof import("./src/index")` of its own. Split by directory, the two targets
+  need each other.
+- Directories that import each other. At file granularity there is no cycle;
+  at directory granularity there is one.
 
 ### More than One npm Hub
 
