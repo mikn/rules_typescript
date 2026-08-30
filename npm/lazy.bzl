@@ -230,17 +230,62 @@ def _patch_by_package(module_ctx, lock_content, patch_labels):
         )
     return result
 
-def _workspace_link_entry(name, path):
+def link_target_label(path, entry):
+    """The Bazel label that builds a workspace member.
+
+    A member is a directory; what has to be depended on is the target that
+    compiles its entry point, and the two are the same package only when the
+    entry sits at the member's root. `packages/foo` with `main: src/index.ts`
+    keeps its sources in `packages/foo/src`, and the target that compiles them
+    belongs to that package, not to `packages/foo`.
+
+    So the member's own manifest decides, the same way every other resolver
+    decides: the entry's directory is the package, and the target is named after
+    it -- which is what a per-directory generator (this repo's Gazelle
+    extension) writes. A member that designates no entry, or one at its root,
+    keeps the member directory.
+
+    Args:
+        path: The member's path from the repo root, e.g. "packages/foo".
+        entry: The member's `main`/`module` value, or "" when it declares none.
+    """
+    pkg = path
+    if entry:
+        entry_dir = entry.strip("./").rsplit("/", 1)
+        if len(entry_dir) == 2 and entry_dir[0]:
+            pkg = path + "/" + entry_dir[0]
+    return "@@//{pkg}:{target}".format(pkg = pkg, target = pkg.split("/")[-1])
+
+def _member_entry(module_ctx, workspace_root, path):
+    """The `main`/`module` a workspace member's package.json designates, or "".
+
+    Reached from the lockfile's own directory rather than by label: a workspace
+    member is a directory of sources, and nothing requires it to be a Bazel
+    package, so `Label("//<member>/package.json")` fails to load for most of
+    them.
+    """
+    manifest = workspace_root.get_child(*(path.split("/") + ["package.json"]))
+    if not manifest.exists:
+        return ""
+    decoded = json.decode(module_ctx.read(manifest))
+    if type(decoded) != "dict":
+        return ""
+    for field in ("main", "module"):
+        value = decoded.get(field)
+        if type(value) == "string" and value:
+            return value
+    return ""
+
+def _workspace_link_entry(module_ctx, workspace_root, name, path):
     """The hub's record of one pnpm `link:` dependency.
 
     The npm name travels beside the label because the hub target has to declare
     it: an alias would lose it, and the label name cannot carry it back
     ('types_react' is the label of both '@types/react' and 'types_react').
     """
-    return "{name}|@@//{path}:{target}".format(
+    return "{name}|{label}".format(
         name = name,
-        path = path,
-        target = path.split("/")[-1],
+        label = link_target_label(path, _member_entry(module_ctx, workspace_root, path)),
     )
 
 def platforms_of_package(pkg):
@@ -412,6 +457,11 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
                       extension's output is recorded in MODULE.bazel.lock.
     """
     lock_content = module_ctx.read(pnpm_lock)
+
+    # The lockfile sits at the workspace root, and a member's package.json is
+    # found from there: a member need not be a Bazel package, so a label into
+    # one usually fails to load.
+    workspace_root = module_ctx.path(pnpm_lock).dirname
     registries = npmrc_registries(module_ctx.read(npmrc)) if npmrc else {}
     parsed = parse_pnpm_lock(lock_content)
     packages = parsed["packages"]
@@ -620,7 +670,7 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
     for name, path in importers["links"].items():
         if path:
             label = package_name_to_label(name)
-            links[label] = _workspace_link_entry(name, path)
+            links[label] = _workspace_link_entry(module_ctx, workspace_root, name, path)
             aliases.pop(label, None)
 
     # ── Per-importer packages: what each workspace member actually declared ───
@@ -638,7 +688,7 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
             importer_aliases["{}|{}_bin".format(path, label)] = "@{}//:bin".format(repo_of[dep_sid])
         for dep_name, link_path in entry["links"].items():
             key = "{}|{}".format(path, package_name_to_label(dep_name))
-            importer_links[key] = _workspace_link_entry(dep_name, link_path)
+            importer_links[key] = _workspace_link_entry(module_ctx, workspace_root, dep_name, link_path)
             importer_aliases.pop(key, None)
 
     npm_hub(
