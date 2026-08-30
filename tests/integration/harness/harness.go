@@ -21,6 +21,8 @@ import (
 	"time"
 
 	"github.com/bazelbuild/rules_go/go/runfiles"
+
+	"github.com/mikn/rules_typescript/tests/hmrsocket"
 )
 
 type Config struct {
@@ -574,6 +576,18 @@ func (it *IT) Get(srv *Server, path string) (int, string) {
 		it.Fail("reading GET %s: %v", path, err)
 	}
 	return resp.StatusCode, string(body)
+}
+
+// DialHMR opens an HMR client against a running server, so a test can ask
+// whether an edit was published rather than only whether the next request
+// happens to render the new bytes.
+func (it *IT) DialHMR(srv *Server, path, protocol string) *hmrsocket.Socket {
+	sock, err := hmrsocket.Dial(strings.TrimPrefix(srv.Base, "http://"), path, protocol)
+	if err != nil {
+		it.Fail("%v\n%s", err, srv.Output())
+	}
+	it.OnCleanup(sock.Close)
+	return sock
 }
 
 // freePort asks the kernel for one. The configured port would collide between

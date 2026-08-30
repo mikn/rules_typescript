@@ -1,5 +1,5 @@
 {
-  "checksum": "8f1903447faec5dc43eeee821348ce3a17360d7cd7572f513932c2b1745496a7",
+  "checksum": "176de61a87f8d0585746ae726881a072167b1966c00feb766796b5709a088837",
   "crates": {
     "adler2 2.0.1": {
       "name": "adler2",
@@ -11555,14 +11555,14 @@
       ],
       "license_file": "LICENSE-APACHE"
     },
-    "oj 0.1.6": {
+    "oj 0.1.8": {
       "name": "oj",
-      "version": "0.1.6",
+      "version": "0.1.8",
       "package_url": null,
       "repository": {
         "Http": {
-          "url": "https://static.crates.io/crates/oj/0.1.6/download",
-          "sha256": "86ab8be1e0ed9cb839f2d06139d4ac390926ddc0ea2af3a2a3ce940549b7cf7e",
+          "url": "https://static.crates.io/crates/oj/0.1.8/download",
+          "sha256": "613740e018d7285054532daaa1f21f1dd4e37fe29716acc07bd57893371603a1",
           "patch_args": [
             "-p1"
           ],
@@ -11617,27 +11617,27 @@
               "target": "notify"
             },
             {
-              "id": "oj_cache 0.1.6",
+              "id": "oj_cache 0.1.8",
               "target": "oj_cache"
             },
             {
-              "id": "oj_compiler 0.1.6",
+              "id": "oj_compiler 0.1.8",
               "target": "oj_compiler"
             },
             {
-              "id": "oj_config 0.1.6",
+              "id": "oj_config 0.1.8",
               "target": "oj_config"
             },
             {
-              "id": "oj_css 0.1.6",
+              "id": "oj_css 0.1.8",
               "target": "oj_css"
             },
             {
-              "id": "oj_env 0.1.6",
+              "id": "oj_env 0.1.8",
               "target": "oj_env"
             },
             {
-              "id": "oj_server 0.1.6",
+              "id": "oj_server 0.1.8",
               "target": "oj_server"
             },
             {
@@ -11672,7 +11672,7 @@
           "selects": {}
         },
         "edition": "2021",
-        "version": "0.1.6"
+        "version": "0.1.8"
       },
       "license": "MIT",
       "license_ids": [
@@ -11680,14 +11680,14 @@
       ],
       "license_file": null
     },
-    "oj_cache 0.1.6": {
+    "oj_cache 0.1.8": {
       "name": "oj_cache",
-      "version": "0.1.6",
+      "version": "0.1.8",
       "package_url": null,
       "repository": {
         "Http": {
-          "url": "https://static.crates.io/crates/oj_cache/0.1.6/download",
-          "sha256": "ab46719f1c3d919f05e26756116db6b97cc8d571b43c3ae5c5141795674f1e41"
+          "url": "https://static.crates.io/crates/oj_cache/0.1.8/download",
+          "sha256": "4f3ea0e8b051bdd2e21c4014288f2b157e860b1d210d1e17c0bcb0c6e563340d"
         }
       },
       "targets": [
@@ -11727,7 +11727,7 @@
           "selects": {}
         },
         "edition": "2021",
-        "version": "0.1.6"
+        "version": "0.1.8"
       },
       "license": "MIT",
       "license_ids": [
@@ -11735,14 +11735,14 @@
       ],
       "license_file": null
     },
-    "oj_compiler 0.1.6": {
+    "oj_compiler 0.1.8": {
       "name": "oj_compiler",
-      "version": "0.1.6",
+      "version": "0.1.8",
       "package_url": null,
       "repository": {
         "Http": {
-          "url": "https://static.crates.io/crates/oj_compiler/0.1.6/download",
-          "sha256": "e7fdce3ed45c325cb907fdbbef23fa6b8c4d29d8d1a41f825260a27ea3b690a8"
+          "url": "https://static.crates.io/crates/oj_compiler/0.1.8/download",
+          "sha256": "134aa5563e8775f6bef2461ff59cd98b916286ccb775f66a6017bd54bf351fb8"
         }
       },
       "targets": [
@@ -11838,7 +11838,7 @@
           "selects": {}
         },
         "edition": "2021",
-        "version": "0.1.6"
+        "version": "0.1.8"
       },
       "license": "MIT",
       "license_ids": [
@@ -11846,14 +11846,14 @@
       ],
       "license_file": null
     },
-    "oj_config 0.1.6": {
+    "oj_config 0.1.8": {
       "name": "oj_config",
-      "version": "0.1.6",
+      "version": "0.1.8",
       "package_url": null,
       "repository": {
         "Http": {
-          "url": "https://static.crates.io/crates/oj_config/0.1.6/download",
-          "sha256": "eb5e1e860e55b98a95ecb6799615bfd7688186f764279565e2192423766c1922"
+          "url": "https://static.crates.io/crates/oj_config/0.1.8/download",
+          "sha256": "0031eda128fd88977a1f7971cdf3322da704c678c214d4d6d6747445772f27e0"
         }
       },
       "targets": [
@@ -11921,7 +11921,7 @@
           "selects": {}
         },
         "edition": "2021",
-        "version": "0.1.6"
+        "version": "0.1.8"
       },
       "license": "MIT",
       "license_ids": [
@@ -11929,14 +11929,14 @@
       ],
       "license_file": null
     },
-    "oj_css 0.1.6": {
+    "oj_css 0.1.8": {
       "name": "oj_css",
-      "version": "0.1.6",
+      "version": "0.1.8",
       "package_url": null,
       "repository": {
         "Http": {
-          "url": "https://static.crates.io/crates/oj_css/0.1.6/download",
-          "sha256": "bbb378ad6152e118d0599560b1bdb57082d6f339e7e27f49ae402aa6ee862f74"
+          "url": "https://static.crates.io/crates/oj_css/0.1.8/download",
+          "sha256": "1bb408cf1163d6f11d275f083f648a51187fb0060304f6a8544d09041b1c581c"
         }
       },
       "targets": [
@@ -11972,7 +11972,7 @@
           "selects": {}
         },
         "edition": "2021",
-        "version": "0.1.6"
+        "version": "0.1.8"
       },
       "license": "MIT",
       "license_ids": [
@@ -11980,14 +11980,14 @@
       ],
       "license_file": null
     },
-    "oj_env 0.1.6": {
+    "oj_env 0.1.8": {
       "name": "oj_env",
-      "version": "0.1.6",
+      "version": "0.1.8",
       "package_url": null,
       "repository": {
         "Http": {
-          "url": "https://static.crates.io/crates/oj_env/0.1.6/download",
-          "sha256": "2754bbfc8269a360ea0d2f557f0e19a1e130fa50886a5c23aa28403e8bf02cde"
+          "url": "https://static.crates.io/crates/oj_env/0.1.8/download",
+          "sha256": "8402fcba29026d337837ca870bd97d7aee3700061d8f5729201668e792b4e681"
         }
       },
       "targets": [
@@ -12019,7 +12019,7 @@
           "selects": {}
         },
         "edition": "2021",
-        "version": "0.1.6"
+        "version": "0.1.8"
       },
       "license": "MIT",
       "license_ids": [
@@ -12027,14 +12027,14 @@
       ],
       "license_file": null
     },
-    "oj_graph 0.1.6": {
+    "oj_graph 0.1.8": {
       "name": "oj_graph",
-      "version": "0.1.6",
+      "version": "0.1.8",
       "package_url": null,
       "repository": {
         "Http": {
-          "url": "https://static.crates.io/crates/oj_graph/0.1.6/download",
-          "sha256": "f0b5e958613b292c024f09d289e0944ab46a723c4cb7f6d96bbaee715bbefd94"
+          "url": "https://static.crates.io/crates/oj_graph/0.1.8/download",
+          "sha256": "d465c78c634c8933429492bc6fea549cc003c0a0a4dd18e96cf70a04db58fea1"
         }
       },
       "targets": [
@@ -12057,7 +12057,7 @@
           "**"
         ],
         "edition": "2021",
-        "version": "0.1.6"
+        "version": "0.1.8"
       },
       "license": "MIT",
       "license_ids": [
@@ -12065,14 +12065,14 @@
       ],
       "license_file": null
     },
-    "oj_resolver 0.1.6": {
+    "oj_resolver 0.1.8": {
       "name": "oj_resolver",
-      "version": "0.1.6",
+      "version": "0.1.8",
       "package_url": null,
       "repository": {
         "Http": {
-          "url": "https://static.crates.io/crates/oj_resolver/0.1.6/download",
-          "sha256": "ebd3193ce6dfe085fe8dd3d43f78826b888f80850418fe4316f9f54b00acfdd6"
+          "url": "https://static.crates.io/crates/oj_resolver/0.1.8/download",
+          "sha256": "8df7f236b55a981554b31f7f2ff2fdd98278123514f0c9bdbaba1bbbafc00de5"
         }
       },
       "targets": [
@@ -12108,7 +12108,7 @@
           "selects": {}
         },
         "edition": "2021",
-        "version": "0.1.6"
+        "version": "0.1.8"
       },
       "license": "MIT",
       "license_ids": [
@@ -12116,14 +12116,23 @@
       ],
       "license_file": null
     },
-    "oj_server 0.1.6": {
+    "oj_server 0.1.8": {
       "name": "oj_server",
-      "version": "0.1.6",
+      "version": "0.1.8",
       "package_url": null,
       "repository": {
         "Http": {
-          "url": "https://static.crates.io/crates/oj_server/0.1.6/download",
-          "sha256": "921d9e93fa401ec640546f75085c0afc904fec8a08a6a0d42eee1e12b3aa14f6"
+          "url": "https://static.crates.io/crates/oj_server/0.1.8/download",
+          "sha256": "d225c06738bbc256ba41639a5c39e6d419e0b042b439095e8e32db17153a3d43",
+          "patch_args": [
+            "-p1"
+          ],
+          "patches": [
+            "@@//oj/patches:0002-provide-the-injected-head-scripts-virtual-module.patch",
+            "@@//oj/patches:0003-let-tsr-config-json-configure-the-route-generator.patch",
+            "@@//oj/patches:0004-let-package-imports-override-the-framework-seam-conventions.patch",
+            "@@//oj/patches:0005-emit-the-start-declare-module-footer.patch"
+          ]
         }
       },
       "targets": [
@@ -12168,31 +12177,31 @@
               "target": "notify"
             },
             {
-              "id": "oj_cache 0.1.6",
+              "id": "oj_cache 0.1.8",
               "target": "oj_cache"
             },
             {
-              "id": "oj_compiler 0.1.6",
+              "id": "oj_compiler 0.1.8",
               "target": "oj_compiler"
             },
             {
-              "id": "oj_config 0.1.6",
+              "id": "oj_config 0.1.8",
               "target": "oj_config"
             },
             {
-              "id": "oj_css 0.1.6",
+              "id": "oj_css 0.1.8",
               "target": "oj_css"
             },
             {
-              "id": "oj_env 0.1.6",
+              "id": "oj_env 0.1.8",
               "target": "oj_env"
             },
             {
-              "id": "oj_graph 0.1.6",
+              "id": "oj_graph 0.1.8",
               "target": "oj_graph"
             },
             {
-              "id": "oj_resolver 0.1.6",
+              "id": "oj_resolver 0.1.8",
               "target": "oj_resolver"
             },
             {
@@ -12234,7 +12243,7 @@
           }
         },
         "edition": "2021",
-        "version": "0.1.6"
+        "version": "0.1.8"
       },
       "license": "MIT",
       "license_ids": [
@@ -33133,7 +33142,7 @@
     }
   },
   "binary_crates": [
-    "oj 0.1.6"
+    "oj 0.1.8"
   ],
   "workspace_members": {
     "direct-cargo-bazel-deps 0.0.1": ""

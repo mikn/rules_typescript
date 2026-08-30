@@ -1,0 +1,70 @@
+Let tsr.config.json configure the TanStack Start route generator.
+
+`getConfig` merges as `{ ...tsr.config.json, ...inlineConfig }`, so every key
+oj passes inline silently overrides the app's own configuration. oj passes
+`routesDirectory`, `generatedRouteTree`, `autoCodeSplitting` and
+`routeFileIgnorePattern` -- all of them documented `tsr.config.json` settings,
+and all of them things `@tanstack/router-generator` exists to let an app
+choose.
+
+The visible symptom is an app whose route tree is not at the default path. oj
+regenerates it at `src/routeTree.gen.ts` regardless, so the app keeps importing
+the tree it configured, oj keeps writing one nothing reads, and the source tree
+grows a second route tree that is never right. `routeTreeFileFooter` is in the
+same schema, so an app that needs a footer (TanStack Start's own `declare
+module` block, which the framework's Vite plugin appends) cannot get one either.
+
+Only `target` is genuinely oj's to decide here. The rest become defaults
+supplied when the app has not set them, which leaves an app with no
+tsr.config.json behaving exactly as before.
+
+Carried here so //oj:dev_server can serve an app whose layout is not the
+framework default. Reported upstream; no open PR covers it as of oj 0.1.8.
+
+diff --git a/src/assets/start/generate.mjs b/src/assets/start/generate.mjs
+--- a/src/assets/start/generate.mjs
++++ b/src/assets/start/generate.mjs
+@@ -1,5 +1,8 @@
+ // SPDX-License-Identifier: MIT
+ 
++import { readFileSync } from "node:fs";
++import { join as pathJoin } from "node:path";
++
+ import { importPkg } from "./resolve-pkg.mjs";
+ 
+ const root = process.env.OJ_APP_ROOT ?? process.cwd();
+@@ -34,13 +37,30 @@
+   "@tanstack/react-start",
+ ]);
+ 
++// getConfig merges as { ...tsr.config.json, ...inline }, so anything passed
++// inline cannot be configured by the app. Only `target` is genuinely oj's to
++// decide; the rest are the generator's own documented settings, and an app that
++// puts a route tree somewhere other than src/routeTree.gen.ts has to be able to
++// say so. Pass them as defaults under the file instead of overrides above it.
++const OJ_DEFAULTS = {
++  routesDirectory: "./src/routes",
++  generatedRouteTree: "./src/routeTree.gen.ts",
++  autoCodeSplitting: false,
++  routeFileIgnorePattern: "\\.(test|spec|stories|bench)\\.|\\.d\\.ts$",
++};
++const configured = (() => {
++  try {
++    return JSON.parse(readFileSync(pathJoin(root, "tsr.config.json"), "utf8"));
++  } catch {
++    return {};
++  }
++})();
+ const config = getConfig(
+   {
++    ...Object.fromEntries(
++      Object.entries(OJ_DEFAULTS).filter(([k]) => !(k in configured)),
++    ),
+     target: "react",
+-    routesDirectory: "./src/routes",
+-    generatedRouteTree: "./src/routeTree.gen.ts",
+-    autoCodeSplitting: false,
+-    routeFileIgnorePattern: "\\.(test|spec|stories|bench)\\.|\\.d\\.ts$",
+   },
+   root,
+ );

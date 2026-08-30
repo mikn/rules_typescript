@@ -29,13 +29,42 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/mikn/rules_typescript/tests/integration/harness"
 )
+
+// isHMRUpdate separates the frames that mean "this changed" from the ones a
+// server sends anyway. Vite's are "update" and "full-reload"; a route edit that
+// invalidates the SSR graph produces one or the other depending on whether the
+// module self-accepts.
+func isHMRUpdate(frame string) bool {
+	var payload struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal([]byte(frame), &payload); err != nil {
+		return false
+	}
+	return payload.Type == "update" || payload.Type == "full-reload"
+}
+
+// firstLine keeps an HMR frame legible in the log; the payload carries the whole
+// module graph delta and only its shape matters here.
+func firstLine(frame string) string {
+	if i := strings.IndexByte(frame, '\n'); i >= 0 {
+		return frame[:i]
+	}
+	if len(frame) > 160 {
+		return frame[:160] + "..."
+	}
+	return frame
+}
 
 // The module the served document tells the browser to import to hydrate with.
 // The Start plugin names it through a virtual id, so the path is the framework's
@@ -314,6 +343,70 @@ func main() {
 			it.Fail("the dev server resolved a package into the wrong module system:\n%s", out)
 		}
 		it.Pass("no package was inlined that should have been external")
+
+		// ── HMR: an edit has to reach the browser ──
+		// A dev server that serves the first request correctly and then never
+		// changes again is the failure this catches, and for an SSR framework it
+		// has two halves: the frame that tells the browser something changed, and
+		// the server's own module graph, which renders the next document. A stale
+		// graph keeps serving the old markup with no error anywhere.
+		sock := it.DialHMR(srv, "/", "vite-hmr")
+
+		// Seat the route in the client graph the way a browser does. Vite pushes
+		// a client update only for modules a client has actually imported; SSR
+		// rendering the route does not put it there, and without this the socket
+		// sees the connection greeting and nothing else.
+		if status, body := it.Get(srv, "/src/routes/about.tsx"); status != 200 {
+			it.Fail("GET /src/routes/about.tsx returned %d, want 200\n%s", status, body)
+		}
+
+		about := it.Path("src", "routes", "about.tsx")
+		original := it.Read(about)
+		it.Write(about, strings.Replace(original,
+			"acme-about-route-marker", "acme-about-route-EDITED", 1))
+		it.OnCleanup(func() { _ = os.WriteFile(about, []byte(original), 0o644) })
+
+		// The server's own graph first: this is the half that decides what the
+		// next document says, and a stale one serves the old markup with no error
+		// anywhere. Polled, because the write and the next render are not ordered.
+		deadline := time.Now().Add(60 * time.Second)
+		for {
+			_, body := it.Get(srv, "/about")
+			if strings.Contains(body, "acme-about-route-EDITED") {
+				break
+			}
+			if time.Now().After(deadline) {
+				it.Fail("editing a route left /about server-rendering the old marker, "+
+					"so the SSR module graph never saw the edit\n%s\n%s", body, srv.Output())
+			}
+			time.Sleep(250 * time.Millisecond)
+		}
+		it.Pass("the edit reached the server-rendered document")
+
+		// And the browser was told. Not merely "a frame": Vite greets a new client
+		// with {"type":"connected"} and pings it thereafter, so taking the first
+		// frame would pass with no edit at all. Frames buffer, so anything sent
+		// while the poll above was running is still here.
+		update, seen := "", []string{}
+		for wait := 30 * time.Second; update == ""; {
+			started := time.Now()
+			frame, err := sock.Next(wait)
+			if err != nil {
+				it.Fail("the document changed but no HMR update reached the browser: %v\n"+
+					"frames seen: %q\n%s", err, seen, srv.Output())
+			}
+			seen = append(seen, firstLine(frame))
+			if isHMRUpdate(frame) {
+				update = frame
+			}
+			if wait -= time.Since(started); wait <= 0 {
+				it.Fail("the document changed but only non-update frames arrived: %q\n%s",
+					seen, srv.Output())
+			}
+		}
+		it.Pass("the edit reached the HMR socket: %s", firstLine(update))
+
+		it.Write(about, original)
 
 		// The framework's own route generator runs while it serves. If it writes
 		// a tree the Bazel generator would not, `bazel run //:dev` silently makes

@@ -2,6 +2,9 @@
   "name": "tanstack-app",
   "version": "0.1.0",
   "private": true,
+  "imports": {
+    "#tanstack-router-entry": "./src/lib/router.ts"
+  },
   "dependencies": {
     "@tanstack/react-router": "^1.166.7",
     "@tanstack/react-start": "^1.166.8",

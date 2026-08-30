@@ -173,6 +173,22 @@ invisible to them, and `react/jsx-runtime` gets inlined as CJS into an ESM
 evaluator. The link is what makes both resolve. See
 [the dev server guide](../../docs/guides/dev-server.md#how-a-bare-npm-specifier-resolves).
 
+### Two files that name this app's layout
+
+This app does not use the framework's default paths: the router entry is
+`src/lib/router.ts` (so the lib package owns it and its test) and the route tree
+is `src/routes/routeTree.gen.ts` (so the tree and the routes it types are one
+`ts_compile`). Vite learns both from `tanstack-vite.config.mjs`. Two other
+readers cannot see that file, so they are told directly:
+
+| file | reader | what it says |
+| --- | --- | --- |
+| `tsr.config.json` | `@tanstack/router-generator` | where the routes are and where the tree goes |
+| `package.json` `imports` | any bundler resolving `#tanstack-router-entry` | where `getRouter` is |
+
+Both are standard framework/Node mechanisms rather than anything this ruleset
+invented, and Vite ignores them because the plugin's own options win.
+
 The Start plugin regenerates `src/routes/routeTree.gen.ts` while it serves.
 `:route_tree` passes `--start-router` so it emits the same `declare module`
 footer, which makes that write a no-op and keeps `:route_tree_test` green.

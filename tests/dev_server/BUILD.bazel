@@ -169,7 +169,10 @@ ts_dev_server(
             "DEV_USER_CONFIG": user_config,
         },
         tags = ["requires-network"],
-        deps = ["//tests/verify"],
+        deps = [
+            "//tests/hmrsocket",
+            "//tests/verify",
+        ],
     )
     for target, port, bazel_plugin, react_refresh, user_config, impl in [
         ("dev", "5173", "0", "0", "0", "vite"),
@@ -199,7 +202,10 @@ go_test(
         "//ts/toolchain:node_resolved",
     ],
     tags = ["requires-network"],
-    deps = ["//tests/verify"],
+    deps = [
+        "//tests/hmrsocket",
+        "//tests/verify",
+    ],
 )
 
 # A .module.css through a running server, per implementation: the class names it
@@ -223,7 +229,10 @@ go_test(
             "DEV_TARGET": target,
         },
         tags = ["requires-network"],
-        deps = ["//tests/verify"],
+        deps = [
+            "//tests/hmrsocket",
+            "//tests/verify",
+        ],
     )
     for target, impl in [
         ("dev", "vite"),
@@ -247,7 +256,10 @@ go_test(
         ":dev_with_user_config",
         "//ts/toolchain:node_resolved",
     ],
-    deps = ["//tests/verify"],
+    deps = [
+        "//tests/hmrsocket",
+        "//tests/verify",
+    ],
 )
 
 # The edit-to-HMR benchmark, over both server implementations. It measures the
@@ -277,7 +289,10 @@ go_test(
             "HMR_WS_PROTOCOL": ws_protocol,
         },
         tags = ["requires-network"],
-        deps = ["//tests/verify"],
+        deps = [
+            "//tests/hmrsocket",
+            "//tests/verify",
+        ],
     )
     for target, impl, ws_path, ws_protocol in [
         ("dev", "vite", "/", "vite-hmr"),

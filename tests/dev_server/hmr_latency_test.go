@@ -166,7 +166,7 @@ func hmrEdit(t *testing.T, srv *server, sock *hmrSocket, base, ws string, revisi
 	marker := fmt.Sprintf("HMR_REV_%d", revision)
 
 	time.Sleep(editSpacing)
-	sock.drain()
+	sock.Drain()
 	saved := time.Now()
 	write(t, filepath.Join(ws, hotFile), hotModule(revision))
 
@@ -197,7 +197,7 @@ func awaitHMRUpdate(t *testing.T, srv *server, sock *hmrSocket) (string, string)
 			t.Fatalf("no HMR update within %s of the save; the edit never reached a client\n%s",
 				hmrFrameTimeout, srv.log(t))
 		}
-		frame, err := sock.next(remaining)
+		frame, err := sock.Next(remaining)
 		if err != nil {
 			t.Fatalf("waiting for an HMR update: %v\n%s", err, srv.log(t))
 		}

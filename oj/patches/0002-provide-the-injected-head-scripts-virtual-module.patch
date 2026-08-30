@@ -1,0 +1,72 @@
+Provide the injected-head-scripts virtual module on the TanStack Start path.
+
+TanStack Start's server core imports three virtual modules. oj's SSR loader
+maps two of them -- `tanstack-start-manifest:v` and
+`#tanstack-start-server-fn-resolver` -- and not
+`tanstack-start-injected-head-scripts:v`, which start-server-core imports
+unconditionally whenever TSS_DEV_SERVER is set. runner.mjs sets it, so every
+document request dies before it renders:
+
+    ERR_UNSUPPORTED_ESM_URL_SCHEME: Only URLs with a scheme in: file, data,
+    and node are supported by the default ESM loader. Received protocol
+    'tanstack-start-injected-head-scripts:'
+
+The loader consults the plugin container only for `virtual:` and `\0` ids, so
+this one cannot be filled by a plugin either: an app has no way to work around
+it.
+
+Vite fills the module by running transformIndexHtml over an empty document and
+joining the inline scripts it gets back -- the @vitejs/plugin-react refresh
+preamble, plus whatever a user's transformIndexHtml added. oj applies Fast
+Refresh itself and the Start path has no transformIndexHtml, so there is
+nothing to inject; start-server-core already treats a falsy value that way
+(`if (mod.injectedHeadScripts)` in router-manifest). What it does not tolerate
+is the module not resolving, hence a stub rather than a special case.
+
+Carried here so //oj:dev_server can serve a TanStack Start app. Reported
+upstream; no open PR covers it as of oj 0.1.8.
+
+diff --git a/src/assets/start/injected-head-scripts.ts b/src/assets/start/injected-head-scripts.ts
+--- a/src/assets/start/injected-head-scripts.ts
++++ b/src/assets/start/injected-head-scripts.ts
+@@ -0,0 +1,15 @@
++// SPDX-License-Identifier: MIT
++
++// The scripts TanStack Start asks a dev server to put in the document head
++// before the client entry. Vite fills this by running transformIndexHtml over
++// an empty document and collecting the inline scripts it gets back -- which is
++// the @vitejs/plugin-react refresh preamble and whatever a user's
++// transformIndexHtml hook added.
++//
++// Neither applies here. oj applies Fast Refresh itself, through the preamble
++// its own client entry carries, and the Start path has no transformIndexHtml.
++// So there is nothing to inject, which is what the framework does with a falsy
++// value anyway (`if (mod.injectedHeadScripts)` in start-server-core's
++// router-manifest). The module still has to exist: the import is unconditional
++// under TSS_DEV_SERVER, and runner.mjs sets that.
++export const injectedHeadScripts: string | undefined = undefined;
+diff --git a/src/assets/start/loader.mjs b/src/assets/start/loader.mjs
+--- a/src/assets/start/loader.mjs
++++ b/src/assets/start/loader.mjs
+@@ -434,6 +434,7 @@
+   "#tanstack-start-plugin-adapters": pathResolve(HERE, "plugin-adapters.ts"),
+   "#tanstack-start-server-fn-resolver": pathResolve(HERE, "server-fn-resolver.mjs"),
+   "tanstack-start-manifest:v": pathResolve(HERE, "manifest-dev.ts"),
++  "tanstack-start-injected-head-scripts:v": pathResolve(HERE, "injected-head-scripts.ts"),
+   "@cloudflare/vite-plugin/server": pathResolve(HERE, "cf-server.mjs"),
+ };
+ 
+diff --git a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -96,6 +96,10 @@
+ 
+ const START_ASSETS: &[(&str, &str)] = &[
+     (
++        "injected-head-scripts.ts",
++        include_str!("assets/start/injected-head-scripts.ts"),
++    ),
++    (
+         "resolve-pkg.mjs",
+         include_str!("assets/start/resolve-pkg.mjs"),
+     ),
