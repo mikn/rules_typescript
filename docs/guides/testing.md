@@ -327,6 +327,10 @@ wrangler needs a tree of its own: the pool's `node_modules` is built from the
 test's `deps`, and wrangler is not one of them. Full reference:
 [ts_worker_dry_run](../rules/ts-worker-dry-run.md).
 
+This is the rule that belongs in CI. Uploading the Worker is a separate `bazel
+run` target that never fires from `bazel build` or `bazel test`:
+[ts_worker_deploy](../rules/ts-worker-deploy.md).
+
 ## Sharding
 
 `ts_test` distributes test files across shards using `TEST_SHARD_INDEX` and

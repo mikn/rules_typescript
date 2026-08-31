@@ -80,7 +80,7 @@ agree on the version, so no test runs a generated config against a second major:
 |---|---|---|---|---|
 | `@npm` | `tests/npm/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` (the whole `tests/vitest` suite), `ts_dev_server` (seven servers started for real and interrogated over HTTP, six under Vite and one under oj), `ts_bundle` output (`tests/vite_bundle`), `vite-plugin-bazel`'s own tests, and the `lsp`, `npm_deps` and `vite_bundle` integration workspaces |
 | `@npm_tailwind` | `tests/tailwind/pnpm-lock.yaml` | 8.2.2 | — | Tailwind v4 through `vite_config`: app mode, lib mode, and the dev server under both implementations |
-| `@npm_workers` | `tests/workers/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` with the Workers pool (vitest inside workerd), `ts_worker_dry_run_test` |
+| `@npm_workers` | `tests/workers/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` with the Workers pool (vitest inside workerd), `ts_worker_dry_run_test`, `ts_worker_deploy` |
 | `@npm_eslint` | `tests/eslint/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | the ESLint plugin's own `ts_test` target, against `@typescript-eslint`'s rule tester |
 | `@npm_features` | `tests/npm/pnpm-lock-features.yaml` | — | — | pnpm's patched dependencies, npm aliases, peer-dependency variants, per-importer resolution; resolves neither tool |
 | `@npm_css` | `ts/private/css/pnpm-lock.yaml` | — | — | the packages the ruleset's own build actions run: postcss 8.5.26 and postcss-modules 9.0.1 for `css_module`'s compiler, and the esbuild that bundles `vite-plugin-bazel`. The one hub here that is **not** a fixture — both bundles ship to consumers as API |

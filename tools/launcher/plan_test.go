@@ -584,7 +584,7 @@ func TestPlanVitestStagesAPrivateRootWithoutARunfilesDirectory(t *testing.T) {
 func TestEnvironCollapsesDuplicateKeys(t *testing.T) {
 	t.Setenv("RUNFILES_DIR", "relative/path")
 	t.Setenv("KEEP_ME", "yes")
-	got := Environ(map[string]string{"RUNFILES_DIR": "/absolute/path"}, []string{"RUNFILES_DIR=from/library"})
+	got := Environ(map[string]string{"RUNFILES_DIR": "/absolute/path"}, nil, []string{"RUNFILES_DIR=from/library"})
 
 	seen := 0
 	for _, entry := range got {
@@ -600,6 +600,25 @@ func TestEnvironCollapsesDuplicateKeys(t *testing.T) {
 	}
 	if !slices.Contains(got, "KEEP_ME=yes") {
 		t.Error("Environ dropped an inherited variable")
+	}
+}
+
+// Removing a variable is not setting it to the empty string: to getenv an empty
+// value is still a variable that is set, and wrangler treats a present
+// CLOUDFLARE_API_TOKEN as an attempt to authenticate.
+func TestEnvironRemovesUnsetKeys(t *testing.T) {
+	t.Setenv("DROP_ME", "value")
+	t.Setenv("KEEP_ME", "value")
+	got := Environ(nil, []string{"DROP_ME", "ALSO_DROP_ME"}, []string{"ALSO_DROP_ME=from/library"})
+	for _, entry := range got {
+		for _, key := range []string{"DROP_ME=", "ALSO_DROP_ME="} {
+			if strings.HasPrefix(entry, key) {
+				t.Errorf("%s survived, empty or not", strings.TrimSuffix(key, "="))
+			}
+		}
+	}
+	if !slices.Contains(got, "KEEP_ME=value") {
+		t.Error("Environ dropped a variable it was not asked to")
 	}
 }
 

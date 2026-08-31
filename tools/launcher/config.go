@@ -35,6 +35,14 @@ const (
 	nextCommandStart = "start"
 )
 
+// The two things wrangler can be asked to do with a worker. The zero value of
+// WranglerConfig.Command is a dry run, so a config that does not ask to deploy
+// never uploads.
+const (
+	wranglerCommandDryRun = "dry-run"
+	wranglerCommandDeploy = "deploy"
+)
+
 // Config is the whole contract between the Starlark rules and this binary.
 // Every path field is a runfiles path; nothing here is ever shell-quoted.
 type Config struct {
@@ -101,9 +109,9 @@ type VitestConfig struct {
 	Coverage        bool   `json:"coverage,omitempty"`
 }
 
-// WranglerConfig runs `wrangler deploy --dry-run` over a worker Bazel built.
-// Everything is staged into a writable scratch dir because wrangler writes
-// beside the config file, and a Bazel output directory is read-only.
+// WranglerConfig runs wrangler over a worker Bazel built. Everything is staged
+// into a writable scratch dir because wrangler writes beside the config file,
+// and a Bazel output directory is read-only.
 type WranglerConfig struct {
 	ConfigFile     string   `json:"config_file"`
 	NodeModules    string   `json:"node_modules"`
@@ -111,6 +119,22 @@ type WranglerConfig struct {
 	EnvName        string   `json:"env_name,omitempty"`
 	WorkerFiles    []string `json:"worker_files"`
 	PackagePrefix  string   `json:"package_prefix,omitempty"`
+	// Command is what to do with the worker once it is bundled. Only the exact
+	// string wranglerCommandDeploy uploads; every other value, the empty one
+	// included, is a dry run, so a hand-written or older config cannot deploy by
+	// accident.
+	Command string `json:"command,omitempty"`
+}
+
+// deploys reports whether this config asks for a real upload.
+func (w *WranglerConfig) deploys() bool { return w.Command == wranglerCommandDeploy }
+
+// rule names the rule this config came from, for diagnostics.
+func (w *WranglerConfig) rule() string {
+	if w.deploys() {
+		return "ts_worker_deploy"
+	}
+	return "ts_worker_dry_run"
 }
 
 // DevServerConfig runs one dev server implementation, chosen by
@@ -244,6 +268,14 @@ func (c *Config) validate() error {
 		}
 		if c.Wrangler.ConfigFile == "" || c.Wrangler.NodeModules == "" {
 			return errors.New(`mode "wrangler" requires wrangler.config_file and wrangler.node_modules`)
+		}
+		// Rejected rather than silently treated as a dry run: a config meaning to
+		// deploy and misspelling it should say so, not quietly do less.
+		switch c.Wrangler.Command {
+		case "", wranglerCommandDryRun, wranglerCommandDeploy:
+		default:
+			return fmt.Errorf("unknown wrangler.command %q (want %q or %q)",
+				c.Wrangler.Command, wranglerCommandDryRun, wranglerCommandDeploy)
 		}
 	case ModeNext:
 		if c.Next == nil {

@@ -485,6 +485,24 @@ sections list every break with the edit it requires.
 
 ### Added
 
+- **`ts_worker_deploy` uploads a Cloudflare Worker.** The ruleset could only ever
+  dry-run one, so authentication, whether Cloudflare accepts the bundle, routes
+  and cron triggers had never been exercised. It is a `bazel run` target, the
+  shape Bazel has for a side effect and the one `rules_oci` gives `oci_push`:
+  `bazel build //...` writes the launcher, `bazel test //...` cannot select a
+  non-test rule, and only `bazel run` uploads. Same attributes as
+  `ts_worker_dry_run`, `env_name` included, and the command line it builds is
+  the dry run's minus `--dry-run`.
+
+  The launcher's default is still the dry run. A launcher config that does not
+  say `"command": "deploy"` — older, hand-written, or misspelt — dry-runs, and an
+  unrecognised value fails the config outright. In the other direction, a dry-run
+  target now refuses `--no-dry-run` and `--dry-run=false`, which yargs' boolean
+  negation would otherwise have honoured, and it has the `CLOUDFLARE_*` and
+  legacy `CF_*` variables removed from the environment wrangler is given — so
+  "no credentials and no network" is now enforced rather than merely intended.
+  `ts_worker_deploy` is the only one of the three that keeps the ambient `HOME`,
+  `CI` and credentials.
 - **Gazelle names a package's own `tsconfig.json` on the targets it
   generates.** Nothing it wrote ever did, so every generated target compiled
   against the ruleset's baseline alone while the repo's own `lib`, `types`, `jsx`

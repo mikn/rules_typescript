@@ -1,7 +1,7 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_go//go:def.bzl", "go_test")
 load("//npm:defs.bzl", "node_modules")
-load("//ts:defs.bzl", "ts_compile", "ts_test", "ts_worker_dry_run", "ts_worker_dry_run_test")
+load("//ts:defs.bzl", "ts_compile", "ts_test", "ts_worker_deploy", "ts_worker_dry_run", "ts_worker_dry_run_test")
 
 package(default_visibility = ["//:__pkg__"])
 
@@ -60,7 +60,16 @@ ts_test(
 
 build_test(
     name = "worker_builds_test",
-    targets = [":worker"],
+    targets = [
+        ":worker",
+        # Naming the deploy target here is what analyses it on every
+        # `bazel test //...`, which is the whole point of it existing in a
+        # ruleset's own test tree. `manual` on the target keeps it out of
+        # `bazel build //...` and out of every other wildcard, so nobody reaches
+        # a real upload of this fixture by expanding a pattern; being a dep here
+        # is explicit and `manual` does not apply.
+        ":deploy",
+    ],
 )
 
 # wrangler needs its own tree: the pool's node_modules is built from the test's
@@ -109,6 +118,17 @@ go_test(
     srcs = ["worker_dry_run_env_test.go"],
     data = [":deploy_dry_run_staging"],
     deps = ["//tests/verify"],
+)
+
+# The upload, as a run target. Never run in CI, and never run at all so far --
+# it would publish this fixture to whichever Cloudflare account the environment
+# points at.
+ts_worker_deploy(
+    name = "deploy",
+    config = "wrangler.jsonc",
+    node_modules = ":node_modules",
+    tags = ["manual"],
+    deps = [":worker"],
 )
 
 # The generated editor program for this package; see //:refresh_tsconfig.

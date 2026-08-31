@@ -9,42 +9,77 @@ import (
 	"strings"
 )
 
-// planWrangler runs `wrangler deploy --dry-run` over a worker Bazel built.
+// cloudflareCredentialVars are the variables wrangler authenticates with,
+// including the legacy CF_ spellings it still reads. A deploy needs whichever of
+// them the ambient environment holds; a dry run must not be able to reach any of
+// them, or "needs no credentials" is a claim this code does not keep. Only the
+// names appear here -- nothing reads or prints a value.
+var cloudflareCredentialVars = []string{
+	"CLOUDFLARE_API_TOKEN",
+	"CLOUDFLARE_API_KEY",
+	"CLOUDFLARE_EMAIL",
+	"CLOUDFLARE_ACCOUNT_ID",
+	"CF_API_TOKEN",
+	"CF_API_KEY",
+	"CF_EMAIL",
+	"CF_ACCOUNT_ID",
+}
+
+// dryRunNegation matches an argument that would switch --dry-run back off.
+// wrangler parses with yargs, which gives every boolean flag a negated form, so
+// without this a user argument turns a dry run into a real upload.
+var dryRunNegation = regexp.MustCompile(`^--(no-dry-run|dry-run[=:](false|0|no|off))$`)
+
+// planWrangler bundles a worker Bazel built, and either writes the result to
+// disk or uploads it.
 //
-// A dry run is the deployable half that can be verified hermetically: it does
+// The dry run is the deployable half that can be verified hermetically: it does
 // everything a deploy does up to the upload -- resolves the config, bundles the
 // worker, applies the compatibility date and the bindings -- and then writes the
-// result to disk instead of sending it. It needs no credentials and no network.
+// result to disk instead of sending it. It needs no credentials and no network,
+// and this function takes both away from it. The deploy differs by one flag and
+// by keeping the ambient environment it authenticates from.
 //
 // Everything is staged into a writable scratch directory first, which is not a
 // convenience: wrangler puts `.wrangler/tmp` NEXT TO THE CONFIG FILE rather than
-// under the cwd, and a Bazel output directory is read-only. Its own state
-// directory has the same requirement, hence HOME.
+// under the cwd, and a Bazel output directory is read-only.
 func planWrangler(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, error) {
 	w := cfg.Wrangler
+	rule := w.rule()
+
+	if !w.deploys() {
+		for _, arg := range args {
+			if dryRunNegation.MatchString(arg) {
+				return nil, fmt.Errorf(
+					"%s: %s was asked to upload for real (%s).\n"+
+						"A dry-run target never deploys. Use ts_worker_deploy for that.",
+					rule, cfg.Label, arg)
+			}
+		}
+	}
 
 	runtime, err := runtimeCommand(cfg, r)
 	if err != nil {
 		return nil, fmt.Errorf(
-			"ts_worker_dry_run: the toolchain JS runtime is missing from the runfiles of %s: %w",
-			cfg.Label, err)
+			"%s: the toolchain JS runtime is missing from the runfiles of %s: %w",
+			rule, cfg.Label, err)
 	}
 
 	nodeModules, err := r.Path(w.NodeModules)
 	if err != nil {
 		return nil, fmt.Errorf(
-			"ts_worker_dry_run: %s has no node_modules tree in runfiles: %w\n"+
+			"%s: %s has no node_modules tree in runfiles: %w\n"+
 				"The tree must carry @npm//:wrangler; there is no host fallback.",
-			cfg.Label, err)
+			rule, cfg.Label, err)
 	}
 	entry := filepath.Join(nodeModules, filepath.FromSlash(w.WranglerInTree))
 	if !fileExists(entry) {
 		return nil, fmt.Errorf(
-			"ts_worker_dry_run: wrangler is missing from the node_modules tree of %s:\n"+
+			"%s: wrangler is missing from the node_modules tree of %s:\n"+
 				"                 %s\n"+
 				"                 Add @npm_workers//:wrangler (or your hub's) to that "+
 				"node_modules() target.",
-			cfg.Label, entry)
+			rule, cfg.Label, entry)
 	}
 
 	scratch, err := os.MkdirTemp(os.Getenv("TEST_TMPDIR"), "wrangler")
@@ -99,17 +134,10 @@ func planWrangler(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, e
 	// a package it imports is a sibling of the link, not of the tree.
 	entry = filepath.Join(linkedTree, filepath.FromSlash(w.WranglerInTree))
 
-	home := filepath.Join(scratch, ".home")
-	if err := os.MkdirAll(home, 0o755); err != nil {
-		return nil, err
-	}
-	plan.setEnv("HOME", home)
-	plan.setEnv("XDG_CONFIG_HOME", home)
 	plan.setEnv("TMPDIR", scratch)
 	// Wrangler phones home for metrics and for a version check unless told not
 	// to, which is the only reason a dry run would need the network at all.
 	plan.setEnv("WRANGLER_SEND_METRICS", "false")
-	plan.setEnv("CI", "true")
 	plan.setEnv("NODE_PATH", nodeModules)
 	// Node resolves a module to its realpath before looking for sibling
 	// packages, so without this the link above buys nothing: the realpath of
@@ -118,19 +146,50 @@ func planWrangler(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, e
 	// (unenv) is imported that way and would not resolve.
 	plan.setEnv("NODE_OPTIONS", "--preserve-symlinks --preserve-symlinks-main")
 
+	if w.deploys() {
+		// The ambient HOME, XDG_CONFIG_HOME and CI are left exactly as the caller
+		// set them: `wrangler login` put an OAuth token under the real HOME, the
+		// real HOME is writable so the scratch one below buys nothing here, and
+		// whether wrangler may prompt is the caller's environment to state.
+		// Whatever credentials that environment holds pass through untouched --
+		// Environ already forwards os.Environ() -- and none is read here.
+	} else {
+		home := filepath.Join(scratch, ".home")
+		if err := os.MkdirAll(home, 0o755); err != nil {
+			return nil, err
+		}
+		plan.setEnv("HOME", home)
+		plan.setEnv("XDG_CONFIG_HOME", home)
+		plan.setEnv("CI", "true")
+		// A dry run that could authenticate is a dry run whose result depends on
+		// the machine it ran on. The scratch HOME already hides an OAuth login;
+		// this hides the token variables it would otherwise inherit.
+		plan.unsetEnv(cloudflareCredentialVars...)
+	}
+
 	outDir := filepath.Join(scratch, "dist")
 	plan.Dir = scratch
-	argv := append(runtime, entry,
-		"deploy", "--dry-run", "--outdir", outDir, "-c", stagedConfig)
+	argv := append(runtime, entry, "deploy")
+	if !w.deploys() {
+		argv = append(argv, "--dry-run")
+	}
+	argv = append(argv, "--outdir", outDir, "-c", stagedConfig)
 	if w.EnvName != "" {
 		argv = append(argv, "--env", w.EnvName)
 	}
+	// User arguments go last so wrangler's own parser sees them last. That lets a
+	// deploy target be asked for a dry run; the guard at the top of this function
+	// is what stops the reverse.
 	plan.Argv = append(argv, args...)
 	plan.Messages = append(plan.Messages,
-		fmt.Sprintf("[ts_worker_dry_run] %s", cfg.Label),
-		fmt.Sprintf("[ts_worker_dry_run] config:  %s", stagedConfig),
-		fmt.Sprintf("[ts_worker_dry_run] outdir:  %s", outDir),
+		fmt.Sprintf("[%s] %s", rule, cfg.Label),
+		fmt.Sprintf("[%s] config:  %s", rule, stagedConfig),
+		fmt.Sprintf("[%s] outdir:  %s", rule, outDir),
 	)
+	if w.deploys() {
+		plan.Messages = append(plan.Messages,
+			fmt.Sprintf("[%s] uploading to Cloudflare -- this is not a dry run", rule))
+	}
 	return plan, nil
 }
 

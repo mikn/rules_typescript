@@ -69,6 +69,7 @@ nav:
     - ts_bundle: rules/ts-bundle.md
     - ts_dev_server: rules/ts-dev-server.md
     - ts_worker_dry_run: rules/ts-worker-dry-run.md
+    - ts_worker_deploy: rules/ts-worker-deploy.md
     - ts_lint: rules/ts-lint.md
     - ts_codegen: rules/ts-codegen.md
     - next_build: rules/next-build.md
