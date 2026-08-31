@@ -2,7 +2,7 @@ load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("@rules_go//go:def.bzl", "go_test")
 load("//npm:defs.bzl", "node_modules")
-load("//ts:defs.bzl", "ts_compile")
+load("//ts:defs.bzl", "ts_compile", "ts_test")
 load(":exports_types_tests.bzl", "declaration_entry_test", "exports_types_test_suite")
 load(":hub_provenance_tests.bzl", "hub_provenance_test")
 load(":link_depth_tests.bzl", "link_depth_test_suite")
@@ -64,6 +64,18 @@ ts_compile(
     name = "workspace_consumer",
     srcs = ["workspace_consumer.ts"],
     deps = ["@npm//:shared"],
+)
+
+# The same link at run time: type-checking reads declarations straight out of the
+# build graph and says nothing about the node_modules tree the test executes in.
+ts_test(
+    name = "workspace_runtime_test",
+    size = "small",
+    srcs = ["workspace_runtime.test.ts"],
+    deps = [
+        "@npm//:shared",
+        "@npm//:vitest",
+    ],
 )
 
 # Test that npm_bin targets are generated and executable.

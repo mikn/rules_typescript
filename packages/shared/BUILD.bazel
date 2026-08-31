@@ -5,9 +5,12 @@ load("@rules_typescript//ts:defs.bzl", "ts_compile")
 #   shared: {specifier: workspace:*, version: link:packages/shared}
 # which causes npm_translate_lock to generate:
 #   alias(name = "shared", actual = "//packages/shared:shared")
+# zod is the lockfile's own dep for this importer, imported at run time so that
+# //tests/npm:workspace_runtime_test fails unless the member's closure travels.
 ts_compile(
     name = "shared",
     srcs = ["index.ts"],
     module_name = "shared",
     visibility = ["//visibility:public"],
+    deps = ["@npm//:zod"],
 )
