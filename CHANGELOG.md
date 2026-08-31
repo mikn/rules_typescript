@@ -681,7 +681,21 @@ sections list every break with the edit it requires.
   dialect, shared by the BUILD generator and the rule. Four `json_library`
   targets on one monorepo built again, among them two `tsconfig.*.json` files --
   files Gazelle itself reads as JSONC.
-
+- **A src listed from another package fails while the BUILD file loads.** A
+  source is compiled into the package of the target that lists it, so a file
+  from elsewhere hangs off the exec root while the listing package's own sources
+  hang off the package, and one tsgo declaration emit has one `rootDir`. That
+  was already an error — at analysis time, printing the exec root as an empty
+  line, never naming the file, and blaming "a mix of checked-in and generated
+  sources", which is a different cause. The srcs list is a loading-phase fact,
+  so the half of the rule it can decide is now decided there, naming every file.
+  Nothing that used to build stops: the check is skipped under
+  `declarations = "oxc"` and `enable_check = False`, the two escape hatches the
+  analysis-time error already offers, a `.d.ts` is exempt (it is passed through
+  rather than compiled, which is what makes `vite_types = True` legal from any
+  package), and a target whose srcs all come from elsewhere has one root like
+  any other. The analysis-time check stays for the half a srcs list cannot show,
+  a generated source in this same package.
 - **Gazelle reads `pnpm-lock.yaml`, so the npm inventory everything gates on is
   no longer empty.** `tc.npmPackages` -- "which npm packages does this
   workspace declare" -- was populated in one place only, from the deprecated

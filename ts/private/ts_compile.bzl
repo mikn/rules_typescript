@@ -47,6 +47,86 @@ tsconfig by hand.
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
+def _names_other_package(package, src):
+    """Whether a src, as written in a BUILD file, names a package other than this one.
+
+    Only a label with an explicit package can: a bare filename, a `:name` and
+    every glob result belong to the package that wrote them.
+    """
+    if src.startswith("@"):
+        marker = src.find("//")
+        if marker == -1:
+            return False
+        if marker > 1:
+            return True
+        src = src[marker:]
+    if not src.startswith("//"):
+        return False
+    return src[2:].split(":", 1)[0] != package
+
+def mixed_src_packages(package, srcs):
+    """The srcs from another package, on a target that also lists its own.
+
+    A src is compiled into the package of the target that LISTS it: its outputs
+    are declared under that package, and the root its package-relative path
+    hangs off is derived from it. A file from elsewhere therefore hangs off the
+    exec root while this package's own files hang off the package, and one
+    declaration emit has one rootDir -- the analysis-time check that reports
+    that names neither file, and reports the exec root as an empty line.
+
+    Only the MIX is rejected. A target whose srcs all come from elsewhere has one
+    root like any other, and is the shape every ts_compile in the top-level
+    package has (//tests/compiler_options/analysis:from_exec_root).
+
+    Declaration files are left out: passed through rather than compiled, they
+    declare no output and join no rootDir, which is what makes
+    `vite_types = True` legal from any package.
+
+    Args:
+        package: The listing target's own package, from native.package_name().
+        srcs: The `srcs` list as the BUILD file wrote it.
+    """
+    other = []
+    own = False
+    for src in srcs:
+        if type(src) != "string" or src.endswith((".d.ts", ".d.mts", ".d.cts")):
+            continue
+        if _names_other_package(package, src):
+            other.append(src)
+        else:
+            own = True
+    return other if own else []
+
+def fail_on_mixed_src_packages(kind, name, srcs, declarations, enable_check):
+    """The one-rootDir rule's srcs-list half, checked while the BUILD file loads.
+
+    Gated on the tsgo declaration emit, which is the emit that has one rootDir:
+    `declarations = "oxc"` groups the sources by root and runs oxc once per
+    group, and `enable_check = False` emits nothing from tsgo at all. Those two
+    are the escape hatch the analysis-time error already offers, so nothing that
+    used to build stops -- this only moves the rejection earlier, and names the
+    file.
+    """
+    if declarations == "oxc" or not enable_check:
+        return
+    package = native.package_name()
+    other = mixed_src_packages(package, srcs)
+    if not other:
+        return
+    fail(
+        "{}: srcs on //{}:{} mix this package's own files with files that live ".format(kind, package, name) +
+        "in another package:\n" +
+        "".join(["  {}\n".format(src) for src in other]) +
+        "A src is compiled into the package of the target that LISTS it, so these " +
+        "hang off the exec root while this package's own srcs hang off " +
+        "'{}' -- and one tsgo declaration emit has one rootDir. They would also ".format(package) +
+        "be emitted a second time under '{}', once per package that lists them.\n".format(package) +
+        "Give them a target in their own package and depend on that (set " +
+        "module_name on it when the import is by bare specifier), or set " +
+        "declarations = \"oxc\" or enable_check = False, neither of which emits " +
+        "from tsgo.",
+    )
+
 _TS_EXTENSIONS = ["ts", "tsx"]
 
 _JS_EXTENSIONS = ["js", "mjs", "cjs"]

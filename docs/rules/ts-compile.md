@@ -183,6 +183,31 @@ group), or set `enable_check = False`. Neither of the last two emits from tsgo.
 Generated sources cannot use the default emit even on their own — see
 [ts_codegen § Compiling the output](ts-codegen.md#compiling-the-output).
 
+### A Src From Another Package
+
+The same rule, one layer out, and the one half of it a `srcs` list can decide on
+its own — so it is decided while the BUILD file loads, before anything is
+analysed. A src is compiled into the package of the target that **lists** it:
+its outputs are declared under that package, and the root its package-relative
+path hangs off comes from the same place. A file from another package therefore
+hangs off the exec root while this package's own sources hang off the package:
+
+```
+ts_compile: srcs on //src/app:app mix this package's own files with files that
+live in another package:
+  //packages/shared:util.ts
+```
+
+Give the file a target in its own package and depend on that; set `module_name`
+on it when the import is by bare specifier. The same two escape hatches apply,
+and the check is skipped when either is set.
+
+Two shapes are accepted. A target whose srcs **all** come from elsewhere has one
+root like any other — it is what every `ts_compile` in the top-level package
+looks like. And a `.d.ts` from anywhere is passed through rather than compiled,
+which is what lets `vite_types = True` prepend the Vite shim from
+`@rules_typescript//ts`.
+
 ## Deps Have to Be Direct
 
 A source may import only what a **direct** dep provides. Every `ts_compile`
