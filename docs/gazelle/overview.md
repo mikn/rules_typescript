@@ -150,12 +150,15 @@ By default (**every-dir mode**), every directory that contains `.ts` or `.tsx` s
 
 Test files (`*.test.ts`, `*.spec.ts`, `*.test.tsx`, `*.spec.tsx`) generate `ts_test` targets automatically in both modes.
 
+Doc and story files (`*.doc.ts`, `*.doc.tsx`, `*.stories.ts`, `*.stories.tsx`) generate a separate `ts_compile` target in both modes, for the same reason: a doc file consumes the library rather than belonging to it. Left in the package target, a design system where `switch/switch.doc.tsx` imports `../label` and `label/label.doc.tsx` imports `../switch` is a dependency cycle between the two component packages, even though neither component depends on the other. Like test files, they are outside the `ts_lint` target's sources, and like the `ts_test` target they also get the package's ambient `.d.ts` files: nothing imports an ambient declaration, so only `srcs` membership puts it in a program. `.mdx` files are not TypeScript sources and are unaffected.
+
 ## Generated Target Names
 
 | Rule | Name |
 |------|------|
 | `ts_compile` | directory basename (`src/components` → `components`), `root` at the repository root, or `# gazelle:ts_target_name` |
 | `ts_test` | `<ts_compile name>_test` |
+| `ts_compile` (docs and stories) | `<ts_compile name>_doc` |
 | `ts_lint` | `<ts_compile name>_lint` |
 | `ts_dev_server` | `dev` |
 | `css_library`, `css_module`, `asset_library`, `json_library` | the source filename with `.` replaced by `_` |
@@ -176,11 +179,12 @@ no `dev` target yet, so a hand-added
 
 ## The compilerOptions Baseline
 
-Every generated `ts_compile` and `ts_test` names the nearest hand-written
-`tsconfig.json` in its own directory or an ancestor, so a target compiles under
-the repo's own `lib`, `types`, `jsx` and strictness rather than only the
-ruleset's defaults. A `ts_config` target beside the file is what makes it a
-label a subpackage can name:
+Every generated `ts_compile` — the package target and the `_doc` one alike —
+and every `ts_test` names the nearest hand-written `tsconfig.json` in its own
+directory or an ancestor, so a target compiles under the repo's own `lib`,
+`types`, `jsx` and strictness rather than only the ruleset's defaults. A
+`ts_config` target beside the file is what makes it a label a subpackage can
+name:
 
 ```python
 # packages/core/BUILD.bazel
@@ -212,7 +216,8 @@ it, so running Gazelle over a working build does not silently un-set them. See
 [where compiler options come from](../rules/ts-compile.md#where-compiler-options-come-from).
 
 Three cases get no attribute rather than a label into a directory Gazelle writes
-no BUILD file into, each logged with the fix:
+no BUILD file into, each logged with the fix. The label is resolved once per
+package, so a refusal reaches every target there — the `_doc` one included:
 
 - a directory under a `# gazelle:ts_ignore`, and one inside a tree Next.js or
   SvelteKit stages by glob;
@@ -228,8 +233,9 @@ out of the very targets that would name them.
 Starlark cannot read a tsconfig to follow its `extends` chain, so a file that
 extends another needs that chain in the generated `ts_config`'s `deps`. Gazelle
 does not own that attribute, and a value written there survives every later run
-without a `# keep`. `tsconfig` on the compile and test targets **is** Gazelle's,
-recomputed on every run, so a hand-picked baseline needs a `# keep` on its line.
+without a `# keep`. `tsconfig` on the compile, doc and test targets **is**
+Gazelle's, recomputed on every run, so a hand-picked baseline needs a `# keep`
+on its line.
 
 ## Automatic Lint Targets
 

@@ -95,6 +95,13 @@ func isTestFile(name string) bool {
 	return strings.HasSuffix(base, ".test") || strings.HasSuffix(base, ".spec")
 }
 
+// isDocFile returns true for files that document or demonstrate the package.
+// Patterns: *.doc.ts, *.doc.tsx, *.stories.ts, *.stories.tsx
+func isDocFile(name string) bool {
+	base := strings.TrimSuffix(strings.TrimSuffix(name, ".tsx"), ".ts")
+	return strings.HasSuffix(base, ".doc") || strings.HasSuffix(base, ".stories")
+}
+
 // builtinGeneratedSuffixes is the set of name suffixes (after stripping the
 // .ts/.tsx extension) that identify generated files that should be excluded
 // from source targets. These patterns are always active regardless of any
@@ -234,12 +241,13 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	var (
 		srcFiles       []string // non-test, non-generated .ts/.tsx files
 		testFiles      []string // *.test.ts, *.spec.ts, etc.
+		docFiles       []string // *.doc.tsx, *.stories.tsx, etc.
 		cssFiles       []string // plain .css source files (side-effect imports)
 		cssModuleFiles []string // *.module.css files (default import → typed styles)
 		assetFiles     []string // image/font/svg asset files (NOT json)
 		jsonFiles      []string // .json data files → json_library (typed .d.ts)
 		excludedSrcs   []string // .ts/.tsx a ts_exclude directive dropped
-		ambientFiles   []string // .d.ts declaring globals, needed by every target here
+		ambientFiles   []string // .d.ts declaring globals, which only srcs membership carries
 		hasIndex       bool
 	)
 
@@ -286,6 +294,10 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 			testFiles = append(testFiles, f)
 			continue
 		}
+		if isDocFile(f) {
+			docFiles = append(docFiles, f)
+			continue
+		}
 		srcFiles = append(srcFiles, f)
 		if isIndexFile(f) {
 			hasIndex = true
@@ -302,6 +314,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	if claimed := claimedSrcs(args, tc, codegenPatterns); len(claimed) > 0 {
 		srcFiles = dropClaimed(srcFiles, claimed)
 		testFiles = dropClaimed(testFiles, claimed)
+		docFiles = dropClaimed(docFiles, claimed)
 		ambientFiles = dropClaimed(ambientFiles, claimed)
 		cssFiles = dropClaimed(cssFiles, claimed)
 		cssModuleFiles = dropClaimed(cssModuleFiles, claimed)
@@ -368,6 +381,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		if claimed := claimedSrcs(args, tc, codegenPatterns); len(claimed) > 0 {
 			rolled.srcs = dropClaimed(rolled.srcs, claimed)
 			rolled.tests = dropClaimed(rolled.tests, claimed)
+			rolled.docs = dropClaimed(rolled.docs, claimed)
 			rolled.ambient = dropClaimed(rolled.ambient, claimed)
 			rolled.css = dropClaimed(rolled.css, claimed)
 			rolled.cssModules = dropClaimed(rolled.cssModules, claimed)
@@ -376,6 +390,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		}
 		srcFiles = append(srcFiles, rolled.srcs...)
 		testFiles = append(testFiles, rolled.tests...)
+		docFiles = append(docFiles, rolled.docs...)
 		ambientFiles = append(ambientFiles, rolled.ambient...)
 		cssFiles = append(cssFiles, rolled.css...)
 		cssModuleFiles = append(cssModuleFiles, rolled.cssModules...)
@@ -383,6 +398,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		jsonFiles = append(jsonFiles, rolled.json...)
 		sort.Strings(srcFiles)
 		sort.Strings(testFiles)
+		sort.Strings(docFiles)
 	}
 
 	// A generator that named no srcs reads the sources of the target it sits
@@ -409,8 +425,8 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	}
 
 	totalNonTS := len(cssFiles) + len(cssModuleFiles) + len(assetFiles) + len(jsonFiles)
-	if !isBoundary && len(srcFiles) == 0 && len(testFiles) == 0 && totalNonTS == 0 &&
-		len(codegenPatterns) == 0 && tsConfigRule == nil {
+	if !isBoundary && len(srcFiles) == 0 && len(testFiles) == 0 && len(docFiles) == 0 &&
+		totalNonTS == 0 && len(codegenPatterns) == 0 && tsConfigRule == nil {
 		// No TypeScript, CSS, asset, or JSON files and not a boundary: nothing to do.
 		// A declared generator is a target of its own, though: a package whose
 		// sources are all generated holds nothing else.
@@ -458,7 +474,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	// Resolved once, and only where a target would carry it: a refusal is worth
 	// one log line per package that wanted the baseline, not one per directory.
 	tsConfigAttr := ""
-	if (isBoundary && len(srcFiles) > 0) || len(testFiles) > 0 || hasEntry {
+	if (isBoundary && len(srcFiles) > 0) || len(testFiles) > 0 || len(docFiles) > 0 || hasEntry {
 		tsConfigAttr = tsConfigLabel(args, tc)
 	}
 
@@ -684,9 +700,13 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		// both what the test files directly import AND what the production code in
 		// this package imports.  Without the production imports, the auto-generated
 		// node_modules tree would be missing packages needed by the SUT.
+		//
+		// The doc files too: a test that composes a story runs the story's npm
+		// imports, which left this package's sources when the doc target did.
 		var allPackageImports []string
 		allPackageImports = append(allPackageImports, allImports...)
 		allPackageImports = append(allPackageImports, importsIn(args.Dir, srcsWithEntry)...)
+		allPackageImports = append(allPackageImports, importsIn(args.Dir, docFiles)...)
 
 		name := testTargetName(targetNameForDir(tc, args.Rel))
 
@@ -774,6 +794,44 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 				}
 			}
 		}
+	}
+
+	// ---- doc target --------------------------------------------------------
+	// A doc file consumes the package rather than belonging to it, so it compiles
+	// on its own -- as a ts_compile, since unlike a test there is nothing to run.
+	// In the package target, two components demonstrating each other are a cycle
+	// between their directories although neither component depends on the other.
+
+	docName := docTargetName(targetNameForDir(tc, args.Rel))
+	if len(docFiles) > 0 {
+		sort.Strings(docFiles)
+
+		// Nothing imports an ambient .d.ts, so no dep edge carries one into this
+		// program: a story reaching a global declared beside it needs it in srcs.
+		docSrcs := append(append([]string(nil), docFiles...), ambientFiles...)
+		sort.Strings(docSrcs)
+
+		r := rule.NewRule("ts_compile", docName)
+		r.SetAttr("srcs", docSrcs)
+		r.SetAttr("visibility", []string{"//visibility:public"})
+		if tc.declarations != "" && tc.declarations != "tsgo" {
+			r.SetAttr("declarations", tc.declarations)
+		}
+
+		// A story is TypeScript in this package: it needs the package's own lib,
+		// types and strictness for the same reason its sources do, and the same
+		// label they name, so a refusal refuses for all of them at once.
+		setTsConfig(r, tsConfigAttr)
+
+		docImports := importsIn(args.Dir, docFiles)
+		if used := usedPathAliases(tc, args.Rel, docSrcs, docImports); len(used) > 0 {
+			r.SetAttr("path_aliases", used)
+		}
+
+		gen = append(gen, r)
+		imports = append(imports, uniqueImports(docImports))
+	} else if ruleExists(args, "ts_compile", docName) {
+		empty = append(empty, rule.NewRule("ts_compile", docName))
 	}
 
 	// ---- ts_codegen targets ------------------------------------------------
@@ -1274,6 +1332,12 @@ func testTargetName(libName string) string {
 	return libName + "_test"
 }
 
+// docTargetName returns the conventional name for the ts_compile target holding
+// a package's doc and story files.
+func docTargetName(libName string) string {
+	return libName + "_doc"
+}
+
 // reservedTSTargetNames returns the target names the TypeScript rules in a
 // directory own. Non-TypeScript libraries must avoid these.
 func reservedTSTargetNames(tc *tsConfig, rel string) map[string]struct{} {
@@ -1282,6 +1346,7 @@ func reservedTSTargetNames(tc *tsConfig, rel string) map[string]struct{} {
 		name:                 {},
 		name + "_lint":       {},
 		testTargetName(name): {},
+		docTargetName(name):  {},
 		"dev":                {},
 		"node_modules":       {},
 	}

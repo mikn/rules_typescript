@@ -64,6 +64,7 @@ func managedAttrCases() []nonLiteralCase {
 		{workspace: "plain", pkg: "src", kind: "ts_compile", target: "src", attr: "visibility", class: "list"},
 		{workspace: "plain", pkg: "src", kind: "ts_compile", target: "src", attr: "tsconfig", class: "scalar"},
 		{workspace: "plain", pkg: "src/lib", kind: "ts_test", target: "lib_test", attr: "srcs", class: "list"},
+		{workspace: "plain", pkg: "src/lib", kind: "ts_test", target: "lib_test", attr: "deps", class: "list"},
 		{workspace: "plain", pkg: "src/lib", kind: "ts_test", target: "lib_test", attr: "tsconfig", class: "scalar"},
 		{workspace: "plain", kind: "ts_config", target: "tsconfig", attr: "src", class: "scalar"},
 		{workspace: "plain", kind: "ts_config", target: "tsconfig", attr: "visibility", class: "list"},
