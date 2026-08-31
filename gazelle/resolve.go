@@ -259,7 +259,7 @@ func isRelativeImport(imp string) bool {
 // Bazel label, by asking the rule index for every module path the specifier
 // could name and falling back to a constructed label when none is indexed.
 func resolveRelative(
-	_ *config.Config,
+	c *config.Config,
 	ix *resolve.RuleIndex,
 	imp string,
 	from label.Label,
@@ -267,7 +267,7 @@ func resolveRelative(
 	// from.Pkg is the package directory (rel), e.g. "src/components/button".
 	targetRel := path.Clean(path.Join(from.Pkg, imp))
 
-	for _, key := range moduleIndexKeys(targetRel, relativeImportExtensions) {
+	for _, key := range moduleIndexKeys(c.RepoRoot, targetRel, relativeImportExtensions) {
 		if lbl, selfImport := lookupInIndex(ix, key, from); lbl != "" {
 			return lbl
 		} else if selfImport {
@@ -290,18 +290,34 @@ var relativeImportExtensions = []string{".ts", ".tsx", ".js", ".json", ".module.
 // importsForRule indexes a .ts/.tsx/.js src without it. The strict-deps checker
 // in ts/private/ts_compile.bzl drops it too; only one of them doing so leaves a
 // dep this tool cannot generate and the build rejects.
-func moduleIndexKeys(targetRel string, extensions []string) []string {
+//
+// A directory's own package.json is consulted between the two, where TypeScript
+// consults it: after the file the specifier could name outright, before the
+// index it falls back to.
+func moduleIndexKeys(repoRoot, targetRel string, extensions []string) []string {
 	bare := dropTsExtension(targetRel)
 
+	keys := fileIndexKeys(targetRel, extensions)
+	for _, module := range packageEntryModules(repoRoot, bare, "") {
+		keys = append(keys, fileIndexKeys(module, extensions)...)
+	}
+	for _, ext := range []string{".ts", ".tsx"} {
+		keys = append(keys, path.Join(bare, "index")+ext)
+	}
+	return keys
+}
+
+// fileIndexKeys returns the keys one module path could be indexed under: as
+// written, without the extension it spelled out, and with each extension it
+// could have omitted.
+func fileIndexKeys(targetRel string, extensions []string) []string {
+	bare := dropTsExtension(targetRel)
 	keys := []string{targetRel}
 	if bare != targetRel {
 		keys = append(keys, bare)
 	}
 	for _, ext := range extensions {
 		keys = append(keys, bare+ext)
-	}
-	for _, ext := range []string{".ts", ".tsx"} {
-		keys = append(keys, path.Join(bare, "index")+ext)
 	}
 	return keys
 }
@@ -446,7 +462,7 @@ func isPathAlias(tc *tsConfig, imp string) bool {
 //     point to files compiled into the parent package)
 //  4. labelForUnindexed for when nothing provides the target.
 func resolvePathAlias(
-	_ *config.Config,
+	c *config.Config,
 	ix *resolve.RuleIndex,
 	tc *tsConfig,
 	imp string,
@@ -459,7 +475,7 @@ func resolvePathAlias(
 	targetRel := path.Join(strings.TrimSuffix(m.dir, "/"), m.rest)
 	bare := dropTsExtension(targetRel)
 
-	keys := moduleIndexKeys(targetRel, []string{".ts", ".tsx", ".js"})
+	keys := moduleIndexKeys(c.RepoRoot, targetRel, []string{".ts", ".tsx", ".js"})
 	// Legacy bare index lookup (no extension).
 	keys = append(keys, path.Join(bare, "index"))
 	// Sub-path fallback: "@/utils/helpers" might refer to a file compiled into

@@ -369,7 +369,7 @@ func TestLabelForUnindexed(t *testing.T) {
 }
 
 func TestModuleIndexKeys_DropsTheSpelledOutExtension(t *testing.T) {
-	keys := moduleIndexKeys("src/lib/math.js", []string{".ts"})
+	keys := moduleIndexKeys(t.TempDir(), "src/lib/math.js", []string{".ts"})
 	want := []string{
 		"src/lib/math.js",
 		"src/lib/math",
