@@ -20,7 +20,7 @@ Directives go in `BUILD.bazel` files as comments and control how Gazelle generat
 | `# gazelle:ts_ambient_types @npm//:types_node` | Append a label to every generated `ts_compile` and `ts_test` deps list |
 | `# gazelle:ts_exclude *.generated.ts` | Exclude files matching this pattern from source targets |
 | `# gazelle:ts_warn_unresolved true` | Warn when an import cannot be resolved to a Bazel label |
-| `# gazelle:ts_codegen <name> <generator> <outs> [srcs:<csv>] [args…]` | Register a `ts_codegen` target in this directory |
+| `# gazelle:ts_codegen <name> <generator> <outs> [srcs:<csv>] [args…]` | Register a `ts_codegen` target in this directory; a `srcs:` entry may be a `glob()` call |
 | `# gazelle:ts_npm_hub npm_eslint` | Resolve bare specifiers in this tree into that npm hub repo, not the default `@npm` |
 
 That is the complete set: eleven directives. Gazelle warns on an unknown
@@ -341,6 +341,18 @@ generator that reads a schema names it:
 # gazelle:ts_codegen schema_types //tools:schemagen schema.gen.ts srcs:schema.graphql --out {out}
 ```
 
+A `srcs:` entry may be a `glob()` call instead of a file name, and the two mix —
+a generator reading one settings file plus a directory of catalogues names both:
+
+```python
+# gazelle:ts_codegen messages //tools:paraglide dir:compiled srcs:settings.json,glob(["messages/*.json"]) --outdir {out}
+```
+
+which writes `srcs = ["settings.json"] + glob(["messages/*.json"])`. Commas
+inside the call belong to it, so a glob may carry several patterns and an
+`exclude`. The field takes no whitespace: a directive is split on spaces before
+anything else, so write `glob(["a/*.json","b/*.json"])`, not `glob(["a/*.json", "b/*.json"])`.
+
 The directive is inherited by subdirectories the way every directive is, but the
 target it names is written in the one directory the directive was written in.
 
@@ -363,6 +375,13 @@ For a generator that writes a whole directory, prefix the outs field with
 ```python
 # gazelle:ts_codegen prisma_client @npm//:prisma_bin dir:generated/client generate --schema {srcs}
 ```
+
+The `dir:` form gets no `<name>_compile` and nothing in it resolves: Bazel
+declares the directory as one artifact, so no file inside it has a label, and
+`ts_compile` takes neither a directory in `srcs` nor a `ts_codegen` in `deps`.
+Reaching the output means writing a rule that adapts the directory to the
+providers `ts_compile.deps` reads, and depending on that by hand. The directive
+writes the target; wiring it up is yours.
 
 Gazelle also auto-detects Prisma, GraphQL codegen and OpenAPI generators, so a
 directive is only needed for a generator it does not recognise. Each of those

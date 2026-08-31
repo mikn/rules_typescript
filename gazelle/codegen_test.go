@@ -815,3 +815,98 @@ func TestConverge_GeneratedModuleResolvesThroughTheWholeCycle(t *testing.T) {
 		}
 	}
 }
+
+// A directive naming a glob has to reach the BUILD file as Starlark. Quoted,
+// it is a string on a label_list attr, which Bazel refuses to load at all --
+// so the directive's own inputs decide whether the package parses.
+func TestConverge_CodegenDirectiveWritesAGlobAsStarlark(t *testing.T) {
+	repoRoot := t.TempDir()
+	for name, content := range map[string]string{
+		"BUILD.bazel":          "",
+		"web/BUILD.bazel":      "# gazelle:ts_codegen messages //tools:paraglide dir:compiled srcs:settings.json,glob([\"messages/*.json\"]) --outdir {out}\n",
+		"web/settings.json":    "{}\n",
+		"web/messages/en.json": "{}\n",
+		"web/app.ts":           "export const x = 1;\n",
+	} {
+		full := filepath.Join(repoRoot, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	convergeGazelle(t, repoRoot)
+
+	data, err := os.ReadFile(filepath.Join(repoRoot, "web", "BUILD.bazel"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	build := string(data)
+	if !strings.Contains(build, `srcs = ["settings.json"] + glob(["messages/*.json"])`) {
+		t.Errorf("web/BUILD.bazel does not carry the directive's srcs as Starlark:\n%s", build)
+	}
+	if strings.Contains(build, `"glob(`) {
+		t.Errorf("the glob reached the BUILD file quoted, which Bazel rejects:\n%s", build)
+	}
+}
+
+// The srcs field is comma-separated, and a glob's own patterns are too.
+func TestParseCodegenDirective_GlobKeepsItsOwnCommas(t *testing.T) {
+	cp := parseCodegenDirective("web", `messages //tools:gen dir:compiled srcs:glob(["a/*.json","b/*.json"]) --outdir {out}`)
+	if cp == nil {
+		t.Fatal("directive rejected")
+	}
+	want := []string{`glob(["a/*.json","b/*.json"])`}
+	if !reflect.DeepEqual(cp.Srcs, want) {
+		t.Errorf("Srcs = %v, want %v", cp.Srcs, want)
+	}
+	if got, want := cp.Args, []string{"--outdir", "{out}"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Args = %v, want %v", got, want)
+	}
+}
+
+// A srcs entry that opens with "glob(" and is not one is refused outright: the
+// alternative is a rule whose generator reads fewer inputs than were named.
+func TestBuildCodegenRule_RefusesAnUnparseableGlob(t *testing.T) {
+	if r := buildCodegenRule(CodegenPattern{
+		Name:      "messages",
+		Generator: "//tools:gen",
+		OutDir:    "compiled",
+		Srcs:      []string{"settings.json", `glob(["a/*.json"`},
+	}); r != nil {
+		t.Errorf("rule emitted with srcs %v; want none", r.Attr("srcs"))
+	}
+}
+
+// out_dir declares one directory artifact, so no file in it has a label and no
+// import can name one. Writing a compile over it would only fail at analysis.
+func TestGenerate_OutDirCodegenGetsNoCompanionCompile(t *testing.T) {
+	res := runGenerateWithBuild(t, "web", `
+# gazelle:ts_codegen messages //tools:paraglide dir:compiled srcs:settings.json --outdir {out}
+`, map[string]string{
+		"app.ts":        "export const x = 1;\n",
+		"settings.json": "{}\n",
+	})
+	if generatedRule(res, "messages") == nil {
+		t.Fatalf("no ts_codegen for the directive; generated %v", generatedNames(t, res))
+	}
+	if r := generatedRule(res, "messages_compile"); r != nil {
+		t.Errorf("companion %s generated over an out_dir codegen", r.Kind())
+	}
+}
+
+// The directive is split on whitespace before anything else, so a glob's
+// patterns have to be written without a space after the comma. Written with
+// one, the entry is truncated -- and a truncated glob emits nothing rather than
+// a target Bazel cannot load.
+func TestBuildCodegenRule_RefusesAGlobBrokenByWhitespace(t *testing.T) {
+	cp := parseCodegenDirective("web", `messages //tools:gen dir:compiled srcs:glob(["a/*.json", "b/*.json"]) --outdir {out}`)
+	if cp == nil {
+		t.Fatal("directive rejected outright; want it refused when the rule is built")
+	}
+	if r := buildCodegenRule(*cp); r != nil {
+		t.Errorf("rule emitted from a truncated glob, srcs %v", r.Attr("srcs"))
+	}
+}
