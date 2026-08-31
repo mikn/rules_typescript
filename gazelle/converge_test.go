@@ -473,14 +473,52 @@ func danglingLabels(t *testing.T, repoRoot string) []string {
 	return out
 }
 
+// A label resolves to a rule in that package, or to a source file that package
+// holds. Not to any file that happens to sit at the path: a directory with no
+// BUILD file is not a package at all, so Bazel cannot load `//dir:file` there
+// however well the file stats -- which is exactly the dangling label an os.Stat
+// on its own says yes to, and the reason this walk once passed a workspace that
+// failed at analysis.
 func labelResolves(t *testing.T, repoRoot, pkg, name string) bool {
 	for _, r := range loadRules(t, repoRoot, pkg) {
 		if r.Name() == name {
 			return true
 		}
 	}
-	info, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(path.Join(pkg, name))))
-	return err == nil && !info.IsDir()
+	full := path.Join(pkg, name)
+	info, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(full)))
+	if err != nil || info.IsDir() {
+		return false
+	}
+	// A source file belongs to the innermost package above it, and no other
+	// package can name it as one.
+	holder, inPackage := enclosingPackage(repoRoot, full)
+	return inPackage && holder == pkg
+}
+
+// enclosingPackage is the innermost directory at or above the file's own that
+// holds a BUILD file -- the package Bazel reads a source label for it out of --
+// and whether any directory up to the root is one.
+func enclosingPackage(repoRoot, filePath string) (string, bool) {
+	dir := path.Dir(filePath)
+	if dir == "." {
+		dir = ""
+	}
+	for {
+		for _, name := range []string{"BUILD.bazel", "BUILD"} {
+			if _, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(dir), name)); err == nil {
+				return dir, true
+			}
+		}
+		if dir == "" {
+			return "", false
+		}
+		if parent := path.Dir(dir); parent == "." || parent == dir {
+			dir = ""
+		} else {
+			dir = parent
+		}
+	}
 }
 
 // ---- small helpers ---------------------------------------------------------

@@ -4,6 +4,9 @@
 # would turn it into a package and make those labels cross a package boundary.
 # gazelle:exclude nested
 
+# A compilerOptions baseline, not data: it is named by the tsconfig attr.
+# gazelle:exclude silent.tsconfig.json
+
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "css_library", "ts_compile")
 load(
@@ -20,6 +23,8 @@ load(
     "oxc_command_line_test",
     "quoted_option_test",
     "rejected_tsgo_arg_test",
+    "tsconfig_baseline_test",
+    "zero_config_baseline_test",
 )
 
 package(default_visibility = ["//:__pkg__"])
@@ -52,6 +57,30 @@ oxc_command_line_test(
 build_test(
     name = "allowed_tsgo_arg_test",
     targets = [":everything"],
+)
+
+zero_config_baseline_test(
+    name = "zero_config_baseline_test",
+    target_under_test = ":everything",
+)
+
+# A tsconfig that says nothing about the five options the ruleset supplies in
+# either mode. Naming it used to drop all five; now they arrive under it.
+ts_compile(
+    name = "over_tsconfig",
+    srcs = ["baselined.ts"],
+    tsconfig = "silent.tsconfig.json",
+)
+
+tsconfig_baseline_test(
+    name = "tsconfig_baseline_test",
+    target_under_test = ":over_tsconfig",
+)
+
+# tsgo has to accept the two-entry extends list, which only a real build says.
+build_test(
+    name = "tsconfig_baseline_build_test",
+    targets = [":over_tsconfig"],
 )
 
 # A src from another package hangs off the exec root, which is the shape a

@@ -153,6 +153,76 @@ def _quoted_option_impl(ctx):
 
 quoted_option_test = analysistest.make(_quoted_option_impl)
 
+# The five options a target gets from the ruleset in either mode. Restated here
+# rather than imported: the point of the assertion is that a change to
+# _BASELINE_OPTIONS is a change somebody has to come and make here too.
+_BASELINE_KEYS = {
+    "strict": True,
+    "module": "Preserve",
+    "moduleResolution": "Bundler",
+    "skipLibCheck": True,
+    "esModuleInterop": True,
+}
+
+def _zero_config_baseline_impl(ctx):
+    """With no `tsconfig`, the baseline is in the generated file itself."""
+    env = analysistest.begin(ctx)
+    action = _written_file_action(env, ".tsconfig.json")
+    asserts.true(env, action != None, "ts_compile generated no tsconfig")
+    if action == None:
+        return analysistest.end(env)
+
+    config = json.decode(action.content)
+    asserts.equals(env, None, config.get("extends"), "no tsconfig, so nothing to extend")
+    for key, want in _BASELINE_KEYS.items():
+        asserts.equals(env, want, config["compilerOptions"].get(key), key)
+    return analysistest.end(env)
+
+zero_config_baseline_test = analysistest.make(_zero_config_baseline_impl)
+
+def _tsconfig_baseline_impl(ctx):
+    """With a `tsconfig`, the baseline is a file that config extends FIRST.
+
+    Naming a tsconfig has to add what the file says rather than subtract what
+    the ruleset already guaranteed, and `extends` is the only place a layer can
+    sit under the file: a later entry in the list overrides an earlier one, so
+    the baseline reaches only the keys the user's chain never mentions.
+    """
+    env = analysistest.begin(ctx)
+    action = _written_file_action(env, ".tsconfig.json")
+    baseline = _written_file_action(env, ".tsconfig_baseline.json")
+    asserts.true(env, action != None, "ts_compile generated no tsconfig")
+    asserts.true(env, baseline != None, "ts_compile wrote no baseline to extend")
+    if action == None or baseline == None:
+        return analysistest.end(env)
+
+    config = json.decode(action.content)
+    chain = config.get("extends")
+    asserts.equals(env, "list", type(chain), "extends is a list: " + str(chain))
+    if type(chain) != "list" or len(chain) != 2:
+        asserts.true(env, False, "extends names the baseline and the user's file: " + str(chain))
+        return analysistest.end(env)
+    asserts.true(
+        env,
+        chain[0].endswith(".tsconfig_baseline.json"),
+        "the baseline is extended first, so the user's file wins: " + str(chain),
+    )
+    asserts.true(
+        env,
+        chain[1].endswith("/silent.tsconfig.json"),
+        "the user's file is extended last: " + str(chain),
+    )
+
+    for key, want in _BASELINE_KEYS.items():
+        asserts.equals(env, want, json.decode(baseline.content)["compilerOptions"].get(key), key)
+
+        # In the generated file these would beat the user's tsconfig instead of
+        # falling behind it.
+        asserts.equals(env, None, config["compilerOptions"].get(key), key + " stays out of the generated file")
+    return analysistest.end(env)
+
+tsconfig_baseline_test = analysistest.make(_tsconfig_baseline_impl)
+
 def _fails_with(message):
     def _impl(ctx):
         env = analysistest.begin(ctx)

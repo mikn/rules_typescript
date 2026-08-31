@@ -171,9 +171,13 @@ _RULESET_OPTIONS = {
     "allowArbitraryExtensions": True,
 }
 
-# Applied only when no `tsconfig` is supplied: with one, the ruleset contributes
-# no opinions of its own, so tsgo sees what tsc would.
-_ZERO_CONFIG_OPTIONS = {
+# The options a TypeScript target gets from this ruleset whether or not it names
+# a `tsconfig`. Without one they go straight into the generated config; with one
+# they go into a file that config extends FIRST, so every key the user's tsconfig
+# (or its own extends chain) mentions wins and only the keys it says nothing
+# about fall back here. Naming a tsconfig therefore adds what the file says
+# instead of subtracting what the ruleset already guaranteed.
+_BASELINE_OPTIONS = {
     "strict": True,
     "module": "Preserve",
     "moduleResolution": "Bundler",
@@ -238,6 +242,20 @@ def _requested_types(ctx):
         return []
     return [v for v in value if type(v) == "string"]
 
+def _write_baseline_tsconfig(ctx):
+    """Writes _BASELINE_OPTIONS as a tsconfig for the generated one to extend.
+
+    A file rather than a dict merge because Starlark cannot read the user's
+    tsconfig to see which keys it already sets; TypeScript resolves that itself,
+    and an `extends` list is the only place a layer can sit *under* the file.
+    """
+    out = ctx.actions.declare_file("{}.tsconfig_baseline.json".format(ctx.label.name))
+    ctx.actions.write(
+        output = out,
+        content = json.encode_indent({"compilerOptions": _BASELINE_OPTIONS}, indent = "  "),
+    )
+    return out
+
 def _generate_tsconfig(
         ctx,
         srcs,
@@ -245,6 +263,7 @@ def _generate_tsconfig(
         ambient_dts = None,
         module_paths = None,
         extends_file = None,
+        baseline_file = None,
         allow_js = False,
         emit_declarations = False,
         emit_root_dir = None,
@@ -253,16 +272,18 @@ def _generate_tsconfig(
 
     Layered lowest precedence first:
 
-      1. `extends_file` -- the user's own tsconfig.json, referenced (not
+      1. `baseline_file` -- _BASELINE_OPTIONS as a file, extended before the
+         user's, so it reaches only the keys the user's chain never mentions.
+      2. `extends_file` -- the user's own tsconfig.json, referenced (not
          copied), so every relative path inside it still resolves against the
          directory it was written for.
-      2. _RULESET_OPTIONS and allowJs.
-      3. _ZERO_CONFIG_OPTIONS -- only when there is no `extends_file`.
+      3. _RULESET_OPTIONS and allowJs, plus _BASELINE_OPTIONS when there is no
+         `extends_file` to put them under.
       4. compiler_options_json -- what the user asked for, via the ts_compile
          macro's lib / types / target / jsx / compiler_options arguments.
       5. Bazel-owned options: _BAZEL_OWNED_OPTIONS plus paths and include.
 
-    Layers 2-5 all land in this generated file, so they override the user's
+    Layers 3-5 all land in this generated file, so they override the user's
     tsconfig wholesale, per key, exactly as TypeScript's own `extends` does.
 
     Args:
@@ -276,6 +297,8 @@ def _generate_tsconfig(
         module_paths: struct(module_name, declaration_root, source_root) from
                       every dep that declared a module_name.
         extends_file: The user's tsconfig.json, or None for zero-config.
+        baseline_file: _BASELINE_OPTIONS written out, or None when there is no
+                      `extends_file` to layer them under.
         allow_js:     True when a JavaScript src is in `include`.
         emit_declarations: True when tsgo emits the .d.ts (declarations =
                       "tsgo"), False when it only reports diagnostics.
@@ -294,8 +317,10 @@ def _generate_tsconfig(
     if allow_js:
         opts["allowJs"] = True
 
+    # With an extends_file the same options arrive through baseline_file, under
+    # it rather than over it.
     if not extends_file:
-        opts.update(_ZERO_CONFIG_OPTIONS)
+        opts.update(_BASELINE_OPTIONS)
 
     # target and jsx come from the attrs in every mode, including over a
     # tsconfig baseline: oxc transforms with them, and the two compilers
@@ -424,7 +449,14 @@ def _generate_tsconfig(
         # module specifier.
         if not extends_dir.startswith("."):
             extends_dir = "./" + extends_dir
-        config["extends"] = extends_dir + "/" + extends_file.basename
+        chain = [extends_dir + "/" + extends_file.basename]
+
+        # A list, and the ruleset's baseline first: a later entry overrides an
+        # earlier one, so the user's file and its own extends chain win every key
+        # they mention and the baseline reaches only the rest.
+        if baseline_file:
+            chain.insert(0, "./" + baseline_file.basename)
+        config["extends"] = chain if len(chain) > 1 else chain[0]
     config["compilerOptions"] = opts
     config["include"] = include
 
@@ -1288,8 +1320,10 @@ def _ts_compile_impl(ctx):
     # to follow it, so a ts_config target declares it and we make every file in
     # it an action input.
     tsconfig_chain = []
+    baseline_file = None
     if ctx.file.tsconfig:
-        tsconfig_chain = [ctx.file.tsconfig]
+        baseline_file = _write_baseline_tsconfig(ctx)
+        tsconfig_chain = [ctx.file.tsconfig, baseline_file]
         if TsConfigInfo in ctx.attr.tsconfig:
             tsconfig_chain += ctx.attr.tsconfig[TsConfigInfo].deps_tsconfigs.to_list()
 
@@ -1455,6 +1489,7 @@ def _ts_compile_impl(ctx):
                           dep_globals_depset.to_list(),
             module_paths = module_paths,
             extends_file = ctx.file.tsconfig,
+            baseline_file = baseline_file,
             allow_js = bool(js_srcs),
             emit_declarations = tsgo_emits_dts,
             emit_root_dir = emit_root_dir,
@@ -1712,13 +1747,15 @@ copied, so relative paths inside it keep resolving against the directory they
 were written for.
 
 The generated tsconfig `extends` this file and overrides the options Bazel owns
-(see _BAZEL_OWNED_OPTIONS) plus paths and include. Everything else -- strict,
-module, moduleResolution, lib, the strict* family, verbatimModuleSyntax and the
-rest -- is whatever the file says, so tsgo checks the code under the same
-options `tsc` would.
+(see _BAZEL_OWNED_OPTIONS) plus paths and include. Everything else -- lib, the
+strict* family, verbatimModuleSyntax and the rest -- is whatever the file says,
+so tsgo checks the code under the same options `tsc` would.
 
-Leave it unset for the zero-config baseline (strict, module Preserve,
-moduleResolution Bundler, skipLibCheck, esModuleInterop).""",
+Setting this attribute adds the file's options; it never takes the ruleset's
+baseline away. strict, module Preserve, moduleResolution Bundler, skipLibCheck
+and esModuleInterop apply either way, and with a `tsconfig` they sit UNDER it:
+every one of the five the file (or its own extends chain) mentions comes from
+the file, and only the ones it says nothing about fall back to the baseline.""",
             allow_single_file = [".json"],
         ),
         "compiler_options_json": attr.string(

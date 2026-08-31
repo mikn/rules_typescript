@@ -57,11 +57,18 @@ sections list every break with the edit it requires.
   `compiler_options`, `module_name`. See
   [ts_compile](https://mikn.github.io/rules_typescript/rules/ts-compile/#where-compiler-options-come-from)
   for the precedence rules.
-- The generated tsconfig no longer sets `strict`, `module`,
-  `moduleResolution`, `skipLibCheck` and `esModuleInterop` unconditionally.
-  With `tsconfig` set they come from your file, or from tsc's defaults if it
-  omits them; without it the previous baseline still applies. A target extending
-  a non-strict tsconfig now checks under that file's options.
+- **`tsconfig` layers, it does not replace.** `strict`, `module: "Preserve"`,
+  `moduleResolution: "Bundler"`, `skipLibCheck` and `esModuleInterop` are
+  applied in **both** modes. Without a `tsconfig` they go into the generated
+  config as before. With one they go into a `<target>.tsconfig_baseline.json`
+  the generated config `extends` **first**, so every key your file — or its own
+  `extends` chain — mentions wins, and the baseline reaches only the keys it
+  says nothing about. A target extending a non-strict tsconfig still checks
+  under that file's options; a target whose tsconfig omits one of the five now
+  keeps the ruleset's value instead of falling back to tsc's default.
+  **Edit required** only if you were relying on a `tsconfig` to un-set one of
+  the five: say so in the file (`"strict": false`) and it wins, or override it
+  in `compiler_options`, which sits above both.
 - `target` and `jsx_mode` are still injected in every mode and supersede a
   `target`/`jsx` in the tsconfig file, since oxc transforms with them.
 - **New hard analysis error:** `compiler_options` naming any of the 16
@@ -113,7 +120,9 @@ sections list every break with the edit it requires.
   well as a label. Objects merge key by key, arrays concatenate base-first
   (matching vite's `mergeConfig`), later scalars win.
 - New attributes: `setup_files`, `global_setup`, `data`, `globals`,
-  `reporters`, `coverage_thresholds`.
+  `reporters`, `coverage_thresholds`, `tsconfig`. `tsconfig` is forwarded to the
+  `ts_compile` the macro generates; the rule already had the attribute, only the
+  macro did not pass it along.
 - `environment` is emitted into the config, no longer passed on the command
   line, and is no longer validated against a fixed set of names.
 - **A `*.module.css` import resolves to the real export map.** The Bazel
@@ -476,6 +485,36 @@ sections list every break with the edit it requires.
 
 ### Added
 
+- **Gazelle names a package's own `tsconfig.json` on the targets it
+  generates.** Nothing it wrote ever did, so every generated target compiled
+  against the ruleset's baseline alone while the repo's own `lib`, `types`, `jsx`
+  and strictness sat unread beside it — a worker whose tsconfig declares
+  `"lib": ["es2022"]` failing on the globals that `lib` grants. Every generated
+  `ts_compile` and `ts_test` now names the nearest hand-written `tsconfig.json`
+  walking up, the way tsserver resolves one, and a `ts_config` target beside
+  that file makes it a label a subpackage can reach. `deps` on that target — the
+  `extends` chain Starlark cannot read — is yours and survives every run without
+  a `# keep`.
+
+  The `ts_config` is written even into a directory that holds nothing else, which
+  is what the pnpm workspace-member layout is: `package.json` and `tsconfig.json`
+  beside each other with the sources under `src/`. Without it the label names a
+  target in a package Bazel never loads, and that fails analysis for the whole
+  workspace.
+
+  Three cases get no attribute rather than a label into a directory Gazelle
+  writes no BUILD file into, each logged with the fix: a directory under a
+  `# gazelle:ts_ignore` or inside a tree Next.js or SvelteKit stages by glob;
+  under `index-only` or `tsconfig` boundaries, one that is not already a package,
+  where a BUILD file written just to hold the `ts_config` would stop the roll-up
+  walk and drop every source beneath it; and one whose own target is already
+  named `tsconfig`. The `tsconfig.json` files `ts_refresh_tsconfig` writes are
+  skipped — they are built out of the very targets that would name them.
+
+  Naming a tsconfig adds its options and removes none: see the `ts_compile`
+  breaking note above for the baseline that now applies in both modes, which is
+  what keeps a plain `gazelle` run over a working build from changing what any
+  existing target already compiled with.
 - **`# gazelle:ts_ambient_types` declares ambient `@types` for a whole tree.**
   Every dep Gazelle writes comes from a specifier in a source file, so an
   ambient declaration — `process`, `Buffer`, `__dirname`, a test global — has

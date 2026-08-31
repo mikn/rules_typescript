@@ -62,7 +62,13 @@ func managedAttrCases() []nonLiteralCase {
 		{workspace: "plain", pkg: "src", kind: "ts_compile", target: "src", attr: "srcs", class: "list"},
 		{workspace: "plain", pkg: "src", kind: "ts_compile", target: "src", attr: "deps", class: "list"},
 		{workspace: "plain", pkg: "src", kind: "ts_compile", target: "src", attr: "visibility", class: "list"},
+		{workspace: "plain", pkg: "src", kind: "ts_compile", target: "src", attr: "tsconfig", class: "scalar"},
 		{workspace: "plain", pkg: "src/lib", kind: "ts_test", target: "lib_test", attr: "srcs", class: "list"},
+		{workspace: "plain", pkg: "src/lib", kind: "ts_test", target: "lib_test", attr: "tsconfig", class: "scalar"},
+		{workspace: "plain", kind: "ts_config", target: "tsconfig", attr: "src", class: "scalar"},
+		{workspace: "plain", kind: "ts_config", target: "tsconfig", attr: "visibility", class: "list"},
+
+		{workspace: "pnpm_member", pkg: "packages/core/src", kind: "ts_test", target: "src_test", attr: "deps", class: "list"},
 
 		{workspace: "tanstack", kind: "ts_bundle", target: "app", attr: "staging_srcs", class: "list"},
 		{workspace: "tanstack", pkg: "src/routes", kind: "filegroup", target: "sources", attr: "srcs", class: "list"},

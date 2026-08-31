@@ -54,8 +54,9 @@ is replaced unless a `# keep` holds it. `ts_compile.deps` and
 
 | Rule | Attributes Gazelle owns |
 |------|-------------------------|
-| `ts_compile` | `srcs`, `deps`, `visibility`, `path_aliases`, `declarations` |
-| `ts_test` | `srcs`, `deps` |
+| `ts_compile` | `srcs`, `deps`, `visibility`, `path_aliases`, `declarations`, `tsconfig` |
+| `ts_test` | `srcs`, `deps`, `tsconfig` |
+| `ts_config` | `src`, `visibility` — `deps`, the `extends` chain, is yours |
 | `ts_lint` | `srcs`, `linter`, `linter_binary`, `config`, `fail_on_warnings` |
 | `css_library`, `css_module`, `asset_library`, `json_library` | `srcs`, `deps`, `visibility` |
 | `ts_codegen` | `outs`, `out_dir`, `visibility` |

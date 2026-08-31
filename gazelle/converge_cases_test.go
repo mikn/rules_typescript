@@ -107,6 +107,39 @@ func convergeCases() []convergeCase {
 			},
 		},
 		{
+			// The standard pnpm workspace-member shape: package.json and
+			// tsconfig.json in the member root, sources one directory down. That
+			// root classifies no source of its own, so generation there used to
+			// stop before anything was written -- and a label naming its
+			// tsconfig had nothing to resolve against.
+			name: "pnpm_member",
+			files: map[string]string{
+				"package.json":                   convergePlainPkg,
+				"pnpm-workspace.yaml":            "packages:\n  - packages/*\n",
+				"tsconfig.json":                  `{"compilerOptions":{"strict":true}}` + "\n",
+				"packages/core/package.json":     `{"name":"@w/core","version":"1.0.0"}` + "\n",
+				"packages/core/tsconfig.json":    `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
+				"packages/core/src/index.ts":     "export * from \"./util\";\n",
+				"packages/core/src/util.ts":      "export const util = 1;\n",
+				"packages/core/src/util.test.ts": "export const t = 1;\n",
+				"packages/app/package.json":      `{"name":"@w/app","version":"1.0.0"}` + "\n",
+				"packages/app/src/main.ts":       "export const main = 1;\n",
+			},
+			mutations: []convergeMutation{
+				{kind: "add_file_to_existing_target", write: map[string]string{"packages/core/src/format.ts": "export const format = 1;\n"}},
+				{kind: "add_member_with_tsconfig", write: map[string]string{
+					"packages/ui/package.json":  `{"name":"@w/ui","version":"1.0.0"}` + "\n",
+					"packages/ui/tsconfig.json": `{"compilerOptions":{"jsx":"react-jsx"}}` + "\n",
+					"packages/ui/src/button.ts": "export const button = 1;\n",
+				}},
+				{kind: "add_tsconfig_to_member", write: map[string]string{
+					"packages/app/tsconfig.json": `{"compilerOptions":{"strict":false}}` + "\n",
+				}},
+				{kind: "delete_member_tsconfig", remove: []string{"packages/core/tsconfig.json"}},
+				{kind: "add_nested_source_dir", write: map[string]string{"packages/core/src/nested/leaf.ts": "export const leaf = 1;\n"}},
+			},
+		},
+		{
 			name: "next",
 			files: map[string]string{
 				"package.json":           convergeNextPkg,

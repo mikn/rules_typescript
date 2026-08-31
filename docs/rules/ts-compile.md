@@ -92,15 +92,17 @@ baseline, and the generated one `extends` it.
 
 Lowest precedence first:
 
-1. **`tsconfig`** — the project's own `tsconfig.json`, and whatever it extends.
+1. **The ruleset baseline** — `strict`, `module: "Preserve"`,
+   `moduleResolution: "Bundler"`, `skipLibCheck`, `esModuleInterop`. Applied in
+   both modes: without a `tsconfig` they go straight into the generated file,
+   and with one they go into a file the generated config `extends` **before**
+   yours, so they reach only the keys your file never mentions.
+2. **`tsconfig`** — the project's own `tsconfig.json`, and whatever it extends.
    Referenced where it lives, never copied, so relative paths inside it still
-   resolve against the directory they were written for. When it is set the
-   ruleset adds no compiler opinions of its own, and tsgo checks the code under
-   the same options `tsc` does.
-2. **The zero-config baseline** — `strict`, `module: "Preserve"`,
-   `moduleResolution: "Bundler"`, `skipLibCheck`, `esModuleInterop`. Applied
-   **only** when `tsconfig` is unset. With a `tsconfig`, these come from your
-   file or from tsc's own defaults if the file omits them.
+   resolve against the directory they were written for. Everything it says wins
+   over layer 1, so tsgo checks the code under the options `tsc` would — and
+   setting the attribute adds what the file says instead of taking the baseline
+   away.
 3. **`target` and `jsx_mode`**, then `jsx_import_source`, `lib`, `types`, then
    `compiler_options`, which wins among these.
 4. **The options Bazel owns** — `paths`, `include`, and the 16 keys listed
@@ -110,11 +112,15 @@ Lowest precedence first:
 baseline, and supersede a `target` or `jsx` in the file. Oxc transforms with
 them, and the two compilers have to agree.
 
-One option rides in unasked between layers 1 and 2: `allowArbitraryExtensions`,
-which the `.d.ts` files generated for `css_module` / `css_library` /
-`asset_library` / `json_library` deps require. It overrides the value in your
-tsconfig file; to get your own value back, set it in `compiler_options`, which
-sits above it.
+One option rides in unasked above layer 2: `allowArbitraryExtensions`, which the
+`.d.ts` files generated for `css_module` / `css_library` / `asset_library` /
+`json_library` deps require. It overrides the value in your tsconfig file; to
+get your own value back, set it in `compiler_options`, which sits above it.
+
+Layer 1 is a real file — `<target>.tsconfig_baseline.json` beside the generated
+config — because Starlark cannot read your tsconfig to see which keys it
+already sets. TypeScript settles that itself: `extends` takes a list, and a
+later entry overrides an earlier one.
 
 ### The Two Hard Errors
 

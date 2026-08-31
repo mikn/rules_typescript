@@ -174,6 +174,63 @@ no `dev` target yet, so a hand-added
 `server = "@rules_typescript//oj:dev_server"` survives later runs. See
 [Choosing the server](../guides/dev-server.md#choosing-the-server).
 
+## The compilerOptions Baseline
+
+Every generated `ts_compile` and `ts_test` names the nearest hand-written
+`tsconfig.json` in its own directory or an ancestor, so a target compiles under
+the repo's own `lib`, `types`, `jsx` and strictness rather than only the
+ruleset's defaults. A `ts_config` target beside the file is what makes it a
+label a subpackage can name:
+
+```python
+# packages/core/BUILD.bazel
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+    visibility = ["//visibility:public"],
+)
+
+# packages/core/src/BUILD.bazel
+ts_compile(
+    name = "src",
+    srcs = ["index.ts"],
+    tsconfig = "//packages/core:tsconfig",
+    visibility = ["//visibility:public"],
+)
+```
+
+The `ts_config` goes into the directory holding the file even when nothing else
+there is a target: the pnpm workspace-member layout — `package.json` and
+`tsconfig.json` beside each other with the sources under `src/` — is exactly
+that shape, and without a BUILD file there the label above names a target in a
+package Bazel never loads, which fails analysis for the whole workspace.
+
+Naming a tsconfig **adds** its options and never removes the ruleset's own. The
+five the rule supplies — `strict`, `module: Preserve`, `moduleResolution:
+Bundler`, `skipLibCheck`, `esModuleInterop` — apply with a `tsconfig` too, under
+it, so running Gazelle over a working build does not silently un-set them. See
+[where compiler options come from](../rules/ts-compile.md#where-compiler-options-come-from).
+
+Three cases get no attribute rather than a label into a directory Gazelle writes
+no BUILD file into, each logged with the fix:
+
+- a directory under a `# gazelle:ts_ignore`, and one inside a tree Next.js or
+  SvelteKit stages by glob;
+- in the `index-only` and `tsconfig` boundary modes, one that is not already a
+  package — there, a BUILD file written just to hold the `ts_config` would stop
+  the roll-up walk and drop every source beneath it from the package above;
+- a directory whose own target is already named `tsconfig`.
+
+A tree with no `tsconfig.json` above it keeps the ruleset baseline alone. The
+`tsconfig.json` files `ts_refresh_tsconfig` writes are skipped: they are built
+out of the very targets that would name them.
+
+Starlark cannot read a tsconfig to follow its `extends` chain, so a file that
+extends another needs that chain in the generated `ts_config`'s `deps`. Gazelle
+does not own that attribute, and a value written there survives every later run
+without a `# keep`. `tsconfig` on the compile and test targets **is** Gazelle's,
+recomputed on every run, so a hand-picked baseline needs a `# keep` on its line.
+
 ## Automatic Lint Targets
 
 When a linter config file is present in the current directory or any ancestor, Gazelle automatically generates a `ts_lint` target alongside each `ts_compile` target. The lint target name is the compile target name with `_lint` appended.
