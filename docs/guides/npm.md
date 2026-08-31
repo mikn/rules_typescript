@@ -452,6 +452,10 @@ An alias label is created only when no real package in the lockfile already
 claims that name. An alias that resolves to two different packages in one
 lockfile is an error, because the hub is one flat namespace.
 
+How the alias was spelled makes no difference: `npm:h3@2.0.1` at the use site
+and a `catalog:` entry that pins the same thing produce the same lockfile entry,
+because pnpm resolves the catalog before it writes the file.
+
 ## Workspace Links
 
 A `workspace:*` dependency resolves to a target in your own repository, and its

@@ -25,6 +25,9 @@ catalogs:
     catalog-only-package:
       specifier: npm:nanoid@9.9.9
       version: nanoid@9.9.9
+    styles-alias:
+      specifier: npm:ansi-styles@6.2.3
+      version: 6.2.3
 
 overrides:
   nanoid@2: 3.3.11
@@ -54,6 +57,15 @@ importers:
       ms-alias:
         specifier: npm:ms@2.1.3
         version: ms@2.1.3
+      # The same thing routed through a catalog, so the alias's own name is the
+      # only place `npm:` ever appeared: pnpm substitutes the catalog entry and
+      # leaves the use site spelled `catalog:`. The resolution carries a peer
+      # set, which is the whole point -- an alias to a package pnpm resolved
+      # against peers is what the workspace actually has (tailwindcss-v3 in the
+      # Lovable monorepo).
+      styles-alias:
+        specifier: 'catalog:'
+        version: ansi-styles@6.2.3(ansi-regex@6.2.2)
       # A workspace member whose own target declares no module_name: the name
       # `ws-linked` exists nowhere but here, so an import of it resolves only if
       # the hub target the link produces carries it.

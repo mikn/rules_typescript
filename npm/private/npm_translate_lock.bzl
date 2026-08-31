@@ -484,8 +484,10 @@ def _parse_pnpm_lock(content):
 #                 contains "@", so an "@" past index 0 (index 0 being a scope,
 #                 as in '@typescript/typescript6@6.0.2') is the discriminator.
 #
-# Peer suffixes are stripped first: `1.2.3(react@19.0.0)` is a plain version
-# whose peer decoration would otherwise look like an alias.
+# Peer suffixes are stripped before that test: `1.2.3(react@19.0.0)` is a plain
+# version whose peer decoration would otherwise look like an alias. Stripped for
+# the test only -- what is recorded is the snapshot the value names, peers and
+# all, because that is the key the graph is built on.
 #
 # This reader anchors on `importers:` and stops at the next indent-0 line. It
 # must stay that way: `catalogs:` is the same nesting idiom one level shallower,
@@ -559,11 +561,11 @@ def _record_importer_dep(result, importer, dep_name, version):
             entry["links"][dep_name] = path
         return
     dep_sid = _dep_snapshot_id(dep_name, version)
-    if dep_sid:
-        entry["deps"][dep_name] = dep_sid
-    alias = _alias_target(version)
-    if alias:
-        result["aliases"][dep_name] = alias
+    if not dep_sid:
+        return
+    entry["deps"][dep_name] = dep_sid
+    if _alias_target(version):
+        result["aliases"][dep_name] = dep_sid
 
 def _parse_importers(content):
     """Parses the importers: section into workspace links and npm aliases.
@@ -571,7 +573,7 @@ def _parse_importers(content):
     Returns:
         dict: {
             "links":     {npm_package_name: workspace_rel_path},
-            "aliases":   {imported_name: "real_name@version"},
+            "aliases":   {imported_name: snapshot_id},
             "importers": {importer_path: {
                 "deps":  {dep_name: snapshot_id},
                 "links": {dep_name: workspace_rel_path},

@@ -705,6 +705,18 @@ sections list every break with the edit it requires.
 - **`typings` is read before `types`**, the order
   `readPackageJsonTypesFields` reads them in. Both layers that resolve a
   declaration entry point now agree.
+- **An npm alias resolved against peers gets its hub label.** An alias declared
+  by an importer was recorded with its peer suffix stripped —
+  `tailwindcss@3.4.18` for a dependency pnpm resolved as
+  `tailwindcss@3.4.18(tsx@4.23.12)(yaml@2.8.1)` — and that value is a
+  `packages:` key, while the hub looks an alias up among the `snapshots:`. It
+  matched nothing, so `@npm//:<alias>` did not exist at all and the
+  per-importer label pointed at a target the package's own repository was never
+  told to declare. An alias whose package pnpm resolved without peers was
+  unaffected, which is why the flat-hub alias support looked complete. A
+  `catalog:` entry is the common way to reach the broken half: the catalog names
+  the version, the use site says `catalog:`, and the resolution carries whatever
+  peers the package has.
 - **A pnpm `link:` workspace member reaches the runtime `node_modules` tree.**
   The hub target for a `workspace:*` dependency forwarded the providers a
   compiler reads and none that a `node_modules` tree is built from, so a

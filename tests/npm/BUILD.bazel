@@ -239,11 +239,20 @@ node_modules(
     deps = ["@npm_features//:zod"],
 )
 
+# The third route: an alias pnpm resolved against peers, spelled `catalog:` at
+# the use site. Its resolution is a `snapshots:` key and not a `packages:` one,
+# so it is the case a peer-stripped alias value cannot find.
+node_modules(
+    name = "catalog_alias_node_modules",
+    deps = ["@npm_features//:styles-alias"],
+)
+
 go_test(
     name = "npm_alias_test",
     size = "small",
     srcs = ["npm_alias_test.go"],
     data = [
+        ":catalog_alias_node_modules",
         ":importer_alias_node_modules",
         ":package_alias_node_modules",
     ],
