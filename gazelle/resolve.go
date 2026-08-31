@@ -230,7 +230,74 @@ func resolveImport(
 		} else if selfImport {
 			return ""
 		}
+		if lbl, isSelf := resolveWorkspaceSelfImport(c, ix, tc, imp, from); isSelf {
+			return lbl
+		}
 		return resolveNpmPackage(tc, imp)
+	}
+}
+
+// ---- workspace self-reference ----------------------------------------------
+
+// resolveWorkspaceSelfImport resolves a specifier naming the very package the
+// importing target belongs to -- Node's self-reference, which a workspace uses
+// to import through its own `exports` map rather than by relative path.
+//
+// The npm hub declares that name too, because pnpm resolved it to a workspace
+// link, and its target is the member's own compiling target: a dep on it from
+// inside the member is a cycle back to the importer. The local module the
+// manifest designates is the same code without the round trip.
+//
+// isSelf reports that the specifier was the member's own name and the hub label
+// must not be used, whether or not a target was found for it.
+func resolveWorkspaceSelfImport(
+	c *config.Config,
+	ix *resolve.RuleIndex,
+	tc *tsConfig,
+	imp string,
+	from label.Label,
+) (lbl string, isSelf bool) {
+	dir, ok := workspaceMemberDir(c, tc, from.Pkg)
+	if !ok {
+		return "", false
+	}
+	manifest := readPackageManifest(c.RepoRoot, dir)
+	if manifest == nil || manifest.Name != barePackageName(imp) {
+		return "", false
+	}
+
+	subpath := strings.TrimPrefix(imp, manifest.Name)
+	keys := packageEntryModules(c.RepoRoot, dir, subpath)
+	keys = append(keys, moduleIndexKeys(c.RepoRoot, path.Join(dir, subpath), relativeImportExtensions)...)
+	for _, key := range keys {
+		if lbl, selfImport := lookupInIndex(ix, key, from); lbl != "" {
+			return lbl, true
+		} else if selfImport {
+			return "", true
+		}
+	}
+	return "", true
+}
+
+// workspaceMemberDir walks up from a Bazel package to the nearest directory
+// holding a package.json, and reports it when the lockfile lists it as a pnpm
+// importer. Nearest, because a package nested inside a member -- an example app
+// under it, say -- is its own package and imports the member from the registry
+// like anyone else.
+func workspaceMemberDir(c *config.Config, tc *tsConfig, pkg string) (string, bool) {
+	if tc.workspaceMembers == nil {
+		return "", false
+	}
+	for dir := pkg; ; dir = path.Dir(dir) {
+		if dir == "." {
+			dir = ""
+		}
+		if readPackageManifest(c.RepoRoot, dir) != nil {
+			return dir, tc.workspaceMembers[dir]
+		}
+		if dir == "" {
+			return "", false
+		}
 	}
 }
 
@@ -259,7 +326,7 @@ func isRelativeImport(imp string) bool {
 // Bazel label, by asking the rule index for every module path the specifier
 // could name and falling back to a constructed label when none is indexed.
 func resolveRelative(
-	_ *config.Config,
+	c *config.Config,
 	ix *resolve.RuleIndex,
 	imp string,
 	from label.Label,
@@ -267,7 +334,7 @@ func resolveRelative(
 	// from.Pkg is the package directory (rel), e.g. "src/components/button".
 	targetRel := path.Clean(path.Join(from.Pkg, imp))
 
-	for _, key := range moduleIndexKeys(targetRel, relativeImportExtensions) {
+	for _, key := range moduleIndexKeys(c.RepoRoot, targetRel, relativeImportExtensions) {
 		if lbl, selfImport := lookupInIndex(ix, key, from); lbl != "" {
 			return lbl
 		} else if selfImport {
@@ -290,18 +357,34 @@ var relativeImportExtensions = []string{".ts", ".tsx", ".js", ".json", ".module.
 // importsForRule indexes a .ts/.tsx/.js src without it. The strict-deps checker
 // in ts/private/ts_compile.bzl drops it too; only one of them doing so leaves a
 // dep this tool cannot generate and the build rejects.
-func moduleIndexKeys(targetRel string, extensions []string) []string {
+//
+// A directory's own package.json is consulted between the two, where TypeScript
+// consults it: after the file the specifier could name outright, before the
+// index it falls back to.
+func moduleIndexKeys(repoRoot, targetRel string, extensions []string) []string {
 	bare := dropTsExtension(targetRel)
 
+	keys := fileIndexKeys(targetRel, extensions)
+	for _, module := range packageEntryModules(repoRoot, bare, "") {
+		keys = append(keys, fileIndexKeys(module, extensions)...)
+	}
+	for _, ext := range []string{".ts", ".tsx"} {
+		keys = append(keys, path.Join(bare, "index")+ext)
+	}
+	return keys
+}
+
+// fileIndexKeys returns the keys one module path could be indexed under: as
+// written, without the extension it spelled out, and with each extension it
+// could have omitted.
+func fileIndexKeys(targetRel string, extensions []string) []string {
+	bare := dropTsExtension(targetRel)
 	keys := []string{targetRel}
 	if bare != targetRel {
 		keys = append(keys, bare)
 	}
 	for _, ext := range extensions {
 		keys = append(keys, bare+ext)
-	}
-	for _, ext := range []string{".ts", ".tsx"} {
-		keys = append(keys, path.Join(bare, "index")+ext)
 	}
 	return keys
 }
@@ -446,7 +529,7 @@ func isPathAlias(tc *tsConfig, imp string) bool {
 //     point to files compiled into the parent package)
 //  4. labelForUnindexed for when nothing provides the target.
 func resolvePathAlias(
-	_ *config.Config,
+	c *config.Config,
 	ix *resolve.RuleIndex,
 	tc *tsConfig,
 	imp string,
@@ -459,7 +542,7 @@ func resolvePathAlias(
 	targetRel := path.Join(strings.TrimSuffix(m.dir, "/"), m.rest)
 	bare := dropTsExtension(targetRel)
 
-	keys := moduleIndexKeys(targetRel, []string{".ts", ".tsx", ".js"})
+	keys := moduleIndexKeys(c.RepoRoot, targetRel, []string{".ts", ".tsx", ".js"})
 	// Legacy bare index lookup (no extension).
 	keys = append(keys, path.Join(bare, "index"))
 	// Sub-path fallback: "@/utils/helpers" might refer to a file compiled into

@@ -178,6 +178,28 @@ func TestFrameworkEntry_GeneratedAlongsideThePackageTarget(t *testing.T) {
 	}
 }
 
+// An ambient .d.ts reaches a program only through srcs, and the entry is the
+// one target in the package that used to be given none: the globals declared
+// beside it were unknown inside it, which is a TS2304 no dep can repair.
+func TestFrameworkEntry_CarriesThePackagesAmbientDeclarations(t *testing.T) {
+	res := runGeneratePackage(t, "app",
+		map[string]string{"package.json": remixPackageJSON},
+		map[string]string{
+			"entry.client.tsx": remixEntryClient,
+			"root.tsx":         remixRoot,
+			"globals.d.ts":     "declare const __BUILD_ID__: string;\n",
+		}, "")
+
+	want := []string{"entry.client.tsx", "globals.d.ts"}
+	if got := mustRuleNamed(t, res, "entry_client").AttrStrings("srcs"); !slices.Equal(got, want) {
+		t.Errorf("entry_client srcs = %v, want %v", got, want)
+	}
+	if got := mustRuleNamed(t, res, "app").AttrStrings("srcs"); !slices.Equal(
+		got, []string{"globals.d.ts", "root.tsx"}) {
+		t.Errorf("app srcs = %v, want [globals.d.ts root.tsx]", got)
+	}
+}
+
 // TestFrameworkEntry_MatchesTheGeneratedBundleLabel: the entry target and the
 // entry_point attr are two spellings of one thing, so a run that writes both
 // must have them agree.

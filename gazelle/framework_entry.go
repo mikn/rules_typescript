@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/bazelbuild/bazel-gazelle/language"
@@ -106,9 +107,15 @@ func reportHandMaintainedEntry(args language.GenerateArgs, tc *tsConfig, exclude
 // frameworkEntryRule builds the single-file ts_compile the generated
 // entry_point label names. Its deps come from the resolver, like any other
 // generated ts_compile.
-func frameworkEntryRule(name, file string, tc *tsConfig) *rule.Rule {
+//
+// Single-file except for the package's ambient declarations: nothing imports
+// one, so no dep edge carries it, and splitting the entry out of the package
+// target is what took the globals declared beside it out of its program.
+func frameworkEntryRule(name, file string, ambient []string, tc *tsConfig) *rule.Rule {
 	r := rule.NewRule("ts_compile", name)
-	r.SetAttr("srcs", srcLabels([]string{file}))
+	srcs := append([]string{file}, ambient...)
+	sort.Strings(srcs)
+	r.SetAttr("srcs", srcLabels(srcs))
 	r.SetAttr("visibility", []string{"//visibility:public"})
 	if tc.declarations != "" && tc.declarations != "tsgo" {
 		r.SetAttr("declarations", tc.declarations)
