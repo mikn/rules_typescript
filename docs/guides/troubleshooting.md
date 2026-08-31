@@ -267,9 +267,45 @@ a reported failure unfixed is a bug. Two things are outside the check:
 import nothing in the closure provides at all, which TypeScript reports as
 `TS2307`.
 
+## Option 'baseUrl' has been removed
+
+```
+pkg/tsconfig.json(3,5): error TS5102: Option 'baseUrl' has been removed.
+Please remove it from your configuration.
+```
+
+`baseUrl` is gone in tsgo, and the generated config cannot take it back out of
+your file: the diagnostic fires on the key being *present* anywhere in the
+`extends` chain, so re-stating it above yours only moves the error. Delete it
+from the `tsconfig.json` the target names — `paths` here is Bazel's, rewritten
+per configuration, so nothing in this ruleset resolves against a `baseUrl`
+anyway. `compiler_options` rejects the key at analysis for the same reason; use
+`path_aliases` for a source alias.
+
+## Option 'moduleResolution' must be set to 'NodeNext'
+
+```
+pkg/tsconfig.json(2,3): error TS5109: Option 'moduleResolution' must be set to
+'NodeNext' (or left unspecified) when option 'module' is set to 'NodeNext'.
+```
+
+Two layers each supplying one half of a coupled pair. The ruleset states
+`moduleResolution` only where it also owns the `module` it belongs to, so a
+`module` of yours never has a stray baseline resolver under it — but two layers
+*of yours* still can: a `module` in the `tsconfig.json` the target names and a
+`moduleResolution` in `compiler_options` above it, or the same split across your
+own `extends` chain. Put both halves in one file, or drop the `moduleResolution`
+and let tsgo derive it.
+
+The mirror image, `TS5110`, is a `moduleResolution` of `Node16`/`NodeNext` with
+no `module` beside it. Without a `tsconfig` that fails at analysis instead, with
+the label and the value to set.
+
 ## Import Not Resolving in tsgo
 
-tsgo uses `moduleResolution: "Bundler"` with `paths` entries for direct npm deps.
+tsgo resolves with `moduleResolution: "Bundler"` — the ruleset's baseline, and
+what tsgo derives from every `module` but `Node16`/`NodeNext` — plus `paths`
+entries for direct npm deps.
 A bare import that resolves nowhere — no `TsStrictDeps` failure, just `TS2307` —
 means no dep in the closure provides it at all. Add the package:
 

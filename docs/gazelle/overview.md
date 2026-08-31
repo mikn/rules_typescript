@@ -210,9 +210,11 @@ that shape, and without a BUILD file there the label above names a target in a
 package Bazel never loads, which fails analysis for the whole workspace.
 
 Naming a tsconfig **adds** its options and never removes the ruleset's own. The
-five the rule supplies — `strict`, `module: Preserve`, `moduleResolution:
-Bundler`, `skipLibCheck`, `esModuleInterop` — apply with a `tsconfig` too, under
-it, so running Gazelle over a working build does not silently un-set them. See
+four the rule supplies — `strict`, `module: Preserve`, `skipLibCheck`,
+`esModuleInterop` — apply with a `tsconfig` too, under it, so running Gazelle
+over a working build does not silently un-set them. `moduleResolution` is left
+for tsgo to derive from whichever `module` wins, since a value under a
+`tsconfig` that sets `module` would be the wrong half of a pair. See
 [where compiler options come from](../rules/ts-compile.md#where-compiler-options-come-from).
 
 Three cases get no attribute rather than a label into a directory Gazelle writes

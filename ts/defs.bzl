@@ -138,12 +138,14 @@ def ts_compile(
 
     Lowest precedence first:
 
-    1. `tsconfig` -- the project's own tsconfig.json, and whatever it extends.
-       When it is set the ruleset adds no compiler opinions of its own, so tsgo
-       checks the code under the same options `tsc` does.
-    2. The zero-config baseline (strict, module Preserve, moduleResolution
-       Bundler, skipLibCheck, esModuleInterop) -- applied only when `tsconfig`
-       is unset.
+    1. The baseline (strict, module Preserve, skipLibCheck, esModuleInterop,
+       plus moduleResolution Bundler without a `tsconfig`) -- with a `tsconfig`
+       it is a file that config extends FIRST, so it reaches only the keys the
+       file never mentions. moduleResolution is left to tsgo to derive from
+       whichever `module` wins, because TypeScript rejects a pair it did not
+       derive itself.
+    2. `tsconfig` -- the project's own tsconfig.json, and whatever it extends,
+       so tsgo checks the code under the same options `tsc` does.
     3. `target` and `jsx_mode`, then `jsx_import_source`, `lib`, `types`, then
        `compiler_options`, which wins among these.
     4. The options Bazel owns: paths, include, outDir / rootDir / rootDirs,

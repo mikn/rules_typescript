@@ -92,11 +92,19 @@ baseline, and the generated one `extends` it.
 
 Lowest precedence first:
 
-1. **The ruleset baseline** — `strict`, `module: "Preserve"`,
-   `moduleResolution: "Bundler"`, `skipLibCheck`, `esModuleInterop`. Applied in
-   both modes: without a `tsconfig` they go straight into the generated file,
-   and with one they go into a file the generated config `extends` **before**
-   yours, so they reach only the keys your file never mentions.
+1. **The ruleset baseline** — `strict`, `module: "Preserve"`, `skipLibCheck`,
+   `esModuleInterop`. Applied in both modes: without a `tsconfig` they go
+   straight into the generated file, and with one they go into a file the
+   generated config `extends` **before** yours, so they reach only the keys your
+   file never mentions.
+
+   `moduleResolution: "Bundler"` joins them only where the baseline also owns
+   the `module` it belongs to: without a `tsconfig`, and while
+   `compiler_options` names neither key. TypeScript couples the two, so a
+   baseline `moduleResolution` still standing after your `module: "NodeNext"`
+   replaced the baseline's is `TS5109` before a source is read. Left out, tsgo
+   derives the resolver from whichever `module` won — `Bundler` for all of them
+   but `Node16`/`NodeNext`, which derive their own.
 2. **`tsconfig`** — the project's own `tsconfig.json`, and whatever it extends.
    Referenced where it lives, never copied, so relative paths inside it still
    resolve against the directory they were written for. Everything it says wins

@@ -1,5 +1,7 @@
 # A ts_compile baseline, not data: it is named by the tsconfig attr.
 # gazelle:exclude baseline.tsconfig.json
+# gazelle:exclude nodenext.tsconfig.json
+# gazelle:exclude ts_extensions.tsconfig.json
 
 load("@rules_typescript//ts:defs.bzl", "json_library")
 
@@ -49,6 +51,57 @@ build_test(
         ":loose",
         ":loose_check_only",
     ],
+)
+
+# `module` and `moduleResolution` are coupled, and only the tsconfig names one:
+# a baseline asserting the other half is TS5109 at line 2 of the generated file,
+# whatever the sources say.
+ts_config(
+    name = "nodenext_tsconfig",
+    src = "nodenext.tsconfig.json",
+)
+
+ts_compile(
+    name = "nodenext",
+    srcs = ["nodenext.ts"],
+    tsconfig = ":nodenext_tsconfig",
+)
+
+# The same coupling on the other emit path, where the Bazel-owned options differ.
+ts_compile(
+    name = "nodenext_check_only",
+    srcs = ["nodenext_check_only.ts"],
+    declarations = "oxc",
+    tsconfig = ":nodenext_tsconfig",
+)
+
+build_test(
+    name = "nodenext_module_test",
+    targets = [
+        ":nodenext",
+        ":nodenext_check_only",
+    ],
+)
+
+# An option the tsconfig turns on has to survive the extends chain: the ruleset
+# owns emitDeclarationOnly, which is the other half of what TS5097 needs.
+ts_config(
+    name = "ts_extensions_tsconfig",
+    src = "ts_extensions.tsconfig.json",
+)
+
+ts_compile(
+    name = "ts_extensions",
+    srcs = [
+        "ts_ext_helper.ts",
+        "ts_ext_main.ts",
+    ],
+    tsconfig = ":ts_extensions_tsconfig",
+)
+
+build_test(
+    name = "ts_extensions_test",
+    targets = [":ts_extensions"],
 )
 
 json_library(

@@ -58,17 +58,32 @@ sections list every break with the edit it requires.
   [ts_compile](https://mikn.github.io/rules_typescript/rules/ts-compile/#where-compiler-options-come-from)
   for the precedence rules.
 - **`tsconfig` layers, it does not replace.** `strict`, `module: "Preserve"`,
-  `moduleResolution: "Bundler"`, `skipLibCheck` and `esModuleInterop` are
-  applied in **both** modes. Without a `tsconfig` they go into the generated
-  config as before. With one they go into a `<target>.tsconfig_baseline.json`
-  the generated config `extends` **first**, so every key your file — or its own
-  `extends` chain — mentions wins, and the baseline reaches only the keys it
-  says nothing about. A target extending a non-strict tsconfig still checks
-  under that file's options; a target whose tsconfig omits one of the five now
-  keeps the ruleset's value instead of falling back to tsc's default.
+  `skipLibCheck` and `esModuleInterop` are applied in **both** modes. Without a
+  `tsconfig` they go into the generated config as before. With one they go into a
+  `<target>.tsconfig_baseline.json` the generated config `extends` **first**, so
+  every key your file — or its own `extends` chain — mentions wins, and the
+  baseline reaches only the keys it says nothing about. A target extending a
+  non-strict tsconfig still checks under that file's options; a target whose
+  tsconfig omits one of them now keeps the ruleset's value instead of falling
+  back to tsc's default.
   **Edit required** only if you were relying on a `tsconfig` to un-set one of
-  the five: say so in the file (`"strict": false`) and it wins, or override it
+  them: say so in the file (`"strict": false`) and it wins, or override it
   in `compiler_options`, which sits above both.
+- **`moduleResolution: "Bundler"` is stated only where the ruleset also owns
+  `module`.** TypeScript couples the two, and layers merge per key, so a
+  baseline resolver left standing under your `"module": "NodeNext"` was `TS5109`
+  at line 2 of a generated file — 25 targets in one repo, none of which had
+  anything wrong with them. It is now in the generated config without a
+  `tsconfig` (and only while `compiler_options` names neither key), and in
+  neither file with one. Nothing that resolved before resolves differently:
+  tsgo derives `Bundler` from every `module` but `Node16`/`NodeNext`, which
+  derive their own. A `tsconfig` naming `module: "Node16"`/`"NodeNext"`, or
+  `"CommonJS"`, now compiles instead of failing on the pair.
+- **New hard analysis error:** `compiler_options` setting `moduleResolution` to
+  `Node16` or `NodeNext` with no `module` beside it, and no `tsconfig` that
+  could carry one, fails analysis naming the value to set. That pair is `TS5110`
+  whatever the ruleset defaults `module` to, so it is reported with the label
+  rather than against a generated file.
 - `target` and `jsx_mode` are still injected in every mode and supersede a
   `target`/`jsx` in the tsconfig file, since oxc transforms with them.
 - **New hard analysis error:** `compiler_options` naming any of the 16
