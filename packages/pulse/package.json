@@ -1,0 +1,15 @@
+{
+  "name": "pulse",
+  "version": "0.0.0",
+  "private": true,
+  "exports": {
+    ".": {
+      "types": "./entry.ts",
+      "default": "./dist/entry.js"
+    },
+    "./button": "./components/controls/button/index.ts",
+    "./tokens/*": "./styles/tokens/*.ts",
+    "./internal/*": null,
+    "./theme.css": "./theme.css"
+  }
+}

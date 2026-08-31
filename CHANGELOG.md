@@ -679,6 +679,32 @@ sections list every break with the edit it requires.
   BUILD file: the file being both a source and an output of its package is a
   conflicting declaration Bazel rejects. Deleting the checked-in copy is
   therefore optional, and works either way.
+- **A pnpm workspace member is importable by every specifier its
+  `package.json` declares.** The `paths` map hardcoded `<root>/index.d.ts` for a
+  member's bare specifier and `<root>/*` for everything under it, so a member
+  entered through anything else was `TS2307` at the root, and every `exports`
+  subpath was `TS2307` unless the specifier happened to mirror the source
+  layout. A design-system package with a subpath per component — 99 `exports`
+  keys, `./button` → `./components/controls/button/index.ts` — resolved almost
+  none of them. The hub target now reads the member's own manifest: `exports`
+  in the map's own key order, then `typings`, `types` and `main`, each
+  designated target answered with the declaration Bazel emits from it. Every
+  declared subpath gets its own `paths` key and a wildcard subpath gets a
+  wildcard pattern, with the old guesses kept behind them — so a manifest
+  naming a file the build does not produce resolves as it did before, and a
+  member that declares nothing generates a byte-identical tsconfig. `module` is
+  not read: no TypeScript resolution mode consults it. A subpath excluded with
+  `null`, and one naming something no compiler emits a declaration from, get no
+  entry; enforcing that they must not resolve is the strict-deps check's job,
+  not this map's.
+- **A member's `package.json` is found where its label says it is.** Member
+  paths were resolved against the lockfile's own directory while
+  `link_target_label` writes `@@//<path>`, so a lockfile in a subdirectory
+  looked for members beside itself and named them somewhere else. The two
+  coincide for a lockfile at the workspace root, which is every real one.
+- **`typings` is read before `types`**, the order
+  `readPackageJsonTypesFields` reads them in. Both layers that resolve a
+  declaration entry point now agree.
 - **A pnpm `link:` workspace member reaches the runtime `node_modules` tree.**
   The hub target for a `workspace:*` dependency forwarded the providers a
   compiler reads and none that a `node_modules` tree is built from, so a

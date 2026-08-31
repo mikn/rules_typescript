@@ -40,6 +40,12 @@ importers:
       shared:
         specifier: workspace:*
         version: link:packages/shared
+      # A member whose package.json declares an `exports` map instead of an
+      # index: every specifier under `pulse` resolves only if the hub target
+      # carries what that map says, so the map is the fixture.
+      pulse:
+        specifier: workspace:*
+        version: link:packages/pulse
     devDependencies:
       '@types/node':
         specifier: 22.20.1

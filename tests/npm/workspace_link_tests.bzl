@@ -263,7 +263,7 @@ _LINKS = {"no-target-member": "no-target-member|packages/no-target-member"}
 
 def _unresolved_link_block_test(ctx):
     env = unittest.begin(ctx)
-    lines = link_block(_LINKS, {"packages/no-target-member": None})
+    lines = link_block(_LINKS, {"packages/no-target-member": None}, {})
 
     asserts.equals(
         env,
@@ -284,7 +284,7 @@ def _unresolved_link_block_test(ctx):
         "every consumer of the hub",
     )
 
-    resolved = link_block(_LINKS, {"packages/no-target-member": "@@//packages/x:x"})
+    resolved = link_block(_LINKS, {"packages/no-target-member": "@@//packages/x:x"}, {})
     asserts.equals(
         env,
         [

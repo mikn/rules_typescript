@@ -40,7 +40,8 @@ tsconfig by hand.
         "label": "string: the label of this target, as a dep list writes it.",
         "declaration_root": "string: exec-root-relative directory the target's generated .d.ts files land in.",
         "source_root": "string: exec-root-relative package directory, where .d.ts files passed straight through stay.",
-        "transitive_modules": "depset of struct(module_name, label, declaration_root, source_root): this target's modules and its deps'.",
+        "declared_paths": "tuple of struct(specifier, declarations): what the module's own package.json says its specifiers resolve to. `specifier` is the part after the module name -- \"\" for the bare name, \"/button\" for a subpath, \"/tokens/*\" for a wildcard one -- and `declarations` are the module-root-relative declaration paths it designates, in resolution order. Empty on a target that declared its name with `module_name`: nothing there reads a manifest.",
+        "transitive_modules": "depset of struct(module_name, label, declaration_root, source_root, declared_paths): this target's modules and its deps'.",
     },
 )
 
@@ -98,6 +99,16 @@ def _source_root(f, pkg):
     if p.endswith("/" + rel):
         return p[:len(p) - len(rel) - 1]
     return f.dirname
+
+def _rebased_declarations(roots, declarations):
+    """Each declaration under each of the module's roots, in the order given."""
+    out = []
+    for root in roots:
+        for declaration in declarations:
+            candidate = root + "/" + declaration
+            if candidate not in out:
+                out.append(candidate)
+    return out
 
 def _relative_path(from_dir, to_dir):
     """Computes a relative path from from_dir to to_dir.
@@ -323,8 +334,9 @@ def _generate_tsconfig(
         ambient_dts:  The .d.ts whose declarations are global rather than
                       imported: each @types/* dep's entry point, and each dep
                       target's global-declaration entry. Listed in `files`.
-        module_paths: struct(module_name, declaration_root, source_root) from
-                      every dep that declared a module_name.
+        module_paths: struct(module_name, declaration_root, source_root,
+                      declared_paths) from every dep that declared a
+                      module_name.
         extends_file: The user's tsconfig.json, or None for zero-config.
         baseline_file: _BASELINE_OPTIONS written out, or None when there is no
                       `extends_file` to layer them under.
@@ -430,14 +442,36 @@ def _generate_tsconfig(
 
     # Last, so a first-party module_name wins over a same-named npm package.
     # Both roots are listed because a module's declarations are either generated
-    # or passed through from srcs; TypeScript tries each entry in turn.
+    # or passed through from srcs; TypeScript tries each entry in turn, and the
+    # generated root goes first because it is what this build produced.
+    #
+    # What the module's own package.json designates goes ahead of the guesses
+    # that used to be the whole answer, and the guesses stay: a manifest naming a
+    # file this build does not produce is then no worse than a manifest nobody
+    # read. That is also why a declared subpath repeats the wildcard expansion --
+    # an exact `paths` key beats a pattern one, so `<name>/*` stops being
+    # consulted for a subpath the moment it is named.
     for module in module_paths or []:
         roots = [
             _relative_path(tsconfig_dir, module.declaration_root),
             _relative_path(tsconfig_dir, module.source_root),
         ]
-        paths[module.module_name] = [r + "/index.d.ts" for r in roots] + roots
-        paths[module.module_name + "/*"] = [r + "/*" for r in roots]
+        declared = {d.specifier: d.declarations for d in module.declared_paths}
+        paths[module.module_name] = (
+            _rebased_declarations(roots, declared.get("", ())) +
+            [r + "/index.d.ts" for r in roots] + roots
+        )
+        paths[module.module_name + "/*"] = (
+            _rebased_declarations(roots, declared.get("/*", ())) +
+            [r + "/*" for r in roots]
+        )
+        for specifier in sorted(declared):
+            if specifier == "" or specifier == "/*":
+                continue
+            paths[module.module_name + specifier] = (
+                _rebased_declarations(roots, declared[specifier]) +
+                [r + specifier for r in roots]
+            )
 
     if paths:
         opts["paths"] = paths
@@ -1662,12 +1696,14 @@ def _ts_compile_impl(ctx):
             label = _label_text(ctx.label),
             declaration_root = declaration_root,
             source_root = source_root,
+            declared_paths = (),
         ))
     providers.append(TsModuleInfo(
         module_name = ctx.attr.module_name,
         label = _label_text(ctx.label),
         declaration_root = declaration_root,
         source_root = source_root,
+        declared_paths = (),
         transitive_modules = depset(own_modules, transitive = module_sets),
     ))
 

@@ -55,6 +55,10 @@ a whole-graph decision that one package cannot make about itself:
 """
 
 load(
+    "//npm/private:member_paths.bzl",
+    "member_module_paths",
+)
+load(
     "//npm/private:npm_import.bzl",
     "npm_hub",
     "npm_import",
@@ -246,6 +250,31 @@ def _workspace_link_entry(name, path):
     """
     return "{name}|{path}".format(name = name, path = path)
 
+def _member_module_paths(module_ctx, workspace_root, path):
+    """The member's directory and what its manifest says its specifiers mean, or "".
+
+    Worked out here rather than shipped as the manifest itself: an `exports` map
+    is ordered -- a resolver tries its conditions in the order they are written --
+    and `json.encode` sorts keys, so the manifest cannot cross into analysis
+    without losing the one thing that makes it readable. The answer can: its order
+    is in lists.
+
+    Empty for a member with no package.json, and for one that says nothing about
+    how it is entered. Both leave npm_workspace_package with the guesses it made
+    before, which is the right answer for a member entered through an index at its
+    root.
+    """
+    manifest = workspace_root.get_child(*(path.split("/") + ["package.json"]))
+    if not manifest.exists:
+        return ""
+    decoded = json.decode(module_ctx.read(manifest))
+    if type(decoded) != "dict":
+        return ""
+    module_paths = member_module_paths(decoded)
+    if not module_paths:
+        return ""
+    return "{dir}|{json}".format(dir = path, json = json.encode(module_paths))
+
 def platforms_of_package(pkg):
     """The PLATFORMS keys a published tarball is built for.
 
@@ -415,6 +444,18 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
                       extension's output is recorded in MODULE.bazel.lock.
     """
     lock_content = module_ctx.read(pnpm_lock)
+
+    # A member's package.json is found by path from the repository root, not by
+    # label: a member need not be a Bazel package, so a label into one usually
+    # fails to load. The root is the lockfile's directory with the lockfile's own
+    # Bazel package climbed back out of, which is the directory `link:` paths and
+    # importer keys are written against -- the same one link_target_label names as
+    # `@@//<path>`. The two are one directory for every lockfile that sits at the
+    # workspace root, and a lockfile that does not would otherwise have its
+    # members looked for beside it and named somewhere else.
+    workspace_root = module_ctx.path(pnpm_lock).dirname
+    for _ in (pnpm_lock.package.split("/") if pnpm_lock.package else []):
+        workspace_root = workspace_root.dirname
     registries = npmrc_registries(module_ctx.read(npmrc)) if npmrc else {}
     parsed = parse_pnpm_lock(lock_content)
     packages = parsed["packages"]
@@ -620,10 +661,14 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
     # the member IS what that name means, and two targets of one name in the
     # generated package would not load at all.
     links = {}
+    link_module_paths = {}
     for name, path in importers["links"].items():
         if path:
             label = package_name_to_label(name)
             links[label] = _workspace_link_entry(name, path)
+            record = _member_module_paths(module_ctx, workspace_root, path)
+            if record:
+                link_module_paths["|{}".format(label)] = record
             aliases.pop(label, None)
 
     # ── Per-importer packages: what each workspace member actually declared ───
@@ -642,6 +687,9 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
         for dep_name, link_path in entry["links"].items():
             key = "{}|{}".format(path, package_name_to_label(dep_name))
             importer_links[key] = _workspace_link_entry(dep_name, link_path)
+            record = _member_module_paths(module_ctx, workspace_root, link_path)
+            if record:
+                link_module_paths[key] = record
             importer_aliases.pop(key, None)
 
     npm_hub(
@@ -651,5 +699,6 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
         importer_aliases = importer_aliases,
         links = links,
         importer_links = importer_links,
+        link_module_paths = link_module_paths,
         broken_cycle_edges = ["{} -> {}".format(a, b) for (a, b) in broken],
     )

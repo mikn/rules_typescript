@@ -252,6 +252,16 @@ The dependent gets a `paths` entry for `@acme/ui` and `@acme/ui/*` pointing at
 the `.d.ts` files Bazel produced, with `index.d.ts` as the entry point. The name
 travels in the `TsModuleInfo` provider, transitively.
 
+A pnpm workspace member linked through `@npm//:<name>` gets more than that: its
+own `package.json` decides. The `exports` map, `typings`, `types` and `main` are
+read where the lockfile is, and each specifier the member declares becomes its
+own `paths` entry -- so `@acme/ui/button` resolves to the declaration emitted
+from whatever file `exports["./button"]` names, four directories down if that is
+where it is. A wildcard subpath (`"./icons/*": "./icons/components/*.tsx"`)
+becomes a wildcard pattern. The guesses above stay behind every declared entry,
+so a manifest naming a file this build does not produce is no worse than a
+manifest nobody read. See [npm workspace members](../guides/npm.md).
+
 ### ts_config
 
 Starlark cannot read a file to follow its `extends` chain, so a tsconfig that

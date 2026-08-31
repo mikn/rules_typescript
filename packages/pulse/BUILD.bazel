@@ -1,0 +1,33 @@
+"""A pnpm workspace member entered through its `exports` map, not through an index.
+
+`@npm//:pulse` is the hub target the `link:` in tests/npm/pnpm-lock.yaml
+produces, and package.json here is the only statement of what each of this
+member's specifiers means: `pulse` is entry.ts, `pulse/button` is four
+directories down, `pulse/tokens/<name>` is a file under a
+directory of another name, `pulse/internal/*` is not exported and
+`pulse/theme.css` is not TypeScript at all. None of that is recoverable from the
+member's directory layout, which is the whole point -- guessing
+`<root>/index.d.ts` and `<root>/*` answers only the members whose entry happens
+to be an index at the root, and answers a subpath only where the specifier
+happens to mirror the layout.
+
+The subtree is one target, so a subpath's declaration lands under this package's
+output directory at the same depth its source sits at here.
+"""
+
+# The srcs below span these directories; a BUILD file in any of them would turn
+# it into a package and make those labels cross a package boundary.
+# gazelle:exclude components
+# gazelle:exclude styles
+
+load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "pulse",
+    srcs = [
+        "components/controls/button/index.ts",
+        "entry.ts",
+        "styles/tokens/color.ts",
+    ],
+    visibility = ["//visibility:public"],
+)

@@ -283,8 +283,9 @@ def _exports_types(pkg_json, has_file):
     The order is every resolver's, TypeScript's included. `exports` first, in the
     key order the map itself is written in: a package that ships one has declared
     there which files it means to be entered through, conditions and all. Then
-    `types` and `typings`, which is where a package with no `exports`, or one
-    whose `exports` names no declarations, publishes them -- most of npm.
+    `typings` and `types`, in that order because readPackageJsonTypesFields reads
+    them in it, which is where a package with no `exports`, or one whose `exports`
+    names no declarations, publishes them -- most of npm.
 
     So the exports map is authoritative about what it designates and silent about
     the rest, and this reads it that way rather than treating the silence as an
@@ -300,7 +301,7 @@ def _exports_types(pkg_json, has_file):
         designated = _declaration_at(target, has_file)
         if designated:
             return designated
-    for field in ("types", "typings"):
+    for field in ("typings", "types"):
         value = pkg_json.get(field)
         if type(value) == "string":
             named = _declaration_field(value, has_file)
@@ -856,12 +857,15 @@ def _unresolved_link_note(package_name, member):
         "",
     ]
 
-def _link_block(links, targets):
+def _link_block(links, targets, module_paths):
     """One target per pnpm `link:` dependency, carrying the name it is imported by.
 
     Not an alias: Bazel resolves an alias before any rule implementation runs, so
     the member would arrive at a consumer with no record of the npm name at all --
     which is why a workspace member used to have to restate it as `module_name`.
+
+    What the member's own package.json says its specifiers resolve to travels with
+    it, because that is written in a file nothing downstream can read.
     """
     lines = []
     for label_name in sorted(links):
@@ -874,6 +878,11 @@ def _link_block(links, targets):
         lines.append('    name = "{}",'.format(label_name))
         lines.append('    package_name = "{}",'.format(package_name))
         lines.append('    target = "{}",'.format(target))
+        declared = module_paths.get(label_name)
+        if declared:
+            member_dir, _, text = declared.partition("|")
+            lines.append('    member_dir = "{}",'.format(member_dir))
+            lines.append("    module_paths = {},".format(json.encode(text)))
         lines.append(")")
         lines.append("")
     return lines
@@ -897,9 +906,14 @@ def _hub_lines(links, note = None):
 
 def _npm_hub_impl(rctx):
     targets = _member_targets(rctx)
+    module_paths_by_importer = {}
+    for key, declared in rctx.attr.link_module_paths.items():
+        path, _, label_name = key.rpartition("|")
+        module_paths_by_importer.setdefault(path, {})[label_name] = declared
+
     lines = _hub_lines(rctx.attr.links)
     lines.extend(_alias_block(rctx.attr.aliases.keys(), rctx.attr.aliases))
-    lines.extend(_link_block(rctx.attr.links, targets))
+    lines.extend(_link_block(rctx.attr.links, targets, module_paths_by_importer.get("", {})))
     if rctx.attr.broken_cycle_edges:
         lines.append("# Circular npm dependency edges removed for an acyclic target graph.")
         lines.append("# These packages rely on Node's CJS cycle tolerance at runtime.")
@@ -926,7 +940,7 @@ def _npm_hub_impl(rctx):
         links = links_by_importer.get(path, {})
         sub = _hub_lines(links, "Resolution as declared by the workspace member at {}.".format(path))
         sub.extend(_alias_block(aliases.keys(), aliases))
-        sub.extend(_link_block(links, targets))
+        sub.extend(_link_block(links, targets, module_paths_by_importer.get(path, {})))
         rctx.file("{}/BUILD.bazel".format(path), "\n".join(sub) + "\n")
 
 npm_hub = repository_rule(
@@ -961,6 +975,16 @@ npm_hub = repository_rule(
             doc = "The lockfile this hub was translated from, for the repository root " +
                   "the `link:` member paths are resolved against.",
         ),
+        "link_module_paths": attr.string_dict(
+            doc = "'<importer path>|<label name>' -> '<member directory>|<specifier " +
+                  "to declarations JSON>', for every `link:` above whose member says " +
+                  "how it is entered. The root importer's path is empty, and the " +
+                  "FIRST '|' is the separator -- a directory cannot contain one, " +
+                  "while the JSON that follows is a member's own strings and could. " +
+                  "That is also why this is its own attribute instead of a third " +
+                  "field on `links`, whose split is safe only because neither a " +
+                  "package name nor a label can contain a '|' anywhere.",
+        ),
         "broken_cycle_edges": attr.string_list(
             doc = "Human-readable record of edges the extension removed.",
         ),
@@ -968,6 +992,14 @@ npm_hub = repository_rule(
     doc = "Alias-only hub giving npm packages stable @npm//:<name> labels, plus one " +
           "package per workspace member holding that member's own resolution.",
 )
+
+# The `exports` shape, without the tarball: a workspace member's manifest has the
+# same conditions and the same key order, and only what a designated target MEANS
+# differs -- a member names a source Bazel has yet to compile, a tarball names a
+# file it already ships. member_paths.bzl reads the shape with these and answers
+# the rest itself, so one manifest cannot be read two ways.
+root_export = _root_export
+export_targets = _export_targets
 
 # Exported for the tests that pin the credential rules, the declaration a package
 # designates, which target a `link:` member resolves to, and the BUILD text all
