@@ -68,7 +68,7 @@ zero_config_baseline_test(
 # either mode. Naming it used to drop all five; now they arrive under it.
 ts_compile(
     name = "over_tsconfig",
-    srcs = ["lone.ts"],
+    srcs = ["baselined.ts"],
     tsconfig = "silent.tsconfig.json",
 )
 
