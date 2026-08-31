@@ -6,6 +6,7 @@ load("//ts:defs.bzl", "ts_compile", "ts_test")
 load(":exports_types_tests.bzl", "declaration_entry_test", "exports_types_test_suite")
 load(":hub_provenance_tests.bzl", "hub_provenance_test")
 load(":link_depth_tests.bzl", "link_depth_test_suite")
+load(":member_paths_tests.bzl", "member_paths_test_suite")
 load(":node_modules_cache_tests.bzl", "tree_is_never_fetched_test")
 load(":parser_tests.bzl", "parser_test_suite")
 load(":resolution_tests.bzl", "conflicting_direct_peers_test", "conflicting_direct_versions_test")
@@ -32,6 +33,8 @@ link_depth_test_suite(name = "link_depth_tests")
 exports_types_test_suite(name = "exports_types_tests")
 
 workspace_link_test_suite(name = "workspace_link_tests")
+
+member_paths_test_suite(name = "member_paths_tests")
 
 types_only_test_suite(name = "types_only_tests")
 

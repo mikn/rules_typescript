@@ -52,6 +52,93 @@ def _generated_tsconfig_impl(ctx):
 
 generated_tsconfig_test = analysistest.make(_generated_tsconfig_impl)
 
+def _suffixes(entries):
+    """Each `paths` entry with the module's root cut off, whichever root it is."""
+    return [entry.split("/packages/pulse")[-1].removeprefix("/") for entry in entries]
+
+def _ups(entry):
+    return len([part for part in entry.split("/") if part == ".."])
+
+def _module_exports_paths_impl(ctx):
+    env = analysistest.begin(ctx)
+    action = _written_file_action(env, ".tsconfig.json")
+    asserts.true(env, action != None, "ts_compile generated no tsconfig")
+    if action == None:
+        return analysistest.end(env)
+
+    paths = json.decode(action.content)["compilerOptions"]["paths"]
+
+    # The subpath the member enumerates, which is four directories from its root
+    # and nowhere near the `<root>/button` the wildcard entry would have offered.
+    # Two entries per declaration, one for each of the module's roots, then the
+    # wildcard expansion as a fallback -- so a manifest that names a file this
+    # build does not produce leaves the subpath resolving as it did before.
+    # .get, not indexing: a missing key is the very failure under test, and an
+    # analysistest that dies on it aborts the whole package's analysis instead of
+    # reporting which assertion went.
+    button = paths.get("pulse/button", [])
+    asserts.equals(
+        env,
+        [
+            "components/controls/button/index.d.ts",
+            "components/controls/button/index.d.ts",
+            "button",
+            "button",
+        ],
+        _suffixes(button),
+        "pulse/button: " + str(button),
+    )
+
+    # The generated declarations come first. Both roots are relative to a
+    # tsconfig that sits under bazel-bin, so the one that is also under bazel-bin
+    # is the nearer of the two.
+    asserts.true(
+        env,
+        len(button) > 1 and _ups(button[0]) < _ups(button[1]),
+        "the declaration root is not first: " + str(button[:2]),
+    )
+
+    # `exports` names `types` before `default`, and a resolver reads the map in
+    # its own key order. The condition that designates declarations wins, and the
+    # other is kept behind it rather than dropped.
+    asserts.equals(
+        env,
+        ["entry.d.ts", "dist/entry.d.ts", "entry.d.ts", "dist/entry.d.ts", "index.d.ts", "index.d.ts", "", ""],
+        _suffixes(paths.get("pulse", [])),
+        "pulse: " + str(paths.get("pulse")),
+    )
+
+    # A wildcard subpath becomes a wildcard pattern, and keeps its own key: a
+    # longer pattern prefix wins over `pulse/*`, which stays for everything the
+    # manifest does not name. The directory it points into is not the one the
+    # specifier names, which is what the wildcard entry cannot guess.
+    asserts.equals(
+        env,
+        ["styles/tokens/*.d.ts", "styles/tokens/*.d.ts", "tokens/*", "tokens/*"],
+        _suffixes(paths.get("pulse/tokens/*", [])),
+        "pulse/tokens/*: " + str(paths.get("pulse/tokens/*")),
+    )
+    asserts.equals(
+        env,
+        ["*", "*"],
+        _suffixes(paths.get("pulse/*", [])),
+        "pulse/*: " + str(paths.get("pulse/*")),
+    )
+
+    # `"./internal/*": null` is not exported and designates nothing; `theme.css`
+    # is not something a compiler emits a declaration from. Neither gets a key,
+    # so both keep resolving through `pulse/*` -- `paths` says where a name
+    # lives, and what a target may import is the strict-deps check's answer.
+    asserts.equals(
+        env,
+        [],
+        [key for key in paths if key.startswith("pulse/internal") or key.endswith(".css")],
+        "a subpath that designates no declaration got an entry: " + str(sorted(paths)),
+    )
+    return analysistest.end(env)
+
+module_exports_paths_test = analysistest.make(_module_exports_paths_impl)
+
 def _oxc_command_line_impl(ctx):
     env = analysistest.begin(ctx)
     oxc_actions = [

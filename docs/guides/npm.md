@@ -369,7 +369,8 @@ what the `ts_compile` boundary type-checks against and what the
    shorthand (a map with no `.`-prefixed keys is itself the root entry) and a
    plain string. A leaf naming `.js`, `.mjs` or `.cjs` resolves to the
    declaration beside it: `./dist/node/index.js` → `./dist/node/index.d.ts`.
-2. **Top-level `types`, then `typings`,** including the extensionless form
+2. **Top-level `typings`, then `types`,** the order
+   `readPackageJsonTypesFields` reads them in, including the extensionless form
    (`"typings": "dist/index"` → `dist/index.d.ts`). This is where a package with
    no `exports` publishes its declarations, and where **every `@types/*` package**
    publishes them.
@@ -383,6 +384,42 @@ designate a `lib/index.d.ts` their tarball does not contain.
     A package designating `dist/index.d.ts` gets `pkg/*` → `dist/*`. Importing
     `pkg/sub` where the subpath's declarations sit somewhere other than beside the
     entry will not resolve in the editor, even though the build is fine.
+
+## What a workspace member is imported as
+
+A `workspace:*` dependency resolves to a `link:` in the lockfile, and the hub
+target for it is where the member's npm name lives. That target reads the
+member's own `package.json` too, and every specifier it declares becomes a
+`paths` entry in each consumer's generated tsconfig:
+
+| the manifest says | `paths` gets |
+|---|---|
+| `exports: {".": "./entry.ts"}` | `pkg` → `entry.d.ts` |
+| `exports: {"./button": "./components/controls/button/index.ts"}` | `pkg/button` → `components/controls/button/index.d.ts` |
+| `exports: {"./icons/*": "./icons/components/*.tsx"}` | `pkg/icons/*` → `icons/components/*.d.ts` |
+| `exports: {"./internal/*": null}` | nothing: not exported designates nothing |
+| `exports: {"./theme.css": "./theme.css"}` | nothing: no compiler emits a declaration from it |
+| `main: "./schema.ts"`, no `exports` | `pkg` → `schema.d.ts` |
+
+The field order is the one above under
+[Where a package's type declarations come from](#where-a-packages-type-declarations-come-from):
+`exports` first, then `typings`, `types` and `main`. `module` is not read --
+it is a bundler convention that no TypeScript resolution mode consults.
+
+Entries point at the **declarations** Bazel emits, under the compiling target's
+output directory first and the source tree second, never at the member's
+sources: a `paths` entry naming a `.ts` would put the member's uncompiled files
+in the consumer's program and check them against the consumer's options.
+
+The guesses a member used to get -- `pkg` → `<root>/index.d.ts` and `pkg/*` →
+`<root>/*` -- stay behind every declared entry rather than being replaced, so a
+manifest that names a file this build does not produce resolves exactly as it
+did before anything read it.
+
+!!! note "Conditions outside the resolver set are not followed"
+    The walk descends `types`, `typings`, `node`, `import`, `require` and
+    `default`. A member whose entry sits behind `browser`, `development` or
+    `production` alone designates nothing and keeps the guesses.
 
 ## Bin Scripts
 
