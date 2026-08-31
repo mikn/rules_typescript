@@ -80,7 +80,7 @@ func rolledUpIn(mode string, dir string, excludes []string) rolledUpFiles {
 			}
 			switch {
 			case isTypeScriptFile(name):
-				if isGeneratedFile(name) {
+				if isFrameworkGeneratedFile(name) {
 					continue
 				}
 				if isTestFile(name) {

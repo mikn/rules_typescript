@@ -50,8 +50,12 @@ directive is for a generator it does not recognise. See
 It writes the `ts_compile` that consumes the output too, named
 `<name>_compile`, and resolves imports of the generated module to it. A
 checked-in file a `ts_codegen` declares as an out is kept out of the package's
-`srcs`, so the two cannot both claim it; so is a checked-in `*.gen.ts` /
-`*.generated.ts` / `*.auto.ts` nothing declares.
+`srcs`, so the two cannot both claim it. A checked-in `*.gen.ts` no rule
+declares is an ordinary source: nothing in the build writes it, and leaving it
+out is a module its importers cannot find. `routeTree.gen.ts` is the exception
+-- the Start Vite plugin writes that one. Use
+[`# gazelle:ts_exclude`](../gazelle/directives.md#exclude-generated-files)
+for one you want out anyway.
 
 ## Compiling the Output
 

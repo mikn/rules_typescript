@@ -743,3 +743,60 @@ func TestFrameworkBundle_SourcesFilegroupFollowsTheDirectory(t *testing.T) {
 	}
 	t.Error("no \"sources\" filegroup re-emitted, so the staged tree keeps whatever the first run saw")
 }
+
+// The route tree is the one generated name the build writes itself: the Start
+// plugin regenerates it into the staging tree, and the tree it emits imports
+// the router module that imports the tree back. Every other checked-in
+// *.gen.ts beside the routes is an ordinary source of both.
+func TestFrameworkBundle_OnlyTheRouteTreeIsTreatedAsGenerated(t *testing.T) {
+	repoRoot := t.TempDir()
+	dir := filepath.Join(repoRoot, "src", "routes")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, "package.json"), []byte(tanstackPackageJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	names := []string{"__root.tsx", "about.tsx", "routeTree.gen.ts", "variants.gen.ts"}
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("export {};"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	c := &config.Config{RepoRoot: repoRoot, Exts: make(map[string]interface{})}
+	configureTsConfig(c, "", nil)
+	configureTsConfig(c, "src/routes", nil)
+	res := generateRules(language.GenerateArgs{
+		Config:       c,
+		Dir:          dir,
+		Rel:          "src/routes",
+		File:         nil,
+		RegularFiles: names,
+	})
+
+	var sawCompile, sawFilegroup bool
+	for _, r := range res.Gen {
+		switch {
+		case r.Kind() == "ts_compile":
+			sawCompile = true
+			assertSrcs(t, "ts_compile", r.AttrStrings("srcs"))
+		case r.Kind() == "filegroup" && r.Name() == "sources":
+			sawFilegroup = true
+			assertSrcs(t, "sources", r.AttrStrings("srcs"))
+		}
+	}
+	if !sawCompile || !sawFilegroup {
+		t.Fatalf("generated %v, want both a ts_compile and a sources filegroup", generatedNames(t, res))
+	}
+}
+
+func assertSrcs(t *testing.T, what string, srcs []string) {
+	t.Helper()
+	if !slices.Contains(srcs, "variants.gen.ts") {
+		t.Errorf("%s srcs = %v, missing the checked-in generated module", what, srcs)
+	}
+	if slices.Contains(srcs, "routeTree.gen.ts") {
+		t.Errorf("%s srcs = %v, claiming a tree the Start plugin writes", what, srcs)
+	}
+}
