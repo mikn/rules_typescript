@@ -145,6 +145,14 @@ const (
 	// boundaryIndexOnly restores the old behaviour: only directories that
 	// contain an index.ts/tsx file are treated as package boundaries.
 	boundaryIndexOnly = "index-only"
+
+	// boundaryTsConfig makes a directory a package when it holds a
+	// tsconfig.json, so one Bazel target covers one TypeScript project. It is
+	// the only mode that can express a project whose ambient declaration and
+	// its sources sit in different directories, or whose directories import
+	// each other -- both legal in a single tsc program, and a cycle once every
+	// directory is a target of its own.
+	boundaryTsConfig = "tsconfig"
 )
 
 // ---- per-directory configuration -------------------------------------------
@@ -1114,11 +1122,13 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 					// Do NOT set packageBoundary; every-dir mode doesn't need it.
 				case "index-only":
 					tc.packageBoundaryMode = boundaryIndexOnly
+				case boundaryTsConfig:
+					tc.packageBoundaryMode = boundaryTsConfig
 				case "true":
 					// Explicit per-directory opt-in for index-only mode.
 					tc.packageBoundary = true
 				default:
-					log.Printf("typescript: unknown ts_package_boundary value %q (want every-dir, index-only, or true)", d.Value)
+					log.Printf("typescript: unknown ts_package_boundary value %q (want every-dir, index-only, tsconfig, or true)", d.Value)
 				}
 			case directiveIgnore:
 				if d.Value == "false" {

@@ -43,7 +43,14 @@ type rolledUpFiles struct {
 // import nothing to resolve to and the specifier becomes a label for a package
 // that cannot exist.
 func rolledUp(dir string, excludes []string) rolledUpFiles {
+	return rolledUpIn(boundaryIndexOnly, dir, excludes)
+}
+
+// rolledUpIn is rolledUp for a named boundary mode: what stops the walk is
+// whatever makes a directory a package in that mode.
+func rolledUpIn(mode string, dir string, excludes []string) rolledUpFiles {
 	var out rolledUpFiles
+	stops := func(d string) bool { return dirIsItsOwnPackageIn(mode, d) }
 	var walk func(rel string)
 	walk = func(rel string) {
 		entries, err := os.ReadDir(filepath.Join(dir, rel))
@@ -95,7 +102,7 @@ func rolledUp(dir string, excludes []string) rolledUpFiles {
 			if isConfiguredExclude(sub, excludes) || isConfiguredExclude(subRel, excludes) {
 				continue
 			}
-			if dirIsItsOwnPackage(filepath.Join(dir, subRel)) {
+			if stops(filepath.Join(dir, subRel)) {
 				continue
 			}
 			walk(subRel)
@@ -108,7 +115,7 @@ func rolledUp(dir string, excludes []string) rolledUpFiles {
 		if isConfiguredExclude(sub, excludes) {
 			continue
 		}
-		if dirIsItsOwnPackage(filepath.Join(dir, sub)) {
+		if stops(filepath.Join(dir, sub)) {
 			continue
 		}
 		walk(sub)
@@ -147,6 +154,12 @@ func skipRolledUpDir(name string) bool {
 // package: an index file makes it a boundary in index-only mode, and a BUILD
 // file makes it a Bazel package regardless.
 func dirIsItsOwnPackage(dir string) bool {
+	return dirIsItsOwnPackageIn(boundaryIndexOnly, dir)
+}
+
+// dirIsItsOwnPackageIn answers the same question for a named boundary mode. A
+// BUILD file settles it either way; what else counts is the mode's own rule.
+func dirIsItsOwnPackageIn(mode string, dir string) bool {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return false
@@ -159,11 +172,24 @@ func dirIsItsOwnPackage(dir string) bool {
 		if name == "BUILD" || name == "BUILD.bazel" {
 			return true
 		}
+		if mode == boundaryTsConfig {
+			if name == "tsconfig.json" {
+				return true
+			}
+			continue
+		}
 		if isTypeScriptFile(name) && isIndexFile(name) {
 			return true
 		}
 	}
 	return false
+}
+
+// dirHasTsConfig reports whether dir holds the tsconfig.json that makes it a
+// TypeScript project root.
+func dirHasTsConfig(dir string) bool {
+	st, err := os.Stat(filepath.Join(dir, "tsconfig.json"))
+	return err == nil && !st.IsDir()
 }
 
 // rebaseRelative rewrites a relative specifier as written inside a file into the
