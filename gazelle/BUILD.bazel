@@ -17,7 +17,6 @@ go_library(
         "framework_next.go",
         "generate.go",
         "imports.go",
-        "jsonc.go",
         "keep.go",
         "labels.go",
         "language.go",
@@ -30,6 +29,7 @@ go_library(
     importpath = "github.com/mikn/rules_typescript/gazelle",
     visibility = ["//visibility:public"],
     deps = [
+        "//gazelle/jsonc",
         "//gazelle/remix",
         "//gazelle/tanstack",
         "@com_github_bazelbuild_buildtools//build",

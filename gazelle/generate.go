@@ -55,8 +55,8 @@ func isCSSModuleFile(name string) bool {
 // asset_library (images, SVGs, fonts, text). NOTE: .json files are NOT included
 // here; they are handled by json_library (see isJSONFile).
 //
-// .jsonc is an asset and not JSON here: the comments the dialect exists for are
-// what json_library's build-time parse rejects.
+// .jsonc is an asset and not JSON here: no bundler parses that extension as
+// JSON, so the import yields a URL rather than a value.
 func isAssetFile(name string) bool {
 	ext := strings.ToLower(path.Ext(name))
 	switch ext {

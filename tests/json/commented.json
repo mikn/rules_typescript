@@ -1,0 +1,10 @@
+{
+  // TypeScript accepts comments wherever it reads JSON, and real repos use
+  // them: .vscode/settings.json, .zed/settings.json, every tsconfig.
+  "name": "commented",
+  /* Trailing commas are part of the same dialect. */
+  "retries": 3,
+  "nested": {
+    "enabled": true,
+  },
+}

@@ -104,8 +104,8 @@ def _asset_library_impl(ctx):
 # Accepted file extensions for asset_library.
 # NOTE: .json is intentionally excluded. Use json_library for JSON files so
 # that TypeScript callers get a fully-typed declaration instead of `unknown`.
-# .jsonc stays here: json_library parses its srcs at build time, and the
-# comments the dialect exists for are what that parse rejects.
+# .jsonc stays here because no bundler parses that extension as JSON: the
+# import yields a URL, which is what asset_library declares.
 _ASSET_EXTENSIONS = [
     ".svg",
     ".png",

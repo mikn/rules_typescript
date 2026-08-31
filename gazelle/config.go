@@ -12,6 +12,8 @@ import (
 
 	"github.com/bazelbuild/bazel-gazelle/config"
 	"github.com/bazelbuild/bazel-gazelle/rule"
+
+	"github.com/mikn/rules_typescript/gazelle/jsonc"
 )
 
 // ---- framework detection ---------------------------------------------------
@@ -574,7 +576,7 @@ func isGeneratedTsConfig(path string) bool {
 	var doc struct {
 		Comment string `json:"_comment"`
 	}
-	if err := unmarshalJSONC(data, &doc); err != nil {
+	if err := jsonc.Unmarshal(data, &doc); err != nil {
 		return false
 	}
 	return strings.Contains(doc.Comment, generatedTsConfigMarker)
@@ -679,7 +681,7 @@ func resolveTsConfigChain(tsConfigPath string, ancestors map[string]bool) *resol
 		return nil
 	}
 	var tsc tsConfigJSON
-	if err := unmarshalJSONC(data, &tsc); err != nil {
+	if err := jsonc.Unmarshal(data, &tsc); err != nil {
 		log.Printf("typescript: failed to parse %s: %v", tsConfigPath, err)
 		return nil
 	}
@@ -1590,7 +1592,7 @@ func loadTsConfigAmbientTypes(tsConfigPath string) []string {
 		return nil
 	}
 	var tsc tsConfigJSON
-	if err := unmarshalJSONC(data, &tsc); err != nil {
+	if err := jsonc.Unmarshal(data, &tsc); err != nil {
 		return nil
 	}
 	if tsc.CompilerOptions.Types == nil {
