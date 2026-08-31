@@ -395,13 +395,26 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		}
 	}
 
+	// Read before the guard below: a directory holding nothing but package.json
+	// and tsconfig.json -- the standard pnpm workspace-member shape -- classifies
+	// no source at all, and returning early there is what would leave the label
+	// its subpackages name pointing at a package nothing writes.
+	tsConfigRule := ownTsConfigRule(args, tc)
+
+	// A tsconfig.json that has been deleted or moved leaves the ts_config behind,
+	// and this directory may hold nothing else for a later run to notice it by.
+	var tsConfigEmpty []*rule.Rule
+	if tsConfigRule == nil && ruleExists(args, "ts_config", tsConfigTargetName) {
+		tsConfigEmpty = append(tsConfigEmpty, rule.NewRule("ts_config", tsConfigTargetName))
+	}
+
 	totalNonTS := len(cssFiles) + len(cssModuleFiles) + len(assetFiles) + len(jsonFiles)
 	if !isBoundary && len(srcFiles) == 0 && len(testFiles) == 0 && totalNonTS == 0 &&
-		len(codegenPatterns) == 0 {
+		len(codegenPatterns) == 0 && tsConfigRule == nil {
 		// No TypeScript, CSS, asset, or JSON files and not a boundary: nothing to do.
 		// A declared generator is a target of its own, though: a package whose
 		// sources are all generated holds nothing else.
-		return language.GenerateResult{}
+		return language.GenerateResult{Empty: tsConfigEmpty}
 	}
 
 	var gen []*rule.Rule
@@ -434,10 +447,20 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	if hasEntry {
 		reserved[entryName] = struct{}{}
 	}
+	if tsConfigRule != nil {
+		reserved[tsConfigRule.Name()] = struct{}{}
+	}
 	for _, name := range codegenTargetNames(codegenPatterns) {
 		reserved[name] = struct{}{}
 	}
 	libNames := assetTargetNames(reserved, cssFiles, cssModuleFiles, assetFiles, jsonFiles)
+
+	// Resolved once, and only where a target would carry it: a refusal is worth
+	// one log line per package that wanted the baseline, not one per directory.
+	tsConfigAttr := ""
+	if (isBoundary && len(srcFiles) > 0) || len(testFiles) > 0 || hasEntry {
+		tsConfigAttr = tsConfigLabel(args, tc)
+	}
 
 	// ---- css_library targets -----------------------------------------------
 	// Generate one css_library rule per plain .css file (side-effect imports).
@@ -511,6 +534,8 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 			r.SetAttr("declarations", tc.declarations)
 		}
 
+		setTsConfig(r, tsConfigAttr)
+
 		// Collect imports for all src files.
 		allImports := importsIn(args.Dir, srcFiles)
 
@@ -573,6 +598,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	if hasEntry {
 		entryImports := importsIn(args.Dir, []string{entryFile})
 		r := frameworkEntryRule(entryName, entryFile, tc)
+		setTsConfig(r, tsConfigAttr)
 		if used := usedPathAliases(tc, args.Rel, []string{entryFile}, entryImports); len(used) > 0 {
 			r.SetAttr("path_aliases", used)
 		}
@@ -684,6 +710,8 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		if tc.declarations != "" && tc.declarations != "tsgo" {
 			r.SetAttr("declarations", tc.declarations)
 		}
+
+		setTsConfig(r, tsConfigAttr)
 
 		// ts_test auto-builds a node_modules tree from its @npm// deps, so no
 		// explicit node_modules rule is generated. The ts_test macro filters deps
@@ -845,6 +873,15 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		}
 	}
 
+	// ---- ts_config for this package's own tsconfig.json --------------------
+	// The baseline every target at or below this directory names, and a source
+	// file only becomes a label another package can reach through a target.
+	if tsConfigRule != nil {
+		gen = append(gen, tsConfigRule)
+		imports = append(imports, nil)
+	}
+	empty = append(empty, tsConfigEmpty...)
+
 	result := language.GenerateResult{
 		Gen:     gen,
 		Empty:   empty,
@@ -883,6 +920,7 @@ func emptyResult(args language.GenerateArgs) language.GenerateResult {
 			rule.NewRule("ts_lint", name+"_lint"),
 			rule.NewRule("ts_dev_server", "dev"),
 			rule.NewRule("node_modules", "node_modules"),
+			rule.NewRule("ts_config", tsConfigTargetName),
 		},
 	}
 }
@@ -1042,6 +1080,179 @@ func aliasCoversSrcs(dir, rel string, srcs []string) bool {
 		}
 	}
 	return false
+}
+
+// ---- the compilerOptions baseline ------------------------------------------
+
+// setTsConfig names the compilerOptions baseline for a generated target, so it
+// compiles under the package's own lib / types / jsx / strictness instead of
+// only the ruleset's defaults.
+func setTsConfig(r *rule.Rule, label string) {
+	if label != "" {
+		r.SetAttr("tsconfig", label)
+	}
+}
+
+// tsConfigLabel is the label a target generated in args.Rel names for its
+// baseline, or "" when there is none it can name.
+//
+// A tsconfig.json is a source file, so the label that reaches it has to name a
+// target in the package that holds it -- and that package exists only if
+// Gazelle writes a BUILD file there. Naming one it does not write is a dangling
+// label, which fails analysis for the whole workspace and not just for the
+// target that named it. That is generationCanStage's question asked about a
+// different directory, and it is answered the same way: refuse, and say why.
+func tsConfigLabel(args language.GenerateArgs, tc *tsConfig) string {
+	if tc.tsConfigFile == "" || isConfiguredExclude("tsconfig.json", tc.excludePatterns) {
+		return ""
+	}
+	dirRel := path.Dir(tc.tsConfigFile)
+	if dirRel == "." {
+		dirRel = ""
+	}
+	// This package holds the file, and a rule is being generated here, so the
+	// BUILD file that makes the label resolve is the one being written.
+	if dirRel == args.Rel {
+		return ":" + tsConfigTargetName
+	}
+
+	repoRoot := args.Config.RepoRoot
+	absDir := filepath.Join(repoRoot, filepath.FromSlash(dirRel))
+	local := readLocalPackage(absDir, dirRel, tc)
+
+	if local.ignored {
+		log.Printf("typescript: %s holds the tsconfig.json %s would compile under, but a "+
+			"ts_ignore directive stops Gazelle writing anything there, so no target names the "+
+			"file and %s keeps the ruleset's baseline. Drop the directive, or set tsconfig by "+
+			"hand with a \"# keep\" on its line.", dirRel, args.Rel, args.Rel)
+		return ""
+	}
+	if nextOwnsDir(dirRel, tc) || svelteKitOwnsDir(dirRel, tc) {
+		log.Printf("typescript: %s detected: %s holds the tsconfig.json %s would compile "+
+			"under, but the framework stages that tree by glob and a BUILD file there would "+
+			"make a package the glob cannot descend into. %s keeps the ruleset's baseline.",
+			frameworkName(tc.detectedFramework), dirRel, args.Rel, args.Rel)
+		return ""
+	}
+	mode, agreed := boundaryModeAt(repoRoot, dirRel, args.Rel, tc.packageBoundaryMode)
+	if !agreed {
+		log.Printf("typescript: a ts_package_boundary directive between %s and %s leaves the "+
+			"two disagreeing about whether %s becomes a package, so %s names no tsconfig "+
+			"rather than risk a label into a package nothing writes. Declare the mode once, at "+
+			"or above %s.", dirRel, args.Rel, dirRel, args.Rel, dirRel)
+		return ""
+	}
+	if tsConfigPackageCosts(mode, absDir) {
+		log.Printf("typescript: %s holds the tsconfig.json %s would compile under, but %s "+
+			"package boundaries roll the sources below %s into the nearest package above it, "+
+			"and a BUILD file written there just to hold the ts_config target would drop every "+
+			"one of them. %s keeps the ruleset's baseline; make %s a package of its own with an "+
+			"index file or a # gazelle:ts_package_boundary true.",
+			dirRel, args.Rel, mode, dirRel, args.Rel, dirRel)
+		return ""
+	}
+	if targetNameForDir(local.tc, dirRel) == tsConfigTargetName {
+		log.Printf("typescript: %s already generates a target named %q, so there is no name "+
+			"left for the ts_config beside its tsconfig.json and %s keeps the ruleset's "+
+			"baseline. Rename the directory's target with a # gazelle:ts_target_name.",
+			dirRel, tsConfigTargetName, args.Rel)
+		return ""
+	}
+	return "//" + dirRel + ":" + tsConfigTargetName
+}
+
+// ownTsConfigRule is the ts_config target for this directory's own hand-written
+// tsconfig.json: what makes the file a label the packages below it can name.
+// nil when the directory has none, or when becoming a package would cost the
+// package above it sources -- tsConfigLabel logs that case from the other side.
+func ownTsConfigRule(args language.GenerateArgs, tc *tsConfig) *rule.Rule {
+	if isConfiguredExclude("tsconfig.json", tc.excludePatterns) {
+		return nil
+	}
+	if handWrittenTsConfigIn(args.Dir, args.Config.RepoRoot) == "" {
+		return nil
+	}
+	if tsConfigPackageCosts(tc.packageBoundaryMode, args.Dir) {
+		return nil
+	}
+	if targetNameForDir(tc, args.Rel) == tsConfigTargetName {
+		return nil
+	}
+	r := rule.NewRule("ts_config", tsConfigTargetName)
+	r.SetAttr("src", "tsconfig.json")
+	r.SetAttr("visibility", []string{"//visibility:public"})
+	return r
+}
+
+// tsConfigPackageCosts reports whether writing a BUILD file into absDir would
+// take sources away from the package above it. In every-dir mode nothing is
+// rolled up, so a new package costs nothing; in a roll-up mode the walk stops
+// at every directory that is a package of its own, and one that becomes a
+// package for the sake of a ts_config target takes the whole subtree beneath it
+// out of the target that was compiling it.
+func tsConfigPackageCosts(mode, absDir string) bool {
+	return mode != boundaryEveryDir && !dirIsItsOwnPackageIn(mode, absDir)
+}
+
+// boundaryModeAt is the boundary mode dirRel is generated under, and whether
+// fromRel is generated under the same one. dirRel is an ancestor of fromRel, so
+// every directive at or above dirRel reaches both and the mode inherited at
+// fromRel is dirRel's too -- unless a directory in between declares one, which
+// is what the second return value reports.
+func boundaryModeAt(repoRoot, dirRel, fromRel, inherited string) (string, bool) {
+	for _, between := range dirsBetween(dirRel, fromRel) {
+		absDir := filepath.Join(repoRoot, filepath.FromSlash(between))
+		if _, declared := boundaryModeDeclaredIn(absDir, between); declared {
+			return inherited, false
+		}
+	}
+	return inherited, true
+}
+
+// dirsBetween lists every directory below ancestor down to and including
+// descendant. A directive in any of them is one dirRel never saw.
+func dirsBetween(ancestor, descendant string) []string {
+	if descendant == ancestor {
+		return nil
+	}
+	rest := descendant
+	if ancestor != "" {
+		rest = strings.TrimPrefix(descendant, ancestor+"/")
+	}
+	var out []string
+	current := ancestor
+	for _, part := range strings.Split(rest, "/") {
+		current = path.Join(current, part)
+		out = append(out, current)
+	}
+	return out
+}
+
+// boundaryModeDeclaredIn returns the boundary mode dir's own BUILD file
+// declares. `# gazelle:ts_package_boundary true` marks that one directory and
+// leaves the mode alone, so it declares none.
+func boundaryModeDeclaredIn(absDir, rel string) (string, bool) {
+	for _, buildName := range []string{"BUILD.bazel", "BUILD"} {
+		f, err := rule.LoadFile(filepath.Join(absDir, buildName), rel)
+		if err != nil {
+			continue
+		}
+		for _, d := range f.Directives {
+			if d.Key != directivePackageBoundary {
+				continue
+			}
+			switch strings.TrimSpace(d.Value) {
+			case "", boundaryEveryDir:
+				return boundaryEveryDir, true
+			case boundaryIndexOnly:
+				return boundaryIndexOnly, true
+			case boundaryTsConfig:
+				return boundaryTsConfig, true
+			}
+		}
+		return "", false
+	}
+	return "", false
 }
 
 // targetNameForDir returns the Bazel target name for the primary ts_compile

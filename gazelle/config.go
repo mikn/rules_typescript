@@ -249,6 +249,12 @@ type tsConfig struct {
 	// Empty when no linter config is detected.
 	linterType string
 
+	// tsConfigFile is the workspace-relative path of the nearest hand-written
+	// tsconfig.json in this directory or an ancestor -- the compilerOptions
+	// baseline a target generated here should compile under. Empty leaves those
+	// targets on the ruleset's own baseline.
+	tsConfigFile string
+
 	// runtimeDepsTest is the list of additional Bazel label strings that
 	// should be appended to every generated ts_test deps list. Can be
 	// populated from gazelle_ts.json (deprecated) or
@@ -522,6 +528,69 @@ func linterConfigLabel(configPath string) string {
 		return "//:" + base
 	}
 	return "//" + dir + ":" + base
+}
+
+// ---- the compilerOptions baseline ------------------------------------------
+
+// tsConfigTargetName is the ts_config target Gazelle writes beside a package's
+// own tsconfig.json, and the one a target under it names.
+const tsConfigTargetName = "tsconfig"
+
+// generatedTsConfigMarker is the _comment ts_refresh_tsconfig stamps on every
+// tsconfig.json it writes (ts/private/tsconfig_aspect.bzl, _HEADER).
+const generatedTsConfigMarker = "bazel run //:refresh_tsconfig"
+
+// isGeneratedTsConfig reports whether path is a tsconfig.json this ruleset
+// writes. Naming one as a baseline is a cycle spelled as a baseline: it is built
+// out of the very targets that would name it, and the `extends` chain it carries
+// reaches files no target declares.
+func isGeneratedTsConfig(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var doc struct {
+		Comment string `json:"_comment"`
+	}
+	if err := unmarshalJSONC(data, &doc); err != nil {
+		return false
+	}
+	return strings.Contains(doc.Comment, generatedTsConfigMarker)
+}
+
+// handWrittenTsConfigIn returns the workspace-relative path of dir's own
+// tsconfig.json, or "" when it has none or the one it has is generated.
+func handWrittenTsConfigIn(dir, repoRoot string) string {
+	candidate := filepath.Join(dir, "tsconfig.json")
+	if st, err := os.Stat(candidate); err != nil || st.IsDir() {
+		return ""
+	}
+	if isGeneratedTsConfig(candidate) {
+		return ""
+	}
+	rel, err := filepath.Rel(repoRoot, candidate)
+	if err != nil {
+		return ""
+	}
+	return filepath.ToSlash(rel)
+}
+
+// nearestHandWrittenTsConfig walks dir and then each ancestor up to and
+// including repoRoot.
+func nearestHandWrittenTsConfig(repoRoot, dir string) string {
+	for {
+		if found := handWrittenTsConfigIn(dir, repoRoot); found != "" {
+			return found
+		}
+		if dir == repoRoot {
+			return ""
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
 }
 
 // ---- tsconfig.json reading -------------------------------------------------
@@ -1032,6 +1101,16 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 		// to it: tsc gives a file one project, not the union of the projects
 		// above it.
 		tc.tsconfigAmbientTypes = loadTsConfigAmbientTypes(tsConfigCandidate)
+	}
+
+	// The compilerOptions baseline, resolved the way tsserver resolves one:
+	// nearest file walking up. Inherited from the parent, so the walk only runs
+	// where nothing was inherited -- a Gazelle invocation rooted below the
+	// workspace root.
+	if own := handWrittenTsConfigIn(currentDir, c.RepoRoot); own != "" {
+		tc.tsConfigFile = own
+	} else if tc.tsConfigFile == "" {
+		tc.tsConfigFile = nearestHandWrittenTsConfig(c.RepoRoot, currentDir)
 	}
 
 	// Always check for a gazelle_ts.json in the current directory. A local

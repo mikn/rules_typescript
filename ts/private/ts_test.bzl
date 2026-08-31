@@ -950,6 +950,7 @@ def ts_test(
         lib = None,
         types = None,
         compiler_options = None,
+        tsconfig = None,
         visibility = None,
         environment = "",
         coverage = False,
@@ -1035,6 +1036,9 @@ def ts_test(
                            declaration.
         compiler_options:  Forwarded to the generated ts_compile, for whatever
                            the two above do not cover.
+        tsconfig:          Forwarded to the generated ts_compile: the package's
+                           own tsconfig.json, or a ts_config target when that
+                           file extends others. The three above override it.
         config:            Vitest config, either a label pointing at a config file
                            (.ts/.mts/.js/.mjs) or an inline dict.  It is MERGED
                            into the config rules_typescript generates rather than
@@ -1120,6 +1124,7 @@ def ts_test(
         jsx_mode = jsx_mode,
         declarations = declarations,
         compiler_options_json = _test_compiler_options_json(lib, types, compiler_options),
+        tsconfig = tsconfig,
         visibility = compile_visibility,
     )
 

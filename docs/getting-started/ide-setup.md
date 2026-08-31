@@ -159,9 +159,10 @@ let one's keys replace the other's for both targets' sources. A package gets at
 most one baseline, from whichever of its targets name one.
 
 A target in that package naming **no** `tsconfig` inherits that baseline in the
-editor, and does not in the build: with no `tsconfig` the rule applies its
-zero-config options (`strict`, `module: Preserve`, `moduleResolution: Bundler`,
-`skipLibCheck`, `esModuleInterop`), which is what the root block already holds.
+editor, and does not in the build: the rule applies its own baseline options
+(`strict`, `module: Preserve`, `moduleResolution: Bundler`, `skipLibCheck`,
+`esModuleInterop`) in either mode, and with no `tsconfig` above them that is all
+it gets — which is what the root block already holds.
 The nested file's own `compilerOptions` restate every option any target in the
 package sets explicitly and beat every `extends`, so a baseline reaches only keys
 no target in the package has an opinion about. In `//vite`, `:plugin_typecheck`
