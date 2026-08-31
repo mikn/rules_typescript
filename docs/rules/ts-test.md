@@ -142,9 +142,12 @@ either. An array is read as a list of vitest projects and becomes
 layer too, because every project gets its own Vite server. Anything the config
 imports relatively must be in `data`; it is not a build input otherwise.
 
-A config file is staged where its own bare imports resolve, which is not the
-package directory, so a path it needs to name comes from `TS_TEST_PACKAGE_DIR`:
-the directory holding the generated config, i.e. the package's output directory.
+Vite's root is the package, so a relative path in the config names the package
+and not the working directory the test runs in. The config file itself is staged
+elsewhere -- beside the `node_modules` tree, where its own bare imports resolve
+-- so a path relative to the config file is not the same thing;
+`TS_TEST_PACKAGE_DIR` holds the same directory Vite is rooted at, for a path that
+has to be absolute.
 
 !!! warning "The array form needs vitest 3.2 or later"
     `test.projects` is the name `test.workspace` was renamed to in vitest 3.2;

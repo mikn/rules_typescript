@@ -681,6 +681,16 @@ sections list every break with the edit it requires.
   dialect, shared by the BUILD generator and the rule. Four `json_library`
   targets on one monorepo built again, among them two `tsconfig.*.json` files --
   files Gazelle itself reads as JSONC.
+- **`ts_test` roots Vite at the package, so a relative path in a user config
+  means what it says.** Vite's root defaulted to the working directory, which
+  under Bazel is the runfiles root -- one tree above the package. Every relative
+  path a config author writes was resolved from there: a `setupFiles: ['./x.mjs']`
+  looked for `<runfiles>/x.mjs`, and `@cloudflare/vitest-pool-workers` resolved
+  `wrangler: { configPath: 'wrangler.jsonc' }` to `<runfiles>/wrangler.jsonc` and
+  failed the run with `Could not read file`. The generated config now sets
+  `root` to the package directory the launcher already exports as
+  `TS_TEST_PACKAGE_DIR`. It is in the Bazel layer, so a config that wants a
+  different root still wins.
 
 - **Gazelle reads `pnpm-lock.yaml`, so the npm inventory everything gates on is
   no longer empty.** `tc.npmPackages` -- "which npm packages does this

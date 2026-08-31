@@ -362,7 +362,16 @@ def _vitest_config_content(
 
         # A file under test is a build output, so its realpath lies outside the
         # vite root -- which the coverage default drops before instrumenting.
+
+        # vite's default root is the working directory, which for a test is the
+        # runfiles root. A config author writes paths relative to their package,
+        # and everything that resolves against the root -- the Workers pool's
+        # `wrangler.configPath` among them -- then looks a whole tree too high.
+        # It is the launcher's runfiles-resolved path and not this file's own
+        # dirname because import.meta.url comes back as the bazel-out realpath,
+        # which no runfiles path is under.
         "const bazelLayer = {",
+        "  root: process.env.TS_TEST_PACKAGE_DIR,",
         "  resolve: { preserveSymlinks: true },",
         "  plugins: [{}],".format(", ".join(base_plugins)),
         "  test: { coverage: { allowExternal: true } },",

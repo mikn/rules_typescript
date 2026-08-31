@@ -1,0 +1,1 @@
+globalThis.__SETUP_FROM_PACKAGE_RELATIVE_PATH__ = true;
