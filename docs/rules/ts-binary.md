@@ -1,8 +1,8 @@
 # ts_binary
 
-Produces a runnable target from a `ts_compile` entry point. Without a bundler it
-runs that target's entry `.js` on the JS runtime; with one it bundles first and
-runs the bundle.
+Produces a runnable target from a `ts_compile` entry point, or from a plain
+JavaScript file. Without a bundler it runs that entry `.js` on the JS runtime;
+with one it bundles first and runs the bundle.
 
 `ts_binary` and [`ts_bundle`](ts-bundle.md) are separate rules with overlapping
 attributes, not aliases. `ts_binary` is the rule for `bazel run`. `ts_bundle`
@@ -27,8 +27,9 @@ ts_binary(
 
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `entry_point` | `label` | required | `ts_compile` target providing `JsInfo` |
+| `entry_point` | `label` | required | `ts_compile` target providing `JsInfo`, or a single `.js`/`.mjs`/`.cjs` source file |
 | `entry_file` | `string` | `""` | Which source's `.js` is the entry when the target emits several, e.g. `"main.ts"`; `index.js` by convention when unset |
+| `data` | `label_list` | `[]` | Extra runfiles: sibling modules a source `entry_point` imports, fixtures, anything read at runtime |
 | `bundler` | `label` | `None` | Target providing `BundlerInfo`. When set, the bundle is what runs |
 | `bundle_name` | `string` | rule name | Output file name (without `.js`) |
 | `format` | `string` | `"esm"` | Output format: `esm`, `cjs`, `iife` |
@@ -39,6 +40,31 @@ ts_binary(
 
 `minify` and `split_chunks` are `ts_bundle` attributes; `ts_binary` does not
 accept them.
+
+## A JavaScript File as the Entry Point
+
+`entry_point` also takes a `.js`, `.mjs` or `.cjs` source directly, for a
+program that is already plain JavaScript — most often a
+[`ts_codegen`](ts-codegen.md) generator:
+
+```python
+ts_binary(
+    name = "gen_schema",
+    entry_point = "generate-schema.mjs",
+    data = ["schema-helpers.mjs"],
+    node_modules = "//:node_modules",
+)
+```
+
+The modules the entry imports go in `data`. Node resolves a relative import from
+the entry's real path, which in a local runfiles tree is the workspace source —
+so an undeclared sibling can still load there and then be missing under a
+manifest-only or remote layout. Declare every one.
+
+A `.ts` entry point is refused, with a message pointing at `ts_compile`: this
+rule does not compile TypeScript, and standing up an implicit compile here would
+be a second one with no `deps`, no `tsconfig` and no choice of declaration
+emitter.
 
 ## Without a Bundler
 

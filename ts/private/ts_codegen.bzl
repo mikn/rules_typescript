@@ -19,10 +19,11 @@ The generator binary is run as a Bazel build action (not at analysis time), so:
 
 Typical patterns:
 
-  1. Shell script generator (simplest):
-     Wrap a shell script with sh_binary and pass it as generator.
+  1. Node.js generator (the usual shape):
+     A ts_binary whose entry_point is the script itself.  The rule resolves the
+     runtime from the JS runtime toolchain, so nothing reads NODE_BINARY.
 
-         sh_binary(name = "mygen", srcs = ["mygen.sh"])
+         ts_binary(name = "mygen", entry_point = "mygen.mjs")
          ts_codegen(
              name = "gen",
              srcs = ["input.ts"],
@@ -31,12 +32,11 @@ Typical patterns:
              args = ["--out", "{out}"],
          )
 
-  2. Node.js generator with npm imports:
-     Wrap a Node.js script that imports from node_modules with sh_binary.
-     The shell wrapper invokes $NODE_BINARY, which ts_codegen sets from the
-     js_tool toolchain.
+     node_modules on the ts_codegen puts NODE_PATH and TS_CODEGEN_NODE_MODULES
+     in the generator's environment, which is how the script reaches npm
+     packages.
 
-         sh_binary(name = "gen_schema", srcs = ["generate-schema.sh"])
+         ts_binary(name = "gen_schema", entry_point = "generate-schema.mjs")
          ts_codegen(
              name = "schema",
              srcs = ["schema.json"],
@@ -46,9 +46,12 @@ Typical patterns:
              node_modules = ":node_modules",
          )
 
-     The shell wrapper receives NODE_PATH and TS_CODEGEN_NODE_MODULES env
-     variables automatically when node_modules is set, enabling Node.js
-     to find npm packages.
+  2. Any other executable:
+     A generator that is not a Node program -- a Go binary, a shell script --
+     is any executable target.  A shell wrapper that does run node reads
+     $NODE_BINARY, which ts_codegen sets from the js_tool toolchain.
+
+         sh_binary(name = "legacy_gen", srcs = ["legacy_gen.sh"])
 
   3. A generator this ruleset ships:
      //tools/codegen:tanstack_routes writes a TanStack Router route tree.

@@ -1,0 +1,80 @@
+"""ts_binary over a plain JavaScript source, run directly and as a generator.
+
+The same target answers both questions the source entry_point raises: that
+`bazel run` reaches a sibling module through runfiles, and that ts_codegen can
+drive it from the exec configuration with the runtime and node_modules the
+rule documents.
+"""
+
+load("@rules_go//go:def.bzl", "go_test")
+load("@rules_typescript//npm:defs.bzl", "node_modules")
+load("//ts:defs.bzl", "ts_binary", "ts_codegen", "ts_compile")
+load(":entry_point_tests.bzl", "typescript_entry_point_test", "unusable_entry_point_test")
+
+package(default_visibility = ["//:__pkg__"])
+
+# gazelle:exclude *_test.go
+
+ts_binary(
+    name = "main",
+    data = ["greet.mjs"],
+    entry_point = "main.mjs",
+)
+
+node_modules(
+    name = "generator_node_modules",
+    deps = ["@npm//:nanoid"],
+)
+
+ts_codegen(
+    name = "generated_ts",
+    srcs = ["schema.txt"],
+    outs = ["generated.ts"],
+    args = [
+        "--out",
+        "{out}",
+    ],
+    generator = ":main",
+    node_modules = ":generator_node_modules",
+)
+
+ts_compile(
+    name = "generated_compile",
+    srcs = [":generated_ts"],
+    declarations = "oxc",
+)
+
+go_test(
+    name = "js_entry_test",
+    size = "small",
+    srcs = ["js_entry_test.go"],
+    data = [
+        ":generated_ts",
+        ":main",
+    ],
+    deps = ["//tests/verify"],
+)
+
+# ── The entry_point shapes the rule refuses ───────────────────────────────────
+
+ts_binary(
+    name = "typescript_entry",
+    entry_point = "source.ts",
+    tags = ["manual"],
+)
+
+typescript_entry_point_test(
+    name = "typescript_entry_point_test",
+    target_under_test = ":typescript_entry",
+)
+
+ts_binary(
+    name = "unusable_entry",
+    entry_point = "schema.txt",
+    tags = ["manual"],
+)
+
+unusable_entry_point_test(
+    name = "unusable_entry_point_test",
+    target_under_test = ":unusable_entry",
+)

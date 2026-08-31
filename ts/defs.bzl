@@ -62,8 +62,9 @@ ts_config = _ts_config
 ts_test = _ts_test
 
 # Bundle rules. Separate rules with overlapping attributes, not aliases:
-# ts_binary is runnable and takes a strictly smaller attr set, plus entry_file
-# and node_modules, which ts_bundle has no use for. See docs/rules/ts-binary.md.
+# ts_binary is runnable and takes a strictly smaller attr set, plus entry_file,
+# data and node_modules, which ts_bundle has no use for. See
+# docs/rules/ts-binary.md.
 ts_binary = _ts_binary
 ts_bundle = _ts_bundle
 
