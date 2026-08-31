@@ -226,6 +226,12 @@ type tsConfig struct {
 	// pointer-equality (never mutated after load).
 	npmPackages map[string]string
 
+	// workspaceMembers is the set of workspace-relative directories the
+	// lockfile lists as pnpm importers -- the workspace's own packages. Read
+	// alongside npmPackages and shared the same way. nil means no lockfile
+	// answered, under which a package name is treated as installed.
+	workspaceMembers map[string]bool
+
 	// npmInventoryLoaded records that the lockfile read was attempted, so the
 	// walk does not re-read pnpm-lock.yaml once per directory. Copied by
 	// clone(), which is what leaves the first Configure call the only one that
@@ -321,7 +327,8 @@ func getConfig(c *config.Config) *tsConfig {
 // inherit from their parent.
 func (tc *tsConfig) clone() *tsConfig {
 	cp := *tc
-	// npmPackages is read-only after construction; sharing via pointer is safe.
+	// npmPackages and workspaceMembers are read-only after construction;
+	// sharing via pointer is safe.
 	//
 	// pathAliases can be extended or replaced by per-directory directives, so
 	// we must deep-copy it to ensure that a child's mutation (merge or replace)
@@ -1105,8 +1112,9 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 	// rooted below it still gets the inventory.
 	if !tc.npmInventoryLoaded {
 		tc.npmInventoryLoaded = true
-		if inventory := loadNpmInventory(c.RepoRoot); inventory != nil {
+		if inventory, members := loadNpmInventory(c.RepoRoot); inventory != nil {
 			tc.npmPackages = inventory
+			tc.workspaceMembers = members
 		}
 	}
 

@@ -18,21 +18,47 @@ const pnpmLockfileName = "pnpm-lock.yaml"
 // handle -- and every caller that gates on the inventory keeps its heuristics
 // in that case. A non-nil map is the lockfile's own answer, and an empty one
 // says the workspace declares nothing.
-func loadNpmInventory(repoRoot string) map[string]string {
+func loadNpmInventory(repoRoot string) (inventory map[string]string, members map[string]bool) {
 	path := filepath.Join(repoRoot, pnpmLockfileName)
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
-	inventory, err := parsePnpmLockInventory(string(data))
+	inventory, err = parsePnpmLockInventory(string(data))
 	if err != nil {
 		log.Printf("typescript: %s: %v\n"+
 			"The npm inventory is unavailable, so codegen and framework-bundle "+
 			"targets fall back to file-presence heuristics and a `node:` import "+
 			"gets no @types/node dep.", path, err)
+		return nil, nil
+	}
+	return inventory, parsePnpmImporterDirs(strings.Split(string(data), "\n"))
+}
+
+// parsePnpmImporterDirs returns the workspace-relative directories the
+// `importers:` section lists, which is the pnpm workspace's own membership --
+// the one place that tells a member's package name from an installed one.
+// The root importer is spelled "." and answers as "".
+func parsePnpmImporterDirs(lines []string) map[string]bool {
+	body, ok := pnpmSection(lines, "importers")
+	if !ok {
 		return nil
 	}
-	return inventory
+	dirs := make(map[string]bool)
+	for _, raw := range body {
+		indent, stripped, ok := pnpmContentLine(raw)
+		if !ok || indent != 2 || !strings.HasSuffix(stripped, ":") {
+			continue
+		}
+		dir := strings.Trim(strings.TrimSuffix(stripped, ":"), "'\"")
+		if dir == "." {
+			dir = ""
+		}
+		if dir == "" || !strings.HasPrefix(dir, "..") {
+			dirs[dir] = true
+		}
+	}
+	return dirs
 }
 
 // pnpmSupportedLockfileMajors are the lockfile format majors this reader

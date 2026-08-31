@@ -230,7 +230,74 @@ func resolveImport(
 		} else if selfImport {
 			return ""
 		}
+		if lbl, isSelf := resolveWorkspaceSelfImport(c, ix, tc, imp, from); isSelf {
+			return lbl
+		}
 		return resolveNpmPackage(tc, imp)
+	}
+}
+
+// ---- workspace self-reference ----------------------------------------------
+
+// resolveWorkspaceSelfImport resolves a specifier naming the very package the
+// importing target belongs to -- Node's self-reference, which a workspace uses
+// to import through its own `exports` map rather than by relative path.
+//
+// The npm hub declares that name too, because pnpm resolved it to a workspace
+// link, and its target is the member's own compiling target: a dep on it from
+// inside the member is a cycle back to the importer. The local module the
+// manifest designates is the same code without the round trip.
+//
+// isSelf reports that the specifier was the member's own name and the hub label
+// must not be used, whether or not a target was found for it.
+func resolveWorkspaceSelfImport(
+	c *config.Config,
+	ix *resolve.RuleIndex,
+	tc *tsConfig,
+	imp string,
+	from label.Label,
+) (lbl string, isSelf bool) {
+	dir, ok := workspaceMemberDir(c, tc, from.Pkg)
+	if !ok {
+		return "", false
+	}
+	manifest := readPackageManifest(c.RepoRoot, dir)
+	if manifest == nil || manifest.Name != barePackageName(imp) {
+		return "", false
+	}
+
+	subpath := strings.TrimPrefix(imp, manifest.Name)
+	keys := packageEntryModules(c.RepoRoot, dir, subpath)
+	keys = append(keys, moduleIndexKeys(c.RepoRoot, path.Join(dir, subpath), relativeImportExtensions)...)
+	for _, key := range keys {
+		if lbl, selfImport := lookupInIndex(ix, key, from); lbl != "" {
+			return lbl, true
+		} else if selfImport {
+			return "", true
+		}
+	}
+	return "", true
+}
+
+// workspaceMemberDir walks up from a Bazel package to the nearest directory
+// holding a package.json, and reports it when the lockfile lists it as a pnpm
+// importer. Nearest, because a package nested inside a member -- an example app
+// under it, say -- is its own package and imports the member from the registry
+// like anyone else.
+func workspaceMemberDir(c *config.Config, tc *tsConfig, pkg string) (string, bool) {
+	if tc.workspaceMembers == nil {
+		return "", false
+	}
+	for dir := pkg; ; dir = path.Dir(dir) {
+		if dir == "." {
+			dir = ""
+		}
+		if readPackageManifest(c.RepoRoot, dir) != nil {
+			return dir, tc.workspaceMembers[dir]
+		}
+		if dir == "" {
+			return "", false
+		}
 	}
 }
 
