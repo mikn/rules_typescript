@@ -20,6 +20,7 @@ package typescript
 
 import (
 	"path"
+	"sort"
 	"strings"
 )
 
@@ -57,6 +58,52 @@ type CodegenPattern struct {
 	// Comment is an optional human-readable explanation added to the rule
 	// as a BUILD file comment.
 	Comment string
+
+	// Dir is the directory the # gazelle:ts_codegen directive that declared
+	// this pattern was written in. Detectors leave it empty and are matched
+	// per directory instead; a directive is inherited by every child directory,
+	// and one target belongs in one package.
+	Dir string
+}
+
+// codegenSrcsPrefix marks the optional srcs field of a ts_codegen directive.
+const codegenSrcsPrefix = "srcs:"
+
+// codegenCompileName is the ts_compile that makes a pattern's output
+// importable. A target of its own and not the package's: under the default
+// declarations = "tsgo" emit, one declaration emit has one rootDir, so a target
+// mixing checked-in and generated sources fails at analysis. Switching the
+// package to oxc lifts that, at the cost of the emitter its hand-written
+// sources use.
+func codegenCompileName(p CodegenPattern) (string, bool) {
+	for _, out := range p.Outs {
+		if isTypeScriptFile(out) {
+			return p.Name + "_compile", true
+		}
+	}
+	return "", false
+}
+
+// codegenTargetNames returns every target name the given patterns occupy.
+func codegenTargetNames(patterns []CodegenPattern) []string {
+	var names []string
+	for _, p := range patterns {
+		names = append(names, p.Name)
+		if compile, ok := codegenCompileName(p); ok {
+			names = append(names, compile)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+// codegenOuts returns every file the given patterns declare.
+func codegenOuts(patterns []CodegenPattern) []string {
+	var outs []string
+	for _, p := range patterns {
+		outs = append(outs, p.Outs...)
+	}
+	return outs
 }
 
 // ---- npm package helpers ---------------------------------------------------
@@ -187,9 +234,12 @@ func detectCodegen(rel string, files []string, tc *tsConfig) []CodegenPattern {
 		patterns = append(patterns, *p)
 	}
 
-	// 4. Custom generators from # gazelle:ts_codegen directives.
+	// 4. Custom generators from # gazelle:ts_codegen directives, each in the
+	// one directory it was declared in.
 	for _, custom := range tc.customCodegens {
-		patterns = append(patterns, custom)
+		if custom.Dir == rel {
+			patterns = append(patterns, custom)
+		}
 	}
 
 	return patterns

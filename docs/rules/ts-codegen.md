@@ -47,10 +47,11 @@ Gazelle auto-detects Prisma, GraphQL codegen and OpenAPI generators from
 `package.json` and writes the target itself; the `# gazelle:ts_codegen`
 directive is for a generator it does not recognise. See
 [Register a codegen target](../gazelle/directives.md#register-a-codegen-target).
-It writes the `ts_codegen` rule only; the `ts_compile` that consumes the output
-is yours to declare. A checked-in `*.gen.ts` / `*.generated.ts` / `*.auto.ts` is
-kept out of the package's `srcs` by default, so the two cannot both claim the
-same file.
+It writes the `ts_compile` that consumes the output too, named
+`<name>_compile`, and resolves imports of the generated module to it. A
+checked-in file a `ts_codegen` declares as an out is kept out of the package's
+`srcs`, so the two cannot both claim it; so is a checked-in `*.gen.ts` /
+`*.generated.ts` / `*.auto.ts` nothing declares.
 
 ## Compiling the Output
 

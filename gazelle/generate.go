@@ -1,6 +1,7 @@
 package typescript
 
 import (
+	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -291,10 +292,14 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		}
 	}
 
+	// Read before the claim below: what a generator declares is an output of
+	// this package, and a file cannot be both that and a source of it.
+	codegenPatterns := detectCodegen(args.Rel, args.RegularFiles, tc)
+
 	// Two targets over one source declare the same .js and .d.ts, which Bazel
 	// rejects as conflicting actions rather than tolerating as a duplicate.
 	srcsBeforeClaim := append([]string(nil), srcFiles...)
-	if claimed := claimedSrcs(args, tc); len(claimed) > 0 {
+	if claimed := claimedSrcs(args, tc, codegenPatterns); len(claimed) > 0 {
 		srcFiles = dropClaimed(srcFiles, claimed)
 		testFiles = dropClaimed(testFiles, claimed)
 		ambientFiles = dropClaimed(ambientFiles, claimed)
@@ -357,10 +362,17 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 			return language.GenerateResult{}
 		}
 		rolled := rolledUpIn(tc.packageBoundaryMode, args.Dir, tc.excludePatterns)
-		if claimed := claimedSrcs(args, tc); len(claimed) > 0 {
+		// Every kind, not only the TypeScript ones: a declared out that is also
+		// checked in below the boundary would otherwise be a source and an
+		// output of the same package, whatever kind of file it is.
+		if claimed := claimedSrcs(args, tc, codegenPatterns); len(claimed) > 0 {
 			rolled.srcs = dropClaimed(rolled.srcs, claimed)
 			rolled.tests = dropClaimed(rolled.tests, claimed)
 			rolled.ambient = dropClaimed(rolled.ambient, claimed)
+			rolled.css = dropClaimed(rolled.css, claimed)
+			rolled.cssModules = dropClaimed(rolled.cssModules, claimed)
+			rolled.assets = dropClaimed(rolled.assets, claimed)
+			rolled.json = dropClaimed(rolled.json, claimed)
 		}
 		srcFiles = append(srcFiles, rolled.srcs...)
 		testFiles = append(testFiles, rolled.tests...)
@@ -373,9 +385,22 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		sort.Strings(testFiles)
 	}
 
+	// A generator that named no srcs reads the sources of the target it sits
+	// beside: the post-claim list, so its own out is never fed back into it,
+	// and post-roll-up, so a mode where one target covers a subtree hands the
+	// generator the subtree rather than the one directory the BUILD file is in.
+	for i := range codegenPatterns {
+		if len(codegenPatterns[i].Srcs) == 0 {
+			codegenPatterns[i].Srcs = append([]string(nil), srcFiles...)
+		}
+	}
+
 	totalNonTS := len(cssFiles) + len(cssModuleFiles) + len(assetFiles) + len(jsonFiles)
-	if !isBoundary && len(srcFiles) == 0 && len(testFiles) == 0 && totalNonTS == 0 {
+	if !isBoundary && len(srcFiles) == 0 && len(testFiles) == 0 && totalNonTS == 0 &&
+		len(codegenPatterns) == 0 {
 		// No TypeScript, CSS, asset, or JSON files and not a boundary: nothing to do.
+		// A declared generator is a target of its own, though: a package whose
+		// sources are all generated holds nothing else.
 		return language.GenerateResult{}
 	}
 
@@ -408,6 +433,9 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	reserved := reservedTSTargetNames(tc, args.Rel)
 	if hasEntry {
 		reserved[entryName] = struct{}{}
+	}
+	for _, name := range codegenTargetNames(codegenPatterns) {
+		reserved[name] = struct{}{}
 	}
 	libNames := assetTargetNames(reserved, cssFiles, cssModuleFiles, assetFiles, jsonFiles)
 
@@ -721,15 +749,22 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	}
 
 	// ---- ts_codegen targets ------------------------------------------------
-	// Scan the directory for known code generation patterns (TanStack routes,
-	// Prisma, GraphQL Codegen, OpenAPI) and emit ts_codegen rules.
-	// Custom patterns from # gazelle:ts_codegen directives are also included.
-	codegenPatterns := detectCodegen(args.Rel, args.RegularFiles, tc)
+	// The patterns read above: known tools (Prisma, GraphQL Codegen, OpenAPI)
+	// plus whatever # gazelle:ts_codegen directives declared here.
 	for _, p := range codegenPatterns {
 		r := buildCodegenRule(p)
-		if r != nil {
-			gen = append(gen, r)
-			// ts_codegen targets have no import resolution needs.
+		if r == nil {
+			log.Printf("typescript: ts_codegen %q in %q generates nothing: it names no srcs, and the directory has no TypeScript sources to default to. Give the directive a srcs: field naming the generator's inputs.",
+				p.Name, args.Rel)
+			continue
+		}
+		gen = append(gen, r)
+		// ts_codegen targets have no import resolution needs.
+		imports = append(imports, nil)
+
+		if compile, ok := codegenCompileName(p); ok {
+			gen = append(gen, buildCodegenCompileRule(compile, p.Name))
+			// Nothing to read imports from: the sources do not exist yet.
 			imports = append(imports, nil)
 		}
 	}
@@ -754,6 +789,10 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 				continue
 			}
 			empty = append(empty, rule.NewRule("ts_codegen", existingRule.Name()))
+			stale := CodegenPattern{Name: existingRule.Name(), Outs: existingRule.AttrStrings("outs")}
+			if compile, ok := codegenCompileName(stale); ok {
+				empty = append(empty, rule.NewRule("ts_compile", compile))
+			}
 		}
 	}
 
@@ -907,15 +946,29 @@ var compilingKinds = map[string]bool{
 	"json_library":  true,
 }
 
-// claimedSrcs returns the srcs of the rules in this build file that Gazelle is
-// not about to write. A glob() srcs expression reads as no names.
-func claimedSrcs(args language.GenerateArgs, tc *tsConfig) map[string]struct{} {
+// claimedSrcs returns the file names Gazelle must keep out of the targets it
+// writes: the srcs of the rules in this build file it is not about to write,
+// and every ts_codegen out. A glob() srcs expression reads as no names.
+//
+// The outs matter because a declared output that is also checked in would
+// otherwise be a source and an output of the same package, which Bazel rejects
+// as a conflicting declaration.
+func claimedSrcs(args language.GenerateArgs, tc *tsConfig, patterns []CodegenPattern) map[string]struct{} {
+	claimed := make(map[string]struct{})
+	for _, out := range codegenOuts(patterns) {
+		claimed[out] = struct{}{}
+	}
 	if args.File == nil {
-		return nil
+		return claimed
 	}
 	ours := reservedTSTargetNames(tc, args.Rel)
-	claimed := make(map[string]struct{})
 	for _, r := range args.File.Rules {
+		if r.Kind() == "ts_codegen" {
+			for _, out := range r.AttrStrings("outs") {
+				claimed[out] = struct{}{}
+			}
+			continue
+		}
 		// Gazelle writes neither attribute, so what they name survives the merge
 		// and is compiled -- including on the ts_test Gazelle owns.
 		if r.Kind() == "ts_test" {
@@ -1075,6 +1128,19 @@ func uniqueImports(imps []string) []string {
 	}
 	sort.Strings(result)
 	return result
+}
+
+// buildCodegenCompileRule wraps a ts_codegen's output in the ts_compile that
+// makes it importable: ts_compile deps take JsInfo, which ts_codegen does not
+// return, so the generated source has to arrive through srcs. oxc emits the
+// declarations because tsgo's emit would put its outDir where the generated
+// source already is, and TypeScript excludes outDir from the program.
+func buildCodegenCompileRule(name, codegen string) *rule.Rule {
+	r := rule.NewRule("ts_compile", name)
+	r.SetAttr("srcs", []string{":" + codegen})
+	r.SetAttr("declarations", "oxc")
+	r.SetAttr("visibility", []string{"//visibility:public"})
+	return r
 }
 
 // buildCodegenRule converts a CodegenPattern into a Bazel rule.Rule ready for

@@ -575,6 +575,21 @@ sections list every break with the edit it requires.
 
 ### Fixed
 
+- **`# gazelle:ts_codegen` writes the targets it names, and imports of the
+  generated module resolve to them.** The directive parsed into a pattern that
+  carried no `srcs`, and a pattern with no `srcs` produces no rule, so the
+  directive did nothing at all. It takes an optional `srcs:<csv>` field now and
+  defaults to the directory's own sources without one. Alongside the
+  `ts_codegen` Gazelle writes `<name>_compile`, the `ts_compile` that carries
+  the codegen label in `srcs` with `declarations = "oxc"` — the generated module
+  has to reach a compile through `srcs`, since `ts_compile.deps` requires
+  providers `ts_codegen` does not return — and indexes every declared out
+  against it, so `import "./schema.gen"` gets a dep with nothing hand-written.
+  A declared out that is also checked in is kept out of `ts_compile.srcs`,
+  whether the rule declaring it comes from the directive or was already in the
+  BUILD file: the file being both a source and an output of its package is a
+  conflicting declaration Bazel rejects. Deleting the checked-in copy is
+  therefore optional, and works either way.
 - **Gazelle converges.** The framework generators were create-if-absent
   (`if !ruleExists(...)`), so the second run emitted no candidate and the rule
   froze at whatever the first run wrote: a file added to a staged directory was

@@ -110,12 +110,14 @@ const (
 	directiveExclude = "ts_exclude"
 
 	// directiveCodegen registers a custom ts_codegen target via a directive.
-	// Format: # gazelle:ts_codegen <name> <generator_label> <outs_csv> [args...]
+	// Format: # gazelle:ts_codegen <name> <generator_label> <outs_csv> [srcs:<csv>] [args...]
 	// The <outs_csv> field is a comma-separated list of output file names.
-	// Everything after <outs_csv> is treated as generator args.
+	// The optional srcs: field names the generator's inputs; omitted, it reads
+	// the directory's own TypeScript sources. Everything after those fields is
+	// treated as generator args.
 	//
 	// Example (single output, args with placeholder substitution):
-	//   # gazelle:ts_codegen api_types @npm//:openapi-typescript_bin api-types.ts {srcs} -o {out}
+	//   # gazelle:ts_codegen api_types @npm//:openapi-typescript_bin api-types.ts srcs:openapi.yaml {srcs} -o {out}
 	//
 	// Example (directory output via out_dir prefix):
 	//   # gazelle:ts_codegen prisma_client @npm//:prisma_bin dir:generated/client generate --schema {srcs}
@@ -274,9 +276,10 @@ type tsConfig struct {
 
 	// customCodegens holds ts_codegen patterns parsed from
 	// # gazelle:ts_codegen directives. Each directive contributes one entry.
-	// Format: # gazelle:ts_codegen <name> <generator_label> <outs_csv> [args...]
+	// Format: # gazelle:ts_codegen <name> <generator_label> <outs_csv> [srcs:<csv>] [args...]
 	// Example: # gazelle:ts_codegen api_types @npm//:openapi-typescript_bin api-types.ts {srcs} -o {out}
-	// These patterns are appended verbatim to whatever detectCodegen returns.
+	// These patterns are appended to whatever detectCodegen returns, each in
+	// the one directory it was declared in.
 	customCodegens []CodegenPattern
 }
 
@@ -1192,15 +1195,11 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 					tc.excludePatterns = append(tc.excludePatterns, pattern)
 				}
 			case directiveCodegen:
-				// Format: <name> <generator_label> <outs_or_dir> [args...]
-				// <outs_or_dir> is either:
-				//   - a comma-separated list of output file names, or
-				//   - "dir:<directory_name>" for directory-tree outputs.
-				if cp := parseCodegenDirective(d.Value); cp != nil {
+				if cp := parseCodegenDirective(rel, d.Value); cp != nil {
 					tc.customCodegens = append(tc.customCodegens, *cp)
 				} else {
 					log.Printf("typescript: invalid ts_codegen directive %q\n"+
-						"  format: # gazelle:ts_codegen <name> <generator_label> <outs_csv_or_dir:path> [args...]", d.Value)
+						"  format: # gazelle:ts_codegen <name> <generator_label> <outs_csv_or_dir:path> [srcs:<csv>] [args...]", d.Value)
 				}
 			}
 		}
@@ -1217,12 +1216,12 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 
 // ---- directive parser: ts_codegen ------------------------------------------
 
-// parseCodegenDirective parses a # gazelle:ts_codegen directive value and
-// returns a CodegenPattern, or nil when the value is malformed.
+// parseCodegenDirective parses a # gazelle:ts_codegen directive value written
+// in rel and returns a CodegenPattern, or nil when the value is malformed.
 //
 // Format:
 //
-//	<name> <generator_label> <outs_or_dir> [args...]
+//	<name> <generator_label> <outs_or_dir> [srcs:<csv>] [args...]
 //
 // <outs_or_dir> is:
 //   - A comma-separated list of output file names, e.g. "api-types.ts"
@@ -1230,13 +1229,17 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 //   - The prefix "dir:" followed by a directory name, e.g. "dir:generated/client".
 //     This sets OutDir instead of Outs (for generators that produce a tree).
 //
-// Everything after <outs_or_dir> is treated as positional generator arguments.
+// An optional "srcs:" field names the generator's inputs. Omitted, the
+// generator reads the TypeScript sources of the directory it was declared in,
+// which is what a route-tree or barrel generator wants.
+//
+// Everything after those fields is treated as positional generator arguments.
 //
 // Examples:
 //
-//	api_types @npm//:openapi-typescript_bin api-types.ts {srcs} -o {out}
+//	api_types @npm//:openapi-typescript_bin api-types.ts srcs:openapi.yaml {srcs} -o {out}
 //	prisma_client @npm//:prisma_bin dir:generated/client generate --schema {srcs}
-func parseCodegenDirective(value string) *CodegenPattern {
+func parseCodegenDirective(rel, value string) *CodegenPattern {
 	// Split on whitespace; we need at least 3 fields: name generator outs.
 	fields := strings.Fields(strings.TrimSpace(value))
 	if len(fields) < 3 {
@@ -1246,7 +1249,7 @@ func parseCodegenDirective(value string) *CodegenPattern {
 	name := fields[0]
 	generator := fields[1]
 	outsField := fields[2]
-	args := fields[3:] // may be empty
+	rest := fields[3:] // may be empty
 
 	if name == "" || generator == "" || outsField == "" {
 		return nil
@@ -1255,8 +1258,21 @@ func parseCodegenDirective(value string) *CodegenPattern {
 	cp := CodegenPattern{
 		Name:      name,
 		Generator: generator,
-		Args:      args,
+		Dir:       rel,
 	}
+
+	if len(rest) > 0 && strings.HasPrefix(rest[0], codegenSrcsPrefix) {
+		for _, src := range strings.Split(strings.TrimPrefix(rest[0], codegenSrcsPrefix), ",") {
+			if src = strings.TrimSpace(src); src != "" {
+				cp.Srcs = append(cp.Srcs, src)
+			}
+		}
+		if len(cp.Srcs) == 0 {
+			return nil
+		}
+		rest = rest[1:]
+	}
+	cp.Args = rest
 
 	if strings.HasPrefix(outsField, "dir:") {
 		cp.OutDir = outsField[len("dir:"):]
