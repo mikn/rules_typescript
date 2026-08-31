@@ -222,6 +222,72 @@ def _option_merge_impl(ctx):
 
 option_merge_test = analysistest.make(_option_merge_impl)
 
+def _member_paths_impl(ctx):
+    env = analysistest.begin(ctx)
+    config = _written_config(env)
+    asserts.true(env, config != None, "ide_tsconfig wrote no tsconfig")
+    if config == None:
+        return analysistest.end(env)
+
+    paths = config["compilerOptions"]["paths"]
+
+    # What the member's package.json designates, in the source tree and under
+    # bazel-bin, with the guesses kept behind it -- the same map the tsconfig
+    # ts_compile generates carries, so an editor and the build resolve
+    # `pulse/button` to the same file.
+    asserts.equals(
+        env,
+        [
+            "./packages/pulse/entry",
+            "./bazel-bin/packages/pulse/entry",
+            "./packages/pulse/dist/entry",
+            "./bazel-bin/packages/pulse/dist/entry",
+            "./packages/pulse/index",
+        ],
+        paths.get("pulse"),
+        "pulse: " + str(paths.get("pulse")),
+    )
+    asserts.equals(
+        env,
+        [
+            "./packages/pulse/components/controls/button/index",
+            "./bazel-bin/packages/pulse/components/controls/button/index",
+            "./packages/pulse/button",
+            "./bazel-bin/packages/pulse/button",
+        ],
+        paths.get("pulse/button"),
+        "pulse/button: " + str(paths.get("pulse/button")),
+    )
+    asserts.equals(
+        env,
+        [
+            "./packages/pulse/styles/tokens/*",
+            "./bazel-bin/packages/pulse/styles/tokens/*",
+            "./packages/pulse/tokens/*",
+            "./bazel-bin/packages/pulse/tokens/*",
+        ],
+        paths.get("pulse/tokens/*"),
+        "pulse/tokens/*: " + str(paths.get("pulse/tokens/*")),
+    )
+
+    # Everything the manifest does not name still goes through the wildcard the
+    # map has always had.
+    asserts.equals(
+        env,
+        ["./packages/pulse/*", "./bazel-bin/packages/pulse/*"],
+        paths.get("pulse/*"),
+        "pulse/*: " + str(paths.get("pulse/*")),
+    )
+    asserts.equals(
+        env,
+        [],
+        [key for key in paths if key.startswith("pulse/internal") or key.endswith(".css")],
+        "a subpath designating no declaration got a key: " + str(sorted(paths)),
+    )
+    return analysistest.end(env)
+
+member_paths_test = analysistest.make(_member_paths_impl)
+
 def _fails_with(message):
     def _impl(ctx):
         env = analysistest.begin(ctx)

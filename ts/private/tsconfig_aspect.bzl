@@ -28,7 +28,7 @@ load("//ts/private:ts_compile.bzl", "TsModuleInfo")
 TsconfigSourcesInfo = provider(
     doc = "What a workspace-root tsconfig.json needs from the ts_compile targets under it.",
     fields = {
-        "packages": "depset of struct(path, has_index, module_name): package of every ts_compile target reached, whether it has an index file to name as the package entry point, and the bare specifier the target declared with `module_name` (empty when it declared none).",
+        "packages": "depset of struct(path, has_index, module_name, declared_paths): package of every ts_compile target reached, whether it has an index file to name as the package entry point, the bare specifier the target declared with `module_name` (empty when it declared none), and -- for a workspace member -- TsModuleInfo.declared_paths, what its own package.json says each of its specifiers resolves to.",
         "aliases": "depset of struct(prefix, dir): path_aliases entries, workspace-relative.",
         "npm_paths": "depset of struct(name, version, entry, is_file): npm entry points, relative to the package's own directory.",
         "npm_ambient": "depset of struct(name, version, entry): @types/* entry points to name in the tsconfig `files` array, relative to the package's own directory.",
@@ -456,6 +456,7 @@ def _tsconfig_aspect_impl(target, ctx):
             path = module.source_root,
             has_index = True,
             module_name = module.module_name,
+            declared_paths = module.declared_paths,
         )]
     elif ctx.rule.kind == "ts_compile":
         if target.label.package:
@@ -463,6 +464,7 @@ def _tsconfig_aspect_impl(target, ctx):
                 path = target.label.package,
                 has_index = _has_index(target, ctx),
                 module_name = getattr(ctx.rule.attr, "module_name", ""),
+                declared_paths = (),
             )]
         aliases = _aliases(ctx.rule.attr)
         npm_paths, npm_files = _npm_entries(ctx.rule.attr)
@@ -560,7 +562,7 @@ def _packages(sources):
     return indexed
 
 def _modules(sources):
-    """The package each `module_name` a reached target declared resolves to.
+    """The reached target each `module_name` resolves to, keyed by the specifier.
 
     A module_name is a bare specifier, so it needs its own paths key: the
     package-path key the target already has is not what the import says. Two
@@ -572,9 +574,30 @@ def _modules(sources):
         if not package.module_name:
             continue
         chosen = modules.get(package.module_name)
-        if chosen == None or package.path < chosen:
-            modules[package.module_name] = package.path
+        if chosen == None or package.path < chosen.path:
+            modules[package.module_name] = package
     return modules
+
+def _module_entries(package, bin_dir, declarations):
+    """Each declaration a manifest designates, in the source tree and in bazel-bin.
+
+    Without the extension: the declaration is what Bazel emits, and the file at
+    the same path in the SOURCE tree is the `.ts` it was emitted from. TypeScript
+    appends its own extension list to a `paths` value, so one entry answers both
+    trees -- which is what the wildcard entries beside these have always done.
+    """
+    out = []
+    for declaration in declarations:
+        stem = declaration
+        for extension in (".d.ts", ".d.mts", ".d.cts"):
+            if stem.endswith(extension):
+                stem = stem[:-len(extension)]
+                break
+        for root in ["./" + package, "{}/{}".format(bin_dir, package)]:
+            entry = root + "/" + stem
+            if entry not in out:
+                out.append(entry)
+    return out
 
 def _installed_entry(npm_dir, entry):
     base = "{}/{}".format(npm_dir, entry.name)
@@ -788,10 +811,35 @@ def _ide_tsconfig_impl(ctx):
 
     # Last, so a first-party module_name wins over a same-named npm package --
     # the precedence the tsconfig ts_compile generates applies too.
-    for module_name, package in sorted(_modules(sources).items()):
+    #
+    # What a workspace member's own package.json designates goes ahead of the
+    # guesses, exactly as it does in the tsconfig ts_compile generates: an editor
+    # that resolves `@scope/pkg/button` by a different rule than the build is a
+    # divergence, and the guesses stay behind it so a manifest naming a file this
+    # build does not produce is no worse than a manifest nobody read.
+    for module_name, module in sorted(_modules(sources).items()):
+        package = module.path
+        declared = {d.specifier: d.declarations for d in module.declared_paths}
+        entry = _module_entries(package, bin_dir, declared.get("", ()))
         if packages.get(package):
-            paths[module_name] = ["./{}/index".format(package)]
-        paths[module_name + "/*"] = ["./{}/*".format(package), "{}/{}/*".format(bin_dir, package)]
+            entry = entry + ["./{}/index".format(package)]
+        if entry:
+            paths[module_name] = entry
+        paths[module_name + "/*"] = (
+            _module_entries(package, bin_dir, declared.get("/*", ())) +
+            ["./{}/*".format(package), "{}/{}/*".format(bin_dir, package)]
+        )
+
+        # An exact `paths` key beats a pattern one, so `<name>/*` stops being
+        # consulted for a subpath the moment it is named: each declared subpath
+        # repeats the wildcard's own expansion behind its answer.
+        for specifier in sorted(declared):
+            if specifier == "" or specifier == "/*":
+                continue
+            paths[module_name + specifier] = (
+                _module_entries(package, bin_dir, declared[specifier]) +
+                ["./{}{}".format(package, specifier), "{}/{}{}".format(bin_dir, package, specifier)]
+            )
 
     config = {
         "_comment": _HEADER,
@@ -981,8 +1029,8 @@ def _ide_hook_data_impl(ctx):
         ],
         "packages": sorted(_packages(sources)),
         "modules": [
-            {"name": name, "package": package}
-            for name, package in sorted(_modules(sources).items())
+            {"name": name, "package": module.path}
+            for name, module in sorted(_modules(sources).items())
         ],
         "aliases": [
             {"prefix": prefix, "dir": dir}

@@ -697,6 +697,15 @@ sections list every break with the edit it requires.
   `null`, and one naming something no compiler emits a declaration from, get no
   entry; enforcing that they must not resolve is the strict-deps check's job,
   not this map's.
+- **The editor tsconfig reads that manifest too.** `ide_tsconfig` writes the
+  workspace-root `tsconfig.json` an editor resolves against, and it carried the
+  same two guesses — `<root>/index` for the bare specifier and `<root>/*` for
+  everything under it. So an editor answered `@scope/pkg/button` with a file
+  that is not there while the build answered it from the manifest, which is a
+  divergence between the two programs rather than one wrong answer. It now
+  writes the declared entries first, each in the source tree and under
+  `bazel-bin`, with the guesses behind them exactly as the compile tsconfig
+  keeps them.
 - **A member's `package.json` is found where its label says it is.** Member
   paths were resolved against the lockfile's own directory while
   `link_target_label` writes `@@//<path>`, so a lockfile in a subdirectory
