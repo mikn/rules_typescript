@@ -60,6 +60,18 @@ importers:
       ws-linked:
         specifier: workspace:*
         version: link:packages/ws-linked
+      # Two members whose Bazel target is not the one the member's `main` field
+      # implies. `boundary-member` is rolled up into its own directory under a
+      # `ts_package_boundary tsconfig` directive and renamed by
+      # `ts_target_name`; `leaf-member` keeps the per-directory default, so its
+      # own directory is not a Bazel package at all. Which of the two a layout
+      # gets is a Gazelle decision the hub cannot derive.
+      boundary-member:
+        specifier: workspace:*
+        version: link:packages/boundary-member
+      leaf-member:
+        specifier: workspace:*
+        version: link:packages/leaf-member
     devDependencies:
       '@types/ms':
         specifier: 2.1.0

@@ -1,0 +1,15 @@
+"""The other half of the pair: a member whose target IS in the directory its
+entry point sits in, and whose own directory is not a Bazel package at all.
+
+The default boundary mode gives every directory holding .ts files a package, so
+`packages/leaf-member` has none -- a hub that resolved this member to its own
+directory would name a package Bazel cannot load.
+"""
+
+load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "src",
+    srcs = ["index.ts"],
+    visibility = ["//visibility:public"],
+)

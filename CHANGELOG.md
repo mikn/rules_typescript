@@ -654,6 +654,20 @@ sections list every break with the edit it requires.
   resolver with `Cannot find package '<member>'`. The hub target now describes
   the member as an npm package -- its files, its own npm closure, and a
   generated `package.json` marking it ESM -- and it stages like any other.
+- **The hub looks up a `link:` member's target instead of deriving it from the
+  member's entry point.** The label was `//<member>/<dir of main>:<basename>`,
+  which is one of several targets Gazelle might have generated and is right only
+  by coincidence: `# gazelle:ts_package_boundary tsconfig` rolls a member's
+  subtree up into the directory holding `tsconfig.json`, so a member with
+  `main: src/index.ts` builds from `//packages/x:x` and not from
+  `//packages/x/src:src`, and `# gazelle:ts_target_name` renames the target
+  outright. The hub now walks from the entry point's own directory up to the
+  member's root and takes the innermost one that is a Bazel package declaring
+  that target, honouring `ts_target_name`; a directory becoming a package
+  refetches the hub. When no directory of the member is a Bazel package the hub
+  declares no target for that name and writes a comment saying why -- an
+  undeclared target fails only what asks for the member, while a label naming a
+  package Bazel cannot load fails analysis for everything that reaches the hub.
 - **Gazelle converges.** The framework generators were create-if-absent
   (`if !ruleExists(...)`), so the second run emitted no candidate and the rule
   froze at whatever the first run wrote: a file added to a staged directory was
