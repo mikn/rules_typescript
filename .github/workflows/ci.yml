@@ -242,7 +242,7 @@ jobs:
       # setup-go, not Bazel: gofmt and go vet read the go.work module graph
       # straight off the source tree, so no part of this comes from the build
       # graph and there is nothing for a Bazel invocation to contribute.
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.work
           cache-dependency-path: |
