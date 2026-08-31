@@ -14,6 +14,8 @@
                                 the .bazelrc-optional half of the map.
   :module_paths_test            what the generated tsconfig says about a
                                 `module_name` and about extra_exclude.
+  :member_paths_test            and what it says about a pnpm workspace member,
+                                whose specifiers its own package.json declares.
   :fragments_reach_private_test  that those bytes exist at all, for a target no
                                 rule in this package may name.
   :test_resolve_integration     the monkey-patch itself -- ts.resolveModuleName
@@ -39,6 +41,7 @@ load(":fragment_tests.bzl", "fragment_files", "fragments_reach_private_test")
 load(
     ":ide_tsconfig_tests.bzl",
     "ambient_types_test",
+    "member_paths_test",
     "module_paths_test",
     "no_ambient_types_test",
     "transitive_types_pairing_test",
@@ -217,6 +220,25 @@ ide_tsconfig(
 module_paths_test(
     name = "module_paths_test",
     target_under_test = ":module_ide_tsconfig",
+)
+
+# ── The same question for a pnpm workspace member ─────────────────────────────
+# A member's bare specifier and its subpaths are declared in its own
+# package.json, and //packages/pulse is the member whose manifest is the whole
+# fixture. The editor map guessed `<root>/index` and `<root>/*` for both, which
+# resolves `pulse` by luck and `pulse/button` not at all -- while the tsconfig
+# ts_compile generates for the same member reads the manifest
+# (//tests/compiler_options/analysis:module_exports_paths_test). Two answers for
+# one import is the divergence a generated editor config exists to end.
+ide_tsconfig(
+    name = "member_ide_tsconfig",
+    tags = ["manual"],
+    deps = ["@npm//:pulse"],
+)
+
+member_paths_test(
+    name = "member_paths_test",
+    target_under_test = ":member_ide_tsconfig",
 )
 
 # ── The @types/* pairing behind a transitive edge ─────────────────────────────
