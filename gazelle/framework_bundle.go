@@ -311,7 +311,7 @@ func stagedSources(files []string) []string {
 	var out []string
 	for _, f := range files {
 		if !isTypeScriptFile(f) || strings.HasSuffix(f, ".d.ts") ||
-			isGeneratedFile(f) || isTestFile(f) {
+			isFrameworkGeneratedFile(f) || isTestFile(f) {
 			continue
 		}
 		out = append(out, f)
@@ -370,7 +370,7 @@ func packageStagingLabels(absDir, rel string, tc *tsConfig) []string {
 			cssModules = append(cssModules, name)
 		case isCSSFile(name):
 			css = append(css, name)
-		case !isTypeScriptFile(name), isGeneratedFile(name), isTestFile(name):
+		case !isTypeScriptFile(name), isFrameworkGeneratedFile(name), isTestFile(name):
 		case isConfiguredExclude(name, local.excludePatterns), nextOwnsFile(rel, name, local):
 		case isDocFile(name):
 			hasDoc = true

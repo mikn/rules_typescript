@@ -647,6 +647,20 @@ sections list every break with the edit it requires.
 
 ### Fixed
 
+- **A checked-in `*.gen.ts` is a source again.** Gazelle dropped every file
+  whose name ended `.gen` / `.generated` / `.auto` from every source target, on
+  the guess that something in the build produced it. The guess was already
+  unnecessary: `claimedSrcs` keeps out exactly what a `ts_codegen` in the
+  package declares as an out. What the name check added on top was the
+  checked-in generated file nothing produces -- 204 of them in one monorepo,
+  under one directory, behind 416 `TS2307`s from the
+  `#shared/lib/flags/gen/<name>.gen` specifiers that import them. Only
+  `routeTree.gen.ts` is still recognised by name, because the build really does
+  write it: the Start Vite plugin regenerates it into the staging tree, and the
+  tree it emits imports the router module that imports the tree back -- a cycle
+  between two Bazel packages however the two are split. **The edit:** a
+  workspace that wants some other generated-looking file out of `srcs` names it
+  in `# gazelle:ts_exclude`.
 - **Gazelle reads `pnpm-lock.yaml`, so the npm inventory everything gates on is
   no longer empty.** `tc.npmPackages` -- "which npm packages does this
   workspace declare" -- was populated in one place only, from the deprecated

@@ -3,6 +3,7 @@ package typescript
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"testing"
 
@@ -108,4 +109,25 @@ func TestRolledUp_SameBasenameInTwoDirectories(t *testing.T) {
 	if len(seen) < 3 {
 		t.Errorf("expected a target per rolled-up stylesheet, got %v", seen)
 	}
+}
+
+// The monorepo shape: one boundary per tsconfig, with the checked-in flag
+// modules many directories below it. Rolled up out of srcs, every `.gen`
+// specifier importing them is a module tsgo cannot find.
+func TestRolledUp_CommittedGeneratedFileReachesTheBoundary(t *testing.T) {
+	res := generateRolledUp(t, map[string]string{
+		"index.ts":                         "export { flag } from './lib/flags/gen/variants_v1.gen';\n",
+		"lib/flags/gen/variants_v1.gen.ts": "export const flag = 1;\n",
+	}, indexOnlyBuild)
+
+	for _, r := range res.Gen {
+		if r.Kind() != "ts_compile" {
+			continue
+		}
+		if got := r.AttrStrings("srcs"); !slices.Contains(got, "lib/flags/gen/variants_v1.gen.ts") {
+			t.Errorf("ts_compile srcs = %v, missing the checked-in generated module", got)
+		}
+		return
+	}
+	t.Fatalf("no ts_compile generated; got %v", generatedNames(t, res))
 }

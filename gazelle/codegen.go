@@ -149,10 +149,10 @@ func fileSet(files []string) map[string]bool {
 }
 
 // hasTsxFiles returns true when the file list contains at least one .tsx file
-// that is not a generated file.
+// the framework does not write itself.
 func hasTsxFiles(files []string) bool {
 	for _, f := range files {
-		if strings.HasSuffix(f, ".tsx") && !isGeneratedFile(f) {
+		if strings.HasSuffix(f, ".tsx") && !isFrameworkGeneratedFile(f) {
 			return true
 		}
 	}

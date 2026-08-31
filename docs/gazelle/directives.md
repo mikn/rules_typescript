@@ -385,3 +385,5 @@ used.
 ```
 
 Files matching `*.generated.ts` are excluded from `srcs` lists in this directory.
+Nothing is excluded by name on its own: a checked-in file is a source unless a
+rule in the package declares it as an output, however it is named.

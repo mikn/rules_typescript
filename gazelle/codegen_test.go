@@ -668,9 +668,9 @@ func TestGenerate_CodegenOutOnDiskIsNotAlsoASrc(t *testing.T) {
 	}
 }
 
-// A *.gen.ts no ts_codegen declares keeps the treatment it has always had: out
-// of srcs, and no target claiming to produce it.
-func TestGenerate_UndeclaredGeneratedFileStaysOutOfSrcs(t *testing.T) {
+// A *.gen.ts no rule declares is a checked-in file like any other: nothing in
+// the build writes it, so leaving it out is a module its importers cannot find.
+func TestGenerate_UndeclaredGeneratedFileIsASrc(t *testing.T) {
 	res := runGenerate(t, "api", map[string]string{
 		"client.ts":     "export const a = 1;\n",
 		"schema.gen.ts": "export type S = number;\n",
@@ -680,7 +680,7 @@ func TestGenerate_UndeclaredGeneratedFileStaysOutOfSrcs(t *testing.T) {
 	if compile == nil {
 		t.Fatalf("no ts_compile generated; got %v", generatedNames(t, res))
 	}
-	if got, want := compile.AttrStrings("srcs"), []string{"client.ts"}; !reflect.DeepEqual(got, want) {
+	if got, want := compile.AttrStrings("srcs"), []string{"client.ts", "schema.gen.ts"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("ts_compile srcs = %v, want %v", got, want)
 	}
 	for _, r := range res.Gen {

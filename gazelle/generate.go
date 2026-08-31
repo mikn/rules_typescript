@@ -102,34 +102,19 @@ func isDocFile(name string) bool {
 	return strings.HasSuffix(base, ".doc") || strings.HasSuffix(base, ".stories")
 }
 
-// builtinGeneratedSuffixes is the set of name suffixes (after stripping the
-// .ts/.tsx extension) that identify generated files that should be excluded
-// from source targets. These patterns are always active regardless of any
-// gazelle_ts.json configuration.
-var builtinGeneratedSuffixes = []string{
-	".gen",
-	".generated",
-	".auto",
-}
-
-// isGeneratedFile returns true for files that are generated artefacts and
-// should be excluded from source targets. Built-in patterns cover the most
-// common code-generation conventions:
+// isFrameworkGeneratedFile reports whether the build writes name itself. Only
+// the TanStack Start route tree does: the Start Vite plugin regenerates it into
+// the staging tree on every bundle, and the tree it emits imports the router
+// module that imports the tree back, which is a cycle between two Bazel
+// packages however the two are split.
 //
-//   - *.gen.ts / *.gen.tsx  (e.g. routeTree.gen.ts from TanStack Router)
-//   - *.generated.ts / *.generated.tsx  (common GraphQL codegen output)
-//   - *.auto.ts / *.auto.tsx  (common automatic code generation)
-//
-// Additional patterns can be supplied via the gazelle_ts.json
-// "excludePatterns" field (matched via isConfiguredExclude).
-func isGeneratedFile(name string) bool {
+// A checked-in file no rule declares as an output is an ordinary source however
+// it is named -- see claimedSrcs, which is what defers to ts_codegen. A
+// workspace that wants one out of its source targets anyway names it in
+// # gazelle:ts_exclude (isConfiguredExclude).
+func isFrameworkGeneratedFile(name string) bool {
 	base := strings.TrimSuffix(strings.TrimSuffix(name, ".tsx"), ".ts")
-	for _, suffix := range builtinGeneratedSuffixes {
-		if strings.HasSuffix(base, suffix) {
-			return true
-		}
-	}
-	return false
+	return base == "routeTree.gen"
 }
 
 // isConfiguredExclude returns true when a file's basename matches any of the
@@ -280,7 +265,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		if !isTypeScriptFile(f) {
 			continue
 		}
-		if isGeneratedFile(f) {
+		if isFrameworkGeneratedFile(f) {
 			continue
 		}
 		if isConfiguredExclude(f, tc.excludePatterns) {

@@ -143,29 +143,26 @@ const lazy = import("./lazy");
 
 // ---- generate.go classification tests -------------------------------------
 
-func TestIsGeneratedFile_BuiltinPatterns(t *testing.T) {
+func TestIsFrameworkGeneratedFile(t *testing.T) {
 	cases := []struct {
 		name string
 		want bool
 	}{
 		{"routeTree.gen.ts", true},
-		{"foo.gen.tsx", true},
-		{"schema.generated.ts", true},
-		{"types.generated.tsx", true},
-		{"api.auto.ts", true},
-		{"helpers.auto.tsx", true},
-		// Non-generated files:
+		{"routeTree.gen.tsx", true},
+		// Checked in and written by nothing in the build: ordinary sources.
+		{"variants_v1.gen.ts", false},
+		{"schema.generated.ts", false},
+		{"api.auto.ts", false},
 		{"index.ts", false},
 		{"utils.ts", false},
 		{"button.tsx", false},
 		{"component.test.ts", false},
-		// Tricky: "generator.ts" — "generator" does not end with ".gen"
-		{"generator.ts", false},
 	}
 	for _, tc := range cases {
-		got := isGeneratedFile(tc.name)
+		got := isFrameworkGeneratedFile(tc.name)
 		if got != tc.want {
-			t.Errorf("isGeneratedFile(%q): got %v, want %v", tc.name, got, tc.want)
+			t.Errorf("isFrameworkGeneratedFile(%q): got %v, want %v", tc.name, got, tc.want)
 		}
 	}
 }

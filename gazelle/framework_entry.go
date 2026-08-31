@@ -68,7 +68,7 @@ func frameworkEntryTargetName(rel string, tc *tsConfig) (string, bool) {
 // there, so a target over it is a decision rather than a leftover.
 func frameworkEntryFileExists(files []string, name string) bool {
 	for _, f := range files {
-		if isTypeScriptFile(f) && !isGeneratedFile(f) && entryTargetName(f) == name {
+		if isTypeScriptFile(f) && !isFrameworkGeneratedFile(f) && entryTargetName(f) == name {
 			return true
 		}
 	}
@@ -162,7 +162,7 @@ func entryTargetIsCovered(args language.GenerateArgs, tc *tsConfig, pkg, target 
 	}
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || !isTypeScriptFile(name) || isGeneratedFile(name) {
+		if e.IsDir() || !isTypeScriptFile(name) || isFrameworkGeneratedFile(name) {
 			continue
 		}
 		if isConfiguredExclude(name, lp.tc.excludePatterns) || isConfiguredExclude(name, lp.dropped) {
