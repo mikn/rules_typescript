@@ -19,23 +19,18 @@
  * inside the pool runner -- which reads like the plugin API being wrong rather
  * than a resolution setting.
  *
- * The paths are absolute because a relative one resolves against the vite root,
- * which is the runfiles root rather than this package. TS_TEST_PACKAGE_DIR is
- * where ts_test put the compiled worker.
+ * `wrangler.configPath` is relative because ts_test roots vite at the package,
+ * which is also where the compiled worker the config's `main` names is staged.
  */
 
-import { join } from 'node:path';
-
 import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
-
-const pkg = process.env.TS_TEST_PACKAGE_DIR;
 
 export default {
   resolve: { preserveSymlinks: false },
   plugins: [
     cloudflareTest({
       remoteBindings: false,
-      wrangler: { configPath: join(pkg, 'wrangler.jsonc') },
+      wrangler: { configPath: 'wrangler.jsonc' },
     }),
   ],
 };

@@ -1,0 +1,11 @@
+"""A relative path in a user's vitest config names the package, not the runfiles root."""
+
+load("//ts:defs.bzl", "ts_test")
+
+ts_test(
+    name = "root_test",
+    srcs = ["root.test.ts"],
+    config = "vitest.root.config.mjs",
+    data = ["setup.mjs"],
+    deps = ["@npm//:vitest"],
+)

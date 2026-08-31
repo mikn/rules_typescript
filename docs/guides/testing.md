@@ -252,18 +252,14 @@ implies.
 ### The vitest Config
 
 ```javascript
-import { join } from 'node:path';
-
 import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
-
-const pkg = process.env.TS_TEST_PACKAGE_DIR;
 
 export default {
   resolve: { preserveSymlinks: false },
   plugins: [
     cloudflareTest({
       remoteBindings: false,
-      wrangler: { configPath: join(pkg, 'wrangler.jsonc') },
+      wrangler: { configPath: 'wrangler.jsonc' },
     }),
   ],
 };
@@ -285,9 +281,9 @@ identity for the same file, and the user layer wins. Leaving it out fails as
 `TypeError: Cannot read properties of undefined (reading 'config')` from inside
 the pool runner.
 
-The wrangler `configPath` is absolute, built from `TS_TEST_PACKAGE_DIR`; a
-relative path resolves against the Vite root, which is the runfiles root and not
-the package.
+The wrangler `configPath` is relative because `ts_test` roots Vite at the
+package, which is where `data = ["wrangler.jsonc"]` stages the file and where the
+compiled worker its `main` names is staged too.
 
 ### coverage_provider and types
 
