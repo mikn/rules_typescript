@@ -1,0 +1,16 @@
+"""The third shape: a member that designates its entry point ONLY in `exports`.
+
+No `main` and no `module`, which is how a package published for a modern resolver
+is written -- and how most of a monorepo's own packages are. A hub that reads
+only `main` has nothing to walk from and is left with the member's root as the
+only candidate; the default boundary mode puts the target here instead, so that
+hub declares no target for the member and the name stops resolving.
+"""
+
+load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "src",
+    srcs = ["index.ts"],
+    visibility = ["//visibility:public"],
+)

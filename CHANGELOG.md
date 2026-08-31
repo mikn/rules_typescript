@@ -671,6 +671,23 @@ sections list every break with the edit it requires.
   resolver with `Cannot find package '<member>'`. The hub target now describes
   the member as an npm package -- its files, its own npm closure, and a
   generated `package.json` marking it ESM -- and it stages like any other.
+- **The hub looks up a `link:` member's target instead of deriving it from the
+  member's entry point.** The label was `//<member>/<dir of main>:<basename>`,
+  which is one of several targets Gazelle might have generated and is right only
+  by coincidence: `# gazelle:ts_package_boundary tsconfig` rolls a member's
+  subtree up into the directory holding `tsconfig.json`, so a member with
+  `main: src/index.ts` builds from `//packages/x:x` and not from
+  `//packages/x/src:src`, and `# gazelle:ts_target_name` renames the target
+  outright. The hub now walks from the directories the member's manifest
+  designates an entry point in -- `main`, `module` and `exports["."]`, so a
+  member that declares only an exports map is walked too -- up to the member's
+  root, and takes the innermost one declaring a target of that name, honouring
+  `ts_target_name`; a directory becoming a package refetches the hub. When no
+  candidate declares it the hub declares no target for that name and writes a
+  comment saying why, and that covers a member whose `BUILD.bazel` exists and
+  declares something else as much as one with no `BUILD.bazel` at all -- an
+  undeclared target fails only what asks for the member, while a label naming a
+  target Bazel cannot resolve fails analysis for everything that reaches the hub.
 - **Gazelle converges.** The framework generators were create-if-absent
   (`if !ruleExists(...)`), so the second run emitted no candidate and the rule
   froze at whatever the first run wrote: a file added to a staged directory was

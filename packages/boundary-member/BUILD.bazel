@@ -1,0 +1,24 @@
+"""A workspace member whose target is neither in the directory its entry point
+sits in nor named after its own directory.
+
+`# gazelle:ts_package_boundary tsconfig` rolls the subtree up into the directory
+holding tsconfig.json, so `src/` is not a package at all, and
+`# gazelle:ts_target_name` renames what that package generates. Both are
+directives Gazelle reads and a fetch-time repository rule cannot, so the hub's
+`link:` target for this member is right only if it looks the directory up
+instead of deriving it from `main`.
+
+Hand-written to match what Gazelle generates for this layout; this repository's
+own BUILD files are not generated.
+"""
+
+load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+# gazelle:ts_package_boundary tsconfig
+# gazelle:ts_target_name lib
+
+ts_compile(
+    name = "lib",
+    srcs = ["src/index.ts"],
+    visibility = ["//visibility:public"],
+)

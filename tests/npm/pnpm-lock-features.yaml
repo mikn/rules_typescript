@@ -60,6 +60,32 @@ importers:
       ws-linked:
         specifier: workspace:*
         version: link:packages/ws-linked
+      # Two members whose Bazel target is not the one the member's `main` field
+      # implies. `boundary-member` is rolled up into its own directory under a
+      # `ts_package_boundary tsconfig` directive and renamed by
+      # `ts_target_name`; `leaf-member` keeps the per-directory default, so its
+      # own directory is not a Bazel package at all. Which of the two a layout
+      # gets is a Gazelle decision the hub cannot derive.
+      boundary-member:
+        specifier: workspace:*
+        version: link:packages/boundary-member
+      leaf-member:
+        specifier: workspace:*
+        version: link:packages/leaf-member
+      # A member that designates its entry point only in `exports`, with no
+      # `main` and no `module`: the hub finds the directory holding its target
+      # only if it reads the exports map too.
+      exports-member:
+        specifier: workspace:*
+        version: link:packages/exports-member
+      # The member with no target at all. Its root is a Bazel package -- a lone
+      # `ts_config` -- and declares nothing named `no-target-member`, and the
+      # directory holding its sources is not a package. So the hub has a BUILD
+      # file to read and still no target to name, which is the case a fallback
+      # would turn into a label naming a target Bazel cannot resolve.
+      no-target-member:
+        specifier: workspace:*
+        version: link:packages/no-target-member
     devDependencies:
       '@types/ms':
         specifier: 2.1.0
