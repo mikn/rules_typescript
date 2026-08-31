@@ -345,13 +345,16 @@ extension written in Go.
 heuristics, import resolution strategy, the directive reference, and
 `gazelle_ts.json` migration notes.
 
-The extension is compiled into the `gazelle_binary` `//gazelle:gazelle_ts`, with
-the `gazelle` runner beside it:
+The extension is compiled into two `gazelle_binary` targets. `//gazelle:gazelle_ts`
+is the one this repo runs, through the `gazelle` runner beside it:
 
 ```bash
 bazel run //gazelle:gazelle
 ```
 
-A consumer workspace declares its own `gazelle` target pointing at
-`@rules_typescript//gazelle:gazelle_ts` — `e2e/basic/BUILD.bazel` is the worked
-example — and runs `bazel run //:gazelle`.
+It also carries the Go and proto languages, because this repo generates BUILD
+files for its own `.go` sources. `//gazelle:gazelle_typescript` is the exported
+one and carries TypeScript alone, so it never rewrites a consumer's Go BUILD
+files. A consumer workspace declares its own `gazelle` target pointing at
+`@rules_typescript//gazelle:gazelle_typescript` — `e2e/basic/BUILD.bazel` is the
+worked example — and runs `bazel run //:gazelle`.

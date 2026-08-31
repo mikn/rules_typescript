@@ -16,7 +16,7 @@ load("@rules_typescript//vite:bundler.bzl", "vite_bundler")
 
 gazelle(
     name = "gazelle",
-    gazelle = "@rules_typescript//gazelle:gazelle_ts",
+    gazelle = "@rules_typescript//gazelle:gazelle_typescript",
 )
 
 # ── node_modules tree for Vite ────────────────────────────────────────────────

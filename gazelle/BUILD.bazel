@@ -70,6 +70,14 @@ go_test(
 )
 
 gazelle_binary(
+    name = "gazelle_typescript",
+    languages = [":typescript"],
+    visibility = ["//visibility:public"],
+)
+
+# Go and proto are here because this repo generates BUILD files for its own .go
+# sources; a consumer wants :gazelle_typescript instead.
+gazelle_binary(
     name = "gazelle_ts",
     languages = [
         "@gazelle//language/go",

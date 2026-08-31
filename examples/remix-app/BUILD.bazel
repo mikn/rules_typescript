@@ -86,7 +86,7 @@ load("@rules_typescript//vite:bundler.bzl", "vite_bundler")
 # Run "bazel run //:gazelle" to auto-generate BUILD files.
 gazelle(
     name = "gazelle",
-    gazelle = "@rules_typescript//gazelle:gazelle_ts",
+    gazelle = "@rules_typescript//gazelle:gazelle_typescript",
 )
 
 # ── Compilation targets ──────────────────────────────────────────────────────

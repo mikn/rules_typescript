@@ -20,7 +20,7 @@ load("@rules_typescript//ts:defs.bzl", "next_build", "next_dev_server", "next_se
 
 gazelle(
     name = "gazelle",
-    gazelle = "@rules_typescript//gazelle:gazelle_ts",
+    gazelle = "@rules_typescript//gazelle:gazelle_typescript",
 )
 
 # ── Node.js dependencies for Next.js ─────────────────────────────────────────

@@ -124,9 +124,14 @@ load("@gazelle//:def.bzl", "gazelle")
 
 gazelle(
     name = "gazelle",
-    gazelle = "@rules_typescript//gazelle:gazelle_ts",
+    gazelle = "@rules_typescript//gazelle:gazelle_typescript",
 )
 ```
+
+Point at `gazelle_typescript`, not `gazelle_ts`: the latter also carries the Go
+and proto languages, because rules_typescript generates BUILD files for its own
+`.go` sources, and in a polyglot repo it would rewrite Go BUILD files you never
+asked it about.
 
 **Step 5.** Write TypeScript. Export annotations are optional: tsgo emits the
 declarations from the full type program, so an inferred return type is fine:

@@ -8,7 +8,7 @@ load("@rules_typescript//ts:defs.bzl", "ts_lint")
 
 gazelle(
     name = "gazelle",
-    gazelle = "@rules_typescript//gazelle:gazelle_ts",
+    gazelle = "@rules_typescript//gazelle:gazelle_typescript",
 )
 
 # The negative case for ts_lint with a real oxlint: `var` violates the no-var

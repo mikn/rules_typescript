@@ -18,7 +18,7 @@ load("@rules_typescript//ts:defs.bzl", "ts_binary")
 # Run "bazel run //:gazelle" to auto-generate BUILD files.
 gazelle(
     name = "gazelle",
-    gazelle = "@rules_typescript//gazelle:gazelle_ts",
+    gazelle = "@rules_typescript//gazelle:gazelle_typescript",
 )
 
 # Bundle the application entry point into a single ESM file.

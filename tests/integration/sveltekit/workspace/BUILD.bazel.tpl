@@ -10,5 +10,5 @@ load("@gazelle//:def.bzl", "gazelle")
 
 gazelle(
     name = "gazelle",
-    gazelle = "@rules_typescript//gazelle:gazelle_ts",
+    gazelle = "@rules_typescript//gazelle:gazelle_typescript",
 )
