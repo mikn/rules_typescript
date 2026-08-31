@@ -49,6 +49,7 @@ def _ts_worker_dry_run_impl(ctx):
             "config_file": rlocation_path(ctx, ctx.file.config),
             "node_modules": rlocation_path(ctx, node_modules_files[0]),
             "wrangler_in_tree": "wrangler/bin/wrangler.js",
+            "env_name": ctx.attr.env_name,
             "worker_files": [rlocation_path(ctx, f) for f in worker_depset.to_list()],
             # The worker .js are staged package-relative so that a `main` of
             # "src/index.js" in the config still names them.
@@ -74,6 +75,11 @@ _ATTRS = LAUNCHER_ATTRS | {
     "deps": attr.label_list(
         doc = "The ts_compile targets whose .js the config's `main` names.",
         providers = [JsInfo],
+    ),
+    "env_name": attr.string(
+        doc = "The wrangler environment to deploy, i.e. `--env`. A config declaring " +
+              "several `[env.*]` sections deploys none of them without it, and the " +
+              "test form has no command line to pass the flag on.",
     ),
     "node_modules": attr.label(
         doc = "A node_modules() target carrying wrangler.",

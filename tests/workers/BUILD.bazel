@@ -1,6 +1,7 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@rules_go//go:def.bzl", "go_test")
 load("//npm:defs.bzl", "node_modules")
-load("//ts:defs.bzl", "ts_compile", "ts_test", "ts_worker_dry_run_test")
+load("//ts:defs.bzl", "ts_compile", "ts_test", "ts_worker_dry_run", "ts_worker_dry_run_test")
 
 package(default_visibility = ["//:__pkg__"])
 
@@ -89,6 +90,25 @@ ts_worker_dry_run_test(
     config = "wrangler.ts-entry.jsonc",
     node_modules = ":node_modules",
     deps = [":worker"],
+)
+
+# A worker whose environments differ, to be dry-run one environment at a time.
+ts_worker_dry_run(
+    name = "deploy_dry_run_staging",
+    config = "wrangler.envs.jsonc",
+    env_name = "staging",
+    node_modules = ":node_modules",
+    deps = [":worker"],
+)
+
+# A dry-run *_test reports only wrangler's exit status, and an --env that
+# selected nothing still exits 0; the bindings it printed are the evidence.
+go_test(
+    name = "worker_dry_run_env_test",
+    size = "medium",
+    srcs = ["worker_dry_run_env_test.go"],
+    data = [":deploy_dry_run_staging"],
+    deps = ["//tests/verify"],
 )
 
 # The generated editor program for this package; see //:refresh_tsconfig.

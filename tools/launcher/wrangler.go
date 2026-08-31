@@ -120,8 +120,12 @@ func planWrangler(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, e
 
 	outDir := filepath.Join(scratch, "dist")
 	plan.Dir = scratch
-	plan.Argv = append(append(runtime, entry,
-		"deploy", "--dry-run", "--outdir", outDir, "-c", stagedConfig), args...)
+	argv := append(runtime, entry,
+		"deploy", "--dry-run", "--outdir", outDir, "-c", stagedConfig)
+	if w.EnvName != "" {
+		argv = append(argv, "--env", w.EnvName)
+	}
+	plan.Argv = append(argv, args...)
 	plan.Messages = append(plan.Messages,
 		fmt.Sprintf("[ts_worker_dry_run] %s", cfg.Label),
 		fmt.Sprintf("[ts_worker_dry_run] config:  %s", stagedConfig),
