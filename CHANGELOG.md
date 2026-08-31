@@ -632,6 +632,23 @@ sections list every break with the edit it requires.
 
 ### Fixed
 
+- **Gazelle reads `pnpm-lock.yaml`, so the npm inventory everything gates on is
+  no longer empty.** `tc.npmPackages` -- "which npm packages does this
+  workspace declare" -- was populated in one place only, from the deprecated
+  `gazelle_ts.json` `npmMappingFile` key. Gazelle detected the lockfile's
+  existence to decide whether to emit `//:pnpm` macros and never read its
+  contents, so on any repo without a `gazelle_ts.json` the inventory was nil and
+  every check against it silently did nothing: a `node:fs` import got no
+  `@types/node` dep (228 `TS2591` plus 8 `TS2503` on one monorepo measured), the
+  prisma and graphql-codegen detectors emitted a `@npm//:<tool>_bin` on file
+  presence alone, and `filterNpmDeps` kept every configured framework dep
+  whether the workspace had it or not. The lockfile is now parsed once per run
+  into the set of names the `@npm` hub declares a flat label for -- the resolved
+  closure, workspace `link:` members and npm aliases included -- for lockfile
+  formats 6.x and 9.x. An unsupported version logs and leaves the inventory
+  absent rather than empty, which keeps the heuristics for a workspace whose
+  lockfile could not be read while turning them into real checks for one whose
+  could. `gazelle_ts.json`'s mapping file still wins per package it names.
 - **`# gazelle:ts_codegen` writes the targets it names, and imports of the
   generated module resolve to them.** The directive parsed into a pattern that
   carried no `srcs`, and a pattern with no `srcs` produces no rule, so the

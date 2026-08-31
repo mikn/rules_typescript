@@ -211,11 +211,26 @@ type tsConfig struct {
 	aliasesFromDirectives bool
 
 	// npmPackages holds the set of npm package names known to the workspace.
-	// Keys are npm package names (e.g. "react"); values are the Bazel label
-	// string to use as a dep (e.g. "@npm//react").
-	// Populated once from the npm mapping file and then shared across all
-	// directories via pointer-equality (never mutated after load).
+	// Keys are npm package names (e.g. "react"). A value is the Bazel label to
+	// use as a dep (e.g. "@npm//react"); "" means the entry asserts only that
+	// the hub declares this name, so the label comes from the npmHub convention
+	// and a ts_npm_hub directive still gets to choose the repository.
+	// pnpm-lock.yaml supplies "" for everything it declares, while
+	// gazelle_ts.json's npmMappingFile supplies real labels and overrides the
+	// lockfile per key.
+	//
+	// nil is a weaker claim than an empty map: no inventory could be read at
+	// all, rather than a lockfile that declares nothing. See loadNpmInventory.
+	//
+	// Populated once per Gazelle run and then shared across all directories via
+	// pointer-equality (never mutated after load).
 	npmPackages map[string]string
+
+	// npmInventoryLoaded records that the lockfile read was attempted, so the
+	// walk does not re-read pnpm-lock.yaml once per directory. Copied by
+	// clone(), which is what leaves the first Configure call the only one that
+	// touches the file.
+	npmInventoryLoaded bool
 
 	// warnUnresolved controls whether a warning is emitted for imports that
 	// cannot be resolved to any Bazel label. When false (the default) such
@@ -1039,6 +1054,32 @@ func loadNpmMappingFile(path string) map[string]string {
 	return m
 }
 
+// overlayNpmMapping layers a hand-written npm mapping file over the inventory
+// the lockfile produced. The mapping file wins per key, since naming a
+// different label for a package is the only thing it is for; every package it
+// does not mention keeps the lockfile's answer, which is what stops a mapping
+// file listing three overrides from shrinking the inventory to three packages.
+//
+// The lockfile inventory is shared by pointer across every directory, so this
+// copies rather than writing into it -- a gazelle_ts.json in one subtree must
+// not become the whole workspace's answer.
+func overlayNpmMapping(inventory, mapping map[string]string) map[string]string {
+	if mapping == nil {
+		return inventory
+	}
+	if inventory == nil {
+		return mapping
+	}
+	merged := make(map[string]string, len(inventory)+len(mapping))
+	for name, label := range inventory {
+		merged[name] = label
+	}
+	for name, label := range mapping {
+		merged[name] = label
+	}
+	return merged
+}
+
 // ---- Configurer implementation ---------------------------------------------
 
 // configureTsConfig is called by tsLang.Configure for each directory. It
@@ -1055,6 +1096,17 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 			packageBoundaryMode: boundaryEveryDir,
 			declarations:        "tsgo",
 			npmHub:              defaultNpmHub,
+		}
+	}
+
+	// The lockfile is the workspace's npm inventory, read once and inherited.
+	// Not gated on rel == "" the way framework detection is: c.RepoRoot is the
+	// workspace root whichever directory Gazelle was pointed at, so a run
+	// rooted below it still gets the inventory.
+	if !tc.npmInventoryLoaded {
+		tc.npmInventoryLoaded = true
+		if inventory := loadNpmInventory(c.RepoRoot); inventory != nil {
+			tc.npmPackages = inventory
 		}
 	}
 
@@ -1142,7 +1194,7 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 			}
 			if gtsCfg.NpmMappingFile != "" {
 				npmPath := filepath.Join(c.RepoRoot, gtsCfg.NpmMappingFile)
-				tc.npmPackages = loadNpmMappingFile(npmPath)
+				tc.npmPackages = overlayNpmMapping(tc.npmPackages, loadNpmMappingFile(npmPath))
 			}
 			if len(gtsCfg.ExcludePatterns) > 0 {
 				tc.excludePatterns = gtsCfg.ExcludePatterns

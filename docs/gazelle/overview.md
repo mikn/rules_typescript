@@ -304,7 +304,7 @@ warning naming the directive that replaces each key:
 | `excludePatterns` | `# gazelle:ts_exclude *.generated.ts` |
 | `runtimeDeps.test` | `# gazelle:ts_runtime_dep @npm//:happy-dom` |
 | `excludeDirs` | no directive; excluded directories are the built-in set plus this key |
-| `npmMappingFile` | no directive; a JSON file mapping npm names to labels |
+| `npmMappingFile` | no directive; a JSON file mapping npm names to labels. Overlays the lockfile inventory rather than replacing it: a package the file names takes its label, every other package keeps the lockfile's |
 
 It sits above `tsconfig.json` and below directives in precedence. Only the two
 keys with no directive replacement keep it alive; do not add new uses.
@@ -458,6 +458,31 @@ Node supplies the module at runtime but nothing supplies its types. A package
 installed under a built-in's name (the browserify `path` shim, say) still wins.
 When the lockfile has no `@types/node` the import gets no dep at all — a label
 no hub declares would turn a type error into an analysis failure.
+
+### The npm inventory
+
+The names in step 4 come from the workspace-root `pnpm-lock.yaml`, read once per
+Gazelle run. The inventory is what the `@npm` hub declares a flat `//:<label>`
+for, which is the whole resolved closure and not only what a `package.json`
+lists: `npm/lazy.bzl` gives every package in the lockfile a label, so a
+transitive `@types/node` is as real a dep target as a direct one.
+
+Two bounds on that, both deliberate:
+
+- A package built for specific platforms (`os:`, `cpu:`, `libc:` — the native
+  sidecars like `@esbuild/linux-x64` and `fsevents`) is left out. Matching the
+  platform table exactly would mean a second copy of it in Go, and no
+  TypeScript source imports those by name.
+- Only lockfile format 6.x and 9.x are read, the same two
+  `npm/private/npm_translate_lock.bzl` reads. Any other version logs a warning
+  and leaves the inventory absent, which is not the same as empty: everything
+  gated on the inventory (the `@types/node` dep, the codegen detectors, the
+  framework bundle's npm deps) falls back to file-presence heuristics rather
+  than concluding the workspace declares nothing.
+
+A repo with no lockfile is in that same absent state, which is why the codegen
+detectors emit a target from a `schema.prisma` alone there and check the
+dependency where a lockfile exists.
 
 When several alias entries match one specifier (a tsconfig declaring both
 `"@shared"` and `"@shared/*"`), the longest matching alias key wins, which is

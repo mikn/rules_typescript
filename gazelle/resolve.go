@@ -514,28 +514,36 @@ func resolveNpmPackage(tc *tsConfig, imp string) string {
 	// Scoped packages: "@scope/pkg/sub" → package is "@scope/pkg".
 	pkgName := barePackageName(imp)
 
-	// Lookup in the explicit npm mapping first.
-	if tc.npmPackages != nil {
-		if lbl, ok := tc.npmPackages[pkgName]; ok {
+	// The inventory answers ahead of the built-in table, so a workspace that
+	// installed the browserify shim of a built-in name gets the package it
+	// installed. A lockfile entry carries no label of its own and still has to
+	// answer here rather than fall through, or that shim resolves to
+	// @types/node.
+	if lbl, ok := tc.npmPackages[pkgName]; ok {
+		if lbl != "" {
 			return lbl
 		}
+		return npmHubLabel(tc, pkgName)
 	}
 
 	if isNodeBuiltin(pkgName) {
 		return nodeTypesDep(tc)
 	}
 
-	// Default convention: <hub>//:target-name, the hub being @npm unless
-	// directiveNpmHub named another. The target name is derived from the npm
-	// package name by dropping the leading "@" for scoped packages and
-	// replacing "/" with "_", which matches the _package_name_to_label
-	// function in npm_translate_lock.bzl.
+	return npmHubLabel(tc, pkgName)
+}
+
+// npmHubLabel is the default convention: <hub>//:target-name, the hub being
+// @npm unless directiveNpmHub named another. The target name is derived from
+// the npm package name by dropping the leading "@" for scoped packages and
+// replacing "/" with "_", which matches the _package_name_to_label function in
+// npm_translate_lock.bzl.
+func npmHubLabel(tc *tsConfig, pkgName string) string {
 	hub := tc.npmHub
 	if hub == "" {
 		hub = defaultNpmHub
 	}
-	targetName := npmPackageToLabelName(pkgName)
-	return hub + "//:" + targetName
+	return hub + "//:" + npmPackageToLabelName(pkgName)
 }
 
 // npmPackageToLabelName converts an npm package name to a Bazel label name
