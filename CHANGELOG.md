@@ -661,6 +661,16 @@ sections list every break with the edit it requires.
   the 1.2 MiB it is now.
 - Gazelle parses `tsconfig.json` as JSONC: comments and trailing commas no
   longer make `compilerOptions.paths` silently disappear.
+- Gazelle follows `extends`, as a single specifier or an array of them, so a
+  workspace member whose `tsconfig.json` only inherits a shared base still gets
+  that base's `paths` and `baseUrl`. The merge is `tsc`'s: a key is replaced
+  wholesale by the config nearest the leaf, never merged entry by entry, and a
+  relative target resolves against the directory of the config that wrote it.
+  A specifier that resolves through `node_modules` is skipped with a warning.
+  A stub `tsconfig.json` that only extends therefore stops being inert, and a
+  `tsconfig.json` with `paths` replaces the alias map for its directory and
+  everything below: a subtree that reached a parent's `# gazelle:ts_path_alias`
+  keys through such a stub now keeps only what the base declares.
 - Gazelle picks a `compilerOptions.paths` fallback entry that exists, no longer
   always the first. Entries under the `bazel-*` convenience symlinks are dropped
   outright (`ts_compile` fails analysis on an alias pointing into the output

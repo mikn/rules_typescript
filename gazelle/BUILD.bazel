@@ -58,6 +58,7 @@ go_test(
         "resolve_test.go",
         "rollup_assets_test.go",
         "sveltekit_bundle_test.go",
+        "tsconfig_extends_test.go",
     ],
     embed = [":typescript"],
     deps = [

@@ -215,6 +215,15 @@ the nearest `tsconfig.json`, parsed as JSONC: comments and trailing commas are
 accepted. Everything else is configured with `# gazelle:ts_*` directives in BUILD
 files; see the [Directives Reference](directives.md).
 
+`extends` is followed, written either as one specifier or as an array of them,
+and merged the way `tsc` merges it: the config nearest the leaf wins a key
+outright rather than merging into it, so a `paths` map always comes from exactly
+one file in the chain, and its relative targets are resolved against the
+directory of the config that wrote them. A specifier that resolves through
+`node_modules` (`"@tsconfig/node20/tsconfig.json"`) is skipped with a warning —
+Gazelle reads only configs on disk — so inline the options such a config carries
+or extend a checked-in copy instead.
+
 Directives take precedence over file-based configuration, and a directory's
 `ts_path_alias` directives merge with whatever aliases reached it: a child adds
 keys and overrides one key at a time. A `tsconfig.json` with `paths` does not
