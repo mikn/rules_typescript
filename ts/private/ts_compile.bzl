@@ -288,6 +288,7 @@ def _generate_tsconfig(
         ctx,
         srcs,
         npm_pkg_dirs = None,
+        npm_subpath_dts = None,
         ambient_dts = None,
         module_paths = None,
         extends_file = None,
@@ -320,6 +321,8 @@ def _generate_tsconfig(
         srcs:         Source files to type-check (.ts/.tsx/.js/.mjs/.cjs plus
                       ambient .d.ts).
         npm_pkg_dirs: (package_name, path, is_file) triples for npm deps.
+        npm_subpath_dts: (specifier, declaration path) pairs, one per `exports`
+                      subpath an npm dep designates a declaration for.
         ambient_dts:  The .d.ts whose declarations are global rather than
                       imported: each @types/* dep's entry point, and each dep
                       target's global-declaration entry. Listed in `files`.
@@ -427,6 +430,15 @@ def _generate_tsconfig(
         else:
             paths[pkg_name] = [rel_dir]
         paths[pkg_name + "/*"] = [rel_dir + "/*"]
+
+    # After the wildcard, which is a guess: it hangs every subpath off whichever
+    # directory the root declaration happened to land in, and a package is free
+    # to publish `pkg/sub` from somewhere else entirely. Where the manifest said
+    # which declaration a subpath designates, that answer replaces the guess.
+    for specifier, path in npm_subpath_dts or []:
+        pkg_dir = path[:path.rfind("/")] if "/" in path else ""
+        rel_dir = _relative_path(tsconfig_dir, pkg_dir)
+        paths[specifier] = [rel_dir + "/" + path.split("/")[-1]]
 
     # Last, so a first-party module_name wins over a same-named npm package.
     # Both roots are listed because a module's declarations are either generated
@@ -1306,6 +1318,7 @@ def _ts_compile_impl(ctx):
     #   rather than:
     #     "pkg": ["path/to/pkg/dir"]
     npm_pkg_dirs = []
+    npm_subpath_dts = []
     for pkg_name, npm_info in pkg_info_map.items():
         pkg_dir = npm_info.package_dir.dirname
 
@@ -1319,6 +1332,12 @@ def _ts_compile_impl(ctx):
             npm_pkg_dirs.append((pkg_name, npm_info.exports_types_file.path, True))
         else:
             npm_pkg_dirs.append((pkg_name, pkg_dir, False))
+
+        for subpath in sorted(npm_info.subpath_types):
+            npm_subpath_dts.append((
+                pkg_name + subpath[1:],
+                npm_info.subpath_types[subpath].path,
+            ))
 
     dep_dts_depset = depset(transitive = transitive_dts_sets, order = "postorder")
     dep_globals_depset = depset(transitive = global_entry_sets, order = "postorder")
@@ -1530,6 +1549,7 @@ def _ts_compile_impl(ctx):
             ctx = ctx,
             srcs = check_srcs,
             npm_pkg_dirs = npm_pkg_dirs if npm_pkg_dirs else None,
+            npm_subpath_dts = npm_subpath_dts if npm_subpath_dts else None,
             ambient_dts = [ambient_dts[path] for path in sorted(ambient_dts)] +
                           dep_globals_depset.to_list(),
             module_paths = module_paths,
