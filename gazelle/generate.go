@@ -136,7 +136,10 @@ func isExcludedDir(basename string, additionalDirs []string) bool {
 
 // isIndexFile returns true for files that define a package public API.
 func isIndexFile(name string) bool {
-	return name == "index.ts" || name == "index.tsx"
+	// Base, not the whole string: a rolled-up src reaches here as the path
+	// src/index.ts, and it is as much an index file as index.ts is.
+	base := path.Base(name)
+	return base == "index.ts" || base == "index.tsx"
 }
 
 // ---- app entry point detection ---------------------------------------------

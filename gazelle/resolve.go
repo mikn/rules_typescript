@@ -55,10 +55,12 @@ func importsForRule(_ *config.Config, r *rule.Rule, f *rule.File) []resolve.Impo
 		imp := path.Join(pkg, withoutExt)
 		specs = append(specs, resolve.ImportSpec{Lang: languageName, Imp: imp})
 
-		// If the src is index.ts/tsx, also emit the parent directory path so
-		// that "import from './components'" resolves to this rule.
+		// If the src is index.ts/tsx, also emit the directory it sits in so
+		// that "import from './components'" resolves to this rule. That is the
+		// package itself only for a src directly in it: a rolled-up
+		// src/index.ts answers to `../src`, not to the package above it.
 		if isIndexFile(src) {
-			specs = append(specs, resolve.ImportSpec{Lang: languageName, Imp: pkg})
+			specs = append(specs, resolve.ImportSpec{Lang: languageName, Imp: path.Dir(imp)})
 		}
 	}
 
