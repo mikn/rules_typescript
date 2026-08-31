@@ -125,6 +125,9 @@ func resolveImports(
 		for _, lbl := range tc.ambientTypes {
 			addDep(lbl)
 		}
+		for _, lbl := range tc.tsconfigAmbientTypes {
+			addDep(lbl)
+		}
 	}
 
 	imports, ok := asImports(importsIface)
