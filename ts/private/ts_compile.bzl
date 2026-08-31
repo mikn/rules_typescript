@@ -526,7 +526,7 @@ def _generate_tsconfig(
 
     for alias_key, alias_dir in ctx.attr.path_aliases.items():
         dir_no_slash = alias_dir[:-1] if alias_dir.endswith("/") else alias_dir
-        rel_dir = _relative_path(tsconfig_dir, dir_no_slash)
+        rel_dir = explicitly_relative(_relative_path(tsconfig_dir, dir_no_slash))
         if alias_key.endswith("/"):
             paths[alias_key + "*"] = [rel_dir + "/*"]
             paths[alias_key[:-1]] = [rel_dir]
@@ -537,7 +537,7 @@ def _generate_tsconfig(
     for entry in npm_pkg_dirs or []:
         pkg_name, path, is_file = entry[0], entry[1], entry[2]
         pkg_dir = path[:path.rfind("/")] if "/" in path else ""
-        rel_dir = _relative_path(tsconfig_dir, pkg_dir if is_file else path)
+        rel_dir = explicitly_relative(_relative_path(tsconfig_dir, pkg_dir if is_file else path))
         if is_file:
             paths[pkg_name] = [rel_dir + "/" + path.split("/")[-1]]
         else:
@@ -550,7 +550,7 @@ def _generate_tsconfig(
     # which declaration a subpath designates, that answer replaces the guess.
     for specifier, path in npm_subpath_dts or []:
         pkg_dir = path[:path.rfind("/")] if "/" in path else ""
-        rel_dir = _relative_path(tsconfig_dir, pkg_dir)
+        rel_dir = explicitly_relative(_relative_path(tsconfig_dir, pkg_dir))
         paths[specifier] = [rel_dir + "/" + path.split("/")[-1]]
 
     # Last, so a first-party module_name wins over a same-named npm package.
@@ -566,8 +566,8 @@ def _generate_tsconfig(
     # consulted for a subpath the moment it is named.
     for module in module_paths or []:
         roots = [
-            _relative_path(tsconfig_dir, module.declaration_root),
-            _relative_path(tsconfig_dir, module.source_root),
+            explicitly_relative(_relative_path(tsconfig_dir, module.declaration_root)),
+            explicitly_relative(_relative_path(tsconfig_dir, module.source_root)),
         ]
         declared = {d.specifier: d.declarations for d in module.declared_paths}
         paths[module.module_name] = (
@@ -638,12 +638,7 @@ def _generate_tsconfig(
 
     config = {}
     if extends_file:
-        extends_dir = _relative_path(tsconfig_dir, extends_file.dirname)
-
-        # TypeScript reads an `extends` that is not visibly relative as a node
-        # module specifier.
-        if not extends_dir.startswith("."):
-            extends_dir = "./" + extends_dir
+        extends_dir = explicitly_relative(_relative_path(tsconfig_dir, extends_file.dirname))
         chain = [extends_dir + "/" + extends_file.basename]
 
         # A list, and the ruleset's baseline first: a later entry overrides an

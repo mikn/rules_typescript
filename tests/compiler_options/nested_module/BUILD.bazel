@@ -1,0 +1,31 @@
+"""A `module_name` dep in a package nested under the target that imports it."""
+
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "ts_compile")
+load(
+    ":nested_module_tests.bzl",
+    "nested_module_paths_test",
+    "explicitly_relative_test",
+)
+
+package(default_visibility = ["//:__pkg__"])
+
+ts_compile(
+    name = "app",
+    srcs = ["main.ts"],
+    deps = ["//tests/compiler_options/nested_module/lib:badge"],
+)
+
+nested_module_paths_test(
+    name = "nested_module_paths_test",
+    target_under_test = ":app",
+)
+
+# The `paths` map is only a claim until tsgo resolves through it: the bare form
+# this pins failed at TS5090 before a compiler ever read the imports.
+build_test(
+    name = "nested_module_build_test",
+    targets = [":app"],
+)
+
+explicitly_relative_test(name = "explicitly_relative_test")
