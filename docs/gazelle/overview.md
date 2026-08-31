@@ -524,6 +524,13 @@ nothing at all rather than to a label under the file's own name: `//pkg/notes.rs
 is a package Bazel cannot load, and a missing package fails every target in the
 build instead of the one that lost a dep.
 
+A specifier that maps to a directory that is not on disk resolves to nothing for
+the same reason. `#shared/i18n/compiled/messages` under an
+`"#shared/*": "./shared/*"` entry names `//web/shared/i18n/compiled/messages`,
+and if nobody has generated that directory Bazel answers `no such package`
+before any compile runs. Dropping the dep leaves the one `TS2307` the missing
+module deserves.
+
 Gazelle's deps and the `ts_compile` strict-deps check share one specifier
 scanner. If `bazel build` reports an import no direct dep provides and re-running
 Gazelle does not add it, that is a bug in the ruleset.

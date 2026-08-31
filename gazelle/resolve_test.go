@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"log"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -53,6 +54,18 @@ func buildIndex(t *testing.T, c *config.Config, rules ...indexedRule) *resolve.R
 
 func emptyConfig() *config.Config {
 	return &config.Config{RepoRoot: "/tmp/fake-repo", Exts: make(map[string]interface{})}
+}
+
+// repoWithDirs roots c at a real tree holding dirs, for the rows whose expected
+// dep is a constructed label rather than an index hit.
+func repoWithDirs(t *testing.T, c *config.Config, dirs ...string) {
+	t.Helper()
+	c.RepoRoot = t.TempDir()
+	for _, dir := range dirs {
+		if err := os.MkdirAll(filepath.Join(c.RepoRoot, filepath.FromSlash(dir)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func specStrings(specs []resolve.ImportSpec) []string {
@@ -279,6 +292,7 @@ func TestIsRelativeImport(t *testing.T) {
 func TestResolveRelative(t *testing.T) {
 	c := emptyConfig()
 	c.Exts[languageName] = makeConfig("", nil)
+	repoWithDirs(t, c, "src/generated/api")
 	ix := buildIndex(t, c,
 		indexedRule{kind: "ts_compile", name: "lib", pkg: "src/lib", srcs: []string{"index.ts", "math.ts"}},
 		indexedRule{kind: "ts_compile", name: "app", pkg: "src/app", srcs: []string{"index.ts", "main.ts"}},
@@ -341,6 +355,10 @@ func TestLabelForUnindexed(t *testing.T) {
 	// The package is the module's directory. For a path naming a file that is
 	// the parent -- naming the file itself would be a package that cannot
 	// exist -- and for a directory import it is the path itself.
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src", "lib"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	from := label.New("", "src/app", "app")
 	for rel, want := range map[string]string{
 		"src/lib/math.ts":           "//src/lib",
@@ -361,8 +379,11 @@ func TestLabelForUnindexed(t *testing.T) {
 		"src/app":      "",
 		"..":           "",
 		"":             "",
+		// A directory that does not exist is "no such package" all the same.
+		"src/absent":         "",
+		"src/absent/math.ts": "",
 	} {
-		if got := labelForUnindexed(rel, from); got != want {
+		if got := labelForUnindexed(root, rel, from); got != want {
 			t.Errorf("labelForUnindexed(%q) = %q, want %q", rel, got, want)
 		}
 	}
@@ -417,6 +438,7 @@ func TestIsPathAlias(t *testing.T) {
 func TestResolvePathAlias(t *testing.T) {
 	c := aliasConfig()
 	tc := getConfig(c)
+	repoWithDirs(t, c, "src/generated/api")
 	ix := buildIndex(t, c,
 		indexedRule{kind: "ts_compile", name: "lib", pkg: "src/lib", srcs: []string{"index.ts", "math.ts"}},
 		// A barrel package: its index.ts is what makes "src/utils" itself an
@@ -670,6 +692,7 @@ func TestAliasRest(t *testing.T) {
 // failing build.
 func TestResolvePathAlias_OverlappingKeysResolveToOneLabel(t *testing.T) {
 	c := emptyConfig()
+	repoWithDirs(t, c, "src/shared")
 	// No index.ts: a barrel would make both candidate expansions converge on
 	// the same label and hide the defect.
 	ix := buildIndex(t, c,
@@ -911,6 +934,10 @@ func TestResolveImports_BundlerQuerySuffixNamesTheSameFile(t *testing.T) {
 // //pkg/SKILL.mdx is a directory Bazel will not find, and it fails the whole
 // build rather than the one target missing a dep.
 func TestLabelForUnindexed_UnclassifiedExtensionFabricatesNothing(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src", "lib"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	from := label.New("", "src/app", "app")
 	for _, rel := range []string{
 		"src/lib/SKILL.mdx",
@@ -918,8 +945,34 @@ func TestLabelForUnindexed_UnclassifiedExtensionFabricatesNothing(t *testing.T) 
 		"src/lib/schema.graphql",
 		"src/lib/widget.js.bin",
 	} {
-		if got := labelForUnindexed(rel, from); got != "" {
+		if got := labelForUnindexed(root, rel, from); got != "" {
 			t.Errorf("labelForUnindexed(%q) = %q, want %q", rel, got, "")
+		}
+	}
+}
+
+// A specifier that maps inside the workspace but names a directory nobody
+// created -- a "#" import of a codegen output that has not been generated, say
+// -- used to become a cross-package label, and "no such package" fails analysis
+// for every target in the build where a dropped dep leaves one TS2307.
+func TestResolveImports_MissingDirectoryFabricatesNothing(t *testing.T) {
+	c := emptyConfig()
+	c.Exts[languageName] = makeConfig("", []rule.Directive{
+		directive("ts_path_alias", "#shared/ web/shared/"),
+	})
+	repoWithDirs(t, c, "web/src", "web/shared")
+	ix := buildIndex(t, c)
+	from := label.New("", "web", "web")
+
+	for _, imp := range []string{
+		"#shared/i18n/compiled/messages",
+		"#shared/i18n/compiled/messages.ts",
+		"./shared/i18n/compiled/messages",
+	} {
+		r := rule.NewRule("ts_compile", "web")
+		resolveImports(c, ix, r, []string{imp}, from)
+		if got := r.AttrStrings("deps"); len(got) != 0 {
+			t.Errorf("%s: deps = %v, want none", imp, got)
 		}
 	}
 }
