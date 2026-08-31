@@ -629,6 +629,9 @@ func (it *IT) Read(path string) string {
 }
 
 func (it *IT) Write(path, content string) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		it.Fail("cannot create the directory for %s: %v", path, err)
+	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		it.Fail("cannot write %s: %v", path, err)
 	}

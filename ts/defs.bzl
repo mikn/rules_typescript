@@ -27,7 +27,7 @@ load("//ts/private:sveltekit_build.bzl", _sveltekit_build = "sveltekit_build")
 load("//ts/private:ts_binary.bzl", _ts_binary = "ts_binary")
 load("//ts/private:ts_bundle.bzl", _ts_bundle = "ts_bundle")
 load("//ts/private:ts_codegen.bzl", _ts_codegen = "ts_codegen")
-load("//ts/private:ts_compile.bzl", _TsModuleInfo = "TsModuleInfo", _ts_compile_rule = "ts_compile")
+load("//ts/private:ts_compile.bzl", _TsModuleInfo = "TsModuleInfo", _fail_on_mixed_src_packages = "fail_on_mixed_src_packages", _ts_compile_rule = "ts_compile")
 load("//ts/private:ts_config.bzl", _ts_config = "ts_config")
 load("//ts/private:ts_dev_server.bzl", _ts_dev_server = "ts_dev_server")
 load("//ts/private:ts_lint.bzl", _TsLintInfo = "TsLintInfo", _ts_lint = "ts_lint")
@@ -210,6 +210,8 @@ def ts_compile(
     """
     if deps == None:
         deps = []
+
+    _fail_on_mixed_src_packages("ts_compile", name, srcs, declarations, enable_check)
 
     if path_aliases != None:
         kwargs["path_aliases"] = path_aliases

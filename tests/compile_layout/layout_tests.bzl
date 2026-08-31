@@ -8,7 +8,7 @@ first.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
-load("//ts/private:ts_compile.bzl", "explicitly_relative", "include_entry")
+load("//ts/private:ts_compile.bzl", "explicitly_relative", "include_entry", "mixed_src_packages")
 
 _PKG = "tests/compile_layout"
 
@@ -162,3 +162,92 @@ def _paths_value_impl(ctx):
     return unittest.end(env)
 
 paths_value_test = unittest.make(_paths_value_impl)
+
+def _mixed_src_packages_impl(ctx):
+    env = unittest.begin(ctx)
+
+    # The srcs of //tests/compile_layout:siblings, which is exactly the layout a
+    # BUILD file in alpha/ or beta/deep/ would turn into the rejected one.
+    asserts.equals(
+        env,
+        [],
+        mixed_src_packages(_PKG, ["alpha/one.ts", "beta/deep/two.ts", ":generated.ts"]),
+        "a subtree of one package is what a multi-directory target is made of",
+    )
+
+    asserts.equals(
+        env,
+        ["//tests/compile_layout/alpha:one.ts", "//other:two.ts"],
+        mixed_src_packages(_PKG, [
+            "three.ts",
+            "//tests/compile_layout/alpha:one.ts",
+            "//other:two.ts",
+            "//" + _PKG + ":four.ts",
+        ]),
+        "only a label naming another package is one this target compiles twice",
+    )
+
+    # //tests/compiler_options/analysis:from_exec_root, and every ts_compile in
+    # the top-level package: one root, and it is the exec root.
+    asserts.equals(
+        env,
+        [],
+        mixed_src_packages(_PKG, ["//tests/compiler_options/subtree:root.ts"]),
+        "srcs that are ALL from elsewhere hang off one root like any other",
+    )
+
+    # vite_types prepends this to every src list it touches, and a declaration is
+    # passed through rather than compiled: no output, no rootDir, no second copy.
+    asserts.equals(
+        env,
+        [],
+        mixed_src_packages(_PKG, ["one.ts", "@rules_typescript//ts:vite_env.d.ts"]),
+        "a declaration from another package is passed through",
+    )
+
+    asserts.equals(
+        env,
+        ["@other_repo//ts:one.ts"],
+        mixed_src_packages("ts", ["two.ts", "@other_repo//ts:one.ts"]),
+        "another repository is another package even at the same path",
+    )
+
+    # An empty repository part -- `@//` and the canonical `@@//` -- is this one.
+    asserts.equals(
+        env,
+        [],
+        mixed_src_packages(_PKG, ["one.ts", "@@//" + _PKG + ":two.ts", "@//" + _PKG + ":three.ts"]),
+        "the canonical and apparent spellings of this package are this package",
+    )
+    asserts.equals(
+        env,
+        ["@@//other:two.ts"],
+        mixed_src_packages(_PKG, ["one.ts", "@@//other:two.ts"]),
+        "a canonical label still has a package to compare",
+    )
+
+    # The top-level package IS the exec root a foreign src hangs off: one root.
+    asserts.equals(
+        env,
+        [],
+        mixed_src_packages("", ["one.ts", "//other:two.ts"]),
+        "the top-level package and the exec root are the same root",
+    )
+
+    # A select decides its srcs after loading is over; iterating one fails.
+    asserts.equals(
+        env,
+        [],
+        mixed_src_packages(_PKG, select({"//conditions:default": ["one.ts", "//other:two.ts"]})),
+        "a select is not a list and holds nothing this phase can read",
+    )
+    asserts.equals(
+        env,
+        [],
+        mixed_src_packages(_PKG, ["one.ts"] + select({"//conditions:default": ["//other:two.ts"]})),
+        "a list concatenated with a select is a select too",
+    )
+
+    return unittest.end(env)
+
+mixed_src_packages_test = unittest.make(_mixed_src_packages_impl)
