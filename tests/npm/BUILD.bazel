@@ -6,6 +6,7 @@ load("//ts:defs.bzl", "ts_compile")
 load(":exports_types_tests.bzl", "declaration_entry_test", "exports_types_test_suite")
 load(":hub_provenance_tests.bzl", "hub_provenance_test")
 load(":link_depth_tests.bzl", "link_depth_test_suite")
+load(":node_modules_cache_tests.bzl", "tree_is_never_fetched_test")
 load(":parser_tests.bzl", "parser_test_suite")
 load(":resolution_tests.bzl", "conflicting_direct_peers_test", "conflicting_direct_versions_test")
 load(":types_only_tests.bzl", "types_only_test_suite")
@@ -174,6 +175,14 @@ go_test(
         ":package_alias_node_modules",
     ],
     deps = ["//tests/verify"],
+)
+
+# Any node_modules target would do: the requirement is on the action the shared
+# builder emits, so every tree in the repository carries it or none does.
+tree_is_never_fetched_test(
+    name = "node_modules_not_cached_test",
+    size = "small",
+    target_under_test = ":package_alias_node_modules",
 )
 
 # ── Peer-dependency variants and per-importer resolution ─────────────────────

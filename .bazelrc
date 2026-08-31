@@ -4,6 +4,13 @@
 build --incompatible_strict_action_env
 build --nolegacy_external_runfiles
 
+# `Action.execution_info` is behind this flag, and reading it is the only way
+# Starlark can see an action's execution requirements -- which is what
+# //tests/npm:node_modules_not_cached_test asserts, so that the node_modules tree
+# cannot quietly start coming back out of a cache with files missing. The flag
+# only adds API surface; it changes nothing that already builds.
+build --experimental_google_legacy_api
+
 # Type-check on every build (tsgo validation action).
 # This makes type errors fail `bazel build` — the same behaviour as `go build`.
 # Remove this line if you want to skip type-checking (e.g. for faster iteration
