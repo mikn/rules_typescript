@@ -7,7 +7,8 @@ Vite is the only bundler this ruleset ships; another one plugs in through
 
 A Cloudflare Worker is bundled by wrangler. See
 [ts_worker_dry_run](../rules/ts-worker-dry-run.md) for building one and checking
-that it still deploys, and
+that it still deploys,
+[ts_worker_deploy](../rules/ts-worker-deploy.md) for uploading it, and
 [Testing § Cloudflare Workers](testing.md#cloudflare-workers) for running its
 tests inside workerd.
 

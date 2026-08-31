@@ -35,6 +35,12 @@ release.
 `ts_worker_dry_run` is the same thing as a `bazel run` target, for when you want
 to look at the bundle.
 
+| Rule | Uploads | Belongs in |
+|------|---------|------------|
+| `ts_worker_dry_run_test` | no | CI. `bazel test //...` runs it on every change |
+| `ts_worker_dry_run` | no | a local check, when you want to look at the bundle |
+| [`ts_worker_deploy`](ts-worker-deploy.md) | **yes** | a deliberate `bazel run`, by a human or a release job |
+
 ## Environments
 
 A config declaring several `[env.*]` sections deploys none of them until it is
@@ -53,7 +59,8 @@ ts_worker_dry_run_test(
 
 It is an attribute rather than a flag on the command line because the test form
 has no command line: `ts_worker_dry_run` takes `--env staging` after
-`bazel run`, `ts_worker_dry_run_test` cannot.
+`bazel run`, `ts_worker_dry_run_test` cannot. All three rules share one
+attribute set, so [`ts_worker_deploy`](ts-worker-deploy.md) takes it too.
 
 ## Config Staging
 
@@ -66,11 +73,23 @@ same requirement, so `HOME` points into the scratch directory too, and
 `WRANGLER_SEND_METRICS=false` removes the only reason a dry run would touch the
 network.
 
+## No credentials, enforced
+
+A dry run does not merely avoid authenticating: the launcher takes the means
+away. `HOME` and `XDG_CONFIG_HOME` point into the scratch directory, so a
+`wrangler login` on disk is invisible, and the `CLOUDFLARE_*` and legacy `CF_*`
+variables are **removed** from the environment wrangler is given. A dry run
+therefore behaves the same on a logged-in laptop as in CI.
+
+For the same reason, an argument that would undo the dry run — `--no-dry-run`,
+`--dry-run=false` — is an error rather than an upload. wrangler parses with
+yargs, where every boolean flag has a negated form.
+
 ## Publishing
 
 Deploying for real needs credentials, is not reproducible, and must not happen
-because something in the build graph changed. It stays a command a human or a
-release job runs.
+because something in the build graph changed — so it is a `bazel run` target and
+nothing else: [`ts_worker_deploy`](ts-worker-deploy.md).
 
 ## Attributes
 

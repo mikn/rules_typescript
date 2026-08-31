@@ -11,9 +11,10 @@ import (
 )
 
 // Environ layers the launcher's environment, the runfiles variables and the
-// rule's env attribute. Duplicate keys are collapsed because execve keeps them
-// all and getenv then answers with the first, inverting the precedence.
-func Environ(env map[string]string, runfilesEnv []string) []string {
+// rule's env attribute, then drops the keys in unset. Duplicate keys are
+// collapsed because execve keeps them all and getenv then answers with the
+// first, inverting the precedence.
+func Environ(env map[string]string, unset []string, runfilesEnv []string) []string {
 	value := map[string]string{}
 	order := []string{}
 	set := func(entry string) {
@@ -40,8 +41,15 @@ func Environ(env map[string]string, runfilesEnv []string) []string {
 	for _, k := range keys {
 		set(k + "=" + env[k])
 	}
+	drop := make(map[string]bool, len(unset))
+	for _, k := range unset {
+		drop[k] = true
+	}
 	out := make([]string, 0, len(order))
 	for _, k := range order {
+		if drop[k] {
+			continue
+		}
 		out = append(out, k+"="+value[k])
 	}
 	return out

@@ -15,6 +15,7 @@ type Plan struct {
 	Argv         []string          `json:"argv"`
 	Dir          string            `json:"dir,omitempty"`
 	EnvOverrides map[string]string `json:"env,omitempty"`
+	EnvUnset     []string          `json:"env_unset,omitempty"`
 	Messages     []string          `json:"messages,omitempty"`
 	ExitEarly    bool              `json:"exit_early,omitempty"`
 
@@ -30,6 +31,12 @@ func (p *Plan) setEnv(key, value string) {
 		p.EnvOverrides = map[string]string{}
 	}
 	p.EnvOverrides[key] = value
+}
+
+// unsetEnv removes variables from the child's environment, which setEnv cannot
+// do: to getenv an empty value is still a variable that is set.
+func (p *Plan) unsetEnv(keys ...string) {
+	p.EnvUnset = append(p.EnvUnset, keys...)
 }
 
 func (p *Plan) prependPath(key, value string) {
@@ -94,7 +101,7 @@ func Run(plan *Plan) (int, error) {
 			return 1, err
 		}
 	}
-	env := Environ(plan.EnvOverrides, plan.runfilesEnv)
+	env := Environ(plan.EnvOverrides, plan.EnvUnset, plan.runfilesEnv)
 	if plan.UseExec && plan.PostRun == nil {
 		return 1, Exec(plan.Argv, env)
 	}
