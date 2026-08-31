@@ -108,7 +108,7 @@ func reportHandMaintainedEntry(args language.GenerateArgs, tc *tsConfig, exclude
 // generated ts_compile.
 func frameworkEntryRule(name, file string, tc *tsConfig) *rule.Rule {
 	r := rule.NewRule("ts_compile", name)
-	r.SetAttr("srcs", []string{file})
+	r.SetAttr("srcs", srcLabels([]string{file}))
 	r.SetAttr("visibility", []string{"//visibility:public"})
 	if tc.declarations != "" && tc.declarations != "tsgo" {
 		r.SetAttr("declarations", tc.declarations)

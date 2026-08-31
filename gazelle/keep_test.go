@@ -28,7 +28,7 @@ type nonLiteralCase struct {
 	kind      string
 	target    string
 	attr      string
-	class     string // "list", "scalar" or "glob"
+	class     string // "list", "scalar", "glob" or "dict"
 }
 
 // managedAttrCases names every attribute in keep.go's managedAttrs, in a
@@ -59,6 +59,9 @@ func managedAttrCases() []nonLiteralCase {
 		{workspace: "remix", kind: "vite_bundler", target: "vite", attr: "vite", class: "scalar"},
 		{workspace: "remix", kind: "vite_bundler", target: "vite", attr: "node_modules", class: "scalar"},
 
+		{workspace: "path_aliases", pkg: "src", kind: "ts_compile", target: "src",
+			attr: "path_aliases", class: "dict"},
+
 		{workspace: "plain", pkg: "src", kind: "ts_compile", target: "src", attr: "srcs", class: "list"},
 		{workspace: "plain", pkg: "src", kind: "ts_compile", target: "src", attr: "deps", class: "list"},
 		{workspace: "plain", pkg: "src", kind: "ts_compile", target: "src", attr: "visibility", class: "list"},
@@ -82,6 +85,7 @@ var nonLiteralShapes = map[string][]string{
 	"list":   {"ident", "concat", "select", "mixed"},
 	"scalar": {"ident"},
 	"glob":   {"glob_ident", "glob_mixed"},
+	"dict":   {"ident", "dict_mixed"},
 }
 
 // TestNonLiteralAttrValue: whichever way rule.MergeRules goes on a shape it
@@ -302,10 +306,16 @@ func writeNonLiteralAttr(t *testing.T, root string, nc nonLiteralCase, shape str
 
 	const indent = "    "
 	quoted := func(vs []string) string { return strings.Join(quotedEach(vs), ", ") }
+	entries := renderDictEntries(target.Attr(nc.attr))
 
 	var prelude, replacement string
 	switch shape {
 	case "ident":
+		if nc.class == "dict" {
+			prelude = fmt.Sprintf("_HAND = {%s%q: %q}", entries, handAliasKey, hand)
+			replacement = indent + nc.attr + " = _HAND,"
+			break
+		}
 		if nc.class == "scalar" {
 			prelude = fmt.Sprintf("_HAND = %q", hand)
 			values = []string{hand}
@@ -322,6 +332,9 @@ func writeNonLiteralAttr(t *testing.T, root string, nc nonLiteralCase, shape str
 		prelude = fmt.Sprintf("_HAND = %q", hand)
 		replacement = fmt.Sprintf("%s%s = [%s],", indent, nc.attr,
 			strings.Join(append(quotedEach(generated), "_HAND"), ", "))
+	case "dict_mixed":
+		prelude = fmt.Sprintf("_HAND = %q", hand)
+		replacement = fmt.Sprintf("%s%s = {%s%q: _HAND},", indent, nc.attr, entries, handAliasKey)
 	case "glob_ident":
 		prelude = fmt.Sprintf("_HAND = [%s]", quoted(values))
 		replacement = indent + nc.attr + " = glob(_HAND),"
@@ -370,6 +383,8 @@ func writeNonLiteralAttr(t *testing.T, root string, nc nonLiteralCase, shape str
 // element whose disappearance is the defect.
 func handValueFor(nc nonLiteralCase) string {
 	switch {
+	case nc.class == "dict":
+		return handAliasDir
 	case nc.attr == "visibility":
 		return "//vendor:__pkg__"
 	case nc.attr == "srcs" && nc.class == "glob":
@@ -389,6 +404,9 @@ func handValueFor(nc nonLiteralCase) string {
 // argument a generated glob() carries, which the rewrite has to keep too.
 func generatedValues(t *testing.T, r *rule.Rule, nc nonLiteralCase) (values []string, excludes string) {
 	t.Helper()
+	if nc.class == "dict" {
+		return dictValues(r.Attr(nc.attr)), ""
+	}
 	if nc.class != "glob" {
 		return attrValues(r, nc.attr), ""
 	}
@@ -436,6 +454,11 @@ func exprShape(e bzl.Expr) string {
 		return "literal list"
 	case *bzl.StringExpr:
 		return "string"
+	case *bzl.DictExpr:
+		if !isStringDict(v) {
+			return "dict_mixed"
+		}
+		return "dict"
 	case *bzl.CallExpr:
 		callee, ok := v.X.(*bzl.Ident)
 		if !ok {
@@ -478,6 +501,50 @@ func declaredStrings(t *testing.T, root, pkg string) []string {
 			out = append(out, s.Value)
 		}
 	})
+	return out
+}
+
+// handAliasKey and handAliasDir are the path_aliases entry generation cannot
+// derive: the entry whose disappearance is the defect. The directory is a real
+// one, so it is not suppressed as a path the tree no longer holds.
+const (
+	handAliasKey = "@hand/"
+	handAliasDir = "./src/ui/"
+)
+
+// renderDictEntries is the dict's own entries as Starlark, ready for another
+// entry to be appended -- "" for anything that is not a dict.
+func renderDictEntries(e bzl.Expr) string {
+	d, ok := e.(*bzl.DictExpr)
+	if !ok {
+		return ""
+	}
+	var out []string
+	for _, kv := range d.List {
+		k, keyOK := kv.Key.(*bzl.StringExpr)
+		v, valueOK := kv.Value.(*bzl.StringExpr)
+		if !keyOK || !valueOK {
+			continue
+		}
+		out = append(out, fmt.Sprintf("%q: %q", k.Value, v.Value))
+	}
+	if len(out) == 0 {
+		return ""
+	}
+	return strings.Join(out, ", ") + ", "
+}
+
+func dictValues(e bzl.Expr) []string {
+	d, ok := e.(*bzl.DictExpr)
+	if !ok {
+		return nil
+	}
+	var out []string
+	for _, kv := range d.List {
+		if v, valueOK := kv.Value.(*bzl.StringExpr); valueOK {
+			out = append(out, v.Value)
+		}
+	}
 	return out
 }
 
@@ -606,4 +673,134 @@ func TestManagedAttrCasesCoverGeneratedAttrs(t *testing.T) {
 			"about, so nothing checks what happens to a hand-authored value there:\n      %s",
 			len(missing), strings.Join(missing, "\n      "))
 	}
+}
+
+// ---- path_aliases, the one dict ---------------------------------------------
+
+// TestPathAliasesSurviveTheMerge: path_aliases is the only attribute Gazelle
+// owns whose value is a dict, and rule.MergeRules has no case for one --
+// extractPlatformStringsExprs matches neither a list nor a select() and returns
+// an empty result with no error, so the pre-resolve merge deletes the attribute
+// and the post-resolve pass writes the generated dict back whole. Three things
+// that round trip cannot do, in the order a user meets them: leave a run over
+// an unchanged tree silent, recompute the map when the tree moves, and keep the
+// one entry a "# keep" holds while naming the one it drops.
+func TestPathAliasesSurviveTheMerge(t *testing.T) {
+	tc := convergeFixture(t, "path_aliases")
+	root := t.TempDir()
+	writeWorkspace(t, root, tc.files)
+	captureLog(t, func() { convergeGazelle(t, root) })
+
+	assertPathAliases(t, root, "src", map[string]string{"@/": "./src/"})
+	before := buildFileText(t, root, "src")
+
+	// Gazelle wrote this attribute, so a diagnostic about its shape is a
+	// diagnostic about Gazelle's own output: one warning on the run that
+	// generates it and one per generated target on every run after.
+	logged := captureLog(t, func() { convergeGazelle(t, root) })
+	if logged != "" {
+		t.Errorf("the second run over an unchanged tree reported path_aliases, which Gazelle "+
+			"generated itself. A warning nobody can act on is one every reader learns to "+
+			"skip:\n%s", indentLog(logged))
+	}
+	if after := buildFileText(t, root, "src"); after != before {
+		t.Errorf("the second run over an unchanged tree rewrote src/BUILD.bazel:\n%s",
+			lineDiff(before, after))
+	}
+
+	// The tree moves: an import through a second alias.
+	writeWorkspace(t, root, map[string]string{
+		"src/extra.ts": "import { helper } from \"@lib/helper\";\nexport const b = helper;\n",
+	})
+	captureLog(t, func() { convergeGazelle(t, root) })
+	assertPathAliases(t, root, "src", map[string]string{"@/": "./src/", "@lib/": "./src/lib/"})
+
+	// "# keep" on one entry, nothing on the other. Both directories exist, so
+	// neither is suppressed as a path the tree no longer holds.
+	addAliasEntries(t, root, "src",
+		`        "@kept/": "./src/ui/",  # keep`,
+		`        "@bare/": "./src/ui/",`)
+
+	for run := 2; run <= 3; run++ {
+		logged = captureLog(t, func() { convergeGazelle(t, root) })
+		got := declaredPathAliases(t, root, "src")
+		if _, held := got["@kept/"]; !held {
+			t.Fatalf("path_aliases lost the hand-authored \"@kept/\" on run %d even though it "+
+				"carries a \"# keep\", so a declared alias disappeared:\n%s\nthe run said:\n%s",
+				run, indent(buildFileText(t, root, "src")), indentLog(logged))
+		}
+		if _, held := got["@bare/"]; held {
+			t.Fatalf("path_aliases kept \"@bare/\" with no \"# keep\" on run %d. Gazelle owns "+
+				"the attribute, so either it merges entry by entry and the docs say so, or "+
+				"this case is wrong:\n%s", run, indent(buildFileText(t, root, "src")))
+		}
+		if run == 2 && !strings.Contains(logged, `"@bare/"`) {
+			t.Fatalf("path_aliases dropped the hand-authored \"@bare/\" and said nothing about "+
+				"it. A declared build input disappearing with no diagnostic is the defect "+
+				"keep.go exists to remove.\nthe run said:\n%s", indentLog(logged))
+		}
+		if run == 3 && logged != "" {
+			t.Fatalf("run 3 reported path_aliases again, so the drop notice outlived its "+
+				"cause or the \"# keep\" is being re-announced:\n%s", indentLog(logged))
+		}
+	}
+}
+
+func assertPathAliases(t *testing.T, root, pkg string, want map[string]string) {
+	t.Helper()
+	got := declaredPathAliases(t, root, pkg)
+	if len(got) != len(want) {
+		t.Fatalf("ts_compile(%s).path_aliases = %v, want %v -- Gazelle recomputes the map from "+
+			"the tree on every run, so a stale one is an alias map no run corrects:\n%s",
+			pkg, got, want, indent(buildFileText(t, root, pkg)))
+	}
+	for prefix, dir := range want {
+		if got[prefix] != dir {
+			t.Fatalf("ts_compile(%s).path_aliases = %v, want %v:\n%s",
+				pkg, got, want, indent(buildFileText(t, root, pkg)))
+		}
+	}
+}
+
+func declaredPathAliases(t *testing.T, root, pkg string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	for _, r := range loadRules(t, root, pkg) {
+		d, isDict := r.Attr("path_aliases").(*bzl.DictExpr)
+		if !isDict {
+			continue
+		}
+		for _, kv := range d.List {
+			k, keyOK := kv.Key.(*bzl.StringExpr)
+			v, valueOK := kv.Value.(*bzl.StringExpr)
+			if keyOK && valueOK {
+				out[k.Value] = v.Value
+			}
+		}
+	}
+	return out
+}
+
+// addAliasEntries edits the generated dict the way a user would, by writing
+// entries into it verbatim -- comment and all.
+func addAliasEntries(t *testing.T, root, pkg string, entries ...string) {
+	t.Helper()
+	buildPath := filepath.Join(root, filepath.FromSlash(pkg), "BUILD.bazel")
+	data, err := os.ReadFile(buildPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(string(data), "\n")
+	for i, line := range lines {
+		if strings.TrimSpace(line) != "path_aliases = {" {
+			continue
+		}
+		edited := append(append([]string(nil), lines[:i+1]...), entries...)
+		edited = append(edited, lines[i+1:]...)
+		if err := os.WriteFile(buildPath, []byte(strings.Join(edited, "\n")), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	t.Fatalf("no multi-line path_aliases dict in %s:\n%s", buildPath, data)
 }

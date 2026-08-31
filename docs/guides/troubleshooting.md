@@ -680,6 +680,32 @@ Two cases are skipped without a log line: the `./bazel-bin/…` mirror
 `ts_refresh_tsconfig` writes beside each source entry, and a chain whose entries
 are all absent from the working tree, where the first entry is used as before.
 
+## invalid repository name '{$username}.tsx'
+
+A source file whose name starts with `@` — a TanStack Start route on a dynamic
+segment is written `@{$username}.tsx` — reached a `srcs` list bare. A `srcs`
+entry is a label, and Bazel reads the head of the string rather than the file
+system: `@` opens a repository name, `//` an absolute package, and a `:`
+anywhere splits package from target. So the bare name names a repository that
+does not exist, and one such entry fails `bazel query //...` for every package
+in the workspace rather than for the one target.
+
+Gazelle writes `":@{$username}.tsx"` for these, which pins the name to the
+package the way a bare name does for every other file. Hand-written BUILD files
+need the same leading colon.
+
+A name holding a `:` has no label in any spelling — a target name may not
+contain one — and Gazelle leaves such a file out of every target it generates,
+saying so on one line per file. Rename the file.
+
+**`exports_files` wants the opposite spelling.** Its argument is a list of
+target names, not of labels, so the bare `exports_files(["@{$username}.tsx"])`
+is the correct form there and `exports_files([":@{$username}.tsx"])` fails with
+`target names may not contain ':'` — misleading, since the colon is the fix one
+attribute over. Applying the `srcs` rule here is what produces that error. A
+`filegroup` whose `srcs` is a `glob()` avoids the question entirely: a glob
+pattern is matched against the file system rather than parsed as a label.
+
 ## Snapshot 'x 1' mismatched, or a snapshot vitest says is new
 
 `ts_test` runs vitest in read-only snapshot mode, so a mismatch is a failure and

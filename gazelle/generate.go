@@ -257,6 +257,10 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		if f == "package.json" || f == "gazelle_ts.json" || f == "tsconfig.json" {
 			continue
 		}
+		if _, ok := srcLabel(f); !ok {
+			reportUnlabelableFile(args, f)
+			continue
+		}
 		if isJSONFile(f) {
 			jsonFiles = append(jsonFiles, f)
 			continue
@@ -484,7 +488,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	sort.Strings(cssFiles)
 	for _, f := range cssFiles {
 		r := rule.NewRule("css_library", libNames[f])
-		r.SetAttr("srcs", []string{f})
+		r.SetAttr("srcs", srcLabels([]string{f}))
 		r.SetAttr("visibility", []string{"//visibility:public"})
 		gen = append(gen, r)
 		// css_library targets are indexed by their workspace-relative CSS path
@@ -499,7 +503,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	sort.Strings(cssModuleFiles)
 	for _, f := range cssModuleFiles {
 		r := rule.NewRule("css_module", libNames[f])
-		r.SetAttr("srcs", []string{f})
+		r.SetAttr("srcs", srcLabels([]string{f}))
 		r.SetAttr("visibility", []string{"//visibility:public"})
 		gen = append(gen, r)
 		// css_module targets are indexed by their workspace-relative CSS path
@@ -513,7 +517,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	sort.Strings(assetFiles)
 	for _, f := range assetFiles {
 		r := rule.NewRule("asset_library", libNames[f])
-		r.SetAttr("srcs", []string{f})
+		r.SetAttr("srcs", srcLabels([]string{f}))
 		r.SetAttr("visibility", []string{"//visibility:public"})
 		gen = append(gen, r)
 		// asset_library targets are indexed by their workspace-relative asset
@@ -527,7 +531,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	sort.Strings(jsonFiles)
 	for _, f := range jsonFiles {
 		r := rule.NewRule("json_library", libNames[f])
-		r.SetAttr("srcs", []string{f})
+		r.SetAttr("srcs", srcLabels([]string{f}))
 		r.SetAttr("visibility", []string{"//visibility:public"})
 		gen = append(gen, r)
 		// json_library targets are indexed by their workspace-relative JSON
@@ -542,7 +546,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		r := rule.NewRule("ts_compile", name)
 
 		sort.Strings(srcFiles)
-		r.SetAttr("srcs", srcFiles)
+		r.SetAttr("srcs", srcLabels(srcFiles))
 		r.SetAttr("visibility", []string{"//visibility:public"})
 
 		// Only emit the attribute when it differs from the rule default.
@@ -562,9 +566,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		// Aliases let tsgo resolve source-level specifiers like "@/components".
 		// One tsconfig `paths` map serves a whole workspace, so a target takes
 		// only the entries it can carry -- see usedPathAliases.
-		if used := usedPathAliases(tc, args.Rel, srcFiles, allImports); len(used) > 0 {
-			r.SetAttr("path_aliases", used)
-		}
+		setPathAliases(args, r, usedPathAliases(tc, args.Rel, srcFiles, allImports))
 
 		gen = append(gen, r)
 		imports = append(imports, uniqueImports(allImports))
@@ -576,7 +578,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		if tc.linterConfig != "" && tc.linterType != "" {
 			lintName := name + "_lint"
 			lr := rule.NewRule("ts_lint", lintName)
-			lr.SetAttr("srcs", srcsWithEntry)
+			lr.SetAttr("srcs", srcLabels(srcsWithEntry))
 			lr.SetAttr("linter", tc.linterType)
 			if binLabel := linterBinaryLabel(tc.linterType); binLabel != "" {
 				lr.SetAttr("linter_binary", binLabel)
@@ -615,9 +617,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		entryImports := importsIn(args.Dir, []string{entryFile})
 		r := frameworkEntryRule(entryName, entryFile, tc)
 		setTsConfig(r, tsConfigAttr)
-		if used := usedPathAliases(tc, args.Rel, []string{entryFile}, entryImports); len(used) > 0 {
-			r.SetAttr("path_aliases", used)
-		}
+		setPathAliases(args, r, usedPathAliases(tc, args.Rel, []string{entryFile}, entryImports))
 		gen = append(gen, r)
 		imports = append(imports, uniqueImports(entryImports))
 	} else if name, ok := frameworkEntryTargetName(args.Rel, tc); ok &&
@@ -711,7 +711,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		name := testTargetName(targetNameForDir(tc, args.Rel))
 
 		r := rule.NewRule("ts_test", name)
-		r.SetAttr("srcs", testSrcs)
+		r.SetAttr("srcs", srcLabels(testSrcs))
 
 		// A vitest config beside the tests names the pool, the environment and
 		// the deps to inline. Dropped, the tests run in plain Node: a worker's
