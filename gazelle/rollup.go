@@ -30,8 +30,11 @@ func rolledUpSrcs(dir string, excludes []string) (srcs, tests []string) {
 // rolledUpFiles is everything a rolled-up subtree contributes to the package
 // that claims it, split by the kind of target each group needs.
 type rolledUpFiles struct {
-	srcs       []string
-	tests      []string
+	srcs  []string
+	tests []string
+	// ambient names the srcs entries that declare globals. Nothing imports one,
+	// so every target that needs it needs it in its own srcs.
+	ambient    []string
 	css        []string
 	cssModules []string
 	assets     []string
@@ -84,6 +87,9 @@ func rolledUpIn(mode string, dir string, excludes []string) rolledUpFiles {
 					continue
 				}
 				out.srcs = append(out.srcs, joined)
+				if isAmbientDeclaration(filepath.Join(dir, rel), name) {
+					out.ambient = append(out.ambient, joined)
+				}
 			case isCSSModuleFile(name):
 				out.cssModules = append(out.cssModules, joined)
 			case isCSSFile(name):
@@ -120,7 +126,7 @@ func rolledUpIn(mode string, dir string, excludes []string) rolledUpFiles {
 		}
 		walk(sub)
 	}
-	for _, g := range [][]string{out.srcs, out.tests, out.css, out.cssModules, out.assets, out.json} {
+	for _, g := range [][]string{out.srcs, out.tests, out.ambient, out.css, out.cssModules, out.assets, out.json} {
 		sort.Strings(g)
 	}
 	return out

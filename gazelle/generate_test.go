@@ -445,3 +445,51 @@ func indexOfRule(res language.GenerateResult, want *rule.Rule) int {
 	}
 	return -1
 }
+
+// An ambient .d.ts declares globals nothing imports, so only membership in a
+// target's srcs puts it in that target's program.
+func TestGenerate_AmbientDeclarationReachesTheTest(t *testing.T) {
+	res := runGenerate(t, "worker", map[string]string{
+		"worker-configuration.d.ts": "interface Env {\n\tKV: string;\n}\n",
+		"types.d.ts":                "export interface Config {\n\tname: string;\n}\n",
+		"worker.ts":                 "export const handler = (env: Env) => env.KV;\n",
+		"worker.test.ts":            "import { handler } from \"./worker\";\nexport const t = handler;\n",
+	})
+
+	compile := generatedRule(res, "worker")
+	if compile == nil {
+		t.Fatalf("no ts_compile named worker; got %v", generatedNames(t, res))
+	}
+	wantCompile := []string{"types.d.ts", "worker-configuration.d.ts", "worker.ts"}
+	if got := compile.AttrStrings("srcs"); !reflect.DeepEqual(got, wantCompile) {
+		t.Errorf("ts_compile srcs = %v, want %v", got, wantCompile)
+	}
+
+	test := generatedRule(res, "worker_test")
+	if test == nil {
+		t.Fatalf("no ts_test named worker_test; got %v", generatedNames(t, res))
+	}
+	wantTest := []string{"worker-configuration.d.ts", "worker.test.ts"}
+	if got := test.AttrStrings("srcs"); !reflect.DeepEqual(got, wantTest) {
+		t.Errorf("ts_test srcs = %v, want %v", got, wantTest)
+	}
+}
+
+// A module augmentation exports only inside the `declare module` block, so the
+// file itself is still ambient.
+func TestGenerate_AugmentationCountsAsAmbient(t *testing.T) {
+	res := runGenerate(t, "aug", map[string]string{
+		"augment.d.ts": "declare module \"vitest\" {\n\texport const marker: number;\n}\n",
+		"aug.ts":       "export const a = 1;\n",
+		"aug.test.ts":  "export const t = 1;\n",
+	})
+
+	test := generatedRule(res, "aug_test")
+	if test == nil {
+		t.Fatalf("no ts_test named aug_test; got %v", generatedNames(t, res))
+	}
+	want := []string{"aug.test.ts", "augment.d.ts"}
+	if got := test.AttrStrings("srcs"); !reflect.DeepEqual(got, want) {
+		t.Errorf("ts_test srcs = %v, want %v", got, want)
+	}
+}

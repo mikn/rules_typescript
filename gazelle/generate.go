@@ -69,6 +69,20 @@ func isJSONFile(name string) bool {
 	return strings.ToLower(path.Ext(name)) == ".json"
 }
 
+// isAmbientDeclaration returns true for a .d.ts that declares globals rather
+// than exporting a module. Nothing can import one, so srcs membership is the
+// only way it reaches a program.
+func isAmbientDeclaration(dir, name string) bool {
+	if !strings.HasSuffix(name, ".d.ts") {
+		return false
+	}
+	data, err := os.ReadFile(filepath.Join(dir, name))
+	if err != nil {
+		return false
+	}
+	return !hasModuleSyntax(string(data))
+}
+
 // isTestFile returns true for files that should be compiled as test targets.
 // Patterns: *.test.ts, *.test.tsx, *.spec.ts, *.spec.tsx
 func isTestFile(name string) bool {
@@ -220,6 +234,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		assetFiles     []string // image/font/svg asset files (NOT json)
 		jsonFiles      []string // .json data files → json_library (typed .d.ts)
 		excludedSrcs   []string // .ts/.tsx a ts_exclude directive dropped
+		ambientFiles   []string // .d.ts declaring globals, needed by every target here
 		hasIndex       bool
 	)
 
@@ -258,6 +273,10 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		if nextOwnsFile(args.Rel, f, tc) {
 			continue
 		}
+		if isAmbientDeclaration(args.Dir, f) {
+			ambientFiles = append(ambientFiles, f)
+			continue
+		}
 		if isTestFile(f) {
 			testFiles = append(testFiles, f)
 			continue
@@ -274,6 +293,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	if claimed := claimedSrcs(args, tc); len(claimed) > 0 {
 		srcFiles = dropClaimed(srcFiles, claimed)
 		testFiles = dropClaimed(testFiles, claimed)
+		ambientFiles = dropClaimed(ambientFiles, claimed)
 		cssFiles = dropClaimed(cssFiles, claimed)
 		cssModuleFiles = dropClaimed(cssModuleFiles, claimed)
 		assetFiles = dropClaimed(assetFiles, claimed)
@@ -285,6 +305,9 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 			}
 		}
 	}
+
+	srcFiles = append(srcFiles, ambientFiles...)
+	sort.Strings(srcFiles)
 
 	// Also check GenFiles: a generated index file counts as a boundary only
 	// when there are regular source files present too. Without regular source
@@ -333,9 +356,11 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		if claimed := claimedSrcs(args, tc); len(claimed) > 0 {
 			rolled.srcs = dropClaimed(rolled.srcs, claimed)
 			rolled.tests = dropClaimed(rolled.tests, claimed)
+			rolled.ambient = dropClaimed(rolled.ambient, claimed)
 		}
 		srcFiles = append(srcFiles, rolled.srcs...)
 		testFiles = append(testFiles, rolled.tests...)
+		ambientFiles = append(ambientFiles, rolled.ambient...)
 		cssFiles = append(cssFiles, rolled.css...)
 		cssModuleFiles = append(cssModuleFiles, rolled.cssModules...)
 		assetFiles = append(assetFiles, rolled.assets...)
@@ -588,6 +613,8 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	// ---- ts_test targets ---------------------------------------------------
 
 	if len(testFiles) > 0 {
+		testSrcs := append(append([]string(nil), testFiles...), ambientFiles...)
+		sort.Strings(testSrcs)
 		sort.Strings(testFiles)
 
 		// Collect all imports from test files for dep resolution.
@@ -606,7 +633,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		name := testTargetName(targetNameForDir(tc, args.Rel))
 
 		r := rule.NewRule("ts_test", name)
-		r.SetAttr("srcs", testFiles)
+		r.SetAttr("srcs", testSrcs)
 
 		// A vitest config beside the tests names the pool, the environment and
 		// the deps to inline. Dropped, the tests run in plain Node: a worker's
