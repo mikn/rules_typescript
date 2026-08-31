@@ -300,7 +300,7 @@ func generateSourcesFilegroup(srcFiles []string) *rule.Rule {
 	sorted := make([]string, len(srcFiles))
 	copy(sorted, srcFiles)
 	sort.Strings(sorted)
-	fg.SetAttr("srcs", sorted)
+	fg.SetAttr("srcs", srcLabels(sorted))
 	fg.SetAttr("visibility", []string{"//visibility:public"})
 	return fg
 }

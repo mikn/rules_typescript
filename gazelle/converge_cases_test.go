@@ -73,7 +73,21 @@ const (
 `
 	convergeSolidPkg = `{"name":"w","dependencies":{"@solidjs/start":"1.0.0","solid-js":"1.9.0"}}` + "\n"
 	convergePlainPkg = `{"name":"w","dependencies":{"zod":"3.24.2"}}` + "\n"
+
+	convergeAliasTsConfig = `{"compilerOptions":{"baseUrl":".","paths":{` +
+		`"@/*":["./src/*"],"@lib/*":["./src/lib/*"],"@ui/*":["./src/ui/*"]}}}` + "\n"
 )
+
+func convergeFixture(t *testing.T, name string) convergeCase {
+	t.Helper()
+	for _, tc := range convergeCases() {
+		if tc.name == name {
+			return tc
+		}
+	}
+	t.Fatalf("no %q fixture in convergeCases()", name)
+	return convergeCase{}
+}
 
 func convergeCases() []convergeCase {
 	return []convergeCase{
@@ -106,6 +120,40 @@ func convergeCases() []convergeCase {
 				{kind: "add_file_to_existing_target", write: map[string]string{"src/lib/format.ts": "export const format = 1;\n"}},
 				{kind: "delete_route", remove: []string{"src/routes/home.ts"}},
 				{kind: "delete_doc", remove: []string{"src/lib/helper.doc.ts"}},
+			},
+		},
+		{
+			// path_aliases is the one attribute Gazelle owns whose value is a
+			// dict. No fixture declared compilerOptions.paths, so no fixture
+			// generated it, and nothing here asked what a merge does to a dict.
+			name: "path_aliases",
+			files: map[string]string{
+				"package.json":      convergePlainPkg,
+				"tsconfig.json":     convergeAliasTsConfig,
+				"src/index.ts":      "import { helper } from \"@/lib/helper\";\nexport const a = helper;\n",
+				"src/main.ts":       "export const main = 1;\n",
+				"src/lib/helper.ts": "export const helper = 1;\n",
+				"src/lib/util.ts":   "export const util = 1;\n",
+				"src/ui/button.ts":  "export const button = 1;\n",
+			},
+			mutations: []convergeMutation{
+				// The alias map gains an entry: the run that recomputes it has
+				// to write the entry, not the map the first run left behind.
+				{kind: "add_alias_import", write: map[string]string{
+					"src/extra.ts": "import { helper } from \"@lib/helper\";\nexport const b = helper;\n",
+				}},
+				// And loses its last one, which is the attribute going away
+				// rather than a value inside it.
+				{kind: "drop_alias_import", write: map[string]string{
+					"src/index.ts": "export const a = 1;\n",
+				}},
+				{kind: "add_alias_import_in_new_dir", write: map[string]string{
+					"src/panel/view.ts": "import { button } from \"@ui/button\";\nexport const v = button;\n",
+				}},
+				{kind: "add_file_to_existing_target", write: map[string]string{
+					"src/format.ts": "export const format = 1;\n",
+				}},
+				{kind: "delete_alias_importing_file", remove: []string{"src/index.ts"}},
 			},
 		},
 		{
@@ -712,8 +760,12 @@ func replaceAttrLines(lines []string, attr string, replacement []string) []strin
 		}
 		depth := 0
 		for j := i; j < len(lines); j++ {
-			depth += strings.Count(lines[j], "[") + strings.Count(lines[j], "(")
-			depth -= strings.Count(lines[j], "]") + strings.Count(lines[j], ")")
+			// Braces too: path_aliases is a dict, and counting only brackets
+			// ends the assignment at its opening line.
+			depth += strings.Count(lines[j], "[") + strings.Count(lines[j], "(") +
+				strings.Count(lines[j], "{")
+			depth -= strings.Count(lines[j], "]") + strings.Count(lines[j], ")") +
+				strings.Count(lines[j], "}")
 			if depth <= 0 {
 				return splice(i, j)
 			}

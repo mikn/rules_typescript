@@ -74,9 +74,10 @@ on. Gazelle emits no candidate for a rule that already exists, so the merger
 never runs on one. `ts_add_package` declares `pnpm_lock` mergeable and no merge
 ever reaches it. Their attributes are yours after the first run, `# keep` or not.
 
-`# keep` works at three granularities: one value, one attribute, one rule. Both
-write paths honour all three — the merger's, and the direct write a `glob()`
-needs, since the merger cannot merge a call expression:
+`# keep` works at three granularities: one value, one attribute, one rule. All
+three write paths honour all three — the merger's; the direct write a `glob()`
+needs, since the merger cannot merge a call expression; and the entry-by-entry
+merge `path_aliases` needs, since the merger has no case for a dict:
 
 ```python
 next_build(
@@ -95,6 +96,16 @@ next_build(
     ],
     # keep
     config = "custom.next.config.mjs",
+)
+
+ts_compile(
+    name = "app",
+    srcs = ["main.ts"],
+    # One alias entry no import implies: a directory a codegen action writes.
+    path_aliases = {
+        "@/": "src/",
+        "@gen/": "src/generated/",  # keep
+    },
 )
 ```
 
