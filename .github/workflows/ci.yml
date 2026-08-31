@@ -175,7 +175,7 @@ jobs:
       # rather than harmful: cold, they would all miss this cache at once and
       # all download the same artifacts. Content-addressed, so a stale restore
       # is a miss and never a wrong answer.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             /mnt/rules_ts_it/repository_cache
