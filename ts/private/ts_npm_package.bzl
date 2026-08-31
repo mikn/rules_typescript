@@ -161,6 +161,7 @@ def _ts_npm_package_impl(ctx):
             package_version = ctx.attr.package_version,
             peer_id = ctx.attr.peer_id,
             package_dir = package_dir,
+            package_root = package_dir.dirname,
             all_files = depset(all_files),
             js_files = depset(js_files),
             declaration_files = direct_decls,

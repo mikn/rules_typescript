@@ -629,6 +629,13 @@ sections list every break with the edit it requires.
   BUILD file: the file being both a source and an output of its package is a
   conflicting declaration Bazel rejects. Deleting the checked-in copy is
   therefore optional, and works either way.
+- **A pnpm `link:` workspace member reaches the runtime `node_modules` tree.**
+  The hub target for a `workspace:*` dependency forwarded the providers a
+  compiler reads and none that a `node_modules` tree is built from, so a
+  `ts_test` depending on `@npm//:<member>` type-checked and then died in Node's
+  resolver with `Cannot find package '<member>'`. The hub target now describes
+  the member as an npm package -- its files, its own npm closure, and a
+  generated `package.json` marking it ESM -- and it stages like any other.
 - **Gazelle converges.** The framework generators were create-if-absent
   (`if !ruleExists(...)`), so the second run emitted no candidate and the rule
   froze at whatever the first run wrote: a file added to a staged directory was
