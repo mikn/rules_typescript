@@ -149,7 +149,7 @@ def _catalogs_are_not_importers_test(ctx):
         "up-one": "packages/other",
     }, importers["links"])
     asserts.equals(env, {
-        "tw-v3": "tailwindcss@3.4.18",
+        "tw-v3": "tailwindcss@3.4.18(tsx@4.23.12)",
         "typescript": "@typescript/typescript6@6.0.2",
     }, importers["aliases"])
 
@@ -162,6 +162,23 @@ def _catalogs_are_not_importers_test(ctx):
     return unittest.end(env)
 
 catalogs_are_not_importers_test = unittest.make(_catalogs_are_not_importers_test)
+
+def _alias_values_are_snapshot_ids_test(ctx):
+    env = unittest.begin(ctx)
+    importers = parse_importers(_LOCKFILE)
+
+    # The hub looks an alias up in the resolved graph, which is keyed by the
+    # peer-decorated snapshot id. A peer-stripped value is a key of `packages:`,
+    # never of `snapshots:`, so it matches nothing and the alias gets no target
+    # at all -- while the same name resolved without peers gets one.
+    root_deps = importers["importers"]["."]["deps"]
+    asserts.true(env, len(importers["aliases"]) > 0)
+    for name, sid in importers["aliases"].items():
+        asserts.equals(env, root_deps[name], sid)
+
+    return unittest.end(env)
+
+alias_values_are_snapshot_ids_test = unittest.make(_alias_values_are_snapshot_ids_test)
 
 def _catalogs_and_overrides_are_not_packages_test(ctx):
     env = unittest.begin(ctx)
@@ -770,6 +787,7 @@ def parser_test_suite(name):
     unittest.suite(
         name,
         catalogs_are_not_importers_test,
+        alias_values_are_snapshot_ids_test,
         catalogs_and_overrides_are_not_packages_test,
         platform_constraints_are_read_test,
         overrides_arrive_pre_resolved_test,

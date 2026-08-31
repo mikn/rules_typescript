@@ -25,6 +25,10 @@ func TestAliasInstallsUnderItsAliasName(t *testing.T) {
 		// Declared by zod and by nothing else, so it exists only if the dependency
 		// edge carries the name zod imports nanoid under.
 		{"package_alias_node_modules", "nano-alias", "zod's dependency edge"},
+		// Pinned through a catalog, and resolved against a peer set, so the
+		// lockfile records it under a `snapshots:` key rather than a bare
+		// name@version.
+		{"catalog_alias_node_modules", "styles-alias", "a catalog entry with peers"},
 	} {
 		nm := tree.FoundDir("*/" + c.tree)
 		if !nm.File(c.alias + "/package.json").Exists() {
