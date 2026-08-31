@@ -875,6 +875,91 @@ func loadTsConfigPaths(tsConfigPath, pkgRel string) map[string]string {
 	return aliases
 }
 
+// loadPackageImports reads the "imports" field of the package.json in dir and
+// returns it in the prefix -> repo-relative-directory form pathAliases uses.
+//
+// A specifier starting with "#" is resolvable only through this map -- Node
+// calls it a package-private import, and no lookup outside the package can
+// answer one. Left unread, "#shared/x" is a bare specifier, and a bare
+// specifier is an npm package: the resolver emits @npm//:#shared, a label whose
+// target no hub declares.
+//
+//	"#shared/*": "./shared/*"   → "#shared/" → "<pkgRel>/shared/"
+//	"#entry": "./src/entry.ts"  → "#entry"   → "<pkgRel>/src/entry.ts"
+func loadPackageImports(dir, pkgRel string) map[string]string {
+	data, err := os.ReadFile(filepath.Join(dir, "package.json"))
+	if err != nil {
+		return nil
+	}
+	var pj struct {
+		Imports map[string]json.RawMessage `json:"imports"`
+	}
+	if err := json.Unmarshal(data, &pj); err != nil {
+		return nil
+	}
+
+	aliases := make(map[string]string, len(pj.Imports))
+	for specifier, raw := range pj.Imports {
+		if !strings.HasPrefix(specifier, "#") {
+			continue
+		}
+		target := pickImportsTarget(raw)
+		if target == "" || !strings.HasPrefix(target, "./") {
+			continue
+		}
+		key := strings.TrimSuffix(specifier, "/*")
+		dir := strings.TrimPrefix(strings.TrimSuffix(target, "/*"), "./")
+		if strings.HasSuffix(specifier, "/*") {
+			key += "/"
+			dir += "/"
+		}
+		if pkgRel != "" {
+			dir = path.Join(pkgRel, dir) + trailingSlash(dir)
+		}
+		aliases[key] = dir
+	}
+	if len(aliases) == 0 {
+		return nil
+	}
+	return aliases
+}
+
+// importsConditions are the conditional-export keys Gazelle reads, in the order
+// it prefers them. A build reads a module for its types and a bundler takes the
+// ESM branch, and both are one file per entry in every map seen in the wild.
+var importsConditions = []string{"types", "import", "module", "default", "node", "require"}
+
+// pickImportsTarget reduces one "imports" value -- a path, a conditions object,
+// or an array of either -- to the single path the alias maps to.
+func pickImportsTarget(raw json.RawMessage) string {
+	var target string
+	if err := json.Unmarshal(raw, &target); err == nil {
+		return target
+	}
+
+	var conditions map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &conditions); err == nil {
+		for _, name := range importsConditions {
+			if nested, ok := conditions[name]; ok {
+				if picked := pickImportsTarget(nested); picked != "" {
+					return picked
+				}
+			}
+		}
+		return ""
+	}
+
+	var alternatives []json.RawMessage
+	if err := json.Unmarshal(raw, &alternatives); err == nil {
+		for _, alternative := range alternatives {
+			if picked := pickImportsTarget(alternative); picked != "" {
+				return picked
+			}
+		}
+	}
+	return ""
+}
+
 func repoRelDir(pkgRel, leafDir, dir string) string {
 	if dir == leafDir {
 		return pkgRel
@@ -1216,6 +1301,22 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 		}
 	}
 	_ = gazelleJSON // used for backwards compat above; directives below take priority
+
+	// A "#" specifier resolves through the package's own imports map and
+	// nothing else, so an entry here fills a key the sources above left open
+	// rather than replacing the answer one of them gave.
+	if pkgImports := loadPackageImports(currentDir, rel); pkgImports != nil {
+		merged := make(map[string]string, len(tc.pathAliases)+len(pkgImports))
+		for key, dir := range tc.pathAliases {
+			merged[key] = dir
+		}
+		for key, dir := range pkgImports {
+			if _, taken := merged[key]; !taken {
+				merged[key] = dir
+			}
+		}
+		tc.pathAliases = merged
+	}
 
 	// Auto-exclude directories that match the built-in or configured exclude
 	// sets. We check the basename of the current directory path so that e.g.

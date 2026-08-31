@@ -442,7 +442,7 @@ skipped bundle.
 Gazelle resolves TypeScript imports to Bazel labels in this order:
 
 1. **Relative imports** (`./foo`, `../bar`) — resolved to the `ts_compile` target in that directory
-2. **Path aliases** — from `compilerOptions.paths` in the nearest `tsconfig.json`, or a `# gazelle:ts_path_alias` directive
+2. **Path aliases** — from `compilerOptions.paths` in the nearest `tsconfig.json`, the `imports` field of the nearest `package.json`, or a `# gazelle:ts_path_alias` directive
 3. **A first-party `module_name`** — a bare specifier is matched against the `module_name` of the indexed `ts_compile` targets before npm is considered, because the `@npm` hub has no package under that name
 4. **npm packages** — resolved to `@npm//:<label>` using the pnpm lockfile
 5. **Unresolved** — optionally warned with `# gazelle:ts_warn_unresolved true`
@@ -453,6 +453,20 @@ candidate list: the path as written, the path with its extension dropped, that
 stem under each known extension, and `<stem>/index.ts[x]`. NodeNext-style `.js`
 specifiers over `.ts` sources therefore resolve to the target that owns the
 source.
+
+A `#`-prefixed specifier is a Node package-private import, answered only by the
+`imports` field of the package's own `package.json`:
+
+```json
+{ "imports": { "#shared/*": "./shared/*" } }
+```
+
+Gazelle reads that map as a path alias, so `#shared/flags` resolves to the
+target owning `<pkg>/shared/flags`. A conditions object or an array picks one
+target (`types`, then `import`, `module`, `default`, `node`, `require`). An
+entry a `paths` key already covers keeps the `paths` answer. A `#` specifier no
+entry covers resolves to nothing rather than to an npm label — there is no npm
+package of that name.
 
 Node built-ins resolve to `@types/node`, with or without the `node:` prefix:
 `import "path"` and `import "node:path"` both take the declarations dep, since

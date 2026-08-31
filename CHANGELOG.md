@@ -647,6 +647,16 @@ sections list every break with the edit it requires.
 
 ### Fixed
 
+- **A `#` specifier resolves through the package's `imports` field.** Node calls
+  a `#`-prefixed specifier a package-private import, and the `imports` map in
+  the importing package's own `package.json` is the only thing that answers one.
+  Gazelle never read that field, so `#shared/flags` fell through to the bare-
+  specifier branch and came back as `@npm//:#shared` -- a label whose target no
+  hub declares, which fails analysis for the whole build rather than dropping
+  one dep. The map is now read as a path alias (conditions objects and
+  alternative arrays included), below `compilerOptions.paths`, which is what
+  kept the one monorepo measured working: it duplicates both entries into
+  `paths`. A `#` specifier no entry covers now resolves to nothing.
 - **A checked-in `*.gen.ts` is a source again.** Gazelle dropped every file
   whose name ended `.gen` / `.generated` / `.auto` from every source target, on
   the guess that something in the build produced it. The guess was already
