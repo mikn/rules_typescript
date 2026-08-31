@@ -1,0 +1,46 @@
+"""An `exports` subpath of an npm package resolves to the declaration it names.
+
+`paths` gives every npm package a `pkg/*` wildcard rooted at whichever directory
+the package's root declaration landed in. That is a guess about layout, and each
+target here is a package in this repo's own lockfile whose published layout
+breaks it in a different way. Compiling them is the assertion: an unresolved
+subpath is TS2307, which fails the tsgo action.
+"""
+
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "ts_compile")
+
+package(default_visibility = ["//:__pkg__"])
+
+# postcss enters through lib/postcss.d.mts and publishes ./lib/at-rule, so the
+# wildcard doubles the directory: lib/lib/at-rule.
+ts_compile(
+    name = "doubled_prefix",
+    srcs = ["doubled_prefix.ts"],
+    deps = ["@npm//:postcss"],
+)
+
+# rolldown flattens its subpaths into one directory, so ./experimental is
+# dist/experimental-index.d.mts and the wildcard looks for dist/experimental.
+ts_compile(
+    name = "flattened_name",
+    srcs = ["flattened_name.ts"],
+    deps = ["@npm//:rolldown"],
+)
+
+# vite enters through dist/node/index.d.ts but keeps ./client at the package
+# root, above anything the wildcard can reach.
+ts_compile(
+    name = "outside_entry_dir",
+    srcs = ["outside_entry_dir.ts"],
+    deps = ["@npm//:vite"],
+)
+
+build_test(
+    name = "exports_subpath_test",
+    targets = [
+        ":doubled_prefix",
+        ":flattened_name",
+        ":outside_entry_dir",
+    ],
+)
