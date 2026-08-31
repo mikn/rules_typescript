@@ -629,10 +629,6 @@ func nearestHandWrittenTsConfig(repoRoot, dir string) string {
 
 // ---- tsconfig.json reading -------------------------------------------------
 
-// tsConfigJSON is a minimal representation of tsconfig.json used only for
-// reading extends, compilerOptions.paths and compilerOptions.baseUrl.
-// tsconfig.json is JSONC, so it is decoded with unmarshalJSONC rather than
-// encoding/json.
 type tsConfigJSON struct {
 	Extends         tsConfigExtends `json:"extends"`
 	CompilerOptions struct {

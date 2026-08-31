@@ -13,7 +13,9 @@ func Unmarshal(data []byte, v any) error {
 }
 
 // Strip removes "//" and "/* */" comments and trailing commas,
-// leaving the contents of string literals untouched.
+// leaving the contents of string literals untouched. Every deletion leaves its
+// newlines behind, so a line number in the output is a line number in the input
+// -- which is the line a parse error downstream reports.
 func Strip(data []byte) []byte {
 	out := make([]byte, 0, len(data))
 	inString := false
@@ -51,7 +53,13 @@ func Strip(data []byte) []byte {
 		case c == '/' && i+1 < len(data) && data[i+1] == '*':
 			i += 2
 			for i+1 < len(data) && !(data[i] == '*' && data[i+1] == '/') {
+				if data[i] == '\n' {
+					out = append(out, '\n')
+				}
 				i++
+			}
+			if i < len(data) && data[i] == '\n' {
+				out = append(out, '\n')
 			}
 			i++
 
@@ -66,7 +74,8 @@ func Strip(data []byte) []byte {
 	return out
 }
 
-// dropTrailingComma removes a comma at the end of out, ignoring whitespace.
+// dropTrailingComma removes a comma at the end of out, keeping the whitespace
+// that follows it.
 func dropTrailingComma(out []byte) []byte {
 	end := len(out)
 	for end > 0 {
@@ -74,7 +83,7 @@ func dropTrailingComma(out []byte) []byte {
 		case ' ', '\t', '\r', '\n':
 			end--
 		case ',':
-			return out[:end-1]
+			return append(out[:end-1], out[end:]...)
 		default:
 			return out
 		}
