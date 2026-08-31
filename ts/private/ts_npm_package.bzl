@@ -26,6 +26,31 @@ def _is_js(f):
     """Returns True for .js/.mjs/.cjs files (excludes .d.ts which has extension 'ts')."""
     return f.extension in ("js", "mjs", "cjs") and not _is_dts(f)
 
+def declares_only_types(basenames):
+    """Whether a package ships declarations and no runtime JavaScript.
+
+    `is_types_package` is decided from the package name, which catches
+    everything under `@types/` and nothing else. A package can be types-only
+    under any name -- @cloudflare/workers-types is one, and so is most vendor
+    typing -- and for those the globals it exists to declare never join the
+    program: `types` cannot name them (no node_modules to walk) and importing
+    them fails, because ambient declarations export nothing.
+
+    What actually distinguishes such a package is its contents, which is what
+    this reads. A package with any runtime module in it is a normal dependency
+    whose declarations describe its exports, not ambient globals to be loaded.
+
+    Args:
+        basenames: Every file the package ships, as basenames.
+    """
+    has_dts = False
+    for name in basenames:
+        if name.endswith(".d.ts") or name.endswith(".d.mts") or name.endswith(".d.cts"):
+            has_dts = True
+        elif name.endswith(".js") or name.endswith(".mjs") or name.endswith(".cjs"):
+            return False
+    return has_dts
+
 def _ambient_entry(package_root, dts_files, exports_types):
     """The .d.ts whose ambient declarations stand for the whole types package.
 
@@ -105,7 +130,7 @@ def _ts_npm_package_impl(ctx):
                 break
 
     ambient_types_file = None
-    if ctx.attr.is_types_package:
+    if ctx.attr.is_types_package or declares_only_types([f.basename for f in all_files]):
         ambient_types_file = _ambient_entry(
             package_dir.dirname,
             dts_files,
