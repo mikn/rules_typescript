@@ -584,6 +584,14 @@ func resolveNpmPackage(tc *tsConfig, imp string) string {
 		return ""
 	}
 
+	// A "#" specifier is package-private: only the importing package's own
+	// package.json "imports" answers it, and matchPathAlias has already had
+	// that map. Reaching here means no entry covers it, and the hub has no
+	// package of that name -- @npm//:#shared names a target no hub declares.
+	if strings.HasPrefix(imp, "#") {
+		return ""
+	}
+
 	// A specifier carrying a URI scheme is not an npm package. Bundlers
 	// synthesise modules behind one ("virtual:routes"), the package is
 	// declared ambiently rather than installed, and a Bazel target name
