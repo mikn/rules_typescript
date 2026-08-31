@@ -661,6 +661,17 @@ sections list every break with the edit it requires.
   between two Bazel packages however the two are split. **The edit:** a
   workspace that wants some other generated-looking file out of `srcs` names it
   in `# gazelle:ts_exclude`.
+- **`json_library` reads JSONC, so a commented `.json` no longer fails the
+  build.** TypeScript accepts comments and trailing commas wherever it reads
+  JSON, and Gazelle already decoded `tsconfig.json` through a stripper for
+  exactly that reason -- but the rule's own build-time read was a strict
+  `JSON.parse`, so the same file meant two things depending on which side read
+  it. The stripper moved to `//gazelle/jsonc`, and `json_library` now strips
+  through `//gazelle/jsonc/strip` before parsing: one implementation of the
+  dialect, shared by the BUILD generator and the rule. Four `json_library`
+  targets on one monorepo built again, among them two `tsconfig.*.json` files --
+  files Gazelle itself reads as JSONC.
+
 - **Gazelle reads `pnpm-lock.yaml`, so the npm inventory everything gates on is
   no longer empty.** `tc.npmPackages` -- "which npm packages does this
   workspace declare" -- was populated in one place only, from the deprecated

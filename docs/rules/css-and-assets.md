@@ -116,9 +116,11 @@ is a hard build failure naming the attribute to use, and so are
 `asset_library` and `json_library` promise a `string` URL and the parsed JSON
 shape respectively. JSON is not an `asset_library` extension: `json_library`
 parses the file at build time and generates real property types, which an
-ambient `string` declaration would throw away. `.jsonc` goes the other way and
-stays with `asset_library`: the comments the dialect exists for are what that
-build-time parse rejects.
+ambient `string` declaration would throw away. The parse reads the
+JSON-with-comments dialect TypeScript itself accepts, so a `.json` file carrying
+comments or trailing commas types like any other. `.jsonc` goes the other way
+and stays with `asset_library`: no bundler parses that extension as JSON, so the
+import yields a URL and not a value.
 
 ## In a Bundle
 

@@ -1,5 +1,9 @@
 """json_library rule — reads a JSON file at build time and generates a typed .d.ts.
 
+The file is read as JSONC -- comments and trailing commas -- through the same
+//gazelle/jsonc stripper Gazelle decodes tsconfig.json with, so the rule and the
+BUILD generator cannot disagree about what a file says.
+
 Unlike asset_library which emits `declare const data: unknown`, json_library
 parses the JSON structure and generates a fully-typed declaration so that
 TypeScript callers get type-safe access to each property.
@@ -58,11 +62,13 @@ import { readFileSync, writeFileSync } from 'node:fs';
 const jsonFile = process.argv[2];
 const dtsFile  = process.argv[3];
 
+const sourceName = process.argv[4] ?? jsonFile;
+
 let data;
 try {
   data = JSON.parse(readFileSync(jsonFile, 'utf8'));
 } catch (e) {
-  process.stderr.write('json_library: failed to parse ' + jsonFile + ': ' + e.message + '\\n');
+  process.stderr.write('json_library: failed to parse ' + sourceName + ': ' + e.message + '\\n');
   process.exit(1);
 }
 
@@ -104,19 +110,36 @@ def _json_library_impl(ctx):
 
     dts_outputs = []
     for json_file in json_files:
+        # TypeScript accepts comments and trailing commas wherever it reads
+        # JSON, so the rule reads the same dialect Gazelle does rather than a
+        # stricter one.
+        plain = ctx.actions.declare_file(
+            json_file.basename + ".plain.json",
+            sibling = json_file,
+        )
+        ctx.actions.run(
+            inputs = [json_file],
+            outputs = [plain],
+            executable = ctx.executable._jsonc_strip,
+            arguments = [json_file.path, plain.path],
+            mnemonic = "JsonLibraryStrip",
+            progress_message = "JsonLibraryStrip %{label}",
+        )
+
         # The .d.ts must be named <basename>.d.ts so TypeScript resolves it
         # when allowArbitraryExtensions is enabled:
         #   config.json  →  config.json.d.ts
         dts = ctx.actions.declare_file(json_file.basename + ".d.ts", sibling = json_file)
 
         ctx.actions.run(
-            inputs = [json_file, generator_script],
+            inputs = [plain, generator_script],
             outputs = [dts],
             executable = js_tool.runtime_binary,
             arguments = js_tool.args_prefix + [
                 generator_script.path,
-                json_file.path,
+                plain.path,
                 dts.path,
+                json_file.short_path,
             ],
             mnemonic = "JsonLibraryDts",
             progress_message = "JsonLibraryDts %{label}",
@@ -155,6 +178,11 @@ json_library = rule(
         "deps": attr.label_list(
             doc = "Other json_library targets this target depends on.",
             providers = [[TsDeclarationInfo]],
+        ),
+        "_jsonc_strip": attr.label(
+            default = Label("//gazelle/jsonc/strip"),
+            executable = True,
+            cfg = "exec",
         ),
     },
     toolchains = [

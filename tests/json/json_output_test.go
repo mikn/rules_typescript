@@ -20,3 +20,13 @@ func TestJSONDeclaration(t *testing.T) {
 	}
 	dts.Contains(`"name": string`, `"port": number`, `"debug": boolean`)
 }
+
+// TypeScript reads JSON as JSONC, and so does Gazelle. A file the ruleset can
+// generate a target for is a file the rule has to be able to read.
+func TestJSONCDeclaration(t *testing.T) {
+	tree := verify.New(t)
+	dts := tree.File("tests/json/commented.json.d.ts")
+
+	dts.Contains(`"name": string`, `"retries": number`, `"enabled": boolean`)
+	dts.Excludes(": unknown")
+}

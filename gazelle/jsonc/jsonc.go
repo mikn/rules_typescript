@@ -1,16 +1,20 @@
-package typescript
+// Package jsonc reads the JSON-with-comments dialect TypeScript accepts. Both
+// readers of a JSON file in this ruleset go through it -- Gazelle directly,
+// json_library through //gazelle/jsonc/strip -- so one file cannot mean two
+// things depending on which side read it.
+package jsonc
 
 import "encoding/json"
 
-// unmarshalJSONC decodes JSON with comments and trailing commas, the dialect
+// Unmarshal decodes JSON with comments and trailing commas, the dialect
 // tsconfig.json is officially written in and TypeScript itself accepts.
-func unmarshalJSONC(data []byte, v any) error {
-	return json.Unmarshal(stripJSONComments(data), v)
+func Unmarshal(data []byte, v any) error {
+	return json.Unmarshal(Strip(data), v)
 }
 
-// stripJSONComments removes "//" and "/* */" comments and trailing commas,
+// Strip removes "//" and "/* */" comments and trailing commas,
 // leaving the contents of string literals untouched.
-func stripJSONComments(data []byte) []byte {
+func Strip(data []byte) []byte {
 	out := make([]byte, 0, len(data))
 	inString := false
 

@@ -1,0 +1,15 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "strip_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/mikn/rules_typescript/gazelle/jsonc/strip",
+    visibility = ["//visibility:private"],
+    deps = ["//gazelle/jsonc"],
+)
+
+go_binary(
+    name = "strip",
+    embed = [":strip_lib"],
+    visibility = ["//visibility:public"],
+)
