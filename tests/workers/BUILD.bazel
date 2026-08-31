@@ -65,7 +65,7 @@ build_test(
 # wrangler needs its own tree: the pool's node_modules is built from the test's
 # deps, and wrangler is not one of them.
 node_modules(
-    name = "wrangler_node_modules",
+    name = "node_modules",
     deps = ["@npm_workers//:wrangler"],
 )
 
@@ -75,7 +75,19 @@ ts_worker_dry_run_test(
     name = "deploy_dry_run_test",
     size = "medium",
     config = "wrangler.jsonc",
-    node_modules = ":wrangler_node_modules",
+    node_modules = ":node_modules",
+    deps = [":worker"],
+)
+
+# The same worker through a config written for `wrangler dev` rather than for
+# Bazel: `main` names the .ts, and nodejs_compat makes wrangler import a package
+# from beside itself in the tree. Neither resolves without staging that answers
+# to both.
+ts_worker_dry_run_test(
+    name = "deploy_dry_run_ts_entry_test",
+    size = "medium",
+    config = "wrangler.ts-entry.jsonc",
+    node_modules = ":node_modules",
     deps = [":worker"],
 )
 

@@ -1,0 +1,11 @@
+{
+  // What a worker's config looks like when a human wrote it: `wrangler dev`
+  // compiles TypeScript itself, so `main` names the source. Bazel stages what it
+  // compiled, so the file beside this config is the .js.
+  "name": "rules-typescript-test-worker-ts-entry",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-01-01",
+  // Pulls wrangler's own unenv preset into the bundle, which it imports from
+  // beside itself in the npm tree.
+  "compatibility_flags": ["nodejs_compat"]
+}

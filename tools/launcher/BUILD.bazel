@@ -34,6 +34,7 @@ go_test(
         "next_test.go",
         "plan_test.go",
         "resolve_test.go",
+        "wrangler_test.go",
     ],
     # keep: this package's library is `launcher`, not the `launcher_lib` the Go
     # naming convention picks for a main package.
