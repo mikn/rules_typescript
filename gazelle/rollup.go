@@ -23,6 +23,27 @@ import (
 // index file, or it has a BUILD file, which is either a package already or a
 // deliberate statement that it should be one.
 func rolledUpSrcs(dir string, excludes []string) (srcs, tests []string) {
+	r := rolledUp(dir, excludes)
+	return r.srcs, r.tests
+}
+
+// rolledUpFiles is everything a rolled-up subtree contributes to the package
+// that claims it, split by the kind of target each group needs.
+type rolledUpFiles struct {
+	srcs       []string
+	tests      []string
+	css        []string
+	cssModules []string
+	assets     []string
+	json       []string
+}
+
+// rolledUp is rolledUpSrcs plus the files that are not TypeScript. A stylesheet
+// beside a rolled-up source is imported by it, so leaving it behind gives that
+// import nothing to resolve to and the specifier becomes a label for a package
+// that cannot exist.
+func rolledUp(dir string, excludes []string) rolledUpFiles {
+	var out rolledUpFiles
 	var walk func(rel string)
 	walk = func(rel string) {
 		entries, err := os.ReadDir(filepath.Join(dir, rel))
@@ -40,20 +61,31 @@ func rolledUpSrcs(dir string, excludes []string) (srcs, tests []string) {
 		}
 		for _, name := range files {
 			joined := filepath.ToSlash(filepath.Join(rel, name))
-			if !isTypeScriptFile(name) || isGeneratedFile(name) {
-				continue
-			}
 			// Excludes are written relative to the directory declaring them, so
 			// both spellings have to match: the pattern as written and the path
 			// this walk reached the file by.
 			if isConfiguredExclude(name, excludes) || isConfiguredExclude(joined, excludes) {
 				continue
 			}
-			if isTestFile(name) {
-				tests = append(tests, joined)
-				continue
+			switch {
+			case isTypeScriptFile(name):
+				if isGeneratedFile(name) {
+					continue
+				}
+				if isTestFile(name) {
+					out.tests = append(out.tests, joined)
+					continue
+				}
+				out.srcs = append(out.srcs, joined)
+			case isCSSModuleFile(name):
+				out.cssModules = append(out.cssModules, joined)
+			case isCSSFile(name):
+				out.css = append(out.css, joined)
+			case isJSONFile(name):
+				out.json = append(out.json, joined)
+			case isAssetFile(name):
+				out.assets = append(out.assets, joined)
 			}
-			srcs = append(srcs, joined)
 		}
 		for _, sub := range subdirs {
 			subRel := filepath.ToSlash(filepath.Join(rel, sub))
@@ -81,9 +113,10 @@ func rolledUpSrcs(dir string, excludes []string) (srcs, tests []string) {
 		}
 		walk(sub)
 	}
-	sort.Strings(srcs)
-	sort.Strings(tests)
-	return srcs, tests
+	for _, g := range [][]string{out.srcs, out.tests, out.css, out.cssModules, out.assets, out.json} {
+		sort.Strings(g)
+	}
+	return out
 }
 
 func subdirsOf(dir string) []string {
