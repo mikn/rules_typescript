@@ -83,6 +83,59 @@ func npmTransitive(name, label string) string {
 
 func npmDirect(name string) string { return "npm-direct\t" + name }
 
+// A tree artifact has no file list at analysis time, so it reaches the manifest
+// as its own path and answers for everything under it.
+func transitiveDir(path, label string) string { return "transitive-dir\t" + path + "\t" + label }
+
+func directDir(path string) string { return "direct-dir\t" + path }
+
+func TestFileInsideATransitiveDirectoryIsRejected(t *testing.T) {
+	c := newChecker(t)
+	out, ok := c.run(
+		"tree_transitive",
+		"import { m } from \"./compiled/messages/greeting.js\";\nexport const id = m;\n",
+		transitiveDir("pkg/compiled", "//pkg:tree"),
+	)
+	if ok {
+		t.Fatalf("a file inside a directory only a dep's dep provides was accepted:\n%s", out)
+	}
+	for _, want := range []string{"\"./compiled/messages/greeting.js\"", "add \"//pkg:tree\" to deps"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the message must name %s:\n%s", want, out)
+		}
+	}
+}
+
+func TestFileInsideADirectDirectoryIsAccepted(t *testing.T) {
+	c := newChecker(t)
+	if out, ok := c.run(
+		"tree_direct",
+		"import { m } from \"./compiled/messages/greeting.js\";\nexport const id = m;\n",
+		directDir("pkg/compiled"),
+		transitiveDir("pkg/compiled", "//pkg:tree"),
+	); !ok {
+		t.Fatalf("a declared directory was reported against its own label:\n%s", out)
+	}
+}
+
+// The prefix is a path prefix, not a string one: pkg/compiled must not answer
+// for pkg/compiled_extra.
+func TestASiblingOfADirectoryIsNotInsideIt(t *testing.T) {
+	c := newChecker(t)
+	out, ok := c.run(
+		"tree_sibling",
+		"import { m } from \"./compiled_extra/greeting.js\";\nexport const id = m;\n",
+		directDir("pkg/compiled"),
+		transitive("pkg/compiled_extra/greeting.d.ts", "//pkg:other"),
+	)
+	if ok {
+		t.Fatalf("a sibling of a declared directory was taken as inside it:\n%s", out)
+	}
+	if !strings.Contains(out, "add \"//pkg:other\" to deps") {
+		t.Errorf("the message must name the label that really provides it:\n%s", out)
+	}
+}
+
 func TestTransitiveModuleNameIsRejected(t *testing.T) {
 	c := newChecker(t)
 	out, ok := c.run(
@@ -99,6 +152,54 @@ func TestTransitiveModuleNameIsRejected(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("the message must name %s:\n%s", want, out)
 		}
+	}
+}
+
+// Node calls a #-prefixed specifier a package-private import; it is the whole
+// name, not a URL fragment on an empty one.
+func TestTransitivePackageImportsNameIsRejected(t *testing.T) {
+	c := newChecker(t)
+	out, ok := c.run(
+		"hash_module",
+		"import { m } from \"#app/messages\";\nexport const id = m;\n",
+		moduleDirect("@acme/leaf"),
+		moduleTransitive("#app/messages", "//pkg:messages"),
+	)
+	if ok {
+		t.Fatalf("a # module only a dep's dep provides was accepted:\n%s", out)
+	}
+	for _, want := range []string{"\"#app/messages\"", "add \"//pkg:messages\" to deps"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the message must name %s:\n%s", want, out)
+		}
+	}
+}
+
+func TestDirectPackageImportsNameIsAccepted(t *testing.T) {
+	c := newChecker(t)
+	if out, ok := c.run(
+		"hash_direct",
+		"import { m } from \"#app/messages\";\nexport const id = m;\n",
+		moduleDirect("#app/messages"),
+		moduleTransitive("#app/messages", "//pkg:messages"),
+	); !ok {
+		t.Fatalf("a # module a direct dep provides was rejected:\n%s", out)
+	}
+}
+
+// A # after the first character is still a fragment.
+func TestAFragmentIsStrippedFromARelativeSpecifier(t *testing.T) {
+	c := newChecker(t)
+	out, ok := c.run(
+		"fragment",
+		"import { m } from \"./nested/hidden#frag\";\nexport const id = m;\n",
+		transitive("pkg/nested/hidden.d.ts", "//pkg:hidden"),
+	)
+	if ok {
+		t.Fatalf("a fragment hid the specifier it was attached to:\n%s", out)
+	}
+	if !strings.Contains(out, "add \"//pkg:hidden\" to deps") {
+		t.Errorf("the message must name the label:\n%s", out)
 	}
 }
 

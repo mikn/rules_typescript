@@ -1,0 +1,85 @@
+"""A ts_codegen out_dir consumed by a ts_compile.
+
+The generator writes one .js/.d.ts pair per name in names.txt, so the file set
+exists only once it has run and the output has to be a directory. That
+directory is a dep, never a src: srcs declares one output per file at analysis
+time and a directory has no file list to declare from.
+"""
+
+load("@rules_go//go:def.bzl", "go_test")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("//ts:defs.bzl", "ts_codegen", "ts_compile")
+load(":tree_tests.bzl", "tree_reaches_compile_test")
+
+package(default_visibility = ["//:__pkg__"])
+
+# The go_test is hand-named: `codegen_tree_test` is the name the Go language
+# generates for this directory, and it would delete the rule as empty once the
+# exclude below hides its source. names.txt is the generator's input, not an
+# asset target.
+# gazelle:exclude *_test.go
+# gazelle:exclude names.txt
+
+sh_binary(
+    name = "tree_generator",
+    srcs = ["gen_tree.sh"],
+)
+
+ts_codegen(
+    name = "tree",
+    srcs = ["names.txt"],
+    args = [
+        "--names",
+        "{srcs}",
+        "--outdir",
+        "{out}",
+    ],
+    generator = ":tree_generator",
+    module_name = "#codegen/tree",
+    out_dir = "compiled",
+)
+
+ts_compile(
+    name = "consumer",
+    srcs = ["consumer.ts"],
+    deps = [":tree"],
+)
+
+# The same tree by relative path. tsgo resolves it through rootDirs; the
+# undeclared-import check resolves it through the directory the manifest names,
+# since it has no file list to match against.
+ts_compile(
+    name = "relative_consumer",
+    srcs = ["relative_consumer.ts"],
+    deps = [":tree"],
+)
+
+go_test(
+    name = "tree_output_test",
+    size = "small",
+    srcs = ["codegen_tree_test.go"],
+    data = [
+        ":consumer",
+        ":tree",
+    ],
+    deps = ["//tests/verify"],
+)
+
+tree_reaches_compile_test(
+    name = "tree_reaches_compile_test",
+    size = "small",
+    target_under_test = ":consumer",
+    tree = ":tree",
+)
+
+# One target further out. The tree arrives through :consumer, so dropping :tree
+# from these deps must fail the check naming it -- which is also what pins that
+# a `#` specifier reaches the check rather than being read as a bare fragment.
+ts_compile(
+    name = "downstream",
+    srcs = ["downstream.ts"],
+    deps = [
+        ":consumer",
+        ":tree",
+    ],
+)

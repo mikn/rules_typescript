@@ -83,7 +83,9 @@ When node_modules is set, ts_codegen automatically sets:
   TS_CODEGEN_NODE_MODULES → same path (for scripts that fork child processes)
 """
 
+load("//ts/private:providers.bzl", "JsInfo", "TsDeclarationInfo")
 load("//ts/private:runtime.bzl", "JS_TOOL_TOOLCHAIN_TYPE", "get_js_tool")
+load("//ts/private:ts_compile.bzl", "TsModuleInfo", "label_text")
 
 # ─── Rule implementation ───────────────────────────────────────────────────────
 
@@ -100,6 +102,12 @@ def _ts_codegen_impl(ctx):
         fail("ts_codegen: either outs or out_dir must be set")
     if has_outs and has_out_dir:
         fail("ts_codegen: outs and out_dir are mutually exclusive; set exactly one")
+    if ctx.attr.module_name and not has_out_dir:
+        fail(
+            "ts_codegen: module_name on {} needs out_dir.\n".format(ctx.label) +
+            "Files declared in outs are sources: a ts_compile takes them in srcs and " +
+            "publishes the name itself, with module_name on that target.",
+        )
 
     # Collect declared output files (or declare a directory).
     if has_out_dir:
@@ -185,8 +193,44 @@ def _ts_codegen_impl(ctx):
         progress_message = "TsCodegen %{label}",
     )
 
+    files = depset(outs)
+    if not has_out_dir:
+        return [DefaultInfo(files = files)]
+
+    # The same fields a ts_compile's own outputs travel in: nothing downstream
+    # compiles the tree, so what it holds has to already be compiled output.
+    root = out_dir_file.path
+    own_modules = []
+    if ctx.attr.module_name:
+        own_modules.append(struct(
+            module_name = ctx.attr.module_name,
+            label = label_text(ctx.label),
+            declaration_root = root,
+            source_root = root,
+            declared_paths = (),
+        ))
     return [
-        DefaultInfo(files = depset(outs)),
+        DefaultInfo(files = files),
+        JsInfo(
+            js_files = files,
+            js_map_files = depset(),
+            transitive_js_files = files,
+            transitive_js_map_files = depset(),
+        ),
+        TsDeclarationInfo(
+            declaration_files = files,
+            transitive_declaration_files = files,
+            global_entry_files = depset(),
+            transitive_global_entry_files = depset(),
+        ),
+        TsModuleInfo(
+            module_name = ctx.attr.module_name,
+            label = label_text(ctx.label),
+            declaration_root = root,
+            source_root = root,
+            declared_paths = (),
+            transitive_modules = depset(own_modules),
+        ),
     ]
 
 # ─── Rule declaration ──────────────────────────────────────────────────────────
@@ -271,6 +315,18 @@ When set:
 Use this when the generator script imports npm packages at runtime.
 """,
             allow_files = True,
+        ),
+        "module_name": attr.string(
+            doc = """Bare specifier the out_dir tree is importable as.
+
+Set it and a ts_compile naming this target in deps resolves that specifier to
+the tree, the same route module_name on a ts_compile takes. Leave it unset and
+the tree is staged for the consumer's compile but has no name to import.
+
+Requires out_dir: files declared in outs are sources, and the ts_compile that
+takes them in srcs is what publishes a name for them.
+""",
+            default = "",
         ),
         "env": attr.string_dict(
             doc = "Additional environment variables passed to the generator action.",

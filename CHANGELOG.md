@@ -534,7 +534,35 @@ sections list every break with the edit it requires.
   ships, is the first user: its 102-line shell wrapper — which parsed `--out`
   and `--srcs` by hand and wrote a `.mjs` file out of a heredoc at build time —
   is now a 93-line `.mjs` and a three-line `ts_binary`.
+- **A `ts_codegen` directory can be a `ts_compile` dep.** `out_dir` is the only
+  output shape a generator whose file names come from its input can have, and
+  until now nothing downstream could read one: the rule returned `DefaultInfo`
+  alone, so naming it in `deps` failed analysis with `does not have mandatory
+  providers`. An `out_dir` target now carries `JsInfo`, `TsDeclarationInfo` and
+  `TsModuleInfo` — the same fields a `ts_compile`'s own outputs travel in, not a
+  parallel set for directories — and the new `module_name` attribute names the
+  specifier importers write:
 
+  ```python
+  ts_codegen(
+      name = "messages",
+      out_dir = "compiled",
+      module_name = "#app/messages",
+      ...
+  )
+
+  ts_compile(name = "app", srcs = ["main.ts"], deps = [":messages"])
+  ```
+
+  The tree goes in `deps`, never `srcs`: `srcs` declares one output per input
+  file at analysis time and a directory has no file list to declare from. So the
+  generator has to emit compiled output — `.js` beside `.d.ts` — because nothing
+  downstream will compile it. `module_name` without `out_dir` is an
+  analysis-time error.
+
+  The undeclared-import check reads a directory as a path prefix rather than as
+  a file list, and reports the label when a relative import lands inside a tree
+  that arrived only through another dep.
 - **`ts_worker_deploy` uploads a Cloudflare Worker.** The ruleset could only ever
   dry-run one, so authentication, whether Cloudflare accepts the bundle, routes
   and cron triggers had never been exercised. It is a `bazel run` target, the
@@ -682,6 +710,29 @@ sections list every break with the edit it requires.
 
 ### Fixed
 
+- **A `tsconfig` `paths` value under the tsconfig's own directory no longer
+  fails with `TS5090`.** The value is computed relative to the generated
+  tsconfig, and a target below that directory relativised to a bare segment —
+  `compiled/index.d.ts` — which TypeScript reads as a package name now that tsgo
+  has removed `baseUrl`. Every `paths` value is written explicitly relative.
+  Reached by any `module_name` or `path_aliases` target whose root sits under
+  the consuming package's bin directory; a `ts_codegen` tree always does.
+- **A directory in `ts_compile` `srcs` says what to do about it.** It used to
+  report `(extension: .)` from the file-type check. It now names the attribute
+  the tree belongs in.
+- **The undeclared-import check sees a `#` specifier at all.** Every specifier
+  had its URL fragment stripped from the first `#`, and Node calls a
+  `#`-prefixed name a package-private import -- the whole specifier, not a
+  fragment on an empty one. So `#shared/messages` became `""` and every one of
+  them was silently exempt from the check. A `#` after the first character is
+  still a fragment.
+- **A dep's tree artifact no longer kills the undeclared-import check.** Every
+  provider route into `_strict_deps_check` fed the manifest through `add_all`,
+  which expands a directory the action holds no input for:
+  `Failed to expand directory <generated file .../compiled>`. Measured on all
+  four: `TsDeclarationInfo.declaration_files`, `.transitive_declaration_files`,
+  `JsInfo`, and `path_alias_srcs`. Expansion is off, and the directory enters
+  the manifest as the one path Bazel knows.
 - **A `#` specifier resolves through the package's `imports` field.** Node calls
   a `#`-prefixed specifier a package-private import, and the `imports` map in
   the importing package's own `package.json` is the only thing that answers one.
@@ -1154,6 +1205,19 @@ be reproduced from this tree.
 
 ### Known gaps
 
+- **A `ts_codegen` generator that emits `.ts` sources into an `out_dir` has no
+  route to a `ts_compile`.** `deps` takes the tree as already-compiled output
+  and nothing downstream compiles it; `srcs` cannot take it, because one output
+  per input file is declared at analysis time. Closing this needs an oxc
+  invocation over a whole directory emitting a directory, which is a different
+  action shape, not an attribute.
+- **`ts_codegen(node_modules = ...)` only serves an ESM generator when the
+  target is named literally `node_modules`.** The tree's directory is named
+  after its target and Node's ESM resolver only ever looks in a directory called
+  `node_modules` as it walks up; `NODE_PATH`, which the rule sets, is a CJS
+  mechanism. A misnamed target leaves the generator failing with
+  `ERR_MODULE_NOT_FOUND`. Documented rather than fixed: renaming the artifact
+  under the target would break the `node_modules()` rule's own contract.
 - **Three `@npm` labels remain in ruleset packages, unreached.**
   `//vite:plugin_typecheck` (`@npm//:types_node`, `@npm//:vite`),
   `//vite:tsup_config` (`@npm//:tsup`) and `//ts/private/css:compiler_typecheck`
