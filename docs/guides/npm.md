@@ -441,28 +441,36 @@ directory, and which directory inside it holds the target that compiles it is a
 Gazelle decision: the default boundary mode gives every directory holding sources
 its own package, `# gazelle:ts_package_boundary tsconfig` rolls the subtree up
 into the directory holding `tsconfig.json`, and `# gazelle:ts_target_name`
-renames the result. So the hub walks from the directory the member's
-`main`/`module` sits in up to the member's root, and takes the innermost one that
-is a Bazel package declaring that target:
+renames the result. So the hub walks from the directories the member's own
+manifest designates an entry point in up to the member's root, and takes the
+innermost one that declares a target of that name:
 
 ```text
 link:packages/shared, main: src/index.ts
-  packages/shared/src/BUILD.bazel exists  →  //packages/shared/src:src
-  only packages/shared/BUILD.bazel exists →  //packages/shared:shared
+  packages/shared/src/BUILD.bazel declares :src     →  //packages/shared/src:src
+  only packages/shared/BUILD.bazel declares :shared →  //packages/shared:shared
 ```
+
+The entry points come from `main`, `module` and `exports["."]` -- all three, so a
+member that declares only an exports map (`{".": "./src/index.ts"}`, or a
+condition map under it) is walked from `src/` as well. A condition outside
+`types`/`typings`/`node`/`import`/`require`/`default`, and a target holding a
+`*`, are not followed.
 
 That target has to be visible to the hub repository, so
 `visibility = ["//visibility:public"]`. A `ts_compile` gets the npm name
 attached. A member with no declarations, such as a `css_module` or an
 `asset_library`, is forwarded as it is and carries no name.
 
-!!! warning "A member with no BUILD file gets no hub target"
-    If no directory of the member is a Bazel package, the hub declares nothing
-    for that name and writes a comment saying so where the label would have
-    been. `@npm//:<member>` then fails as an undeclared target for whatever asks
-    for it. That is deliberate: a label naming a package Bazel cannot load fails
-    analysis for everything that reaches the hub, not just for the member. Run
-    Gazelle, or write the member's `BUILD.bazel` by hand.
+!!! warning "A member whose target is not declared gets no hub target"
+    If no candidate directory declares a target of the member's name, the hub
+    declares nothing for that name and writes a comment saying so where the
+    label would have been. `@npm//:<member>` then fails as an undeclared target
+    for whatever asks for it. That covers a member with no `BUILD.bazel` at all
+    **and** one whose `BUILD.bazel` declares something else -- a lone
+    `ts_config`, say. Neither earns a label: a label naming a target Bazel
+    cannot resolve fails analysis for everything that reaches the hub, not just
+    for the member. Run Gazelle, or write the member's target by hand.
 
     The lookup covers the member's own subtree only. A boundary that rolls a
     member up into a directory **above** it -- a `tsconfig.json` at

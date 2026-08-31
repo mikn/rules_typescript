@@ -671,7 +671,10 @@ _LINK_LOAD = 'load("@rules_typescript//npm/private:workspace_package.bzl", "npm_
 
 _TARGET_NAME_DIRECTIVE = "# gazelle:ts_target_name"
 
-def _link_candidate_dirs(member, entry):
+def _negated_depth(dir_path):
+    return -len(dir_path.split("/"))
+
+def _link_candidate_dirs(member, entries):
     """The directories that could hold a member's target, innermost first.
 
     A member is a directory; what has to be depended on is the target that
@@ -684,20 +687,29 @@ def _link_candidate_dirs(member, entry):
 
     Both modes are declared in BUILD files, which is why this returns candidates
     rather than an answer: the caller looks them up, innermost first, and the one
-    that is a Bazel package wins.
+    that declares the target wins.
+
+    A manifest can designate several entry points -- a `main` and an `exports`
+    map that disagree, or one `exports` condition per output format -- so every
+    directory any of them sits in is a candidate. The order is by depth over all
+    of them together rather than one chain at a time: taken chain by chain, the
+    member root would come ahead of a deeper directory named by a later entry
+    point, and the root is the candidate that must be tried last.
 
     Args:
         member: The member's path from the repo root, e.g. "packages/foo".
-        entry: The member's `main`/`module` value, or "" when it declares none.
+        entries: The entry points the member designates, in resolver order.
     """
     dirs = [member]
-    current = member
-    for part in (entry.strip("./").split("/")[:-1] if entry else []):
-        if not part:
-            continue
-        current = current + "/" + part
-        dirs.append(current)
-    return dirs[::-1]
+    for entry in entries:
+        current = member
+        for part in entry.strip("./").split("/")[:-1]:
+            if not part:
+                continue
+            current = current + "/" + part
+            if current not in dirs:
+                dirs.append(current)
+    return sorted(dirs, key = _negated_depth)
 
 def _target_name_in(build_text, dir_path):
     """The name the ts_compile in a directory carries: its own, or the directive's."""
@@ -730,19 +742,45 @@ def _read_if_present(rctx, path):
     rctx.watch(path)
     return None
 
-def _member_entry(rctx, member_dir):
-    """The `main`/`module` a workspace member's package.json designates, or ""."""
+def _manifest_entries(pkg_json):
+    """Every entry point a workspace member's manifest designates, resolver order.
+
+    `main` and `module`, then what `exports["."]` names. A package that ships an
+    exports map and no `main` designates its entry point there and nowhere else,
+    and reading only `main` leaves such a member with its own root as the sole
+    candidate -- which is the directory a `tsconfig` boundary would have rolled
+    it up into and not the one the default boundary puts its target in.
+
+    The exports map is read by `_root_export` and `_export_targets`, the same two
+    readers the published-package path uses: a plain string, `{".": ...}`, the
+    subpath-free condition shorthand, nested condition maps keyed by
+    types/typings/node/import/require/default, and fallback arrays. A condition
+    outside that set (`browser`, `development`) is not followed, and a target
+    holding a `*` is dropped -- it designates a pattern, whose directory is a
+    pattern too.
+
+    Args:
+        pkg_json: The member's decoded package.json.
+    """
+    entries = []
+    for field in ("main", "module"):
+        value = pkg_json.get(field)
+        if type(value) == "string" and value:
+            entries.append(value)
+    for target in _export_targets(_root_export(pkg_json.get("exports"))):
+        if target and "*" not in target and target not in entries:
+            entries.append(target)
+    return entries
+
+def _member_entries(rctx, member_dir):
+    """`_manifest_entries` of a member's package.json, or [] when it has none."""
     content = _read_if_present(rctx, member_dir.get_child("package.json"))
     if content == None:
-        return ""
+        return []
     decoded = json.decode(content)
     if type(decoded) != "dict":
-        return ""
-    for field in ("main", "module"):
-        value = decoded.get(field)
-        if type(value) == "string" and value:
-            return value
-    return ""
+        return []
+    return _manifest_entries(decoded)
 
 def _build_file_text(rctx, root, dir_path):
     for name in ("BUILD.bazel", "BUILD"):
@@ -751,28 +789,31 @@ def _build_file_text(rctx, root, dir_path):
             return text
     return None
 
-def _link_target_label(rctx, root, member):
+def _link_target_label(member, entries, build_text):
     """The label of the target that builds a workspace member, or None.
 
-    None when no directory of the member is a Bazel package: the hub then
-    declares no target for that name at all. A label naming a package Bazel
-    cannot load is far worse than a missing one -- it fails analysis for
-    everything that reaches the hub, while a missing target fails only what asks
-    for the member.
+    A label only for a candidate directory that DECLARES the target. Nothing
+    weaker earns one: a BUILD file that does not declare it is the statement that
+    the target is not there, and the label would name a target Bazel cannot
+    resolve -- which is far worse than a missing one, because it fails analysis
+    for everything that reaches the hub while a missing target fails only what
+    asks for the member. The hub declares no target for that name at all
+    instead.
+
+    Args:
+        member: The member's path from the repo root, e.g. "packages/foo".
+        entries: The entry points its manifest designates, in resolver order.
+        build_text: Function from a candidate directory to the text of the BUILD
+            file in it, or None when that directory holds none.
     """
-    entry = _member_entry(rctx, root.get_child(*member.split("/")))
-    fallback = None
-    for dir_path in _link_candidate_dirs(member, entry):
-        text = _build_file_text(rctx, root, dir_path)
+    for dir_path in _link_candidate_dirs(member, entries):
+        text = build_text(dir_path)
         if text == None:
             continue
         target = _target_name_in(text, dir_path)
-        label = "@@//{}:{}".format(dir_path, target)
         if _names_a_target(text, target):
-            return label
-        if fallback == None:
-            fallback = label
-    return fallback
+            return "@@//{}:{}".format(dir_path, target)
+    return None
 
 def _repo_root(rctx):
     """The root the labels this rule writes are relative to.
@@ -789,15 +830,20 @@ def _repo_root(rctx):
 
 def _member_targets(rctx):
     """Label per member path named by any `link:` in this lockfile, None if absent."""
-    entries = list(rctx.attr.links.values()) + list(rctx.attr.importer_links.values())
-    if not entries:
+    links = list(rctx.attr.links.values()) + list(rctx.attr.importer_links.values())
+    if not links:
         return {}
     root = _repo_root(rctx)
+
+    def build_text(dir_path):
+        return _build_file_text(rctx, root, dir_path)
+
     targets = {}
-    for entry in entries:
-        _, _, member = entry.partition("|")
+    for link in links:
+        _, _, member = link.partition("|")
         if member not in targets:
-            targets[member] = _link_target_label(rctx, root, member)
+            entries = _member_entries(rctx, root.get_child(*member.split("/")))
+            targets[member] = _link_target_label(member, entries, build_text)
     return targets
 
 def _unresolved_link_note(package_name, member):
@@ -805,7 +851,7 @@ def _unresolved_link_note(package_name, member):
         "# NO TARGET for '{}'. No BUILD file under".format(package_name),
         "# {} declares one, so nothing here can name the".format(member),
         "# target that builds the member: run Gazelle over that directory. A label",
-        "# written anyway would name a package Bazel cannot load, which fails analysis",
+        "# written anyway would name a target Bazel cannot resolve, which fails analysis",
         "# for every consumer of this hub rather than for this name alone.",
         "",
     ]
@@ -924,9 +970,12 @@ npm_hub = repository_rule(
 )
 
 # Exported for the tests that pin the credential rules, the declaration a package
-# designates, and the BUILD text it is written into; the paths above are the only
-# production callers.
+# designates, which target a `link:` member resolves to, and the BUILD text all
+# of it is written into; the paths above are the only production callers.
 link_candidate_dirs = _link_candidate_dirs
+manifest_entries = _manifest_entries
+link_target_label = _link_target_label
+link_block = _link_block
 target_name_in = _target_name_in
 exports_types = _exports_types
 exports_subpath_types = _exports_subpath_types

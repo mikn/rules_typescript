@@ -1,0 +1,20 @@
+"""A member whose root IS a Bazel package and declares no target for the member.
+
+The BUILD file holds a lone `ts_config` -- what a package that has a
+`tsconfig.json` and no generated target yet looks like, and what the member that
+found this bug in a real monorepo looked like. `packages/no-target-member/src`
+holds the sources and no BUILD file, so no candidate directory declares
+`no-target-member`.
+
+That is the case a "package exists, so use it" fallback turns into
+`@@//packages/no-target-member:no-target-member`, a label naming a target Bazel
+cannot resolve. The hub writes a NO TARGET comment for this member instead;
+`//tests/npm:workspace_link_tests` pins both halves of that.
+"""
+
+load("@rules_typescript//ts:defs.bzl", "ts_config")
+
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+)

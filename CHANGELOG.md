@@ -661,13 +661,16 @@ sections list every break with the edit it requires.
   subtree up into the directory holding `tsconfig.json`, so a member with
   `main: src/index.ts` builds from `//packages/x:x` and not from
   `//packages/x/src:src`, and `# gazelle:ts_target_name` renames the target
-  outright. The hub now walks from the entry point's own directory up to the
-  member's root and takes the innermost one that is a Bazel package declaring
-  that target, honouring `ts_target_name`; a directory becoming a package
-  refetches the hub. When no directory of the member is a Bazel package the hub
-  declares no target for that name and writes a comment saying why -- an
+  outright. The hub now walks from the directories the member's manifest
+  designates an entry point in -- `main`, `module` and `exports["."]`, so a
+  member that declares only an exports map is walked too -- up to the member's
+  root, and takes the innermost one declaring a target of that name, honouring
+  `ts_target_name`; a directory becoming a package refetches the hub. When no
+  candidate declares it the hub declares no target for that name and writes a
+  comment saying why, and that covers a member whose `BUILD.bazel` exists and
+  declares something else as much as one with no `BUILD.bazel` at all -- an
   undeclared target fails only what asks for the member, while a label naming a
-  package Bazel cannot load fails analysis for everything that reaches the hub.
+  target Bazel cannot resolve fails analysis for everything that reaches the hub.
 - **Gazelle converges.** The framework generators were create-if-absent
   (`if !ruleExists(...)`), so the second run emitted no candidate and the rule
   froze at whatever the first run wrote: a file added to a staged directory was

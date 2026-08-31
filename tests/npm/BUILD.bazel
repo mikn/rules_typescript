@@ -133,8 +133,8 @@ ts_compile(
 
 # ── The link target the hub cannot derive ────────────────────────────────────
 #
-# Two members, both with `main: src/index.ts`, whose Bazel targets are in
-# different places -- and neither is the one `main` implies:
+# Three members whose Bazel targets are in different places, and in no case the
+# one the member's own manifest implies:
 #
 #   //packages/boundary-member:lib   `ts_package_boundary tsconfig` rolls src/ up
 #                                    into the member's own directory and
@@ -144,27 +144,39 @@ ts_compile(
 #   //packages/leaf-member/src:src   the per-directory default leaves the target
 #                                    beside the sources, so packages/leaf-member
 #                                    is not a package at all
+#   //packages/exports-member/src:src
+#                                    the same, for a member that names its entry
+#                                    point only in `exports` -- no `main`, no
+#                                    `module`, which is how a package written for
+#                                    a modern resolver declares one
 #
-# Both are Gazelle decisions, taken from BUILD files that need not exist when the
-# hub is generated. Deriving either label from `main` gets the other member
-# wrong, and a hub label naming a package Bazel cannot load fails analysis for
-# every consumer of the hub, not only for the member -- which is why these are
-# `build_test`ed rather than left to whatever happens to depend on them.
+# All three are Gazelle decisions, taken from BUILD files that need not exist
+# when the hub is generated. Deriving a label from the entry point gets two of
+# the three wrong, reading only `main` leaves the third with no candidate but its
+# own root, and a hub label naming a target Bazel cannot resolve fails analysis
+# for every consumer of the hub, not only for the member -- which is why these
+# are `build_test`ed rather than left to whatever happens to depend on them.
+#
+# The fourth member of the set, `no-target-member`, is the one with no target
+# anywhere: it cannot appear here, because the hub declares no target for it at
+# all. //tests/npm:workspace_link_tests pins what the hub writes in its place.
 build_test(
     name = "workspace_link_target_test",
     targets = [
         "@npm_features//:boundary-member",
+        "@npm_features//:exports-member",
         "@npm_features//:leaf-member",
     ],
 )
 
-# The same two through a node_modules tree: a label that resolved to some other
+# The same three through a node_modules tree: a label that resolved to some other
 # target in the member's directory would analyse cleanly and stage the wrong
 # files, which is the half `build_test` cannot see.
 node_modules(
     name = "workspace_link_target_node_modules",
     deps = [
         "@npm_features//:boundary-member",
+        "@npm_features//:exports-member",
         "@npm_features//:leaf-member",
     ],
 )
