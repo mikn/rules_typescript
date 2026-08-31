@@ -15,6 +15,7 @@ load(
     "alias_without_inputs_test",
     "bazel_owned_option_test",
     "declaration_map_without_tsgo_test",
+    "derived_resolution_test",
     "exec_root_source_test",
     "forwarded_files_test",
     "generated_tsconfig_test",
@@ -24,6 +25,7 @@ load(
     "quoted_option_test",
     "rejected_tsgo_arg_test",
     "tsconfig_baseline_test",
+    "unpaired_resolution_test",
     "zero_config_baseline_test",
 )
 
@@ -83,6 +85,26 @@ build_test(
     targets = [":over_tsconfig"],
 )
 
+# A `module` of the target's own, so the ruleset's is gone and the resolver it
+# was paired with has to go with it. Its own source: the outputs of a
+# non-manual ts_compile are named after the src, not the target.
+ts_compile(
+    name = "derived_resolution",
+    srcs = ["derived.ts"],
+    compiler_options = {"module": "NodeNext"},
+)
+
+derived_resolution_test(
+    name = "derived_resolution_test",
+    target_under_test = ":derived_resolution",
+)
+
+# tsgo has to accept the pair, which only a real build says.
+build_test(
+    name = "derived_resolution_build_test",
+    targets = [":derived_resolution"],
+)
+
 # A src from another package hangs off the exec root, which is the shape a
 # ts_compile in the top-level package has for all of its srcs.
 ts_compile(
@@ -138,6 +160,22 @@ ts_compile(
 bazel_owned_option_test(
     name = "bazel_owned_option_test",
     target_under_test = ":owned_option",
+)
+
+# The resolver half without the module half: withdrawing the ruleset's `module`
+# would not rescue it, since the one tsgo derives for an unset `module` is not
+# NodeNext either. So the pair is named at analysis instead of at line 2 of a
+# generated file.
+ts_compile(
+    name = "unpaired_resolution",
+    srcs = ["lone.ts"],
+    compiler_options = {"moduleResolution": "nodenext"},
+    tags = ["manual"],
+)
+
+unpaired_resolution_test(
+    name = "unpaired_resolution_test",
+    target_under_test = ":unpaired_resolution",
 )
 
 ts_compile(

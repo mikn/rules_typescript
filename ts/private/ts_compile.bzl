@@ -185,6 +185,29 @@ _BASELINE_OPTIONS = {
     "esModuleInterop": True,
 }
 
+# `module` and `moduleResolution` are one setting spelled as two keys, and
+# TypeScript rejects a pair it did not derive itself: Bundler under module
+# NodeNext is TS5109, NodeNext under any other module is TS5110. Layers merge
+# per key, so a layer whose `module` a later one replaces is left asserting the
+# partner of a module that is no longer there. Defaulting `module` alone stays
+# safe -- tsgo derives a legal resolver from every value it takes -- so this one
+# key is asserted only by the layer that also owns `module`, and withdrawn
+# everywhere else. That withdrawal changes nothing that resolves today: tsgo
+# derives Bundler from every module but Node16/NodeNext, which derive their own.
+_DERIVED_FROM_MODULE = "moduleResolution"
+
+def _drop_derived_resolution(opts, overriding_layer):
+    """Withdraws `moduleResolution` unless `opts` also owns the `module` it fits.
+
+    `overriding_layer` is the options of whoever can still replace this layer's
+    `module`: the user's compiler_options over the generated config, or -- with
+    no way to read a tsconfig at analysis time -- None for their tsconfig over
+    the baseline file, which can never be shown to have left `module` alone.
+    """
+    if overriding_layer == None or "module" in overriding_layer or _DERIVED_FROM_MODULE in overriding_layer:
+        opts.pop(_DERIVED_FROM_MODULE, None)
+    return opts
+
 # Options whose values are paths a user copies out of a package's own
 # tsconfig.json, where they are written relative to that package.
 _PACKAGE_RELATIVE_OPTIONS = ["types", "typeRoots"]
@@ -248,11 +271,16 @@ def _write_baseline_tsconfig(ctx):
     A file rather than a dict merge because Starlark cannot read the user's
     tsconfig to see which keys it already sets; TypeScript resolves that itself,
     and an `extends` list is the only place a layer can sit *under* the file.
+
+    That same unreadability is why `moduleResolution` is withdrawn here: the
+    user's `module` overrides this layer's without the layer ever learning it
+    did, and the partner left behind is what tsgo rejects.
     """
     out = ctx.actions.declare_file("{}.tsconfig_baseline.json".format(ctx.label.name))
+    opts = _drop_derived_resolution(dict(_BASELINE_OPTIONS), None)
     ctx.actions.write(
         output = out,
-        content = json.encode_indent({"compilerOptions": _BASELINE_OPTIONS}, indent = "  "),
+        content = json.encode_indent({"compilerOptions": opts}, indent = "  "),
     )
     return out
 
@@ -273,7 +301,8 @@ def _generate_tsconfig(
     Layered lowest precedence first:
 
       1. `baseline_file` -- _BASELINE_OPTIONS as a file, extended before the
-         user's, so it reaches only the keys the user's chain never mentions.
+         user's, so it reaches only the keys the user's chain never mentions,
+         minus the one key that depends on which of the two `module` won.
       2. `extends_file` -- the user's own tsconfig.json, referenced (not
          copied), so every relative path inside it still resolves against the
          directory it was written for.
@@ -317,10 +346,20 @@ def _generate_tsconfig(
     if allow_js:
         opts["allowJs"] = True
 
+    user_opts = {}
+    if ctx.attr.compiler_options_json:
+        decoded = json.decode(ctx.attr.compiler_options_json)
+        if type(decoded) != "dict":
+            fail("ts_compile: compiler_options must be a dict, got {}.".format(type(decoded)))
+        user_opts = decoded
+
     # With an extends_file the same options arrive through baseline_file, under
-    # it rather than over it.
+    # it rather than over it. Decoded first because here -- unlike there -- the
+    # layer that can override the baseline's `module` is readable, so the
+    # baseline keeps `moduleResolution` for as long as it still owns the module
+    # the value belongs to.
     if not extends_file:
-        opts.update(_BASELINE_OPTIONS)
+        opts.update(_drop_derived_resolution(dict(_BASELINE_OPTIONS), user_opts))
 
     # target and jsx come from the attrs in every mode, including over a
     # tsconfig baseline: oxc transforms with them, and the two compilers
@@ -329,12 +368,18 @@ def _generate_tsconfig(
     if ctx.attr.jsx_mode:
         opts["jsx"] = ctx.attr.jsx_mode
 
-    user_opts = {}
-    if ctx.attr.compiler_options_json:
-        decoded = json.decode(ctx.attr.compiler_options_json)
-        if type(decoded) != "dict":
-            fail("ts_compile: compiler_options must be a dict, got {}.".format(type(decoded)))
-        user_opts = decoded
+    # The resolvers with a `module` of their own: withdrawing the baseline's
+    # `module` would not help, because the value tsgo derives for an unset
+    # `module` is not one of them either. So this pair is named here instead of
+    # at line 2 of a generated file. Only without a `tsconfig`, whose `module`
+    # could be the matching one.
+    resolution = user_opts.get(_DERIVED_FROM_MODULE)
+    if not extends_file and "module" not in user_opts and type(resolution) == "string" and resolution.lower() in ("node16", "nodenext"):
+        fail(
+            "ts_compile: compilerOptions.moduleResolution is \"{}\" and no module is set, so it inherits\n".format(resolution) +
+            "the ruleset's module \"{}\" -- a pair TypeScript rejects (TS5110).\n".format(_BASELINE_OPTIONS["module"]) +
+            "Set compilerOptions.module to \"{}\" on {}, or name a tsconfig that does.".format(resolution, ctx.label),
+        )
 
     for key, reason in _BAZEL_OWNED_OPTIONS.items():
         if key in user_opts:
@@ -1752,10 +1797,15 @@ strict* family, verbatimModuleSyntax and the rest -- is whatever the file says,
 so tsgo checks the code under the same options `tsc` would.
 
 Setting this attribute adds the file's options; it never takes the ruleset's
-baseline away. strict, module Preserve, moduleResolution Bundler, skipLibCheck
-and esModuleInterop apply either way, and with a `tsconfig` they sit UNDER it:
-every one of the five the file (or its own extends chain) mentions comes from
-the file, and only the ones it says nothing about fall back to the baseline.""",
+baseline away. strict, module Preserve, skipLibCheck and esModuleInterop apply
+either way, and with a `tsconfig` they sit UNDER it: every one of them the file
+(or its own extends chain) mentions comes from the file, and only the ones it
+says nothing about fall back to the baseline.
+
+moduleResolution is the exception, asserted only when no `tsconfig` sets a
+`module` the ruleset cannot see: TypeScript couples the two, so a baseline
+value would outlive the module it belongs to. tsgo derives the resolver from
+whichever `module` wins, which is Bundler for all of them but Node16/NodeNext.""",
             allow_single_file = [".json"],
         ),
         "compiler_options_json": attr.string(

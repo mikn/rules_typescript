@@ -153,16 +153,21 @@ def _quoted_option_impl(ctx):
 
 quoted_option_test = analysistest.make(_quoted_option_impl)
 
-# The five options a target gets from the ruleset in either mode. Restated here
+# The options a target gets from the ruleset in either mode. Restated here
 # rather than imported: the point of the assertion is that a change to
 # _BASELINE_OPTIONS is a change somebody has to come and make here too.
 _BASELINE_KEYS = {
     "strict": True,
     "module": "Preserve",
-    "moduleResolution": "Bundler",
     "skipLibCheck": True,
     "esModuleInterop": True,
 }
+
+# The fifth, which TypeScript couples to `module`: only a layer that owns the
+# `module` it fits may state it, so it is in the generated file without a
+# tsconfig and in neither file with one.
+_DERIVED_KEY = "moduleResolution"
+_DERIVED_VALUE = "Bundler"
 
 def _zero_config_baseline_impl(ctx):
     """With no `tsconfig`, the baseline is in the generated file itself."""
@@ -176,9 +181,38 @@ def _zero_config_baseline_impl(ctx):
     asserts.equals(env, None, config.get("extends"), "no tsconfig, so nothing to extend")
     for key, want in _BASELINE_KEYS.items():
         asserts.equals(env, want, config["compilerOptions"].get(key), key)
+
+    # This layer is the one that owns `module`, so it is the one place the
+    # derived partner may be asserted.
+    asserts.equals(env, _DERIVED_VALUE, config["compilerOptions"].get(_DERIVED_KEY), _DERIVED_KEY)
     return analysistest.end(env)
 
 zero_config_baseline_test = analysistest.make(_zero_config_baseline_impl)
+
+def _derived_resolution_impl(ctx):
+    """A `module` of the target's own leaves the derivation to tsgo.
+
+    The ruleset's `module` is gone the moment compiler_options names one, and a
+    `moduleResolution` left behind belongs to a module that is no longer there:
+    Bundler under NodeNext is TS5109 before tsgo reads a single source.
+    """
+    env = analysistest.begin(ctx)
+    action = _written_file_action(env, ".tsconfig.json")
+    asserts.true(env, action != None, "ts_compile generated no tsconfig")
+    if action == None:
+        return analysistest.end(env)
+
+    opts = json.decode(action.content)["compilerOptions"]
+    asserts.equals(env, "NodeNext", opts.get("module"), "the target's own module")
+    asserts.equals(
+        env,
+        None,
+        opts.get(_DERIVED_KEY),
+        "the ruleset no longer owns `module`, so it states no resolver: " + str(opts.get(_DERIVED_KEY)),
+    )
+    return analysistest.end(env)
+
+derived_resolution_test = analysistest.make(_derived_resolution_impl)
 
 def _tsconfig_baseline_impl(ctx):
     """With a `tsconfig`, the baseline is a file that config extends FIRST.
@@ -213,12 +247,18 @@ def _tsconfig_baseline_impl(ctx):
         "the user's file is extended last: " + str(chain),
     )
 
+    baseline_opts = json.decode(baseline.content)["compilerOptions"]
     for key, want in _BASELINE_KEYS.items():
-        asserts.equals(env, want, json.decode(baseline.content)["compilerOptions"].get(key), key)
+        asserts.equals(env, want, baseline_opts.get(key), key)
 
         # In the generated file these would beat the user's tsconfig instead of
         # falling behind it.
         asserts.equals(env, None, config["compilerOptions"].get(key), key + " stays out of the generated file")
+
+    # Neither layer may state it: under the tsconfig it would outlive the module
+    # it belongs to, over it it would beat the module the tsconfig chose.
+    asserts.equals(env, None, baseline_opts.get(_DERIVED_KEY), _DERIVED_KEY + " stays out of the baseline")
+    asserts.equals(env, None, config["compilerOptions"].get(_DERIVED_KEY), _DERIVED_KEY + " stays out of the generated file")
     return analysistest.end(env)
 
 tsconfig_baseline_test = analysistest.make(_tsconfig_baseline_impl)
@@ -232,6 +272,7 @@ def _fails_with(message):
     return analysistest.make(_impl, expect_failure = True)
 
 bazel_owned_option_test = _fails_with("compilerOptions.outDir is set by the rule")
+unpaired_resolution_test = _fails_with("moduleResolution is \"nodenext\" and no module is set")
 alias_into_output_tree_test = _fails_with("points into the output tree")
 alias_without_inputs_test = _fails_with("where none of this target's inputs live")
 rejected_tsgo_arg_test = _fails_with("Only flags that report on the program are allowed")
