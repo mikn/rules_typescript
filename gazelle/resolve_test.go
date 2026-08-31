@@ -878,3 +878,47 @@ func TestImportsForRule_DirectoryImportNamesTheIndexFilesOwnDirectory(t *testing
 		}
 	}
 }
+
+// A bundler query suffix selects how a file is loaded, not what is loaded:
+// `./config.json?raw` is the same file as `./config.json`. Carried into the
+// label it names a package that cannot exist, and Bazel fails the build at
+// analysis rather than dropping the one dep.
+func TestResolveImports_BundlerQuerySuffixNamesTheSameFile(t *testing.T) {
+	c := emptyConfig()
+	c.Exts[languageName] = makeConfig("", nil)
+
+	ix := buildIndex(t, c,
+		indexedRule{kind: "json_library", name: "_config_json", pkg: "worker", srcs: []string{"config.json"}},
+		indexedRule{kind: "ts_compile", name: "lib", pkg: "worker/lib", srcs: []string{"index.ts"}},
+	)
+
+	for _, imp := range []string{"../config.json?raw", "../config.json?url", "../lib?worker"} {
+		r := rule.NewRule("ts_compile", "app")
+		resolveImports(c, ix, r, []string{imp}, label.New("", "worker/src", "src"))
+		got := r.AttrStrings("deps")
+		if len(got) != 1 {
+			t.Errorf("%s: deps = %v, want one entry", imp, got)
+			continue
+		}
+		if strings.Contains(got[0], "?") {
+			t.Errorf("%s: deps = %v, the query suffix reached the label", imp, got)
+		}
+	}
+}
+
+// An npm specifier carries them too: `virtual:x` is excluded elsewhere for the
+// same reason, but `?worker` is a plain package with a loader hint on it.
+func TestResolveImports_QuerySuffixOnNpmPackage(t *testing.T) {
+	c := emptyConfig()
+	c.Exts[languageName] = makeConfig("", nil)
+	ix := buildIndex(t, c)
+
+	r := rule.NewRule("ts_compile", "app")
+	resolveImports(c, ix, r, []string{"comlink?worker"}, label.New("", "src", "src"))
+
+	got := r.AttrStrings("deps")
+	want := []string{"@npm//:comlink"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("deps = %v, want %v", got, want)
+	}
+}
