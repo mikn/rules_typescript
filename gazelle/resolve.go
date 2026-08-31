@@ -300,8 +300,13 @@ func lookupInIndex(ix *resolve.RuleIndex, impPath string, from label.Label) (str
 // "no such package", which reads as a defect here rather than a missing target.
 func labelForUnindexed(rel string, from label.Label) string {
 	pkg := path.Clean(rel)
-	if namesAFile(pkg) {
+	switch {
+	case namesAFile(pkg):
 		pkg = path.Dir(pkg)
+	case path.Ext(pkg) != "":
+		// An unclassified extension still names a file, and "no such package"
+		// fails every target in the build where a dropped dep fails one.
+		return ""
 	}
 	if pkg == "" || pkg == "." || pkg == "/" || pkg == ".." || strings.HasPrefix(pkg, "../") {
 		return ""
@@ -314,8 +319,8 @@ func labelForUnindexed(rel string, from label.Label) string {
 	return label.New("", pkg, path.Base(pkg)).String()
 }
 
-// namesAFile reports whether rel's last segment is a file. Only an extension
-// this extension classifies counts -- a dot in a directory name is not one.
+// namesAFile reports whether rel's last segment is a file the ruleset
+// classifies, and so one whose extension strips off to reach its package.
 func namesAFile(rel string) bool {
 	base := path.Base(rel)
 	if base == "index" {

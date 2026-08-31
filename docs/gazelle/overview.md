@@ -399,6 +399,11 @@ TypeScript's own rule: a pattern equal to the whole specifier is the longest key
 that can match it. An alias key without a trailing wildcard matches only at a
 path-segment boundary, so `@shared` does not claim `@sharedX`.
 
+An import of an extension no rule here claims (`./notes.rst`) resolves to
+nothing at all rather than to a label under the file's own name: `//pkg/notes.rst`
+is a package Bazel cannot load, and a missing package fails every target in the
+build instead of the one that lost a dep.
+
 Gazelle's deps and the `ts_compile` strict-deps check share one specifier
 scanner. If `bazel build` reports an import no direct dep provides and re-running
 Gazelle does not add it, that is a bug in the ruleset.

@@ -1,7 +1,7 @@
 """asset_library rule — collects static assets and generates ambient TypeScript declarations.
 
-Static assets (images, SVGs, fonts) are imported in TypeScript applications as
-URL strings:
+Static assets (images, SVGs, fonts, text) are imported in TypeScript
+applications as URL strings:
 
     import logo from "./logo.svg";       // → string URL at runtime
     import heroImage from "./hero.png";  // → string URL at runtime
@@ -104,6 +104,8 @@ def _asset_library_impl(ctx):
 # Accepted file extensions for asset_library.
 # NOTE: .json is intentionally excluded. Use json_library for JSON files so
 # that TypeScript callers get a fully-typed declaration instead of `unknown`.
+# .jsonc stays here: json_library parses its srcs at build time, and the
+# comments the dialect exists for are what that parse rejects.
 _ASSET_EXTENSIONS = [
     ".svg",
     ".png",
@@ -115,13 +117,16 @@ _ASSET_EXTENSIONS = [
     ".woff2",
     ".ttf",
     ".eot",
+    ".md",
+    ".txt",
+    ".jsonc",
 ]
 
 asset_library = rule(
     implementation = _asset_library_impl,
     attrs = {
         "srcs": attr.label_list(
-            doc = "Static asset source files: images, SVGs and fonts. JSON goes to json_library.",
+            doc = "Static asset source files: images, SVGs, fonts and text. JSON goes to json_library.",
             allow_files = _ASSET_EXTENSIONS,
             mandatory = True,
         ),
@@ -145,12 +150,13 @@ generated ambient .d.ts declarations) so that:
 Supported file types:
   Images:  .svg, .png, .jpg, .jpeg, .gif, .webp
   Fonts:   .woff, .woff2, .ttf, .eot
+  Text:    .md, .txt, .jsonc
 
 NOTE: JSON files are handled by json_library (not asset_library). json_library
 generates a fully-typed .d.ts by parsing the JSON structure at build time.
 
 Generated declarations:
-  Images and fonts → declare const asset: string; export default asset;
+  Images, fonts and text → declare const asset: string; export default asset;
 
 Example:
     asset_library(

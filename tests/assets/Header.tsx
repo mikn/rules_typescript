@@ -1,6 +1,7 @@
 // Header component that imports an SVG asset.
 // The import returns a URL string at runtime (handled by the bundler).
 import logo from "./logo.svg";
+import skill from "./SKILL.md";
 
 export interface HeaderProps {
   title: string;
@@ -19,3 +20,4 @@ export function getHeaderInfo(props: HeaderProps): { title: string; logoUrl: str
 
 // Explicitly typed for isolated declarations compatibility.
 export const LOGO_URL: string = logo as string;
+export const SKILL_URL: string = skill as string;

@@ -17,6 +17,14 @@ import (
 // that directory, the way Gazelle does when it walks a repository.
 func runGenerate(t *testing.T, rel string, files map[string]string) language.GenerateResult {
 	t.Helper()
+	res, _ := runGenerateWithConfig(t, rel, files)
+	return res
+}
+
+// runGenerateWithConfig is runGenerate plus the config the generator ran under,
+// for tests that go on to index the generated rules and resolve against them.
+func runGenerateWithConfig(t *testing.T, rel string, files map[string]string) (language.GenerateResult, *config.Config) {
+	t.Helper()
 
 	repoRoot := t.TempDir()
 	dir := filepath.Join(repoRoot, rel)
@@ -53,7 +61,7 @@ func runGenerate(t *testing.T, rel string, files map[string]string) language.Gen
 		Dir:          dir,
 		Rel:          rel,
 		RegularFiles: names,
-	})
+	}), c
 }
 
 // generatedNames maps rule name → kind for every generated rule, failing the
@@ -492,4 +500,24 @@ func TestGenerate_AugmentationCountsAsAmbient(t *testing.T) {
 	if got := test.AttrStrings("srcs"); !reflect.DeepEqual(got, want) {
 		t.Errorf("ts_test srcs = %v, want %v", got, want)
 	}
+}
+
+// TestGenerate_TextAndJSONCFilesGetAssetTargets covers imports of files the
+// bundler hands over as text: a skill document, a templated script staged as
+// .txt, and a wrangler config in JSON-with-comments.
+func TestGenerate_TextAndJSONCFilesGetAssetTargets(t *testing.T) {
+	res := runGenerate(t, "widget", map[string]string{
+		"SKILL.md":              "# skill\n",
+		"notes.txt":             "hello\n",
+		"project-widget.js.txt": "console.log(1);\n",
+		"wrangler.jsonc":        "{ /* comment */ }\n",
+		"widget.ts":             "export const w = 1;\n",
+	})
+
+	byName := generatedNames(t, res)
+	assertRule(t, byName, "widget", "ts_compile")
+	assertRule(t, byName, "SKILL_md", "asset_library")
+	assertRule(t, byName, "notes_txt", "asset_library")
+	assertRule(t, byName, "project-widget_js_txt", "asset_library")
+	assertRule(t, byName, "wrangler_jsonc", "asset_library")
 }

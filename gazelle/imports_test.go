@@ -328,6 +328,10 @@ func TestIsAssetFile(t *testing.T) {
 		{"font.woff2", true},
 		{"font.ttf", true},
 		{"font.eot", true},
+		{"SKILL.md", true},
+		{"notes.txt", true},
+		{"project-widget.js.txt", true},
+		{"wrangler.jsonc", true},
 		// JSON files are handled by json_library, NOT asset_library.
 		{"data.json", false},
 		{"config.json", false},
@@ -340,6 +344,10 @@ func TestIsAssetFile(t *testing.T) {
 		{"component.ts", false},
 		{"index.tsx", false},
 		{"package.json.lock", false}, // .lock extension, not .json
+		// Text-ish extensions the ruleset still does not classify: an import of
+		// one resolves to nothing rather than to a target.
+		{"SKILL.mdx", false},
+		{"notes.rst", false},
 	}
 	for _, tc := range cases {
 		got := isAssetFile(tc.name)

@@ -14,4 +14,10 @@ func TestAssetDeclaration(t *testing.T) {
 		"export default asset",
 	)
 	tree.File("tests/assets/logo.svg").Exists()
+
+	tree.File("tests/assets/SKILL.md.d.ts").Contains(
+		"declare const asset: string",
+		"export default asset",
+	)
+	tree.File("tests/assets/config.jsonc.d.ts").Exists()
 }
