@@ -384,3 +384,64 @@ func TestGenerate_AddPackageNamesTheRootLockfile(t *testing.T) {
 		t.Errorf("pnpm_lock = %q, want %q", got, "//:pnpm-lock.yaml")
 	}
 }
+
+// A vitest config beside the tests is not decoration: it names the pool, the
+// environment and the deps to inline. Dropped, the tests run in plain Node --
+// a worker's `defineWorkersConfig` pool becomes no pool at all, and a
+// dependency that only resolves through Vite fails at import time.
+func TestGenerate_VitestConfigBesideTestsReachesTheTestTarget(t *testing.T) {
+	for _, name := range []string{"vitest.config.mts", "vitest.config.ts", "vitest.config.mjs"} {
+		t.Run(name, func(t *testing.T) {
+			res := runGenerate(t, "pkg", map[string]string{
+				"index.ts":      "export const x = 1;\n",
+				"index.test.ts": "import { x } from './index';\n",
+				name:            "import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config';\nexport default defineWorkersConfig({});\n",
+			})
+			var test *rule.Rule
+			for _, r := range res.Gen {
+				if r.Kind() == "ts_test" {
+					test = r
+				}
+			}
+			if test == nil {
+				t.Fatalf("no ts_test generated: %v", generatedNames(t, res))
+			}
+			if got := test.AttrString("config"); got != name {
+				t.Errorf("ts_test config = %q, want %q", got, name)
+			}
+			// The config is a module the runner imports; what it imports is a dep
+			// of the test like any other.
+			found := false
+			for _, imp := range res.Imports[indexOfRule(res, test)].([]string) {
+				if imp == "@cloudflare/vitest-pool-workers/config" {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("the config's own imports never reached the test target")
+			}
+		})
+	}
+}
+
+// No config, no attribute: an empty string would name a file that is not there.
+func TestGenerate_NoVitestConfigLeavesTheAttributeUnset(t *testing.T) {
+	res := runGenerate(t, "pkg", map[string]string{
+		"index.ts":      "export const x = 1;\n",
+		"index.test.ts": "import { x } from './index';\n",
+	})
+	for _, r := range res.Gen {
+		if r.Kind() == "ts_test" && r.Attr("config") != nil {
+			t.Errorf("ts_test config = %q, want unset", r.AttrString("config"))
+		}
+	}
+}
+
+func indexOfRule(res language.GenerateResult, want *rule.Rule) int {
+	for i, r := range res.Gen {
+		if r == want {
+			return i
+		}
+	}
+	return -1
+}
