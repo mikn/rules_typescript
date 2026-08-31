@@ -1,0 +1,18 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "ts_compile")
+
+package(default_visibility = ["//:__pkg__"])
+
+# One target further out: //tests/global_dts:bindings is not in `deps` here, and
+# `Env` is in scope all the same. A global belongs to the program, not to the
+# edge it arrived on, which is what a single tsc run over these sources does.
+ts_compile(
+    name = "indirect",
+    srcs = ["relay.ts"],
+    deps = ["//tests/global_dts/consumer"],
+)
+
+build_test(
+    name = "indirect_test",
+    targets = [":indirect"],
+)

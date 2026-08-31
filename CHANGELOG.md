@@ -75,6 +75,24 @@ sections list every break with the edit it requires.
   configuration, so it breaks under `-c opt` or a different exec platform. To
   import another target by bare specifier, set `module_name` on the target that
   produces the declarations and depend on it.
+- **A dep's global `.d.ts` is now in your program.** A `.d.ts` in a target's
+  `srcs` with no top-level import or export declares globals, and those names
+  are now in scope in every target that depends on it, however far down the
+  graph the declaration sits — the scope a single `tsc` run over the same
+  sources gives them. A `TsGlobalDts` action classifies each `.d.ts` and writes
+  the reference file a consumer's tsconfig `files` lists. Names that used to be
+  a `TS2304` now resolve, and an `interface` a dep declares merges with one of
+  the same name you declare yourself, so a value that satisfied your `Env` can
+  fail with `TS2741` once a dep's `Env` adds a member:
+
+  ```
+  src/app/main.ts(1,14): error TS2741: Property 'B' is missing in type
+  '{ A: string; }' but required in type 'Env'.
+  ```
+
+  Drop the edge if the two `Env`s were never the same type, or rename one of
+  them. Declaration-internal collisions stay silent: the generated tsconfig
+  keeps `skipLibCheck` on.
 
 ### Breaking — new public API
 

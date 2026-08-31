@@ -1,0 +1,50 @@
+"""A global .d.ts in one target's srcs is in scope in a target that depends on it.
+
+`worker-configuration.d.ts` has no top-level import or export, so `Env` and
+`CLOUDFLARE_BINDINGS` are globals. Nothing imports them and no `types` entry
+names them, so compiling //tests/global_dts/consumer is the assertion.
+
+`secrets.d.ts` is the other half of the classification: it exports, so it is a
+module, and `Secret` is not in the consumer's scope.
+"""
+
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("//ts:defs.bzl", "ts_compile")
+load(":global_dts_tests.bzl", "global_entry_files")
+
+package(default_visibility = ["//:__pkg__"])
+
+ts_compile(
+    name = "bindings",
+    srcs = [
+        "bindings.ts",
+        "secrets.d.ts",
+        "worker-configuration.d.ts",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+build_test(
+    name = "bindings_test",
+    targets = [":bindings"],
+)
+
+global_entry_files(
+    name = "bindings_globals",
+    target = ":bindings",
+)
+
+genrule(
+    name = "global_entry_names",
+    srcs = [":bindings_globals"],
+    outs = ["global_entry_names.txt"],
+    cmd = "grep -o '[^/]*\\.d\\.ts' $(SRCS) > $@",
+)
+
+diff_test(
+    name = "global_entry_names_test",
+    size = "small",
+    file1 = ":global_entry_names",
+    file2 = "global_entry_names.expected",
+)

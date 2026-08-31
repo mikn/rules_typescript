@@ -1,0 +1,18 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "ts_compile")
+
+package(default_visibility = ["//:__pkg__"])
+
+# A sibling package, where the `types = ["./worker-configuration.d.ts"]` escape
+# hatch //tests/compiler_options/worker uses cannot reach the file.
+ts_compile(
+    name = "consumer",
+    srcs = ["handler.ts"],
+    visibility = ["//visibility:public"],
+    deps = ["//tests/global_dts:bindings"],
+)
+
+build_test(
+    name = "consumer_test",
+    targets = [":consumer"],
+)

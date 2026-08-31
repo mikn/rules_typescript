@@ -74,6 +74,10 @@ DIRECT dep provides. Its scanner is the same character walk as Gazelle's
 `ScanImports` (gazelle/imports.go) -- a specifier only one of them recognises
 is either a dep Gazelle cannot generate or drift nothing notices, so
 tests/strict_deps pins the two against one table. Change one, change both.
+
+TsGlobalDts reads the target's .d.ts srcs and writes the reference file naming
+the ones that declare globals -- the file a consumer's tsconfig `files` lists,
+since Starlark cannot read a source to tell a global .d.ts from a module one.
 ```
 
 **Key files:**
