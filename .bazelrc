@@ -28,11 +28,11 @@ test --test_summary=terse
 build --experimental_convenience_symlinks=normal
 
 # ── Fast lane ────────────────────────────────────────────────────────────────
-# Everything except the nested-Bazel integration tests, which are `exclusive`
-# (each spawns its own Bazel, ~3 minutes apiece):
+# Everything except the nested-Bazel integration tests, which are tagged
+# `nested-bazel` (each spawns its own Bazel, ~3 minutes apiece):
 #   bazel test --config=fast //...
 # A tag filter cannot go the other way -- nothing re-includes a `manual`
-# target -- which is why those tests carry `exclusive` and not `manual`.
+# target -- which is why those tests carry `nested-bazel` and not `manual`.
 test:fast --test_tag_filters=-nested-bazel
 
 # ── CI lanes ─────────────────────────────────────────────────────────────────
@@ -51,6 +51,25 @@ test:ci --cache_test_results=no
 # //tests/integration/...`. Those targets carry "cpu:2", so Bazel bounds how
 # many nested Bazel servers run at once by the machine's cores.
 build:ci-integration --verbose_failures
+
+# One leg of that lane per machine. "cpu:2" splits the suite across the cores of
+# a single runner; these split it across runners, which is what takes the lane
+# off the critical path. Every name here has an entry in SHARDS in
+# //tests/integration/tags.bzl and a leg in the integration-tests matrix in
+# .github/workflows/ci.yml.
+#
+# `core` is the complement rather than a list, so a test carrying no shard tag
+# still runs and no leg has to be edited to keep it running. The one edit that
+# could drop a test is adding a `-shard-*` term here without adding the matching
+# matrix leg; tools/ci/check_integration_shards.sh fails on exactly that.
+test:ci-integration-nextjs-tanstack --config=ci-integration
+test:ci-integration-nextjs-tanstack --test_tag_filters=shard-nextjs-tanstack
+test:ci-integration-remix-svelte --config=ci-integration
+test:ci-integration-remix-svelte --test_tag_filters=shard-remix-svelte
+test:ci-integration-npm --config=ci-integration
+test:ci-integration-npm --test_tag_filters=shard-npm
+test:ci-integration-core --config=ci-integration
+test:ci-integration-core --test_tag_filters=-shard-nextjs-tanstack,-shard-remix-svelte,-shard-npm
 
 # Two output bases, one target, compared byte for byte. Convenience symlinks
 # are off because both builds would otherwise race for the same bazel-bin.

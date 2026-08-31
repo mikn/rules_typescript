@@ -22,16 +22,25 @@ runfiles MODULE.bazel, falling back to walking up from BIT_WORKSPACE_DIR -- so
 the ruleset's own .bzl files are NOT action inputs: editing a rule does not
 invalidate these tests. They carry `external` so Bazel runs them
 unconditionally rather than serving a stale PASS; use `--config=fast` (which
-filters `-exclusive`) for the everyday loop.
+filters `-nested-bazel`) for the everyday loop.
 
-Every test here is `exclusive`: each spawns a nested Bazel with its own output
-base, so several at once exhausts disk. They are NOT `manual` -- a plain
-`bazel test //...` runs them, one at a time, which is the only reason the
-negative cases below are ever checked. Roughly three minutes each.
+None of these is `exclusive` or `manual`: a plain `bazel test //...` runs them,
+which is the only reason the negative cases below are ever checked, and `cpu:2`
+apiece is what bounds how many nested Bazel servers share one machine. Roughly
+three minutes each -- nextjs_test is ~293s alone. Which CI leg runs a test is
+its shard tag; tags.bzl holds both.
 
-  bazel test //tests/integration:integration_tests   the whole suite
+  bazel test //tests/integration/...                 the whole suite, 18 tests
+  bazel test //tests/integration:integration_tests   the 16 in this package
   bazel test //tests/integration:new_project_test    one of them
+  bazel test --config=ci-integration-npm \
+    //tests/integration/...                          one CI leg's subset
   bazel test --config=fast //...                     everything BUT these
+
+The two tests outside this package -- //tests/integration/npm_integrity and
+//tests/integration/npmrc_registry -- are not in :integration_tests and cannot
+be: neither package exports its test. `//tests/integration/...`, which is what
+CI runs, is the pattern that covers all 18.
 """
 
 # Each child workspace is staged into a scratch dir at test time; Gazelle must
@@ -61,7 +70,7 @@ load(
     "bazel_integration_test",
     "integration_test_utils",
 )
-load("//tests/integration:tags.bzl", "NESTED_BAZEL_TAGS")
+load("//tests/integration:tags.bzl", "nested_bazel_tags")
 
 # ── new_project ───────────────────────────────────────────────────────────────
 # Full new-project journey: write sources → gazelle → build.
@@ -76,7 +85,7 @@ bazel_integration_test(
     # MODULE.bazel is added to data so it appears in the runfiles tree as
     # _main/MODULE.bazel — a symlink the harness resolves to the real checkout.
     data = ["//:MODULE.bazel"],
-    tags = NESTED_BAZEL_TAGS,
+    tags = nested_bazel_tags(),
     test_runner = "//tests/integration/runners:new_project_runner",
     workspace_files = integration_test_utils.glob_workspace_files("new_project"),
     workspace_path = "new_project",
@@ -94,7 +103,7 @@ bazel_integration_test(
     bazel_binaries = bazel_binaries,
     bazel_version = bazel_binaries.versions.current,
     data = ["//:MODULE.bazel"],
-    tags = NESTED_BAZEL_TAGS,
+    tags = nested_bazel_tags(shard = "npm"),
     test_runner = "//tests/integration/runners:npm_deps_runner",
     workspace_files = integration_test_utils.glob_workspace_files("npm_deps"),
     workspace_path = "npm_deps",
@@ -110,7 +119,7 @@ bazel_integration_test(
     bazel_binaries = bazel_binaries,
     bazel_version = bazel_binaries.versions.current,
     data = ["//:MODULE.bazel"],
-    tags = NESTED_BAZEL_TAGS,
+    tags = nested_bazel_tags(),
     test_runner = "//tests/integration/runners:existing_project_runner",
     workspace_files = integration_test_utils.glob_workspace_files("existing_project"),
     workspace_path = "existing_project",
@@ -127,7 +136,7 @@ bazel_integration_test(
     bazel_binaries = bazel_binaries,
     bazel_version = bazel_binaries.versions.current,
     data = ["//:MODULE.bazel"],
-    tags = NESTED_BAZEL_TAGS,
+    tags = nested_bazel_tags(),
     test_runner = "//tests/integration/runners:oxc_declarations_runner",
     workspace_files = integration_test_utils.glob_workspace_files("oxc_declarations"),
     workspace_path = "oxc_declarations",
@@ -143,7 +152,7 @@ bazel_integration_test(
     bazel_binaries = bazel_binaries,
     bazel_version = bazel_binaries.versions.current,
     data = ["//:MODULE.bazel"],
-    tags = NESTED_BAZEL_TAGS,
+    tags = nested_bazel_tags(),
     test_runner = "//tests/integration/runners:css_assets_runner",
     workspace_files = integration_test_utils.glob_workspace_files("css_assets"),
     workspace_path = "css_assets",
@@ -159,7 +168,7 @@ bazel_integration_test(
     bazel_binaries = bazel_binaries,
     bazel_version = bazel_binaries.versions.current,
     data = ["//:MODULE.bazel"],
-    tags = NESTED_BAZEL_TAGS,
+    tags = nested_bazel_tags(shard = "npm"),
     test_runner = "//tests/integration/runners:vite_bundle_runner",
     workspace_files = integration_test_utils.glob_workspace_files("vite_bundle"),
     workspace_path = "vite_bundle",
@@ -175,7 +184,7 @@ bazel_integration_test(
     bazel_binaries = bazel_binaries,
     bazel_version = bazel_binaries.versions.current,
     data = ["//:MODULE.bazel"],
-    tags = NESTED_BAZEL_TAGS,
+    tags = nested_bazel_tags(),
     test_runner = "//tests/integration/runners:dev_server_runner",
     workspace_files = integration_test_utils.glob_workspace_files("dev_server"),
     workspace_path = "dev_server",
@@ -192,7 +201,7 @@ bazel_integration_test(
     bazel_binaries = bazel_binaries,
     bazel_version = bazel_binaries.versions.current,
     data = ["//:MODULE.bazel"],
-    tags = NESTED_BAZEL_TAGS,
+    tags = nested_bazel_tags(),
     test_runner = "//tests/integration/runners:codegen_runner",
     workspace_files = integration_test_utils.glob_workspace_files("codegen"),
     workspace_path = "codegen",
@@ -208,7 +217,7 @@ bazel_integration_test(
     bazel_binaries = bazel_binaries,
     bazel_version = bazel_binaries.versions.current,
     data = ["//:MODULE.bazel"],
-    tags = NESTED_BAZEL_TAGS,
+    tags = nested_bazel_tags(),
     test_runner = "//tests/integration/runners:gazelle_roundtrip_runner",
     workspace_files = integration_test_utils.glob_workspace_files("gazelle_roundtrip"),
     workspace_path = "gazelle_roundtrip",
@@ -226,7 +235,7 @@ bazel_integration_test(
     bazel_binaries = bazel_binaries,
     bazel_version = bazel_binaries.versions.current,
     data = ["//:MODULE.bazel"],
-    tags = NESTED_BAZEL_TAGS,
+    tags = nested_bazel_tags(shard = "npm"),
     test_runner = "//tests/integration/runners:lsp_runner",
     workspace_files = integration_test_utils.glob_workspace_files("lsp"),
     workspace_path = "lsp",
@@ -252,7 +261,7 @@ bazel_integration_test(
     bazel_binaries = bazel_binaries,
     bazel_version = bazel_binaries.versions.current,
     data = ["//:MODULE.bazel"],
-    tags = NESTED_BAZEL_TAGS,
+    tags = nested_bazel_tags(shard = "nextjs-tanstack"),
     test_runner = "//tests/integration/runners:nextjs_runner",
     workspace_files = integration_test_utils.glob_workspace_files("nextjs"),
     workspace_path = "nextjs",
@@ -275,7 +284,7 @@ bazel_integration_test(
     bazel_binaries = bazel_binaries,
     bazel_version = bazel_binaries.versions.current,
     data = ["//:MODULE.bazel"],
-    tags = NESTED_BAZEL_TAGS,
+    tags = nested_bazel_tags(shard = "remix-svelte"),
     test_runner = "//tests/integration/runners:remix_runner",
     workspace_files = integration_test_utils.glob_workspace_files("remix/workspace"),
     workspace_path = "remix/workspace",
@@ -294,7 +303,7 @@ bazel_integration_test(
     bazel_binaries = bazel_binaries,
     bazel_version = bazel_binaries.versions.current,
     data = ["//:MODULE.bazel"],
-    tags = NESTED_BAZEL_TAGS,
+    tags = nested_bazel_tags(shard = "remix-svelte"),
     test_runner = "//tests/integration/runners:remix_ssr_runner",
     workspace_files = integration_test_utils.glob_workspace_files("remix_ssr/workspace"),
     workspace_path = "remix_ssr/workspace",
@@ -316,7 +325,7 @@ bazel_integration_test(
     bazel_binaries = bazel_binaries,
     bazel_version = bazel_binaries.versions.current,
     data = ["//:MODULE.bazel"],
-    tags = NESTED_BAZEL_TAGS,
+    tags = nested_bazel_tags(shard = "remix-svelte"),
     test_runner = "//tests/integration/runners:svelte_runner",
     workspace_files = integration_test_utils.glob_workspace_files("svelte/workspace"),
     workspace_path = "svelte/workspace",
@@ -339,7 +348,7 @@ bazel_integration_test(
         "//:MODULE.bazel",
         "//ts/toolchain:node_resolved",
     ],
-    tags = NESTED_BAZEL_TAGS,
+    tags = nested_bazel_tags(shard = "nextjs-tanstack"),
     test_runner = "//tests/integration/runners:tanstack_runner",
     workspace_files = integration_test_utils.glob_workspace_files("tanstack/workspace"),
     workspace_path = "tanstack/workspace",
@@ -367,7 +376,7 @@ bazel_integration_test(
     bazel_binaries = bazel_binaries,
     bazel_version = bazel_binaries.versions.current,
     data = ["//:MODULE.bazel"],
-    tags = NESTED_BAZEL_TAGS,
+    tags = nested_bazel_tags(shard = "remix-svelte"),
     test_runner = "//tests/integration/runners:sveltekit_runner",
     workspace_files = integration_test_utils.glob_workspace_files("sveltekit/workspace"),
     workspace_path = "sveltekit/workspace",
