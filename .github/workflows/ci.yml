@@ -35,10 +35,17 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: tools/ci/check_test_sources.sh
 
+      # Same argument one step further: nothing goes red when a test runs on no
+      # leg of the integration-tests matrix, so the partition is checked here
+      # rather than on a leg, off another loading-phase query.
+      - name: Every integration test lands on exactly one shard
+        if: matrix.os == 'ubuntu-latest'
+        run: tools/ci/check_integration_shards.sh
+
       # --config=ci is defined in .bazelrc. It expands --config=fast, which
-      # drops the exclusive nested-Bazel targets: those run once, on ubuntu, in
-      # the integration-tests job. Unfiltered they would run three times per
-      # push — twice here across the OS matrix, once there.
+      # drops the nested-Bazel targets: those run once per push, spread over the
+      # legs of the integration-tests job. Unfiltered they would run three times
+      # per push — twice here across the OS matrix, once there.
       - name: Run all tests
         run: bazel test --config=ci //...
 
@@ -147,8 +154,23 @@ jobs:
           echo "Build is bit-for-bit reproducible."
 
   integration-tests:
-    name: Integration Tests (nested Bazel)
+    # 18 nested-Bazel tests at ~3 minutes each. "cpu:2" already runs several at
+    # once, so this was never serial -- but one runner only has so many cores,
+    # which is what kept the lane at 1164s and on the critical path. These legs
+    # spread it over four runners.
+    name: Integration Tests (${{ matrix.shard }})
     runs-on: ubuntu-latest
+    strategy:
+      # As in `examples`: one leg going red must not cancel the others, or a
+      # single flaky nested Bazel hides the state of the rest of the suite.
+      fail-fast: false
+      matrix:
+        # One name per `test:ci-integration-<name>` config in //.bazelrc, which
+        # is where the tag filter behind each leg lives. `core` is the
+        # complement of the other three, so a test added with no shard tag runs
+        # there rather than nowhere; check_integration_shards.sh (in the `test`
+        # job) fails if these three sources ever disagree.
+        shard: [nextjs-tanstack, remix-svelte, npm, core]
     steps:
       - uses: actions/checkout@v4
 
@@ -164,6 +186,10 @@ jobs:
       # of GB. /mnt is no longer a separate ephemeral disk on this image -- it
       # is a directory on the root filesystem, which is why the free space is
       # recorded here and again after the suite.
+      #
+      # Legs are separate machines, so they need no distinct path -- and one path
+      # keeps a local `bazel test --config=ci-integration-<leg>` run identical to
+      # what CI does.
       - name: Provision scratch space
         run: |
           sudo mkdir -p /mnt/rules_ts_it
@@ -175,6 +201,15 @@ jobs:
       # rather than harmful: cold, they would all miss this cache at once and
       # all download the same artifacts. Content-addressed, so a stale restore
       # is a miss and never a wrong answer.
+      #
+      # One key for all four legs, deliberately: the caches they would build
+      # separately overlap almost entirely, and only the first leg to finish
+      # gets to save one (the others log "already exists" and move on). Four
+      # legs starting cold do not reintroduce the problem this cache solves --
+      # that one is several nested Bazel servers racing for ONE repository cache
+      # directory, and a leg on its own machine shares that directory with
+      # nobody. Cold legs cost four independent fetches of a subset each, and
+      # `restore-keys` means a cold start needs a MODULE.bazel change first.
       - uses: actions/cache@v6
         with:
           path: |
@@ -184,12 +219,14 @@ jobs:
           restore-keys: |
             nested-bazel-${{ runner.os }}-
 
-      # No longer serial: the tests carry "cpu:2" instead of "exclusive", so
-      # Bazel runs as many as the runner has cores for.
-      - name: Integration suite
+      # The tests carry "cpu:2", not "exclusive", so Bazel already runs as many
+      # as this runner has cores for; the config picks which of them this leg
+      # owns.
+      - name: Integration suite (${{ matrix.shard }})
         run: |
           set -o pipefail
-          bazelisk test --config=ci-integration //tests/integration/... \
+          bazelisk test --config=ci-integration-${{ matrix.shard }} \
+            //tests/integration/... \
             --test_env=RULES_TS_IT_SCRATCH=/mnt/rules_ts_it 2>&1 \
             | tee "${RUNNER_TEMP}/integration.log"
 
