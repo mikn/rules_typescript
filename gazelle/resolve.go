@@ -224,6 +224,15 @@ func resolveImport(
 	case isPathAlias(tc, imp):
 		return resolvePathAlias(c, ix, tc, imp, from)
 	default:
+		// An "imports" entry may name a package rather than a path, which no
+		// alias can express; substituting it takes the bare-specifier ladder.
+		if strings.HasPrefix(imp, "#") {
+			target := importsNpmTarget(tc, imp)
+			if target == "" {
+				return ""
+			}
+			imp = target
+		}
 		// A module_name before an npm package: the hub has no such package.
 		if lbl, selfImport := lookupInIndex(ix, imp, from); lbl != "" {
 			return lbl
@@ -480,6 +489,28 @@ func matchPathAlias(tc *tsConfig, imp string) (aliasMatch, bool) {
 		best, found = aliasMatch{prefix: prefix, dir: dir, rest: rest}, true
 	}
 	return best, found
+}
+
+// importsNpmTarget maps a "#" specifier onto the package specifier its
+// package.json "imports" entry names, or "" when no entry names one.
+func importsNpmTarget(tc *tsConfig, imp string) string {
+	bestKey, target := "", ""
+	for key, pkg := range tc.importsNpm {
+		var rest string
+		if strings.HasSuffix(key, "/") {
+			if !strings.HasPrefix(imp, key) {
+				continue
+			}
+			rest = imp[len(key):]
+		} else if imp != key {
+			continue
+		}
+		if bestKey != "" && !aliasKeyBeats(key, bestKey) {
+			continue
+		}
+		bestKey, target = key, pkg+rest
+	}
+	return target
 }
 
 // aliasKeyBeats reports whether alias key a takes precedence over key b.
