@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+)
 
 // wrangler compiles TypeScript itself, so a worker's config names the .ts entry
 // -- that is what `wrangler dev` needs. Bazel stages what it compiled, so the
@@ -54,5 +59,65 @@ func TestRetargetMain(t *testing.T) {
 				t.Errorf("retargetMain:\n got %q\nwant %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func wranglerFixture(t *testing.T) (*Resolver, map[string]string) {
+	t.Helper()
+	return fakeRunfiles(t, map[string]string{
+		"_main/tests/app/wrangler.jsonc":                            "{}",
+		"_main/tests/app/src/index.js":                              "export default {}",
+		"_main/tests/app/wrangler_modules":                          dirMarker,
+		"_main/tests/app/wrangler_modules/wrangler/bin/wrangler.js": "x",
+		"+node+/bin/node":                                           "#!/bin/sh\n",
+	})
+}
+
+func wranglerConfig() *Config {
+	return &Config{
+		Label:   "//tests/app:deploy_dry_run",
+		Mode:    ModeWrangler,
+		Runtime: "+node+/bin/node",
+		Wrangler: &WranglerConfig{
+			ConfigFile:     "_main/tests/app/wrangler.jsonc",
+			NodeModules:    "_main/tests/app/wrangler_modules",
+			WranglerInTree: "wrangler/bin/wrangler.js",
+			WorkerFiles:    []string{"_main/tests/app/src/index.js"},
+			PackagePrefix:  "_main/tests/app/",
+		},
+	}
+}
+
+func TestPlanWranglerDeploysTheNamedEnvironment(t *testing.T) {
+	r, real := wranglerFixture(t)
+	cfg := wranglerConfig()
+	cfg.Wrangler.EnvName = "staging"
+	plan, err := MakePlan(cfg, r, []string{"--env", "production"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The command line comes last, so `bazel run -- --env x` still wins.
+	want := []string{
+		real["+node+/bin/node"],
+		// wrangler runs through the link beside the staged worker, not from its
+		// own runfiles path, so that a package it imports is the link's sibling.
+		filepath.Join(plan.Dir, "node_modules", "wrangler", "bin", "wrangler.js"),
+		"deploy", "--dry-run", "--outdir", filepath.Join(plan.Dir, "dist"),
+		"-c", filepath.Join(plan.Dir, "wrangler.jsonc"),
+		"--env", "staging", "--env", "production",
+	}
+	if strings.Join(plan.Argv, "\x00") != strings.Join(want, "\x00") {
+		t.Errorf("argv = %q, want %q", plan.Argv, want)
+	}
+}
+
+func TestPlanWranglerNamesNoEnvironmentWhenTheAttrIsEmpty(t *testing.T) {
+	r, _ := wranglerFixture(t)
+	plan, err := MakePlan(wranglerConfig(), r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(plan.Argv, "--env") {
+		t.Errorf("argv = %q, want no --env at all", plan.Argv)
 	}
 }

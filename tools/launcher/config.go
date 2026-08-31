@@ -108,6 +108,7 @@ type WranglerConfig struct {
 	ConfigFile     string   `json:"config_file"`
 	NodeModules    string   `json:"node_modules"`
 	WranglerInTree string   `json:"wrangler_in_tree"`
+	EnvName        string   `json:"env_name,omitempty"`
 	WorkerFiles    []string `json:"worker_files"`
 	PackagePrefix  string   `json:"package_prefix,omitempty"`
 }

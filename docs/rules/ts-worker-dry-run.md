@@ -20,7 +20,7 @@ node_modules(
 ts_worker_dry_run_test(
     name = "deploy_dry_run_test",
     config = "wrangler.jsonc",
-    node_modules = ":wrangler_node_modules",
+    node_modules = ":node_modules",
     deps = [":worker"],
 )
 ```
@@ -34,6 +34,26 @@ release.
 
 `ts_worker_dry_run` is the same thing as a `bazel run` target, for when you want
 to look at the bundle.
+
+## Environments
+
+A config declaring several `[env.*]` sections deploys none of them until it is
+told which one, and wrangler warns on every run that it was not. `env_name` is
+that choice:
+
+```python
+ts_worker_dry_run_test(
+    name = "deploy_dry_run_staging_test",
+    config = "wrangler.jsonc",
+    env_name = "staging",
+    node_modules = ":node_modules",
+    deps = [":worker"],
+)
+```
+
+It is an attribute rather than a flag on the command line because the test form
+has no command line: `ts_worker_dry_run` takes `--env staging` after
+`bazel run`, `ts_worker_dry_run_test` cannot.
 
 ## Config Staging
 
@@ -58,4 +78,5 @@ release job runs.
 |-----------|------|---------|-------------|
 | `config` | `label` | required | The `wrangler.jsonc`/`.json`/`.toml`. Its `main` is resolved relative to the config, and the worker's `.js` are staged package-relative beside it |
 | `deps` | `label_list` | `[]` | The `ts_compile` targets whose `.js` the config's `main` names |
+| `env_name` | `string` | `""` | The wrangler environment to deploy, i.e. `--env` |
 | `node_modules` | `label` | required | A `node_modules()` target carrying `wrangler`. There is no host fallback |
