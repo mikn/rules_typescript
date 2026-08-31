@@ -615,7 +615,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	// candidate is what keeps a single-file target following its own imports.
 	if hasEntry {
 		entryImports := importsIn(args.Dir, []string{entryFile})
-		r := frameworkEntryRule(entryName, entryFile, tc)
+		r := frameworkEntryRule(entryName, entryFile, ambientFiles, tc)
 		setTsConfig(r, tsConfigAttr)
 		setPathAliases(args, r, usedPathAliases(tc, args.Rel, []string{entryFile}, entryImports))
 		gen = append(gen, r)
