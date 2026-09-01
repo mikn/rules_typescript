@@ -29,6 +29,22 @@ build_test(
     targets = [":consumer"],
 )
 
+# `acme-bridge` is installed nowhere: the .d.ts beside the source IS the module.
+# No deps is the assertion -- both tsgo and the undeclared-import check have to
+# accept it, and Gazelle has to generate no dep for it either.
+ts_compile(
+    name = "ambient_module_consumer",
+    srcs = [
+        "ambient_module.d.ts",
+        "ambient_module_user.ts",
+    ],
+)
+
+build_test(
+    name = "ambient_module_test",
+    targets = [":ambient_module_consumer"],
+)
+
 ambient_entry_test(
     name = "ambient_entry_test",
     target_under_test = ":consumer",

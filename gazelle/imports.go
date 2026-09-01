@@ -2,6 +2,7 @@ package typescript
 
 import (
 	"os"
+	"strings"
 )
 
 // ---- import extraction -----------------------------------------------------
@@ -86,6 +87,80 @@ func ScanImports(src string) []Import {
 				i++
 			}
 			lastWord = src[start:i]
+			lastKind = kindWord
+
+		case c == '(' && lastKind == kindWord:
+			lastKind = kindCall
+			i++
+
+		default:
+			lastPunct = c
+			lastKind = kindPunct
+			i++
+		}
+	}
+
+	return found
+}
+
+// ScanAmbientModules returns the module names src declares with
+// `declare module "x"`. In a script-mode declaration file such a block is the
+// module: nothing installs it, nothing exports it from another file, and an
+// import of it needs no dep at all.
+//
+// A pattern name (`declare module "*.svg"`) is left out. Those stand for a
+// bundler's asset loader, and the specifiers they cover are relative paths that
+// resolve to a real file with a real target.
+func ScanAmbientModules(src string) []string {
+	var found []string
+
+	prevWord, lastWord := "", ""
+	lastKind := kindNone
+	lastPunct := byte(0)
+
+	i, n := 0, len(src)
+	for i < n {
+		c := src[i]
+
+		switch {
+		case c == ' ' || c == '\t' || c == '\r' || c == '\n':
+			i++
+
+		case c == '/' && i+1 < n && src[i+1] == '/':
+			for i < n && src[i] != '\n' {
+				i++
+			}
+
+		case c == '/' && i+1 < n && src[i+1] == '*':
+			i += 2
+			for i < n && !(src[i] == '*' && i+1 < n && src[i+1] == '/') {
+				i++
+			}
+			i = min(i+2, n)
+
+		case c == '/' && regexCanStart(lastKind, lastWord, lastPunct):
+			i = skipRegexLiteral(src, i)
+			lastKind = kindPunct
+
+		case c == '`':
+			i, _ = skipTemplateLiteral(src, i, 1)
+			lastKind = kindString
+
+		case c == '"' || c == '\'':
+			value, next := readStringLiteral(src, i)
+			i = next
+			if lastKind == kindWord && lastWord == "module" && prevWord == "declare" &&
+				value != "" && !strings.Contains(value, "*") {
+				found = append(found, value)
+			}
+			lastKind = kindString
+
+		case isWordChar(c):
+			start := i
+			for i < n && isWordChar(src[i]) {
+				i++
+			}
+			prevWord, lastWord = lastWord, src[start:i]
 			lastKind = kindWord
 
 		case c == '(' && lastKind == kindWord:

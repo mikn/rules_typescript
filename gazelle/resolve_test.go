@@ -490,7 +490,7 @@ func TestResolveImport_DispatchesOnSpecifierShape(t *testing.T) {
 		"node:fs":    "",
 		"@types/pkg": "@npm//:types_pkg",
 	} {
-		if got := resolveImport(c, ix, tc, imp, from); got != want {
+		if got := resolveImport(c, ix, tc, nil, imp, from); got != want {
 			t.Errorf("resolveImport(%q) = %q, want %q", imp, got, want)
 		}
 	}
@@ -781,7 +781,7 @@ func TestResolveImport_BareSpecifiers(t *testing.T) {
 		{"npm package", "zod", "@npm//:zod"},
 		{"scoped npm package", "@tanstack/router", "@npm//:tanstack_router"},
 	} {
-		if got := resolveImport(c, ix, tc, tt.imp, from); got != tt.want {
+		if got := resolveImport(c, ix, tc, nil, tt.imp, from); got != tt.want {
 			t.Errorf("%s: resolveImport(%q) = %q, want %q", tt.name, tt.imp, got, tt.want)
 		}
 	}

@@ -45,6 +45,7 @@ go_library(
 go_test(
     name = "typescript_test",
     srcs = [
+        "ambient_modules_test.go",
         "ambient_types_test.go",
         "asset_declaration_type_test.go",
         "boundary_tsconfig_test.go",
@@ -53,6 +54,7 @@ go_test(
         "converge_test.go",
         "directives_test.go",
         "doc_targets_test.go",
+        "fabricated_labels_test.go",
         "framework_bundle_test.go",
         "framework_entry_test.go",
         "framework_next_test.go",

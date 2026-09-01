@@ -180,8 +180,9 @@ func resolveImports(
 		return
 	}
 
+	ambient := ambientModuleNames(c, r, from)
 	for _, imp := range imports {
-		resolved := resolveImport(c, ix, tc, imp, from)
+		resolved := resolveImport(c, ix, tc, ambient, imp, from)
 		if resolved == "" {
 			if tc.warnUnresolved && !isNodeBuiltin(barePackageName(imp)) {
 				log.Printf("gazelle: WARNING: unresolved import %q in //%s:%s (tried: relative, path-alias, npm)", imp, from.Pkg, from.Name)
@@ -216,6 +217,7 @@ func resolveImport(
 	c *config.Config,
 	ix *resolve.RuleIndex,
 	tc *tsConfig,
+	ambient []string,
 	imp string,
 	from label.Label,
 ) string {
@@ -244,8 +246,42 @@ func resolveImport(
 		if lbl, isSelf := resolveWorkspaceSelfImport(c, ix, tc, imp, from); isSelf {
 			return lbl
 		}
+		// The target's own `declare module "x"` is the module: nothing installed
+		// it, so no dep can carry it and a hub label would name nothing.
+		if _, installed := tc.npmPackages[barePackageName(imp)]; !installed &&
+			declaredAmbiently(ambient, imp) {
+			return ""
+		}
 		return resolveNpmPackage(tc, imp)
 	}
+}
+
+// ambientModuleNames returns the module names r's own declaration files declare.
+func ambientModuleNames(c *config.Config, r *rule.Rule, from label.Label) []string {
+	var names []string
+	for _, src := range r.AttrStrings("srcs") {
+		if !strings.HasSuffix(src, ".d.ts") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(c.RepoRoot, filepath.FromSlash(from.Pkg), filepath.FromSlash(src)))
+		if err != nil {
+			continue
+		}
+		names = append(names, ScanAmbientModules(string(data))...)
+	}
+	return names
+}
+
+// declaredAmbiently reports whether imp names one of the declared modules, or a
+// subpath of one -- the same prefix rule the strict-deps check applies to a
+// dep's module_name.
+func declaredAmbiently(names []string, imp string) bool {
+	for _, name := range names {
+		if imp == name || strings.HasPrefix(imp, name+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // ---- workspace self-reference ----------------------------------------------
