@@ -9,7 +9,7 @@ is in this repo's own lockfile.
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "ts_compile")
-load(":precedence_tests.bzl", "types_alias_precedence_test", "types_package_alias_test")
+load(":precedence_tests.bzl", "types_alias_precedence_test", "types_package_alias_test", "types_package_root_test")
 
 package(default_visibility = ["//:__pkg__"])
 
@@ -74,12 +74,28 @@ types_alias_precedence_test(
 
 types_package_alias_test(name = "types_package_alias_test")
 
+# culori publishes no declarations of its own, and @types/culori keeps most of
+# its own in subdirectories -- `all/`, `css/`, `fn/` -- with only an index at
+# the package root. The pairing has to name the package, not whichever
+# declaration file it saw first.
+ts_compile(
+    name = "subdirectory_declarations",
+    srcs = ["subdirectory_declarations.ts"],
+    deps = ["@npm//:culori"],
+)
+
 build_test(
     name = "types_bare_name_test",
     targets = [
+        ":subdirectory_declarations",
         ":inside_a_dependency",
         ":mangled_scope",
         ":own_import",
         ":widened_to_any",
     ],
+)
+
+types_package_root_test(
+    name = "types_package_root_test",
+    target_under_test = ":subdirectory_declarations",
 )

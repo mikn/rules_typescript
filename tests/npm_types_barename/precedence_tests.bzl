@@ -67,6 +67,31 @@ def _types_alias_precedence_impl(ctx):
         )
     return analysistest.end(env)
 
+def _types_package_root_impl(ctx):
+    env = analysistest.begin(ctx)
+    paths = _paths_of(env)
+    asserts.true(env, paths != None, "ts_compile generated no tsconfig")
+    if paths == None:
+        return analysistest.end(env)
+
+    # @types/culori keeps `all/`, `css/` and `fn/` beside its index. Naming one
+    # of those instead of the package puts `culori` inside a single module and
+    # leaves every subpath unresolvable, so the key has to end at the package.
+    for key in ("culori", "culori/*"):
+        value = paths.get(key)
+        asserts.true(env, value != None, "{} has no paths entry".format(key))
+        if value == None:
+            continue
+        directory = value[0][:-len("/*")] if key.endswith("/*") else value[0]
+        asserts.true(
+            env,
+            directory.split("/")[-1].endswith("npm__types_culori__2_1_1"),
+            "{} resolves inside the @types package, not to it: {}".format(key, value),
+        )
+    return analysistest.end(env)
+
+types_package_root_test = analysistest.make(_types_package_root_impl)
+
 types_alias_precedence_test = analysistest.make(_types_alias_precedence_impl)
 
 def _types_package_alias_impl(ctx):

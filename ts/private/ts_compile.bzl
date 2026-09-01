@@ -1614,6 +1614,14 @@ def _ts_compile_impl(ctx):
             continue  # @types/* packages don't need an override
         runtime_pkg_dir = npm_info.package_dir.dirname
 
+        # The paired @types/* package's own root, not the directory whichever
+        # declaration file came first happens to sit in: @types/culori keeps
+        # `all/`, `css/` and `fn/` beside its index, so the first file listed
+        # named `all/` and every `culori` import resolved inside that one
+        # module. The pairing is npm's, so the answer is the package.
+        if npm_info.types_package_dir:
+            types_override[pkg_name] = npm_info.types_package_dir.dirname
+            continue
         for dts_file in own_declarations:
             if not dts_file.path.startswith(runtime_pkg_dir):
                 types_override[pkg_name] = dts_file.dirname
