@@ -48,6 +48,7 @@ NpmPackageInfo = provider(
         "package_root": "string: exec-root-relative directory the files in `all_files` hang off -- where `package_dir` sits for an extracted tarball, the compiling target's output directory for a workspace member. A file outside it stages at the package root under its basename.",
         "all_files": "depset of File: All files in this package (package.json + .js + .d.ts + other assets). Used by node_modules rule for runtime.",
         "js_files": "depset of File: JavaScript files in this package.",
+        "json_files": "depset of File: .json files in this package. A package is free to publish data its consumers import -- `lucide-static/tags.json` -- and `resolveJsonModule` finds nothing unless the file is in the sandbox, which the declaration depsets never put it in.",
         "declaration_files": "depset of File: TypeScript declaration files (.d.ts) in this package.",
         "direct_deps": "list of NpmPackageInfo: the packages this one depends on directly, each under the name this package imports it by. The flattened transitive closure cannot answer which version an individual package resolved to, which is what a node_modules tree needs to place two versions of one name.",
         "transitive_deps": "depset of NpmPackageInfo: Transitive npm dependencies.",

@@ -76,6 +76,7 @@ def _ts_npm_package_impl(ctx):
 
     js_files = [f for f in all_files if _is_js(f)]
     dts_files = [f for f in all_files if _is_dts(f)]
+    json_files = [f for f in all_files if f.extension == "json"]
 
     # Also collect declarations from an explicitly linked @types dep.
     # Do NOT call .to_list() — use depset transitive to avoid materialization.
@@ -167,6 +168,7 @@ def _ts_npm_package_impl(ctx):
             package_root = package_dir.dirname,
             all_files = depset(all_files),
             js_files = depset(js_files),
+            json_files = depset(json_files),
             declaration_files = direct_decls,
             direct_deps = direct_npm_dep_infos,
             transitive_deps = depset(

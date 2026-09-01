@@ -1915,11 +1915,27 @@ def _ts_compile_impl(ctx):
         # package. This must be computed before the action is registered.
         npm_pkg_dirs_depset = depset(transitive = transitive_package_dir_sets)
 
+        # A package is free to publish data its consumers import, and
+        # `resolveJsonModule` resolves that through the same `paths` key as any
+        # other subpath. The declaration depsets carry no .json, so without
+        # this the file the key names is simply not in the sandbox and the
+        # import is TS2307 no matter what the key says. pkg_info_map is the
+        # flattened closure, which is the same set `paths` is written from.
+        npm_json_depset = depset(transitive = [
+            npm_info.json_files
+            for npm_info in pkg_info_map.values()
+        ])
+
         strict_deps_gated = True
         tsgo_inputs = depset(
             check_srcs + [tsconfig, tsgo.tsgo_binary] + tsconfig_chain +
             ctx.files.path_alias_srcs + strict_deps_inputs,
-            transitive = [dep_dts_depset, dep_globals_depset, npm_pkg_dirs_depset],
+            transitive = [
+                dep_dts_depset,
+                dep_globals_depset,
+                npm_pkg_dirs_depset,
+                npm_json_depset,
+            ],
         )
         if not tsgo_emits_dts:
             # Diagnostics only. Stays in the _validation output group so it runs
