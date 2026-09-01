@@ -449,20 +449,33 @@ func labelForUnindexed(repoRoot, rel string, from label.Label) string {
 	}
 	// A directory that is not there is the same "no such package" as a file read
 	// as one, and TS2307 on the one import beats analysis failing every target.
-	if info, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(pkg))); err != nil || !info.IsDir() {
+	dir := filepath.Join(repoRoot, filepath.FromSlash(pkg))
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 		return ""
 	}
-	if generatorSkips(pkg) {
+	// A checked-in BUILD file is the only proof that matters: what the generator
+	// would write there says nothing about a package somebody already wrote.
+	if generatorSkips(pkg) && !isBazelPackage(dir) {
 		return ""
 	}
 	return label.New("", pkg, path.Base(pkg)).String()
 }
 
+// isBazelPackage reports whether dir already holds a BUILD file, which is what
+// makes Bazel able to load a label naming it.
+func isBazelPackage(dir string) bool {
+	for _, name := range []string{"BUILD.bazel", "BUILD"} {
+		if info, err := os.Stat(filepath.Join(dir, name)); err == nil && !info.IsDir() {
+			return true
+		}
+	}
+	return false
+}
+
 // generatorSkips reports whether pkg lies under a directory the generator
-// refuses to walk. Nothing rolls such a directory's files up and no BUILD file
-// is written in it, so naming it as a package is this resolver contradicting
-// that generator -- and "no such package" fails every target in the build
-// where a dropped dep fails one.
+// refuses to walk, and so one it will never WRITE a BUILD file in. It does not
+// answer whether the directory is a package -- isBazelPackage does that, and a
+// dot-directory holding a hand-written BUILD file is one.
 func generatorSkips(pkg string) bool {
 	for _, seg := range strings.Split(pkg, "/") {
 		if skipRolledUpDir(seg) {

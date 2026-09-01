@@ -1009,6 +1009,62 @@ func TestLabelForUnindexed_DirectoryTheGeneratorSkipsFabricatesNothing(t *testin
 	}
 }
 
+// #90 read the generator's walk as if it answered "is this a package", and it
+// does not: `.github/scripts` in the Lovable monorepo holds a hand-written
+// BUILD.bazel declaring eight targets, and the dep on it was dropped. What the
+// generator would write there says nothing about a package somebody wrote.
+func TestLabelForUnindexed_ACheckedInBuildFileMakesItAPackage(t *testing.T) {
+	root := t.TempDir()
+	for dir, buildFile := range map[string]string{
+		".github/scripts":       "BUILD.bazel",
+		"web/dist/staged":       "BUILD",
+		"web/node_modules/tool": "BUILD.bazel",
+		"web/.no-build/sub":     "",
+	} {
+		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(dir)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if buildFile == "" {
+			continue
+		}
+		writeFile(t, filepath.Join(root, filepath.FromSlash(dir), buildFile), "")
+	}
+	from := label.New("", "infra/buildkite/governance", "governance")
+	for rel, want := range map[string]string{
+		// The monorepo case: a plain require() of a .js file the package's own
+		// srcs do not list, so no indexed rule answers and this is the fallback.
+		".github/scripts/request-author-team-reviewers.js": "//.github/scripts",
+		".github/scripts":          "//.github/scripts",
+		"web/dist/staged/index.ts": "//web/dist/staged",
+		"web/node_modules/tool":    "//web/node_modules/tool",
+		// No BUILD file, so the generator's refusal to walk it still stands.
+		"web/.no-build/sub": "",
+	} {
+		if got := labelForUnindexed(root, rel, from); got != want {
+			t.Errorf("labelForUnindexed(%q) = %q, want %q", rel, got, want)
+		}
+	}
+}
+
+// The whole resolution, not just the label helper: a dot-directory package
+// nothing indexes still reaches deps.
+func TestResolveImports_CheckedInDotDirectoryPackageIsStillADep(t *testing.T) {
+	c := emptyConfig()
+	c.Exts[languageName] = makeConfig("", nil)
+	repoWithDirs(t, c, "infra/buildkite/governance")
+	writeFile(t, filepath.Join(c.RepoRoot, ".github", "scripts", "BUILD.bazel"), "")
+	ix := buildIndex(t, c)
+
+	r := rule.NewRule("ts_compile", "governance")
+	resolveImports(c, ix, r, []string{"../../../.github/scripts/request-author-team-reviewers.js"},
+		label.New("", "infra/buildkite/governance", "governance"))
+
+	want := []string{"//.github/scripts"}
+	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+		t.Errorf("deps = %v, want %v", got, want)
+	}
+}
+
 // The guard is a fallback, not a ban: every-dir mode does make a package of a
 // dot-directory, and an indexed rule there answers before anything is
 // fabricated.
