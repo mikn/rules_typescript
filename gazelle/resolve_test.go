@@ -977,6 +977,84 @@ func TestResolveImports_MissingDirectoryFabricatesNothing(t *testing.T) {
 	}
 }
 
+// rolledUpIn skips a dot-directory, node_modules, dist and bazel-out, so under
+// any boundary mode but every-dir nothing claims their files and no BUILD file
+// is written in them. A label naming one is the resolver contradicting the
+// generator, and Bazel answers it with `no such package` during analysis.
+//
+// Every directory below is on disk, so the neighbouring existence guard cannot
+// be what answers these.
+func TestLabelForUnindexed_DirectoryTheGeneratorSkipsFabricatesNothing(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range []string{
+		"web/shared/public/.well-known", "web/.generated/api", "web/dist",
+		"web/node_modules/acme", "bazel-out/gen",
+	} {
+		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(dir)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	from := label.New("", "web/src", "src")
+	for _, rel := range []string{
+		"web/shared/public/.well-known/assetlinks.json",
+		"web/shared/public/.well-known",
+		"web/.generated/api/index.ts",
+		"web/dist/bundle.js",
+		"web/node_modules/acme/index.ts",
+		"bazel-out/gen/thing.ts",
+	} {
+		if got := labelForUnindexed(root, rel, from); got != "" {
+			t.Errorf("labelForUnindexed(%q) = %q, want %q", rel, got, "")
+		}
+	}
+}
+
+// The guard is a fallback, not a ban: every-dir mode does make a package of a
+// dot-directory, and an indexed rule there answers before anything is
+// fabricated.
+func TestResolveRelative_IndexedDotDirectoryStillResolves(t *testing.T) {
+	c := emptyConfig()
+	c.Exts[languageName] = makeConfig("", nil)
+	repoWithDirs(t, c, "p/.config", "p/src")
+	ix := buildIndex(t, c,
+		indexedRule{kind: "json_library", name: "data_json", pkg: "p/.config", srcs: []string{"data.json"}},
+		indexedRule{kind: "ts_compile", name: ".config", pkg: "p/.config", srcs: []string{"index.ts"}},
+	)
+	from := label.New("", "p/src", "src")
+
+	for imp, want := range map[string]string{
+		"../.config/data.json": "//p/.config:data_json",
+		"../.config":           "//p/.config",
+	} {
+		if got := resolveRelative(c, ix, imp, from); got != want {
+			t.Errorf("resolveRelative(%q) = %q, want %q", imp, got, want)
+		}
+	}
+}
+
+// The monorepo shape: a `?raw` import of an asset in a dot-directory below a
+// tsconfig package boundary. `//web/shared/public/.well-known` fails analysis
+// for every target in the build; no dep leaves the compile one TS2307. The
+// directory is on disk, so only this guard can answer.
+func TestResolveImports_DotDirectoryAssetFabricatesNothing(t *testing.T) {
+	c := emptyConfig()
+	c.Exts[languageName] = makeConfig("", nil)
+	repoWithDirs(t, c, "web/shared/public/.well-known")
+	ix := buildIndex(t, c)
+	from := label.New("", "web", "web")
+
+	for _, imp := range []string{
+		"./shared/public/.well-known/assetlinks.json?raw",
+		"./shared/public/.well-known/apple-app-site-association?raw",
+	} {
+		r := rule.NewRule("ts_compile", "web")
+		resolveImports(c, ix, r, []string{imp}, from)
+		if got := r.AttrStrings("deps"); len(got) != 0 {
+			t.Errorf("%s: deps = %v, want none", imp, got)
+		}
+	}
+}
+
 // An npm specifier carries them too: `virtual:x` is excluded elsewhere for the
 // same reason, but `?worker` is a plain package with a loader hint on it.
 func TestResolveImports_QuerySuffixOnNpmPackage(t *testing.T) {

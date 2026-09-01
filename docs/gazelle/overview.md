@@ -531,6 +531,15 @@ and if nobody has generated that directory Bazel answers `no such package`
 before any compile runs. Dropping the dep leaves the one `TS2307` the missing
 module deserves.
 
+A specifier that lands in a directory the generator refuses to walk resolves to
+nothing for the same reason. `rolledUpIn` skips a dot-directory, `node_modules`,
+`dist` and `bazel-out`, so outside `every-dir` mode nothing claims their files
+and no BUILD file appears in them: `../../shared/public/.well-known/assetlinks.json?raw`
+would name `//web/shared/public/.well-known`, a package the generator has
+already decided will not exist. An indexed rule in such a directory still
+answers first, so a dot-directory package generated in `every-dir` mode is
+unaffected.
+
 Gazelle's deps and the `ts_compile` strict-deps check share one specifier
 scanner. If `bazel build` reports an import no direct dep provides and re-running
 Gazelle does not add it, that is a bug in the ruleset.
