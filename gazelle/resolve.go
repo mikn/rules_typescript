@@ -470,7 +470,7 @@ func labelForUnindexed(repoRoot, rel string, from label.Label) string {
 	switch {
 	case namesAFile(pkg):
 		pkg = path.Dir(pkg)
-	case path.Ext(pkg) != "":
+	case nameExtension(pkg) != "":
 		// An unclassified extension still names a file, and "no such package"
 		// fails every target in the build where a dropped dep fails one.
 		return ""
@@ -495,6 +495,16 @@ func labelForUnindexed(repoRoot, rel string, from label.Label) string {
 		return ""
 	}
 	return label.New("", pkg, path.Base(pkg)).String()
+}
+
+// nameExtension is path.Ext with a leading dot read as part of the name:
+// path.Ext("tools/.internal") is ".internal", and that names a directory.
+func nameExtension(rel string) string {
+	base := path.Base(rel)
+	if ext := path.Ext(base); ext != base {
+		return ext
+	}
+	return ""
 }
 
 // isBazelPackage reports whether dir already holds a BUILD file, which is what
