@@ -1508,31 +1508,6 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 
 // ---- directive parser: ts_codegen ------------------------------------------
 
-// parseCodegenDirective parses a # gazelle:ts_codegen directive value written
-// in rel and returns a CodegenPattern, or nil when the value is malformed.
-//
-// Format:
-//
-//	<name> <generator_label> <outs_or_dir> [srcs:<csv>] [args...]
-//
-// <outs_or_dir> is:
-//   - A comma-separated list of output file names, e.g. "api-types.ts"
-//     or "types.ts,client.ts".
-//   - The prefix "dir:" followed by a directory name, e.g. "dir:generated/client".
-//     This sets OutDir instead of Outs (for generators that produce a tree).
-//
-// An optional "srcs:" field names the generator's inputs, as a comma-separated
-// list whose entries are file names or glob() expressions. Omitted, the
-// generator reads the TypeScript sources of the directory it was declared in,
-// which is what a route-tree or barrel generator wants.
-//
-// Everything after those fields is treated as positional generator arguments.
-//
-// Examples:
-//
-//	api_types @npm//:openapi-typescript_bin api-types.ts srcs:openapi.yaml {srcs} -o {out}
-//	prisma_client @npm//:prisma_bin dir:generated/client generate --schema {srcs}
-//
 // splitCodegenSrcs splits a srcs: field on the commas between entries, leaving
 // the ones inside a glob() call's own argument list alone.
 func splitCodegenSrcs(field string) []string {
@@ -1560,6 +1535,30 @@ func splitCodegenSrcs(field string) []string {
 	return srcs
 }
 
+// parseCodegenDirective parses a # gazelle:ts_codegen directive value written
+// in rel and returns a CodegenPattern, or nil when the value is malformed.
+//
+// Format:
+//
+//	<name> <generator_label> <outs_or_dir> [srcs:<csv>] [args...]
+//
+// <outs_or_dir> is:
+//   - A comma-separated list of output file names, e.g. "api-types.ts"
+//     or "types.ts,client.ts".
+//   - The prefix "dir:" followed by a directory name, e.g. "dir:generated/client".
+//     This sets OutDir instead of Outs (for generators that produce a tree).
+//
+// An optional "srcs:" field names the generator's inputs, as a comma-separated
+// list whose entries are file names or glob() expressions. Omitted, the
+// generator reads the TypeScript sources of the directory it was declared in,
+// which is what a route-tree or barrel generator wants.
+//
+// Everything after those fields is treated as positional generator arguments.
+//
+// Examples:
+//
+//	api_types @npm//:openapi-typescript_bin api-types.ts srcs:openapi.yaml {srcs} -o {out}
+//	prisma_client @npm//:prisma_bin dir:generated/client generate --schema {srcs}
 func parseCodegenDirective(rel, value string) *CodegenPattern {
 	// Split on whitespace; we need at least 3 fields: name generator outs.
 	fields := strings.Fields(strings.TrimSpace(value))

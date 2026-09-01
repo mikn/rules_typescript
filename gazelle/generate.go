@@ -318,6 +318,20 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		}
 	}
 
+	if globbed := codegenGlobClaims(args.Rel, args.RegularFiles, tc); len(globbed) > 0 {
+		targeted := concatFiles(srcFiles, testFiles, docFiles, ambientFiles,
+			cssFiles, cssModuleFiles, assetFiles, jsonFiles)
+		kept := dropClaimed(targeted, globbed)
+		switch {
+		case len(kept) > 0:
+			warnCodegenGlobbedPackage(args, kept)
+		case args.File != nil:
+			warnCodegenGlobbedPackage(args, []string{path.Base(args.File.Path)})
+		default:
+			return emptyResult(args)
+		}
+	}
+
 	srcFiles = append(srcFiles, ambientFiles...)
 	sort.Strings(srcFiles)
 
@@ -1073,6 +1087,14 @@ func claimedSrcs(args language.GenerateArgs, tc *tsConfig, patterns []CodegenPat
 	return claimed
 }
 
+func concatFiles(lists ...[]string) []string {
+	var all []string
+	for _, list := range lists {
+		all = append(all, list...)
+	}
+	return all
+}
+
 func dropClaimed(files []string, claimed map[string]struct{}) []string {
 	var kept []string
 	for _, f := range files {
@@ -1405,11 +1427,6 @@ func buildCodegenCompileRule(name, codegen string) *rule.Rule {
 	return r
 }
 
-// buildCodegenRule converts a CodegenPattern into a Bazel rule.Rule ready for
-// inclusion in a GenerateResult. Returns nil when the pattern is malformed.
-//
-// When CodegenPattern.OutDir is set, an "out_dir" string attr is emitted
-// instead of "outs" (the ts_codegen rule then uses declare_directory).
 // codegenSrcsExpr renders a pattern's srcs as the value of a label_list attr:
 // a plain list, a glob() call, or the two summed. A glob entry that does not
 // parse as a glob() call is rejected rather than dropped, since Bazel would
@@ -1447,7 +1464,7 @@ func codegenSrcsExpr(srcs []string) (any, bool) {
 }
 
 // parseGlobExpr reads one glob() call out of a directive field.
-func parseGlobExpr(src string) (bzl.Expr, error) {
+func parseGlobExpr(src string) (*bzl.CallExpr, error) {
 	f, err := bzl.ParseBuild("srcs", []byte(src))
 	if err != nil {
 		return nil, err
@@ -1465,6 +1482,90 @@ func parseGlobExpr(src string) (bzl.Expr, error) {
 	return call, nil
 }
 
+// globIncludePatterns returns the patterns a glob() call collects. Its
+// excludes are left out: they only ever shrink the match, and a caller asking
+// what a glob reaches has to assume the widest answer.
+func globIncludePatterns(call *bzl.CallExpr) []string {
+	var include bzl.Expr
+	for _, arg := range call.List {
+		if kw, ok := arg.(*bzl.AssignExpr); ok {
+			if ident, ok := kw.LHS.(*bzl.Ident); ok && ident.Name == "include" {
+				include = kw.RHS
+			}
+			continue
+		}
+		if include == nil {
+			include = arg
+		}
+	}
+	list, ok := include.(*bzl.ListExpr)
+	if !ok {
+		return nil
+	}
+	var patterns []string
+	for _, item := range list.List {
+		if str, ok := item.(*bzl.StringExpr); ok {
+			patterns = append(patterns, str.Value)
+		}
+	}
+	return patterns
+}
+
+// codegenGlobClaims returns the files in rel that an ancestor directory's
+// ts_codegen glob collects. A glob is evaluated in the package holding the
+// rule, so those files are inputs of that package, and a BUILD file here would
+// put them in a different one -- where the glob, which does not descend into a
+// subpackage, stops matching them.
+func codegenGlobClaims(rel string, files []string, tc *tsConfig) map[string]struct{} {
+	claimed := map[string]struct{}{}
+	for _, p := range tc.customCodegens {
+		if p.Dir == rel || (p.Dir != "" && !strings.HasPrefix(rel, p.Dir+"/")) {
+			continue
+		}
+		sub := strings.TrimPrefix(rel, p.Dir+"/")
+		if p.Dir == "" {
+			sub = rel
+		}
+		for _, src := range p.Srcs {
+			if !strings.HasPrefix(src, globExprPrefix) {
+				continue
+			}
+			call, err := parseGlobExpr(src)
+			if err != nil {
+				continue
+			}
+			for _, pattern := range globIncludePatterns(call) {
+				tail, ok := strings.CutPrefix(pattern, sub+"/")
+				if !ok || strings.Contains(tail, "/") {
+					continue
+				}
+				for _, f := range files {
+					if ok, _ := path.Match(tail, f); ok {
+						claimed[f] = struct{}{}
+					}
+				}
+			}
+		}
+	}
+	return claimed
+}
+
+// Gazelle can empty a BUILD file it did not write but cannot delete it, so the
+// package -- and the hole it puts in the ancestor's glob -- outlives the run.
+func warnCodegenGlobbedPackage(args language.GenerateArgs, kept []string) {
+	log.Printf("typescript: %s holds files an ancestor's ts_codegen srcs glob collects, and "+
+		"%v keep it a Bazel package of its own. glob() does not descend into a subpackage, so "+
+		"the ancestor's rule will not see them -- and Bazel refuses to load a package whose "+
+		"glob matched nothing. Move those files out, or put the tree under a rolled-up "+
+		"ts_package_boundary (index-only, tsconfig) so it stays one package.",
+		args.Rel, kept)
+}
+
+// buildCodegenRule converts a CodegenPattern into a Bazel rule.Rule ready for
+// inclusion in a GenerateResult. Returns nil when the pattern is malformed.
+//
+// When CodegenPattern.OutDir is set, an "out_dir" string attr is emitted
+// instead of "outs" (the ts_codegen rule then uses declare_directory).
 func buildCodegenRule(p CodegenPattern) *rule.Rule {
 	if p.Name == "" || p.Generator == "" {
 		return nil

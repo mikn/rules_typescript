@@ -749,6 +749,20 @@ sections list every break with the edit it requires.
   the directory as one artifact, so nothing in it has a label, no
   `<name>_compile` is written, and reaching the output means a rule of your own
   that adapts the directory to the providers `ts_compile.deps` reads.
+- **A directory a `ts_codegen` glob collects is no longer made into a package of
+  its own.** Rendering the glob correctly was not enough to load it: a `srcs:`
+  glob reaching into a subdirectory of catalogues met a `json_library` per file
+  there, which makes that directory its own Bazel package -- and `glob()` does
+  not descend into one, so the pattern matched nothing and Bazel rejected the
+  package above it outright (*glob pattern didn't match anything, but
+  allow_empty is set to False*). Those files are the ancestor rule's inputs, so
+  Gazelle now writes no targets over them and the directory stays part of the
+  package that globs it. Where that is not enough -- a file the glob does not
+  collect still needs a target, and that target restores the package -- Gazelle
+  names the leftovers in a log line instead. `gazelle_roundtrip` now runs
+  Bazel over a generated tree carrying such a directive: the converge tests
+  compare BUILD text, and neither this nor the quoted-glob bug was visible in
+  text.
 - **A `#` specifier resolves through the package's `imports` field.** Node calls
   a `#`-prefixed specifier a package-private import, and the `imports` map in
   the importing package's own `package.json` is the only thing that answers one.

@@ -816,18 +816,13 @@ func TestConverge_GeneratedModuleResolvesThroughTheWholeCycle(t *testing.T) {
 	}
 }
 
-// A directive naming a glob has to reach the BUILD file as Starlark. Quoted,
-// it is a string on a label_list attr, which Bazel refuses to load at all --
-// so the directive's own inputs decide whether the package parses.
-func TestConverge_CodegenDirectiveWritesAGlobAsStarlark(t *testing.T) {
+const catalogueDirective = "# gazelle:ts_codegen messages //tools:paraglide dir:compiled " +
+	"srcs:settings.json,glob([\"messages/*.json\"]) --outdir {out}\n"
+
+func convergeTree(t *testing.T, files map[string]string) string {
+	t.Helper()
 	repoRoot := t.TempDir()
-	for name, content := range map[string]string{
-		"BUILD.bazel":          "",
-		"web/BUILD.bazel":      "# gazelle:ts_codegen messages //tools:paraglide dir:compiled srcs:settings.json,glob([\"messages/*.json\"]) --outdir {out}\n",
-		"web/settings.json":    "{}\n",
-		"web/messages/en.json": "{}\n",
-		"web/app.ts":           "export const x = 1;\n",
-	} {
+	for name, content := range files {
 		full := filepath.Join(repoRoot, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			t.Fatal(err)
@@ -836,8 +831,21 @@ func TestConverge_CodegenDirectiveWritesAGlobAsStarlark(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-
 	convergeGazelle(t, repoRoot)
+	return repoRoot
+}
+
+// A directive naming a glob has to reach the BUILD file as Starlark. Quoted,
+// it is a string on a label_list attr, which Bazel refuses to load at all --
+// so the directive's own inputs decide whether the package parses.
+func TestConverge_CodegenDirectiveWritesAGlobAsStarlark(t *testing.T) {
+	repoRoot := convergeTree(t, map[string]string{
+		"BUILD.bazel":          "",
+		"web/BUILD.bazel":      catalogueDirective,
+		"web/settings.json":    "{}\n",
+		"web/messages/en.json": "{}\n",
+		"web/app.ts":           "export const x = 1;\n",
+	})
 
 	data, err := os.ReadFile(filepath.Join(repoRoot, "web", "BUILD.bazel"))
 	if err != nil {
@@ -849,6 +857,68 @@ func TestConverge_CodegenDirectiveWritesAGlobAsStarlark(t *testing.T) {
 	}
 	if strings.Contains(build, `"glob(`) {
 		t.Errorf("the glob reached the BUILD file quoted, which Bazel rejects:\n%s", build)
+	}
+}
+
+// Writing the glob correctly is not enough for //web to load: a json_library
+// per catalogue makes messages/ a package, glob() does not descend into one,
+// and Bazel rejects a package whose glob matched nothing. The catalogues are
+// the ancestor rule's inputs, so they get no targets of their own.
+func TestConverge_ACodegenGlobLeavesItsSubdirectoryUnpackaged(t *testing.T) {
+	repoRoot := convergeTree(t, map[string]string{
+		"BUILD.bazel":          "",
+		"web/BUILD.bazel":      catalogueDirective,
+		"web/settings.json":    "{}\n",
+		"web/messages/en.json": "{}\n",
+		"web/messages/sv.json": "{}\n",
+		"web/app.ts":           "export const x = 1;\n",
+	})
+
+	sub := filepath.Join(repoRoot, "web", "messages", "BUILD.bazel")
+	if data, err := os.ReadFile(sub); err == nil {
+		t.Errorf("web/messages is its own package, so //web's glob matches nothing:\n%s", data)
+	}
+}
+
+// Only when nothing is left over: a file the glob does not collect still needs
+// a target, that target still makes a package, and deleting it would cost the
+// build something without buying the ancestor its glob back.
+func TestConverge_AnUnglobbedFileKeepsTheSubdirectoryAPackage(t *testing.T) {
+	repoRoot := convergeTree(t, map[string]string{
+		"BUILD.bazel":            "",
+		"web/BUILD.bazel":        catalogueDirective,
+		"web/settings.json":      "{}\n",
+		"web/messages/en.json":   "{}\n",
+		"web/messages/helper.ts": "export const y = 2;\n",
+		"web/app.ts":             "export const x = 1;\n",
+	})
+
+	data, err := os.ReadFile(filepath.Join(repoRoot, "web", "messages", "BUILD.bazel"))
+	if err != nil {
+		t.Fatalf("web/messages/helper.ts lost its target: %v", err)
+	}
+	if !strings.Contains(string(data), "helper.ts") {
+		t.Errorf("web/messages/BUILD.bazel does not compile helper.ts:\n%s", data)
+	}
+}
+
+func TestCodegenGlobClaims(t *testing.T) {
+	tc := &tsConfig{customCodegens: []CodegenPattern{{
+		Name: "messages", Dir: "web",
+		Srcs: []string{"settings.json", `glob(["messages/*.json"],exclude=["messages/_*.json"])`},
+	}}}
+	files := []string{"en.json", "_draft.json", "notes.md"}
+
+	claimed := codegenGlobClaims("web/messages", files, tc)
+	want := map[string]struct{}{"en.json": {}, "_draft.json": {}}
+	if !reflect.DeepEqual(claimed, want) {
+		t.Errorf("claims in web/messages = %v, want %v", claimed, want)
+	}
+	if claimed := codegenGlobClaims("web/other", files, tc); len(claimed) > 0 {
+		t.Errorf("claims in web/other = %v, want none", claimed)
+	}
+	if claimed := codegenGlobClaims("web", []string{"settings.json"}, tc); len(claimed) > 0 {
+		t.Errorf("claims in the declaring directory = %v, want none", claimed)
 	}
 }
 

@@ -395,6 +395,25 @@ Vite plugin during the bundle, into the writable staging directory `ts_bundle`
 hands it, so a second copy in `bazel-bin` would only drift from the one the build
 used.
 
+### A glob does not cross a package boundary
+
+`glob()` is evaluated in the package holding the rule and does not descend into
+a subpackage, and Bazel refuses to load a package whose glob matched nothing
+(`allow_empty` is `False`). So a pattern reaching into a subdirectory only works
+while that subdirectory has no BUILD file of its own — and a directory of
+message catalogues is exactly the kind of directory Gazelle would otherwise put
+one in, a `json_library` per file.
+
+Gazelle therefore leaves such a directory alone: the files an ancestor's
+`ts_codegen` glob collects are that rule's inputs, so they get no targets of
+their own and the directory stays part of the package above it. This holds only
+while the glob collects *everything* Gazelle would write a target for there. One
+file it does not — a stray `.ts`, a `README.md` — still needs a target, that
+target makes the directory a package again, and the ancestor's glob goes empty.
+Gazelle logs which files those are; the fixes are to move them out, or to put
+the tree under a rolled-up boundary (`# gazelle:ts_package_boundary index-only`
+or `tsconfig`) where a subdirectory is not a package to begin with.
+
 ### Exclude Generated Files
 
 ```python

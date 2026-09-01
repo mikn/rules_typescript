@@ -24,6 +24,12 @@ func main() {
 	}, func(it *harness.IT) {
 		dirs := []string{"src/lib", "src/app"}
 
+		// Written here rather than shipped in the workspace: a BUILD file under
+		// a --deleted_packages entry is a package of the OUTER workspace, and
+		// glob_workspace_files would stop collecting the fixture below it --
+		// the same boundary this case is about.
+		it.Write(it.Path("src/i18n/BUILD.bazel"), codegenGlobDirective)
+
 		it.MustBazel("run", "//:gazelle")
 		it.Pass("gazelle pass 1 complete")
 
@@ -82,5 +88,46 @@ func main() {
 			it.RequireFile(it.Bin(rel), "expected output file not found: %s", rel)
 			it.Pass("output file exists: %s", rel)
 		}
+
+		codegenGlobLoads(it)
 	})
+}
+
+const codegenGlobDirective = "# gazelle:ts_codegen locales //:catalogue_gen locales.ts " +
+	"srcs:settings.json,glob([\"messages/*.json\"]) {srcs} {out}\n"
+
+// The converge tests assert generated BUILD text; nothing there asks Bazel to
+// load it. A ts_codegen srcs glob reaching into a subdirectory is the case
+// where the text can be right and the package still not parse.
+func codegenGlobLoads(it *harness.IT) {
+	subpkg := it.Path("src/i18n/messages/BUILD.bazel")
+	it.RequireNoFile(subpkg, "Gazelle made src/i18n/messages a package; //src/i18n's glob cannot see into one")
+	it.Pass("src/i18n/messages has no BUILD file of its own")
+
+	it.RequireContains(it.Path("src/i18n/BUILD.bazel"),
+		`srcs = ["settings.json"] + glob(["messages/*.json"])`,
+		"the directive's srcs did not reach src/i18n/BUILD.bazel as Starlark")
+	it.Pass("src/i18n/BUILD.bazel carries the directive's srcs as Starlark")
+
+	generated := it.Bin("src/i18n/locales.ts")
+	it.RequireFile(generated, "the codegen action did not run")
+	for _, name := range []string{"settings.json", "en.json", "sv.json"} {
+		it.RequireContains(generated, name, "the codegen action never saw %s", name)
+		it.Pass("the codegen action saw %s", name)
+	}
+
+	it.Write(subpkg, "# Makes src/i18n/messages a package.\n")
+	log, err := it.BazelLog("glob_across_a_package", "query", "//src/i18n:locales")
+	if err := os.Remove(subpkg); err != nil {
+		it.Fail("cannot remove the probe BUILD file: %v", err)
+	}
+	if err == nil {
+		log.Dump()
+		it.Fail("//src/i18n loaded with messages/ a package of its own; the glob is supposed to stop matching")
+	}
+	if !log.Contains("didn't match anything") {
+		log.Dump()
+		it.Fail("//src/i18n failed to load for some other reason than the empty glob")
+	}
+	it.Pass("a BUILD file in messages/ empties //src/i18n's glob and Bazel refuses the package")
 }
