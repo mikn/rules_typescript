@@ -9,6 +9,7 @@ subpath is TS2307, which fails the tsgo action.
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "ts_compile")
+load(":package_root_tests.bzl", "subpath_roots_test", "wildcard_root_test")
 
 package(default_visibility = ["//:__pkg__"])
 
@@ -36,11 +37,31 @@ ts_compile(
     deps = ["@npm//:vite"],
 )
 
+# One closure holding all three, so the wildcard assertions below see every
+# package in a single generated tsconfig.
+ts_compile(
+    name = "package_root",
+    srcs = ["package_root.ts"],
+    deps = [
+        "@npm//:postcss",
+        "@npm//:rolldown",
+        "@npm//:vite",
+    ],
+)
+
 build_test(
     name = "exports_subpath_test",
     targets = [
         ":doubled_prefix",
         ":flattened_name",
         ":outside_entry_dir",
+        ":package_root",
     ],
 )
+
+wildcard_root_test(
+    name = "wildcard_root_test",
+    target_under_test = ":package_root",
+)
+
+subpath_roots_test(name = "subpath_roots_test")

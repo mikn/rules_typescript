@@ -234,6 +234,21 @@ def explicitly_relative(path):
         return path
     return "./" + path
 
+def subpath_roots(tsconfig_dir, pkg_root, entry_rel_dir):
+    """Where `pkg/sub` may live, in the order npm would look.
+
+    With no `exports` map -- which is most of the registry -- `pkg/sub` is a
+    plain path under the package root, so `recharts/types/shape/Curve` is
+    `<recharts>/types/shape/Curve`. Hanging the wildcard off the entry's own
+    directory instead spells that `<recharts>/types/types/shape/Curve`. The
+    entry directory stays as a second substitution: a package whose subpaths do
+    sit beside its entry keeps resolving, and TypeScript tries each in turn.
+    Exported for the unit test.
+    """
+    root_rel = explicitly_relative(_relative_path(tsconfig_dir, pkg_root))
+    roots = [root_rel] if root_rel == entry_rel_dir else [root_rel, entry_rel_dir]
+    return [r + "/*" for r in roots]
+
 def types_package_alias(package_name):
     """The name `@types/x` supplies declarations for, or None for any other package.
 
@@ -452,7 +467,7 @@ def _generate_tsconfig(
         ctx:          Rule context.
         srcs:         Source files to type-check (.ts/.tsx/.js/.mjs/.cjs plus
                       ambient .d.ts).
-        npm_pkg_dirs: (package_name, path, is_file) triples for npm deps.
+        npm_pkg_dirs: (package_name, path, is_file, package_root) tuples for npm deps.
         npm_subpath_dts: (specifier, declaration path) pairs, one per `exports`
                       subpath an npm dep designates a declaration for.
         npm_types_aliases: struct(key, path, is_file, wildcard) per `paths` key a
@@ -577,19 +592,18 @@ def _generate_tsconfig(
     aliased = {key: True for key in paths}
 
     for entry in npm_pkg_dirs or []:
-        pkg_name, path, is_file = entry[0], entry[1], entry[2]
+        pkg_name, path, is_file, pkg_root = entry[0], entry[1], entry[2], entry[3]
         pkg_dir = path[:path.rfind("/")] if "/" in path else ""
         rel_dir = explicitly_relative(_relative_path(tsconfig_dir, pkg_dir if is_file else path))
         if is_file:
             paths[pkg_name] = [rel_dir + "/" + path.split("/")[-1]]
         else:
             paths[pkg_name] = [rel_dir]
-        paths[pkg_name + "/*"] = [rel_dir + "/*"]
+        paths[pkg_name + "/*"] = subpath_roots(tsconfig_dir, pkg_root, rel_dir)
 
-    # After the wildcard, which is a guess: it hangs every subpath off whichever
-    # directory the root declaration happened to land in, and a package is free
-    # to publish `pkg/sub` from somewhere else entirely. Where the manifest said
-    # which declaration a subpath designates, that answer replaces the guess.
+    # After the wildcard, which is a guess wherever a manifest gates subpaths.
+    # Where the manifest said which declaration a subpath designates, that answer
+    # replaces the guess.
     for specifier, path in npm_subpath_dts or []:
         pkg_dir = path[:path.rfind("/")] if "/" in path else ""
         rel_dir = explicitly_relative(_relative_path(tsconfig_dir, pkg_dir))
@@ -610,7 +624,7 @@ def _generate_tsconfig(
         else:
             paths[alias.key] = [rel_dir]
         if alias.wildcard and alias.key + "/*" not in paths:
-            paths[alias.key + "/*"] = [rel_dir + "/*"]
+            paths[alias.key + "/*"] = subpath_roots(tsconfig_dir, alias.root, rel_dir)
 
     # Last, so a first-party module_name wins over a same-named npm package.
     # Both roots are listed because a module's declarations are either generated
@@ -1606,7 +1620,7 @@ def _ts_compile_impl(ctx):
                 break
 
     # Step 1c: build npm_pkg_dirs from pkg_info_map using types_override.
-    # npm_pkg_dirs entries: (pkg_name, pkg_dir_or_file_path, is_file)
+    # npm_pkg_dirs entries: (pkg_name, pkg_dir_or_file_path, is_file, pkg_root)
     #   When is_file is True, pkg_dir_or_file_path points directly to a .d.ts file
     #   (from exports_types_file). This generates a more precise paths entry like:
     #     "pkg": ["path/to/index.d.ts"]
@@ -1640,12 +1654,13 @@ def _ts_compile_impl(ctx):
             entry, is_file = npm_info.exports_types_file.path, True
         else:
             entry, is_file = pkg_dir, False
-        npm_pkg_dirs.append((pkg_name, entry, is_file))
+        npm_pkg_dirs.append((pkg_name, entry, is_file, pkg_dir))
         if alias:
             npm_types_aliases.append(struct(
                 key = alias,
                 path = entry,
                 is_file = is_file,
+                root = pkg_dir,
                 wildcard = True,
             ))
 
@@ -1657,6 +1672,7 @@ def _ts_compile_impl(ctx):
                     key = alias + subpath[1:],
                     path = declaration,
                     is_file = True,
+                    root = pkg_dir,
                     wildcard = False,
                 ))
 
