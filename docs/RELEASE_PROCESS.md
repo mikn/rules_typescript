@@ -45,6 +45,20 @@ Before releasing, ensure:
    - Patch version: Bug fixes
    - Pre-release: X.Y.Z-rc.1, X.Y.Z-alpha, etc.
 
+5. **Fold the changelog** — entries since the last release live in
+   `changelog.d/`, one file per PR, and are not in `CHANGELOG.md` until this
+   runs:
+   ```bash
+   bazel run //tools/changelog                              # preview
+   bazel run //tools/changelog -- --version 0.2.0 --write   # write and clear
+   git add CHANGELOG.md changelog.d
+   git commit -m "docs(changelog): assemble v0.2.0"
+   ```
+   It inserts the assembled section above the newest release and deletes the
+   fragments it consumed. It belongs here rather than after Step 1:
+   `//tools/release` refuses to run against a dirty working tree, and the tag
+   has to carry the changelog.
+
 ## Step 1: Bump, Commit, Tag
 
 ```bash

@@ -10,4 +10,4 @@
 - [ ] Example workspaces build (`cd examples/react-app && bazel build //...`)
 - [ ] Bootstrap tests pass (if applicable)
 - [ ] README.md updated (if user-facing change)
-- [ ] CHANGELOG.md updated under `[Unreleased]`
+- [ ] Changelog entry added as a file in `changelog.d/` (see `changelog.d/README.md`)

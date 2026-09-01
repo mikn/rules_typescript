@@ -1,0 +1,11 @@
+# gazelle:ignore
+#
+# The pending entries, as data: //tools/changelog:changelog_test parses every
+# one of them, so a malformed fragment fails there rather than at release time.
+# Ignored by Gazelle, which would otherwise write an asset_library per entry
+# and rewrite this file every time one lands.
+filegroup(
+    name = "fragments",
+    srcs = glob(["*.md"]),
+    visibility = ["//tools/changelog:__pkg__"],
+)

@@ -12,6 +12,10 @@ so every entry below is a change against the commit you pinned last.
 Pre-1.0, breaking changes land without a deprecation path. The breaking
 sections list every break with the edit it requires.
 
+Changes made since the newest section below are not here yet: they sit in
+`changelog.d/`, one file per pull request, and a release folds them in
+(`bazel run //tools/changelog -- --version X.Y.Z --write`).
+
 ## [0.2.0]
 
 ### Breaking — `ts_compile`
