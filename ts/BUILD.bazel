@@ -1,8 +1,18 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
 
 # gazelle:ts_exclude vite_env.d.ts
 
 package(default_visibility = ["//visibility:public"])
+
+# `bazel build //... --//ts:lib_check` type-checks every .d.ts in every program,
+# including the ones npm shipped. The baseline sets skipLibCheck, which is what
+# makes a third-party declaration's own broken import a silent widening to `any`
+# rather than an error; this is the switch that shows them.
+bool_flag(
+    name = "lib_check",
+    build_setting_default = False,
+)
 
 # Ambient type shim for Vite client-side globals (import.meta.env, asset URLs).
 # Users can add this to their ts_compile srcs, or set vite_types = True on

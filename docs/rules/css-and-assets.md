@@ -160,8 +160,9 @@ top-level import, and keep `pkg` in the *consuming* `ts_compile` target's deps.
 **The expression is unchecked, and a name that does not resolve is silent.**
 The generated file is a `.d.ts` and this ruleset compiles with `skipLibCheck`,
 so a typo does not error — the import widens to `any` and every use of it
-type-checks. Build the consuming target with
-`compiler_options = {"skipLibCheck": False}` to surface it:
+type-checks. `--//ts:lib_check` turns `skipLibCheck` off for the whole build and
+surfaces it, as does `compiler_options = {"skipLibCheck": False}` on the
+consuming target alone:
 
 ```
 bazel-out/k8-fastbuild/bin/web/assets/logo.svg.d.ts(4,22): error TS2304: Cannot find name 'Fc'.

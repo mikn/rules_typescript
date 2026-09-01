@@ -1,0 +1,85 @@
+"""A `@types/x` package answers an import of `x`, which is the only name for it.
+
+DefinitelyTyped ships `x`'s declarations as `@types/x`, and TypeScript pairs the
+two by walking `node_modules/@types`. Nothing here has a node_modules: npm
+packages reach the compiler through `paths`, so without a key spelled `x` the
+declarations are in the program under a name no import uses. Every package below
+is in this repo's own lockfile.
+"""
+
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "ts_compile")
+load(":precedence_tests.bzl", "types_alias_precedence_test", "types_package_alias_test")
+
+package(default_visibility = ["//:__pkg__"])
+
+# rollup's own dist/rollup.d.ts opens with `import type * as estree from
+# 'estree'`, and @types/estree has no runtime package at all to be reached
+# under. skipLibCheck hides that failure, so this target turns it off; the
+# `lib` is rollup's own requirement, unrelated and only visible for the same
+# reason.
+ts_compile(
+    name = "inside_a_dependency",
+    srcs = ["inside_a_dependency.ts"],
+    compiler_options = {"skipLibCheck": False},
+    lib = ["esnext"],
+    deps = ["@npm//:rollup"],
+)
+
+# The same unresolved import at the default skipLibCheck, where it is silent:
+# `estree.Program` widens to `any`, and the first error anyone sees is a
+# TS7006 in this file, five packages away from its cause.
+ts_compile(
+    name = "widened_to_any",
+    srcs = ["widened_to_any.ts"],
+    deps = ["@npm//:rollup"],
+)
+
+# A target that depends on the @types package directly still imports it by the
+# bare name -- @types/estree is not a specifier anything writes.
+ts_compile(
+    name = "own_import",
+    srcs = ["own_import.ts"],
+    deps = ["@npm//:types_estree"],
+)
+
+# DefinitelyTyped mangles a scope: @babel/core's declarations ship as
+# @types/babel__core, and @babel/core itself publishes no .d.ts.
+ts_compile(
+    name = "mangled_scope",
+    srcs = ["mangled_scope.ts"],
+    deps = [
+        "@npm//:babel_core",
+        "@npm//:vitejs_plugin-react",
+    ],
+)
+
+# The closure behind the precedence assertions: @types/estree with a path_alias
+# claiming the name it types, and four @babel packages that differ in whether
+# they publish declarations of their own.
+ts_compile(
+    name = "precedence",
+    srcs = ["precedence.ts"],
+    path_aliases = {"estree": "tests/npm_types_barename"},
+    deps = [
+        "@npm//:rollup",
+        "@npm//:vitejs_plugin-react",
+    ],
+)
+
+types_alias_precedence_test(
+    name = "types_alias_precedence_test",
+    target_under_test = ":precedence",
+)
+
+types_package_alias_test(name = "types_package_alias_test")
+
+build_test(
+    name = "types_bare_name_test",
+    targets = [
+        ":inside_a_dependency",
+        ":mangled_scope",
+        ":own_import",
+        ":widened_to_any",
+    ],
+)
