@@ -115,6 +115,7 @@ def _npm_package_info(ctx, member):
         package_root = _output_root(ctx, member),
         all_files = depset([manifest], transitive = file_sets),
         js_files = js.js_files if js else depset(),
+        json_files = depset(),
         declaration_files = member[TsDeclarationInfo].declaration_files if TsDeclarationInfo in member else depset(),
         direct_deps = direct_deps,
         transitive_deps = npm.closure if npm else depset(),
