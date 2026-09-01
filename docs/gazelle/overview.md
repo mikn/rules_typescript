@@ -540,7 +540,9 @@ path-segment boundary, so `@shared` does not claim `@sharedX`.
 An import of an extension no rule here claims (`./notes.rst`) resolves to
 nothing at all rather than to a label under the file's own name: `//pkg/notes.rst`
 is a package Bazel cannot load, and a missing package fails every target in the
-build instead of the one that lost a dep.
+build instead of the one that lost a dep. A leading dot belongs to the name and
+is not an extension, so `./tools/.internal` is read as the directory it is and
+goes on to the checks below; `./tools/.internal.old` still reads as a file.
 
 A specifier that maps to a directory that is not on disk resolves to nothing for
 the same reason. `#shared/i18n/compiled/messages` under an

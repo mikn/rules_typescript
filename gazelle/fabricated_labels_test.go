@@ -31,7 +31,7 @@ func TestResolveImports_EveryDepNamesSomethingLoadable(t *testing.T) {
 	root := t.TempDir()
 	for _, dir := range []string{
 		"web/src", "web/shared/lib", "web/shared/public/.well-known", "web/node_modules/acme",
-		".github/scripts",
+		".github/scripts", "web/tools/.internal",
 	} {
 		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(dir)), 0o755); err != nil {
 			t.Fatal(err)
@@ -41,6 +41,7 @@ func TestResolveImports_EveryDepNamesSomethingLoadable(t *testing.T) {
 	writeFile(t, filepath.Join(root, "web/shared/public/.well-known/apple-app-site-association"), "{}\n")
 	writeFile(t, filepath.Join(root, "web/shared/types/mobile.d.ts"), "declare module \"mobile\" {}\n")
 	writeFile(t, filepath.Join(root, ".github/scripts/BUILD.bazel"), "")
+	writeFile(t, filepath.Join(root, "web/tools/.internal/BUILD.bazel"), "")
 
 	c := &config.Config{RepoRoot: root, Exts: make(map[string]interface{})}
 	c.Exts[languageName] = makeConfig("", []rule.Directive{
@@ -66,6 +67,7 @@ func TestResolveImports_EveryDepNamesSomethingLoadable(t *testing.T) {
 		{"./shared/lib/notes.rst", nil},                          // unclassified extension
 		{"./shared/i18n/compiled/messages", nil},                 // directory not on disk
 		{"./shared/public/.well-known/assetlinks.json?raw", nil}, // dot-directory, no BUILD file
+		{"./shared/public/.well-known", nil},                     // the same, imported bare
 		{"./shared/public/.well-known/apple-app-site-association?raw", nil},
 		{"../node_modules/acme/index.ts", nil}, // never a package
 		{"mobile", nil},                        // ambiently declared
@@ -75,6 +77,9 @@ func TestResolveImports_EveryDepNamesSomethingLoadable(t *testing.T) {
 		// A dot-directory whose BUILD file is checked in IS a package, and the
 		// dep on it has to survive: dropping it is the mirror-image defect.
 		{"../.github/scripts/request-author-team-reviewers.js", []string{"//.github/scripts"}},
+		// Imported bare, where the dot-name is the LAST segment: path.Ext read
+		// the whole of it as a file extension, which the row above never hit.
+		{"./tools/.internal", []string{"//web/tools/.internal"}},
 		{"@/lib", []string{"//web/shared/lib"}},        // path alias
 		{"./shared/lib", []string{"//web/shared/lib"}}, // relative
 		{"react", []string{"@npm//:react"}},            // npm

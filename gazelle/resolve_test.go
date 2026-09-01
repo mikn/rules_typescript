@@ -1065,6 +1065,92 @@ func TestResolveImports_CheckedInDotDirectoryPackageIsStillADep(t *testing.T) {
 	}
 }
 
+// path.Ext takes everything after the final dot, so a dot-name has no other
+// dot and reads as one long extension. Every dot-directory looked like a file
+// to the unclassified-extension guard, which runs before any package check.
+func TestNameExtension(t *testing.T) {
+	for rel, want := range map[string]string{
+		"tools/.internal":     "",
+		".well-known":         "",
+		"tools/.internal.old": ".old",
+		"p/x.wasm":            ".wasm",
+		"p/plain":             "",
+	} {
+		if got := nameExtension(rel); got != want {
+			t.Errorf("nameExtension(%q) = %q, want %q", rel, got, want)
+		}
+	}
+}
+
+// A dot-name directory carrying a checked-in BUILD file is #97's case one guard
+// earlier: the unclassified-extension branch dropped it before the package
+// checks ran, so a real package got no dep.
+func TestLabelForUnindexed_ADotNameDirectoryIsNotAFileExtension(t *testing.T) {
+	root := t.TempDir()
+	for dir, buildFile := range map[string]string{
+		"p/tools/.internal":             "BUILD.bazel",
+		"p/tools/.internal.old":         "BUILD.bazel",
+		"p/assets/theme.dark":           "BUILD.bazel",
+		"web/shared/public/.well-known": "",
+	} {
+		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(dir)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if buildFile == "" {
+			continue
+		}
+		writeFile(t, filepath.Join(root, filepath.FromSlash(dir), buildFile), "")
+	}
+	writeFile(t, filepath.Join(root, "p", "shader.wasm"), "")
+	writeFile(t, filepath.Join(root, "p", "tools", ".eslintrc"), "")
+
+	from := label.New("", "p/src", "src")
+	for rel, want := range map[string]string{
+		"p/tools/.internal": "//p/tools/.internal",
+		// No BUILD file: the generator's refusal to walk it is what answers now
+		// that the extension guard no longer does.
+		"web/shared/public/.well-known": "",
+		// A dot inside the name is still an extension, and an unclassified one
+		// still names a file: unchanged, BUILD file or not.
+		"p/tools/.internal.old": "",
+		"p/assets/theme.dark":   "",
+		"p/shader.wasm":         "",
+		// A dot-name that really is a file: the extension guard was answering
+		// this one, and #86's directory stat answers it now.
+		"p/tools/.eslintrc": "",
+		"p/missing.wasm":    "",
+	} {
+		if got := labelForUnindexed(root, rel, from); got != want {
+			t.Errorf("labelForUnindexed(%q) = %q, want %q", rel, got, want)
+		}
+	}
+}
+
+// The whole resolution, not just the label helper: the bare directory import of
+// a dot-name package, beside an identically shaped plain-name control that has
+// always resolved.
+func TestResolveImports_DotNameDirectoryPackageIsStillADep(t *testing.T) {
+	c := emptyConfig()
+	c.Exts[languageName] = makeConfig("", nil)
+	repoWithDirs(t, c, "p/src")
+	for _, dir := range []string{"p/tools/.internal", "p/tools/plain"} {
+		if err := os.MkdirAll(filepath.Join(c.RepoRoot, filepath.FromSlash(dir)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(c.RepoRoot, filepath.FromSlash(dir), "BUILD.bazel"), "")
+	}
+	ix := buildIndex(t, c)
+
+	r := rule.NewRule("ts_compile", "src")
+	resolveImports(c, ix, r, []string{"../tools/.internal", "../tools/plain"},
+		label.New("", "p/src", "src"))
+
+	want := []string{"//p/tools/.internal", "//p/tools/plain"}
+	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+		t.Errorf("deps = %v, want %v", got, want)
+	}
+}
+
 // The guard is a fallback, not a ban: every-dir mode does make a package of a
 // dot-directory, and an indexed rule there answers before anything is
 // fabricated.
