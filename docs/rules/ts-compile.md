@@ -183,18 +183,19 @@ group), or set `enable_check = False`. Neither of the last two emits from tsgo.
 Generated sources cannot use the default emit even on their own — see
 [ts_codegen § Compiling the output](ts-codegen.md#compiling-the-output).
 
-### A Src From Another Package
+### A Src From Outside This Package's Tree
 
 The same rule, one layer out, and the one half of it a `srcs` list can decide on
 its own — so it is decided while the BUILD file loads, before anything is
 analysed. A src is compiled into the package of the target that **lists** it:
-its outputs are declared under that package, and the root its package-relative
-path hangs off comes from the same place. A file from another package therefore
-hangs off the exec root while this package's own sources hang off the package:
+its outputs are declared under that package. The root its package-relative path
+hangs off, though, is where the file actually lives, so a src from a sibling
+package, from an ancestor, or from another repository hangs off a root of its
+own while this package's sources hang off the package:
 
 ```
 ts_compile: srcs on //src/app:app mix this package's own files with files that
-live in another package:
+live outside it:
   //packages/shared:util.ts
 ```
 
@@ -202,8 +203,16 @@ Give the file a target in its own package and depend on that; set `module_name`
 on it when the import is by bare specifier. The same two escape hatches apply,
 and the check is skipped when either is set.
 
-Only the **mix** is rejected, and four shapes are not it:
+Only the **mix** is rejected, and five shapes are not it:
 
+- A **descendant package's** file is already inside this package's directory,
+  which is the root this package's own sources hang off: `srcs = ["a.ts",
+  "//src/app/sub:x.ts"]` in `//src/app` is the one `rootDir` `src/app`, and
+  builds. A `ts_compile` may hold a whole subtree, and a subtree may grow a
+  BUILD file without the target above it having to be split. What it must not
+  do is compile a file the descendant package **also** compiles: both declare
+  `bazel-bin/src/app/sub/x.js`, and Bazel rejects that pair as conflicting
+  actions, naming both targets.
 - A target whose srcs **all** come from elsewhere has one root like any other.
 - The **top-level package** is the exec root, which is the root a src from any
   other package hangs off too — so `srcs = ["main.ts", "//lib:util.ts"]` at the
@@ -214,11 +223,16 @@ Only the **mix** is rejected, and four shapes are not it:
 - A **`select`** resolves after the loading phase, so this check never sees its
   branches. A mix hidden inside one still reaches the analysis-time error.
 
-A label naming a repository — `@other//pkg:f` — is another package. `@//pkg:f`
-and the canonical `@@//pkg:f` are not: an empty repository part is this
-repository, so `@@//<this package>:f` is this package. A repository that names
-**itself** by its own apparent name is the one shape read as foreign when it is
-not; spell it `//pkg:f`.
+Only a label that names a **source file** is judged. `//other:some_target`
+stands for whatever files that rule or filegroup produces, wherever those live,
+which the loading phase cannot know; the analysis-time root check is what covers
+them.
+
+A label naming a repository — `@other//pkg:f` — is outside this tree whatever
+its path. `@//pkg:f` and the canonical `@@//pkg:f` are not: an empty repository
+part is this repository, so `@@//<this package>:f` is this package. A repository
+that names **itself** by its own apparent name is the one shape read as foreign
+when it is not; spell it `//pkg:f`.
 
 ## Deps Have to Be Direct
 

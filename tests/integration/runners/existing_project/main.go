@@ -97,7 +97,7 @@ ts_compile(
 	}
 	it.Pass("//consumer:consumer failed")
 
-	for _, want := range []string{"//shared:util.ts", "another package"} {
+	for _, want := range []string{"//shared:util.ts", "outside it"} {
 		if !log.Contains(want) {
 			log.Dump()
 			it.Fail("the failure does not mention %q, so it is not the loading-phase check", want)
@@ -110,10 +110,25 @@ ts_compile(
 	it.Pass("the shared src is rejected while loading, naming the file")
 }
 
-// The three srcs shapes that are not the mix and build on origin/main: a
-// select, a canonical `@@//` label in this very package, and the top-level
+// The four srcs shapes that are not the mix and build on origin/main: a
+// descendant package's src, which hangs off this package like the target's own;
+// a select; a canonical `@@//` label in this very package; and the top-level
 // package, which IS the exec root a src from anywhere else hangs off.
 func srcsShapesStillBuild(it *harness.IT) {
+	it.Write(it.Path("holder/a.ts"), "export const a = 1;\n")
+	it.Write(it.Path("holder/sub/x.ts"), "export const x = 1;\n")
+	it.Write(it.Path("holder/sub/BUILD.bazel"), "exports_files([\"x.ts\"])\n")
+	it.Write(it.Path("holder/BUILD.bazel"), `load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "holder",
+    srcs = [
+        "a.ts",
+        "//holder/sub:x.ts",
+    ],
+)
+`)
+
 	it.Write(it.Path("chooses/a.ts"), "export const a = 1;\n")
 	it.Write(it.Path("chooses/BUILD.bazel"), `load("@rules_typescript//ts:defs.bzl", "ts_compile")
 
@@ -149,10 +164,12 @@ ts_compile(
 )
 `)
 
-	it.MustBazel("build", "//chooses:chooses", "//canonical:canonical", "//:toplevel")
-	it.Pass("bazel build //chooses //canonical //:toplevel")
+	it.MustBazel("build", "//holder:holder", "//chooses:chooses", "//canonical:canonical", "//:toplevel")
+	it.Pass("bazel build //holder //chooses //canonical //:toplevel")
 
 	for _, rel := range []string{
+		"holder/a.d.ts",
+		"holder/sub/x.d.ts",
 		"chooses/a.js",
 		"canonical/a.d.ts",
 		"canonical/b.d.ts",
@@ -161,5 +178,5 @@ ts_compile(
 	} {
 		it.RequireFile(it.Bin(rel), "a srcs shape that is not the mix lost its output: %s", rel)
 	}
-	it.Pass("a select, a canonical self-label and a top-level foreign src all still emit")
+	it.Pass("a descendant src, a select, a canonical self-label and a top-level foreign src all still emit")
 }

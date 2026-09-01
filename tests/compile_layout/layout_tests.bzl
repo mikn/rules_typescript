@@ -166,25 +166,37 @@ paths_value_test = unittest.make(_paths_value_impl)
 def _mixed_src_packages_impl(ctx):
     env = unittest.begin(ctx)
 
-    # The srcs of //tests/compile_layout:siblings, which is exactly the layout a
-    # BUILD file in alpha/ or beta/deep/ would turn into the rejected one.
+    # The srcs of //tests/compile_layout:siblings. A BUILD file in alpha/ or
+    # beta/deep/ would make these labels cross a package boundary and change
+    # nothing else: both directories are still inside this package.
     asserts.equals(
         env,
         [],
         mixed_src_packages(_PKG, ["alpha/one.ts", "beta/deep/two.ts", ":generated.ts"]),
         "a subtree of one package is what a multi-directory target is made of",
     )
+    asserts.equals(
+        env,
+        [],
+        mixed_src_packages(_PKG, [
+            "three.ts",
+            "//" + _PKG + "/alpha:one.ts",
+            "//" + _PKG + "/beta/deep:two.ts",
+        ]),
+        "a descendant package's src hangs off this package, the root the own srcs do",
+    )
 
     asserts.equals(
         env,
-        ["//tests/compile_layout/alpha:one.ts", "//other:two.ts"],
+        ["//other:two.ts", "//tests:three.ts", "//tests/compile_layoutish:five.ts"],
         mixed_src_packages(_PKG, [
-            "three.ts",
-            "//tests/compile_layout/alpha:one.ts",
+            "one.ts",
             "//other:two.ts",
+            "//tests:three.ts",
             "//" + _PKG + ":four.ts",
+            "//tests/compile_layoutish:five.ts",
         ]),
-        "only a label naming another package is one this target compiles twice",
+        "a sibling, an ancestor and a package this one only prefixes are all outside",
     )
 
     # //tests/compiler_options/analysis:from_exec_root, and every ts_compile in
@@ -205,11 +217,21 @@ def _mixed_src_packages_impl(ctx):
         "a declaration from another package is passed through",
     )
 
+    # Only the label of a source file says where that file is. A rule's label
+    # stands for outputs the loading phase cannot place, so the analysis-time
+    # root check is the one that judges them.
+    asserts.equals(
+        env,
+        [],
+        mixed_src_packages(_PKG, ["one.ts", "//other:some_target"]),
+        "a label that names no source file locates nothing to compare",
+    )
+
     asserts.equals(
         env,
         ["@other_repo//ts:one.ts"],
         mixed_src_packages("ts", ["two.ts", "@other_repo//ts:one.ts"]),
-        "another repository is another package even at the same path",
+        "another repository is outside this tree even at the same path",
     )
 
     # An empty repository part -- `@//` and the canonical `@@//` -- is this one.
