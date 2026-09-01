@@ -6,6 +6,11 @@ load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 
 # gazelle:ts_package_boundary every-dir
 
+# An svgr-style project's shape, minus svgr: the type is an inline object so it
+# needs no npm package to resolve, and it carries spaces so the directive's
+# first-space-only split is exercised through a real Gazelle run.
+# gazelle:ts_asset_declaration_type .svg { readonly viewBox: string }
+
 gazelle(
     name = "gazelle",
     gazelle = "@rules_typescript//gazelle:gazelle_typescript",

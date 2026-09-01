@@ -67,6 +67,8 @@ func (l *tsLang) KnownDirectives() []string {
 		directiveCodegen,
 		// Name the npm hub repo that bare specifiers in this tree resolve into.
 		directiveNpmHub,
+		// Declare what an asset extension's import resolves to in this tree.
+		directiveAssetDeclarationType,
 	}
 }
 

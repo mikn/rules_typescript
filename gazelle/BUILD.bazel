@@ -46,6 +46,7 @@ go_test(
     name = "typescript_test",
     srcs = [
         "ambient_types_test.go",
+        "asset_declaration_type_test.go",
         "boundary_tsconfig_test.go",
         "codegen_test.go",
         "converge_cases_test.go",

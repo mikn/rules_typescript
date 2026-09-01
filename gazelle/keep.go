@@ -9,6 +9,7 @@ package typescript
 import (
 	"log"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -451,6 +452,148 @@ func sameValues(a, b []string) bool {
 	sort.Strings(x)
 	sort.Strings(y)
 	return slices.Equal(x, y)
+}
+
+// ---- declaration_type, the dict a directive owns ---------------------------
+
+// A string dict like pathAliasMap, and reconciled the same way, but left out of
+// Kinds() -- rule.MergeRules deletes a mergeable attribute the generated rule
+// does not carry, and a tree with no ts_asset_declaration_type directive carries
+// none, so declaring it mergeable would delete the hand-written declaration_type
+// of every repo that adopted the attribute before the directive existed.
+//
+// An entry whose value is empty is one a directive named and left blank: the
+// map owns the extension and declares nothing for it, which is how a nested
+// directive returns a subtree to asset_library's string default.
+type declarationTypeMap map[string]string
+
+var (
+	_ rule.BzlExprValue = declarationTypeMap(nil)
+	_ rule.Merger       = declarationTypeMap(nil)
+)
+
+func (m declarationTypeMap) BzlExpr() bzl.Expr {
+	return &bzl.DictExpr{List: m.entries(), ForceMultiLine: true}
+}
+
+func (m declarationTypeMap) entries() []*bzl.KeyValueExpr {
+	exts := make([]string, 0, len(m))
+	for ext, typeExpr := range m {
+		if typeExpr != "" {
+			exts = append(exts, ext)
+		}
+	}
+	sort.Strings(exts)
+	out := make([]*bzl.KeyValueExpr, 0, len(exts))
+	for _, ext := range exts {
+		out = append(out, &bzl.KeyValueExpr{
+			Key:   &bzl.StringExpr{Value: ext},
+			Value: &bzl.StringExpr{Value: m[ext]},
+		})
+	}
+	return out
+}
+
+// Merge is entry by entry, as pathAliasMap.Merge is, over a narrower claim: the
+// directives name the extensions Gazelle owns, and an extension no directive
+// named is carried across untouched however it got there. Within what it owns
+// the directive wins, and a "# keep" on the entry is what hands one back.
+func (m declarationTypeMap) Merge(other bzl.Expr) bzl.Expr {
+	held := map[string]bool{}
+	var carried []*bzl.KeyValueExpr
+	if dict, isDict := other.(*bzl.DictExpr); isDict {
+		for _, kv := range dict.List {
+			key, isString := kv.Key.(*bzl.StringExpr)
+			if !isString {
+				continue
+			}
+			_, owned := m[key.Value]
+			if owned && !rule.ShouldKeep(kv) {
+				continue
+			}
+			held[key.Value] = owned
+			carried = append(carried, kv)
+		}
+	}
+	merged := &bzl.DictExpr{ForceMultiLine: true}
+	for _, kv := range m.entries() {
+		if !held[kv.Key.(*bzl.StringExpr).Value] {
+			merged.List = append(merged.List, kv)
+		}
+	}
+	merged.List = append(merged.List, carried...)
+	sort.SliceStable(merged.List, func(i, j int) bool {
+		return dictKey(merged.List[i]) < dictKey(merged.List[j])
+	})
+	if len(merged.List) == 0 {
+		return nil
+	}
+	return merged
+}
+
+func dictKey(kv *bzl.KeyValueExpr) string {
+	if key, isString := kv.Key.(*bzl.StringExpr); isString {
+		return key.Value
+	}
+	return ""
+}
+
+// declarationTypeFor narrows the directives in force to the extensions srcs
+// actually has. One asset_library holds one asset file, so a tree declaring
+// .svg and .png writes one entry per target rather than both on each.
+func declarationTypeFor(tc *tsConfig, srcs []string) declarationTypeMap {
+	if len(tc.assetDeclarationType) == 0 {
+		return nil
+	}
+	out := declarationTypeMap{}
+	for _, src := range srcs {
+		ext := strings.ToLower(path.Ext(src))
+		if typeExpr, owned := tc.assetDeclarationType[ext]; owned {
+			out[ext] = typeExpr
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// setAssetDeclarationType decorates a rule the generator is writing for the
+// first time. A rule already in the BUILD file never reaches here: its srcs are
+// claimed, so the generator emits nothing for that asset at all --
+// applyAssetDeclarationType is what reaches those.
+func setAssetDeclarationType(gen *rule.Rule, want declarationTypeMap) {
+	if len(want.entries()) > 0 {
+		gen.SetAttr("declaration_type", want)
+	}
+}
+
+// applyAssetDeclarationType reconciles the asset_library rules the BUILD file
+// already holds, which is every one of them after the run that wrote it.
+func applyAssetDeclarationType(args language.GenerateArgs, tc *tsConfig) {
+	if args.File == nil || len(tc.assetDeclarationType) == 0 {
+		return
+	}
+	for _, have := range args.File.Rules {
+		if have.Kind() != "asset_library" || have.ShouldKeep() {
+			continue
+		}
+		want := declarationTypeFor(tc, have.AttrStrings("srcs"))
+		if len(want) == 0 || attrKept(have, "declaration_type") {
+			continue
+		}
+		existing := have.Attr("declaration_type")
+		if existing != nil && !isLiteralAttrValue(existing) {
+			reportUnmergeableExpr(args.File.Path, have, "declaration_type", existing)
+			continue
+		}
+		merged := want.Merge(existing)
+		if merged == nil {
+			have.DelAttr("declaration_type")
+			continue
+		}
+		have.SetAttr("declaration_type", merged)
+	}
 }
 
 // attrKept reports a "# keep" on the attribute, which the merger checks itself

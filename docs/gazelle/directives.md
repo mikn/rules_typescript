@@ -22,8 +22,9 @@ Directives go in `BUILD.bazel` files as comments and control how Gazelle generat
 | `# gazelle:ts_warn_unresolved true` | Warn when an import cannot be resolved to a Bazel label |
 | `# gazelle:ts_codegen <name> <generator> <outs> [srcs:<csv>] [args…]` | Register a `ts_codegen` target in this directory; a `srcs:` entry may be a `glob()` call |
 | `# gazelle:ts_npm_hub npm_eslint` | Resolve bare specifiers in this tree into that npm hub repo, not the default `@npm` |
+| `# gazelle:ts_asset_declaration_type .svg <type>` | What an import of that asset extension resolves to in this tree, written into every `asset_library`'s `declaration_type` |
 
-That is the complete set: eleven directives. Gazelle warns on an unknown
+That is the complete set: twelve directives. Gazelle warns on an unknown
 `# gazelle:ts_*` comment and continues, so a typo shows up in the run output.
 
 ## `# keep`
@@ -59,6 +60,7 @@ is replaced unless a `# keep` holds it. `ts_compile.deps` and
 | `ts_config` | `src`, `visibility` — `deps`, the `extends` chain, is yours |
 | `ts_lint` | `srcs`, `linter`, `linter_binary`, `config`, `fail_on_warnings` |
 | `css_library`, `css_module`, `asset_library`, `json_library` | `srcs`, `deps`, `visibility` |
+| `asset_library` | `declaration_type`, one entry per extension a `ts_asset_declaration_type` directive names — an extension no directive names is yours |
 | `ts_codegen` | `outs`, `out_dir`, `visibility` |
 | `next_build` | `srcs` (a `glob()`), `staging_srcs`, `config`, `tsconfig`, `node_modules` |
 | `next_dev_server` | `node_modules` |
@@ -394,6 +396,74 @@ TanStack Router is deliberately excluded: its route tree is written by the Start
 Vite plugin during the bundle, into the writable staging directory `ts_bundle`
 hands it, so a second copy in `bazel-bin` would only drift from the one the build
 used.
+
+### Declare what an asset extension imports as
+
+`asset_library` writes a `<asset>.<ext>.d.ts` beside every asset it covers, and
+by default it says `string` — the URL a bundler hands back when it does not
+transform the file. A project running svgr gets a component from `*.svg`
+instead, and a `declare module "*.svg"` of its own does not fix it: TypeScript
+prefers the concrete declaration beside the asset over any pattern. The
+attribute that says so is `asset_library.declaration_type`, and this is the
+directive that fills it in:
+
+```python
+# BUILD.bazel
+
+# gazelle:ts_asset_declaration_type .svg import("react").FC<import("react").SVGProps<SVGSVGElement>>
+```
+
+Every `asset_library` in this directory and below whose `srcs` hold a `.svg`
+carries that type from the next run on — the ones Gazelle writes and the ones it
+has already written, which is the whole point: Gazelle writes one target per
+asset file, so a repo of any size has too many of them to edit by hand.
+
+Only the first space separates the extension from the expression, unlike
+`ts_codegen` above, so an expression with spaces in it needs no quoting:
+
+```python
+# gazelle:ts_asset_declaration_type .md { default: string; toc: string[] }
+```
+
+One directive per extension; a target takes an entry only for the extensions its
+own `srcs` have. A subdirectory overrides what it inherited by naming the
+extension again, and returns the subtree to the `string` default by naming the
+extension with nothing after it:
+
+```python
+# packages/legacy/BUILD.bazel
+
+# These are imported as URLs; the svgr transform does not run here.
+# gazelle:ts_asset_declaration_type .svg
+```
+
+The bare form is not "stop managing it": Gazelle removes the entry from the
+targets in that subtree, including one an inherited directive wrote on an
+earlier run. To hold a value against the directive, `# keep` it — on the entry,
+the attribute, or the rule:
+
+```python
+asset_library(
+    name = "sprite_svg",
+    srcs = ["sprite.svg"],
+    declaration_type = {
+        # keep
+        ".svg": "string",
+    },
+)
+```
+
+An extension no directive in scope names is not Gazelle's at all, so a repo that
+hand-wrote `declaration_type` before adopting the directive keeps every entry it
+wrote until a directive names that extension.
+
+The expression is written into the generated `.d.ts` verbatim and nothing checks
+it: a name that does not resolve widens the import to `any` in silence, because
+the declaration is a `.d.ts` and this ruleset compiles with `skipLibCheck`.
+Building the consuming target with `compiler_options = {"skipLibCheck": False}`
+is what surfaces it; the error names the generated `<asset>.d.ts`, whose header
+names the target and the attribute. See
+[`asset_library`](../rules/css-and-assets.md#when-an-asset-is-not-a-url).
 
 ### A glob does not cross a package boundary
 
