@@ -129,6 +129,17 @@ def _relative_path(from_dir, to_dir):
     result = up_parts + down_parts
     return "/".join(result) if result else "."
 
+def explicitly_relative(path):
+    """A `paths` value that names itself relative, which TS5090 requires.
+
+    Exported for the unit test. `_relative_path` answers with a bare segment
+    whenever the target sits under the tsconfig's own directory, and without a
+    baseUrl -- which tsgo removed -- TypeScript reads that as a package name.
+    """
+    if path.startswith("./") or path.startswith("../") or path.startswith("/"):
+        return path
+    return "./" + path
+
 def include_entry(tsconfig_dir, src_dir, basename):
     """Returns a src's `include` entry, relative to the generated tsconfig.
 
@@ -486,7 +497,10 @@ def _generate_tsconfig(
             )
 
     if paths:
-        opts["paths"] = paths
+        opts["paths"] = {
+            key: [explicitly_relative(value) for value in values]
+            for key, values in paths.items()
+        }
 
     opts["rootDirs"] = [
         _relative_path(tsconfig_dir, ""),
@@ -601,6 +615,8 @@ const cfg = {
   own: new Set(),
   direct: new Set(),
   transitive: new Map(),
+  provided: [],
+  transitiveDirs: new Map(),
   npmDirect: new Set(),
   npmTransitive: new Map(),
   moduleDirect: [],
@@ -796,6 +812,12 @@ for (const entry of manifest) {
     case "scan": cfg.scan.push(field[1]); break;
     case "own": for (const k of keysOf(field[1])) cfg.own.add(k); break;
     case "direct": for (const k of keysOf(field[1])) cfg.direct.add(k); break;
+    case "own-dir": case "direct-dir": cfg.provided.push(stripBin(field[1])); break;
+    case "transitive-dir":
+      if (!cfg.transitiveDirs.has(stripBin(field[1]))) {
+        cfg.transitiveDirs.set(stripBin(field[1]), field[2]);
+      }
+      break;
     case "transitive":
       for (const k of keysOf(field[1])) {
         if (!cfg.transitive.has(k)) cfg.transitive.set(k, field[2]);
@@ -811,7 +833,11 @@ for (const entry of manifest) {
 // ── Classification ───────────────────────────────────────────────────────────
 
 function undeclared(specifier, file) {
-  const clean = specifier.split("?")[0].split("#")[0];
+  // The fragment starts at the FIRST # only when something precedes it: a
+  // leading one makes the whole specifier a package-imports name.
+  const query = specifier.split("?")[0];
+  const hash = query.indexOf("#", 1);
+  const clean = hash > 0 ? query.slice(0, hash) : query;
   if (clean === "") return null;
 
   if (clean.startsWith("./") || clean.startsWith("../")) {
@@ -822,8 +848,16 @@ function undeclared(specifier, file) {
     for (const c of candidates) {
       if (cfg.own.has(c) || cfg.direct.has(c)) return null;
     }
+    // A directory answers for everything under it: whether the file is really
+    // there is the compiler's question, not this one's.
+    for (const dir of cfg.provided) {
+      if (underPrefix(resolved, dir)) return null;
+    }
     for (const c of candidates) {
       if (cfg.transitive.has(c)) return cfg.transitive.get(c);
+    }
+    for (const [dir, label] of cfg.transitiveDirs) {
+      if (underPrefix(resolved, dir)) return label;
     }
     return null;
   }
@@ -882,7 +916,7 @@ process.stderr.write(lines.join("\\n") + "\\n");
 process.exit(1);
 """
 
-def _label_text(label):
+def label_text(label):
     """The label as a deps list writes it: the main repo's canonical @@ dropped."""
     text = str(label)
     return text[2:] if text.startswith("@@//") else text
@@ -905,8 +939,16 @@ def _npm_hub_entry(npm_info):
             hub = candidate
     return struct(name = name, label = "@{}//:{}".format(hub, label_name))
 
+# A directory travels as its own path, and expansion is off wherever these are
+# added: the check's inputs are the target's own srcs, so a dep's tree is one it
+# holds no input for and Bazel fails the action rather than expanding it.
+def _own_manifest_entry(f):
+    kind = "own-dir" if f.is_directory else "own"
+    return "{}\t{}".format(kind, f.path)
+
 def _direct_manifest_entry(f):
-    return "direct\t" + f.path
+    kind = "direct-dir" if f.is_directory else "direct"
+    return "{}\t{}".format(kind, f.path)
 
 def _transitive_manifest_entry(f):
     owner = f.owner
@@ -915,7 +957,8 @@ def _transitive_manifest_entry(f):
     # first-party source reaches one; the npm entries below carry those by name.
     if not owner or owner.repo_name:
         return None
-    return "transitive\t{}\t{}".format(f.path, _label_text(owner))
+    kind = "transitive-dir" if f.is_directory else "transitive"
+    return "{}\t{}\t{}".format(kind, f.path, label_text(owner))
 
 def _strict_deps_check(
         ctx,
@@ -965,7 +1008,7 @@ def _strict_deps_check(
     manifest.set_param_file_format("multiline")
 
     # The scalars first: the reader keys paths off bin_dir as it parses.
-    manifest.add("label\t" + _label_text(ctx.label))
+    manifest.add("label\t" + label_text(ctx.label))
     manifest.add("bin\t" + ctx.bin_dir.path)
     for alias in ctx.attr.path_aliases:
         manifest.add("alias\t" + alias)
@@ -981,9 +1024,9 @@ def _strict_deps_check(
             manifest.add("module-transitive\t{}\t{}".format(module.module_name, module.label))
 
     manifest.add_all(scan_srcs, format_each = "scan\t%s")
-    manifest.add_all(own_files, format_each = "own\t%s")
-    manifest.add_all(direct_provided, map_each = _direct_manifest_entry)
-    manifest.add_all(transitive_provided, map_each = _transitive_manifest_entry)
+    manifest.add_all(own_files, map_each = _own_manifest_entry, expand_directories = False)
+    manifest.add_all(direct_provided, map_each = _direct_manifest_entry, expand_directories = False)
+    manifest.add_all(transitive_provided, map_each = _transitive_manifest_entry, expand_directories = False)
 
     ctx.actions.run(
         inputs = depset(scan_srcs + [checker]),
@@ -1139,6 +1182,14 @@ def _classify_srcs(ctx):
     js_srcs = []
     passthrough_dts = []
     for f in ctx.files.srcs:
+        if f.is_directory:
+            fail(
+                "ts_compile: '{}' on {} is a directory.\n".format(f.short_path, ctx.label) +
+                "srcs declares one output per file at analysis time, and a directory has " +
+                "no file list until its action has run.\nA tree of already-compiled output " +
+                "-- ts_codegen(out_dir = ...) -- belongs in deps, where it is staged whole " +
+                "and named by module_name.",
+            )
         if _is_dts_source(f):
             passthrough_dts.append(f)
         elif f.extension in _TS_EXTENSIONS:
@@ -1713,14 +1764,14 @@ def _ts_compile_impl(ctx):
     if ctx.attr.module_name:
         own_modules.append(struct(
             module_name = ctx.attr.module_name,
-            label = _label_text(ctx.label),
+            label = label_text(ctx.label),
             declaration_root = declaration_root,
             source_root = source_root,
             declared_paths = (),
         ))
     providers.append(TsModuleInfo(
         module_name = ctx.attr.module_name,
-        label = _label_text(ctx.label),
+        label = label_text(ctx.label),
         declaration_root = declaration_root,
         source_root = source_root,
         declared_paths = (),

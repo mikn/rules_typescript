@@ -2,7 +2,8 @@
 
 Runs a generator executable that reads sources and writes TypeScript, as a
 declared build action. It is the TypeScript equivalent of
-`proto_library` → `go_proto_library`: a `ts_compile` takes the result in `srcs`.
+`proto_library` → `go_proto_library`: a `ts_compile` takes declared files in
+`srcs`, and a declared directory (`out_dir`) in `deps`.
 
 ```python
 load("@rules_typescript//ts:defs.bzl", "ts_binary", "ts_codegen", "ts_compile")
@@ -104,14 +105,65 @@ sets is expressible: oxc groups its sources by root and runs once per group.
 | `out_dir` | `string` | `""` | A single declared **directory** instead, for a generator that produces a tree it will not enumerate (Prisma's client, say) |
 | `generator` | `label` | required | The executable, built for the exec configuration |
 | `args` | `string_list` | `[]` | The generator's command line, after placeholder substitution |
-| `node_modules` | `label` | `None` | An npm tree for a generator that imports packages at runtime |
+| `node_modules` | `label` | `None` | An npm tree for a generator that imports packages at runtime. Name the target `node_modules` if the generator uses ESM |
+| `module_name` | `string` | `""` | The bare specifier the `out_dir` tree is importable as. Requires `out_dir` |
 | `env` | `string_dict` | `{}` | Extra environment for the action |
 
 `outs` and `out_dir` are **mutually exclusive, and exactly one is required**.
 Both being unset and both being set are separate analysis-time errors. Bazel
 requires every output to be declared at analysis time, so a generator whose
-output set depends on its input is only expressible as `out_dir`. Nothing
-downstream can then name one file inside it.
+output set depends on its input is only expressible as `out_dir`.
+
+`module_name` requires `out_dir` — see [A directory of output](#a-directory-of-output).
+
+## A Directory of Output
+
+A generator whose file names come from its input — one module per message
+bundle, per Prisma model, per GraphQL operation — cannot have its outputs
+declared. `out_dir` declares the directory instead, and the target then carries
+what a `ts_compile` reads a dep through:
+
+```python
+ts_codegen(
+    name = "messages",
+    srcs = ["project.inlang/settings.json"] + glob(["messages/*.json"]),
+    out_dir = "compiled",
+    args = ["--project", "{srcs_dir}", "--outdir", "{out}"],
+    generator = ":compile_messages",
+    module_name = "#app/messages",
+    node_modules = ":node_modules",
+)
+
+ts_compile(
+    name = "app",
+    srcs = ["main.ts"],
+    deps = [":messages"],
+)
+```
+
+`main.ts` imports `#app/messages`, and the declarations inside the tree type it.
+
+**The tree goes in `deps`, never in `srcs`.** `srcs` declares one output per
+input file at analysis time, and a directory has no file list until its action
+has run; putting one there is an analysis-time error naming this attribute. So
+the generator has to emit **compiled** output — `.js` beside `.d.ts` — because
+nothing downstream will compile it. A generator that emits `.ts` sources into a
+tree has no route today.
+
+`module_name` is the only way to import out of the tree by name. Without it the
+tree is still staged for the consumer's type-check, but no `paths` entry points
+at it and the import does not resolve:
+
+```
+error TS2307: Cannot find module '#app/messages' or its corresponding type
+declarations.
+```
+
+A relative import into the tree works too — `./compiled/messages/greeting.js`
+from a source in the same package — and needs no `module_name`. The
+undeclared-import check resolves it against the directory rather than against a
+file list it does not have, so it still names the label when the tree arrives
+only through another dep.
 
 ## Placeholders in `args`
 
@@ -142,6 +194,20 @@ Three variables the rule sets so a generator script need not know any path:
 | `NODE_BINARY` | a `js_tool` toolchain is registered | the toolchain node. Set with `setdefault`, so an `env` entry of your own wins |
 | `NODE_PATH` | `node_modules` is set | the tree's directory, for CJS resolution |
 | `TS_CODEGEN_NODE_MODULES` | `node_modules` is set | the same path, for a script that forks a child process |
+
+**A generator that writes bare ESM imports needs the target named literally
+`node_modules`.** The tree's directory is named after its target, and Node's
+ESM resolver only ever looks in a directory called `node_modules` as it walks
+up — `NODE_PATH` is a CJS mechanism and ESM ignores it. So
+`node_modules = ":codegen_node_modules"` leaves the generator failing at
+runtime:
+
+```
+Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'consola'
+```
+
+Name the target `node_modules`. One per package is the limit that follows; a
+second npm tree in the same package can only serve a CJS generator.
 
 The shape for a Node generator is a [`ts_binary`](ts-binary.md) whose
 `entry_point` is the script itself. The rule resolves the runtime from the JS
