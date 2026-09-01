@@ -733,6 +733,36 @@ sections list every break with the edit it requires.
   four: `TsDeclarationInfo.declaration_files`, `.transitive_declaration_files`,
   `JsInfo`, and `path_alias_srcs`. Expansion is off, and the directory enters
   the manifest as the one path Bazel knows.
+- **A `glob()` in a `# gazelle:ts_codegen` `srcs:` field reaches the BUILD file
+  as Starlark.** Both ways of writing one were broken. A `srcs:` field holding
+  only a glob was written as a quoted string -- `srcs = "glob([\"messages/*.json\"])"`
+  -- which is a string on a `label_list` attribute, so Bazel refused to load the
+  package at all: *expected value of type 'list(label)' for attribute 'srcs'*. A
+  glob beside a file name was silently dropped instead, leaving a target whose
+  generator read fewer inputs than the directive named and no diagnostic saying
+  so. The field is now split on the commas between entries rather than every
+  comma, so a glob keeps its own patterns and its `exclude`, and the srcs
+  attribute is built as a real expression: `["settings.json"] +
+  glob(["messages/*.json"])`. An entry that opens `glob(` and does not parse as
+  a `glob()` call is refused with a log line and no rule, rather than being
+  dropped. The `dir:` out_dir form is documented for what it is: Bazel declares
+  the directory as one artifact, so nothing in it has a label, no
+  `<name>_compile` is written, and reaching the output means a rule of your own
+  that adapts the directory to the providers `ts_compile.deps` reads.
+- **A directory a `ts_codegen` glob collects is no longer made into a package of
+  its own.** Rendering the glob correctly was not enough to load it: a `srcs:`
+  glob reaching into a subdirectory of catalogues met a `json_library` per file
+  there, which makes that directory its own Bazel package -- and `glob()` does
+  not descend into one, so the pattern matched nothing and Bazel rejected the
+  package above it outright (*glob pattern didn't match anything, but
+  allow_empty is set to False*). Those files are the ancestor rule's inputs, so
+  Gazelle now writes no targets over them and the directory stays part of the
+  package that globs it. Where that is not enough -- a file the glob does not
+  collect still needs a target, and that target restores the package -- Gazelle
+  names the leftovers in a log line instead. `gazelle_roundtrip` now runs
+  Bazel over a generated tree carrying such a directive: the converge tests
+  compare BUILD text, and neither this nor the quoted-glob bug was visible in
+  text.
 - **A `#` specifier resolves through the package's `imports` field.** Node calls
   a `#`-prefixed specifier a package-private import, and the `imports` map in
   the importing package's own `package.json` is the only thing that answers one.

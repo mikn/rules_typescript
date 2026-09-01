@@ -2,6 +2,7 @@
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@gazelle//:def.bzl", "gazelle")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 
 # gazelle:ts_package_boundary every-dir
 
@@ -15,4 +16,12 @@ gazelle(
 build_test(
     name = "app_builds_test",
     targets = ["//src/app"],
+)
+
+# The generator behind src/i18n's ts_codegen directive. It lives here so tools/
+# holds nothing Gazelle would write a BUILD file for.
+sh_binary(
+    name = "catalogue_gen",
+    srcs = ["tools/catalogue_gen.sh"],
+    visibility = ["//visibility:public"],
 )

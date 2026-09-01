@@ -1508,6 +1508,33 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 
 // ---- directive parser: ts_codegen ------------------------------------------
 
+// splitCodegenSrcs splits a srcs: field on the commas between entries, leaving
+// the ones inside a glob() call's own argument list alone.
+func splitCodegenSrcs(field string) []string {
+	var srcs []string
+	depth, start := 0, 0
+	flush := func(end int) {
+		if src := strings.TrimSpace(field[start:end]); src != "" {
+			srcs = append(srcs, src)
+		}
+	}
+	for i, r := range field {
+		switch r {
+		case '(', '[':
+			depth++
+		case ')', ']':
+			depth--
+		case ',':
+			if depth == 0 {
+				flush(i)
+				start = i + 1
+			}
+		}
+	}
+	flush(len(field))
+	return srcs
+}
+
 // parseCodegenDirective parses a # gazelle:ts_codegen directive value written
 // in rel and returns a CodegenPattern, or nil when the value is malformed.
 //
@@ -1521,7 +1548,8 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 //   - The prefix "dir:" followed by a directory name, e.g. "dir:generated/client".
 //     This sets OutDir instead of Outs (for generators that produce a tree).
 //
-// An optional "srcs:" field names the generator's inputs. Omitted, the
+// An optional "srcs:" field names the generator's inputs, as a comma-separated
+// list whose entries are file names or glob() expressions. Omitted, the
 // generator reads the TypeScript sources of the directory it was declared in,
 // which is what a route-tree or barrel generator wants.
 //
@@ -1554,11 +1582,7 @@ func parseCodegenDirective(rel, value string) *CodegenPattern {
 	}
 
 	if len(rest) > 0 && strings.HasPrefix(rest[0], codegenSrcsPrefix) {
-		for _, src := range strings.Split(strings.TrimPrefix(rest[0], codegenSrcsPrefix), ",") {
-			if src = strings.TrimSpace(src); src != "" {
-				cp.Srcs = append(cp.Srcs, src)
-			}
-		}
+		cp.Srcs = splitCodegenSrcs(strings.TrimPrefix(rest[0], codegenSrcsPrefix))
 		if len(cp.Srcs) == 0 {
 			return nil
 		}

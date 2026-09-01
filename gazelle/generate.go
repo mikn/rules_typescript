@@ -1,6 +1,7 @@
 package typescript
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path"
@@ -11,14 +12,14 @@ import (
 
 	"github.com/bazelbuild/bazel-gazelle/language"
 	"github.com/bazelbuild/bazel-gazelle/rule"
+	bzl "github.com/bazelbuild/buildtools/build"
 
 	"github.com/mikn/rules_typescript/gazelle/remix"
 	"github.com/mikn/rules_typescript/gazelle/tanstack"
 )
 
-// globExpr is a sentinel prefix used in CodegenPattern.Srcs to indicate that
-// the entry should be emitted as a Bazel glob() expression rather than a plain
-// string. The value is stripped before the glob is rendered.
+// globExprPrefix marks a CodegenPattern.Srcs entry that is a glob() call to be
+// rendered as Starlark rather than quoted as a file name.
 const globExprPrefix = "glob("
 
 // builtinExcludeDirs is the set of directory basenames that are always
@@ -314,6 +315,20 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 			if isIndexFile(f) {
 				hasIndex = true
 			}
+		}
+	}
+
+	if globbed := codegenGlobClaims(args.Rel, args.RegularFiles, tc); len(globbed) > 0 {
+		targeted := concatFiles(srcFiles, testFiles, docFiles, ambientFiles,
+			cssFiles, cssModuleFiles, assetFiles, jsonFiles)
+		kept := dropClaimed(targeted, globbed)
+		switch {
+		case len(kept) > 0:
+			warnCodegenGlobbedPackage(args, kept)
+		case args.File != nil:
+			warnCodegenGlobbedPackage(args, []string{path.Base(args.File.Path)})
+		default:
+			return emptyResult(args)
 		}
 	}
 
@@ -1072,6 +1087,14 @@ func claimedSrcs(args language.GenerateArgs, tc *tsConfig, patterns []CodegenPat
 	return claimed
 }
 
+func concatFiles(lists ...[]string) []string {
+	var all []string
+	for _, list := range lists {
+		all = append(all, list...)
+	}
+	return all
+}
+
 func dropClaimed(files []string, claimed map[string]struct{}) []string {
 	var kept []string
 	for _, f := range files {
@@ -1404,14 +1427,142 @@ func buildCodegenCompileRule(name, codegen string) *rule.Rule {
 	return r
 }
 
+// codegenSrcsExpr renders a pattern's srcs as the value of a label_list attr:
+// a plain list, a glob() call, or the two summed. A glob entry that does not
+// parse as a glob() call is rejected rather than dropped, since Bazel would
+// otherwise be handed a target whose generator silently reads fewer inputs
+// than the directive named.
+func codegenSrcsExpr(srcs []string) (any, bool) {
+	var plain []string
+	var globs []bzl.Expr
+	for _, src := range srcs {
+		if !strings.HasPrefix(src, globExprPrefix) {
+			plain = append(plain, src)
+			continue
+		}
+		g, err := parseGlobExpr(src)
+		if err != nil {
+			log.Printf("typescript: ts_codegen srcs entry %q is not a glob() call: %v", src, err)
+			return nil, false
+		}
+		globs = append(globs, g)
+	}
+	sort.Strings(plain)
+	if len(globs) == 0 {
+		return plain, true
+	}
+
+	terms := globs
+	if len(plain) > 0 {
+		terms = append([]bzl.Expr{rule.ExprFromValue(plain)}, globs...)
+	}
+	expr := terms[0]
+	for _, term := range terms[1:] {
+		expr = &bzl.BinaryExpr{X: expr, Op: "+", Y: term}
+	}
+	return expr, true
+}
+
+// parseGlobExpr reads one glob() call out of a directive field.
+func parseGlobExpr(src string) (*bzl.CallExpr, error) {
+	f, err := bzl.ParseBuild("srcs", []byte(src))
+	if err != nil {
+		return nil, err
+	}
+	if len(f.Stmt) != 1 {
+		return nil, fmt.Errorf("want one expression, got %d", len(f.Stmt))
+	}
+	call, ok := f.Stmt[0].(*bzl.CallExpr)
+	if !ok {
+		return nil, fmt.Errorf("want a call expression")
+	}
+	if ident, ok := call.X.(*bzl.Ident); !ok || ident.Name != "glob" {
+		return nil, fmt.Errorf("want a call to glob")
+	}
+	return call, nil
+}
+
+// globIncludePatterns returns the patterns a glob() call collects. Its
+// excludes are left out: they only ever shrink the match, and a caller asking
+// what a glob reaches has to assume the widest answer.
+func globIncludePatterns(call *bzl.CallExpr) []string {
+	var include bzl.Expr
+	for _, arg := range call.List {
+		if kw, ok := arg.(*bzl.AssignExpr); ok {
+			if ident, ok := kw.LHS.(*bzl.Ident); ok && ident.Name == "include" {
+				include = kw.RHS
+			}
+			continue
+		}
+		if include == nil {
+			include = arg
+		}
+	}
+	list, ok := include.(*bzl.ListExpr)
+	if !ok {
+		return nil
+	}
+	var patterns []string
+	for _, item := range list.List {
+		if str, ok := item.(*bzl.StringExpr); ok {
+			patterns = append(patterns, str.Value)
+		}
+	}
+	return patterns
+}
+
+// codegenGlobClaims returns the files in rel that an ancestor directory's
+// ts_codegen glob collects. A glob is evaluated in the package holding the
+// rule, so those files are inputs of that package, and a BUILD file here would
+// put them in a different one -- where the glob, which does not descend into a
+// subpackage, stops matching them.
+func codegenGlobClaims(rel string, files []string, tc *tsConfig) map[string]struct{} {
+	claimed := map[string]struct{}{}
+	for _, p := range tc.customCodegens {
+		if p.Dir == rel || (p.Dir != "" && !strings.HasPrefix(rel, p.Dir+"/")) {
+			continue
+		}
+		sub := strings.TrimPrefix(rel, p.Dir+"/")
+		if p.Dir == "" {
+			sub = rel
+		}
+		for _, src := range p.Srcs {
+			if !strings.HasPrefix(src, globExprPrefix) {
+				continue
+			}
+			call, err := parseGlobExpr(src)
+			if err != nil {
+				continue
+			}
+			for _, pattern := range globIncludePatterns(call) {
+				tail, ok := strings.CutPrefix(pattern, sub+"/")
+				if !ok || strings.Contains(tail, "/") {
+					continue
+				}
+				for _, f := range files {
+					if ok, _ := path.Match(tail, f); ok {
+						claimed[f] = struct{}{}
+					}
+				}
+			}
+		}
+	}
+	return claimed
+}
+
+// Gazelle can empty a BUILD file it did not write but cannot delete it, so the
+// package -- and the hole it puts in the ancestor's glob -- outlives the run.
+func warnCodegenGlobbedPackage(args language.GenerateArgs, kept []string) {
+	log.Printf("typescript: %s holds files an ancestor's ts_codegen srcs glob collects, and "+
+		"%v keep it a Bazel package of its own. glob() does not descend into a subpackage, so "+
+		"the ancestor's rule will not see them -- and Bazel refuses to load a package whose "+
+		"glob matched nothing. Move those files out, or put the tree under a rolled-up "+
+		"ts_package_boundary (index-only, tsconfig) so it stays one package.",
+		args.Rel, kept)
+}
+
 // buildCodegenRule converts a CodegenPattern into a Bazel rule.Rule ready for
 // inclusion in a GenerateResult. Returns nil when the pattern is malformed.
-//
-// The function handles three srcs cases:
-//  1. Entries that start with "glob(" are emitted as-is (Bazel glob expressions).
-//  2. Plain strings are emitted as a string list.
-//  3. Mixed lists are flattened — plain strings remain strings, glob entries
-//     are rendered inline.
 //
 // When CodegenPattern.OutDir is set, an "out_dir" string attr is emitted
 // instead of "outs" (the ts_codegen rule then uses declare_directory).
@@ -1433,51 +1584,11 @@ func buildCodegenRule(p CodegenPattern) *rule.Rule {
 		r.AddComment(p.Comment)
 	}
 
-	// srcs: entries prefixed with "glob(" are raw Bazel glob expressions;
-	// plain strings are regular file names. The rule.Rule API only supports
-	// string-list attrs, so globs cannot be emitted natively here — instead
-	// we mark them for the Gazelle starlark printer by emitting them as-is.
-	// For now, if ALL srcs are plain strings we emit a string list; if any
-	// entry is a glob expression we fall back to the glob string itself.
-	// This matches the common pattern where detectors use a glob expression
-	// as the sole entry.
-	hasGlob := false
-	for _, s := range p.Srcs {
-		if strings.HasPrefix(s, globExprPrefix) {
-			hasGlob = true
-			break
-		}
+	srcs, ok := codegenSrcsExpr(p.Srcs)
+	if !ok {
+		return nil
 	}
-	if hasGlob && len(p.Srcs) == 1 {
-		// Single glob: emit as a raw Bazel expression string. Gazelle's
-		// rule.SetAttr with a string value will write it verbatim when the
-		// string looks like a function call (starts with "glob("). Unfortunately
-		// the rule API does not natively support non-string-list exprs for srcs,
-		// so we use a string list containing the raw glob text as a workaround.
-		// The resulting BUILD file will contain:  srcs = glob(["*.tsx"])
-		// This is achieved by wrapping in a special single-element list where
-		// the sole element is the raw expression.
-		//
-		// NOTE: Gazelle's rule package renders []string attrs as Starlark lists.
-		// A glob expression therefore needs to be emitted as a select/function
-		// outside of a list. The idiomatic approach for Gazelle extensions is to
-		// emit the raw string and rely on buildifier to format it. We use the
-		// rule.SetPrivateAttr mechanism to pass a raw expression through, but
-		// since that only works with the custom printer, we instead emit the
-		// glob expression directly as a string attr value (non-list), which
-		// the Bazel BUILD printer will output as a bare expression assignment.
-		r.SetAttr("srcs", p.Srcs[0]) // raw glob string, printed as expression
-	} else {
-		// Collect only plain strings (strip any glob prefix if somehow mixed).
-		var plain []string
-		for _, s := range p.Srcs {
-			if !strings.HasPrefix(s, globExprPrefix) {
-				plain = append(plain, s)
-			}
-		}
-		sort.Strings(plain)
-		r.SetAttr("srcs", plain)
-	}
+	r.SetAttr("srcs", srcs)
 
 	// outs or out_dir.
 	if p.OutDir != "" {

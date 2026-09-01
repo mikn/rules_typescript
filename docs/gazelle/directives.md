@@ -20,7 +20,7 @@ Directives go in `BUILD.bazel` files as comments and control how Gazelle generat
 | `# gazelle:ts_ambient_types @npm//:types_node` | Append a label to every generated `ts_compile` and `ts_test` deps list |
 | `# gazelle:ts_exclude *.generated.ts` | Exclude files matching this pattern from source targets |
 | `# gazelle:ts_warn_unresolved true` | Warn when an import cannot be resolved to a Bazel label |
-| `# gazelle:ts_codegen <name> <generator> <outs> [srcs:<csv>] [args…]` | Register a `ts_codegen` target in this directory |
+| `# gazelle:ts_codegen <name> <generator> <outs> [srcs:<csv>] [args…]` | Register a `ts_codegen` target in this directory; a `srcs:` entry may be a `glob()` call |
 | `# gazelle:ts_npm_hub npm_eslint` | Resolve bare specifiers in this tree into that npm hub repo, not the default `@npm` |
 
 That is the complete set: eleven directives. Gazelle warns on an unknown
@@ -341,6 +341,18 @@ generator that reads a schema names it:
 # gazelle:ts_codegen schema_types //tools:schemagen schema.gen.ts srcs:schema.graphql --out {out}
 ```
 
+A `srcs:` entry may be a `glob()` call instead of a file name, and the two mix —
+a generator reading one settings file plus a directory of catalogues names both:
+
+```python
+# gazelle:ts_codegen messages //tools:paraglide dir:compiled srcs:settings.json,glob(["messages/*.json"]) --outdir {out}
+```
+
+which writes `srcs = ["settings.json"] + glob(["messages/*.json"])`. Commas
+inside the call belong to it, so a glob may carry several patterns and an
+`exclude`. The field takes no whitespace: a directive is split on spaces before
+anything else, so write `glob(["a/*.json","b/*.json"])`, not `glob(["a/*.json", "b/*.json"])`.
+
 The directive is inherited by subdirectories the way every directive is, but the
 target it names is written in the one directory the directive was written in.
 
@@ -364,6 +376,13 @@ For a generator that writes a whole directory, prefix the outs field with
 # gazelle:ts_codegen prisma_client @npm//:prisma_bin dir:generated/client generate --schema {srcs}
 ```
 
+The `dir:` form gets no `<name>_compile` and nothing in it resolves: Bazel
+declares the directory as one artifact, so no file inside it has a label, and
+`ts_compile` takes neither a directory in `srcs` nor a `ts_codegen` in `deps`.
+Reaching the output means writing a rule that adapts the directory to the
+providers `ts_compile.deps` reads, and depending on that by hand. The directive
+writes the target; wiring it up is yours.
+
 Gazelle also auto-detects Prisma, GraphQL codegen and OpenAPI generators, so a
 directive is only needed for a generator it does not recognise. Each of those
 three needs both halves in the same directory: the input file (`schema.prisma`,
@@ -375,6 +394,25 @@ TanStack Router is deliberately excluded: its route tree is written by the Start
 Vite plugin during the bundle, into the writable staging directory `ts_bundle`
 hands it, so a second copy in `bazel-bin` would only drift from the one the build
 used.
+
+### A glob does not cross a package boundary
+
+`glob()` is evaluated in the package holding the rule and does not descend into
+a subpackage, and Bazel refuses to load a package whose glob matched nothing
+(`allow_empty` is `False`). So a pattern reaching into a subdirectory only works
+while that subdirectory has no BUILD file of its own — and a directory of
+message catalogues is exactly the kind of directory Gazelle would otherwise put
+one in, a `json_library` per file.
+
+Gazelle therefore leaves such a directory alone: the files an ancestor's
+`ts_codegen` glob collects are that rule's inputs, so they get no targets of
+their own and the directory stays part of the package above it. This holds only
+while the glob collects *everything* Gazelle would write a target for there. One
+file it does not — a stray `.ts`, a `README.md` — still needs a target, that
+target makes the directory a package again, and the ancestor's glob goes empty.
+Gazelle logs which files those are; the fixes are to move them out, or to put
+the tree under a rolled-up boundary (`# gazelle:ts_package_boundary index-only`
+or `tsconfig`) where a subdirectory is not a package to begin with.
 
 ### Exclude Generated Files
 
