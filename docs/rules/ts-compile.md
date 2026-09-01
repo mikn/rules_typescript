@@ -372,6 +372,19 @@ export declares globals, and those reach every target that depends on it,
 however far down the graph the declaration sits -- the scope a single `tsc` run
 over the same sources would give it.
 
+### When two ambients declare the same thing
+
+A dep's globals are listed ahead of the ones `types` and `@types/*` packages
+supply, so where both declare the same `declare module` pattern the project's
+own wins. That is what `tsc` does natively -- a `types` package arrives as a
+type-reference directive, which joins the program after the root files -- and
+it is the only lever there is: the first declaration of a pattern wins, and a
+narrower pattern does not change that. An earlier `declare module "*.svg"`
+beats a later `declare module "*.icon.svg"` even for `star.icon.svg`.
+
+To let a package's ambient win instead, drop the project's competing
+declaration.
+
 ## Which Tool Emits the Declarations
 
 Oxc always does the JavaScript transform. `declarations` decides which tool

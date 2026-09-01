@@ -1723,8 +1723,11 @@ def _ts_compile_impl(ctx):
             srcs = check_srcs,
             npm_pkg_dirs = npm_pkg_dirs if npm_pkg_dirs else None,
             npm_subpath_dts = npm_subpath_dts if npm_subpath_dts else None,
-            ambient_dts = [ambient_dts[path] for path in sorted(ambient_dts)] +
-                          dep_globals_depset.to_list(),
+            # Project globals first: where two `declare module` blocks name the
+            # same pattern the earlier one wins, and native tsc reaches a
+            # `types` package after the root files, not before them.
+            ambient_dts = dep_globals_depset.to_list() +
+                          [ambient_dts[path] for path in sorted(ambient_dts)],
             module_paths = module_paths,
             extends_file = ctx.file.tsconfig,
             baseline_file = baseline_file,
