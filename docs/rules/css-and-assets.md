@@ -133,10 +133,15 @@ asset_library(
     name = "logo_svg",
     srcs = ["logo.svg"],
     declaration_type = {
-        ".svg": 'import("react").FC<import("react").SVGProps<SVGSVGElement>>',
+        ".svg": 'import("react").FC<import("react").SVGProps<SVGElement>>',
     },
 )
 ```
+
+Match the expression to the `declare module "*.svg"` the project already has,
+rather than copying this one: `SVGProps` is invariant in its element, so
+`FC<SVGProps<SVGElement>>` satisfies a consumer expecting `SVGSVGElement` while
+the reverse does not.
 
 An extension left out keeps `string`, so one target can retype its `.svg` and
 leave its `.png` alone. A key that is not an `asset_library` extension is an
