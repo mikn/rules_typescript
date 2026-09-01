@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# pre-push -- refuse a push whose working tree does not match HEAD.
+#
+# A push carries commits. Three PRs in one day were pushed with a file the
+# author had edited but never committed, and each looked fine locally for
+# exactly that reason: #75 added Go sources and left them out of
+# gazelle/BUILD.bazel, #74 did the same to a _test.go file and turned main red
+# for hours, and #85 pushed a rename while the fix and three assertions it
+# needed stayed in the worktree.
+#
+# Untracked files count. That is the shape of #74 and #75 -- a new source file
+# that was never `git add`ed -- and .gitignore already covers the untracked
+# things a worktree really does carry (bazel-* symlinks, node_modules, .bazel/,
+# .oj-cache, target/, .claude/).
+#
+# Advisory only: it runs from `git push` in a checkout that has been pointed at
+# this directory (`git config core.hooksPath .githooks`, see CONTRIBUTING.md),
+# and `git push --no-verify` skips it.
+
+set -euo pipefail
+
+dirty="$(git status --porcelain --untracked-files=normal)"
+[ -n "$dirty" ] || exit 0
+
+cat >&2 <<MESSAGE
+pre-push: the working tree does not match HEAD.
+
+$(printf '%s\n' "$dirty" | sed 's/^/  /')
+
+A push carries commits, not the working tree, so nothing listed above is in
+what you are about to push -- CI, and every reviewer, sees the change without
+it. Commit or stash it first:
+
+  git add -A && git commit          commit it
+  git stash --include-untracked     set it aside
+
+To push anyway: git push --no-verify
+MESSAGE
+exit 1

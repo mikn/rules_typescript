@@ -53,6 +53,24 @@ compiles `oxc-bazel` and its crate graph from source. The Rust compile takes
 minutes. Subsequent builds are fast via Bazel's content-addressed cache, so do
 not `bazel clean` afterwards.
 
+### Enable the pre-push hook
+
+```bash
+git config core.hooksPath .githooks
+```
+
+`.githooks/pre-push` refuses a push whose working tree differs from `HEAD` —
+tracked edits and untracked files alike, since `.gitignore` already covers what
+a working checkout really does carry. A push sends commits, so a file you
+edited but never committed is not in it: three PRs in one day were pushed
+missing a file that only existed in the author's worktree, and one of them
+turned `main` red for hours. The failure names the files and tells you to
+commit or stash; `git push --no-verify` pushes anyway.
+
+It is opt-in per clone, because `core.hooksPath` is repository config and
+repository config is not checked in. A linked worktree inherits it from the
+clone it was created from.
+
 ### Optional: buildifier for Starlark formatting
 
 See [Starlark](#starlark-build-files-and-bzl-files) under Code Style.
