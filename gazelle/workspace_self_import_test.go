@@ -20,7 +20,7 @@ importers:
 
   .:
     dependencies:
-      lib:
+      '@acme/lib':
         specifier: workspace:*
         version: link:packages/lib
 
@@ -88,7 +88,8 @@ func TestResolveImports_SelfReferenceResolvesLocally(t *testing.T) {
 }
 
 // A package nested inside a member is its own package and consumes the member
-// the way anyone outside does.
+// the way anyone outside does. The hub declares that name because the importer
+// listed the link under it, which is what makes @npm//:acme_lib a target.
 func TestResolveImports_NestedPackageKeepsTheHubLabel(t *testing.T) {
 	c, _ := selfImportRepo(t)
 	ix := selfImportIndex(t, c)

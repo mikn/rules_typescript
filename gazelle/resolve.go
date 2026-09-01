@@ -725,7 +725,28 @@ func resolveNpmPackage(tc *tsConfig, imp string) string {
 		return nodeTypesDep(tc)
 	}
 
+	if !hubCouldDeclare(tc, pkgName) {
+		return ""
+	}
 	return npmHubLabel(tc, pkgName)
+}
+
+// hubCouldDeclare reports whether the hub could have a target for pkgName.
+//
+// The hub is built from the lockfile, so a name the lockfile never mentions --
+// a package installed by some other tool, a `@/...` alias no tsconfig in scope
+// expands -- can only produce a label that does not exist, and `no such target`
+// fails every target in the build where a dropped dep fails one. What the
+// importer gets instead is one TS2307 on the import that named it.
+//
+// Only the default hub is answerable: loadNpmInventory read the workspace-root
+// lockfile, and a ts_npm_hub tree resolves against a second lockfile this
+// reader never saw. nil names is "no lockfile", where nothing is refused.
+func hubCouldDeclare(tc *tsConfig, pkgName string) bool {
+	if tc.npmLockNames == nil || tc.npmHub != defaultNpmHub {
+		return true
+	}
+	return tc.npmLockNames[pkgName]
 }
 
 // npmHubLabel is the default convention: <hub>//:target-name, the hub being

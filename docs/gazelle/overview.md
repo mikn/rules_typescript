@@ -513,6 +513,24 @@ A repo with no lockfile is in that same absent state, which is why the codegen
 detectors emit a target from a `schema.prisma` alone there and check the
 dependency where a lockfile exists.
 
+### A name the lockfile never mentions
+
+Step 4 stops short of the label when the lockfile has never heard of the name at
+all. The hub is built from that lockfile, so `@npm//:anthropic-ai_sdk` for a
+package a nested `package-lock.json` installed, or `@npm//:_integrations` for a
+`@/integrations/...` alias no `tsconfig` in scope expands, is a target that
+cannot exist — and `no such target` fails analysis for every target in the
+build, where a missing dep fails the one import that needed it with `TS2307`.
+`# gazelle:ts_warn_unresolved true` lists them.
+
+This reads a wider set than the inventory above, on purpose. The inventory
+under-claims (the platform-restricted packages), and refusing a label on an
+under-claim would drop a real dep, so the refusal takes every name either
+section of the lockfile spells plus every workspace link and npm alias. Two
+things are never refused: a tree carrying its own `# gazelle:ts_npm_hub`, which
+resolves against a second lockfile nobody read here, and a workspace with no
+root lockfile at all.
+
 When several alias entries match one specifier (a tsconfig declaring both
 `"@shared"` and `"@shared/*"`), the longest matching alias key wins, which is
 TypeScript's own rule: a pattern equal to the whole specifier is the longest key

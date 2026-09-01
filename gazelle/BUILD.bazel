@@ -72,6 +72,7 @@ go_test(
         "sveltekit_bundle_test.go",
         "tsconfig_baseline_test.go",
         "tsconfig_extends_test.go",
+        "unknown_bare_name_test.go",
         "workspace_self_import_test.go",
     ],
     embed = [":typescript"],
