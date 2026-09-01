@@ -500,6 +500,36 @@ sections list every break with the edit it requires.
 
 ### Added
 
+- **`asset_library` takes `declaration_type`, so a project can say what an
+  extension's import resolves to.** The rule hardcoded `string` for every
+  extension, and a project running an svgr-style transform had no way to say
+  otherwise: TypeScript prefers the concrete `logo.svg.d.ts` the rule writes
+  beside the asset over any `declare module "*.svg"` the project writes, so the
+  ambient never applied. `declaration_type` maps extension → type expression
+  and replaces what that generated declaration says:
+
+  ```python
+  asset_library(
+      name = "logo_svg",
+      srcs = ["logo.svg"],
+      declaration_type = {
+          ".svg": 'import("react").FC<import("react").SVGProps<SVGSVGElement>>',
+      },
+  )
+  ```
+
+  An extension left out keeps `string`. A key that is not an `asset_library`
+  extension is an analysis failure. The type expression is written into the
+  declaration verbatim, so a name it uses has to resolve from there — an
+  `import("pkg")` type query, with `pkg` in the consuming `ts_compile` target's
+  deps. The expression itself is unchecked and a name that does not resolve is
+  silent, since the generated file is a `.d.ts` and this ruleset compiles with
+  `skipLibCheck`: the import widens to `any`. Build the consumer with
+  `compiler_options = {"skipLibCheck": False}` to surface it, and the error
+  names the generated file, whose first line names the target and attribute
+  that wrote the type. An asset reached through a `path_aliases` alias is not
+  covered: the alias resolves into the source tree, where no generated
+  declaration sits beside the asset, so a wildcard ambient decides that import.
 - **`ts_binary` takes a plain JavaScript file as its `entry_point`.** The attr
   is polymorphic: a target providing `JsInfo` behaves exactly as before, and a
   single `.js`, `.mjs` or `.cjs` source now runs as-is. A Node generator for

@@ -1,0 +1,216 @@
+"""What an `asset_library` asset's import resolves to, and what beats what.
+
+`svgr.d.ts` is the wildcard ambient a project running an svgr-style transform
+writes: `declare module "*.svg"` giving a component, and `*.txt` giving a
+parsed shape. Every target but :via_alias imports its asset relatively, which
+is the form that finds the generated declaration beside the asset in bazel-bin.
+
+What these targets pin:
+
+  :ambient_only     the ambient alone types the import -- no asset_library.
+  :generated_wins   with asset_library, the generated per-asset declaration
+                    wins and the same ambient never applies.
+  :typed_*          declaration_type replaces what that declaration says.
+  :via_alias        an alias resolves into the source tree, where there is no
+                    generated declaration, so the ambient decides after all.
+  :two_ambients     the separate wildcard race: two `declare module "*.svg"`
+                    in one program, and the one the generated tsconfig lists
+                    first in `files` wins.
+"""
+
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@rules_go//go:def.bzl", "go_test")
+load("//ts:defs.bzl", "asset_library", "ts_compile")
+
+package(default_visibility = ["//:__pkg__"])
+
+# gazelle:exclude *_test.go
+
+_SVG_COMPONENT = "(props: { className?: string }) => null"
+
+_TEXT_ASSET = "{ readonly words: number }"
+
+ts_compile(
+    name = "svgr_ambient",
+    srcs = ["svgr.d.ts"],
+)
+
+# ── The controlled pair ───────────────────────────────────────────────────────
+
+# No asset_library: nothing declares logo.svg concretely, so the ambient
+# applies and the import is a component.
+ts_compile(
+    name = "ambient_only",
+    srcs = ["ambient_only.ts"],
+    deps = [":svgr_ambient"],
+)
+
+asset_library(
+    name = "mark_svg",
+    srcs = ["mark.svg"],
+)
+
+# The same ambient, plus an asset_library over the asset. `string`, not the
+# ambient's component: TypeScript prefers mark.svg.d.ts over any pattern.
+ts_compile(
+    name = "generated_wins",
+    srcs = ["generated_wins.ts"],
+    deps = [
+        ":mark_svg",
+        ":svgr_ambient",
+    ],
+)
+
+# ── declaration_type ──────────────────────────────────────────────────────────
+
+asset_library(
+    name = "icon_svg",
+    srcs = ["icon.svg"],
+    declaration_type = {".svg": _SVG_COMPONENT},
+)
+
+# No ambient in deps: the attribute alone is what types the import.
+ts_compile(
+    name = "typed_svg",
+    srcs = ["typed_svg.ts"],
+    deps = [":icon_svg"],
+)
+
+asset_library(
+    name = "badge_and_note",
+    srcs = [
+        "badge.svg",
+        "note.txt",
+    ],
+    declaration_type = {
+        ".svg": _SVG_COMPONENT,
+        ".txt": _TEXT_ASSET,
+    },
+)
+
+ts_compile(
+    name = "typed_two",
+    srcs = ["typed_two.ts"],
+    deps = [":badge_and_note"],
+)
+
+asset_library(
+    name = "hero_and_photo",
+    srcs = [
+        "hero.svg",
+        "photo.png",
+    ],
+    declaration_type = {".svg": _SVG_COMPONENT},
+)
+
+# .png is not in declaration_type, so it keeps the string URL default.
+ts_compile(
+    name = "typed_mixed",
+    srcs = ["typed_mixed.ts"],
+    deps = [":hero_and_photo"],
+)
+
+# A type expression naming an npm package. The package resolves through the
+# consuming target's `paths`, which is why @npm//:vite is a dep of the
+# ts_compile and not of the asset_library.
+asset_library(
+    name = "chart_svg",
+    srcs = ["chart.svg"],
+    declaration_type = {".svg": "import(\"vite\").Plugin"},
+)
+
+ts_compile(
+    name = "from_package",
+    srcs = ["from_package.ts"],
+    deps = [
+        ":chart_svg",
+        "@npm//:vite",
+    ],
+)
+
+# ── Both wildcards present, as the monorepo has them ─────────────────────────
+
+asset_library(
+    name = "crest_svg",
+    srcs = ["crest.svg"],
+    declaration_type = {".svg": _SVG_COMPONENT},
+)
+
+# vite/client declares `*.svg` as a string and svgr.d.ts declares it as a
+# component. Neither decides: the generated crest.svg.d.ts does.
+ts_compile(
+    name = "monorepo_shape",
+    srcs = ["monorepo_shape.ts"],
+    compiler_options = {"types": ["vite/client"]},
+    deps = [
+        ":crest_svg",
+        ":svgr_ambient",
+        "@npm//:vite",
+    ],
+)
+
+# No asset_library, so the two wildcards race each other. `files` holds the
+# `types`-supplied vite/client.d.ts ahead of the project's own ambient and the
+# first declaration of a pattern wins, so the import is a string. TypeScript
+# resolving this natively would give the project's ambient, which it reaches
+# through `include`: type-reference directives join the program after the root
+# files, not before them.
+ts_compile(
+    name = "two_ambients",
+    srcs = ["two_ambients.ts"],
+    compiler_options = {"types": ["vite/client"]},
+    deps = [
+        ":svgr_ambient",
+        "@npm//:vite",
+    ],
+)
+
+# ── Reached through a path alias rather than relatively ──────────────────────
+
+asset_library(
+    name = "glyph_svg",
+    srcs = ["glyph.svg"],
+)
+
+# The alias resolves into the source tree, where the generated
+# glyph.svg.d.ts -- which says `string`, as :generated_wins shows for the same
+# setup reached relatively -- is not beside the asset. So the ambient decides
+# here, and declaration_type would not reach this import.
+ts_compile(
+    name = "via_alias",
+    srcs = ["via_alias.ts"],
+    path_alias_srcs = ["glyph.svg"],
+    path_aliases = {"#assets/": "tests/asset_declaration/"},
+    deps = [
+        ":glyph_svg",
+        ":svgr_ambient",
+    ],
+)
+
+build_test(
+    name = "asset_declaration_test",
+    targets = [
+        ":ambient_only",
+        ":from_package",
+        ":generated_wins",
+        ":monorepo_shape",
+        ":two_ambients",
+        ":typed_mixed",
+        ":typed_svg",
+        ":typed_two",
+        ":via_alias",
+    ],
+)
+
+go_test(
+    name = "declaration_content_test",
+    size = "small",
+    srcs = ["declaration_content_test.go"],
+    data = [
+        ":badge_and_note",
+        ":hero_and_photo",
+        ":icon_svg",
+        ":mark_svg",
+    ],
+    deps = ["//tests/verify"],
+)
