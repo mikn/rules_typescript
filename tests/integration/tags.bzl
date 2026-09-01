@@ -19,14 +19,15 @@ load(
 # `exclusive` serialised all of them, which was the whole cost of the
 # integration lane: 18 nested Bazel invocations one after another. Nothing in
 # them shares mutable state -- the harness gives each its own workspace, output
-# base and scratch dir under scratchRoot()/<name>, the two runners that bind a
-# port take a kernel-assigned one, and the shared repository cache is
-# content-addressed and safe for concurrent Bazel servers. What it was buying is
-# two things, covered here instead: a bound on how many nested servers run at
-# once, which "cpu:2" states directly so Bazel derives it from the machine, and
-# -- measured -- the fact that cold, concurrent servers all miss the shared
-# repository cache at once and all fetch the same ~4GB, which is why the CI job
-# restores it before running.
+# base and scratch dir under its own TEST_TMPDIR, which `no-sandbox` below makes
+# a real directory and which Bazel keys by target and by output base, the two
+# runners that bind a port take a kernel-assigned one, and the shared repository
+# cache is content-addressed and safe for concurrent Bazel servers. What it was
+# buying is two things, covered here instead: a bound on how many nested servers
+# run at once, which "cpu:2" states directly so Bazel derives it from the
+# machine, and -- measured -- the fact that cold, concurrent servers all miss
+# the shared repository cache at once and all fetch the same ~4GB, which is why
+# the CI job restores it before running.
 _BASE_TAGS = [
     tag
     for tag in integration_test_utils.DEFAULT_INTEGRATION_TEST_TAGS
