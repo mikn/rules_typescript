@@ -37,7 +37,7 @@ What is still thin:
 | Bundling | Vite bundler (production quality), exercised on Vite 8. `vite_config` composes: a TypeScript config plus the local modules it imports (`vite_config_srcs`), staged into bazel-bin by both `ts_bundle` and `ts_dev_server` and loaded through Vite's own config loader. Both modes emit CSS: app mode through the HTML, lib mode as a declared `<bundle_name>.css` |
 | Dev server + HMR | Pluggable: `ts_dev_server(server = ...)` takes a `DevServerInfo`, Vite by default and oj (`//oj:dev_server`) as the second implementation, one generated config driving either. Serves first-party source with Bazel out of the inner loop; resolves bare npm specifiers through the `node_modules` tree via the `bazel:npm-resolve` plugin; codegen rebuilds and config-aware restarts under ibazel; does not typecheck. oj reaches npm packages through the same plugin, unpatched since oj 0.1.6 |
 | IDE integration | Generated tsconfig + tsserver hook; `module_name` and `extra_exclude` supported. A package whose targets disagree with the root `compilerOptions` gets its own generated tsconfig, declared in `nested_tsconfigs` and staleness-tested; the root excludes those files individually so unclaimed ones stay in its program. Zero tsc errors across the root and all nine nested programs |
-| CSS / assets | css_library, css_module, asset_library, json_library rules; CSS module mock in ts_test. All three copy a source src into bazel-bin (a generated one is already there), which is what makes a relative import resolve for a bundler and what a bundle's input depset collects. `ts_bundle` takes `public_dir` and `manifest` in app mode; the manifest's keys are rewritten workspace-relative, so they are usable and configuration-stable. The `.module.css` `.d.ts` key set is compared against postcss-modules' real export map rather than asserted. Tailwind v4 works through `vite_config` in both bundle modes and under both dev servers |
+| CSS / assets | css_library, css_module, asset_library, json_library rules; CSS module mock in ts_test. The first three copy a source src into bazel-bin (a generated one is already there), which is what makes a relative import resolve for a bundler and what a bundle's input depset collects. `ts_bundle` takes `public_dir` and `manifest` in app mode; the manifest's keys are rewritten workspace-relative, so they are usable and configuration-stable. The `.module.css` `.d.ts` key set is compared against postcss-modules' real export map rather than asserted. Tailwind v4 works through `vite_config` in both bundle modes and under both dev servers |
 | Framework integration | TanStack Start and Remix get generated bundle targets, Remix with a nested-Bazel integration test; Next.js has its own `next_build`; SvelteKit and Solid Start are detected and get a named refusal instead of a target |
 | npm publishing | ts_npm_publish with auto-filled main/types/exports |
 | CI/CD | Docs: remote caching (BuildBuddy/EngFlow), RBE, GitLab CI, non-determinism — documented, not exercised by this repo's CI |
@@ -47,6 +47,18 @@ What is still thin:
 Small enough not to need a sub-project, specific enough that nobody should have
 to rediscover them. Each names the file to change.
 
+- **`json_library` is a type-only dep: a bundler cannot resolve the `.json`.**
+  `css_library`, `css_module` and `asset_library` each copy a source src into
+  bazel-bin and carry it in `AssetInfo`, which is how the relative import
+  resolves for a bundler and how `ts_bundle` collects it (`ts_bundle.bzl` builds
+  `non_js_inputs` from `CssInfo`, `CssModuleInfo` and `AssetInfo` only).
+  `ts/private/json_library.bzl` does neither: it emits a `.d.ts` and puts the
+  untouched source in `DefaultInfo`. A `ts_bundle` over
+  `import data from "./data.json"` fails with rolldown's
+  `[UNRESOLVED_IMPORT] Could not resolve './data.json'`. Typing works; runtime
+  does not. Fixing it means copying into bazel-bin and providing `AssetInfo` --
+  and deciding which bytes get copied, since a bundler's JSON plugin is a strict
+  `JSON.parse` and the source may be JSONC.
 - **`ts/private/tsconfig_aspect.bzl` pairs `@types/*` for direct deps only.**
   `ts_compile` reads the pairing for every package it names in `paths`, which is
   what makes an untyped package reached transitively (vitest → @vitest/expect →

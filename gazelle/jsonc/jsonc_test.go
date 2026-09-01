@@ -1,6 +1,9 @@
 package jsonc
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"reflect"
 	"testing"
 )
@@ -49,8 +52,51 @@ func TestStripJSONComments_TrailingCommas(t *testing.T) {
 
 func TestStripJSONComments_UnterminatedBlockComment(t *testing.T) {
 	// Must not panic or loop forever; the truncated input stays invalid JSON.
+	in := []byte("{\"a\": 1 /* oops\nand more\n")
 	var v map[string]any
-	if err := Unmarshal([]byte(`{"a": 1 /* oops`), &v); err == nil {
+	if err := Unmarshal(in, &v); err == nil {
 		t.Error("expected an error for unterminated block comment")
 	}
+	if got, want := lineOf(Strip(in), -1), lineOf(in, -1); got != want {
+		t.Errorf("Strip: %d lines, want %d", got, want)
+	}
+}
+
+// The line a parse error is reported on comes from the stripped text, so
+// dropping a comment or a trailing comma must not drop its newlines with it.
+func TestStripJSONComments_ParseErrorKeepsTheSourceLine(t *testing.T) {
+	const src = `{
+  /* A block comment
+     of several lines,
+     above the mistake. */
+  "a": {
+    "x": 1,
+  },
+  "b": 2
+  "c": 3
+}
+`
+	const badLine = 9
+
+	stripped := Strip([]byte(src))
+	if got, want := lineOf(stripped, -1), lineOf([]byte(src), -1); got != want {
+		t.Errorf("Strip: %d lines, want %d\n%s", got, want, stripped)
+	}
+
+	var syntax *json.SyntaxError
+	if err := json.Unmarshal(stripped, new(map[string]any)); !errors.As(err, &syntax) {
+		t.Fatalf("Unmarshal: got %v, want a *json.SyntaxError", err)
+	}
+	if got := lineOf(stripped, int(syntax.Offset)); got != badLine {
+		t.Errorf("parse error reported on line %d, want %d", got, badLine)
+	}
+}
+
+// lineOf reports the 1-based line data[offset] is on; a negative offset means
+// the end of data.
+func lineOf(data []byte, offset int) int {
+	if offset < 0 {
+		offset = len(data)
+	}
+	return 1 + bytes.Count(data[:offset], []byte("\n"))
 }

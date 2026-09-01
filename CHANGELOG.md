@@ -664,6 +664,17 @@ sections list every break with the edit it requires.
   label. A wildcard that is not a trailing `/*` is dropped: an alias key matches
   by prefix, so a key holding a literal `*` could never fire. A `#` specifier no
   entry covers at all resolves to nothing.
+  `paths`. A `#` specifier no entry covers now resolves to nothing.
+- **A `json_library` parse error names the line the mistake is on.** The rule
+  parses the stripped text, so the line and column in
+  `json_library: failed to parse ...` come from that text and not from the file
+  a person edits. `Strip` deleted a block comment whole, and deleted the
+  whitespace between a trailing comma and its closing brace -- newlines
+  included, while the `//` branch had always emitted one. A block comment
+  spanning four lines above the mistake reported it three lines early (line 7
+  read as line 4); a trailing comma whose `}` is on the next line cost one more
+  (line 6 read as line 5). Both branches now leave their newlines where they
+  were, and each half is load-bearing on its own.
 - **A checked-in `*.gen.ts` is a source again.** Gazelle dropped every file
   whose name ended `.gen` / `.generated` / `.auto` from every source target, on
   the guess that something in the build produced it. The guess was already
@@ -678,16 +689,20 @@ sections list every break with the edit it requires.
   between two Bazel packages however the two are split. **The edit:** a
   workspace that wants some other generated-looking file out of `srcs` names it
   in `# gazelle:ts_exclude`.
-- **`json_library` reads JSONC, so a commented `.json` no longer fails the
-  build.** TypeScript accepts comments and trailing commas wherever it reads
-  JSON, and Gazelle already decoded `tsconfig.json` through a stripper for
-  exactly that reason -- but the rule's own build-time read was a strict
-  `JSON.parse`, so the same file meant two things depending on which side read
-  it. The stripper moved to `//gazelle/jsonc`, and `json_library` now strips
-  through `//gazelle/jsonc/strip` before parsing: one implementation of the
-  dialect, shared by the BUILD generator and the rule. Four `json_library`
-  targets on one monorepo built again, among them two `tsconfig.*.json` files --
-  files Gazelle itself reads as JSONC.
+- **`json_library` reads JSONC, so a commented `.json` gets its `.d.ts`.**
+  TypeScript accepts comments and trailing commas wherever it reads JSON, and
+  Gazelle already decoded `tsconfig.json` through a stripper for exactly that
+  reason -- but the rule's own build-time read was a strict `JSON.parse`, so the
+  same file meant two things depending on which side read it. The stripper moved
+  to `//gazelle/jsonc`, and `json_library` now strips through
+  `//gazelle/jsonc/strip` before parsing: one implementation of the dialect,
+  shared by the BUILD generator and the rule. Four `json_library` targets on one
+  monorepo built again, among them two `tsconfig.*.json` files -- files Gazelle
+  itself reads as JSONC. This is the declaration and the type-check; it is not a
+  runtime claim. A `json_library` `.json` reaches no bundler at all today --
+  nothing copies it into bazel-bin and it carries no `AssetInfo`, so a
+  `ts_bundle` over `import data from "./data.json"` fails to resolve the
+  specifier whether or not the file has a comment in it (TODO.md, "Known gaps").
 - **`ts_test` roots Vite at the package, so a relative path in a user config
   means what it says.** Vite's root defaulted to the working directory, which
   under Bazel is the runfiles root -- one tree above the package. Every relative
