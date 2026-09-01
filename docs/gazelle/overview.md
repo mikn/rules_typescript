@@ -542,6 +542,15 @@ unaffected, and so is one whose `BUILD` file is checked in by hand: that file is
 the proof Bazel can load the package, and what the generator would or would not
 write there says nothing about it.
 
+A bare specifier a `declare module "x"` block in the target's own sources names
+resolves to nothing, before the npm step. In a script-mode declaration file such
+a block is the module -- `declare module "mobile"` beside the code importing
+`"mobile"` -- so no dep can carry it and `@npm//:mobile` would name a target no
+hub declares. Only the target holding the declaration is exempt, and an
+installed package of the same name keeps its dep: the lockfile is the claim that
+a hub target exists. A pattern name (`declare module "*.svg"`) is ignored, since
+the specifiers it covers are relative paths with real targets.
+
 Gazelle's deps and the `ts_compile` strict-deps check share one specifier
 scanner. If `bazel build` reports an import no direct dep provides and re-running
 Gazelle does not add it, that is a bug in the ruleset.
