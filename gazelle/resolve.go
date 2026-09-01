@@ -2,7 +2,9 @@ package typescript
 
 import (
 	"log"
+	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -351,7 +353,7 @@ func resolveRelative(
 		}
 	}
 
-	return labelForUnindexed(targetRel, from)
+	return labelForUnindexed(c.RepoRoot, targetRel, from)
 }
 
 // relativeImportExtensions are the source extensions a relative specifier may
@@ -427,7 +429,7 @@ func lookupInIndex(ix *resolve.RuleIndex, impPath string, from label.Label) (str
 //
 // The package is the module's DIRECTORY: a file path read as a directory leaves
 // "no such package", which reads as a defect here rather than a missing target.
-func labelForUnindexed(rel string, from label.Label) string {
+func labelForUnindexed(repoRoot, rel string, from label.Label) string {
 	pkg := path.Clean(rel)
 	switch {
 	case namesAFile(pkg):
@@ -443,6 +445,11 @@ func labelForUnindexed(rel string, from label.Label) string {
 	// A module in the importing package that no rule claims: a label on our own
 	// package would be a cycle, and the file is nowhere else.
 	if pkg == from.Pkg {
+		return ""
+	}
+	// A directory that is not there is the same "no such package" as a file read
+	// as one, and TS2307 on the one import beats analysis failing every target.
+	if info, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(pkg))); err != nil || !info.IsDir() {
 		return ""
 	}
 	return label.New("", pkg, path.Base(pkg)).String()
@@ -592,7 +599,7 @@ func resolvePathAlias(
 		}
 	}
 
-	return labelForUnindexed(targetRel, from)
+	return labelForUnindexed(c.RepoRoot, targetRel, from)
 }
 
 // ---- npm package resolution ------------------------------------------------

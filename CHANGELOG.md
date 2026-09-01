@@ -777,6 +777,18 @@ sections list every break with the edit it requires.
   `ts_refresh_tsconfig` writes was already right -- its values are
   workspace-root-relative and every one is written with the prefix -- and a test
   now pins that.
+- **A dep is no longer fabricated for a directory that does not exist.** When
+  no indexed rule provides an unresolved specifier, Gazelle names the package
+  that would have to: `//src/generated/api` for `@/generated/api`. It never
+  checked that the directory was there. A specifier that maps inside the
+  workspace but points at nothing -- an `imports` entry for a codegen output
+  that has not been generated, most easily -- therefore produced a label Bazel
+  answers with `no such package`, which fails **analysis for every target in
+  the build**, where the missing module alone would have been one `TS2307` from
+  the compile. The two neighbouring cases (a file path read as a directory, an
+  unclassified extension) were already guarded for exactly this reason; the
+  missing directory was not. The fabricated label now requires a directory on
+  disk. A directory that exists but is not a Bazel package is unchanged.
 - **A `#` specifier resolves through the package's `imports` field.** Node calls
   a `#`-prefixed specifier a package-private import, and the `imports` map in
   the importing package's own `package.json` is the only thing that answers one.
