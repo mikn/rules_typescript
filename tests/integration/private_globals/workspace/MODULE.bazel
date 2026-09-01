@@ -1,0 +1,19 @@
+"""Integration test: private_globals keeps an ambient out of a consumer's program.
+
+The {RULES_TS_ROOT} placeholder is substituted at test runtime by the harness
+with the absolute path to the rules_typescript checkout.
+"""
+
+module(
+    name = "test_private_globals",
+    version = "0.0.0",
+    compatibility_level = 0,
+)
+
+bazel_dep(name = "rules_typescript", version = "0.0.0")
+local_path_override(
+    module_name = "rules_typescript",
+    path = "{RULES_TS_ROOT}",
+)
+
+register_toolchains("@rules_typescript//ts/toolchain:all")

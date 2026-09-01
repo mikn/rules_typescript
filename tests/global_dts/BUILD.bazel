@@ -6,12 +6,23 @@ names them, so compiling //tests/global_dts/consumer is the assertion.
 
 `secrets.d.ts` is the other half of the classification: it exports, so it is a
 module, and `Secret` is not in the consumer's scope.
+
+`:settings` is the packaging question on top of the language one. Both of its
+.d.ts declare globals and `private_globals` withholds one. The two halves of
+that are compiling `settings.ts`, which uses the withheld global, and the
+`downstream` package, which is left with only the other.
 """
+
+# nested/ holds one .d.ts and no BUILD file, so Gazelle would write a
+# ts_compile there: an ambient .d.ts counts as a source, and every-dir makes
+# any directory holding one a package. It exists to be named by a label that
+# is NOT in srcs, which is a fixture rather than a package.
+# gazelle:exclude nested
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("//ts:defs.bzl", "ts_compile")
-load(":global_dts_tests.bzl", "global_entry_files")
+load(":global_dts_tests.bzl", "global_entry_files", "unknown_private_global_test")
 
 package(default_visibility = ["//:__pkg__"])
 
@@ -47,4 +58,64 @@ diff_test(
     size = "small",
     file1 = ":global_entry_names",
     file2 = "global_entry_names.expected",
+)
+
+# ── private_globals ───────────────────────────────────────────────────────────
+
+# `STANDALONE_MODE` stands in for the ambient a package keeps for its own
+# standalone `tsc -p` -- a `process` shim in a library with no @types/node --
+# and `BUILD_ID` for one its consumers are meant to have. Building this target
+# is the assertion that a withheld src still types the target that owns it.
+ts_compile(
+    name = "settings",
+    srcs = [
+        "build-id.d.ts",
+        "settings.ts",
+        "standalone-shim.d.ts",
+    ],
+    private_globals = ["standalone-shim.d.ts"],
+    visibility = ["//visibility:public"],
+)
+
+build_test(
+    name = "settings_test",
+    targets = [":settings"],
+)
+
+global_entry_files(
+    name = "settings_globals",
+    target = ":settings",
+)
+
+genrule(
+    name = "scoped_entry_names",
+    srcs = [":settings_globals"],
+    outs = ["scoped_entry_names.txt"],
+    cmd = "grep -o '[^/]*\\.d\\.ts' $(SRCS) > $@",
+)
+
+diff_test(
+    name = "scoped_entry_names_test",
+    size = "small",
+    file1 = ":scoped_entry_names",
+    file2 = "scoped_entry_names.expected",
+)
+
+# A src the target does not compile has no globals of this target's to withhold,
+# so naming one is a typo or a file that moved, not a narrower export. Here it is
+# a file that moved: the same basename one directory down, which is the case the
+# diagnostic has to name rather than leave to a reading of the srcs list.
+ts_compile(
+    name = "unknown_private_global",
+    srcs = [
+        "shim.d.ts",
+        "unknown.ts",
+    ],
+    private_globals = ["nested/shim.d.ts"],
+    tags = ["manual"],
+)
+
+unknown_private_global_test(
+    name = "unknown_private_global_test",
+    target_under_test = ":unknown_private_global",
 )
