@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -59,14 +60,17 @@ func isCSSModuleFile(name string) bool {
 // .jsonc is an asset and not JSON here: no bundler parses that extension as
 // JSON, so the import yields a URL rather than a value.
 func isAssetFile(name string) bool {
-	ext := strings.ToLower(path.Ext(name))
-	switch ext {
-	case ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp",
-		".woff", ".woff2", ".ttf", ".eot",
-		".md", ".txt", ".jsonc":
-		return true
-	}
-	return false
+	return slices.Contains(assetExtensions, strings.ToLower(path.Ext(name)))
+}
+
+// Hand-mirrored from _ASSET_EXTENSIONS in ts/private/asset_library.bzl, which
+// Starlark cannot export to Go. Nothing pins the two lists together: a
+// ts_asset_declaration_type directive naming an extension only this list is
+// missing is refused, and asset_library would have taken it.
+var assetExtensions = []string{
+	".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp",
+	".woff", ".woff2", ".ttf", ".eot",
+	".md", ".txt", ".jsonc",
 }
 
 // isJSONFile returns true for .json files that should be handled by
@@ -222,6 +226,11 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		warnNextOwnedPackage(args)
 		return emptyResult(args)
 	}
+
+	// Ahead of every return below: a directory holding nothing but assets an
+	// existing asset_library already claims classifies no source at all and
+	// returns early, and those are exactly the rules the directive is for.
+	applyAssetDeclarationType(args, tc)
 
 	// Collect TypeScript, CSS, and asset source files from the regular files list.
 	var (
@@ -519,6 +528,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		r := rule.NewRule("asset_library", libNames[f])
 		r.SetAttr("srcs", srcLabels([]string{f}))
 		r.SetAttr("visibility", []string{"//visibility:public"})
+		setAssetDeclarationType(r, declarationTypeFor(tc, []string{f}))
 		gen = append(gen, r)
 		// asset_library targets are indexed by their workspace-relative asset
 		// path for import resolution.

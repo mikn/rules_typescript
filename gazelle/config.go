@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -138,6 +139,19 @@ const (
 	// of the whole repo. Without this the generated label named a hub the
 	// package does not use, which is a label that does not exist.
 	directiveNpmHub = "ts_npm_hub"
+
+	// directiveAssetDeclarationType hands Gazelle one entry of the
+	// declaration_type dict on every asset_library in this tree, generated or
+	// already written, so an svgr-style project declares the type once rather
+	// than on each of the one-target-per-asset-file rules.
+	//
+	//	# gazelle:ts_asset_declaration_type .svg import("react").FC<import("react").SVGProps<SVGSVGElement>>
+	//
+	// Only the first space separates: everything after the extension is the
+	// type expression verbatim, so `{ default: string }` needs no quoting.
+	// The extension alone declares that this tree resolves it to nothing in
+	// particular, and Gazelle removes the entry.
+	directiveAssetDeclarationType = "ts_asset_declaration_type"
 )
 
 // packageBoundaryMode values.
@@ -313,6 +327,13 @@ type tsConfig struct {
 	// # gazelle:ts_declarations.
 	declarations string
 
+	// assetDeclarationType maps an asset extension (leading dot) to the
+	// TypeScript type expression asset_library.declaration_type carries for it
+	// in this tree. A key present with an empty value is the extension a
+	// directive named and left blank: still Gazelle's, declaring nothing.
+	// Set via # gazelle:ts_asset_declaration_type.
+	assetDeclarationType map[string]string
+
 	// customCodegens holds ts_codegen patterns parsed from
 	// # gazelle:ts_codegen directives. Each directive contributes one entry.
 	// Format: # gazelle:ts_codegen <name> <generator_label> <outs_csv> [srcs:<csv>] [args...]
@@ -369,6 +390,14 @@ func (tc *tsConfig) clone() *tsConfig {
 	if len(tc.runtimeDepsTest) > 0 {
 		cp.runtimeDepsTest = make([]string, len(tc.runtimeDepsTest))
 		copy(cp.runtimeDepsTest, tc.runtimeDepsTest)
+	}
+	// A child directive adds, overrides or clears one extension, so the map has
+	// to be the child's own before configureTsConfig writes into it.
+	if tc.assetDeclarationType != nil {
+		cp.assetDeclarationType = make(map[string]string, len(tc.assetDeclarationType))
+		for k, v := range tc.assetDeclarationType {
+			cp.assetDeclarationType[k] = v
+		}
 	}
 	// customCodegens is inherited but not mutated after construction (each
 	// directory's directive appends a new entry to the child copy).
@@ -1486,6 +1515,15 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 				if pattern != "" {
 					tc.excludePatterns = append(tc.excludePatterns, pattern)
 				}
+			case directiveAssetDeclarationType:
+				ext, typeExpr, ok := parseAssetDeclarationTypeDirective(d.Value)
+				if !ok {
+					break
+				}
+				if tc.assetDeclarationType == nil {
+					tc.assetDeclarationType = map[string]string{}
+				}
+				tc.assetDeclarationType[ext] = typeExpr
 			case directiveCodegen:
 				if cp := parseCodegenDirective(rel, d.Value); cp != nil {
 					tc.customCodegens = append(tc.customCodegens, *cp)
@@ -1734,4 +1772,24 @@ func declaredTypesPackages(packageJSONPath string) []string {
 		labels = append(labels, npmLabel(name))
 	}
 	return labels
+}
+
+// ---- directive parser: ts_asset_declaration_type ---------------------------
+
+// parseAssetDeclarationTypeDirective splits the value into its extension and
+// its type expression. Only the first space is a separator, so `{ default: FC }`
+// arrives as one expression rather than three fields.
+func parseAssetDeclarationTypeDirective(value string) (ext, typeExpr string, ok bool) {
+	ext, typeExpr, _ = strings.Cut(strings.TrimSpace(value), " ")
+	ext = strings.ToLower(ext)
+	typeExpr = strings.TrimSpace(typeExpr)
+	if !slices.Contains(assetExtensions, ext) {
+		log.Printf("typescript: invalid %s extension %q\n"+
+			"  format: # gazelle:%s <ext> <type expression>\n"+
+			"  write the leading dot, and pick one of: %s",
+			directiveAssetDeclarationType, ext, directiveAssetDeclarationType,
+			strings.Join(assetExtensions, ", "))
+		return "", "", false
+	}
+	return ext, typeExpr, true
 }

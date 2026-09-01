@@ -22,7 +22,7 @@ func main() {
 		Name:         "gazelle_roundtrip",
 		WorkspaceRel: "tests/integration/gazelle_roundtrip",
 	}, func(it *harness.IT) {
-		dirs := []string{"src/lib", "src/app"}
+		dirs := []string{"src/lib", "src/app", "src/icons"}
 
 		// Written here rather than shipped in the workspace: a BUILD file under
 		// a --deleted_packages entry is a package of the OUTER workspace, and
@@ -90,6 +90,7 @@ func main() {
 		}
 
 		codegenGlobLoads(it)
+		assetDeclarationTypeApplies(it)
 	})
 }
 
@@ -130,4 +131,39 @@ func codegenGlobLoads(it *harness.IT) {
 		it.Fail("//src/i18n failed to load for some other reason than the empty glob")
 	}
 	it.Pass("a BUILD file in messages/ empties //src/i18n's glob and Bazel refuses the package")
+}
+
+// The converge tests assert generated BUILD text, and a type expression can
+// reach the BUILD file intact and still not be the type the import gets. The
+// negative probe is the half that says so: an unresolvable expression widens the
+// import to `any` under skipLibCheck, and `any` compiles either way.
+func assetDeclarationTypeApplies(it *harness.IT) {
+	const declared = `".svg": "{ readonly viewBox: string }"`
+
+	it.RequireContains(it.Path("src/icons/BUILD.bazel"), declared,
+		"the ts_asset_declaration_type directive did not reach src/icons/BUILD.bazel")
+	it.Pass("the directive reached the generated asset_library, spaces intact")
+
+	it.RequireContains(it.Bin("src/icons/logo.svg.d.ts"),
+		"declare const asset: { readonly viewBox: string };",
+		"the generated declaration does not carry the directive's type")
+	it.Pass("logo.svg.d.ts declares the directive's type")
+
+	// //src/icons compiled above, and it reads logo.viewBox: TS2339 on the
+	// string default. What is left is proving the type is enforced rather than
+	// widened, which only a compile that has to fail can say.
+	consumer := it.Path("src/icons/index.ts")
+	restore := it.Read(consumer)
+	it.Write(consumer, "import logo from \"./logo.svg\";\n\nexport const url: string = logo;\n")
+	log, err := it.BazelLog("asset_declaration_type_is_not_a_string", "build", "//src/icons")
+	it.Write(consumer, restore)
+	if err == nil {
+		log.Dump()
+		it.Fail("//src/icons compiled with the .svg import assigned to a string; the declared type is not being applied")
+	}
+	if !log.Contains("TS2322") {
+		log.Dump()
+		it.Fail("//src/icons failed to build for some other reason than the assignment")
+	}
+	it.Pass("assigning the .svg import to a string is TS2322, so the declared type is the one in force")
 }

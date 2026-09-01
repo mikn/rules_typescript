@@ -142,6 +142,12 @@ An extension left out keeps `string`, so one target can retype its `.svg` and
 leave its `.png` alone. A key that is not an `asset_library` extension is an
 analysis failure listing the ones that are.
 
+Gazelle writes one `asset_library` per asset file, so on a repo of any size this
+attribute is written by
+[`# gazelle:ts_asset_declaration_type`](../gazelle/directives.md#declare-what-an-asset-extension-imports-as)
+rather than by hand: one directive per extension, applying to a directory and
+below.
+
 The expression is inserted verbatim, so any name it uses has to resolve from
 inside a generated declaration: write `import("pkg").Type` rather than a
 top-level import, and keep `pkg` in the *consuming* `ts_compile` target's deps.
