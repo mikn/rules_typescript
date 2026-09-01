@@ -3,6 +3,7 @@ package typescript
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -11,15 +12,16 @@ import (
 	"github.com/bazelbuild/bazel-gazelle/rule"
 )
 
-// Six defects so far are one defect: Gazelle wrote a dep naming something that
-// cannot exist, and Bazel answers `no such package` / `no such target` during
-// ANALYSIS -- failing every target in the build, where a dropped dep fails one
-// and leaves the compiler to report one TS2307.
+// Seven defects so far are one defect, in two directions: Gazelle wrote a dep
+// naming something that cannot exist -- Bazel answers `no such package` /
+// `no such target` during ANALYSIS, failing every target in the build -- or a
+// guard against that dropped a dep that named something real.
 //
 // The guards live apart because the specifiers reach the label by different
 // routes. The invariant does not: whatever route a dep came by, it must name
-// something. This test is that invariant, run over a corpus holding every
-// shape that has broken so far.
+// something -- and a specifier whose package is real must still produce one.
+// This test is that invariant, run over a corpus holding every shape that has
+// broken so far, with the exact deps each one owes.
 //
 // The npm half of the corpus is checked for a loadable label only. The
 // inventory would be the oracle for whether the hub declares a name, and it
@@ -29,6 +31,7 @@ func TestResolveImports_EveryDepNamesSomethingLoadable(t *testing.T) {
 	root := t.TempDir()
 	for _, dir := range []string{
 		"web/src", "web/shared/lib", "web/shared/public/.well-known", "web/node_modules/acme",
+		".github/scripts",
 	} {
 		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(dir)), 0o755); err != nil {
 			t.Fatal(err)
@@ -37,6 +40,7 @@ func TestResolveImports_EveryDepNamesSomethingLoadable(t *testing.T) {
 	writeFile(t, filepath.Join(root, "web/shared/public/.well-known/assetlinks.json"), "{}\n")
 	writeFile(t, filepath.Join(root, "web/shared/public/.well-known/apple-app-site-association"), "{}\n")
 	writeFile(t, filepath.Join(root, "web/shared/types/mobile.d.ts"), "declare module \"mobile\" {}\n")
+	writeFile(t, filepath.Join(root, ".github/scripts/BUILD.bazel"), "")
 
 	c := &config.Config{RepoRoot: root, Exts: make(map[string]interface{})}
 	c.Exts[languageName] = makeConfig("", []rule.Directive{
@@ -48,36 +52,44 @@ func TestResolveImports_EveryDepNamesSomethingLoadable(t *testing.T) {
 	from := label.New("", "web", "web")
 	srcs := []string{"src/app.ts", "shared/types/mobile.d.ts"}
 
-	// Each row is a specifier that has produced an unloadable label, and the
-	// route it took. The controls at the end must still produce a dep, or the
-	// invariant below would hold over an empty list.
-	corpus := []string{
-		"./shared/lib/config.json?raw",                    // bundler query suffix
-		"./shared/lib/notes.rst",                          // unclassified extension
-		"./shared/i18n/compiled/messages",                 // directory not on disk
-		"./shared/public/.well-known/assetlinks.json?raw", // dot-directory
-		"./shared/public/.well-known/apple-app-site-association?raw",
-		"../node_modules/acme/index.ts", // never a package
-		"mobile",                        // ambiently declared
-		"#nothing/here",                 // no imports entry
-		"virtual:routes",                // bundler-synthesised
-		"@/lib",                         // control: path alias
-		"./shared/lib",                  // control: relative
-		"react",                         // control: npm
-	}
+	// Each row is a specifier and the exact deps it must produce. Both
+	// directions are the same defect: #90 added a guard that made every emitted
+	// dep loadable and dropped a checked-in one that already was, so a row
+	// asserting "no dep" is worth no more than a row asserting a specific one.
+	for _, tt := range []struct {
+		imp  string
+		want []string
+	}{
+		// The query is dropped and the JSON's package is real, so this one is a
+		// dep -- the loadability-only version of this test never checked that.
+		{"./shared/lib/config.json?raw", []string{"//web/shared/lib"}},
+		{"./shared/lib/notes.rst", nil},                          // unclassified extension
+		{"./shared/i18n/compiled/messages", nil},                 // directory not on disk
+		{"./shared/public/.well-known/assetlinks.json?raw", nil}, // dot-directory, no BUILD file
+		{"./shared/public/.well-known/apple-app-site-association?raw", nil},
+		{"../node_modules/acme/index.ts", nil}, // never a package
+		{"mobile", nil},                        // ambiently declared
+		{"#nothing/here", nil},                 // no imports entry
+		{"virtual:routes", nil},                // bundler-synthesised
 
-	produced := 0
-	for _, imp := range corpus {
+		// A dot-directory whose BUILD file is checked in IS a package, and the
+		// dep on it has to survive: dropping it is the mirror-image defect.
+		{"../.github/scripts/request-author-team-reviewers.js", []string{"//.github/scripts"}},
+		{"@/lib", []string{"//web/shared/lib"}},        // path alias
+		{"./shared/lib", []string{"//web/shared/lib"}}, // relative
+		{"react", []string{"@npm//:react"}},            // npm
+	} {
 		r := rule.NewRule("ts_compile", "web")
 		r.SetAttr("srcs", srcs)
-		resolveImports(c, ix, r, []string{imp}, from)
-		for _, dep := range r.AttrStrings("deps") {
-			produced++
-			assertLoadable(t, root, ambientModuleNames(c, r, from), imp, dep)
+		resolveImports(c, ix, r, []string{tt.imp}, from)
+
+		got := r.AttrStrings("deps")
+		if len(got) != len(tt.want) || (len(got) > 0 && !reflect.DeepEqual(got, tt.want)) {
+			t.Errorf("%s: deps = %v, want %v", tt.imp, got, tt.want)
 		}
-	}
-	if produced < 3 {
-		t.Fatalf("only %d deps produced; the corpus controls stopped resolving and the invariant is vacuous", produced)
+		for _, dep := range got {
+			assertLoadable(t, root, ambientModuleNames(c, r, from), tt.imp, dep)
+		}
 	}
 }
 
@@ -102,12 +114,15 @@ func assertLoadable(t *testing.T, root string, ambient []string, imp, dep string
 		return
 	}
 	pkg, _, _ = strings.Cut(pkg, ":")
-	if generatorSkips(pkg) {
-		t.Errorf("%s: dep %q names a directory the generator refuses to walk", imp, dep)
-		return
-	}
-	info, err := os.Stat(filepath.Join(root, filepath.FromSlash(pkg)))
+	dir := filepath.Join(root, filepath.FromSlash(pkg))
+	info, err := os.Stat(dir)
 	if err != nil || !info.IsDir() {
 		t.Errorf("%s: dep %q names %q, which is not a directory in the workspace", imp, dep, pkg)
+		return
+	}
+	// A checked-in BUILD file makes it loadable whatever the generator's walk
+	// would do -- reading that walk as the answer is what #90 got wrong.
+	if generatorSkips(pkg) && !isBazelPackage(dir) {
+		t.Errorf("%s: dep %q names a directory that will never hold a BUILD file", imp, dep)
 	}
 }

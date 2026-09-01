@@ -823,19 +823,6 @@ Changes made since the newest section below are not here yet: they sit in
   unclassified extension) were already guarded for exactly this reason; the
   missing directory was not. The fabricated label now requires a directory on
   disk. A directory that exists but is not a Bazel package is unchanged.
-- **An ambiently declared module gets no dep.** A script-mode `.d.ts` holding
-  `declare module "mobile"` IS that module: nothing installs it and no other
-  file exports it, so the specifier naming it needs no dep at all. Gazelle had
-  no knowledge of the construct -- its scanner only refuses to read the
-  declaration's own string as an import -- so `import type { AuthResult } from
-  "mobile"` fell down the bare-specifier ladder to the hub convention and came
-  back as `@npm//:mobile`, a target no hub declares. Bazel answers that with
-  `no such target` **during analysis**, which fails every target in the build.
-  The names a target's own declaration files declare are now read, and a
-  specifier one of them covers resolves to nothing. Only that target is exempt:
-  a sibling package importing the same name still asks the hub. An installed
-  package keeps its dep even when a declaration file names it, since the
-  lockfile says a hub target exists.
 - **A dep is no longer fabricated for a directory the generator refuses to
   walk.** When no indexed rule provides a specifier, Gazelle names the package
   that would have to: `//web/shared/public/.well-known` for
