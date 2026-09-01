@@ -464,9 +464,22 @@ A `#`-prefixed specifier is a Node package-private import, answered only by the
 Gazelle reads that map as a path alias, so `#shared/flags` resolves to the
 target owning `<pkg>/shared/flags`. A conditions object or an array picks one
 target (`types`, then `import`, `module`, `default`, `node`, `require`). An
-entry a `paths` key already covers keeps the `paths` answer. A `#` specifier no
-entry covers resolves to nothing rather than to an npm label — there is no npm
-package of that name.
+entry a `paths` key already covers keeps the `paths` answer, and an inner
+package's map replaces an outer package's answer for the same key — Node
+answers a `#` from the nearest enclosing `package.json`.
+
+A target may name another package instead of a path, which is how the field
+swaps a polyfill by condition:
+
+```json
+{ "imports": { "#dep": { "node": "./src/node.ts", "default": "lodash" } } }
+```
+
+That entry resolves to `@npm//:lodash`, subpaths and a trailing `/*` wildcard
+included. A `#` specifier no entry covers resolves to nothing rather than to an
+npm label — there is no npm package of that name. Node allows `*` anywhere in a
+pattern, but an alias key matches by prefix: `#internal/*/utils` is dropped
+rather than recorded as a key that could never fire.
 
 Node built-ins resolve to `@types/node`, with or without the `node:` prefix:
 `import "path"` and `import "node:path"` both take the declarations dep, since

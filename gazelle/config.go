@@ -212,6 +212,16 @@ type tsConfig struct {
 	// read back out of a tsconfig this ruleset generated. Inherited downward.
 	aliasesFromDirectives bool
 
+	// importsAliases are the pathAliases entries the nearest package.json
+	// "imports" map contributed, so a nearer one can replace them: Node
+	// answers a "#" specifier from the nearest enclosing package.json.
+	importsAliases map[string]string
+
+	// importsNpm maps a "#" specifier from that same map onto the package
+	// specifier its target names, for the entries whose target is another
+	// package rather than a path inside this one.
+	importsNpm map[string]string
+
 	// npmPackages holds the set of npm package names known to the workspace.
 	// Keys are npm package names (e.g. "react"). A value is the Bazel label to
 	// use as a dep (e.g. "@npm//react"); "" means the entry asserts only that
@@ -329,8 +339,8 @@ func getConfig(c *config.Config) *tsConfig {
 // inherit from their parent.
 func (tc *tsConfig) clone() *tsConfig {
 	cp := *tc
-	// npmPackages and workspaceMembers are read-only after construction;
-	// sharing via pointer is safe.
+	// npmPackages, workspaceMembers, importsAliases and importsNpm are
+	// read-only after construction; sharing via pointer is safe.
 	//
 	// pathAliases can be extended or replaced by per-directory directives, so
 	// we must deep-copy it to ensure that a child's mutation (merge or replace)
@@ -877,18 +887,23 @@ func loadTsConfigPaths(tsConfigPath, pkgRel string) map[string]string {
 	return aliases
 }
 
-// loadPackageImports reads the "imports" field of the package.json in dir and
-// returns it in the prefix -> repo-relative-directory form pathAliases uses.
+// packageImports is one package.json "imports" map, split by what each target
+// names: a path inside the package, or another package.
+type packageImports struct {
+	// "#shared/*": "./shared/*" → "#shared/" → "<pkgRel>/shared/"
+	aliases map[string]string
+	// "#dep": "lodash" → "#dep" → "lodash"
+	npm map[string]string
+}
+
+// loadPackageImports reads the "imports" field of the package.json in dir.
 //
 // A specifier starting with "#" is resolvable only through this map -- Node
 // calls it a package-private import, and no lookup outside the package can
 // answer one. Left unread, "#shared/x" is a bare specifier, and a bare
 // specifier is an npm package: the resolver emits @npm//:#shared, a label whose
 // target no hub declares.
-//
-//	"#shared/*": "./shared/*"   → "#shared/" → "<pkgRel>/shared/"
-//	"#entry": "./src/entry.ts"  → "#entry"   → "<pkgRel>/src/entry.ts"
-func loadPackageImports(dir, pkgRel string) map[string]string {
+func loadPackageImports(dir, pkgRel string) *packageImports {
 	data, err := os.ReadFile(filepath.Join(dir, "package.json"))
 	if err != nil {
 		return nil
@@ -900,30 +915,59 @@ func loadPackageImports(dir, pkgRel string) map[string]string {
 		return nil
 	}
 
-	aliases := make(map[string]string, len(pj.Imports))
+	loaded := &packageImports{
+		aliases: make(map[string]string, len(pj.Imports)),
+		npm:     make(map[string]string, len(pj.Imports)),
+	}
 	for specifier, raw := range pj.Imports {
 		if !strings.HasPrefix(specifier, "#") {
 			continue
 		}
 		target := pickImportsTarget(raw)
-		if target == "" || !strings.HasPrefix(target, "./") {
+		if target == "" {
 			continue
 		}
 		key := strings.TrimSuffix(specifier, "/*")
-		dir := strings.TrimPrefix(strings.TrimSuffix(target, "/*"), "./")
+		stem := strings.TrimSuffix(target, "/*")
+		// Node allows "*" anywhere in the pattern, but an alias key matches by
+		// prefix, so only a trailing one survives the translation.
+		if strings.Contains(key, "*") || strings.Contains(stem, "*") {
+			continue
+		}
 		if strings.HasSuffix(specifier, "/*") {
 			key += "/"
-			dir += "/"
+			stem += "/"
 		}
-		if pkgRel != "" {
-			dir = path.Join(pkgRel, dir) + trailingSlash(dir)
+		switch {
+		case strings.HasPrefix(target, "./"):
+			relDir := strings.TrimPrefix(stem, "./")
+			if pkgRel != "" {
+				relDir = path.Join(pkgRel, relDir) + trailingSlash(relDir)
+			}
+			loaded.aliases[key] = relDir
+		case isNpmSpecifier(target):
+			loaded.npm[key] = stem
 		}
-		aliases[key] = dir
 	}
-	if len(aliases) == 0 {
+	if len(loaded.aliases) == 0 && len(loaded.npm) == 0 {
 		return nil
 	}
-	return aliases
+	return loaded
+}
+
+// isNpmSpecifier reports whether an "imports" target names another package
+// rather than a path inside this one -- {"#dep": "lodash"}, the shape a
+// conditional polyfill swap takes.
+func isNpmSpecifier(target string) bool {
+	switch {
+	case target == "":
+		return false
+	case strings.HasPrefix(target, "."), strings.HasPrefix(target, "/"), strings.HasPrefix(target, "#"):
+		return false
+	case strings.HasPrefix(target, "@"):
+		return strings.Contains(target, "/")
+	}
+	return true
 }
 
 // importsConditions are the conditional-export keys Gazelle reads, in the order
@@ -1242,6 +1286,7 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 	tsConfigCandidate := filepath.Join(currentDir, "tsconfig.json")
 	if tsConfigAliases := loadTsConfigPaths(tsConfigCandidate, rel); tsConfigAliases != nil {
 		tc.pathAliases = tsConfigAliases
+		tc.importsAliases = nil
 	}
 	if _, err := os.Stat(tsConfigCandidate); err == nil {
 		// The nearest tsconfig replaces the inherited answer rather than adding
@@ -1304,20 +1349,29 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 	}
 	_ = gazelleJSON // used for backwards compat above; directives below take priority
 
-	// A "#" specifier resolves through the package's own imports map and
-	// nothing else, so an entry here fills a key the sources above left open
-	// rather than replacing the answer one of them gave.
+	// An entry here fills a key the sources above left open rather than
+	// replacing the answer one of them gave -- except an answer an outer
+	// package.json's own map gave, which the nearest enclosing one displaces
+	// the way Node resolves a "#".
 	if pkgImports := loadPackageImports(currentDir, rel); pkgImports != nil {
-		merged := make(map[string]string, len(tc.pathAliases)+len(pkgImports))
+		merged := make(map[string]string, len(tc.pathAliases)+len(pkgImports.aliases))
 		for key, dir := range tc.pathAliases {
+			if outer, fromOuterImports := tc.importsAliases[key]; fromOuterImports && outer == dir {
+				continue
+			}
 			merged[key] = dir
 		}
-		for key, dir := range pkgImports {
-			if _, taken := merged[key]; !taken {
-				merged[key] = dir
+		applied := make(map[string]string, len(pkgImports.aliases))
+		for key, dir := range pkgImports.aliases {
+			if _, taken := merged[key]; taken {
+				continue
 			}
+			merged[key] = dir
+			applied[key] = dir
 		}
 		tc.pathAliases = merged
+		tc.importsAliases = applied
+		tc.importsNpm = pkgImports.npm
 	}
 
 	// Auto-exclude directories that match the built-in or configured exclude

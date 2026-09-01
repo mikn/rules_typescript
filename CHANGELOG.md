@@ -656,7 +656,14 @@ sections list every break with the edit it requires.
   one dep. The map is now read as a path alias (conditions objects and
   alternative arrays included), below `compilerOptions.paths`, which is what
   kept the one monorepo measured working: it duplicates both entries into
-  `paths`. A `#` specifier no entry covers now resolves to nothing.
+  `paths`. Nearest wins: an inner package's map replaces an outer package's
+  answer for the same key, the way Node answers a `#` from the nearest
+  enclosing `package.json` rather than the outermost. An entry whose target
+  names another package rather than a path -- `{"#dep": "lodash"}`, the
+  conditional-polyfill shape the field exists for -- resolves to that package's
+  label. A wildcard that is not a trailing `/*` is dropped: an alias key matches
+  by prefix, so a key holding a literal `*` could never fire. A `#` specifier no
+  entry covers at all resolves to nothing.
 - **A checked-in `*.gen.ts` is a source again.** Gazelle dropped every file
   whose name ended `.gen` / `.generated` / `.auto` from every source target, on
   the guess that something in the build produced it. The guess was already
