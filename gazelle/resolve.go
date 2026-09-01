@@ -452,7 +452,24 @@ func labelForUnindexed(repoRoot, rel string, from label.Label) string {
 	if info, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(pkg))); err != nil || !info.IsDir() {
 		return ""
 	}
+	if generatorSkips(pkg) {
+		return ""
+	}
 	return label.New("", pkg, path.Base(pkg)).String()
+}
+
+// generatorSkips reports whether pkg lies under a directory the generator
+// refuses to walk. Nothing rolls such a directory's files up and no BUILD file
+// is written in it, so naming it as a package is this resolver contradicting
+// that generator -- and "no such package" fails every target in the build
+// where a dropped dep fails one.
+func generatorSkips(pkg string) bool {
+	for _, seg := range strings.Split(pkg, "/") {
+		if skipRolledUpDir(seg) {
+			return true
+		}
+	}
+	return false
 }
 
 // namesAFile reports whether rel's last segment is a file the ruleset

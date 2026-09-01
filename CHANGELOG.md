@@ -793,6 +793,18 @@ Changes made since the newest section below are not here yet: they sit in
   unclassified extension) were already guarded for exactly this reason; the
   missing directory was not. The fabricated label now requires a directory on
   disk. A directory that exists but is not a Bazel package is unchanged.
+- **A dep is no longer fabricated for a directory the generator refuses to
+  walk.** When no indexed rule provides a specifier, Gazelle names the package
+  that would have to: `//web/shared/public/.well-known` for
+  `../../shared/public/.well-known/assetlinks.json?raw`. `rolledUpIn` skips a
+  dot-directory, `node_modules`, `dist` and `bazel-out`, so under any package
+  boundary but `every-dir` nothing claims those files and no BUILD file is ever
+  written in them -- the resolver was naming a package the generator had already
+  decided would not exist. Bazel answers that with `no such package` **during
+  analysis**, which fails every target in the build where the missing module
+  alone would have been one `TS2307`. Both sides now read the same rule. An
+  indexed rule in such a directory still answers first, which is what keeps a
+  dot-directory package generated in `every-dir` mode resolving.
 - **A `#` specifier resolves through the package's `imports` field.** Node calls
   a `#`-prefixed specifier a package-private import, and the `imports` map in
   the importing package's own `package.json` is the only thing that answers one.
