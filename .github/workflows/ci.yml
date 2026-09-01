@@ -4,9 +4,9 @@ on:
     branches:
       - main
       - develop
+  # No branch filter: a stacked PR targets the branch below it, and a filtered
+  # `pull_request` fires no run at all for one -- not a skipped check, nothing.
   pull_request:
-    branches:
-      - main
 
 jobs:
   test:
