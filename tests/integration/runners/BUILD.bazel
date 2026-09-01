@@ -25,7 +25,7 @@ is already the price of the older child-workspace layout.
 # gazelle:exclude npm_integrity
 # gazelle:exclude npmrc_registry
 # gazelle:exclude oxc_declarations
-# gazelle:exclude private_globals
+# gazelle:exclude public_globals
 # gazelle:exclude remix
 # gazelle:exclude remix_ssr
 # gazelle:exclude svelte
@@ -48,7 +48,7 @@ _RUNNERS = [
     "npm_integrity",
     "npmrc_registry",
     "oxc_declarations",
-    "private_globals",
+    "public_globals",
     "remix",
     "remix_ssr",
     "svelte",

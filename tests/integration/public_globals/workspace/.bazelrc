@@ -1,4 +1,4 @@
-# Integration test workspace for private_globals.
+# Integration test workspace for public_globals.
 
 build --incompatible_strict_action_env
 build --nolegacy_external_runfiles

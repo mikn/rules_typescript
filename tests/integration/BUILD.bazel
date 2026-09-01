@@ -38,7 +38,7 @@ its shard tag; tags.bzl holds both.
   bazel test --config=fast //...                     everything BUT these
 
 The three tests outside this package -- //tests/integration/npm_integrity,
-//tests/integration/npmrc_registry and //tests/integration/private_globals --
+//tests/integration/npmrc_registry and //tests/integration/public_globals --
 are not in :integration_tests and cannot be: no such package exports its test.
 `//tests/integration/...`, which is what CI runs, is the pattern that covers
 all 19.
@@ -58,7 +58,7 @@ all 19.
 # gazelle:exclude npm_deps
 # gazelle:exclude npmrc_registry
 # gazelle:exclude oxc_declarations
-# gazelle:exclude private_globals
+# gazelle:exclude public_globals
 # gazelle:exclude remix
 # gazelle:exclude remix_ssr
 # gazelle:exclude svelte

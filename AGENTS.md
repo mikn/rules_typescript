@@ -76,8 +76,9 @@ is either a dep Gazelle cannot generate or drift nothing notices, so
 tests/strict_deps pins the two against one table. Change one, change both.
 
 TsGlobalDts reads the target's .d.ts srcs and writes the reference file naming
-the ones that declare globals -- the file a consumer's tsconfig `files` lists,
-since Starlark cannot read a source to tell a global .d.ts from a module one.
+the ones public_globals exports -- the file a consumer's tsconfig `files`
+lists, since Starlark cannot read a source to tell a global .d.ts from a module
+one. A target exporting none runs no such action and provides no such file.
 ```
 
 **Key files:**

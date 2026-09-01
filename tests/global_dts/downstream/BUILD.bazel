@@ -3,10 +3,12 @@ load("//ts:defs.bzl", "ts_compile")
 
 package(default_visibility = ["//:__pkg__"])
 
-# The half of private_globals a passing build can show: withholding one src did
-# not withhold the other. `STANDALONE_MODE` is not in scope here, and its
+# The half a passing build can show: `BUILD_ID` reaches here because
+# //tests/global_dts:settings names build-id.d.ts in public_globals.
+# `STANDALONE_MODE`, which it does not name, is not in scope here, and an
 # absence is a compile error rather than an artifact, so
-# //tests/integration:private_globals_test is where that half is asserted.
+# //tests/integration/public_globals:public_globals_test is where that half is
+# asserted.
 ts_compile(
     name = "downstream",
     srcs = ["report.ts"],

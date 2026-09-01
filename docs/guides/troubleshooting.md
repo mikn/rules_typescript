@@ -348,7 +348,9 @@ ts_compile(
 
 `vite_types` prepends a standalone ambient shim: it declares the Vite client
 globals without referencing `vite/client`, so `vite` does not become a
-compile-time dependency. Anything else the directive was reaching for is an
+compile-time dependency. It is a src like any other, so it types the target
+that sets the attribute and no other -- a consumer using `import.meta.env` sets
+`vite_types = True` itself. Anything else the directive was reaching for is an
 ordinary `@types/*` package. Name it in `deps`, or in
 [`# gazelle:ts_ambient_types`](../gazelle/directives.md#declare-ambient-types-once-for-the-whole-repo)
 if the whole tree needs it.

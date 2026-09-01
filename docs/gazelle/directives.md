@@ -70,10 +70,10 @@ is replaced unless a `# keep` holds it. `ts_compile.deps` and
 | `node_modules` (framework root) | `deps` |
 | `filegroup(name = "sources")` | `srcs`, `visibility` |
 
-`ts_compile.private_globals` is deliberately absent. Whether a `.d.ts`'s
-globals are part of the package's public type surface is a decision nothing
-in the source states, so no directive writes it and a hand-written value
-survives every run, `# keep` or not.
+`ts_compile.public_globals` is deliberately absent. Whether a `.d.ts`'s globals
+are part of the package's public type surface is a decision nothing in the
+source states, so no directive writes it and a hand-written value survives every
+run, `# keep` or not.
 
 Three kinds are the exception: `ts_dev_server`, `ts_pnpm` and `ts_add_package`.
 Each is written once, when no rule of that name exists, and left alone from then
