@@ -17,6 +17,13 @@ json_library(
     visibility = ["//visibility:public"],
 )
 
+# Every array shape TypeScript treats differently, in one file.
+json_library(
+    name = "shapes",
+    srcs = ["shapes.json"],
+    visibility = ["//visibility:public"],
+)
+
 json_library(
     name = "commented",
     srcs = ["commented.json"],
@@ -31,6 +38,14 @@ ts_compile(
     deps = [":config"],
 )
 
+# The assertions are the annotations: each one is a type the old generator did
+# not produce, so this target is the behavioural half of the test.
+ts_compile(
+    name = "shapes_lib",
+    srcs = ["Shapes.ts"],
+    deps = [":shapes"],
+)
+
 # ── Verification test ──────────────────────────────────────────────────────────
 # Checks that the generated .d.ts declares all JSON fields with correct types.
 
@@ -42,6 +57,8 @@ go_test(
         ":app_lib",
         ":commented",
         ":config",
+        ":shapes",
+        ":shapes_lib",
     ],
     deps = ["//tests/verify"],
 )

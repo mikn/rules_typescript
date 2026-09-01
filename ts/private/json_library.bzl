@@ -72,27 +72,78 @@ try {
   process.exit(1);
 }
 
-function typeOf(v, indent) {
-  if (v === null) return 'null';
+// The declaration has to mean what `resolveJsonModule` means for the same
+// file, or a target that switches between them changes type. Two rules carry
+// most of that: an array's element type is the union of its elements, not the
+// first one; and nothing is `readonly`, because a JSON module is not.
+function model(v) {
+  if (v === null) return { k: 's', name: 'null' };
   const t = typeof v;
-  if (t === 'string' || t === 'number' || t === 'boolean') return t;
-  if (Array.isArray(v)) {
-    const elemType = v.length > 0 ? typeOf(v[0], indent + '  ') : 'unknown';
-    return 'readonly ' + elemType + '[]';
-  }
+  if (t === 'string' || t === 'number' || t === 'boolean') return { k: 's', name: t };
+  if (Array.isArray(v)) return { k: 'a', elems: v.map(model) };
   if (t === 'object') {
-    const keys = Object.keys(v);
-    if (keys.length === 0) return 'Record<string, unknown>';
-    const nextIndent = indent + '  ';
-    const fields = keys.map((k) =>
-      nextIndent + 'readonly ' + JSON.stringify(k) + ': ' + typeOf(v[k], nextIndent) + ';'
-    );
-    return '{\\n' + fields.join('\\n') + '\\n' + indent + '}';
+    return {
+      k: 'o',
+      fields: Object.keys(v).map((key) => ({ key, type: model(v[key]), optional: false })),
+    };
   }
-  return 'unknown';
+  return { k: 's', name: 'unknown' };
 }
 
-const type = typeOf(data, '');
+// TypeScript normalises a union of object literals by giving every member the
+// union's whole key set, filling an absent key with `?: undefined`. That is
+// what makes `xs[1].b` read as `number | undefined` rather than an error, and
+// it is why sampling the first element erased keys the later ones carried.
+function normalise(models) {
+  const objs = models.filter((m) => m.k === 'o');
+  if (objs.length < 2) return;
+  const order = [];
+  for (const o of objs) {
+    for (const f of o.fields) if (!order.includes(f.key)) order.push(f.key);
+  }
+  for (const o of objs) {
+    const have = new Map(o.fields.map((f) => [f.key, f]));
+    o.fields = order.map(
+      (key) => have.get(key) ?? { key, type: { k: 's', name: 'undefined' }, optional: true },
+    );
+  }
+  for (const key of order) {
+    normalise(
+      objs
+        .map((o) => o.fields.find((f) => f.key === key))
+        .filter((f) => f && !f.optional)
+        .map((f) => f.type),
+    );
+  }
+}
+
+function render(m, indent) {
+  if (m.k === 's') return m.name;
+  if (m.k === 'a') return renderUnion(m.elems, indent, true) + '[]';
+  if (m.fields.length === 0) return '{}';
+  const next = indent + '  ';
+  const fields = m.fields.map(
+    (f) => next + JSON.stringify(f.key) + (f.optional ? '?' : '') + ': ' + render(f.type, next) + ';',
+  );
+  return '{\\n' + fields.join('\\n') + '\\n' + indent + '}';
+}
+
+function renderUnion(models, indent, parenthesise) {
+  if (models.length === 0) return 'never';
+  normalise(models);
+  const seen = [];
+  for (const m of models) {
+    const text = render(m, indent);
+    if (!seen.includes(text)) seen.push(text);
+  }
+  const nullish = seen.filter((t) => t === 'null' || t === 'undefined');
+  const parts = seen.filter((t) => t !== 'null' && t !== 'undefined').concat(nullish);
+  if (parts.length === 1) return parts[0];
+  const joined = parts.join(' | ');
+  return parenthesise ? '(' + joined + ')' : joined;
+}
+
+const type = render(model(data), '');
 const dts = 'declare const data: ' + type + ';\\nexport default data;\\n';
 writeFileSync(dtsFile, dts, 'utf8');
 """
