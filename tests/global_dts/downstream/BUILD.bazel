@@ -1,0 +1,22 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "ts_compile")
+
+package(default_visibility = ["//:__pkg__"])
+
+# The half of private_globals a passing build can show: withholding one src did
+# not withhold the other. `STANDALONE_MODE` is not in scope here, and its
+# absence is a compile error rather than an artifact, so
+# //tests/integration:private_globals_test is where that half is asserted.
+ts_compile(
+    name = "downstream",
+    srcs = ["report.ts"],
+    visibility = ["//visibility:public"],
+    # keep: report.ts imports nothing, so Gazelle derives no dep and would drop
+    # this one -- and it is the edge that carries `BUILD_ID` here.
+    deps = ["//tests/global_dts:settings"],
+)
+
+build_test(
+    name = "downstream_test",
+    targets = [":downstream"],
+)

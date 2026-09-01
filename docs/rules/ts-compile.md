@@ -39,6 +39,7 @@ wiring, no extra flags in `.bazelrc`.
 | `module_name` | `string` | `""` | The bare specifier this target is importable as, e.g. `"@acme/ui"` |
 | `path_aliases` | `string_dict` | `{}` | Alias prefix → workspace-relative source directory. Must resolve to files this target stages: its own `srcs`, or `path_alias_srcs` |
 | `path_alias_srcs` | `label_list` | `[]` | Files a `path_aliases` entry resolves to when they are not in `srcs`. They join this target's type program, so a type error in one of them fails this target |
+| `private_globals` | `label_list` | `[]` | The `.d.ts` in `srcs` whose globals stay in this target's own program. See [Keeping an ambient out of a consumer's program](#keeping-an-ambient-out-of-a-consumers-program) |
 | `vite_types` | `bool` | `False` | Prepend the Vite ambient type shim to `srcs` |
 
 ### Sources
@@ -387,6 +388,43 @@ beats a later `declare module "*.icon.svg"` even for `star.icon.svg`.
 
 To let a package's ambient win instead, drop the project's competing
 declaration.
+
+### Keeping an ambient out of a consumer's program
+
+That scope is right about TypeScript and not always right about packaging. A
+package can hold an ambient it needs for its own standalone `tsc -p` that is no
+part of its public type surface -- the usual one being a `process` shim in a
+library with no `@types/node`, which then shadows the real `process` in every
+consumer that has it.
+
+`private_globals` names such a file. It stays in `srcs`, so it still types this
+target's own compile; it is left out of the generated `<name>.globals.d.ts`
+consumers list in `files`, which is the only route its declarations had into
+their programs.
+
+```python
+ts_compile(
+    name = "ui",
+    srcs = glob(["**/*.tsx"]) + ["types/ambient.d.ts"],
+    private_globals = ["types/ambient.d.ts"],
+    tsconfig = "tsconfig.json",
+)
+```
+
+A consumer that turns out to need one of those globals sees the identifier as
+undefined: nothing distinguishes a global that was withheld from one that never
+existed. Give that consumer the declaration through a dep of its own --
+`@types/node` for `process` -- or move the declaration into a `.d.ts` that
+`private_globals` does not name.
+
+The unit is the file, because the module-or-global question TypeScript answers
+is per file. A `.d.ts` mixing a shim for the package's own build with a
+declaration consumers are meant to have is two files.
+
+Every entry must be in `srcs`, and must be global. Naming a `.d.ts` with a
+top-level import or export fails the build rather than passing as a no-op: a
+module's declarations were never in a consumer's scope, so withholding them
+states something about the file that is not true.
 
 ## Which Tool Emits the Declarations
 

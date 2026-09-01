@@ -1,0 +1,10 @@
+# Integration test workspace for private_globals.
+
+build --incompatible_strict_action_env
+build --nolegacy_external_runfiles
+
+# Always type-check on build: the negative cases here are type errors.
+build --output_groups=+_validation
+
+test --test_output=errors
+test --test_summary=terse
