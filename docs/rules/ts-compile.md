@@ -278,9 +278,12 @@ own source from leaning on them.
 ### Importing Another Target by Bare Specifier
 
 `path_aliases` maps a prefix to a source directory, which is right for
-`@/components` → `src/components`. It cannot name another target's generated
-declarations, because only that target knows where they land under the current
-configuration. Set `module_name` there instead:
+`@/components` → `src/components`. The rule maps the prefix onto that directory
+and its `bazel-bin` mirror, so a `css_library`, `asset_library` or
+`json_library` declaration for a file under it resolves too -- but a target
+whose declarations land anywhere else is out of reach, because only that target
+knows where they go under the current configuration. Set `module_name` there
+instead:
 
 ```python
 # packages/ui/BUILD.bazel
