@@ -12,6 +12,11 @@ jobs:
   test:
     name: Unit Tests & Type Checking
     strategy:
+      # As in `examples` and `integration-tests`: each leg is its own runner and
+      # neither is evidence about the other, so one going red must not cancel
+      # the one that could still say something. Left at the default, a failure
+      # in the ubuntu-only gate below took the macOS leg down with it.
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
@@ -19,6 +24,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: bazel-contrib/setup-bazel@0.18.0
+        id: setup
         with:
           bazelisk-version: 1.x
           bazelisk-cache: true
@@ -42,19 +48,33 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: tools/ci/check_integration_shards.sh
 
+      # Both gates keep their place in front of the suite -- the reason above
+      # holds -- but a step defaults to `if: success()`, so either of them going
+      # red used to skip everything below on ubuntu while fail-fast cancelled
+      # macOS, and `bazel test //...` ran nowhere. That is how #74 to #77 merged
+      # onto a red main with the suite effectively switched off. These two run
+      # whatever the gates did; the job still fails, because a failed step
+      # fails it.
+      #
       # --config=ci is defined in .bazelrc. It expands --config=fast, which
       # drops the nested-Bazel targets: those run once per push, spread over the
       # legs of the integration-tests job. Unfiltered they would run three times
       # per push — twice here across the OS matrix, once there.
       - name: Run all tests
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bazel test --config=ci //...
 
       - name: Type checking (validation)
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bazel build --config=ci //... --output_groups=+_validation
 
   e2e:
     name: E2E Tests
     strategy:
+      # Same shape, same argument: the whole point of the second leg is that it
+      # is a different OS, which it cannot report on once the first one has
+      # cancelled it.
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
