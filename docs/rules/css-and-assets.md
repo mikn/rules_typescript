@@ -9,7 +9,7 @@ them.
 |------|-------|-------------|----------|
 | `css_library` | `.css` | `import "./button.css"` (side effect) | `CssInfo` |
 | `css_module` | `.css` (Gazelle routes `*.module.css` here) | `import styles from "./Button.module.css"` | `CssModuleInfo` |
-| `asset_library` | `.svg .png .jpg .jpeg .gif .webp .woff .woff2 .ttf .eot .md .txt .jsonc` | `import logo from "./logo.svg"` (URL string) | `AssetInfo` |
+| `asset_library` | `.svg .png .jpg .jpeg .gif .webp .woff .woff2 .ttf .eot .md .txt .jsonc` | `import logo from "./logo.svg"` (URL string by default; see [`declaration_type`](#when-an-asset-is-not-a-url)) | `AssetInfo` |
 | `json_library` | `.json` | `import config from "./config.json"` (fully typed) | — |
 
 ```python
@@ -113,14 +113,60 @@ declaration: `locals_convention`, `scope_behaviour`, `hash_prefix` and
 is a hard build failure naming the attribute to use, and so are
 `css.modules.generateScopedName` and `css.modules = false`.
 
-`asset_library` and `json_library` promise a `string` URL and the parsed JSON
-shape respectively. JSON is not an `asset_library` extension: `json_library`
+`asset_library` promises a `string` URL by default and `json_library` the parsed
+JSON shape. JSON is not an `asset_library` extension: `json_library`
 parses the file at build time and generates real property types, which an
 ambient `string` declaration would throw away. The parse reads the
 JSON-with-comments dialect TypeScript itself accepts, so a `.json` file carrying
 comments or trailing commas types like any other. `.jsonc` goes the other way
 and stays with `asset_library`: no bundler parses that extension as JSON, so the
 import yields a URL and not a value.
+
+## When an Asset Is Not a URL
+
+A URL string is what a bundler hands back when it does not transform the file.
+A project running an svgr-style plugin gets a React component from `.svg`
+instead, and `declaration_type` is how it says so, keyed by extension:
+
+```python
+asset_library(
+    name = "logo_svg",
+    srcs = ["logo.svg"],
+    declaration_type = {
+        ".svg": 'import("react").FC<import("react").SVGProps<SVGSVGElement>>',
+    },
+)
+```
+
+An extension left out keeps `string`, so one target can retype its `.svg` and
+leave its `.png` alone. A key that is not an `asset_library` extension is an
+analysis failure listing the ones that are.
+
+The expression is inserted verbatim, so any name it uses has to resolve from
+inside a generated declaration: write `import("pkg").Type` rather than a
+top-level import, and keep `pkg` in the *consuming* `ts_compile` target's deps.
+
+**The expression is unchecked, and a name that does not resolve is silent.**
+The generated file is a `.d.ts` and this ruleset compiles with `skipLibCheck`,
+so a typo does not error — the import widens to `any` and every use of it
+type-checks. Build the consuming target with
+`compiler_options = {"skipLibCheck": False}` to surface it:
+
+```
+bazel-out/k8-fastbuild/bin/web/assets/logo.svg.d.ts(4,22): error TS2304: Cannot find name 'Fc'.
+```
+
+The generated file's first line names the target and the attribute that wrote
+the type, so the error leads back to the BUILD file.
+
+**A `declare module "*.svg"` in the project does not do this job.** TypeScript
+prefers the concrete `logo.svg.d.ts` this rule writes beside the asset over any
+wildcard pattern, so the generated declaration wins and the project's ambient
+never applies — `declaration_type` is the supported way to change the answer.
+The exception is an asset reached through a `path_aliases` alias rather than a
+relative import: the alias resolves into the source tree, where no generated
+declaration sits beside the asset, so a wildcard ambient decides that import and
+`declaration_type` does not reach it.
 
 ## In a Bundle
 
