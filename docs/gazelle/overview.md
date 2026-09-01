@@ -538,7 +538,9 @@ and no BUILD file appears in them: `../../shared/public/.well-known/assetlinks.j
 would name `//web/shared/public/.well-known`, a package the generator has
 already decided will not exist. An indexed rule in such a directory still
 answers first, so a dot-directory package generated in `every-dir` mode is
-unaffected.
+unaffected, and so is one whose `BUILD` file is checked in by hand: that file is
+the proof Bazel can load the package, and what the generator would or would not
+write there says nothing about it.
 
 Gazelle's deps and the `ts_compile` strict-deps check share one specifier
 scanner. If `bazel build` reports an import no direct dep provides and re-running
