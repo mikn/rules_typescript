@@ -80,8 +80,11 @@ def _ts_npm_package_impl(ctx):
     # Also collect declarations from an explicitly linked @types dep.
     # Do NOT call .to_list() — use depset transitive to avoid materialization.
     types_dts_direct = depset()
+    types_package_dir = None
     if ctx.attr.types_dep:
         types_info = ctx.attr.types_dep
+        if NpmPackageInfo in types_info:
+            types_package_dir = types_info[NpmPackageInfo].package_dir
         if TsDeclarationInfo in types_info:
             # Pull the direct declaration_files (not full transitive) of the
             # @types package as the direct contribution of this npm target.
@@ -180,6 +183,7 @@ def _ts_npm_package_impl(ctx):
             exports_types_file = ctx.file.exports_types,
             subpath_types = subpath_types,
             ambient_types_file = ambient_types_file,
+            types_package_dir = types_package_dir,
         ),
     ]
 

@@ -3,8 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "dependencies": {
+    "@types/culori": "2.1.1",
     "@vitejs/plugin-react": "5.2.0",
     "@vitest/coverage-v8": "4.1.11",
+    "culori": "4.0.2",
     "happy-dom": "20.8.3",
     "oxlint": "0.16.6",
     "test-exclude": "7.0.2",

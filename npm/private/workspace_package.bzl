@@ -124,6 +124,7 @@ def _npm_package_info(ctx, member):
         exports_types_file = None,
         subpath_types = {},
         ambient_types_file = None,
+        types_package_dir = None,
     )
 
 def _npm_workspace_package_impl(ctx):
