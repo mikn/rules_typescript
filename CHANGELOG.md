@@ -763,6 +763,20 @@ sections list every break with the edit it requires.
   Bazel over a generated tree carrying such a directive: the converge tests
   compare BUILD text, and neither this nor the quoted-glob bug was visible in
   text.
+- **A `module_name` dep in a package below its consumer builds again.** The
+  generated tsconfig names each module root relative to its own directory, and a
+  producer nested under the consumer is the one shape whose relative path has no
+  leading `..` to give it away: `//web:web` depending on `//web/shared/i18n:x`
+  wrote `shared/i18n/compiled`. TypeScript reads a `paths` value with no visible
+  `.` as a module specifier rather than a path and rejects the config outright --
+  `error TS5090: Non-relative paths are not allowed` -- so the target failed
+  before tsgo read one import, and no `module_name` dep nested under its consumer
+  could be declared at all. Every `paths` value the rule writes now carries an
+  explicit `./` when it has none of its own: `path_aliases`, npm entry points,
+  npm subpath declarations and both roots of a `module_name`. The editor tsconfig
+  `ts_refresh_tsconfig` writes was already right -- its values are
+  workspace-root-relative and every one is written with the prefix -- and a test
+  now pins that.
 - **A `#` specifier resolves through the package's `imports` field.** Node calls
   a `#`-prefixed specifier a package-private import, and the `imports` map in
   the importing package's own `package.json` is the only thing that answers one.

@@ -147,6 +147,16 @@ def _module_paths_impl(ctx):
         "the package-path key survives alongside it",
     )
 
+    # Every value, not just the module's: a bare one is a module specifier to
+    # TypeScript, which is TS5090 in the compile tsconfig and a silently
+    # unresolved import here.
+    asserts.equals(
+        env,
+        [],
+        [v for key in sorted(paths) for v in paths[key] if not v.startswith(".")],
+        "every paths value is visibly relative",
+    )
+
     asserts.true(
         env,
         "**/vendor" in config["exclude"],
