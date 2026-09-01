@@ -252,6 +252,14 @@ type tsConfig struct {
 	// pointer-equality (never mutated after load).
 	npmPackages map[string]string
 
+	// npmLockNames is every package name the lockfile mentions, read from the
+	// same file at the same time. Where npmPackages says which names the hub
+	// declares a target for and under-claims on purpose, this one says which
+	// names the workspace has ever heard of and over-claims on purpose: it is
+	// read only to refuse a hub label, so its errors have to fall on the side
+	// of not refusing. nil means no lockfile answered and nothing is refused.
+	npmLockNames map[string]bool
+
 	// workspaceMembers is the set of workspace-relative directories the
 	// lockfile lists as pnpm importers -- the workspace's own packages. Read
 	// alongside npmPackages and shared the same way. nil means no lockfile
@@ -360,8 +368,8 @@ func getConfig(c *config.Config) *tsConfig {
 // inherit from their parent.
 func (tc *tsConfig) clone() *tsConfig {
 	cp := *tc
-	// npmPackages, workspaceMembers, importsAliases and importsNpm are
-	// read-only after construction; sharing via pointer is safe.
+	// npmPackages, npmLockNames, workspaceMembers, importsAliases and
+	// importsNpm are read-only after construction; sharing via pointer is safe.
 	//
 	// pathAliases can be extended or replaced by per-directory directives, so
 	// we must deep-copy it to ensure that a child's mutation (merge or replace)
@@ -1268,8 +1276,9 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 	// rooted below it still gets the inventory.
 	if !tc.npmInventoryLoaded {
 		tc.npmInventoryLoaded = true
-		if inventory, members := loadNpmInventory(c.RepoRoot); inventory != nil {
+		if inventory, lockNames, members := loadNpmInventory(c.RepoRoot); inventory != nil {
 			tc.npmPackages = inventory
+			tc.npmLockNames = lockNames
 			tc.workspaceMembers = members
 		}
 	}

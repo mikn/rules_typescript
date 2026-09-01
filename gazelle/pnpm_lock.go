@@ -11,18 +11,18 @@ import (
 const pnpmLockfileName = "pnpm-lock.yaml"
 
 // loadNpmInventory reads the workspace-root pnpm-lock.yaml into the npm
-// inventory.
+// inventory, the wider set of names it mentions, and the pnpm importer dirs.
 //
 // nil and empty are different claims. nil is "no information" -- there is no
 // lockfile, it could not be read, or its format version this reader does not
 // handle -- and every caller that gates on the inventory keeps its heuristics
 // in that case. A non-nil map is the lockfile's own answer, and an empty one
 // says the workspace declares nothing.
-func loadNpmInventory(repoRoot string) (inventory map[string]string, members map[string]bool) {
+func loadNpmInventory(repoRoot string) (inventory map[string]string, lockNames map[string]bool, members map[string]bool) {
 	path := filepath.Join(repoRoot, pnpmLockfileName)
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	inventory, err = parsePnpmLockInventory(string(data))
 	if err != nil {
@@ -30,9 +30,10 @@ func loadNpmInventory(repoRoot string) (inventory map[string]string, members map
 			"The npm inventory is unavailable, so codegen and framework-bundle "+
 			"targets fall back to file-presence heuristics and a `node:` import "+
 			"gets no @types/node dep.", path, err)
-		return nil, nil
+		return nil, nil, nil
 	}
-	return inventory, parsePnpmImporterDirs(strings.Split(string(data), "\n"))
+	lines := strings.Split(string(data), "\n")
+	return inventory, parsePnpmLockNames(lines), parsePnpmImporterDirs(lines)
 }
 
 // parsePnpmImporterDirs returns the workspace-relative directories the
@@ -173,6 +174,61 @@ func parsePnpmPackages(lines []string) map[string]pnpmPackage {
 	return packages
 }
 
+// parsePnpmLockNames returns every package name the lockfile mentions: the keys
+// of both `packages:` and `snapshots:`, every workspace `link:`, and every npm
+// alias. It is the set a resolver may refuse a hub label on -- a name absent
+// from it was never installed, so no hub target can carry it.
+//
+// Deliberately permissive where parsePnpmLockInventory is exact, because the
+// two are read for opposite answers. Listing a name the hub does not declare
+// only leaves the resolver where it already was; missing one the hub does
+// declare would refuse a real dep. So no platform filter, no
+// packages/snapshots intersection, and either spelling of a mapping key.
+func parsePnpmLockNames(lines []string) map[string]bool {
+	names := make(map[string]bool)
+	for _, section := range []string{"packages", "snapshots"} {
+		body, ok := pnpmSection(lines, section)
+		if !ok {
+			continue
+		}
+		for _, raw := range body {
+			indent, stripped, ok := pnpmContentLine(raw)
+			if !ok || indent != 2 {
+				continue
+			}
+			key := pnpmMappingKey(stripped)
+			if key == "" {
+				continue
+			}
+			if name, version := parsePnpmPackageKey(key); name != "" && version != "" {
+				names[name] = true
+			}
+		}
+	}
+	links, aliases := parsePnpmImporterNames(lines)
+	for _, name := range links {
+		names[name] = true
+	}
+	for name := range aliases {
+		names[name] = true
+	}
+	return names
+}
+
+// pnpmMappingKey returns the key of a mapping line, whichever way its value is
+// written: `foo@1.0.0:` opens a block, `foo@1.0.0: {}` puts the mapping on the
+// same line. It returns "" for a line that is not a mapping at all.
+func pnpmMappingKey(stripped string) string {
+	if strings.HasSuffix(stripped, ":") {
+		return strings.TrimSuffix(stripped, ":")
+	}
+	before, _, found := strings.Cut(stripped, ":")
+	if !found {
+		return ""
+	}
+	return before
+}
+
 // parsePnpmSnapshotPackageIDs reads the `snapshots:` keys into the set of
 // `packages:` ids they resolve, dropping the peer suffix that distinguishes one
 // resolution from another. The bool reports whether the section exists at all,
@@ -188,13 +244,8 @@ func parsePnpmSnapshotPackageIDs(lines []string) (map[string]bool, bool) {
 		if !ok || indent != 2 {
 			continue
 		}
-		// `foo@1.0.0: {}` is the same key with an inline empty mapping.
-		key := stripped
-		if strings.HasSuffix(key, ":") {
-			key = strings.TrimSuffix(key, ":")
-		} else if before, _, found := strings.Cut(key, ":"); found {
-			key = before
-		} else {
+		key := pnpmMappingKey(stripped)
+		if key == "" {
 			continue
 		}
 		if name, version := parsePnpmPackageKey(key); name != "" && version != "" {

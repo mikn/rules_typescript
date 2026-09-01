@@ -270,12 +270,12 @@ func TestParsePnpmLockInventory_UnsupportedAndMalformed(t *testing.T) {
 // says so, and only a missing or unreadable lockfile gives back nil.
 func TestLoadNpmInventory_EmptyIsNotNil(t *testing.T) {
 	root := t.TempDir()
-	if inventory, _ := loadNpmInventory(root); inventory != nil {
+	if inventory, _, _ := loadNpmInventory(root); inventory != nil {
 		t.Fatalf("no lockfile: inventory = %v, want nil", inventory)
 	}
 
 	writeFile(t, filepath.Join(root, pnpmLockfileName), "lockfileVersion: '9.0'\n\nimporters:\n\n  .: {}\n")
-	inventory, _ := loadNpmInventory(root)
+	inventory, _, _ := loadNpmInventory(root)
 	if inventory == nil {
 		t.Fatal("a lockfile declaring nothing gave back nil, which reads as no lockfile at all")
 	}
