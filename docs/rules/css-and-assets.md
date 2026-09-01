@@ -174,10 +174,11 @@ the type, so the error leads back to the BUILD file.
 prefers the concrete `logo.svg.d.ts` this rule writes beside the asset over any
 wildcard pattern, so the generated declaration wins and the project's ambient
 never applies — `declaration_type` is the supported way to change the answer.
-The exception is an asset reached through a `path_aliases` alias rather than a
-relative import: the alias resolves into the source tree, where no generated
-declaration sits beside the asset, so a wildcard ambient decides that import and
-`declaration_type` does not reach it.
+An alias reaches the same declaration: `path_aliases` names a source directory,
+and the rule maps the prefix onto that directory and its `bazel-bin` mirror,
+which is where the generated declaration lands. Only a declaration this target
+already depends on is in the sandbox to be found, so the dep still decides what
+an aliased import resolves to.
 
 ## In a Bundle
 

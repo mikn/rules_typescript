@@ -2,8 +2,8 @@
 
 `svgr.d.ts` is the wildcard ambient a project running an svgr-style transform
 writes: `declare module "*.svg"` giving a component, and `*.txt` giving a
-parsed shape. Every target but :via_alias imports its asset relatively, which
-is the form that finds the generated declaration beside the asset in bazel-bin.
+parsed shape. Every target here finds the generated declaration in bazel-bin,
+:via_alias through the alias's bazel-bin mirror and the rest relatively.
 
 What these targets pin:
 
@@ -11,8 +11,8 @@ What these targets pin:
   :generated_wins   with asset_library, the generated per-asset declaration
                     wins and the same ambient never applies.
   :typed_*          declaration_type replaces what that declaration says.
-  :via_alias        an alias resolves into the source tree, where there is no
-                    generated declaration, so the ambient decides after all.
+  :via_alias        an alias finds the same generated declaration a relative
+                    import does, so the ambient does not decide there either.
   :two_ambients     the separate wildcard race: two `declare module "*.svg"`
                     in one program, and the one the generated tsconfig lists
                     first in `files` wins -- the project's own, as under tsc.
@@ -171,10 +171,8 @@ asset_library(
     srcs = ["glyph.svg"],
 )
 
-# The alias resolves into the source tree, where the generated
-# glyph.svg.d.ts -- which says `string`, as :generated_wins shows for the same
-# setup reached relatively -- is not beside the asset. So the ambient decides
-# here, and declaration_type would not reach this import.
+# `string`, the same answer :generated_wins gets relatively: the alias covers
+# the bazel-bin mirror of its directory, where glyph.svg.d.ts sits.
 ts_compile(
     name = "via_alias",
     srcs = ["via_alias.ts"],

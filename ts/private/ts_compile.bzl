@@ -527,15 +527,25 @@ def _generate_tsconfig(
     # has to be represented here.
     paths = {}
 
+    # Source tree first, then the same directory in bazel-bin: the declaration a
+    # css_module, asset_library or json_library generates for a file under an
+    # alias is written to bazel-bin and never appears beside its source, and
+    # `rootDirs` bridges the two trees for a relative specifier and nowhere else.
     for alias_key, alias_dir in ctx.attr.path_aliases.items():
         dir_no_slash = alias_dir[:-1] if alias_dir.endswith("/") else alias_dir
-        rel_dir = explicitly_relative(_relative_path(tsconfig_dir, dir_no_slash))
+        rel_dirs = [
+            explicitly_relative(_relative_path(tsconfig_dir, dir_no_slash)),
+            explicitly_relative(_relative_path(
+                tsconfig_dir,
+                ctx.bin_dir.path + "/" + dir_no_slash,
+            )),
+        ]
         if alias_key.endswith("/"):
-            paths[alias_key + "*"] = [rel_dir + "/*"]
-            paths[alias_key[:-1]] = [rel_dir]
+            paths[alias_key + "*"] = [d + "/*" for d in rel_dirs]
+            paths[alias_key[:-1]] = rel_dirs
         else:
-            paths[alias_key] = [rel_dir]
-            paths[alias_key + "/*"] = [rel_dir + "/*"]
+            paths[alias_key] = rel_dirs
+            paths[alias_key + "/*"] = [d + "/*" for d in rel_dirs]
 
     for entry in npm_pkg_dirs or []:
         pkg_name, path, is_file = entry[0], entry[1], entry[2]
@@ -2034,8 +2044,11 @@ An alias must resolve to files this target already stages -- its own srcs, or
 files listed in path_alias_srcs. An alias pointing anywhere else is an analysis
 error, because the action would resolve it against whatever another action
 happened to leave in the sandbox. A value pointing into bazel-out/ is rejected
-for the same reason: to make a bare specifier resolve to another target's
-generated declarations, set module_name on that target and depend on it.
+for the same reason, and is not needed: the rule maps each prefix onto both the
+source directory and its bazel-bin mirror, so a css_library, asset_library or
+json_library declaration for a file under the alias resolves too. A target whose
+declarations land somewhere else is still out of reach -- set module_name on it
+and depend on it.
 
 Examples:
     # tsconfig.json has: {"@/*": ["./src/*"]}, and this target compiles src/.
