@@ -74,6 +74,10 @@ ts_compile(
   versions also gets a version-suffixed label per version, so one can be pinned.
 - A `workspace:*` link resolves to a target in your own repository. See
   [workspace links](#workspace-links).
+- A generated tsconfig has one `paths` key per package name, so a target that
+  reaches two versions of one name gets the version its own `deps` name. A
+  version reached only through another dependency's closure fills a name no
+  direct dep claims, and never displaces one that does.
 
 ## Adding Dependencies
 

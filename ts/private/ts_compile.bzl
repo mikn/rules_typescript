@@ -1420,9 +1420,11 @@ def _ts_compile_impl(ctx):
     transitive_package_dir_sets = []
 
     # Step 1a: collect ALL package info entries (direct + transitive) into a map.
-    # pkg_info_map: pkg_name → NpmPackageInfo (first seen wins for dedup).
+    # pkg_info_map: pkg_name → NpmPackageInfo (direct deps first, then the
+    # transitive ones, first seen winning within each pass).
     pkg_info_map = {}
     direct_npm_names = {}
+    direct_npm_infos = []
 
     for dep in ctx.attr.deps:
         if TsDeclarationInfo in dep:
@@ -1455,21 +1457,26 @@ def _ts_compile_impl(ctx):
             direct_provided_sets.append(dep[AssetInfo].asset_files)
         if NpmPackageInfo in dep:
             npm_info = dep[NpmPackageInfo]
-
-            # Add the direct dep itself.
-            pkg_name = npm_info.package_name
-            direct_npm_names[pkg_name] = True
-            if pkg_name not in pkg_info_map and npm_info.package_dir:
-                pkg_info_map[pkg_name] = npm_info
-
-            # Add ALL transitive deps for full coverage in tsconfig paths.
-            for transitive_info in npm_info.transitive_deps.to_list():
-                trans_name = transitive_info.package_name
-                if trans_name not in pkg_info_map and transitive_info.package_dir:
-                    pkg_info_map[trans_name] = transitive_info
+            direct_npm_names[npm_info.package_name] = True
+            direct_npm_infos.append(npm_info)
 
             # Collect transitive package.json files as a depset (no to_list).
             transitive_package_dir_sets.append(npm_info.transitive_package_dirs)
+
+    # Every direct dep claims its name before any transitive one is offered:
+    # `paths` has one key per package name, and a transitive dependent's older
+    # copy is not what this target's own imports mean.
+    for npm_info in direct_npm_infos:
+        if npm_info.package_dir and npm_info.package_name not in pkg_info_map:
+            pkg_info_map[npm_info.package_name] = npm_info
+
+    # Then every transitive dep, for full coverage in tsconfig paths. Unavoidable
+    # to_list: `paths` is a dict written into a file, not a depset.
+    for npm_info in direct_npm_infos:
+        for transitive_info in npm_info.transitive_deps.to_list():
+            trans_name = transitive_info.package_name
+            if trans_name not in pkg_info_map and transitive_info.package_dir:
+                pkg_info_map[trans_name] = transitive_info
 
     # Step 1b: build a map from runtime package name → @types package dir.
     # When a package like 'react' has a separate @types/react package, TypeScript
