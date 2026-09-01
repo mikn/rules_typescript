@@ -193,8 +193,9 @@ concrete declaration this rule writes beside the asset over any pattern.
 A key that is not an asset extension fails the build. The type expression is
 unchecked, and a name that does not resolve does not error either: the
 declaration is a .d.ts and this ruleset compiles with `skipLibCheck`, so the
-import silently widens to `any`. To surface it, build the consuming target
-with `compiler_options = {"skipLibCheck": False}` -- the error then names the
+import silently widens to `any`. To surface it, build with
+`--//ts:lib_check`, or the consuming target alone with
+`compiler_options = {"skipLibCheck": False}` -- the error then names the
 generated `<asset>.d.ts`, whose header names this target and this attribute.""",
         ),
     },

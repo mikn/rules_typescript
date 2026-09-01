@@ -22,6 +22,7 @@ run unconditionally during `bazel build` but do NOT block downstream
 compilation.
 """
 
+load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load("//ts/private:providers.bzl", "AssetInfo", "CssInfo", "CssModuleInfo", "JsInfo", "NpmPackageInfo", "TsConfigInfo", "TsDeclarationInfo")
 load("//ts/private:runtime.bzl", "JS_TOOL_TOOLCHAIN_TYPE", "get_js_tool")
 load("//ts/private:toolchain.bzl", "OXC_TOOLCHAIN_TYPE", "TSGO_TOOLCHAIN_TYPE", "get_oxc_toolchain")
@@ -233,6 +234,21 @@ def explicitly_relative(path):
         return path
     return "./" + path
 
+def types_package_alias(package_name):
+    """The name `@types/x` supplies declarations for, or None for any other package.
+
+    DefinitelyTyped publishes `x`'s declarations as `@types/x`, and a scoped
+    `@a/b`'s as `@types/a__b`. TypeScript pairs the two by walking
+    `node_modules/@types`, which this ruleset does not have: npm packages reach
+    the compiler through `paths`, and a key spelled `@types/x` answers no import
+    anyone writes. Exported for the unit test.
+    """
+    if not package_name.startswith("@types/"):
+        return None
+    unmangled = package_name[len("@types/"):]
+    scope, separator, name = unmangled.partition("__")
+    return "@" + scope + "/" + name if separator else unmangled
+
 def include_entry(tsconfig_dir, src_dir, basename):
     """Returns a src's `include` entry, relative to the generated tsconfig.
 
@@ -404,6 +420,7 @@ def _generate_tsconfig(
         srcs,
         npm_pkg_dirs = None,
         npm_subpath_dts = None,
+        npm_types_aliases = None,
         ambient_dts = None,
         module_paths = None,
         extends_file = None,
@@ -438,6 +455,8 @@ def _generate_tsconfig(
         npm_pkg_dirs: (package_name, path, is_file) triples for npm deps.
         npm_subpath_dts: (specifier, declaration path) pairs, one per `exports`
                       subpath an npm dep designates a declaration for.
+        npm_types_aliases: struct(key, path, is_file, wildcard) per `paths` key a
+                      @types/* dep needs under the bare name it types.
         ambient_dts:  The .d.ts whose declarations are global rather than
                       imported: each @types/* dep's entry point, and each dep
                       target's global-declaration entry. Listed in `files`.
@@ -521,6 +540,12 @@ def _generate_tsconfig(
 
     opts.update(user_opts)
 
+    # --//ts:lib_check. Over the user's options rather than under them: the
+    # question it asks -- does anything in this program's .d.ts closure fail to
+    # resolve -- is one no layer of configuration should be able to answer no to.
+    if ctx.attr._lib_check[BuildSettingInfo].value:
+        opts["skipLibCheck"] = False
+
     # ── Bazel-owned: module resolution ────────────────────────────────────
     #
     # paths is one key, so it cannot be half-inherited: everything importable
@@ -547,6 +572,10 @@ def _generate_tsconfig(
             paths[alias_key] = rel_dirs
             paths[alias_key + "/*"] = [d + "/*" for d in rel_dirs]
 
+    # A path_alias is the consumer naming a module outright. The @types keys
+    # below are the ruleset inferring one, and an inference does not displace it.
+    aliased = {key: True for key in paths}
+
     for entry in npm_pkg_dirs or []:
         pkg_name, path, is_file = entry[0], entry[1], entry[2]
         pkg_dir = path[:path.rfind("/")] if "/" in path else ""
@@ -565,6 +594,23 @@ def _generate_tsconfig(
         pkg_dir = path[:path.rfind("/")] if "/" in path else ""
         rel_dir = explicitly_relative(_relative_path(tsconfig_dir, pkg_dir))
         paths[specifier] = [rel_dir + "/" + path.split("/")[-1]]
+
+    # The same entries again under the name a @types/* package types, which is
+    # the only name anything imports it by -- rollup's own declarations say
+    # `from "estree"`, never `from "@types/estree"`. Written over the runtime
+    # package's own entry, which the caller only offers this key for once it has
+    # established that package publishes no declarations to be shadowed.
+    for alias in npm_types_aliases or []:
+        if alias.key in aliased:
+            continue
+        pkg_dir = alias.path[:alias.path.rfind("/")] if "/" in alias.path else ""
+        rel_dir = explicitly_relative(_relative_path(tsconfig_dir, pkg_dir if alias.is_file else alias.path))
+        if alias.is_file:
+            paths[alias.key] = [rel_dir + "/" + alias.path.split("/")[-1]]
+        else:
+            paths[alias.key] = [rel_dir]
+        if alias.wildcard and alias.key + "/*" not in paths:
+            paths[alias.key + "/*"] = [rel_dir + "/*"]
 
     # Last, so a first-party module_name wins over a same-named npm package.
     # Both roots are listed because a module's declarations are either generated
@@ -1539,13 +1585,22 @@ def _ts_compile_impl(ctx):
     # `paths` all the same, and a paths entry pointing at a package that ships no
     # declarations resolves to no types at all.
     types_override = {}  # pkg_name → @types_dir (when a types dep is paired)
+
+    # ships_declarations: pkg_name → True when the package declares anything
+    # itself. Step 1d below reads it to decide whether a @types/* package may
+    # answer the name it types, and it comes from the list this loop already
+    # materializes rather than a second pass over the same depsets.
+    ships_declarations = {}
     for pkg_name, npm_info in pkg_info_map.items():
+        # One package's own declarations, not a transitive closure.
+        own_declarations = npm_info.declaration_files.to_list()
+        if own_declarations:
+            ships_declarations[pkg_name] = True
         if pkg_name.startswith("@types/"):
             continue  # @types/* packages don't need an override
         runtime_pkg_dir = npm_info.package_dir.dirname
 
-        # One package's own declarations, not a transitive closure.
-        for dts_file in npm_info.declaration_files.to_list():
+        for dts_file in own_declarations:
             if not dts_file.path.startswith(runtime_pkg_dir):
                 types_override[pkg_name] = dts_file.dirname
                 break
@@ -1559,25 +1614,51 @@ def _ts_compile_impl(ctx):
     #     "pkg": ["path/to/pkg/dir"]
     npm_pkg_dirs = []
     npm_subpath_dts = []
+
+    # Step 1d: the same entries under the name each @types/* package types,
+    # which is the only name anything imports it by. @types/estree has no runtime
+    # package at all, so without this it is in the program under no name that
+    # resolves -- silently, since the imports that need it are in other packages'
+    # .d.ts, where skipLibCheck hides the TS2307 and what they export widens.
+    npm_types_aliases = []
     for pkg_name, npm_info in pkg_info_map.items():
         pkg_dir = npm_info.package_dir.dirname
+
+        # npm answers `x` from node_modules/x and reaches node_modules/@types/x
+        # only when it finds no declarations there.
+        alias = types_package_alias(pkg_name)
+        if alias in ships_declarations:
+            alias = None
 
         # Override with @types/* dir when the runtime package has separate types.
         if pkg_name in types_override:
             pkg_dir = types_override[pkg_name]
-            npm_pkg_dirs.append((pkg_name, pkg_dir, False))
+            entry, is_file = pkg_dir, False
         elif npm_info.exports_types_file:
             # Package has conditional exports with a 'types' entry.
             # Point directly at the .d.ts file for precise resolution.
-            npm_pkg_dirs.append((pkg_name, npm_info.exports_types_file.path, True))
+            entry, is_file = npm_info.exports_types_file.path, True
         else:
-            npm_pkg_dirs.append((pkg_name, pkg_dir, False))
+            entry, is_file = pkg_dir, False
+        npm_pkg_dirs.append((pkg_name, entry, is_file))
+        if alias:
+            npm_types_aliases.append(struct(
+                key = alias,
+                path = entry,
+                is_file = is_file,
+                wildcard = True,
+            ))
 
         for subpath in sorted(npm_info.subpath_types):
-            npm_subpath_dts.append((
-                pkg_name + subpath[1:],
-                npm_info.subpath_types[subpath].path,
-            ))
+            declaration = npm_info.subpath_types[subpath].path
+            npm_subpath_dts.append((pkg_name + subpath[1:], declaration))
+            if alias:
+                npm_types_aliases.append(struct(
+                    key = alias + subpath[1:],
+                    path = declaration,
+                    is_file = True,
+                    wildcard = False,
+                ))
 
     dep_dts_depset = depset(transitive = transitive_dts_sets, order = "postorder")
     dep_globals_depset = depset(transitive = global_entry_sets, order = "postorder")
@@ -1790,6 +1871,7 @@ def _ts_compile_impl(ctx):
             srcs = check_srcs,
             npm_pkg_dirs = npm_pkg_dirs if npm_pkg_dirs else None,
             npm_subpath_dts = npm_subpath_dts if npm_subpath_dts else None,
+            npm_types_aliases = npm_types_aliases if npm_types_aliases else None,
             # Project globals first: where two `declare module` blocks name the
             # same pattern the earlier one wins, and native tsc reaches a
             # `types` package after the root files, not before them.
@@ -2158,6 +2240,7 @@ Examples:
             executable = True,
             cfg = "exec",
         ),
+        "_lib_check": attr.label(default = Label("//ts:lib_check")),
         "path_alias_srcs": attr.label_list(
             doc = """Files a path_aliases entry resolves to, when they are not in srcs.
 

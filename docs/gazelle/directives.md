@@ -465,9 +465,10 @@ wrote until a directive names that extension.
 The expression is written into the generated `.d.ts` verbatim and nothing checks
 it: a name that does not resolve widens the import to `any` in silence, because
 the declaration is a `.d.ts` and this ruleset compiles with `skipLibCheck`.
-Building the consuming target with `compiler_options = {"skipLibCheck": False}`
-is what surfaces it; the error names the generated `<asset>.d.ts`, whose header
-names the target and the attribute. See
+Building with `--//ts:lib_check`, or the consuming target alone with
+`compiler_options = {"skipLibCheck": False}`, is what surfaces it; the error
+names the generated `<asset>.d.ts`, whose header names the target and the
+attribute. See
 [`asset_library`](../rules/css-and-assets.md#when-an-asset-is-not-a-url).
 
 ### A glob does not cross a package boundary

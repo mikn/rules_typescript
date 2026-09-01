@@ -276,6 +276,47 @@ dep's own `.d.ts` from resolving its imports, which TypeScript widens to `any`
 and does not report. They stay available, and `TsStrictDeps` is what stops your
 own source from leaning on them.
 
+### `@types/*` Packages
+
+DefinitelyTyped publishes `x`'s declarations as `@types/x`, and a scoped
+`@a/b`'s as `@types/a__b`. TypeScript pairs the two by walking
+`node_modules/@types`; there is no `node_modules` here, so the pairing is a
+`paths` key. A `@types/*` dep therefore gets its entries twice: once under its
+own name, and once under the name it types.
+
+Which of the two a name resolves to follows npm: `x` is answered by the runtime
+package when that package publishes declarations of its own, and by `@types/x`
+when it publishes none. `@babel/core` ships no `.d.ts`, so `@babel/core`
+resolves into `@types/babel__core`; `@babel/types` ships its own, so it does
+not. A `path_aliases` prefix outranks both -- it is the consumer naming the
+module outright.
+
+Without the second key the declarations are in the program under a name nothing
+imports, and the failure is not yours to see: the imports that need it are
+mostly inside *other packages'* `.d.ts` files -- `rollup`'s say
+`from "estree"`, `@types/chai`'s say `from "deep-eql"` -- where `skipLibCheck`
+hides the `TS2307` and the types those files export widen to `any` instead. See
+[Finding a broken declaration](#finding-a-broken-declaration).
+
+### Finding a Broken Declaration
+
+The baseline sets `skipLibCheck: true`, so a `.d.ts` whose own imports do not
+resolve reports nothing. What it exports becomes `any`, and the first visible
+error is somewhere else entirely -- typically a `TS7006` on a callback
+parameter in application code, whose real cause is a package the program never
+loaded.
+
+`--//ts:lib_check` turns `skipLibCheck` off for every target in the build, over
+whatever `compiler_options` or a named `tsconfig` say:
+
+```bash
+bazel build //... --//ts:lib_check
+```
+
+Expect findings unrelated to the one you are chasing -- a `lib` a dependency
+needs and the program does not set reports here too. It is a diagnostic sweep,
+not a mode to build in.
+
 ### Importing Another Target by Bare Specifier
 
 `path_aliases` maps a prefix to a source directory, which is right for
