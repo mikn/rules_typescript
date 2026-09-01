@@ -500,6 +500,41 @@ sections list every break with the edit it requires.
 
 ### Added
 
+- **`ts_binary` takes a plain JavaScript file as its `entry_point`.** The attr
+  is polymorphic: a target providing `JsInfo` behaves exactly as before, and a
+  single `.js`, `.mjs` or `.cjs` source now runs as-is. A Node generator for
+  `ts_codegen` no longer needs an `sh_binary` wrapper to become an executable:
+
+  ```python
+  ts_binary(
+      name = "paraglide_compile",
+      entry_point = "scripts/paraglide-compile.mjs",
+      data = ["scripts/paraglide-compile-dts.mjs"],
+      node_modules = "//web:node_modules",
+  )
+
+  ts_codegen(
+      name = "compiled",
+      srcs = ["project.inlang/settings.json"] + glob(["messages/**"]),
+      out_dir = "compiled",
+      generator = ":paraglide_compile",
+      node_modules = "//web:node_modules",
+  )
+  ```
+
+  A new `data` attr carries the modules the entry imports into runfiles; it is
+  extra runfiles for either `entry_point` shape. A `.ts` entry point is refused
+  with a message naming `ts_compile` rather than compiled implicitly, which
+  would be a second compile surface with no `deps`, no `tsconfig` and no choice
+  of declaration emitter. `entry_point` no longer declares
+  `providers = [JsInfo]`, so a target providing neither now fails in the rule
+  with the message the rule already carried instead of in attribute checking.
+
+  `//tools/codegen:tanstack_routes`, the route-tree generator this ruleset
+  ships, is the first user: its 102-line shell wrapper — which parsed `--out`
+  and `--srcs` by hand and wrote a `.mjs` file out of a heredoc at build time —
+  is now a 93-line `.mjs` and a three-line `ts_binary`.
+
 - **`ts_worker_deploy` uploads a Cloudflare Worker.** The ruleset could only ever
   dry-run one, so authentication, whether Cloudflare accepts the bundle, routes
   and cron triggers had never been exercised. It is a `bazel run` target, the

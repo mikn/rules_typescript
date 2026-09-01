@@ -5,12 +5,11 @@ declared build action. It is the TypeScript equivalent of
 `proto_library` → `go_proto_library`: a `ts_compile` takes the result in `srcs`.
 
 ```python
-load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
-load("@rules_typescript//ts:defs.bzl", "ts_codegen", "ts_compile")
+load("@rules_typescript//ts:defs.bzl", "ts_binary", "ts_codegen", "ts_compile")
 
-sh_binary(
+ts_binary(
     name = "gen_routes",
-    srcs = ["generate-routes.sh"],
+    entry_point = "generate-routes.mjs",
 )
 
 ts_codegen(
@@ -34,10 +33,9 @@ ts_compile(
 )
 ```
 
-`sh_binary` carries its own `load`: it is a `rules_shell` rule, not a built-in,
-and a BUILD file that omits the line fails to load with
-`name 'sh_binary' is not defined`. A generator that imports npm packages at
-runtime additionally takes `node_modules` — see
+`ts_binary` runs the `.mjs` on the JS runtime toolchain, so the generator is the
+script and nothing else. A generator that imports npm packages at runtime
+additionally takes `node_modules` — see
 [The environment the generator gets](#the-environment-the-generator-gets).
 
 The generated sources are their own `ts_compile` target, and it does not use the
@@ -145,12 +143,31 @@ Three variables the rule sets so a generator script need not know any path:
 | `NODE_PATH` | `node_modules` is set | the tree's directory, for CJS resolution |
 | `TS_CODEGEN_NODE_MODULES` | `node_modules` is set | the same path, for a script that forks a child process |
 
-The recommended shape for a Node generator is a `sh_binary` wrapping a one-line
-script. The wrapper turns `NODE_BINARY` into an invocation, so nothing depends
-on `node` being on `PATH`.
+The shape for a Node generator is a [`ts_binary`](ts-binary.md) whose
+`entry_point` is the script itself. The rule resolves the runtime from the JS
+runtime toolchain and locates the entry through the runfiles library, so nothing
+depends on `node` being on `PATH` and nothing has to read `NODE_BINARY`:
 
-Locate the script inside that wrapper with the Bash runfiles library and
-`rlocation`. `"$0.runfiles"` does not exist when Bazel hands the action a
+```python
+ts_binary(
+    name = "gen_schema",
+    entry_point = "generate-schema.mjs",
+    data = ["schema-helpers.mjs"],
+)
+```
+
+Sibling modules the entry imports go in `data`, which is what puts them in
+runfiles beside it.
+
+`NODE_BINARY` still reaches the generator's environment, for a generator that
+forks a child Node process of its own.
+
+A generator that is not a Node program at all — a Go binary, a Rust binary, a
+shell script — is any executable target, `sh_binary` included. `sh_binary`
+carries its own `load`: it is a `rules_shell` rule, not a built-in, and a BUILD
+file that omits the line fails to load with `name 'sh_binary' is not defined`.
+Locate a script inside a shell wrapper with the Bash runfiles library and
+`rlocation`; `"$0.runfiles"` does not exist when Bazel hands the action a
 runfiles manifest instead of a tree:
 
 ```bash

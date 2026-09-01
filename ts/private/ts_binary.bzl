@@ -1,7 +1,7 @@
 """Executable binary rule that compiles, optionally bundles, and runs TypeScript.
 
 ts_binary:
-  - Takes an entry_point label (a ts_compile target)
+  - Takes an entry_point label (a ts_compile target, or a .js/.mjs/.cjs source)
   - Collects all transitive .js outputs from the target graph
   - Optionally invokes a pluggable bundler (via BundlerInfo) to produce a bundle
   - Writes a launcher config so `bazel run //target` works
@@ -30,16 +30,48 @@ load("//ts/private:ts_bundle.bzl", "BUNDLE_ACTION_ATTRS", "create_bundle_action"
 
 # ─── Executable implementation ─────────────────────────────────────────────────
 
+_JS_ENTRY_EXTENSIONS = [".js", ".mjs", ".cjs"]
+
+_TS_ENTRY_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts"]
+
+def _has_extension(file, extensions):
+    for ext in extensions:
+        if file.basename.endswith(ext):
+            return True
+    return False
+
+def _js_file_entry_js_info(ctx, data_files):
+    """Builds the JsInfo a plain JavaScript file at entry_point stands in for."""
+    files = ctx.files.entry_point
+    label = ctx.attr.entry_point.label
+    entry = files[0] if len(files) == 1 else None
+    if entry and _has_extension(entry, _JS_ENTRY_EXTENSIONS):
+        return JsInfo(
+            js_files = depset([entry]),
+            js_map_files = depset([]),
+            transitive_js_files = depset([entry] + data_files),
+            transitive_js_map_files = depset([]),
+        )
+    if entry and _has_extension(entry, _TS_ENTRY_EXTENSIONS):
+        fail(
+            "ts_binary: entry_point '{ep}' is a TypeScript source, which this rule does not compile.\n".format(ep = label) +
+            "Compile it with ts_compile and point entry_point at that target, or " +
+            "hand entry_point an already-plain .js/.mjs/.cjs file.",
+        )
+    fail(
+        "ts_binary: entry_point '{ep}' does not provide JsInfo and is not a JavaScript file.\n".format(ep = label) +
+        "The entry_point attr must be a ts_compile target (or any target that provides JsInfo), " +
+        "or a single {exts} file.\n".format(exts = "/".join(_JS_ENTRY_EXTENSIONS)) +
+        "Did you mean: entry_point = \"//path/to:your_ts_compile_target\"?",
+    )
+
 def _ts_binary_impl(ctx):
     entry_point = ctx.attr.entry_point
-    if JsInfo not in entry_point:
-        fail(
-            "ts_binary: entry_point '{ep}' does not provide JsInfo.\n".format(ep = ctx.attr.entry_point.label) +
-            "The entry_point attr must be a ts_compile target (or any target that provides JsInfo).\n" +
-            "Did you mean: entry_point = \"//path/to:your_ts_compile_target\"?",
-        )
-
-    entry_js_info = entry_point[JsInfo]
+    data_files = ctx.files.data
+    if JsInfo in entry_point:
+        entry_js_info = entry_point[JsInfo]
+    else:
+        entry_js_info = _js_file_entry_js_info(ctx, data_files)
 
     # Resolve the JS runtime (toolchain or fall back to system node).
     runtime_binary = None
@@ -137,7 +169,7 @@ def _ts_binary_impl(ctx):
     launcher = declare_launcher(ctx, config)
 
     # ── Runfiles ───────────────────────────────────────────────────────────────
-    explicit_runfiles = list(node_modules_files) + launcher.files
+    explicit_runfiles = list(node_modules_files) + list(data_files) + launcher.files
     if runtime_binary:
         explicit_runfiles.append(runtime_binary)
     if bundle_out:
@@ -196,9 +228,13 @@ ts_binary = rule(
     ],
     attrs = LAUNCHER_ATTRS | BUNDLE_ACTION_ATTRS | {
         "entry_point": attr.label(
-            doc = "The ts_compile target whose output is the binary entry point.",
-            providers = [JsInfo],
+            doc = "The ts_compile target whose output is the binary entry point, or a single .js/.mjs/.cjs source file to run as-is.",
+            allow_files = True,
             mandatory = True,
+        ),
+        "data": attr.label_list(
+            doc = "Extra runfiles: sibling modules a source entry_point imports, fixtures, anything read at runtime.",
+            allow_files = True,
         ),
         "entry_file": attr.string(
             doc = "Source file name to use as the entry point when entry_point produces multiple .js files. E.g. 'index.ts'. If unset and the target has index.js, it is used by convention.",
@@ -251,6 +287,14 @@ Example (with bundler — run bundled output):
         entry_point = "//src/app:app",
         bundler = ":vite",
         format = "cjs",
+    )
+
+Example (a plain JavaScript file as the entry point):
+    ts_binary(
+        name = "generate",
+        entry_point = "generate.mjs",
+        data = ["helpers.mjs"],
+        node_modules = "//:node_modules",
     )
 """,
 )
