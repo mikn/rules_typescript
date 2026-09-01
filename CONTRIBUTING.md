@@ -260,7 +260,24 @@ bazel test //...
    bazel test //...
    bazel build //... --output_groups=+_validation
    ```
-4. **Update CHANGELOG.md** — add an entry under `[Unreleased]` describing your change.
+4. **Add a changelog entry** — a new file in `changelog.d/`, not an edit to
+   `CHANGELOG.md`. Its first line is the `###` section the entry belongs under,
+   and the rest is the entry itself, in as much prose as the change needs:
+
+   ```bash
+   cat > changelog.d/ts-binary-js-entry.md <<'EOF'
+   ### Added
+
+   - **`ts_binary` takes a plain JavaScript file as its `entry_point`.** The
+     attr is polymorphic: a target providing `JsInfo` behaves exactly as before.
+   EOF
+
+   bazel run //tools/changelog   # prints the section as it will read
+   ```
+
+   `changelog.d/README.md` lists the sections and the rules. A release folds the
+   fragments into `CHANGELOG.md`; editing `CHANGELOG.md` directly is what put
+   nine PRs in one day into a rebase over the same few added lines.
 5. **Update documentation** — a public-API change (rule attributes, providers,
    directives) lands with its page under `docs/` in the same PR, plus `README.md`
    and `AGENTS.md` where they say the same thing. `mkdocs build --strict` runs in
@@ -273,7 +290,7 @@ bazel test //...
 ### What Makes a Good PR
 
 - **One logical change per PR.** Stacked changes are welcome as separate PRs with clear dependency notes.
-- **Every breaking change carries a CHANGELOG entry** stating the edit a consumer has to make. Pre-1.0 there is no deprecation window and no compatibility shim (see COMPATIBILITY.md).
+- **Every breaking change carries a `changelog.d/` entry** under a `### Breaking — <area>` heading, stating the edit a consumer has to make. Pre-1.0 there is no deprecation window and no compatibility shim (see COMPATIBILITY.md).
 - **No `bazel clean`** in scripts or documentation. Trust the cache.
 - **Never reference `bazel-out/` directly** in Starlark. Use `ctx.bin_dir.path`, `File.path`, `File.dirname`.
 

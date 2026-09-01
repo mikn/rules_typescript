@@ -320,7 +320,8 @@ jobs:
       - name: Vet Go
         run: |
           go vet ./gazelle/... ./tests/... ./ts/... \
-            ./tools/copy_to_workspace/... ./tools/launcher/... ./tools/release/...
+            ./tools/changelog/... ./tools/copy_to_workspace/... \
+            ./tools/launcher/... ./tools/release/...
 
       # docs.yml builds the site only on push to main, so until now a PR that
       # broke the nav or a page reference was caught after it had already merged.
