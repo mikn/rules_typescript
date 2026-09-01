@@ -11,6 +11,7 @@ load(
     ":layout_tests.bzl",
     "declared_outputs_test",
     "include_entry_test",
+    "mixed_src_packages_test",
     "oxc_strip_prefix_test",
     "paths_value_test",
     "tsconfig_layout_test",
@@ -60,5 +61,7 @@ oxc_strip_prefix_test(
 )
 
 include_entry_test(name = "include_entry_test")
+
+mixed_src_packages_test(name = "mixed_src_packages_test")
 
 paths_value_test(name = "paths_value_test")

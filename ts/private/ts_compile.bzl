@@ -58,6 +58,96 @@ _JS_DECLARATION_EXTENSION = {
     "cjs": ".d.cts",
 }
 
+_SRC_SUFFIXES = tuple(["." + ext for ext in _TS_EXTENSIONS + _JS_EXTENSIONS])
+
+def _hangs_off_another_root(package, src):
+    """Whether a src, as a BUILD file wrote it, names a file outside this package's tree.
+
+    Only a label that names a source file in an explicit package locates
+    anything: a bare filename, a `:name` and every glob result belong to the
+    package that wrote them, and a label naming a rule stands for files this
+    phase cannot place. A repository part that is empty once its `@`s are
+    stripped -- `@//pkg:f` and the canonical `@@//pkg:f` -- is this repository.
+    """
+    if not src.endswith(_SRC_SUFFIXES):
+        return False
+    if src.startswith("@"):
+        marker = src.find("//")
+        if marker == -1:
+            return False
+        if src[:marker].lstrip("@"):
+            return True
+        src = src[marker:]
+    if not src.startswith("//"):
+        return False
+    named = src[2:].split(":", 1)[0]
+    return named != package and not named.startswith(package + "/")
+
+def mixed_src_packages(package, srcs):
+    """The srcs that hang off a root this package's own srcs do not.
+
+    A src is compiled into the package of the target that LISTS it -- its
+    outputs are declared under that package -- but the root its
+    package-relative path hangs off is where the file actually lives. A file
+    outside this package's directory therefore hangs off a root of its own
+    while this package's files hang off the package, and one tsgo declaration
+    emit has one rootDir.
+
+    A DESCENDANT package's file is already inside this package's directory and
+    shares that root: ts_compile holds whole subtrees, and a subtree may grow a
+    BUILD file. The TOP-LEVEL package is the exec root, which is the root a src
+    from anywhere else hangs off. A DECLARATION is passed through rather than
+    compiled, so it declares no output and joins no rootDir -- which is what
+    makes `vite_types = True` legal from any package. A `select` decides its
+    srcs after loading is over, and a label naming a rule or a filegroup does
+    not say where its files live; the analysis-time root check covers both.
+
+    Args:
+        package: The listing target's own package, from native.package_name().
+        srcs: The `srcs` list as the BUILD file wrote it.
+    """
+    if not package or type(srcs) != "list":
+        return []
+    other = []
+    own = False
+    for src in srcs:
+        if type(src) != "string" or src.endswith((".d.ts", ".d.mts", ".d.cts")):
+            continue
+        if _hangs_off_another_root(package, src):
+            other.append(src)
+        else:
+            own = True
+    return other if own else []
+
+def fail_on_mixed_src_packages(kind, name, srcs, declarations, enable_check):
+    """The one-rootDir rule's srcs-list half, checked while the BUILD file loads.
+
+    Gated on the tsgo declaration emit, which is the emit that has one rootDir:
+    `declarations = "oxc"` groups the sources by root and runs oxc once per
+    group, and `enable_check = False` emits nothing from tsgo at all. Those two
+    are the escape hatch the analysis-time error already offers.
+    """
+    if declarations == "oxc" or not enable_check:
+        return
+    package = native.package_name()
+    other = mixed_src_packages(package, srcs)
+    if not other:
+        return
+    fail(
+        "{}: srcs on //{}:{} mix this package's own files with files that live ".format(kind, package, name) +
+        "outside it:\n" +
+        "".join(["  {}\n".format(src) for src in other]) +
+        "A src keeps the package-relative path of where it actually lives, so " +
+        "these hang off a root of their own while this package's srcs hang off " +
+        "'{}' -- and one tsgo declaration emit has one rootDir. Each would ".format(package) +
+        "also be emitted a second time under '{}', once per package that ".format(package) +
+        "lists it.\n" +
+        "Give them a target in their own package and depend on that (set " +
+        "module_name on it when the import is by bare specifier), or set " +
+        "declarations = \"oxc\" or enable_check = False, neither of which emits " +
+        "from tsgo.",
+    )
+
 def _is_dts_source(f):
     """Returns True if the file is an ambient declaration file."""
     b = f.basename

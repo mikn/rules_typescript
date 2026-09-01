@@ -92,7 +92,7 @@ load("//tools/launcher:launcher.bzl", "LAUNCHER_ATTRS", "declare_launcher", "rlo
 load("//ts/private:node_modules.bzl", "build_node_modules_action", "collect_npm_packages")
 load("//ts/private:providers.bzl", "CssModuleInfo", "JsInfo", "NpmPackageInfo")
 load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "JS_TOOL_TOOLCHAIN_TYPE", "get_js_runtime")
-load("//ts/private:ts_compile.bzl", "ts_compile")
+load("//ts/private:ts_compile.bzl", "fail_on_mixed_src_packages", "ts_compile")
 
 # ─── Internal auto node_modules rule ──────────────────────────────────────────
 #
@@ -1118,6 +1118,8 @@ def ts_test(
             npm_workspace_name = "my_npm",
         )
     """
+
+    fail_on_mixed_src_packages("ts_test", name, srcs, declarations, True)
 
     # Step 1: compile the test source files. Their declarations are the only
     # handle on the test's own types -- an IDE tsconfig has to be able to name

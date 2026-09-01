@@ -799,6 +799,30 @@ sections list every break with the edit it requires.
   `root` to the package directory the launcher already exports as
   `TS_TEST_PACKAGE_DIR`. It is in the Bazel layer, so a config that wants a
   different root still wins.
+- **A src listed from outside this package's tree fails while the BUILD file
+  loads.** A source is compiled into the package of the target that lists it,
+  but the root its package-relative path hangs off is where the file actually
+  lives, so a src from a sibling package, an ancestor or another repository
+  hangs off a root of its own while the listing package's own sources hang off
+  the package -- and one tsgo declaration emit has one `rootDir`. That was
+  already an error -- at analysis time, printing the exec root as an empty line,
+  never naming the file, and blaming "a mix of checked-in and generated
+  sources", which is a different cause. The srcs list is a loading-phase fact,
+  so the half of the rule it can decide is now decided there, naming every file.
+  Only the mix is rejected, and six shapes are not it: `declarations = "oxc"`
+  and `enable_check = False`, the two escape hatches the analysis-time error
+  already offers; a `.d.ts`, passed through rather than compiled, which is what
+  makes `vite_types = True` legal from any package; a *descendant* package's
+  src, which is already inside this package's directory and hangs off the same
+  root -- a ts_compile may hold a subtree, and a subtree may grow a BUILD file;
+  a target whose srcs all come from elsewhere, which has one root like any
+  other; the top-level package, which IS the exec root a foreign src hangs off;
+  and a `select`, whose branches resolve after loading is over. Only a label
+  that names a source file is judged -- `//other:some_target` stands for files
+  the loading phase cannot place. `@//pkg:f` and the canonical `@@//pkg:f` are
+  this repository, so `@@//<this package>:f` is this package. The analysis-time
+  check stays for the half a srcs list cannot show, a generated source in this
+  same package.
 
 - **Gazelle reads `pnpm-lock.yaml`, so the npm inventory everything gates on is
   no longer empty.** `tc.npmPackages` -- "which npm packages does this
