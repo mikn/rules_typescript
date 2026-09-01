@@ -15,7 +15,7 @@ What these targets pin:
                     generated declaration, so the ambient decides after all.
   :two_ambients     the separate wildcard race: two `declare module "*.svg"`
                     in one program, and the one the generated tsconfig lists
-                    first in `files` wins.
+                    first in `files` wins -- the project's own, as under tsc.
 """
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
@@ -149,12 +149,11 @@ ts_compile(
     ],
 )
 
-# No asset_library, so the two wildcards race each other. `files` holds the
-# `types`-supplied vite/client.d.ts ahead of the project's own ambient and the
-# first declaration of a pattern wins, so the import is a string. TypeScript
-# resolving this natively would give the project's ambient, which it reaches
-# through `include`: type-reference directives join the program after the root
-# files, not before them.
+# No asset_library, so the two wildcards race each other. The first
+# declaration of a pattern wins and `files` holds the project's own ambient
+# ahead of the `types`-supplied vite/client.d.ts, so the import is a
+# component -- what tsc gives natively for the same pair, reaching a `types`
+# package through a type-reference directive that joins after the root files.
 ts_compile(
     name = "two_ambients",
     srcs = ["two_ambients.ts"],
