@@ -220,13 +220,16 @@ def _relative_path(from_dir, to_dir):
     return "/".join(result) if result else "."
 
 def explicitly_relative(path):
-    """A `paths` value that names itself relative, which TS5090 requires.
+    """A `paths` value spelled so TypeScript reads it as a path, not a package.
 
-    Exported for the unit test. `_relative_path` answers with a bare segment
-    whenever the target sits under the tsconfig's own directory, and without a
-    baseUrl -- which tsgo removed -- TypeScript reads that as a package name.
+    `_relative_path` answers with a bare segment whenever the target sits under
+    the tsconfig's own directory, and tsgo removed `baseUrl`, so TypeScript reads
+    that as a module specifier and rejects it with TS5090. TypeScript's own test
+    for an already-relative path is `^\\.\\.?($|/)` -- which is why a leading
+    dot alone does not qualify: `.bazel/npm/x` is a directory named `.bazel`, not
+    a relative path. Exported for the unit test.
     """
-    if path.startswith("./") or path.startswith("../") or path.startswith("/"):
+    if path in (".", "..") or path.startswith("./") or path.startswith("../") or path.startswith("/"):
         return path
     return "./" + path
 

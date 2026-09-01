@@ -47,6 +47,14 @@ def _explicitly_relative_impl(ctx):
     asserts.equals(env, "./lib", explicitly_relative("lib"), "a bare path gets the prefix")
     asserts.equals(env, "../lib", explicitly_relative("../lib"), "a climbing path is left alone")
     asserts.equals(env, ".", explicitly_relative("."), "the tsconfig's own directory")
+    asserts.equals(env, "..", explicitly_relative(".."), "the directory above it")
+    asserts.equals(env, "/abs", explicitly_relative("/abs"), "an absolute path is left alone")
+    asserts.equals(
+        env,
+        "./.bazel/npm/x",
+        explicitly_relative(".bazel/npm/x"),
+        "a dot-directory is not a relative path to TypeScript",
+    )
     return unittest.end(env)
 
 explicitly_relative_test = unittest.make(_explicitly_relative_impl)

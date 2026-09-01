@@ -4,8 +4,8 @@ load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "ts_compile")
 load(
     ":nested_module_tests.bzl",
-    "nested_module_paths_test",
     "explicitly_relative_test",
+    "nested_module_paths_test",
 )
 
 package(default_visibility = ["//:__pkg__"])
