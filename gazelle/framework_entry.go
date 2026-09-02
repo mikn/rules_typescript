@@ -172,7 +172,7 @@ func entryTargetIsCovered(args language.GenerateArgs, tc *tsConfig, pkg, target 
 		if e.IsDir() || !isTypeScriptFile(name) || isFrameworkGeneratedFile(name) {
 			continue
 		}
-		if isConfiguredExclude(name, lp.tc.excludePatterns) || isConfiguredExclude(name, lp.dropped) {
+		if lp.tc.excludesIn(pkg).drops(name) || isConfiguredExclude(name, lp.dropped) {
 			continue
 		}
 		if entryTargetName(name) == target {

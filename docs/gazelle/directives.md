@@ -18,7 +18,8 @@ Directives go in `BUILD.bazel` files as comments and control how Gazelle generat
 | `# gazelle:ts_path_alias @/ src/` | Map a TypeScript path alias to a workspace-relative directory |
 | `# gazelle:ts_runtime_dep @npm//:happy-dom` | Append a label to every generated `ts_test` deps list |
 | `# gazelle:ts_ambient_types @npm//:types_node` | Append a label to every generated `ts_compile` and `ts_test` deps list |
-| `# gazelle:ts_exclude *.generated.ts` | Exclude files matching this pattern from source targets |
+| `# gazelle:ts_exclude *.generated.ts` | Exclude files matching this pattern from source targets; a pattern with no path matches that basename at every depth below |
+| `# gazelle:ts_exclude ./vite.config.ts` | Exclude one path, resolved against the directory whose build file declares it |
 | `# gazelle:ts_warn_unresolved true` | Warn when an import cannot be resolved to a Bazel label |
 | `# gazelle:ts_codegen <name> <generator> <outs> [srcs:<csv>] [args…]` | Register a `ts_codegen` target in this directory; a `srcs:` entry may be a `glob()` call |
 | `# gazelle:ts_npm_hub npm_eslint` | Resolve bare specifiers in this tree into that npm hub repo, not the default `@npm` |
@@ -498,6 +499,58 @@ or `tsconfig`) where a subdirectory is not a package to begin with.
 # gazelle:ts_exclude *.generated.ts
 ```
 
-Files matching `*.generated.ts` are excluded from `srcs` lists in this directory.
-Nothing is excluded by name on its own: a checked-in file is a source unless a
-rule in the package declares it as an output, however it is named.
+Files matching `*.generated.ts` are excluded from `srcs` lists in this directory
+and every directory below it. Nothing is excluded by name on its own: a
+checked-in file is a source unless a rule in the package declares it as an
+output, however it is named.
+
+A pattern with no `/` in it is matched against the **basename**, so it drops a
+file of that name at every depth below the declaration. That is what
+`*.generated.ts` is for, and it is usually not what naming a single file means: a
+bare `vite.config.ts` in `web/BUILD.bazel` also drops any future
+`web/**/vite.config.ts`.
+
+#### Anchoring a pattern to one path
+
+A leading `./` resolves the rest of the pattern against the directory whose build
+file declares it, and matches it against the path rather than the name:
+
+```python
+# web/BUILD.bazel
+
+# gazelle:ts_exclude ./vite.config.ts
+```
+
+drops `web/vite.config.ts` and nothing else — `web/sub/vite.config.ts` keeps its
+target. The path can be any depth, so `# gazelle:ts_exclude ./plugins/one.ts` in
+`web/BUILD.bazel` names `web/plugins/one.ts`, and one directive reaches a file
+below the directory it is written in. A `*` does not cross a `/`, as it does not
+in `filepath.Match` or in a Bazel `glob`, so `./*.gen.ts` covers the declaring
+directory's own files and no subdirectory's.
+
+Bare patterns are unchanged. `*.generated.ts` still matches a name at any depth,
+and a bare pattern that does carry a `/` — `sub/*.ts` — still matches the path a
+rolled-up file was reached by, relative to the package that claims it.
+
+#### What a pattern drops is reported
+
+A run says what each pattern took out of the program, one line per pattern per
+package:
+
+```
+typescript: web: # gazelle:ts_exclude vite.config.ts keeps 2 TypeScript sources
+out of every generated target's srcs -- sub/vite.config.ts, vite.config.ts -- so
+nothing in the build compiles them. The pattern names no path, so it drops that
+name at every depth of this tree; "./vite.config.ts" anchors it to this
+directory.
+```
+
+The count is the tell: that is how a pattern matching more than it meant to gets
+caught, rather than by noticing months later that a file is not in the build. The
+line is bounded — three names and a count for the rest — and a pattern that
+matched nothing in a package says nothing there, so a root-level
+`*.generated.ts` is quiet everywhere it does not apply.
+
+A pattern that names a **directory** is not reported. It stops the walk before
+reading what is inside, and Gazelle does not walk a subtree only to count what
+the exclusion exists to skip.

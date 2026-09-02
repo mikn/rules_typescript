@@ -108,8 +108,10 @@ const (
 
 	// directiveExclude registers an additional file glob pattern to exclude
 	// from source targets. The value is a filepath.Match-style pattern matched
-	// against the file basename.
+	// against the file basename, or -- written with a leading "./" -- against
+	// the path relative to the directory whose build file declares it.
 	//   # gazelle:ts_exclude *.generated.ts
+	//   # gazelle:ts_exclude ./vite.config.ts
 	directiveExclude = "ts_exclude"
 
 	// directiveCodegen registers a custom ts_codegen target via a directive.
@@ -286,6 +288,14 @@ type tsConfig struct {
 	// filepath.Match semantics.
 	excludePatterns []string
 
+	// anchoredExcludes holds the ts_exclude patterns written with a leading
+	// "./", each already resolved against the directory whose build file
+	// declared it, so an entry is a workspace-relative path pattern. That
+	// resolution is why the two lists are separate: a pattern in
+	// excludePatterns means the same thing in every directory below the
+	// declaration and an entry here means one path.
+	anchoredExcludes []anchoredExclude
+
 	// excludeDirs holds directory basenames that should be excluded from
 	// Gazelle traversal. Loaded from the "excludeDirs" key in gazelle_ts.json
 	// (deprecated). The built-in set (.next, .nuxt, .svelte-kit, dist, build)
@@ -386,6 +396,10 @@ func (tc *tsConfig) clone() *tsConfig {
 	if len(tc.excludePatterns) > 0 {
 		cp.excludePatterns = make([]string, len(tc.excludePatterns))
 		copy(cp.excludePatterns, tc.excludePatterns)
+	}
+	if len(tc.anchoredExcludes) > 0 {
+		cp.anchoredExcludes = make([]anchoredExclude, len(tc.anchoredExcludes))
+		copy(cp.anchoredExcludes, tc.anchoredExcludes)
 	}
 	if len(tc.ambientTypes) > 0 {
 		cp.ambientTypes = make([]string, len(tc.ambientTypes))
@@ -1371,7 +1385,10 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 				tc.npmPackages = overlayNpmMapping(tc.npmPackages, loadNpmMappingFile(npmPath))
 			}
 			if len(gtsCfg.ExcludePatterns) > 0 {
-				tc.excludePatterns = gtsCfg.ExcludePatterns
+				tc.excludePatterns, tc.anchoredExcludes = nil, nil
+				for _, pattern := range gtsCfg.ExcludePatterns {
+					tc.addExcludePattern(rel, pattern)
+				}
 			}
 			if len(gtsCfg.ExcludeDirs) > 0 {
 				tc.excludeDirs = gtsCfg.ExcludeDirs
@@ -1520,10 +1537,7 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 					tc.ambientTypes = append(tc.ambientTypes, lbl)
 				}
 			case directiveExclude:
-				pattern := strings.TrimSpace(d.Value)
-				if pattern != "" {
-					tc.excludePatterns = append(tc.excludePatterns, pattern)
-				}
+				tc.addExcludePattern(rel, strings.TrimSpace(d.Value))
 			case directiveAssetDeclarationType:
 				ext, typeExpr, ok := parseAssetDeclarationTypeDirective(d.Value)
 				if !ok {

@@ -22,7 +22,7 @@ import (
 // A descendant stops the walk when it is a package in its own right: it has an
 // index file, or it has a BUILD file, which is either a package already or a
 // deliberate statement that it should be one.
-func rolledUpSrcs(dir string, excludes []string) (srcs, tests []string) {
+func rolledUpSrcs(dir string, excludes excludeSet) (srcs, tests []string) {
 	r := rolledUp(dir, excludes)
 	return r.srcs, r.tests
 }
@@ -40,19 +40,24 @@ type rolledUpFiles struct {
 	cssModules []string
 	assets     []string
 	json       []string
+	// excluded names the TypeScript sources a ts_exclude pattern took out of
+	// the subtree, each with the pattern that took it. Nothing downstream reads
+	// it; it is what the run reports, since a file dropped here is a file
+	// dropped from the program.
+	excluded []excludedSrc
 }
 
 // rolledUp is rolledUpSrcs plus the files that are not TypeScript. A stylesheet
 // beside a rolled-up source is imported by it, so leaving it behind gives that
 // import nothing to resolve to and the specifier becomes a label for a package
 // that cannot exist.
-func rolledUp(dir string, excludes []string) rolledUpFiles {
+func rolledUp(dir string, excludes excludeSet) rolledUpFiles {
 	return rolledUpIn(boundaryIndexOnly, dir, excludes)
 }
 
 // rolledUpIn is rolledUp for a named boundary mode: what stops the walk is
 // whatever makes a directory a package in that mode.
-func rolledUpIn(mode string, dir string, excludes []string) rolledUpFiles {
+func rolledUpIn(mode string, dir string, excludes excludeSet) rolledUpFiles {
 	var out rolledUpFiles
 	stops := func(d string) bool { return dirIsItsOwnPackageIn(mode, d) }
 	var walk func(rel string)
@@ -72,10 +77,10 @@ func rolledUpIn(mode string, dir string, excludes []string) rolledUpFiles {
 		}
 		for _, name := range files {
 			joined := filepath.ToSlash(filepath.Join(rel, name))
-			// Excludes are written relative to the directory declaring them, so
-			// both spellings have to match: the pattern as written and the path
-			// this walk reached the file by.
-			if isConfiguredExclude(name, excludes) || isConfiguredExclude(joined, excludes) {
+			if pattern := excludes.dropsBy(joined); pattern != "" {
+				if isTypeScriptFile(name) && !isFrameworkGeneratedFile(name) {
+					out.excluded = append(out.excluded, excludedSrc{path: joined, pattern: pattern})
+				}
 				continue
 			}
 			switch {
@@ -110,7 +115,7 @@ func rolledUpIn(mode string, dir string, excludes []string) rolledUpFiles {
 			if skipRolledUpDir(sub) {
 				continue
 			}
-			if isConfiguredExclude(sub, excludes) || isConfiguredExclude(subRel, excludes) {
+			if excludes.drops(subRel) {
 				continue
 			}
 			if stops(filepath.Join(dir, subRel)) {
@@ -123,7 +128,7 @@ func rolledUpIn(mode string, dir string, excludes []string) rolledUpFiles {
 		if skipRolledUpDir(sub) {
 			continue
 		}
-		if isConfiguredExclude(sub, excludes) {
+		if excludes.drops(sub) {
 			continue
 		}
 		if stops(filepath.Join(dir, sub)) {

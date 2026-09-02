@@ -12,6 +12,7 @@ go_library(
     srcs = [
         "codegen.go",
         "config.go",
+        "exclude.go",
         "framework_bundle.go",
         "framework_entry.go",
         "framework_next.go",
@@ -54,6 +55,7 @@ go_test(
         "converge_test.go",
         "directives_test.go",
         "doc_targets_test.go",
+        "exclude_anchor_test.go",
         "fabricated_labels_test.go",
         "framework_bundle_test.go",
         "framework_entry_test.go",
