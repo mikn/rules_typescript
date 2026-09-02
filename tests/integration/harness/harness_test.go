@@ -13,7 +13,7 @@ import (
 // tests themselves run.
 func setEnv(t *testing.T, env map[string]string) {
 	t.Helper()
-	for _, key := range []string{"RULES_TS_IT_SCRATCH", "XDG_CACHE_HOME", "HOME", "TMPDIR", "TEST_TMPDIR"} {
+	for _, key := range []string{"RULES_TS_IT_SCRATCH", "XDG_CACHE_HOME", "HOME", "TMPDIR", "TEST_TMPDIR", "BAZELISK_HOME"} {
 		t.Setenv(key, env[key])
 	}
 }
@@ -176,5 +176,71 @@ func TestCleanupKeepsTheOutputBase(t *testing.T) {
 		if _, err := os.Stat(dir); !os.IsNotExist(err) {
 			t.Errorf("cleanup() left %s behind (err = %v)", dir, err)
 		}
+	}
+}
+
+// envValue returns the effective value of key in a nestedEnv()-shaped slice,
+// and how many times it appears. exec gives a later duplicate precedence, so a
+// count above one is not wrong on its own -- it is just a thing a reader of the
+// nested process's environment should not have to reason about.
+func envValue(env []string, key string) (string, int) {
+	value, count := "", 0
+	for _, entry := range env {
+		if rest, ok := strings.CutPrefix(entry, key+"="); ok {
+			value, count = rest, count+1
+		}
+	}
+	return value, count
+}
+
+// `bazel_binary` is not Bazel. It is a bazelisk wrapper that defaults
+// BAZELISK_HOME to $PWD, and command() runs it from the per-run WorkspaceDir
+// that prepare() has just recreated -- so with the variable unset, every test
+// in the suite downloads Bazel from releases.bazel.build on every run. That is
+// the one fetch shareRepositoryCache's two caches do not cover, and it is what
+// turned one runner's DNS timeout into a red leg while every green run hid it
+// (Bazel echoes a test's stdout only on failure).
+func TestNestedEnvSharesTheBazeliskCache(t *testing.T) {
+	scratch := t.TempDir()
+	setEnv(t, map[string]string{"RULES_TS_IT_SCRATCH": scratch})
+
+	got, count := envValue(nestedEnv(), "BAZELISK_HOME")
+	if want := filepath.Join(scratch, "bazelisk"); got != want {
+		t.Errorf("BAZELISK_HOME = %q, want %q", got, want)
+	}
+	if count != 1 {
+		t.Errorf("BAZELISK_HOME appears %d times, want exactly 1", count)
+	}
+}
+
+// The escape hatch: a developer who already has a populated bazelisk cache, or
+// a CI job that caches one elsewhere, keeps it. Only the default is ours.
+func TestNestedEnvKeepsAnExplicitBazeliskHome(t *testing.T) {
+	setEnv(t, map[string]string{
+		"RULES_TS_IT_SCRATCH": t.TempDir(),
+		"BAZELISK_HOME":       "/dev/bazelisk",
+	})
+
+	got, count := envValue(nestedEnv(), "BAZELISK_HOME")
+	if got != "/dev/bazelisk" {
+		t.Errorf("BAZELISK_HOME = %q, want the inherited /dev/bazelisk", got)
+	}
+	if count != 1 {
+		t.Errorf("BAZELISK_HOME appears %d times, want exactly 1", count)
+	}
+}
+
+// The nested server refuses an output base under the outer execroot with "repo
+// contents cache is inside main repo", which is why TEST_TMPDIR is dropped
+// rather than adjusted. Pinned here because BAZELISK_HOME now travels the same
+// path and the filtering is easy to break for both at once.
+func TestNestedEnvDropsTestTmpdir(t *testing.T) {
+	setEnv(t, map[string]string{
+		"TEST_TMPDIR":         t.TempDir(),
+		"RULES_TS_IT_SCRATCH": t.TempDir(),
+	})
+
+	if got, count := envValue(nestedEnv(), "TEST_TMPDIR"); count != 0 {
+		t.Errorf("TEST_TMPDIR = %q (%d entries), want it dropped", got, count)
 	}
 }
