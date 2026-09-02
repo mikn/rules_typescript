@@ -26,6 +26,18 @@ const [workerPath, workspaceRoot] = process.argv.slice(2);
 // their package directory.
 const REQUIRED = ['rollup', 'vite', 'postcss'];
 
+// The generated data file itself, for the one field no fixture can stand in
+// for: `dir`, the directory an entry's declarations install under when that is
+// not the key it answers. Reading the real pair is the point -- the fixtures in
+// worker_map_test.mjs and fragment_map_test.mjs hand-write theirs, so an aspect
+// that stopped writing `dir` would leave both green while every @types/* alias
+// in a real editor looked under `.bazel/npm/<name it types>`, which nothing
+// installs.
+const hookData = JSON.parse(
+  fs.readFileSync(path.join(workspaceRoot, '.bazel/tsserver-hook-data.json'), 'utf8')
+);
+const ALIASED = (hookData.npmPackages || []).filter((pkg) => pkg.dir && pkg.dir !== pkg.name);
+
 let failures = 0;
 const pass = (msg) => process.stdout.write(`PASS: ${msg}\n`);
 const fail = (msg) => {
@@ -65,6 +77,24 @@ worker.once('message', (msg) => {
     } else {
       pass(`'${pkg}' -> ${path.relative(workspaceRoot, map[pkg])}`);
     }
+  }
+
+  if (!ALIASED.length) {
+    fail(
+      'the generated data names no package under a name other than its own, so ' +
+        'nothing here exercises `dir` -- has the @types/* alias stopped being emitted?'
+    );
+  }
+  for (const pkg of ALIASED) {
+    const under = path.join(workspaceRoot, hookData.npmDir, pkg.dir);
+    if (!(pkg.name in map)) {
+      fail(`'${pkg.name}' is not in the map: ${pkg.dir} was looked for under the wrong name`);
+    } else if (!map[pkg.name].startsWith(under + path.sep)) {
+      fail(`'${pkg.name}' resolves to ${map[pkg.name]}, which is not inside ${pkg.dir}`);
+    } else {
+      pass(`'${pkg.name}' -> ${path.relative(workspaceRoot, map[pkg.name])}`);
+    }
+    if (pkg.dir in map) fail(`'${pkg.dir}' took a key of its own, which no import writes`);
   }
 
   // Every builder in the worker checks the file before recording it, so a

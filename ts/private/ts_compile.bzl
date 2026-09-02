@@ -245,8 +245,20 @@ def subpath_roots(tsconfig_dir, pkg_root, entry_rel_dir):
     sit beside its entry keeps resolving, and TypeScript tries each in turn.
     Exported for the unit test.
     """
-    root_rel = explicitly_relative(_relative_path(tsconfig_dir, pkg_root))
-    roots = [root_rel] if root_rel == entry_rel_dir else [root_rel, entry_rel_dir]
+    return subpath_wildcards(
+        explicitly_relative(_relative_path(tsconfig_dir, pkg_root)),
+        entry_rel_dir,
+    )
+
+def subpath_wildcards(pkg_root_rel, entry_rel_dir):
+    """`subpath_roots` over two directories already relative to the tsconfig.
+
+    tsconfig_aspect reaches the same two by its own route -- the installed tree
+    under `npm_dir` rather than an external repository -- and which order they
+    go in is the rule above, not a second opinion about it. Exported for that
+    caller and for the unit test.
+    """
+    roots = [pkg_root_rel] if pkg_root_rel == entry_rel_dir else [pkg_root_rel, entry_rel_dir]
     return [r + "/*" for r in roots]
 
 def types_package_alias(package_name):
@@ -379,24 +391,32 @@ def _rebase_package_relative(entry, package_rel):
 # resolves to nothing and its declarations never join the program.
 #
 # So the entry is resolved here instead, against what the package's own manifest
-# designated: the root export for a bare name, and the matching `exports` subpath
-# for `pkg/sub`. The file goes in `files`, which is how every other ambient
+# designated. The file goes in `files`, which is how every other ambient
 # declaration in this ruleset reaches tsgo.
-def _requested_type_files(ctx, npm_info):
-    requested = _requested_types(ctx)
-    if not requested:
-        return []
+def types_entry_file(entry, npm_info):
+    """The declaration `entry` designates in `npm_info`, or None.
+
+    Three spellings, each a package name TypeScript would have resolved through
+    node_modules: the package itself, one of its `exports` subpaths, and the
+    bare name a paired @types/* package supplies -- `types = ["node"]` is
+    @types/node, which is the only place DefinitelyTyped puts it. Exported for
+    the unit test.
+    """
     name = npm_info.package_name
+    if entry == name:
+        return npm_info.exports_types_file or npm_info.ambient_types_file
+    if entry.startswith(name + "/"):
+        return npm_info.subpath_types.get("." + entry[len(name):])
+    if types_package_alias(name) == entry:
+        return npm_info.ambient_types_file
+    return None
+
+def _requested_type_files(ctx, npm_info):
     out = []
-    for entry in requested:
-        if entry == name:
-            if npm_info.exports_types_file:
-                out.append(npm_info.exports_types_file)
-        elif entry.startswith(name + "/"):
-            subpath = "." + entry[len(name):]
-            designated = npm_info.subpath_types.get(subpath)
-            if designated:
-                out.append(designated)
+    for entry in _requested_types(ctx):
+        designated = types_entry_file(entry, npm_info)
+        if designated:
+            out.append(designated)
     return out
 
 def _requested_types(ctx):
@@ -623,7 +643,14 @@ def _generate_tsconfig(
             paths[alias.key] = [rel_dir + "/" + alias.path.split("/")[-1]]
         else:
             paths[alias.key] = [rel_dir]
-        if alias.wildcard and alias.key + "/*" not in paths:
+
+        # The wildcard is written over the runtime package's too, and yields to
+        # the same thing the bare key yields to. Leaving that entry standing
+        # pointed `@babel/core/*` at +npm+npm__babel_core__7_29_0, whose whole
+        # tree holds no .d.ts, while `@babel/core` resolved through
+        # @types/babel__core beside it -- and tsconfig_aspect, which drops a
+        # declaration-free package instead of naming it, disagreed with both.
+        if alias.wildcard and alias.key + "/*" not in aliased:
             paths[alias.key + "/*"] = subpath_roots(tsconfig_dir, alias.root, rel_dir)
 
     # Last, so a first-party module_name wins over a same-named npm package.
@@ -1860,6 +1887,7 @@ def _ts_compile_impl(ctx):
     # what removes the isolated-declarations requirement at near-zero cost.
     program_srcs = compile_srcs + js_srcs
     validation_outputs = []
+    tsconfig = None
     tsgo_toolchain_info = ctx.toolchains[TSGO_TOOLCHAIN_TYPE]
     if tsgo_emits_dts and not tsgo_toolchain_info and program_srcs:
         fail(
@@ -2094,6 +2122,12 @@ def _ts_compile_impl(ctx):
     ))
 
     output_groups = {}
+
+    # The tsconfig this target hands the compiler, so a test can read the
+    # resolution the build sees and compare it against the editor's. Absent on a
+    # target with no program to check, which generates none.
+    if tsconfig:
+        output_groups["tsconfig"] = depset([tsconfig])
     if validation_outputs:
         output_groups["_validation"] = depset(validation_outputs)
     if strict_deps:

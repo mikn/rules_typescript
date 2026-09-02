@@ -8,9 +8,18 @@ reachable from it. So the tsconfig is a declared output of a rule over an aspect
 and `bazel run //:refresh_tsconfig` only copies that output into the source
 tree.
 
-An `@types/*` dep is the exception to `paths`: nothing imports the globals it
-declares, so, as in the tsconfig ts_compile generates, its entry point is named
-in `files` instead.
+A `@types/*` package takes a `paths` key spelled with the name it types --
+`estree`, not `@types/estree` -- because that is the only specifier anything
+imports it by, and only when no package of that name publishes declarations of
+its own. Its declarations install under `npm_dir` at its own name, and the key
+points in there.
+
+The `files` array is a second route, and a narrower one: it carries the globals
+a `@types/*` package declares, and it is built from what each reached target
+declares in its own `deps`. A `@types/*` package reached transitively -- which
+is most of them, since a dependency's .d.ts is where `from "estree"` is written
+-- is in `files` nowhere, and the `paths` key is the only route it has. Where
+both routes exist they name one installed copy.
 
 npm declarations are the one part that lives outside the workspace, and no
 workspace-relative path reaches them: a lazily-fetched spoke exists only under
@@ -23,14 +32,20 @@ canonical repository name that changes with every version bump.
 
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("//ts/private:providers.bzl", "NpmPackageInfo", "TsConfigInfo")
-load("//ts/private:ts_compile.bzl", "TsModuleInfo")
+load(
+    "//ts/private:ts_compile.bzl",
+    "TsModuleInfo",
+    "subpath_wildcards",
+    "types_entry_file",
+    "types_package_alias",
+)
 
 TsconfigSourcesInfo = provider(
     doc = "What a workspace-root tsconfig.json needs from the ts_compile targets under it.",
     fields = {
         "packages": "depset of struct(path, has_index, module_name, declared_paths): package of every ts_compile target reached, whether it has an index file to name as the package entry point, the bare specifier the target declared with `module_name` (empty when it declared none), and -- for a workspace member -- TsModuleInfo.declared_paths, what its own package.json says each of its specifiers resolves to.",
         "aliases": "depset of struct(prefix, dir): path_aliases entries, workspace-relative.",
-        "npm_paths": "depset of struct(name, version, entry, is_file): npm entry points, relative to the package's own directory.",
+        "npm_paths": "depset of struct(key, name, version, entry, is_file): npm entry points, relative to the package's own directory. `key` is the specifier that resolves to one and `name` the package installed under `npm_dir`; they differ for a `@types/*` package, which answers the name it types and is installed under its own.",
         "npm_ambient": "depset of struct(name, version, entry): @types/* entry points to name in the tsconfig `files` array, relative to the package's own directory.",
         "npm_files": "depset of struct(name, version, dest, file): the files an npm entry point needs on disk, and where under the package each one goes.",
         "option_groups": "depset of struct(package, label, options_json, extends, include): the compilerOptions one target sets, which no single root block can carry -- a target that turns `strict` off, or names a `lib` its target does not imply, is checked correctly by the build and wrongly by the editor unless the editor gets its own program for those files.",
@@ -45,9 +60,9 @@ TsconfigFragmentInfo = provider(
 
 Each is complete for its own closure -- packages, aliases and npm entry points --
 so any one of them is a usable answer on its own, which is what makes a
-partially built bazel-out still readable. The `@types/*` entries are not in
-there: they are a tsconfig `files` concern, and no module specifier resolves to
-them.""",
+partially built bazel-out still readable. The ambient entry points are not in
+there: naming one is a tsconfig `files` concern, which a resolution map has no
+key for.""",
     },
 )
 
@@ -77,9 +92,23 @@ def _types_root(infos, dts):
 def _npm_entries(rule_attr):
     """The npm paths entries one ts_compile target implies, and the files they need.
 
-    Mirrors what ts_compile puts in the tsconfig it generates for tsgo: the
-    package's own `exports["."].types` when it declares one, the paired @types
-    directory when its declarations live there, the package directory otherwise.
+    The entry point is the one ts_compile names in the tsconfig it generates for
+    tsgo: the package's own `exports["."].types` when it declares one, the paired
+    @types directory when its declarations live there, the package directory
+    otherwise. //tests/npm_types_barename:test_config_agreement compares the two
+    configs on that, by value.
+
+    Which packages get an entry is not the same question, and the two configs
+    answer it differently: ts_compile names every package it resolves plus one
+    key per `exports` subpath, and this names only packages with declarations and
+    no subpaths -- 165 npm keys against 64 over :mangled_scope's closure. So a
+    declaration-free package is a key the build has and the editor does not,
+    which resolves to nothing on the side that has it.
+
+    An entry's `key` is the specifier that resolves to it and its `name` is the
+    package whose files are installed under `npm_dir`. The two differ for a
+    `@types/*` package, which is imported under the name it types and installed
+    under its own.
     """
     infos = {}
 
@@ -95,6 +124,15 @@ def _npm_entries(rule_attr):
         for transitive in info.transitive_deps.to_list():
             if transitive.package_dir:
                 infos.setdefault(transitive.package_name, transitive)
+
+    # Which names a package answers with declarations of its own, which is what
+    # decides whether a `@types/*` package may take the name it types --
+    # ts_compile's rule, applied to the same closure.
+    ships_declarations = {
+        name: True
+        for name, info in infos.items()
+        if info.declaration_files.to_list()
+    }
 
     # Over every package that gets a `paths` entry, not just the direct deps:
     # an untyped package reached transitively (vitest -> @vitest/expect -> chai)
@@ -116,10 +154,21 @@ def _npm_entries(rule_attr):
     paths = []
     files = []
     for name, info in infos.items():
+        # The name a `@types/*` package types, when no package of that name
+        # publishes declarations to be shadowed. It is the only specifier
+        # anything writes for it -- rollup's own .d.ts says `from "estree"` --
+        # and reaching it through `files` puts the declarations in the program
+        # under no name that resolves.
+        alias = types_package_alias(name)
+        if alias in ships_declarations:
+            alias = None
+        if name.startswith("@types/") and not alias:
+            continue
+
         # A package with no declarations has nothing to tell an editor, and the
         # ones that ship none are the platform-specific binaries, whose repo
         # names would otherwise make the file differ per host.
-        if name.startswith("@types/") or not info.declaration_files.to_list():
+        if not info.declaration_files.to_list():
             continue
 
         if name in paired:
@@ -138,6 +187,7 @@ def _npm_entries(rule_attr):
             entry = entry or ""
 
         paths.append(struct(
+            key = alias or name,
             name = name,
             version = info.package_version,
             entry = entry,
@@ -158,7 +208,11 @@ def _npm_type_packages(rule_attr):
     """The compilerOptions.types entries an npm dep actually provides.
 
     Only these are dropped from an editor program's options: they are the ones
-    that resolve through node_modules, which is what does not exist here.
+    that resolve through node_modules, which is what does not exist here. The
+    question is ts_compile's, so it is ts_compile's resolver that answers it --
+    a copy of the answer went stale the moment that resolver grew a third
+    spelling, and `types = ["node"]` stayed in a nested config where real tsc
+    reports TS2688 for it.
     """
     requested = _requested_type_packages(rule_attr)
     if not requested:
@@ -169,7 +223,7 @@ def _npm_type_packages(rule_attr):
             continue
         info = dep[NpmPackageInfo]
         for entry in requested:
-            if _requested_subpath_file(info, [entry]):
+            if types_entry_file(entry, info):
                 provided.append(entry)
     return provided
 
@@ -187,31 +241,26 @@ def _requested_type_packages(rule_attr):
         if type(t) == "string" and not t.startswith(".")
     ]
 
-def _requested_subpath_file(info, requested):
-    """The declaration a `types` entry designates on this package, or None.
-
-    The same resolution ts_compile does: a bare name means the root export, and
-    `pkg/sub` means the `exports` subpath -- which is where a package puts an
-    ambient module it must not force on every importer.
-    """
+def _first_requested_file(info, requested):
+    """The first declaration any `types` entry designates on this package."""
     for entry in requested:
-        if entry == info.package_name:
-            if info.exports_types_file:
-                return info.exports_types_file
-        elif entry.startswith(info.package_name + "/"):
-            designated = info.subpath_types.get("." + entry[len(info.package_name):])
-            if designated:
-                return designated
+        designated = types_entry_file(entry, info)
+        if designated:
+            return designated
     return None
 
 def _ambient_entries(rule_attr):
     """The @types/* entry points one ts_compile target declares, and their files.
 
-    Mirrors ts_compile: a direct @types/* dep is how a target asks for the
-    globals, and the entry point is named in `files` because `typeRoots` wants a
-    directory whose children are type packages, which one repo per package never
-    produces. The whole declaration set comes along -- an entry point is a list
-    of `/// <reference path=...>` to its siblings, resolved on disk.
+    A direct @types/* dep is how a target asks for the globals, and the entry
+    point is named in `files` because `typeRoots` wants a directory whose
+    children are type packages, which one repo per package never produces. The
+    whole declaration set comes along -- an entry point is a list of
+    `/// <reference path=...>` to its siblings, resolved on disk.
+
+    Only a target's own `deps` are read, which is the narrow half of the module
+    header: a @types/* package reached transitively is in no `files` array and
+    reaches the editor's program through its `paths` key alone.
     """
     requested = _requested_type_packages(rule_attr)
     entries = []
@@ -220,7 +269,7 @@ def _ambient_entries(rule_attr):
         if NpmPackageInfo not in dep:
             continue
         info = dep[NpmPackageInfo]
-        ambient = info.ambient_types_file or _requested_subpath_file(info, requested)
+        ambient = info.ambient_types_file or _first_requested_file(info, requested)
         if not ambient:
             continue
         root = info.package_dir.dirname
@@ -274,12 +323,15 @@ def _fragment_alias(alias):
     return json.encode({"alias": alias.prefix, "dir": alias.dir})
 
 def _fragment_npm(entry):
-    return json.encode({
-        "npm": entry.name,
+    record = {
+        "npm": entry.key,
         "version": entry.version,
         "entry": entry.entry,
         "file": entry.is_file,
-    })
+    }
+    if entry.name != entry.key:
+        record["dir"] = entry.name
+    return json.encode(record)
 
 def _fragment(target, ctx, sources):
     """One JSON object per line, carrying `sources`, for the tsserver hook to merge.
@@ -521,11 +573,37 @@ def _collect(sources, field):
     # materialised.
     return depset(transitive = [getattr(s, field) for s in sources]).to_list()
 
+def npm_key_beats(candidate, held):
+    """Whether `candidate` should take the `paths` key both entries claim.
+
+    Two packages claim one key when a `@types/x` package answers `x`: npm reads
+    `node_modules/x` first and reaches `node_modules/@types/x` only when it
+    finds no declarations there, so the entry installed under the key's own name
+    wins. _npm_entries applies that per target from `ships_declarations`, and
+    one target's closure is all it can see -- a closure holding `@types/x` and
+    no `x` gives the alias the key while another target's closure has the real
+    `x`, and the root config aggregates closures. Without this the winner is
+    whichever package name sorted first, and `@types/x` sorts before `x`.
+    Exported for the unit test.
+    """
+    if held == None:
+        return True
+    if (candidate.name == candidate.key) != (held.name == held.key):
+        return candidate.name == candidate.key
+    return candidate.name < held.name
+
+def _one_entry_per_key(entries):
+    chosen = {}
+    for entry in entries:
+        if npm_key_beats(entry, chosen.get(entry.key)):
+            chosen[entry.key] = entry
+    return [chosen[key] for key in sorted(chosen)]
+
 def _npm_view(sources, host_only = []):
     """The npm entry points to write, the ambient ones, and the files each needs.
 
-    Two versions of one package name would fight over the same paths key and the
-    same directory, so the lowest version wins for the whole package.
+    Two versions of one package name would fight over the same directory under
+    npm_dir, so the lowest version wins for the whole package.
 
     host_only names packages left out entirely: a package pnpm resolves on some
     hosts and not others is one a checked-in file cannot name without differing
@@ -540,10 +618,11 @@ def _npm_view(sources, host_only = []):
         if entry.name not in chosen or entry.version < chosen[entry.name]:
             chosen[entry.name] = entry.version
 
-    entries = sorted(
-        [e for e in _collect(sources, "npm_paths") if chosen.get(e.name) == e.version],
-        key = lambda e: e.name,
-    )
+    entries = _one_entry_per_key([
+        e
+        for e in _collect(sources, "npm_paths")
+        if chosen.get(e.name) == e.version
+    ])
     ambient = {}
     for entry in _collect(sources, "npm_ambient"):
         if chosen.get(entry.name) == entry.version:
@@ -773,13 +852,20 @@ def _ide_tsconfig_impl(ctx):
 
     if ctx.attr.npm_dir:
         for entry in npm_entries:
-            if entry.name in paths:
+            if entry.key in paths:
                 continue
             installed = "./" + _installed_entry(ctx.attr.npm_dir, entry)
-            paths[entry.name] = [installed]
-            paths[entry.name + "/*"] = [
-                (installed.rsplit("/", 1)[0] if entry.is_file else installed) + "/*",
-            ]
+            paths[entry.key] = [installed]
+
+            # Both substitution roots, in ts_compile's own order and from its
+            # own helper. The entry's directory alone left the package root
+            # unreachable: `vite/dist/node/index` is a plain path under the
+            # package, which is how a package with no `exports` map spells its
+            # subpaths, and the build has always resolved it.
+            paths[entry.key + "/*"] = subpath_wildcards(
+                "./{}/{}".format(ctx.attr.npm_dir, entry.name),
+                installed.rsplit("/", 1)[0] if entry.is_file else installed,
+            )
 
         for npm_file in npm_files:
             copies.append(struct(
@@ -1024,7 +1110,7 @@ def _ide_hook_data_impl(ctx):
         "_comment": _HEADER,
         "npmDir": ctx.attr.npm_dir,
         "npmPackages": [
-            {"name": e.name, "entry": e.entry, "isFile": e.is_file}
+            {"name": e.key, "dir": e.name, "entry": e.entry, "isFile": e.is_file}
             for e in (npm_entries if ctx.attr.npm_dir else [])
         ],
         "packages": sorted(_packages(sources)),

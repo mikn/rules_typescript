@@ -24,30 +24,35 @@
         "./.bazel/npm/@babel/parser/typings/babel-parser.d.ts"
       ],
       "@babel/parser/*": [
+        "./.bazel/npm/@babel/parser/*",
         "./.bazel/npm/@babel/parser/typings/*"
       ],
       "@babel/types": [
         "./.bazel/npm/@babel/types/lib/index-legacy.d.ts"
       ],
       "@babel/types/*": [
+        "./.bazel/npm/@babel/types/*",
         "./.bazel/npm/@babel/types/lib/*"
       ],
       "@cloudflare/kv-asset-handler": [
         "./.bazel/npm/@cloudflare/kv-asset-handler/dist/index.d.ts"
       ],
       "@cloudflare/kv-asset-handler/*": [
+        "./.bazel/npm/@cloudflare/kv-asset-handler/*",
         "./.bazel/npm/@cloudflare/kv-asset-handler/dist/*"
       ],
       "@cloudflare/unenv-preset": [
         "./.bazel/npm/@cloudflare/unenv-preset/dist/index.d.ts"
       ],
       "@cloudflare/unenv-preset/*": [
+        "./.bazel/npm/@cloudflare/unenv-preset/*",
         "./.bazel/npm/@cloudflare/unenv-preset/dist/*"
       ],
       "@cloudflare/vitest-pool-workers": [
         "./.bazel/npm/@cloudflare/vitest-pool-workers/dist/pool/index.d.mts"
       ],
       "@cloudflare/vitest-pool-workers/*": [
+        "./.bazel/npm/@cloudflare/vitest-pool-workers/*",
         "./.bazel/npm/@cloudflare/vitest-pool-workers/dist/pool/*"
       ],
       "@cloudflare/workers-types": [
@@ -85,54 +90,63 @@
         "./.bazel/npm/@eslint/config-array/dist/cjs/index.d.cts"
       ],
       "@eslint/config-array/*": [
+        "./.bazel/npm/@eslint/config-array/*",
         "./.bazel/npm/@eslint/config-array/dist/cjs/*"
       ],
       "@eslint/config-helpers": [
         "./.bazel/npm/@eslint/config-helpers/dist/cjs/index.d.cts"
       ],
       "@eslint/config-helpers/*": [
+        "./.bazel/npm/@eslint/config-helpers/*",
         "./.bazel/npm/@eslint/config-helpers/dist/cjs/*"
       ],
       "@eslint/core": [
         "./.bazel/npm/@eslint/core/dist/esm/types.d.ts"
       ],
       "@eslint/core/*": [
+        "./.bazel/npm/@eslint/core/*",
         "./.bazel/npm/@eslint/core/dist/esm/*"
       ],
       "@eslint/object-schema": [
         "./.bazel/npm/@eslint/object-schema/dist/cjs/index.d.cts"
       ],
       "@eslint/object-schema/*": [
+        "./.bazel/npm/@eslint/object-schema/*",
         "./.bazel/npm/@eslint/object-schema/dist/cjs/*"
       ],
       "@eslint/plugin-kit": [
         "./.bazel/npm/@eslint/plugin-kit/dist/cjs/index.d.cts"
       ],
       "@eslint/plugin-kit/*": [
+        "./.bazel/npm/@eslint/plugin-kit/*",
         "./.bazel/npm/@eslint/plugin-kit/dist/cjs/*"
       ],
       "@humanfs/core": [
         "./.bazel/npm/@humanfs/core/dist/index.d.ts"
       ],
       "@humanfs/core/*": [
+        "./.bazel/npm/@humanfs/core/*",
         "./.bazel/npm/@humanfs/core/dist/*"
       ],
       "@humanfs/node": [
         "./.bazel/npm/@humanfs/node/dist/index.d.ts"
       ],
       "@humanfs/node/*": [
+        "./.bazel/npm/@humanfs/node/*",
         "./.bazel/npm/@humanfs/node/dist/*"
       ],
       "@humanwhocodes/module-importer": [
         "./.bazel/npm/@humanwhocodes/module-importer/dist/module-importer.d.ts"
       ],
       "@humanwhocodes/module-importer/*": [
+        "./.bazel/npm/@humanwhocodes/module-importer/*",
         "./.bazel/npm/@humanwhocodes/module-importer/dist/*"
       ],
       "@humanwhocodes/retry": [
         "./.bazel/npm/@humanwhocodes/retry/dist/retrier.d.cts"
       ],
       "@humanwhocodes/retry/*": [
+        "./.bazel/npm/@humanwhocodes/retry/*",
         "./.bazel/npm/@humanwhocodes/retry/dist/*"
       ],
       "@img/colour": [
@@ -145,30 +159,35 @@
         "./.bazel/npm/@jridgewell/gen-mapping/types/gen-mapping.d.mts"
       ],
       "@jridgewell/gen-mapping/*": [
+        "./.bazel/npm/@jridgewell/gen-mapping/*",
         "./.bazel/npm/@jridgewell/gen-mapping/types/*"
       ],
       "@jridgewell/remapping": [
         "./.bazel/npm/@jridgewell/remapping/types/remapping.d.mts"
       ],
       "@jridgewell/remapping/*": [
+        "./.bazel/npm/@jridgewell/remapping/*",
         "./.bazel/npm/@jridgewell/remapping/types/*"
       ],
       "@jridgewell/resolve-uri": [
         "./.bazel/npm/@jridgewell/resolve-uri/dist/types/resolve-uri.d.ts"
       ],
       "@jridgewell/resolve-uri/*": [
+        "./.bazel/npm/@jridgewell/resolve-uri/*",
         "./.bazel/npm/@jridgewell/resolve-uri/dist/types/*"
       ],
       "@jridgewell/sourcemap-codec": [
         "./.bazel/npm/@jridgewell/sourcemap-codec/types/sourcemap-codec.d.mts"
       ],
       "@jridgewell/sourcemap-codec/*": [
+        "./.bazel/npm/@jridgewell/sourcemap-codec/*",
         "./.bazel/npm/@jridgewell/sourcemap-codec/types/*"
       ],
       "@jridgewell/trace-mapping": [
         "./.bazel/npm/@jridgewell/trace-mapping/types/trace-mapping.d.mts"
       ],
       "@jridgewell/trace-mapping/*": [
+        "./.bazel/npm/@jridgewell/trace-mapping/*",
         "./.bazel/npm/@jridgewell/trace-mapping/types/*"
       ],
       "@oxc-project/types": [
@@ -181,24 +200,28 @@
         "./.bazel/npm/@poppinss/colors/build/index.d.ts"
       ],
       "@poppinss/colors/*": [
+        "./.bazel/npm/@poppinss/colors/*",
         "./.bazel/npm/@poppinss/colors/build/*"
       ],
       "@poppinss/dumper": [
         "./.bazel/npm/@poppinss/dumper/build/index.d.ts"
       ],
       "@poppinss/dumper/*": [
+        "./.bazel/npm/@poppinss/dumper/*",
         "./.bazel/npm/@poppinss/dumper/build/*"
       ],
       "@poppinss/exception": [
         "./.bazel/npm/@poppinss/exception/build/index.d.ts"
       ],
       "@poppinss/exception/*": [
+        "./.bazel/npm/@poppinss/exception/*",
         "./.bazel/npm/@poppinss/exception/build/*"
       ],
       "@rolldown/pluginutils": [
         "./.bazel/npm/@rolldown/pluginutils/dist/index.d.mts"
       ],
       "@rolldown/pluginutils/*": [
+        "./.bazel/npm/@rolldown/pluginutils/*",
         "./.bazel/npm/@rolldown/pluginutils/dist/*"
       ],
       "@rules_typescript/eslint-plugin-isolated-declarations": [
@@ -219,24 +242,28 @@
         "./.bazel/npm/@sindresorhus/is/distribution/index.d.ts"
       ],
       "@sindresorhus/is/*": [
+        "./.bazel/npm/@sindresorhus/is/*",
         "./.bazel/npm/@sindresorhus/is/distribution/*"
       ],
       "@speed-highlight/core": [
         "./.bazel/npm/@speed-highlight/core/dist/index.d.ts"
       ],
       "@speed-highlight/core/*": [
+        "./.bazel/npm/@speed-highlight/core/*",
         "./.bazel/npm/@speed-highlight/core/dist/*"
       ],
       "@standard-schema/spec": [
         "./.bazel/npm/@standard-schema/spec/dist/index.d.ts"
       ],
       "@standard-schema/spec/*": [
+        "./.bazel/npm/@standard-schema/spec/*",
         "./.bazel/npm/@standard-schema/spec/dist/*"
       ],
       "@tailwindcss/node": [
         "./.bazel/npm/@tailwindcss/node/dist/index.d.ts"
       ],
       "@tailwindcss/node/*": [
+        "./.bazel/npm/@tailwindcss/node/*",
         "./.bazel/npm/@tailwindcss/node/dist/*"
       ],
       "@tailwindcss/oxide": [
@@ -249,114 +276,133 @@
         "./.bazel/npm/@tailwindcss/vite/dist/index.d.mts"
       ],
       "@tailwindcss/vite/*": [
+        "./.bazel/npm/@tailwindcss/vite/*",
         "./.bazel/npm/@tailwindcss/vite/dist/*"
       ],
       "@typescript-eslint/parser": [
         "./.bazel/npm/@typescript-eslint/parser/dist/index.d.ts"
       ],
       "@typescript-eslint/parser/*": [
+        "./.bazel/npm/@typescript-eslint/parser/*",
         "./.bazel/npm/@typescript-eslint/parser/dist/*"
       ],
       "@typescript-eslint/project-service": [
         "./.bazel/npm/@typescript-eslint/project-service/dist/index.d.ts"
       ],
       "@typescript-eslint/project-service/*": [
+        "./.bazel/npm/@typescript-eslint/project-service/*",
         "./.bazel/npm/@typescript-eslint/project-service/dist/*"
       ],
       "@typescript-eslint/rule-tester": [
         "./.bazel/npm/@typescript-eslint/rule-tester/dist/index.d.ts"
       ],
       "@typescript-eslint/rule-tester/*": [
+        "./.bazel/npm/@typescript-eslint/rule-tester/*",
         "./.bazel/npm/@typescript-eslint/rule-tester/dist/*"
       ],
       "@typescript-eslint/scope-manager": [
         "./.bazel/npm/@typescript-eslint/scope-manager/dist/index.d.ts"
       ],
       "@typescript-eslint/scope-manager/*": [
+        "./.bazel/npm/@typescript-eslint/scope-manager/*",
         "./.bazel/npm/@typescript-eslint/scope-manager/dist/*"
       ],
       "@typescript-eslint/tsconfig-utils": [
         "./.bazel/npm/@typescript-eslint/tsconfig-utils/dist/index.d.ts"
       ],
       "@typescript-eslint/tsconfig-utils/*": [
+        "./.bazel/npm/@typescript-eslint/tsconfig-utils/*",
         "./.bazel/npm/@typescript-eslint/tsconfig-utils/dist/*"
       ],
       "@typescript-eslint/types": [
         "./.bazel/npm/@typescript-eslint/types/dist/index.d.ts"
       ],
       "@typescript-eslint/types/*": [
+        "./.bazel/npm/@typescript-eslint/types/*",
         "./.bazel/npm/@typescript-eslint/types/dist/*"
       ],
       "@typescript-eslint/typescript-estree": [
         "./.bazel/npm/@typescript-eslint/typescript-estree/dist/index.d.ts"
       ],
       "@typescript-eslint/typescript-estree/*": [
+        "./.bazel/npm/@typescript-eslint/typescript-estree/*",
         "./.bazel/npm/@typescript-eslint/typescript-estree/dist/*"
       ],
       "@typescript-eslint/utils": [
         "./.bazel/npm/@typescript-eslint/utils/dist/index.d.ts"
       ],
       "@typescript-eslint/utils/*": [
+        "./.bazel/npm/@typescript-eslint/utils/*",
         "./.bazel/npm/@typescript-eslint/utils/dist/*"
       ],
       "@typescript-eslint/visitor-keys": [
         "./.bazel/npm/@typescript-eslint/visitor-keys/dist/index.d.ts"
       ],
       "@typescript-eslint/visitor-keys/*": [
+        "./.bazel/npm/@typescript-eslint/visitor-keys/*",
         "./.bazel/npm/@typescript-eslint/visitor-keys/dist/*"
       ],
       "@vitest/coverage-istanbul": [
         "./.bazel/npm/@vitest/coverage-istanbul/dist/index.d.ts"
       ],
       "@vitest/coverage-istanbul/*": [
+        "./.bazel/npm/@vitest/coverage-istanbul/*",
         "./.bazel/npm/@vitest/coverage-istanbul/dist/*"
       ],
       "@vitest/coverage-v8": [
         "./.bazel/npm/@vitest/coverage-v8/dist/index.d.ts"
       ],
       "@vitest/coverage-v8/*": [
+        "./.bazel/npm/@vitest/coverage-v8/*",
         "./.bazel/npm/@vitest/coverage-v8/dist/*"
       ],
       "@vitest/expect": [
         "./.bazel/npm/@vitest/expect/dist/index.d.ts"
       ],
       "@vitest/expect/*": [
+        "./.bazel/npm/@vitest/expect/*",
         "./.bazel/npm/@vitest/expect/dist/*"
       ],
       "@vitest/mocker": [
         "./.bazel/npm/@vitest/mocker/dist/index.d.ts"
       ],
       "@vitest/mocker/*": [
+        "./.bazel/npm/@vitest/mocker/*",
         "./.bazel/npm/@vitest/mocker/dist/*"
       ],
       "@vitest/pretty-format": [
         "./.bazel/npm/@vitest/pretty-format/dist/index.d.ts"
       ],
       "@vitest/pretty-format/*": [
+        "./.bazel/npm/@vitest/pretty-format/*",
         "./.bazel/npm/@vitest/pretty-format/dist/*"
       ],
       "@vitest/runner": [
         "./.bazel/npm/@vitest/runner/dist/index.d.ts"
       ],
       "@vitest/runner/*": [
+        "./.bazel/npm/@vitest/runner/*",
         "./.bazel/npm/@vitest/runner/dist/*"
       ],
       "@vitest/snapshot": [
         "./.bazel/npm/@vitest/snapshot/dist/index.d.ts"
       ],
       "@vitest/snapshot/*": [
+        "./.bazel/npm/@vitest/snapshot/*",
         "./.bazel/npm/@vitest/snapshot/dist/*"
       ],
       "@vitest/spy": [
         "./.bazel/npm/@vitest/spy/dist/index.d.ts"
       ],
       "@vitest/spy/*": [
+        "./.bazel/npm/@vitest/spy/*",
         "./.bazel/npm/@vitest/spy/dist/*"
       ],
       "@vitest/utils": [
         "./.bazel/npm/@vitest/utils/dist/index.d.ts"
       ],
       "@vitest/utils/*": [
+        "./.bazel/npm/@vitest/utils/*",
         "./.bazel/npm/@vitest/utils/dist/*"
       ],
       "acorn": [
@@ -369,12 +415,14 @@
         "./.bazel/npm/acorn-jsx/*"
       ],
       "acorn/*": [
+        "./.bazel/npm/acorn/*",
         "./.bazel/npm/acorn/dist/*"
       ],
       "ajv": [
         "./.bazel/npm/ajv/lib/ajv.d.ts"
       ],
       "ajv/*": [
+        "./.bazel/npm/ajv/*",
         "./.bazel/npm/ajv/lib/*"
       ],
       "any-promise": [
@@ -393,18 +441,21 @@
         "./.bazel/npm/ast-v8-to-istanbul/dist/index.d.mts"
       ],
       "ast-v8-to-istanbul/*": [
+        "./.bazel/npm/ast-v8-to-istanbul/*",
         "./.bazel/npm/ast-v8-to-istanbul/dist/*"
       ],
       "balanced-match": [
         "./.bazel/npm/balanced-match/dist/esm/index.d.ts"
       ],
       "balanced-match/*": [
+        "./.bazel/npm/balanced-match/*",
         "./.bazel/npm/balanced-match/dist/esm/*"
       ],
       "baseline-browser-mapping": [
         "./.bazel/npm/baseline-browser-mapping/dist/index.d.ts"
       ],
       "baseline-browser-mapping/*": [
+        "./.bazel/npm/baseline-browser-mapping/*",
         "./.bazel/npm/baseline-browser-mapping/dist/*"
       ],
       "blake3-wasm": [
@@ -417,6 +468,7 @@
         "./.bazel/npm/brace-expansion/dist/esm/index.d.ts"
       ],
       "brace-expansion/*": [
+        "./.bazel/npm/brace-expansion/*",
         "./.bazel/npm/brace-expansion/dist/esm/*"
       ],
       "browserslist": [
@@ -429,12 +481,14 @@
         "./.bazel/npm/bundle-require/dist/index.d.ts"
       ],
       "bundle-require/*": [
+        "./.bazel/npm/bundle-require/*",
         "./.bazel/npm/bundle-require/dist/*"
       ],
       "cac": [
         "./.bazel/npm/cac/dist/index.d.ts"
       ],
       "cac/*": [
+        "./.bazel/npm/cac/*",
         "./.bazel/npm/cac/dist/*"
       ],
       "chai": [
@@ -447,6 +501,7 @@
         "./.bazel/npm/chokidar/esm/index.d.ts"
       ],
       "chokidar/*": [
+        "./.bazel/npm/chokidar/*",
         "./.bazel/npm/chokidar/esm/*"
       ],
       "cjs-module-lexer": [
@@ -459,25 +514,35 @@
         "./.bazel/npm/commander/typings/index.d.ts"
       ],
       "commander/*": [
+        "./.bazel/npm/commander/*",
         "./.bazel/npm/commander/typings/*"
       ],
       "confbox": [
         "./.bazel/npm/confbox/dist/index.d.ts"
       ],
       "confbox/*": [
+        "./.bazel/npm/confbox/*",
         "./.bazel/npm/confbox/dist/*"
       ],
       "consola": [
         "./.bazel/npm/consola/dist/index.d.mts"
       ],
       "consola/*": [
+        "./.bazel/npm/consola/*",
         "./.bazel/npm/consola/dist/*"
       ],
       "cookie": [
         "./.bazel/npm/cookie/dist/index.d.ts"
       ],
       "cookie/*": [
+        "./.bazel/npm/cookie/*",
         "./.bazel/npm/cookie/dist/*"
+      ],
+      "deep-eql": [
+        "./.bazel/npm/@types/deep-eql/index.d.ts"
+      ],
+      "deep-eql/*": [
+        "./.bazel/npm/@types/deep-eql/*"
       ],
       "detect-libc": [
         "./.bazel/npm/detect-libc/index.d.ts"
@@ -495,24 +560,28 @@
         "./.bazel/npm/entities/dist/esm/index.d.ts"
       ],
       "entities/*": [
+        "./.bazel/npm/entities/*",
         "./.bazel/npm/entities/dist/esm/*"
       ],
       "error-stack-parser-es": [
         "./.bazel/npm/error-stack-parser-es/dist/index.d.ts"
       ],
       "error-stack-parser-es/*": [
+        "./.bazel/npm/error-stack-parser-es/*",
         "./.bazel/npm/error-stack-parser-es/dist/*"
       ],
       "es-module-lexer": [
         "./.bazel/npm/es-module-lexer/types/lexer.d.ts"
       ],
       "es-module-lexer/*": [
+        "./.bazel/npm/es-module-lexer/*",
         "./.bazel/npm/es-module-lexer/types/*"
       ],
       "esbuild": [
         "./.bazel/npm/esbuild/lib/main.d.ts"
       ],
       "esbuild/*": [
+        "./.bazel/npm/esbuild/*",
         "./.bazel/npm/esbuild/lib/*"
       ],
       "escalade": [
@@ -541,21 +610,25 @@
         "./.bazel/npm/eslint-scope/lib/index.d.ts"
       ],
       "eslint-scope/*": [
+        "./.bazel/npm/eslint-scope/*",
         "./.bazel/npm/eslint-scope/lib/*"
       ],
       "eslint-visitor-keys": [
         "./.bazel/npm/eslint-visitor-keys/dist/eslint-visitor-keys.d.cts"
       ],
       "eslint-visitor-keys/*": [
+        "./.bazel/npm/eslint-visitor-keys/*",
         "./.bazel/npm/eslint-visitor-keys/dist/*"
       ],
       "eslint/*": [
+        "./.bazel/npm/eslint/*",
         "./.bazel/npm/eslint/lib/types/*"
       ],
       "espree": [
         "./.bazel/npm/espree/dist/espree.d.ts"
       ],
       "espree/*": [
+        "./.bazel/npm/espree/*",
         "./.bazel/npm/espree/dist/*"
       ],
       "esrecurse": [
@@ -564,16 +637,24 @@
       "esrecurse/*": [
         "./.bazel/npm/esrecurse/*"
       ],
+      "estree": [
+        "./.bazel/npm/@types/estree/index.d.ts"
+      ],
       "estree-walker": [
         "./.bazel/npm/estree-walker/types/index.d.ts"
       ],
       "estree-walker/*": [
+        "./.bazel/npm/estree-walker/*",
         "./.bazel/npm/estree-walker/types/*"
+      ],
+      "estree/*": [
+        "./.bazel/npm/@types/estree/*"
       ],
       "expect-type": [
         "./.bazel/npm/expect-type/dist/index.d.ts"
       ],
       "expect-type/*": [
+        "./.bazel/npm/expect-type/*",
         "./.bazel/npm/expect-type/dist/*"
       ],
       "fast-deep-equal": [
@@ -592,6 +673,7 @@
         "./.bazel/npm/fdir/dist/index.d.mts"
       ],
       "fdir/*": [
+        "./.bazel/npm/fdir/*",
         "./.bazel/npm/fdir/dist/*"
       ],
       "find-up": [
@@ -604,12 +686,14 @@
         "./.bazel/npm/fix-dts-default-cjs-exports/dist/index.d.mts"
       ],
       "fix-dts-default-cjs-exports/*": [
+        "./.bazel/npm/fix-dts-default-cjs-exports/*",
         "./.bazel/npm/fix-dts-default-cjs-exports/dist/*"
       ],
       "flatted": [
         "./.bazel/npm/flatted/types/index.d.ts"
       ],
       "flatted/*": [
+        "./.bazel/npm/flatted/*",
         "./.bazel/npm/flatted/types/*"
       ],
       "generic-names": [
@@ -640,12 +724,14 @@
         "./.bazel/npm/jiti/lib/jiti.d.mts"
       ],
       "jiti/*": [
+        "./.bazel/npm/jiti/*",
         "./.bazel/npm/jiti/lib/*"
       ],
       "joycon": [
         "./.bazel/npm/joycon/types/index.d.ts"
       ],
       "joycon/*": [
+        "./.bazel/npm/joycon/*",
         "./.bazel/npm/joycon/types/*"
       ],
       "js-tokens": [
@@ -654,16 +740,24 @@
       "js-tokens/*": [
         "./.bazel/npm/js-tokens/*"
       ],
+      "json-schema": [
+        "./.bazel/npm/@types/json-schema/index.d.ts"
+      ],
+      "json-schema/*": [
+        "./.bazel/npm/@types/json-schema/*"
+      ],
       "json5": [
         "./.bazel/npm/json5/lib/index.d.ts"
       ],
       "json5/*": [
+        "./.bazel/npm/json5/*",
         "./.bazel/npm/json5/lib/*"
       ],
       "keyv": [
         "./.bazel/npm/keyv/src/index.d.ts"
       ],
       "keyv/*": [
+        "./.bazel/npm/keyv/*",
         "./.bazel/npm/keyv/src/*"
       ],
       "kleur": [
@@ -676,18 +770,21 @@
         "./.bazel/npm/lightningcss/node/index.d.ts"
       ],
       "lightningcss/*": [
+        "./.bazel/npm/lightningcss/*",
         "./.bazel/npm/lightningcss/node/*"
       ],
       "lilconfig": [
         "./.bazel/npm/lilconfig/src/index.d.ts"
       ],
       "lilconfig/*": [
+        "./.bazel/npm/lilconfig/*",
         "./.bazel/npm/lilconfig/src/*"
       ],
       "lines-and-columns": [
         "./.bazel/npm/lines-and-columns/build/index.d.ts"
       ],
       "lines-and-columns/*": [
+        "./.bazel/npm/lines-and-columns/*",
         "./.bazel/npm/lines-and-columns/build/*"
       ],
       "locate-path": [
@@ -700,12 +797,14 @@
         "./.bazel/npm/magic-string/dist/magic-string.es.d.mts"
       ],
       "magic-string/*": [
+        "./.bazel/npm/magic-string/*",
         "./.bazel/npm/magic-string/dist/*"
       ],
       "magicast": [
         "./.bazel/npm/magicast/dist/index.d.ts"
       ],
       "magicast/*": [
+        "./.bazel/npm/magicast/*",
         "./.bazel/npm/magicast/dist/*"
       ],
       "make-dir": [
@@ -718,18 +817,21 @@
         "./.bazel/npm/miniflare/dist/src/index.d.ts"
       ],
       "miniflare/*": [
+        "./.bazel/npm/miniflare/*",
         "./.bazel/npm/miniflare/dist/src/*"
       ],
       "minimatch": [
         "./.bazel/npm/minimatch/dist/esm/index.d.ts"
       ],
       "minimatch/*": [
+        "./.bazel/npm/minimatch/*",
         "./.bazel/npm/minimatch/dist/esm/*"
       ],
       "mlly": [
         "./.bazel/npm/mlly/dist/index.d.ts"
       ],
       "mlly/*": [
+        "./.bazel/npm/mlly/*",
         "./.bazel/npm/mlly/dist/*"
       ],
       "nanoid": [
@@ -745,10 +847,17 @@
         "./packages/nested-shared/*",
         "./bazel-bin/packages/nested-shared/*"
       ],
+      "node": [
+        "./.bazel/npm/@types/node/index.d.ts"
+      ],
+      "node/*": [
+        "./.bazel/npm/@types/node/*"
+      ],
       "obug": [
         "./.bazel/npm/obug/dist/node.d.ts"
       ],
       "obug/*": [
+        "./.bazel/npm/obug/*",
         "./.bazel/npm/obug/dist/*"
       ],
       "p-limit": [
@@ -800,12 +909,14 @@
         "./.bazel/npm/path-to-regexp/dist/index.d.ts"
       ],
       "path-to-regexp/*": [
+        "./.bazel/npm/path-to-regexp/*",
         "./.bazel/npm/path-to-regexp/dist/*"
       ],
       "pathe": [
         "./.bazel/npm/pathe/dist/index.d.mts"
       ],
       "pathe/*": [
+        "./.bazel/npm/pathe/*",
         "./.bazel/npm/pathe/dist/*"
       ],
       "picocolors": [
@@ -824,6 +935,7 @@
         "./.bazel/npm/pkg-types/dist/index.d.ts"
       ],
       "pkg-types/*": [
+        "./.bazel/npm/pkg-types/*",
         "./.bazel/npm/pkg-types/dist/*"
       ],
       "postcss": [
@@ -833,6 +945,7 @@
         "./.bazel/npm/postcss-load-config/src/index.d.ts"
       ],
       "postcss-load-config/*": [
+        "./.bazel/npm/postcss-load-config/*",
         "./.bazel/npm/postcss-load-config/src/*"
       ],
       "postcss-modules": [
@@ -854,12 +967,14 @@
         "./.bazel/npm/postcss-value-parser/*"
       ],
       "postcss/*": [
+        "./.bazel/npm/postcss/*",
         "./.bazel/npm/postcss/lib/*"
       ],
       "readdirp": [
         "./.bazel/npm/readdirp/esm/index.d.ts"
       ],
       "readdirp/*": [
+        "./.bazel/npm/readdirp/*",
         "./.bazel/npm/readdirp/esm/*"
       ],
       "resolve-from": [
@@ -872,12 +987,14 @@
         "./.bazel/npm/rolldown/dist/index.d.mts"
       ],
       "rolldown/*": [
+        "./.bazel/npm/rolldown/*",
         "./.bazel/npm/rolldown/dist/*"
       ],
       "rollup": [
         "./.bazel/npm/rollup/dist/rollup.d.ts"
       ],
       "rollup/*": [
+        "./.bazel/npm/rollup/*",
         "./.bazel/npm/rollup/dist/*"
       ],
       "shared": [
@@ -891,6 +1008,7 @@
         "./.bazel/npm/sharp/dist/index.d.mts"
       ],
       "sharp/*": [
+        "./.bazel/npm/sharp/*",
         "./.bazel/npm/sharp/dist/*"
       ],
       "shebang-regex": [
@@ -915,12 +1033,14 @@
         "./.bazel/npm/std-env/dist/index.d.mts"
       ],
       "std-env/*": [
+        "./.bazel/npm/std-env/*",
         "./.bazel/npm/std-env/dist/*"
       ],
       "sucrase": [
         "./.bazel/npm/sucrase/dist/types/index.d.ts"
       ],
       "sucrase/*": [
+        "./.bazel/npm/sucrase/*",
         "./.bazel/npm/sucrase/dist/types/*"
       ],
       "supports-color": [
@@ -933,6 +1053,7 @@
         "./.bazel/npm/tailwindcss/dist/lib.d.mts"
       ],
       "tailwindcss/*": [
+        "./.bazel/npm/tailwindcss/*",
         "./.bazel/npm/tailwindcss/dist/*"
       ],
       "tapable": [
@@ -1274,24 +1395,28 @@
         "./.bazel/npm/tinybench/dist/index.d.cts"
       ],
       "tinybench/*": [
+        "./.bazel/npm/tinybench/*",
         "./.bazel/npm/tinybench/dist/*"
       ],
       "tinyexec": [
         "./.bazel/npm/tinyexec/dist/main.d.ts"
       ],
       "tinyexec/*": [
+        "./.bazel/npm/tinyexec/*",
         "./.bazel/npm/tinyexec/dist/*"
       ],
       "tinyglobby": [
         "./.bazel/npm/tinyglobby/dist/index.d.mts"
       ],
       "tinyglobby/*": [
+        "./.bazel/npm/tinyglobby/*",
         "./.bazel/npm/tinyglobby/dist/*"
       ],
       "tinyrainbow": [
         "./.bazel/npm/tinyrainbow/dist/index.d.ts"
       ],
       "tinyrainbow/*": [
+        "./.bazel/npm/tinyrainbow/*",
         "./.bazel/npm/tinyrainbow/dist/*"
       ],
       "tree-kill": [
@@ -1304,12 +1429,14 @@
         "./.bazel/npm/ts-api-utils/lib/index.d.ts"
       ],
       "ts-api-utils/*": [
+        "./.bazel/npm/ts-api-utils/*",
         "./.bazel/npm/ts-api-utils/lib/*"
       ],
       "ts-interface-checker": [
         "./.bazel/npm/ts-interface-checker/dist/index.d.ts"
       ],
       "ts-interface-checker/*": [
+        "./.bazel/npm/ts-interface-checker/*",
         "./.bazel/npm/ts-interface-checker/dist/*"
       ],
       "ts/private/css/*": [
@@ -1320,18 +1447,21 @@
         "./.bazel/npm/tsup/dist/index.d.ts"
       ],
       "tsup/*": [
+        "./.bazel/npm/tsup/*",
         "./.bazel/npm/tsup/dist/*"
       ],
       "typescript": [
         "./.bazel/npm/typescript/lib/typescript.d.ts"
       ],
       "typescript/*": [
+        "./.bazel/npm/typescript/*",
         "./.bazel/npm/typescript/lib/*"
       ],
       "ufo": [
         "./.bazel/npm/ufo/dist/index.d.ts"
       ],
       "ufo/*": [
+        "./.bazel/npm/ufo/*",
         "./.bazel/npm/ufo/dist/*"
       ],
       "undici": [
@@ -1350,6 +1480,7 @@
         "./.bazel/npm/unenv/dist/index.d.mts"
       ],
       "unenv/*": [
+        "./.bazel/npm/unenv/*",
         "./.bazel/npm/unenv/dist/*"
       ],
       "update-browserslist-db": [
@@ -1362,18 +1493,21 @@
         "./.bazel/npm/uri-js/dist/es5/uri.all.d.ts"
       ],
       "uri-js/*": [
+        "./.bazel/npm/uri-js/*",
         "./.bazel/npm/uri-js/dist/es5/*"
       ],
       "vite": [
         "./.bazel/npm/vite/dist/node/index.d.ts"
       ],
       "vite/*": [
+        "./.bazel/npm/vite/*",
         "./.bazel/npm/vite/dist/node/*"
       ],
       "vitest": [
         "./.bazel/npm/vitest/dist/index.d.ts"
       ],
       "vitest/*": [
+        "./.bazel/npm/vitest/*",
         "./.bazel/npm/vitest/dist/*"
       ],
       "whatwg-mimetype": [
@@ -1392,6 +1526,7 @@
         "./.bazel/npm/wrangler/wrangler-dist/cli.d.ts"
       ],
       "wrangler/*": [
+        "./.bazel/npm/wrangler/*",
         "./.bazel/npm/wrangler/wrangler-dist/*"
       ],
       "ws": [
@@ -1420,9 +1555,11 @@
         "./.bazel/npm/youch-core/build/index.d.ts"
       ],
       "youch-core/*": [
+        "./.bazel/npm/youch-core/*",
         "./.bazel/npm/youch-core/build/*"
       ],
       "youch/*": [
+        "./.bazel/npm/youch/*",
         "./.bazel/npm/youch/build/*"
       ],
       "zod": [

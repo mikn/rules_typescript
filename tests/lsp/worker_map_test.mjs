@@ -12,7 +12,11 @@
  * left OUT: an npm package the data names but nothing installed, a ts_compile
  * package with no entry point, a declared module_name whose package has no entry
  * point either, a nested workspace's directives, and a "~" alias prefix that the
- * worker's character screen rejects even though gazelle accepts it. //tests/lsp:test_resolution_map runs the same worker over this repo's own
+ * worker's character screen rejects even though gazelle accepts it. A @types/*
+ * package is here too, because it is the one entry whose map key and installed
+ * directory are different names.
+ *
+ * //tests/lsp:test_resolution_map runs the same worker over this repo's own
  * generated data rather than a fixture.
  */
 
@@ -85,6 +89,18 @@ const hubDts = write('.bazel/npm/hublib/dist/index.d.ts', 'export declare const 
 // Installed, but with no declarations to point at.
 write('.bazel/npm/binary-only/package.json', JSON.stringify({ name: 'binary-only' }));
 
+// A @types/* package: installed under its own name, and the map keys it under
+// the name it types. `dir` is what separates the two, and without it the worker
+// looks for `.bazel/npm/estree` -- which nothing installs.
+write(
+  '.bazel/npm/@types/estree/package.json',
+  JSON.stringify({ name: '@types/estree', types: 'index.d.ts' })
+);
+const estreeDts = write(
+  '.bazel/npm/@types/estree/index.d.ts',
+  'export declare interface Program { body: unknown[] }\n'
+);
+
 write(
   '.bazel/tsserver-hook-data.json',
   JSON.stringify({
@@ -94,6 +110,7 @@ write(
       { name: 'hublib', entry: '', isFile: false },
       { name: 'binary-only', entry: '', isFile: false },
       { name: 'never-installed', entry: '', isFile: false },
+      { name: 'estree', dir: '@types/estree', entry: 'index.d.ts', isFile: true },
     ],
     packages: ['src/lib', 'src/app', 'src/empty'],
     // The bare specifiers targets declared with `module_name`, each naming the
@@ -168,6 +185,11 @@ worker.once('message', (msg) => {
   expectEntry(map, 'hublib', hubDts);
   expectAbsent(map, 'binary-only', 'the package ships no declarations');
   expectAbsent(map, 'never-installed', 'nothing was installed under npmDir');
+
+  // The name a @types/* package types, resolved to the package installed under
+  // its own name.
+  expectEntry(map, 'estree', estreeDts);
+  expectAbsent(map, '@types/estree', 'no import writes the package\'s own name');
 
   // Internal ts_compile packages, keyed by package path.
   expectEntry(map, 'src/lib', libIndex);

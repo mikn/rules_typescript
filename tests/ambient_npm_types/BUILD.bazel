@@ -6,7 +6,8 @@ any `lib` declares, so compiling :consumer is the assertion.
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "ts_compile")
-load(":ambient_tests.bzl", "ambient_entry_test", "no_ambient_entry_test")
+load("//ts/private:tsconfig_aspect.bzl", "ide_tsconfig")
+load(":ambient_tests.bzl", "ambient_entry_test", "bare_types_entry_test", "no_ambient_entry_test")
 
 package(default_visibility = ["//:__pkg__"])
 
@@ -53,4 +54,42 @@ ambient_entry_test(
 no_ambient_entry_test(
     name = "no_ambient_entry_test",
     target_under_test = ":consumer_no_types",
+)
+
+# ── `types = ["node"]`, the spelling Gazelle writes ──────────────────────────
+# A `types` entry names a package TypeScript would find by walking
+# node_modules/@types, and DefinitelyTyped publishes node's declarations only as
+# @types/node -- so the entry resolves against the paired package, not against
+# one literally named `node`. The rule stages the declarations into `files` and
+# the editor has to strip the entry from the program it writes: there is no
+# node_modules for tsserver to walk either, and real tsc reports
+# `TS2688: Cannot find type definition file for 'node'` for an entry left in.
+ts_compile(
+    name = "bare_types_entry",
+    srcs = ["bare_types_entry.ts"],
+    compiler_options = {
+        # `noUnusedLocals` is what earns this package its own editor program,
+        # so the nested file exists whether or not `types` survives into it --
+        # which is what the assertion is about.
+        "noUnusedLocals": True,
+        "types": ["node"],
+    },
+    deps = ["@npm//:types_node"],
+)
+
+build_test(
+    name = "bare_types_entry_build_test",
+    targets = [":bare_types_entry"],
+)
+
+ide_tsconfig(
+    name = "bare_types_entry_ide_tsconfig",
+    nested_tsconfigs = ["tests/ambient_npm_types/tsconfig.json"],
+    tags = ["manual"],
+    deps = [":bare_types_entry"],
+)
+
+bare_types_entry_test(
+    name = "bare_types_entry_test",
+    target_under_test = ":bare_types_entry_ide_tsconfig",
 )
