@@ -25,6 +25,8 @@ type indexedRule struct {
 	pkg        string
 	srcs       []string
 	moduleName string
+	outDir     string
+	outs       []string
 }
 
 func newRule(ir indexedRule) (*rule.Rule, *rule.File) {
@@ -34,6 +36,12 @@ func newRule(ir indexedRule) (*rule.Rule, *rule.File) {
 	}
 	if ir.moduleName != "" {
 		r.SetAttr("module_name", ir.moduleName)
+	}
+	if ir.outDir != "" {
+		r.SetAttr("out_dir", ir.outDir)
+	}
+	if ir.outs != nil {
+		r.SetAttr("outs", ir.outs)
 	}
 	return r, rule.EmptyFile("BUILD.bazel", ir.pkg)
 }
@@ -1415,6 +1423,160 @@ func TestResolveImports_NodeBuiltinWithABundlerQuerySuffix(t *testing.T) {
 
 		if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
 			t.Errorf("%s: deps = %v, want %v", imp, got, want)
+		}
+	}
+}
+
+// ---- ts_codegen out_dir trees ----------------------------------------------
+
+func TestImportsForRule_CodegenOutDirIsIndexed(t *testing.T) {
+	c := emptyConfig()
+	r, f := newRule(indexedRule{
+		kind: "ts_codegen", name: "paraglide_messages", pkg: "web",
+		srcs: []string{"i18n/settings.json"}, outDir: "shared/i18n/compiled",
+		moduleName: "#shared/i18n/compiled",
+	})
+
+	got := specStrings(importsForRule(c, r, f))
+	want := []string{
+		"web/shared/i18n/compiled",
+		"ts_codegen_tree:web/shared/i18n/compiled",
+		"#shared/i18n/compiled",
+		"ts_codegen_tree:#shared/i18n/compiled",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("importsForRule(ts_codegen) = %v, want %v", got, want)
+	}
+}
+
+func TestImportsForRule_CodegenOutsIsNotImportable(t *testing.T) {
+	c := emptyConfig()
+	r, f := newRule(indexedRule{
+		kind: "ts_codegen", name: "api_types", pkg: "web",
+		srcs: []string{"openapi.yaml"}, outs: []string{"api-types.ts"},
+	})
+
+	if got := importsForRule(c, r, f); got != nil {
+		t.Errorf("importsForRule(outs ts_codegen) = %v, want nil: it returns no JsInfo, so no dep on it resolves", got)
+	}
+}
+
+// The measured monorepo shape: an out_dir ts_codegen in the same package as the
+// targets importing its modules, reached by a tsconfig path alias, by the
+// module_name itself, and by a relative specifier rebased onto the package.
+func TestResolveImport_CodegenTreeSubpath(t *testing.T) {
+	c := emptyConfig()
+	c.Exts[languageName] = makeConfig("", []rule.Directive{
+		directive("ts_path_alias", "#shared/ web/shared/"),
+	})
+	tc := getConfig(c)
+	ix := buildIndex(t, c,
+		indexedRule{
+			kind: "ts_codegen", name: "paraglide_messages", pkg: "web",
+			srcs: []string{"i18n/settings.json"}, outDir: "shared/i18n/compiled",
+			moduleName: "#shared/i18n/compiled",
+		},
+		indexedRule{kind: "ts_compile", name: "lib", pkg: "src/lib", srcs: []string{"index.ts"}},
+	)
+	from := label.New("", "web", "web_test")
+
+	for _, tt := range []struct {
+		name string
+		imp  string
+		want string
+	}{
+		{"path alias into the tree", "#shared/i18n/compiled/messages", ":paraglide_messages"},
+		{"path alias naming the tree root", "#shared/i18n/compiled", ":paraglide_messages"},
+		{"relative specifier into the tree", "./shared/i18n/compiled/runtime", ":paraglide_messages"},
+		{"a bare specifier no tree claims is still npm", "@acme/generated/client", "@npm//:acme_generated"},
+		{"an indexed source still wins", "../src/lib", "//src/lib"},
+		{"a sibling of the tree is not the tree", "#shared/i18n/messages", ""},
+		{"an npm package is still an npm package", "zod", "@npm//:zod"},
+	} {
+		if got := resolveImport(c, ix, tc, nil, tt.imp, from); got != tt.want {
+			t.Errorf("%s: resolveImport(%q) = %q, want %q", tt.name, tt.imp, got, tt.want)
+		}
+	}
+}
+
+// A module_name that no path alias covers takes the bare-specifier ladder, and
+// has to reach the tree before the npm hub claims the name.
+func TestResolveImport_CodegenModuleNameBeatsTheNpmHub(t *testing.T) {
+	c := emptyConfig()
+	c.Exts[languageName] = makeConfig("", nil)
+	tc := getConfig(c)
+	ix := buildIndex(t, c, indexedRule{
+		kind: "ts_codegen", name: "prisma_client", pkg: "packages/db",
+		srcs: []string{"schema.prisma"}, outDir: "generated/client",
+		moduleName: "@acme/db-client",
+	})
+	from := label.New("", "src/app", "app")
+
+	for imp, want := range map[string]string{
+		"@acme/db-client":            "//packages/db:prisma_client",
+		"@acme/db-client/models":     "//packages/db:prisma_client",
+		"@acme/db-client/a/b/c":      "//packages/db:prisma_client",
+		"@acme/db-client-extensions": "@npm//:acme_db-client-extensions",
+	} {
+		if got := resolveImport(c, ix, tc, nil, imp, from); got != want {
+			t.Errorf("resolveImport(%q) = %q, want %q", imp, got, want)
+		}
+	}
+}
+
+// Deepest root wins, so a tree generated inside another tree's directory
+// answers for its own subtree instead of the outer one swallowing it.
+func TestResolveCodegenTree_NearestRootWins(t *testing.T) {
+	c := emptyConfig()
+	c.Exts[languageName] = makeConfig("", nil)
+	ix := buildIndex(t, c,
+		indexedRule{
+			kind: "ts_codegen", name: "outer", pkg: "web",
+			srcs: []string{"a.json"}, outDir: "gen",
+		},
+		indexedRule{
+			kind: "ts_codegen", name: "inner", pkg: "web",
+			srcs: []string{"b.json"}, outDir: "gen/inner",
+		},
+	)
+	from := label.New("", "src/app", "app")
+
+	for imp, want := range map[string]string{
+		"web/gen/thing":       "//web:outer",
+		"web/gen/inner/thing": "//web:inner",
+		"web/other/thing":     "",
+	} {
+		if got := resolveCodegenTree(ix, imp, from); got != want {
+			t.Errorf("resolveCodegenTree(%q) = %q, want %q", imp, got, want)
+		}
+	}
+}
+
+// The walk climbs a namespaced key, so a ts_compile indexing the very path a
+// specifier's parent names can never be reached by prefix.
+func TestResolveCodegenTree_OnlyReachesCodegenTrees(t *testing.T) {
+	c := emptyConfig()
+	c.Exts[languageName] = makeConfig("", nil)
+	ix := buildIndex(t, c, indexedRule{
+		kind: "ts_compile", name: "utils", pkg: "src/utils", srcs: []string{"index.ts"},
+	})
+	from := label.New("", "src/app", "app")
+
+	if got := resolveCodegenTree(ix, "src/utils/missing", from); got != "" {
+		t.Errorf("resolveCodegenTree reached a ts_compile: %q, want \"\"", got)
+	}
+}
+
+// A relative specifier that escapes the workspace root must not walk past it.
+func TestResolveCodegenTree_StopsAtTheRoot(t *testing.T) {
+	c := emptyConfig()
+	c.Exts[languageName] = makeConfig("", nil)
+	ix := buildIndex(t, c)
+	from := label.New("", "src/app", "app")
+
+	for _, imp := range []string{"", ".", "..", "../thing", "/abs/thing", "thing"} {
+		if got := resolveCodegenTree(ix, imp, from); got != "" {
+			t.Errorf("resolveCodegenTree(%q) = %q, want \"\"", imp, got)
 		}
 	}
 }
