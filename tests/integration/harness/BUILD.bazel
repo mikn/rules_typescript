@@ -7,7 +7,7 @@ own assertions.
 
 # gazelle:ignore
 
-load("@rules_go//go:def.bzl", "go_library")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "harness",
@@ -19,4 +19,15 @@ go_library(
         "//tests/hmrsocket",
         "@rules_go//go/runfiles",
     ],
+)
+
+# The only test in //tests/integration that spawns no nested Bazel, so it
+# deliberately carries none of nested_bazel_tags(): cacheRoot() and runRoot()
+# are env-var functions, and where they put a multi-GB output base is a
+# behaviour the nested tests cannot see -- all 19 of them pass either way.
+go_test(
+    name = "harness_test",
+    size = "small",
+    srcs = ["harness_test.go"],
+    embed = [":harness"],
 )

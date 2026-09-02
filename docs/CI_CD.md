@@ -45,8 +45,11 @@ bazelisk and repository caches in all of them, the external cache in all but
      action, so this check stays a sequence of invocations
    - No disk cache: a hit on the second build would compare it against a copy of
      the first
-   - Scratch space is `/mnt`, the runner's ephemeral disk. Two output bases are
-     two full toolchain trees, which the root disk does not fit
+   - Scratch space is `/mnt/rules_ts_det`, provisioned per run. `/mnt` is not a
+     separate ephemeral disk on this image — it is a directory on the root
+     filesystem, which is why both jobs log `df -h /mnt /` — so the two full
+     toolchain trees do not change volume; the separate directory keeps them out
+     of the checkout and makes their size visible to `df`
 
 5. **Integration Tests (nested Bazel)** (`integration-tests`)
    - `bazelisk test --config=ci-integration //tests/integration/... --test_env=RULES_TS_IT_SCRATCH=/mnt/rules_ts_it`
@@ -55,14 +58,26 @@ bazelisk and repository caches in all of them, the external cache in all but
      unfiltered they would run three times per push
    - The targets carry `cpu:2` in place of `exclusive`, so Bazel bounds how many
      nested Bazel servers run at once by the machine's cores
-   - Each nested Bazel keeps its own output base; together they need tens of GB,
-     which the root disk does not have and `/mnt` does
+   - Each nested Bazel gets its own output base under the test's `TEST_TMPDIR`,
+     inside `<outer output base>/execroot/_main/_tmp` — which the outer Bazel
+     clears in full on each `bazel test`, whatever the target. So a killed run
+     leaves nothing that outlives the next invocation, and two checkouts running
+     one test cannot share a directory. `/mnt/rules_ts_it` holds only the
+     repository and disk caches now; whether moving the tens of GB to the outer
+     output base takes them off the volume `/mnt` is a directory on is what the
+     job's `df -h /mnt /` records, before and after
+   - Moving them there costs this job nothing. `/mnt/rules_ts_it` is a bare
+     `mkdir -p` on a fresh runner and the cache step below restores only the two
+     cache subdirectories, never the per-test output bases, so every nested
+     output base was already being created empty on every run. The retained
+     output base this gives up is worth a measured ~13.5s per test to a local
+     developer and nothing here
    - The harness appends `common --repository_cache=<shared>` and
      `common --disk_cache=<shared>` to every staged workspace's `.bazelrc`
      (`prepare()` in `tests/integration/harness/harness.go`). Without it each
      workspace fetches the whole BCR registry for itself, and the resulting
      lookup failures read as flaky tests
-   - `/mnt` is recreated every run, so an `actions/cache@v4` step restores
+   - `/mnt` is recreated every run, so an `actions/cache@v6` step restores
      `/mnt/rules_ts_it/repository_cache` and `/mnt/rules_ts_it/disk_cache` under
      the key `nested-bazel-<runner.os>-<hash of MODULE.bazel,
      tests/npm/pnpm-lock.yaml, oxc_cli/Cargo.lock>`. Cold, the concurrent servers

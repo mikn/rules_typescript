@@ -144,13 +144,15 @@ jobs:
           # empty output bases and compares the bytes, so a cache hit on the
           # second build would compare it against a copy of the first.
 
-      # Two output bases are two full toolchain trees; the runner's root disk
-      # does not fit both and /mnt, the ephemeral disk, does.
-      - name: Provision scratch space on the ephemeral disk
+      # Two output bases are two full toolchain trees. /mnt is not a separate
+      # ephemeral disk on this image -- it is a directory on the root filesystem,
+      # same as in `integration-tests` -- so this does not move them off the root
+      # disk; it keeps them out of the checkout and puts their size in `df`.
+      - name: Provision scratch space
         run: |
           sudo mkdir -p /mnt/rules_ts_det
           sudo chown "$(id -u):$(id -g)" /mnt/rules_ts_det
-          df -h /mnt
+          df -h /mnt /
 
       # Two builds cannot be one action, so this is the one check that stays a
       # sequence of invocations instead of a target. `info bazel-bin` is asked
