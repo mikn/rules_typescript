@@ -232,14 +232,39 @@ jobs:
       # directory, and a leg on its own machine shares that directory with
       # nobody. Cold legs cost four independent fetches of a subset each, and
       # `restore-keys` means a cold start needs a MODULE.bazel change first.
+      #
+      # `bazelisk` is the exception to the content-addressing above: it holds one
+      # Bazel binary, named by version, and actions/cache never overwrites a key
+      # that already exists -- so without .bazelversion in the key a Bazel bump
+      # would pin a cache that can never hold the new binary, and every run
+      # would download it again.
       - uses: actions/cache@v6
         with:
           path: |
             /mnt/rules_ts_it/repository_cache
             /mnt/rules_ts_it/disk_cache
-          key: nested-bazel-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'tests/npm/pnpm-lock.yaml', 'oxc_cli/Cargo.lock') }}
+            /mnt/rules_ts_it/bazelisk
+          key: nested-bazel-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'tests/npm/pnpm-lock.yaml', 'oxc_cli/Cargo.lock', '.bazelversion') }}
           restore-keys: |
             nested-bazel-${{ runner.os }}-
+
+      # bazelisk takes no cross-process lock, so on a cold cache every test
+      # fetches Bazel at the same instant -- measured: 7 of the 9 core tests,
+      # even sharing one BAZELISK_HOME. One fetch here serialises that to a
+      # single download, which is what keeps a failed cache restore from
+      # turning a runner's DNS blip into a red leg. Warm, it is a no-op.
+      #
+      # The version comes from MODULE.bazel because that is the one the nested
+      # wrapper bakes into USE_BAZEL_VERSION; .bazelversion is the fallback and
+      # the two agree today. If they ever drift, this primes the wrong binary
+      # and the tests fetch their own again -- slower, never wrong.
+      - name: Prime the nested bazelisk cache
+        run: |
+          mkdir -p /mnt/rules_ts_it/bazelisk
+          declared=$(grep -oP 'bazel_binaries\.download\(version = "\K[^"]+' MODULE.bazel || true)
+          BAZELISK_HOME=/mnt/rules_ts_it/bazelisk \
+            USE_BAZEL_VERSION="${declared:-$(cat .bazelversion)}" \
+            bazelisk --version
 
       # The tests carry "cpu:2", not "exclusive", so Bazel already runs as many
       # as this runner has cores for; the config picks which of them this leg

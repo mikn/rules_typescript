@@ -172,7 +172,7 @@ func (it *IT) prepare(cfg Config, workspaceSrc string) error {
 func (it *IT) shareRepositoryCache() error {
 	repo := filepath.Join(cacheRoot(), "repository_cache")
 	disk := filepath.Join(cacheRoot(), "disk_cache")
-	for _, dir := range []string{repo, disk} {
+	for _, dir := range []string{repo, disk, bazeliskHome()} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
@@ -215,6 +215,22 @@ func cacheRoot() string {
 		return filepath.Join(home, ".cache", "rules_typescript_it")
 	}
 	return filepath.Join(os.TempDir(), "rules_typescript_it")
+}
+
+// The third shared cache, and the one fetch the other two do not cover:
+// `bazel_binary` is not Bazel but a bazelisk wrapper, which defaults
+// BAZELISK_HOME to $PWD. command() runs it from the per-run WorkspaceDir that
+// prepare() has just recreated, so unset, all 18 tests fetch Bazel from
+// releases.bazel.build on every run -- ~1.2GB a suite, and a network dependency
+// in each one. A runner whose DNS timed out is what surfaced it; green runs hid
+// it, because Bazel echoes a test's stdout only when the test fails.
+//
+// An inherited value wins, so a developer's populated cache is left alone.
+func bazeliskHome() string {
+	if dir := os.Getenv("BAZELISK_HOME"); dir != "" {
+		return dir
+	}
+	return filepath.Join(cacheRoot(), "bazelisk")
 }
 
 // The per-run half -- child workspace, scratch dir and nested output base --
@@ -430,12 +446,12 @@ func (it *IT) Scratch(rel ...string) string {
 func nestedEnv() []string {
 	env := []string{}
 	for _, entry := range os.Environ() {
-		if strings.HasPrefix(entry, "TEST_TMPDIR=") {
+		if strings.HasPrefix(entry, "TEST_TMPDIR=") || strings.HasPrefix(entry, "BAZELISK_HOME=") {
 			continue
 		}
 		env = append(env, entry)
 	}
-	return env
+	return append(env, "BAZELISK_HOME="+bazeliskHome())
 }
 
 func (it *IT) command(args []string) *exec.Cmd {
