@@ -46,7 +46,7 @@ TsconfigSourcesInfo = provider(
     fields = {
         "packages": "depset of struct(path, has_index, module_name, declared_paths): package of every ts_compile target reached, whether it has an index file to name as the package entry point, the bare specifier the target declared with `module_name` (empty when it declared none), and -- for a workspace member -- TsModuleInfo.declared_paths, what its own package.json says each of its specifiers resolves to.",
         "aliases": "depset of struct(prefix, dir): path_aliases entries, workspace-relative.",
-        "npm_paths": "depset of struct(key, name, version, entry, is_file): npm entry points, relative to the package's own directory. `key` is the specifier that resolves to one and `name` the package installed under `npm_dir`; they differ for a `@types/*` package, which answers the name it types and is installed under its own.",
+        "npm_paths": "depset of struct(key, name, version, entry, is_file, wildcard): npm entry points, relative to the package's own directory. `key` is the specifier that resolves to one and `name` the package installed under `npm_dir`; they differ for a `@types/*` package, which answers the name it types and is installed under its own, and for an `exports` subpath, which answers a key under the package's name. `wildcard` is whether the key also takes a `<key>/*` companion -- false on a subpath entry, whose key names one file and whose own subpaths are not a thing.",
         "npm_ambient": "depset of struct(name, version, entry): @types/* entry points to name in the tsconfig `files` array, relative to the package's own directory.",
         "npm_files": "depset of struct(name, version, dest, file): the files an npm entry point needs on disk, and where under the package each one goes.",
         "option_groups": "depset of struct(package, label, options_json, extends, include): the compilerOptions one target sets, which no single root block can carry -- a target that turns `strict` off, or names a `lib` its target does not imply, is checked correctly by the build and wrongly by the editor unless the editor gets its own program for those files.",
@@ -100,11 +100,15 @@ def _npm_entries(rule_attr):
     configs on that, by value.
 
     Which packages get an entry is not the same question, and the two configs
-    answer it differently: ts_compile names every package it resolves plus one
-    key per `exports` subpath, and this names only packages with declarations and
-    no subpaths -- 165 npm keys against 64 over :mangled_scope's closure. So a
-    declaration-free package is a key the build has and the editor does not,
-    which resolves to nothing on the side that has it.
+    still answer it differently: ts_compile names every package it resolves, and
+    this names only the ones with declarations -- 165 npm keys against 105 over
+    :mangled_scope's closure. So a declaration-free package is a key the build
+    has and the editor does not, which resolves to nothing on the side that has
+    it. The `exports` subpaths are not part of that gap: both configs read
+    NpmPackageInfo.subpath_types and give each subpath its own key, because a
+    `<name>/*` wildcard only guesses at one -- it substitutes the subpath as a
+    path under the package and probes `.ts`, `.d.ts` and `/index.d.ts`, so it
+    finds `postcss/lib/node.d.ts` and misses `rolldown/dist/config.d.mts`.
 
     An entry's `key` is the specifier that resolves to it and its `name` is the
     package whose files are installed under `npm_dir`. The two differ for a
@@ -180,12 +184,17 @@ def _npm_entries(rule_attr):
             first = _under(sources[0], root) or ""
             entry = first.rsplit("/", 1)[0] if "/" in first else ""
             is_file = False
+
+            # A subpath the runtime manifest designates points into the runtime
+            # package, and this branch stages the @types one instead.
+            subpaths = {}
         else:
             root = info.package_dir.dirname
             sources = info.declaration_files.to_list() + [info.package_dir]
             entry = _under(info.exports_types_file, root) if info.exports_types_file else None
             is_file = entry != None
             entry = entry or ""
+            subpaths = info.subpath_types
 
         paths.append(struct(
             key = alias or name,
@@ -193,7 +202,25 @@ def _npm_entries(rule_attr):
             version = info.package_version,
             entry = entry,
             is_file = is_file,
+            wildcard = True,
         ))
+
+        # What the manifest said a subpath designates, which the `<name>/*`
+        # wildcard beside it only guesses: rolldown's `experimental` is
+        # dist/experimental-index.d.mts, under neither the package root nor the
+        # entry directory the wildcard names. ts_compile reads the same field.
+        for subpath in sorted(subpaths):
+            dest = _under(subpaths[subpath], root)
+            if not dest:
+                continue
+            paths.append(struct(
+                key = (alias or name) + subpath[1:],
+                name = name,
+                version = info.package_version,
+                entry = dest,
+                is_file = True,
+                wildcard = False,
+            ))
         for src in sources:
             dest = _under(src, root)
             if dest:
@@ -867,10 +894,11 @@ def _ide_tsconfig_impl(ctx):
             # unreachable: `vite/dist/node/index` is a plain path under the
             # package, which is how a package with no `exports` map spells its
             # subpaths, and the build has always resolved it.
-            paths[entry.key + "/*"] = subpath_wildcards(
-                "./{}/{}".format(ctx.attr.npm_dir, entry.name),
-                installed.rsplit("/", 1)[0] if entry.is_file else installed,
-            )
+            if entry.wildcard:
+                paths[entry.key + "/*"] = subpath_wildcards(
+                    "./{}/{}".format(ctx.attr.npm_dir, entry.name),
+                    installed.rsplit("/", 1)[0] if entry.is_file else installed,
+                )
 
         for npm_file in npm_files:
             copies.append(struct(
