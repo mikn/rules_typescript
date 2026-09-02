@@ -36,7 +36,13 @@ const REQUIRED = ['rollup', 'vite', 'postcss'];
 const hookData = JSON.parse(
   fs.readFileSync(path.join(workspaceRoot, '.bazel/tsserver-hook-data.json'), 'utf8')
 );
-const ALIASED = (hookData.npmPackages || []).filter((pkg) => pkg.dir && pkg.dir !== pkg.name);
+// A subpath entry also answers a key its install directory does not spell, and
+// its directory legitimately keeps a key of its own: `@vitest/mocker/node` and
+// `@vitest/mocker` are both specifiers. The exclusivity below is the @types/*
+// alias rule, so only a key that is not a subpath of `dir` is one of those.
+const ALIASED = (hookData.npmPackages || []).filter(
+  (pkg) => pkg.dir && pkg.dir !== pkg.name && !pkg.name.startsWith(`${pkg.dir}/`)
+);
 
 let failures = 0;
 const pass = (msg) => process.stdout.write(`PASS: ${msg}\n`);

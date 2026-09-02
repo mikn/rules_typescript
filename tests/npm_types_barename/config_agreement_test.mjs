@@ -32,15 +32,15 @@
  * every package it resolves, and no import writes it, so the editor's map has
  * nothing to gain from carrying it.
  *
- * Mode `keys` adds the key sets to that, and only one fixture asks for it. The
- * two configs name the same set only where the closure holds no package the
- * editor drops and no `exports` subpath: over :mangled_scope's closure the build
- * names 165 npm keys and the editor 64, because the build gives a key to every
- * package it resolves -- `debug`, `ms` and `caniuse-lite` among them, none of
- * which ships a .d.ts -- and adds one per `exports` subpath (`postcss/lib/node`
- * and 20 more), while the editor names only packages with declarations and no
- * subpaths at all. Measured, pre-existing, and a different question from this
- * one; :own_import is the closure small enough to have neither.
+ * Mode `keys` adds the key sets to that, and two fixtures ask for it. The two
+ * configs name the same set only where the closure holds no package the editor
+ * drops: over :mangled_scope's closure the build names 165 npm keys and the
+ * editor 105, because the build gives a key to every package it resolves --
+ * `debug`, `ms` and `caniuse-lite` among them, none of which ships a .d.ts --
+ * and the editor drops those. Measured, pre-existing, and a different question
+ * from this one. The `exports` subpaths used to be the other half of that gap
+ * and are not any more: :subpath_exports is a closure whose only package
+ * declares three of them, and it asks for `keys`.
  */
 
 import fs from 'node:fs';

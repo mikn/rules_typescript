@@ -32,15 +32,17 @@ _AGREEMENT_FIXTURES = [
     "own_import",
     "mangled_scope",
     "subdirectory_declarations",
+    "subpath_exports",
 ]
 
 # `:keys` asks for the key sets to match too, which holds only where the closure
-# has no package the editor drops and no `exports` subpath -- see
+# has no declaration-free package for the editor to drop -- see
 # config_agreement_test.mjs. Everything else is compared by value.
 _AGREEMENT_ARGS = [
     "own_import:keys",
     "mangled_scope",
     "subdirectory_declarations",
+    "subpath_exports:keys",
 ]
 
 # rollup's own dist/rollup.d.ts opens with `import type * as estree from
@@ -121,6 +123,7 @@ build_test(
         ":inside_a_dependency",
         ":mangled_scope",
         ":own_import",
+        ":subpath_exports",
         ":widened_to_any",
     ],
 )
@@ -187,6 +190,24 @@ ide_tsconfig(
 editor_alias_beats_types_test(
     name = "editor_alias_beats_types_test",
     target_under_test = ":precedence_ide_tsconfig",
+)
+
+# nanoid designates three `exports` subpaths and depends on nothing, so its
+# closure has no declaration-free package to widen the comparison past what the
+# subpaths ask. Two of the three the editor's `nanoid/*` wildcard already
+# answered -- with a file the manifest does not designate, `async/index.d.ts`
+# where it says `index.d.cts` -- and `nanoid/url-alphabet` it answered with
+# nothing at all: that directory ships no declaration.
+ts_compile(
+    name = "subpath_exports",
+    srcs = ["subpath_exports.ts"],
+    deps = ["@npm//:nanoid"],
+)
+
+ide_tsconfig(
+    name = "subpath_exports_ide_tsconfig",
+    tags = ["manual"],
+    deps = [":subpath_exports"],
 )
 
 ide_tsconfig(
