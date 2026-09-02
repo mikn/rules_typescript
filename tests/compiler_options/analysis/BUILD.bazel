@@ -8,7 +8,7 @@
 # gazelle:exclude silent.tsconfig.json
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
-load("//ts:defs.bzl", "css_library", "ts_compile")
+load("//ts:defs.bzl", "css_library", "ts_compile", "ts_test")
 load(
     ":analysis_tests.bzl",
     "alias_into_output_tree_test",
@@ -25,8 +25,18 @@ load(
     "oxc_command_line_test",
     "quoted_option_test",
     "rejected_tsgo_arg_test",
+    "requested_types_test",
+    "test_types_forwarded_test",
     "tsconfig_baseline_test",
+    "types_entry_file_test",
+    "types_entry_package_ref_test",
+    "types_file_entries_test",
     "unpaired_resolution_test",
+    "unresolved_test_types_test",
+    "unresolved_type_entry_test",
+    "unresolved_type_near_miss_test",
+    "unresolved_type_root_test",
+    "unresolved_type_subpath_test",
     "zero_config_baseline_test",
 )
 
@@ -171,7 +181,180 @@ quoted_option_test(
     target_under_test = ":quoted_option",
 )
 
+# ── compilerOptions.types ────────────────────────────────────────────────────
+
+# The three package spellings a `types` entry takes, all of them resolved from
+# this target's deps because there is no node_modules to walk: an `exports`
+# subpath, a @types/* package under its own name, and the bare name that package
+# supplies. import.meta.env is vite/client's, so the src compiles only if the
+# first one resolved.
+#
+# The subpath is padded on purpose. Gazelle trims an entry before it reads it,
+# so a padded one is an entry it writes the dep for, and this target is where
+# the rule has to spend that dep; it is also the one entry here whose
+# declaration nothing but this resolution would put in the program.
+ts_compile(
+    name = "requested_types",
+    srcs = ["requested_types.ts"],
+    compiler_options = {"types": [
+        " vite/client ",
+        "@types/estree",
+        "node",
+    ]},
+    deps = [
+        "@npm//:types_estree",
+        "@npm//:types_node",
+        "@npm//:vite",
+    ],
+)
+
+requested_types_test(
+    name = "requested_types_test",
+    target_under_test = ":requested_types",
+)
+
+build_test(
+    name = "requested_types_build_test",
+    targets = [":requested_types"],
+)
+
+types_entry_file_test(name = "types_entry_file_test")
+
+types_entry_package_ref_test(name = "types_entry_package_ref_test")
+
+# The entries the guard has to leave alone, one per shape that names a path
+# rather than a package -- a package-relative directory, an absolute one, a
+# declaration file -- plus two that name nothing at all, which Gazelle writes no
+# dep for either: demanding one would be a failure nothing can clear. tsgo
+# resolves the first three off disk, so no dep can answer for them. None of the
+# five exists, and the target still analyses.
+ts_compile(
+    name = "types_file_entries",
+    srcs = ["types_file_entries.ts"],
+    compiler_options = {"types": [
+        "./typings",
+        "/abs/typings",
+        "vendor/local.d.ts",
+        "",
+        "   ",
+    ]},
+)
+
+types_file_entries_test(
+    name = "types_file_entries_test",
+    target_under_test = ":types_file_entries",
+)
+
+# tsgo has to accept the five of them in the config it reads, which only a real
+# build says: it is the compiler's business that none of the paths exists.
+build_test(
+    name = "types_file_entries_build_test",
+    targets = [":types_file_entries"],
+)
+
+# The escape hatch: a target stating its own typeRoots is not judged at all.
+# `local-types` is published by no dep and sits under no directory this target
+# stages, so the guard would fail it -- what this pins is that stating typeRoots
+# stops the guard, leaving the entry to the compiler, which resolves what it
+# finds under the directory at action time and says nothing about what it does
+# not.
+ts_compile(
+    name = "types_under_type_roots",
+    srcs = ["types_under_type_roots.ts"],
+    compiler_options = {
+        "typeRoots": ["./type_roots"],
+        "types": ["local-types"],
+    },
+)
+
+build_test(
+    name = "types_under_type_roots_build_test",
+    targets = [":types_under_type_roots"],
+)
+
+# The fold itself, which the fixture below cannot show: an absent value has to
+# stay absent rather than become an empty object.
+test_types_forwarded_test(name = "test_types_forwarded_test")
+
 # ── The guards ───────────────────────────────────────────────────────────────
+
+# The shape that costs: the `types` entry stays and the dep answering it goes.
+# Nothing Gazelle reads implies that dep -- a `types` entry is not an import --
+# so it is hand-written and outlives whatever import kept the package in deps.
+ts_compile(
+    name = "unresolved_type_entry",
+    srcs = ["lone.ts"],
+    compiler_options = {"types": ["vite/client"]},
+    tags = ["manual"],
+)
+
+unresolved_type_entry_test(
+    name = "unresolved_type_entry_test",
+    target_under_test = ":unresolved_type_entry",
+)
+
+# The dep is there and the subpath is not one its manifest designates, which
+# reaches the compiler as the same silence.
+ts_compile(
+    name = "unresolved_type_subpath",
+    srcs = ["lone.ts"],
+    compiler_options = {"types": ["vite/nope"]},
+    tags = ["manual"],
+    deps = ["@npm//:vite"],
+)
+
+unresolved_type_subpath_test(
+    name = "unresolved_type_subpath_test",
+    target_under_test = ":unresolved_type_subpath",
+)
+
+# The dep is there and its manifest designates no declarations at all, root or
+# subpath -- picomatch ships none. Naming it in `types` can only ever have been
+# a mistake, and the message has to say which one.
+ts_compile(
+    name = "unresolved_type_root",
+    srcs = ["lone.ts"],
+    compiler_options = {"types": ["picomatch"]},
+    tags = ["manual"],
+    deps = ["@npm//:picomatch"],
+)
+
+unresolved_type_root_test(
+    name = "unresolved_type_root_test",
+    target_under_test = ":unresolved_type_root",
+)
+
+# A dep whose name is one keystroke from the entry's, which is the shape a typo
+# takes: the message has to offer it rather than only name what is missing.
+ts_compile(
+    name = "unresolved_type_near_miss",
+    srcs = ["lone.ts"],
+    compiler_options = {"types": ["vite"]},
+    tags = ["manual"],
+    deps = ["@npm//:vitest"],
+)
+
+unresolved_type_near_miss_test(
+    name = "unresolved_type_near_miss_test",
+    target_under_test = ":unresolved_type_near_miss",
+)
+
+# ts_test's own route to the guarded attribute: the macro folds `types` into the
+# compiler_options_json of a ts_compile it generates, which is the rule the
+# guard is on. The generated compile is what the assertion names -- ts_test
+# forwards `manual` to it so that `bazel build //...` skips both, the way it
+# skips every other target here whose analysis is asserted to fail.
+ts_test(
+    name = "unresolved_test_types",
+    srcs = ["lone.ts"],
+    tags = ["manual"],
+    types = ["vite/client"],
+)
+
+unresolved_test_types_test(
+    name = "unresolved_test_types_test",
+    target_under_test = ":_unresolved_test_types_compile",
+)
 
 ts_compile(
     name = "owned_option",

@@ -358,6 +358,51 @@ if the whole tree needs it.
 Gazelle does not rewrite the directive, and neither the import scanner nor the
 strict-deps checker reads it.
 
+## compilerOptions.types entry "vite/client" resolves to nothing
+
+```
+ts_compile: compilerOptions.types entry "vite/client" on @@//app:app resolves to
+nothing.
+No dep of this target publishes "vite", and a `types` entry is resolved from
+this target's own deps -- there is no node_modules for TypeScript to walk.
+```
+
+A `types` entry names a package, and the rule resolves it against this target's
+`deps`, putting the declaration the package's manifest designates into the
+generated config's `files`. Add the dep that publishes it:
+
+```python
+ts_compile(
+    name = "app",
+    srcs = ["app.ts"],
+    compiler_options = {"types": ["vite/client"]},
+    deps = ["@npm//:vite"],
+)
+```
+
+The message names the subpaths a package that is already a dep does designate,
+and any dep whose name is near the entry's. Two other ways out: name a
+declaration file instead (`types = ["./worker-configuration.d.ts"]`, which no
+dep resolves and the check leaves alone), or state a `typeRoots` in
+`compiler_options`, which exempts the target -- what sits under a `typeRoots` is
+the compiler's to find at action time.
+
+It fails at analysis because nothing downstream would say it. `tsc` reports
+`TS2688` for such an entry; tsgo, the compiler this ruleset runs, reports
+nothing at all and exits 0, so the target compiles without the declarations and
+the error lands on whatever needed them -- `TS2339` on `import.meta.env` without
+`vite/client`, `TS2591` on `process` without `node`.
+
+## The `types` in my tsconfig file does nothing
+
+Only the `types` in `compiler_options` is resolved and guarded. In the
+`tsconfig` file a target names it is a layer the rule does not read, so those
+entries reach tsgo unresolved: a target whose `tsconfig` holds
+`"types": ["vite/client"]` and whose `deps` hold `@npm//:vite` analyses with no
+complaint, generates a config whose `files` is empty, and fails in tsgo with
+`TS2339` on the `import.meta.env` the declarations that never arrived would have
+typed. Move the entries to `compiler_options`.
+
 ## ts_test: vitest not found
 
 ```

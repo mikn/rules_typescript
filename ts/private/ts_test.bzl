@@ -908,7 +908,7 @@ _ts_snapshot_updater = rule(
     doc = "Internal snapshot-updater rule; use ts_test(update_snapshots=True) macro instead.",
 )
 
-def _compile_setup_sources(name, sources, deps, target, jsx_mode, visibility):
+def _compile_setup_sources(name, sources, deps, target, jsx_mode, visibility, tags):
     """Compiles the .ts/.tsx entries of `sources`, passing the rest through."""
     ts_sources = [s for s in sources if s.endswith(".ts") or s.endswith(".tsx")]
     if not ts_sources:
@@ -920,6 +920,7 @@ def _compile_setup_sources(name, sources, deps, target, jsx_mode, visibility):
         target = target,
         jsx_mode = jsx_mode,
         visibility = visibility,
+        tags = tags,
     )
     return [":" + name] + [s for s in sources if s not in ts_sources]
 
@@ -927,7 +928,7 @@ def _compile_setup_sources(name, sources, deps, target, jsx_mode, visibility):
 # rather than the macro's lib / types / compiler_options -- so the macro's
 # folding of those three has to happen here too. Empty stays empty: the rule
 # treats an absent value differently from an empty object.
-def _test_compiler_options_json(lib, types, compiler_options):
+def test_compiler_options_json(lib, types, compiler_options):
     opts = {}
     if lib != None:
         opts["lib"] = lib
@@ -1015,7 +1016,10 @@ def ts_test(
         env:               Extra environment variables for the test runner.
         size:              Bazel test size (default "medium").
         timeout:           Bazel test timeout.
-        tags:              Bazel tags.
+        tags:              Bazel tags. `manual` also reaches the targets this
+                           macro generates, which no BUILD file names and a
+                           wildcard would otherwise analyse; every other tag
+                           goes to the test rule alone.
         target:            ECMAScript target for the internal ts_compile.
         jsx_mode:          JSX transform mode for the internal ts_compile.
         declarations:      Declaration emitter for the internal ts_compile
@@ -1042,7 +1046,9 @@ def ts_test(
                            packages to put in the program. A vitest pool that
                            declares its own module (`cloudflare:test`) is
                            reachable no other way, nothing importing the
-                           declaration.
+                           declaration. An entry naming a package this test's
+                           `deps` do not publish is an analysis error, the same
+                           as on ts_compile.
         compiler_options:  Forwarded to the generated ts_compile, for whatever
                            the two above do not cover.
         tsconfig:          Forwarded to the generated ts_compile: the package's
@@ -1127,6 +1133,16 @@ def ts_test(
     # widen, so the test's own visibility decides, public when it has none.
     compile_name = "_{}_compile".format(name)
     compile_visibility = visibility if visibility else ["//visibility:public"]
+
+    # `manual` is the tag a wildcard reads, and the targets below it are named
+    # in no BUILD file, so a `bazel build //...` that skipped the test would
+    # analyse them anyway -- which is not skipping the test:
+    # //tests/compiler_options/analysis has a manual ts_test whose generated
+    # compile is asserted to fail at analysis. So `manual` reaches every target
+    # this macro generates. Every other tag says how the test runs, which is
+    # nothing to a compile or a `bazel run`.
+    wildcard_tags = ["manual"] if "manual" in tags else []
+
     ts_compile(
         name = compile_name,
         srcs = srcs,
@@ -1134,9 +1150,10 @@ def ts_test(
         target = target,
         jsx_mode = jsx_mode,
         declarations = declarations,
-        compiler_options_json = _test_compiler_options_json(lib, types, compiler_options),
+        compiler_options_json = test_compiler_options_json(lib, types, compiler_options),
         tsconfig = tsconfig,
         visibility = compile_visibility,
+        tags = wildcard_tags,
     )
 
     # Step 2: auto-generate a node_modules target when not explicitly provided.
@@ -1160,6 +1177,7 @@ def ts_test(
                 name = nm_name,
                 deps = deps,
                 visibility = ["//visibility:private"],
+                tags = wildcard_tags,
             )
             node_modules = ":{}".format(nm_name)
 
@@ -1173,6 +1191,7 @@ def ts_test(
         target = target,
         jsx_mode = jsx_mode,
         visibility = compile_visibility,
+        tags = wildcard_tags,
     )
     global_setup_labels = _compile_setup_sources(
         name = "_{}_global_setup".format(name),
@@ -1181,6 +1200,7 @@ def ts_test(
         target = target,
         jsx_mode = jsx_mode,
         visibility = compile_visibility,
+        tags = wildcard_tags,
     )
 
     # Step 4: assemble the runner rule kwargs.
@@ -1217,8 +1237,8 @@ def ts_test(
 
     if update_snapshots:
         # Produce an executable target (not a test) so `bazel run` works.
-        # size/timeout/tags are test-only attrs; omit them for the executable rule.
-        _ts_snapshot_updater(**runner_kwargs)
+        # size/timeout are test-only attrs; omit them for the executable rule.
+        _ts_snapshot_updater(**(runner_kwargs | {"tags": wildcard_tags}))
         return
 
     # The updater has to share the test's compiled sources: a second ts_compile
@@ -1227,6 +1247,7 @@ def ts_test(
         **(runner_kwargs | {
             "name": "{}.update_snapshots".format(name),
             "update_snapshots": True,
+            "tags": wildcard_tags,
         })
     )
 

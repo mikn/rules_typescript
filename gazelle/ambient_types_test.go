@@ -148,3 +148,31 @@ func TestTsConfigTypes_NearestTsConfigWinsWithoutMutatingTheParent(t *testing.T)
 		t.Errorf("the child mutated the parent: %v vs %v", parent.tsconfigAmbientTypes, parentBefore)
 	}
 }
+
+// The rule reads the same shapes out of its `types` attr, in
+// types_entry_package_ref (ts/private/ts_compile.bzl), and fails analysis for
+// every entry it reads as a package that no dep answers. An entry this side
+// writes no dep for and that side reads as a package is a fail() nothing can
+// clear, so the classification is pinned on both sides: this table, and
+// types_entry_package_ref_test in //tests/compiler_options/analysis.
+func TestTsConfigTypes_EntryShapesAreClassifiedLikeTheRule(t *testing.T) {
+	for _, tc := range []struct {
+		entry string
+		want  string
+	}{
+		{"vite/client", "@npm//:vite"},
+		{"node", "@npm//:types_node"},
+		{" vite/client ", "@npm//:vite"},
+		{"\tnode\n", "@npm//:types_node"},
+		{"", ""},
+		{"   ", ""},
+		{"./typings", ""},
+		{"../sibling/typings", ""},
+		{"/abs/typings", ""},
+		{"vendor/local.d.ts", ""},
+	} {
+		if got := ambientTypeLabel(tc.entry); got != tc.want {
+			t.Errorf("ambientTypeLabel(%q) = %q, want %q", tc.entry, got, tc.want)
+		}
+	}
+}

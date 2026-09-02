@@ -393,21 +393,60 @@ def _rebase_package_relative(entry, package_rel):
 # So the entry is resolved here instead, against what the package's own manifest
 # designated. The file goes in `files`, which is how every other ambient
 # declaration in this ruleset reaches tsgo.
+#
+# Gazelle reads the same shapes out of a `types` entry, in `ambientTypeLabel`
+# (gazelle/config.go), for the other half of the job: it reads the entries out of
+# a tsconfig file and writes the npm deps, while the rule reads the attribute and
+# resolves it against those deps. Different inputs, one vocabulary -- an entry
+# the two classify differently is either one the rule ignores while Gazelle
+# writes a dep for it, silently back to the bug the guard below exists for, or a
+# package the rule demands a dep for that Gazelle never writes: a fail() nothing
+# can clear. So one table of shapes is asserted on both sides:
+# `types_entry_package_ref_test` in //tests/compiler_options/analysis and
+# `TestTsConfigTypes_EntryShapesAreClassifiedLikeTheRule` in //gazelle.
+def types_entry_package_ref(entry):
+    """The package one `compilerOptions.types` entry names, or "".
+
+    The recogniser of this attribute for the whole ruleset: anything that has
+    to know what a `types` entry names calls this rather than spelling the
+    shapes again, and `types_entry_file` below is the one resolution built on
+    it. A second spelling is a second answer for some entry, and the guard
+    below turns a disagreement into a fail() no dep clears.
+
+    "" for an entry that names a path instead: one starting with `.` or `/`, or
+    ending in `.d.ts`, which tsgo reads off disk and no dep resolves. Whitespace
+    is trimmed first, which is what Gazelle's `ambientTypeLabel` does before it
+    reads the same shapes -- so a padded entry it writes a dep for is one this
+    spends that dep on, and a blank entry, which it writes no dep for, trims
+    away to no package at all.
+    """
+    entry = entry.strip()
+    if entry.startswith(".") or entry.startswith("/") or entry.endswith(".d.ts"):
+        return ""
+    return entry
+
 def types_entry_file(entry, npm_info):
     """The declaration `entry` designates in `npm_info`, or None.
 
-    Three spellings, each a package name TypeScript would have resolved through
-    node_modules: the package itself, one of its `exports` subpaths, and the
+    The resolution for the whole ruleset, the way `types_entry_package_ref` is
+    the classification: calling these two is how a second reader of the
+    attribute stays the same reader, rather than a copy that comes to disagree
+    about one entry.
+
+    Three package spellings resolve, each one TypeScript would have walked
+    node_modules for: the package itself, one of its `exports` subpaths, and the
     bare name a paired @types/* package supplies -- `types = ["node"]` is
-    @types/node, which is the only place DefinitelyTyped puts it. Exported for
-    the unit test.
+    @types/node, which is the only place DefinitelyTyped puts it.
     """
+    ref = types_entry_package_ref(entry)
+    if not ref:
+        return None
     name = npm_info.package_name
-    if entry == name:
+    if ref == name:
         return npm_info.exports_types_file or npm_info.ambient_types_file
-    if entry.startswith(name + "/"):
-        return npm_info.subpath_types.get("." + entry[len(name):])
-    if types_package_alias(name) == entry:
+    if ref.startswith(name + "/"):
+        return npm_info.subpath_types.get("." + ref[len(name):])
+    if types_package_alias(name) == ref:
         return npm_info.ambient_types_file
     return None
 
@@ -419,14 +458,101 @@ def _requested_type_files(ctx, npm_info):
             out.append(designated)
     return out
 
+def _bare_package_name(entry):
+    """The package `entry` names, without its subpath. Mirrors Gazelle's barePackageName."""
+    if entry.startswith("@"):
+        segments = entry[1:].split("/")
+        if len(segments) >= 2:
+            return "@" + segments[0] + "/" + segments[1]
+        return entry
+    return entry.split("/")[0]
+
+# A `types` entry that resolves to nothing is `error TS2688: Cannot find type
+# definition file` and exit 2 from tsc, with and without a typeRoots holding a
+# real type package (typescript 5.9.2). tsgo, the compiler this ruleset runs,
+# prints nothing on either probe and exits 0 (the toolchain's
+# 7.0.0-dev.20260311.1). It does report TS2688 for the other spelling of the
+# same wish, a `/// <reference types=...>` in a source file, so the silence is
+# this option's rather than the diagnostic's. An entry no dep answers is
+# therefore a target compiling against a smaller type environment than it asked
+# for with nothing anywhere saying so, and the rule says it here -- as a fail()
+# rather than a print(), because analysis output is not replayed on a cache hit:
+# a warning would be as silent as the bug on every build after the first.
+#
+# A `typeRoots` of the target's own is the one case this cannot judge. It names
+# a directory tsgo scans at action time, holding declarations the rule never
+# sees, so an entry there may well resolve and unresolvability cannot be shown.
+# Setting it is therefore also the escape hatch for an entry that resolves by
+# some route only the compiler can see.
+def _fail_on_unresolved_types(ctx, npm_infos):
+    requested = _requested_types(ctx)
+    if not requested or _requested_option_list(ctx, "typeRoots"):
+        return
+    for entry in requested:
+        ref = types_entry_package_ref(entry)
+        if not ref or _types_entry_resolves(ref, npm_infos):
+            continue
+        fail(
+            "ts_compile: compilerOptions.types entry \"{entry}\" on {label} resolves to nothing.\n".format(
+                entry = ref,
+                label = ctx.label,
+            ) +
+            _unresolved_type_reason(ref, npm_infos) +
+            "tsgo reports no error for that, so this target would compile without " +
+            "the declarations the entry names.\n" +
+            _unresolved_type_fix(ref, npm_infos),
+        )
+
+def _types_entry_resolves(entry, npm_infos):
+    for npm_info in npm_infos:
+        if types_entry_file(entry, npm_info):
+            return True
+    return False
+
+def _unresolved_type_reason(entry, npm_infos):
+    package = _bare_package_name(entry)
+    for npm_info in npm_infos:
+        if npm_info.package_name != package:
+            continue
+        if package == entry:
+            return "\"{}\" is a dep, but its package.json designates no declarations for the package root.\n".format(package)
+        return "\"{package}\" is a dep, but its package.json designates no declarations for the subpath \"{subpath}\".\n".format(
+            package = package,
+            subpath = "." + entry[len(package):],
+        )
+    return "No dep of this target publishes \"{}\", and a `types` entry is resolved from this target's own deps -- there is no node_modules for TypeScript to walk.\n".format(package)
+
+def _unresolved_type_fix(entry, npm_infos):
+    package = _bare_package_name(entry)
+    for npm_info in npm_infos:
+        if npm_info.package_name == package:
+            designated = sorted(npm_info.subpath_types.keys())
+            if designated:
+                return "Did you mean one of the subpaths it does designate: {}?\n".format(", ".join(designated))
+            return "It designates none, so the declarations have to be named as a file: types = [\"./path/to/name.d.ts\"].\n"
+    fix = ("Add the package to deps (e.g. \"@npm//:{}\"), or name a declaration file in this package instead: types = [\"./path/to/name.d.ts\"].\n".format(package) +
+           "If it resolves from a typeRoots directory, set typeRoots in compiler_options: this check cannot read the one in a tsconfig file, and skips a target that states its own.\n")
+    near = sorted([
+        npm_info.package_name
+        for npm_info in npm_infos
+        if package in npm_info.package_name or npm_info.package_name in package
+    ])
+    if near:
+        fix += "Did you mean one of these deps: {}?\n".format(", ".join(near))
+    return fix
+
 def _requested_types(ctx):
     """The compilerOptions.types this target asked for, or []."""
+    return _requested_option_list(ctx, "types")
+
+def _requested_option_list(ctx, key):
+    """The list of strings this target set for `key`, or []."""
     if not ctx.attr.compiler_options_json:
         return []
     decoded = json.decode(ctx.attr.compiler_options_json)
     if type(decoded) != "dict":
         return []
-    value = decoded.get("types")
+    value = decoded.get(key)
     if type(value) != "list":
         return []
     return [v for v in value if type(v) == "string"]
@@ -1569,6 +1695,10 @@ def _ts_compile_impl(ctx):
     direct_npm_names = {}
     direct_npm_infos = []
 
+    # The deps a `types` entry can name: the ones the loop below actually offers
+    # it, so the guard after the loop answers about the same set that resolved.
+    types_candidates = []
+
     for dep in ctx.attr.deps:
         if TsDeclarationInfo in dep:
             transitive_dts_sets.append(dep[TsDeclarationInfo].transitive_declaration_files)
@@ -1582,6 +1712,7 @@ def _ts_compile_impl(ctx):
                 entry = dep[NpmPackageInfo].ambient_types_file
                 ambient_dts[entry.path] = entry
             if NpmPackageInfo in dep:
+                types_candidates.append(dep[NpmPackageInfo])
                 for entry in _requested_type_files(ctx, dep[NpmPackageInfo]):
                     ambient_dts[entry.path] = entry
         if JsInfo in dep:
@@ -1605,6 +1736,8 @@ def _ts_compile_impl(ctx):
 
             # Collect transitive package.json files as a depset (no to_list).
             transitive_package_dir_sets.append(npm_info.transitive_package_dirs)
+
+    _fail_on_unresolved_types(ctx, types_candidates)
 
     # Every direct dep claims its name before any transitive one is offered:
     # `paths` has one key per package name, and a transitive dependent's older
