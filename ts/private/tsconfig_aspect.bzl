@@ -375,7 +375,7 @@ def _fragment_npm(entry):
 def _fragment(target, ctx, sources):
     """One JSON object per line, carrying `sources`, for the tsserver hook to merge.
 
-    Deliberately not built from _packages/_npm_view: those materialise their
+    Deliberately not built from _packages/npm_view: those materialise their
     depsets, which is affordable once for one ide_tsconfig target and not on
     every target of every build. An Args with map_each defers the same work to
     execution time, so the depsets stay depsets through analysis.
@@ -638,7 +638,7 @@ def _one_entry_per_key(entries):
             chosen[entry.key] = entry
     return [chosen[key] for key in sorted(chosen)]
 
-def _npm_view(sources, host_only = []):
+def npm_view(sources, host_only = []):
     """The npm entry points to write, the ambient ones, and the files each needs.
 
     Two versions of one package name would fight over the same directory under
@@ -648,6 +648,8 @@ def _npm_view(sources, host_only = []):
     hosts and not others is one a checked-in file cannot name without differing
     per host, and the declaration-free platform binaries are already dropped
     upstream of here.
+
+    Exported for the unit test.
     """
     skip = {name: True for name in host_only}
     chosen = {}
@@ -657,19 +659,61 @@ def _npm_view(sources, host_only = []):
         if entry.name not in chosen or entry.version < chosen[entry.name]:
             chosen[entry.name] = entry.version
 
-    entries = _one_entry_per_key([
+    claimed = [
         e
         for e in _collect(sources, "npm_paths")
         if chosen.get(e.name) == e.version
-    ])
-    ambient = {}
-    for entry in _collect(sources, "npm_ambient"):
-        if chosen.get(entry.name) == entry.version:
-            ambient[entry.name] = entry.entry
+    ]
+    entries = _one_entry_per_key(claimed)
+    winner_of = {e.key: e for e in entries}
+
+    # Derived from `claimed` rather than from "did this name win a key": an
+    # `@types/x` shadowed by an `x` that ships declarations in the same closure
+    # is dropped by _npm_entries before it claims anything, yet still reaches
+    # `files` through _ambient_entries.
+    #
+    # Membership is per (name, key) because a collision is per key: an
+    # `@types/x` that loses the bare `x` and wins an `exports` subpath key of
+    # its own is still the loser of the bare one.
+    won = {(e.name, e.key): True for e in entries}
+    lost = {}
+    for e in sorted(claimed, key = lambda e: e.key):
+        if (e.name, e.key) not in won and e.name not in lost:
+            lost[e.name] = winner_of[e.key]
+
     files = sorted(
         [f for f in _collect(sources, "npm_files") if chosen.get(f.name) == f.version],
         key = lambda f: f.name + "/" + f.dest,
     )
+    installed = {f.name + "/" + f.dest: True for f in files}
+
+    ambient = {}
+    for entry in _collect(sources, "npm_ambient"):
+        if chosen.get(entry.name) != entry.version:
+            continue
+
+        # A `files` entry under a name whose key went to another package names a
+        # second copy of the declarations that key already reaches, so every
+        # global in them is declared twice. Naming the winner's copy keeps the
+        # entry: real tsc pulls `node_modules/@types/x` in for its globals
+        # however `node_modules/x` shadows it for resolution, so dropping it
+        # would lose them for a target that imports nothing.
+        #
+        # Only a winner with no `types` entry of its own is that copy, and the
+        # reason is upstream: _npm_entries drops an `@types/x` shadowed by an
+        # `x` that ships declarations, so a winner that reached here without an
+        # entry is one whose directory the pairing filled from this very
+        # package. A winner that names its own entry may ALSO ship a file where
+        # the loser's sat -- a legacy root stub beside an `exports` entry under
+        # dist/ -- and naming that would swap the globals for an unrelated
+        # file, silently, which is the harm this repoint exists to avoid.
+        winner = lost.get(entry.name)
+        if winner and winner.entry:
+            continue
+        dir = winner.name if winner else entry.name
+        if dir != entry.name and dir + "/" + entry.entry not in installed:
+            continue
+        ambient[entry.name] = struct(dir = dir, entry = entry.entry)
     return entries, sorted(ambient.items()), files
 
 def _packages(sources):
@@ -879,7 +923,7 @@ def _ide_tsconfig_impl(ctx):
 
     packages = _packages(sources)
     aliases = sorted([(a.prefix, a.dir) for a in _collect(sources, "aliases")])
-    npm_entries, npm_ambient, npm_files = _npm_view(sources, ctx.attr.host_only_packages)
+    npm_entries, npm_ambient, npm_files = npm_view(sources, ctx.attr.host_only_packages)
 
     paths = {}
     copies = []
@@ -914,8 +958,8 @@ def _ide_tsconfig_impl(ctx):
             ))
 
         ambient = [
-            "./{}/{}/{}".format(ctx.attr.npm_dir, name, entry)
-            for name, entry in npm_ambient
+            "./{}/{}/{}".format(ctx.attr.npm_dir, value.dir, value.entry)
+            for _, value in npm_ambient
         ]
 
         # Nothing under npm_dir is authored, and a consumer's `git status` should
@@ -1144,7 +1188,7 @@ checked-in copy has gone stale.""",
 
 def _ide_hook_data_impl(ctx):
     sources = [dep[TsconfigSourcesInfo] for dep in ctx.attr.deps]
-    npm_entries, _, _ = _npm_view(sources, ctx.attr.host_only_packages)
+    npm_entries, _, _ = npm_view(sources, ctx.attr.host_only_packages)
 
     data = {
         "_comment": _HEADER,
