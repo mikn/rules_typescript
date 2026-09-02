@@ -203,6 +203,21 @@ The wildcard entry is rooted at that file's directory, so a package designating
 "vite/*": ["./.bazel/npm/vite/dist/node/*"]
 ```
 
+A `@types/*` package is keyed by the name it types rather than its own, which is
+the only specifier anything imports it by, and is installed under its own name so
+that the `files` entry naming its globals and the `paths` entry resolving it
+share one copy:
+
+```json
+"estree":   ["./.bazel/npm/@types/estree/index.d.ts"],
+"estree/*": ["./.bazel/npm/@types/estree/*"]
+```
+
+Which of the two names wins follows npm, the same way it does in the tsconfig
+`ts_compile` generates: the runtime package answers `x` when it publishes
+declarations of its own, `@types/x` when it publishes none, and a `path_aliases`
+prefix outranks both.
+
 ### Staleness Test
 
 `test = True` adds a `diff_test` named `<name>_test` that compares the

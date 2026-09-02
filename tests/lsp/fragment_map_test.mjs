@@ -122,6 +122,31 @@ stage(withFragments, 'k8-fastbuild', `//${FIXTURE_PKG}:renamed`, [
   JSON.stringify({ package: 'src/deleted_by_a_later_commit', index: true }),
 ]);
 
+// An npm record whose map key and installed directory are different names,
+// which is what a @types/* package is. Hand-staged rather than taken from the
+// fixture: the fixture has no npm deps, and this is the one record shape whose
+// two names can come apart.
+write(
+  withFragments,
+  '.bazel/npm/@types/estree/package.json',
+  JSON.stringify({ name: '@types/estree', types: 'index.d.ts' })
+);
+const estreeDts = write(
+  withFragments,
+  '.bazel/npm/@types/estree/index.d.ts',
+  'export declare interface Program { body: unknown[] }\n'
+);
+stage(withFragments, 'k8-fastbuild', `//${FIXTURE_PKG}:typed`, [
+  JSON.stringify({ format: 'tsconfig-fragment-v1', label: `@@//${FIXTURE_PKG}:typed` }),
+  JSON.stringify({
+    npm: 'estree',
+    dir: '@types/estree',
+    version: '1.0.8',
+    entry: 'index.d.ts',
+    file: true,
+  }),
+]);
+
 // A format this worker does not understand: skipped whole, not half-read.
 stage(withFragments, 'k8-fastbuild', `${FIXTURE_PKG}:future`, [
   JSON.stringify({ format: 'tsconfig-fragment-v99', label: `@@//${FIXTURE_PKG}:future` }),
@@ -222,16 +247,21 @@ expectEntry(withMap, '__alias__@frag/', path.join(withFragments, FIXTURE_PKG));
 expectEntry(withMap, 'src/from_data', fromDataIndex);
 expectEntry(withMap, '__alias__@data/', path.join(withFragments, 'src/from_data'));
 
-// Five fragment files carrying three labels: :root appears under two
+// Six fragment files carrying four labels: :root appears under two
 // configurations and is counted once, and :future's format is rejected whole.
-// The sixth file, under //deleted/pkg, is not in the count because a directory
+// The seventh file, under //deleted/pkg, is not in the count because a directory
 // the source tree does not have is never opened.
-const counted = 'fragments: 3 labels from 5 files';
+const counted = 'fragments: 4 labels from 6 files';
 if (withRun.log.includes(counted)) {
   pass(`the merge deduped by label (${counted})`);
 } else {
   fail(`the merge deduped by label (${counted})`, 'not in the worker log');
 }
+
+// The npm half of a fragment, under the name the record's key names rather than
+// the directory it was installed in.
+expectEntry(withMap, 'estree', estreeDts);
+expectAbsent(withMap, '@types/estree', 'no import writes the package\'s own name');
 
 expectAbsent(withMap, '__alias__@deleted/', 'its package is gone, so its fragment is never read');
 expectAbsent(withMap, '__alias__@stale/', 'the directory it names no longer exists');

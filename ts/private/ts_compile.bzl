@@ -1860,6 +1860,7 @@ def _ts_compile_impl(ctx):
     # what removes the isolated-declarations requirement at near-zero cost.
     program_srcs = compile_srcs + js_srcs
     validation_outputs = []
+    tsconfig = None
     tsgo_toolchain_info = ctx.toolchains[TSGO_TOOLCHAIN_TYPE]
     if tsgo_emits_dts and not tsgo_toolchain_info and program_srcs:
         fail(
@@ -2094,6 +2095,12 @@ def _ts_compile_impl(ctx):
     ))
 
     output_groups = {}
+
+    # The tsconfig this target hands the compiler, so a test can read the
+    # resolution the build sees and compare it against the editor's. Absent on a
+    # target with no program to check, which generates none.
+    if tsconfig:
+        output_groups["tsconfig"] = depset([tsconfig])
     if validation_outputs:
         output_groups["_validation"] = depset(validation_outputs)
     if strict_deps:

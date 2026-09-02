@@ -479,6 +479,12 @@
       "cookie/*": [
         "./.bazel/npm/cookie/dist/*"
       ],
+      "deep-eql": [
+        "./.bazel/npm/@types/deep-eql/index.d.ts"
+      ],
+      "deep-eql/*": [
+        "./.bazel/npm/@types/deep-eql/*"
+      ],
       "detect-libc": [
         "./.bazel/npm/detect-libc/index.d.ts"
       ],
@@ -564,11 +570,17 @@
       "esrecurse/*": [
         "./.bazel/npm/esrecurse/*"
       ],
+      "estree": [
+        "./.bazel/npm/@types/estree/index.d.ts"
+      ],
       "estree-walker": [
         "./.bazel/npm/estree-walker/types/index.d.ts"
       ],
       "estree-walker/*": [
         "./.bazel/npm/estree-walker/types/*"
+      ],
+      "estree/*": [
+        "./.bazel/npm/@types/estree/*"
       ],
       "expect-type": [
         "./.bazel/npm/expect-type/dist/index.d.ts"
@@ -653,6 +665,12 @@
       ],
       "js-tokens/*": [
         "./.bazel/npm/js-tokens/*"
+      ],
+      "json-schema": [
+        "./.bazel/npm/@types/json-schema/index.d.ts"
+      ],
+      "json-schema/*": [
+        "./.bazel/npm/@types/json-schema/*"
       ],
       "json5": [
         "./.bazel/npm/json5/lib/index.d.ts"
@@ -744,6 +762,12 @@
       "nested-shared/*": [
         "./packages/nested-shared/*",
         "./bazel-bin/packages/nested-shared/*"
+      ],
+      "node": [
+        "./.bazel/npm/@types/node/index.d.ts"
+      ],
+      "node/*": [
+        "./.bazel/npm/@types/node/*"
       ],
       "obug": [
         "./.bazel/npm/obug/dist/node.d.ts"

@@ -193,7 +193,7 @@ function fragmentRoots() {
  * in, and a fragment whose package has since been deleted is never opened.
  *
  * @param {string[]} packageDirs - Workspace-relative dirs holding a BUILD file.
- * @returns {Array<{label: string, packages: string[], modules: Array<{name: string, package: string}>, aliases: Array<{prefix: string, dir: string}>, npm: Array<{name: string, version: string, entry: string, isFile: boolean}>}>}
+ * @returns {Array<{label: string, packages: string[], modules: Array<{name: string, package: string}>, aliases: Array<{prefix: string, dir: string}>, npm: Array<{name: string, dir: string, version: string, entry: string, isFile: boolean}>}>}
  */
 function readFragments(packageDirs) {
   const seen = new Set();
@@ -272,6 +272,7 @@ function parseFragment(file) {
     } else if (typeof record.npm === 'string') {
       fragment.npm.push({
         name: record.npm,
+        dir: typeof record.dir === 'string' && record.dir ? record.dir : record.npm,
         version: String(record.version || ''),
         entry: record.entry || '',
         isFile: !!record.file,
@@ -329,6 +330,7 @@ function mergeFragments(fragments, npmDir, map) {
     // that target's own deps decide what it installs.
     const dtsPath = resolveInstalledPackage(npmDir, {
       name,
+      dir: entry.dir,
       entry: entry.entry,
       isFile: entry.isFile,
     });
@@ -401,12 +403,17 @@ function readHookData() {
  * `entry` is what the aspect knew: the package's own exports["."].types when it
  * declares one, otherwise the directory whose package.json names the rest.
  *
+ * `dir` is the installed package the files sit under, which is not `name` for a
+ * `@types/*` package: it answers the name it types and is installed under its
+ * own. Absent on an entry written before that distinction existed, where the
+ * two were always the same.
+ *
  * @param {string} npmDir - Absolute path to the installed npm tree.
- * @param {{name: string, entry: string, isFile: boolean}} pkg
+ * @param {{name: string, dir?: string, entry: string, isFile: boolean}} pkg
  * @returns {string | null}
  */
 function resolveInstalledPackage(npmDir, pkg) {
-  const target = path.join(npmDir, pkg.name, pkg.entry || '');
+  const target = path.join(npmDir, pkg.dir || pkg.name, pkg.entry || '');
   if (pkg.isFile) {
     return isDtsFile(target) && fs.existsSync(target) ? target : null;
   }
