@@ -165,6 +165,16 @@ undeclared-import check resolves it against the directory rather than against a
 file list it does not have, so it still names the label when the tree arrives
 only through another dep.
 
+Gazelle writes the `deps` entry for either spelling. An `out_dir` target is
+indexed by the roots its modules sit under — its `module_name`, and the
+workspace-relative `out_dir` path a relative or aliased specifier reaches it by
+— and a specifier under one of those roots resolves to the target. What the
+generator writes into the tree is not known until its action has run, so the
+root is matched as a prefix, and only once an indexed source has failed to
+claim the specifier outright. An `outs` target is indexed under no root at all:
+it returns no `JsInfo`, so nothing can depend on it, and its outputs become
+importable through the `ts_compile` that names it in `srcs`.
+
 ## Placeholders in `args`
 
 Substituted into each argument string before the action runs. All paths are

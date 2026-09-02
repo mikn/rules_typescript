@@ -39,6 +39,8 @@ func importsForRule(_ *config.Config, r *rule.Rule, f *rule.File) []resolve.Impo
 			specs = append(specs, resolve.ImportSpec{Lang: languageName, Imp: imp})
 		}
 		return specs
+	case "ts_codegen":
+		return codegenTreeSpecs(r, f.Pkg)
 	}
 
 	if r.Kind() != "ts_compile" && r.Kind() != "ts_test" {
@@ -101,6 +103,59 @@ func importsForRule(_ *config.Config, r *rule.Rule, f *rule.File) []resolve.Impo
 	}
 
 	return specs
+}
+
+// codegenTreeSpecs returns the ImportSpecs an out_dir ts_codegen answers to.
+// The tree is a declare_directory the generator fills at build time, so what
+// its modules are called cannot be read here; each root is indexed instead, and
+// resolveCodegenTree matches a specifier to the root above it.
+//
+// An outs ts_codegen returns no JsInfo and so cannot be a dep at all: it
+// belongs in a ts_compile's srcs, which importsForRule indexes through that
+// target.
+func codegenTreeSpecs(r *rule.Rule, pkg string) []resolve.ImportSpec {
+	outDir := r.AttrString("out_dir")
+	if outDir == "" {
+		return nil
+	}
+	roots := []string{path.Join(pkg, outDir)}
+	if moduleName := r.AttrString("module_name"); moduleName != "" {
+		roots = append(roots, moduleName)
+	}
+	var specs []resolve.ImportSpec
+	for _, root := range roots {
+		specs = append(specs,
+			resolve.ImportSpec{Lang: languageName, Imp: root},
+			resolve.ImportSpec{Lang: languageName, Imp: codegenTreeKey(root)},
+		)
+	}
+	return specs
+}
+
+// codegenTreeKey namespaces a codegen tree root, so that the ancestor walk in
+// resolveCodegenTree can reach one and nothing else: a rule indexing the same
+// path under its own name stays out of reach of a prefix match.
+func codegenTreeKey(root string) string {
+	return "ts_codegen_tree:" + root
+}
+
+// resolveCodegenTree resolves a specifier naming a module inside an out_dir
+// ts_codegen tree, by finding the indexed root the specifier sits under.
+// Deepest root first, so a tree nested in another answers for its own subtree.
+//
+// It runs only once exact-match resolution has missed, which is what keeps a
+// checked-in source of the same name ahead of the generated tree.
+func resolveCodegenTree(ix *resolve.RuleIndex, imp string, from label.Label) string {
+	for dir := path.Dir(imp); ; dir = path.Dir(dir) {
+		if dir == "" || dir == "." || dir == "/" || dir == ".." {
+			return ""
+		}
+		if lbl, selfImport := lookupInIndex(ix, codegenTreeKey(dir), from); lbl != "" {
+			return lbl
+		} else if selfImport {
+			return ""
+		}
+	}
 }
 
 // isLabelSrc reports whether a srcs entry names a target rather than a file.
@@ -242,6 +297,9 @@ func resolveImport(
 			return lbl
 		} else if selfImport {
 			return ""
+		}
+		if lbl := resolveCodegenTree(ix, imp, from); lbl != "" {
+			return lbl
 		}
 		if lbl, isSelf := resolveWorkspaceSelfImport(c, ix, tc, imp, from); isSelf {
 			return lbl
@@ -387,6 +445,10 @@ func resolveRelative(
 		} else if selfImport {
 			return ""
 		}
+	}
+
+	if lbl := resolveCodegenTree(ix, targetRel, from); lbl != "" {
+		return lbl
 	}
 
 	return labelForUnindexed(c.RepoRoot, targetRel, from)
@@ -673,6 +735,10 @@ func resolvePathAlias(
 		} else if selfImport {
 			return ""
 		}
+	}
+
+	if lbl := resolveCodegenTree(ix, targetRel, from); lbl != "" {
+		return lbl
 	}
 
 	return labelForUnindexed(c.RepoRoot, targetRel, from)
