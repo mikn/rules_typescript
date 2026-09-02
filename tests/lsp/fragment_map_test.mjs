@@ -104,7 +104,9 @@ stage(
   withFragments,
   'k8-opt',
   `//${FIXTURE_PKG}:root`,
-  rootLines.map((line) => line.replace(/"dir":"[^"]*"/, '"dir":"src/from_data"'))
+  rootLines.map((line) =>
+    line.includes('"alias"') ? line.replace(/"dir":"[^"]*"/, '"dir":"src/from_data"') : line
+  )
 );
 
 // A fragment whose package is gone from the source tree. Discovery never looks
@@ -122,10 +124,12 @@ stage(withFragments, 'k8-fastbuild', `//${FIXTURE_PKG}:renamed`, [
   JSON.stringify({ package: 'src/deleted_by_a_later_commit', index: true }),
 ]);
 
-// An npm record whose map key and installed directory are different names,
-// which is what a @types/* package is. Hand-staged rather than taken from the
-// fixture: the fixture has no npm deps, and this is the one record shape whose
-// two names can come apart.
+// The declarations :leaf's npm record names. Its `npm` key is `estree`, the
+// name @types/estree types, and its `dir` is `@types/estree`, where the
+// declarations install -- the one record shape whose two names come apart, and
+// the reason the record has a `dir` field at all. Written here so the worker
+// has something to find; that the aspect really emits both names is asserted
+// over the fragment bytes below.
 write(
   withFragments,
   '.bazel/npm/@types/estree/package.json',
@@ -136,15 +140,44 @@ const estreeDts = write(
   '.bazel/npm/@types/estree/index.d.ts',
   'export declare interface Program { body: unknown[] }\n'
 );
-stage(withFragments, 'k8-fastbuild', `//${FIXTURE_PKG}:typed`, [
-  JSON.stringify({ format: 'tsconfig-fragment-v1', label: `@@//${FIXTURE_PKG}:typed` }),
-  JSON.stringify({
-    npm: 'estree',
-    dir: '@types/estree',
-    version: '1.0.8',
-    entry: 'index.d.ts',
-    file: true,
-  }),
+
+const npmRecords = leafLines
+  .map((line) => JSON.parse(line))
+  .filter((record) => typeof record.npm === 'string');
+const estreeRecord = npmRecords.find((record) => record.npm === 'estree');
+if (!estreeRecord) {
+  fail(
+    "the aspect wrote an npm record keyed `estree` for :leaf",
+    `records: ${JSON.stringify(npmRecords)}`
+  );
+} else if (estreeRecord.dir !== '@types/estree') {
+  fail(
+    'and gave it the directory its declarations install under',
+    `dir is ${JSON.stringify(estreeRecord.dir)}, so the worker would look under ` +
+      `.bazel/npm/${estreeRecord.npm}, which nothing installs`
+  );
+} else {
+  pass('the aspect wrote both of a @types/* record\'s names: estree → @types/estree');
+}
+
+// Two fragments claiming one key, which is what a `@types/x` package answering
+// `x` allows: each fragment carries one target's closure, and a target that
+// reached only @types/chai gives the alias the key while a target that reached
+// the real chai has its own entry. npm answers `x` from node_modules/x, so
+// chai's record wins -- and the label that would win on any other rule is
+// staged first, with both records at one version, so neither read order nor the
+// version tie-break can be what decides.
+write(withFragments, '.bazel/npm/@types/chai/package.json', JSON.stringify({ name: '@types/chai' }));
+write(withFragments, '.bazel/npm/@types/chai/index.d.ts', 'export declare const aliased: 1;\n');
+write(withFragments, '.bazel/npm/chai/package.json', JSON.stringify({ name: 'chai' }));
+const chaiDts = write(withFragments, '.bazel/npm/chai/index.d.ts', 'export declare const own: 1;\n');
+stage(withFragments, 'k8-fastbuild', `//${FIXTURE_PKG}:a_types_only`, [
+  JSON.stringify({ format: 'tsconfig-fragment-v1', label: `@@//${FIXTURE_PKG}:a_types_only` }),
+  JSON.stringify({ npm: 'chai', dir: '@types/chai', version: '5.2.3', entry: '', file: false }),
+]);
+stage(withFragments, 'k8-fastbuild', `//${FIXTURE_PKG}:b_runtime`, [
+  JSON.stringify({ format: 'tsconfig-fragment-v1', label: `@@//${FIXTURE_PKG}:b_runtime` }),
+  JSON.stringify({ npm: 'chai', dir: 'chai', version: '5.2.3', entry: '', file: false }),
 ]);
 
 // A format this worker does not understand: skipped whole, not half-read.
@@ -247,20 +280,23 @@ expectEntry(withMap, '__alias__@frag/', path.join(withFragments, FIXTURE_PKG));
 expectEntry(withMap, 'src/from_data', fromDataIndex);
 expectEntry(withMap, '__alias__@data/', path.join(withFragments, 'src/from_data'));
 
-// Six fragment files carrying four labels: :root appears under two
+// Seven fragment files carrying five labels: :root appears under two
 // configurations and is counted once, and :future's format is rejected whole.
-// The seventh file, under //deleted/pkg, is not in the count because a directory
+// The eighth file, under //deleted/pkg, is not in the count because a directory
 // the source tree does not have is never opened.
-const counted = 'fragments: 4 labels from 6 files';
+const counted = 'fragments: 5 labels from 7 files';
 if (withRun.log.includes(counted)) {
   pass(`the merge deduped by label (${counted})`);
 } else {
   fail(`the merge deduped by label (${counted})`, 'not in the worker log');
 }
 
-// The npm half of a fragment, under the name the record's key names rather than
-// the directory it was installed in.
+// The npm half of :leaf's fragment: keyed by the name @types/estree types, and
+// resolved through the `dir` that record carries.
 expectEntry(withMap, 'estree', estreeDts);
+
+// And the key two fragments claimed, which chai's own record keeps.
+expectEntry(withMap, 'chai', chaiDts);
 expectAbsent(withMap, '@types/estree', 'no import writes the package\'s own name');
 
 expectAbsent(withMap, '__alias__@deleted/', 'its package is gone, so its fragment is never read');

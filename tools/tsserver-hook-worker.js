@@ -290,6 +290,30 @@ function parseFragment(file) {
 const byKey = ([a], [b]) => (a < b ? -1 : a > b ? 1 : 0);
 
 /**
+ * Whether `entry` should take the map key both it and `held` claim.
+ *
+ * Two things can collide on one key. Two versions of one package fight over the
+ * same directory under npmDir, and the generated tsconfig gives the whole name
+ * to the lowest version, so the hook has to agree or the two disagree about one
+ * import. And two different packages fight when a `@types/x` package answers
+ * `x`: `dir` is then not the key, and npm's rule -- `node_modules/x` first,
+ * `node_modules/@types/x` only when it holds no declarations -- makes the
+ * entry installed under the key's own name the winner. Each fragment carries
+ * one target's closure, so a target that reached only `@types/x` and one that
+ * reached the real `x` write records that meet here.
+ *
+ * @param {{name: string, dir?: string, version: string}} entry
+ * @param {{name: string, dir?: string, version: string} | undefined} held
+ * @returns {boolean}
+ */
+function beatsHeldEntry(entry, held) {
+  if (!held) return true;
+  const ownName = (e) => (e.dir || e.name) === e.name;
+  if (ownName(entry) !== ownName(held)) return ownName(entry);
+  return entry.version < held.version;
+}
+
+/**
  * Fold the fragments into `map`, leaving every key the data file already
  * resolved alone.
  *
@@ -314,11 +338,7 @@ function mergeFragments(fragments, npmDir, map) {
       }
     }
     for (const entry of fragment.npm) {
-      const chosen = npm.get(entry.name);
-      // Two versions of one name would fight over the same directory under
-      // npmDir. The generated tsconfig gives the whole name to the lowest
-      // version, so the hook has to agree or the two disagree about one import.
-      if (!chosen || entry.version < chosen.version) npm.set(entry.name, entry);
+      if (beatsHeldEntry(entry, npm.get(entry.name))) npm.set(entry.name, entry);
     }
   }
 

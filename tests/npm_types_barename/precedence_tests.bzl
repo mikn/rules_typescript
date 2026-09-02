@@ -13,7 +13,7 @@ resolve a @types/* package at all.
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
 load("//ts/private:ts_compile.bzl", "types_package_alias")
-load("//ts/private:tsconfig_aspect.bzl", "WorkspaceCopyInfo")
+load("//ts/private:tsconfig_aspect.bzl", "WorkspaceCopyInfo", "npm_key_beats")
 
 _TYPES = "+npm+npm__types_"
 
@@ -150,8 +150,10 @@ def _editor_types_alias_impl(ctx):
         "and its subpaths reach the same package",
     )
 
-    # The install directory is the package's own, which is where the `files`
-    # entry already puts it: one copy under npm_dir answers both.
+    # :own_import declares @types/estree in its own deps, which is the case
+    # where both routes exist -- and they name one installed copy. Reached
+    # transitively, as in :widened_to_any, there is no `files` entry at all
+    # and the `paths` key above is the only route.
     asserts.equals(
         env,
         ["./.bazel/npm/@types/estree/index.d.ts"],
@@ -230,3 +232,106 @@ def _editor_alias_beats_types_impl(ctx):
     return analysistest.end(env)
 
 editor_alias_beats_types_test = analysistest.make(_editor_alias_beats_types_impl)
+
+def _editor_key_collision_impl(ctx):
+    env = analysistest.begin(ctx)
+    config = _editor_config(env)
+    asserts.true(env, config != None, "ide_tsconfig wrote no tsconfig")
+    if config == None:
+        return analysistest.end(env)
+
+    paths = config["compilerOptions"]["paths"]
+
+    # Two entries claim `chai`: the @types/chai one from :types_only_chai, whose
+    # closure holds no chai to shadow it, and chai's own from :runtime_chai.
+    # npm answers `x` from node_modules/x, so chai's is the one that keeps the
+    # key -- and the two are not interchangeable even here, where both reach
+    # @types/chai's declarations: chai's entry is the package directory, and the
+    # tsconfig ts_compile generates for :runtime_chai names a directory too.
+    asserts.equals(
+        env,
+        ["./.bazel/npm/chai"],
+        paths.get("chai"),
+        "the entry installed under the key's own name keeps the key",
+    )
+    asserts.equals(
+        env,
+        ["./.bazel/npm/chai/*"],
+        paths.get("chai/*"),
+        "and its wildcard stays in the same package",
+    )
+    asserts.equals(
+        env,
+        None,
+        paths.get("@types/chai"),
+        "the @types package still gets no key of its own",
+    )
+    return analysistest.end(env)
+
+editor_key_collision_test = analysistest.make(_editor_key_collision_impl)
+
+def _entry(key, name):
+    return struct(key = key, name = name, version = "1.0.0", entry = "", is_file = False)
+
+def _npm_key_beats_impl(ctx):
+    env = unittest.begin(ctx)
+
+    runtime = _entry("chai", "chai")
+    alias = _entry("chai", "@types/chai")
+
+    asserts.true(env, npm_key_beats(runtime, None), "the first entry for a key takes it")
+    asserts.true(env, npm_key_beats(runtime, alias), "a runtime package displaces an alias")
+    asserts.false(env, npm_key_beats(alias, runtime), "and an alias does not displace it")
+
+    # The order the entries arrive in is the order their package names sort in,
+    # and `@types/x` sorts before `x`: without the rule above the alias would
+    # simply be first and stay.
+    asserts.true(env, alias.name < runtime.name, "the alias is the one that sorts first")
+
+    # Two aliases for one key cannot both be right either, so the answer is at
+    # least stable: the lower package name.
+    other = _entry("chai", "@types/chai-extra")
+    asserts.true(env, npm_key_beats(alias, other), "between two aliases, the lower name")
+    asserts.false(env, npm_key_beats(other, alias), "and not the other way round")
+
+    return unittest.end(env)
+
+npm_key_beats_test = unittest.make(_npm_key_beats_impl)
+
+def _editor_transitive_types_impl(ctx):
+    env = analysistest.begin(ctx)
+    config = _editor_config(env)
+    asserts.true(env, config != None, "ide_tsconfig wrote no tsconfig")
+    if config == None:
+        return analysistest.end(env)
+
+    # The `paths` key is here for a package no target in this closure declares:
+    # rollup's dist/rollup.d.ts is what says `from "estree"`.
+    asserts.equals(
+        env,
+        ["./.bazel/npm/@types/estree/index.d.ts"],
+        config["compilerOptions"]["paths"].get("estree"),
+        "a transitively reached @types package still answers the name it types",
+    )
+
+    # And `files` names nothing from it. That array is built from what each
+    # reached target declares in its own deps, so the two routes a @types/*
+    # package can take are not both available for every one of them -- the claim
+    # that they always are is what this fixture disproves.
+    asserts.equals(
+        env,
+        [],
+        [entry for entry in config.get("files", []) if "estree" in entry],
+        "and reaches the program through no `files` entry: " + str(config.get("files")),
+    )
+    asserts.true(
+        env,
+        ".bazel/npm/@types/estree/index.d.ts" in [
+            entry.dest
+            for entry in analysistest.target_under_test(env)[WorkspaceCopyInfo].entries.to_list()
+        ],
+        "so the paths entry is what installs the declarations",
+    )
+    return analysistest.end(env)
+
+editor_transitive_types_test = analysistest.make(_editor_transitive_types_impl)

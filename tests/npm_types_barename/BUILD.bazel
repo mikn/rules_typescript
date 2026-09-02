@@ -14,14 +14,34 @@ load("//ts/private:tsconfig_aspect.bzl", "ide_tsconfig")
 load(
     ":precedence_tests.bzl",
     "editor_alias_beats_types_test",
+    "editor_key_collision_test",
+    "editor_transitive_types_test",
     "editor_types_alias_test",
     "editor_types_precedence_test",
+    "npm_key_beats_test",
     "types_alias_precedence_test",
     "types_package_alias_test",
     "types_package_root_test",
 )
 
 package(default_visibility = ["//:__pkg__"])
+
+# Each names a ts_compile target with a `tsconfig` output group and an
+# ide_tsconfig over it, which is what :test_config_agreement compares.
+_AGREEMENT_FIXTURES = [
+    "own_import",
+    "mangled_scope",
+    "subdirectory_declarations",
+]
+
+# `:keys` asks for the key sets to match too, which holds only where the closure
+# has no package the editor drops and no `exports` subpath -- see
+# config_agreement_test.mjs. Everything else is compared by value.
+_AGREEMENT_ARGS = [
+    "own_import:keys",
+    "mangled_scope",
+    "subdirectory_declarations",
+]
 
 # rollup's own dist/rollup.d.ts opens with `import type * as estree from
 # 'estree'`, and @types/estree has no runtime package at all to be reached
@@ -127,6 +147,23 @@ editor_types_alias_test(
     target_under_test = ":own_import_ide_tsconfig",
 )
 
+# The same package, reached transitively: rollup's own .d.ts is what writes
+# `from "estree"`, and nothing here declares @types/estree. `files` is built
+# from what each reached target names in its own deps, so there is no entry in
+# it -- the `paths` key is this package's only route into the program.
+# :widened_to_any rather than :inside_a_dependency because it sets no
+# compilerOptions, so this config has no nested file beside it to read past.
+ide_tsconfig(
+    name = "widened_to_any_ide_tsconfig",
+    tags = ["manual"],
+    deps = [":widened_to_any"],
+)
+
+editor_transitive_types_test(
+    name = "editor_transitive_types_test",
+    target_under_test = ":widened_to_any_ide_tsconfig",
+)
+
 ide_tsconfig(
     name = "mangled_scope_ide_tsconfig",
     tags = ["manual"],
@@ -152,28 +189,86 @@ editor_alias_beats_types_test(
     target_under_test = ":precedence_ide_tsconfig",
 )
 
+ide_tsconfig(
+    name = "subdirectory_declarations_ide_tsconfig",
+    tags = ["manual"],
+    deps = [":subdirectory_declarations"],
+)
+
+# ── One paths key, claimed by two packages ───────────────────────────────────
+# `chai` ships no declarations of its own and @types/chai holds them, so a
+# closure with @types/chai and no chai gives the alias the `chai` key, while a
+# closure with chai reaches the same declarations through chai's own pairing.
+# _npm_entries suppresses the alias from `ships_declarations`, which is one
+# target's closure -- and the root config aggregates closures, so both entries
+# arrive at one key here.
+ts_compile(
+    name = "types_only_chai",
+    srcs = ["types_only_chai.ts"],
+    deps = ["@npm//:types_chai"],
+)
+
+ts_compile(
+    name = "runtime_chai",
+    srcs = ["runtime_chai.ts"],
+    deps = ["@npm//:chai"],
+)
+
+build_test(
+    name = "chai_targets_test",
+    targets = [
+        ":runtime_chai",
+        ":types_only_chai",
+    ],
+)
+
+ide_tsconfig(
+    name = "key_collision_ide_tsconfig",
+    tags = ["manual"],
+    deps = [
+        ":runtime_chai",
+        ":types_only_chai",
+    ],
+)
+
+editor_key_collision_test(
+    name = "editor_key_collision_test",
+    target_under_test = ":key_collision_ide_tsconfig",
+)
+
+npm_key_beats_test(name = "npm_key_beats_test")
+
 # ── The two configs, compared ────────────────────────────────────────────────
 # Neither analysis test above can see both files: a rule's generated tsconfig
 # and the editor's are written by two different targets. So the comparison is a
-# test over the bytes, and `:own_import` is the fixture because one npm dep is
-# few enough that the whole npm half of each `paths` map can be compared as a
-# set rather than key by key.
-filegroup(
-    name = "own_import_build_tsconfig",
-    testonly = True,
-    srcs = [":own_import"],
-    output_group = "tsconfig",
-)
+# test over the bytes, and it compares the values and not only the key set --
+# the key set agreed on `@babel/core/*` while the build resolved it into
+# @babel/core's own repository, which holds no .d.ts at all, and the editor
+# resolved it into @types/babel__core.
+#
+# Three fixtures, for the three shapes an npm value has: one @types/* package on
+# its own, a demangled scope beside runtime packages that publish their own
+# declarations, and a runtime package whose @types/* pairing keeps declarations
+# in subdirectories.
+[
+    filegroup(
+        name = target + "_build_tsconfig",
+        testonly = True,
+        srcs = [":" + target],
+        output_group = "tsconfig",
+    )
+    for target in _AGREEMENT_FIXTURES
+]
 
 sh_test(
     name = "test_config_agreement",
     size = "small",
     srcs = ["test_config_agreement.sh"],
+    args = _AGREEMENT_ARGS,
     data = [
-        "config_agreement_test.mjs",
-        ":own_import_build_tsconfig",
-        ":own_import_ide_tsconfig",
-        "//ts/toolchain:node_resolved",
-    ],
+               "config_agreement_test.mjs",
+               "//ts/toolchain:node_resolved",
+           ] + [":" + target + "_build_tsconfig" for target in _AGREEMENT_FIXTURES] +
+           [":" + target + "_ide_tsconfig" for target in _AGREEMENT_FIXTURES],
     deps = ["@bazel_tools//tools/bash/runfiles"],
 )

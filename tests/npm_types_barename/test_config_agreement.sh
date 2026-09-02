@@ -3,8 +3,9 @@
 #
 #   bazel test //tests/npm_types_barename:test_config_agreement --test_output=all
 #
-# Both subjects are generated files, so all this does is find them and node in
-# the runfiles and hand over. Every assertion lives in the .mjs.
+# Every subject is a generated file, so all this does is find them and node in
+# the runfiles and hand over. `args` names the ts_compile targets to compare;
+# every assertion lives in the .mjs.
 
 # --- begin runfiles.bash initialization v3 ---
 # Copy-pasted from the Bazel Bash runfiles library v3.
@@ -29,7 +30,19 @@ runfile() {
 
 NODE="$(runfile ts/toolchain/node_resolved/node)"
 TEST_MJS="$(runfile tests/npm_types_barename/config_agreement_test.mjs)"
-BUILD_TSCONFIG="$(runfile tests/npm_types_barename/own_import.tsconfig.json)"
-EDITOR_TSCONFIG="$(runfile tests/npm_types_barename/own_import_ide_tsconfig.json)"
 
-exec "${NODE}" "${TEST_MJS}" "${BUILD_TSCONFIG}" "${EDITOR_TSCONFIG}"
+# One triple per target named in args: the mode, then what ts_compile
+# generated, then what ide_tsconfig did. A target is spelled `name` or
+# `name:keys`; see the .mjs for what the second asks for.
+CONFIGS=()
+for arg in "$@"; do
+  target="${arg%%:*}"
+  mode="values"
+  [[ "${arg}" == *:* ]] && mode="${arg#*:}"
+  CONFIGS+=("${mode}")
+  CONFIGS+=("$(runfile "tests/npm_types_barename/${target}.tsconfig.json")")
+  CONFIGS+=("$(runfile "tests/npm_types_barename/${target}_ide_tsconfig.json")")
+done
+[[ ${#CONFIGS[@]} -gt 0 ]] || fail "no targets named in args"
+
+exec "${NODE}" "${TEST_MJS}" "${CONFIGS[@]}"

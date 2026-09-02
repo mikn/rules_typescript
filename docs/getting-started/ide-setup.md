@@ -195,18 +195,19 @@ version bump never enters the config.
 
 The copied `.d.ts` is the entry point the package's own metadata designates. See
 [how that is resolved](../guides/npm.md#where-a-packages-type-declarations-come-from).
-The wildcard entry is rooted at that file's directory, so a package designating
-`dist/node/index.d.ts` gets `pkg` → that file and `pkg/*` → `dist/node/*`:
+The wildcard entry lists the package root and then that file's directory, in the
+order npm would look: with no `exports` map — which is most of the registry —
+`pkg/sub` is a plain path under the package root, and a package whose subpaths do
+sit beside its entry is answered by the second substitution.
 
 ```json
 "vite":   ["./.bazel/npm/vite/dist/node/index.d.ts"],
-"vite/*": ["./.bazel/npm/vite/dist/node/*"]
+"vite/*": ["./.bazel/npm/vite/*", "./.bazel/npm/vite/dist/node/*"]
 ```
 
 A `@types/*` package is keyed by the name it types rather than its own, which is
-the only specifier anything imports it by, and is installed under its own name so
-that the `files` entry naming its globals and the `paths` entry resolving it
-share one copy:
+the only specifier anything imports it by, and installs under its own name, which
+the key points into:
 
 ```json
 "estree":   ["./.bazel/npm/@types/estree/index.d.ts"],
@@ -216,7 +217,17 @@ share one copy:
 Which of the two names wins follows npm, the same way it does in the tsconfig
 `ts_compile` generates: the runtime package answers `x` when it publishes
 declarations of its own, `@types/x` when it publishes none, and a `path_aliases`
-prefix outranks both.
+prefix outranks both. Where two packages in the graph claim one key — a target
+whose closure holds `@types/x` and no `x`, beside a target that has the real `x`
+— the same rule picks, so the aggregate config agrees with each target's own.
+
+That key is the only route a `@types/*` package reached **transitively** has.
+The other route is `files`, which carries the globals such a package declares
+([Ambient Types in the Editor](#ambient-types-in-the-editor)) — but `files` is
+built from what each reached target names in its own `deps`, and `from "estree"`
+is usually written in a dependency's `.d.ts` rather than in your sources. So
+`@types/estree` behind `rollup` gets a `paths` key and no `files` entry, while a
+`@types/node` you depend on directly gets both, naming one installed copy.
 
 ### Staleness Test
 
@@ -294,10 +305,17 @@ The editor is more permissive than the build in one place. `ts_compile` names
 only a target's **direct** `@types/*` deps in the tsconfig it gives tsgo, so a
 global reaches a target because that target asked for it. The
 editor program has one root `compilerOptions` block for the whole workspace, and
-its ambient entries are the **union** of every `@types/*` package anywhere in the
-graph. A file using `process` therefore type-checks in the editor even when its
-own target never declared `@types/node`, and then fails `bazel build` with the
-strict-deps error naming the label to add.
+its `files` array is the **union** of what every reached target declares — each
+target's own direct `@types/*` deps, pooled. A file using `process` therefore
+type-checks in the editor as soon as *some* target in the graph declared
+`@types/node`, and then fails `bazel build` with the strict-deps error naming the
+label to add.
+
+The union is over direct deps only, so a `@types/*` package that no reached
+target declares — one behind a dependency's own `.d.ts` — is named in `files`
+nowhere, in either config. It still resolves as a module, through the `paths` key
+it takes under the name it types ([npm Declarations](#npm-declarations)); `files`
+is what it is not in.
 
 Narrowing the union per target would need a tsconfig per target, and a package
 only gets its own program when its `compilerOptions` genuinely disagree with the

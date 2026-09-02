@@ -13,16 +13,20 @@ Both targets are `manual`: they exist to be analysed, and nothing outside
 load("//ts:defs.bzl", "ts_compile")
 
 # The module_name is here rather than on `root` because a private target's bare
-# specifier is the one an editor can learn no other way.
+# specifier is the one an editor can learn no other way. So is the npm dep: the
+# `paths` key @types/estree takes is the name it types, which is not the
+# directory its declarations install under, and a fragment record is the only
+# place those two names are written down for a target no rule may name.
 ts_compile(
     name = "leaf",
     srcs = ["index.ts"],
     module_name = "@acme/leaf",
     tags = ["manual"],
     visibility = ["//visibility:private"],
+    deps = ["@npm//:types_estree"],
 )
 
-# The alias is here so a fragment carries all three record kinds; its directory
+# The alias is here so a fragment carries every record kind; its directory
 # holds this target's own srcs, which is what path_aliases requires.
 ts_compile(
     name = "root",

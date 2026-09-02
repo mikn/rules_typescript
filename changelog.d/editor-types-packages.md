@@ -17,8 +17,20 @@
   `@babel/core`, whose declarations are all in `@types/babel__core` -- had no
   entry in the editor map at all and now has one.
 
-  A `@types/*` package is installed under `npm_dir` at its own name, which is
-  where the `files` entry already put it, so the two routes share one copy. The
-  key spelled `@types/x` stays out of the editor's `paths`: no import writes it.
+  A `@types/*` package installs under `npm_dir` at its own name, and the key
+  points in there. The `files` array is a second route and a narrower one: it is
+  built from what each reached target declares in its own `deps`, so a `@types/*`
+  package reached transitively is named in no `files` array and the `paths` key
+  is the only route it has. Three of the four keys this repo's own config gained
+  are that case -- `@types/deep-eql`, `@types/estree` and `@types/json-schema`,
+  none of which was installed at all before; the fourth, `@types/node`, was
+  already installed for its `files` entry, so the growth under `.bazel/npm` is
+  three directories and 76 KB. `compilerOptions.paths` goes from 448 keys to 456:
+  four packages, two keys each. The key spelled `@types/x` stays out of the
+  editor's `paths`: no import writes it.
+
   `//tests/npm_types_barename:test_config_agreement` now compares the npm half
-  of both configs for one target and fails when they disagree.
+  of both configs for three targets, and compares values rather than only key
+  sets: for each shared key the two must resolve to the same path under the
+  package that answers it, and within one config a key and its `/*` wildcard
+  must name one package.
