@@ -716,3 +716,58 @@ ts_compile(
 			"compiles it:\n%s", logged)
 	}
 }
+
+// A directory pattern under the default `every-dir` boundary mode reaches
+// nothing: the directory keeps its own target, and the framework bundle still
+// stages it. This pins the behaviour, not the mechanism -- moving
+// stagingLabelsOutside' owned() short-circuit past its drops() check leaves both
+// assertions green, because an owned directory is staged by the label its own
+// package exports rather than by that walk.
+//
+// Asserted because the docs first claimed a directory name is read in the rollup
+// walk alone, and the first correction of that claim asserted a staging prune
+// that does not happen.
+func TestExclude_DirectoryPatternReachesNothingUnderEveryDir(t *testing.T) {
+	repoRoot := t.TempDir()
+	writeWorkspace(t, repoRoot, remixWorkspace)
+	writeWorkspace(t, repoRoot, map[string]string{
+		"app/routes/panel/nested/thing.ts": "export const thing = 3;\n",
+	})
+	gazellePass(t, repoRoot)
+
+	nestedBuild := filepath.Join(repoRoot, "app", "routes", "panel", "nested", "BUILD.bazel")
+	if _, ok := filegroupSrcs(t, nestedBuild); !ok {
+		t.Fatalf("baseline: nested has no sources filegroup, so the assertions below would be vacuous")
+	}
+	staged := func() map[string]bool {
+		out := map[string]bool{}
+		for _, l := range attrStrings(t, filepath.Join(repoRoot, "BUILD.bazel"), "ts_bundle", "app_remix", "staging_srcs") {
+			out[l] = true
+		}
+		return out
+	}
+	const label = "//app/routes/panel/nested:sources"
+	if !staged()[label] {
+		t.Fatalf("baseline: %s is not staged, so pruning it proves nothing", label)
+	}
+
+	root, err := os.ReadFile(filepath.Join(repoRoot, "BUILD.bazel"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeWorkspace(t, repoRoot, map[string]string{
+		"BUILD.bazel": "# gazelle:ts_exclude nested\n" + string(root),
+	})
+	gazellePass(t, repoRoot)
+
+	if !staged()[label] {
+		t.Errorf("a directory pattern pruned the bundle's staging walk: %s is gone. Under every-dir the directory owns its own package, so stagingLabelsOutside skips it before reading the pattern -- if that short-circuit moves, the docs are wrong", label)
+	}
+	srcs, ok := filegroupSrcs(t, nestedBuild)
+	if !ok {
+		t.Fatalf("the directory's own package lost its sources filegroup: under every-dir it is a package in its own right")
+	}
+	if got := strings.Join(srcs, ","); got != "thing.ts" {
+		t.Errorf("the directory's own target srcs = %q, want \"thing.ts\": a directory pattern must not stop it compiling its own sources", got)
+	}
+}

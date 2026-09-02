@@ -539,14 +539,17 @@ accepting a directive that cannot do anything.
 
 #### Naming a directory depends on the boundary mode
 
-A directory name is read in one place only: the rollup walk, which runs in the
-modes where a plain subdirectory is **not** a package. Under the default
-`every-dir` mode that walk does not run, the subdirectory is a package in its own
-right, and a directory pattern reaches nothing there.
+A directory name is read in two places, not one: the rollup walk, and the
+framework bundle's staging walk. Both reach only a subdirectory that is **not**
+a package -- the rollup walk runs in those modes alone, and the staging walk
+covers exactly the directories the framework does not own, since an owned one is
+staged by the label its own package exports. So under the default `every-dir`
+mode, where a subdirectory holding sources is a package in its own right, a
+directory pattern still reaches nothing through either.
 
 | In `web/BUILD.bazel`, with `web/sub/s.ts` | default `every-dir` | `index-only` / `tsconfig` |
 | --- | --- | --- |
-| `# gazelle:ts_exclude sub` (or `./sub`) | `web/sub` is still its own package and still compiles `s.ts` | `web` does not roll `sub/s.ts` up, so no target compiles it |
+| `# gazelle:ts_exclude sub` (or `./sub`) | `web/sub` is still its own package and still compiles `s.ts`, and a framework bundle still stages it | `web` does not roll `sub/s.ts` up, so no target compiles it |
 | `# gazelle:exclude sub` (Gazelle's own) | the walk is pruned: no BUILD file in `web/sub`, and nothing compiles `s.ts` | the walk is pruned, but the rollup walk is not: `web` still claims `sub/s.ts` |
 
 So under the default mode, dropping a whole directory is `# gazelle:exclude`
