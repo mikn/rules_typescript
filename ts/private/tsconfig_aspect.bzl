@@ -49,6 +49,7 @@ TsconfigSourcesInfo = provider(
         "npm_paths": "depset of struct(key, name, version, entry, is_file, wildcard): npm entry points, relative to the package's own directory. `key` is the specifier that resolves to one and `name` the package installed under `npm_dir`; they differ for a `@types/*` package, which answers the name it types and is installed under its own, and for an `exports` subpath, which answers a key under the package's name. `wildcard` is whether the key also takes a `<key>/*` companion -- false on a subpath entry, whose key names one file and whose own subpaths are not a thing.",
         "npm_ambient": "depset of struct(name, version, entry): @types/* entry points to name in the tsconfig `files` array, relative to the package's own directory.",
         "npm_files": "depset of struct(name, version, dest, file): the files an npm entry point needs on disk, and where under the package each one goes.",
+        "npm_untyped": "depset of struct(name, label): each npm package a reached target named in `untyped_packages`, and the target that named it. One `paths` map serves the whole editor, so this is what ide_tsconfig checks against the packages the rest of the graph still contributes.",
         "option_groups": "depset of struct(package, label, options_json, extends, include): the compilerOptions one target sets, which no single root block can carry -- a target that turns `strict` off, or names a `lib` its target does not imply, is checked correctly by the build and wrongly by the editor unless the editor gets its own program for those files.",
         "has_content": "Whether anything above is non-empty here or anywhere below, so that a fragment is written only where there is something to say.",
     },
@@ -79,6 +80,18 @@ def _under(file, dir):
     if not file.path.startswith(dir + "/"):
         return None
     return file.path[len(dir) + 1:]
+
+def untyped_packages(rule_attr):
+    """The npm package names one ts_compile target keeps out of its type program.
+
+    ts_compile's `untyped_packages`, read from the attr rather than from a
+    provider: it is a fact about the target, and every route into a program the
+    editor writes -- `paths`, `files`, the fragment the tsserver hook merges --
+    has to honour the same one the build's tsconfig does.
+
+    Exported for the unit test.
+    """
+    return {name: True for name in getattr(rule_attr, "untyped_packages", [])}
 
 def _types_root(infos, dts):
     """The @types package `dts` came from: its root directory and its package.json."""
@@ -114,8 +127,13 @@ def _npm_entries(rule_attr):
     package whose files are installed under `npm_dir`. The two differ for a
     `@types/*` package, which is imported under the name it types and installed
     under its own.
+
+    A package the target named in `untyped_packages` is in neither list: it has
+    no entry in the tsconfig ts_compile generates either, and an editor that
+    resolved it would report what the build does not.
     """
     infos = {}
+    untyped = untyped_packages(rule_attr)
 
     for dep in getattr(rule_attr, "deps", []):
         if NpmPackageInfo not in dep:
@@ -164,8 +182,10 @@ def _npm_entries(rule_attr):
         # anything writes for it -- rollup's own .d.ts says `from "estree"` --
         # and reaching it through `files` puts the declarations in the program
         # under no name that resolves.
+        if name in untyped:
+            continue
         alias = types_package_alias(name)
-        if alias in ships_declarations:
+        if alias in ships_declarations or alias in untyped:
             alias = None
         if name.startswith("@types/") and not alias:
             continue
@@ -302,12 +322,15 @@ def _ambient_entries(rule_attr):
     reaches the editor's program through its `paths` key alone.
     """
     requested = _requested_type_packages(rule_attr)
+    untyped = untyped_packages(rule_attr)
     entries = []
     files = []
     for dep in getattr(rule_attr, "deps", []):
         if NpmPackageInfo not in dep:
             continue
         info = dep[NpmPackageInfo]
+        if info.package_name in untyped:
+            continue
         ambient = info.ambient_types_file or _first_requested_file(info, requested)
         if not ambient:
             continue
@@ -536,6 +559,7 @@ def _tsconfig_aspect_impl(target, ctx):
     npm_paths = []
     npm_ambient = []
     npm_files = []
+    npm_untyped = []
     option_groups = []
     if ctx.rule.kind == "npm_workspace_package":
         # The hub target carries the npm name a workspace member is imported by,
@@ -561,6 +585,10 @@ def _tsconfig_aspect_impl(target, ctx):
         npm_paths, npm_files = _npm_entries(ctx.rule.attr)
         npm_ambient, ambient_files = _ambient_entries(ctx.rule.attr)
         npm_files = npm_files + ambient_files
+        npm_untyped = [
+            struct(name = name, label = str(target.label))
+            for name in sorted(untyped_packages(ctx.rule.attr))
+        ]
         option_groups = _option_group(target, ctx)
 
     sources = TsconfigSourcesInfo(
@@ -569,6 +597,7 @@ def _tsconfig_aspect_impl(target, ctx):
         npm_paths = depset(npm_paths, transitive = [s.npm_paths for s in inherited], order = "postorder"),
         npm_ambient = depset(npm_ambient, transitive = [s.npm_ambient for s in inherited], order = "postorder"),
         npm_files = depset(npm_files, transitive = [s.npm_files for s in inherited], order = "postorder"),
+        npm_untyped = depset(npm_untyped, transitive = [s.npm_untyped for s in inherited], order = "postorder"),
         option_groups = depset(option_groups, transitive = [s.option_groups for s in inherited], order = "postorder"),
         has_content = bool(packages or aliases or npm_paths) or any([s.has_content for s in inherited]),
     )
@@ -715,6 +744,43 @@ def npm_view(sources, host_only = []):
             continue
         ambient[entry.name] = struct(dir = dir, entry = entry.entry)
     return entries, sorted(ambient.items()), files
+
+def check_untyped_agreement(sources, entries, ambient, files, host_only):
+    """Fails when the editor cannot answer a target's `untyped_packages` the build's way.
+
+    One `paths` map serves every editor program -- a nested tsconfig extends the
+    root and inherits its map unchanged -- so "this package is out of the type
+    program" is a per-target fact on the build and a workspace-wide one here.
+    Where every target that reaches a package excludes it, the two agree with no
+    help: the package simply arrives in none of `entries`, `ambient` or `files`,
+    and this passes. Where one target excludes it and another still resolves it,
+    the editor would report what that target's build does not, and
+    host_only_packages is the only place a workspace-wide answer fits.
+
+    Exported for the unit test.
+    """
+    contributed = {e.name: True for e in entries}
+    for name, _ in ambient:
+        contributed[name] = True
+    for entry in files:
+        contributed[entry.name] = True
+    skip = {name: True for name in host_only}
+    for entry in _collect(sources, "npm_untyped"):
+        if entry.name in skip or entry.name not in contributed:
+            continue
+        fail(
+            "ts_refresh_tsconfig: {label} keeps \"{name}\" out of its type program\n".format(
+                label = entry.label,
+                name = entry.name,
+            ) +
+            "  (untyped_packages), and this config still resolves it for something it\n" +
+            "  reaches. One `paths` map serves every editor program -- a nested tsconfig\n" +
+            "  inherits it -- so an editor here would report what that target's build\n" +
+            "  does not.\n" +
+            "Add \"{name}\" to host_only_packages to drop it from the editor everywhere,\n".format(name = entry.name) +
+            "or name it in untyped_packages on the targets that still resolve it.\n" +
+            "`bazel query \"rdeps(//..., @npm//:<the package>)\"` names those targets.\n",
+        )
 
 def _packages(sources):
     """Every package the aspect reached, and whether any target in it has an index file."""
@@ -924,6 +990,13 @@ def _ide_tsconfig_impl(ctx):
     packages = _packages(sources)
     aliases = sorted([(a.prefix, a.dir) for a in _collect(sources, "aliases")])
     npm_entries, npm_ambient, npm_files = npm_view(sources, ctx.attr.host_only_packages)
+    check_untyped_agreement(
+        sources,
+        npm_entries,
+        npm_ambient,
+        npm_files,
+        ctx.attr.host_only_packages,
+    )
 
     paths = {}
     copies = []
@@ -1139,7 +1212,13 @@ fields match, so a package that exists on one developer's machine and not
 another's makes a checked-in tsconfig differ per host -- and the staleness test
 then fails for everyone on the other platform. Packages shipping no
 declarations are already dropped, which covers the platform binaries; this is
-for one that does ship them, such as `fsevents`.""",
+for one that does ship them, such as `fsevents`.
+
+It is also where a workspace answers, for every editor program at once, what
+ts_compile's `untyped_packages` answers per target. A package that every target
+reaching it excludes needs no entry here -- it arrives in this map from nowhere.
+An entry belongs here when the graph disagrees about one, which is the case
+`check_untyped_agreement` refuses to leave silent.""",
     ),
     "npm_dir": attr.string(
         default = ".bazel/npm",
@@ -1188,7 +1267,14 @@ checked-in copy has gone stale.""",
 
 def _ide_hook_data_impl(ctx):
     sources = [dep[TsconfigSourcesInfo] for dep in ctx.attr.deps]
-    npm_entries, _, _ = npm_view(sources, ctx.attr.host_only_packages)
+    npm_entries, npm_ambient, npm_files = npm_view(sources, ctx.attr.host_only_packages)
+    check_untyped_agreement(
+        sources,
+        npm_entries,
+        npm_ambient,
+        npm_files,
+        ctx.attr.host_only_packages,
+    )
 
     data = {
         "_comment": _HEADER,

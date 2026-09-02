@@ -40,6 +40,7 @@ wiring, no extra flags in `.bazelrc`.
 | `path_aliases` | `string_dict` | `{}` | Alias prefix → workspace-relative source directory. Must resolve to files this target stages: its own `srcs`, or `path_alias_srcs` |
 | `path_alias_srcs` | `label_list` | `[]` | Files a `path_aliases` entry resolves to when they are not in `srcs`. They join this target's type program, so a type error in one of them fails this target |
 | `public_globals` | `label_list` | `[]` | The `.d.ts` in `srcs` whose globals every consumer gets too. Unnamed is private. See [Which ambients a consumer gets](#which-ambients-a-consumer-gets) |
+| `untyped_packages` | `string_list` | `[]` | npm packages this target's type program leaves out entirely — no `paths` key, no `files` entry. See [Keeping a package out of the program](#keeping-a-package-out-of-the-program) |
 | `vite_types` | `bool` | `False` | Prepend the Vite ambient type shim to `srcs` |
 
 ### Sources
@@ -316,6 +317,85 @@ bazel build //... --//ts:lib_check
 Expect findings unrelated to the one you are chasing -- a `lib` a dependency
 needs and the program does not set reports here too. It is a diagnostic sweep,
 not a mode to build in.
+
+### Keeping a Package Out of the Program
+
+A `.d.ts` with no top-level import or export is a **global script**, and
+everything it declares belongs to every program the file is part of. A dynamic
+`import()` loads a module's declarations exactly like a static one, and the
+package one hop behind it comes along.
+
+That is how one line in a browser component broke 21 files in the Lovable
+monorepo. `void import("@sentry/cloudflare")` sat inside an
+`import.meta.env.SSR` branch; `@sentry/cloudflare`'s own declarations import
+`@cloudflare/workers-types`, which is 15k lines of global script, so its
+`interface Element` and `interface Body` merged into the ones `lib.dom`
+declares. `Element.append` then took `string | ReadableStream | Response` and
+no `Node`, and the errors landed on DOM code that names neither package.
+
+`untyped_packages` keeps a package out of one target's type program:
+
+```python
+ts_compile(
+    name = "web",
+    srcs = glob(["src/**/*.ts", "src/**/*.tsx"]),
+    untyped_packages = ["@cloudflare/workers-types"],
+    deps = ["@npm//:sentry_cloudflare"],
+)
+```
+
+A named package gets no `paths` key — not its own, not one per `exports`
+subpath, and not the bare name a `@types/*` package would answer for it — and
+no `files` entry. It stays in `deps`, its files stay among the action's
+inputs, and no JavaScript moves.
+
+`TsStrictDeps` sees the exclusion, though. A **direct** dep stays declared, so
+an import of it is still attributed. A package that was only **reachable** —
+the case this attribute is for — leaves the reachable set with the key, so an
+import of it is a bare `TS2307` rather than "add this dep". That is the honest
+answer: adding the dep back would not type it, because the exclusion is what
+took the types away.
+
+An entry names one package, and a package's declarations live wherever npm put
+them. `ms` ships none and is typed by `@types/ms`, so `["@types/ms"]` is the
+entry that takes those declarations out — after which `ms` resolves to the
+runtime package it names rather than being redirected into them. `["ms"]` takes
+away the bare name `@types/ms` answered for it. Name both to leave nothing.
+
+**An import of a named package resolves to nothing**, which is `TS2307`. A
+target whose own sources import one needs a `declare module` of its own in a
+`.d.ts` src:
+
+```ts
+declare module "@sentry/cloudflare" {
+  export function captureException(error: unknown): void;
+}
+```
+
+That declaration answers only because the `paths` key is gone. With the key in
+place TypeScript resolves the specifier and adds the file to the program before
+the checker ever asks about an ambient module, so the shim alone changes
+nothing and the globals still arrive.
+
+The attribute is per target and travels through no dep edge: a dependent that
+needs the package resolves it as before, which is what lets a worker entry
+point keep the Cloudflare types the browser target drops.
+
+**The editor is workspace-wide.** The tsconfig `bazel run //:refresh_tsconfig`
+writes has one `paths` map for the whole workspace — a nested tsconfig extends
+the root and inherits it unchanged. Where every target reaching a package
+excludes it, the editor drops it too with no further configuration. Where one
+target excludes a package another still resolves, one map has no way to answer
+both, and `ts_refresh_tsconfig` fails rather than let an editor report what a
+build does not:
+
+```
+ts_refresh_tsconfig: //web:web keeps "@cloudflare/workers-types" out of its type program
+  (untyped_packages), and this config still resolves it for something it
+  reaches. ...
+Add "@cloudflare/workers-types" to host_only_packages to drop it from the editor everywhere,
+or name it in untyped_packages on the targets that still resolve it.
+```
 
 ### Importing Another Target by Bare Specifier
 

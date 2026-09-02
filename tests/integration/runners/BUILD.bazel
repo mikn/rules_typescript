@@ -31,6 +31,7 @@ is already the price of the older child-workspace layout.
 # gazelle:exclude svelte
 # gazelle:exclude sveltekit
 # gazelle:exclude tanstack
+# gazelle:exclude untyped_packages
 # gazelle:exclude vite_bundle
 
 load("@rules_go//go:def.bzl", "go_binary")
@@ -54,6 +55,7 @@ _RUNNERS = [
     "svelte",
     "sveltekit",
     "tanstack",
+    "untyped_packages",
     "vite_bundle",
 ]
 

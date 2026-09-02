@@ -60,6 +60,13 @@ ts_refresh_tsconfig(
         "**/e2e",
         "**/examples",
         "**/tests/integration",
+        # //tests/untyped_packages is out of `deps` below, because one editor
+        # `paths` map cannot both drop a package for the target that excludes it
+        # and keep it for the target beside it -- what that package asserts
+        # instead is the failure ide_tsconfig raises for exactly that. Its
+        # sources are excluded too: the `declare module "wrangler"` shims there
+        # are ambient, and the root program would apply them workspace-wide.
+        "**/tests/untyped_packages",
     ],
     # A darwin-only optionalDependency that ships fsevents.d.ts, so it is not
     # caught by the declaration-free filter: with it in, the checked-in file

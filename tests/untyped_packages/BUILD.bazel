@@ -1,0 +1,360 @@
+"""A package whose declarations are a global script, kept out of one target's program.
+
+`@cloudflare/workers-types` is 15k lines of .d.ts with no top-level import or
+export, which makes it a global script: everything it declares belongs to every
+program the file is part of, and its `interface Element` merges into the one
+lib.dom declares -- after which `append` takes `string | ReadableStream |
+Response` and no Node at all. Nothing has to import it for that. wrangler's own
+declaration entry point does, on line 11, so `import("wrangler")` is enough, and
+a dynamic import loads a module's declarations exactly like a static one.
+
+That is //web:web in the Lovable monorepo, where one
+`void import("@sentry/cloudflare")` in an error component produced 42 errors
+across 21 files that name neither package.
+
+  :no_import  the same dep and the same DOM call, with nothing loading a module.
+  :leaks      one `import("wrangler")` more, and the DOM call fails. Manual: it
+              is the failure the attribute exists for.
+  :excluded   :leaks with untyped_packages, which is the fix. Its own source is
+              the regression test -- `host.append(child)` compiles only while
+              the global script is out of the program.
+  :shimmed    the same exclusion one hop earlier, on the package the target's
+              own source imports, which needs a `declare module` to say what
+              that import means.
+  :shim_only  the same shim with no exclusion, which does NOT work: `paths`
+              resolves the specifier and the program loads the file before the
+              checker ever asks about an ambient module. Manual, for the same
+              reason as :leaks.
+  :sibling    a dependent of :shimmed that resolves both packages, because the
+              attribute is per target and travels through no dep edge.
+  :resolver   the same closure with no attribute anywhere in it, which is what
+              an editor config has to disagree with.
+  :direct_ambient / :direct_untyped
+              the other route in: a types-only package named in `deps` reaches
+              `files` with no import anywhere, and the exclusion closes that
+              too. Their editor pair asserts the same of the aspect's own walk.
+  :alias_resolved / :alias_untyped
+              a package typed by a separate `@types/*`: the build resolves the
+              bare name `ms` into @types/ms's directory, so that key is one the
+              exclusion has to take away as well.
+  :types_excluded
+              the other side of the same pair -- `@types/ms` excluded and `ms`
+              kept, where the redirection into the departed declarations is what
+              has to stop.
+
+None of these are in //:refresh_tsconfig -- one editor `paths` map cannot both
+resolve the package for :resolver and drop it for :excluded, which is what
+check_untyped_agreement fails on, and :editor_disagreement_test is where that is
+asserted instead. The directory is in that target's extra_exclude for the second
+half of the same reason: the `declare module "wrangler"` shims here are ambient,
+and the root editor program would apply them workspace-wide.
+"""
+
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "ts_compile")
+load("//ts/private:tsconfig_aspect.bzl", "ide_tsconfig")
+load(
+    ":untyped_tests.bzl",
+    "dep_keeps_untyped_test",
+    "editor_disagreement_test",
+    "editor_host_only_test",
+    "editor_keeps_ambient_file_test",
+    "editor_keeps_untyped_test",
+    "editor_omits_ambient_file_test",
+    "editor_omits_untyped_test",
+    "files_keep_ambient_test",
+    "files_omit_ambient_test",
+    "paths_keep_alias_test",
+    "paths_keep_untyped_test",
+    "paths_omit_alias_test",
+    "paths_omit_untyped_test",
+    "paths_redirect_test",
+    "types_conflict_test",
+    "unmatched_name_test",
+)
+
+package(default_visibility = ["//:__pkg__"])
+
+# gazelle:ts_npm_hub npm_workers
+
+ts_compile(
+    name = "no_import",
+    srcs = ["no_import.ts"],
+    deps = ["@npm_workers//:wrangler"],
+)
+
+ts_compile(
+    name = "leaks",
+    srcs = ["leaks.ts"],
+    tags = ["manual"],
+    deps = ["@npm_workers//:wrangler"],
+)
+
+ts_compile(
+    name = "excluded",
+    srcs = ["excluded.ts"],
+    untyped_packages = ["@cloudflare/workers-types"],
+    deps = ["@npm_workers//:wrangler"],
+)
+
+# wrangler is a normal package with runtime modules, so this one needs the
+# `declare module` shim: dropping its `paths` key leaves the import with nothing
+# to resolve, which is TS2307 rather than a silent widening.
+ts_compile(
+    name = "shimmed",
+    srcs = [
+        "shimmed.ts",
+        "shimmed_wrangler.d.ts",
+    ],
+    untyped_packages = ["wrangler"],
+    deps = ["@npm_workers//:wrangler"],
+)
+
+ts_compile(
+    name = "shim_only",
+    srcs = [
+        "shim_only.ts",
+        "shim_only_wrangler.d.ts",
+    ],
+    tags = ["manual"],
+    deps = ["@npm_workers//:wrangler"],
+)
+
+ts_compile(
+    name = "sibling",
+    srcs = ["sibling.ts"],
+    deps = [
+        ":shimmed",
+        "@npm_workers//:wrangler",
+    ],
+)
+
+# The same closure as :excluded with no attribute on it, and no dep on a target
+# that has one: the second half of the editor pair below, where one `paths` map
+# has to answer for both.
+ts_compile(
+    name = "resolver",
+    srcs = ["resolver.ts"],
+    deps = ["@npm_workers//:wrangler"],
+)
+
+ts_compile(
+    name = "direct_ambient",
+    srcs = ["direct_ambient.ts"],
+    deps = ["@npm_workers//:cloudflare_workers-types"],
+)
+
+ts_compile(
+    name = "direct_untyped",
+    srcs = ["direct_untyped.ts"],
+    untyped_packages = ["@cloudflare/workers-types"],
+    deps = ["@npm_workers//:cloudflare_workers-types"],
+)
+
+# A package whose declarations live in a separate `@types/*` package, which is
+# how DefinitelyTyped types most of npm: the build resolves the bare name `ms`
+# to @types/ms's directory, so that is the key the exclusion has to take away.
+ts_compile(
+    name = "alias_resolved",
+    srcs = ["alias_resolved.ts"],
+    deps = [
+        "@npm_features//:ms",
+        "@npm_features//:types_ms",
+    ],
+)
+
+ts_compile(
+    name = "alias_untyped",
+    srcs = [
+        "alias_untyped.ts",
+        "alias_untyped_ms.d.ts",
+    ],
+    untyped_packages = ["ms"],
+    deps = [
+        "@npm_features//:ms",
+        "@npm_features//:types_ms",
+    ],
+)
+
+ts_compile(
+    name = "types_excluded",
+    srcs = ["types_excluded.ts"],
+    untyped_packages = ["@types/ms"],
+    deps = [
+        "@npm_features//:ms",
+        "@npm_features//:types_ms",
+    ],
+)
+
+# Every target whose compile is itself an assertion: each of these type-checks
+# only under the resolution the attribute is supposed to produce.
+build_test(
+    name = "untyped_packages_test",
+    targets = [
+        ":alias_resolved",
+        ":alias_untyped",
+        ":direct_ambient",
+        ":direct_untyped",
+        ":excluded",
+        ":no_import",
+        ":resolver",
+        ":shimmed",
+        ":sibling",
+        ":types_excluded",
+    ],
+)
+
+# ── What the generated tsconfig says ─────────────────────────────────────────
+# The pair is the attribution: two targets differing only in the attribute, one
+# keeping the key and one not.
+
+paths_omit_untyped_test(
+    name = "paths_omit_untyped_test",
+    target_under_test = ":excluded",
+)
+
+paths_keep_untyped_test(
+    name = "paths_keep_untyped_test",
+    target_under_test = ":leaks",
+)
+
+files_keep_ambient_test(
+    name = "files_keep_ambient_test",
+    target_under_test = ":direct_ambient",
+)
+
+files_omit_ambient_test(
+    name = "files_omit_ambient_test",
+    target_under_test = ":direct_untyped",
+)
+
+paths_keep_alias_test(
+    name = "paths_keep_alias_test",
+    target_under_test = ":alias_resolved",
+)
+
+paths_omit_alias_test(
+    name = "paths_omit_alias_test",
+    target_under_test = ":alias_untyped",
+)
+
+paths_redirect_test(
+    name = "paths_redirect_test",
+    target_under_test = ":types_excluded",
+)
+
+dep_keeps_untyped_test(
+    name = "dep_keeps_untyped_test",
+    target_under_test = ":sibling",
+)
+
+# ── And what the editor's own config says ────────────────────────────────────
+
+ide_tsconfig(
+    name = "excluded_ide_tsconfig",
+    tags = ["manual"],
+    deps = [":excluded"],
+)
+
+editor_omits_untyped_test(
+    name = "editor_omits_untyped_test",
+    target_under_test = ":excluded_ide_tsconfig",
+)
+
+ide_tsconfig(
+    name = "leaks_ide_tsconfig",
+    tags = ["manual"],
+    deps = [":leaks"],
+)
+
+editor_keeps_untyped_test(
+    name = "editor_keeps_untyped_test",
+    target_under_test = ":leaks_ide_tsconfig",
+)
+
+# The `files` route in the editor's own walk, which is a different code path
+# from the `paths` one above: a types-only package in `deps` reaches it with no
+# import anywhere.
+ide_tsconfig(
+    name = "direct_ambient_ide_tsconfig",
+    tags = ["manual"],
+    deps = [":direct_ambient"],
+)
+
+editor_keeps_ambient_file_test(
+    name = "editor_keeps_ambient_file_test",
+    target_under_test = ":direct_ambient_ide_tsconfig",
+)
+
+ide_tsconfig(
+    name = "direct_untyped_ide_tsconfig",
+    tags = ["manual"],
+    deps = [":direct_untyped"],
+)
+
+editor_omits_ambient_file_test(
+    name = "editor_omits_ambient_file_test",
+    target_under_test = ":direct_untyped_ide_tsconfig",
+)
+
+# One `paths` map serves every editor program, so a config covering both a
+# target that excludes the package and one that resolves it has no answer to
+# give. host_only_packages is the workspace-wide one, and the two configs below
+# are the same deps with and without it.
+ide_tsconfig(
+    name = "disagreement_ide_tsconfig",
+    tags = ["manual"],
+    deps = [
+        ":excluded",
+        ":resolver",
+    ],
+)
+
+editor_disagreement_test(
+    name = "editor_disagreement_test",
+    target_under_test = ":disagreement_ide_tsconfig",
+)
+
+ide_tsconfig(
+    name = "host_only_ide_tsconfig",
+    host_only_packages = ["@cloudflare/workers-types"],
+    tags = ["manual"],
+    deps = [
+        ":excluded",
+        ":resolver",
+    ],
+)
+
+editor_host_only_test(
+    name = "editor_host_only_test",
+    target_under_test = ":host_only_ide_tsconfig",
+)
+
+# ── The two ways to get the attribute wrong ──────────────────────────────────
+
+ts_compile(
+    name = "typo",
+    srcs = ["typo.ts"],
+    tags = ["manual"],
+    untyped_packages = ["@cloudflare/worker-types"],
+    deps = ["@npm_workers//:wrangler"],
+)
+
+unmatched_name_test(
+    name = "unmatched_name_test",
+    target_under_test = ":typo",
+)
+
+ts_compile(
+    name = "types_conflict",
+    srcs = ["types_conflict.ts"],
+    tags = ["manual"],
+    types = ["@cloudflare/workers-types"],
+    untyped_packages = ["@cloudflare/workers-types"],
+    deps = ["@npm_workers//:cloudflare_workers-types"],
+)
+
+types_conflict_test(
+    name = "types_conflict_test",
+    target_under_test = ":types_conflict",
+)

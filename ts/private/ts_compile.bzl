@@ -503,6 +503,48 @@ def _fail_on_unresolved_types(ctx, npm_infos):
             _unresolved_type_fix(ref, npm_infos),
         )
 
+def _fail_on_untyped_conflict(ctx):
+    """A `types` entry naming a package this target also keeps out of the program."""
+    untyped = {name: True for name in ctx.attr.untyped_packages}
+    if not untyped:
+        return
+    for entry in _requested_types(ctx):
+        ref = types_entry_package_ref(entry)
+        package = _bare_package_name(ref) if ref else None
+        if not package or package not in untyped:
+            continue
+        fail(
+            "ts_compile: {label} names \"{package}\" in both compilerOptions.types and\n".format(
+                label = ctx.label,
+                package = package,
+            ) +
+            "  untyped_packages, which ask for opposite things: `types` puts a package's\n" +
+            "  declarations in the program unasked, and untyped_packages keeps them out.\n" +
+            "Drop whichever one is wrong. A target that needs those globals is not one\n" +
+            "that can leave the package out.\n",
+        )
+
+def _untyped_names(ctx, resolved):
+    """The `untyped_packages` names, checked against the closure they name.
+
+    An entry matching no package in the closure keeps nothing out, and these are
+    npm package names -- which a target does not otherwise spell anywhere -- so
+    a typo has nothing else to fail against.
+    """
+    for name in ctx.attr.untyped_packages:
+        if name in resolved:
+            continue
+        near = sorted([p for p in resolved if name in p or p in name])
+        fail(
+            "ts_compile: untyped_packages on {} names \"{}\", which no dep of\n".format(
+                ctx.label,
+                name,
+            ) +
+            "  this target resolves, so it keeps nothing out of the type program.\n" +
+            ("Did you mean one of these: {}?\n".format(", ".join(near)) if near else "Entries are npm package names, spelled as the lockfile spells them.\n"),
+        )
+    return {name: True for name in ctx.attr.untyped_packages}
+
 def _types_entry_resolves(entry, npm_infos):
     for npm_info in npm_infos:
         if types_entry_file(entry, npm_info):
@@ -1645,6 +1687,24 @@ def _ts_compile_impl(ctx):
     global_claims = _global_claims(ctx, passthrough_dts)
     _validate_tsgo_args(ctx)
     _validate_path_aliases(ctx, compile_srcs + js_srcs + passthrough_dts)
+    _fail_on_untyped_conflict(ctx)
+
+    # The packages this target's type program leaves out: no `paths` key, no
+    # `files` entry, nothing that loads their declarations. Checked against the
+    # closure once it is known, below.
+    untyped = {name: True for name in ctx.attr.untyped_packages}
+
+    # Every package name the closure offers, filtered or not, which is what an
+    # untyped_packages entry is checked against.
+    resolved_npm_names = {}
+
+    # Where an excluded package's files live, so that a `paths` key belonging to
+    # some other package cannot be pointed into one of them. `ms` ships no
+    # declarations and resolves to @types/ms; excluding @types/ms has to stop
+    # that redirection, or the key still reaches the declarations by another
+    # name. Identity rather than a derived `@types/x` spelling, since the
+    # pairing this consults is the one npm recorded.
+    untyped_pkg_dirs = {}
 
     # Collect transitive deps.
     transitive_dts_sets = []
@@ -1708,10 +1768,14 @@ def _ts_compile_impl(ctx):
             # Direct deps only: declaring @types/foo is how a target asks for
             # foo's globals, so a package that merely appears in some dep's own
             # closure does not silently put its globals in this target's scope.
-            if NpmPackageInfo in dep and dep[NpmPackageInfo].ambient_types_file:
-                entry = dep[NpmPackageInfo].ambient_types_file
-                ambient_dts[entry.path] = entry
-            if NpmPackageInfo in dep:
+            #
+            # `files` is the other route into the program, and an excluded
+            # package has to leave by both: naming its entry point here would put
+            # every global in it in scope with no `paths` key in sight.
+            if NpmPackageInfo in dep and dep[NpmPackageInfo].package_name not in untyped:
+                if dep[NpmPackageInfo].ambient_types_file:
+                    entry = dep[NpmPackageInfo].ambient_types_file
+                    ambient_dts[entry.path] = entry
                 types_candidates.append(dep[NpmPackageInfo])
                 for entry in _requested_type_files(ctx, dep[NpmPackageInfo]):
                     ambient_dts[entry.path] = entry
@@ -1743,16 +1807,30 @@ def _ts_compile_impl(ctx):
     # `paths` has one key per package name, and a transitive dependent's older
     # copy is not what this target's own imports mean.
     for npm_info in direct_npm_infos:
-        if npm_info.package_dir and npm_info.package_name not in pkg_info_map:
+        if npm_info.package_dir:
+            resolved_npm_names[npm_info.package_name] = True
+            if npm_info.package_name in untyped:
+                untyped_pkg_dirs[npm_info.package_dir.dirname] = True
+        if npm_info.package_dir and npm_info.package_name not in pkg_info_map and npm_info.package_name not in untyped:
             pkg_info_map[npm_info.package_name] = npm_info
 
     # Then every transitive dep, for full coverage in tsconfig paths. Unavoidable
     # to_list: `paths` is a dict written into a file, not a depset.
+    #
+    # untyped_packages applies here too: the leak this attribute exists for
+    # arrives through a dependency's own .d.ts, so a package named only there is
+    # the usual one to keep out.
     for npm_info in direct_npm_infos:
         for transitive_info in npm_info.transitive_deps.to_list():
             trans_name = transitive_info.package_name
-            if trans_name not in pkg_info_map and transitive_info.package_dir:
+            if transitive_info.package_dir:
+                resolved_npm_names[trans_name] = True
+                if trans_name in untyped:
+                    untyped_pkg_dirs[transitive_info.package_dir.dirname] = True
+            if trans_name not in pkg_info_map and transitive_info.package_dir and trans_name not in untyped:
                 pkg_info_map[trans_name] = transitive_info
+
+    _untyped_names(ctx, resolved_npm_names)
 
     # Step 1b: build a map from runtime package name → @types package dir.
     # When a package like 'react' has a separate @types/react package, TypeScript
@@ -1786,11 +1864,13 @@ def _ts_compile_impl(ctx):
         # named `all/` and every `culori` import resolved inside that one
         # module. The pairing is npm's, so the answer is the package.
         if npm_info.types_package_dir:
-            types_override[pkg_name] = npm_info.types_package_dir.dirname
+            if npm_info.types_package_dir.dirname not in untyped_pkg_dirs:
+                types_override[pkg_name] = npm_info.types_package_dir.dirname
             continue
         for dts_file in own_declarations:
             if not dts_file.path.startswith(runtime_pkg_dir):
-                types_override[pkg_name] = dts_file.dirname
+                if dts_file.dirname not in untyped_pkg_dirs:
+                    types_override[pkg_name] = dts_file.dirname
                 break
 
     # Step 1c: build npm_pkg_dirs from pkg_info_map using types_override.
@@ -1816,6 +1896,12 @@ def _ts_compile_impl(ctx):
         # only when it finds no declarations there.
         alias = types_package_alias(pkg_name)
         if alias in ships_declarations:
+            alias = None
+
+        # untyped_packages names the specifier an import writes, and for a
+        # `@types/x` package that is `x`: leaving the alias standing would keep
+        # answering the very key the entry asked to have no answer.
+        if alias in untyped:
             alias = None
 
         # Override with @types/* dir when the runtime package has separate types.
@@ -2332,6 +2418,53 @@ fails the build rather than passing as a no-op.
         "deps": attr.label_list(
             doc = "Other ts_compile, ts_npm_package, css_library, css_module, asset_library, or json_library targets that this target depends on.",
             providers = [[TsDeclarationInfo, JsInfo], [TsDeclarationInfo], [CssInfo], [CssModuleInfo], [AssetInfo]],
+        ),
+        "untyped_packages": attr.string_list(
+            doc = """npm packages this target's type program leaves out entirely.
+
+A named package gets no `paths` key -- not its own, not one per `exports`
+subpath, and not the bare name a `@types/*` package would answer for it -- and
+no `files` entry.
+
+An entry names one package, and a package's declarations live wherever npm put
+them: `ms` ships none and is typed by `@types/ms`, so `["@types/ms"]` is the
+entry that takes those declarations out -- after which `ms` resolves to the
+runtime package it names rather than being redirected into them. `["ms"]` takes
+away the bare name `@types/ms` answered for it. Name both to leave nothing.
+
+The package stays in `deps`, its files stay among the action's inputs, and no
+JavaScript moves.
+
+Strict deps sees the exclusion, though. A DIRECT dep stays declared, so an
+import of it is still attributed. A package that was only REACHABLE -- the
+case this attribute is for -- leaves the reachable set with the key, so an
+import of it is a bare `TS2307` rather than "add this dep". That is the honest
+answer: adding the dep back would not type it, because the exclusion is what
+removed the types.
+
+The case is a package whose declarations are a GLOBAL SCRIPT -- a .d.ts with no
+top-level import or export. Everything such a file declares merges into every
+program the file is part of, and a dynamic `import()` loads it exactly like a
+static one. One `void import("@sentry/cloudflare")` in a browser component put
+@cloudflare/workers-types' `interface Element` and `interface Body` into
+lib.dom for 21 files in //web:web that name neither.
+
+An import of a named package then resolves to nothing, which is TS2307. Give
+this target a `declare module "<name>"` of its own in a .d.ts src to say what
+the import means here. That declaration answers only because the `paths` key is
+gone -- with the key in place TypeScript loads the file first and the globals
+arrive anyway -- so the two go together.
+
+Per target, and it does not travel: a dependent that needs the package resolves
+it as before. The editor is a different matter, because the tsconfig
+`bazel run //:refresh_tsconfig` writes has ONE `paths` map for the whole
+workspace: it drops a package no reached target contributes any more, and
+ts_refresh_tsconfig fails when one target here disagrees with another about it,
+naming `host_only_packages` as the one place a workspace-wide answer fits.
+
+Entries are npm package names as the lockfile spells them; one that matches no
+package in this target's closure fails the build rather than passing as a
+no-op.""",
         ),
         "target": attr.string(
             doc = "ECMAScript target version passed to oxc-bazel (e.g. 'es2022').",
