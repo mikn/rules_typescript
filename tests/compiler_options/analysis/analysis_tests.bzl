@@ -1,17 +1,20 @@
 """Analysis-time coverage for ts_compile.
 
-Two kinds of assertion live here, both of which a build test cannot make:
+Three kinds of assertion live here, none of which a build test can make:
 
   - what the rule *tells* the compilers -- the generated tsconfig and the oxc
     command line, read straight out of the registered actions;
-  - that every guard fails, with the message that names the way out.
+  - that every guard fails, with the message that names the way out;
+  - what a helper behind either one answers, called directly.
 
 A guard's target is tagged manual so that `bazel build //...` does not try to
 analyse it and stop on the very failure being asserted.
 """
 
-load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
+load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
 load("//ts:defs.bzl", "CssInfo")
+load("//ts/private:ts_compile.bzl", "types_entry_file", "types_entry_package_ref")
+load("//ts/private:ts_test.bzl", "test_compiler_options_json")
 
 def _written_file_action(env, suffix):
     for action in analysistest.target_actions(env):
@@ -350,10 +353,11 @@ def _tsconfig_baseline_impl(ctx):
 
 tsconfig_baseline_test = analysistest.make(_tsconfig_baseline_impl)
 
-def _fails_with(message):
+def _fails_with(*messages):
     def _impl(ctx):
         env = analysistest.begin(ctx)
-        asserts.expect_failure(env, message)
+        for message in messages:
+            asserts.expect_failure(env, message)
         return analysistest.end(env)
 
     return analysistest.make(_impl, expect_failure = True)
@@ -366,3 +370,147 @@ rejected_tsgo_arg_test = _fails_with("Only flags that report on the program are 
 declaration_map_without_tsgo_test = _fails_with("declaration_map on")
 mixed_source_roots_test = _fails_with("different roots, and one declaration emit has one rootDir")
 jsx_source_test = _fails_with("which oxc has no output extension for")
+
+def _requested_types_impl(ctx):
+    env = analysistest.begin(ctx)
+    action = _written_file_action(env, ".tsconfig.json")
+    asserts.true(env, action != None, "ts_compile generated no tsconfig")
+    if action == None:
+        return analysistest.end(env)
+
+    # The padded subpath entry is the one thing here that only this resolution
+    # puts in `files`: an @types/* dep's entry point arrives from the dep edge
+    # whether or not `types` names it, and an untrimmed entry resolved to
+    # nothing. Analysis reaching this assertion at all is the rest of the
+    # coverage -- the guard fails the target for any of the three entries it
+    # cannot resolve.
+    files = json.decode(action.content).get("files", [])
+    asserts.true(
+        env,
+        [f for f in files if "npm__vite__" in f and f.endswith("/client.d.ts")],
+        "the vite/client declaration is not in `files`: {}".format(files),
+    )
+    return analysistest.end(env)
+
+requested_types_test = analysistest.make(_requested_types_impl)
+
+def _types_file_entries_impl(ctx):
+    env = analysistest.begin(ctx)
+    action = _written_file_action(env, ".tsconfig.json")
+    asserts.true(env, action != None, "ts_compile generated no tsconfig")
+    if action == None:
+        return analysistest.end(env)
+
+    # A file-shaped entry is tsgo's to resolve, so each one has to survive into
+    # the config it reads -- and a blank one has to reach it without the guard
+    # demanding a dep for it, which is this target analysing at all.
+    types = json.decode(action.content)["compilerOptions"]["types"]
+    asserts.true(
+        env,
+        [entry for entry in types if entry.startswith("..") and entry.endswith("/typings")],
+        "the package-relative entry, rebased onto the generated config: {}".format(types),
+    )
+    asserts.true(env, "/abs/typings" in types, "the absolute entry: {}".format(types))
+    asserts.true(env, "vendor/local.d.ts" in types, "the declaration file entry: {}".format(types))
+    asserts.true(env, "" in types, "the empty entry: {}".format(types))
+    return analysistest.end(env)
+
+types_file_entries_test = analysistest.make(_types_file_entries_impl)
+
+def _fake_npm_package(name, root = None, subpaths = None, ambient = None):
+    return struct(
+        package_name = name,
+        exports_types_file = root,
+        subpath_types = subpaths or {},
+        ambient_types_file = ambient,
+    )
+
+def _types_entry_package_ref_impl(ctx):
+    env = unittest.begin(ctx)
+
+    asserts.equals(env, "vite/client", types_entry_package_ref("vite/client"), "a package subpath")
+    asserts.equals(env, "node", types_entry_package_ref("node"), "a bare package name")
+
+    # Gazelle trims before it reads the same shapes, so these three are entries
+    # it writes a dep for and this side has to spend it.
+    asserts.equals(env, "vite/client", types_entry_package_ref(" vite/client "), "a padded entry")
+    asserts.equals(env, "node", types_entry_package_ref("\tnode\n"), "a tab- and newline-padded entry")
+
+    # A path, which tsgo reads off disk: no dep resolves one, so no dep is
+    # missing when one does not. One assertion per shape, none of them reachable
+    # through another: a `.d.ts` suffix would exempt an absolute declaration
+    # file whatever its prefix said.
+    asserts.equals(env, "", types_entry_package_ref("./typings"), "a package-relative directory")
+    asserts.equals(env, "", types_entry_package_ref("../sibling/typings"), "a directory above the package")
+    asserts.equals(env, "", types_entry_package_ref("/abs/typings"), "an absolute directory")
+    asserts.equals(env, "", types_entry_package_ref("vendor/local.d.ts"), "a declaration file")
+
+    # Nothing names nothing: a blank entry trims away to no package at all,
+    # which is what Gazelle writes no dep for.
+    asserts.equals(env, "", types_entry_package_ref(""), "an empty entry")
+    asserts.equals(env, "", types_entry_package_ref("   "), "a blank entry")
+
+    return unittest.end(env)
+
+types_entry_package_ref_test = unittest.make(_types_entry_package_ref_impl)
+
+def _types_entry_file_impl(ctx):
+    env = unittest.begin(ctx)
+
+    vite = _fake_npm_package("vite", root = "index.d.ts", subpaths = {"./client": "client.d.ts"})
+    asserts.equals(env, "index.d.ts", types_entry_file("vite", vite), "the package itself")
+    asserts.equals(env, "client.d.ts", types_entry_file("vite/client", vite), "an exports subpath")
+    asserts.equals(env, "client.d.ts", types_entry_file(" vite/client ", vite), "a padded exports subpath")
+    asserts.equals(env, None, types_entry_file("", vite), "an empty entry")
+    asserts.equals(env, None, types_entry_file("./client.d.ts", vite), "a file, not this package")
+    asserts.equals(env, None, types_entry_file("vite/nope", vite), "a subpath it does not designate")
+    asserts.equals(env, None, types_entry_file("vitest", vite), "a longer name with the same prefix")
+
+    scoped = _fake_npm_package(
+        "@cloudflare/vitest-pool-workers",
+        subpaths = {"./types": "types.d.ts"},
+    )
+    asserts.equals(env, None, types_entry_file("@cloudflare/vitest-pool-workers", scoped), "a scoped package designating no root")
+    asserts.equals(env, "types.d.ts", types_entry_file("@cloudflare/vitest-pool-workers/types", scoped), "a scoped subpath")
+
+    # `types = ["node"]` is @types/node: the bare name is the only one anything
+    # writes, and its declarations are the package's ambient entry point.
+    node = _fake_npm_package("@types/node", ambient = "node.d.ts")
+    asserts.equals(env, "node.d.ts", types_entry_file("node", node), "the bare name a @types package supplies")
+    asserts.equals(env, "node.d.ts", types_entry_file("@types/node", node), "the @types package under its own name")
+    asserts.equals(env, None, types_entry_file("nodes", node), "a name the @types package does not supply")
+
+    bare = _fake_npm_package("culori")
+    asserts.equals(env, None, types_entry_file("culori", bare), "a package designating nothing at all")
+
+    return unittest.end(env)
+
+types_entry_file_test = unittest.make(_types_entry_file_impl)
+
+def _test_types_forwarded_impl(ctx):
+    env = unittest.begin(ctx)
+
+    folded = test_compiler_options_json(None, ["vite/client"], None)
+    asserts.true(env, folded != "", "ts_test dropped `types` from the options the rule reads")
+    if folded:
+        asserts.equals(env, ["vite/client"], json.decode(folded).get("types"), "ts_test folds `types` for the rule to read")
+    asserts.equals(env, "", test_compiler_options_json(None, None, None), "no options stays absent, not an empty object")
+
+    return unittest.end(env)
+
+test_types_forwarded_test = unittest.make(_test_types_forwarded_impl)
+
+unresolved_type_entry_test = _fails_with(
+    "compilerOptions.types entry \"vite/client\" on",
+    "No dep of this target publishes \"vite\"",
+)
+unresolved_type_subpath_test = _fails_with(
+    "designates no declarations for the subpath \"./nope\"",
+    "Did you mean one of the subpaths it does designate: ./client, ./internal, ./module-runner?",
+)
+unresolved_type_root_test = _fails_with(
+    "\"picomatch\" is a dep, but its package.json designates no declarations for the package root",
+    "It designates none, so the declarations have to be named as a file",
+)
+unresolved_type_near_miss_test = _fails_with("Did you mean one of these deps: vitest?")
+unresolved_test_types_test = _fails_with("compilerOptions.types entry \"vite/client\" on")

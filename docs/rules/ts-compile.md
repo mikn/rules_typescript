@@ -411,12 +411,43 @@ generated config, so they are written exactly as they would be in the package's
 own tsconfig. Other path-valued options are not rewritten: they resolve against
 the generated config's directory, so they belong in the `tsconfig` file.
 
-`types` names a file this target can see. It is not what puts a *dep's* globals
-in scope: a `.d.ts` in another target's `srcs` with no top-level import or
-export declares globals, and those reach every target that depends on it --
-however far down the graph the declaration sits, the scope a single `tsc` run
-over the same sources would give it -- when that target names the file in
-`public_globals`.
+`types` names a package resolved from `deps` (below) or a file this target can
+see. Neither is what puts a *dep's* globals in scope: a `.d.ts` in another
+target's `srcs` with no top-level import or export declares globals, and those
+reach every target that depends on it -- however far down the graph the
+declaration sits, the scope a single `tsc` run over the same sources would give
+it -- when that target names the file in `public_globals`.
+
+### A `types` entry that names a package
+
+`types = ["vite/client"]` names a package, and TypeScript would resolve it by
+walking `node_modules` for it. There is no `node_modules` here, so the rule
+resolves the entry against this target's `deps` and puts the declaration the
+package's own manifest designates into the generated config's `files`. Three
+spellings resolve: the package itself, one of its `exports` subpaths, and the
+bare name a paired `@types/*` package supplies (`node` is `@types/node`).
+
+An entry no dep answers fails at analysis, naming the entry and the dep to add.
+It has to, because nothing downstream would say it: `tsc` reports
+`error TS2688: Cannot find type definition file` for such an entry, and tsgo --
+the compiler this ruleset runs -- reports nothing at all and exits 0. The
+failure surfaces later, on whatever used the declarations that never arrived:
+`TS2339` on `import.meta.env` without `vite/client`, `TS2591` on `process`
+without `node`.
+
+Two ways out other than the dep: name a declaration file instead
+(`types = ["./worker-configuration.d.ts"]`, which no dep resolves and the check
+leaves alone), or state a `typeRoots` in `compiler_options` -- a target that
+does is exempt, since what sits under a `typeRoots` is the compiler's to find at
+action time and the rule cannot see it.
+
+Only the attribute is checked. A `types` in the `tsconfig` file the target names
+is a layer the rule does not read, so nothing there is resolved and nothing
+there is guarded: with `"types": ["vite/client"]` in the tsconfig and
+`@npm//:vite` in `deps`, the target analyses without complaint, generates a
+config whose `files` is empty, and fails in tsgo with `TS2339` on the
+`import.meta.env` those declarations would have typed. Put the entries in
+`compiler_options`.
 
 ### When two ambients declare the same thing
 

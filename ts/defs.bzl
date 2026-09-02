@@ -173,6 +173,18 @@ def ts_compile(
                                unrelated npm packages in the dep graph from
                                reaching the global scope. Relative entries
                                resolve against this target's package.
+                               An entry naming a package is resolved from `deps`,
+                               since there is no node_modules for TypeScript to
+                               walk, and one no dep answers is an analysis error:
+                               tsgo reports nothing for an entry that resolves to
+                               nothing. A target that sets typeRoots is exempt --
+                               what sits under one is the compiler's to find.
+                               Only this attribute is read: a `types` in the
+                               `tsconfig` file is a layer the rule cannot read,
+                               so nothing resolves those entries and nothing
+                               guards them -- a package named only there stays
+                               unresolved, with no diagnostic for the entry and
+                               the failure landing on whatever used it.
         compiler_options:      Any other compilerOptions, as a dict, e.g.
                                {"allowImportingTsExtensions": True}. Passed
                                through verbatim; relative paths in them resolve

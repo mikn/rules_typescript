@@ -37,6 +37,7 @@ load(
     "TsModuleInfo",
     "subpath_wildcards",
     "types_entry_file",
+    "types_entry_package_ref",
     "types_package_alias",
 )
 
@@ -235,10 +236,14 @@ def _requested_type_packages(rule_attr):
     decoded = json.decode(raw)
     if type(decoded) != "dict":
         return []
+
+    # The classification is ts_compile's: `not t.startswith(".")` was a fourth
+    # spelling of it, and a narrower one -- it kept `/abs.d.ts` and
+    # `x.d.ts`, which name a file no dep resolves.
     return [
         t
         for t in decoded.get("types", [])
-        if type(t) == "string" and not t.startswith(".")
+        if type(t) == "string" and types_entry_package_ref(t)
     ]
 
 def _first_requested_file(info, requested):
