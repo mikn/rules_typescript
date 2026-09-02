@@ -322,6 +322,10 @@ func stagedSources(files []string) []string {
 
 // The framework compiles what owned() claims off disk; nothing outside those
 // directories reaches the build except through a label the app rule names.
+//
+// dir is the workspace root -- the bundle is generated in the root package only
+// -- so the walk's rel is workspace-relative, which is what the labels below
+// and an anchored ts_exclude both read it as.
 func stagingLabelsOutside(dir string, tc *tsConfig, owned func(rel string) bool) []string {
 	labels := packageStagingLabels(dir, "", tc)
 	var walk func(rel string)
@@ -331,7 +335,7 @@ func stagingLabelsOutside(dir string, tc *tsConfig, owned func(rel string) bool)
 			if skipRolledUpDir(sub) || isExcludedDir(sub, tc.excludeDirs) || owned(subRel) {
 				continue
 			}
-			if isConfiguredExclude(sub, tc.excludePatterns) || isConfiguredExclude(subRel, tc.excludePatterns) {
+			if tc.excludesIn("").drops(subRel) {
 				continue
 			}
 			labels = append(labels, packageStagingLabels(filepath.Join(dir, subRel), subRel, tc)...)
@@ -371,7 +375,7 @@ func packageStagingLabels(absDir, rel string, tc *tsConfig) []string {
 		case isCSSFile(name):
 			css = append(css, name)
 		case !isTypeScriptFile(name), isFrameworkGeneratedFile(name), isTestFile(name):
-		case isConfiguredExclude(name, local.excludePatterns), nextOwnsFile(rel, name, local):
+		case local.excludesIn(rel).drops(name), nextOwnsFile(rel, name, local):
 		case isDocFile(name):
 			hasDoc = true
 		default:
@@ -686,6 +690,10 @@ func readLocalPackage(absDir, rel string, tc *tsConfig) localPackage {
 		return lp
 	}
 	local.targetName = ""
+	// A ts_exclude directive read here appends to the inherited lists, and the
+	// copy is what keeps that append off the config every other directory in
+	// the walk is still reading.
+	local.excludePatterns = append([]excludeRule(nil), tc.excludePatterns...)
 	for _, buildName := range []string{"BUILD.bazel", "BUILD"} {
 		f, err := rule.LoadFile(filepath.Join(absDir, buildName), rel)
 		if err != nil {
@@ -702,9 +710,7 @@ func readLocalPackage(absDir, rel string, tc *tsConfig) localPackage {
 					lp.ignored = true
 				}
 			case directiveExclude:
-				if value != "" {
-					local.excludePatterns = append(append([]string(nil), local.excludePatterns...), value)
-				}
+				local.addExcludePattern(rel, value)
 			case "exclude":
 				if value != "" {
 					lp.dropped = append(lp.dropped, value)

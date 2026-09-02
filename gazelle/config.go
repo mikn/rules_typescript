@@ -108,8 +108,10 @@ const (
 
 	// directiveExclude registers an additional file glob pattern to exclude
 	// from source targets. The value is a filepath.Match-style pattern matched
-	// against the file basename.
+	// against the file basename, or -- written with a leading "./" -- against
+	// the path relative to the directory whose build file declares it.
 	//   # gazelle:ts_exclude *.generated.ts
+	//   # gazelle:ts_exclude ./vite.config.ts
 	directiveExclude = "ts_exclude"
 
 	// directiveCodegen registers a custom ts_codegen target via a directive.
@@ -278,13 +280,13 @@ type tsConfig struct {
 	//   # gazelle:ts_warn_unresolved true
 	warnUnresolved bool
 
-	// excludePatterns holds additional file glob patterns (basenames only) to
-	// exclude from source targets beyond the built-in generated-file rules.
-	// Can be populated from gazelle_ts.json (deprecated) or
-	// # gazelle:ts_exclude directives. Directives append to the inherited list.
-	// Each entry is a simple pattern matched against the file basename using
-	// filepath.Match semantics.
-	excludePatterns []string
+	// excludePatterns holds the file glob patterns to exclude from source
+	// targets, from gazelle_ts.json (deprecated) or # gazelle:ts_exclude
+	// directives. Directives append to the inherited list, and each entry
+	// remembers the directory that declared it -- what an anchored pattern
+	// resolves against and the only build file where editing the directive
+	// changes anything.
+	excludePatterns []excludeRule
 
 	// excludeDirs holds directory basenames that should be excluded from
 	// Gazelle traversal. Loaded from the "excludeDirs" key in gazelle_ts.json
@@ -384,7 +386,7 @@ func (tc *tsConfig) clone() *tsConfig {
 	// runtimeDepsTest) must be copied so that a child's append does not mutate
 	// the parent's slice backing array.
 	if len(tc.excludePatterns) > 0 {
-		cp.excludePatterns = make([]string, len(tc.excludePatterns))
+		cp.excludePatterns = make([]excludeRule, len(tc.excludePatterns))
 		copy(cp.excludePatterns, tc.excludePatterns)
 	}
 	if len(tc.ambientTypes) > 0 {
@@ -1168,7 +1170,7 @@ func aliasTargetPath(target string) string {
 //	    "@components/": "src/components/"
 //	  },
 //	  "npmMappingFile": "npm/package_mapping.json",
-//	  "excludePatterns": ["*.generated.ts", "*.auto.ts"],
+//	  "excludePatterns": ["*.generated.ts", "./vite.config.ts"],
 //	  "excludeDirs": ["coverage", "storybook-static"],
 //	  "runtimeDeps": {
 //	    "test": ["@npm//:happy-dom", "@npm//:react", "@npm//:react-dom"]
@@ -1185,10 +1187,12 @@ type gazelleTs struct {
 	// bare-specifier imports are resolved using the default @npm// convention.
 	NpmMappingFile string `json:"npmMappingFile"`
 
-	// ExcludePatterns is a list of file glob patterns (matched against file
-	// basenames) to exclude from source targets in addition to the built-in
-	// generated-file exclusions (*.gen.ts, *.generated.ts, *.auto.ts).
-	// Patterns use filepath.Match semantics.
+	// ExcludePatterns is a list of file glob patterns to exclude from source
+	// targets. An entry reads exactly as the value of a # gazelle:ts_exclude
+	// directive does: bare, it is matched against the file basename at every
+	// depth below this directory; written with a leading "./", it is resolved
+	// against the directory holding this gazelle_ts.json and matched against
+	// the path. Patterns use filepath.Match semantics.
 	ExcludePatterns []string `json:"excludePatterns"`
 
 	// ExcludeDirs is a list of directory basenames to exclude from Gazelle
@@ -1371,7 +1375,10 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 				tc.npmPackages = overlayNpmMapping(tc.npmPackages, loadNpmMappingFile(npmPath))
 			}
 			if len(gtsCfg.ExcludePatterns) > 0 {
-				tc.excludePatterns = gtsCfg.ExcludePatterns
+				tc.excludePatterns = nil
+				for _, pattern := range gtsCfg.ExcludePatterns {
+					tc.addExcludePattern(rel, pattern)
+				}
 			}
 			if len(gtsCfg.ExcludeDirs) > 0 {
 				tc.excludeDirs = gtsCfg.ExcludeDirs
@@ -1520,10 +1527,7 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 					tc.ambientTypes = append(tc.ambientTypes, lbl)
 				}
 			case directiveExclude:
-				pattern := strings.TrimSpace(d.Value)
-				if pattern != "" {
-					tc.excludePatterns = append(tc.excludePatterns, pattern)
-				}
+				tc.addExcludePattern(rel, strings.TrimSpace(d.Value))
 			case directiveAssetDeclarationType:
 				ext, typeExpr, ok := parseAssetDeclarationTypeDirective(d.Value)
 				if !ok {

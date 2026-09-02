@@ -116,7 +116,7 @@ func isDocFile(name string) bool {
 // A checked-in file no rule declares as an output is an ordinary source however
 // it is named -- see claimedSrcs, which is what defers to ts_codegen. A
 // workspace that wants one out of its source targets anyway names it in
-// # gazelle:ts_exclude (isConfiguredExclude).
+// # gazelle:ts_exclude, which excludeSet.dropsBy reads.
 func isFrameworkGeneratedFile(name string) bool {
 	base := strings.TrimSuffix(strings.TrimSuffix(name, ".tsx"), ".ts")
 	return base == "routeTree.gen"
@@ -127,8 +127,7 @@ func isFrameworkGeneratedFile(name string) bool {
 // filepath.Match semantics.
 func isConfiguredExclude(name string, patterns []string) bool {
 	for _, pattern := range patterns {
-		matched, err := filepath.Match(pattern, name)
-		if err == nil && matched {
+		if globMatches(pattern, name) {
 			return true
 		}
 	}
@@ -234,17 +233,20 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 
 	// Collect TypeScript, CSS, and asset source files from the regular files list.
 	var (
-		srcFiles       []string // non-test, non-generated .ts/.tsx files
-		testFiles      []string // *.test.ts, *.spec.ts, etc.
-		docFiles       []string // *.doc.tsx, *.stories.tsx, etc.
-		cssFiles       []string // plain .css source files (side-effect imports)
-		cssModuleFiles []string // *.module.css files (default import → typed styles)
-		assetFiles     []string // image/font/svg asset files (NOT json)
-		jsonFiles      []string // .json data files → json_library (typed .d.ts)
-		excludedSrcs   []string // .ts/.tsx a ts_exclude directive dropped
-		ambientFiles   []string // .d.ts declaring globals, which only srcs membership carries
+		srcFiles       []string      // non-test, non-generated .ts/.tsx files
+		testFiles      []string      // *.test.ts, *.spec.ts, etc.
+		docFiles       []string      // *.doc.tsx, *.stories.tsx, etc.
+		cssFiles       []string      // plain .css source files (side-effect imports)
+		cssModuleFiles []string      // *.module.css files (default import → typed styles)
+		assetFiles     []string      // image/font/svg asset files (NOT json)
+		jsonFiles      []string      // .json data files → json_library (typed .d.ts)
+		excludedSrcs   []string      // .ts/.tsx a ts_exclude directive dropped, for the entry report
+		dropped        []excludedSrc // the same, plus the rolled-up ones, for the diagnostic
+		ambientFiles   []string      // .d.ts declaring globals, which only srcs membership carries
 		hasIndex       bool
 	)
+
+	ownExcludes := tc.excludesIn(args.Rel)
 
 	for _, f := range args.RegularFiles {
 		// Skip well-known config files before the JSON check so that Bazel/npm
@@ -278,8 +280,9 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		if isFrameworkGeneratedFile(f) {
 			continue
 		}
-		if isConfiguredExclude(f, tc.excludePatterns) {
+		if r, isDropped := ownExcludes.dropsBy(f); isDropped {
 			excludedSrcs = append(excludedSrcs, f)
+			dropped = append(dropped, excludedSrc{path: f, rule: r})
 			continue
 		}
 		if nextOwnsFile(args.Rel, f, tc) {
@@ -387,7 +390,8 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		if !isBoundary {
 			return language.GenerateResult{}
 		}
-		rolled := rolledUpIn(tc.packageBoundaryMode, args.Dir, tc.excludePatterns)
+		rolled := rolledUpIn(tc.packageBoundaryMode, args.Dir, ownExcludes)
+		dropped = append(dropped, rolled.excluded...)
 		// Every kind, not only the TypeScript ones: a declared out that is also
 		// checked in below the boundary would otherwise be a source and an
 		// output of the same package, whatever kind of file it is.
@@ -412,6 +416,15 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		sort.Strings(srcFiles)
 		sort.Strings(testFiles)
 		sort.Strings(docFiles)
+	}
+
+	// Said here, ahead of every early return below: a package whose only source
+	// was excluded classifies nothing and returns, and that is the drop most
+	// worth hearing about. Under a rolled-up boundary a non-boundary directory
+	// has already returned, so its files are reported once, by the package that
+	// rolls them up.
+	if len(dropped) > 0 {
+		reportExcludedSrcs(args, dropped)
 	}
 
 	// A generator that named no srcs reads the sources of the target it sits
@@ -1179,12 +1192,17 @@ func setTsConfig(r *rule.Rule, label string) {
 // target that named it. That is generationCanStage's question asked about a
 // different directory, and it is answered the same way: refuse, and say why.
 func tsConfigLabel(args language.GenerateArgs, tc *tsConfig) string {
-	if tc.tsConfigFile == "" || isConfiguredExclude("tsconfig.json", tc.excludePatterns) {
+	if tc.tsConfigFile == "" {
 		return ""
 	}
 	dirRel := path.Dir(tc.tsConfigFile)
 	if dirRel == "." {
 		dirRel = ""
+	}
+	// Asked about the directory holding the file, not about this one: that is
+	// where an anchored pattern naming it was resolved against.
+	if tc.excludesIn(dirRel).drops("tsconfig.json") {
+		return ""
 	}
 	// This package holds the file, and a rule is being generated here, so the
 	// BUILD file that makes the label resolve is the one being written.
@@ -1242,7 +1260,7 @@ func tsConfigLabel(args language.GenerateArgs, tc *tsConfig) string {
 // nil when the directory has none, or when becoming a package would cost the
 // package above it sources -- tsConfigLabel logs that case from the other side.
 func ownTsConfigRule(args language.GenerateArgs, tc *tsConfig) *rule.Rule {
-	if isConfiguredExclude("tsconfig.json", tc.excludePatterns) {
+	if tc.excludesIn(args.Rel).drops("tsconfig.json") {
 		return nil
 	}
 	if handWrittenTsConfigIn(args.Dir, args.Config.RepoRoot) == "" {

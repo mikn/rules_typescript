@@ -91,6 +91,7 @@ func main() {
 
 		codegenGlobLoads(it)
 		assetDeclarationTypeApplies(it)
+		anchoredExcludeHitsOnePath(it)
 	})
 }
 
@@ -131,6 +132,24 @@ func codegenGlobLoads(it *harness.IT) {
 		it.Fail("//src/i18n failed to load for some other reason than the empty glob")
 	}
 	it.Pass("a BUILD file in messages/ empties //src/i18n's glob and Bazel refuses the package")
+}
+
+// A bare ts_exclude pattern matches a basename, so it drops that name at every
+// depth below the declaration. The root's "./src/lib/lib.config.ts" is the
+// anchored form, and src/app's namesake is what says so: nothing about the
+// generated text distinguishes the two spellings in one package alone.
+func anchoredExcludeHitsOnePath(it *harness.IT) {
+	it.RequireNotContains(it.Path("src/lib/BUILD.bazel"), "lib.config.ts",
+		"the anchored exclusion did not drop src/lib/lib.config.ts")
+	it.Pass("src/lib/BUILD.bazel names no lib.config.ts")
+
+	it.RequireContains(it.Path("src/app/BUILD.bazel"), "lib.config.ts",
+		"the anchored exclusion reached the namesake in src/app")
+	it.Pass("src/app/BUILD.bazel still names its own lib.config.ts")
+
+	it.RequireFile(it.Bin("src/app/lib.config.js"),
+		"src/app/lib.config.ts is in the srcs but nothing compiled it")
+	it.Pass("src/app/lib.config.ts compiles; src/lib's namesake is out of the build")
 }
 
 // The converge tests assert generated BUILD text, and a type expression can
