@@ -2017,6 +2017,7 @@
     "**/e2e",
     "**/examples",
     "**/tests/integration",
+    "**/tests/untyped_packages",
     "tests/compiler_options/ext_helper.ts",
     "tests/compiler_options/ext_main.ts",
     "tests/compiler_options/webworker.ts",

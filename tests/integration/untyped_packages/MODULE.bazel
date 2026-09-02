@@ -1,0 +1,29 @@
+"""Integration test: a global-script npm package kept out of one target's program.
+
+The lockfile staged here is //tests/workers/pnpm-lock.yaml, the only one in this
+repo that resolves `@cloudflare/workers-types` -- 15k lines of .d.ts with no
+top-level import or export, whose `interface Element` merges into lib.dom for
+every program the file joins. wrangler's declaration entry point imports it, so
+`import("wrangler")` is enough to pull it in.
+
+The {RULES_TS_ROOT} placeholder is substituted at test runtime by the harness
+with the absolute path to the rules_typescript checkout.
+"""
+
+module(
+    name = "test_untyped_packages",
+    version = "0.0.0",
+    compatibility_level = 0,
+)
+
+bazel_dep(name = "rules_typescript", version = "0.0.0")
+local_path_override(
+    module_name = "rules_typescript",
+    path = "{RULES_TS_ROOT}",
+)
+
+register_toolchains("@rules_typescript//ts/toolchain:all")
+
+npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
+npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
+use_repo(npm, "npm", "pnpm")

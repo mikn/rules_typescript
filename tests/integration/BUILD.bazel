@@ -30,8 +30,8 @@ apiece is what bounds how many nested Bazel servers share one machine. Roughly
 three minutes each -- nextjs_test is ~293s alone. Which CI leg runs a test is
 its shard tag; tags.bzl holds both.
 
-  bazel test //tests/integration/...                 the whole suite, 19 tests
-  bazel test //tests/integration:integration_tests   the 16 in this package
+  bazel test //tests/integration/...                 the whole suite, 20 tests
+  bazel test //tests/integration:integration_tests   the 17 in this package
   bazel test //tests/integration:new_project_test    one of them
   bazel test --config=ci-integration-npm \
     //tests/integration/...                          one CI leg's subset
@@ -41,7 +41,7 @@ The three tests outside this package -- //tests/integration/npm_integrity,
 //tests/integration/npmrc_registry and //tests/integration/public_globals --
 are not in :integration_tests and cannot be: no such package exports its test.
 `//tests/integration/...`, which is what CI runs, is the pattern that covers
-all 19.
+all 20.
 """
 
 # Each child workspace is staged into a scratch dir at test time; Gazelle must
@@ -64,6 +64,7 @@ all 19.
 # gazelle:exclude svelte
 # gazelle:exclude sveltekit
 # gazelle:exclude tanstack
+# gazelle:exclude untyped_packages
 # gazelle:exclude vite_bundle
 
 load("@bazel_binaries//:defs.bzl", "bazel_binaries")
@@ -384,6 +385,29 @@ bazel_integration_test(
     workspace_path = "sveltekit/workspace",
 )
 
+# ── untyped_packages ──────────────────────────────────────────────────────────
+# Tests: ts_compile's `untyped_packages`, whose whole subject is a build that
+# must FAIL. `import("wrangler")` reaches @cloudflare/workers-types through
+# wrangler's own declarations, and that package is a global script whose
+# `interface Element` merges into lib.dom -- so an unrelated `host.append(child)`
+# stops compiling, which is what //web:web in the Lovable monorepo did 42 times
+# over 21 files. The attribute keeps it out; the same source then builds.
+#
+# The lockfile is //tests/workers/pnpm-lock.yaml, the only one here that
+# resolves that package.
+
+bazel_integration_test(
+    name = "untyped_packages_test",
+    timeout = "long",
+    bazel_binaries = bazel_binaries,
+    bazel_version = bazel_binaries.versions.current,
+    data = ["//:MODULE.bazel"],
+    tags = nested_bazel_tags(shard = "npm"),
+    test_runner = "//tests/integration/runners:untyped_packages_runner",
+    workspace_files = integration_test_utils.glob_workspace_files("untyped_packages"),
+    workspace_path = "untyped_packages",
+)
+
 # ── test_suite ────────────────────────────────────────────────────────────────
 
 test_suite(
@@ -404,6 +428,7 @@ test_suite(
         ":svelte_test",
         ":sveltekit_test",
         ":tanstack_test",
+        ":untyped_packages_test",
         ":vite_bundle_test",
     ],
 )

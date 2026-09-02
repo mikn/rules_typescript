@@ -390,6 +390,14 @@ puts the working directory in the user's source tree.
 - **Emitting a target that cannot build is worse than emitting none, and silence is worse than both.** Gazelle now names the framework and the reason instead.
 - **A config option another tool owns configures nothing.** `resolve.modules` is webpack's; Vite ignored it silently, so the dev server had no npm resolution at all and no test noticed, because no test imported an npm package from served source. A generated option is only real once something reads back the behaviour it was supposed to produce.
 - **A `catch` that warns is how a feature becomes a no-op.** `react_refresh = True` reached into `@vitejs/plugin-react/dist/index.mjs`, a filename that major no longer shipped, and served without Fast Refresh behind a `console.warn`. Fail with the label and the fix, or do not catch.
+- **The editor has ONE `paths` map, and that is a semantic limit, not a
+  detail.** A nested tsconfig extends the root and inherits its map unchanged
+  (which is why the root's aliases still resolve from a subdirectory), so
+  "resolve this specifier" is a per-target fact on the build and a
+  workspace-wide one in the editor. `ts_compile`'s `untyped_packages` is
+  per-target; `ts_refresh_tsconfig`'s `host_only_packages` is the workspace-wide
+  half, and `check_untyped_agreement` fails when the graph needs both answers
+  rather than letting an editor report what a build does not.
 - **Silence in a metadata map is not an answer.** `_exports_types` read `exports["."]` and stopped, so a string-valued entry with no `types` key — most of npm, and every `@types/*` package — resolved to nothing and the `paths` entry pointed at a directory. Read what the map designates, then fall through to the fields it is silent about.
 - **A real version bump is a test.** Only moving `@npm` to Vite 8 / vitest 4 fired `test.workspace`, the react entry point and the declaration-entry fallback. Two hubs on two majors looked like coverage of exactly that and supplied none of it.
 - **esbuild reads the workspace `tsconfig.json`, and that is not hermetic.**
