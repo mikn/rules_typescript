@@ -306,7 +306,7 @@ func TestDirective_Exclude_Single(t *testing.T) {
 	tc := makeConfig("", []rule.Directive{
 		directive(directiveExclude, "*.generated.ts"),
 	})
-	if len(tc.excludePatterns) != 1 || tc.excludePatterns[0] != "*.generated.ts" {
+	if len(tc.excludePatterns) != 1 || tc.excludePatterns[0].written != "*.generated.ts" {
 		t.Errorf("excludePatterns: got %v, want [*.generated.ts]", tc.excludePatterns)
 	}
 }
@@ -364,10 +364,10 @@ func TestConfig_Clone_SliceIsolation_ExcludePatterns(t *testing.T) {
 	parent := &tsConfig{
 		packageBoundaryMode: boundaryEveryDir,
 		declarations:        "tsgo",
-		excludePatterns:     []string{"*.gen.ts"},
+		excludePatterns:     []excludeRule{{written: "*.gen.ts"}},
 	}
 	child := parent.clone()
-	child.excludePatterns = append(child.excludePatterns, "*.auto.ts")
+	child.excludePatterns = append(child.excludePatterns, excludeRule{written: "*.auto.ts"})
 
 	if len(parent.excludePatterns) != 1 {
 		t.Errorf("parent excludePatterns mutated: got %v, want [*.gen.ts]", parent.excludePatterns)

@@ -532,17 +532,37 @@ Bare patterns are unchanged. `*.generated.ts` still matches a name at any depth,
 and a bare pattern that does carry a `/` — `sub/*.ts` — still matches the path a
 rolled-up file was reached by, relative to the package that claims it.
 
+`./` on its own has no path after it, so it resolves to the declaring
+directory's own path — and nothing a package reaches is ever compared against
+that, so the pattern excludes nothing at all. The run says so rather than
+accepting a directive that cannot do anything.
+
+#### Naming a directory depends on the boundary mode
+
+A directory name is read in one place only: the rollup walk, which runs in the
+modes where a plain subdirectory is **not** a package. Under the default
+`every-dir` mode that walk does not run, the subdirectory is a package in its own
+right, and a directory pattern reaches nothing there.
+
+| In `web/BUILD.bazel`, with `web/sub/s.ts` | default `every-dir` | `index-only` / `tsconfig` |
+| --- | --- | --- |
+| `# gazelle:ts_exclude sub` (or `./sub`) | `web/sub` is still its own package and still compiles `s.ts` | `web` does not roll `sub/s.ts` up, so no target compiles it |
+| `# gazelle:exclude sub` (Gazelle's own) | the walk is pruned: no BUILD file in `web/sub`, and nothing compiles `s.ts` | the walk is pruned, but the rollup walk is not: `web` still claims `sub/s.ts` |
+
+So under the default mode, dropping a whole directory is `# gazelle:exclude`
+(Gazelle's own directive, which prunes the walk) or a `# gazelle:ts_ignore` in
+that directory's own BUILD file — not `ts_exclude`.
+
 #### What a pattern drops is reported
 
-A run says what each pattern took out of the program, one line per pattern per
-package:
+A run says what each pattern took out of the targets it generated, one line per
+pattern per package:
 
 ```
-typescript: web: # gazelle:ts_exclude vite.config.ts keeps 2 TypeScript sources
-out of every generated target's srcs -- sub/vite.config.ts, vite.config.ts -- so
-nothing in the build compiles them. The pattern names no path, so it drops that
-name at every depth of this tree; "./vite.config.ts" anchors it to this
-directory.
+typescript: web: # gazelle:ts_exclude vite.config.ts leaves 1 TypeScript file
+out of the srcs generated here: web/vite.config.ts. It names no path, so it
+matches that basename at every depth below this directory; "./vite.config.ts"
+anchors it here.
 ```
 
 The count is the tell: that is how a pattern matching more than it meant to gets
@@ -551,6 +571,61 @@ line is bounded — three names and a count for the rest — and a pattern that
 matched nothing in a package says nothing there, so a root-level
 `*.generated.ts` is quiet everywhere it does not apply.
 
-A pattern that names a **directory** is not reported. It stops the walk before
-reading what is inside, and Gazelle does not walk a subtree only to count what
-the exclusion exists to skip.
+One line per package is what a bare pattern gets, because it reaches every
+package below the declaration: under the default `every-dir` mode a namesake in
+`web/sub` is a package of its own and is reported in its own line there. Under a
+rolled-up boundary `web` claims the subtree, and one line carries the whole
+count:
+
+```
+typescript: web: # gazelle:ts_exclude vite.config.ts leaves 2 TypeScript files
+out of the srcs generated here: web/sub/vite.config.ts, web/vite.config.ts. It
+names no path, so it matches that basename at every depth below this directory;
+"./vite.config.ts" anchors it here.
+```
+
+Directives are inherited, so the package a drop fires in is usually not the
+package holding the line to edit. The line names the declaring build file when
+those differ, and spells the anchored form so that writing it *there* names the
+package the drop fired in:
+
+```
+typescript: web: # gazelle:ts_exclude *.gen.ts, declared in the workspace root,
+leaves 1 TypeScript file out of the srcs generated here: web/mod.gen.ts. It names
+no path, so it matches that basename at every depth below the workspace root;
+"./web/*.gen.ts" in that build file matches web's own files only.
+```
+
+The claim is about the srcs of that run and no further. Exclusion happens at
+generation time and never sees the merge, and `rule.MergeList` keeps a list
+element carrying `# keep` — so a hand-kept `srcs` entry goes on compiling an
+excluded file:
+
+```python
+ts_compile(
+    name = "web",
+    srcs = [
+        "app.ts",
+        "vite.config.ts",  # keep — survives # gazelle:ts_exclude vite.config.ts
+    ],
+)
+```
+
+A pattern that names a **directory** is not reported. Where it does anything at
+all it stops the rollup walk before reading what is inside, and Gazelle does not
+walk a subtree only to count what the exclusion exists to skip.
+
+#### The same values in `gazelle_ts.json`
+
+The deprecated `excludePatterns` key takes exactly the values the directive
+does. A bare entry matches a basename at every depth below the directory holding
+the file; an anchored entry resolves against that directory:
+
+```json
+{
+  "excludePatterns": ["*.generated.ts", "./vite.config.ts"]
+}
+```
+
+In `web/gazelle_ts.json` that second entry drops `web/vite.config.ts` and leaves
+`web/sub/vite.config.ts` alone, the same as the directive in `web/BUILD.bazel`.

@@ -116,7 +116,7 @@ func isDocFile(name string) bool {
 // A checked-in file no rule declares as an output is an ordinary source however
 // it is named -- see claimedSrcs, which is what defers to ts_codegen. A
 // workspace that wants one out of its source targets anyway names it in
-// # gazelle:ts_exclude (isConfiguredExclude).
+// # gazelle:ts_exclude, which excludeSet.dropsBy reads.
 func isFrameworkGeneratedFile(name string) bool {
 	base := strings.TrimSuffix(strings.TrimSuffix(name, ".tsx"), ".ts")
 	return base == "routeTree.gen"
@@ -126,7 +126,12 @@ func isFrameworkGeneratedFile(name string) bool {
 // exclude patterns configured in gazelle_ts.json. Patterns use
 // filepath.Match semantics.
 func isConfiguredExclude(name string, patterns []string) bool {
-	return matchingExclude(name, patterns) != ""
+	for _, pattern := range patterns {
+		if globMatches(pattern, name) {
+			return true
+		}
+	}
+	return false
 }
 
 // isExcludedDir returns true when the given directory basename should be
@@ -275,9 +280,9 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		if isFrameworkGeneratedFile(f) {
 			continue
 		}
-		if pattern := ownExcludes.dropsBy(f); pattern != "" {
+		if r, isDropped := ownExcludes.dropsBy(f); isDropped {
 			excludedSrcs = append(excludedSrcs, f)
-			dropped = append(dropped, excludedSrc{path: f, pattern: pattern})
+			dropped = append(dropped, excludedSrc{path: f, rule: r})
 			continue
 		}
 		if nextOwnsFile(args.Rel, f, tc) {

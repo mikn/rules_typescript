@@ -8,14 +8,22 @@
   per package, naming the directive, the count, and up to three of the paths:
 
   ```
-  typescript: web: # gazelle:ts_exclude vite.config.ts keeps 2 TypeScript
-  sources out of every generated target's srcs -- sub/vite.config.ts,
-  vite.config.ts -- so nothing in the build compiles them. The pattern names no
-  path, so it drops that name at every depth of this tree; "./vite.config.ts"
-  anchors it to this directory.
+  typescript: web: # gazelle:ts_exclude vite.config.ts leaves 1 TypeScript file
+  out of the srcs generated here: web/vite.config.ts. It names no path, so it
+  matches that basename at every depth below this directory;
+  "./vite.config.ts" anchors it here.
   ```
 
-  A pattern that matched nothing in a package says nothing there, so a
-  root-level `*.generated.ts` is quiet everywhere it does not apply. A pattern
-  naming a directory is not reported: it stops the walk before reading what is
-  inside.
+  Directives are inherited, so the package a drop fires in is usually not the
+  package holding the line to edit. The line names the declaring build file when
+  the two differ, and spells the anchored form so that writing it there names
+  the package the drop fired in — `"./web/*.gen.ts"` for a `*.gen.ts` declared
+  at the workspace root and dropping a file in `web`.
+
+  The claim is about the srcs of that run and no further: exclusion happens at
+  generation time and never sees the merge, and `rule.MergeList` keeps a list
+  element carrying `# keep`, so a hand-kept `srcs` entry goes on compiling an
+  excluded file. A pattern that matched nothing in a package says nothing there,
+  so a root-level `*.generated.ts` is quiet everywhere it does not apply, and a
+  pattern naming a directory is not reported: where it acts at all it stops the
+  rollup walk before reading what is inside.

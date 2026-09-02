@@ -77,9 +77,9 @@ func rolledUpIn(mode string, dir string, excludes excludeSet) rolledUpFiles {
 		}
 		for _, name := range files {
 			joined := filepath.ToSlash(filepath.Join(rel, name))
-			if pattern := excludes.dropsBy(joined); pattern != "" {
+			if r, isDropped := excludes.dropsBy(joined); isDropped {
 				if isTypeScriptFile(name) && !isFrameworkGeneratedFile(name) {
-					out.excluded = append(out.excluded, excludedSrc{path: joined, pattern: pattern})
+					out.excluded = append(out.excluded, excludedSrc{path: joined, rule: r})
 				}
 				continue
 			}

@@ -10,6 +10,17 @@
   drops `web/vite.config.ts` and leaves the namesake below it alone. The path
   may be any depth (`./plugins/one.ts`), and a `*` does not cross a `/`, so
   `./*.gen.ts` covers the declaring directory's own files and no
-  subdirectory's. Bare patterns are unchanged: a name still matches at every
-  depth, and a bare pattern carrying a `/` still matches the path a rolled-up
-  file was reached by.
+  subdirectory's. `./` with no path after it resolves to the declaring
+  directory's own path, which nothing a package reaches is compared against, so
+  it is refused out loud rather than accepted as a directive that cannot act.
+
+  The `excludePatterns` key of the deprecated `gazelle_ts.json` takes the same
+  values, an anchored entry resolving against the directory holding the file.
+
+  Bare patterns are unchanged: a name still matches at every depth, and a bare
+  pattern carrying a `/` still matches the path a rolled-up file was reached by.
+  A pattern naming a **directory** is read only by the rollup walk, so it drops
+  the subtree under `# gazelle:ts_package_boundary index-only` or `tsconfig` and
+  reaches nothing under the default `every-dir` mode, where that subdirectory is
+  a package of its own — there `# gazelle:exclude` or a `# gazelle:ts_ignore` in
+  the subdirectory is what drops it. The directives reference carries the table.

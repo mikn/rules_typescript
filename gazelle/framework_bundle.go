@@ -693,8 +693,7 @@ func readLocalPackage(absDir, rel string, tc *tsConfig) localPackage {
 	// A ts_exclude directive read here appends to the inherited lists, and the
 	// copy is what keeps that append off the config every other directory in
 	// the walk is still reading.
-	local.excludePatterns = append([]string(nil), tc.excludePatterns...)
-	local.anchoredExcludes = append([]anchoredExclude(nil), tc.anchoredExcludes...)
+	local.excludePatterns = append([]excludeRule(nil), tc.excludePatterns...)
 	for _, buildName := range []string{"BUILD.bazel", "BUILD"} {
 		f, err := rule.LoadFile(filepath.Join(absDir, buildName), rel)
 		if err != nil {
