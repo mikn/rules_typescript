@@ -208,6 +208,33 @@ def _transitive_types_pairing_impl(ctx):
 
 transitive_types_pairing_test = analysistest.make(_transitive_types_pairing_impl)
 
+def _npm_json_installed_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    # ts_compile stages the same set into its sandbox (ts_compile.bzl's
+    # npm_json_depset); this is the editor half of that.
+    installed = _installed(env)
+    asserts.true(
+        env,
+        ".bazel/npm/entities/src/generated/.eslintrc.json" in installed,
+        "a package's non-manifest .json is installed beside its declarations: " +
+        str([d for d in installed if "entities/" in d and d.endswith(".json")]),
+    )
+
+    # A nested package.json is not inert data: it is the nearest manifest whose
+    # `type` a staged .d.ts inherits, and it decides what a directory-shaped
+    # `<pkg>/*` match resolves to. 22 of the 54 files this adds over the repo's
+    # own closure are these, so they are the half worth pinning.
+    asserts.true(
+        env,
+        ".bazel/npm/entities/dist/commonjs/package.json" in installed,
+        "a nested manifest comes with it: " +
+        str([d for d in installed if "entities/" in d and d.endswith("package.json")]),
+    )
+    return analysistest.end(env)
+
+npm_json_installed_test = analysistest.make(_npm_json_installed_impl)
+
 _MERGED_PACKAGE = "tests/lsp/option_groups"
 
 def _option_merge_impl(ctx):

@@ -44,6 +44,7 @@ load(
     "member_paths_test",
     "module_paths_test",
     "no_ambient_types_test",
+    "npm_json_installed_test",
     "transitive_types_pairing_test",
 )
 
@@ -261,5 +262,13 @@ ide_tsconfig(
 
 transitive_types_pairing_test(
     name = "transitive_types_pairing_test",
+    target_under_test = ":transitive_types_ide_tsconfig",
+)
+
+# The same closure, for the .json half: `entities` is the one package in
+# //tests/npm's lockfile shipping both declarations and a non-manifest .json,
+# and vitest reaches it.
+npm_json_installed_test(
+    name = "npm_json_installed_test",
     target_under_test = ":transitive_types_ide_tsconfig",
 )
