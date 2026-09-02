@@ -30,9 +30,13 @@ _SVG_COMPONENT = "(props: { className?: string }) => null"
 
 _TEXT_ASSET = "{ readonly words: number }"
 
+# The whole target is the ambient, and every consumer here is written against
+# it, so the `declare module` blocks in it are the public type surface rather
+# than a shim for this target's own build.
 ts_compile(
     name = "svgr_ambient",
     srcs = ["svgr.d.ts"],
+    public_globals = ["svgr.d.ts"],
 )
 
 # ── The controlled pair ───────────────────────────────────────────────────────

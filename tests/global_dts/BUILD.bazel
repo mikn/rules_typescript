@@ -1,16 +1,29 @@
-"""A global .d.ts in one target's srcs is in scope in a target that depends on it.
+"""Which of a target's global .d.ts reach a target that depends on it.
 
-`worker-configuration.d.ts` has no top-level import or export, so `Env` and
-`CLOUDFLARE_BINDINGS` are globals. Nothing imports them and no `types` entry
-names them, so compiling //tests/global_dts/consumer is the assertion.
+A .d.ts with no top-level import or export declares globals, and `public_globals`
+is what puts them in a consumer's program. A src no attribute names is private:
+it types the target that owns it and stops there.
+
+`:defaults` is that default with nothing said about it. Both its .d.ts declare
+globals, neither is named, and the two halves are compiling `defaults.ts`, which
+uses both, and `no_global_entry_test`, which is where "and no consumer gets
+them" is visible -- a global nobody exported leaves no artifact behind.
+
+`:bindings` is the export. `worker-configuration.d.ts` has no top-level import
+or export, so `Env` and `CLOUDFLARE_BINDINGS` are globals, and `public_globals`
+names it. Nothing imports them and no `types` entry names them, so compiling
+//tests/global_dts/consumer is the assertion.
 
 `secrets.d.ts` is the other half of the classification: it exports, so it is a
-module, and `Secret` is not in the consumer's scope.
+module, and `Secret` is not in the consumer's scope whatever any attribute says.
 
-`:settings` is the packaging question on top of the language one. Both of its
-.d.ts declare globals and `private_globals` withholds one. The two halves of
-that are compiling `settings.ts`, which uses the withheld global, and the
-`downstream` package, which is left with only the other.
+`:partial` is one target holding both kinds, with only the export declared:
+`shared-id.d.ts` is named and `local-shim.d.ts` is named nowhere, so the entry
+holds one of the two.
+
+`:settings` is `:partial` across a package boundary: `BUILD_ID` is exported and
+`STANDALONE_MODE` is not, and //tests/global_dts/downstream compiles against it
+to show the export travelling on a dep edge.
 """
 
 # nested/ holds one .d.ts and no BUILD file, so Gazelle would write a
@@ -22,9 +35,40 @@ that are compiling `settings.ts`, which uses the withheld global, and the
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("//ts:defs.bzl", "ts_compile")
-load(":global_dts_tests.bzl", "global_entry_files", "unknown_private_global_test")
+load(
+    ":global_dts_tests.bzl",
+    "global_entry_files",
+    "no_global_entry_test",
+    "unknown_public_global_test",
+)
 
 package(default_visibility = ["//:__pkg__"])
+
+# ── The default: unnamed is private ───────────────────────────────────────────
+
+# Two ambients and no attribute at all. Building this is the assertion that the
+# default costs a target nothing over its own srcs; no_global_entry_test is the
+# assertion that it hands a consumer nothing.
+ts_compile(
+    name = "defaults",
+    srcs = [
+        "default-only.d.ts",
+        "defaults.ts",
+        "tracked.d.ts",
+    ],
+)
+
+build_test(
+    name = "defaults_test",
+    targets = [":defaults"],
+)
+
+no_global_entry_test(
+    name = "no_global_entry_test",
+    target_under_test = ":defaults",
+)
+
+# ── public_globals ────────────────────────────────────────────────────────────
 
 ts_compile(
     name = "bindings",
@@ -33,6 +77,7 @@ ts_compile(
         "secrets.d.ts",
         "worker-configuration.d.ts",
     ],
+    public_globals = ["worker-configuration.d.ts"],
     visibility = ["//visibility:public"],
 )
 
@@ -60,12 +105,50 @@ diff_test(
     file2 = "global_entry_names.expected",
 )
 
-# ── private_globals ───────────────────────────────────────────────────────────
+# One target, both kinds, and only the export written down. `LOCAL_SHIM` stands
+# in for the ambient a package needs for its own standalone `tsc -p` and
+# `SHARED_ID` for one its consumers are meant to have.
+ts_compile(
+    name = "partial",
+    srcs = [
+        "local-shim.d.ts",
+        "partial.ts",
+        "shared-id.d.ts",
+    ],
+    public_globals = ["shared-id.d.ts"],
+)
+
+build_test(
+    name = "partial_test",
+    targets = [":partial"],
+)
+
+global_entry_files(
+    name = "partial_globals",
+    target = ":partial",
+)
+
+genrule(
+    name = "partial_entry_names",
+    srcs = [":partial_globals"],
+    outs = ["partial_entry_names.txt"],
+    cmd = "grep -o '[^/]*\\.d\\.ts' $(SRCS) > $@",
+)
+
+diff_test(
+    name = "partial_entry_names_test",
+    size = "small",
+    file1 = ":partial_entry_names",
+    file2 = "partial_entry_names.expected",
+)
+
+# ── An export across a package boundary ───────────────────────────────────────
 
 # `STANDALONE_MODE` stands in for the ambient a package keeps for its own
 # standalone `tsc -p` -- a `process` shim in a library with no @types/node --
 # and `BUILD_ID` for one its consumers are meant to have. Building this target
-# is the assertion that a withheld src still types the target that owns it.
+# is the assertion that the unexported src still types the target that owns it;
+# //tests/global_dts/downstream is the other end of the exported one.
 ts_compile(
     name = "settings",
     srcs = [
@@ -73,7 +156,7 @@ ts_compile(
         "settings.ts",
         "standalone-shim.d.ts",
     ],
-    private_globals = ["standalone-shim.d.ts"],
+    public_globals = ["build-id.d.ts"],
     visibility = ["//visibility:public"],
 )
 
@@ -101,21 +184,21 @@ diff_test(
     file2 = "scoped_entry_names.expected",
 )
 
-# A src the target does not compile has no globals of this target's to withhold,
-# so naming one is a typo or a file that moved, not a narrower export. Here it is
-# a file that moved: the same basename one directory down, which is the case the
-# diagnostic has to name rather than leave to a reading of the srcs list.
+# An export names a src this target compiles, so a label that is not one of them
+# is a typo or a file that moved, not a narrower export. Here it is a file that
+# moved: the same basename one directory down, which is the case the diagnostic
+# has to name rather than leave to a reading of the srcs list.
 ts_compile(
-    name = "unknown_private_global",
+    name = "unknown_public_global",
     srcs = [
         "shim.d.ts",
         "unknown.ts",
     ],
-    private_globals = ["nested/shim.d.ts"],
+    public_globals = ["nested/shim.d.ts"],
     tags = ["manual"],
 )
 
-unknown_private_global_test(
-    name = "unknown_private_global_test",
-    target_under_test = ":unknown_private_global",
+unknown_public_global_test(
+    name = "unknown_public_global_test",
+    target_under_test = ":unknown_public_global",
 )

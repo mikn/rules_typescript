@@ -1,0 +1,36 @@
+"""Integration test: an ambient is private to its own compilation unless exported.
+
+Which of a target's ambients a consumer gets is a claim about its srcs, and
+every half of it is compiler behaviour a passing build cannot show on its own:
+an ambient nobody exported must still type the target that owns it and must be
+absent from a consumer's program, and one `public_globals` names must reach the
+consumer. Absence is a type error, which needs a nested Bazel to assert.
+//tests/global_dts covers the artifact this leaves behind; this covers what
+tsgo does with it.
+
+The shim `vite_types = True` prepends is a src like any other, so it is asked
+the same question here: it types the target that sets the attribute, and a
+consumer of that target reaching for `import.meta.env` has to set it too.
+
+  bazel test //tests/integration/public_globals:public_globals_test
+"""
+
+load("@bazel_binaries//:defs.bzl", "bazel_binaries")
+load(
+    "@rules_bazel_integration_test//bazel_integration_test:defs.bzl",
+    "bazel_integration_test",
+    "integration_test_utils",
+)
+load("//tests/integration:tags.bzl", "nested_bazel_tags")
+
+bazel_integration_test(
+    name = "public_globals_test",
+    timeout = "long",
+    bazel_binaries = bazel_binaries,
+    bazel_version = bazel_binaries.versions.current,
+    data = ["//:MODULE.bazel"],
+    tags = nested_bazel_tags(),
+    test_runner = "//tests/integration/runners:public_globals_runner",
+    workspace_files = integration_test_utils.glob_workspace_files("workspace"),
+    workspace_path = "workspace",
+)

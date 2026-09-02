@@ -39,7 +39,7 @@ wiring, no extra flags in `.bazelrc`.
 | `module_name` | `string` | `""` | The bare specifier this target is importable as, e.g. `"@acme/ui"` |
 | `path_aliases` | `string_dict` | `{}` | Alias prefix → workspace-relative source directory. Must resolve to files this target stages: its own `srcs`, or `path_alias_srcs` |
 | `path_alias_srcs` | `label_list` | `[]` | Files a `path_aliases` entry resolves to when they are not in `srcs`. They join this target's type program, so a type error in one of them fails this target |
-| `private_globals` | `label_list` | `[]` | The `.d.ts` in `srcs` whose globals stay in this target's own program. See [Keeping an ambient out of a consumer's program](#keeping-an-ambient-out-of-a-consumers-program) |
+| `public_globals` | `label_list` | `[]` | The `.d.ts` in `srcs` whose globals every consumer gets too. Unnamed is private. See [Which ambients a consumer gets](#which-ambients-a-consumer-gets) |
 | `vite_types` | `bool` | `False` | Prepend the Vite ambient type shim to `srcs` |
 
 ### Sources
@@ -413,9 +413,10 @@ the generated config's directory, so they belong in the `tsconfig` file.
 
 `types` names a file this target can see. It is not what puts a *dep's* globals
 in scope: a `.d.ts` in another target's `srcs` with no top-level import or
-export declares globals, and those reach every target that depends on it,
-however far down the graph the declaration sits -- the scope a single `tsc` run
-over the same sources would give it.
+export declares globals, and those reach every target that depends on it --
+however far down the graph the declaration sits, the scope a single `tsc` run
+over the same sources would give it -- when that target names the file in
+`public_globals`.
 
 ### When two ambients declare the same thing
 
@@ -430,33 +431,45 @@ beats a later `declare module "*.icon.svg"` even for `star.icon.svg`.
 To let a package's ambient win instead, drop the project's competing
 declaration.
 
-### Keeping an ambient out of a consumer's program
+### Which ambients a consumer gets
 
-That scope is right about TypeScript and not always right about packaging. A
-package can hold an ambient it needs for its own standalone `tsc -p` that is no
-part of its public type surface -- the usual one being a `process` shim in a
-library with no `@types/node`, which then shadows the real `process` in every
-consumer that has it.
+That scope is right about TypeScript and not always right about packaging, so
+`ts_compile` does not give it to a consumer unless the owning target asks. A
+`.d.ts` in `srcs` types the target that owns it; `public_globals` is what also
+puts it in the program of everything that depends on that target.
 
-`private_globals` names such a file. It stays in `srcs`, so it still types this
-target's own compile; it is left out of the generated `<name>.globals.d.ts`
-consumers list in `files`, which is the only route its declarations had into
-their programs.
+```python
+ts_compile(
+    name = "worker_types",
+    srcs = ["worker-configuration.d.ts"],
+    public_globals = ["worker-configuration.d.ts"],
+)
+```
+
+Unnamed is private, and that is the default because the other way round is
+silent. A package can hold an ambient it needs for its own standalone
+`tsc -p` that is no part of its public type surface -- the usual one being a
+`process` shim in a library with no `@types/node`:
 
 ```python
 ts_compile(
     name = "ui",
     srcs = glob(["**/*.tsx"]) + ["types/ambient.d.ts"],
-    private_globals = ["types/ambient.d.ts"],
     tsconfig = "tsconfig.json",
 )
 ```
 
-A consumer that turns out to need one of those globals sees the identifier as
-undefined: nothing distinguishes a global that was withheld from one that never
-existed. Give that consumer the declaration through a dep of its own --
-`@types/node` for `process` -- or move the declaration into a `.d.ts` that
-`private_globals` does not name.
+Exported, that shim lands in `files` ahead of `@types/node` in every consumer
+that has the real `process`, and the duplicate identifier is reported inside a
+`.d.ts`, where `skipLibCheck: true` hides it. What the consumer sees is the
+shim's type at every use site and a diagnostic about a package it has never
+heard of.
+
+A consumer that turns out to need a global no `public_globals` names sees the
+identifier as undefined: nothing distinguishes a global that stayed private
+from one that never existed. Give that consumer the declaration through a dep
+of its own -- `@types/node` for `process` -- or name the file in the owning
+target's `public_globals`.
 
 The unit is the file, because the module-or-global question TypeScript answers
 is per file. A `.d.ts` mixing a shim for the package's own build with a
@@ -464,8 +477,13 @@ declaration consumers are meant to have is two files.
 
 Every entry must be in `srcs`, and must be global. Naming a `.d.ts` with a
 top-level import or export fails the build rather than passing as a no-op: a
-module's declarations were never in a consumer's scope, so withholding them
-states something about the file that is not true.
+module has no globals, so exporting them states nothing true about the file.
+
+`vite_types = True` is this rule applied to the shim it prepends. The shim is a
+src of the target that sets the attribute and of no other, so a consumer using
+`import.meta.env` sets `vite_types = True` itself. `ImportMeta` is in `lib`, so
+what that consumer sees is
+`TS2339: Property 'env' does not exist on type 'ImportMeta'`.
 
 ## Which Tool Emits the Declarations
 

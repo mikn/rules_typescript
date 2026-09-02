@@ -1209,9 +1209,11 @@ def _strict_deps_check(
 # runs, but whose path a consumer's `files` can name at analysis time.
 #
 # That a file declares globals is a fact about TypeScript; that its globals are
-# public is a decision about packaging, and `private_globals` is where a target
-# makes it. A withheld src is left out of those references -- the only route it
-# had into a consumer -- and stays in this target's own program unchanged.
+# part of the package's public type surface is a decision about packaging, and
+# `public_globals` is where a target makes it. Only a src named there is
+# referenced from the entry. Every other src stays in this target's own program
+# unchanged and has no route into a consumer's, which is the default because a
+# leaked ambient is silent in the consumer that it breaks.
 
 _GLOBAL_DTS_MJS = """\
 import { readFileSync, writeFileSync } from "node:fs";
@@ -1291,37 +1293,38 @@ const notGlobal = [];
 for (const entry of manifest) {
   if (entry === "") continue;
   const field = entry.split("\\t");
-  const withheld = field[2] === "1";
+  const exported = field[2] === "public";
   if (isModule(readFileSync(field[0], "utf8"))) {
-    if (withheld) notGlobal.push(field[0]);
+    if (exported) notGlobal.push(field[0]);
     continue;
   }
-  if (withheld) continue;
-  references.push('/// <reference path="' + field[1] + '" />');
+  if (exported) references.push('/// <reference path="' + field[1] + '" />');
 }
 if (notGlobal.length > 0) {
   process.stderr.write(
-    "ts_compile: private_globals names " + notGlobal.join(", ") + ", and a top-level " +
-      "import or export makes a .d.ts a module.\\nA module's declarations were never in " +
-      "a consumer's scope, so withholding them is a claim about this file that is not " +
-      "true.\\nDrop the entry from private_globals, or drop the import/export that makes " +
-      "the file a module.\\n",
+    "ts_compile: public_globals names " + notGlobal.join(", ") + ", and a top-level " +
+      "import or export makes a .d.ts a module.\\nA module has no globals to export -- its " +
+      "declarations are scoped to it -- so exporting them is a claim about this file that " +
+      "is not true.\\nDrop the entry from public_globals, or drop the import/export that " +
+      "makes the file a module; a consumer reaches a module's declarations by importing " +
+      "it.\\n",
   );
   process.exit(1);
 }
 writeFileSync(entryPath, references.join("\\n") + "\\n");
 """
 
-def _global_dts_entry(ctx, dts_srcs, withheld):
+def _global_dts_entry(ctx, dts_srcs, claims):
     """Registers the action that writes this target's global-declaration entry.
 
     Args:
         ctx:      Rule context.
         dts_srcs: The .d.ts files in srcs, module-scoped ones included.
-        withheld: Set of File.path that private_globals keeps out of the entry.
+        claims:   File.path -> "public", from _global_claims. A src it names is
+                  referenced from the entry, once the scan confirms it is global.
 
     Returns:
-        File: a generated .d.ts referencing the global ones among them.
+        File: a generated .d.ts referencing the exported global ones among them.
     """
     js_tool = get_js_tool(ctx)
     if not js_tool:
@@ -1342,7 +1345,7 @@ def _global_dts_entry(ctx, dts_srcs, withheld):
         manifest.add("{}\t{}\t{}".format(
             f.path,
             _relative_path(entry.dirname, f.dirname) + "/" + f.basename,
-            "1" if f.path in withheld else "0",
+            claims.get(f.path, ""),
         ))
 
     ctx.actions.run(
@@ -1393,31 +1396,34 @@ def _classify_srcs(ctx):
             )
     return compile_srcs, js_srcs, passthrough_dts
 
-def _withheld_globals(ctx, passthrough_dts):
-    """The srcs whose globals private_globals keeps out of every consumer.
+def _global_claims(ctx, passthrough_dts):
+    """The srcs whose owner says their globals are part of its public surface.
+
+    A src public_globals does not name carries no claim and is private: a
+    package's ambient is part of its own build and nothing else.
 
     Args:
         ctx:             Rule context.
         passthrough_dts: The .d.ts files in srcs.
 
     Returns:
-        dict: File.path of each withheld src, as a set.
+        dict: File.path -> "public", for the srcs public_globals names.
     """
     dts_paths = {f.path: True for f in passthrough_dts}
-    withheld = {}
-    for f in ctx.files.private_globals:
+    claims = {}
+    for f in ctx.files.public_globals:
         if f.path not in dts_paths:
             same_name = [d.short_path for d in passthrough_dts if d.basename == f.basename]
             listing = sorted([d.short_path for d in passthrough_dts])
             fail(
-                "ts_compile: private_globals on {} names '{}', which is ".format(ctx.label, f.short_path) +
-                "not in srcs.\nprivate_globals withholds a src from consumers, and a file " +
-                "this target does not compile has nothing to withhold.\n" +
+                "ts_compile: public_globals on {} names '{}', which is ".format(ctx.label, f.short_path) +
+                "not in srcs.\npublic_globals hands a src's globals to every consumer, and a " +
+                "file this target does not compile has no globals of its own to hand over.\n" +
                 ("Did you mean '{}'?\n".format(same_name[0]) if same_name else "") +
                 "The .d.ts in srcs are:\n  " + ("\n  ".join(listing) if listing else "(none)"),
             )
-        withheld[f.path] = True
-    return withheld
+        claims[f.path] = "public"
+    return claims
 
 def _validate_tsgo_args(ctx):
     """Rejects a tsgo flag that would move an output or change resolution."""
@@ -1483,7 +1489,7 @@ def _ts_compile_impl(ctx):
     pkg = ctx.label.package
 
     compile_srcs, js_srcs, passthrough_dts = _classify_srcs(ctx)
-    withheld_globals = _withheld_globals(ctx, passthrough_dts)
+    global_claims = _global_claims(ctx, passthrough_dts)
     _validate_tsgo_args(ctx)
     _validate_path_aliases(ctx, compile_srcs + js_srcs + passthrough_dts)
 
@@ -2008,15 +2014,16 @@ def _ts_compile_impl(ctx):
     transitive_css_exports = depset(transitive = transitive_css_exports_sets, order = "postorder")
     transitive_assets = depset(transitive = transitive_asset_sets, order = "postorder")
 
+    # No claim, nothing to reference: the entry would be an empty file every
+    # consumer lists in `files`, so the scan does not run at all.
     own_global_entries = [
-        _global_dts_entry(ctx, passthrough_dts, withheld_globals),
-    ] if passthrough_dts else []
+        _global_dts_entry(ctx, passthrough_dts, global_claims),
+    ] if passthrough_dts and global_claims else []
 
     # Nothing but a consumer's tsconfig names the entry, so a leaf target would
-    # never run the scan -- and the claim private_globals makes about a src is
+    # never run the scan -- and the claim public_globals makes about a src is
     # checked in that scan.
-    if withheld_globals:
-        validation_outputs.extend(own_global_entries)
+    validation_outputs.extend(own_global_entries)
 
     providers = [
         # This target's own outputs. A dep's files reach a consumer through the
@@ -2115,36 +2122,40 @@ ts_compile = rule(
 .d.ts           ambient declarations: type context for the check, passed
                 straight through to consumers, never in `include`. One with no
                 top-level import or export declares globals, and those are in
-                scope in every target that depends on this one unless
-                private_globals names the file.
+                scope in this target only, unless public_globals names the file.
 
 Paths are kept relative to the target's package, so srcs may span a subtree.
 """,
             allow_files = [".ts", ".tsx", ".d.ts", ".js", ".jsx", ".mjs", ".cjs"],
             mandatory = True,
         ),
-        "private_globals": attr.label_list(
-            doc = """The .d.ts in srcs whose globals stay in this target's own program.
+        "public_globals": attr.label_list(
+            doc = """The .d.ts in srcs whose globals every consumer gets too.
 
 A .d.ts with no top-level import or export declares globals, and TypeScript
 puts a global in every program the file is part of. That is a fact about the
 language; whether those globals are part of the package's public type surface
 is a decision about packaging, and this attribute is where a target makes it.
 
-A file named here still types this target's own compile -- it is in srcs and in
-the tsconfig this rule generates -- and is left out of the generated
-<name>.globals.d.ts that consumers list in `files`, which is the only route its
-declarations had into a consumer's program. The case it exists for is an
-ambient a package needs for its own standalone `tsc -p`: a shared library's
-`declare const process` is real to that build and collides with @types/node in
-every consumer that has the real thing.
+Unnamed is private. A src no entry here names types this target's own compile
+-- it is in srcs and in the tsconfig this rule generates -- and is left out of
+the generated <name>.globals.d.ts that consumers list in `files`, which is the
+only route its declarations have into a consumer's program. The default is that
+way round because the other way is silent: a library's `declare const process`
+shim, real to its own standalone `tsc -p`, lands in `files` ahead of
+@types/node in every consumer that has the real thing, and the duplicate
+identifier is inside a .d.ts, where skipLibCheck hides it.
 
-A consumer that needs a withheld global sees the identifier as undefined, since
-nothing distinguishes a global that was withheld from one that never existed.
-Give that consumer the declaration through a dep of its own -- @types/node for
-`process` -- or move the declaration into a .d.ts this attribute does not name.
-The unit is the file, so a .d.ts holding declarations for both audiences is two
-files.
+Name a file here for the declarations consumers are meant to have: a Worker's
+generated `worker-configuration.d.ts`, a `declare module "*.svg"` a bundler
+plugin backs. The unit is the file, because the module-or-global question
+TypeScript answers is per file, so a .d.ts holding declarations for both
+audiences is two files.
+
+A consumer that turns out to need a global this does not name sees the
+identifier as undefined; nothing distinguishes a global that stayed private
+from one that never existed. Give that consumer the declaration through a dep
+of its own -- @types/node for `process` -- or name the file here.
 
 Every entry must be in srcs, and must be global: naming a module-scoped .d.ts
 fails the build rather than passing as a no-op.

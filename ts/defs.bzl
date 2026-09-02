@@ -206,7 +206,7 @@ def ts_compile(
                                URL imports (*.svg, *.png, etc.) without requiring vite as a
                                compile-time dependency. Default False.
         **kwargs:              Additional args forwarded to the rule (e.g. module_name,
-                               private_globals, visibility, tags).
+                               public_globals, visibility, tags).
     """
     if deps == None:
         deps = []
