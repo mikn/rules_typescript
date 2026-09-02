@@ -190,7 +190,14 @@ def _npm_entries(rule_attr):
             subpaths = {}
         else:
             root = info.package_dir.dirname
-            sources = info.declaration_files.to_list() + [info.package_dir]
+
+            # The editor half of ts_compile's npm_json_depset: the `<name>/*`
+            # key already points into this directory.
+            sources = (
+                info.declaration_files.to_list() +
+                info.json_files.to_list() +
+                [info.package_dir]
+            )
             entry = _under(info.exports_types_file, root) if info.exports_types_file else None
             is_file = entry != None
             entry = entry or ""
