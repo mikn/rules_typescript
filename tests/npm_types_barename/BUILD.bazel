@@ -18,6 +18,7 @@ load(
     "editor_transitive_types_test",
     "editor_types_alias_test",
     "editor_types_precedence_test",
+    "npm_ambient_repoint_test",
     "npm_key_beats_test",
     "types_alias_precedence_test",
     "types_package_alias_test",
@@ -258,6 +259,8 @@ editor_key_collision_test(
 )
 
 npm_key_beats_test(name = "npm_key_beats_test")
+
+npm_ambient_repoint_test(name = "npm_ambient_repoint_test")
 
 # ── The two configs, compared ────────────────────────────────────────────────
 # Neither analysis test above can see both files: a rule's generated tsconfig

@@ -13,7 +13,7 @@ resolve a @types/* package at all.
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
 load("//ts/private:ts_compile.bzl", "types_package_alias")
-load("//ts/private:tsconfig_aspect.bzl", "WorkspaceCopyInfo", "npm_key_beats")
+load("//ts/private:tsconfig_aspect.bzl", "WorkspaceCopyInfo", "npm_key_beats", "npm_view")
 
 _TYPES = "+npm+npm__types_"
 
@@ -266,12 +266,161 @@ def _editor_key_collision_impl(ctx):
         paths.get("@types/chai"),
         "the @types package still gets no key of its own",
     )
+
+    installed = {
+        entry.dest: True
+        for entry in analysistest.target_under_test(env)[WorkspaceCopyInfo].entries.to_list()
+    }
+    asserts.true(
+        env,
+        ".bazel/npm/chai/index.d.ts" in installed,
+        "the declarations the winning key points at are installed: " +
+        str([d for d in installed if "chai" in d]),
+    )
+
+    # :types_only_chai deps on @types/chai directly, so it asks for the globals
+    # and the alias is in `files` -- under its own name that is a second copy of
+    # the declarations the `chai` key already reaches, and each name in them is
+    # then declared twice. There is exactly one copy in the program because the
+    # entry names the winner's.
+    asserts.equals(
+        env,
+        ["./.bazel/npm/chai/index.d.ts"],
+        config.get("files"),
+        "the ambient entry names the winner's copy",
+    )
+
+    # A `files` entry off disk is not a diagnostic in one file: tsserver reports
+    # it against the config and checks nothing.
+    asserts.equals(
+        env,
+        [],
+        [f for f in config.get("files", []) if f.removeprefix("./") not in installed],
+        "no `files` entry names a path nothing installs: " + str(config.get("files")),
+    )
+
+    # `files` switches off the implicit include, so the workspace's own sources
+    # are in the program only while this is spelled out beside it.
+    asserts.equals(env, ["**/*"], config.get("include"), "and `include` is spelled out")
     return analysistest.end(env)
 
 editor_key_collision_test = analysistest.make(_editor_key_collision_impl)
 
-def _entry(key, name):
-    return struct(key = key, name = name, version = "1.0.0", entry = "", is_file = False)
+def _sources(paths, ambient, files):
+    return [struct(
+        npm_paths = depset(paths),
+        npm_ambient = depset(ambient),
+        npm_files = depset(files),
+    )]
+
+def _ambient(name, entry):
+    return struct(name = name, version = "1.0.0", entry = entry)
+
+def _installed(name, dest):
+    return struct(name = name, version = "1.0.0", dest = dest, file = None)
+
+def _npm_ambient_repoint_impl(ctx):
+    env = unittest.begin(ctx)
+
+    alias = _entry("chai", "@types/chai")
+    runtime = _entry("chai", "chai")
+
+    # The shape :key_collision_ide_tsconfig has: chai ships no declarations of
+    # its own, so its entry stages @types/chai's file layout under `chai` and
+    # the losing entry has a copy to be repointed at.
+    _, repointed, _ = npm_view(_sources(
+        [alias, runtime],
+        [_ambient("@types/chai", "index.d.ts")],
+        [_installed("chai", "index.d.ts"), _installed("@types/chai", "index.d.ts")],
+    ))
+    asserts.equals(
+        env,
+        [("@types/chai", struct(dir = "chai", entry = "index.d.ts"))],
+        repointed,
+        "the losing entry names the winner's copy",
+    )
+
+    # The winner shipping its own declarations elsewhere is the shape with no
+    # copy to name: emitting `chai/index.d.ts` anyway would fail the program.
+    _, dropped, _ = npm_view(_sources(
+        [alias, runtime],
+        [_ambient("@types/chai", "index.d.ts")],
+        [_installed("chai", "dist/chai.d.ts"), _installed("@types/chai", "index.d.ts")],
+    ))
+    asserts.equals(env, [], dropped, "and drops rather than dangle")
+
+    # A name that won its key is untouched, and so is one that claimed nothing:
+    # an `@types/x` shadowed within one closure never reaches npm_paths at all,
+    # and its declarations are its own rather than a second copy of anything.
+    _, kept, _ = npm_view(_sources(
+        [alias],
+        [_ambient("@types/chai", "index.d.ts")],
+        [_installed("@types/chai", "index.d.ts")],
+    ))
+    asserts.equals(
+        env,
+        [("@types/chai", struct(dir = "@types/chai", entry = "index.d.ts"))],
+        kept,
+        "a winning entry keeps its own directory",
+    )
+    _, unclaimed, _ = npm_view(_sources(
+        [runtime],
+        [_ambient("@types/chai", "index.d.ts")],
+        [_installed("chai", "index.d.ts"), _installed("@types/chai", "index.d.ts")],
+    ))
+    asserts.equals(
+        env,
+        [("@types/chai", struct(dir = "@types/chai", entry = "index.d.ts"))],
+        unclaimed,
+        "and so does one that claimed no key",
+    )
+
+    # A winner that names its own `types` entry is not serving the loser's
+    # declarations, even when it happens to ship a file where the loser's sat --
+    # a legacy root stub beside an `exports` entry under dist/ is an ordinary
+    # npm shape. Repointing at that stub would swap the globals for an
+    # unrelated file with no diagnostic.
+    _, stub, _ = npm_view(_sources(
+        [alias, _entry("chai", "chai", entry = "dist/index.d.ts", is_file = True)],
+        [_ambient("@types/chai", "index.d.ts")],
+        [
+            _installed("chai", "dist/index.d.ts"),
+            _installed("chai", "index.d.ts"),
+            _installed("@types/chai", "index.d.ts"),
+        ],
+    ))
+    asserts.equals(env, [], stub, "a legacy stub at the loser's path is not the winner's copy")
+
+    # A collision is per key. An `@types/x` that loses the bare `x` and wins a
+    # subpath key of its own has still lost the bare one, and its copy under
+    # that key is still duplicated.
+    _, subpath, _ = npm_view(_sources(
+        [
+            alias,
+            runtime,
+            _entry("chai/register-should", "@types/chai", entry = "register-should.d.ts", is_file = True),
+        ],
+        [_ambient("@types/chai", "index.d.ts")],
+        [
+            _installed("chai", "index.d.ts"),
+            _installed("chai", "register-should.d.ts"),
+            _installed("@types/chai", "index.d.ts"),
+            _installed("@types/chai", "register-should.d.ts"),
+        ],
+    ))
+    asserts.equals(
+        env,
+        [("@types/chai", struct(dir = "chai", entry = "index.d.ts"))],
+        subpath,
+        "winning a subpath key does not exempt the bare key it lost",
+    )
+
+    return unittest.end(env)
+
+npm_ambient_repoint_test = unittest.make(_npm_ambient_repoint_impl)
+
+def _entry(key, name, entry = "", is_file = False):
+    return struct(key = key, name = name, version = "1.0.0", entry = entry, is_file = is_file)
 
 def _npm_key_beats_impl(ctx):
     env = unittest.begin(ctx)
