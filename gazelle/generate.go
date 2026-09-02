@@ -42,6 +42,16 @@ func isTypeScriptFile(name string) bool {
 	return strings.HasSuffix(name, ".ts") || strings.HasSuffix(name, ".tsx")
 }
 
+// isCompileSrcFile is isTypeScriptFile widened by whatever a ts_js_srcs
+// directive admitted. It answers the srcs question only: what makes a file an
+// index or a framework entry point stays .ts/.tsx, since an admitted .mjs is
+// compiled by the target that claims it and is not a reason for a directory to
+// become a package or for an app to boot from it.
+func isCompileSrcFile(name string, jsSrcExts []string) bool {
+	return isTypeScriptFile(name) ||
+		slices.Contains(jsSrcExts, strings.ToLower(path.Ext(name)))
+}
+
 // isCSSFile returns true for .css source files (including .module.css).
 func isCSSFile(name string) bool {
 	return strings.HasSuffix(name, ".css")
@@ -96,14 +106,25 @@ func isAmbientDeclaration(dir, name string) bool {
 // isTestFile returns true for files that should be compiled as test targets.
 // Patterns: *.test.ts, *.test.tsx, *.spec.ts, *.spec.tsx
 func isTestFile(name string) bool {
-	base := strings.TrimSuffix(strings.TrimSuffix(name, ".tsx"), ".ts")
+	base := trimSourceExtension(name)
 	return strings.HasSuffix(base, ".test") || strings.HasSuffix(base, ".spec")
+}
+
+// trimSourceExtension drops the extension of a file a generated target
+// compiles, so .test / .spec / .doc read a .mjs the way they read a .ts.
+func trimSourceExtension(name string) string {
+	for _, ext := range []string{".tsx", ".ts", ".mjs", ".cjs", ".js"} {
+		if strings.HasSuffix(name, ext) {
+			return strings.TrimSuffix(name, ext)
+		}
+	}
+	return name
 }
 
 // isDocFile returns true for files that document or demonstrate the package.
 // Patterns: *.doc.ts, *.doc.tsx, *.stories.ts, *.stories.tsx
 func isDocFile(name string) bool {
-	base := strings.TrimSuffix(strings.TrimSuffix(name, ".tsx"), ".ts")
+	base := trimSourceExtension(name)
 	return strings.HasSuffix(base, ".doc") || strings.HasSuffix(base, ".stories")
 }
 
@@ -274,7 +295,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 			}
 			continue
 		}
-		if !isTypeScriptFile(f) {
+		if !isCompileSrcFile(f, tc.jsSrcExts) {
 			continue
 		}
 		if isFrameworkGeneratedFile(f) {
@@ -390,7 +411,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		if !isBoundary {
 			return language.GenerateResult{}
 		}
-		rolled := rolledUpIn(tc.packageBoundaryMode, args.Dir, ownExcludes)
+		rolled := rolledUpIn(tc.packageBoundaryMode, args.Dir, ownExcludes, tc.jsSrcExts)
 		dropped = append(dropped, rolled.excluded...)
 		// Every kind, not only the TypeScript ones: a declared out that is also
 		// checked in below the boundary would otherwise be a source and an

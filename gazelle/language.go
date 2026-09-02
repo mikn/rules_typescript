@@ -69,6 +69,8 @@ func (l *tsLang) KnownDirectives() []string {
 		directiveNpmHub,
 		// Declare what an asset extension's import resolves to in this tree.
 		directiveAssetDeclarationType,
+		// Admit JavaScript sources of the named extensions into generated srcs.
+		directiveJSSrcs,
 	}
 }
 

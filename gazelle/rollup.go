@@ -22,8 +22,8 @@ import (
 // A descendant stops the walk when it is a package in its own right: it has an
 // index file, or it has a BUILD file, which is either a package already or a
 // deliberate statement that it should be one.
-func rolledUpSrcs(dir string, excludes excludeSet) (srcs, tests []string) {
-	r := rolledUp(dir, excludes)
+func rolledUpSrcs(dir string, excludes excludeSet, jsSrcExts []string) (srcs, tests []string) {
+	r := rolledUp(dir, excludes, jsSrcExts)
 	return r.srcs, r.tests
 }
 
@@ -51,13 +51,13 @@ type rolledUpFiles struct {
 // beside a rolled-up source is imported by it, so leaving it behind gives that
 // import nothing to resolve to and the specifier becomes a label for a package
 // that cannot exist.
-func rolledUp(dir string, excludes excludeSet) rolledUpFiles {
-	return rolledUpIn(boundaryIndexOnly, dir, excludes)
+func rolledUp(dir string, excludes excludeSet, jsSrcExts []string) rolledUpFiles {
+	return rolledUpIn(boundaryIndexOnly, dir, excludes, jsSrcExts)
 }
 
 // rolledUpIn is rolledUp for a named boundary mode: what stops the walk is
 // whatever makes a directory a package in that mode.
-func rolledUpIn(mode string, dir string, excludes excludeSet) rolledUpFiles {
+func rolledUpIn(mode string, dir string, excludes excludeSet, jsSrcExts []string) rolledUpFiles {
 	var out rolledUpFiles
 	stops := func(d string) bool { return dirIsItsOwnPackageIn(mode, d) }
 	var walk func(rel string)
@@ -78,13 +78,13 @@ func rolledUpIn(mode string, dir string, excludes excludeSet) rolledUpFiles {
 		for _, name := range files {
 			joined := filepath.ToSlash(filepath.Join(rel, name))
 			if r, isDropped := excludes.dropsBy(joined); isDropped {
-				if isTypeScriptFile(name) && !isFrameworkGeneratedFile(name) {
+				if isCompileSrcFile(name, jsSrcExts) && !isFrameworkGeneratedFile(name) {
 					out.excluded = append(out.excluded, excludedSrc{path: joined, rule: r})
 				}
 				continue
 			}
 			switch {
-			case isTypeScriptFile(name):
+			case isCompileSrcFile(name, jsSrcExts):
 				if isFrameworkGeneratedFile(name) {
 					continue
 				}

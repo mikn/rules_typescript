@@ -24,8 +24,9 @@ Directives go in `BUILD.bazel` files as comments and control how Gazelle generat
 | `# gazelle:ts_codegen <name> <generator> <outs> [srcs:<csv>] [args…]` | Register a `ts_codegen` target in this directory; a `srcs:` entry may be a `glob()` call |
 | `# gazelle:ts_npm_hub npm_eslint` | Resolve bare specifiers in this tree into that npm hub repo, not the default `@npm` |
 | `# gazelle:ts_asset_declaration_type .svg <type>` | What an import of that asset extension resolves to in this tree, written into every `asset_library`'s `declaration_type` |
+| `# gazelle:ts_js_srcs .mjs .cjs` | Admit JavaScript sources of these extensions into the `srcs` Gazelle generates in this tree; named with nothing after it, admit none |
 
-That is the complete set: twelve directives. Gazelle warns on an unknown
+That is the complete set: thirteen directives. Gazelle warns on an unknown
 `# gazelle:ts_*` comment and continues, so a typo shows up in the run output.
 
 ## `# keep`
@@ -471,6 +472,51 @@ Building with `--//ts:lib_check`, or the consuming target alone with
 names the generated `<asset>.d.ts`, whose header names the target and the
 attribute. See
 [`asset_library`](../rules/css-and-assets.md#when-an-asset-is-not-a-url).
+
+### Admit a `.mjs` or `.cjs` into `srcs`
+
+`ts_compile` has always accepted `.js`, `.mjs` and `.cjs` in `srcs`: they are
+staged into the output tree unchanged and added to the type program, and under
+the default `declarations = "tsgo"` each one gets a declaration
+(`.d.ts` / `.d.mts` / `.d.cts`) the way `tsc` emits one. Gazelle does not put
+them there on its own, because most `.mjs` in a repository is configuration —
+`eslint.config.mjs`, `postcss.config.mjs` — and type-checking those is nobody's
+intent. This directive is the opt-in:
+
+```python
+# scripts/BUILD.bazel
+
+# gazelle:ts_js_srcs .mjs .cjs
+```
+
+A `scripts/lib/helper.mjs` beside the `helper.test.ts` that imports
+`./helper.mjs` is now a src of the target that compiles the test, and the import
+resolves. Without it that `.mjs` belongs to no generated target at all, and the
+import fails the type check as an unresolved module (`TS2307`), which is the one
+symptom this directive is for.
+
+The value is the whole set, so a subdirectory naming one extension admits that
+one alone, and naming none returns the subtree to `.ts`/`.tsx`:
+
+```python
+# scripts/vendor/BUILD.bazel
+
+# Vendored, and not ours to type-check.
+# gazelle:ts_js_srcs
+```
+
+Plain `.js` is not admissible, and the directive refuses it by name: `ts_compile`
+already declares `<stem>.js` as the output of a `.ts` src of the same stem, so a
+checked-in `foo.js` beside `foo.ts` would be one file declared twice and fail
+analysis. `.mjs` and `.cjs` get `.d.mts` / `.d.cts` instead and cannot collide.
+
+Admission is about `srcs` and nothing else. What makes a directory a package in
+`index-only` mode is still an `index.ts`/`index.tsx`, and a framework entry point
+is still `.ts`/`.tsx`: an admitted `.mjs` is compiled by the target that claims
+it, and is not a reason for a directory to become one or for an app to boot from
+it. `checkJs` is off, as it is in `ts_compile` — the JSDoc types in an admitted
+file cross the package boundary, and the file's own body is not checked unless
+`compiler_options` says so.
 
 ### A glob does not cross a package boundary
 

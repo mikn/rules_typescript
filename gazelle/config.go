@@ -154,6 +154,18 @@ const (
 	// The extension alone declares that this tree resolves it to nothing in
 	// particular, and Gazelle removes the entry.
 	directiveAssetDeclarationType = "ts_asset_declaration_type"
+
+	// directiveJSSrcs admits JavaScript sources into the srcs of the targets
+	// generated in this tree. The value is the set of extensions to admit:
+	//
+	//	# gazelle:ts_js_srcs .mjs .cjs
+	//
+	// ts_compile has always accepted .js/.mjs/.cjs in srcs, so this is a policy
+	// question and not a capability one: admitting them everywhere would put
+	// eslint.config.mjs and postcss.config.mjs into the type program of every
+	// repo that never asked for it. Named with nothing after it the directive
+	// admits none of them, which is how a subtree opts back out.
+	directiveJSSrcs = "ts_js_srcs"
 )
 
 // packageBoundaryMode values.
@@ -343,6 +355,11 @@ type tsConfig struct {
 	// directive named and left blank: still Gazelle's, declaring nothing.
 	// Set via # gazelle:ts_asset_declaration_type.
 	assetDeclarationType map[string]string
+
+	// jsSrcExts are the extensions a ts_js_srcs directive admits into the srcs
+	// of the targets generated in this tree, lowercased and dot-led. Empty --
+	// the default -- leaves srcs at .ts and .tsx.
+	jsSrcExts []string
 
 	// customCodegens holds ts_codegen patterns parsed from
 	// # gazelle:ts_codegen directives. Each directive contributes one entry.
@@ -1537,6 +1554,10 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 					tc.assetDeclarationType = map[string]string{}
 				}
 				tc.assetDeclarationType[ext] = typeExpr
+			case directiveJSSrcs:
+				if exts, ok := parseJSSrcsDirective(d.Value); ok {
+					tc.jsSrcExts = exts
+				}
 			case directiveCodegen:
 				if cp := parseCodegenDirective(rel, d.Value); cp != nil {
 					tc.customCodegens = append(tc.customCodegens, *cp)
@@ -1805,4 +1826,40 @@ func parseAssetDeclarationTypeDirective(value string) (ext, typeExpr string, ok 
 		return "", "", false
 	}
 	return ext, typeExpr, true
+}
+
+// ---- directive parser: ts_js_srcs ------------------------------------------
+
+// jsSrcExtensions is the closed set ts_js_srcs can name.
+//
+// Plain .js is absent on purpose. ts_compile declares <stem>.js and <stem>.d.ts
+// as the outputs of every .ts src and stages a .js src at its own path
+// (ts/private/ts_compile.bzl), so admitting foo.js beside foo.ts would declare
+// one file twice and fail analysis. The .d.mts / .d.cts a .mjs / .cjs gets
+// instead cannot collide with anything a .ts emits.
+var jsSrcExtensions = []string{".mjs", ".cjs"}
+
+// parseJSSrcsDirective reads the extension set a ts_js_srcs directive names.
+// The whole set is the value, so a subdirectory naming one extension admits
+// that one alone, and naming none admits none.
+func parseJSSrcsDirective(value string) ([]string, bool) {
+	var exts []string
+	for _, field := range strings.Fields(strings.ToLower(value)) {
+		ext := field
+		if !strings.HasPrefix(ext, ".") {
+			ext = "." + ext
+		}
+		if !slices.Contains(jsSrcExtensions, ext) {
+			log.Printf("typescript: invalid %s extension %q\n"+
+				"  format: # gazelle:%s .mjs .cjs\n"+
+				"  pick from: %s -- plain .js is not admissible, since ts_compile\n"+
+				"  already declares that name as the output of a .ts of the same stem",
+				directiveJSSrcs, field, directiveJSSrcs, strings.Join(jsSrcExtensions, ", "))
+			return nil, false
+		}
+		if !slices.Contains(exts, ext) {
+			exts = append(exts, ext)
+		}
+	}
+	return exts, true
 }

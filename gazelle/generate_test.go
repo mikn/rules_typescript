@@ -529,3 +529,190 @@ func TestGenerate_TextAndJSONCFilesGetAssetTargets(t *testing.T) {
 	assertRule(t, byName, "project-widget_js_txt", "asset_library")
 	assertRule(t, byName, "wrangler_jsonc", "asset_library")
 }
+
+// ---- ts_js_srcs ------------------------------------------------------------
+
+// genSrcsOfKind is every srcs entry of every generated rule of one kind, so a
+// case can say what the program holds rather than which rule holds it.
+func genSrcsOfKind(res language.GenerateResult, kind string) []string {
+	var out []string
+	for _, r := range res.Gen {
+		if r.Kind() == kind {
+			out = append(out, r.AttrStrings("srcs")...)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// jsSrcsSameDir is the shape the directive exists for: a checked-in .mjs beside
+// the TypeScript that imports it. Without the directive it is in no generated
+// target at all, and the import of it fails the type check as an unresolved
+// module.
+var jsSrcsSameDir = map[string]string{
+	"pkg/entry.ts":      "import { helper } from './helper.mjs';\nexport const e = helper;\n",
+	"pkg/entry.test.ts": "import { helper } from './helper.mjs';\nexport const t = helper;\n",
+	"pkg/helper.mjs":    "export const helper = () => 1;\n",
+	"pkg/shim.cjs":      "module.exports = { shim: 1 };\n",
+	"pkg/legacy.js":     "module.exports = 1;\n",
+	"pkg/util.test.mjs": "export const t = 1;\n",
+}
+
+// jsSrcsRolledUp is the same shape one directory further down, where index-only
+// mode rolls the subdirectory into the package above rather than giving it a
+// target of its own.
+var jsSrcsRolledUp = map[string]string{
+	"pkg/index.ts":           "export * from './lib/helper.mjs';\n",
+	"pkg/lib/helper.mjs":     "export const helper = () => 1;\n",
+	"pkg/lib/helper.test.ts": "import { helper } from './helper.mjs';\nexport const t = helper;\n",
+	"pkg/lib/legacy.js":      "module.exports = 1;\n",
+}
+
+func TestGenerate_JSSrcsDirective(t *testing.T) {
+	const indexOnly = "# gazelle:ts_package_boundary index-only\n"
+
+	for _, tt := range []struct {
+		name     string
+		tree     map[string]string
+		builds   map[string]string
+		kind     string
+		contains []string
+		omits    []string
+	}{
+		{
+			name:     "no directive leaves the JavaScript in no target",
+			tree:     jsSrcsSameDir,
+			kind:     "ts_compile",
+			contains: []string{"entry.ts"},
+			omits:    []string{"helper.mjs", "shim.cjs", "legacy.js", "util.test.mjs"},
+		},
+		{
+			name:     "the directive admits the extensions it names",
+			tree:     jsSrcsSameDir,
+			builds:   map[string]string{"pkg/BUILD.bazel": "# gazelle:ts_js_srcs .mjs .cjs\n"},
+			kind:     "ts_compile",
+			contains: []string{"entry.ts", "helper.mjs", "shim.cjs"},
+			omits:    []string{"legacy.js"},
+		},
+		{
+			name:     "an extension the directive does not name stays out",
+			tree:     jsSrcsSameDir,
+			builds:   map[string]string{"pkg/BUILD.bazel": "# gazelle:ts_js_srcs .cjs\n"},
+			kind:     "ts_compile",
+			contains: []string{"entry.ts", "shim.cjs"},
+			omits:    []string{"helper.mjs", "legacy.js"},
+		},
+		{
+			name:     "the set inherits from an ancestor build file",
+			tree:     jsSrcsSameDir,
+			builds:   map[string]string{"BUILD.bazel": "# gazelle:ts_js_srcs .mjs\n"},
+			kind:     "ts_compile",
+			contains: []string{"entry.ts", "helper.mjs"},
+			omits:    []string{"shim.cjs", "legacy.js"},
+		},
+		{
+			name: "named with nothing after it, a subtree opts back out",
+			tree: jsSrcsSameDir,
+			builds: map[string]string{
+				"BUILD.bazel":     "# gazelle:ts_js_srcs .mjs .cjs\n",
+				"pkg/BUILD.bazel": "# gazelle:ts_js_srcs\n",
+			},
+			kind:     "ts_compile",
+			contains: []string{"entry.ts"},
+			omits:    []string{"helper.mjs", "shim.cjs"},
+		},
+		{
+			name:     "an admitted .test.mjs is a test, not a library source",
+			tree:     jsSrcsSameDir,
+			builds:   map[string]string{"pkg/BUILD.bazel": "# gazelle:ts_js_srcs .mjs\n"},
+			kind:     "ts_test",
+			contains: []string{"entry.test.ts", "util.test.mjs"},
+			omits:    []string{"helper.mjs"},
+		},
+		{
+			name:     "a rolled-up subdirectory's JavaScript needs the directive too",
+			tree:     jsSrcsRolledUp,
+			builds:   map[string]string{"pkg/BUILD.bazel": indexOnly},
+			kind:     "ts_compile",
+			contains: []string{"index.ts"},
+			omits:    []string{"lib/helper.mjs", "lib/legacy.js"},
+		},
+		{
+			name:     "the directive reaches the rollup walk",
+			tree:     jsSrcsRolledUp,
+			builds:   map[string]string{"pkg/BUILD.bazel": indexOnly + "# gazelle:ts_js_srcs .mjs\n"},
+			kind:     "ts_compile",
+			contains: []string{"index.ts", "lib/helper.mjs"},
+			omits:    []string{"lib/legacy.js"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			files := make(map[string]string, len(tt.tree)+len(tt.builds))
+			for name, content := range tt.tree {
+				files[name] = content
+			}
+			for name, content := range tt.builds {
+				files[name] = content
+			}
+
+			srcs := genSrcsOfKind(generateUnder(t, files, "pkg"), tt.kind)
+			for _, want := range tt.contains {
+				if !hasSrc(srcs, want) {
+					t.Errorf("%s srcs = %v, want it to hold %q", tt.kind, srcs, want)
+				}
+			}
+			for _, unwanted := range tt.omits {
+				if hasSrc(srcs, unwanted) {
+					t.Errorf("%s srcs = %v, want it not to hold %q", tt.kind, srcs, unwanted)
+				}
+			}
+		})
+	}
+}
+
+// An extension outside the closed set leaves the inherited set in force, rather
+// than the directive silently emptying it.
+func TestGenerate_JSSrcsRefusesAnExtensionOutsideTheSet(t *testing.T) {
+	var tc *tsConfig
+	logged := captureLog(t, func() {
+		tc = makeChildConfig(
+			[]rule.Directive{directive(directiveJSSrcs, ".mjs")},
+			"pkg",
+			[]rule.Directive{directive(directiveJSSrcs, ".mjs .js")},
+		)
+	})
+
+	if !reflect.DeepEqual(tc.jsSrcExts, []string{".mjs"}) {
+		t.Errorf("jsSrcExts = %v, want the inherited [.mjs]", tc.jsSrcExts)
+	}
+	if !strings.Contains(logged, "ts_js_srcs") || !strings.Contains(logged, ".js") {
+		t.Errorf("the refusal did not name the directive and the extension:\n%s", logged)
+	}
+}
+
+// The shape this directive exists for, through a whole run rather than one
+// generateRules call: admission is half the fix, and the dep edge the test
+// target needs comes from the resolver reading the admitted file's own srcs
+// entry.
+func TestGenerate_JSSrcsResolveASiblingImport(t *testing.T) {
+	root, _ := convergeWorkspace(t, map[string]string{
+		"BUILD.bazel":            "# gazelle:ts_js_srcs .mjs\n",
+		"scripts/lib/helper.mjs": "export const helper = () => 1;\n",
+		"scripts/lib/helper.test.ts": "import { helper } from './helper.mjs';\n" +
+			"export const t = helper;\n",
+	})
+
+	if srcs := srcsOfKind(t, root, "scripts/lib", "ts_compile"); !hasSrc(srcs, "helper.mjs") {
+		t.Fatalf("ts_compile srcs = %v, want it to hold helper.mjs", srcs)
+	}
+
+	var deps []string
+	for _, r := range loadRules(t, root, "scripts/lib") {
+		if r.Kind() == "ts_test" {
+			deps = append(deps, r.AttrStrings("deps")...)
+		}
+	}
+	if !hasSrc(deps, ":lib") {
+		t.Errorf("ts_test deps = %v, want the sibling ts_compile that compiles helper.mjs", deps)
+	}
+}

@@ -92,6 +92,7 @@ func main() {
 		codegenGlobLoads(it)
 		assetDeclarationTypeApplies(it)
 		anchoredExcludeHitsOnePath(it)
+		jsSrcsAreCompiledAndDeclared(it)
 	})
 }
 
@@ -185,4 +186,36 @@ func assetDeclarationTypeApplies(it *harness.IT) {
 		it.Fail("//src/icons failed to build for some other reason than the assignment")
 	}
 	it.Pass("assigning the .svg import to a string is TS2322, so the declared type is the one in force")
+}
+
+// A .mjs admitted by ts_js_srcs is the only src that reaches ts_compile's
+// .d.mts emit, and the generated BUILD text says nothing about whether the
+// declaration a consumer type-checks against was written at all.
+func jsSrcsAreCompiledAndDeclared(it *harness.IT) {
+	it.RequireContains(it.Path("src/lib/BUILD.bazel"), "format.mjs",
+		"the ts_js_srcs directive did not reach src/lib's srcs")
+	it.Pass("src/lib/BUILD.bazel names format.mjs")
+
+	for _, rel := range []string{"src/lib/format.mjs", "src/lib/format.d.mts"} {
+		it.RequireFile(it.Bin(rel), "expected output file not found: %s", rel)
+		it.Pass("output file exists: %s", rel)
+	}
+
+	// //src/app compiled above against ../lib, which re-exports format. What is
+	// left is whether the .d.mts is the type in force: without it the import
+	// widens to `any` and any use of it compiles.
+	consumer := it.Path("src/app/index.ts")
+	restore := it.Read(consumer)
+	it.Write(consumer, "import { format } from \"../lib\";\n\nexport const n: number = format(1);\n")
+	log, err := it.BazelLog("js_srcs_declaration_is_in_force", "build", "//src/app")
+	it.Write(consumer, restore)
+	if err == nil {
+		log.Dump()
+		it.Fail("//src/app compiled with format()'s string result assigned to a number; the .d.mts is not being applied")
+	}
+	if !log.Contains("TS2322") {
+		log.Dump()
+		it.Fail("//src/app failed to build for some other reason than the assignment")
+	}
+	it.Pass("assigning format()'s result to a number is TS2322, so the JSDoc type crossed the package boundary")
 }

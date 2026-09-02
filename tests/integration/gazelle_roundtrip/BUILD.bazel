@@ -12,6 +12,11 @@ load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 # and through the delete-and-regenerate below it.
 # gazelle:ts_exclude ./src/lib/lib.config.ts
 
+# src/lib holds a checked-in format.mjs that its index re-exports. Nothing
+# admits a .mjs into srcs without this, and nothing else in the suite reaches
+# the declaration ts_compile emits for one.
+# gazelle:ts_js_srcs .mjs
+
 # An svgr-style project's shape, minus svgr: the type is an inline object so it
 # needs no npm package to resolve, and it carries spaces so the directive's
 # first-space-only split is exercised through a real Gazelle run.
