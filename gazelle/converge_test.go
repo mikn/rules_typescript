@@ -5,6 +5,7 @@ package typescript
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"path"
@@ -105,7 +106,11 @@ func convergeGazelle(t *testing.T, repoRoot string) {
 		}
 		visits = append(visits, dirVisit{rel, c, f, res.Gen, res.Empty, res.Imports})
 	}
-	walk(&config.Config{RepoRoot: repoRoot, Exts: map[string]any{}}, "")
+	walk(&config.Config{
+		RepoRoot: repoRoot,
+		RepoName: "converge_repo_root",
+		Exts:     map[string]any{},
+	}, "")
 	ix.Finish()
 
 	for _, v := range visits {
@@ -113,9 +118,16 @@ func convergeGazelle(t *testing.T, repoRoot string) {
 			if i >= len(v.imports) {
 				break
 			}
-			lang.Resolve(v.c, ix, nil, r, v.imports[i], label.New("", v.rel, r.Name()))
+			lang.Resolve(v.c, ix, nil, r, v.imports[i],
+				label.New(v.c.RepoName, v.rel, r.Name()))
 		}
 		merger.MergeFile(v.file, v.empty, v.gen, merger.PostResolve, kinds, nil)
+	}
+	// cmd/gazelle calls this after the last Resolve and before the writes, and
+	// a check over the whole target graph has nowhere else to run.
+	var asLanguage language.Language = lang
+	if life, ok := asLanguage.(language.LifecycleManager); ok {
+		life.AfterResolvingDeps(context.Background())
 	}
 	for _, v := range visits {
 		merger.FixLoads(v.file, lang.Loads())

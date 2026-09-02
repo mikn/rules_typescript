@@ -7,6 +7,7 @@
 package typescript
 
 import (
+	"context"
 	"flag"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
@@ -20,7 +21,15 @@ import (
 const languageName = "typescript"
 
 // tsLang is the Gazelle language extension for TypeScript.
-type tsLang struct{}
+//
+// cycles is the whole run's dep graph over the targets this extension
+// generates. A cross-package cycle is not visible from any one GenerateRules
+// call, and the resolver is where every edge becomes a label, so it is
+// recorded there and read once the last one is in.
+type tsLang struct {
+	language.BaseLifecycleManager
+	cycles cycleGraph
+}
 
 // NewLanguage returns a new instance of the TypeScript Gazelle language extension.
 // Gazelle discovers extensions via this symbol.
@@ -438,5 +447,12 @@ func (l *tsLang) Resolve(
 	imports any,
 	from label.Label,
 ) {
-	resolveImports(c, ix, r, imports, from)
+	l.cycles.note(c, ix, r, from, resolveImports(c, ix, r, imports, from))
+}
+
+// AfterResolvingDeps runs the whole-graph checks, which is what this hook is
+// for: cmd/gazelle calls it once, after the last Resolve and before any BUILD
+// file is written.
+func (l *tsLang) AfterResolvingDeps(_ context.Context) {
+	l.cycles.reportCycles()
 }

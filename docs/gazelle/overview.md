@@ -152,6 +152,76 @@ Test files (`*.test.ts`, `*.spec.ts`, `*.test.tsx`, `*.spec.tsx`) generate `ts_t
 
 Doc and story files (`*.doc.ts`, `*.doc.tsx`, `*.stories.ts`, `*.stories.tsx`) generate a separate `ts_compile` target in both modes, for the same reason: a doc file consumes the library rather than belonging to it. Left in the package target, a design system where `switch/switch.doc.tsx` imports `../label` and `label/label.doc.tsx` imports `../switch` is a dependency cycle between the two component packages, even though neither component depends on the other. Like test files, they are outside the `ts_lint` target's sources, and like the `ts_test` target they also get the package's ambient `.d.ts` files: nothing imports an ambient declaration, so only `srcs` membership puts it in a program. `.mdx` files are not TypeScript sources and are unaffected.
 
+### Import Cycles Between Packages
+
+One target per directory means a mutual import between two directories is a
+dependency cycle between two Bazel targets. Bazel rejects it with a loop of
+target labels when it loads them; Gazelle says the same thing as the BUILD
+files are written, and says it about packages rather than labels.
+
+The check runs once, after the last import resolves, over the targets this
+extension generates. Each strongly connected component is one message naming
+the packages in the cycle and the targets that make it up. That is the whole
+of the message: which packages, and that their targets are a cycle Bazel
+rejects. A type-only cycle is reported too, though `tsc` accepts one: each
+target is a separate compiler invocation, and emitting one package's `.d.ts`
+needs the other package's declarations.
+
+The message names no import and offers no remedy, and both were tried. Naming
+the import behind an edge is the one thing Bazel's own error cannot do, but
+every phrasing of it also claims something about which imports carry the cycle
+and what removing one would achieve -- and three things falsify such a claim.
+A `# keep` on `srcs` or on the whole rule means the file the report would name
+is not one the target compiles. A `# keep` on `deps` can drop an import
+*between two of the named packages* from the edge list, so a value import runs
+between them while every listed edge is `import type`. And a held `deps` list
+that agrees with the imports means deleting the import does not delete the
+label. A report that cannot be wrong is worth more than one that is usually
+right, so the message stops at the component.
+
+Nothing is resolved automatically. Merging the cyclic directories into one
+target would be `# gazelle:ts_package_boundary` applied without asking --
+different labels, coarser granularity -- so the report is the whole feature.
+
+An edge here is one thing: an import a source of the emitted target writes,
+whose resolved label that target's emitted `deps` carry. Both halves are read
+off the rule Bazel will load wherever that differs from the one Gazelle
+computed, and each rules out a case on its own:
+
+- **A `srcs` or `deps` attribute you hold with `# keep`** -- the whole
+  attribute, or the whole rule -- replaces what Gazelle computed outright,
+  because the merger discards it and it reaches no BUILD file. An import whose
+  label the held `deps` leave out is therefore not an edge, and neither is one
+  written in a file the held `srcs` leave out. A `# keep` on one `deps` *value*
+  is not that: it holds that value and the resolved labels still merge in
+  beside it, so a cycle they close is reported as any other.
+- **A dep no import explains** -- written by hand, or named by a held `deps`
+  the sources do not import -- is not an edge either. Bazel still rejects the
+  cycle it closes; the report stays out of it, because what it says is a claim
+  about imports and there is no import to make it about. The label is written in
+  a BUILD file, which is where Bazel's own loop of labels sends you.
+
+So a cycle whose last edge is hand-written goes unreported, and so does one a
+held `srcs` or `deps` keeps out of the emitted files. What is left is the
+cycles the imports and the emitted rules agree on. Where a held `deps` agrees
+with the imports the cycle *is* reported, and then the held list is part of what
+closes it: removing the import is not enough, because the label stays where you
+wrote it.
+
+Only a cycle that crosses package boundaries is reported here. Of the cycles
+*inside* one directory, the framework entry split is the one that is reported,
+by the framework-entry check, which can name the `entry_point` that split the
+target in two. The doc-target and test-target splits put two targets in one
+directory too, and a cycle between one of those and the library -- `thing.ts`
+importing `./thing.doc` while `thing.doc.tsx` imports `./thing` -- is emitted
+with nothing printed and left for Bazel to reject.
+
+A `ts_test` target is one more gap, for the edge rule's reason rather than the
+boundary's: it resolves deps from its package's production and doc sources as
+well as its own, since it builds its own `node_modules` tree and needs every
+npm package the code under test needs. So it can carry a label no source of its
+own imports, and a cycle running through such a label is not reported.
+
 ## Generated Target Names
 
 | Rule | Name |

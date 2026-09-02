@@ -611,3 +611,37 @@ func attrKept(r *rule.Rule, key string) bool {
 	}
 	return false
 }
+
+// These carry what a candidate's counterpart in the BUILD file holds against
+// the merger, so the cycle check can read the rule Bazel will load rather than
+// the one Gazelle computed. Presence is the signal: a held-but-empty list is
+// not what an absent attribute means.
+const (
+	keptDepsAttr = "_ts_kept_deps"
+	keptSrcsAttr = "_ts_kept_srcs"
+)
+
+// markKeptAttrs records, for every candidate whose counterpart holds srcs or
+// deps of its own, what that held list names. The two questions per attribute
+// are rule.MergeRules' own gates, in the order it asks them -- it returns on a
+// kept rule and skips a kept assignment -- and past either one the value
+// Gazelle computed reaches no BUILD file, while the one the author wrote is
+// what Bazel loads.
+func markKeptAttrs(args language.GenerateArgs, gen []*rule.Rule) {
+	if args.File == nil {
+		return
+	}
+	for _, want := range gen {
+		for _, have := range args.File.Rules {
+			if have.Kind() != want.Kind() || have.Name() != want.Name() {
+				continue
+			}
+			if have.ShouldKeep() || attrKept(have, "srcs") {
+				want.SetPrivateAttr(keptSrcsAttr, have.AttrStrings("srcs"))
+			}
+			if have.ShouldKeep() || attrKept(have, "deps") {
+				want.SetPrivateAttr(keptDepsAttr, have.AttrStrings("deps"))
+			}
+		}
+	}
+}
