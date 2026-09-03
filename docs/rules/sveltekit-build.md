@@ -171,8 +171,8 @@ epoch-milliseconds, which is what the default produces:
 export default { kit: { version: { name: "1" } } };
 ```
 
-`//tests/integration:sveltekit_test` builds twice from clean and byte-compares
-the full set of hashed client filenames.
+`//tests/integration:sveltekit_test` builds twice from clean and compares the
+full set of hashed client filenames.
 
 ## Subpackages Under the Globbed Tree
 

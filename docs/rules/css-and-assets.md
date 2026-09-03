@@ -49,7 +49,7 @@ cannot load it:
 
 ```
 $ node bazel-bin/tests/css/Button.js
-TypeError [ERR_UNKNOWN_FILE_EXTENSION]: Unknown file extension ".css"
+TypeError [ERR_UNKNOWN_FILE_EXTENSION]: Unknown file extension ".css" for /…/bazel-bin/tests/css/button.css
 ```
 
 A target with a `css_library`, `css_module` or `asset_library` dep is consumed

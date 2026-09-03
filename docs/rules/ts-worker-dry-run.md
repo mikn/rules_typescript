@@ -20,7 +20,7 @@ node_modules(
 ts_worker_dry_run_test(
     name = "deploy_dry_run_test",
     config = "wrangler.jsonc",
-    node_modules = ":node_modules",
+    node_modules = ":wrangler_node_modules",
     deps = [":worker"],
 )
 ```
@@ -52,7 +52,7 @@ ts_worker_dry_run_test(
     name = "deploy_dry_run_staging_test",
     config = "wrangler.jsonc",
     env_name = "staging",
-    node_modules = ":node_modules",
+    node_modules = ":wrangler_node_modules",
     deps = [":worker"],
 )
 ```
