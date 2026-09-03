@@ -13,7 +13,7 @@ analyse it and stop on the very failure being asserted.
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
 load("//ts:defs.bzl", "CssInfo")
-load("//ts/private:ts_compile.bzl", "types_entry_file", "types_entry_package_ref")
+load("//ts/private:ts_compile.bzl", "types_entry_declaration", "types_entry_file", "types_entry_package_ref")
 load("//ts/private:ts_test.bzl", "test_compiler_options_json")
 
 def _written_file_action(env, suffix):
@@ -401,9 +401,10 @@ def _types_file_entries_impl(ctx):
     if action == None:
         return analysistest.end(env)
 
-    # A file-shaped entry is tsgo's to resolve, so each one has to survive into
-    # the config it reads -- and a blank one has to reach it without the guard
-    # demanding a dep for it, which is this target analysing at all.
+    # An entry no dep and no label of this target's resolves is the compiler's
+    # own, so each one has to survive into the config it reads -- and a blank one
+    # has to reach it without either guard firing, which is this target
+    # analysing at all.
     types = json.decode(action.content)["compilerOptions"]["types"]
     asserts.true(
         env,
@@ -416,6 +417,39 @@ def _types_file_entries_impl(ctx):
     return analysistest.end(env)
 
 types_file_entries_test = analysistest.make(_types_file_entries_impl)
+
+def _types_declaration_file_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    # The entry is a path, so what makes it resolve is the file being in the
+    # sandbox: `types_srcs` is the only thing putting it there.
+    inputs = []
+    for action in analysistest.target_actions(env):
+        if action.mnemonic == "TsgoDeclare":
+            inputs = [f.short_path for f in action.inputs.to_list()]
+    asserts.true(
+        env,
+        "tests/compiler_options/analysis/staged/ambient.d.ts" in inputs,
+        "the declaration the entry names is an input of the type-check action",
+    )
+
+    action = _written_file_action(env, ".tsconfig.json")
+    asserts.true(env, action != None, "ts_compile generated no tsconfig")
+    if action == None:
+        return analysistest.end(env)
+
+    # Resolved by staging the file, not by rewriting the entry into something
+    # else: it reaches tsgo as the package-relative path, rebased.
+    types = json.decode(action.content)["compilerOptions"]["types"]
+    asserts.equals(
+        env,
+        1,
+        len([e for e in types if e.endswith("/tests/compiler_options/analysis/staged/ambient.d.ts")]),
+        "the entry, rebased onto the generated config: {}".format(types),
+    )
+    return analysistest.end(env)
+
+types_declaration_file_test = analysistest.make(_types_declaration_file_impl)
 
 def _fake_npm_package(name, root = None, subpaths = None, ambient = None):
     return struct(
@@ -436,10 +470,10 @@ def _types_entry_package_ref_impl(ctx):
     asserts.equals(env, "vite/client", types_entry_package_ref(" vite/client "), "a padded entry")
     asserts.equals(env, "node", types_entry_package_ref("\tnode\n"), "a tab- and newline-padded entry")
 
-    # A path, which tsgo reads off disk: no dep resolves one, so no dep is
-    # missing when one does not. One assertion per shape, none of them reachable
-    # through another: a `.d.ts` suffix would exempt an absolute declaration
-    # file whatever its prefix said.
+    # A path: no dep resolves one, so no dep is missing when one does not --
+    # `types_entry_declaration` takes the two shapes a label answers for. One
+    # assertion per shape, none of them reachable through another: a `.d.ts`
+    # suffix would exempt an absolute declaration file whatever its prefix said.
     asserts.equals(env, "", types_entry_package_ref("./typings"), "a package-relative directory")
     asserts.equals(env, "", types_entry_package_ref("../sibling/typings"), "a directory above the package")
     asserts.equals(env, "", types_entry_package_ref("/abs/typings"), "an absolute directory")
@@ -453,6 +487,30 @@ def _types_entry_package_ref_impl(ctx):
     return unittest.end(env)
 
 types_entry_package_ref_test = unittest.make(_types_entry_package_ref_impl)
+
+def _types_entry_declaration_impl(ctx):
+    env = unittest.begin(ctx)
+
+    # The two shapes TypeScript resolves relative to the config's own directory,
+    # which is the half of the file-shaped entries this rule can stage.
+    asserts.equals(env, "./local.d.ts", types_entry_declaration("./local.d.ts"), "a package-relative declaration")
+    asserts.equals(env, "../../worker-configuration.d.ts", types_entry_declaration(" ../../worker-configuration.d.ts "), "a padded entry above the package")
+
+    # A directory: which declaration under it TypeScript picks is a question
+    # only reading the directory answers.
+    asserts.equals(env, "", types_entry_declaration("./typings"), "a package-relative directory")
+
+    # Not relative by TypeScript's own test, so it is a typeRoots lookup the
+    # compiler performs at action time -- and one nothing rebases either.
+    asserts.equals(env, "", types_entry_declaration("vendor/local.d.ts"), "a bare path")
+    asserts.equals(env, "", types_entry_declaration("/abs/local.d.ts"), "an absolute declaration")
+
+    asserts.equals(env, "", types_entry_declaration("vite/client"), "a package subpath")
+    asserts.equals(env, "", types_entry_declaration("   "), "a blank entry")
+
+    return unittest.end(env)
+
+types_entry_declaration_test = unittest.make(_types_entry_declaration_impl)
 
 def _types_entry_file_impl(ctx):
     env = unittest.begin(ctx)
@@ -546,6 +604,22 @@ unresolved_type_root_test = _fails_with(
     "It designates none, so the declarations have to be named as a file",
 )
 unresolved_type_near_miss_test = _fails_with("Did you mean one of these deps: vitest?")
+absent_type_file_test = _fails_with(
+    "names \"tests/compiler_options/analysis/staged/absent.d.ts\"",
+    "which no source file this target stages sits at",
+    "List the file in types_srcs",
+)
+misplaced_type_file_test = _fails_with(
+    "Did you mean \"tests/compiler_options/analysis/staged/ambient.d.ts\"?",
+)
+generated_type_file_test = _fails_with(
+    "That path holds a generated declaration, and the entry resolves against the source tree",
+    "whose globals travel by public_globals",
+)
+unnamed_type_src_test = _fails_with(
+    "types_srcs on @@//tests/compiler_options/analysis:unnamed_type_src names 'tests/compiler_options/analysis/staged/ambient.d.ts'",
+    "Name it -- types = [\"./staged/ambient.d.ts\"] from this package -- or drop it.",
+)
 unresolved_test_types_test = _fails_with("compilerOptions.types entry \"vite/client\" on")
 unresolved_globals_types_test = _fails_with(
     "compilerOptions.types entry \"vitest/globals\" on",

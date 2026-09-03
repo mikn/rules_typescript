@@ -10,9 +10,13 @@ package(default_visibility = ["//:__pkg__"])
 # Workers globals in worker-configuration.d.ts lose to the browser ones and the
 # source does not compile. Narrowing lib to plain es2022 is the fix Cloudflare
 # documents, and it is only reachable through `lib`.
-# `types` is written the way wrangler writes it: relative to the package. It is
-# no longer the only route -- the dep edge carries the same globals since
-# TsGlobalDts -- so `lib` is the only thing this package still pins on its own.
+# `types` is written the way wrangler writes it: relative to the package, and it
+# is load-bearing -- :worker_configuration names no public_globals, so the dep
+# edge stages the file without putting its globals in this program. Dropping the
+# entry is TS2304 on `Response` and TS7006 on the handler's parameters. The
+# entry resolves because a passed-through .d.ts IS the source file, staged at
+# the path the entry names; a file no dep, no src and no types_srcs stages is an
+# analysis error.
 ts_compile(
     name = "worker_configuration",
     srcs = ["worker-configuration.d.ts"],

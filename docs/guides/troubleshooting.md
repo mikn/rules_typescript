@@ -382,16 +382,56 @@ ts_compile(
 
 The message names the subpaths a package that is already a dep does designate,
 and any dep whose name is near the entry's. Two other ways out: name a
-declaration file instead (`types = ["./worker-configuration.d.ts"]`, which no
-dep resolves and the check leaves alone), or state a `typeRoots` in
-`compiler_options`, which exempts the target -- what sits under a `typeRoots` is
-the compiler's to find at action time.
+declaration file instead (`types = ["./worker-configuration.d.ts"]`, with the
+file in `types_srcs` -- see below), or state a `typeRoots` in
+`compiler_options`, which exempts the target from this check -- what sits under
+a `typeRoots` is the compiler's to find at action time.
 
 It fails at analysis because nothing downstream would say it. `tsc` reports
 `TS2688` for such an entry; tsgo, the compiler this ruleset runs, reports
 nothing at all and exits 0, so the target compiles without the declarations and
 the error lands on whatever needed them -- `TS2339` on `import.meta.env` without
 `vite/client`, `TS2591` on `process` without `node`.
+
+## compilerOptions.types entry names a path no source file of mine sits at
+
+```
+ts_compile: compilerOptions.types entry "../../worker-configuration.d.ts" on
+@@//workers/proxy/src/lib:lib names "workers/proxy/worker-configuration.d.ts",
+  which no source file this target stages sits at.
+```
+
+A relative `types` entry is a path, and a path resolves against the sandbox:
+only what this target's action stages is in it -- its `srcs`, its deps'
+passed-through `.d.ts`, its `path_alias_srcs`. Name the file with a label:
+
+```python
+ts_compile(
+    name = "lib",
+    srcs = glob(["*.ts"]),
+    types = ["../../worker-configuration.d.ts"],
+    types_srcs = ["//workers/proxy:worker-configuration.d.ts"],
+)
+```
+
+`types_srcs` stages the file for the entry to resolve and does not publish it
+as this target's own declaration, which listing it in `srcs` would. tsgo parses
+it as part of this program either way, so a syntax error in the file fails this
+target; what it declares goes unchecked under the baseline's `skipLibCheck`.
+
+It fails at analysis for the same reason the package shape does: tsgo reports
+nothing for a `types` entry that resolves to nothing, so the target used to
+compile against a smaller type environment than it asked for and the error
+landed on whatever needed the globals -- `TS2304: Cannot find name` on a
+Worker's `Env`. A `typeRoots` does not exempt this shape: `./x.d.ts` and
+`../x.d.ts` are resolved against the config's own directory, never through
+`typeRoots`.
+
+## types_srcs names a file no compilerOptions.types entry names
+
+The mirror of it. `types_srcs` stages a declaration for an entry to resolve and
+is not `include`, so a file no entry names reaches the program by no route at
+all. Name it in `types`, or drop the label.
 
 ## The `types` in my tsconfig file does nothing
 
