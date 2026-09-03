@@ -301,21 +301,23 @@ The checked-in `tsconfig.json` does not change either. It stays what
 
 ## Ambient Types in the Editor
 
-The editor is more permissive than the build in one place. `ts_compile` names
-only a target's **direct** `@types/*` deps in the tsconfig it gives tsgo, so a
-global reaches a target because that target asked for it. The
-editor program has one root `compilerOptions` block for the whole workspace, and
-its `files` array is the **union** of what every reached target declares — each
-target's own direct `@types/*` deps, pooled. A file using `process` therefore
-type-checks in the editor as soon as *some* target in the graph declared
-`@types/node`, and then fails `bazel build` with the strict-deps error naming the
-label to add.
+The editor is more permissive than the build in one place. `ts_compile` names a
+target's **direct** `@types/*` deps in the tsconfig it gives tsgo, plus what
+their entries name in `/// <reference types=...>` (`@types/bun` forwards to
+`bun-types`, whose entry references `node`), so a global reaches a target
+because that target asked for it, or for a package whose entry references it.
+The editor program has one root `compilerOptions` block for the whole workspace,
+and its `files` array is the **union** of what every reached target declares —
+each target's own direct `@types/*` deps and what those reference, pooled. A
+file using `process` therefore type-checks in the editor as soon as *some*
+target in the graph declared `@types/node`, and then fails `bazel build` with
+the strict-deps error naming the label to add.
 
-The union is over direct deps only, so a `@types/*` package that no reached
-target declares — one behind a dependency's own `.d.ts` — is named in `files`
-nowhere, in either config. It still resolves as a module, through the `paths` key
-it takes under the name it types ([npm Declarations](#npm-declarations)); `files`
-is what it is not in.
+The union is over direct deps and what their entries reference, so a `@types/*`
+package reached only through an import — `from "estree"` in a dependency's own
+`.d.ts` — is named in `files` nowhere, in either config. It still resolves as a
+module, through the `paths` key it takes under the name it types
+([npm Declarations](#npm-declarations)); `files` is what it is not in.
 
 Narrowing the union per target would need a tsconfig per target, and a package
 only gets its own program when its `compilerOptions` genuinely disagree with the

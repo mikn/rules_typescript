@@ -350,11 +350,134 @@ def _exports_subpath_types(pkg_json, has_file):
                 break
     return out
 
+def _directive_value(line, attribute):
+    for quote in ('"', "'"):
+        marker = " " + attribute + "=" + quote
+        start = line.find(marker)
+        if start < 0:
+            continue
+        start += len(marker)
+        end = line.find(quote, start)
+        if end > start:
+            return line[start:end]
+    return ""
+
+def _triple_slash_directives(content):
+    """`(attribute, value)` for each `/// <reference ...>` in a file's header.
+
+    TypeScript reads a directive only above the first statement, so the scan
+    stops at the first line that is neither blank, a comment nor a directive.
+    Only `types` and `path` are reported: `lib` names a file of the compiler's
+    own and `no-default-lib` names none.
+    """
+    out = []
+    in_block = False
+    for line in content.split("\n"):
+        stripped = line.strip()
+        if in_block:
+            end = stripped.find("*/")
+            if end < 0:
+                continue
+            in_block = False
+            if stripped[end + 2:].strip():
+                break
+            continue
+        if not stripped:
+            continue
+        if stripped.startswith("///"):
+            if stripped[3:].lstrip().startswith("<reference"):
+                for attribute in ("types", "path"):
+                    value = _directive_value(stripped, attribute)
+                    if value:
+                        out.append((attribute, value))
+            continue
+        if stripped.startswith("//"):
+            continue
+        if stripped.startswith("/*"):
+            end = stripped.find("*/", 2)
+            if end < 0:
+                in_block = True
+            elif stripped[end + 2:].strip():
+                break
+            continue
+        break
+    return out
+
+def _sibling_path(path, relative):
+    """`relative`, written in `path`'s directory, as a package-relative path; "" above the root."""
+    parts = []
+    for part in path.split("/")[:-1] + relative.split("/"):
+        if part in ("", "."):
+            continue
+        if part != "..":
+            parts.append(part)
+        elif parts:
+            parts.pop()
+        else:
+            return ""
+    return "/".join(parts)
+
+# A worklist bound Starlark's for-loop needs, not a size any package approaches.
+_MAX_REFERENCED_FILES = 4096
+
+def _referenced_types(read, entry):
+    """The packages `entry`'s `/// <reference types=...>` directives name, sorted.
+
+    A `path` directive pulls a sibling into the program along with `entry`, so
+    the walk follows those within the package and reads each sibling's header
+    too. `read` returns a package-relative file's text, or None for no such file.
+    """
+    names = {}
+    seen = {entry: True}
+    pending = [entry]
+    for _ in range(_MAX_REFERENCED_FILES):
+        if not pending:
+            return sorted(names.keys())
+        path = pending.pop()
+        content = read(path)
+        if content == None:
+            continue
+        for attribute, value in _triple_slash_directives(content):
+            if attribute == "types":
+                names[value] = True
+                continue
+            sibling = _sibling_path(path, value)
+            if sibling and sibling not in seen:
+                seen[sibling] = True
+                pending.append(sibling)
+    fail("npm_import: more than {} declarations reachable through /// <reference path> from {}".format(
+        _MAX_REFERENCED_FILES,
+        entry,
+    ))
+
+def _type_references(read, declarations):
+    """Each of `declarations` whose header names a package, mapped to the names.
+
+    TypeScript resolves `/// <reference types="x" />` through `typeRoots` and a
+    node_modules walk from the referencing file, never through `paths`, and a
+    consumer's sandbox has neither. So the names are read here, where the file
+    is, and the consumer resolves each against this package's deps -- the same
+    route as `subpath_types`, for the same reason.
+    """
+    out = {}
+    for path in declarations:
+        names = _referenced_types(read, path)
+        if names:
+            out[path] = names
+    return out
+
 def _rctx_has_file(rctx):
     def has_file(path):
         return rctx.path(path).exists
 
     return has_file
+
+def _rctx_read(rctx):
+    def read(path):
+        p = rctx.path(path)
+        return rctx.read(p) if p.exists and not p.is_dir else None
+
+    return read
 
 def _primary_bin_name(package, bins):
     """The bin a bare `bazel run @npm//:<pkg>_bin` should mean.
@@ -419,7 +542,7 @@ def _package_relative_label(path):
     """
     return ":" + path
 
-def _package_stanza(attrs, target_name, package_name, deps_expr, declaration_entry, subpath_declarations):
+def _package_stanza(attrs, target_name, package_name, deps_expr, declaration_entry, subpath_declarations, type_references):
     """The ts_npm_package call for one name this package is imported under."""
     stanza = [
         "ts_npm_package(",
@@ -445,6 +568,14 @@ def _package_stanza(attrs, target_name, package_name, deps_expr, declaration_ent
         stanza.append("    subpath_types = {")
         for subpath in sorted(subpath_declarations.keys()):
             stanza.append('        "{}": "{}",'.format(subpath, subpath_declarations[subpath]))
+        stanza.append("    },")
+    if type_references:
+        stanza.append("    type_references = {")
+        for path in sorted(type_references.keys()):
+            stanza.append('        "{}": [{}],'.format(
+                path,
+                ", ".join(['"{}"'.format(name) for name in type_references[path]]),
+            ))
         stanza.append("    },")
     stanza.append(")\n")
     return "\n".join(stanza)
@@ -527,6 +658,10 @@ def _npm_import_impl(rctx):
 
     declaration_entry = _exports_types(pkg_json, _rctx_has_file(rctx))
     subpath_declarations = _exports_subpath_types(pkg_json, _rctx_has_file(rctx))
+    type_references = _type_references(
+        _rctx_read(rctx),
+        ([declaration_entry] if declaration_entry else []) + sorted(subpath_declarations.values()),
+    )
 
     deps_expr = _label_list_expr(
         rctx.attr.package,
@@ -541,6 +676,7 @@ def _npm_import_impl(rctx):
         deps_expr,
         declaration_entry,
         subpath_declarations,
+        type_references,
     ))
 
     # An npm alias (`h3-v2: npm:h3@2.0.1`) is the same files installed under a
@@ -556,6 +692,7 @@ def _npm_import_impl(rctx):
             deps_expr,
             declaration_entry,
             subpath_declarations,
+            type_references,
         ))
 
     # Native binaries a bin script resolves at runtime live in sibling
@@ -1011,6 +1148,9 @@ link_block = _link_block
 target_name_in = _target_name_in
 exports_types = _exports_types
 exports_subpath_types = _exports_subpath_types
+triple_slash_directives = _triple_slash_directives
+referenced_types = _referenced_types
+type_references = _type_references
 package_stanza = _package_stanza
 npmrc_auth = _npmrc_auth
 npmrc_auth_fields = _npmrc_auth_fields

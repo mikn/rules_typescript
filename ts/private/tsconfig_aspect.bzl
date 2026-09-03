@@ -16,10 +16,11 @@ points in there.
 
 The `files` array is a second route, and a narrower one: it carries the globals
 a `@types/*` package declares, and it is built from what each reached target
-declares in its own `deps`. A `@types/*` package reached transitively -- which
-is most of them, since a dependency's .d.ts is where `from "estree"` is written
--- is in `files` nowhere, and the `paths` key is the only route it has. Where
-both routes exist they name one installed copy.
+declares in its own `deps` plus what those entries name in
+`/// <reference types=...>`. A `@types/*` package reached only through an
+import -- which is most of them, since a dependency's .d.ts is where
+`from "estree"` is written -- is in `files` nowhere, and the `paths` key is the
+only route it has. Where both routes exist they name one installed copy.
 
 npm declarations are the one part that lives outside the workspace, and no
 workspace-relative path reaches them: a lazily-fetched spoke exists only under
@@ -35,6 +36,7 @@ load("//ts/private:providers.bzl", "NpmPackageInfo", "TsConfigInfo")
 load(
     "//ts/private:ts_compile.bzl",
     "TsModuleInfo",
+    "referenced_type_files",
     "subpath_wildcards",
     "types_entry_file",
     "types_entry_package_ref",
@@ -315,11 +317,15 @@ def _ambient_entries(rule_attr):
     point is named in `files` because `typeRoots` wants a directory whose
     children are type packages, which one repo per package never produces. The
     whole declaration set comes along -- an entry point is a list of
-    `/// <reference path=...>` to its siblings, resolved on disk.
+    `/// <reference path=...>` to its siblings, resolved on disk. What it names
+    in `/// <reference types=...>` resolves on no disk the editor has either,
+    so those packages' entries and files come along too, as they do in the
+    tsconfig ts_compile generates.
 
-    Only a target's own `deps` are read, which is the narrow half of the module
-    header: a @types/* package reached transitively is in no `files` array and
-    reaches the editor's program through its `paths` key alone.
+    Only a target's own `deps` are read, plus what their entries reference,
+    which is the narrow half of the module header: a @types/* package reached
+    only through an import is in no `files` array and reaches the editor's
+    program through its `paths` key alone.
     """
     requested = _requested_type_packages(rule_attr)
     untyped = untyped_packages(rule_attr)
@@ -334,24 +340,28 @@ def _ambient_entries(rule_attr):
         ambient = info.ambient_types_file or _first_requested_file(info, requested)
         if not ambient:
             continue
-        root = info.package_dir.dirname
-        entry = _under(ambient, root)
-        if not entry:
-            continue
-        entries.append(struct(
-            name = info.package_name,
-            version = info.package_version,
-            entry = entry,
-        ))
-        for src in info.declaration_files.to_list() + [info.package_dir]:
-            dest = _under(src, root)
-            if dest:
-                files.append(struct(
-                    name = info.package_name,
-                    version = info.package_version,
-                    dest = dest,
-                    file = src,
-                ))
+        for reached in referenced_type_files(ambient, info, untyped):
+            package = reached.package
+            if not package.package_dir:
+                continue
+            root = package.package_dir.dirname
+            entry = _under(reached.file, root)
+            if not entry:
+                continue
+            entries.append(struct(
+                name = package.package_name,
+                version = package.package_version,
+                entry = entry,
+            ))
+            for src in package.declaration_files.to_list() + [package.package_dir]:
+                dest = _under(src, root)
+                if dest:
+                    files.append(struct(
+                        name = package.package_name,
+                        version = package.package_version,
+                        dest = dest,
+                        file = src,
+                    ))
     return entries, files
 
 def _aliases(rule_attr):

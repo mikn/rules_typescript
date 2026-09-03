@@ -254,6 +254,14 @@ resolutions in this repo's own lockfile designate a `lib/index.d.ts` their tarba
 does not contain. `tests/npm/exports_types_tests.bzl` is the table; add the real
 manifest, not a synthesised shape.
 
+The same repository rule reads each designated declaration's triple-slash header
+and writes the packages its `/// <reference types=...>` directives name as
+`type_references`, because tsgo resolves that directive through typeRoots and
+node_modules only -- never `paths` -- and the sandbox has neither. `ts_compile`
+and the editor aspect follow the names through the referencing package's own
+deps when they put the file in `files`; `tests/npm/type_references_tests.bzl`
+pins the header reader and `tests/npm_types_shim` the route.
+
 ## The dev server's generated config
 
 Three invariants in `ts/private/ts_dev_server.bzl`, each of which was a silent

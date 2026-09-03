@@ -495,6 +495,53 @@ def _requested_type_files(ctx, npm_info):
             out.append(designated)
     return out
 
+def _directive_answer(name, deps, untyped):
+    """The dep of a package that answers its `/// <reference types="name" />`, and the file.
+
+    TypeScript's order: `@types/<name>` under typeRoots first, a package called
+    `name` beside it second -- both against the referencing package's own
+    dependencies, which is where npm installs them.
+    """
+    typed = [dep for dep in deps if dep.package_name.startswith("@types/")]
+    for dep in typed + [dep for dep in deps if not dep.package_name.startswith("@types/")]:
+        if dep.package_name in untyped:
+            continue
+        designated = types_entry_file(name, dep)
+        if designated:
+            return dep, designated
+    return None, None
+
+# A worklist bound Starlark's for-loop needs, not a size any chain approaches.
+_MAX_REFERENCED_DECLARATIONS = 1024
+
+def referenced_type_files(entry, npm_info, untyped = {}):
+    """`entry` and every declaration its `/// <reference types=...>` directives reach.
+
+    A `@types/*` entry in `files` brings its own declarations; what it
+    references arrives only if something resolves the directive, and tsgo
+    cannot -- the resolver walks typeRoots and node_modules, never `paths`. So
+    each name the package recorded for the file is answered from that package's
+    own deps, and the answer's directives are followed in turn: @types/bun is
+    one line forwarding to bun-types, whose entry references `node`. Items are
+    structs of `file` and the `package` (NpmPackageInfo) it belongs to, `entry`
+    first. A package named in `untyped` answers nothing.
+    """
+    out = [struct(file = entry, package = npm_info)]
+    seen = {entry.path: True}
+    for i in range(_MAX_REFERENCED_DECLARATIONS):
+        if i >= len(out):
+            return out
+        item = out[i]
+        for name in item.package.type_references.get(item.file.path, []):
+            dep, designated = _directive_answer(name, item.package.direct_deps, untyped)
+            if designated and designated.path not in seen:
+                seen[designated.path] = True
+                out.append(struct(file = designated, package = dep))
+    fail("ts_compile: more than {} declarations reached through /// <reference types> directives from {}".format(
+        _MAX_REFERENCED_DECLARATIONS,
+        entry.path,
+    ))
+
 def _bare_package_name(entry):
     """The package `entry` names, without its subpath. Mirrors Gazelle's barePackageName."""
     if entry.startswith("@"):
@@ -1863,9 +1910,8 @@ def _ts_compile_impl(ctx):
     # pollute the mapping (e.g. vitest's transitive @types/estree dep being used
     # for vitest).
     #
-    # ambient_dts: entry-point .d.ts of each @types/* package in `deps`, keyed by
-    # path to dedupe. _generate_tsconfig lists them in `files` so the globals and
-    # `declare module` blocks they hold join the program.
+    # ambient_dts: the `files` entries -- each direct @types/* dep's entry plus
+    # what it reaches through `/// <reference types=...>` -- keyed by path to dedupe.
     ambient_dts = {}
 
     # transitive_package_dir_sets: depset of package.json Files from all
@@ -1890,20 +1936,21 @@ def _ts_compile_impl(ctx):
             global_entry_sets.append(dep[TsDeclarationInfo].transitive_global_entry_files)
             direct_provided_sets.append(dep[TsDeclarationInfo].declaration_files)
 
-            # Direct deps only: declaring @types/foo is how a target asks for
-            # foo's globals, so a package that merely appears in some dep's own
-            # closure does not silently put its globals in this target's scope.
+            # Direct deps only, plus what their entries reference: declaring
+            # @types/foo is how a target asks for foo's globals, and a package
+            # that merely appears in some dep's closure does not silently put
+            # its globals in this target's scope.
             #
             # `files` is the other route into the program, and an excluded
             # package has to leave by both: naming its entry point here would put
             # every global in it in scope with no `paths` key in sight.
             if NpmPackageInfo in dep and dep[NpmPackageInfo].package_name not in untyped:
-                if dep[NpmPackageInfo].ambient_types_file:
-                    entry = dep[NpmPackageInfo].ambient_types_file
-                    ambient_dts[entry.path] = entry
-                types_candidates.append(dep[NpmPackageInfo])
-                for entry in _requested_type_files(ctx, dep[NpmPackageInfo]):
-                    ambient_dts[entry.path] = entry
+                npm_info = dep[NpmPackageInfo]
+                types_candidates.append(npm_info)
+                entries = [npm_info.ambient_types_file] if npm_info.ambient_types_file else []
+                for entry in entries + _requested_type_files(ctx, npm_info):
+                    for reached in referenced_type_files(entry, npm_info, untyped):
+                        ambient_dts[reached.file.path] = reached.file
         if JsInfo in dep:
             transitive_js_sets.append(dep[JsInfo].transitive_js_files)
             transitive_js_map_sets.append(dep[JsInfo].transitive_js_map_files)
