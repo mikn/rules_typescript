@@ -1,8 +1,4 @@
-"""ts_test with a source-level path alias, as ts_compile takes one.
-
-The alias reaches the ts_compile this macro generates, which is the only
-program the test files are ever in.
-"""
+"""ts_test with a source-level path alias, as ts_compile takes one."""
 
 # A BUILD file under shared/ would make it a package, and the alias value a
 # path across a package boundary.
@@ -11,9 +7,6 @@ program the test files are ever in.
 load("//tests/vitest/path_aliases:alias_tests.bzl", "test_compile_paths_test")
 load("//ts:defs.bzl", "ts_test")
 
-# The aliased tree belongs to no target here, so path_alias_srcs is what stages
-# it: an alias the type-check action cannot see is an analysis error.
-#
 # The test imports a type and not a value: oxc leaves a specifier alone, so a
 # value import would reach vitest, which resolves the alias as a package.
 ts_test(

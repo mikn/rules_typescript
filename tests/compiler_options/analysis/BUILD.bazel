@@ -408,10 +408,8 @@ alias_without_inputs_test(
     target_under_test = ":alias_without_inputs",
 )
 
-# ts_test's route to the same guard. A test target's srcs are the test files, so
-# an alias into the code under test is covered by none of them: forwarding
-# path_aliases without path_alias_srcs would leave the ordinary case failing
-# here rather than expressible.
+# ts_test's route to the same guard: a test target's srcs are the test files, so
+# an alias into the code under test is covered by none of them.
 ts_test(
     name = "test_alias_without_inputs",
     srcs = ["lone.ts"],

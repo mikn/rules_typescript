@@ -1,10 +1,8 @@
 """Analysis-time proof that a ts_test alias reaches the program the tests are in.
 
-The ts_test next door running green is the end-to-end half. These assertions
-pin the mechanism, because a `paths` key naming only the source tree would also
-produce a tsconfig that looks right while leaving every generated declaration
-under the alias -- a css_library's or json_library's, written to bazel-bin and
-never beside its source -- unresolved.
+A `paths` key naming only the source tree looks right and leaves every
+generated declaration under the alias -- written to bazel-bin, never beside its
+source -- unresolved, so both values are asserted.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
