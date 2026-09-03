@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 // Plan is everything the launcher decided before it touched the process table.
@@ -63,6 +64,8 @@ func MakePlan(cfg *Config, r *Resolver, args []string) (*Plan, error) {
 		return planNode(cfg, r, plan, args)
 	case ModeVitest:
 		return planVitest(cfg, r, plan)
+	case ModeNodeTest:
+		return planNodeTest(cfg, r, plan)
 	case ModeDevServer:
 		return planDevServer(cfg, r, plan, args)
 	case ModeWrangler:
@@ -84,6 +87,35 @@ func runtimeCommand(cfg *Config, r *Resolver) ([]string, error) {
 		return nil, err
 	}
 	return append([]string{path}, cfg.RunArgs...), nil
+}
+
+// installNodeModules puts the tree on NODE_PATH and under a literal node_modules
+// name too: ESM resolution walks up looking for that name and ignores NODE_PATH.
+func installNodeModules(r *Resolver, plan *Plan, rlocation string) (string, error) {
+	if rlocation == "" {
+		return "", nil
+	}
+	dir, err := r.Path(rlocation)
+	if err != nil {
+		return "", err
+	}
+	if st, statErr := os.Stat(dir); statErr != nil || !st.IsDir() {
+		return "", nil
+	}
+	plan.prependPath("NODE_PATH", dir)
+	linkAs(filepath.Join(filepath.Dir(dir), "node_modules"), dir)
+	if r.Dir() != "" {
+		linkAs(filepath.Join(r.Dir(), "node_modules"), dir)
+	}
+	return dir, nil
+}
+
+// linkAs creates link -> target unless something already sits at link.
+func linkAs(link, target string) {
+	if _, err := os.Lstat(link); err == nil {
+		return
+	}
+	_ = os.Symlink(target, link)
 }
 
 func Run(plan *Plan) (int, error) {

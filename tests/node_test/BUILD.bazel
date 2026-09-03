@@ -1,0 +1,67 @@
+"""`runner` picks the test runner, and "vitest" stays the default.
+
+:collect_test is written against node:test, whose `test()` registers with
+nothing vitest collects -- under the default runner the same file collects zero
+tests -- so it passes only because `runner` reached the launcher.
+
+:ts_specifier_test pins the other half of running node:test as written: oxc
+copies the `./counter.ts` specifier into the .js it emits verbatim, and only
+counter.js is in the runfiles tree, so the file loads only through the resolver
+hook the runner installs.
+
+:compile_attrs_test pins that the compile attributes reach a node:test compile
+as they reach a vitest one: a type-only import through `path_aliases` resolves
+only if the alias and `path_alias_srcs` did, and the `types` entry resolves only
+if `types_srcs` staged the declaration it names.
+
+:vitest_default_test declares no `runner` and imports vitest, which plain node
+cannot resolve out of this layout -- so it fails if the default ever moves.
+"""
+
+# A BUILD file under either would make it a package: shared/ holds the alias
+# target, staged/ an ambient .d.ts that every-dir would otherwise compile.
+# gazelle:exclude shared
+# gazelle:exclude staged
+
+load("//ts:defs.bzl", "ts_compile", "ts_test")
+
+ts_compile(
+    name = "counter",
+    srcs = ["counter.ts"],
+    visibility = ["//visibility:public"],
+)
+
+ts_test(
+    name = "collect_test",
+    srcs = ["collect.test.ts"],
+    runner = "node:test",
+    deps = ["@npm//:types_node"],
+)
+
+ts_test(
+    name = "ts_specifier_test",
+    srcs = ["ts_specifier.test.ts"],
+    compiler_options = {"allowImportingTsExtensions": True},
+    runner = "node:test",
+    deps = [
+        ":counter",
+        "@npm//:types_node",
+    ],
+)
+
+ts_test(
+    name = "compile_attrs_test",
+    srcs = ["compile_attrs.test.ts"],
+    path_alias_srcs = ["shared/value.ts"],
+    path_aliases = {"@shared/": "tests/node_test/shared/"},
+    runner = "node:test",
+    types = ["./staged/ambient.d.ts"],
+    types_srcs = ["staged/ambient.d.ts"],
+    deps = ["@npm//:types_node"],
+)
+
+ts_test(
+    name = "vitest_default_test",
+    srcs = ["vitest_default.test.ts"],
+    deps = ["@npm//:vitest"],
+)

@@ -10,6 +10,7 @@ go_library(
         "main.go",
         "next.go",
         "node.go",
+        "nodetest.go",
         "plan.go",
         "resolve.go",
         "run.go",
@@ -32,6 +33,7 @@ go_test(
     srcs = [
         "config_test.go",
         "next_test.go",
+        "nodetest_test.go",
         "plan_test.go",
         "resolve_test.go",
         "wrangler_test.go",

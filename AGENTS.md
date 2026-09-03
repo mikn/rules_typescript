@@ -93,7 +93,7 @@ one. A target exporting none runs no such action and provides no such file.
 - `ts/private/ts_config.bzl` — the public `ts_config` rule (a hand-written tsconfig.json and its `extends` chain)
 - `platforms/platforms.bzl` — the one platform table (`PLATFORMS`) everything loads
 - `ts/toolchain/BUILD.bazel` — toolchain types and instances; `//ts/toolchain:all`
-- `ts/private/ts_test.bzl` — vitest test macro (auto node_modules)
+- `ts/private/ts_test.bzl` — test macro: vitest by default, `runner = "node:test"` for node's own runner (auto node_modules)
 - `ts/private/ts_bundle.bzl` — Vite production bundler (staging_srcs for frameworks)
 - `ts/private/ts_dev_server.bzl` — dev server with HMR
 - `ts/private/ts_codegen.bzl` — general code generation
@@ -357,7 +357,7 @@ array-`config` form emits `test.projects` — vitest 4 does not deprecate
 `<package>/__snapshots__/<source>.snap` — where a plain `vitest` keeps it — reads
 those files from runfiles via the `snapshots` attr, and runs vitest in read-only
 snapshot mode (`CI=true`) so no `bazel test` can write a `.snap` and then pass on
-what it wrote. Every `ts_test` also declares `<name>.update_snapshots`, which
+what it wrote. Every vitest `ts_test` also declares `<name>.update_snapshots`, which
 reuses the test's own `ts_compile` (a second `ts_compile` over the same srcs would
 declare the same `.js` outputs) and writes under `BUILD_WORKSPACE_DIRECTORY`.
 Update mode pins `test.dir`, `test.include` and `cacheDir`, because `bazel run`

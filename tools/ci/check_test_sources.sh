@@ -40,6 +40,12 @@ MANUAL_ONLY=$(
 # from the test lockfile, so the targets are built but cannot be run.
 tests/vitest/environment/edge.test.ts
 tests/vitest/environment/jsdom.test.ts
+# Analysis-only fixtures. Their ts_test targets are asserted to FAIL at
+# analysis -- one sets vitest attrs under runner = "node:test", the other gives
+# such a target a CSS-module dep -- so a target that ran would report a red test
+# for the intended outcome.
+tests/node_test/analysis/attrs.test.ts
+tests/node_test/analysis/css.test.ts
 # Meant to fail: it misses the coverage threshold its target sets, which is the
 # assertion. //tests/vitest/thresholds:enforcement_test runs it and asserts the
 # failure, so `bazel test //...` running it directly would report a red test for

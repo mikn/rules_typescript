@@ -14,22 +14,9 @@ func planVitest(cfg *Config, r *Resolver, plan *Plan) (*Plan, error) {
 	v := cfg.Vitest
 	plan.Dir = testWorkingDir(r, v.UpdateSnapshots)
 
-	nodeModules := ""
-	if v.NodeModules != "" {
-		dir, err := r.Path(v.NodeModules)
-		if err != nil {
-			return nil, err
-		}
-		if st, statErr := os.Stat(dir); statErr == nil && st.IsDir() {
-			nodeModules = dir
-			plan.prependPath("NODE_PATH", dir)
-			// Vitest reaches its optional deps (@vitest/coverage-v8, the environment
-			// packages) through ESM resolution, which ignores NODE_PATH.
-			linkAs(filepath.Join(filepath.Dir(dir), "node_modules"), dir)
-			if r.Dir() != "" {
-				linkAs(filepath.Join(r.Dir(), "node_modules"), dir)
-			}
-		}
+	nodeModules, err := installNodeModules(r, plan, v.NodeModules)
+	if err != nil {
+		return nil, err
 	}
 
 	configFile, err := r.Path(v.ConfigFile)
@@ -135,13 +122,6 @@ func stageTestRoot(files []testFile) (root string, staged []string, err error) {
 	return root, staged, nil
 }
 
-func linkAs(link, target string) {
-	if _, err := os.Lstat(link); err == nil {
-		return
-	}
-	_ = os.Symlink(target, link)
-}
-
 func resolveVitest(r *Resolver, v *VitestConfig, nodeModules string) (path string, viaPath bool, err error) {
 	if v.Vitest != "" {
 		p, err := r.Path(v.Vitest)
@@ -229,10 +209,8 @@ func shardFiles(r *Resolver, listPath string) ([]testFile, error) {
 	return out, scanner.Err()
 }
 
-// coverageFlags is unconditional on COVERAGE_OUTPUT_FILE so `bazel coverage`
-// works on every ts_test; the attr only adds coverage to plain `bazel test`,
-// where nothing consumes a report -- so it stays out of the runfiles tree the
-// test is running in.
+// COVERAGE_OUTPUT_FILE wins over the attr, so `bazel coverage` needs no opt-in
+// on a vitest ts_test; the attr alone reports to TEST_TMPDIR, off the runfiles.
 func coverageFlags(coverageAttr bool) []string {
 	if out := os.Getenv("COVERAGE_OUTPUT_FILE"); out != "" {
 		dir := filepath.Dir(out)
