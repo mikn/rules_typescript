@@ -21,11 +21,17 @@
   to list it in. The `typeRoots` exemption does not extend to this shape: a
   relative entry never goes through `typeRoots`.
 
-  A dep's *generated* declaration is not nameable this way, whatever its
+  No *generated* declaration is nameable this way, whatever its
   package-relative path looks like: the entry resolves against the source tree
-  and that file is in `bazel-out`. The message says so, and points at
-  `public_globals` — the route a generated ambient takes into a consumer's
-  program.
+  and that file is in `bazel-out`. Two shapes reach that failure and the message
+  names the one you have. A dep's is staged on the dep edge already, so drop the
+  entry and take what it declares the way the dep edge carries it — globals when
+  that dep names their src in `public_globals`, exports through an `import`. One
+  in this target's own `srcs` has no such route: `include` names it and the
+  default `exclude` drops it again for sitting under `outDir`, and
+  `public_globals` here publishes to consumers without adding anything to this
+  program — so it wants its own `ts_compile`, `public_globals` there, and a dep
+  edge to it.
 
   Two shapes stay the compiler's own. `./typings`, a directory, is rebased onto
   the generated config as before and then walked at action time — which

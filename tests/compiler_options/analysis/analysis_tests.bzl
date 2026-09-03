@@ -613,8 +613,13 @@ misplaced_type_file_test = _fails_with(
     "Did you mean \"tests/compiler_options/analysis/staged/ambient.d.ts\"?",
 )
 generated_type_file_test = _fails_with(
-    "That path holds a generated declaration, and the entry resolves against the source tree",
-    "whose globals travel by public_globals",
+    "That path holds a dep's generated declaration, and the entry resolves against the source tree",
+    "globals when that dep names their src in public_globals",
+)
+own_generated_type_file_test = _fails_with(
+    "That path holds a generated declaration this target names itself",
+    "public_globals here publishes to consumers only",
+    "Compile the declaration in its own ts_compile",
 )
 unnamed_type_src_test = _fails_with(
     "types_srcs on @@//tests/compiler_options/analysis:unnamed_type_src names 'tests/compiler_options/analysis/staged/ambient.d.ts'",

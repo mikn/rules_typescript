@@ -426,9 +426,9 @@ def types_entry_package_ref(entry):
         return ""
     return entry
 
-# `^\.\.?($|/)` is TypeScript's own test for a path here. Everything else,
-# `vendor/x.d.ts` included, is a typeRoots lookup no label of this target can
-# answer -- and the half `_rebase_package_relative` leaves as written.
+# `^\.\.?($|/)` is TypeScript's own test for a path here; this takes the `./` and
+# `../` of it that end in `.d.ts` and leaves the rest -- `vendor/x.d.ts`, `.`,
+# `./typings` -- to the compiler, whatever `_rebase_package_relative` rewrote.
 def types_entry_declaration(entry):
     """The declaration file one `types` entry names, package-relative, or "".
 
@@ -543,7 +543,8 @@ def _fail_on_unresolved_types(ctx, npm_infos):
 # A dep's passed-through .d.ts answers an entry too: a .d.ts in srcs is a
 # declaration output unchanged, so the dep edge stages the source file itself.
 # A generated declaration never answers, whatever its short_path looks like --
-# the rebased entry points into the source tree and that file is in bazel-out.
+# the rebased entry points into the source tree and that file is in bazel-out --
+# and which label named it decides what the target can do about that.
 def _declaration_type_files(ctx, dep_declarations):
     """The files this target's relative `types` entries name.
 
@@ -558,13 +559,18 @@ def _declaration_type_files(ctx, dep_declarations):
     # Flattened because the answer is which staged file sits at one path, and
     # only for a target that names a declaration file at all.
     staged = {}
-    generated = {}
-    for f in (ctx.files.srcs + ctx.files.types_srcs + ctx.files.path_alias_srcs +
-              dep_declarations.to_list()):
+    own_generated = {}
+    dep_generated = {}
+    for f in ctx.files.srcs + ctx.files.types_srcs + ctx.files.path_alias_srcs:
         if f.is_source:
             staged[f.path] = f
-        elif f.short_path not in generated:
-            generated[f.short_path] = f
+        else:
+            own_generated[f.short_path] = f
+    for f in dep_declarations.to_list():
+        if f.is_source:
+            staged[f.path] = f
+        elif f.short_path not in own_generated:
+            dep_generated[f.short_path] = f
 
     out = []
     for entry in written:
@@ -575,10 +581,22 @@ def _declaration_type_files(ctx, dep_declarations):
             continue
         basename = entry.split("/")[-1]
         near = sorted([p for p in staged if p.endswith("/" + basename)])
-        if path in generated:
-            reason = ("That path holds a generated declaration, and the entry resolves against " +
-                      "the source tree: a generated one is only ever reachable as a dep, whose " +
-                      "globals travel by public_globals.\n")
+        if path in own_generated:
+            reason = ("That path holds a generated declaration this target names itself, and " +
+                      "the entry resolves against the source tree.\nStaging is not " +
+                      "resolution: the label puts the file in the sandbox at its bazel-out " +
+                      "path, and a generated declaration joins the program only through the " +
+                      "generated config's `files`, which a dep's public_globals writes -- an " +
+                      "`include` entry under outDir the default `exclude` drops again, and " +
+                      "public_globals here publishes to consumers only.\nCompile the " +
+                      "declaration in its own ts_compile, name it in public_globals there, " +
+                      "depend on that target and drop the entry.\n")
+        elif path in dep_generated:
+            reason = ("That path holds a dep's generated declaration, and the entry resolves " +
+                      "against the source tree while that file is in bazel-out.\nDrop the " +
+                      "entry: a generated declaration reaches this program on the dep edge, " +
+                      "and what it declares arrives with it -- globals when that dep names " +
+                      "their src in public_globals, exports through an import.\n")
         else:
             reason = ("The type-check action stages srcs, types_srcs, path_alias_srcs and its " +
                       "deps' declarations, so tsgo would resolve the entry to nothing -- and " +

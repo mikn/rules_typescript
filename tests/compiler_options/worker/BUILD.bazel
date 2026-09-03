@@ -13,7 +13,8 @@ package(default_visibility = ["//:__pkg__"])
 # `types` is written the way wrangler writes it: relative to the package, and it
 # is load-bearing -- :worker_configuration names no public_globals, so the dep
 # edge stages the file without putting its globals in this program. Dropping the
-# entry is TS2304 on `Response` and TS7006 on the handler's parameters. The
+# entry is 6 diagnostics on index.ts: TS2304 on `ExportedHandler`, `Env` and
+# `Response`, TS7006 on the handler's two parameters, TS2552 on `caches`. The
 # entry resolves because a passed-through .d.ts IS the source file, staged at
 # the path the entry names; a file no dep, no src and no types_srcs stages is an
 # analysis error.

@@ -535,10 +535,17 @@ reason a package entry does: tsgo reports nothing for a `types` entry that
 resolves to nothing, and the target compiles without the declarations it asked
 for.
 
-A dep's *generated* declaration is not nameable: the entry resolves against the
-source tree and that file is in `bazel-out`. Depend on the target and have it
-name the file in `public_globals`, which is the route a generated ambient takes
-into a consumer's program.
+No *generated* declaration is nameable, whichever label it arrives by: the entry
+resolves against the source tree and the file is in `bazel-out`. Two shapes
+reach that failure and it names the one you have. A dep's generated declaration
+is staged on the dep edge already, so drop the entry and take what it declares
+the way the dep edge carries it: globals when that dep names their src in
+`public_globals`, exports through an `import`. A generated declaration in this
+target's own `srcs` has no such route -- `include` names it and the default
+`exclude` drops it again for sitting under `outDir`, and `public_globals` here
+publishes to consumers without adding anything to this program. Compile it in
+its own `ts_compile`, name it in `public_globals` there and depend on that
+target.
 
 ```python
 ts_compile(
