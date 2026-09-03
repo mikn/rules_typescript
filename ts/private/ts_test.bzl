@@ -1,4 +1,5 @@
-"""Test rule (macro) that compiles and runs vitest in Bazel's test sandbox.
+"""Test rule (macro) that compiles TypeScript tests and runs them in Bazel's
+test sandbox, under vitest or under node's own runner -- see `runner`.
 
 NOTE — Windows compatibility:
   The node_modules tree action (_ts_auto_node_modules) runs via a cross-platform
@@ -12,8 +13,8 @@ NOTE — Windows compatibility:
 
 ts_test is a macro that:
   1. Creates an internal ts_compile target for the test source files.
-  2. Creates a _ts_test_runner_test test rule that runs vitest against the compiled
-     .js outputs.
+  2. Creates a _ts_test_runner_test test rule that runs the compiled .js outputs
+     under the runner `runner` names, vitest by default.
 
 Design:
   - srcs: the .ts/.tsx test source files
@@ -21,7 +22,7 @@ Design:
   - node_modules: a node_modules target for runtime npm resolution
   - vitest: optional explicit label for the vitest bin
 
-Who controls the test environment:
+Who controls the test environment (vitest runner):
   The user does, through `config` (a vitest config file or an inline dict) and
   through the environment attributes (setup_files, global_setup, environment,
   globals, reporters, coverage_thresholds, data).  rules_typescript keeps only
@@ -30,7 +31,7 @@ Who controls the test environment:
   MERGES the user's config on top of it instead of being replaced by it.  The
   layering and its precedence are described under "Vitest config generation"
   below; the config that actually ran is available as the `vitest_config`
-  output group of any ts_test target:
+  output group of any ts_test on the vitest runner:
 
     bazel build //path:my_test --output_groups=vitest_config
 
@@ -78,7 +79,7 @@ Snapshot testing:
   there fails -- ts_test runs vitest in its read-only snapshot mode (CI=true)
   so that no `bazel test` can write a .snap and pass on what it just wrote.
 
-  Writing them: every ts_test also declares an executable
+  Writing them: every vitest ts_test also declares an executable
 
     bazel run //path:my_test.update_snapshots
 
@@ -467,6 +468,16 @@ def _snapshot_bases(srcs):
         bases[stem + ".js"] = "{}/__snapshots__/{}".format(parent, src.basename)
     return bases
 
+# ─── Test runners ─────────────────────────────────────────────────────────────
+#
+# node:test is configured by CLI flags and the test file alone, so the rule
+# rejects the vitest-shaped attrs rather than generating a config nothing reads.
+
+RUNNER_VITEST = "vitest"
+RUNNER_NODE_TEST = "node:test"
+
+_RUNNERS = [RUNNER_VITEST, RUNNER_NODE_TEST]
+
 # ─── Internal test runner rule ─────────────────────────────────────────────────
 
 def _ts_test_runner_impl(ctx):
@@ -532,6 +543,17 @@ def _ts_test_runner_impl(ctx):
         output = test_files_list,
         content = "\n".join([rlocation_path(ctx, f) for f in test_entry_points]) + "\n",
     )
+
+    if ctx.attr.runner == RUNNER_NODE_TEST:
+        return _node_test_providers(
+            ctx,
+            transitive_js = transitive_js,
+            test_files_list = test_files_list,
+            node_modules_files = node_modules_files,
+            runtime_binary = runtime_binary,
+            runtime_args = runtime_args,
+            needs_css_module_plugin = needs_css_module_plugin,
+        )
 
     # ── Vitest config ─────────────────────────────────────────────────────────
     # One generated entry config layers Bazel machinery, the `config` attr and
@@ -713,6 +735,100 @@ def _ts_test_runner_impl(ctx):
         ),
     ]
 
+def _node_test_providers(
+        ctx,
+        transitive_js,
+        test_files_list,
+        node_modules_files,
+        runtime_binary,
+        runtime_args,
+        needs_css_module_plugin):
+    """Providers for a runner = "node:test" target: no generated config at all."""
+    set_attrs = [
+        attr_name
+        for attr_name, value in [
+            ("config", ctx.attr.config or ctx.attr.config_json),
+            ("coverage", ctx.attr.coverage),
+            ("coverage_provider", ctx.attr.coverage_provider),
+            ("coverage_thresholds", ctx.attr.coverage_thresholds),
+            ("environment", ctx.attr.environment),
+            ("global_setup", ctx.attr.global_setup),
+            ("globals", ctx.attr.globals),
+            ("reporters", ctx.attr.reporters),
+            ("setup_files", ctx.attr.setup_files),
+            ("snapshots", ctx.attr.snapshots),
+            ("update_snapshots", ctx.attr.update_snapshots),
+            ("vitest", ctx.attr.vitest),
+        ]
+        if value
+    ]
+    if set_attrs:
+        fail(('ts_test {}: runner "{}" reads none of {}. Every one of them ' +
+              "configures vitest, which this target does not run. Drop them, " +
+              "or drop `runner` to run the test under vitest.").format(
+            ctx.label,
+            RUNNER_NODE_TEST,
+            ", ".join(set_attrs),
+        ))
+
+    if needs_css_module_plugin:
+        fail(('ts_test: runner "{}" cannot load a CSS module, and a dep of {} ' +
+              "provides one. Only the vitest runner installs the transform that " +
+              "answers a *.module.css import; drop `runner` to use it.").format(
+            RUNNER_NODE_TEST,
+            ctx.label,
+        ))
+
+    node_test_cfg = {
+        "test_files_list": rlocation_path(ctx, test_files_list),
+        "resolve_hook": rlocation_path(ctx, ctx.file._node_test_hook),
+    }
+    if node_modules_files:
+        node_test_cfg["node_modules"] = rlocation_path(ctx, node_modules_files[0])
+
+    config = {
+        "label": str(ctx.label),
+        "mode": "node_test",
+        "workspace": ctx.workspace_name,
+        "runtime_args": runtime_args,
+        "env": dict(ctx.attr.env),
+        "node_test": node_test_cfg,
+    }
+    if runtime_binary:
+        config["runtime"] = rlocation_path(ctx, runtime_binary)
+
+    launcher = declare_launcher(ctx, config, basename = "{}_test_launcher".format(ctx.label.name))
+
+    runfiles_files = (
+        [test_files_list, ctx.file._node_test_hook] + launcher.files +
+        ctx.files.compiled_tests +
+        node_modules_files +
+        ctx.files.data
+    )
+    if runtime_binary:
+        runfiles_files.append(runtime_binary)
+
+    runfiles = ctx.runfiles(
+        files = runfiles_files,
+        transitive_files = transitive_js,
+        root_symlinks = launcher.root_symlinks,
+    )
+    for target in ctx.attr.data:
+        runfiles = runfiles.merge(target[DefaultInfo].default_runfiles)
+
+    return [
+        DefaultInfo(
+            executable = launcher.executable,
+            runfiles = runfiles,
+        ),
+        coverage_common.instrumented_files_info(
+            ctx,
+            dependency_attributes = ["compiled_tests", "deps"],
+            extensions = _INSTRUMENTED_EXTENSIONS,
+            baseline_coverage_files = [],
+        ),
+    ]
+
 # ─── Coverage instrumentation ─────────────────────────────────────────────────
 #
 # --instrumentation_filter is applied where a target answers for its own label,
@@ -762,6 +878,18 @@ _RUNNER_ATTRS = {
         default = Label("//ts/private/css:css_module_vite_plugin"),
         allow_single_file = True,
     ),
+    "_node_test_hook": attr.label(
+        default = Label("//ts/private:node_test_hook.mjs"),
+        allow_single_file = True,
+    ),
+    "runner": attr.string(
+        doc = "Which test runner runs the compiled tests: \"vitest\" (default) " +
+              "or \"node:test\", node's own runner, for tests written against " +
+              "the node:test module.  A vitest attr set under \"node:test\" is " +
+              "an analysis error rather than a silently dropped setting.",
+        default = RUNNER_VITEST,
+        values = _RUNNERS,
+    ),
     "vitest": attr.label(
         doc = "Explicit label for the vitest binary.",
         allow_single_file = True,
@@ -792,7 +920,7 @@ _RUNNER_ATTRS = {
               "normal `bazel test` runs (in addition to `bazel coverage`).  " +
               "Coverage during `bazel coverage` is always enabled regardless " +
               "of this attr — `bazel coverage //path:test` works on every " +
-              "ts_test target without any opt-in.  " +
+              "vitest ts_test target without any opt-in.  " +
               "Requires the @vitest/coverage-* package matching " +
               "`coverage_provider` to be present in node_modules.",
         default = False,
@@ -974,6 +1102,7 @@ def ts_test(
         path_alias_srcs = None,
         types_srcs = None,
         visibility = None,
+        runner = RUNNER_VITEST,
         environment = "",
         coverage = False,
         config = None,
@@ -986,10 +1115,10 @@ def ts_test(
         coverage_provider = "",
         snapshots = [],
         update_snapshots = False):
-    """Compiles TypeScript test files and runs them with vitest.
+    """Compiles TypeScript test files and runs them under vitest or node:test.
 
     Internally creates a ts_compile target for the test sources, then a
-    test runner rule that invokes vitest on the compiled .js outputs.
+    test runner rule that runs the compiled .js outputs under `runner`.
 
     Args:
         name:              Name of the test target.
@@ -1044,12 +1173,29 @@ def ts_test(
                            `setup_files` and `global_setup`. Those default to
                            `//visibility:public` when the test declares none,
                            so that an IDE tsconfig can name them.
+        runner:            Which runner runs the compiled tests: "vitest"
+                           (default) or "node:test". "node:test" is for tests
+                           written against node's own runner -- vitest's
+                           collector never sees a `test()` registered with
+                           node:test, so such a file collects zero tests under
+                           the default. The compile attributes (`lib`, `types`,
+                           `compiler_options`, `tsconfig`, `path_aliases`,
+                           `path_alias_srcs`, `types_srcs`) apply on either
+                           runner. node:test configures itself from CLI flags
+                           and the test file, so every vitest-shaped attr
+                           (`config`, `environment`, `globals`, `reporters`,
+                           `setup_files`, `global_setup`, `snapshots`, the
+                           coverage trio and `vitest`) is an analysis error
+                           under it, a CssModuleInfo dep is too, and
+                           `bazel coverage` is unsupported. `--test_filter`
+                           reaches it as node's --test-name-pattern; sharding
+                           works as it does for vitest.
         environment:       Vitest test environment: 'node', 'happy-dom', or 'jsdom'.
                            Requires the corresponding package in node_modules.
         coverage:          When True, also enables coverage during `bazel test`
                            (not just `bazel coverage`).  Coverage during
                            `bazel coverage` is always on regardless of this
-                           attr — every ts_test supports `bazel coverage`
+                           attr — every vitest ts_test supports `bazel coverage`
                            without any opt-in.
         lib:               Forwarded to the generated ts_compile: the `lib` set the
                            tests type-check against. A worker test is what needs
@@ -1124,7 +1270,7 @@ def ts_test(
                                bazel run //path:my_test.update_snapshots
 
         update_snapshots:  Makes THIS target the executable updater instead of
-                           a test. Every ts_test already declares
+                           a test. Every vitest ts_test already declares
                            `<name>.update_snapshots`, so this is only for an
                            updater that has to stand on its own — and it
                            compiles `srcs` itself, so it cannot share a package
@@ -1179,7 +1325,14 @@ def ts_test(
         target = target,
         jsx_mode = jsx_mode,
         declarations = declarations,
-        compiler_options_json = test_compiler_options_json(lib, types, compiler_options, globals),
+        # The rule rejects `globals` under node:test; without this gate the
+        # compile would fail first, on a "vitest/globals" entry no dep resolves.
+        compiler_options_json = test_compiler_options_json(
+            lib,
+            types,
+            compiler_options,
+            globals and runner == RUNNER_VITEST,
+        ),
         tsconfig = tsconfig,
         path_aliases = path_aliases,
         path_alias_srcs = path_alias_srcs,
@@ -1238,6 +1391,7 @@ def ts_test(
     # Step 4: assemble the runner rule kwargs.
     runner_kwargs = {
         "name": name,
+        "runner": runner,
         "compiled_tests": [":{}".format(compile_name)],
         "srcs": srcs,
         "snapshots": snapshots,
@@ -1273,15 +1427,16 @@ def ts_test(
         _ts_snapshot_updater(**(runner_kwargs | {"tags": wildcard_tags}))
         return
 
-    # The updater has to share the test's compiled sources: a second ts_compile
-    # over the same srcs in the same package declares the same .js outputs.
-    _ts_snapshot_updater(
-        **(runner_kwargs | {
-            "name": "{}.update_snapshots".format(name),
-            "update_snapshots": True,
-            "tags": wildcard_tags,
-        })
-    )
+    # The updater shares the test's compile (a second ts_compile over the same
+    # srcs declares the same .js outputs); node:test rejects update_snapshots.
+    if runner == RUNNER_VITEST:
+        _ts_snapshot_updater(
+            **(runner_kwargs | {
+                "name": "{}.update_snapshots".format(name),
+                "update_snapshots": True,
+                "tags": wildcard_tags,
+            })
+        )
 
     runner_kwargs["size"] = size
     runner_kwargs["tags"] = tags

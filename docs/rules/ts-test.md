@@ -1,6 +1,7 @@
 # ts_test
 
-Compiles TypeScript test files and runs them with vitest inside the Bazel sandbox.
+Compiles TypeScript test files and runs them inside the Bazel sandbox, with
+vitest or with node's own test runner.
 
 ## Usage
 
@@ -45,8 +46,9 @@ do not describe.
 | `path_aliases` | `string_dict` | `None` | Source-level alias prefixes for the internal `ts_compile` — see [Path aliases](#path-aliases) |
 | `path_alias_srcs` | `label_list` | `None` | The files an alias resolves to, when they are not in the test's own `srcs` — see [Path aliases](#path-aliases) |
 | `types_srcs` | `label_list` | `None` | The files a relative `types` entry resolves to — see [A `types` entry that names a declaration file](#a-types-entry-that-names-a-declaration-file) |
+| `runner` | `string` | `"vitest"` | Which runner runs the compiled tests, `"vitest"` or `"node:test"` — see [The node:test runner](#the-nodetest-runner). Every attribute below this row except `data` is vitest's, and an analysis error under `"node:test"` |
 | `environment` | `string` | `""` | `test.environment` — `node`, `jsdom`, `happy-dom`, `edge-runtime`, or any custom vitest environment package. The package must be in `deps` |
-| `coverage` | `bool` | `False` | Also instrument during plain `bazel test`. `bazel coverage` works on every target regardless |
+| `coverage` | `bool` | `False` | Also instrument during plain `bazel test`. `bazel coverage` works on every vitest target regardless |
 | `config` | `label` or `dict` | `None` | A vitest config file (`.ts`/`.mts`/`.cts`/`.js`/`.mjs`/`.cjs`) or an inline dict, **merged** into the generated config — see [A config file](#a-config-file) |
 | `setup_files` | `label_list` | `[]` | `test.setupFiles`. `.ts`/`.tsx` entries are compiled with the same `deps` as the tests |
 | `global_setup` | `label_list` | `[]` | `test.globalSetup`; compiled like `setup_files` |
@@ -61,8 +63,8 @@ do not describe.
 ## Generated Targets
 
 The macro generates a `ts_compile` target for `srcs`, one for the TypeScript
-entries in `setup_files` and one for those in `global_setup`, plus a
-`<name>.update_snapshots` executable.
+entries in `setup_files` and one for those in `global_setup`, plus — on the
+vitest runner — a `<name>.update_snapshots` executable.
 The `ts_compile` targets take the test's `visibility`, defaulting to
 `//visibility:public` when the test declares none, so an IDE tsconfig written by
 `ts_refresh_tsconfig` can name them.
@@ -290,9 +292,11 @@ them run after any `setupFiles` the `config` attr contributes.
 
 ## Coverage
 
-`bazel coverage //path/to:my_test` works on any `ts_test` with no attribute set;
-`@vitest/coverage-v8` must be in `node_modules`. `coverage = True` additionally
-instruments plain `bazel test` runs.
+`bazel coverage //path/to:my_test` works on any `ts_test` on the vitest runner
+with no attribute set; `@vitest/coverage-v8` must be in `node_modules`.
+`coverage = True` additionally instruments plain `bazel test` runs. A
+`runner = "node:test"` target reports no coverage and says so rather than
+handing Bazel an empty report.
 
 `coverage_thresholds` is enforced only when coverage runs, and a run that misses
 one fails: vitest exits non-zero with
@@ -363,11 +367,77 @@ bazel test //path/to:math_test
 ## Sharding
 
 `ts_test` distributes test files across shards using `TEST_SHARD_INDEX` and
-`TEST_TOTAL_SHARDS`. Set `shard_count` on the target and pass
+`TEST_TOTAL_SHARDS`, on either runner. Set `shard_count` on the target and pass
 `--noincompatible_check_sharding_support`: the runner never touches
 `TEST_SHARD_STATUS_FILE`, which is how Bazel expects a test runner to advertise
 sharding support, so without that flag a sharded run fails before any test
 starts.
+
+## The node:test Runner
+
+A test written against [`node:test`][node-test] registers with node's runner,
+not with vitest's collector, so vitest reports `0 test` for the file and fails
+it as an empty suite. `runner = "node:test"` runs such a file under
+`node --test` instead:
+
+```python
+ts_test(
+    name = "scripts_test",
+    srcs = ["cloudflare-account-token.test.ts"],
+    runner = "node:test",
+    deps = [":scripts", "@npm//:types_node"],
+)
+```
+
+The compile attributes carry over unchanged, because the compile is the same
+one: `lib`, `types`, `compiler_options`, `tsconfig`, `path_aliases`,
+`path_alias_srcs` and `types_srcs` mean on a node:test target exactly what they
+mean above. So does the caveat under [Path aliases](#path-aliases): an alias is
+type-checking only on either runner.
+
+The runner takes no config file — node:test is configured by CLI flags and by
+the test file itself — so every vitest-shaped attribute is an analysis error
+under it, naming the ones that were set:
+
+```
+ts_test @@//scripts:scripts_test: runner "node:test" reads none of environment,
+globals. Every one of them configures vitest, which this target does not run.
+```
+
+The rejected set is `config`, `coverage`, `coverage_provider`,
+`coverage_thresholds`, `environment`, `global_setup`, `globals`, `reporters`,
+`setup_files`, `snapshots`, `update_snapshots` and `vitest`. `globals` is in it
+because node:test has no globals mode: nothing would install `describe` or
+`expect`, so the attribute could only be a silent no-op, and the `vitest/globals`
+`types` entry it adds under vitest is not added here. A dep providing
+`CssModuleInfo` is rejected for the same reason: only the vitest runner installs
+the transform that answers a `*.module.css` import. No `<name>.update_snapshots`
+target is generated.
+
+What does carry over: `--test_filter` reaches node as `--test-name-pattern`
+(a regular expression over test names), sharding works as above, and the exit
+status is the test result — nothing writes a JUnit XML on either runner, so
+Bazel synthesises `test.xml` from the log.
+
+### Relative `.ts` Specifiers
+
+`import { x } from "./util.ts"` is legal TypeScript under
+`allowImportingTsExtensions`, and oxc — which does the JavaScript transform —
+copies that specifier into the `.js` verbatim. Only `util.js` is in the runfiles
+tree, so a runtime loading the emitted JavaScript fails with
+
+```
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module '.../util.ts'
+```
+
+The node:test runner installs an ESM resolver hook that retries a failed
+relative resolution with `.ts`/`.tsx` rewritten to `.js`. It is a fallback, not
+a first attempt, so a specifier node can already resolve keeps resolving to
+exactly what it resolved to before — and nothing about the source or the emit
+changes, which is why this is not a `rewriteRelativeImportExtensions` flag or a
+required edit to the `import`.
+
+[node-test]: https://nodejs.org/api/test.html
 
 ## Snapshots
 
@@ -399,7 +469,8 @@ read-only snapshot mode (`CI=true`), so no `bazel test` can write a `.snap` and
 then pass on what it just wrote. `env = {"CI": "false"}` opts out of that, at the
 cost of the guarantee.
 
-Writing them uses the executable every `ts_test` declares alongside itself:
+Writing them uses the executable every vitest `ts_test` declares alongside
+itself:
 
 ```bash
 bazel run //path/to:widget_test.update_snapshots

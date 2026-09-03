@@ -24,10 +24,15 @@ const DumpFlag = "--dump-config"
 const (
 	ModeNode      = "node"
 	ModeVitest    = "vitest"
+	ModeNodeTest  = "node_test"
 	ModeDevServer = "devserver"
 	ModeWrangler  = "wrangler"
 	ModeNext      = "next"
 )
+
+// RunnerNodeTest is the ts_test `runner` value this mode serves; diagnostics
+// quote it, so the rule and the launcher have to spell it the same.
+const RunnerNodeTest = "node:test"
 
 // The two Next.js CLI commands this launcher drives, one per rule.
 const (
@@ -55,6 +60,7 @@ type Config struct {
 
 	Node      *NodeConfig      `json:"node,omitempty"`
 	Vitest    *VitestConfig    `json:"vitest,omitempty"`
+	NodeTest  *NodeTestConfig  `json:"node_test,omitempty"`
 	DevServer *DevServerConfig `json:"dev_server,omitempty"`
 	Wrangler  *WranglerConfig  `json:"wrangler,omitempty"`
 	Next      *NextConfig      `json:"next,omitempty"`
@@ -107,6 +113,16 @@ type VitestConfig struct {
 	NodeModules     string `json:"node_modules,omitempty"`
 	UpdateSnapshots bool   `json:"update_snapshots,omitempty"`
 	Coverage        bool   `json:"coverage,omitempty"`
+}
+
+// NodeTestConfig carries no config file: node:test is configured by CLI flags
+// and by the test file itself.
+type NodeTestConfig struct {
+	TestFilesList string `json:"test_files_list"`
+	NodeModules   string `json:"node_modules,omitempty"`
+	// ResolveHook is the ESM resolver shim that answers the `./x.ts` specifier
+	// oxc emits verbatim into the .js beside it. Empty disables it.
+	ResolveHook string `json:"resolve_hook,omitempty"`
 }
 
 // WranglerConfig runs wrangler over a worker Bazel built. Everything is staged
@@ -252,6 +268,13 @@ func (c *Config) validate() error {
 		if c.Vitest.ConfigFile == "" || c.Vitest.TestFilesList == "" {
 			return errors.New(`mode "vitest" requires vitest.config_file and vitest.test_files_list`)
 		}
+	case ModeNodeTest:
+		if c.NodeTest == nil {
+			return errors.New(`mode "node_test" requires a "node_test" section`)
+		}
+		if c.NodeTest.TestFilesList == "" {
+			return errors.New(`mode "node_test" requires node_test.test_files_list`)
+		}
 	case ModeDevServer:
 		if c.DevServer == nil {
 			return errors.New(`mode "devserver" requires a "dev_server" section`)
@@ -297,8 +320,8 @@ func (c *Config) validate() error {
 	case "":
 		return errors.New(`missing "mode"`)
 	default:
-		return fmt.Errorf("unknown mode %q (want %q, %q, %q, %q or %q)",
-			c.Mode, ModeNode, ModeVitest, ModeDevServer, ModeWrangler, ModeNext)
+		return fmt.Errorf("unknown mode %q (want %q, %q, %q, %q, %q or %q)",
+			c.Mode, ModeNode, ModeVitest, ModeNodeTest, ModeDevServer, ModeWrangler, ModeNext)
 	}
 	return nil
 }

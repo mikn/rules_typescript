@@ -8,6 +8,7 @@ package(default_visibility = [
 ])
 
 exports_files([
+    "node_test_hook.mjs",
     "npm_package_json.mjs",
     "svelte_compile.mjs",
 ])

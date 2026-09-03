@@ -1,8 +1,12 @@
 # Testing with vitest
 
-`ts_test` compiles TypeScript test files and runs them with vitest inside the
-Bazel sandbox. The full attribute table is in the
+`ts_test` compiles TypeScript test files and runs them inside the Bazel
+sandbox, under vitest by default. The full attribute table is in the
 [ts_test reference](../rules/ts-test.md).
+
+Tests written against node's own runner take `runner = "node:test"` instead;
+everything below this line is the vitest runner. See
+[The node:test runner](../rules/ts-test.md#the-nodetest-runner).
 
 ## Setup
 
@@ -177,9 +181,10 @@ loads and the test runs.
 bazel coverage //path/to:math_test
 ```
 
-Works on every `ts_test` with nothing to opt into, provided
+Works on every vitest `ts_test` with nothing to opt into, provided
 `@vitest/coverage-v8` is in the `node_modules` tree. `coverage = True`
-additionally instruments plain `bazel test` runs.
+additionally instruments plain `bazel test` runs. A `runner = "node:test"`
+target reports no coverage, and `bazel coverage` on one fails saying so.
 
 `coverage_thresholds` reaches `test.coverage.thresholds` in the generated
 config and applies only when coverage runs. A run that misses a threshold fails,
@@ -330,7 +335,7 @@ run` target that never fires from `bazel build` or `bazel test`:
 ## Sharding
 
 `ts_test` distributes test files across shards using `TEST_SHARD_INDEX` and
-`TEST_TOTAL_SHARDS`. Set `shard_count` on the target and pass
+`TEST_TOTAL_SHARDS`, on either runner. Set `shard_count` on the target and pass
 `--noincompatible_check_sharding_support`: the runner never touches
 `TEST_SHARD_STATUS_FILE`, which is how Bazel expects a test runner to advertise
 sharding support, so without that flag a sharded run fails before any test
@@ -354,7 +359,7 @@ ts_test(
 )
 ```
 
-Writing: run the updater that every `ts_test` declares next to itself.
+Writing: run the updater that every vitest `ts_test` declares next to itself.
 
 ```bash
 bazel run //path/to:widget_test.update_snapshots
