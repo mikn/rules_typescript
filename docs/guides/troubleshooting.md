@@ -50,10 +50,14 @@ No repository visible as '@npm' from main repository and referenced by
 '//src/lib:_lib_test_node_modules'
 ```
 
-Gazelle resolved a bare import to an `@npm//:…` label and there is no hub yet.
-One npm dependency is enough to need the extension: the three lines above. A
-label naming a second hub (`@npm_tools//:…`) means that hub is missing from
-`use_repo`; see [more than one hub](npm.md#more-than-one-hub).
+Gazelle resolved a bare import to an `@npm//:…` label and `use_repo` does not
+take `"npm"`. One npm dependency is enough to need the extension: the three
+lines above. A label naming a second hub (`@npm_tools//:…`) means that hub is
+missing from `use_repo`; see [more than one hub](npm.md#more-than-one-hub).
+
+A project with a root `pnpm-lock.yaml` and no extension at all sees the
+`@pnpm` failure above first, referenced by `//:add_package`: analysis stops at
+the root BUILD's `ts_add_package` before any `@npm` label is reached.
 
 ## No test targets were found, yet testing was requested
 
@@ -528,6 +532,21 @@ With `enable_check = False` nothing type-checks the target. Under `"oxc"` the
 declarations are still complete, because Oxc enforces isolated declarations
 itself; under `"tsgo"` the target emits no `.d.ts`, intended for terminal targets
 whose declarations nothing consumes.
+
+## ts_package_boundary index-only was removed
+
+```
+gazelle: typescript: /path/to/src/BUILD.bazel: ts_package_boundary index-only was
+removed; the modes are "every-dir" and "tsconfig"
+```
+
+A BUILD file carries `# gazelle:ts_package_boundary index-only`, the mode that
+made a directory a package only when it held an `index.ts` or `index.tsx`. The
+run stops. Move the tree to `# gazelle:ts_package_boundary tsconfig`, put a
+`tsconfig.json` in each directory that is to be a package, and
+`# gazelle:ts_package_boundary true` in any that has to be one without holding
+the file. See
+[One target per TypeScript project](../gazelle/directives.md#one-target-per-typescript-project).
 
 ## Gazelle Generating Wrong Deps
 
