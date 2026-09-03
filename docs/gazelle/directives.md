@@ -571,6 +571,13 @@ already declares `<stem>.js` as the output of a `.ts` src of the same stem, so a
 checked-in `foo.js` beside `foo.ts` would be one file declared twice and fail
 analysis. `.mjs` and `.cjs` get `.d.mts` / `.d.cts` instead and cannot collide.
 
+A `.d.mts` or `.d.cts` needs no directive. It is a declaration, and Gazelle
+classifies it as it classifies a `.d.ts`: a script-mode one is ambient and joins
+every target in the directory, a module one joins the package target, and the
+target holding `compile.d.mts` answers for `./compile.mjs` — so a test importing
+an untyped `.mjs` beside its hand-written declaration gets the dep edge with the
+JavaScript admitted or not. Nothing checks in an `eslint.config.d.mts`.
+
 Admission is about `srcs` and nothing else. What makes a directory a package in
 `tsconfig` mode is still a `tsconfig.json`, and a framework entry point is still
 `.ts`/`.tsx`: an admitted `.mjs` is compiled by the target that claims it, and is

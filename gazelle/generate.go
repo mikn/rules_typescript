@@ -43,13 +43,19 @@ func isTypeScriptFile(name string) bool {
 	return strings.HasSuffix(name, ".ts") || strings.HasSuffix(name, ".tsx")
 }
 
-// isCompileSrcFile is isTypeScriptFile widened by whatever a ts_js_srcs
-// directive admitted. It answers the srcs question only: what makes a file an
-// index or a framework entry point stays .ts/.tsx, since an admitted .mjs is
-// compiled by the target that claims it and is not a reason for a directory to
-// become a package or for an app to boot from it.
+// TypeScript exempts declaration files from the module-ness .mts / .cts force on
+// a source, so a .d.mts is read the way a .d.ts is: a script declares globals.
+func isDeclarationFile(name string) bool {
+	return strings.HasSuffix(name, ".d.ts") || strings.HasSuffix(name, ".d.mts") || strings.HasSuffix(name, ".d.cts")
+}
+
+// isCompileSrcFile is isTypeScriptFile widened by the declaration flavours and
+// by whatever a ts_js_srcs directive admitted. It answers the srcs question
+// only: what makes a file an index or a framework entry point stays .ts/.tsx,
+// since an admitted .mjs is compiled by the target that claims it and is not a
+// reason for a directory to become a package or for an app to boot from it.
 func isCompileSrcFile(name string, jsSrcExts []string) bool {
-	return isTypeScriptFile(name) ||
+	return isTypeScriptFile(name) || isDeclarationFile(name) ||
 		slices.Contains(jsSrcExts, strings.ToLower(path.Ext(name)))
 }
 
@@ -90,11 +96,11 @@ func isJSONFile(name string) bool {
 	return strings.ToLower(path.Ext(name)) == ".json"
 }
 
-// isAmbientDeclaration returns true for a .d.ts that declares globals rather
-// than exporting a module. Nothing can import one, so srcs membership is the
-// only way it reaches a program.
+// isAmbientDeclaration returns true for a declaration file that declares
+// globals rather than exporting a module. Nothing can import one, so srcs
+// membership is the only way it reaches a program.
 func isAmbientDeclaration(dir, name string) bool {
-	if !strings.HasSuffix(name, ".d.ts") {
+	if !isDeclarationFile(name) {
 		return false
 	}
 	data, err := os.ReadFile(filepath.Join(dir, name))

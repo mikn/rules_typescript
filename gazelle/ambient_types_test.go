@@ -170,9 +170,32 @@ func TestTsConfigTypes_EntryShapesAreClassifiedLikeTheRule(t *testing.T) {
 		{"../sibling/typings", ""},
 		{"/abs/typings", ""},
 		{"vendor/local.d.ts", ""},
+		{"vendor/local.d.mts", ""},
+		{"vendor/local.d.cts", ""},
 	} {
 		if got := ambientTypeLabel(tc.entry); got != tc.want {
 			t.Errorf("ambientTypeLabel(%q) = %q, want %q", tc.entry, got, tc.want)
+		}
+	}
+}
+
+// The other half of the same vocabulary, and tsc names a .mjs module's
+// declaration .d.mts: a file entry is one whatever declaration extension it ends in.
+func TestTsConfigTypes_FileEntryNamesEveryDeclarationExtension(t *testing.T) {
+	for _, tc := range []struct {
+		entry  string
+		name   string
+		isFile bool
+	}{
+		{"./worker-configuration.d.ts", "worker-configuration.d.ts", true},
+		{"./compile.d.mts", "compile.d.mts", true},
+		{"./shim.d.cts", "shim.d.cts", true},
+		{"./types/globals.d.mts", "", true},
+		{"./typings", "", false},
+	} {
+		name, isFile := typeEntryFileName(tc.entry)
+		if name != tc.name || isFile != tc.isFile {
+			t.Errorf("typeEntryFileName(%q) = (%q, %v), want (%q, %v)", tc.entry, name, isFile, tc.name, tc.isFile)
 		}
 	}
 }

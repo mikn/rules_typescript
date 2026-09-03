@@ -1823,7 +1823,7 @@ func typeEntryFileName(entry string) (string, bool) {
 	if !strings.HasPrefix(entry, "./") && !strings.HasPrefix(entry, "../") {
 		return "", false
 	}
-	if !strings.HasSuffix(entry, ".d.ts") {
+	if !isDeclarationFile(entry) {
 		return "", false
 	}
 	name := strings.TrimPrefix(entry, "./")
@@ -1840,7 +1840,7 @@ func ambientTypeLabel(entry string) string {
 	if entry == "" {
 		return ""
 	}
-	if strings.HasPrefix(entry, ".") || strings.HasPrefix(entry, "/") || strings.HasSuffix(entry, ".d.ts") {
+	if strings.HasPrefix(entry, ".") || strings.HasPrefix(entry, "/") || isDeclarationFile(entry) {
 		return ""
 	}
 	if strings.HasPrefix(entry, "@") || strings.Contains(entry, "/") {

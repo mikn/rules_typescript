@@ -72,10 +72,7 @@ func importsForRule(_ *config.Config, r *rule.Rule, f *rule.File) []resolve.Impo
 			continue
 		}
 
-		// Emit the import path without extension so that
-		// both "./Button" and "./Button.tsx" resolve to this rule.
-		withoutExt := dropTsExtension(src)
-		imp := path.Join(pkg, withoutExt)
+		imp := path.Join(pkg, indexedModule(src))
 		specs = append(specs, resolve.ImportSpec{Lang: languageName, Imp: imp})
 
 		// If the src is index.ts/tsx, also emit the directory it sits in so
@@ -97,12 +94,27 @@ func importsForRule(_ *config.Config, r *rule.Rule, f *rule.File) []resolve.Impo
 			}
 			specs = append(specs, resolve.ImportSpec{
 				Lang: languageName,
-				Imp:  path.Join(moduleName, dropTsExtension(src)),
+				Imp:  path.Join(moduleName, indexedModule(src)),
 			})
 		}
 	}
 
 	return specs
+}
+
+// declaredJavaScript pairs a declaration flavour with the JavaScript module it
+// declares, the pairing tsc resolves by name.
+var declaredJavaScript = map[string]string{".d.mts": ".mjs", ".d.cts": ".cjs"}
+
+// indexedModule is the import path a src answers for: without the extension a
+// specifier may omit, and for a .d.mts the .mjs it declares -- the one spelling that reaches it.
+func indexedModule(src string) string {
+	for declaration, javascript := range declaredJavaScript {
+		if strings.HasSuffix(src, declaration) {
+			return strings.TrimSuffix(src, declaration) + javascript
+		}
+	}
+	return dropTsExtension(src)
 }
 
 // codegenTreeSpecs returns the ImportSpecs an out_dir ts_codegen answers to.
@@ -357,7 +369,7 @@ func resolveImport(
 func ambientModuleNames(c *config.Config, r *rule.Rule, from label.Label) []string {
 	var names []string
 	for _, src := range r.AttrStrings("srcs") {
-		if !strings.HasSuffix(src, ".d.ts") {
+		if !isDeclarationFile(src) {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(c.RepoRoot, filepath.FromSlash(from.Pkg), filepath.FromSlash(src)))

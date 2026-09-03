@@ -505,6 +505,8 @@ def _types_entry_package_ref_impl(ctx):
     asserts.equals(env, "", types_entry_package_ref("../sibling/typings"), "a directory above the package")
     asserts.equals(env, "", types_entry_package_ref("/abs/typings"), "an absolute directory")
     asserts.equals(env, "", types_entry_package_ref("vendor/local.d.ts"), "a declaration file")
+    asserts.equals(env, "", types_entry_package_ref("vendor/local.d.mts"), "a .d.mts declaration file")
+    asserts.equals(env, "", types_entry_package_ref("vendor/local.d.cts"), "a .d.cts declaration file")
 
     # Nothing names nothing: a blank entry trims away to no package at all,
     # which is what Gazelle writes no dep for.
@@ -521,6 +523,8 @@ def _types_entry_declaration_impl(ctx):
     # The two shapes TypeScript resolves relative to the config's own directory,
     # which is the half of the file-shaped entries this rule can stage.
     asserts.equals(env, "./local.d.ts", types_entry_declaration("./local.d.ts"), "a package-relative declaration")
+    asserts.equals(env, "./compile.d.mts", types_entry_declaration("./compile.d.mts"), "tsc's name for a .mjs module's declaration")
+    asserts.equals(env, "./shim.d.cts", types_entry_declaration("./shim.d.cts"), "and for a .cjs module's")
     asserts.equals(env, "../../worker-configuration.d.ts", types_entry_declaration(" ../../worker-configuration.d.ts "), "a padded entry above the package")
 
     # A directory: which declaration under it TypeScript picks is a question

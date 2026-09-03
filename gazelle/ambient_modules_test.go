@@ -131,3 +131,24 @@ func TestResolveImports_AmbientDeclarationDoesNotHideAnInstalledPackage(t *testi
 		t.Errorf("deps = %v, want %v", got, want)
 	}
 }
+
+// A declaration's extension is not what makes it ambient: TypeScript exempts
+// declaration files from the module-ness .mts forces on a source, so a `declare
+// module` block in a .d.mts is read the way one in a .d.ts is.
+func TestResolveImports_AmbientlyDeclaredModuleInADMts(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "web/shared/types/mobile.d.mts"),
+		"declare module \"mobile\" {\n  export type AuthResult = { ok: boolean };\n}\n")
+	writeFile(t, filepath.Join(root, "web/modules/auth/native.ts"),
+		"import type { AuthResult } from \"mobile\";\nexport type R = AuthResult;\n")
+	c := &config.Config{RepoRoot: root, Exts: make(map[string]interface{})}
+	c.Exts[languageName] = makeConfig("", nil)
+	ix := buildIndex(t, c)
+
+	r := rule.NewRule("ts_compile", "web")
+	r.SetAttr("srcs", []string{"modules/auth/native.ts", "shared/types/mobile.d.mts"})
+	resolveImports(c, ix, r, []string{"mobile"}, label.New("", "web", "web"))
+	if got := r.AttrStrings("deps"); len(got) != 0 {
+		t.Errorf("deps = %v, want none: the target's own .d.mts declares the module", got)
+	}
+}
