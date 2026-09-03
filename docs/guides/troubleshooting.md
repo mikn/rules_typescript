@@ -130,41 +130,50 @@ the target that produces its declarations and depend on it.
 ## path_aliases points at a directory where none of this target's inputs live
 
 ```
-ts_compile: path_aliases["@/"] on @@//src/app:app points at "./src/", where none
-of this target's inputs live.
+ts_compile: path_aliases["@lib/"] on @@//src/app:app points at "src/lib/", where
+none of this target's inputs live.
 ```
 
-Gazelle writes a `path_aliases` entry for every alias an import resolves through,
-and `ts_compile` accepts an alias only when it resolves to files this target
-stages. A cross-package alias never does, so the near-universal
-`"@/*": ["src/*"]` fails on the first build after Gazelle.
-
-Cross-package imports are `module_name`'s job. Set it on the target that produces
-the files, and drop the alias from the consumer with a `# keep` above the rule,
-because Gazelle re-derives the attr from `tsconfig.json` on every run:
+`ts_compile` accepts an alias only when a file the target stages sits under the
+alias directory: one of its `srcs`, or a file `path_alias_srcs` names. `main.ts`
+is under `src/`, so an alias on `src/` passes on this target with no
+`path_alias_srcs`, and one on `src/lib/` fails until something staged sits under
+it. On a hand-written target, name the target that owns the directory:
 
 ```python
-# src/lib/BUILD.bazel
-ts_compile(
-    name = "lib",
-    srcs = ["math.ts"],
-    module_name = "@/lib",
-    visibility = ["//visibility:public"],
-)
-
-# src/app/BUILD.bazel
-# keep
 ts_compile(
     name = "app",
-    srcs = ["main.ts"],          # import { add } from "@/lib/math";
+    srcs = ["main.ts"],          # import { add } from "@lib/math";
+    path_alias_srcs = ["//src/lib"],
+    path_aliases = {"@lib/": "src/lib/"},
     deps = ["//src/lib"],
 )
 ```
 
-The sources and the `tsconfig.json` entry keep the `@/lib/math` specifier.
-`path_alias_srcs` is the other way out: list the files the alias resolves to.
-Practical only in the same Bazel package, since a file elsewhere has to be
-exported before any label can reference it.
+That stages every output of `//src/lib` into this target's type-check. Where the
+producing target can carry a `module_name`, importing it by that name is the
+cheaper boundary: see
+[importing another target by bare specifier](../rules/ts-compile.md#importing-another-target-by-bare-specifier).
+
+On a generated target Gazelle writes `path_alias_srcs` itself, naming the target
+each aliased import resolved to. Two shapes still reach the error.
+
+The import resolved to no target. Gazelle logs nothing for it, and the rule
+carries the alias with no `path_alias_srcs` beside it. Fix the import.
+
+The alias names a file. A `paths` entry without a wildcard, `"@math":
+["src/lib/math"]`, is written as `"@math": "src/lib/math"`, with
+`path_alias_srcs = ["//src/lib"]` beside it. The guard passes a staged file at
+or under the value, and a `paths` entry names its file without the extension,
+so `src/lib/math.d.ts` never matches `src/lib/math`:
+
+```
+ts_compile: path_aliases["@math"] on @@//src/app:app points at "src/lib/math",
+where none of this target's inputs live.
+```
+
+Map the alias to the directory instead -- `"@lib/*": ["src/lib/*"]`, imported as
+`@lib/math` -- or set `module_name` on `//src/lib` and import it by that name.
 
 ## npm: pnpm-lock.yaml declares patchedDependencies with no patch file
 

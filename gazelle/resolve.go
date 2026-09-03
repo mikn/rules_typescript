@@ -253,6 +253,8 @@ func resolveImports(
 		importDeps = append(importDeps, resolved)
 	}
 
+	setPathAliasSrcs(c, ix, tc, r, ambient, from)
+
 	// For ts_test targets, append the ts_runtime_dep labels in force here.
 	// These are already valid Bazel labels (e.g.
 	// "@npm//:happy-dom") for packages needed at test runtime that are
@@ -271,6 +273,36 @@ func resolveImports(
 	sort.Strings(deps)
 	r.SetAttr("deps", deps)
 	return importDeps
+}
+
+// setPathAliasSrcs stages, through path_alias_srcs, the target each import noted
+// by setAliasAttrs resolves to -- the label deps already carries, so no new edge.
+func setPathAliasSrcs(
+	c *config.Config,
+	ix *resolve.RuleIndex,
+	tc *tsConfig,
+	r *rule.Rule,
+	ambient []string,
+	from label.Label,
+) {
+	imports, ok := r.PrivateAttr(aliasSrcImportsKey).([]string)
+	if !ok {
+		return
+	}
+	seen := map[string]struct{}{}
+	var srcs []string
+	for _, imp := range imports {
+		lbl := resolveImport(c, ix, tc, ambient, imp, from)
+		if _, dup := seen[lbl]; lbl == "" || dup {
+			continue
+		}
+		seen[lbl] = struct{}{}
+		srcs = append(srcs, lbl)
+	}
+	if len(srcs) > 0 {
+		sort.Strings(srcs)
+		r.SetAttr("path_alias_srcs", srcs)
+	}
 }
 
 // resolveImport attempts to resolve a single import specifier to a Bazel label

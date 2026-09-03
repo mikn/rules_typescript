@@ -213,10 +213,11 @@ bazel_integration_test(
 # ── gazelle_roundtrip ─────────────────────────────────────────────────────────
 # Tests: delete BUILD files → Gazelle regenerates → diff → build + test passes.
 # Verifies Gazelle output is idempotent and the regenerated BUILD files work.
-# The worker/ subtree is where a generated BUILD file is LOADED rather than
-# compared as text: a rule there that does not take `types_srcs` is a load error
-# on the whole package. pnpm-lock.yaml is sourced from tests/npm/ at runtime by
-# the runner, because the generated ts_test runs a real vitest.
+# The worker/ and aliased/ subtrees are where a generated BUILD file is LOADED
+# rather than compared as text: a rule there that does not take `types_srcs` is
+# a load error on the whole package, and a ts_test whose alias no staged file
+# validates is an analysis error. pnpm-lock.yaml is sourced from tests/npm/ at
+# runtime by the runner, because the generated ts_test runs a real vitest.
 
 bazel_integration_test(
     name = "gazelle_roundtrip_test",

@@ -23,7 +23,7 @@ func main() {
 		WorkspaceRel: "tests/integration/gazelle_roundtrip",
 		Lockfile:     "tests/npm/pnpm-lock.yaml",
 	}, func(it *harness.IT) {
-		dirs := []string{"src/lib", "src/app", "src/icons", "worker", "worker/src"}
+		dirs := []string{"src/lib", "src/app", "src/icons", "worker", "worker/src", "aliased", "aliased/shared", "aliased/src"}
 
 		// Written here rather than shipped in the workspace: a BUILD file under
 		// a --deleted_packages entry is a package of the OUTER workspace, and
@@ -95,6 +95,7 @@ func main() {
 		}
 
 		rootAmbientTypesReachTheTreeBelow(it)
+		aliasAttrsFollowTheSrcs(it)
 		codegenGlobLoads(it)
 		assetDeclarationTypeApplies(it)
 		anchoredExcludeHitsOnePath(it)
@@ -241,6 +242,76 @@ func jsSrcsAreCompiledAndDeclared(it *harness.IT) {
 		it.Fail("//src/app failed to build for some other reason than the assignment")
 	}
 	it.Pass("assigning format()'s result to a number is TS2322, so the JSDoc type crossed the package boundary")
+}
+
+// aliased/tsconfig.json maps #shared/* to ./shared/*, and a test file in each
+// of its two subdirectories imports a type through it. The alias a test imports
+// through has to be on the ts_test -- the test files are a program of their own
+// -- and whether path_alias_srcs goes with it follows the srcs: a test with a
+// src under aliased/shared/ validates the alias on that src, and one without
+// fails analysis until the attribute names the target that owns the directory.
+func aliasAttrsFollowTheSrcs(it *harness.IT) {
+	const entry = `"#shared/": "aliased/shared/",`
+	const srcsAttr = `path_alias_srcs = ["//aliased/shared"],`
+
+	covered := it.Path("aliased/shared/BUILD.bazel")
+	if n := strings.Count(it.Read(covered), entry); n != 1 {
+		fmt.Fprint(os.Stderr, it.Read(covered))
+		it.Fail("aliased/shared holds a ts_compile importing through no alias and a ts_test importing through #shared/; the alias is on %d rules, want 1", n)
+	}
+	it.RequireNotContains(covered, "path_alias_srcs",
+		"util.test.ts is under aliased/shared/, so the alias validates on the test's own srcs and nothing else needs staging")
+	it.Pass("//aliased/shared:shared_test carries the alias and no path_alias_srcs")
+
+	uncovered := it.Path("aliased/src/BUILD.bazel")
+	for _, want := range []string{entry, srcsAttr} {
+		if n := strings.Count(it.Read(uncovered), want); n != 2 {
+			fmt.Fprint(os.Stderr, it.Read(uncovered))
+			it.Fail("aliased/src holds a ts_compile and a ts_test, both importing through #shared/ with no src under aliased/shared/; %s is on %d rules, want 2", want, n)
+		}
+	}
+	it.Pass("both rules in //aliased/src carry the alias and path_alias_srcs naming //aliased/shared")
+
+	tests := strings.Fields(it.BazelStdout("query", "kind(ts_test, //aliased/...)"))
+	if len(tests) != 2 {
+		it.Fail("expected the two generated ts_tests under //aliased, got %v", tests)
+	}
+	it.MustBazel(append([]string{"test"}, tests...)...)
+	it.Pass("%s run, so both test programs resolved #shared/util", strings.Join(tests, " and "))
+
+	// What path_alias_srcs costs, and why it follows the srcs: it stages every
+	// output of the target it names, the .js included, where the dep edge alone
+	// stages the declarations.
+	stagesUtilJS := func(target string) bool {
+		out := it.BazelStdout("aquery", "--output=text", fmt.Sprintf("mnemonic(\"Tsgo(Declare|Check)\", %s)", target))
+		if !strings.Contains(out, "Mnemonic: Tsgo") {
+			it.Fail("no tsgo action on %s, so the input check below would be vacuous:\n%s", target, out)
+		}
+		return strings.Contains(out, "aliased/shared/util.js")
+	}
+	if stagesUtilJS("//aliased/shared:_shared_test_compile") {
+		it.Fail("the covered test's type-check stages aliased/shared/util.js, which only path_alias_srcs puts there")
+	}
+	it.Pass("the covered test's type-check stages //aliased/shared's declarations and nothing more")
+	if !stagesUtilJS("//aliased/src:_src_test_compile") {
+		it.Fail("the uncovered test's type-check does not stage aliased/shared/util.js, so path_alias_srcs did not reach the action")
+	}
+	it.Pass("the uncovered test's type-check stages every output of //aliased/shared, util.js included")
+
+	// The measurement behind writing path_alias_srcs at all.
+	restore := it.Read(uncovered)
+	it.Replace(uncovered, "    "+srcsAttr+"\n", "")
+	log, err := it.BazelLog("alias_without_srcs", "build", "//aliased/src:src")
+	it.Write(uncovered, restore)
+	if err == nil {
+		log.Dump()
+		it.Fail("//aliased/src:src analysed without path_alias_srcs, so Gazelle need not write it")
+	}
+	if !log.Contains("where none of this target's inputs live") {
+		log.Dump()
+		it.Fail("//aliased/src:src failed for some other reason than the alias guard")
+	}
+	it.Pass("without path_alias_srcs the alias fails analysis: nothing //aliased/src stages sits under aliased/shared/")
 }
 
 // worker/tsconfig.json states `types: ["./worker-configuration.d.ts"]`, and
