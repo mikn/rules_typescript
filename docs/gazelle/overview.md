@@ -170,14 +170,16 @@ needs the other package's declarations.
 The message names no import and offers no remedy, and both were tried. Naming
 the import behind an edge is the one thing Bazel's own error cannot do, but
 every phrasing of it also claims something about which imports carry the cycle
-and what removing one would achieve -- and three things falsify such a claim.
-A `# keep` on `srcs` or on the whole rule means the file the report would name
-is not one the target compiles. A `# keep` on `deps` can drop an import
-*between two of the named packages* from the edge list, so a value import runs
-between them while every listed edge is `import type`. And a held `deps` list
-that agrees with the imports means deleting the import does not delete the
-label. A report that cannot be wrong is worth more than one that is usually
-right, so the message stops at the component.
+and what removing one would achieve -- and two things falsify such a claim.
+The first is an attribute whose computed value never reaches the BUILD file,
+whether a `# keep` holds it or the merger cannot reconcile the expression
+already there: on `srcs` the file the report would name is not one the target
+compiles, and on `deps` an import *between two of the named packages* can drop
+out of the edge list, so a value import runs between them while every listed
+edge is `import type`. The second is a held `deps` list that agrees with the
+imports, where deleting the import does not delete the label. A report that
+cannot be wrong is worth more than one that is usually right, so the message
+stops at the component.
 
 Nothing is resolved automatically. Merging the cyclic directories into one
 target would be `# gazelle:ts_package_boundary` applied without asking --
@@ -188,13 +190,14 @@ whose resolved label that target's emitted `deps` carry. Both halves are read
 off the rule Bazel will load wherever that differs from the one Gazelle
 computed, and each rules out a case on its own:
 
-- **A `srcs` or `deps` attribute you hold with `# keep`** -- the whole
-  attribute, or the whole rule -- replaces what Gazelle computed outright,
-  because the merger discards it and it reaches no BUILD file. An import whose
-  label the held `deps` leave out is therefore not an edge, and neither is one
-  written in a file the held `srcs` leave out. A `# keep` on one `deps` *value*
-  is not that: it holds that value and the resolved labels still merge in
-  beside it, so a cycle they close is reported as any other.
+- **A `srcs` or `deps` attribute Gazelle's value never reaches** -- held with
+  `# keep`, the whole attribute or the whole rule, or holding an expression the
+  merger cannot reconcile value by value, which it logs and then leaves
+  untouched -- keeps what Gazelle computed out of the BUILD file. An import
+  whose label such a `deps` leaves out is therefore not an edge, and neither is
+  one written in a file such a `srcs` leaves out. A `# keep` on one `deps`
+  *value* is not that: it holds that value and the resolved labels still merge
+  in beside it, so a cycle they close is reported as any other.
 - **A dep no import explains** -- written by hand, or named by a held `deps`
   the sources do not import -- is not an edge either. Bazel still rejects the
   cycle it closes; the report stays out of it, because what it says is a claim
@@ -202,7 +205,7 @@ computed, and each rules out a case on its own:
   a BUILD file, which is where Bazel's own loop of labels sends you.
 
 So a cycle whose last edge is hand-written goes unreported, and so does one a
-held `srcs` or `deps` keeps out of the emitted files. What is left is the
+`srcs` or `deps` Gazelle's value never reaches keeps out of the emitted files. What is left is the
 cycles the imports and the emitted rules agree on. Where a held `deps` agrees
 with the imports the cycle *is* reported, and then the held list is part of what
 closes it: removing the import is not enough, because the label stays where you
