@@ -126,7 +126,7 @@ into `bazel-bin` beside the compiled `.js` that imports them.
 The two modes differ in what comes out:
 
 - **App mode** hashes every imported stylesheet and asset
-  (`assets/index-C_rPVxYH.css`, `assets/big_logo-DWeKL6j3.svg`) and rewrites the
+  (`assets/index-<hash>.css`, `assets/big_logo-<hash>.svg`) and rewrites the
   references in the emitted HTML. An asset under Vite's 4096-byte
   `assetsInlineLimit` is inlined as a `data:` URI and gets no filename at all.
 - **Lib mode** extracts all CSS into one `<bundle_name>.css`, never referenced
@@ -383,7 +383,7 @@ The two attribute sets differ. Shared:
 the [ts_bundle reference](../rules/ts-bundle.md#attributes).
 
 `ts_binary` only: `entry_file` (which `.js` is the entry when the target emits
-several) and `node_modules`. See the
+several), `data` and `node_modules`. See the
 [ts_binary reference](../rules/ts-binary.md#attributes).
 
 Setting `minify` on a `ts_binary` fails the build; it is not a silent no-op.

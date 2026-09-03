@@ -65,7 +65,7 @@ ERROR: No test targets were found, yet testing was requested
 `bazel test //...` exits 4 when the pattern matches no test target, and a project
 with no `*.test.ts` / `*.spec.ts` yet has none. Gazelle generates a `ts_test` from
 the first such file it sees; vitest comes from your lockfile.
-[The quickstart's step 9](../getting-started/quickstart.md#path-a-new-project)
+[The quickstart's step 8](../getting-started/quickstart.md#path-a-new-project)
 walks the first-test path.
 
 ## BUILD file not found for //:MODULE.bazel

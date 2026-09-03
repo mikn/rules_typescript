@@ -73,10 +73,10 @@ ts_dev_server(
 ```
 
 oj has no npm package and no release binary. `MODULE.bazel` pins the crate at
-`=0.1.6` through its `oj_crates` extension and Bazel builds it from source, so
-the first build of a target selecting it is a Rust compile. The binary is
-native; the toolchain Node is still on PATH, since oj's plugin host is a Node
-process.
+a git revision (upstream v0.1.8 plus the commits its comment lists) through its
+`oj_crates` extension, and Bazel builds it from source, so the first build of a
+target selecting it is a Rust compile. The binary is native; the toolchain Node
+is still on PATH, since oj's plugin host is a Node process.
 
 The provider declares two structural differences. oj takes the directory it
 serves from a positional argument, not from the config's `root`. And a field one
@@ -93,8 +93,8 @@ component twice.
     oj at all. Rollup's contract is that a `resolveId` result naming a real file is
     the module, and a `load` returning nothing means read it from disk. Fixed
     upstream in
-    [raphamorim/oj#108](https://github.com/raphamorim/oj/pull/108); `MODULE.bazel`
-    pins 0.1.6 and carries no patch.
+    [raphamorim/oj#108](https://github.com/raphamorim/oj/pull/108), released as
+    0.1.6; the revision `MODULE.bazel` pins is past it.
 
 Bringing your own is a rule returning `DevServerInfo`. A server shipping as an
 npm package sets `server_in_tree` (a path inside the `node_modules` tree, since a
@@ -168,21 +168,28 @@ on a dev server to report them.
 
 ## CSS Modules
 
-A `*.module.css` served by the dev server carries the same class names
-`css_module` generated its `.d.ts` from. The dev server installs the CSS-modules
-plugin unconditionally — no attribute, no `vite_config` — so `styles.button` in a
-served module is the string the `.d.ts` declares and the string a `ts_test`
-asserts on.
+Under Vite, a `*.module.css` served by the dev server carries the same class
+names `css_module` generated its `.d.ts` from. The dev server installs the
+CSS-modules plugin unconditionally — no attribute, no `vite_config` — so
+`styles.button` in a served module is the string the `.d.ts` declares and the
+string a `ts_test` asserts on.
 
 Serving a source tree, there is no `<file>.exports.json` beside the stylesheet, so
 the name is recomputed; it is a pure function of the same bytes and lands on the
 same answer. See
 [css_module](../rules/css-and-assets.md#what-the-declarations-promise).
 
-Setting `css.modules.generateScopedName` or `css.modules = false` in a
-`vite_config` is a hard failure naming the `css_module` attribute to use instead,
-as it is in a bundle. A framework plugin that resolves the config once per
-environment is not mistaken for such an override.
+Under oj the names differ. oj loads the plugin but adopts no `css.*` from the
+config, so the `generateScopedName` the plugin's `config()` hook returns is
+dropped and oj's own CSS-modules pass names each class after the file
+(`panel-module_panel_…`). The keys match the `.d.ts`; the strings do not.
+`//tests/dev_server:dev_oj_css_module_test` pins the gap.
+
+A plugin in a `vite_config` that sets `css.modules.generateScopedName` or
+`css.modules = false` is a hard failure naming the `css_module` attribute to use
+instead, as it is in a bundle. A `css` key in the config itself fails earlier, as
+a key the generated config does not read. A framework plugin that resolves the
+config once per environment is not mistaken for such an override.
 
 ## vite-plugin-bazel
 
@@ -238,13 +245,15 @@ uses for `rolldown`, a second reason the target has to be
 `{plugins: [...]}`, whose plugins are prepended to Bazel's. This is how a
 framework plugin runs in the dev server: SvelteKit's and Solid Start's
 [cannot go through it at all](../gazelle/overview.md#framework-detection), and
-TanStack Start's loads but does not yet serve (see [below](#tanstack-start)).
+TanStack Start's goes through it (see [below](#tanstack-start)).
 
 The rule loads a copy of the file in `bazel-bin`: Node resolves a runfiles
 symlink before that file's own imports, so a source-tree config would resolve its
 imports through a source-tree `node_modules`, which this ruleset does not have.
-The copy draws the boundary, and
-`//tests/dev_server:vite_config_boundary_test` covers every side of it:
+The copy draws the boundary. `//tests/dev_server:vite_config_boundary_test`
+pins the bare import and the undeclared relative one;
+`//tests/dev_server:dev_with_composed_user_config_behaviour_test` pins the
+declared one:
 
 - A bare npm specifier resolves through the tree the `node_modules` attr built.
   That target must be in the same Bazel package as the dev server, the directory
@@ -361,12 +370,14 @@ sent` line in the log says which message arrived.
 ## TanStack Start
 
 Start's plugin loads through `vite_config` and the bundle builds
-(`//tests/integration:tanstack_test`), but `bazel run` on a Start dev server does
-not serve: Vite's SSR module runner inlines `react/jsx-runtime` out of the Bazel
-npm tree instead of externalising it, and React's CJS entry then evaluates
-`module` in an ESM context. Every request answers 500, and nothing in this rule
-works around it. `bazel build` of the bundle is unaffected;
-`examples/tanstack-app/README.md` has the trace.
+(`//tests/integration:tanstack_test`). Gazelle generates the Start dev server at
+the workspace root beside the `ts_bundle`, since it needs the same
+`vite_config`. Serving it depends on the `<workspace>/node_modules` link the
+launcher makes: Vite's SSR module runner decides whether `react/jsx-runtime` is
+external on the raw specifier, walking up from the importer, and without the link
+it inlines React's CJS entry, which evaluates `module` in an ESM context and
+answers every request with 500. `examples/tanstack-app/README.md` covers the
+example, under Vite and under oj.
 
 ## Diagnostics
 
