@@ -451,7 +451,7 @@ generating a target, that produced the worst outcome available: a green
 - [x] No more explicit node_modules target or node_modules attr required
 - [x] Gazelle no longer generates node_modules rules; emits empty stubs to delete stale ones
 - [x] Backwards compatible: explicit node_modules attr still accepted
-- [x] `gazelle_ts.json` `runtimeDeps.test` field: Gazelle appends listed labels to every ts_test deps list — eliminates manual happy-dom, react, @vitest/coverage-v8 additions
+- [x] `# gazelle:ts_runtime_dep`: Gazelle appends listed labels to every ts_test deps list — eliminates manual happy-dom, react, @vitest/coverage-v8 additions
 
 ### 5.1 DOM Testing
 - [x] Verify @testing-library/react works with vitest in Bazel sandbox
@@ -544,9 +544,8 @@ generating a target, that produced the worst outcome available: a green
 - [x] Support template literal dynamic imports: `` import(`./pages/${name}`) `` (skip, don't error)
 
 ### 7.3 Path Alias Reading from tsconfig.json
-- [x] Read `compilerOptions.paths` from tsconfig.json (not just gazelle_ts.json)
+- [x] Read `compilerOptions.paths` from tsconfig.json
 - [x] Support `baseUrl` + `paths` resolution
-- [x] Fall back to gazelle_ts.json if both exist (gazelle_ts.json takes priority)
 
 ### 7.4 Re-export Handling
 - [x] `export * from "./utils"` should resolve to the re-exported module
@@ -560,7 +559,7 @@ generating a target, that produced the worst outcome available: a green
 
 ### 7.6 Generated File Patterns
 - [x] Exclude `.next/`, `.nuxt/`, `.svelte-kit/`, `dist/`, `build/` directories
-- [x] Configurable exclude patterns via `gazelle_ts.json`
+- [x] Configurable exclude patterns via `# gazelle:ts_exclude`
 - [x] Handle `*.gen.ts`, `*.generated.ts`, `*.auto.ts` patterns
 
 ### 7.7 Framework Plugins

@@ -368,7 +368,7 @@ extension written in Go.
 | File | Role |
 |---|---|
 | `gazelle/language.go` | Entry point — registers the language, `Kinds()`, `Loads()`, `KnownDirectives()` |
-| `gazelle/config.go` | Directive parsing (`# gazelle:ts_*`), `gazelle_ts.json`, framework and codegen detection |
+| `gazelle/config.go` | Directive parsing (`# gazelle:ts_*`), framework and codegen detection |
 | `gazelle/generate.go` | Rule generation — produces `ts_compile`, `ts_test` and the rest |
 | `gazelle/resolve.go` | Import resolution — maps import specifiers to Bazel labels |
 | `gazelle/imports.go` | Import extraction from TypeScript sources |
@@ -377,8 +377,7 @@ extension written in Go.
 | `gazelle/codegen.go` | Auto-detected codegen targets |
 
 **AGENTS.md** is the architectural reference for contributors: package boundary
-heuristics, import resolution strategy, the directive reference, and
-`gazelle_ts.json` migration notes.
+heuristics, import resolution strategy, and the directive reference.
 
 The extension is compiled into two `gazelle_binary` targets. `//gazelle:gazelle_ts`
 is the one this repo runs, through the `gazelle` runner beside it:

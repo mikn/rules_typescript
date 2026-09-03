@@ -20,13 +20,15 @@ Directives go in `BUILD.bazel` files as comments and control how Gazelle generat
 | `# gazelle:ts_ambient_types @npm//:types_node` | Append a label to every generated `ts_compile` and `ts_test` deps list |
 | `# gazelle:ts_exclude *.generated.ts` | Exclude files matching this pattern from source targets; a pattern with no path matches that basename at every depth below |
 | `# gazelle:ts_exclude ./vite.config.ts` | Exclude one path, resolved against the directory whose build file declares it |
+| `# gazelle:ts_exclude_dir coverage` | Keep Gazelle out of every directory with that basename below here; appends to the set an ancestor declared |
 | `# gazelle:ts_warn_unresolved true` | Warn when an import cannot be resolved to a Bazel label |
 | `# gazelle:ts_codegen <name> <generator> <outs> [srcs:<csv>] [args…]` | Register a `ts_codegen` target in this directory; a `srcs:` entry may be a `glob()` call |
 | `# gazelle:ts_npm_hub npm_eslint` | Resolve bare specifiers in this tree into that npm hub repo, not the default `@npm` |
+| `# gazelle:ts_npm_mapping npm/mapping.json` | Overlay a workspace-root-relative JSON file of npm name → Bazel label onto the lockfile inventory, per key |
 | `# gazelle:ts_asset_declaration_type .svg <type>` | What an import of that asset extension resolves to in this tree, written into every `asset_library`'s `declaration_type` |
 | `# gazelle:ts_js_srcs .mjs .cjs` | Admit JavaScript sources of these extensions into the `srcs` Gazelle generates in this tree; named with nothing after it, admit none |
 
-That is the complete set: thirteen directives. Gazelle warns on an unknown
+That is the complete set: fifteen directives. Gazelle warns on an unknown
 `# gazelle:ts_*` comment and continues, so a typo shows up in the run output.
 
 ## `# keep`
@@ -283,6 +285,35 @@ that label does not exist. Both `npm_eslint` and `@npm_eslint` are accepted.
 Declaring a hub is `npm.translate_lock(name = ...)` plus a matching `use_repo`,
 and each hub needs its own `ts_add_package` target. See
 [More than one hub](../guides/npm.md#more-than-one-hub).
+
+### Point One npm Package at a Label of Your Own
+
+The pnpm lockfile is the inventory: every package it declares resolves into the
+hub. A package that has to come from somewhere else — vendored, patched, built
+by a target in this repo — is named in a JSON file of npm name → Bazel label:
+
+```json
+{
+  "vite": "//vendor/vite:vite"
+}
+```
+
+```python
+# BUILD.bazel (repo root)
+
+# gazelle:ts_npm_mapping npm/mapping.json
+```
+
+The path is workspace-root-relative, because the labels in the file are
+workspace labels. The file **overlays** the inventory rather than replacing it:
+`vite` resolves to `//vendor/vite:vite` and every other package the lockfile
+declares keeps its hub label, so a file listing three overrides does not shrink
+the workspace's inventory to three packages. Repeat the directive, or declare
+another in a subtree, to overlay again on top of what an ancestor mapped.
+
+This is not `ts_npm_hub`, which names the *repo* a whole tree's bare specifiers
+resolve into. Use the hub directive when the packages are the same and the repo
+differs; use this one when a single package's label is not the hub's at all.
 
 ### Path alias for `@/` imports
 
@@ -684,17 +715,40 @@ A pattern that names a **directory** is not reported. Where it does anything at
 all it stops the rollup walk before reading what is inside, and Gazelle does not
 walk a subtree only to count what the exclusion exists to skip.
 
-#### The same values in `gazelle_ts.json`
+#### `ts_exclude_dir`, when Gazelle should not enter at all
 
-The deprecated `excludePatterns` key takes exactly the values the directive
-does. A bare entry matches a basename at every depth below the directory holding
-the file; an anchored entry resolves against that directory:
+`ts_exclude` drops files from the targets of packages Gazelle still walks.
+`ts_exclude_dir` keeps it out of a directory entirely, by basename:
 
-```json
-{
-  "excludePatterns": ["*.generated.ts", "./vite.config.ts"]
-}
+```python
+# BUILD.bazel (repo root)
+
+# gazelle:ts_exclude_dir coverage
+# gazelle:ts_exclude_dir storybook-static
 ```
 
-In `web/gazelle_ts.json` that second entry drops `web/vite.config.ts` and leaves
-`web/sub/vite.config.ts` alone, the same as the directive in `web/BUILD.bazel`.
+Nothing is generated in any `coverage/` or `storybook-static/` below the root,
+on top of the built-in `.next`, `.nuxt`, `.svelte-kit`, `dist` and `build`. The
+directive goes in an *ancestor* because a directory Gazelle should not enter is
+exactly the kind with no build file of its own, and writing one there to say
+"ignore me" is backwards — that is what `ts_ignore` is for, in a directory whose
+BUILD file you are keeping anyway.
+
+The value is a basename, and the whole value is one name. A path, a glob or a
+list of names is refused out loud, because the traversal only ever compares one
+directory basename against it. `ts_exclude` is not the way to reach a directory
+either: its patterns drop files from a target's `srcs`, and under the default
+`every-dir` boundary the directory is its own target, so an anchored path never
+gets there.
+
+Repeat the directive for each name. A nested build file's directives **append**
+to the set it inherits, so the effective set does not depend on which directory
+asks:
+
+```python
+# apps/BUILD.bazel
+
+# gazelle:ts_exclude_dir fixtures
+```
+
+Under `apps/` Gazelle skips `coverage`, `storybook-static` and `fixtures`.

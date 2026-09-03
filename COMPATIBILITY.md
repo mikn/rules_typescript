@@ -203,6 +203,4 @@ May change in any commit, without a changelog entry.
   `//oj:dev_server`
 - `vite_bundler` and the Vite plugin (`vite/src/`)
 - Gazelle codegen auto-detection and framework bundle generation
-- `gazelle_ts.json` — deprecated; Gazelle prints a warning and reads
-  `tsconfig.json` plus directives instead
 - Anything under `ts/private/` or `npm/private/`

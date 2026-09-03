@@ -109,7 +109,7 @@ func codegenOuts(patterns []CodegenPattern) []string {
 // ---- npm package helpers ---------------------------------------------------
 
 // hasNpmPackage returns true when pkgName appears in the npm inventory
-// pnpm-lock.yaml (or a gazelle_ts.json npm mapping file) produced. A nil map is
+// pnpm-lock.yaml (or a ts_npm_mapping file) produced. A nil map is
 // no inventory rather than an empty one, and returns false — the caller decides
 // what to do with the absence of information.
 func hasNpmPackage(tc *tsConfig, pkgName string) bool {

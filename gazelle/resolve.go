@@ -253,8 +253,8 @@ func resolveImports(
 		importDeps = append(importDeps, resolved)
 	}
 
-	// For ts_test targets, append any runtimeDeps.test labels from
-	// gazelle_ts.json. These are already valid Bazel labels (e.g.
+	// For ts_test targets, append the ts_runtime_dep labels in force here.
+	// These are already valid Bazel labels (e.g.
 	// "@npm//:happy-dom") for packages needed at test runtime that are
 	// never statically imported — happy-dom, @vitest/coverage-v8, react
 	// (JSX runtime), etc.

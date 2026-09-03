@@ -456,23 +456,9 @@ keys and overrides one key at a time. A `tsconfig.json` with `paths` does not
 merge. It replaces the alias map for its directory and everything below, parent
 directives included, and the directives in its own BUILD file then merge on top.
 
-### gazelle_ts.json (deprecated)
+### Runtime deps of generated tests
 
-A `gazelle_ts.json` in a directory is still read. Gazelle prints a deprecation
-warning naming the directive that replaces each key:
-
-| Key | Replacement |
-|---|---|
-| `pathAliases` | `# gazelle:ts_path_alias @/ src/` |
-| `excludePatterns` | `# gazelle:ts_exclude *.generated.ts` |
-| `runtimeDeps.test` | `# gazelle:ts_runtime_dep @npm//:happy-dom` |
-| `excludeDirs` | no directive; excluded directories are the built-in set plus this key |
-| `npmMappingFile` | no directive; a JSON file mapping npm names to labels. Overlays the lockfile inventory rather than replacing it: a package the file names takes its label, every other package keeps the lockfile's |
-
-It sits above `tsconfig.json` and below directives in precedence. Only the two
-keys with no directive replacement keep it alive; do not add new uses.
-
-`runtimeDeps.test` (or `# gazelle:ts_runtime_dep`) lists Bazel labels appended to every generated `ts_test` deps list. Use this for packages needed at test runtime but never statically imported:
+`# gazelle:ts_runtime_dep` lists Bazel labels appended to every generated `ts_test` deps list. Use this for packages needed at test runtime but never statically imported:
 
 | Package | Why it needs to be explicit |
 |---------|----------------------------|

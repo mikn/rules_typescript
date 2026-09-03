@@ -365,7 +365,7 @@ func packageStagingLabels(absDir, rel string, tc *tsConfig) []string {
 		name := e.Name()
 		switch {
 		case e.IsDir(), isConfiguredExclude(name, lp.dropped):
-		case name == "package.json", name == "gazelle_ts.json", name == "tsconfig.json":
+		case name == "package.json", name == "tsconfig.json":
 		case isJSONFile(name):
 			jsons = append(jsons, name)
 		case isAssetFile(name):

@@ -145,8 +145,7 @@ func isFrameworkGeneratedFile(name string) bool {
 }
 
 // isConfiguredExclude returns true when a file's basename matches any of the
-// exclude patterns configured in gazelle_ts.json. Patterns use
-// filepath.Match semantics.
+// given exclude patterns, under filepath.Match semantics.
 func isConfiguredExclude(name string, patterns []string) bool {
 	for _, pattern := range patterns {
 		if globMatches(pattern, name) {
@@ -273,7 +272,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	for _, f := range args.RegularFiles {
 		// Skip well-known config files before the JSON check so that Bazel/npm
 		// config files are never classified as json_library sources.
-		if f == "package.json" || f == "gazelle_ts.json" || f == "tsconfig.json" {
+		if f == "package.json" || f == "tsconfig.json" {
 			continue
 		}
 		if _, ok := srcLabel(f); !ok {

@@ -381,49 +381,6 @@ func TestNpmInventory_LockfileEntryHonoursTheHubDirective(t *testing.T) {
 	}
 }
 
-// gazelle_ts.json is deprecated but not broken: every package it names keeps
-// its hand-written label, and the lockfile supplies the rest rather than being
-// thrown away.
-func TestNpmInventory_MappingFileOverridesPerKey(t *testing.T) {
-	root := t.TempDir()
-	writeFile(t, filepath.Join(root, pnpmLockfileName), inventoryLockV9)
-	writeFile(t, filepath.Join(root, "npm/mapping.json"), `{"vite": "//vendor/vite:vite"}`)
-	writeFile(t, filepath.Join(root, "gazelle_ts.json"), `{"npmMappingFile": "npm/mapping.json"}`)
-
-	tc := configureInRepo(t, root, "")
-	if got := resolveNpmPackage(tc, "vite"); got != "//vendor/vite:vite" {
-		t.Errorf("resolveNpmPackage(\"vite\") = %q, want the mapping file's label", got)
-	}
-	if got := resolveNpmPackage(tc, "zod"); got != "@npm//:zod" {
-		t.Errorf("resolveNpmPackage(\"zod\") = %q, want the lockfile's answer to survive the overlay", got)
-	}
-	if got := resolveNpmPackage(tc, "node:fs"); got != "@npm//:types_node" {
-		t.Errorf("resolveNpmPackage(\"node:fs\") = %q, want @types/node", got)
-	}
-}
-
-// A subtree's gazelle_ts.json must not become the whole workspace's answer: the
-// lockfile inventory is shared by pointer across every directory.
-func TestNpmInventory_MappingFileDoesNotMutateTheSharedInventory(t *testing.T) {
-	root := t.TempDir()
-	writeFile(t, filepath.Join(root, pnpmLockfileName), inventoryLockV9)
-	writeFile(t, filepath.Join(root, "npm/mapping.json"), `{"vite": "//vendor/vite:vite"}`)
-	writeFile(t, filepath.Join(root, "apps/web/gazelle_ts.json"), `{"npmMappingFile": "npm/mapping.json"}`)
-
-	c := &config.Config{RepoRoot: root, Exts: make(map[string]interface{})}
-	configureTsConfig(c, "", nil)
-	rootTc := getConfig(c)
-	configureTsConfig(c, "apps", nil)
-	configureTsConfig(c, "apps/web", nil)
-
-	if got := resolveNpmPackage(getConfig(c), "vite"); got != "//vendor/vite:vite" {
-		t.Errorf("apps/web: resolveNpmPackage(\"vite\") = %q, want the mapping file's label", got)
-	}
-	if got := resolveNpmPackage(rootTc, "vite"); got != "@npm//:vite" {
-		t.Errorf("root: resolveNpmPackage(\"vite\") = %q, want the lockfile's answer", got)
-	}
-}
-
 // The lockfile is read once for the whole walk, so removing it mid-walk cannot
 // change the answer. Re-reading a 30k-line lockfile in every directory is the
 // failure this pins.
@@ -484,5 +441,55 @@ func TestNpmInventory_PrismaDetectorChecksTheLockfile(t *testing.T) {
 				t.Errorf("detectPrisma fired = %v, want %v", got, tt.fires)
 			}
 		})
+	}
+}
+
+// ---- ts_npm_mapping --------------------------------------------------------
+
+// The mapping file overlays the lockfile inventory rather than replacing it:
+// every package it names keeps its hand-written label, and the lockfile
+// supplies the rest.
+func TestNpmInventory_MappingDirectiveOverridesPerKey(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, pnpmLockfileName), inventoryLockV9)
+	writeFile(t, filepath.Join(root, "npm/mapping.json"), `{"vite": "//vendor/vite:vite"}`)
+
+	c := &config.Config{RepoRoot: root, Exts: make(map[string]interface{})}
+	f := rule.EmptyFile("BUILD.bazel", "")
+	f.Directives = []rule.Directive{{Key: "ts_npm_mapping", Value: "npm/mapping.json"}}
+	configureTsConfig(c, "", f)
+	tc := getConfig(c)
+
+	if got := resolveNpmPackage(tc, "vite"); got != "//vendor/vite:vite" {
+		t.Errorf("resolveNpmPackage(\"vite\") = %q, want the mapping file's label", got)
+	}
+	if got := resolveNpmPackage(tc, "zod"); got != "@npm//:zod" {
+		t.Errorf("resolveNpmPackage(\"zod\") = %q, want the lockfile's answer to survive the overlay", got)
+	}
+	if got := resolveNpmPackage(tc, "node:fs"); got != "@npm//:types_node" {
+		t.Errorf("resolveNpmPackage(\"node:fs\") = %q, want @types/node", got)
+	}
+}
+
+// A subtree's directive must not become the whole workspace's answer: the
+// lockfile inventory is shared by pointer across every directory.
+func TestNpmInventory_MappingDirectiveDoesNotMutateTheSharedInventory(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, pnpmLockfileName), inventoryLockV9)
+	writeFile(t, filepath.Join(root, "npm/mapping.json"), `{"vite": "//vendor/vite:vite"}`)
+
+	c := &config.Config{RepoRoot: root, Exts: make(map[string]interface{})}
+	configureTsConfig(c, "", nil)
+	rootTc := getConfig(c)
+	configureTsConfig(c, "apps", nil)
+	nested := rule.EmptyFile("BUILD.bazel", "apps/web")
+	nested.Directives = []rule.Directive{{Key: "ts_npm_mapping", Value: "npm/mapping.json"}}
+	configureTsConfig(c, "apps/web", nested)
+
+	if got := resolveNpmPackage(getConfig(c), "vite"); got != "//vendor/vite:vite" {
+		t.Errorf("apps/web: resolveNpmPackage(\"vite\") = %q, want the mapping file's label", got)
+	}
+	if got := resolveNpmPackage(rootTc, "vite"); got != "@npm//:vite" {
+		t.Errorf("root: resolveNpmPackage(\"vite\") = %q, want the lockfile's answer", got)
 	}
 }

@@ -544,30 +544,6 @@ func TestExclude_TheAnchoredSpellingTheReportGivesWorks(t *testing.T) {
 	}
 }
 
-// TestExclude_AnchoredPatternThroughGazelleTsJson: the json surface takes the
-// same values a directive does, and an anchored entry resolves against the
-// directory holding the gazelle_ts.json that carries it.
-func TestExclude_AnchoredPatternThroughGazelleTsJson(t *testing.T) {
-	files := map[string]string{
-		"web/gazelle_ts.json":    `{"excludePatterns": ["./vite.config.ts"]}` + "\n",
-		"web/vite.config.ts":     "export default {};\n",
-		"web/app.ts":             "export const a = 1;\n",
-		"web/sub/vite.config.ts": "export default {};\n",
-	}
-
-	declaring := compiledSrcs(t, generateUnder(t, files, "web"))
-	if hasSrc(declaring, "vite.config.ts") {
-		t.Errorf("an anchored json entry dropped nothing in web: %v", declaring)
-	}
-	if !hasSrc(declaring, "app.ts") {
-		t.Errorf("an anchored json entry took the rest of web: %v", declaring)
-	}
-	nested := compiledSrcs(t, generateUnder(t, files, "web/sub"))
-	if !hasSrc(nested, "vite.config.ts") {
-		t.Errorf("an anchored json entry reached the namesake below it: %v", nested)
-	}
-}
-
 // stagingSrcsOf is the staging_srcs of the generated bundle, which is the list
 // of labels the framework walk decided to name.
 func stagingSrcsOf(t *testing.T, root string) []string {

@@ -37,8 +37,6 @@ const (
 	// rootLayoutFile is the root layout component file name.
 	rootLayoutFile = "__root.tsx"
 
-	// sharedComponentsLabel is the default Bazel label for shared components.
-	// Projects can override this via the gazelle_ts.json configuration.
 	sharedComponentsLabel = "//src/components"
 
 	// routeTargetKey is the private attribute key used to mark ts_compile rules
