@@ -36,4 +36,18 @@ ts_npm_publish(
 | `<name>_pkg/package/` | Staging directory; the `package/` level is what npm expects inside the tarball |
 | `<name>_pkg.tar` | Tarball with `package/` prefix (ready for `npm publish`) |
 
+## Provider
+
+The target returns `NpmPublishInfo`, loaded from
+`@rules_typescript//ts:defs.bzl`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `pkg_dir` | `File` | The `<name>_pkg/package/` directory |
+| `tarball` | `File` | `<name>_pkg.tar`. Every build produces it |
+| `package_json` | `File` | The final `package.json` inside the directory |
+
+`DefaultInfo` carries the directory and the tarball. See
+[Providers](providers.md#npmpublishinfo).
+
 See [Publishing Packages](../guides/publishing.md) for the full guide.
