@@ -32,6 +32,21 @@ That is the complete set: fifteen directives. Gazelle warns on an unknown
 in the run output. A value `ts_package_boundary` does not know stops the run
 instead: the modes decide which files each target compiles.
 
+!!! note "Upgrading"
+    `# gazelle:ts_package_boundary index-only`, which made a directory a package
+    only when it held an `index.ts` or `index.tsx`, is gone, and the run stops
+    on it: `ts_package_boundary index-only was removed; the modes are
+    "every-dir" and "tsconfig"`. Move the tree to
+    `# gazelle:ts_package_boundary tsconfig`, add a `tsconfig.json` to each
+    directory that is to be a package, and `# gazelle:ts_package_boundary true`
+    to any that has to be one without holding the file. See
+    [One target per TypeScript project](#one-target-per-typescript-project).
+
+    `gazelle_ts.json` is gone too; nothing reads it. Each key becomes a
+    directive, and a file left behind lands in a generated `json_library`. The
+    key-to-directive table is under
+    [Configuration](overview.md#configuration).
+
 ## `# keep`
 
 `# keep` is Gazelle's own comment, understood by every language extension. Above
@@ -82,6 +97,17 @@ ancestor directory's own `tsconfig.json`. Every other shape gets no value, and
 for an owned attribute that means the value goes: a hand-written `deps` needs a
 `# keep` on its line to survive the next run. See
 [the compilerOptions baseline](overview.md#the-compileroptions-baseline).
+
+!!! note "Upgrading"
+    `ts_config.deps`, `ts_test.path_aliases`, and `path_alias_srcs` on
+    `ts_compile` and `ts_test` used to be write-once; they are Gazelle's now.
+    On every `ts_config` whose `deps` you wrote by hand, every `ts_test` whose
+    `path_aliases` you did, and every `ts_compile` or `ts_test` whose
+    `path_alias_srcs` you did, put `# keep` on the entry's own line to hold that
+    entry beside what Gazelle computes, or above the attribute to keep the whole
+    value. Without one, `deps` and `path_aliases` are recomputed entry by entry
+    and each dropped entry is named in the log; `path_alias_srcs` is filled in
+    after resolution, and a label dropped there is not reported.
 
 `path_aliases` holds the aliases a target's own imports go through, on the
 `ts_compile` and the `ts_test` alike: the test files are a program of their own,
@@ -290,6 +316,11 @@ Generated deps in that tree then read `@npm_eslint//:eslint`, not
 `@npm_eslint//:eslint_bin`. Without it the label names a hub the package does
 not use, and that label does not exist. Both `npm_eslint` and `@npm_eslint` are
 accepted.
+
+Four generated labels do not follow the directive yet and still name `@npm`:
+the `ts_codegen` generator Gazelle detects (`@npm//:prisma_bin`), the
+`vite_bundler`'s `vite`, the `node_modules` deps of a framework bundle, and the
+deps a tsconfig `types` entry produces.
 
 Declaring a hub is `npm.translate_lock(name = ...)` plus a matching `use_repo`,
 and each hub needs its own `ts_add_package` target. See
