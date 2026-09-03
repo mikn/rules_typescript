@@ -164,8 +164,10 @@ extension generates. Each strongly connected component is one message naming
 the packages in the cycle and the targets that make it up. That is the whole
 of the message: which packages, and that their targets are a cycle Bazel
 rejects. A type-only cycle is reported too, though `tsc` accepts one: each
-target is a separate compiler invocation, and emitting one package's `.d.ts`
-needs the other package's declarations.
+target type-checks its own sources in its own compiler invocation, under
+`noEmitOnError`, and an `import type` that resolves to nothing there is a hard
+`TS2307`. Not the emit -- a declaration file writes the specifier through
+verbatim and never reads what is on the other end.
 
 The message names no import and offers no remedy, and both were tried. Naming
 the import behind an edge is the one thing Bazel's own error cannot do, but

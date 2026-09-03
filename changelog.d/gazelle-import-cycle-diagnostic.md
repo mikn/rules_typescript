@@ -15,19 +15,20 @@
   auto-resolved either: merging the cyclic directories would be
   `ts_package_boundary` applied without consent, and the cycle is genuine
   under per-target compilation even when every edge is `import type` -- each
-  target is its own compiler invocation, and emitting one side's `.d.ts`
-  needs the other's. An edge is one thing: an import a source of the emitted
-  target writes, whose resolved label that target's emitted `deps` carry. So
-  a `srcs` or `deps` attribute Gazelle's own value cannot reach suppresses
-  whatever its list leaves out: a `# keep` on the attribute or on the whole
-  rule, and equally an existing expression the merger cannot reconcile value
-  by value, which it logs and then leaves untouched. A `# keep` on one
-  `deps` value is not that, and a cycle the resolved labels close beside it
-  is reported as any other. A dep no import explains is not an edge either,
-  so a cycle a hand-written label closes -- the whole cycle or only its last
-  edge -- is left to Bazel, whose loop of labels names the very BUILD file
-  that label is written in. Of the cycles inside a single directory, only
-  the framework entry split is reported -- by the framework-entry report,
-  which can name the `entry_point` behind it. The doc-target and test-target
-  splits are not covered, and neither is a cycle through a `ts_test` dep
-  that no source of its own imports.
+  target type-checks its own sources under `noEmitOnError`, where an `import
+  type` resolving to nothing is a hard `TS2307`; the emit itself needs
+  nothing from the other side. An edge is one thing: an import a source of
+  the emitted target writes, whose resolved label that target's emitted
+  `deps` carry. So a `srcs` or `deps` attribute Gazelle's own value cannot
+  reach suppresses whatever its list leaves out: a `# keep` on the attribute
+  or on the whole rule, and equally an existing expression the merger cannot
+  reconcile value by value, which it logs and then leaves untouched. A `#
+  keep` on one `deps` value is not that, and a cycle the resolved labels
+  close beside it is reported as any other. A dep no import explains is not
+  an edge either, so a cycle a hand-written label closes -- the whole cycle
+  or only its last edge -- is left to Bazel, whose loop of labels names the
+  very BUILD file that label is written in. Of the cycles inside a single
+  directory, only the framework entry split is reported -- by the
+  framework-entry report, which can name the `entry_point` behind it. The
+  doc-target and test-target splits are not covered, and neither is a cycle
+  through a `ts_test` dep that no source of its own imports.

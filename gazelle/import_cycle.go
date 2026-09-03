@@ -2,8 +2,9 @@ package typescript
 
 // A cycle between generated targets is reported here, not fixed here. Under
 // per-target compilation it is genuine even when every edge is `import type`:
-// each target is its own compiler invocation, and emitting one package's .d.ts
-// needs the other's declarations. Merging the cyclic directories into one
+// each target type-checks its own sources under noEmitOnError, where an
+// unresolvable `import type` is a hard TS2307. Merging the cyclic directories
+// into one
 // target would be ts_package_boundary applied behind the user's back --
 // different labels, coarser granularity, no consent -- so this file only says
 // what Bazel is about to reject, and where it came from.
