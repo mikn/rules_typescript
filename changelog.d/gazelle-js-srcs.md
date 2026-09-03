@@ -18,6 +18,6 @@
   returns the subtree to `.ts`/`.tsx`. Plain `.js` is refused by name --
   `ts_compile` already declares `<stem>.js` as the output of a `.ts` src of the
   same stem, so `foo.js` beside `foo.ts` would be one file declared twice.
-  Admission is about `srcs` and nothing else: an `index.mjs` does not make a
-  directory a package in `index-only` mode, and a framework entry point is
-  still `.ts`/`.tsx`.
+  Admission is about `srcs` and nothing else: an admitted `.mjs` does not make a
+  directory a package under `# gazelle:ts_package_boundary tsconfig` -- a
+  `tsconfig.json` does -- and a framework entry point is still `.ts`/`.tsx`.

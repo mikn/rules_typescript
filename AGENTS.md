@@ -166,7 +166,7 @@ one. A target exporting none runs no such action and provides no such file.
 
 | Directive | Effect |
 |---|---|
-| `ts_package_boundary every-dir\|index-only\|true` | Package boundary mode |
+| `ts_package_boundary every-dir\|tsconfig\|true` | Package boundary mode |
 | `ts_declarations tsgo\|oxc` | Choose the declaration emitter for the subtree |
 | `ts_path_alias @/ src/` | Path alias (merges with parent) |
 | `ts_runtime_dep @npm//:happy-dom` | Always-included test dep |

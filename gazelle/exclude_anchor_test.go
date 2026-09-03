@@ -214,12 +214,13 @@ func TestExclude_AnchoredPatternReachesIntoASubdirectory(t *testing.T) {
 // and anchoring has to mean the same thing there.
 func TestExclude_AnchoredPatternInTheRollupWalk(t *testing.T) {
 	res := generateUnder(t, map[string]string{
-		"BUILD.bazel":     "# gazelle:ts_package_boundary index-only\n",
-		"web/BUILD.bazel": "# gazelle:ts_exclude ./x.ts\n",
-		"web/index.ts":    "export const i = 1;\n",
-		"web/x.ts":        "export const x = 1;\n",
-		"web/sub/x.ts":    "export const sx = 1;\n",
-		"web/sub/y.ts":    "export const sy = 1;\n",
+		"BUILD.bazel":       "# gazelle:ts_package_boundary tsconfig\n",
+		"web/tsconfig.json": `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
+		"web/BUILD.bazel":   "# gazelle:ts_exclude ./x.ts\n",
+		"web/index.ts":      "export const i = 1;\n",
+		"web/x.ts":          "export const x = 1;\n",
+		"web/sub/x.ts":      "export const sx = 1;\n",
+		"web/sub/y.ts":      "export const sy = 1;\n",
 	}, "web")
 
 	srcs := compiledSrcs(t, res)
@@ -238,12 +239,13 @@ func TestExclude_AnchoredPatternInTheRollupWalk(t *testing.T) {
 // under a rolled-up boundary, where the drop is by joined path.
 func TestExclude_RollupBarePatternStillDropsEveryDepth(t *testing.T) {
 	res := generateUnder(t, map[string]string{
-		"BUILD.bazel":     "# gazelle:ts_package_boundary index-only\n",
-		"web/BUILD.bazel": "# gazelle:ts_exclude x.ts\n",
-		"web/index.ts":    "export const i = 1;\n",
-		"web/x.ts":        "export const x = 1;\n",
-		"web/sub/x.ts":    "export const sx = 1;\n",
-		"web/sub/y.ts":    "export const sy = 1;\n",
+		"BUILD.bazel":       "# gazelle:ts_package_boundary tsconfig\n",
+		"web/tsconfig.json": `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
+		"web/BUILD.bazel":   "# gazelle:ts_exclude x.ts\n",
+		"web/index.ts":      "export const i = 1;\n",
+		"web/x.ts":          "export const x = 1;\n",
+		"web/sub/x.ts":      "export const sx = 1;\n",
+		"web/sub/y.ts":      "export const sy = 1;\n",
 	}, "web")
 
 	srcs := compiledSrcs(t, res)
@@ -262,7 +264,8 @@ func TestExclude_RollupBarePatternStillDropsEveryDepth(t *testing.T) {
 // path the rollup walk reached a file by, relative to the claiming package.
 func TestExclude_RollupBarePathPatternIsRelativeToThePackage(t *testing.T) {
 	res := generateUnder(t, map[string]string{
-		"BUILD.bazel":       "# gazelle:ts_package_boundary index-only\n",
+		"BUILD.bazel":       "# gazelle:ts_package_boundary tsconfig\n",
+		"web/tsconfig.json": `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
 		"web/BUILD.bazel":   "# gazelle:ts_exclude sub/*.ts\n",
 		"web/index.ts":      "export const i = 1;\n",
 		"web/sub/x.ts":      "export const sx = 1;\n",
@@ -324,10 +327,11 @@ func TestExclude_DropIsReported(t *testing.T) {
 func TestExclude_RollupDropIsReported(t *testing.T) {
 	logged := captureLog(t, func() {
 		generateUnder(t, map[string]string{
-			"BUILD.bazel":     "# gazelle:ts_package_boundary index-only\n",
-			"web/BUILD.bazel": "# gazelle:ts_exclude x.ts\n",
-			"web/index.ts":    "export const i = 1;\n",
-			"web/sub/x.ts":    "export const sx = 1;\n",
+			"BUILD.bazel":       "# gazelle:ts_package_boundary tsconfig\n",
+			"web/tsconfig.json": `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
+			"web/BUILD.bazel":   "# gazelle:ts_exclude x.ts\n",
+			"web/index.ts":      "export const i = 1;\n",
+			"web/sub/x.ts":      "export const sx = 1;\n",
 		}, "web")
 	})
 
@@ -410,7 +414,7 @@ func srcsOfKind(t *testing.T, root, pkg, kind string) []string {
 // claim and no more.
 //
 // A directory pattern is read in one place only: the rollup walk, which runs in
-// the modes where a plain subdirectory is not a package. Under the default
+// tsconfig mode, where a plain subdirectory is not a package. Under the default
 // every-dir mode the subdirectory is a package in its own right, generation
 // there never asks about the directory's own name, and the pattern changes
 // nothing. Gazelle's own # gazelle:exclude is what prunes the walk itself.
@@ -420,7 +424,6 @@ func TestExclude_DirectoryPatternPrunesOnlyARolledUpWalk(t *testing.T) {
 		subIsGone bool
 	}{
 		{"", false},
-		{"# gazelle:ts_package_boundary index-only\n", true},
 		{"# gazelle:ts_package_boundary tsconfig\n", true},
 	} {
 		name := tt.mode

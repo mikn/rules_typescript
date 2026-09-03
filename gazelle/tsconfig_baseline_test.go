@@ -120,54 +120,6 @@ func TestTsConfigBaselineSkipsTheGeneratedFile(t *testing.T) {
 	}
 }
 
-// The repair the first attempt reached for and the reason it does not work: in a
-// roll-up mode the walk stops at any directory that is a package of its own, so
-// a BUILD file written just to hold the ts_config takes every source beneath it
-// out of the target that was compiling them. Refusing to name the file is the
-// alternative, and the sources have to still be there afterwards.
-func TestTsConfigBaselineRefusesRatherThanBreakARollUp(t *testing.T) {
-	root := t.TempDir()
-	writeWorkspace(t, root, map[string]string{
-		"BUILD.bazel":                 "# gazelle:ts_package_boundary index-only\n",
-		"package.json":                `{"name":"w"}` + "\n",
-		"packages/core/tsconfig.json": `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
-		"packages/core/src/index.ts":  "export const core = 1;\n",
-		"packages/core/other/util.ts": "export const util = 1;\n",
-	})
-	logged := captureLog(t, func() { convergeGazelle(t, root) })
-
-	if hasBuildFile(root, "packages/core") {
-		t.Error("generation made packages/core a package in a roll-up mode, which drops every " +
-			"source beneath it from the target above")
-	}
-	if got, _ := attrOf(t, root, "packages/core/src", "ts_compile", "src", "tsconfig"); got != "" {
-		t.Errorf("ts_compile(src).tsconfig = %q, want no attribute: nothing writes that package", got)
-	}
-	if !strings.Contains(logged, "packages/core") || !strings.Contains(logged, "ts_package_boundary") {
-		t.Errorf("the refusal was silent; log said:\n%s", logged)
-	}
-
-	// The roll-up the refusal protects: the source in the non-package directory
-	// is still compiled by the package above it.
-	var rolled bool
-	for _, r := range loadRules(t, root, "") {
-		if r.Kind() == "ts_compile" {
-			for _, src := range r.AttrStrings("srcs") {
-				if src == "packages/core/other/util.ts" {
-					rolled = true
-				}
-			}
-		}
-	}
-	if !rolled {
-		t.Errorf("packages/core/other/util.ts is compiled by nothing:\n%s", buildFileText(t, root, ""))
-	}
-	if dangling := danglingLabels(t, root); len(dangling) > 0 {
-		t.Errorf("%d label(s) no target satisfies:\n      %s",
-			len(dangling), strings.Join(dangling, "\n      "))
-	}
-}
-
 // Whether a package there costs anything depends on the boundary mode, so the
 // directory holding the tsconfig and the one naming it have to agree on it. A
 // directive between them means the mode inherited by the second says nothing
@@ -175,7 +127,7 @@ func TestTsConfigBaselineRefusesRatherThanBreakARollUp(t *testing.T) {
 func TestTsConfigBaselineRefusesWhenTheBoundaryModeIsOverriddenBetween(t *testing.T) {
 	root := t.TempDir()
 	writeWorkspace(t, root, map[string]string{
-		"BUILD.bazel":         "# gazelle:ts_package_boundary index-only\n",
+		"BUILD.bazel":         "# gazelle:ts_package_boundary tsconfig\n",
 		"package.json":        `{"name":"w"}` + "\n",
 		"lib/tsconfig.json":   `{"compilerOptions":{"strict":true}}` + "\n",
 		"lib/sub/BUILD.bazel": "# gazelle:ts_package_boundary every-dir\n",

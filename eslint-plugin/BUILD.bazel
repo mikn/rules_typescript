@@ -5,10 +5,11 @@ load("@rules_typescript//ts:defs.bzl", "json_library")
 # eslint's closure has no business in it.
 # gazelle:ts_npm_hub npm_eslint
 
-# index-only, so src/ is one package and src/rules/ is part of it. One target
-# per directory makes this a cycle -- the barrel re-exports ./rules and ./rules
-# imports ../utils -- which at file granularity does not exist.
-# gazelle:ts_package_boundary index-only
+# One package per tsconfig.json, and this tree's only one is here, so neither
+# src/ nor src/rules/ gets a target of its own and the hand-written one covering
+# both stands. Splitting them is a cycle -- the barrel re-exports ./rules and
+# ./rules imports ../utils -- which at file granularity does not exist.
+# gazelle:ts_package_boundary tsconfig
 
 # A stale pnpm install from before this tree was built by Bazel. It is
 # gitignored, so it is invisible in a clean checkout and its BUILD files are

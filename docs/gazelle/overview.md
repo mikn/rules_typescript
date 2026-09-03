@@ -139,14 +139,17 @@ By default (**every-dir mode**), every directory that contains `.ts` or `.tsx` s
 
 **every-dir mode** (default): a directory becomes a boundary when it has any `.ts` files.
 
-**index-only mode** (`# gazelle:ts_package_boundary index-only`): a directory becomes a boundary when:
+**tsconfig mode** (`# gazelle:ts_package_boundary tsconfig`): a directory becomes a boundary when:
 
-1. It contains an `index.ts` or `index.tsx` file, or
+1. It holds a `tsconfig.json`, or
 2. It has the `# gazelle:ts_package_boundary true` directive, or
 3. It is the repository root.
 
-!!! note "Upgrading from pre-0.2.0"
-    Earlier versions used **index-only mode** by default. If you relied on that behaviour, add `# gazelle:ts_package_boundary index-only` to your root `BUILD.bazel` to restore it.
+Everything below a boundary that is none of those three rolls up into it, so one
+Bazel target covers one TypeScript project. That is the only way to express a
+project whose ambient declaration and its sources sit in different directories,
+or whose directories import each other — both legal in a single `tsc` program,
+and a cycle once every directory is a target of its own.
 
 Test files (`*.test.ts`, `*.spec.ts`, `*.test.tsx`, `*.spec.tsx`) generate `ts_test` targets automatically in both modes.
 
@@ -298,9 +301,9 @@ package, so a refusal reaches every target there — the `_doc` one included:
 
 - a directory under a `# gazelle:ts_ignore`, and one inside a tree Next.js or
   SvelteKit stages by glob;
-- in the `index-only` and `tsconfig` boundary modes, one that is not already a
-  package — there, a BUILD file written just to hold the `ts_config` would stop
-  the roll-up walk and drop every source beneath it from the package above;
+- one a `# gazelle:ts_package_boundary` directive *between* it and the naming
+  package leaves the two disagreeing about — the mode inherited by the second
+  says nothing about the first, and a guess either way is a label nothing writes;
 - a directory whose own target is already named `tsconfig` or
   `tsconfig_types`, the two names the `ts_config` and the filegroup below need.
 
@@ -700,12 +703,12 @@ module deserves.
 
 A specifier that lands in a directory the generator will never write a BUILD
 file in resolves to nothing for the same reason. Two rules decide that, and the
-resolver reads both: `rolledUpIn` skips a dot-directory, `node_modules`, `dist`
-and `bazel-out`, and outside `every-dir` mode a directory that is not a boundary
-of its own is rolled into the package above it. The mode is the one declared at
-or above the directory the specifier lands in, not the one the importer is
-generated under, so a tree that puts `tsconfig` over one subtree and `every-dir`
-over another keeps the deps that cross between them. So
+resolver reads both: `skipRolledUpDir` skips a dot-directory, `node_modules`,
+`dist` and `bazel-out`, and under `tsconfig` mode a directory that is not a
+boundary of its own is rolled into the package above it. The mode is the one
+declared at or above the directory the specifier lands in, not the one the
+importer is generated under, so a tree that puts `tsconfig` over one subtree and
+`every-dir` over another keeps the deps that cross between them. So
 `../../shared/public/.well-known/assetlinks.json?raw` names
 `//web/shared/public/.well-known`, and under
 `# gazelle:ts_package_boundary tsconfig` a `./preview.css` written in a

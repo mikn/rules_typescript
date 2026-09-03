@@ -9,9 +9,8 @@ Directives go in `BUILD.bazel` files as comments and control how Gazelle generat
 | `# gazelle:ts_declarations oxc` | Emit `declarations = "oxc"` on generated `ts_compile` and `ts_test` rules in this tree — syntactic `.d.ts` emit, so every export needs an explicit type |
 | `# gazelle:ts_declarations tsgo` | Return a subdirectory to the default emitter after a parent set `oxc` |
 | `# gazelle:ts_package_boundary every-dir` | (default) Every directory with `.ts` files becomes a package |
-| `# gazelle:ts_package_boundary index-only` | Only directories with `index.ts`/`.tsx` become packages (pre-0.2.0 behaviour) |
 | `# gazelle:ts_package_boundary tsconfig` | Only directories holding a `tsconfig.json` become packages, so one target covers one TypeScript project |
-| `# gazelle:ts_package_boundary true` | Mark this single directory as a boundary (useful in index-only mode without `index.ts`) |
+| `# gazelle:ts_package_boundary true` | Mark this single directory as a boundary (in `tsconfig` mode, where the covering `tsconfig.json` sits elsewhere) |
 | `# gazelle:ts_ignore` | Suppress TypeScript rule generation for this directory and its children |
 | `# gazelle:ts_ignore false` | Re-enable generation after a parent used `ts_ignore` |
 | `# gazelle:ts_target_name my_lib` | Override the default target name (which is the directory basename) |
@@ -29,7 +28,11 @@ Directives go in `BUILD.bazel` files as comments and control how Gazelle generat
 | `# gazelle:ts_js_srcs .mjs .cjs` | Admit JavaScript sources of these extensions into the `srcs` Gazelle generates in this tree; named with nothing after it, admit none |
 
 That is the complete set: fifteen directives. Gazelle warns on an unknown
-`# gazelle:ts_*` comment and continues, so a typo shows up in the run output.
+`# gazelle:ts_*` comment and continues, so a typo in a directive's name shows up
+in the run output. A value `ts_package_boundary` does not know stops the run
+instead: the modes decide which files each target compiles, and a directive that
+did nothing would leave the tree compiling to something other than what its
+author wrote.
 
 ## `# keep`
 
@@ -234,20 +237,6 @@ explanation.
 An unrecognised value keeps the inherited emitter and logs a warning, so a typo
 cannot silently demand annotations across a whole tree.
 
-### Index-only package boundaries (pre-0.2.0 behaviour)
-
-```python
-# BUILD.bazel (repo root)
-
-# gazelle:ts_package_boundary index-only
-```
-
-In this mode a directory without an index file is not a package: its sources roll
-up into the nearest ancestor that is one, and no BUILD file is written there. That
-dissolves the commonest package-level cycle, where a barrel re-exports `./rules`
-while `./rules` imports `../utils`: a cycle between two Bazel packages and none
-between files.
-
 ### One Target per TypeScript Project
 
 ```python
@@ -265,7 +254,12 @@ in a single program and impossible to split across Bazel packages:
   `typeof import("./src/index")` of its own. Split by directory, the two targets
   need each other.
 - Directories that import each other. At file granularity there is no cycle;
-  at directory granularity there is one.
+  at directory granularity there is one. That is the commonest package-level
+  cycle: a barrel re-exporting `./rules` while `./rules` imports `../utils`.
+
+A directory the covering `tsconfig.json` does not sit in becomes a package of its
+own with `# gazelle:ts_package_boundary true`, which is what the diagnostic about
+a framework's staged sources landing under a boundary advises.
 
 ### More than One npm Hub
 
@@ -562,10 +556,10 @@ checked-in `foo.js` beside `foo.ts` would be one file declared twice and fail
 analysis. `.mjs` and `.cjs` get `.d.mts` / `.d.cts` instead and cannot collide.
 
 Admission is about `srcs` and nothing else. What makes a directory a package in
-`index-only` mode is still an `index.ts`/`index.tsx`, and a framework entry point
-is still `.ts`/`.tsx`: an admitted `.mjs` is compiled by the target that claims
-it, and is not a reason for a directory to become one or for an app to boot from
-it. `checkJs` is off, as it is in `ts_compile` — the JSDoc types in an admitted
+`tsconfig` mode is still a `tsconfig.json`, and a framework entry point is still
+`.ts`/`.tsx`: an admitted `.mjs` is compiled by the target that claims it, and is
+not a reason for a directory to become one or for an app to boot from it.
+`checkJs` is off, as it is in `ts_compile` — the JSDoc types in an admitted
 file cross the package boundary, and the file's own body is not checked unless
 `compiler_options` says so.
 
@@ -585,8 +579,8 @@ while the glob collects *everything* Gazelle would write a target for there. One
 file it does not — a stray `.ts`, a `README.md` — still needs a target, that
 target makes the directory a package again, and the ancestor's glob goes empty.
 Gazelle logs which files those are; the fixes are to move them out, or to put
-the tree under a rolled-up boundary (`# gazelle:ts_package_boundary index-only`
-or `tsconfig`) where a subdirectory is not a package to begin with.
+the tree under `# gazelle:ts_package_boundary tsconfig`, where a subdirectory
+holding no `tsconfig.json` of its own is not a package to begin with.
 
 ### Exclude Generated Files
 
@@ -638,13 +632,13 @@ accepting a directive that cannot do anything.
 
 A directory name is read in two places, not one: the rollup walk, and the
 framework bundle's staging walk. Both reach only a subdirectory that is **not**
-a package -- the rollup walk runs in those modes alone, and the staging walk
+a package -- the rollup walk runs in `tsconfig` mode alone, and the staging walk
 covers exactly the directories the framework does not own, since an owned one is
 staged by the label its own package exports. So under the default `every-dir`
 mode, where a subdirectory holding sources is a package in its own right, a
 directory pattern still reaches nothing through either.
 
-| In `web/BUILD.bazel`, with `web/sub/s.ts` | default `every-dir` | `index-only` / `tsconfig` |
+| In `web/BUILD.bazel`, with `web/sub/s.ts` | default `every-dir` | `tsconfig` |
 | --- | --- | --- |
 | `# gazelle:ts_exclude sub` (or `./sub`) | `web/sub` is still its own package and still compiles `s.ts`, and a framework bundle still stages it | `web` does not roll `sub/s.ts` up, so no target compiles it |
 | `# gazelle:exclude sub` (Gazelle's own) | the walk is pruned: no BUILD file in `web/sub`, and nothing compiles `s.ts` | the walk is pruned, but the rollup walk is not: `web` still claims `sub/s.ts` |

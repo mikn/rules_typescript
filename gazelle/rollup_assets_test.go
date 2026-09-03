@@ -13,7 +13,7 @@ import (
 )
 
 // generateRolledUp writes a tree whose subdirectories are not packages, and
-// generates rules for its root the way index-only mode reaches it.
+// generates rules for its root the way tsconfig mode reaches it.
 func generateRolledUp(t *testing.T, files map[string]string, build string) language.GenerateResult {
 	t.Helper()
 	repoRoot := t.TempDir()
@@ -57,6 +57,7 @@ func generateRolledUp(t *testing.T, files map[string]string, build string) langu
 // belonged to no target at all. The side-effect import then resolves to a
 // package that does not exist and fails the whole build.
 var rolledUpTree = map[string]string{
+	"tsconfig.json":              `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
 	"index.ts":                   "export { Checkbox } from './widget/checkbox';\n",
 	"widget/checkbox.ts":         "import './checkbox.css';\nimport styles from './checkbox.module.css';\nexport const Checkbox = () => styles;\n",
 	"widget/checkbox.css":        ".checkbox { color: red }\n",
@@ -64,10 +65,10 @@ var rolledUpTree = map[string]string{
 	"widget/data.json":           "{\"a\": 1}\n",
 }
 
-const indexOnlyBuild = "# gazelle:ts_package_boundary index-only\n"
+const rolledUpBuild = "# gazelle:ts_package_boundary tsconfig\n"
 
 func TestRolledUp_AssetsBesideRolledUpSourcesGetTargets(t *testing.T) {
-	res := generateRolledUp(t, rolledUpTree, indexOnlyBuild)
+	res := generateRolledUp(t, rolledUpTree, rolledUpBuild)
 
 	kinds := map[string]string{}
 	for _, r := range res.Gen {
@@ -90,12 +91,13 @@ func TestRolledUp_AssetsBesideRolledUpSourcesGetTargets(t *testing.T) {
 // end up with different target names; Bazel rejects the package otherwise.
 func TestRolledUp_SameBasenameInTwoDirectories(t *testing.T) {
 	res := generateRolledUp(t, map[string]string{
-		"index.ts":     "export const x = 1;\n",
-		"a/styles.css": ".a {}\n",
-		"b/styles.css": ".b {}\n",
-		"a/a.ts":       "import './styles.css';\nexport const a = 1;\n",
-		"b/b.ts":       "import './styles.css';\nexport const b = 1;\n",
-	}, indexOnlyBuild)
+		"tsconfig.json": `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
+		"index.ts":      "export const x = 1;\n",
+		"a/styles.css":  ".a {}\n",
+		"b/styles.css":  ".b {}\n",
+		"a/a.ts":        "import './styles.css';\nexport const a = 1;\n",
+		"b/b.ts":        "import './styles.css';\nexport const b = 1;\n",
+	}, rolledUpBuild)
 
 	seen := map[string]int{}
 	for _, r := range res.Gen {
@@ -116,9 +118,10 @@ func TestRolledUp_SameBasenameInTwoDirectories(t *testing.T) {
 // specifier importing them is a module tsgo cannot find.
 func TestRolledUp_CommittedGeneratedFileReachesTheBoundary(t *testing.T) {
 	res := generateRolledUp(t, map[string]string{
+		"tsconfig.json":                    `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
 		"index.ts":                         "export { flag } from './lib/flags/gen/variants_v1.gen';\n",
 		"lib/flags/gen/variants_v1.gen.ts": "export const flag = 1;\n",
-	}, indexOnlyBuild)
+	}, rolledUpBuild)
 
 	for _, r := range res.Gen {
 		if r.Kind() != "ts_compile" {

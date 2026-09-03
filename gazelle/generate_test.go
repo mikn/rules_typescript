@@ -558,10 +558,11 @@ var jsSrcsSameDir = map[string]string{
 	"pkg/util.test.mjs": "export const t = 1;\n",
 }
 
-// jsSrcsRolledUp is the same shape one directory further down, where index-only
+// jsSrcsRolledUp is the same shape one directory further down, where tsconfig
 // mode rolls the subdirectory into the package above rather than giving it a
 // target of its own.
 var jsSrcsRolledUp = map[string]string{
+	"pkg/tsconfig.json":      `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
 	"pkg/index.ts":           "export * from './lib/helper.mjs';\n",
 	"pkg/lib/helper.mjs":     "export const helper = () => 1;\n",
 	"pkg/lib/helper.test.ts": "import { helper } from './helper.mjs';\nexport const t = helper;\n",
@@ -569,7 +570,7 @@ var jsSrcsRolledUp = map[string]string{
 }
 
 func TestGenerate_JSSrcsDirective(t *testing.T) {
-	const indexOnly = "# gazelle:ts_package_boundary index-only\n"
+	const rollUp = "# gazelle:ts_package_boundary tsconfig\n"
 
 	for _, tt := range []struct {
 		name     string
@@ -632,7 +633,7 @@ func TestGenerate_JSSrcsDirective(t *testing.T) {
 		{
 			name:     "a rolled-up subdirectory's JavaScript needs the directive too",
 			tree:     jsSrcsRolledUp,
-			builds:   map[string]string{"pkg/BUILD.bazel": indexOnly},
+			builds:   map[string]string{"pkg/BUILD.bazel": rollUp},
 			kind:     "ts_compile",
 			contains: []string{"index.ts"},
 			omits:    []string{"lib/helper.mjs", "lib/legacy.js"},
@@ -640,7 +641,7 @@ func TestGenerate_JSSrcsDirective(t *testing.T) {
 		{
 			name:     "the directive reaches the rollup walk",
 			tree:     jsSrcsRolledUp,
-			builds:   map[string]string{"pkg/BUILD.bazel": indexOnly + "# gazelle:ts_js_srcs .mjs\n"},
+			builds:   map[string]string{"pkg/BUILD.bazel": rollUp + "# gazelle:ts_js_srcs .mjs\n"},
 			kind:     "ts_compile",
 			contains: []string{"index.ts", "lib/helper.mjs"},
 			omits:    []string{"lib/legacy.js"},

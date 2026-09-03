@@ -9,24 +9,6 @@ import (
 	"strings"
 )
 
-// rolledUpSrcs returns the TypeScript sources of every non-boundary descendant
-// of dir, as paths relative to dir, split into sources and tests.
-//
-// In index-only mode a directory is a package only when it has an index file,
-// so the files in a plain subdirectory belong to the nearest ancestor that is
-// one. Giving them their own target instead is what turns an ordinary shape --
-// a barrel re-exporting ./rules, and ./rules importing ../utils -- into a
-// dependency cycle between two Bazel packages, because at file granularity
-// there is no cycle at all.
-//
-// A descendant stops the walk when it is a package in its own right: it has an
-// index file, or it has a BUILD file, which is either a package already or a
-// deliberate statement that it should be one.
-func rolledUpSrcs(dir string, excludes excludeSet, jsSrcExts []string) (srcs, tests []string) {
-	r := rolledUp(dir, excludes, jsSrcExts)
-	return r.srcs, r.tests
-}
-
 // rolledUpFiles is everything a rolled-up subtree contributes to the package
 // that claims it, split by the kind of target each group needs.
 type rolledUpFiles struct {
@@ -47,19 +29,20 @@ type rolledUpFiles struct {
 	excluded []excludedSrc
 }
 
-// rolledUp is rolledUpSrcs plus the files that are not TypeScript. A stylesheet
-// beside a rolled-up source is imported by it, so leaving it behind gives that
-// import nothing to resolve to and the specifier becomes a label for a package
-// that cannot exist.
+// rolledUp is everything under dir that belongs to dir's own target, TypeScript
+// and otherwise: in tsconfig mode a directory holding no tsconfig.json is not a
+// package, so its files belong to the project above it. Giving them their own
+// target instead is what turns an ordinary shape -- a barrel re-exporting
+// ./rules, and ./rules importing ../utils -- into a dependency cycle between
+// two Bazel packages, when at file granularity there is no cycle at all. A
+// stylesheet beside a rolled-up source is imported by it, so leaving it behind
+// gives that import nothing to resolve to.
+//
+// The walk stops at a descendant that is a package in its own right, which
+// dirIsItsOwnPackage decides.
 func rolledUp(dir string, excludes excludeSet, jsSrcExts []string) rolledUpFiles {
-	return rolledUpIn(boundaryIndexOnly, dir, excludes, jsSrcExts)
-}
-
-// rolledUpIn is rolledUp for a named boundary mode: what stops the walk is
-// whatever makes a directory a package in that mode.
-func rolledUpIn(mode string, dir string, excludes excludeSet, jsSrcExts []string) rolledUpFiles {
 	var out rolledUpFiles
-	stops := func(d string) bool { return dirIsItsOwnPackageIn(mode, d) }
+	stops := dirIsItsOwnPackage
 	var walk func(rel string)
 	walk = func(rel string) {
 		entries, err := os.ReadDir(filepath.Join(dir, rel))
@@ -167,15 +150,9 @@ func skipRolledUpDir(name string) bool {
 }
 
 // dirIsItsOwnPackage reports whether dir already is, or is meant to be, a
-// package: an index file makes it a boundary in index-only mode, and a BUILD
-// file makes it a Bazel package regardless.
+// package under a rolled-up boundary: its own tsconfig.json makes it one, and a
+// BUILD file makes it a Bazel package regardless.
 func dirIsItsOwnPackage(dir string) bool {
-	return dirIsItsOwnPackageIn(boundaryIndexOnly, dir)
-}
-
-// dirIsItsOwnPackageIn answers the same question for a named boundary mode. A
-// BUILD file settles it either way; what else counts is the mode's own rule.
-func dirIsItsOwnPackageIn(mode string, dir string) bool {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return false
@@ -184,17 +161,8 @@ func dirIsItsOwnPackageIn(mode string, dir string) bool {
 		if e.IsDir() {
 			continue
 		}
-		name := e.Name()
-		if name == "BUILD" || name == "BUILD.bazel" {
-			return true
-		}
-		if mode == boundaryTsConfig {
-			if name == "tsconfig.json" {
-				return true
-			}
-			continue
-		}
-		if isTypeScriptFile(name) && isIndexFile(name) {
+		switch e.Name() {
+		case "BUILD", "BUILD.bazel", "tsconfig.json":
 			return true
 		}
 	}
@@ -202,9 +170,11 @@ func dirIsItsOwnPackageIn(mode string, dir string) bool {
 }
 
 // dirIsRolledUpIn reports whether the boundary mode in force rolls dir's files
-// into the package above it instead of making it a package of its own.
+// into the package above it instead of making it a package of its own. Only
+// tsconfig mode rolls anything up; under every-dir a directory with sources is
+// a package whatever else it holds.
 func dirIsRolledUpIn(mode, dir string) bool {
-	return mode != boundaryEveryDir && !dirIsItsOwnPackageIn(mode, dir)
+	return mode == boundaryTsConfig && !dirIsItsOwnPackage(dir)
 }
 
 // dirHasTsConfig reports whether dir holds the tsconfig.json that makes it a

@@ -17,7 +17,7 @@
   Bare patterns are unchanged: a name still matches at every depth, and a bare
   pattern carrying a `/` still matches the path a rolled-up file was reached by.
   A pattern naming a **directory** is read only by the rollup walk, so it drops
-  the subtree under `# gazelle:ts_package_boundary index-only` or `tsconfig` and
-  reaches nothing under the default `every-dir` mode, where that subdirectory is
-  a package of its own — there `# gazelle:exclude` or a `# gazelle:ts_ignore` in
-  the subdirectory is what drops it. The directives reference carries the table.
+  the subtree under `# gazelle:ts_package_boundary tsconfig` and reaches nothing
+  under the default `every-dir` mode, where that subdirectory is a package of its
+  own — there `# gazelle:exclude` or a `# gazelle:ts_ignore` in the subdirectory
+  is what drops it. The directives reference carries the table.
