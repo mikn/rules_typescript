@@ -75,7 +75,10 @@ is replaced unless a `# keep` holds it. `ts_compile.deps` and
 `ts_compile.public_globals` is deliberately absent. Whether a `.d.ts`'s globals
 are part of the package's public type surface is a decision nothing in the
 source states, so no directive writes it and a hand-written value survives every
-run, `# keep` or not.
+run, `# keep` or not. `types_srcs` is absent for the same reason -- it answers a
+`types` entry in `compiler_options`, which no directive writes either -- and a
+hand-written one survives too. A `.d.ts` in the package is in the `srcs` Gazelle
+generates, which is where a relative `types` entry naming it resolves from.
 
 Three kinds are the exception: `ts_dev_server`, `ts_pnpm` and `ts_add_package`.
 Each is written once, when no rule of that name exists, and left alone from then

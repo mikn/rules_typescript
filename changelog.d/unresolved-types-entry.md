@@ -24,9 +24,11 @@
   own. Three spellings resolve: the package itself, one of its `exports`
   subpaths (`vite/client`), and the bare name a paired `@types/*` package
   supplies (`node` is `@types/node`). An entry naming a path rather than a
-  package — one starting with `.` or `/`, or ending in `.d.ts` — is untouched,
-  and so is a blank one; whitespace is trimmed before any of that, which is the
-  reading Gazelle's `ambientTypeLabel` gives an entry before it writes the dep.
+  package — one starting with `.` or `/`, or ending in `.d.ts` — is no dep's to
+  answer, so this check leaves it alone; a `./` or `../` one is resolved from
+  `srcs` and `types_srcs` instead, and guarded there. A blank entry is guarded
+  by neither; whitespace is trimmed before any of that, which is the reading
+  Gazelle's `ambientTypeLabel` gives an entry before it writes the dep.
 
   Add the dep that publishes the package (`@npm//:vite` for `vite/client`); the
   message names the entry and, for a package that is a dep already, the subpaths

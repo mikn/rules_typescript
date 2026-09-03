@@ -33,12 +33,13 @@ wiring, no extra flags in `.bazelrc`.
 | `tsgo_args` | `string_list` | `[]` | Extra tsgo flags. See [tsgo flags](#tsgo-flags) |
 | `tsconfig` | `label` | `None` | The project's own `tsconfig.json`, or a [`ts_config`](#ts_config) target, as the `compilerOptions` baseline |
 | `lib` | `string_list` | `None` | `compilerOptions.lib`, e.g. `["es2022", "webworker"]`. Replaces the whole set `target` implies |
-| `types` | `string_list` | `None` | `compilerOptions.types` — which ambient type packages load. `[]` loads none; relative entries resolve against this target's package |
+| `types` | `string_list` | `None` | `compilerOptions.types` — which ambient type packages load. `[]` loads none; relative entries resolve against this target's package, from `srcs` or `types_srcs`. See [A `types` entry that names a declaration file](#a-types-entry-that-names-a-declaration-file) |
 | `jsx_import_source` | `string` | `None` | `compilerOptions.jsxImportSource`, e.g. `"solid-js"`, `"preact"` |
 | `compiler_options` | `dict` | `None` | Any other `compilerOptions`, passed through verbatim |
 | `module_name` | `string` | `""` | The bare specifier this target is importable as, e.g. `"@acme/ui"` |
 | `path_aliases` | `string_dict` | `{}` | Alias prefix → workspace-relative source directory. Must resolve to files this target stages: its own `srcs`, or `path_alias_srcs` |
 | `path_alias_srcs` | `label_list` | `[]` | Files a `path_aliases` entry resolves to when they are not in `srcs`. They join this target's type program, so a type error in one of them fails this target |
+| `types_srcs` | `label_list` | `[]` | The declarations a relative `types` entry names, when neither `srcs` nor a dep stages them. See [A `types` entry that names a declaration file](#a-types-entry-that-names-a-declaration-file) |
 | `public_globals` | `label_list` | `[]` | The `.d.ts` in `srcs` whose globals every consumer gets too. Unnamed is private. See [Which ambients a consumer gets](#which-ambients-a-consumer-gets) |
 | `untyped_packages` | `string_list` | `[]` | npm packages this target's type program leaves out entirely — no `paths` key, no `files` entry. See [Keeping a package out of the program](#keeping-a-package-out-of-the-program) |
 | `vite_types` | `bool` | `False` | Prepend the Vite ambient type shim to `srcs` |
@@ -482,6 +483,7 @@ ts_compile(
     tsconfig = "tsconfig.json",
     lib = ["es2022"],
     types = ["./worker-configuration.d.ts"],
+    types_srcs = ["worker-configuration.d.ts"],
     compiler_options = {"resolveJsonModule": True},
 )
 ```
@@ -491,12 +493,12 @@ generated config, so they are written exactly as they would be in the package's
 own tsconfig. Other path-valued options are not rewritten: they resolve against
 the generated config's directory, so they belong in the `tsconfig` file.
 
-`types` names a package resolved from `deps` (below) or a file this target can
-see. Neither is what puts a *dep's* globals in scope: a `.d.ts` in another
-target's `srcs` with no top-level import or export declares globals, and those
-reach every target that depends on it -- however far down the graph the
-declaration sits, the scope a single `tsc` run over the same sources would give
-it -- when that target names the file in `public_globals`.
+`types` names a package resolved from `deps` or a declaration file a label
+stages (both below). Neither is what puts a *dep's* globals in scope: a `.d.ts`
+in another target's `srcs` with no top-level import or export declares globals,
+and those reach every target that depends on it -- however far down the graph
+the declaration sits, the scope a single `tsc` run over the same sources would
+give it -- when that target names the file in `public_globals`.
 
 ### A `types` entry that names a package
 
@@ -515,11 +517,67 @@ failure surfaces later, on whatever used the declarations that never arrived:
 `TS2339` on `import.meta.env` without `vite/client`, `TS2591` on `process`
 without `node`.
 
-Two ways out other than the dep: name a declaration file instead
-(`types = ["./worker-configuration.d.ts"]`, which no dep resolves and the check
-leaves alone), or state a `typeRoots` in `compiler_options` -- a target that
-does is exempt, since what sits under a `typeRoots` is the compiler's to find at
-action time and the rule cannot see it.
+Two ways out other than the dep: name a declaration file instead (the next
+section), or state a `typeRoots` in `compiler_options` -- a target that does is
+exempt, since what sits under a `typeRoots` is the compiler's to find at action
+time and the rule cannot see it. The `typeRoots` exemption covers the package
+entries only; a declaration file is a path in the sandbox either way.
+
+### A `types` entry that names a declaration file
+
+`types = ["./worker-configuration.d.ts"]` names a path, and a path resolves
+against the sandbox: only what this target's action stages is in it. So the
+entry is resolved against the source files it stages -- its `srcs`, its deps'
+passed-through `.d.ts` (a `.d.ts` in `srcs` is a declaration output unchanged,
+so a dep edge stages it at its source path), its `path_alias_srcs`, and
+`types_srcs` -- and an entry none of them sits at fails at analysis, for the
+reason a package entry does: tsgo reports nothing for a `types` entry that
+resolves to nothing, and the target compiles without the declarations it asked
+for.
+
+No *generated* declaration is nameable, whichever label it arrives by: the entry
+resolves against the source tree and the file is in `bazel-out`. Two shapes
+reach that failure and it names the one you have. A dep's generated declaration
+is staged on the dep edge already, so drop the entry and take what it declares
+the way the dep edge carries it: globals when that dep names their src in
+`public_globals`, exports through an `import`. A generated declaration in this
+target's own `srcs` has no such route -- `include` names it and the default
+`exclude` drops it again for sitting under `outDir`, and `public_globals` here
+publishes to consumers without adding anything to this program. Compile it in
+its own `ts_compile`, name it in `public_globals` there and depend on that
+target.
+
+```python
+ts_compile(
+    name = "lib",
+    srcs = glob(["*.ts"]),
+    types = ["../../worker-configuration.d.ts"],
+    types_srcs = ["//workers/proxy:worker-configuration.d.ts"],
+)
+```
+
+`types_srcs` is for the file neither `srcs` nor a dep stages. It is a label
+list, so the file may live in another package, and -- unlike a `.d.ts` in
+`srcs` -- it is not passed through as this target's own declaration. tsgo parses
+it as part of this program, so a syntax error in the file fails this target
+(`TS1434` and friends); what it declares goes unchecked, since it is a `.d.ts`
+under the baseline's `skipLibCheck` -- `--//ts:lib_check` or
+`compiler_options = {"skipLibCheck": False}` is what surfaces a type error
+inside it. A file listed there that no entry names is an analysis error too:
+nothing else puts it in the program, so it would be staged and unread.
+
+Only the two relative shapes are paths. TypeScript resolves `./x.d.ts` and
+`../x.d.ts` against the config's own directory, and anything else -- `x.d.ts`,
+`vendor/x.d.ts` -- through `typeRoots` and `node_modules/@types`, which is a
+walk the compiler does at action time and this rule neither rewrites nor
+resolves. `./typings`, a directory, is the compiler's too: which declaration
+inside it the name picks is a question only reading the directory answers.
+
+Globals are what such an entry is for. A module -- a `.d.ts` with a top-level
+import or export -- resolves and joins the program, but its declarations stay
+scoped to it, so nothing global arrives; `public_globals` rejects a module
+outright and this does not, because a module in the program is what a module
+augmentation inside it needs.
 
 Only the attribute is checked. A `types` in the `tsconfig` file the target names
 is a layer the rule does not read, so nothing there is resolved and nothing

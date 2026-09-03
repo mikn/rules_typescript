@@ -4,6 +4,12 @@
 # would turn it into a package and make those labels cross a package boundary.
 # gazelle:exclude nested
 
+# staged/ holds the two declarations a file-shaped `types` entry names, in no
+# target's srcs: an ambient .d.ts counts as a source, so every-dir would write a
+# ts_compile over them, and being named by a label that is not srcs is the whole
+# fixture.
+# gazelle:exclude staged
+
 # A compilerOptions baseline, not data: it is named by the tsconfig attr.
 # gazelle:exclude silent.tsconfig.json
 
@@ -11,6 +17,7 @@ load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "css_library", "ts_compile", "ts_test")
 load(
     ":analysis_tests.bzl",
+    "absent_type_file_test",
     "alias_into_output_tree_test",
     "alias_without_inputs_test",
     "bazel_owned_option_test",
@@ -19,18 +26,25 @@ load(
     "exec_root_source_test",
     "forwarded_files_test",
     "generated_tsconfig_test",
+    "generated_type_file_test",
     "jsx_source_test",
+    "misplaced_type_file_test",
     "mixed_source_roots_test",
     "module_exports_paths_test",
+    "own_generated_type_file_test",
     "oxc_command_line_test",
     "quoted_option_test",
     "rejected_tsgo_arg_test",
     "requested_types_test",
     "test_types_forwarded_test",
     "tsconfig_baseline_test",
+    "types_declaration_file_test",
+    "types_entry_declaration_test",
     "types_entry_file_test",
     "types_entry_package_ref_test",
     "types_file_entries_test",
+    "unnamed_test_type_src_test",
+    "unnamed_type_src_test",
     "unpaired_resolution_test",
     "unresolved_globals_types_test",
     "unresolved_test_types_test",
@@ -219,16 +233,57 @@ build_test(
     targets = [":requested_types"],
 )
 
+# A `types` entry naming a declaration file, which resolves against the sandbox:
+# the file is in no target's srcs, so `types_srcs` staging it is the only reason
+# it is there at all. `STAGED_AMBIENT` is declared nowhere else, so the src
+# compiles only if the entry resolved.
+ts_compile(
+    name = "types_declaration_file",
+    srcs = ["types_declaration_file.ts"],
+    compiler_options = {"types": ["./staged/ambient.d.ts"]},
+    types_srcs = ["staged/ambient.d.ts"],
+)
+
+types_declaration_file_test(
+    name = "types_declaration_file_test",
+    target_under_test = ":types_declaration_file",
+)
+
+# Only a real build says the entry resolves: the file being an input is this
+# rule's half, and reading it off that path is tsgo's.
+build_test(
+    name = "types_declaration_file_build_test",
+    targets = [":types_declaration_file"],
+)
+
+# A module rather than a global: it resolves, joins the program and declares
+# nothing global -- which public_globals rejects a file for and this does not.
+# The src uses none of it; that it builds is the assertion.
+ts_compile(
+    name = "types_module_file",
+    srcs = ["types_module_file.ts"],
+    compiler_options = {"types": ["./staged/module.d.ts"]},
+    types_srcs = ["staged/module.d.ts"],
+)
+
+build_test(
+    name = "types_module_file_build_test",
+    targets = [":types_module_file"],
+)
+
 types_entry_file_test(name = "types_entry_file_test")
 
 types_entry_package_ref_test(name = "types_entry_package_ref_test")
 
-# The entries the guard has to leave alone, one per shape that names a path
-# rather than a package -- a package-relative directory, an absolute one, a
-# declaration file -- plus two that name nothing at all, which Gazelle writes no
-# dep for either: demanding one would be a failure nothing can clear. tsgo
-# resolves the first three off disk, so no dep can answer for them. None of the
-# five exists, and the target still analyses.
+types_entry_declaration_test(name = "types_entry_declaration_test")
+
+# The entries both guards have to leave alone, one per shape that neither a dep
+# nor a label of this target's answers for -- a package-relative directory,
+# whose declarations only reading the directory names; an absolute path;
+# a bare one, which TypeScript walks typeRoots and node_modules for -- plus two
+# that name nothing at all, which Gazelle writes no dep for either: demanding
+# one would be a failure nothing can clear. tsgo resolves the first three, each
+# by its own route, and none of the five exists: the target still analyses.
 ts_compile(
     name = "types_file_entries",
     srcs = ["types_file_entries.ts"],
@@ -340,6 +395,118 @@ unresolved_type_near_miss_test(
     target_under_test = ":unresolved_type_near_miss",
 )
 
+# The file-shaped half of the same guard: a path resolves against the sandbox,
+# nothing stages this one, and tsgo reports an unresolved `types` entry the way
+# it reports an unresolved package -- not at all.
+ts_compile(
+    name = "absent_type_file",
+    srcs = ["lone.ts"],
+    compiler_options = {"types": ["./staged/absent.d.ts"]},
+    tags = ["manual"],
+)
+
+absent_type_file_test(
+    name = "absent_type_file_test",
+    target_under_test = ":absent_type_file",
+)
+
+# The shape a wrong `../` depth takes: the file is real and staged, and the
+# entry names a path nothing is at. Starlark cannot read the source tree, so the
+# basename is the whole hint available.
+ts_compile(
+    name = "misplaced_type_file",
+    srcs = ["lone.ts"],
+    compiler_options = {"types": ["./ambient.d.ts"]},
+    tags = ["manual"],
+    types_srcs = ["staged/ambient.d.ts"],
+)
+
+misplaced_type_file_test(
+    name = "misplaced_type_file_test",
+    target_under_test = ":misplaced_type_file",
+)
+
+# A dep's declaration at the path the entry names, generated rather than checked
+# in: the rebased entry points into the source tree, so tsgo would find nothing
+# there and the message has to say which of the two is the problem.
+ts_compile(
+    name = "generated_ambient",
+    srcs = ["generated_ambient.ts"],
+)
+
+ts_compile(
+    name = "generated_type_file",
+    srcs = ["lone.ts"],
+    compiler_options = {"types": ["./generated_ambient.d.ts"]},
+    tags = ["manual"],
+    deps = [":generated_ambient"],
+)
+
+generated_type_file_test(
+    name = "generated_type_file_test",
+    target_under_test = ":generated_type_file",
+)
+
+# The other shape reaching that branch: the generated declaration is in this
+# target's OWN srcs, where the dep advice does not apply -- public_globals here
+# publishes to consumers and puts nothing in this program -- so it has its own
+# message and its own lever.
+genrule(
+    name = "gen_ambient_in_srcs",
+    outs = ["generated_in_srcs.d.ts"],
+    cmd = "echo 'declare const GENERATED_IN_SRCS: string;' > $@",
+)
+
+ts_compile(
+    name = "own_generated_type_file",
+    srcs = [
+        "generated_in_srcs.d.ts",
+        "lone.ts",
+    ],
+    compiler_options = {"types": ["./generated_in_srcs.d.ts"]},
+    tags = ["manual"],
+)
+
+own_generated_type_file_test(
+    name = "own_generated_type_file_test",
+    target_under_test = ":own_generated_type_file",
+)
+
+# The lever that message names, so that it is an instruction and not a guess:
+# the generated declaration compiled on its own, named in public_globals, and a
+# consumer reading the global with no `types` entry anywhere.
+ts_compile(
+    name = "generated_ambient_published",
+    srcs = ["generated_in_srcs.d.ts"],
+    public_globals = ["generated_in_srcs.d.ts"],
+)
+
+ts_compile(
+    name = "generated_ambient_consumer",
+    srcs = ["generated_in_srcs_consumer.ts"],
+    deps = [":generated_ambient_published"],
+)
+
+build_test(
+    name = "generated_ambient_consumer_build_test",
+    targets = [":generated_ambient_consumer"],
+)
+
+# The mirror of it: a label staging a declaration no entry names. `types_srcs`
+# is not `include`, so the file reaches the program through an entry or not at
+# all, and a target listing one without naming it asked for nothing.
+ts_compile(
+    name = "unnamed_type_src",
+    srcs = ["lone.ts"],
+    tags = ["manual"],
+    types_srcs = ["staged/ambient.d.ts"],
+)
+
+unnamed_type_src_test(
+    name = "unnamed_type_src_test",
+    target_under_test = ":unnamed_type_src",
+)
+
 # ts_test's own route to the guarded attribute: the macro folds `types` into the
 # compiler_options_json of a ts_compile it generates, which is the rule the
 # guard is on. The generated compile is what the assertion names -- ts_test
@@ -369,6 +536,20 @@ ts_test(
 unresolved_globals_types_test(
     name = "unresolved_globals_types_test",
     target_under_test = ":_globals_without_vitest_compile",
+)
+
+# ts_test's route to the mirror guard. The guard is on the rule attr, so a
+# `types_srcs` the macro dropped on the floor would leave this analysing green.
+ts_test(
+    name = "unnamed_test_type_src",
+    srcs = ["lone.ts"],
+    tags = ["manual"],
+    types_srcs = ["staged/ambient.d.ts"],
+)
+
+unnamed_test_type_src_test(
+    name = "unnamed_test_type_src_test",
+    target_under_test = ":_unnamed_test_type_src_compile",
 )
 
 ts_compile(

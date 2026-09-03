@@ -118,6 +118,7 @@ def ts_compile(
         tsgo_args = None,
         path_aliases = None,
         path_alias_srcs = None,
+        types_srcs = None,
         vite_types = False,
         **kwargs):
     """Compiles TypeScript with oxc-bazel and emits declarations with tsgo.
@@ -175,10 +176,16 @@ def ts_compile(
                                resolve against this target's package.
                                An entry naming a package is resolved from `deps`,
                                since there is no node_modules for TypeScript to
-                               walk, and one no dep answers is an analysis error:
-                               tsgo reports nothing for an entry that resolves to
-                               nothing. A target that sets typeRoots is exempt --
-                               what sits under one is the compiler's to find.
+                               walk, and one starting `./` or `../` is resolved
+                               against the source files this action stages -- its
+                               srcs, its deps' passed-through .d.ts, and
+                               `types_srcs` -- since that is what a path resolves
+                               against. An entry neither answers is an analysis
+                               error: tsgo reports nothing for an entry that
+                               resolves to nothing. A target that sets typeRoots
+                               is exempt for the package shape -- what sits under
+                               one is the compiler's to find -- and not for a
+                               relative entry, which never goes through one.
                                Only this attribute is read: a `types` in the
                                `tsconfig` file is a layer the rule cannot read,
                                so nothing resolves those entries and nothing
@@ -212,6 +219,13 @@ def ts_compile(
         path_alias_srcs:       Labels whose files a path_aliases entry resolves to,
                                when they are not in srcs. They become inputs to the
                                type-check action.
+        types_srcs:            Labels whose files a relative `types` entry resolves
+                               to, when neither srcs nor a dep stages them. They
+                               become inputs to the type-check action, which is what
+                               makes the entry resolve; tsgo parses them as part of
+                               this program, so a syntax error in one fails this
+                               target, while what one declares goes unchecked under
+                               the baseline's skipLibCheck.
         vite_types:            When True, automatically prepends the Vite client-side ambient
                                type shim (@rules_typescript//ts:vite_env.d.ts) to srcs. This
                                provides types for import.meta.env, import.meta.hot, and asset
@@ -229,6 +243,8 @@ def ts_compile(
         kwargs["path_aliases"] = path_aliases
     if path_alias_srcs != None:
         kwargs["path_alias_srcs"] = path_alias_srcs
+    if types_srcs != None:
+        kwargs["types_srcs"] = types_srcs
     if tsgo_args != None:
         kwargs["tsgo_args"] = tsgo_args
 

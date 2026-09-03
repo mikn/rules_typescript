@@ -1,0 +1,26 @@
+"""ts_test with a file-shaped `types` entry, as ts_compile takes one.
+
+The entry resolves against the source files the type-check action stages, and
+the only program the test files are ever in is the ts_compile this macro
+generates -- so the label staging the declaration has to reach it.
+"""
+
+# An ambient .d.ts counts as a source, so every-dir would write a ts_compile
+# over it; being named by a label that is not srcs is the whole fixture.
+# gazelle:exclude staged
+
+load("//tests/vitest/types_srcs:staged_tests.bzl", "test_compile_stages_test")
+load("//ts:defs.bzl", "ts_test")
+
+ts_test(
+    name = "staged_types_test",
+    srcs = ["ambient.test.ts"],
+    types = ["./staged/ambient.d.ts"],
+    types_srcs = ["staged/ambient.d.ts"],
+    deps = ["@npm//:vitest"],  # keep
+)
+
+test_compile_stages_test(
+    name = "test_compile_stages_test",
+    target_under_test = ":_staged_types_test_compile",
+)
