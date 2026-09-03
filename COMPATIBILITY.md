@@ -182,8 +182,11 @@ move.
 Breaks get a changelog entry with the required edit.
 
 - `ts_compile`, `ts_test`, `ts_binary`, `ts_bundle`, `ts_config`,
-  `node_modules` and `ts_refresh_tsconfig` rules and their documented
-  attributes
+  `node_modules`, `ts_refresh_tsconfig`, `refresh_workspace_files`,
+  `css_library`, `css_module`, `asset_library` and `json_library` rules and
+  their documented attributes
+- `ts_pnpm` and `ts_add_package`, which Gazelle writes into every root
+  `BUILD.bazel` beside a lockfile
 - `JsInfo`, `TsDeclarationInfo`, `TsModuleInfo`, `BundlerInfo`, `CssInfo`,
   `CssModuleInfo`, `AssetInfo`, `NpmPublishInfo`, `TsLintInfo` providers
 - The `npm` module extension (`npm.translate_lock`, `npm.pnpm`) and the `@npm`
@@ -199,7 +202,13 @@ Breaks get a changelog entry with the required edit.
 
 May change in any commit, without a changelog entry.
 
-- `ts_dev_server`, `ts_codegen`, `ts_lint`, `ts_npm_publish`, `next_build` rules
+- `ts_dev_server`, `ts_codegen`, `ts_lint`, `ts_npm_publish` rules
+- The framework rules: `next_build`, `next_dev_server`, `next_serve`,
+  `remix_build`, `svelte_library`, `sveltekit_build`
+- The Cloudflare Workers rules: `ts_worker_deploy`, `ts_worker_dry_run`,
+  `ts_worker_dry_run_test`, `ts_worker_types`
+- `npm_bin` as a rule loaded by hand; the generated `@npm//:<pkg>_bin` labels
+  are load-bearing above
 - `DevServerInfo` and the two implementations of it, `//vite:dev_server` and
   `//oj:dev_server`
 - `vite_bundler` and the Vite plugin (`vite/src/`)
