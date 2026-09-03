@@ -961,6 +961,8 @@ def ts_test(
         types = None,
         compiler_options = None,
         tsconfig = None,
+        path_aliases = None,
+        path_alias_srcs = None,
         visibility = None,
         environment = "",
         coverage = False,
@@ -1054,6 +1056,15 @@ def ts_test(
         tsconfig:          Forwarded to the generated ts_compile: the package's
                            own tsconfig.json, or a ts_config target when that
                            file extends others. The three above override it.
+        path_aliases:      Forwarded to the generated ts_compile: the source-level
+                           alias prefixes the test files import through. A package
+                           whose ts_compile needs one needs it here too -- the
+                           test files are a program of their own, and `paths` is
+                           one key the `tsconfig` layer cannot contribute to.
+        path_alias_srcs:   Forwarded to the generated ts_compile: the files an
+                           alias resolves to. A test target's srcs are the test
+                           files, so an alias into the code under test is covered
+                           by nothing else and fails analysis without this.
         config:            Vitest config, either a label pointing at a config file
                            (.ts/.mts/.js/.mjs) or an inline dict.  It is MERGED
                            into the config rules_typescript generates rather than
@@ -1152,6 +1163,8 @@ def ts_test(
         declarations = declarations,
         compiler_options_json = test_compiler_options_json(lib, types, compiler_options),
         tsconfig = tsconfig,
+        path_aliases = path_aliases,
+        path_alias_srcs = path_alias_srcs,
         visibility = compile_visibility,
         tags = wildcard_tags,
     )
