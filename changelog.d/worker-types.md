@@ -40,7 +40,11 @@
 
   The output reaches a program the way a tsconfig names it -- a relative
   `compilerOptions.types` entry, with this target in `types_srcs` -- which is
-  the pair Gazelle writes under a tsconfig that names the file. The package's
-  nested editor program writes the entry through the `bazel-bin` symlink: on
-  the fixture, 3 diagnostics (`TS2304` on `Env` and `ExportedHandler`) with the
-  entry pointing at the source tree, 0 with it pointing at `bazel-bin`.
+  the pair Gazelle writes under a tsconfig that names the file. Gazelle now
+  reads a `ts_worker_types` target in the tsconfig's own BUILD file and names
+  it in `types_srcs` in place of the `tsconfig_types` filegroup, which it no
+  longer writes for a file that is not in the source tree; the entry it
+  rebases is unchanged. The package's nested editor program writes the entry
+  through the `bazel-bin` symlink: on the fixture, 3 diagnostics (`TS2304` on
+  `Env` and `ExportedHandler`) with the entry pointing at the source tree, 0
+  with it pointing at `bazel-bin`.

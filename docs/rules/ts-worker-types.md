@@ -85,6 +85,11 @@ output is in `bazel-out`; nothing about the pair is different for a checked-in
 file. `types_srcs` travels on no dep edge, so a consumer outside the worker gets
 none of its globals.
 
+Gazelle writes that pair onto every target under the tsconfig, naming this
+target rather than a filegroup when the file the entry names is one this target
+writes -- see [a declaration the tsconfig
+names](../gazelle/overview.md#a-declaration-the-tsconfig-names).
+
 ## The editor
 
 The generated file is in `bazel-out`, which the root editor program excludes.

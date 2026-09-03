@@ -306,3 +306,45 @@ func TestRootAmbientTypes_EveryGeneratedKindCarriesThem(t *testing.T) {
 		t.Errorf("no %s named %q was generated, so this test says nothing about that kind", kind, name)
 	}
 }
+
+// The file is not there: a ts_worker_types target in the tsconfig's own BUILD
+// file writes it. That target is the label staging it, and the filegroup --
+// which could only name a source file -- is not written.
+func TestRootAmbientTypes_GeneratedDeclarationNamesItsGenerator(t *testing.T) {
+	root := t.TempDir()
+	writeWorkspace(t, root, map[string]string{
+		"package.json":         `{"name":"w"}` + "\n",
+		"worker/tsconfig.json": `{"compilerOptions": {"types": ["./worker-configuration.d.ts"]}}` + "\n",
+		"worker/BUILD.bazel": `load("@rules_typescript//ts:defs.bzl", "ts_worker_types")
+
+ts_worker_types(
+    name = "worker_types",
+    config = "wrangler.jsonc",
+    node_modules = ":node_modules",
+)
+`,
+		"worker/wrangler.jsonc": `{"name": "w", "main": "src/handler.ts"}` + "\n",
+		"worker/src/handler.ts": "export const env = WORKER_ENV;\n",
+	})
+	logged := captureLog(t, func() { convergeGazelle(t, root) })
+	if strings.Contains(logged, "no such file is there") {
+		t.Errorf("a file a ts_worker_types target writes was refused as absent: %s", logged)
+	}
+
+	below := generated(t, root, "worker", "src", "BUILD.bazel")
+	if !strings.Contains(below, `types = ["../worker-configuration.d.ts"]`) {
+		t.Errorf("//worker/src names no rebased `types` entry:\n%s", below)
+	}
+	if !strings.Contains(below, `types_srcs = ["//worker:worker_types"]`) {
+		t.Errorf("//worker/src does not name the generating target, so nothing stages the "+
+			"declaration:\n%s", below)
+	}
+
+	owner := generated(t, root, "worker", "BUILD.bazel")
+	if strings.Contains(owner, "tsconfig_types") {
+		t.Errorf("a filegroup was written over a file that is not in the source tree:\n%s", owner)
+	}
+	if !strings.Contains(owner, `name = "worker_types"`) {
+		t.Errorf("the hand-written ts_worker_types did not survive the run:\n%s", owner)
+	}
+}

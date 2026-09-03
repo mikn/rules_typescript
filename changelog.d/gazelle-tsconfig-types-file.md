@@ -48,8 +48,10 @@
   Only `compilerOptions.types` drives this. A declaration named in `include`
   gets nothing: `include` does not survive `extends` into the generated config,
   so it states nothing about the tree below it. An entry naming a path outside
-  the tsconfig's own directory, or a file that is not there, is logged and
-  produces nothing.
+  the tsconfig's own directory, or a file that is neither there nor written by
+  a `ts_worker_types` target in the tsconfig's BUILD file, is logged and
+  produces nothing. For a file such a target writes, the label is that target
+  rather than the filegroup; see the `ts_worker_types` entry.
 
   Neither attribute is mergeable, so deleting the lines does not opt out —
   `rule.MergeRules` copies in an attribute the rule does not carry at all, and
