@@ -35,36 +35,36 @@ do not describe.
 | `size` | `string` | `"medium"` | Bazel test size |
 | `timeout` | `string` | `None` | Bazel test timeout |
 | `tags` | `string_list` | `[]` | Bazel tags |
-| `visibility` | `string_list` | `None` | Visibility of the test and of the generated `ts_compile` targets — see [Generated targets](#generated-targets) |
+| `visibility` | `string_list` | `None` | Visibility of the test and of the generated `ts_compile` targets; see [Generated targets](#generated-targets) |
 | `target` | `string` | `"es2022"` | ECMAScript target for the internal `ts_compile` |
 | `jsx_mode` | `string` | `"react-jsx"` | JSX mode for the internal `ts_compile` |
 | `declarations` | `string` | `"tsgo"` | Declaration emitter for the internal `ts_compile`, `"tsgo"` or `"oxc"` |
 | `lib` | `string_list` | `None` | `lib` set for the internal `ts_compile`. A worker test needs it: `webworker` is in no set `target` implies |
-| `types` | `string_list` | `None` | Ambient type packages for the internal `ts_compile` — see [Ambient type packages](#ambient-type-packages) |
+| `types` | `string_list` | `None` | Ambient type packages for the internal `ts_compile`; see [Ambient type packages](#ambient-type-packages) |
 | `compiler_options` | `dict` | `None` | Anything else for the internal `ts_compile` |
 | `tsconfig` | `label` | `None` | The `compilerOptions` baseline for the internal `ts_compile`; the three above override it |
-| `path_aliases` | `string_dict` | `None` | Source-level alias prefixes for the internal `ts_compile` — see [Path aliases](#path-aliases) |
-| `path_alias_srcs` | `label_list` | `None` | The files an alias resolves to, when they are not in the test's own `srcs` — see [Path aliases](#path-aliases) |
-| `types_srcs` | `label_list` | `None` | The files a relative `types` entry resolves to — see [A `types` entry that names a declaration file](#a-types-entry-that-names-a-declaration-file) |
-| `runner` | `string` | `"vitest"` | Which runner runs the compiled tests, `"vitest"` or `"node:test"` — see [The node:test runner](#the-nodetest-runner). Every attribute below this row except `data` is vitest's, and an analysis error under `"node:test"` |
-| `environment` | `string` | `""` | `test.environment` — `node`, `jsdom`, `happy-dom`, `edge-runtime`, or any custom vitest environment package. The package must be in `deps` |
+| `path_aliases` | `string_dict` | `None` | Source-level alias prefixes for the internal `ts_compile`; see [Path aliases](#path-aliases) |
+| `path_alias_srcs` | `label_list` | `None` | The files an alias resolves to, when they are not in the test's own `srcs`; see [Path aliases](#path-aliases) |
+| `types_srcs` | `label_list` | `None` | The files a relative `types` entry resolves to; see [A `types` entry that names a declaration file](#a-types-entry-that-names-a-declaration-file) |
+| `runner` | `string` | `"vitest"` | Which runner runs the compiled tests, `"vitest"` or `"node:test"`; see [The node:test runner](#the-nodetest-runner). Every attribute below this row except `data` is vitest's, and an analysis error under `"node:test"` |
+| `environment` | `string` | `""` | `test.environment`: `node`, `jsdom`, `happy-dom`, `edge-runtime`, or any custom vitest environment package. The package must be in `deps` |
 | `coverage` | `bool` | `False` | Also instrument during plain `bazel test`. `bazel coverage` works on every vitest target regardless |
-| `config` | `label` or `dict` | `None` | A vitest config file (`.ts`/`.mts`/`.cts`/`.js`/`.mjs`/`.cjs`) or an inline dict, **merged** into the generated config — see [A config file](#a-config-file) |
+| `config` | `label` or `dict` | `None` | A vitest config file (`.ts`/`.mts`/`.cts`/`.js`/`.mjs`/`.cjs`) or an inline dict, **merged** into the generated config; see [A config file](#a-config-file) |
 | `setup_files` | `label_list` | `[]` | `test.setupFiles`. `.ts`/`.tsx` entries are compiled with the same `deps` as the tests |
 | `global_setup` | `label_list` | `[]` | `test.globalSetup`; compiled like `setup_files` |
 | `data` | `label_list` | `[]` | Extra runfiles: fixtures, and files a `config` or setup entry imports |
-| `globals` | `bool` | `False` | `test.globals` — global `describe`/`it`/`expect`, and the `types` entry that declares them — see [Globals](#globals) |
+| `globals` | `bool` | `False` | `test.globals`: global `describe`/`it`/`expect`, and the `types` entry that declares them; see [Globals](#globals) |
 | `reporters` | `string_list` | `[]` | `test.reporters`, e.g. `["default", "junit"]` |
 | `coverage_thresholds` | `string_dict` | `{}` | `test.coverage.thresholds`, e.g. `{"lines": "80", "perFile": "true"}`. Values that look numeric or boolean are emitted as such |
-| `coverage_provider` | `string` | `""` | `test.coverage.provider`: `"v8"` (vitest's default) or `"istanbul"` — see [Coverage](#coverage) |
-| `snapshots` | `label_list` | `[]` | Checked-in `.snap` files, normally `glob(["__snapshots__/*.snap"])` — see [Snapshots](#snapshots) |
-| `update_snapshots` | `bool` | `False` | Makes **this** target the executable updater — see [Snapshots](#snapshots) |
+| `coverage_provider` | `string` | `""` | `test.coverage.provider`: `"v8"` (vitest's default) or `"istanbul"`; see [Coverage](#coverage) |
+| `snapshots` | `label_list` | `[]` | Checked-in `.snap` files, normally `glob(["__snapshots__/*.snap"])`; see [Snapshots](#snapshots) |
+| `update_snapshots` | `bool` | `False` | Makes **this** target the executable updater; see [Snapshots](#snapshots) |
 
 ## Generated Targets
 
 The macro generates a `ts_compile` target for `srcs`, one for the TypeScript
-entries in `setup_files` and one for those in `global_setup`, plus — on the
-vitest runner — a `<name>.update_snapshots` executable.
+entries in `setup_files` and one for those in `global_setup`, plus, on the
+vitest runner, a `<name>.update_snapshots` executable.
 The `ts_compile` targets take the test's `visibility`, defaulting to
 `//visibility:public` when the test declares none, so an IDE tsconfig written by
 `ts_refresh_tsconfig` can name them.
@@ -72,20 +72,18 @@ The `ts_compile` targets take the test's `visibility`, defaulting to
 ## Ambient Type Packages
 
 A `types` entry may name an `exports` subpath, as in
-`@cloudflare/vitest-pool-workers/types`. That is how an ambient module a package
-ships behind such a subpath reaches the program: nothing imports the declaration,
-and a tsconfig `types` entry resolves through a `node_modules` this ruleset does
-not have, so the subpath is resolved from the manifest and the file put in the
-program's `files`.
+`@cloudflare/vitest-pool-workers/types`. Nothing imports an ambient module a
+package ships behind such a subpath, and there is no `node_modules` for a
+tsconfig `types` entry to resolve through, so the subpath is resolved from the
+manifest and the file put in the program's `files`.
 
 ## Globals
 
-`globals = True` sets `test.globals`, which is the runtime half: vitest installs
-`describe`, `it`, `expect` and the rest as globals so a test file imports
-nothing. The compiler learns about them from a separate place — vitest publishes
-their declarations behind its `vitest/globals` subpath — so the attribute adds
-that entry to the internal `ts_compile`'s `types` as well. Without it the test
-runs and does not compile: `TS2593` on `describe`, `TS2304` on `expect`.
+`globals = True` sets `test.globals`: vitest installs `describe`, `it`, `expect`
+and the rest as globals, and a test file imports nothing. vitest publishes their
+declarations behind its `vitest/globals` subpath, and the attribute adds that
+entry to the internal `ts_compile`'s `types` as well. Without the entry the
+test runs and does not compile: `TS2593` on `describe`, `TS2304` on `expect`.
 
 The entry is resolved from the target's own `deps`, so `globals = True` needs
 vitest listed there, and says so at analysis time when it is not:
@@ -95,16 +93,15 @@ ts_compile: compilerOptions.types entry "vitest/globals" on
 @@//path:_my_test_compile resolves to nothing.
 ```
 
-That is not the dep the runner needs. The guard resolves the entry from the
-test's own `deps`; the runner finds vitest in the `node_modules` tree, which the
-`node_modules` attr can supply on its own. So a `globals = True` test that
-supplied vitest only through that attr analysed before this and now has to list
+The runner finds vitest in the `node_modules` tree, which the `node_modules`
+attr can supply on its own; the guard resolves the entry from `deps`. A
+`globals = True` test that supplies vitest only through that attr has to list
 it in `deps` as well. The injected entry is folded in last, after anything the
 target wrote.
 
-Under Gazelle the dep needs `# keep`. Nothing in a `globals = True` test imports
+Under Gazelle the dep needs `# keep`: nothing in a `globals = True` test imports
 vitest, and `deps` is a managed attribute, so a run rewrites the list without
-the entry — `globals = True` itself survives, since no directive writes it:
+the entry. `globals = True` itself survives; no directive writes it:
 
 ```python
 ts_test(
@@ -118,21 +115,18 @@ ts_test(
 ## Path Aliases
 
 `path_aliases` and `path_alias_srcs` are forwarded to the generated
-`ts_compile`, and carry the meaning they carry there. A package whose
-`ts_compile` needs an alias needs it on the test too: the test files are a
-program of their own, and `paths` is one key the `tsconfig` layer cannot
-contribute to, so an alias set on the package target reaches nothing the test
-compiles.
+`ts_compile`, with the meaning they have there. A package whose `ts_compile`
+needs an alias needs it on the test too: the test files are a program of their
+own, and `paths` is a key the `tsconfig` layer cannot contribute.
 
 `ts_compile` accepts an alias only when a file it stages sits under the alias
 directory; otherwise the alias is an analysis error. A test with a src under
 that directory validates the alias on that src, and the aliased declarations
 arrive on the dep edge. A test with none needs `path_alias_srcs` naming what the
 alias resolves to: a `ts_compile` target, whose declarations land in the
-bazel-bin mirror of the directory, or the files themselves, which then join the
-test's type program and are checked here as well as in the target that owns
-them. Where the aliased target can carry a `module_name`, depending on it is the
-cheaper boundary.
+bazel-bin mirror of the directory, or the files themselves, which join the
+test's type program and are checked again there. Where the aliased target can
+carry a `module_name`, depending on it is cheaper.
 
 ```starlark
 ts_test(
@@ -146,30 +140,27 @@ ts_test(
 
 Gazelle writes both. `path_aliases` carries the aliases the test files import
 through; `path_alias_srcs` is written only when no src of the test sits under
-the alias directory, and names the target the aliased import resolved to. A test
-with a src under the directory gets no `path_alias_srcs`: staging the target's
-outputs on top of the dep edge would add every one of them to the action for
-nothing. Both attributes are Gazelle's, so a value it did not derive survives the
-next run only with a `# keep` on its line -- see
+the alias directory, and names the target the aliased import resolved to. Both
+attributes are Gazelle's, so a value it did not derive survives the next run
+only with a `# keep` on its line; see
 [attributes Gazelle owns](../gazelle/directives.md#attributes-gazelle-owns).
 
-**Type-checking only.** oxc leaves an import specifier alone, so a compiled test
-still names the alias at runtime, where vitest resolves it as a package and
-fails with `Cannot find package`. A type-only import is erased and is
-unaffected; a value import through an alias also needs the module reachable at
-runtime, which today means depending on the target that produces it instead of
-aliasing into its sources.
+An alias is type-checking only. oxc leaves an import specifier alone, so a
+compiled test still names the alias at runtime, where vitest resolves it as a
+package and fails with `Cannot find package`. A type-only import is erased and
+unaffected. A value import through an alias needs the module reachable at
+runtime: depend on the target that produces it.
 
 ## A `types` Entry That Names a Declaration File
 
-An entry starting `./` or `../` names a file rather than a package, and a path
-resolves against the source files the type-check action stages. The test files
-are the only `srcs` the generated `ts_compile` has, so a declaration file in
-another package — the `worker-configuration.d.ts` a wrangler project keeps
-beside its worker — has to be staged by something else. A dep whose own `srcs`
-hold it does, since a `.d.ts` in `srcs` is passed through and sits at the path
-the entry names. `types_srcs` stages it without the dep edge, so the test does
-not also consume that target's declarations:
+An entry starting `./` or `../` names a file, not a package, and resolves
+against the source files the type-check action stages. The test files are the
+only `srcs` the generated `ts_compile` has, so a declaration file in another
+package (the `worker-configuration.d.ts` a wrangler project keeps beside its
+worker) has to be staged by something else. A dep whose own `srcs` hold it
+does: a `.d.ts` in `srcs` is passed through and sits at the path the entry
+names. `types_srcs` stages it without the dep edge, so the test does not also
+consume that target's declarations:
 
 ```starlark
 ts_test(
@@ -193,12 +184,12 @@ A config is always generated and always passed with `--config`, so vitest never
 auto-discovers a stray config out of the runfiles tree. It is an entry config
 that layers four sources, lowest precedence first:
 
-| Layer | Contents | Applies to workspace projects too? |
+| Layer | Contents | Workspace projects |
 |-------|----------|---|
 | 1. Bazel | `root` (the package, `TS_TEST_PACKAGE_DIR`), `resolve.preserveSymlinks`, `test.coverage.allowExternal`, and the CSS-module plugin when a dep carries a `*.module.css` | yes |
 | 2. user | the `config` attr: a config file or an inline dict | it supplies the projects |
 | 3. attributes | `environment`, `setup_files`, `global_setup`, `globals`, `reporters`, `coverage_thresholds`, `coverage_provider` | yes |
-| 4. snapshots | `test.resolveSnapshotPath`, and in update mode `test.dir`, `test.include` and `cacheDir` | no — root only |
+| 4. snapshots | `test.resolveSnapshotPath`, and in update mode `test.dir`, `test.include` and `cacheDir` | no, root only |
 
 Objects merge key by key; arrays concatenate base-first, matching vite's own
 `mergeConfig`. A user `plugins` list therefore never displaces the CSS-module
@@ -210,20 +201,17 @@ Layer 4 is root-only because `resolveSnapshotPath` is one of vitest's
 non-project options: it is applied once, to the root config, and never merged
 into a project.
 
-`preserveSymlinks` in layer 1 is a default, not a contract. A DOM environment
-resolves every module id to its realpath, which for a runfiles symlink walks
-straight out of the test sandbox, so layer 1 turns it on. A pool that resolves
-modules for a second runtime needs the opposite: under
-`@cloudflare/vitest-pool-workers` a lexical path is a second module identity for
-the same file, so a Workers config sets `resolve.preserveSymlinks: false` and the
-user layer wins. Leaving it out fails as
-`Cannot read properties of undefined (reading 'config')` from inside the pool
-runner. `//tests/workers` is the worked example.
+`preserveSymlinks` in layer 1 is a default. A DOM environment resolves every
+module id to its realpath, which for a runfiles symlink walks out of the test
+sandbox, so layer 1 turns it on. Under `@cloudflare/vitest-pool-workers` a
+lexical path is a second module identity for the same file, so a Workers config
+sets `resolve.preserveSymlinks: false` and the user layer wins. Leaving it out
+fails as `Cannot read properties of undefined (reading 'config')` from inside
+the pool runner. `//tests/workers` is the example.
 
-Two things sit outside the layering and outrank all of it, being the sandbox
-contract: npm resolution into the runfiles tree (`NODE_PATH`, set by the
-launcher) and coverage output paths (vitest CLI flags, so `bazel coverage` writes
-lcov where Bazel expects it).
+Two things sit outside the layering and outrank it: npm resolution into the
+runfiles tree (`NODE_PATH`, set by the launcher) and coverage output paths
+(vitest CLI flags, so `bazel coverage` writes lcov where Bazel expects it).
 
 To see what the launcher resolved (the node binary, the vitest entry, the
 `node_modules` tree, the shard split):
@@ -256,19 +244,18 @@ either. An array is read as a list of vitest projects and becomes
 layer too, because every project gets its own Vite server. Anything the config
 imports relatively must be in `data`; it is not a build input otherwise.
 
-Vite's root is the package, so a relative path in the config names the package
-and not the working directory the test runs in. The config file itself is staged
-elsewhere -- beside the `node_modules` tree, where its own bare imports resolve
--- so a path relative to the config file is not the same thing;
-`TS_TEST_PACKAGE_DIR` holds the same directory Vite is rooted at, for a path that
-has to be absolute.
+Vite's root is the package, so a relative path in the config names the package,
+not the working directory the test runs in. The config file itself is staged
+beside the `node_modules` tree, where its bare imports resolve, so a path
+relative to the config file is a different path. `TS_TEST_PACKAGE_DIR` holds the
+directory Vite is rooted at, for a path that has to be absolute.
 
 !!! warning "The array form needs vitest 3.2 or later"
     `test.projects` is the name `test.workspace` was renamed to in vitest 3.2;
     vitest 4 removed the old name and throws on it. The
     generated config emits `test.projects`, so a `config` that default-exports
-    an array needs vitest 3.2 or later. Every other `config` shape -- object,
-    function, promise, inline dict -- uses no version-sensitive key.
+    an array needs vitest 3.2 or later. Every other `config` shape (object,
+    function, promise, inline dict) uses no version-sensitive key.
 
 ### An Inline Dict
 
@@ -307,8 +294,7 @@ them run after any `setupFiles` the `config` attr contributes.
 `bazel coverage //path/to:my_test` works on any `ts_test` on the vitest runner
 with no attribute set; `@vitest/coverage-v8` must be in `node_modules`.
 `coverage = True` additionally instruments plain `bazel test` runs. A
-`runner = "node:test"` target reports no coverage and says so rather than
-handing Bazel an empty report.
+`runner = "node:test"` target reports no coverage and says so.
 
 `coverage_thresholds` is enforced only when coverage runs, and a run that misses
 one fails: vitest exits non-zero with
@@ -333,9 +319,9 @@ bazel coverage //tests/vitest/coverage:math_coverage_test --combined_report=lcov
 # adds SF:tests/vitest/math.js
 ```
 
-Every target under test carries its own `InstrumentedFilesInfo`, because the
-filter is applied where a target answers for its own label: the libraries in
-`deps`, and the `ts_compile` the macro builds the test sources with.
+Every target under test carries its own `InstrumentedFilesInfo`: the libraries
+in `deps`, and the `ts_compile` the macro builds the test sources with. The
+filter is applied per target.
 
 ### Choosing a Provider
 
@@ -361,9 +347,8 @@ ts_test(
 )
 ```
 
-Omitting `coverage_provider` does not report zeros: with only
-`@vitest/coverage-istanbul` in `deps`, vitest falls back to its v8 default and
-the run fails with
+With only `@vitest/coverage-istanbul` in `deps` and no `coverage_provider`,
+vitest falls back to its v8 default and the run fails with
 `MISSING DEPENDENCY  Cannot find dependency '@vitest/coverage-v8'`.
 
 Coverage is reported against the compiled `.js` in `bazel-out`, not the `.ts`
@@ -401,15 +386,14 @@ ts_test(
 )
 ```
 
-The compile attributes carry over unchanged, because the compile is the same
-one: `lib`, `types`, `compiler_options`, `tsconfig`, `path_aliases`,
-`path_alias_srcs` and `types_srcs` mean on a node:test target exactly what they
-mean above. So does the caveat under [Path aliases](#path-aliases): an alias is
-type-checking only on either runner.
+The compile attributes carry over unchanged: `lib`, `types`,
+`compiler_options`, `tsconfig`, `path_aliases`, `path_alias_srcs` and
+`types_srcs` mean on a node:test target what they mean above. An alias is
+type-checking only on either runner; see [Path aliases](#path-aliases).
 
-The runner takes no config file — node:test is configured by CLI flags and by
-the test file itself — so every vitest-shaped attribute is an analysis error
-under it, naming the ones that were set:
+node:test takes no config file; it is configured by CLI flags and by the test
+file itself. Every vitest attribute is an analysis error under it, naming the
+ones set:
 
 ```
 ts_test @@//scripts:scripts_test: runner "node:test" reads none of environment,
@@ -419,36 +403,33 @@ Drop them, or drop `runner` to run the test under vitest.
 
 The rejected set is `config`, `coverage`, `coverage_provider`,
 `coverage_thresholds`, `environment`, `global_setup`, `globals`, `reporters`,
-`setup_files`, `snapshots`, `update_snapshots` and `vitest`. `globals` is in it
-because node:test has no globals mode: nothing would install `describe` or
-`expect`, so the attribute could only be a silent no-op, and the `vitest/globals`
-`types` entry it adds under vitest is not added here. A dep providing
-`CssModuleInfo` is rejected for the same reason: only the vitest runner installs
-the transform that answers a `*.module.css` import. No `<name>.update_snapshots`
-target is generated.
+`setup_files`, `snapshots`, `update_snapshots` and `vitest`. node:test has no
+globals mode: nothing installs `describe` or `expect`, so `globals` is
+rejected, and the `vitest/globals` `types` entry is not added. A dep providing
+`CssModuleInfo` is rejected too: only the vitest runner installs the transform
+that answers a `*.module.css` import. No `<name>.update_snapshots` target is
+generated.
 
-What does carry over: `--test_filter` reaches node as `--test-name-pattern`
-(a regular expression over test names), sharding works as above, and the exit
-status is the test result — nothing writes a JUnit XML on either runner, so
-Bazel synthesises `test.xml` from the log.
+`--test_filter` reaches node as `--test-name-pattern` (a regular expression
+over test names), sharding works as above, and the exit status is the test
+result. Nothing writes a JUnit XML on either runner; Bazel synthesises
+`test.xml` from the log.
 
 ### Relative `.ts` Specifiers
 
 `import { x } from "./util.ts"` is legal TypeScript under
-`allowImportingTsExtensions`, and oxc — which does the JavaScript transform —
-copies that specifier into the `.js` verbatim. Only `util.js` is in the runfiles
-tree, so a runtime loading the emitted JavaScript fails with
+`allowImportingTsExtensions`, and oxc copies that specifier into the `.js`
+verbatim. Only `util.js` is in the runfiles tree, so the runtime fails with
 
 ```
 Error [ERR_MODULE_NOT_FOUND]: Cannot find module '.../util.ts'
 ```
 
 The node:test runner installs an ESM resolver hook that retries a failed
-relative resolution with `.ts`/`.tsx` rewritten to `.js`. It is a fallback, not
-a first attempt, so a specifier node can already resolve keeps resolving to
-exactly what it resolved to before — and nothing about the source or the emit
-changes, which is why this is not a `rewriteRelativeImportExtensions` flag or a
-required edit to the `import`.
+relative resolution with `.ts`/`.tsx` rewritten to `.js`. It runs only after a
+failed resolution, so a specifier node can resolve keeps resolving as before.
+The source and the emit are unchanged: no `rewriteRelativeImportExtensions`
+flag, and no edit to the `import`.
 
 [node-test]: https://nodejs.org/api/test.html
 
@@ -462,11 +443,9 @@ the `.ts` source implies:
 <package>/__snapshots__/<source file name>.snap
 ```
 
-which is where a plain `vitest` run already keeps it. A repository adopting
-`ts_test` renames nothing.
+the path a plain `vitest` run uses.
 
-Reading them takes the `snapshots` attr, which is what puts the files in the
-sandbox:
+The `snapshots` attr puts the files in the sandbox:
 
 ```python
 ts_test(
@@ -477,28 +456,25 @@ ts_test(
 )
 ```
 
-Without it the test cannot read the snapshot and fails: `ts_test` runs vitest in
-read-only snapshot mode (`CI=true`), so no `bazel test` can write a `.snap` and
-then pass on what it just wrote. `env = {"CI": "false"}` opts out of that, at the
-cost of the guarantee.
+Without it the test cannot read the snapshot and fails. `ts_test` runs vitest in
+read-only snapshot mode (`CI=true`), so no `bazel test` writes a `.snap`.
+`env = {"CI": "false"}` opts out.
 
-Writing them uses the executable every vitest `ts_test` declares alongside
-itself:
+Every vitest `ts_test` declares an executable that writes them:
 
 ```bash
 bazel run //path/to:widget_test.update_snapshots
 ```
 
 It reuses the test's own compiled sources and writes under
-`BUILD_WORKSPACE_DIRECTORY`, into your checkout next to the `.ts` file. Commit
-the result. `--sandbox_writable_path` is no longer involved.
+`BUILD_WORKSPACE_DIRECTORY`, into the checkout next to the `.ts` file. Commit
+the result. `--sandbox_writable_path` is not involved.
 
 `update_snapshots = True` on a `ts_test` makes that target the updater and not a
-test. It exists for an updater that has to stand alone. It compiles `srcs`
-itself, so it cannot share a package with a `ts_test` over the same files: that
-would be two `ts_compile` targets declaring the same `.js` outputs. The generated
-`<name>.update_snapshots` shares the test's compile target, and is the normal
-route.
+test, for an updater that stands alone. It compiles `srcs` itself, so it cannot
+share a package with a `ts_test` over the same files: two `ts_compile` targets
+would declare the same `.js` outputs. The generated `<name>.update_snapshots`
+shares the test's compile target.
 
 ## Debugging
 
