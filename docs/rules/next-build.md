@@ -106,8 +106,8 @@ The run names every value it drops. Full contract:
 
 ```python
 staging_srcs = [
-    "//packages/shared/src:sources",  # a filegroup of .ts; Next.js compiles them
-    "//packages/shared/src",          # a ts_compile target; Next.js bundles its .js
+    "//packages/shared/src:sources",  # a filegroup of .ts — Next.js compiles them
+    "//packages/shared/src",          # a ts_compile target — Next.js bundles its .js
 ]
 ```
 

@@ -42,7 +42,7 @@ your own graph.
 ## The Requirement
 
 ```typescript
-// Rejected under declarations = "oxc": the return type is inferred
+// Rejected under declarations = "oxc" — the return type is inferred
 export function add(a: number, b: number) {
   return a + b;
 }

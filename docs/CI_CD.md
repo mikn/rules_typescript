@@ -167,7 +167,7 @@ bazel build --config=ci //... --output_groups=+_validation
 bazel test --config=ci-integration //tests/integration/...
 
 # e2e/ and examples/ are separate workspaces (.bazelignore), so they are
-# separate invocations: a --config cannot change workspace.
+# separate invocations — a --config cannot change workspace.
 cd e2e/basic && bazel build //... && bazel test //...
 cd examples/basic && bazel build //...
 ```
@@ -516,7 +516,7 @@ For additional system tools, build on the minimal image:
 FROM ubuntu:22.04
 # Only a POSIX shell is needed: the Vite bundler and the framework build rules
 # (next_build, remix_build, sveltekit_build) wrap their actions in bash.
-# Everything else runs a declared binary: no host tar, no python, no coreutils
+# Everything else runs a declared binary — no host tar, no python, no coreutils
 # dependency.
 RUN apt-get update && apt-get install -y \
     bash \

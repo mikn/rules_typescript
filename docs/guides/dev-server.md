@@ -29,7 +29,7 @@ node_modules(
     name = "node_modules",
     deps = [
         "@npm//:vite",
-        # every npm package the app imports, too; see below
+        # every npm package the app imports, too — see below
     ],
 )
 

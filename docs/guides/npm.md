@@ -82,7 +82,7 @@ ts_compile(
 ## Adding Dependencies
 
 ```bash
-pnpm add zod --lockfile-only   # updates pnpm-lock.yaml only, no node_modules
+pnpm add zod --lockfile-only   # updates pnpm-lock.yaml only — no node_modules
 bazel run //:gazelle           # Gazelle sees the new import, adds @npm//:zod
 bazel build //...              # Bazel fetches just that package's closure
 ```
@@ -96,7 +96,7 @@ The extension downloads a standalone pnpm binary whether or not one is asked
 for, so lockfile edits need no system install. Gazelle writes the two macros:
 
 ```python
-# BUILD.bazel: what `bazel run //:gazelle` writes beside a root pnpm-lock.yaml
+# BUILD.bazel — what `bazel run //:gazelle` writes beside a root pnpm-lock.yaml
 load("@rules_typescript//ts:defs.bzl", "ts_add_package", "ts_pnpm")
 
 ts_pnpm(name = "pnpm")

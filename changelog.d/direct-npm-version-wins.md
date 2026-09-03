@@ -5,7 +5,7 @@
   followed immediately by its transitive closure, and the first writer kept the
   name. A dependency listed earlier handed the compiler its own older copy of a
   package the target also depends on directly. In the Lovable monorepo
-  `//web:web` lists `@npm//:firebase` 153 entries before `@npm//:web-vitals`,
+  `//web:web` listed `@npm//:firebase` well before `@npm//:web-vitals`,
   and its generated tsconfig resolved `web-vitals` to the 4.2.4 inside
   `@firebase/performance`, not the 6.0.1 pnpm installed for that importer. The
   4.2.4 declarations carry none of the fields the application reads. Direct

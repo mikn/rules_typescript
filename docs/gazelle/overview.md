@@ -651,7 +651,6 @@ A specifier that spells out an extension resolves like one that does not.
 candidate list: the path as written, the path with its extension dropped, that
 stem under each known extension, and `<stem>/index.ts[x]`. NodeNext-style `.js`
 specifiers over `.ts` sources resolve to the target that owns the source.
-source.
 
 A `#`-prefixed specifier is a Node package-private import, answered only by the
 `imports` field of the package's own `package.json`:

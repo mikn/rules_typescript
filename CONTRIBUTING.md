@@ -85,7 +85,7 @@ TypeScript formatting are local conventions.
 Use **buildifier**:
 
 ```bash
-# buildifier is not a bazel_dep: there is no @buildifier repo to run. Use the
+# buildifier is not a bazel_dep — there is no @buildifier repo to run. Use the
 # released binary, which is what CI checks with.
 curl -fsSL -o /usr/local/bin/buildifier \
   https://github.com/bazelbuild/buildtools/releases/download/v8.2.1/buildifier-linux-amd64

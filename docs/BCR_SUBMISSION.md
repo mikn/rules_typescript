@@ -179,14 +179,12 @@ Contains module-level information (shared across all versions):
   "homepage": "https://github.com/mikn/rules_typescript",
   "maintainers": [
     {
-      "name": "Mikael Knutsson",
-      "email": "mikael@lovable.dev",
-      "github": "mikn"
+      "name": "Your Name",
+      "email": "you@example.com",
+      "github": "your-github-handle"
     }
   ],
-  "repository": [
-    "github:mikn/rules_typescript"
-  ],
+  "repository": ["github:mikn/rules_typescript"],
   "versions": [],
   "yanked_versions": {}
 }
