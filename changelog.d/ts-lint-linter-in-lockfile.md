@@ -2,9 +2,9 @@
 
 - **A linter config whose linter `pnpm-lock.yaml` never mentions no longer
   produces a `ts_lint`.** An `eslint.config.mjs` on disk was enough for a
-  `ts_lint` naming `@npm//:eslint_bin`, a target the hub does not declare when no
-  eslint was installed — a config left behind by a package that never was, or
-  the live config of a nested `package-lock.json` island — and Bazel answers
+  `ts_lint` naming `@npm//:eslint_bin`, a target the hub does not declare when
+  no eslint was installed (a config left behind by a package that never was, or
+  the live config of a nested `package-lock.json` island), and Bazel answers
   `no such target` by failing analysis for every target in the package. The
   linter binary now takes the same test a bare specifier does: a name the
   lockfile never mentions gets no hub label. Gazelle writes no `ts_lint` for the

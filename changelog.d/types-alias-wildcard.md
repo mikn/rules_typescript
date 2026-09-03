@@ -8,7 +8,7 @@
   - The build gave the bare key to the `@types/*` package and left the runtime
     package's wildcard standing, so `@babel/core` resolved to
     `@types/babel__core/index.d.ts` while `@babel/core/*` resolved into
-    `@babel/core`'s own repository -- whose whole tree holds no `.d.ts` file.
+    `@babel/core`'s own repository, whose whole tree holds no `.d.ts` file.
     The alias's wildcard now displaces it, yielding to the same thing the bare
     key yields to, a `path_aliases` prefix.
   - The editor's wildcard listed only the entry point's own directory, so
@@ -19,17 +19,17 @@
     own config gain that first substitution, and no key is added or removed.
   - `compilerOptions.types = ["node"]` stayed in the nested tsconfig an editor
     reads. The entry names a package TypeScript resolves by walking
-    `node_modules/@types`, and there is none here, so real `tsc` reports
+    `node_modules/@types`, and there is none here, so `tsc` reports
     `TS2688: Cannot find type definition file for 'node'` (measured against
     typescript 5.9.2) where `tsgo` reports nothing. The editor's copy of
     `ts_compile`'s resolver recognised `pkg` and `pkg/sub` and not the bare name
-    a paired `@types/*` package supplies; there is now one resolver,
+    a paired `@types/*` package supplies. There is now one resolver,
     `types_entry_file`, exported from `ts_compile` and called from both.
 
 - **Two packages claiming one `paths` key no longer resolve by sort order.** A
   target whose closure holds `@types/x` and no `x` gives the alias the `x` key,
-  and the aggregate config sees that beside another target's real `x`: npm's
-  rule -- `node_modules/x` first, `node_modules/@types/x` only when it holds no
-  declarations -- now picks, in the generated config and in the tsserver hook's
-  fragment merge alike. Before, the winner was whichever package name sorted
+  and the aggregate config sees that beside another target's real `x`. npm's
+  rule now picks, in the generated config and in the tsserver hook's fragment
+  merge alike: `node_modules/x` first, `node_modules/@types/x` only when it
+  holds no declarations. Before, the winner was whichever package name sorted
   first, and `@types/x` sorts before `x`.

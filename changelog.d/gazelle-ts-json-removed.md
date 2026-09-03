@@ -3,8 +3,8 @@
 - **`gazelle_ts.json` is gone.** Nothing reads the file any more; a
   `gazelle_ts.json` left in a workspace is now an ordinary JSON file and lands
   in a generated `json_library`, so delete it once its keys have moved. Each key
-  becomes a directive in a `BUILD.bazel` file — the root's, or any ancestor of
-  the directories it should govern:
+  becomes a directive in a `BUILD.bazel` file, the root's or any ancestor of the
+  directories it should govern:
 
   | Key | Write instead |
   |---|---|
@@ -15,13 +15,12 @@
   | `"runtimeDeps": {"test": ["@npm//:happy-dom"]}` | `# gazelle:ts_runtime_dep @npm//:happy-dom`, one per label |
 
   A directive placed in the directory the file sat in reads the same as the key
-  it replaces, with one deliberate difference: directives **inherit and merge**,
-  where a nested `gazelle_ts.json` replaced the whole list an ancestor had built
-  (`excludePatterns`, `excludeDirs` and `runtimeDeps.test` alike). That
-  replacement was the defect the file is being removed for. Gazelle's own walk
-  merges, so the two places that ask "which excludes apply here" — the
-  per-directory generation and the framework bundle's staging walk — answered
-  differently depending on which directory asked, which is how a run produced an
-  invalid workspace and, elsewhere, a silently deleted target. If a subtree
-  really has to *narrow* what an ancestor declared, move the ancestor's
-  directive down to the directories it is meant for.
+  it replaces, with one difference: directives inherit and merge, where a nested
+  `gazelle_ts.json` replaced the whole list an ancestor had built
+  (`excludePatterns`, `excludeDirs` and `runtimeDeps.test` alike). Gazelle's own
+  walk merges, so the two places that ask "which excludes apply here", the
+  per-directory generation and the framework bundle's staging walk, answered
+  differently depending on which directory asked. One run produced an invalid
+  workspace and, elsewhere, a silently deleted target. If a subtree has to
+  narrow what an ancestor declared, move the ancestor's directive down to the
+  directories it is meant for.
