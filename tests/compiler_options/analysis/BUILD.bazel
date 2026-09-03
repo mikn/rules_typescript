@@ -408,6 +408,22 @@ alias_without_inputs_test(
     target_under_test = ":alias_without_inputs",
 )
 
+# ts_test's route to the same guard. A test target's srcs are the test files, so
+# an alias into the code under test is covered by none of them: forwarding
+# path_aliases without path_alias_srcs would leave the ordinary case failing
+# here rather than expressible.
+ts_test(
+    name = "test_alias_without_inputs",
+    srcs = ["lone.ts"],
+    path_aliases = {"@elsewhere/": "some/other/package/src/"},
+    tags = ["manual"],
+)
+
+alias_without_inputs_test(
+    name = "test_alias_without_inputs_test",
+    target_under_test = ":_test_alias_without_inputs_compile",
+)
+
 ts_compile(
     name = "rejected_tsgo_arg",
     srcs = ["lone.ts"],

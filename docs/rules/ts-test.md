@@ -42,6 +42,8 @@ do not describe.
 | `types` | `string_list` | `None` | Ambient type packages for the internal `ts_compile` — see [Ambient type packages](#ambient-type-packages) |
 | `compiler_options` | `string_dict` | `None` | Anything else for the internal `ts_compile` |
 | `tsconfig` | `label` | `None` | The `compilerOptions` baseline for the internal `ts_compile`; the three above override it |
+| `path_aliases` | `string_dict` | `None` | Source-level alias prefixes for the internal `ts_compile` — see [Path aliases](#path-aliases) |
+| `path_alias_srcs` | `label_list` | `None` | The files an alias resolves to, which a test's own `srcs` never are — see [Path aliases](#path-aliases) |
 | `environment` | `string` | `""` | `test.environment` — `node`, `jsdom`, `happy-dom`, `edge-runtime`, or any custom vitest environment package. The package must be in `deps` |
 | `coverage` | `bool` | `False` | Also instrument during plain `bazel test`. `bazel coverage` works on every target regardless |
 | `config` | `label` or `dict` | `None` | A vitest config file (`.ts`/`.mts`/`.cts`/`.js`/`.mjs`/`.cjs`) or an inline dict, **merged** into the generated config — see [A config file](#a-config-file) |
@@ -72,6 +74,39 @@ ships behind such a subpath reaches the program: nothing imports the declaration
 and a tsconfig `types` entry resolves through a `node_modules` this ruleset does
 not have, so the subpath is resolved from the manifest and the file put in the
 program's `files`.
+
+## Path Aliases
+
+`path_aliases` and `path_alias_srcs` are forwarded to the generated
+`ts_compile`, and carry the meaning they carry there. A package whose
+`ts_compile` needs an alias needs it on the test too: the test files are a
+program of their own, and `paths` is one key the `tsconfig` layer cannot
+contribute to, so an alias set on the package target reaches nothing the test
+compiles.
+
+An alias into the code under test lives outside the test's `srcs`, so
+`path_alias_srcs` has to name the files it resolves to — without them the alias
+is an analysis error, the same one `ts_compile` raises. Those files join the
+test's type program, so tsgo checks them here as well as in the target that owns
+them; where the aliased target can carry a `module_name`, depending on it is the
+cheaper boundary.
+
+```starlark
+ts_test(
+    name = "app_test",
+    srcs = ["app.test.ts"],
+    path_aliases = {"@shared/": "packages/app/shared/"},
+    path_alias_srcs = ["//packages/app/shared:sources"],
+    deps = [":app", "@npm//:vitest"],
+)
+```
+
+**Type-checking only.** oxc leaves an import specifier alone, so a compiled test
+still names the alias at runtime, where vitest resolves it as a package and
+fails with `Cannot find package`. A type-only import is erased and is
+unaffected; a value import through an alias also needs the module reachable at
+runtime, which today means depending on the target that produces it instead of
+aliasing into its sources.
 
 ## The Generated vitest Config
 
