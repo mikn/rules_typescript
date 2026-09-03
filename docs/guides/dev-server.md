@@ -98,7 +98,12 @@ every component twice.
 Bringing your own is a rule returning `DevServerInfo`. A server shipping as an
 npm package sets `server_in_tree` (a path inside the `node_modules` tree, since a
 file inside a TreeArtifact has no label at analysis time); a native binary sets
-`server_binary`. Exactly one.
+`server_binary`. Exactly one. The provider is not exported from
+`@rules_typescript//ts:defs.bzl`: it loads from
+`@rules_typescript//ts/private:providers.bzl`, a path
+[COMPATIBILITY.md](../compatibility.md#volatile) lists as volatile. Its eight
+fields, with the values the two shipped servers return for each, are in
+[Providers](../rules/providers.md#devserverinfo).
 
 ## What Is Served from Where
 
@@ -359,7 +364,7 @@ sent` line in the log says which message arrived.
 | `server` | `label` | `@rules_typescript//vite:dev_server` | `DevServerInfo`-providing target choosing the implementation. `@rules_typescript//oj:dev_server` selects oj; see [above](#choosing-the-server) |
 | `bundler` | `label` | `None` | `BundlerInfo`-providing target, for a custom dev server that needs a bundler binary in runfiles. Neither shipped server does |
 | `react_refresh` | `bool` | `False` | React Fast Refresh via `@vitejs/plugin-react`; requires `@npm//:vitejs_plugin-react` in the `node_modules` deps, and fails against oj; see [above](#react-fast-refresh) |
-| `vite_config_srcs` | `label_list` | `[]` | The local modules `vite_config` imports, staged beside it |
+| `vite_config_srcs` | `label_list` | `[]` | The local modules `vite_config` imports, staged beside it. A file outside the config's package is an analysis-time error |
 | `vite_config` | `label` | `None` | A `.ts`/`.mts`/`.mjs`/`.js` file default-exporting `{plugins: [...]}`, prepended to Bazel's plugins; see [above](#vite_config-what-it-may-import) |
 
 ## TanStack Start

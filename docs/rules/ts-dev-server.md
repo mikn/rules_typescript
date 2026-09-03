@@ -51,7 +51,7 @@ ibazel run //src/app:dev   # codegen rebuilds and config-aware restarts
 | `server` | `label` | `@rules_typescript//vite:dev_server` | `DevServerInfo`-providing target choosing the implementation. `@rules_typescript//oj:dev_server` selects oj; see [Dev Server](../guides/dev-server.md#choosing-the-server) |
 | `bundler` | `label` | `None` | `BundlerInfo`-providing target, for a custom dev server that needs a bundler binary in runfiles. Neither shipped server does |
 | `react_refresh` | `bool` | `False` | React Fast Refresh via `@vitejs/plugin-react`, so component state survives an HMR update. Requires `@npm//:vitejs_plugin-react` in the `node_modules` deps; the dev server fails to start if the plugin cannot be loaded. An analysis-time error against oj, which applies Fast Refresh itself |
-| `vite_config_srcs` | `label_list` | `[]` | The local modules `vite_config` imports, staged beside it so its relative imports resolve |
+| `vite_config_srcs` | `label_list` | `[]` | The local modules `vite_config` imports, staged beside it so its relative imports resolve. A file outside the config's package is an analysis-time error |
 | `vite_config` | `label` | `None` | A `.ts`/`.mts`/`.mjs`/`.js` file default-exporting `{plugins: [...]}`, prepended to Bazel's plugins. A framework plugin runs in the dev server this way; SvelteKit's and Solid Start's [cannot](../gazelle/overview.md#framework-detection); TanStack Start's both bundles and serves. Loaded from a copy in `bazel-bin`, which bounds what it may import |
 
 ## npm Resolution
