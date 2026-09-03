@@ -59,7 +59,7 @@ is replaced unless a `# keep` holds it. `ts_compile.deps` and
 |------|-------------------------|
 | `ts_compile` | `srcs`, `deps`, `visibility`, `path_aliases`, `declarations`, `tsconfig` |
 | `ts_test` | `srcs`, `deps`, `tsconfig` |
-| `ts_config` | `src`, `visibility` |
+| `ts_config` | `src`, `deps`, `visibility` |
 | `ts_lint` | `srcs`, `linter`, `linter_binary`, `config`, `fail_on_warnings` |
 | `css_library`, `css_module`, `asset_library`, `json_library` | `srcs`, `deps`, `visibility` |
 | `asset_library` | `declaration_type`, one entry per extension a `ts_asset_declaration_type` directive names — an extension no directive names is yours |
@@ -72,11 +72,11 @@ is replaced unless a `# keep` holds it. `ts_compile.deps` and
 | `node_modules` (framework root) | `deps` |
 | `filegroup(name = "sources")`, `filegroup(name = "tsconfig_types")` | `srcs`, `visibility` |
 
-`ts_config.deps` is in neither list. Gazelle writes it only when the attribute
-is absent, and only from the one `extends` shape it can read without guessing —
-a single relative specifier naming an ancestor directory's own `tsconfig.json`.
-Every other shape gets no value, and a `deps` already in the file survives every
-later run, `# keep` or not. See
+`ts_config.deps` is the `extends` chain, and Gazelle writes it from the one
+specifier shape it can read without guessing — a single relative path naming an
+ancestor directory's own `tsconfig.json`. Every other shape gets no value, which
+for an owned attribute means the value goes: a hand-written `deps` needs a
+`# keep` on its line to survive the next run. See
 [the compilerOptions baseline](overview.md#the-compileroptions-baseline).
 
 `ts_compile.public_globals` is deliberately absent. Whether a `.d.ts`'s globals

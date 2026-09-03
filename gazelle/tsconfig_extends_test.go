@@ -228,8 +228,8 @@ func TestTsConfigExtendsChain_RelativeParentBecomesADep(t *testing.T) {
 	captureLog(t, func() { convergeGazelle(t, root) })
 
 	want := []string{"//workers/proxy:" + tsConfigTargetName}
-	// A second pass reads a BUILD file that already carries the value, which is
-	// the run a non-mergeable attribute has to come out of unchanged.
+	// A second pass reads a BUILD file that already carries the value and
+	// recomputes it, which is the run that has to land on the same label.
 	for pass := 1; pass <= 2; pass++ {
 		got := tsConfigDeps(t, root, "workers/proxy/test")
 		if !reflect.DeepEqual(got, want) {
@@ -242,9 +242,8 @@ func TestTsConfigExtendsChain_RelativeParentBecomesADep(t *testing.T) {
 }
 
 // The shape the monorepo is actually in: the BUILD file and its ts_config are
-// already there, written by a run that generated no deps. `deps` is not
-// mergeable, which the merger reads as "write it when the attribute is absent",
-// so the run that reads the extends is the one that repairs the file.
+// already there, written by a run that generated no deps, so the run that reads
+// the extends is the one that repairs the file.
 func TestTsConfigExtendsChain_FillsInADepsLessRuleAlreadyInTheFile(t *testing.T) {
 	root := t.TempDir()
 	writeWorkspace(t, root, map[string]string{
@@ -357,7 +356,8 @@ func TestTsConfigExtendsChain_BaseIsADirectoryMintsNoLabel(t *testing.T) {
 }
 
 // An array states a merge order, not which of its entries Bazel should stage,
-// so Gazelle writes nothing and what the author writes is what survives.
+// so Gazelle writes nothing and the chain is the author's to declare -- behind
+// a "# keep", since Gazelle recomputes the attribute either way.
 func TestTsConfigExtendsChain_ArrayIsLeftToTheAuthor(t *testing.T) {
 	files := map[string]string{
 		"package.json":                     `{"name":"w"}` + "\n",
@@ -380,11 +380,11 @@ func TestTsConfigExtendsChain_ArrayIsLeftToTheAuthor(t *testing.T) {
 		assertNoDanglingLabels(t, root)
 	})
 
-	t.Run("the author's deps survive", func(t *testing.T) {
+	t.Run("the author's kept deps survive", func(t *testing.T) {
 		root := t.TempDir()
 		writeWorkspace(t, root, files)
 		writeWorkspace(t, root, map[string]string{
-			"workers/proxy/test/BUILD.bazel": authoredTsConfig(`"//workers/proxy:tsconfig", "local.json"`),
+			"workers/proxy/test/BUILD.bazel": keptTsConfig(`"//workers/proxy:tsconfig", "local.json"`),
 		})
 		captureLog(t, func() { convergeGazelle(t, root) })
 
@@ -441,11 +441,11 @@ func TestTsConfigExtendsChain_PackageFormIsLeftToTheAuthor(t *testing.T) {
 		assertNoDanglingLabels(t, root)
 	})
 
-	t.Run("the author's deps survive", func(t *testing.T) {
+	t.Run("the author's kept deps survive", func(t *testing.T) {
 		root := t.TempDir()
 		writeWorkspace(t, root, files)
 		writeWorkspace(t, root, map[string]string{
-			"apps/web/BUILD.bazel": authoredTsConfig(`"base.json"`),
+			"apps/web/BUILD.bazel": keptTsConfig(`"base.json"`),
 		})
 		captureLog(t, func() { convergeGazelle(t, root) })
 
@@ -459,12 +459,147 @@ func TestTsConfigExtendsChain_PackageFormIsLeftToTheAuthor(t *testing.T) {
 	})
 }
 
+// The defect: a relative extends is a claim about the tree, and the tree
+// changes. Gazelle wrote the label, so the run after the base is gone is the
+// run that has to clear it -- one label no target satisfies fails analysis for
+// the whole workspace, however few targets named it.
+func TestTsConfigExtendsChain_RemovedBaseDropsTheDep(t *testing.T) {
+	root := t.TempDir()
+	writeWorkspace(t, root, map[string]string{
+		"package.json":                      `{"name":"w"}` + "\n",
+		"workers/proxy/tsconfig.json":       `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
+		"workers/proxy/src/index.ts":        "export const worker = 1;\n",
+		"workers/proxy/test/tsconfig.json":  `{"extends":"../tsconfig.json"}` + "\n",
+		"workers/proxy/test/worker.test.ts": "export const t = 1;\n",
+	})
+	captureLog(t, func() { convergeGazelle(t, root) })
+
+	if err := os.Remove(filepath.Join(root, "workers/proxy/tsconfig.json")); err != nil {
+		t.Fatal(err)
+	}
+	writeWorkspace(t, root, map[string]string{
+		"workers/proxy/test/tsconfig.json": `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
+	})
+
+	for pass := 1; pass <= 2; pass++ {
+		captureLog(t, func() { convergeGazelle(t, root) })
+		if got := tsConfigDeps(t, root, "workers/proxy/test"); len(got) != 0 {
+			t.Errorf("pass %d: ts_config(%s).deps in workers/proxy/test = %v, want none: "+
+				"workers/proxy holds no tsconfig.json any more", pass, tsConfigTargetName, got)
+		}
+	}
+	assertNoDanglingLabels(t, root)
+}
+
+// The base moves rather than going away: the label has to follow it. A merger
+// that only appended would leave both, and the one Gazelle no longer computes
+// is the dangling half.
+func TestTsConfigExtendsChain_MovedBaseRepointsTheDep(t *testing.T) {
+	root := t.TempDir()
+	writeWorkspace(t, root, map[string]string{
+		"package.json":                      `{"name":"w"}` + "\n",
+		"workers/proxy/tsconfig.json":       `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
+		"workers/proxy/src/index.ts":        "export const worker = 1;\n",
+		"workers/proxy/test/tsconfig.json":  `{"extends":"../tsconfig.json"}` + "\n",
+		"workers/proxy/test/worker.test.ts": "export const t = 1;\n",
+	})
+	captureLog(t, func() { convergeGazelle(t, root) })
+
+	if err := os.Remove(filepath.Join(root, "workers/proxy/tsconfig.json")); err != nil {
+		t.Fatal(err)
+	}
+	writeWorkspace(t, root, map[string]string{
+		"workers/tsconfig.json":            `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
+		"workers/proxy/test/tsconfig.json": `{"extends":"../../tsconfig.json"}` + "\n",
+	})
+	captureLog(t, func() { convergeGazelle(t, root) })
+
+	got := tsConfigDeps(t, root, "workers/proxy/test")
+	want := []string{"//workers:" + tsConfigTargetName}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ts_config(%s).deps in workers/proxy/test = %v, want %v",
+			tsConfigTargetName, got, want)
+	}
+	assertNoDanglingLabels(t, root)
+}
+
+// The break. `deps` is Gazelle's now, so a hand-written value with no "# keep"
+// is replaced -- and a declared build input disappearing has to be said out
+// loud, which reportManagedAttrDrops does for every mergeable attribute.
+func TestTsConfigExtendsChain_HandWrittenDepWithNoKeepIsReplaced(t *testing.T) {
+	root := t.TempDir()
+	writeWorkspace(t, root, map[string]string{
+		"package.json":                      `{"name":"w"}` + "\n",
+		"workers/proxy/tsconfig.json":       `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
+		"workers/proxy/src/index.ts":        "export const worker = 1;\n",
+		"workers/proxy/test/local.json":     `{"compilerOptions":{"noEmit":true}}` + "\n",
+		"workers/proxy/test/tsconfig.json":  `{"extends":"../tsconfig.json"}` + "\n",
+		"workers/proxy/test/worker.test.ts": "export const t = 1;\n",
+		"workers/proxy/test/BUILD.bazel":    authoredTsConfig(`"local.json"`),
+	})
+	logged := captureLog(t, func() { convergeGazelle(t, root) })
+
+	got := tsConfigDeps(t, root, "workers/proxy/test")
+	want := []string{"//workers/proxy:" + tsConfigTargetName}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ts_config(%s).deps in workers/proxy/test = %v, want %v",
+			tsConfigTargetName, got, want)
+	}
+	if !strings.Contains(logged, `"local.json"`) {
+		t.Errorf("the run replaced the hand-written deps and said nothing about "+
+			"\"local.json\"; log was %q", logged)
+	}
+	assertNoDanglingLabels(t, root)
+}
+
+// The other half of the break: "# keep" on the element is the edit that holds a
+// hand-written entry, and Gazelle's own label joins it rather than replacing it.
+func TestTsConfigExtendsChain_KeptHandWrittenDepSurvives(t *testing.T) {
+	root := t.TempDir()
+	writeWorkspace(t, root, map[string]string{
+		"package.json":                      `{"name":"w"}` + "\n",
+		"workers/proxy/tsconfig.json":       `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
+		"workers/proxy/src/index.ts":        "export const worker = 1;\n",
+		"workers/proxy/test/local.json":     `{"compilerOptions":{"noEmit":true}}` + "\n",
+		"workers/proxy/test/tsconfig.json":  `{"extends":"../tsconfig.json"}` + "\n",
+		"workers/proxy/test/worker.test.ts": "export const t = 1;\n",
+		"workers/proxy/test/BUILD.bazel": authoredTsConfig(`
+        # keep
+        "local.json",
+    `),
+	})
+	want := []string{"local.json", "//workers/proxy:" + tsConfigTargetName}
+	// Twice: a run that keeps the value but loses the "# keep" holding it has
+	// only moved the deletion one run out.
+	for pass := 1; pass <= 2; pass++ {
+		captureLog(t, func() { convergeGazelle(t, root) })
+		got := tsConfigDeps(t, root, "workers/proxy/test")
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("pass %d: ts_config(%s).deps in workers/proxy/test = %v, want %v",
+				pass, tsConfigTargetName, got, want)
+		}
+	}
+	assertNoDanglingLabels(t, root)
+}
+
 func authoredTsConfig(deps string) string {
 	return `load("@rules_typescript//ts:defs.bzl", "ts_config")
 
 ts_config(
     name = "tsconfig",
     src = "tsconfig.json",
+    deps = [` + deps + `],
+)
+`
+}
+
+func keptTsConfig(deps string) string {
+	return `load("@rules_typescript//ts:defs.bzl", "ts_config")
+
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+    # keep
     deps = [` + deps + `],
 )
 `

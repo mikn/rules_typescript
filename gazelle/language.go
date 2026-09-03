@@ -228,9 +228,9 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 			},
 		},
 		// ts_config makes a package's hand-written tsconfig.json a label the
-		// targets in its subpackages can name. `deps` is not mergeable, so the
-		// extends chain written on a first generation -- Gazelle's or the
-		// author's -- survives every later run without a "# keep".
+		// targets in its subpackages can name. `deps` is the extends chain
+		// Gazelle reads out of the tsconfig, so it is Gazelle's to recompute and
+		// a hand-written value needs a "# keep" to survive the next run.
 		"ts_config": {
 			MatchAny:   false,
 			MatchAttrs: []string{"name"},
@@ -239,6 +239,7 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 			},
 			MergeableAttrs: map[string]bool{
 				"src":        true,
+				"deps":       true,
 				"visibility": true,
 			},
 		},

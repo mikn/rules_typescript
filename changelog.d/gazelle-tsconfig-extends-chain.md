@@ -16,5 +16,5 @@
   resolves on one machine, and a base outside the repository, one no file sits
   at, or one in a directory Gazelle writes no `ts_config` into has no label to
   name -- each gets no `deps` rather than a label that fails analysis for the
-  whole workspace. `deps` is written only when the attribute is absent, so an
-  author's own value survives every later run.
+  whole workspace. `deps` is Gazelle's to recompute on every run, so the run
+  after the base moves or goes away corrects the label it wrote.

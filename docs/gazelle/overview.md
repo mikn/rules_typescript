@@ -328,17 +328,18 @@ Without that dep the base is not an input to any action, so tsgo reads the path
 out of the config, finds nothing at it and reports `TS5083: Cannot read file`
 before it reaches a question about the sources.
 
-Every other shape is the author's. An `extends` array states a merge order and
-not which entry to stage; a package-form specifier resolves through
+Every other shape is the author's to declare. An `extends` array states a merge
+order and not which entry to stage; a package-form specifier resolves through
 node_modules; an absolute path resolves on the one machine that wrote it. So
 does a base with no label to name it — outside the repository, at a path no file
 sits at, or in a directory that generates no `ts_config` for one of the three
 reasons listed above, which is logged where it applies.
 
-`deps` is written only when the attribute is absent, so a value written there
-survives every later run without a `# keep`. `tsconfig` on the compile, doc and
-test targets **is** Gazelle's, recomputed on every run, so a hand-picked
-baseline needs a `# keep` on its line.
+`deps` is Gazelle's, recomputed on every run, which is what lets a run correct
+the label it wrote when the base moves or goes away — a `deps` Gazelle could not
+revisit would leave a label no target satisfies and fail analysis for the whole
+workspace. So a hand-written value needs a `# keep` on its line to survive the
+next run, as does a hand-picked `tsconfig` on the compile, doc and test targets.
 
 ### A declaration the tsconfig names
 
