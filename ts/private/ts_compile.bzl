@@ -293,6 +293,7 @@ def include_entry(tsconfig_dir, src_dir, basename):
 _BAZEL_OWNED_OPTIONS = {
     "baseUrl": "tsgo removed baseUrl (TS5102); use path_aliases, whose values Bazel rewrites",
     "rootDirs": "rootDirs bridges the source tree and the output tree",
+    "preserveSymlinks": "the sandbox stages every input as a symlink, and following one reaches files the target never declared",
     "paths": "use path_aliases for source aliases, or module_name on the target that produces the declarations",
     "outDir": "outDir must be the directory Bazel declared the outputs in",
     "rootDir": "rootDir must be the source directory oxc strips",
@@ -1021,6 +1022,10 @@ def _generate_tsconfig(
         _relative_path(tsconfig_dir, ""),
         _relative_path(tsconfig_dir, ctx.bin_dir.path),
     ]
+
+    # tsgo resolves a `types` entry to its realpath and that file's imports from
+    # there: the source tree, where undeclared files sit.
+    opts["preserveSymlinks"] = True
 
     # ── Bazel-owned: emit shape ───────────────────────────────────────────
     opts["declaration"] = True

@@ -1,0 +1,35 @@
+"""A program holds its declared inputs and nothing the source tree has beside them.
+
+Bazel stages every input as a symlink into the source tree. tsgo reads an
+`include`d root at its staged path, and without `preserveSymlinks` resolves a
+`types` entry to its realpath and that file's own imports from there.
+`bindings.d.ts` names `./stray` in a `typeof import()`, and `stray.ts` is checked
+in beside it, in no target's srcs, holding a type error. Read at the staged
+path the import resolves to nothing and `skipLibCheck` drops the TS2307 inside
+the .d.ts; read at the realpath it resolves to the source-tree file, and the
+build fails on an error in a file the target never named.
+"""
+
+# stray.ts is the fixture, the one file that must be in no target's srcs, and
+# bindings.d.ts is staged by types_srcs: an ambient .d.ts counts as a source.
+# gazelle:exclude bindings.d.ts
+# gazelle:exclude stray.ts
+
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "ts_compile")
+
+package(default_visibility = ["//:__pkg__"])
+
+# The shape the monorepo trial failed in: a wrangler-generated
+# worker-configuration.d.ts reached through `types`, holding `typeof import("./src/index")`.
+ts_compile(
+    name = "app",
+    srcs = ["app.ts"],
+    compiler_options = {"types": ["./bindings.d.ts"]},
+    types_srcs = ["bindings.d.ts"],
+)
+
+build_test(
+    name = "app_test",
+    targets = [":app"],
+)

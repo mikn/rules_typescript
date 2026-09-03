@@ -38,6 +38,9 @@ def _generated_tsconfig_impl(ctx):
     asserts.equals(env, True, opts.get("checkJs"), "checkJs reached tsgo")
     asserts.equals(env, True, opts.get("declarationMap"), "declarationMap")
 
+    # Every input is a symlink; read through it, a program reaches the source tree.
+    asserts.equals(env, True, opts.get("preserveSymlinks"), "preserveSymlinks")
+
     # The declarations land where Bazel declared them: alongside the .js in the
     # package's bin directory, at the depth rootDir gives them.
     asserts.equals(env, ".", opts["outDir"], "outDir")

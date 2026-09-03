@@ -100,9 +100,17 @@ program and therefore no `.d.ts` at all; see
 
 The generated tsconfig carries the machinery the rules own: `rootDirs` bridging
 the source and output trees, `paths` for npm packages, the `files` list that
-carries each `@types/*` dep, and under `declarations = "tsgo"` the
-`outDir`/`rootDir`/`noEmitOnError` triple. A user tsconfig supplies the
-baseline, and the generated one `extends` it.
+carries each `@types/*` dep, `preserveSymlinks`, and under
+`declarations = "tsgo"` the `outDir`/`rootDir`/`noEmitOnError` triple. A user
+tsconfig supplies the baseline, and the generated one `extends` it.
+
+`preserveSymlinks` is what keeps a program to its declared inputs. Bazel stages
+every input as a symlink into the source tree; resolved through the link, a
+`types` entry is read at its realpath and its own imports resolve from there,
+into files the target never declared. Read at the staged path, a program holds
+its declared inputs and nothing the source tree has beside them: an import
+inside a staged `.d.ts` that names a file nothing stages resolves to nothing,
+and `skipLibCheck` drops the `TS2307`.
 
 Lowest precedence first:
 
@@ -125,7 +133,7 @@ Lowest precedence first:
    attribute adds what the file says; the baseline stays.
 3. **`target` and `jsx_mode`**, then `jsx_import_source`, `lib`, `types`, then
    `compiler_options`, which wins among these.
-4. **The options Bazel owns**: `paths`, `include`, and the 16 keys listed
+4. **The options Bazel owns**: `paths`, `include`, and the 17 keys listed
    below.
 
 `target` and `jsx_mode` are injected in every mode, including over a tsconfig
@@ -144,13 +152,13 @@ config: Starlark cannot read your tsconfig to see which keys it sets, and
 
 Both fail at analysis time.
 
-**A Bazel-owned key in `compiler_options`.** These 16 encode the sandbox layout
+**A Bazel-owned key in `compiler_options`.** These 17 encode the sandbox layout
 or the action's declared outputs:
 
-`baseUrl`, `rootDirs`, `paths`, `outDir`, `rootDir`, `declarationDir`,
-`declaration`, `emitDeclarationOnly`, `declarationMap`, `sourceMap`, `noEmit`,
-`noEmitOnError`, `isolatedDeclarations`, `composite`, `incremental`,
-`tsBuildInfoFile`.
+`baseUrl`, `rootDirs`, `preserveSymlinks`, `paths`, `outDir`, `rootDir`,
+`declarationDir`, `declaration`, `emitDeclarationOnly`, `declarationMap`,
+`sourceMap`, `noEmit`, `noEmitOnError`, `isolatedDeclarations`, `composite`,
+`incremental`, `tsBuildInfoFile`.
 
 `declarationMap` and `sourceMap` follow from the `declaration_map` and
 `source_map` attributes. Each failure message names the attribute to use
