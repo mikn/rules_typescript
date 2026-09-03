@@ -66,8 +66,9 @@ bazel run //ts/toolchain:node_resolved -- --version
 
 The second prints `Version 7.0.0-dev.20260311.1` and the third `v22.23.1`, the
 versions `MODULE.bazel` pins. `oxc_resolved` builds `oxc-bazel` first. No test
-covers the three targets; `//tests/toolchain` pins which platform each
-toolchain's binary comes from.
+asserts what the three print; `node_resolved` is the node the `tests/dev_server`,
+`tests/lsp` and `tests/integration` suites run, and `//tests/toolchain` pins
+which platform each toolchain's binary comes from.
 
 ### Pre-Push Hook
 

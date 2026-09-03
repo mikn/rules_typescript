@@ -22,9 +22,10 @@ inside the sandbox for the targets that need it.
 A `pnpm-lock.yaml` is the only npm input these rules read; there is no npm or
 yarn lockfile path. A pnpm of your own writes the first one. Every edit after
 that can go through the pnpm the extension downloads, `bazel run //:pnpm`: the
-extension reads the lockfile while `MODULE.bazel` is evaluated, so with
-`npm.translate_lock` declared and no file at the label, every Bazel command
-fails in the read, `//:pnpm` included. See [Hermetic pnpm](#hermetic-pnpm).
+extension reads the lockfile when a command first reaches a repository it
+declares, so with `npm.translate_lock` declared and no file at the label, a
+target that needs no `@npm` package still builds, and `bazel run //:pnpm`
+fails in the read. See [Hermetic pnpm](#hermetic-pnpm).
 
 **Step 2.** Add to `MODULE.bazel`:
 

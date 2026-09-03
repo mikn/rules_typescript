@@ -178,7 +178,7 @@ routes are typed against it, and one `ts_compile` cannot hold both it and them.
 `refresh_workspace_files` copies build outputs into the workspace under
 `bazel run`, and a `diff_test` beside it fails when the checked-in copy drifts.
 `examples/tanstack-app/src/routes/BUILD.bazel` is the worked example, built in
-CI:
+CI; abridged here to the two rules:
 
 ```python
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")

@@ -354,19 +354,21 @@ path. See [Isolated Declarations](isolated-declarations.md).
 A checkout of this repository writes the Path A files itself:
 
 ```bash
-bazel run //tools/quickstart -- --dir ../my_project --rules-path .
+bazel run //tools/quickstart -- --dir ../my_project --rules-path "$PWD"
 ```
 
 It writes ten files: `.bazelversion` (`9.2.0`), `.bazelrc`, `MODULE.bazel`, a
 root `BUILD.bazel` holding the Gazelle target, `src/BUILD.bazel`,
 `src/lib/math.ts`, `src/lib/index.ts`, `src/lib/BUILD.bazel`, `src/app/main.ts`
-and `src/app/BUILD.bazel`. The two BUILD files under `src/` hold a hand-written
+and `src/app/BUILD.bazel`. `src/lib` and `src/app` each hold a hand-written
 `ts_compile` each, `//src/lib` and `//src/app`; the `math.ts` carries explicit
 return types. The next `bazel run //:gazelle` keeps both targets and adds a
 `ts_dev_server` named `dev` beside `//src/app`, since `main.ts` is an
 application entry name.
 
-`--rules-path` adds a `local_path_override` naming the checkout. Without it the
+`--rules-path` adds a `local_path_override` naming the checkout; it has to be
+absolute, because `bazel run` starts the tool inside its runfiles tree, not in
+the checkout. Without it the
 written `bazel_dep(name = "rules_typescript", version = "0.2.0")` resolves
 against nothing, the failure at the top of this page, so pass it until the
 ruleset is on the BCR. The `.bazelrc` it writes holds two lines,

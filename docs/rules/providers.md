@@ -22,12 +22,12 @@ load(
 
 | Provider | Returned by |
 |---|---|
-| `JsInfo` | `ts_compile`, `ts_codegen` (`out_dir`), `ts_bundle`, `svelte_library`, the `@npm` package targets |
+| `JsInfo` | `ts_compile`, `ts_codegen` (`out_dir`), `ts_bundle`, `ts_binary`, `svelte_library`, the `@npm` package targets |
 | `TsDeclarationInfo` | `ts_compile`, `ts_codegen` (`out_dir`), `css_library`, `css_module`, `asset_library`, `json_library`, the `@npm` package targets |
 | `TsModuleInfo` | `ts_compile`, `ts_codegen` (`out_dir`) |
-| `CssInfo` | `css_library`, `svelte_library`; `ts_bundle` forwards its entry point's |
-| `CssModuleInfo` | `css_module` |
-| `AssetInfo` | `asset_library` |
+| `CssInfo` | `css_library`, `svelte_library`; `ts_compile` with empty direct fields, so a consumer reads its transitive ones; `ts_bundle` forwards its entry point's |
+| `CssModuleInfo` | `css_module`; `ts_compile` with empty direct fields |
+| `AssetInfo` | `asset_library`; `ts_compile` with empty direct fields |
 | `BundlerInfo` | `vite_bundler`, and any rule that [brings its own bundler](../guides/bundling.md#custom-bundler-bundlerinfo-interface) |
 | `TsLintInfo` | `ts_lint` |
 | `NpmPublishInfo` | `ts_npm_publish` |
@@ -146,7 +146,7 @@ implementations, `//vite:dev_server` and `//oj:dev_server`, return it;
 |---|---|---|---|---|
 | `server_binary` | `File or None` | `None` | the oj binary | The server executable, for a server that is a build artifact. `None` when it ships inside the npm tree |
 | `server_in_tree` | `string` | `"vite/bin/vite.js"` | `""` | The executable's path relative to the root of the `node_modules` tree, for a server that ships as an npm package. Exactly one of the two is set |
-| `argv` | `list of string` | `["dev", "--config", "{config}"]` | `["dev", "--config", "{config}", "--port", "{port}", "{root}"]` | The command line after the executable. `{config}` expands to the generated config's path, `{root}` to the directory served |
+| `argv` | `list of string` | `["dev", "--config", "{config}"]` | `["dev", "--config", "{config}", "--port", "{port}", "{root}"]` | The command line after the executable. `{config}` expands to the generated config's path, `{port}` to the `port` attr, `{root}` to the directory served |
 | `config_dialect` | `string` | `"vite"` | `"vite"` | The config format the server is handed. Only `"vite"` is generated today; a server reading its own format declares its own dialect, and the generator has to learn it before that server can be selected |
 | `runs_in_js_runtime` | `bool` | `True` | `False` | `True` when the executable is JavaScript and the toolchain Node runs it. A native server still gets the toolchain Node on `PATH`: oj's plugin host is a Node process |
 | `ignored_config_fields` | `list of string` | `[]` | `["root", "cacheDir", "server.open", "server.watch.paths"]` | Dotted config paths the server does not honour. A target whose configuration reaches one fails at analysis time naming the field and the server |
