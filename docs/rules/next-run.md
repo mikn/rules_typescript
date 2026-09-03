@@ -57,20 +57,20 @@ Gazelle generates the `dev` target beside `next_build` and does not generate
 
 Shared by both rules:
 
-| Attribute | Meaning |
-| --- | --- |
-| `node_modules` | A `node_modules()` target carrying `next`, `react` and `react-dom`. Mandatory. |
-| `port` | Default listen port. `--port N` past the launcher overrides it. |
-| `env` | Environment variables for the server process. |
-| `data` | Extra files to place in runfiles. |
+| Attribute | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `node_modules` | `label` | required | A `node_modules()` target carrying `next`, `react` and `react-dom`. |
+| `port` | `int` | `3000` | Default listen port. `--port N` past the launcher overrides it. |
+| `env` | `string_dict` | `{}` | Environment variables for the server process. |
+| `data` | `label_list` | `[]` | Extra files to place in runfiles. |
 
 `next_serve` adds:
 
-| Attribute | Meaning |
-| --- | --- |
-| `build` | The `next_build` target whose `.next` directory to serve. Mandatory. |
-| `config` | The same `next.config` file the build was given. |
-| `srcs` | Files staged beside the build output at their package-relative paths. |
+| Attribute | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `build` | `label` | required | The `next_build` target whose `.next` directory to serve. |
+| `config` | `label` | `None` | The same `next.config` file the build was given. |
+| `srcs` | `label_list` | `[]` | Files staged beside the build output at their package-relative paths. |
 
 `next start` reads `config` for what applies at request time: rewrites, headers,
 image domains, `basePath`.

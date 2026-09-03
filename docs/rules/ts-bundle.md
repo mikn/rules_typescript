@@ -5,8 +5,8 @@ Produces a bundled JavaScript output by collecting transitive `.js` outputs and 
 [`ts_binary`](ts-binary.md) is a separate, runnable rule. Its `bundler` is
 optional (without one it runs the entry `.js` directly), and it does not accept
 `minify`, `split_chunks`, `env_vars`, `mode`, `html`, `public_dir`, `manifest`,
-`vite_config`, `vite_config_srcs` or `staging_srcs`. It has two of its own
-instead: `entry_file` and `node_modules`.
+`vite_config`, `vite_config_srcs` or `staging_srcs`. It has three of its own
+instead: `entry_file`, `data` and `node_modules`.
 
 ## Usage
 

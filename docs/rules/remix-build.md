@@ -56,7 +56,7 @@ export default {
 |-----------|------|---------|-------------|
 | `srcs` | `label_list` | required | Every project file Remix reads: `app/root.tsx`, `app/entry.client.tsx`, `app/entry.server.tsx`, `app/routes/**`, and anything they import from inside this package |
 | `node_modules` | `label` | required | A [`node_modules`](node-modules.md) target holding `@remix-run/dev` and the app's dependencies |
-| `config` | `label` | required | The Vite config whose default export carries the Remix plugin |
+| `config` | `label` | required | The Vite config whose default export carries the Remix plugin: a `.mjs`, `.js`, `.mts` or `.ts` file. Another extension is an analysis-time error |
 | `config_srcs` | `label_list` | `[]` | Local modules `config` imports, staged at their paths relative to this package |
 | `staging_srcs` | `label_list` | `[]` | Files from other packages, staged at their workspace-relative paths |
 | `tsconfig` | `label` | `None` | A `tsconfig.json` staged at the project root |
