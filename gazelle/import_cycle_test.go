@@ -348,6 +348,47 @@ ts_compile(
 )
 `
 
+// unmergeableDepsBuild states deps as a select over a key that is not a
+// platform. `extractPlatformStringsExprs` cannot classify it, so
+// `mergeAttrValues` errors, and `rule.MergeRules` logs "could not merge
+// expression" and LEAVES THE ATTRIBUTE ALONE -- the same outcome as a `# keep`,
+// reached without one.
+const unmergeableDepsBuild = `load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "a",
+    srcs = ["thing.ts"],
+    visibility = ["//visibility:public"],
+    deps = select({
+        "//:prod": [],
+        "//conditions:default": [],
+    }),
+)
+`
+
+// TestImportCycle_UnmergeableDepsIsNotReported is a PIN. A `# keep` is not the
+// only thing that stops the merger writing what Gazelle computed: an expression
+// it cannot reconcile does too, and the emitted files are then just as acyclic.
+// The extension's own reportUnmergeableExpr fires on this very attribute in the
+// same run, so the fact is already in hand when the report is written.
+func TestImportCycle_UnmergeableDepsIsNotReported(t *testing.T) {
+	var repoRoot string
+	logged := captureLog(t, func() {
+		repoRoot = convergeTree(t, withFiles(mutualImports(), map[string]string{
+			"a/BUILD.bazel": unmergeableDepsBuild,
+		}))
+	})
+
+	if emitted := readBuildFile(t, repoRoot, "a"); strings.Contains(emitted, "//b") {
+		t.Fatalf("the resolved label reached the unmergeable attribute, so this fixture no "+
+			"longer emits an acyclic pair of BUILD files; a/BUILD.bazel was:\n%s", emitted)
+	}
+	if strings.Contains(logged, cycleReport) {
+		t.Errorf("reported a cycle Bazel accepts: the deps that would close it sit in an "+
+			"expression the merger leaves alone; log was %q", logged)
+	}
+}
+
 // TestImportCycle_KeptDepsIsNotReported is a PIN: "# keep" above deps makes the
 // merger discard the labels the resolver computed, so the emitted BUILD files
 // are acyclic and Bazel accepts them. Reporting one is a false positive, and it

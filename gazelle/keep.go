@@ -627,6 +627,20 @@ const (
 // kept rule and skips a kept assignment -- and past either one the value
 // Gazelle computed reaches no BUILD file, while the one the author wrote is
 // what Bazel loads.
+// authorHolds reports whether what Gazelle computes for this attribute will
+// fail to reach the BUILD file. One question, three ways to answer yes: a
+// `# keep` on the rule, a `# keep` on the attribute, and an existing expression
+// `mergeAttrValues` cannot reconcile -- which `rule.MergeRules` logs and then
+// leaves untouched, exactly as a keep does. Asking only about the keeps let the
+// cycle report claim a dependency the emitted file does not carry, on a rule
+// reportUnmergeableExpr had already warned about in the same run.
+func authorHolds(r *rule.Rule, key string) bool {
+	if r.ShouldKeep() || attrKept(r, key) {
+		return true
+	}
+	return !isLiteralAttrValue(r.Attr(key))
+}
+
 func markKeptAttrs(args language.GenerateArgs, gen []*rule.Rule) {
 	if args.File == nil {
 		return
@@ -636,10 +650,10 @@ func markKeptAttrs(args language.GenerateArgs, gen []*rule.Rule) {
 			if have.Kind() != want.Kind() || have.Name() != want.Name() {
 				continue
 			}
-			if have.ShouldKeep() || attrKept(have, "srcs") {
+			if authorHolds(have, "srcs") {
 				want.SetPrivateAttr(keptSrcsAttr, have.AttrStrings("srcs"))
 			}
-			if have.ShouldKeep() || attrKept(have, "deps") {
+			if authorHolds(have, "deps") {
 				want.SetPrivateAttr(keptDepsAttr, have.AttrStrings("deps"))
 			}
 		}
