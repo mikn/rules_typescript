@@ -625,6 +625,9 @@ unnamed_type_src_test = _fails_with(
     "types_srcs on @@//tests/compiler_options/analysis:unnamed_type_src names 'tests/compiler_options/analysis/staged/ambient.d.ts'",
     "Name it -- types = [\"./staged/ambient.d.ts\"] from this package -- or drop it.",
 )
+unnamed_test_type_src_test = _fails_with(
+    "types_srcs on @@//tests/compiler_options/analysis:_unnamed_test_type_src_compile names 'tests/compiler_options/analysis/staged/ambient.d.ts'",
+)
 unresolved_test_types_test = _fails_with("compilerOptions.types entry \"vite/client\" on")
 unresolved_globals_types_test = _fails_with(
     "compilerOptions.types entry \"vitest/globals\" on",

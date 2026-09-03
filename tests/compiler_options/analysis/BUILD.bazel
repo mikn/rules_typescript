@@ -43,6 +43,7 @@ load(
     "types_entry_file_test",
     "types_entry_package_ref_test",
     "types_file_entries_test",
+    "unnamed_test_type_src_test",
     "unnamed_type_src_test",
     "unpaired_resolution_test",
     "unresolved_globals_types_test",
@@ -535,6 +536,19 @@ ts_test(
 unresolved_globals_types_test(
     name = "unresolved_globals_types_test",
     target_under_test = ":_globals_without_vitest_compile",
+
+# ts_test's route to the mirror guard. The guard is on the rule attr, so a
+# `types_srcs` the macro dropped on the floor would leave this analysing green.
+ts_test(
+    name = "unnamed_test_type_src",
+    srcs = ["lone.ts"],
+    tags = ["manual"],
+    types_srcs = ["staged/ambient.d.ts"],
+)
+
+unnamed_test_type_src_test(
+    name = "unnamed_test_type_src_test",
+    target_under_test = ":_unnamed_test_type_src_compile",
 )
 
 ts_compile(

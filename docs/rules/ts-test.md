@@ -44,6 +44,7 @@ do not describe.
 | `tsconfig` | `label` | `None` | The `compilerOptions` baseline for the internal `ts_compile`; the three above override it |
 | `path_aliases` | `string_dict` | `None` | Source-level alias prefixes for the internal `ts_compile` — see [Path aliases](#path-aliases) |
 | `path_alias_srcs` | `label_list` | `None` | The files an alias resolves to, when they are not in the test's own `srcs` — see [Path aliases](#path-aliases) |
+| `types_srcs` | `label_list` | `None` | The files a relative `types` entry resolves to — see [A `types` entry that names a declaration file](#a-types-entry-that-names-a-declaration-file) |
 | `environment` | `string` | `""` | `test.environment` — `node`, `jsdom`, `happy-dom`, `edge-runtime`, or any custom vitest environment package. The package must be in `deps` |
 | `coverage` | `bool` | `False` | Also instrument during plain `bazel test`. `bazel coverage` works on every target regardless |
 | `config` | `label` or `dict` | `None` | A vitest config file (`.ts`/`.mts`/`.cts`/`.js`/`.mjs`/`.cjs`) or an inline dict, **merged** into the generated config — see [A config file](#a-config-file) |
@@ -144,6 +145,31 @@ fails with `Cannot find package`. A type-only import is erased and is
 unaffected; a value import through an alias also needs the module reachable at
 runtime, which today means depending on the target that produces it instead of
 aliasing into its sources.
+
+## A `types` Entry That Names a Declaration File
+
+An entry starting `./` or `../` names a file rather than a package, and a path
+resolves against the source files the type-check action stages. The test files
+are the only `srcs` the generated `ts_compile` has, so a declaration file in
+another package — the `worker-configuration.d.ts` a wrangler project keeps
+beside its worker — is staged by nothing here, and `types_srcs` is the label
+that stages it:
+
+```starlark
+ts_test(
+    name = "handler_test",
+    srcs = ["handler.test.ts"],
+    types = ["../worker-configuration.d.ts"],
+    types_srcs = ["//worker:worker_types"],
+    deps = [":src", "@npm//:vitest"],
+)
+```
+
+Both attributes carry the meaning they carry on
+[`ts_compile`](ts-compile.md#a-types-entry-that-names-a-declaration-file): an
+entry no staged file sits at is an analysis error, and a `types_srcs` file no
+entry names is one too. A declaration a `deps` entry already stages needs no
+label here.
 
 ## The Generated vitest Config
 
