@@ -326,7 +326,11 @@ with, which is the generated one in `bazel-out`. So
 nothing from a directory below, and every global that file declares is
 `TS2304`.
 
-Gazelle rebases the entry onto each target and names the file by a label:
+Gazelle rebases the entry onto the four kinds it generates under the tsconfig
+that type-check — the package `ts_compile`, the framework client entry, the
+`_doc` compile and the `ts_test` — and names the file by a label. A
+`ts_bundle`, a `ts_dev_server`, a `node_modules` or the `ts_config` itself has
+no type program, and gets neither the entry nor the label:
 
 ```python
 # workers/proxy/BUILD.bazel
@@ -346,6 +350,10 @@ ts_compile(
     visibility = ["//visibility:public"],
 )
 ```
+
+A generated `ts_test` carries the same pair, forwarded to the `ts_compile` it
+makes for the test sources — see
+[`ts_test`'s `types_srcs`](../rules/ts-test.md#a-types-entry-that-names-a-declaration-file).
 
 A `filegroup`, so the file is an action input of exactly the targets that name
 it and of nothing else. It reaches no consumer's program: `types_srcs` travels

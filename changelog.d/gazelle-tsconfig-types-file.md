@@ -1,7 +1,8 @@
 ### Added
 
 - **A declaration file the project `tsconfig.json` names in
-  `compilerOptions.types` now reaches every target Gazelle generates under it.**
+  `compilerOptions.types` now reaches every target Gazelle generates under it
+  that has a type program.**
   `"types": ["./worker-configuration.d.ts"]` — how wrangler writes it — used to
   reach none of them: the generated per-directory config states its own `files`,
   `include` and `exclude` and takes `compilerOptions` from the project file
@@ -12,8 +13,10 @@
   entry inherited and the file staged on a dep edge: `TS2552` on `WorkerEnv`,
   `TS2304` on `WORKER_BUILD_ID`.
 
-  Gazelle rebases the entry onto each generated `ts_compile` and `ts_test` and
-  names the file by a `filegroup` beside the tsconfig:
+  Gazelle rebases the entry onto the four kinds that type-check — the package
+  `ts_compile`, the framework client entry, the `_doc` compile and the
+  `ts_test` — and names the file by a `filegroup` beside the tsconfig. The
+  other kinds it writes there carry no type program and no entry:
 
   ```python
   # workers/proxy/BUILD.bazel

@@ -21,6 +21,7 @@ func main() {
 	harness.Run(harness.Config{
 		Name:         "gazelle_roundtrip",
 		WorkspaceRel: "tests/integration/gazelle_roundtrip",
+		Lockfile:     "tests/npm/pnpm-lock.yaml",
 	}, func(it *harness.IT) {
 		dirs := []string{"src/lib", "src/app", "src/icons", "worker", "worker/src"}
 
@@ -247,8 +248,30 @@ func rootAmbientTypesReachTheTreeBelow(it *harness.IT) {
 		"//worker/src did not compile, so the declarations never reached its program")
 	it.Pass("//worker/src type-checks against declarations nothing there imports")
 
+	everyKindLoads(it, below)
 	inheritedEntryResolvesToNothing(it, below)
 	theDeclarationStopsAtTheSubtree(it)
+}
+
+// Writing an attribute is not Bazel accepting it: a ts_test that does not take
+// types_srcs is a load error on the package, which generated text cannot show.
+func everyKindLoads(it *harness.IT, below string) {
+	for _, attr := range []string{`types = ["../worker-configuration.d.ts"]`, `types_srcs = ["//worker:tsconfig_types"]`} {
+		if strings.Count(it.Read(below), attr) != 2 {
+			fmt.Fprint(os.Stderr, it.Read(below))
+			it.Fail("worker/src holds a ts_compile and a ts_test; %s is not on both", attr)
+		}
+	}
+	it.Pass("both rules Gazelle wrote in worker/src carry the pair")
+
+	targets := strings.Fields(it.BazelStdout("query", "kind(ts_test, //worker/...)"))
+	if len(targets) != 1 {
+		it.Fail("expected one generated ts_test under //worker, got %v -- the load below would be vacuous", targets)
+	}
+	it.Pass("Bazel loaded the package Gazelle wrote both attributes into: %s", targets[0])
+
+	it.MustBazel("test", targets[0])
+	it.Pass("%s runs, so the test files' own program resolved the entry", targets[0])
 }
 
 // The measurement behind writing the entry at all: with the entry only

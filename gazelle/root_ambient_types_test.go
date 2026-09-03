@@ -263,3 +263,46 @@ func TestRootAmbientTypes_UnstageableShapesAreRefused(t *testing.T) {
 		})
 	}
 }
+
+// Four separate call sites write the pair, and the ts_test one was the shape
+// that shipped a BUILD file Bazel refuses to load.
+func TestRootAmbientTypes_EveryGeneratedKindCarriesThem(t *testing.T) {
+	root := t.TempDir()
+	writeWorkspace(t, root, map[string]string{
+		"package.json":              `{"name":"w","dependencies":{"@tanstack/react-router":"1.0.0"}}` + "\n",
+		"BUILD.bazel":               "# gazelle:ts_package_boundary every-dir\n",
+		"tsconfig.json":             `{"compilerOptions": {"types": ["./globals.d.ts"]}}` + "\n",
+		"globals.d.ts":              workerAmbient,
+		"index.html":                "<html></html>\n",
+		"src/app/main.tsx":          "export const main = WORKER_ENV;\n",
+		"src/app/panel.ts":          "export const panel = 1;\n",
+		"src/app/panel.test.ts":     "export const t = 1;\n",
+		"src/app/panel.stories.tsx": "export const story = 1;\n",
+	})
+	captureLog(t, func() { convergeGazelle(t, root) })
+
+	want := map[string]string{
+		"app":      "ts_compile",
+		"main":     "ts_compile",
+		"app_test": "ts_test",
+		"app_doc":  "ts_compile",
+	}
+	for _, r := range loadRules(t, root, "src/app") {
+		kind, ours := want[r.Name()]
+		if !ours || r.Kind() != kind {
+			continue
+		}
+		delete(want, r.Name())
+		if got := r.AttrStrings("types"); len(got) != 1 || got[0] != "../../globals.d.ts" {
+			t.Errorf("%s(%q) carries types = %q, not the entry rebased onto its package",
+				r.Kind(), r.Name(), got)
+		}
+		if got := r.AttrStrings("types_srcs"); len(got) != 1 || got[0] != "//:tsconfig_types" {
+			t.Errorf("%s(%q) carries types_srcs = %q, so its entry resolves to nothing",
+				r.Kind(), r.Name(), got)
+		}
+	}
+	for name, kind := range want {
+		t.Errorf("no %s named %q was generated, so this test says nothing about that kind", kind, name)
+	}
+}

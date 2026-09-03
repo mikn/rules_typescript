@@ -21,3 +21,9 @@ local_path_override(
 )
 
 register_toolchains("@rules_typescript//ts/toolchain:all")
+
+# The generated ts_test under worker/ runs a real vitest, and vitest comes from
+# here. pnpm-lock.yaml is copied in from the parent checkout by the harness.
+npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
+npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
+use_repo(npm, "npm", "pnpm")
