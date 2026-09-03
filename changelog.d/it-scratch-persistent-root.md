@@ -28,7 +28,8 @@
   ```bash
   root="${RULES_TS_IT_SCRATCH:-${XDG_CACHE_HOME:-$HOME/.cache}/rules_typescript_it}"
   find "$root" -mindepth 1 -maxdepth 1 -type d \
-    ! -name repository_cache ! -name disk_cache ! -name runs -print
+    ! -name repository_cache ! -name disk_cache ! -name bazelisk \
+    ! -name runs -print
   ```
 
   Re-run with `-exec rm -rf {} +` once the list looks right and no checkout is
@@ -39,5 +40,6 @@
   and repo setup and not a re-fetch, because the content-addressed caches are
   what make a warm run warm. CI pays nothing: it provisions `/mnt/rules_ts_it`
   with a bare `mkdir -p` on a fresh runner and its cache step restores only
-  `repository_cache` and `disk_cache`, never the per-test output bases, so every
-  nested output base was already being created empty on every CI run.
+  `repository_cache`, `disk_cache` and `bazelisk`, never the per-test output
+  bases, so every nested output base was already being created empty on every
+  CI run.

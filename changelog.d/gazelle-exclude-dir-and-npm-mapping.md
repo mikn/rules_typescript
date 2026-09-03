@@ -7,7 +7,8 @@
   build file to put a directive in, and writing one there to say "ignore me" is
   backwards. This directive is declared in an **ancestor** and names a
   basename, so nothing is generated in any directory of that name below it, on
-  top of the built-in `.next`, `.nuxt`, `.svelte-kit`, `dist` and `build`.
+  top of the built-in `.next`, `.nuxt`, `.svelte-kit`, `dist`, `build` and
+  `node_modules`.
 
   It is repeatable, and a nested build file's directives **append** to the set
   they inherit rather than replacing it, so the effective set does not depend on

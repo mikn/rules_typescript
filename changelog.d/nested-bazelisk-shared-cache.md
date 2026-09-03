@@ -3,7 +3,7 @@
 - **The integration suite no longer downloads a copy of Bazel per test.**
   `bazel_binary` is not Bazel but a bazelisk wrapper, which defaults
   `BAZELISK_HOME` to `$PWD`; the harness runs it from the per-run workspace
-  directory, so all 18 tests fetched Bazel from `releases.bazel.build` on every
+  directory, so all 19 tests fetched Bazel from `releases.bazel.build` on every
   run -- roughly 1.2GB a suite, and a network dependency in each test that
   reddened a leg whenever a runner's DNS timed out. Green runs hid it, because
   Bazel echoes a test's stdout only when the test fails. The harness now points

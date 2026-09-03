@@ -2,10 +2,11 @@
 
 - **`# gazelle:ts_package_boundary index-only` is gone; two modes remain.** The
   mode made a directory a package only when it held an `index.ts`/`index.tsx`,
-  and it existed to be the pre-0.2.0 default kept as an opt-in. Everything it
-  was reached for, `tsconfig` does by the unit `tsc` itself compiles: the shape
-  that dissolves a package-level cycle — a barrel re-exporting `./rules` while
-  `./rules` imports `../utils` — is one target over both directories either way,
+  and it existed as the opt-in that restored the behaviour from before 0.1.0.
+  Everything it was reached for, `tsconfig` does by the unit `tsc` itself
+  compiles: the shape that dissolves a package-level cycle — a barrel
+  re-exporting `./rules` while `./rules` imports `../utils` — is one target over
+  both directories either way,
   and an index file is not what says where a project's edge is. A tree carrying
   the directive moves to `# gazelle:ts_package_boundary tsconfig`, with a
   `tsconfig.json` in each directory that is to be a package and a

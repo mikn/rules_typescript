@@ -31,7 +31,7 @@
   editor's `paths`: no import writes it.
 
   `//tests/npm_types_barename:test_config_agreement` now compares the npm half
-  of both configs for three targets, and compares values rather than only key
+  of both configs for four targets, and compares values rather than only key
   sets: for each shared key the two must resolve to the same path under the
   package that answers it, and within one config a key and its `/*` wildcard
   must name one package.
