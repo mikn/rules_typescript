@@ -120,3 +120,24 @@ The transitive case both messages point at is the one
 `ts_test` generates a per-target tree from its `deps` through this same builder,
 so a test gets the same layout with nothing to declare. See
 [ts_test](ts-test.md).
+
+## npm_bin
+
+`@rules_typescript//npm:defs.bzl` exports one more rule, `npm_bin`. It is what
+every generated `@npm//:<pkg>_bin` label instantiates: `npm_import` writes one
+per entry in a package's `bin` field, and `bazel run @npm//:vitest_bin -- --version`
+runs it. Nothing in this repository writes one by hand; the labels are the
+interface, documented under
+[Bin scripts](../guides/npm.md#bin-scripts).
+
+| Attribute | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `entry_script` | `string` | required | The bin entry's path inside the package, e.g. `vitest.mjs` |
+| `package_files` | `label_list` | `[]` | Every file of the package, from its `ts_npm_package` target |
+| `optional_dep_packages` | `label_list` | `[]` | Sibling package targets holding the platform-specific native binaries the script resolves at run time. The launcher links them under a `node_modules/` so `require.resolve()` finds them inside a sandbox or a runfiles tree |
+| `runtime` | `label` | `None` | A JS runtime binary for this target, taking priority over the `js_runtime` toolchain |
+
+The runtime comes from the `js_runtime` toolchain when `runtime` is unset. The
+launcher `cd`s to `RUNFILES_DIR` before running the script, which is why a
+linter run through one gets execroot-absolute paths
+([ts_lint § Paths](ts-lint.md#paths)).

@@ -40,6 +40,44 @@ ts_compile(
 Gazelle writes all four, one target per file, named after the file with its
 dots turned into underscores (`Panel.module.css` → `Panel_module_css`).
 
+## Attributes
+
+### css_library
+
+| Attribute | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `srcs` | `label_list` | required | `.css` files |
+| `deps` | `label_list` | `[]` | Other `css_library` targets (`CssInfo`). Their stylesheets join this target's `transitive_css_files` |
+
+### css_module
+
+| Attribute | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `srcs` | `label_list` | required | `.css` files; Gazelle routes `*.module.css` here |
+| `deps` | `label_list` | `[]` | Other `css_module` targets (`CssModuleInfo`). What `composes: … from "./other.module.css"` resolves against |
+| `locals_convention` | `string` | `""` | postcss-modules `localsConvention`, which rewrites the exported keys: `camelCase`, `camelCaseOnly`, `dashes`, `dashesOnly`, `all` or `none`. `""` passes no option, so the keys are the class names as written |
+| `scope_behaviour` | `string` | `""` | postcss-modules `scopeBehaviour`: `local` or `global`. `""` is `local` |
+| `hash_prefix` | `string` | `""` | Salts the content hash in every scoped name: `sha256(hash_prefix + stylesheet bytes)` |
+| `export_globals` | `bool` | `False` | postcss-modules `exportGlobals`: also export the names `:global(...)` leaves unscoped |
+
+Any other value for `locals_convention` or `scope_behaviour` is an analysis-time
+error listing the accepted ones.
+
+### asset_library
+
+| Attribute | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `srcs` | `label_list` | required | `.svg .png .jpg .jpeg .gif .webp .woff .woff2 .ttf .eot .md .txt .jsonc` files. JSON goes to `json_library` |
+| `deps` | `label_list` | `[]` | Other `asset_library` targets (`AssetInfo`) |
+| `declaration_type` | `string_dict` | `{}` | Extension, leading dot included, to the TypeScript type an import of it resolves to. An extension left out keeps the `string` URL. See [When an Asset Is Not a URL](#when-an-asset-is-not-a-url) |
+
+### json_library
+
+| Attribute | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `srcs` | `label_list` | required | `.json` files |
+| `deps` | `label_list` | `[]` | Other `json_library` targets (`TsDeclarationInfo`) |
+
 ## Imports Are Not Rewritten
 
 `ts_compile` leaves the import alone. `Button.js` in `bazel-bin` still says

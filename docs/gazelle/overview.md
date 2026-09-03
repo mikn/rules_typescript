@@ -173,6 +173,10 @@ By default (**every-dir mode**), every directory that contains `.ts` or `.tsx` s
 
 **every-dir mode** (default): a directory becomes a boundary when it has any `.ts` files.
 
+These are the two modes. A third, `index-only`, was removed, and a BUILD file
+still naming it stops the run; see
+[the upgrading note](directives.md#full-reference).
+
 **tsconfig mode** (`# gazelle:ts_package_boundary tsconfig`): a directory becomes a boundary when:
 
 1. It holds a `tsconfig.json`, or
@@ -506,6 +510,25 @@ them. A specifier that resolves through `node_modules`
 (`"@tsconfig/node20/tsconfig.json"`) is skipped with a warning; Gazelle reads
 only configs on disk. Inline the options such a config carries, or extend a
 checked-in copy.
+
+!!! note "Upgrading"
+    `gazelle_ts.json` is gone. Nothing reads the file, so one left in a
+    workspace is an ordinary JSON file and lands in a generated `json_library`;
+    delete it once its keys have moved. Each key becomes a directive in a
+    `BUILD.bazel`, the root's or any ancestor of the directories it governs:
+
+    | Key | Write instead |
+    |---|---|
+    | `"pathAliases": {"@/": "src/"}` | `# gazelle:ts_path_alias @/ src/`, one per entry |
+    | `"excludePatterns": ["*.gen.ts"]` | `# gazelle:ts_exclude *.gen.ts`, one per entry |
+    | `"excludeDirs": ["coverage"]` | `# gazelle:ts_exclude_dir coverage`, one per entry |
+    | `"npmMappingFile": "npm/map.json"` | `# gazelle:ts_npm_mapping npm/map.json` |
+    | `"runtimeDeps": {"test": ["@npm//:happy-dom"]}` | `# gazelle:ts_runtime_dep @npm//:happy-dom`, one per label |
+
+    Directives inherit and merge, where a nested `gazelle_ts.json` replaced the
+    whole list an ancestor had built. A subtree that has to narrow what an
+    ancestor declared gets the ancestor's directive moved down to the
+    directories it is meant for.
 
 Directives take precedence over file-based configuration, and a directory's
 `ts_path_alias` directives merge with whatever aliases reached it: a child adds

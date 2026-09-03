@@ -86,7 +86,7 @@ one. A target exporting none runs no such action and provides no such file.
 **Key files:**
 - `ts/defs.bzl` — public API (all rules, providers, macros)
 - `ts/private/ts_compile.bzl` — core compilation rule
-- `ts/private/providers.bzl` — JsInfo, TsDeclarationInfo, BundlerInfo, CssInfo, AssetInfo, NpmPackageInfo
+- `ts/private/providers.bzl` — JsInfo, TsDeclarationInfo, TsConfigInfo, NpmPackageInfo, CssInfo, CssModuleInfo, AssetInfo, DevServerInfo, BundlerInfo
 - `npm/private/npm_translate_lock.bzl` — pnpm lockfile reader (parsing only; no repository rule)
 - `npm/extensions.bzl` — the `npm` module extension (translate_lock, pnpm tags)
 - `npm/lazy.bzl` — whole-graph analysis + one `npm_import` per package + the alias hub

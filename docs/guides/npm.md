@@ -20,9 +20,12 @@ directory. No `node_modules/` exists in the source tree; Bazel materialises one
 inside the sandbox for the targets that need it.
 
 A `pnpm-lock.yaml` is the only npm input these rules read; there is no npm or
-yarn lockfile path. The pnpm that writes it need not be installed: the extension
-downloads its own, and `bazel run //:pnpm` runs that one. See
-[Hermetic pnpm](#hermetic-pnpm).
+yarn lockfile path. A pnpm of your own writes the first one. Every edit after
+that can go through the pnpm the extension downloads, `bazel run //:pnpm`: the
+extension reads the lockfile when a command first reaches a repository it
+declares, so with `npm.translate_lock` declared and no file at the label, a
+target that needs no `@npm` package still builds, and `bazel run //:pnpm`
+fails in the read. See [Hermetic pnpm](#hermetic-pnpm).
 
 **Step 2.** Add to `MODULE.bazel`:
 
@@ -142,6 +145,12 @@ ts_add_package(
 Both targets `cd` to `$BUILD_WORKSPACE_DIRECTORY` first, so they edit the source
 tree. The wrapper is a bash script, so it does not run on Windows.
 
+Both macros take `pnpm_repo_name`, default `"pnpm"`: the repository holding the
+binary, which `npm.pnpm(name = ...)` declares under the same default. Only the
+root module's `npm.pnpm()` tag is read; a non-root module's is ignored. Every
+workspace in this repository, the examples and the integration workspaces
+included, uses the default name, and no test renames it.
+
 ### Which Lockfile the Wrapper Edits
 
 Extra `pnpm add` flags are passed through. Three checks keep the rewrite inside
@@ -200,7 +209,10 @@ Three things follow from a second hub:
 
 - **Gazelle has to be told**, per package, which hub that tree's imports come
   from: `# gazelle:ts_npm_hub npm_tools`. Otherwise generated deps name `@npm`,
-  which for those packages is a label that does not exist. See
+  which for those packages is a label that does not exist. `deps` and a
+  `ts_lint`'s `linter_binary` follow the directive; the `ts_codegen` generator,
+  `vite_bundler`'s `vite`, a framework bundle's `node_modules` deps and the
+  tsconfig `types` labels do not yet, and still name `@npm`. See
   [More than one npm hub](../gazelle/directives.md#more-than-one-npm-hub).
 - **One `ts_add_package` target per hub.** pnpm rewrites whichever lockfile it
   resolves against, so the hub belongs in the command a person types:

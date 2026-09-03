@@ -81,6 +81,7 @@ nav:
     - CSS and assets: rules/css-and-assets.md
     - ts_npm_publish: rules/ts-npm-publish.md
     - node_modules: rules/node-modules.md
+    - Providers and toolchains: rules/providers.md
   - Compatibility: compatibility.md
   - Contributing: contributing.md
   - Changelog: changelog.md

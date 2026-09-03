@@ -39,8 +39,8 @@ wiring, no extra flags in `.bazelrc`.
 | `module_name` | `string` | `""` | The bare specifier this target is importable as, e.g. `"@acme/ui"` |
 | `path_aliases` | `string_dict` | `{}` | Alias prefix → workspace-relative source directory. Must resolve to files this target stages: its own `srcs`, or `path_alias_srcs` |
 | `path_alias_srcs` | `label_list` | `[]` | Files a `path_aliases` entry resolves to when they are not in `srcs`. They join this target's type program, so a type error in one of them fails this target |
-| `types_srcs` | `label_list` | `[]` | The declarations a relative `types` entry names, when neither `srcs` nor a dep stages them. See [A `types` entry that names a declaration file](#a-types-entry-that-names-a-declaration-file) |
-| `public_globals` | `label_list` | `[]` | The `.d.ts` in `srcs` whose globals every consumer gets too. Unnamed is private. See [Which ambients a consumer gets](#which-ambients-a-consumer-gets) |
+| `types_srcs` | `label_list` | `[]` | The `.d.ts`, `.d.mts` or `.d.cts` files a relative `types` entry names, when neither `srcs` nor a dep stages them. See [A `types` entry that names a declaration file](#a-types-entry-that-names-a-declaration-file) |
+| `public_globals` | `label_list` | `[]` | The `.d.ts`, `.d.mts` or `.d.cts` in `srcs` whose globals every consumer gets too. Unnamed is private. See [Which ambients a consumer gets](#which-ambients-a-consumer-gets) |
 | `untyped_packages` | `string_list` | `[]` | npm packages this target's type program leaves out: no `paths` key, no `files` entry. See [Keeping a package out of the program](#keeping-a-package-out-of-the-program) |
 | `vite_types` | `bool` | `False` | Prepend the Vite ambient type shim to `srcs` |
 
@@ -548,6 +548,13 @@ ts_compile(
 )
 ```
 
+!!! note "Upgrading"
+    A relative `types` entry no label answers used to resolve to nothing in
+    silence. It is an analysis error now. For each `./x.d.ts` or `../x.d.ts`
+    entry in `types`, name the file with a label: in `srcs`, on a dep whose
+    `srcs` hold it, or in `types_srcs`. The message names the path it looked
+    for and the attribute to list it in.
+
 `types_srcs` is for the file neither `srcs` nor a dep stages. It is a label
 list, so the file may live in another package. Unlike a `.d.ts` in `srcs`, it
 is not passed through as this target's own declaration. tsgo parses it as part
@@ -633,7 +640,8 @@ mixing a shim for the package's own build with a declaration consumers are
 meant to have is two files.
 
 Every entry must be in `srcs`, and must be global. Naming a `.d.ts` with a
-top-level import or export fails the build: a module has no globals.
+top-level import or export fails the build: a module has no globals. A `.d.mts`
+or `.d.cts` is accepted wherever a `.d.ts` is.
 
 `vite_types = True` follows the same rule. The shim is a src of the target that
 sets the attribute and of no other, so a consumer using `import.meta.env` sets
@@ -708,8 +716,15 @@ deeper ones.
 
 ## Providers
 
-- **`JsInfo`**: transitive depset of `.js` files, used by `ts_binary` and `ts_bundle`
-- **`TsDeclarationInfo`**: depset of `.d.ts` files, used by downstream `ts_compile` targets for type resolution
+Fields for all three, and the load path, are in
+[Providers and Toolchains](providers.md).
+
+- **`JsInfo`**: this target's `.js` and `.js.map` files as direct depsets, and
+  the closure of both as transitive ones; `ts_binary` and `ts_bundle` read the
+  transitive `.js` set
+- **`TsDeclarationInfo`**: this target's declarations and their closure, plus
+  the global-entry files `public_globals` produces; a downstream `ts_compile`
+  type-checks against the closure
 - **`TsModuleInfo`**: the `module_name` this target is importable as, plus the
   directories its declarations land in, propagated transitively so a dependent
   can build its own `paths` entries

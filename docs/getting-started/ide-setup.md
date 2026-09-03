@@ -60,10 +60,19 @@ That writes, into the source tree:
 | `.bazel/tsserver-hook-resolver.js` | The map builder both front-ends share |
 | `.bazel/tsserver-hook-worker.js` | Its background worker |
 
+The target is a [`refresh_workspace_files`](../rules/ts-codegen.md#checking-the-output-in)
+over those files, so it runs only under `bazel run`.
+
 Two attributes move the first two. `tsconfig` (default `"tsconfig.json"`) is
 where the generated config lands. `npm_dir` (default `".bazel/npm"`) is where the
 npm declarations land; `npm_dir = ""` opts out, dropping the npm `paths` entries
 and their files for a workspace that resolves npm types some other way.
+
+Add `.bazel` to `.bazelignore` before the next Gazelle run. `npm_dir` holds each
+package's declarations as ordinary files, and without the entry
+`bazel run //:gazelle` walks them, writes a `ts_compile` per directory under
+`.bazel/npm/`, and `bazel build //...` builds them. This repository's own
+`.bazelignore` starts with that line.
 
 !!! warning "It replaces the file at `tsconfig` wholesale"
     A migrating repository already has a root `tsconfig.json`, and the first
@@ -71,13 +80,83 @@ and their files for a workspace that resolves npm types some other way.
     `module` and every other option in it, not only `paths`. The generated file
     is a complete config and carries nothing over from yours.
 
-    Move your own options before that first run. Keep them in a file of another
-    name and name that in `ts_compile(tsconfig = ...)`, which is what the compile
-    actions read
-    ([where compiler options come from](../rules/ts-compile.md#where-compiler-options-come-from)).
-    Pointing `ts_compile` at the generated file instead makes it that target's
-    own baseline. Or set `ts_refresh_tsconfig(tsconfig = "tsconfig.bazel.json")`
-    and `extends` the generated file from yours.
+    Move the generator, not your file. Under Gazelle the file keeps its name:
+    Gazelle reads `compilerOptions.paths` from a file named `tsconfig.json` and
+    from no other, and writes the `ts_config` target and the
+    `tsconfig = "//:tsconfig"` on every `ts_compile` and `ts_test` from it.
+    Rename it and the next run recomputes `path_aliases` and `tsconfig` from a
+    tree that has none, logging each value it drops, and every aliased import
+    fails with `TS2307`. Set
+    `ts_refresh_tsconfig(tsconfig = "tsconfig.bazel.json")` and `extends` the
+    generated file from yours; see
+    [Extending the Generated File](#extending-the-generated-file).
+
+### Extending the Generated File
+
+A repository that keeps its own `tsconfig.json` points the generator at another
+name and extends it:
+
+```python
+ts_refresh_tsconfig(
+    name = "refresh_tsconfig",
+    test = True,
+    tsconfig = "tsconfig.bazel.json",
+    deps = ["//src/app", "//src/lib"],
+)
+```
+
+```json
+{
+  "extends": "./tsconfig.bazel.json",
+  "compilerOptions": { "paths": { "@/*": ["src/*"] } }
+}
+```
+
+Three edits make that build:
+
+1. **The `ts_config` needs the base in `deps`.** Gazelle writes
+   `ts_config(name = "tsconfig", src = "tsconfig.json")` and fills `deps` only
+   for an `extends` naming an ancestor directory's `tsconfig.json`. Any other
+   base gets no entry, and every target fails with
+   `error TS5083: Cannot read file '.../tsconfig.bazel.json'.` Add the file
+   with a `# keep`, since `deps` is
+   [Gazelle's](../gazelle/directives.md#attributes-gazelle-owns):
+
+    ```python
+    ts_config(
+        name = "tsconfig",
+        src = "tsconfig.json",
+        deps = ["tsconfig.bazel.json"],  # keep
+        visibility = ["//visibility:public"],
+    )
+    ```
+
+2. **An option the root block cannot hold puts every package on the nested
+   list.** Gazelle wires your file onto every target, so a `"module": "ESNext"`
+   in it disagrees with the root block's `Preserve` for every package with
+   targets, and the first `bazel run //:refresh_tsconfig` fails instead of
+   writing:
+
+    ```
+    ts_refresh_tsconfig: the nested_tsconfigs list does not match what the
+    graph needs.
+      add:    src/app/tsconfig.json, src/lib/tsconfig.json
+    ```
+
+    List them in `nested_tsconfigs` ([Nested Tsconfigs](#nested-tsconfigs)), or
+    drop the option from your file.
+
+3. **Each nested package exports its `tsconfig.json`.** The staleness
+   `diff_test` for a nested entry names `//<pkg>:tsconfig.json`, and the
+   generated file is one Gazelle skips, so nothing declares it. Analysis fails
+   with `no such target '//src/lib:tsconfig.json'` until the package's BUILD
+   carries `exports_files(["tsconfig.json"])`, as `vite/BUILD.bazel` and
+   `tests/compiler_options/BUILD.bazel` do here.
+
+With those three and `.bazel` in `.bazelignore`, `bazel build //...` and the
+staleness tests pass. A tsconfig with `"baseUrl"` in it fails for another
+reason; see
+[Option 'baseUrl' has been removed](../guides/troubleshooting.md#option-baseurl-has-been-removed).
 
 ### Excluding Foreign TypeScript
 
@@ -230,6 +309,30 @@ from what each reached target names in its own `deps`, and `from "estree"` is
 usually written in a dependency's `.d.ts`, not in your sources. So
 `@types/estree` behind `rollup` gets a `paths` key and no `files` entry, while a
 `@types/node` you depend on directly gets both, naming one installed copy.
+
+### Packages Only Some Hosts Resolve
+
+`host_only_packages` names npm packages left out of the generated `paths`:
+
+```python
+ts_refresh_tsconfig(
+    name = "refresh_tsconfig",
+    test = True,
+    host_only_packages = ["fsevents"],
+    deps = ["//apps/web"],
+)
+```
+
+An `optionalDependencies` entry whose `os`/`cpu` matches only some hosts, and
+that ships declarations, resolves on those hosts and not on the others. With it
+in, the checked-in file differs per host and the staleness test fails on the
+other one. `fsevents` is darwin-only, and this repository lists it.
+
+The list is workspace-wide: one `paths` map serves every editor program, so the
+package leaves the editor for every target, including one whose build resolves
+it. That is also the answer to the failure a per-target `untyped_packages` raises
+when another target still resolves the package; see
+[Keeping a package out of the program](../rules/ts-compile.md#keeping-a-package-out-of-the-program).
 
 ### Staleness Test
 
@@ -535,3 +638,9 @@ bazel run //path/to:my_test_debug
 ```
 
 Vitest pauses before executing, waiting for a debugger on port 9229. Attach VS Code via "Attach to Node Process" or use `chrome://inspect`. Source maps are configured automatically.
+
+Gazelle gives a source file to the target that names it. The next
+`bazel run //:gazelle` takes `my.test.ts` out of the generated `ts_test` and
+leaves it in this one, and a `manual` target is not in `bazel test //...`, so
+the file is no longer tested. Delete the target when the session is over; the
+following run puts the file back.

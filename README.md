@@ -60,9 +60,9 @@ Supported platforms: Linux x86_64, Linux ARM64, macOS x86_64, macOS ARM64.
 
 **Nothing has shipped yet.** There is no tag, no release, no Bazel Central
 Registry entry and no production users. Pre-1.0, any commit may break the API
-with no deprecation window. Every break is listed in
-[CHANGELOG.md](CHANGELOG.md) with the edit it requires; read it before moving a
-pin. Full policy:
+with no deprecation window. Every released break is listed in
+[CHANGELOG.md](CHANGELOG.md) with the edit it requires, and every unreleased one
+in [changelog.d/](changelog.d/); read both before moving a pin. Full policy:
 [COMPATIBILITY.md](COMPATIBILITY.md#versioning-policy).
 
 Vite and vitest are your dependencies, not the ruleset's: they come from your
