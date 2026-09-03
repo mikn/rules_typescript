@@ -166,10 +166,10 @@ points into the output tree: set module_name on the target that produces those
 declarations and import it by that name instead.
 ```
 
-Every entry pointed into the output tree, so no alias is emitted. An alias with
-even one tool-managed dot-directory entry is dropped without this line: that is
-the shape `ts_refresh_tsconfig` writes for every npm package, and it is meant to
-be dropped.
+Every entry pointed into the output tree, so no alias is emitted. An alias none
+of whose entries is usable is dropped without this line when one of them is a
+tool-managed dot-directory: that is the shape `ts_refresh_tsconfig` writes for
+every npm package, and it is meant to be dropped.
 
 ## Package Boundary Heuristic
 
@@ -472,7 +472,7 @@ When a linter config file is present in the current directory or any ancestor, a
 
 Detected config files:
 - **oxlint**: `oxlint.json`, `.oxlintrc.json`, `.oxlintrc`
-- **eslint**: `eslint.config.mjs`, `eslint.config.js`, `eslint.config.cjs`, `.eslintrc.json`, `.eslintrc.*`
+- **eslint**: `eslint.config.mjs`, `eslint.config.js`, `eslint.config.cjs`, `.eslintrc.js`, `.eslintrc.cjs`, `.eslintrc.yaml`, `.eslintrc.yml`, `.eslintrc.json`, `.eslintrc`
 
 oxlint configs are detected before ESLint configs. The closest config file wins.
 
@@ -793,8 +793,9 @@ installed package of the same name keeps its dep: the lockfile is the claim that
 a hub target exists. A pattern name (`declare module "*.svg"`) is ignored, since
 the specifiers it covers are relative paths with real targets.
 
-Gazelle's deps and the `ts_compile` strict-deps check share one specifier
-scanner. If `bazel build` reports an import no direct dep provides and re-running
+Gazelle's `ScanImports` and the `ts_compile` strict-deps scanner are the same
+walk, and `//tests/strict_deps` pins the two against one table of specifier
+forms. If `bazel build` reports an import no direct dep provides and re-running
 Gazelle does not add it, that is a bug in the ruleset.
 
 See [Directives Reference](directives.md) for all available directives.

@@ -73,6 +73,7 @@ is replaced unless a `# keep` holds it. `ts_compile.deps` and
 | `next_dev_server` | `node_modules` |
 | `sveltekit_build` | `srcs` (a `glob()`), `staging_srcs`, `config`, `svelte_config`, `node_modules` |
 | `ts_bundle` (framework root) | `staging_srcs`, `entry_point`, `html`, `vite_config`, `mode`, `bundler` |
+| `ts_dev_server` (framework root, beside the `ts_bundle`) | `entry_point`, `node_modules` |
 | `vite_bundler` | `vite`, `node_modules` |
 | `node_modules` (framework root) | `deps` |
 | `filegroup(name = "sources")`, `filegroup(name = "tsconfig_types")` | `srcs`, `visibility` |
@@ -113,11 +114,15 @@ tsconfig named along with the file. A `# keep` above the whole `ts_compile`
 keeps whatever you wrote and leaves the entries where `extends` puts them,
 unresolved, which is where they were before Gazelle wrote anything.
 
-Three kinds are the exception: `ts_dev_server`, `ts_pnpm` and `ts_add_package`.
-Each is written once, when no rule of that name exists, and left alone from then
-on. Gazelle emits no candidate for a rule that already exists, so the merger
-never runs on one. `ts_add_package` declares `pnpm_lock` mergeable and no merge
-ever reaches it. Their attributes are yours after the first run, `# keep` or not.
+Three kinds are the exception: the package-level `ts_dev_server` named `dev`,
+`ts_pnpm` and `ts_add_package`. Each is written once, when no rule of that name
+exists, and left alone from then on. Gazelle emits no candidate for a rule that
+already exists, so the merger never runs on one. `ts_add_package` declares
+`pnpm_lock` mergeable and no merge ever reaches it. Their attributes are yours
+after the first run, `# keep` or not. The `ts_dev_server` a framework bundle
+writes beside `ts_bundle` at the workspace root is not one of them: it is
+re-emitted on every run like the bundle, and its `entry_point` and
+`node_modules` are recomputed.
 
 `# keep` works at three granularities: one value, one attribute, one rule. All
 three write paths honour all three — the merger's; the direct write a `glob()`
@@ -340,8 +345,9 @@ therefore cannot trip
 [its alias validation](../rules/ts-compile.md#the-two-hard-errors). The directive
 reaches `compilerOptions.paths` in the
 [IDE tsconfig](../getting-started/ide-setup.md) as soon as you declare it, before
-any source imports through it. Aliases Gazelle reads back out of a `tsconfig.json`
-this ruleset generated are not re-emitted.
+any source imports through it. An alias read back out of a `tsconfig.json` this
+ruleset generated gets no such entry: it is written only on a target whose own
+imports go through it.
 
 ### Add Runtime Deps to All Tests
 
@@ -446,19 +452,25 @@ For a generator that writes a whole directory, prefix the outs field with
 # gazelle:ts_codegen prisma_client @npm//:prisma_bin dir:generated/client generate --schema {srcs}
 ```
 
-The `dir:` form gets no `<name>_compile` and nothing in it resolves: Bazel
-declares the directory as one artifact, so no file inside it has a label, and
-`ts_compile` takes neither a directory in `srcs` nor a `ts_codegen` in `deps`.
-Reaching the output means writing a rule that adapts the directory to the
-providers `ts_compile.deps` reads, and depending on that by hand. The directive
-writes the target; wiring it up is yours.
+The `dir:` form gets no `<name>_compile`: Bazel declares the directory as one
+artifact, so no file inside it has a label to put in a `ts_compile`'s `srcs`.
+The target itself returns the providers `ts_compile.deps` reads, and Gazelle
+resolves an import of a module under the directory -- by the `out_dir` path a
+relative or aliased specifier reaches, or by the target's `module_name` -- to
+the `ts_codegen` label. Nothing compiles the tree, so the generator has to write
+`.js` beside `.d.ts`. See
+[a directory of output](../rules/ts-codegen.md#a-directory-of-output).
 
 Gazelle also auto-detects Prisma, GraphQL codegen and OpenAPI generators, so a
 directive is only needed for a generator it does not recognise. Each of those
-three needs both halves in the same directory: the input file (`schema.prisma`,
-a `.graphql`/`.gql` file, `openapi.yaml` and its variants) and the generator's
-own npm dependency. One without the other emits nothing, which is what keeps a
-monorepo's shared `package.json` from generating targets everywhere.
+three needs both halves in the same directory: the input file (`schema.prisma`;
+a `.graphql`/`.gql` file beside a `codegen.ts`, `codegen.yml`, `codegen.yaml` or
+`codegen.json`; `openapi.yaml`, `openapi.yml`, `openapi.json` or the `swagger.*`
+spelling of each) and the generator's own npm dependency (`prisma` or
+`@prisma/client`, `@graphql-codegen/cli`, `openapi-typescript`). Where the
+workspace has a `pnpm-lock.yaml`, one without the other emits nothing, which is
+what keeps a monorepo's shared `package.json` from generating targets
+everywhere.
 
 TanStack Router is deliberately excluded: its route tree is written by the Start
 Vite plugin during the bundle, into the writable staging directory `ts_bundle`
@@ -614,8 +626,9 @@ holding no `tsconfig.json` of its own is not a package to begin with.
 ```
 
 Files matching `*.generated.ts` are excluded from `srcs` lists in this directory
-and every directory below it. Nothing is excluded by name on its own: a
-checked-in file is a source unless a rule in the package declares it as an
+and every directory below it. One name is excluded on its own: `routeTree.gen.ts`
+(or `.tsx`), which the TanStack Start Vite plugin writes during the bundle. Every
+other checked-in file is a source unless a rule in the package declares it as an
 output, however it is named.
 
 A pattern with no `/` in it is matched against the **basename**, so it drops a
@@ -653,13 +666,13 @@ accepting a directive that cannot do anything.
 
 #### Naming a directory depends on the boundary mode
 
-A directory name is read in two places, not one: the rollup walk, and the
-framework bundle's staging walk. Both reach only a subdirectory that is **not**
-a package -- the rollup walk runs in `tsconfig` mode alone, and the staging walk
-covers exactly the directories the framework does not own, since an owned one is
-staged by the label its own package exports. So under the default `every-dir`
-mode, where a subdirectory holding sources is a package in its own right, a
-directory pattern still reaches nothing through either.
+A directory name is read in two places, not one: the rollup walk, which runs in
+`tsconfig` mode alone, and the framework bundle's staging walk, which runs at
+the workspace root and reads the root build file's patterns alone. Under the
+default `every-dir` mode a subdirectory holding sources is a package in its own
+right, and a directory pattern changes nothing about what it compiles. A
+directory pattern declared at the workspace root still drops that directory and
+everything under it from the bundle's `staging_srcs`, in either mode.
 
 | In `web/BUILD.bazel`, with `web/sub/s.ts` | default `every-dir` | `tsconfig` |
 | --- | --- | --- |
@@ -745,11 +758,11 @@ walk a subtree only to count what the exclusion exists to skip.
 ```
 
 Nothing is generated in any `coverage/` or `storybook-static/` below the root,
-on top of the built-in `.next`, `.nuxt`, `.svelte-kit`, `dist` and `build`. The
-directive goes in an *ancestor* because a directory Gazelle should not enter is
-exactly the kind with no build file of its own, and writing one there to say
-"ignore me" is backwards — that is what `ts_ignore` is for, in a directory whose
-BUILD file you are keeping anyway.
+on top of the built-in `.next`, `.nuxt`, `.svelte-kit`, `dist`, `build` and
+`node_modules`. The directive goes in an *ancestor* because a directory Gazelle
+should not enter is exactly the kind with no build file of its own, and writing
+one there to say "ignore me" is backwards — that is what `ts_ignore` is for, in
+a directory whose BUILD file you are keeping anyway.
 
 The value is a basename, and the whole value is one name. A path, a glob or a
 list of names is refused out loud, because the traversal only ever compares one
