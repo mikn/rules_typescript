@@ -842,7 +842,9 @@ _RUNNER_ATTRS = {
         allow_files = [".snap"],
     ),
     "globals": attr.bool(
-        doc = "Enables vitest's global describe/it/expect (test.globals).",
+        doc = "Enables vitest's global describe/it/expect (test.globals). The " +
+              "matching `types` entry is the ts_test macro's half; this attr " +
+              "is only the runtime one.",
         default = False,
     ),
     "reporters": attr.string_list(
@@ -924,11 +926,14 @@ def _compile_setup_sources(name, sources, deps, target, jsx_mode, visibility, ta
     )
     return [":" + name] + [s for s in sources if s not in ts_sources]
 
+_VITEST_GLOBALS_TYPES_ENTRY = "vitest/globals"
+
 # The generated test compile is the ts_compile RULE, which takes one JSON blob
 # rather than the macro's lib / types / compiler_options -- so the macro's
 # folding of those three has to happen here too. Empty stays empty: the rule
-# treats an absent value differently from an empty object.
-def test_compiler_options_json(lib, types, compiler_options):
+# treats an absent value differently from an empty object. `globals` folds in
+# last, after anything the target wrote.
+def test_compiler_options_json(lib, types, compiler_options, globals = False):
     opts = {}
     if lib != None:
         opts["lib"] = lib
@@ -936,6 +941,10 @@ def test_compiler_options_json(lib, types, compiler_options):
         opts["types"] = types
     for key, value in (compiler_options or {}).items():
         opts[key] = value
+    if globals:
+        entries = opts.get("types", [])
+        if _VITEST_GLOBALS_TYPES_ENTRY not in [e.strip() for e in entries]:
+            opts["types"] = entries + [_VITEST_GLOBALS_TYPES_ENTRY]
     if not opts:
         return ""
     return json.encode(opts)
@@ -1084,7 +1093,10 @@ def ts_test(
         data:              Extra runfiles: fixtures the tests read, and files that
                            `config` or `setup_files` entries import.
         globals:           Enables vitest's global describe/it/expect
-                           (test.globals).
+                           (test.globals), and adds "vitest/globals" to the
+                           compile's `types` so the type program sees them too.
+                           Requires vitest among `deps`, which is where a
+                           `types` entry is resolved from.
         reporters:         Vitest reporters (test.reporters).
         coverage_thresholds: Coverage thresholds (test.coverage.thresholds), e.g.
                            {"lines": "80"}.  Enforced only when coverage runs
@@ -1161,7 +1173,7 @@ def ts_test(
         target = target,
         jsx_mode = jsx_mode,
         declarations = declarations,
-        compiler_options_json = test_compiler_options_json(lib, types, compiler_options),
+        compiler_options_json = test_compiler_options_json(lib, types, compiler_options, globals),
         tsconfig = tsconfig,
         path_aliases = path_aliases,
         path_alias_srcs = path_alias_srcs,
