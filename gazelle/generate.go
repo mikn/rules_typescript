@@ -1540,6 +1540,23 @@ func dirsBetween(ancestor, descendant string) []string {
 	return out
 }
 
+// boundaryModeInForce is the mode governing rel: the nearest declaration at or
+// above it, else the repo default. Resolve gets only the importer's config.
+func boundaryModeInForce(repoRoot, rel string) string {
+	for dir := path.Clean(rel); ; dir = path.Dir(dir) {
+		if dir == "." {
+			dir = ""
+		}
+		absDir := filepath.Join(repoRoot, filepath.FromSlash(dir))
+		if mode, declared := boundaryModeDeclaredIn(absDir, dir); declared {
+			return mode
+		}
+		if dir == "" {
+			return boundaryEveryDir
+		}
+	}
+}
+
 // boundaryModeDeclaredIn returns the boundary mode dir's own BUILD file
 // declares. `# gazelle:ts_package_boundary true` marks that one directory and
 // leaves the mode alone, so it declares none.

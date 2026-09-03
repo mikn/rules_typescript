@@ -716,7 +716,10 @@ A specifier that lands in a directory the generator will never write a BUILD
 file in resolves to nothing for the same reason. Two rules decide that, and the
 resolver reads both: `rolledUpIn` skips a dot-directory, `node_modules`, `dist`
 and `bazel-out`, and outside `every-dir` mode a directory that is not a boundary
-of its own is rolled into the package above it. So
+of its own is rolled into the package above it. The mode is the one declared at
+or above the directory the specifier lands in, not the one the importer is
+generated under, so a tree that puts `tsconfig` over one subtree and `every-dir`
+over another keeps the deps that cross between them. So
 `../../shared/public/.well-known/assetlinks.json?raw` names
 `//web/shared/public/.well-known`, and under
 `# gazelle:ts_package_boundary tsconfig` a `./preview.css` written in a

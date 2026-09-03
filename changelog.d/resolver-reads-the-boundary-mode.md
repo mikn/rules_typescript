@@ -14,7 +14,9 @@
   named by the very target whose own `srcs` already listed the files. The guard
   added for a directory the generator refuses to walk read four hardcoded
   directory names -- dot-directories, `node_modules`, `dist`, `bazel-out` -- and
-  never the boundary mode. Both halves are now one predicate, read by the
-  roll-up walk, the framework staging walk, the `ts_config` target and the
-  resolver alike. An indexed rule in such a directory still answers first, and a
-  directory holding a `tsconfig.json` is a package whose label survives.
+  never the boundary mode. It now reads both, and it reads the mode declared at
+  or above the directory the specifier lands in rather than the one the importer
+  is generated under, so a tree that puts `tsconfig` over one subtree and
+  `every-dir` over another keeps the deps that cross between them. An indexed
+  rule in such a directory still answers first, and a directory holding a
+  `tsconfig.json` is a package whose label survives.

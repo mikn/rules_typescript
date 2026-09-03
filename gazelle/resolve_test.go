@@ -331,7 +331,7 @@ func TestResolveRelative(t *testing.T) {
 		{"allowImportingTsExtensions specifier", "../lib/helper.ts", "//src/lib:core"},
 		{"nodenext .js specifier inside the package", "./main.js", ""},
 	} {
-		if got := resolveRelative(c, ix, getConfig(c), tt.imp, from); got != tt.want {
+		if got := resolveRelative(c, ix, tt.imp, from); got != tt.want {
 			t.Errorf("%s: resolveRelative(%q) = %q, want %q", tt.name, tt.imp, got, tt.want)
 		}
 	}
@@ -353,7 +353,7 @@ func TestResolveRelative_SrcsInSubdirectoryOfThePackage(t *testing.T) {
 		"../pkg/nested/leaf":    "//pkg:everything",
 		"../pkg/util.js":        "//pkg:everything",
 	} {
-		if got := resolveRelative(c, ix, getConfig(c), imp, from); got != want {
+		if got := resolveRelative(c, ix, imp, from); got != want {
 			t.Errorf("resolveRelative(%q) = %q, want %q", imp, got, want)
 		}
 	}
@@ -391,7 +391,7 @@ func TestLabelForUnindexed(t *testing.T) {
 		"src/absent":         "",
 		"src/absent/math.ts": "",
 	} {
-		if got := labelForUnindexed(boundaryEveryDir, root, rel, from); got != want {
+		if got := labelForUnindexed(root, rel, from); got != want {
 			t.Errorf("labelForUnindexed(%q) = %q, want %q", rel, got, want)
 		}
 	}
@@ -953,7 +953,7 @@ func TestLabelForUnindexed_UnclassifiedExtensionFabricatesNothing(t *testing.T) 
 		"src/lib/schema.graphql",
 		"src/lib/widget.js.bin",
 	} {
-		if got := labelForUnindexed(boundaryEveryDir, root, rel, from); got != "" {
+		if got := labelForUnindexed(root, rel, from); got != "" {
 			t.Errorf("labelForUnindexed(%q) = %q, want %q", rel, got, "")
 		}
 	}
@@ -1011,7 +1011,7 @@ func TestLabelForUnindexed_DirectoryTheGeneratorSkipsFabricatesNothing(t *testin
 		"web/node_modules/acme/index.ts",
 		"bazel-out/gen/thing.ts",
 	} {
-		if got := labelForUnindexed(boundaryEveryDir, root, rel, from); got != "" {
+		if got := labelForUnindexed(root, rel, from); got != "" {
 			t.Errorf("labelForUnindexed(%q) = %q, want %q", rel, got, "")
 		}
 	}
@@ -1048,7 +1048,7 @@ func TestLabelForUnindexed_ACheckedInBuildFileMakesItAPackage(t *testing.T) {
 		// No BUILD file, so the generator's refusal to walk it still stands.
 		"web/.no-build/sub": "",
 	} {
-		if got := labelForUnindexed(boundaryEveryDir, root, rel, from); got != want {
+		if got := labelForUnindexed(root, rel, from); got != want {
 			t.Errorf("labelForUnindexed(%q) = %q, want %q", rel, got, want)
 		}
 	}
@@ -1128,7 +1128,7 @@ func TestLabelForUnindexed_ADotNameDirectoryIsNotAFileExtension(t *testing.T) {
 		"p/tools/.eslintrc": "",
 		"p/missing.wasm":    "",
 	} {
-		if got := labelForUnindexed(boundaryEveryDir, root, rel, from); got != want {
+		if got := labelForUnindexed(root, rel, from); got != want {
 			t.Errorf("labelForUnindexed(%q) = %q, want %q", rel, got, want)
 		}
 	}
@@ -1176,7 +1176,7 @@ func TestResolveRelative_IndexedDotDirectoryStillResolves(t *testing.T) {
 		"../.config/data.json": "//p/.config:data_json",
 		"../.config":           "//p/.config",
 	} {
-		if got := resolveRelative(c, ix, getConfig(c), imp, from); got != want {
+		if got := resolveRelative(c, ix, imp, from); got != want {
 			t.Errorf("resolveRelative(%q) = %q, want %q", imp, got, want)
 		}
 	}
@@ -1271,7 +1271,7 @@ func TestResolveRelative_TextAssetBesideASource(t *testing.T) {
 		"./SKILL.md":       ":SKILL_md",
 		"./wrangler.jsonc": ":wrangler_jsonc",
 	} {
-		if got := resolveRelative(c, ix, getConfig(c), imp, from); got != want {
+		if got := resolveRelative(c, ix, imp, from); got != want {
 			t.Errorf("resolveRelative(%q) = %q, want %q", imp, got, want)
 		}
 	}
@@ -1578,5 +1578,40 @@ func TestResolveCodegenTree_StopsAtTheRoot(t *testing.T) {
 		if got := resolveCodegenTree(ix, imp, from); got != "" {
 			t.Errorf("resolveCodegenTree(%q) = %q, want \"\"", imp, got)
 		}
+	}
+}
+
+// The mode at the target directory costs one BUILD-file read per ancestor, paid
+// per unindexed import; a checked-in BUILD file short-circuits before the walk.
+func BenchmarkLabelForUnindexed(b *testing.B) {
+	root := b.TempDir()
+	deep := "a/b/c/d/e/f"
+	if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(deep)), 0o755); err != nil {
+		b.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "BUILD.bazel"),
+		[]byte("# gazelle:ts_package_boundary every-dir\n"), 0o644); err != nil {
+		b.Fatal(err)
+	}
+	from := label.New("", "importer", "importer")
+	for _, bb := range []struct {
+		name  string
+		build string
+	}{
+		{"walks_to_the_root", ""},
+		{"stops_at_a_checked_in_build_file", filepath.Join(root, filepath.FromSlash(deep), "BUILD.bazel")},
+	} {
+		if bb.build != "" {
+			if err := os.WriteFile(bb.build, nil, 0o644); err != nil {
+				b.Fatal(err)
+			}
+		}
+		b.Run(bb.name, func(b *testing.B) {
+			for range b.N {
+				if got := labelForUnindexed(root, deep+"/emitted.css", from); got == "" {
+					b.Fatalf("no label for %s", deep)
+				}
+			}
+		})
 	}
 }

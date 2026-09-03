@@ -320,3 +320,48 @@ func TestBoundaryTsConfig_RolledUpSubdirectoryIsNotADep(t *testing.T) {
 			len(dangling), strings.Join(dangling, "\n      "))
 	}
 }
+
+// Two boundary modes in one tree: the importer's mode governs the importer's own
+// subtree, so the other subtree has to be judged by the mode declared over it.
+var boundaryMixedModeWorkspace = map[string]string{
+	"packages/BUILD.bazel":          "# gazelle:ts_package_boundary tsconfig\n",
+	"packages/plugin/package.json":  `{"name":"@acme/plugin"}` + "\n",
+	"packages/plugin/tsconfig.json": `{"include":["src/**/*"]}` + "\n",
+	"packages/plugin/src/main.ts": "import \"../../../web/sub/emitted.css\";\n" +
+		"export const main = 1;\n",
+	"web/BUILD.bazel":  "# gazelle:ts_package_boundary every-dir\n",
+	"web/sub/thing.ts": "export const thing = 1;\n",
+}
+
+// A directory in an every-dir subtree is a package whatever mode the importer
+// is generated under, and dropping the dep on it is TS2307 on a valid import.
+func TestBoundaryTsConfig_EveryDirSubtreeKeepsItsLabel(t *testing.T) {
+	root := t.TempDir()
+	writeWorkspace(t, root, boundaryMixedModeWorkspace)
+	captureLog(t, func() { convergeGazelle(t, root) })
+
+	generated := loadRules(t, root, "web/sub")
+	if !slices.ContainsFunc(generated, func(r *rule.Rule) bool { return r.Kind() == "ts_compile" }) {
+		t.Fatalf("no ts_compile in web/sub/BUILD.bazel: every-dir makes web/sub a package, so "+
+			"this fixture never reaches a label the resolver must keep (rules: %v)", generated)
+	}
+
+	var compile *rule.Rule
+	for _, r := range loadRules(t, root, "packages/plugin") {
+		if r.Kind() == "ts_compile" && r.Name() == "plugin" {
+			compile = r
+		}
+	}
+	if compile == nil {
+		t.Fatalf("no ts_compile named plugin in packages/plugin/BUILD.bazel")
+	}
+	if deps := compile.AttrStrings("deps"); !slices.Contains(deps, "//web/sub") {
+		t.Errorf("ts_compile(plugin) deps = %v, missing //web/sub -- web/sub is a package "+
+			"under the every-dir directive above it, and the roll-up mode over packages/ "+
+			"says nothing about it", deps)
+	}
+	if dangling := danglingLabels(t, root); len(dangling) > 0 {
+		t.Errorf("%d label(s) name a package the generator declined to write:\n      %s",
+			len(dangling), strings.Join(dangling, "\n      "))
+	}
+}

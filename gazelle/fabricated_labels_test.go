@@ -128,7 +128,7 @@ func assertLoadable(t *testing.T, c *config.Config, ambient []string, imp, dep s
 	}
 	// A checked-in BUILD file makes it loadable whatever the generator's walk
 	// would do -- reading that walk as the answer is what #90 got wrong.
-	if generatorSkips(getConfig(c).packageBoundaryMode, root, pkg) && !isBazelPackage(dir) {
+	if !isBazelPackage(dir) && generatorSkips(root, pkg) {
 		t.Errorf("%s: dep %q names a directory that will never hold a BUILD file", imp, dep)
 	}
 }
