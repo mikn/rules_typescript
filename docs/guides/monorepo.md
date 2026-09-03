@@ -25,12 +25,13 @@ my-monorepo/
 
 ## Package Boundaries
 
-Gazelle's default is **every-dir**, the way every directory with `.go` files is a
-Go package. Two directives depart from it:
+Gazelle's default is `every-dir`: every directory holding sources is a package,
+as every directory with `.go` files is a Go package. Two directives depart from
+it:
 `# gazelle:ts_package_boundary tsconfig` for one target per TypeScript project,
 and `# gazelle:ts_target_name` to rename one target.
 
-Write a target by hand when a directory is a genuine unit: a public API behind an
+Write a target by hand when a directory is a unit: a public API behind an
 `index.ts`, something other packages import, something published as its own npm
 package.
 
@@ -84,10 +85,9 @@ If `lib/math.ts` changes but its exported types don't change, `app` is not
 recompiled. Bazel's content-based caching uses the `.d.ts` fingerprint as the
 dependency boundary.
 
-Every import has to be satisfied by a **direct** dep. A `.d.ts` that reaches a
-target through another dep's own deps does not count, so the `deps` list above is
-the whole truth about what `apps/server` may import; `bazel run //:gazelle`
-keeps it that way. See
+Every import has to be satisfied by a direct dep. A `.d.ts` that reaches a
+target through another dep's own deps does not count, so the `deps` list above
+is what `apps/server` may import; `bazel run //:gazelle` keeps it current. See
 [Deps have to be direct](../rules/ts-compile.md#deps-have-to-be-direct).
 
 Relative imports across packages work as written. For a bare specifier,
@@ -100,20 +100,19 @@ the second is a hard error. See
 
 ## Single pnpm Lockfile
 
-Use a single `pnpm-lock.yaml` at the repo root covering all packages, and one
-`npm.translate_lock` call for it. That avoids the version conflicts per-package
-lockfiles create, and it costs nothing in fetch time: the extension declares one
-Bazel repository per package and Bazel fetches only the ones your targets
-actually reach, so a 2731-entry lockfile does not make a one-package build slow.
+One `pnpm-lock.yaml` at the repo root covers all packages, with one
+`npm.translate_lock` call for it. The extension declares one Bazel repository
+per package and Bazel fetches only the ones a target reaches, so a 2731-entry
+lockfile does not slow a one-package build.
 
 pnpm workspaces work: a `workspace:*` dependency resolves to a target in your own
 repository.
 
-Several hubs are supported. Reach for one when a closure has no business in the
-tree your app's tests resolve against, or when a lockfile is a curated fixture no
-`pnpm add` should regenerate. The cost is two lockfiles to
-keep in step, a Gazelle directive per package, and one `ts_add_package` target
-per hub. See [More than one hub](npm.md#more-than-one-hub).
+A second hub keeps a closure out of the tree an app's tests resolve against, or
+keeps a curated fixture lockfile out of `pnpm add`'s reach. It costs two
+lockfiles to keep in step, a Gazelle directive per package, and one
+`ts_add_package` target per hub. See
+[More than one hub](npm.md#more-than-one-hub).
 
 ## Visibility
 
@@ -125,8 +124,8 @@ generates.
 `ts_refresh_tsconfig`'s `deps` is a normal rule attribute, so it obeys visibility
 too. A package-private target cannot be listed there, and the IDE's
 `tsconfig.json` carries no `paths` entry for it, because the aspect never reaches
-it. In a hand-written monorepo, the targets you want your editor to see need a
-visibility grant to the root package. See
+it. A hand-written target the editor should see needs a visibility grant to the
+root package. See
 [IDE Setup](../getting-started/ide-setup.md#setup).
 
 The `ts_compile` targets `ts_test` generates from your sources take the test's
