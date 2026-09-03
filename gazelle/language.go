@@ -228,9 +228,9 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 			},
 		},
 		// ts_config makes a package's hand-written tsconfig.json a label the
-		// targets in its subpackages can name. `deps` -- the extends chain
-		// Starlark cannot read -- is not mergeable, so a value written there by
-		// hand survives every later run without a "# keep".
+		// targets in its subpackages can name. `deps` is not mergeable, so the
+		// extends chain written on a first generation -- Gazelle's or the
+		// author's -- survives every later run without a "# keep".
 		"ts_config": {
 			MatchAny:   false,
 			MatchAttrs: []string{"name"},
