@@ -61,6 +61,13 @@ func managedAttrCases() []nonLiteralCase {
 
 		{workspace: "path_aliases", pkg: "src", kind: "ts_compile", target: "src",
 			attr: "path_aliases", class: "dict"},
+		{workspace: "path_aliases", pkg: "src", kind: "ts_compile", target: "src",
+			attr: "path_alias_srcs", class: "list",
+			extra: map[string]string{"src/main.ts": "import { button } from \"@ui/button\";\nexport const main = button;\n"}},
+		{workspace: "path_aliases", pkg: "e2e", kind: "ts_test", target: "e2e_test",
+			attr: "path_aliases", class: "dict"},
+		{workspace: "path_aliases", pkg: "e2e", kind: "ts_test", target: "e2e_test",
+			attr: "path_alias_srcs", class: "list"},
 
 		{workspace: "plain", pkg: "src", kind: "ts_compile", target: "src", attr: "srcs", class: "list"},
 		{workspace: "plain", pkg: "src", kind: "ts_compile", target: "src", attr: "deps", class: "list"},

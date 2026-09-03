@@ -95,6 +95,44 @@ neither is drift:
   Without it, a visibility used as an architectural boundary widens back one run
   at a time.
 
+### Which targets carry an alias
+
+A `ts_compile`, the `_doc` compile and the `ts_test` each get `path_aliases` for
+the aliases their own srcs import through, plus -- for aliases a `ts_path_alias`
+directive declares -- the ones whose directory holds one of those srcs, which is
+how a directive-declared alias reaches the IDE tsconfig. The test files are a
+program of their own, so the package target's map reaches nothing they compile:
+an alias a test imports through is on the `ts_test`.
+
+`ts_compile` accepts an alias only when a file the target stages sits under the
+alias directory. A target with a src under it validates the alias on that src,
+and the aliased declarations arrive on the dep edge. A target with none gets
+`path_alias_srcs` naming the target each aliased import resolved to, filled in at
+resolve time the way `deps` is, so that target's outputs -- the declarations in
+the bazel-bin mirror of the directory -- are staged. The two shapes in one
+package:
+
+```python
+ts_test(
+    name = "web_test",
+    srcs = ["shared/flags.test.ts"],  # under web/shared/: validates the alias
+    path_aliases = {"#shared/": "web/shared/"},
+    deps = [":web", "@npm//:vitest"],
+)
+
+ts_test(
+    name = "tooling_test",
+    srcs = ["plugins/prerender.test.ts"],  # nothing under web/shared/
+    path_alias_srcs = [":web"],
+    path_aliases = {"#shared/": "web/shared/"},
+    deps = [":web", "@npm//:vitest"],
+)
+```
+
+Naming the target where a src already validates the alias would stage every
+output of that target for nothing, which is why the attribute follows the srcs
+rather than the alias.
+
 ### Fallback chains in `compilerOptions.paths`
 
 `paths` values are arrays: TypeScript tries each entry in turn. A generated

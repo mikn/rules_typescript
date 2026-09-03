@@ -617,7 +617,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		// Aliases let tsgo resolve source-level specifiers like "@/components".
 		// One tsconfig `paths` map serves a whole workspace, so a target takes
 		// only the entries it can carry -- see usedPathAliases.
-		setPathAliases(args, r, usedPathAliases(tc, args.Rel, srcFiles, allImports))
+		setAliasAttrs(args, r, tc, srcFiles, allImports)
 
 		gen = append(gen, r)
 		imports = append(imports, uniqueImports(allImports))
@@ -671,7 +671,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		r := frameworkEntryRule(entryName, entryFile, ambientFiles, tc)
 		setTsConfig(r, tsConfigAttr)
 		setRootAmbientTypes(r, typesEntries, typesSrcsLabels)
-		setPathAliases(args, r, usedPathAliases(tc, args.Rel, []string{entryFile}, entryImports))
+		setAliasAttrs(args, r, tc, []string{entryFile}, entryImports)
 		gen = append(gen, r)
 		imports = append(imports, uniqueImports(entryImports))
 	} else if name, ok := frameworkEntryTargetName(args.Rel, tc); ok &&
@@ -788,6 +788,10 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		setTsConfig(r, tsConfigAttr)
 		setRootAmbientTypes(r, typesEntries, typesSrcsLabels)
 
+		// The test files are a program of their own: the package target's alias
+		// map reaches nothing the test compiles.
+		setAliasAttrs(args, r, tc, testSrcs, allImports)
+
 		// ts_test auto-builds a node_modules tree from its @npm// deps, so no
 		// explicit node_modules rule is generated. The ts_test macro filters deps
 		// by @npm// label convention and creates an internal _<name>_node_modules
@@ -880,9 +884,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		setRootAmbientTypes(r, typesEntries, typesSrcsLabels)
 
 		docImports := importsIn(args.Dir, docFiles)
-		if used := usedPathAliases(tc, args.Rel, docSrcs, docImports); len(used) > 0 {
-			r.SetAttr("path_aliases", used)
-		}
+		setAliasAttrs(args, r, tc, docSrcs, docImports)
 
 		gen = append(gen, r)
 		imports = append(imports, uniqueImports(docImports))
@@ -1192,6 +1194,29 @@ func usedPathAliases(tc *tsConfig, rel string, srcs, imports []string) map[strin
 	}
 	return used
 }
+
+// setAliasAttrs writes the alias map a target carries and notes, for the resolver,
+// the imports whose alias none of the target's own srcs validate.
+func setAliasAttrs(args language.GenerateArgs, r *rule.Rule, tc *tsConfig, srcs, imports []string) {
+	used := usedPathAliases(tc, args.Rel, srcs, imports)
+	setPathAliases(args, r, used)
+	if len(used) == 0 {
+		return
+	}
+	var uncovered []string
+	for _, imp := range imports {
+		m, ok := matchPathAlias(tc, imp)
+		if ok && !aliasCoversSrcs(m.dir, args.Rel, srcs) {
+			uncovered = append(uncovered, imp)
+		}
+	}
+	if len(uncovered) > 0 {
+		r.SetPrivateAttr(aliasSrcImportsKey, uniqueImports(uncovered))
+	}
+}
+
+// aliasSrcImportsKey carries the imports only path_alias_srcs can validate to Resolve.
+const aliasSrcImportsKey = "_alias_src_imports"
 
 // aliasCoversSrcs mirrors ts_compile's _validate_path_aliases: an alias holds only
 // when one of the target's own sources sits at or under its directory.

@@ -124,11 +124,14 @@ program of their own, and `paths` is one key the `tsconfig` layer cannot
 contribute to, so an alias set on the package target reaches nothing the test
 compiles.
 
-An alias into the code under test lives outside the test's `srcs`, so
-`path_alias_srcs` has to name the files it resolves to — without them the alias
-is an analysis error, the same one `ts_compile` raises. Those files join the
-test's type program, so tsgo checks them here as well as in the target that owns
-them; where the aliased target can carry a `module_name`, depending on it is the
+`ts_compile` accepts an alias only when a file it stages sits under the alias
+directory; otherwise the alias is an analysis error. A test with a src under
+that directory validates the alias on that src, and the aliased declarations
+arrive on the dep edge. A test with none needs `path_alias_srcs` naming what the
+alias resolves to: a `ts_compile` target, whose declarations land in the
+bazel-bin mirror of the directory, or the files themselves, which then join the
+test's type program and are checked here as well as in the target that owns
+them. Where the aliased target can carry a `module_name`, depending on it is the
 cheaper boundary.
 
 ```starlark
@@ -136,10 +139,19 @@ ts_test(
     name = "app_test",
     srcs = ["app.test.ts"],
     path_aliases = {"@shared/": "packages/app/shared/"},
-    path_alias_srcs = ["//packages/app/shared:sources"],
-    deps = [":app", "@npm//:vitest"],
+    path_alias_srcs = ["//packages/app/shared"],
+    deps = [":app", "//packages/app/shared", "@npm//:vitest"],
 )
 ```
+
+Gazelle writes both. `path_aliases` carries the aliases the test files import
+through; `path_alias_srcs` is written only when no src of the test sits under
+the alias directory, and names the target the aliased import resolved to. A test
+with a src under the directory gets no `path_alias_srcs`: staging the target's
+outputs on top of the dep edge would add every one of them to the action for
+nothing. Both attributes are Gazelle's, so a value it did not derive survives the
+next run only with a `# keep` on its line -- see
+[attributes Gazelle owns](../gazelle/directives.md#attributes-gazelle-owns).
 
 **Type-checking only.** oxc leaves an import specifier alone, so a compiled test
 still names the alias at runtime, where vitest resolves it as a package and

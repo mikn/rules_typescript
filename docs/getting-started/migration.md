@@ -156,12 +156,13 @@ If you decide to migrate from `rules_ts`:
    Rename it first if you also run `ts_refresh_tsconfig`, which
    [overwrites the root `tsconfig.json` in full](ide-setup.md#setup)
 4. Run `bazel run //:gazelle` to regenerate BUILD files
-5. Move cross-package `compilerOptions.paths` aliases to `module_name`. Gazelle
-   turns a `paths` entry into a `path_aliases` attr, which `ts_compile` accepts
-   only for files the same target stages, so `"@/*": ["src/*"]` across two
-   packages fails analysis. The
-   [quickstart](quickstart.md#path-b-existing-project) has the edit; your sources
-   keep importing `@/lib/math` unchanged
+5. Leave `compilerOptions.paths` alone. Gazelle turns a `paths` entry into a
+   `path_aliases` attr and, where none of the target's own srcs sits under the
+   alias directory, adds a `path_alias_srcs` naming the target the import
+   resolved to. `"@/*": ["src/*"]` across two packages builds on the attr
+   alone; the [quickstart](quickstart.md#path-b-existing-project) shows the
+   shape that gets both. `module_name` is the cheaper boundary where the
+   producing target can carry one
 6. Nothing else. Missing explicit return types are fine — the default emitter
    infers them
 

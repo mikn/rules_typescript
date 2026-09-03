@@ -135,6 +135,10 @@ func convergeCases() []convergeCase {
 				"src/lib/helper.ts": "export const helper = 1;\n",
 				"src/lib/util.ts":   "export const util = 1;\n",
 				"src/ui/button.ts":  "export const button = 1;\n",
+				// One test under the alias directory, which validates the alias on its
+				// own srcs, and one outside it, which needs path_alias_srcs.
+				"src/lib/helper.test.ts": "import type { helper } from \"@lib/helper\";\nexport const t = typeof helper;\n",
+				"e2e/smoke.test.ts":      "import { button } from \"@ui/button\";\nexport const t = button;\n",
 			},
 			mutations: []convergeMutation{
 				// The alias map gains an entry: the run that recomputes it has

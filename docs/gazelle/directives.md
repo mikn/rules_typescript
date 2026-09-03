@@ -62,8 +62,8 @@ is replaced unless a `# keep` holds it. `ts_compile.deps` and
 
 | Rule | Attributes Gazelle owns |
 |------|-------------------------|
-| `ts_compile` | `srcs`, `deps`, `visibility`, `path_aliases`, `declarations`, `tsconfig` |
-| `ts_test` | `srcs`, `deps`, `tsconfig` |
+| `ts_compile` | `srcs`, `deps`, `visibility`, `path_aliases`, `path_alias_srcs`, `declarations`, `tsconfig` |
+| `ts_test` | `srcs`, `deps`, `tsconfig`, `path_aliases`, `path_alias_srcs` |
 | `ts_config` | `src`, `deps`, `visibility` |
 | `ts_lint` | `srcs`, `linter`, `linter_binary`, `config`, `fail_on_warnings` |
 | `css_library`, `css_module`, `asset_library`, `json_library` | `srcs`, `deps`, `visibility` |
@@ -83,6 +83,17 @@ ancestor directory's own `tsconfig.json`. Every other shape gets no value, which
 for an owned attribute means the value goes: a hand-written `deps` needs a
 `# keep` on its line to survive the next run. See
 [the compilerOptions baseline](overview.md#the-compileroptions-baseline).
+
+`path_aliases` holds the aliases a target's own imports go through, on the
+`ts_compile` and the `ts_test` alike: the test files are a program of their own,
+and the package target's map reaches nothing they compile. `path_alias_srcs` is
+filled in at resolve time the way `deps` is, and only when no src of the target
+sits under the alias directory: it names the target the aliased import resolved
+to, whose outputs are then the staged files `ts_compile`'s alias guard finds
+under the directory. A target with a src under the directory validates the alias
+on that src and gets no `path_alias_srcs`, since the aliased declarations already
+arrive on the dep edge. See
+[which targets carry an alias](overview.md#which-targets-carry-an-alias).
 
 `ts_compile.public_globals` is deliberately absent. Whether a `.d.ts`'s globals
 are part of the package's public type surface is a decision nothing in the
@@ -153,9 +164,11 @@ the next run; "# keep" above the attribute hands the whole attribute back to you
 ```
 
 Every dropped value is reported, whether it was a stale label Gazelle wrote
-itself or an edit of yours. That report is the whole difference from Gazelle's Go
-extension, which drops the same values silently: what survives a run is identical
-either way.
+itself or an edit of yours -- except in `deps` and `path_alias_srcs`, which are
+filled in after resolution, when the value on disk is no longer in hand: a label
+you wrote into either goes without a report unless `# keep` holds it. That report
+is the whole difference from Gazelle's Go extension, which drops the same values
+silently: what survives a run is identical either way.
 
 One case is deliberately silent: a value whose file or package is no longer on
 disk. Deleting a staged directory drops the label that named it, and holding that

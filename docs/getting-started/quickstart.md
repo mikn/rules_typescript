@@ -289,41 +289,33 @@ Type errors fail the build, because the `.d.ts` are outputs of the
 type-checker. "Missing return type" errors apply only to
 `declarations = "oxc"`.
 
-!!! warning "A `compilerOptions.paths` alias that crosses a target boundary"
+!!! note "A `compilerOptions.paths` alias that crosses a target boundary"
     Gazelle reads `compilerOptions.paths` from your `tsconfig.json` and writes
     a matching `path_aliases` attr on the targets whose imports go through it.
-    `ts_compile` accepts an alias only when it resolves to files the same target
-    stages, so `"@/*": ["src/*"]` fails at analysis when `@/lib/math` comes from
-    another package:
-
-    ```
-    ts_compile: path_aliases["@/"] on @@//src/app:app points at "./src/", where
-    none of this target's inputs live.
-    ```
-
-    Cross-package imports are `module_name`'s job. Set it on the producing
-    target and drop the alias from the consumer, with a `# keep` above the
-    rule, since Gazelle re-derives the attr from `tsconfig.json` on every run:
+    `ts_compile` accepts an alias only when a file the target stages sits under
+    the alias directory. The near-universal `"@/*": ["src/*"]` gets
+    `path_aliases` alone and builds: `src/app/main.ts` importing `@/lib/math`
+    is itself under `src/`, and the declarations arrive on the `deps` edge.
+    Where none of the target's own srcs is under the alias directory --
+    `@lib/*` mapped to `src/lib/*` and imported from `src/app/` -- Gazelle also
+    writes `path_alias_srcs` naming the target the import resolved to:
 
     ```python
-    # src/lib/BUILD.bazel
-    ts_compile(
-        name = "lib",
-        srcs = ["math.ts"],
-        module_name = "@/lib",
-        visibility = ["//visibility:public"],
-    )
-
     # src/app/BUILD.bazel
-    # keep
     ts_compile(
         name = "app",
         srcs = ["main.ts"],
+        path_alias_srcs = ["//src/lib"],
+        path_aliases = {
+            "@lib/": "src/lib/",
+        },
         deps = ["//src/lib"],
     )
     ```
 
-    Your sources and your editor keep importing `@/lib/math` unchanged. See
+    That stages every output of `//src/lib` into this target's type-check.
+    Where the producing target can carry a `module_name`, importing it by that
+    name is the cheaper boundary. See
     [importing another target by bare specifier](../rules/ts-compile.md#importing-another-target-by-bare-specifier).
 
 **Step 6.** Optional. Once a package's exports are all annotated, move it to

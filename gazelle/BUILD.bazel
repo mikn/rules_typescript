@@ -73,6 +73,7 @@ go_test(
         "npm_inventory_test.go",
         "package_entry_test.go",
         "package_imports_test.go",
+        "path_alias_srcs_test.go",
         "remix_staging_test.go",
         "resolve_test.go",
         "rollup_assets_test.go",
