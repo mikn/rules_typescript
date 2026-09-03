@@ -383,13 +383,10 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	// Determine whether this directory is a package boundary.
 	//
 	// every-dir mode (default): every directory with .ts files is a boundary.
-	// index-only mode: only dirs with index.ts/tsx, an explicit
-	//   # gazelle:ts_package_boundary directive, or the repo root.
+	// tsconfig mode: only a directory holding a tsconfig.json, one carrying an
+	//   explicit # gazelle:ts_package_boundary true, or the repo root.
 	var isBoundary bool
 	switch tc.packageBoundaryMode {
-	case boundaryIndexOnly:
-		// Old behaviour: require index.ts or explicit directive.
-		isBoundary = tc.packageBoundary || hasIndex || args.Rel == ""
 	case boundaryTsConfig:
 		// One target per TypeScript project, which is the directory holding
 		// the tsconfig that names the sources.
@@ -399,19 +396,19 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		isBoundary = len(srcFiles) > 0 || hasIndex || args.Rel == "" || tc.packageBoundary
 	}
 
-	// In index-only mode a plain subdirectory is not a package, so its files
-	// belong to this target rather than to one of their own. Rolling them up is
-	// what keeps an ordinary shape -- a barrel re-exporting ./rules, and ./rules
-	// importing ../utils -- from becoming a cycle between two Bazel packages
-	// when at file granularity there is no cycle.
+	// In tsconfig mode a subdirectory holding no tsconfig.json of its own is not
+	// a package, so its files belong to this target rather than to one of their
+	// own. Rolling them up is what keeps an ordinary shape -- a barrel
+	// re-exporting ./rules, and ./rules importing ../utils -- from becoming a
+	// cycle between two Bazel packages when at file granularity there is none.
 	//
 	// A directory that is not a boundary claims nothing at all, so no BUILD file
 	// appears in it to make those rolled-up labels cross a package boundary.
-	if tc.packageBoundaryMode != boundaryEveryDir {
+	if tc.packageBoundaryMode == boundaryTsConfig {
 		if !isBoundary {
 			return language.GenerateResult{}
 		}
-		rolled := rolledUpIn(tc.packageBoundaryMode, args.Dir, ownExcludes, tc.jsSrcExts)
+		rolled := rolledUp(args.Dir, ownExcludes, tc.jsSrcExts)
 		dropped = append(dropped, rolled.excluded...)
 		// Every kind, not only the TypeScript ones: a declared out that is also
 		// checked in below the boundary would otherwise be a source and an
@@ -1336,14 +1333,6 @@ func tsConfigLabel(args language.GenerateArgs, tc *tsConfig) string {
 			"rather than risk a label into a package nothing writes. Declare the mode once, at "+
 			"or above %s.", dirRel, args.Rel, dirRel, args.Rel, dirRel)
 		return ""
-	case reachBoundaryCost:
-		log.Printf("typescript: %s holds the tsconfig.json %s would compile under, but %s "+
-			"package boundaries roll the sources below %s into the nearest package above it, "+
-			"and a BUILD file written there just to hold the ts_config target would drop every "+
-			"one of them. %s keeps the ruleset's baseline; make %s a package of its own with an "+
-			"index file or a # gazelle:ts_package_boundary true.",
-			dirRel, args.Rel, detail, dirRel, args.Rel, dirRel)
-		return ""
 	case reachNameTaken:
 		log.Printf("typescript: %s already generates a target named %q, which is one of the "+
 			"two names the ts_config beside its tsconfig.json and the filegroup staging the "+
@@ -1364,15 +1353,14 @@ const (
 	reachIgnored
 	reachFrameworkGlob
 	reachBoundaryUndeclared
-	reachBoundaryCost
 	reachNameTaken
 )
 
 // tsConfigReachFrom asks the one question a label into another directory turns
 // on -- will Gazelle write a BUILD file there holding a ts_config -- and
-// returns the one value the answer's own message names: the boundary mode
-// dirRel is generated under, or the target name already taken there. dirRel is
-// an ancestor of args.Rel, so every directive at or above dirRel reaches both.
+// returns the target name already taken there, which is the one value any of
+// the answers' messages names. dirRel is an ancestor of args.Rel, so every
+// directive at or above dirRel reaches both.
 func tsConfigReachFrom(args language.GenerateArgs, tc *tsConfig, dirRel string) (tsConfigReach, string) {
 	repoRoot := args.Config.RepoRoot
 	absDir := filepath.Join(repoRoot, filepath.FromSlash(dirRel))
@@ -1384,17 +1372,13 @@ func tsConfigReachFrom(args language.GenerateArgs, tc *tsConfig, dirRel string) 
 	if nextOwnsDir(dirRel, tc) || svelteKitOwnsDir(dirRel, tc) {
 		return reachFrameworkGlob, ""
 	}
-	mode, agreed := boundaryModeAt(repoRoot, dirRel, args.Rel, tc.packageBoundaryMode)
-	if !agreed {
-		return reachBoundaryUndeclared, mode
-	}
-	if tsConfigPackageCosts(mode, absDir) {
-		return reachBoundaryCost, mode
+	if !boundaryModeAgreesAt(repoRoot, dirRel, args.Rel) {
+		return reachBoundaryUndeclared, ""
 	}
 	if name := targetNameForDir(local.tc, dirRel); tsConfigNameTaken(name) {
 		return reachNameTaken, name
 	}
-	return reachOK, mode
+	return reachOK, ""
 }
 
 // extendsChainDep is the ts_config target this directory's tsconfig.json
@@ -1473,16 +1457,12 @@ func dirIsAncestorOf(ancestor, descendant string) bool {
 
 // ownTsConfigRule is the ts_config target for this directory's own hand-written
 // tsconfig.json: what makes the file a label the packages below it can name.
-// nil when the directory has none, or when becoming a package would cost the
-// package above it sources -- tsConfigLabel logs that case from the other side.
+// nil when the directory has none.
 func ownTsConfigRule(args language.GenerateArgs, tc *tsConfig) *rule.Rule {
 	if tc.excludesIn(args.Rel).drops("tsconfig.json") {
 		return nil
 	}
 	if handWrittenTsConfigIn(args.Dir, args.Config.RepoRoot) == "" {
-		return nil
-	}
-	if tsConfigPackageCosts(tc.packageBoundaryMode, args.Dir) {
 		return nil
 	}
 	if tsConfigNameTaken(targetNameForDir(tc, args.Rel)) {
@@ -1497,27 +1477,18 @@ func ownTsConfigRule(args language.GenerateArgs, tc *tsConfig) *rule.Rule {
 	return r
 }
 
-// tsConfigPackageCosts reports whether writing a BUILD file into absDir would
-// take sources away from the package above it: a directory that becomes a
-// package for the sake of a ts_config target takes the whole subtree beneath it
-// out of the target that was compiling it.
-func tsConfigPackageCosts(mode, absDir string) bool {
-	return dirIsRolledUpIn(mode, absDir)
-}
-
-// boundaryModeAt is the boundary mode dirRel is generated under, and whether
-// fromRel is generated under the same one. dirRel is an ancestor of fromRel, so
-// every directive at or above dirRel reaches both and the mode inherited at
-// fromRel is dirRel's too -- unless a directory in between declares one, which
-// is what the second return value reports.
-func boundaryModeAt(repoRoot, dirRel, fromRel, inherited string) (string, bool) {
+// boundaryModeAgreesAt reports whether dirRel and fromRel are generated under
+// the same boundary mode. dirRel is an ancestor of fromRel, so every directive
+// at or above dirRel reaches both and the mode inherited at fromRel is dirRel's
+// too -- unless a directory in between declares one.
+func boundaryModeAgreesAt(repoRoot, dirRel, fromRel string) bool {
 	for _, between := range dirsBetween(dirRel, fromRel) {
 		absDir := filepath.Join(repoRoot, filepath.FromSlash(between))
 		if _, declared := boundaryModeDeclaredIn(absDir, between); declared {
-			return inherited, false
+			return false
 		}
 	}
-	return inherited, true
+	return true
 }
 
 // dirsBetween lists every directory below ancestor down to and including
@@ -1572,8 +1543,6 @@ func boundaryModeDeclaredIn(absDir, rel string) (string, bool) {
 			switch strings.TrimSpace(d.Value) {
 			case "", boundaryEveryDir:
 				return boundaryEveryDir, true
-			case boundaryIndexOnly:
-				return boundaryIndexOnly, true
 			case boundaryTsConfig:
 				return boundaryTsConfig, true
 			}
@@ -1818,8 +1787,8 @@ func warnCodegenGlobbedPackage(args language.GenerateArgs, kept []string) {
 	log.Printf("typescript: %s holds files an ancestor's ts_codegen srcs glob collects, and "+
 		"%v keep it a Bazel package of its own. glob() does not descend into a subpackage, so "+
 		"the ancestor's rule will not see them -- and Bazel refuses to load a package whose "+
-		"glob matched nothing. Move those files out, or put the tree under a rolled-up "+
-		"ts_package_boundary (index-only, tsconfig) so it stays one package.",
+		"glob matched nothing. Move those files out, or put the tree under a "+
+		"# gazelle:ts_package_boundary tsconfig so it stays one package.",
 		args.Rel, kept)
 }
 

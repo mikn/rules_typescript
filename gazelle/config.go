@@ -2,6 +2,7 @@ package typescript
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"path"
@@ -51,13 +52,10 @@ const (
 
 const (
 	// directivePackageBoundary controls package-boundary detection mode.
-	// Without a value (or with "every-dir") every directory that contains .ts
-	// files gets a ts_compile target (the new default, matching Go's behaviour).
-	// With the value "index-only" the old behaviour is restored: only
-	// directories that contain an index.ts/tsx file are treated as boundaries.
-	//   # gazelle:ts_package_boundary            → every-dir (default)
-	//   # gazelle:ts_package_boundary every-dir  → same as above
-	//   # gazelle:ts_package_boundary index-only → restore old behaviour
+	//   # gazelle:ts_package_boundary           → every-dir (default)
+	//   # gazelle:ts_package_boundary every-dir → same as above
+	//   # gazelle:ts_package_boundary tsconfig  → one package per tsconfig.json
+	//   # gazelle:ts_package_boundary true      → mark this one directory
 	directivePackageBoundary = "ts_package_boundary"
 
 	// directiveIgnore suppresses TypeScript rule generation for this directory
@@ -202,10 +200,6 @@ const (
 	// ts_compile target.
 	boundaryEveryDir = "every-dir"
 
-	// boundaryIndexOnly restores the old behaviour: only directories that
-	// contain an index.ts/tsx file are treated as package boundaries.
-	boundaryIndexOnly = "index-only"
-
 	// boundaryTsConfig makes a directory a package when it holds a
 	// tsconfig.json, so one Bazel target covers one TypeScript project. It is
 	// the only mode that can express a project whose ambient declaration and
@@ -214,6 +208,28 @@ const (
 	// directory is a target of its own.
 	boundaryTsConfig = "tsconfig"
 )
+
+// boundaryFromDirective reads a ts_package_boundary value: the mode it names,
+// or marksDir for "true", which marks the one directory and leaves the mode
+// alone. An unrecognised value is an error rather than the inherited mode,
+// because a directive that quietly does nothing leaves a tree compiling to
+// something other than what its author wrote.
+func boundaryFromDirective(value string) (mode string, marksDir bool, err error) {
+	switch strings.TrimSpace(value) {
+	case "", boundaryEveryDir:
+		return boundaryEveryDir, false, nil
+	case boundaryTsConfig:
+		return boundaryTsConfig, false, nil
+	case "true":
+		return "", true, nil
+	case "index-only":
+		return "", false, fmt.Errorf("ts_package_boundary index-only was removed; the modes are %q and %q",
+			boundaryEveryDir, boundaryTsConfig)
+	default:
+		return "", false, fmt.Errorf("unknown ts_package_boundary value %q; want %q, %q, or \"true\"",
+			value, boundaryEveryDir, boundaryTsConfig)
+	}
+}
 
 // ---- per-directory configuration -------------------------------------------
 
@@ -232,19 +248,13 @@ type tsConfig struct {
 	// "static" cannot be assumed. Read once at the root and inherited.
 	svelteKitAssets string
 
-	// packageBoundaryMode controls how package boundaries are detected.
-	// "every-dir" (default): every directory with .ts files gets a ts_compile.
-	// "index-only": only directories with index.ts/tsx (old behaviour).
-	//
-	// Note: when packageBoundaryMode == boundaryEveryDir this field replaces the
-	// old boolean packageBoundary field. The old bool is kept for the
-	// index-only mode so that # gazelle:ts_package_boundary (no value) still
-	// marks an explicit boundary in index-only mode.
+	// packageBoundaryMode controls how package boundaries are detected:
+	// boundaryEveryDir (the default) or boundaryTsConfig.
 	packageBoundaryMode string
 
 	// packageBoundary indicates that this specific directory is an explicit
-	// package boundary. Used only when packageBoundaryMode == boundaryIndexOnly
-	// to allow individual directories to opt-in regardless of index.ts.
+	// package boundary. It is what makes a directory a package in tsconfig
+	// mode when the tsconfig.json covering it sits somewhere else.
 	packageBoundary bool
 
 	// npmHub is the repo label prefix that a bare specifier resolves into,
@@ -1391,8 +1401,8 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 	}
 
 	// Reset per-directory flags that should not propagate past a directory.
-	// packageBoundary (explicit opt-in for a single dir in index-only mode)
-	// and targetName are directory-scoped. packageBoundaryMode, ignore,
+	// packageBoundary (the explicit opt-in for a single directory) and
+	// targetName are directory-scoped. packageBoundaryMode, ignore,
 	// declarations, and the list fields are inherited downward.
 	tc.packageBoundary = false
 	tc.targetName = ""
@@ -1408,30 +1418,17 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 		for _, d := range f.Directives {
 			switch d.Key {
 			case directivePackageBoundary:
-				// Values: "" / "every-dir" → every-dir mode
-				//         "index-only"     → index-only mode
-				//         "true"           → explicit per-directory boundary marker
-				//                            (only meaningful in index-only mode)
-				//
-				// In every-dir mode the packageBoundary flag is NOT set because
-				// every directory with .ts files is already a boundary; setting
-				// the flag would create confusing side-effects when the mode is
-				// later switched to index-only in a sub-tree.
-				// In index-only mode, "true" allows a single directory to opt-in
-				// as a boundary even without an index.ts file.
-				switch strings.TrimSpace(d.Value) {
-				case "", "every-dir":
-					tc.packageBoundaryMode = boundaryEveryDir
-					// Do NOT set packageBoundary; every-dir mode doesn't need it.
-				case "index-only":
-					tc.packageBoundaryMode = boundaryIndexOnly
-				case boundaryTsConfig:
-					tc.packageBoundaryMode = boundaryTsConfig
-				case "true":
-					// Explicit per-directory opt-in for index-only mode.
+				mode, marksDir, err := boundaryFromDirective(d.Value)
+				if err != nil {
+					log.Fatalf("typescript: %s: %v", f.Path, err)
+				}
+				if marksDir {
+					// Not a mode: every-dir needs no marker, and setting one
+					// there would change what a subtree switching to tsconfig
+					// mode below it claims.
 					tc.packageBoundary = true
-				default:
-					log.Printf("typescript: unknown ts_package_boundary value %q (want every-dir, index-only, tsconfig, or true)", d.Value)
+				} else {
+					tc.packageBoundaryMode = mode
 				}
 			case directiveIgnore:
 				if d.Value == "false" {

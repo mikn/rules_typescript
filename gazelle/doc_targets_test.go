@@ -62,68 +62,43 @@ func TestDocFilesDoNotCycleBetweenComponents(t *testing.T) {
 	}
 }
 
-// Outside every-dir mode the files of a plain subdirectory roll up into the
-// nearest package, so the roll-up walk -- not the directory listing -- is what
-// finds them. A doc file it reaches has to land in the doc target all the same:
-// in the package target it is the cycle this split exists to prevent, and in no
-// target at all nothing type-checks it. Both modes that roll up have to agree.
+// In tsconfig mode the files of a plain subdirectory roll up into the nearest
+// package, so the roll-up walk -- not the directory listing -- is what finds
+// them. A doc file it reaches has to land in the doc target all the same: in the
+// package target it is the cycle this split exists to prevent, and in no target
+// at all nothing type-checks it.
 func TestDocFilesRolledUpFromASubdirectory(t *testing.T) {
-	cases := []struct {
-		mode  string
-		files map[string]string
-	}{
-		{
-			mode: "index-only",
-			files: map[string]string{
-				"pkg/index.ts": "export { Checkbox } from \"./widget/checkbox\";\n",
-			},
-		},
-		{
-			mode: "tsconfig",
-			files: map[string]string{
-				"pkg/tsconfig.json": `{"compilerOptions":{"strict":true}}` + "\n",
-				"pkg/entry.ts":      "export { Checkbox } from \"./widget/checkbox\";\n",
-			},
-		},
-	}
-	for _, c := range cases {
-		t.Run(c.mode, func(t *testing.T) {
-			files := map[string]string{
-				"pkg/widget/checkbox.tsx":         "export const Checkbox = () => null;\n",
-				"pkg/widget/checkbox.doc.tsx":     "export * from \"./checkbox\";\n",
-				"pkg/widget/checkbox.stories.tsx": "export * from \"./checkbox\";\n",
-				"pkg/widget/checkbox.css":         ".checkbox { color: red }\n",
-			}
-			for name, content := range c.files {
-				files[name] = content
-			}
-			res := generateTree(t, files,
-				[]rule.Directive{directive(directivePackageBoundary, c.mode)}, "pkg")
+	res := generateTree(t, map[string]string{
+		"pkg/tsconfig.json":               `{"compilerOptions":{"strict":true}}` + "\n",
+		"pkg/entry.ts":                    "export { Checkbox } from \"./widget/checkbox\";\n",
+		"pkg/widget/checkbox.tsx":         "export const Checkbox = () => null;\n",
+		"pkg/widget/checkbox.doc.tsx":     "export * from \"./checkbox\";\n",
+		"pkg/widget/checkbox.stories.tsx": "export * from \"./checkbox\";\n",
+		"pkg/widget/checkbox.css":         ".checkbox { color: red }\n",
+	}, []rule.Directive{directive(directivePackageBoundary, boundaryTsConfig)}, "pkg")
 
-			claims := map[string][]string{}
-			for _, r := range res.Gen {
-				for _, s := range r.AttrStrings("srcs") {
-					claims[s] = append(claims[s], r.Name())
-				}
-			}
-			for _, doc := range []string{
-				"widget/checkbox.doc.tsx",
-				"widget/checkbox.stories.tsx",
-			} {
-				if got := claims[doc]; len(got) != 1 || got[0] != "pkg_doc" {
-					t.Errorf("%s is claimed by %v, want [pkg_doc]", doc, got)
-				}
-			}
-			if got := claims["widget/checkbox.tsx"]; len(got) != 1 || got[0] != "pkg" {
-				t.Errorf("widget/checkbox.tsx is claimed by %v, want [pkg]: the split moves "+
-					"the doc files out of the package target and nothing else", got)
-			}
-			if len(claims["widget/checkbox.css"]) != 1 {
-				t.Errorf("widget/checkbox.css is claimed by %v, want exactly one target: the "+
-					"doc split must leave the rest of the roll-up alone",
-					claims["widget/checkbox.css"])
-			}
-		})
+	claims := map[string][]string{}
+	for _, r := range res.Gen {
+		for _, s := range r.AttrStrings("srcs") {
+			claims[s] = append(claims[s], r.Name())
+		}
+	}
+	for _, doc := range []string{
+		"widget/checkbox.doc.tsx",
+		"widget/checkbox.stories.tsx",
+	} {
+		if got := claims[doc]; len(got) != 1 || got[0] != "pkg_doc" {
+			t.Errorf("%s is claimed by %v, want [pkg_doc]", doc, got)
+		}
+	}
+	if got := claims["widget/checkbox.tsx"]; len(got) != 1 || got[0] != "pkg" {
+		t.Errorf("widget/checkbox.tsx is claimed by %v, want [pkg]: the split moves "+
+			"the doc files out of the package target and nothing else", got)
+	}
+	if len(claims["widget/checkbox.css"]) != 1 {
+		t.Errorf("widget/checkbox.css is claimed by %v, want exactly one target: the "+
+			"doc split must leave the rest of the roll-up alone",
+			claims["widget/checkbox.css"])
 	}
 }
 
@@ -329,9 +304,10 @@ func TestCodegenOutIsNotAlsoADocSrc(t *testing.T) {
 		},
 		{
 			name: "rolled up below the boundary",
-			build: "# gazelle:ts_package_boundary index-only\n" +
+			build: "# gazelle:ts_package_boundary tsconfig\n" +
 				"# gazelle:ts_codegen stories_gen //tools:storygen sub/widget.stories.tsx srcs:tokens.json --out {out}\n",
 			files: map[string]string{
+				"tsconfig.json":          `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
 				"index.ts":               "export const a = 1;\n",
 				"tokens.json":            "{}\n",
 				"sub/widget.stories.tsx": "export const Generated = 1;\n",
@@ -382,10 +358,6 @@ func TestCodegenOutIsNotAlsoADocSrc(t *testing.T) {
 // target that named no tsconfig would not merely miss `lib` and `types`, it
 // would compile under a `strict` the package may have turned off -- stricter
 // than the code it demonstrates, and failing where its own siblings pass.
-//
-// The label is the one the package's other targets name, resolved once, so a
-// directory the baseline is refused for refuses it for the doc target too
-// rather than leaving it naming a label the package itself declined.
 func TestTsConfigBaselineReachesTheDocTarget(t *testing.T) {
 	t.Run("beside the package targets", func(t *testing.T) {
 		root := t.TempDir()
@@ -449,47 +421,6 @@ func TestTsConfigBaselineReachesTheDocTarget(t *testing.T) {
 		if got != want {
 			t.Errorf("ts_compile(gallery_doc).tsconfig = %q, want %q -- a doc target is a "+
 				"reason to resolve the baseline, so the guard has to count doc files", got, want)
-		}
-		if dangling := danglingLabels(t, root); len(dangling) > 0 {
-			t.Errorf("%d label(s) no target satisfies:\n      %s",
-				len(dangling), strings.Join(dangling, "\n      "))
-		}
-	})
-
-	// The refusal cases are the package's, not the target's: a BUILD file
-	// written into packages/core to hold the ts_config would take
-	// packages/core/other out of the target above it, so nobody here names the
-	// file -- and the doc target has to be one of the nobodies. Resolving the
-	// label a second time for the doc target on its own is what this catches.
-	t.Run("refused for the package refuses for the doc target", func(t *testing.T) {
-		root := t.TempDir()
-		writeWorkspace(t, root, map[string]string{
-			"BUILD.bazel":                        "# gazelle:ts_package_boundary index-only\n",
-			"package.json":                       `{"name":"w"}` + "\n",
-			"packages/core/tsconfig.json":        `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
-			"packages/core/src/index.ts":         "export * from \"./badge\";\n",
-			"packages/core/src/badge.ts":         "export const Badge = 1;\n",
-			"packages/core/src/badge.stories.ts": "export * from \"./badge\";\n",
-			"packages/core/other/util.ts":        "export const util = 1;\n",
-		})
-		logged := captureLog(t, func() { convergeGazelle(t, root) })
-
-		if hasBuildFile(root, "packages/core") {
-			t.Error("generation made packages/core a package in a roll-up mode, which drops " +
-				"every source beneath it from the target above")
-		}
-		for _, name := range []string{"src", "src_doc"} {
-			if got, _ := attrOf(t, root, "packages/core/src", "ts_compile", name, "tsconfig"); got != "" {
-				t.Errorf("ts_compile(%s).tsconfig = %q, want no attribute: nothing writes "+
-					"that package", name, got)
-			}
-		}
-		if _, ok := attrOf(t, root, "packages/core/src", "ts_compile", "src_doc", "srcs"); !ok {
-			t.Fatalf("generation wrote no ts_compile(src_doc), so the story is compiled by "+
-				"nothing:\n%s", buildFileText(t, root, "packages/core/src"))
-		}
-		if !strings.Contains(logged, "packages/core") {
-			t.Errorf("the refusal was silent; log said:\n%s", logged)
 		}
 		if dangling := danglingLabels(t, root); len(dangling) > 0 {
 			t.Errorf("%d label(s) no target satisfies:\n      %s",

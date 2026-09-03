@@ -27,9 +27,8 @@ my-monorepo/
 
 Gazelle's default is **every-dir**, the way every directory with `.go` files is a
 Go package. Two directives depart from it:
-`# gazelle:ts_package_boundary index-only` for the older
-`index.ts`-marks-a-package behaviour, and `# gazelle:ts_target_name` to rename
-one target.
+`# gazelle:ts_package_boundary tsconfig` for one target per TypeScript project,
+and `# gazelle:ts_target_name` to rename one target.
 
 Write a target by hand when a directory is a genuine unit: a public API behind an
 `index.ts`, something other packages import, something published as its own npm

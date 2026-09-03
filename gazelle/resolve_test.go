@@ -985,10 +985,10 @@ func TestResolveImports_MissingDirectoryFabricatesNothing(t *testing.T) {
 	}
 }
 
-// rolledUpIn skips a dot-directory, node_modules, dist and bazel-out, so under
-// any boundary mode but every-dir nothing claims their files and no BUILD file
-// is written in them. A label naming one is the resolver contradicting the
-// generator, and Bazel answers it with `no such package` during analysis.
+// skipRolledUpDir skips a dot-directory, node_modules, dist and bazel-out, so
+// under tsconfig mode nothing claims their files and no BUILD file is written in
+// them. A label naming one is the resolver contradicting the generator, and
+// Bazel answers it with `no such package` during analysis.
 //
 // Every directory below is on disk, so the neighbouring existence guard cannot
 // be what answers these.

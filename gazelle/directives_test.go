@@ -3,6 +3,7 @@ package typescript
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
@@ -77,29 +78,29 @@ func TestDirective_PackageBoundary_EveryDir(t *testing.T) {
 	}
 }
 
-func TestDirective_PackageBoundary_IndexOnly(t *testing.T) {
+func TestDirective_PackageBoundary_TsConfig(t *testing.T) {
 	tc := makeConfig("", []rule.Directive{
-		directive(directivePackageBoundary, "index-only"),
+		directive(directivePackageBoundary, "tsconfig"),
 	})
-	if tc.packageBoundaryMode != boundaryIndexOnly {
-		t.Errorf("ts_package_boundary index-only: got %q, want %q", tc.packageBoundaryMode, boundaryIndexOnly)
+	if tc.packageBoundaryMode != boundaryTsConfig {
+		t.Errorf("ts_package_boundary tsconfig: got %q, want %q", tc.packageBoundaryMode, boundaryTsConfig)
 	}
 }
 
 func TestDirective_PackageBoundary_ModeInheritedByChild(t *testing.T) {
 	tc := makeChildConfig(
-		[]rule.Directive{directive(directivePackageBoundary, "index-only")},
+		[]rule.Directive{directive(directivePackageBoundary, "tsconfig")},
 		"src/lib",
 		nil,
 	)
-	if tc.packageBoundaryMode != boundaryIndexOnly {
-		t.Errorf("child should inherit index-only mode, got %q", tc.packageBoundaryMode)
+	if tc.packageBoundaryMode != boundaryTsConfig {
+		t.Errorf("child should inherit tsconfig mode, got %q", tc.packageBoundaryMode)
 	}
 }
 
 func TestDirective_PackageBoundary_ChildCanOverrideToEveryDir(t *testing.T) {
 	tc := makeChildConfig(
-		[]rule.Directive{directive(directivePackageBoundary, "index-only")},
+		[]rule.Directive{directive(directivePackageBoundary, "tsconfig")},
 		"src/lib",
 		[]rule.Directive{directive(directivePackageBoundary, "every-dir")},
 	)
@@ -109,8 +110,8 @@ func TestDirective_PackageBoundary_ChildCanOverrideToEveryDir(t *testing.T) {
 }
 
 func TestDirective_PackageBoundary_EveryDirDoesNotSetPackageBoundaryFlag(t *testing.T) {
-	// In every-dir mode the packageBoundary flag must NOT be set; setting it
-	// would cause confusing side-effects when a sub-tree switches to index-only.
+	// In every-dir mode the flag has nothing to mark; setting it would change
+	// what a subtree that switches to tsconfig mode below it claims.
 	tc := makeConfig("", []rule.Directive{
 		directive(directivePackageBoundary, "every-dir"),
 	})
@@ -120,13 +121,64 @@ func TestDirective_PackageBoundary_EveryDirDoesNotSetPackageBoundaryFlag(t *test
 }
 
 func TestDirective_PackageBoundary_TrueValueSetsFlag(t *testing.T) {
-	// The special value "true" marks this directory as an explicit boundary,
-	// which is useful in index-only mode without an index.ts.
 	tc := makeConfig("", []rule.Directive{
 		directive(directivePackageBoundary, "true"),
 	})
 	if !tc.packageBoundary {
 		t.Error("ts_package_boundary true should set packageBoundary = true")
+	}
+	if tc.packageBoundaryMode != boundaryEveryDir {
+		t.Errorf("\"true\" named a mode: got %q, want the inherited %q",
+			tc.packageBoundaryMode, boundaryEveryDir)
+	}
+}
+
+func TestDirective_PackageBoundary_KnownValues(t *testing.T) {
+	for _, tt := range []struct {
+		value    string
+		mode     string
+		marksDir bool
+	}{
+		{"", boundaryEveryDir, false},
+		{"every-dir", boundaryEveryDir, false},
+		{"  tsconfig  ", boundaryTsConfig, false},
+		{"true", "", true},
+	} {
+		mode, marksDir, err := boundaryFromDirective(tt.value)
+		if err != nil {
+			t.Fatalf("ts_package_boundary %q: %v", tt.value, err)
+		}
+		if mode != tt.mode || marksDir != tt.marksDir {
+			t.Errorf("ts_package_boundary %q = (%q, %v), want (%q, %v)",
+				tt.value, mode, marksDir, tt.mode, tt.marksDir)
+		}
+	}
+}
+
+// A value the ruleset does not know is an error, not the inherited mode: a
+// directive that quietly does nothing leaves a tree compiling to something
+// other than what its author wrote. The refusal reaching the run is
+// //tests/gazelle_binary's, which can observe the exit status.
+func TestDirective_PackageBoundary_UnknownValueIsAnError(t *testing.T) {
+	for _, tt := range []struct {
+		value string
+		says  []string
+	}{
+		{"index-only", []string{"index-only", "was removed", boundaryEveryDir, boundaryTsConfig}},
+		{"every_dir", []string{"unknown", "every_dir", boundaryEveryDir, boundaryTsConfig}},
+		{"tsconfig.json", []string{"unknown", "tsconfig.json"}},
+	} {
+		t.Run(tt.value, func(t *testing.T) {
+			_, _, err := boundaryFromDirective(tt.value)
+			if err == nil {
+				t.Fatalf("ts_package_boundary %q was accepted", tt.value)
+			}
+			for _, want := range tt.says {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("the error does not mention %q: %v", want, err)
+				}
+			}
+		})
 	}
 }
 

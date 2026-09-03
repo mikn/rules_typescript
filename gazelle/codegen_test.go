@@ -746,15 +746,16 @@ func TestGenerate_PackageWithOnlyGeneratedSources(t *testing.T) {
 	}
 }
 
-// The claim has to hold wherever the file turns up. In index-only mode a
+// The claim has to hold wherever the file turns up. In tsconfig mode a
 // subdirectory is not a package, so its files are rolled into this one -- and a
 // rolled-up file a ts_codegen declares would otherwise reach a css_library and
 // be a source and an output of the same package.
 func TestGenerate_RolledUpCodegenOutIsNotAlsoASrc(t *testing.T) {
 	res := runGenerateWithBuild(t, "api", `
-# gazelle:ts_package_boundary index-only
+# gazelle:ts_package_boundary tsconfig
 # gazelle:ts_codegen theme_gen //tools:themegen sub/theme.css srcs:tokens.json --out {out}
 `, map[string]string{
+		"tsconfig.json": `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
 		"index.ts":      "export const a = 1;\n",
 		"tokens.json":   "{}\n",
 		"sub/theme.css": ".a {}\n",

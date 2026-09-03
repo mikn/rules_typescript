@@ -412,8 +412,8 @@ func dirTargetLabel(rel, name string) string {
 	}
 }
 
-// Outside every-dir mode a plain subdirectory's sources roll up into its
-// nearest package, and generation there emits nothing to name.
+// In tsconfig mode a subdirectory holding no tsconfig.json of its own rolls up
+// into its nearest package, and generation there emits nothing to name.
 func dirGetsItsOwnTargets(absDir string, tc *tsConfig, rel string) bool {
 	if rel == "" {
 		return true
