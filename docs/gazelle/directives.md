@@ -363,8 +363,9 @@ is inherited by that tree only. Labels accumulate down the tree, so a root
 `web/`.
 
 It does not widen what the compiler accepts: the dep still has to exist, and
-`ts_compile` still names only direct `@types/*` deps in the tsconfig's `files`.
-See [ts_compile](../rules/ts-compile.md).
+`ts_compile` still names only direct `@types/*` deps in the tsconfig's `files`,
+plus what their entries name in `/// <reference types=...>`. See
+[ts_compile](../rules/ts-compile.md#types-packages).
 
 ### Suppress Generation for a Directory
 

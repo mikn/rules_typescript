@@ -11,6 +11,7 @@ load(":member_paths_tests.bzl", "member_paths_test_suite")
 load(":node_modules_cache_tests.bzl", "tree_is_never_fetched_test")
 load(":parser_tests.bzl", "parser_test_suite")
 load(":resolution_tests.bzl", "conflicting_direct_peers_test", "conflicting_direct_versions_test")
+load(":type_references_tests.bzl", "type_references_test_suite")
 load(":types_only_tests.bzl", "types_only_test_suite")
 load(":workspace_link_tests.bzl", "workspace_link_test_suite")
 
@@ -38,6 +39,10 @@ workspace_link_test_suite(name = "workspace_link_tests")
 member_paths_test_suite(name = "member_paths_tests")
 
 types_only_test_suite(name = "types_only_tests")
+
+# Header-text tests: which packages a declaration's `/// <reference types=...>`
+# directives name, and that the stanza carries them.
+type_references_test_suite(name = "type_references_tests")
 
 # The end of that resolution: the ruleset's own Vite plugin type-checks against
 # the declarations of the Vite it depends on, named as a file. Nothing else

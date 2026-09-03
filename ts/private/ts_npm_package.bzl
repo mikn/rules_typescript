@@ -133,6 +133,11 @@ def _ts_npm_package_impl(ctx):
                 subpath_types[subpath] = f
                 break
 
+    type_references = {
+        package_root + "/" + rel: names
+        for rel, names in ctx.attr.type_references.items()
+    }
+
     ambient_types_file = None
     if ctx.attr.is_types_package or declares_only_types([f.basename for f in all_files]):
         ambient_types_file = _ambient_entry(
@@ -184,6 +189,7 @@ def _ts_npm_package_impl(ctx):
             ),
             exports_types_file = ctx.file.exports_types,
             subpath_types = subpath_types,
+            type_references = type_references,
             ambient_types_file = ambient_types_file,
             types_package_dir = types_package_dir,
         ),
@@ -238,6 +244,16 @@ ts_npm_package = rule(
                   "package ships behind a subpath reaches the program: tsconfig " +
                   "`types` resolves through node_modules, and npm packages reach " +
                   "the compiler through `paths`.",
+        ),
+        "type_references": attr.string_list_dict(
+            doc = "Each declaration the manifest designates -- the entry and the " +
+                  "`exports` subpaths -- keyed by package-relative path, mapped to the " +
+                  "packages its `/// <reference types=...>` directives name, the " +
+                  "`/// <reference path=...>` siblings it pulls in included. TypeScript " +
+                  "resolves the directive through node_modules, which a consumer's " +
+                  "sandbox has none of, so the consumer resolves each name against this " +
+                  "package's deps and lists the answer beside the file in its tsconfig " +
+                  "`files`. Written by npm_import from the files themselves.",
         ),
         "exports_types": attr.label(
             doc = "The specific .d.ts file exposed via exports['.']['types'] in package.json. " +

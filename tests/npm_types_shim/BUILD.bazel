@@ -1,0 +1,55 @@
+"""A @types package whose entry is only a `/// <reference types="..." />`.
+
+@types/bun/index.d.ts is that one line, forwarding to bun-types. Everything the
+source below uses -- the `Bun` global, `import.meta.main` -- is declared in
+bun-types, so compiling :consumer is the assertion.
+"""
+
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "ts_compile")
+load("//ts/private:tsconfig_aspect.bzl", "ide_tsconfig")
+load(":shim_tests.bzl", "editor_forwarded_test", "forwarded_entries_test", "untyped_forward_test")
+
+package(default_visibility = ["//:__pkg__"])
+
+ts_compile(
+    name = "consumer",
+    srcs = ["bun_globals.ts"],
+    deps = ["@npm//:types_bun"],
+)
+
+build_test(
+    name = "forwarding_shim_test",
+    targets = [":consumer"],
+)
+
+forwarded_entries_test(
+    name = "forwarded_entries_test",
+    target_under_test = ":consumer",
+)
+
+# The forwarded package kept out: analysed, never built, since the shim then
+# supplies nothing and `Bun` is undeclared again.
+ts_compile(
+    name = "consumer_untyped",
+    srcs = ["forwarded_untyped.ts"],
+    tags = ["manual"],
+    untyped_packages = ["bun-types"],
+    deps = ["@npm//:types_bun"],
+)
+
+untyped_forward_test(
+    name = "untyped_forward_test",
+    target_under_test = ":consumer_untyped",
+)
+
+ide_tsconfig(
+    name = "consumer_ide_tsconfig",
+    tags = ["manual"],
+    deps = [":consumer"],
+)
+
+editor_forwarded_test(
+    name = "editor_forwarded_test",
+    target_under_test = ":consumer_ide_tsconfig",
+)

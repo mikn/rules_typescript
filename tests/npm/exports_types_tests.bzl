@@ -423,6 +423,7 @@ def _written_form_test(ctx):
             "",
             exports_types(json.decode(case.manifest), _shipping(case.files)),
             {},
+            {},
         )
         asserts.equals(
             env,

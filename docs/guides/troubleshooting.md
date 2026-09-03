@@ -356,7 +356,10 @@ ordinary `@types/*` package. Name it in `deps`, or in
 if the whole tree needs it.
 
 Gazelle does not rewrite the directive, and neither the import scanner nor the
-strict-deps checker reads it.
+strict-deps checker reads it. That is the directive in a file of your own; one
+in an npm package's declaration entry -- `@types/bun/index.d.ts` is exactly
+`/// <reference types="bun-types" />` -- is followed by the rule, see
+[`@types/*` packages](../rules/ts-compile.md#types-packages).
 
 ## compilerOptions.types entry "vite/client" resolves to nothing
 

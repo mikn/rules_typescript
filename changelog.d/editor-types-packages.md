@@ -19,9 +19,10 @@
 
   A `@types/*` package installs under `npm_dir` at its own name, and the key
   points in there. The `files` array is a second route and a narrower one: it is
-  built from what each reached target declares in its own `deps`, so a `@types/*`
-  package reached transitively is named in no `files` array and the `paths` key
-  is the only route it has. Three of the four keys this repo's own config gained
+  built from what each reached target declares in its own `deps` plus what those
+  entries name in `/// <reference types=...>`, so a `@types/*` package reached
+  only through an import is named in no `files` array and the `paths` key is the
+  only route it has. Three of the four keys this repo's own config gained
   are that case -- `@types/deep-eql`, `@types/estree` and `@types/json-schema`,
   none of which was installed at all before; the fourth, `@types/node`, was
   already installed for its `files` entry, so the growth under `.bazel/npm` is

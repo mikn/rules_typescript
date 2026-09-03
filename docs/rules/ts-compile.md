@@ -300,6 +300,17 @@ mostly inside *other packages'* `.d.ts` files -- `rollup`'s say
 hides the `TS2307` and the types those files export widen to `any` instead. See
 [Finding a broken declaration](#finding-a-broken-declaration).
 
+A `@types/*` entry that forwards -- `@types/bun/index.d.ts` is exactly
+`/// <reference types="bun-types" />` -- brings the package it names along.
+TypeScript resolves that directive through `typeRoots` and a `node_modules`
+walk from the referencing file, never through `paths`, so the sandbox resolves
+it to nothing and `skipLibCheck` hides the `TS2688`. The names in each
+designated declaration's header are read when the package is fetched, resolved
+against that package's own dependencies (`@types/x` first, as `typeRoots`
+goes), and the answers join `files` beside the entry, chain included:
+`bun-types`' own entry references `node`, so `@types/node` arrives with it. A
+package in `untyped_packages` answers no directive.
+
 ### Finding a Broken Declaration
 
 The baseline sets `skipLibCheck: true`, so a `.d.ts` whose own imports do not
