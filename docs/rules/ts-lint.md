@@ -21,9 +21,9 @@ ts_lint(
 ```
 
 Gazelle writes one `<name>_lint` beside each `ts_compile` when a linter config
-file sits in the package or any ancestor. See
+file sits in the package or any ancestor and `pnpm-lock.yaml` has the linter. See
 [Automatic lint targets](../gazelle/overview.md#automatic-lint-targets) for the
-detection order.
+detection order and for the config it refuses.
 
 ## Validation Action
 

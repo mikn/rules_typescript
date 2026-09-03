@@ -31,7 +31,11 @@ func main() {
 		// the same boundary this case is about.
 		it.Write(it.Path("src/i18n/BUILD.bazel"), codegenGlobDirective)
 
-		it.MustBazel("run", "//:gazelle")
+		gazelleLog, err := it.BazelLog("gazelle_pass_1", "run", "//:gazelle")
+		if err != nil {
+			gazelleLog.Dump()
+			it.Fail("bazel run //:gazelle exited non-zero: %v", err)
+		}
 		it.Pass("gazelle pass 1 complete")
 
 		for _, dir := range dirs {
@@ -95,7 +99,24 @@ func main() {
 		assetDeclarationTypeApplies(it)
 		anchoredExcludeHitsOnePath(it)
 		jsSrcsAreCompiledAndDeclared(it)
+		lintWithoutTheLinterIsRefused(it, gazelleLog)
 	})
+}
+
+// src/app holds an eslint.config.js, and tests/npm's lockfile has oxlint and no
+// eslint. A ts_lint naming @npm//:eslint_bin is a label the hub does not
+// declare, and `no such target` fails the whole package at analysis -- so the
+// `bazel build //...` above is the half of this that only Bazel can say.
+func lintWithoutTheLinterIsRefused(it *harness.IT, gazelleLog *harness.Log) {
+	it.RequireNotContains(it.Path("src/app/BUILD.bazel"), "ts_lint",
+		"src/app got a ts_lint for a linter the lockfile does not have")
+	it.Pass("src/app/BUILD.bazel carries no ts_lint")
+
+	if !gazelleLog.Contains("src/app/eslint.config.js") {
+		gazelleLog.Dump()
+		it.Fail("Gazelle wrote no ts_lint for src/app and did not say which config it refused")
+	}
+	it.Pass("Gazelle named src/app/eslint.config.js as the config it wrote no ts_lint for")
 }
 
 const codegenGlobDirective = "# gazelle:ts_codegen locales //:catalogue_gen locales.ts " +

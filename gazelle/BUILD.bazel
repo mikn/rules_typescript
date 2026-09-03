@@ -69,6 +69,7 @@ go_test(
         "jsonc_test.go",
         "keep_test.go",
         "labels_test.go",
+        "lint_binary_lockfile_test.go",
         "npm_inventory_test.go",
         "package_entry_test.go",
         "package_imports_test.go",

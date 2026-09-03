@@ -623,24 +623,26 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		imports = append(imports, uniqueImports(allImports))
 
 		// ---- ts_lint target (alongside ts_compile when linter is detected) --
-		// When an eslint or oxlint config exists in this directory or any
-		// ancestor, generate a ts_lint target. The rule name is "<name>_lint".
-		// The linter_binary label follows the @npm//:oxlint_bin convention.
+		// The binary is a hub label, so it takes the lockfile test a bare
+		// specifier does; a ts_lint an earlier run wrote is the label failing now.
 		if tc.linterConfig != "" && tc.linterType != "" {
 			lintName := name + "_lint"
-			lr := rule.NewRule("ts_lint", lintName)
-			lr.SetAttr("srcs", srcLabels(srcsWithEntry))
-			lr.SetAttr("linter", tc.linterType)
-			if binLabel := linterBinaryLabel(tc.linterType); binLabel != "" {
-				lr.SetAttr("linter_binary", binLabel)
+			if !hubCouldDeclare(tc, tc.linterType) {
+				reportLinterNotInLockfile(args.Config.RepoRoot, tc)
+				if ruleExists(args, "ts_lint", lintName) {
+					empty = append(empty, rule.NewRule("ts_lint", lintName))
+				}
+			} else {
+				lr := rule.NewRule("ts_lint", lintName)
+				lr.SetAttr("srcs", srcLabels(srcsWithEntry))
+				lr.SetAttr("linter", tc.linterType)
+				lr.SetAttr("linter_binary", linterBinaryLabel(tc))
+				lr.SetAttr("config", linterConfigLabel(tc.linterConfig))
+				gen = append(gen, lr)
+				// ts_lint has no import resolution needs; placeholder nil keeps
+				// len(gen) == len(imports) invariant.
+				imports = append(imports, nil)
 			}
-			if cfgLabel := linterConfigLabel(tc.linterConfig); cfgLabel != "" {
-				lr.SetAttr("config", cfgLabel)
-			}
-			gen = append(gen, lr)
-			// ts_lint has no import resolution needs; placeholder nil keeps
-			// len(gen) == len(imports) invariant.
-			imports = append(imports, nil)
 		}
 	} else if isBoundary && len(srcFiles) == 0 {
 		// Boundary directory with no source files: emit an empty rule to clean

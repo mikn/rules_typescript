@@ -273,8 +273,10 @@ come from is a property of that package, so it is named where the package is:
 ```
 
 Generated deps in that tree then read `@npm_eslint//:eslint` rather than
-`@npm//:eslint`. Without it the label names a hub the package does not use, and
-that label does not exist. Both `npm_eslint` and `@npm_eslint` are accepted.
+`@npm//:eslint`, and a generated `ts_lint`'s `linter_binary` reads
+`@npm_eslint//:eslint_bin`. Without it the label names a hub the package does
+not use, and that label does not exist. Both `npm_eslint` and `@npm_eslint` are
+accepted.
 
 Declaring a hub is `npm.translate_lock(name = ...)` plus a matching `use_repo`,
 and each hub needs its own `ts_add_package` target. See
