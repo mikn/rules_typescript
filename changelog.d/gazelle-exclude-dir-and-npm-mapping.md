@@ -11,10 +11,12 @@
 
   It is repeatable, and a nested build file's directives **append** to the set
   they inherit rather than replacing it, so the effective set does not depend on
-  which directory asks. The value is a basename and not a path or a glob:
-  a basename is all the traversal ever compares against, so anything else is
-  refused out loud rather than silently excluding nothing — and excluding one
-  named path is what `# gazelle:ts_exclude ./web/coverage` already does.
+  which directory asks. The whole value is one basename: a path, a glob, or a
+  list of names is refused out loud rather than silently excluding nothing,
+  because one directory basename compared literally is all the traversal ever
+  does. `ts_exclude` does not reach a directory either — its patterns drop files
+  from a target's `srcs`, and under the default `every-dir` boundary that
+  directory is its own target.
 
 - **`# gazelle:ts_npm_mapping <file>` points named npm packages at labels of
   your own.** The value is a workspace-root-relative JSON file of npm package

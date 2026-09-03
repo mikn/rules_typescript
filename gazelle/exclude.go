@@ -66,18 +66,21 @@ func (tc *tsConfig) addExcludeDir(rel, name string) {
 	case name == "":
 		log.Printf("typescript: %s: # gazelle:ts_exclude_dir needs a directory basename after it.",
 			orRepoRoot(rel))
+	case strings.ContainsAny(name, " \t"):
+		log.Printf("typescript: %s: # gazelle:ts_exclude_dir %s excludes nothing: the whole "+
+			"value is one basename, so a list of them matches no directory. Repeat the "+
+			"directive, one name each.",
+			orRepoRoot(rel), name)
 	case strings.Contains(name, "/"):
 		log.Printf("typescript: %s: # gazelle:ts_exclude_dir %s excludes nothing: the traversal "+
 			"compares a directory's basename against this value literally, so a path never "+
-			"matches. Name the basename alone (# gazelle:ts_exclude_dir %s), or use "+
-			"# gazelle:ts_exclude %s%s to drop that one path.",
-			orRepoRoot(rel), name, path.Base(name), anchoredExcludePrefix, name)
+			"matches. Name the basename alone (# gazelle:ts_exclude_dir %s).",
+			orRepoRoot(rel), name, path.Base(name))
 	case strings.ContainsAny(name, "*?["):
 		log.Printf("typescript: %s: # gazelle:ts_exclude_dir %s excludes nothing: the traversal "+
 			"compares a directory's basename against this value literally, so a glob never "+
-			"matches. Name each basename in its own directive, or use "+
-			"# gazelle:ts_exclude %s%s, which does glob a path.",
-			orRepoRoot(rel), name, anchoredExcludePrefix, name)
+			"matches. Name each basename in its own directive.",
+			orRepoRoot(rel), name)
 	default:
 		tc.excludeDirs = append(tc.excludeDirs, name)
 	}

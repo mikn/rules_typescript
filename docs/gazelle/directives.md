@@ -734,9 +734,12 @@ exactly the kind with no build file of its own, and writing one there to say
 "ignore me" is backwards — that is what `ts_ignore` is for, in a directory whose
 BUILD file you are keeping anyway.
 
-The value is a basename. A path or a glob is refused out loud, because the
-traversal only ever compares basenames, and excluding one named path is what
-`# gazelle:ts_exclude ./web/coverage` already does.
+The value is a basename, and the whole value is one name. A path, a glob or a
+list of names is refused out loud, because the traversal only ever compares one
+directory basename against it. `ts_exclude` is not the way to reach a directory
+either: its patterns drop files from a target's `srcs`, and under the default
+`every-dir` boundary the directory is its own target, so an anchored path never
+gets there.
 
 Repeat the directive for each name. A nested build file's directives **append**
 to the set it inherits, so the effective set does not depend on which directory

@@ -60,11 +60,12 @@ func TestExcludeDir_RepeatsInOneBuildFile(t *testing.T) {
 	}
 }
 
-// A basename is all the traversal ever compares against, so a value carrying a
-// path or a glob excludes nothing. Saying so is the alternative to a directive
-// that silently does not act.
+// One basename is all the traversal ever compares against, so a value carrying
+// a path, a glob, or a second name excludes nothing. The list shape is the one
+// worth pinning: ts_js_srcs and ts_asset_declaration_type take several values,
+// so an author has every reason to expect this one does too.
 func TestExcludeDir_AValueThatCannotMatchIsRefusedOutLoud(t *testing.T) {
-	for _, value := range []string{"web/coverage", "cover*", ""} {
+	for _, value := range []string{"web/coverage", "cover*", "coverage storybook-static", ""} {
 		files := map[string]string{
 			"BUILD.bazel":          "# gazelle:ts_exclude_dir " + value + "\n",
 			"web/coverage/lcov.ts": "export const c = 1;\n",
