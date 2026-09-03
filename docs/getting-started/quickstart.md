@@ -60,9 +60,10 @@ whenever the repository cache is cold, which makes the build non-reproducible.
 ### archive_override
 
 `git_override` runs a full `git clone` and pays for the whole history, which
-still carries ~200 MB of cargo build output that was tracked by mistake before
-it was removed. A codeload tarball is a single snapshot of about 1.3 MB; prefer
-it on CI. Compute the integrity hash for the commit you want:
+still carries about 145 MB of packed cargo build output (524 MB uncompressed)
+that was tracked by mistake before it was removed. A codeload tarball is a
+single snapshot of about 1.7 MB; prefer it on CI. Compute the integrity hash
+for the commit you want:
 
 ```bash
 COMMIT=<full 40-char sha>

@@ -138,8 +138,10 @@ The two places a generated config is known to be version-sensitive:
 oj is the second `ts_dev_server` implementation, and unlike Vite it comes from
 this ruleset rather than from your lockfile. It publishes no npm package and no
 release binary, so cargo is the only channel to pin it from: `MODULE.bazel`'s
-`oj_crates` extension pins the crate at `=0.1.6` and rules_rust builds it from
-source. The first build of a target selecting oj is a Rust compile.
+`oj_crates` hub pins the crate to a git revision of `github.com/mikn/oj`,
+upstream main plus nine fixes each open as its own upstream PR (listed beside
+the pin), and rules_rust builds it from source. The first build of a target
+selecting oj is a Rust compile.
 
 What tests it:
 

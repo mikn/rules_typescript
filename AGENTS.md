@@ -45,7 +45,8 @@ cd e2e/basic && bazel test //...           # e2e workspace (in .bazelignore)
 cd examples/react-app && bazel test //...  # example workspace (in .bazelignore)
 
 # One integration test on its own. Each spawns a nested Bazel and is tagged
-# `exclusive`, so they run serially rather than being excluded.
+# `nested-bazel` and `cpu:2`: --config=fast drops them, and a full run bounds
+# how many run at once by the machine's cores.
 bazel test //tests/integration:new_project_test
 ```
 
@@ -63,8 +64,9 @@ Do not skip the review stage. It has caught real bugs in every round.
 
 ```
 ts_compile → TsStrictDeps action (.strictdeps stamp; gates the compile)
-           → OxcCompile action (.js + .d.ts + .js.map)
-           → TsgoCheck validation action (.tscheck stamp in _validation)
+           → OxcCompile action (.js + .js.map; + .d.ts under declarations = "oxc")
+           → TsgoDeclare action (.d.ts; the default)
+             or TsgoCheck validation action (.tscheck stamp in _validation; under "oxc")
 
 .d.ts = compilation boundary. Downstream sees only .d.ts, not .ts source.
 Change implementation without changing .d.ts → no downstream recompilation.
@@ -160,21 +162,27 @@ one. A target exporting none runs no such action and provides no such file.
 - pnpm is hermetic (`bazel run //:pnpm`). No system pnpm needed.
 - `--lockfile-only` is the standard for adding packages. No `node_modules/` in source tree.
 - npm aliases (e.g., `h3-v2: npm:h3@2.0.1-rc.16`) must produce both the alias and real targets
-- Dependency cycles broken via Kosaraju's SCC algorithm
+- Dependency cycles broken by `break_cycles` in `npm/lazy.bzl`: a depth-first walk that drops each edge closing a cycle
 
 ## Gazelle Directives (complete list)
 
 | Directive | Effect |
 |---|---|
-| `ts_package_boundary every-dir\|tsconfig\|true` | Package boundary mode |
+| `ts_package_boundary every-dir\|tsconfig\|true` | Package boundary mode; `true` marks the one directory |
 | `ts_declarations tsgo\|oxc` | Choose the declaration emitter for the subtree |
 | `ts_path_alias @/ src/` | Path alias (merges with parent) |
 | `ts_runtime_dep @npm//:happy-dom` | Always-included test dep |
-| `ts_exclude *.generated.ts` | Exclude pattern |
+| `ts_ambient_types @npm//:types_node` | Dep appended to every generated `ts_compile` and `ts_test` in the tree |
+| `ts_exclude *.generated.ts` | Exclude pattern: a basename glob, or a `./`-anchored path |
+| `ts_exclude_dir coverage` | Directory basename Gazelle does not enter |
 | `ts_warn_unresolved true` | Warn on unresolved imports |
 | `ts_ignore` | Skip this directory |
 | `ts_target_name <name>` | Override target name |
-| `ts_codegen <name> <generator> <outs> [args]` | Custom codegen rule |
+| `ts_codegen <name> <generator> <outs> [srcs:<csv>] [args]` | Custom codegen rule |
+| `ts_npm_hub <repo>` | The npm hub bare specifiers in this tree resolve into |
+| `ts_npm_mapping <path.json>` | Overlay a hand-written npm name → label mapping on the lockfile inventory |
+| `ts_asset_declaration_type <ext> <type>` | The type an asset extension's import resolves to in this tree |
+| `ts_js_srcs .mjs .cjs` | Admit JavaScript sources of those extensions into generated `srcs` |
 
 ## Provider Contract
 
@@ -207,7 +215,7 @@ one `npm_import` per package + one `npm_hub` of aliases.
 
 The analysis stays in the extension because none of it is a decision a package
 can make about itself: platform filtering, which package a bare label means
-(highest version), `@types` pairing, cycle breaking (Kosaraju's SCC), alias
+(highest version), `@types` pairing, cycle breaking (`break_cycles`), alias
 naming, patch routing. Each package then reads its own `package.json` and writes
 its own BUILD file, which is what makes on-demand fetching possible.
 
@@ -227,8 +235,8 @@ where it is not: a name's primary resolution keeps the top-level directory, ever
 other one gets its bytes once under
 `.pnpm/<name>@<version>[_<peer set>]/node_modules/<name>`, and each dependent
 that resolved to one of those gets a relative symlink. The manifest the builder
-reads is `op \t source \t destination`, `C` copy and `L` symlink, copies first so
-no link is ever dangling.
+reads is `op \t source \t destination`: `C` copy, `L` directory symlink and `S`
+file symlink, copies first so no link is ever dangling.
 
 A resolution is name, version AND peer set: pnpm resolves a package once per
 distinct peer set and the outcomes have different dependency edges, so
@@ -267,14 +275,21 @@ pins the header reader and `tests/npm_types_shim` the route.
 Three invariants in `ts/private/ts_dev_server.bzl`, each of which was a silent
 no-op before it was one.
 
-**npm resolution is a plugin, because Vite has no option for it.**
-`resolve.modules` is webpack's; Vite ignores it, so the line configured nothing
-and a served source importing a bare specifier answered 500. `bazel:npm-resolve`
-is `enforce: 'pre'`: it locates `<tree>/<pkg>/package.json`, and if that exists
-hands the id straight back to `this.resolve()` with that manifest as the importer.
-Exports maps, conditions and subpaths stay Vite's to interpret — do not
-reimplement any of them here. A package the tree does not carry returns `null`, so
-Vite's own unresolved-import error is what the user sees.
+**npm resolution is a `node_modules` link, with a plugin behind it, because Vite
+has no search-path option.** `resolve.modules` is webpack's; Vite ignores it, so
+the line configured nothing and a served source importing a bare specifier
+answered 500. Vite resolves a bare specifier by walking up from the importer, or
+from `root` for `resolve.dedupe` and `optimizeDeps.include`, and neither walk
+goes through the plugin container, so the launcher links the npm tree in as
+`<workspace>/node_modules` (`linkAs` in `tools/launcher/plan.go`).
+`bazel:npm-resolve` is `enforce: 'post'`, for an importer the walk cannot reach:
+it locates `<tree>/<pkg>/package.json`, and if that exists hands the id back to
+`this.resolve()` with that manifest as the importer. At `'pre'` it rewrote every
+bare importer into the tree, which reads to Vite as a node_modules-internal
+import and opts the module out of dependency optimisation. Exports maps,
+conditions and subpaths stay Vite's to interpret — do not reimplement any of them
+here. A package the tree does not carry returns `null`, so Vite's own
+unresolved-import error is what the user sees.
 
 **An entry point comes from the package's `exports` map, never from a path into
 its `dist/`.** `@vitejs/plugin-react` moved its entry between the two majors this
@@ -331,17 +346,21 @@ workspace — `//tests/integration:remix_test` pins both sides of that.
 ## Vite and vitest are consumer versions, and one lane is tested
 
 Neither is a ruleset dependency; both come from a consumer lockfile, and the rules
-generate config for whatever it resolves to. Two hubs exist and only one of them
-is a lane. `@npm` (`tests/npm/pnpm-lock.yaml`) resolves vite and vitest, one
-resolution each, and everything runs on it — `tests/vitest/**`,
-`tests/dev_server/**`, `tests/vite_bundle/**`, `vite/tests/**`
-(vite-plugin-bazel's own tests), and the integration workspaces, which copy that
+generate config for whatever it resolves to. `MODULE.bazel` translates six
+lockfiles into six hubs. Four resolve Vite (`@npm`, `@npm_tailwind`,
+`@npm_workers`, `@npm_eslint`), all at 8.2.2, with vitest 4.1.11 wherever a hub
+resolves vitest at all, so there is one lane. `@npm` (`tests/npm/pnpm-lock.yaml`)
+carries most of it — `tests/vitest/**`, `tests/dev_server/**`,
+`tests/vite_bundle/**`, `vite/tests/**` (vite-plugin-bazel's own tests), and the
+`lsp`, `npm_deps` and `vite_bundle` integration workspaces, which copy that
 lockfile verbatim. `@npm_features` (`tests/npm/pnpm-lock-features.yaml`, declared
 `dev_dependency`) is the pnpm patch/alias/peer-variant fixture and resolves
-neither tool, so it is a second lockfile, not a second lane:
+neither tool; `@npm_css` (`ts/private/css/pnpm-lock.yaml`) holds the ruleset's own
+build-action packages and resolves neither either. The per-hub table is in
+COMPATIBILITY.md § Vite and vitest:
 
 ```bash
-grep -cE '^  (vite|vitest)@' tests/npm/pnpm-lock.yaml tests/npm/pnpm-lock-features.yaml
+grep -rnE '^  (vite|vitest)@' --include=pnpm-lock.yaml .
 ```
 
 A second hub on a second major would not be a second lane either, only a second
@@ -388,7 +407,7 @@ puts the working directory in the user's source tree.
 - **Framework Vite plugins need writable filesystems.** `staging_srcs` solves this by copying source files to a temp dir inside the Bazel action. General mechanism, not framework-specific.
 - **`bazel clean` is never the answer.** If the build is broken, the bug is in the rules, not the cache. Fix the root cause.
 - **Every `fail()` should tell the user what to do.** "Did you mean...?" suggestions prevent hours of debugging.
-- **Gazelle directives > config files.** `gazelle_ts.json` was a mistake, and is gone. Directives are visible, inheritable, version-controlled in BUILD files — and they inherit, where a nested config file replaced the list an ancestor had built, so two sites asking "which excludes apply here" got different answers depending on where they asked.
+- **Gazelle directives > config files.** Directives are visible, inheritable, version-controlled in BUILD files — and they inherit, where a nested config file replaced the list an ancestor had built, so two sites asking "which excludes apply here" got different answers depending on where they asked.
 - **`pnpm add --lockfile-only`** is the correct workflow. No `node_modules/` directory should ever exist in the source tree.
 - **Two recognisers of one thing drift.** Gazelle's import scanner and the strict-deps checker must agree specifier for specifier, or a hard error becomes unfixable by the tool meant to fix it. Same shape as the `node_modules` tree: the layout planner and the builder read one manifest, not two ideas of it.
 - **A name is not a resolution.** Keying anything by npm package name alone (a `node_modules` destination, a patch pairing, a dep edge) loses the version and fails silently, because every version involved is a real version. `name@version` is one key short too: pnpm resolves once per peer set.

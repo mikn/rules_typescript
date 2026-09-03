@@ -372,8 +372,8 @@ extension written in Go.
 | `gazelle/generate.go` | Rule generation — produces `ts_compile`, `ts_test` and the rest |
 | `gazelle/resolve.go` | Import resolution — maps import specifiers to Bazel labels |
 | `gazelle/imports.go` | Import extraction from TypeScript sources |
-| `gazelle/jsonc.go` | JSONC parser, so a commented `tsconfig.json` still yields its `paths` |
-| `gazelle/framework_bundle.go` | Vite-based framework bundle targets — TanStack Start, Remix, SvelteKit (Next.js has its own, `framework_next.go`) |
+| `gazelle/jsonc/` | JSONC parser, its own Go package, so a commented `tsconfig.json` still yields its `paths` |
+| `gazelle/framework_bundle.go` | Vite-based framework bundle targets — TanStack Start and Remix (Next.js and SvelteKit have their own: `framework_next.go`, `sveltekit_bundle.go`) |
 | `gazelle/codegen.go` | Auto-detected codegen targets |
 
 **AGENTS.md** is the architectural reference for contributors: package boundary

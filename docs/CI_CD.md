@@ -6,8 +6,8 @@ consumer workspace, which this repository's CI does not run.
 
 ## GitHub Actions CI
 
-`.github/workflows/ci.yml` runs on every push to `main`/`develop` and every pull
-request against `main`. It has six jobs.
+`.github/workflows/ci.yml` runs on every push to `main`/`develop` and on every
+pull request, whichever branch it targets. It has six jobs.
 
 The five jobs that run Bazel set it up with `bazel-contrib/setup-bazel@0.18.0`:
 bazelisk and repository caches in all of them, the external cache in all but
@@ -20,6 +20,11 @@ bazelisk and repository caches in all of them, the external cache in all but
      test source has to be claimed by a test target that actually runs. It goes
      first because it is a loading-phase query the next step pays for anyway
      (see [below](#every-test-source-is-claimed-by-a-target))
+   - On ubuntu only, second: `tools/ci/check_integration_shards.sh`. Every
+     integration test has to land on exactly one leg of the `integration-tests`
+     matrix. Both gates run before the suite and neither skips it: the two
+     `bazel` steps run whatever the gates did, and the job still fails on a
+     failed gate
    - `bazel test --config=ci //...`, then
      `bazel build --config=ci //... --output_groups=+_validation`
    - Matrix: `ubuntu-latest` and `macos-latest`
@@ -52,7 +57,14 @@ bazelisk and repository caches in all of them, the external cache in all but
      of the checkout and makes their size visible to `df`
 
 5. **Integration Tests (nested Bazel)** (`integration-tests`)
-   - `bazelisk test --config=ci-integration //tests/integration/... --test_env=RULES_TS_IT_SCRATCH=/mnt/rules_ts_it`
+   - Four legs, one per shard (`nextjs-tanstack`, `remix-svelte`, `npm`,
+     `core`), each running
+     `bazelisk test --config=ci-integration-<shard> //tests/integration/... --test_env=RULES_TS_IT_SCRATCH=/mnt/rules_ts_it`.
+     Each config in `.bazelrc` selects tests by the `shard-<name>` tag
+     `nested_bazel_tags(shard = ...)` in `tests/integration/tags.bzl` adds;
+     `core` is the complement of the other three, so a test with no shard tag
+     still runs. `tools/ci/check_integration_shards.sh` fails when the three
+     sources disagree
    - The only job that runs them. `--config=ci` in the `test` job expands
      `--config=fast`, whose `--test_tag_filters=-nested-bazel` filters them out;
      unfiltered they would run three times per push
@@ -63,11 +75,11 @@ bazelisk and repository caches in all of them, the external cache in all but
      clears in full on each `bazel test`, whatever the target. So a killed run
      leaves nothing that outlives the next invocation, and two checkouts running
      one test cannot share a directory. `/mnt/rules_ts_it` holds only the
-     repository and disk caches now; whether moving the tens of GB to the outer
+     repository, disk and bazelisk caches now; whether moving the tens of GB to the outer
      output base takes them off the volume `/mnt` is a directory on is what the
      job's `df -h /mnt /` records, before and after
    - Moving them there costs this job nothing. `/mnt/rules_ts_it` is a bare
-     `mkdir -p` on a fresh runner and the cache step below restores only the two
+     `mkdir -p` on a fresh runner and the cache step below restores only the three
      cache subdirectories, never the per-test output bases, so every nested
      output base was already being created empty on every run. The retained
      output base this gives up is worth a measured ~13.5s per test to a local
@@ -78,12 +90,22 @@ bazelisk and repository caches in all of them, the external cache in all but
      workspace fetches the whole BCR registry for itself, and the resulting
      lookup failures read as flaky tests
    - `/mnt` is recreated every run, so an `actions/cache@v6` step restores
-     `/mnt/rules_ts_it/repository_cache` and `/mnt/rules_ts_it/disk_cache` under
-     the key `nested-bazel-<runner.os>-<hash of MODULE.bazel,
-     tests/npm/pnpm-lock.yaml, oxc_cli/Cargo.lock>`. Cold, the concurrent servers
-     all miss the shared cache at once and fetch the same artifacts, a measured
-     ~4GB (`tests/integration/tags.bzl`). The cache is content-addressed, so a
-     stale restore is a miss, never a wrong answer
+     `/mnt/rules_ts_it/repository_cache`, `/mnt/rules_ts_it/disk_cache` and
+     `/mnt/rules_ts_it/bazelisk` under the key `nested-bazel-<runner.os>-<hash of
+     MODULE.bazel, tests/npm/pnpm-lock.yaml, oxc_cli/Cargo.lock, .bazelversion>`,
+     with `nested-bazel-<runner.os>-` as the restore-key prefix. One key serves
+     all four legs; only the first leg to finish saves it. Cold, the concurrent
+     servers all miss the shared cache at once and fetch the same artifacts, a
+     measured ~4GB (`tests/integration/tags.bzl`). The cache is
+     content-addressed, so a stale restore is a miss, never a wrong answer.
+     `.bazelversion` is in the key because the bazelisk directory holds one
+     Bazel binary named by version, and `actions/cache` never overwrites an
+     existing key
+   - A step then runs `bazelisk --version` once with
+     `BAZELISK_HOME=/mnt/rules_ts_it/bazelisk` and `USE_BAZEL_VERSION` read off
+     `bazel_binaries.download(version = ...)` in `MODULE.bazel`, so on a cold
+     cache one download primes what every nested Bazel would otherwise fetch at
+     the same instant
 
 6. **Linting & Code Quality** (`lint`)
    - `buildifier --mode=check -r .`, using the released `v8.2.1` binary
@@ -125,9 +147,10 @@ local run reports green on a test that has no target yet.
 
 ### Triggering CI
 
-Pushes to `main` and `develop`, and pull requests against `main`. There is no
-`workflow_dispatch` trigger, so the Actions tab offers no "Run workflow" button:
-re-run a failed job, or push.
+Pushes to `main` and `develop`, and every pull request, with no branch filter:
+a stacked PR targets the branch below it, and a filtered `pull_request` fires no
+run for one. There is no `workflow_dispatch` trigger, so the Actions tab offers
+no "Run workflow" button: re-run a failed job, or push.
 
 ## Running CI Locally
 
@@ -244,7 +267,7 @@ input.
 | oxc compiled .js/.js.map | Compilation | Yes | No timestamps |
 | tsgo generated .d.ts | Type checking | Yes | Sorted output |
 | Vite bundle | Bundling | Yes (per source tree) | Chunk hashes change with source |
-| ts_npm_publish package.json | Publishing | Yes | generated by a toolchain JS runtime; key order fixed by the script |
+| ts_npm_publish package.json | Publishing | Yes | generated by a toolchain JS runtime; keys keep the template's order, patch fields appended |
 | node_modules tree | Runtime | Yes | per-package isolation |
 | Gazelle BUILD generation | Repo structure | Yes | sorted output |
 

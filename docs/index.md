@@ -59,18 +59,18 @@ build; any other key fails the build, naming itself. See
 | Framework | Gazelle generates a bundle target? | What you get |
 |---|---|---|
 | **React + Vite** | n/a — plain Vite, no framework plugin | SPA bundle, CSS modules, Fast Refresh HMR under `react_refresh = True` |
-| **TanStack Start** | yes | `client/` and `server/server.mjs`, no dev server; server functions reach the client through a generated handler id |
+| **TanStack Start** | yes | `client/` and `server/server.mjs`, plus a `ts_dev_server` beside the bundle; server functions reach the client through a generated handler id |
 | **Remix** | yes | SPA bundle with per-route chunks, and SSR via [`remix_build`](rules/remix-build.md) |
 | **SvelteKit** | yes | `client/` and `server/manifest.js` via [`sveltekit_build`](rules/sveltekit-build.md); `.svelte` components via [`svelte_library`](rules/svelte-library.md) |
 | **Solid Start** | no | Gazelle logs the framework and the reason |
 
 Solid Start gets no bundle target: `ts_bundle`'s `vite_config` contract is a
 default export with a `plugins` array, `@solidjs/start` ships no Vite plugin,
-and its `defineConfig()` returns a vinxi app. TanStack Start gets no dev
-server: its SSR module runner inlines `react/jsx-runtime` instead of
-externalising it against a `node_modules` tree that is a build output. Gazelle
-logs the framework and the reason in both cases, and the workspace still
-compiles and tests. See
+and its `defineConfig()` returns a vinxi app. Gazelle logs the framework and
+the reason, and the workspace still compiles and tests. TanStack Start's
+`ts_dev_server` is written at the workspace root beside the bundle, not in the
+app package, because it takes the bundle's `vite_config`; Gazelle logs that
+too. See
 [Framework detection](gazelle/overview.md#framework-detection).
 
 `examples/` is in `.bazelignore`, so the example workspaces are separate Bazel
@@ -88,7 +88,7 @@ from source or from that build (`examples/nextjs-app`).
 - **Vite bundles** — production bundles with tree-shaking, code splitting, minification. App mode (HTML + hashed assets) and lib mode.
 - **The dev server is swappable** — `ts_dev_server(server = ...)` takes any target providing `DevServerInfo`. Vite is the default; `@rules_typescript//oj:dev_server` selects oj, which adopts the same generated config and needs no `@npm//:vite` in the tree. Each server declares the config fields it does not read, so a target depending on one fails at analysis time naming the field and the server. See [Choosing the server](guides/dev-server.md#choosing-the-server).
 - **Isolated declarations** — annotate a package's exports, set `declarations = "oxc"`, and Oxc emits the `.d.ts` syntactically. Type-checking leaves the critical path, which shortens a deep dependency chain substantially. Opt-in, per package. See [Cost of each mode](rules/ts-compile.md#cost-of-each-mode).
-- **Gazelle generates the BUILD files** — targets inferred from the directory tree, imports resolved to labels, lint / bundler / dev-server targets generated, frameworks and codegen auto-detected. Eleven `# gazelle:ts_*` directives configure it.
+- **Gazelle generates the BUILD files** — targets inferred from the directory tree, imports resolved to labels, lint / bundler / dev-server targets generated, frameworks and codegen auto-detected. Fifteen `# gazelle:ts_*` directives configure it.
 - **Direct dependencies** — a source may import only what a direct dep provides. A declaration arriving through another dep's own deps does not satisfy an import; the build names the file, the specifier and the label to add, and Gazelle writes it.
 - **How npm packages are fetched** — one Bazel repository per package, fetched on demand, behind a `@npm` alias hub. A target's npm cost is its own closure, not the whole lockfile, and the source tree holds no `node_modules/`. A materialised tree carries one entry per resolution — name, version and peer set — rather than one directory per name.
 - **Only Bazelisk required** — Node.js, Go and Rust are fetched hermetically, and [pnpm too](guides/npm.md#hermetic-pnpm) if you want it. pnpm is needed only to edit the lockfile, never to build.

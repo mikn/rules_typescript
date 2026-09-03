@@ -247,7 +247,7 @@ After releasing v0.2.0, prepare for v0.2.1:
 
 ## Troubleshooting
 
-### "Tag v0.2.0 already exists"
+### "tag v0.2.0 already exists"
 
 Someone has already released this version:
 
