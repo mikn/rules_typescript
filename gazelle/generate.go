@@ -1006,6 +1006,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	}
 
 	reportManagedAttrDrops(args, result.Gen)
+	markKeptAttrs(args, result.Gen)
 
 	return result
 }

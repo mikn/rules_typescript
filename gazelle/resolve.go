@@ -195,17 +195,22 @@ func asImports(importsIface any) ([]string, bool) {
 
 // resolveImports converts raw import strings (stored in GenerateResult.Imports)
 // into Bazel deps on rule r.
+// The returned labels are the ones some source file's specifier named, which is
+// what the cycle check is a claim about: an ambient-types or test-runtime label
+// is a dep nothing imported.
 func resolveImports(
 	c *config.Config,
 	ix *resolve.RuleIndex,
 	r *rule.Rule,
 	importsIface any,
 	from label.Label,
-) {
+) []string {
 	tc := getConfig(c)
 
 	var deps []string
 	seen := make(map[string]struct{})
+
+	var importDeps []string
 
 	addDep := func(dep string) {
 		if _, dup := seen[dep]; !dup {
@@ -232,7 +237,7 @@ func resolveImports(
 			sort.Strings(deps)
 			r.SetAttr("deps", deps)
 		}
-		return
+		return nil
 	}
 
 	ambient := ambientModuleNames(c, r, from)
@@ -245,6 +250,7 @@ func resolveImports(
 			continue
 		}
 		addDep(resolved)
+		importDeps = append(importDeps, resolved)
 	}
 
 	// For ts_test targets, append any runtimeDeps.test labels from
@@ -259,11 +265,12 @@ func resolveImports(
 	}
 
 	if len(deps) == 0 {
-		return
+		return importDeps
 	}
 
 	sort.Strings(deps)
 	r.SetAttr("deps", deps)
+	return importDeps
 }
 
 // resolveImport attempts to resolve a single import specifier to a Bazel label
