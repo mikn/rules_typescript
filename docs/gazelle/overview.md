@@ -301,7 +301,8 @@ package, so a refusal reaches every target there — the `_doc` one included:
 - in the `index-only` and `tsconfig` boundary modes, one that is not already a
   package — there, a BUILD file written just to hold the `ts_config` would stop
   the roll-up walk and drop every source beneath it from the package above;
-- a directory whose own target is already named `tsconfig`.
+- a directory whose own target is already named `tsconfig` or
+  `tsconfig_types`, the two names the `ts_config` and the filegroup below need.
 
 A tree with no `tsconfig.json` above it keeps the ruleset baseline alone. The
 `tsconfig.json` files `ts_refresh_tsconfig` writes are skipped: they are built
@@ -313,6 +314,57 @@ does not own that attribute, and a value written there survives every later run
 without a `# keep`. `tsconfig` on the compile, doc and test targets **is**
 Gazelle's, recomputed on every run, so a hand-picked baseline needs a `# keep`
 on its line.
+
+### A declaration the tsconfig names
+
+One key does not survive being inherited: a relative `compilerOptions.types`
+entry. The generated per-directory config states its own `files`, `include` and
+`exclude` and takes `compilerOptions` from the project file through `extends` —
+and TypeScript resolves `./x.d.ts` against the config the program was invoked
+with, which is the generated one in `bazel-out`. So
+`"types": ["./worker-configuration.d.ts"]` — how wrangler writes it — reaches
+nothing from a directory below, and every global that file declares is
+`TS2304`.
+
+Gazelle rebases the entry onto each target and names the file by a label:
+
+```python
+# workers/proxy/BUILD.bazel
+filegroup(
+    name = "tsconfig_types",
+    srcs = ["worker-configuration.d.ts"],
+    visibility = ["//visibility:public"],
+)
+
+# workers/proxy/src/BUILD.bazel
+ts_compile(
+    name = "src",
+    srcs = ["handler.ts"],
+    tsconfig = "//workers/proxy:tsconfig",
+    types = ["../worker-configuration.d.ts"],
+    types_srcs = ["//workers/proxy:tsconfig_types"],
+    visibility = ["//visibility:public"],
+)
+```
+
+A `filegroup`, so the file is an action input of exactly the targets that name
+it and of nothing else. It reaches no consumer's program: `types_srcs` travels
+on no dep edge, and nothing here names the file in `public_globals`, which is
+what would put the declaration in every transitive consumer — see
+[which ambients a consumer gets](../rules/ts-compile.md#which-ambients-a-consumer-gets).
+
+The whole `types` list is written, not just the file entries: `types` is one
+key and `extends` replaces it whole, so a target carrying a subset would drop
+the packages the project asked for. Whether those resolve is unchanged — a
+package entry is answered from `deps`, which the `ts_ambient_types` reading of
+the same key already supplies.
+
+`compilerOptions.types` is the only key read for this. A declaration named in
+`include` gets nothing, because `include` does not survive `extends` into the
+generated config — it states its own — so it makes no claim about the tree
+below it. Two shapes are logged and produce nothing rather than a guess: an
+entry naming a path outside the tsconfig's own directory, which no label of
+that package can stage, and one naming a file that is not there.
 
 ## Automatic Lint Targets
 

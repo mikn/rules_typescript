@@ -344,6 +344,14 @@ type tsConfig struct {
 	// one project.
 	tsconfigAmbientTypes []string
 
+	// tsconfigTypes is that same key unread, tsconfigTypesDir the directory
+	// its entries are written relative to, and tsconfigTypeFiles the ones
+	// naming a declaration file that directory holds. Empty unless every
+	// file-shaped entry names such a file.
+	tsconfigTypes     []string
+	tsconfigTypesDir  string
+	tsconfigTypeFiles []string
+
 	// declarations is the .d.ts emitter for generated ts_compile rules:
 	// "tsgo" (default, no attribute emitted) or "oxc". Set via
 	// # gazelle:ts_declarations.
@@ -413,6 +421,14 @@ func (tc *tsConfig) clone() *tsConfig {
 	if len(tc.tsconfigAmbientTypes) > 0 {
 		cp.tsconfigAmbientTypes = make([]string, len(tc.tsconfigAmbientTypes))
 		copy(cp.tsconfigAmbientTypes, tc.tsconfigAmbientTypes)
+	}
+	if len(tc.tsconfigTypes) > 0 {
+		cp.tsconfigTypes = make([]string, len(tc.tsconfigTypes))
+		copy(cp.tsconfigTypes, tc.tsconfigTypes)
+	}
+	if len(tc.tsconfigTypeFiles) > 0 {
+		cp.tsconfigTypeFiles = make([]string, len(tc.tsconfigTypeFiles))
+		copy(cp.tsconfigTypeFiles, tc.tsconfigTypeFiles)
 	}
 	if len(tc.runtimeDepsTest) > 0 {
 		cp.runtimeDepsTest = make([]string, len(tc.runtimeDepsTest))
@@ -1348,6 +1364,8 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 		// to it: tsc gives a file one project, not the union of the projects
 		// above it.
 		tc.tsconfigAmbientTypes = loadTsConfigAmbientTypes(tsConfigCandidate)
+		tc.tsconfigTypes, tc.tsconfigTypeFiles = loadTsConfigTypeFiles(tsConfigCandidate, rel)
+		tc.tsconfigTypesDir = rel
 	}
 
 	// The compilerOptions baseline, resolved the way tsserver resolves one:
@@ -1758,6 +1776,84 @@ func loadTsConfigAmbientTypes(tsConfigPath string) []string {
 		labels = append(labels, lbl)
 	}
 	return labels
+}
+
+// loadTsConfigTypeFiles reads the other half of the same key: the entries that
+// name a declaration file in the tsconfig's own directory, and -- when there is
+// at least one -- the whole list they are part of.
+//
+// TypeScript resolves a relative entry against the config the program was
+// invoked with, which is the generated one in bazel-out, so an inherited entry
+// names nothing. The whole list comes back because `extends` replaces `types`
+// whole rather than merging it.
+func loadTsConfigTypeFiles(tsConfigPath, rel string) (entries, files []string) {
+	data, err := os.ReadFile(tsConfigPath)
+	if err != nil {
+		return nil, nil
+	}
+	var tsc tsConfigJSON
+	if err := jsonc.Unmarshal(data, &tsc); err != nil {
+		return nil, nil
+	}
+	if tsc.CompilerOptions.Types == nil {
+		return nil, nil
+	}
+	dir := filepath.Dir(tsConfigPath)
+	seen := make(map[string]struct{})
+	for _, entry := range *tsc.CompilerOptions.Types {
+		name, isFile := typeEntryFileName(entry)
+		if !isFile {
+			continue
+		}
+		if name == "" {
+			log.Printf("typescript: the tsconfig in %s names %q in compilerOptions.types, and "+
+				"a label can only stage a file of the directory the tsconfig itself is in, so "+
+				"nothing below that directory resolves the entry. Move the file next to the "+
+				"tsconfig, or write types and types_srcs by hand with a \"# keep\".",
+				orRepoRoot(rel), strings.TrimSpace(entry))
+			return nil, nil
+		}
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			log.Printf("typescript: the tsconfig in %s names %q in compilerOptions.types and "+
+				"no such file is there, so the entry resolves to nothing wherever it is "+
+				"written. Fix the entry or drop it.", orRepoRoot(rel), strings.TrimSpace(entry))
+			return nil, nil
+		}
+		if _, dup := seen[name]; dup {
+			continue
+		}
+		seen[name] = struct{}{}
+		files = append(files, name)
+	}
+	if len(files) == 0 {
+		return nil, nil
+	}
+	sort.Strings(files)
+	for _, entry := range *tsc.CompilerOptions.Types {
+		entries = append(entries, strings.TrimSpace(entry))
+	}
+	return entries, files
+}
+
+// typeEntryFileName splits a `types` entry into the declaration file it names
+// in the tsconfig's own directory. isFile is false for an entry that names a
+// package; the name is "" for a path the tsconfig's own package cannot hold.
+//
+// The shapes are `types_entry_declaration`'s in ts/private/ts_compile.bzl, the
+// half the rule resolves against staged files: one vocabulary, two readers.
+func typeEntryFileName(entry string) (string, bool) {
+	entry = strings.TrimSpace(entry)
+	if !strings.HasPrefix(entry, "./") && !strings.HasPrefix(entry, "../") {
+		return "", false
+	}
+	if !strings.HasSuffix(entry, ".d.ts") {
+		return "", false
+	}
+	name := strings.TrimPrefix(entry, "./")
+	if strings.Contains(name, "/") {
+		return "", true
+	}
+	return name, true
 }
 
 // ambientTypeLabel converts one compilerOptions.types entry to an @npm label,
