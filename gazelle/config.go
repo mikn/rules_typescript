@@ -966,11 +966,7 @@ func loadTsConfigPaths(tsConfigPath, pkgRel string) map[string]string {
 
 		// Prepend baseUrl when set and target is not absolute.
 		if baseURL != "" && !strings.HasPrefix(targetDir, "/") {
-			if targetDir == "." || targetDir == "" {
-				targetDir = baseURL
-			} else {
-				targetDir = baseURL + "/" + targetDir
-			}
+			targetDir = path.Join(baseURL, targetDir)
 		}
 
 		// An identity mapping is not an alias. ts_refresh_tsconfig emits two

@@ -509,7 +509,7 @@ func declaredStrings(t *testing.T, root, pkg string) []string {
 // one, so it is not suppressed as a path the tree no longer holds.
 const (
 	handAliasKey = "@hand/"
-	handAliasDir = "./src/ui/"
+	handAliasDir = "src/ui/"
 )
 
 // renderDictEntries is the dict's own entries as Starlark, ready for another
@@ -691,7 +691,7 @@ func TestPathAliasesSurviveTheMerge(t *testing.T) {
 	writeWorkspace(t, root, tc.files)
 	captureLog(t, func() { convergeGazelle(t, root) })
 
-	assertPathAliases(t, root, "src", map[string]string{"@/": "./src/"})
+	assertPathAliases(t, root, "src", map[string]string{"@/": "src/"})
 	before := buildFileText(t, root, "src")
 
 	// Gazelle wrote this attribute, so a diagnostic about its shape is a
@@ -713,13 +713,13 @@ func TestPathAliasesSurviveTheMerge(t *testing.T) {
 		"src/extra.ts": "import { helper } from \"@lib/helper\";\nexport const b = helper;\n",
 	})
 	captureLog(t, func() { convergeGazelle(t, root) })
-	assertPathAliases(t, root, "src", map[string]string{"@/": "./src/", "@lib/": "./src/lib/"})
+	assertPathAliases(t, root, "src", map[string]string{"@/": "src/", "@lib/": "src/lib/"})
 
 	// "# keep" on one entry, nothing on the other. Both directories exist, so
 	// neither is suppressed as a path the tree no longer holds.
 	addAliasEntries(t, root, "src",
-		`        "@kept/": "./src/ui/",  # keep`,
-		`        "@bare/": "./src/ui/",`)
+		`        "@kept/": "src/ui/",  # keep`,
+		`        "@bare/": "src/ui/",`)
 
 	for run := 2; run <= 3; run++ {
 		logged = captureLog(t, func() { convergeGazelle(t, root) })

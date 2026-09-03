@@ -239,3 +239,37 @@ func TestLoadTsConfigPaths_TargetsAreRelativeToTheRepoRootNotTheTsConfig(t *test
 		}
 	}
 }
+
+// A baseUrl of "." is the shape most hand-written tsconfigs carry, and the
+// prefix it puts on every value is one ts_compile's alias guard reads as a
+// directory no input lives under: `path_aliases["@/"] ... points at "./src/",
+// where none of this target's inputs live` -- for a target whose srcs are all
+// under src/.
+func TestLoadTsConfigPaths_BaseUrlDotWritesNoDotSlash(t *testing.T) {
+	dir := t.TempDir()
+	tsconfig := `{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@lib/*": ["src/lib/*"],
+      "@entry": ["./src/index"]
+    }
+  }
+}
+`
+	path := filepath.Join(dir, "tsconfig.json")
+	if err := os.WriteFile(path, []byte(tsconfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := loadTsConfigPaths(path, "")
+	want := map[string]string{
+		"@/":     "src/",
+		"@lib/":  "src/lib/",
+		"@entry": "src/index",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("loadTsConfigPaths: got %v, want %v", got, want)
+	}
+}
