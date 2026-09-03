@@ -642,18 +642,25 @@ func detectLinterConfigInDir(dir, repoRoot string) (string, string) {
 	return "", ""
 }
 
-// linterBinaryLabel returns the conventional Bazel label for the linter
-// binary based on linterType. Returns empty string when linterType is empty.
-// Users can override this in their BUILD files.
-func linterBinaryLabel(linterType string) string {
-	switch linterType {
-	case "oxlint":
-		return "@npm//:oxlint_bin"
-	case "eslint":
-		return "@npm//:eslint_bin"
-	default:
-		return ""
+// linterBinaryLabel is the hub's bin alias for the linter package -- linterType
+// is the package name -- in the hub the tree resolves its bare imports into.
+func linterBinaryLabel(tc *tsConfig) string {
+	return npmHubLabel(tc, tc.linterType) + "_bin"
+}
+
+var linterNotInLockfileReported sync.Map
+
+// reportLinterNotInLockfile says why no ts_lint follows this config, once per
+// config file: the config is inherited by every directory below it.
+func reportLinterNotInLockfile(repoRoot string, tc *tsConfig) {
+	if _, done := linterNotInLockfileReported.LoadOrStore(filepath.Join(repoRoot, tc.linterConfig), true); done {
+		return
 	}
+	log.Printf("typescript: %s: no ts_lint is generated for the directories it covers -- %s is "+
+		"not in %s, so %s is a target the hub does not declare, and Bazel answers a rule "+
+		"naming it with `no such target`, which fails analysis for the whole package. "+
+		"Add %s to the workspace's dependencies, or delete the config.",
+		tc.linterConfig, tc.linterType, pnpmLockfileName, linterBinaryLabel(tc), tc.linterType)
 }
 
 // linterConfigLabel converts a workspace-relative linter config path to a

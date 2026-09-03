@@ -405,13 +405,15 @@ that package can stage, and one naming a file that is not there.
 
 ## Automatic Lint Targets
 
-When a linter config file is present in the current directory or any ancestor, Gazelle automatically generates a `ts_lint` target alongside each `ts_compile` target. The lint target name is the compile target name with `_lint` appended.
+When a linter config file is present in the current directory or any ancestor, and `pnpm-lock.yaml` has the linter it is for, Gazelle generates a `ts_lint` target alongside each `ts_compile` target. The lint target name is the compile target name with `_lint` appended. `linter_binary` is the hub's bin alias for the linter package — `@npm//:eslint_bin`, or `@npm_eslint//:eslint_bin` in a tree under `# gazelle:ts_npm_hub npm_eslint`.
 
 Detected config files:
 - **oxlint**: `oxlint.json`, `.oxlintrc.json`, `.oxlintrc`
 - **eslint**: `eslint.config.mjs`, `eslint.config.js`, `eslint.config.cjs`, `.eslintrc.json`, `.eslintrc.*`
 
 oxlint configs are detected before ESLint configs. The closest config file wins.
+
+A config on disk whose linter the lockfile never mentions — the `eslint.config.js` of a nested `package-lock.json` island, or one left behind by a package that was never installed — gets no `ts_lint`. Its binary would be a target the hub does not declare, and Bazel answers `no such target` by failing analysis for every target in the package, not the lint alone. Gazelle says so once per config file, naming the config, the package, and the label, and withdraws a `ts_lint` an earlier run wrote for it; the fix is to add the linter to the workspace's dependencies or to delete the config. A tree under its own `# gazelle:ts_npm_hub` resolves against a lockfile Gazelle never read, so nothing there is refused, and a workspace with no root lockfile is not refused either.
 
 Example generated output with an `oxlint.json` at the repo root:
 
