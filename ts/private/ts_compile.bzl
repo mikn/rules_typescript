@@ -384,6 +384,14 @@ def _rebase_package_relative(entry, package_rel):
         return package_rel + "/" + entry
     return entry
 
+# An entry that resolved to a staged file is written as the path to that file:
+# the source tree for a checked-in declaration, bazel-out for a generated one.
+def _rebase_types_entry(entry, package_rel, tsconfig_dir, types_files):
+    found = types_files.get(types_entry_declaration(entry))
+    if found:
+        return explicitly_relative(include_entry(tsconfig_dir, found.dirname, found.basename))
+    return _rebase_package_relative(entry, package_rel)
+
 # A tsconfig `types` entry names a package, and TypeScript resolves it by walking
 # node_modules for that package and reading its manifest. There is no
 # node_modules here -- npm packages reach the compiler through `paths`, which
@@ -445,7 +453,7 @@ def types_entry_declaration(entry):
         return ""
     return entry if entry.endswith(".d.ts") else ""
 
-def _workspace_relative(package, entry):
+def workspace_relative(package, entry):
     """`entry`, written relative to `package`, as a path from the workspace root.
 
     "" when its `..` segments climb out above the root, which no input answers.
@@ -587,13 +595,10 @@ def _fail_on_unresolved_types(ctx, npm_infos):
             _unresolved_type_fix(ref, npm_infos),
         )
 
-# A dep's passed-through .d.ts answers an entry too: a .d.ts in srcs is a
-# declaration output unchanged, so the dep edge stages the source file itself.
-# A generated declaration never answers, whatever its short_path looks like --
-# the rebased entry points into the source tree and that file is in bazel-out --
-# and which label named it decides what the target can do about that.
+# Keyed by short_path, so a generated file answers by the same workspace-relative
+# path a checked-in one does; _generate_tsconfig writes the entry to where it is.
 def _declaration_type_files(ctx, dep_declarations):
-    """The files this target's relative `types` entries name.
+    """The file each relative `types` entry names, keyed by the entry.
 
     An entry nothing stages fails: tsgo resolves it to nothing and -- as for a
     package no dep publishes -- says nothing about having done so.
@@ -601,68 +606,40 @@ def _declaration_type_files(ctx, dep_declarations):
     written = [types_entry_declaration(entry) for entry in _requested_types(ctx)]
     written = [entry for entry in written if entry]
     if not written and not ctx.files.types_srcs:
-        return []
+        return {}
 
     # Flattened because the answer is which staged file sits at one path, and
     # only for a target that names a declaration file at all.
     staged = {}
-    own_generated = {}
-    dep_generated = {}
-    for f in ctx.files.srcs + ctx.files.types_srcs + ctx.files.path_alias_srcs:
-        if f.is_source:
-            staged[f.path] = f
-        else:
-            own_generated[f.short_path] = f
-    for f in dep_declarations.to_list():
-        if f.is_source:
-            staged[f.path] = f
-        elif f.short_path not in own_generated:
-            dep_generated[f.short_path] = f
+    for f in ctx.files.srcs + ctx.files.types_srcs + ctx.files.path_alias_srcs + dep_declarations.to_list():
+        staged.setdefault(f.short_path, f)
 
-    out = []
+    out = {}
     for entry in written:
-        path = _workspace_relative(ctx.label.package, entry)
+        path = workspace_relative(ctx.label.package, entry)
         found = staged.get(path)
         if found:
-            out.append(found)
+            out[entry] = found
             continue
         basename = entry.split("/")[-1]
         near = sorted([p for p in staged if p.endswith("/" + basename)])
-        if path in own_generated:
-            reason = ("That path holds a generated declaration this target names itself, and " +
-                      "the entry resolves against the source tree.\nStaging is not " +
-                      "resolution: the label puts the file in the sandbox at its bazel-out " +
-                      "path, and a generated declaration joins the program only through the " +
-                      "generated config's `files`, which a dep's public_globals writes -- an " +
-                      "`include` entry under outDir the default `exclude` drops again, and " +
-                      "public_globals here publishes to consumers only.\nCompile the " +
-                      "declaration in its own ts_compile, name it in public_globals there, " +
-                      "depend on that target and drop the entry.\n")
-        elif path in dep_generated:
-            reason = ("That path holds a dep's generated declaration, and the entry resolves " +
-                      "against the source tree while that file is in bazel-out.\nDrop the " +
-                      "entry: a generated declaration reaches this program on the dep edge, " +
-                      "and what it declares arrives with it -- globals when that dep names " +
-                      "their src in public_globals, exports through an import.\n")
-        else:
-            reason = ("The type-check action stages srcs, types_srcs, path_alias_srcs and its " +
-                      "deps' declarations, so tsgo would resolve the entry to nothing -- and " +
-                      "report nothing for it, the way it reports nothing for a package no dep " +
-                      "answers.\nList the file in types_srcs, which stages it without " +
-                      "publishing it as this target's own declaration the way a .d.ts in srcs " +
-                      "is.\n")
         fail(
             "ts_compile: compilerOptions.types entry \"{entry}\" on {label} names \"{path}\",\n".format(
                 entry = entry,
                 label = ctx.label,
                 path = path if path else entry,
             ) +
-            "  which no source file this target stages sits at.\n" +
-            reason +
+            "  which no file this target stages sits at.\n" +
+            "The type-check action stages srcs, types_srcs, path_alias_srcs and its " +
+            "deps' declarations, so tsgo would resolve the entry to nothing -- and " +
+            "report nothing for it, the way it reports nothing for a package no dep " +
+            "answers.\nList the file in types_srcs, which stages it without " +
+            "publishing it as this target's own declaration the way a .d.ts in srcs " +
+            "is.\n" +
             ("Did you mean \"{}\"?\n".format(near[0]) if near else ""),
         )
 
-    named = {f.path: True for f in out}
+    named = {f.path: True for f in out.values()}
     for f in ctx.files.types_srcs:
         if f.path not in named:
             fail(
@@ -803,7 +780,8 @@ def _generate_tsconfig(
         allow_js = False,
         emit_declarations = False,
         emit_root_dir = None,
-        emit_out_dir = None):
+        emit_out_dir = None,
+        types_files = None):
     """Generates the tsconfig.json tsgo is invoked with.
 
     Layered lowest precedence first:
@@ -846,6 +824,8 @@ def _generate_tsconfig(
                       "tsgo"), False when it only reports diagnostics.
         emit_root_dir: Exec-root-relative common source directory.
         emit_out_dir: Exec-root-relative directory the .d.ts must land in.
+        types_files:  The staged file each relative `types` entry resolved to,
+                      keyed by the entry as written.
     """
     tsconfig = ctx.actions.declare_file("{}.tsconfig.json".format(ctx.label.name))
     tsconfig_dir = tsconfig.dirname
@@ -909,7 +889,7 @@ def _generate_tsconfig(
             if type(user_opts[key]) != "list":
                 fail("ts_compile: compilerOptions.{} must be a list of strings on {}.".format(key, ctx.label))
             user_opts[key] = [
-                _rebase_package_relative(entry, package_rel)
+                _rebase_types_entry(entry, package_rel, tsconfig_dir, types_files or {})
                 for entry in user_opts[key]
             ]
 
@@ -2335,6 +2315,7 @@ def _ts_compile_impl(ctx):
             emit_declarations = tsgo_emits_dts,
             emit_root_dir = emit_root_dir,
             emit_out_dir = out_base if tsgo_emits_dts else None,
+            types_files = declaration_types,
         )
 
         # Build the depset of transitive npm package.json files so that
@@ -2356,7 +2337,7 @@ def _ts_compile_impl(ctx):
         strict_deps_gated = True
         tsgo_inputs = depset(
             check_srcs + [tsconfig, tsgo.tsgo_binary] + tsconfig_chain +
-            ctx.files.path_alias_srcs + declaration_types + strict_deps_inputs,
+            ctx.files.path_alias_srcs + list(declaration_types.values()) + strict_deps_inputs,
             transitive = [
                 dep_dts_depset,
                 dep_globals_depset,
@@ -2780,12 +2761,13 @@ dep with module_name is the cheaper boundary where one is available.""",
 
 `types = ["../../worker-configuration.d.ts"]` is a path, and a path resolves
 against the sandbox: only what this action stages is in it. A src or a dep's
-passed-through .d.ts is already there; this is the attribute for the file that
-is neither, and an entry no staged source file sits at is an analysis error --
-tsgo reports nothing for a `types` entry it resolves to nothing, so the target
-would compile without the declarations it asked for.
+declaration is already there; this is the attribute for the file that is
+neither, and an entry no staged file sits at is an analysis error -- tsgo
+reports nothing for a `types` entry it resolves to nothing, so the target would
+compile without the declarations it asked for.
 
-A label, so the file may live in another package; and, unlike a .d.ts in srcs,
+A label, so the file may live in another package or be a build output -- the
+entry is written to point wherever the file is; and, unlike a .d.ts in srcs,
 it is not passed through as this target's own declaration. tsgo parses it as
 part of this program, so a syntax error in it fails this target (TS1434 and
 friends). What it declares is not checked: it is a .d.ts under the baseline's

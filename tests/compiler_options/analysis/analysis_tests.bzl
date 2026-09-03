@@ -438,18 +438,45 @@ def _types_declaration_file_impl(ctx):
     if action == None:
         return analysistest.end(env)
 
-    # Resolved by staging the file, not by rewriting the entry into something
-    # else: it reaches tsgo as the package-relative path, rebased.
+    # Written as the path to the file it resolved to, which for a checked-in
+    # file is its source-tree path from the generated config.
     types = json.decode(action.content)["compilerOptions"]["types"]
     asserts.equals(
         env,
         1,
         len([e for e in types if e.endswith("/tests/compiler_options/analysis/staged/ambient.d.ts")]),
-        "the entry, rebased onto the generated config: {}".format(types),
+        "the entry, written from the generated config: {}".format(types),
     )
     return analysistest.end(env)
 
 types_declaration_file_test = analysistest.make(_types_declaration_file_impl)
+
+def _generated_types_entry_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    inputs = []
+    for action in analysistest.target_actions(env):
+        if action.mnemonic == "TsgoDeclare":
+            inputs = [f.short_path for f in action.inputs.to_list()]
+    asserts.true(
+        env,
+        "tests/compiler_options/analysis/generated_in_srcs.d.ts" in inputs,
+        "the generated declaration the entry names is an input of the type-check action",
+    )
+
+    action = _written_file_action(env, ".tsconfig.json")
+    asserts.true(env, action != None, "ts_compile generated no tsconfig")
+    if action == None:
+        return analysistest.end(env)
+
+    # Written as the path to the file it resolved to. The generated config and
+    # the generated declaration sit in the same bazel-out directory, so the
+    # entry does not leave it -- the source-tree rebase would have.
+    types = json.decode(action.content)["compilerOptions"]["types"]
+    asserts.equals(env, ["./generated_in_srcs.d.ts"], types, "the entry, from the generated config")
+    return analysistest.end(env)
+
+generated_types_entry_test = analysistest.make(_generated_types_entry_impl)
 
 def _fake_npm_package(name, root = None, subpaths = None, ambient = None):
     return struct(
@@ -606,20 +633,11 @@ unresolved_type_root_test = _fails_with(
 unresolved_type_near_miss_test = _fails_with("Did you mean one of these deps: vitest?")
 absent_type_file_test = _fails_with(
     "names \"tests/compiler_options/analysis/staged/absent.d.ts\"",
-    "which no source file this target stages sits at",
+    "which no file this target stages sits at",
     "List the file in types_srcs",
 )
 misplaced_type_file_test = _fails_with(
     "Did you mean \"tests/compiler_options/analysis/staged/ambient.d.ts\"?",
-)
-generated_type_file_test = _fails_with(
-    "That path holds a dep's generated declaration, and the entry resolves against the source tree",
-    "globals when that dep names their src in public_globals",
-)
-own_generated_type_file_test = _fails_with(
-    "That path holds a generated declaration this target names itself",
-    "public_globals here publishes to consumers only",
-    "Compile the declaration in its own ts_compile",
 )
 unnamed_type_src_test = _fails_with(
     "types_srcs on @@//tests/compiler_options/analysis:unnamed_type_src names 'tests/compiler_options/analysis/staged/ambient.d.ts'",
