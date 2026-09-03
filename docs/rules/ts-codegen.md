@@ -42,9 +42,11 @@ additionally takes `node_modules` — see
 The generated sources are their own `ts_compile` target, and it does not use the
 default declaration emit — see [Compiling the output](#compiling-the-output).
 
-Gazelle auto-detects Prisma, GraphQL codegen and OpenAPI generators from
-`package.json` and writes the target itself; the `# gazelle:ts_codegen`
-directive is for a generator it does not recognise. See
+Gazelle auto-detects Prisma, GraphQL codegen and OpenAPI generators from the
+files in a directory -- `schema.prisma`; `.graphql`/`.gql` sources beside a
+`codegen.ts`/`.yml`/`.yaml`/`.json`; an `openapi.*` or `swagger.*` spec -- when
+the lockfile has the tool, and writes the target itself; the
+`# gazelle:ts_codegen` directive is for a generator it does not recognise. See
 [Register a codegen target](../gazelle/directives.md#register-a-codegen-target).
 It writes the `ts_compile` that consumes the output too, named
 `<name>_compile`, and resolves imports of the generated module to it. A
@@ -66,7 +68,7 @@ failures:
 declaration emit has one `rootDir`, and those two sets hang off different roots:
 
 ```
-ts_compile: srcs on //src/app:app hang off 2 different roots, and one
+ts_compile: srcs on @@//src/app:app hang off 2 different roots, and one
 declaration emit has one rootDir:
   bazel-out/k8-fastbuild/bin/src/app
   src/app

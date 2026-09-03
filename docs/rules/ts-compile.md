@@ -164,7 +164,7 @@ instead where there is one, and otherwise says what the key encodes.
 ts_compile: compilerOptions.paths is set by the rule and cannot be overridden --
 use path_aliases for source aliases, or module_name on the target that produces
 the declarations.
-Remove "paths" from compiler_options on //src/app:app.
+Remove "paths" from compiler_options on @@//src/app:app.
 ```
 
 **A `path_aliases` value pointing into the output tree.** A path under
@@ -172,7 +172,7 @@ Remove "paths" from compiler_options on //src/app:app.
 `-c opt` or a different exec platform:
 
 ```
-ts_compile: path_aliases["@acme/ui"] on //src/app:app points into the output
+ts_compile: path_aliases["@acme/ui"] on @@//src/app:app points into the output
 tree (bazel-out/k8-fastbuild/bin/packages/ui).
 ```
 
@@ -185,7 +185,7 @@ package directory, a generated one off the package's directory in `bazel-bin`.
 A target holding both fails at analysis under the default emit:
 
 ```
-ts_compile: srcs on //src/app:app hang off 2 different roots, and one
+ts_compile: srcs on @@//src/app:app hang off 2 different roots, and one
 declaration emit has one rootDir:
   bazel-out/k8-fastbuild/bin/src/app
   src/app
@@ -257,7 +257,7 @@ arrives through another dep's own deps:
 
 ```
 ERROR: .../src/app/BUILD.bazel:3:11: TsStrictDeps //src/app:app failed: (Exit 1)
-//src/app:app imports a module no direct dep provides:
+//src/app:app imports modules no direct dep provides:
 
   src/app/main.ts:1  imports "./hidden"
                      add "//src/app:hidden" to deps
@@ -413,11 +413,12 @@ both, and `ts_refresh_tsconfig` fails rather than let an editor report what a
 build does not:
 
 ```
-ts_refresh_tsconfig: //web:web keeps "@cloudflare/workers-types" out of its type program
+ts_refresh_tsconfig: @@//web:web keeps "@cloudflare/workers-types" out of its type program
   (untyped_packages), and this config still resolves it for something it
   reaches. ...
 Add "@cloudflare/workers-types" to host_only_packages to drop it from the editor everywhere,
 or name it in untyped_packages on the targets that still resolve it.
+`bazel query "rdeps(//..., @npm//:<the package>)"` names those targets.
 ```
 
 ### Importing Another Target by Bare Specifier

@@ -41,7 +41,7 @@ do not describe.
 | `declarations` | `string` | `"tsgo"` | Declaration emitter for the internal `ts_compile`, `"tsgo"` or `"oxc"` |
 | `lib` | `string_list` | `None` | `lib` set for the internal `ts_compile`. A worker test needs it: `webworker` is in no set `target` implies |
 | `types` | `string_list` | `None` | Ambient type packages for the internal `ts_compile` — see [Ambient type packages](#ambient-type-packages) |
-| `compiler_options` | `string_dict` | `None` | Anything else for the internal `ts_compile` |
+| `compiler_options` | `dict` | `None` | Anything else for the internal `ts_compile` |
 | `tsconfig` | `label` | `None` | The `compilerOptions` baseline for the internal `ts_compile`; the three above override it |
 | `path_aliases` | `string_dict` | `None` | Source-level alias prefixes for the internal `ts_compile` — see [Path aliases](#path-aliases) |
 | `path_alias_srcs` | `label_list` | `None` | The files an alias resolves to, when they are not in the test's own `srcs` — see [Path aliases](#path-aliases) |
@@ -92,7 +92,7 @@ vitest listed there, and says so at analysis time when it is not:
 
 ```
 ts_compile: compilerOptions.types entry "vitest/globals" on
-//path:_my_test_compile resolves to nothing.
+@@//path:_my_test_compile resolves to nothing.
 ```
 
 That is not the dep the runner needs. The guard resolves the entry from the
@@ -195,7 +195,7 @@ that layers four sources, lowest precedence first:
 
 | Layer | Contents | Applies to workspace projects too? |
 |-------|----------|---|
-| 1. Bazel | `resolve.preserveSymlinks`, `test.coverage.allowExternal`, and the CSS-module plugin when a dep carries a `*.module.css` | yes |
+| 1. Bazel | `root` (the package, `TS_TEST_PACKAGE_DIR`), `resolve.preserveSymlinks`, `test.coverage.allowExternal`, and the CSS-module plugin when a dep carries a `*.module.css` | yes |
 | 2. user | the `config` attr: a config file or an inline dict | it supplies the projects |
 | 3. attributes | `environment`, `setup_files`, `global_setup`, `globals`, `reporters`, `coverage_thresholds`, `coverage_provider` | yes |
 | 4. snapshots | `test.resolveSnapshotPath`, and in update mode `test.dir`, `test.include` and `cacheDir` | no — root only |
@@ -267,8 +267,8 @@ has to be absolute.
     `test.projects` is the name `test.workspace` was renamed to in vitest 3.2;
     vitest 4 removed the old name and throws on it. The
     generated config emits `test.projects`, so a `config` that default-exports
-    an array needs vitest 3.2 or later. Every other `config` shape works on any
-    vitest 3 or 4: object, function, promise, inline dict.
+    an array needs vitest 3.2 or later. Every other `config` shape -- object,
+    function, promise, inline dict -- uses no version-sensitive key.
 
 ### An Inline Dict
 
@@ -414,6 +414,7 @@ under it, naming the ones that were set:
 ```
 ts_test @@//scripts:scripts_test: runner "node:test" reads none of environment,
 globals. Every one of them configures vitest, which this target does not run.
+Drop them, or drop `runner` to run the test under vitest.
 ```
 
 The rejected set is `config`, `coverage`, `coverage_provider`,
