@@ -53,6 +53,22 @@ compiles `oxc-bazel` and its crate graph from source. The Rust compile takes
 minutes. Subsequent builds hit Bazel's content-addressed cache; do not
 `bazel clean`.
 
+### Which Binary a Toolchain Resolved
+
+`//ts/toolchain` declares one runnable target per toolchain type. Each runs the
+binary the toolchain resolved to for this host, with the arguments after `--`:
+
+```bash
+bazel run //ts/toolchain:oxc_resolved -- --help
+bazel run //ts/toolchain:tsgo_resolved -- --version
+bazel run //ts/toolchain:node_resolved -- --version
+```
+
+The second prints `Version 7.0.0-dev.20260311.1` and the third `v22.23.1`, the
+versions `MODULE.bazel` pins. `oxc_resolved` builds `oxc-bazel` first. No test
+covers the three targets; `//tests/toolchain` pins which platform each
+toolchain's binary comes from.
+
 ### Pre-Push Hook
 
 ```bash
