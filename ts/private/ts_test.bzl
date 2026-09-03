@@ -1077,10 +1077,9 @@ def ts_test(
                            by nothing else and fails analysis without this.
         types_srcs:        Forwarded to the generated ts_compile: the labels
                            whose files a relative `types` entry resolves to.
-                           A test target's srcs are the test files, so a
-                           declaration file in another package is staged by
-                           nothing else and the entry naming it is an analysis
-                           error without this.
+                           A test target's srcs are the test files, so unless a
+                           dep already stages the declaration, this is what
+                           does.
         config:            Vitest config, either a label pointing at a config file
                            (.ts/.mts/.js/.mjs) or an inline dict.  It is MERGED
                            into the config rules_typescript generates rather than

@@ -152,8 +152,10 @@ An entry starting `./` or `../` names a file rather than a package, and a path
 resolves against the source files the type-check action stages. The test files
 are the only `srcs` the generated `ts_compile` has, so a declaration file in
 another package — the `worker-configuration.d.ts` a wrangler project keeps
-beside its worker — is staged by nothing here, and `types_srcs` is the label
-that stages it:
+beside its worker — has to be staged by something else. A dep whose own `srcs`
+hold it does, since a `.d.ts` in `srcs` is passed through and sits at the path
+the entry names. `types_srcs` stages it without the dep edge, so the test does
+not also consume that target's declarations:
 
 ```starlark
 ts_test(

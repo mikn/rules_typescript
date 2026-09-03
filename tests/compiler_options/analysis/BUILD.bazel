@@ -536,6 +536,7 @@ ts_test(
 unresolved_globals_types_test(
     name = "unresolved_globals_types_test",
     target_under_test = ":_globals_without_vitest_compile",
+)
 
 # ts_test's route to the mirror guard. The guard is on the rule attr, so a
 # `types_srcs` the macro dropped on the floor would leave this analysing green.
