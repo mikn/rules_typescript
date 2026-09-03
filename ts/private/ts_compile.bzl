@@ -59,6 +59,8 @@ _JS_DECLARATION_EXTENSION = {
     "cjs": ".d.cts",
 }
 
+_DECLARATION_SUFFIXES = (".d.ts", ".d.mts", ".d.cts")
+
 _SRC_SUFFIXES = tuple(["." + ext for ext in _TS_EXTENSIONS + _JS_EXTENSIONS])
 
 def _hangs_off_another_root(package, src):
@@ -112,7 +114,7 @@ def mixed_src_packages(package, srcs):
     other = []
     own = False
     for src in srcs:
-        if type(src) != "string" or src.endswith((".d.ts", ".d.mts", ".d.cts")):
+        if type(src) != "string" or src.endswith(_DECLARATION_SUFFIXES):
             continue
         if _hangs_off_another_root(package, src):
             other.append(src)
@@ -150,9 +152,8 @@ def fail_on_mixed_src_packages(kind, name, srcs, declarations, enable_check):
     )
 
 def _is_dts_source(f):
-    """Returns True if the file is an ambient declaration file."""
-    b = f.basename
-    return b.endswith(".d.ts") or b.endswith(".d.mts") or b.endswith(".d.cts")
+    """Returns True if the file is a declaration file."""
+    return f.basename.endswith(_DECLARATION_SUFFIXES)
 
 def _package_relative_path(f, pkg):
     """Returns the path of a src relative to the target's package, extension intact."""
@@ -422,21 +423,22 @@ def types_entry_package_ref(entry):
     below turns a disagreement into a fail() no dep clears.
 
     "" for an entry that names a path instead: one starting with `.` or `/`, or
-    ending in `.d.ts`, which no dep resolves. `types_entry_declaration` below
-    takes the two of those shapes the rule resolves itself. Whitespace is
-    trimmed first, which is what Gazelle's `ambientTypeLabel` does before it
-    reads the same shapes -- so a padded entry it writes a dep for is one this
-    spends that dep on, and a blank entry, which it writes no dep for, trims
-    away to no package at all.
+    ending in a declaration extension, which no dep resolves.
+    `types_entry_declaration` below takes the two of those shapes the rule
+    resolves itself. Whitespace is trimmed first, which is what Gazelle's
+    `ambientTypeLabel` does before it reads the same shapes -- so a padded entry
+    it writes a dep for is one this spends that dep on, and a blank entry, which
+    it writes no dep for, trims away to no package at all.
     """
     entry = entry.strip()
-    if entry.startswith(".") or entry.startswith("/") or entry.endswith(".d.ts"):
+    if entry.startswith(".") or entry.startswith("/") or entry.endswith(_DECLARATION_SUFFIXES):
         return ""
     return entry
 
 # `^\.\.?($|/)` is TypeScript's own test for a path here; this takes the `./` and
-# `../` of it that end in `.d.ts` and leaves the rest -- `vendor/x.d.ts`, `.`,
-# `./typings` -- to the compiler, whatever `_rebase_package_relative` rewrote.
+# `../` of it that end in a declaration extension and leaves the rest --
+# `vendor/x.d.ts`, `.`, `./typings` -- to the compiler, whatever
+# `_rebase_package_relative` rewrote.
 def types_entry_declaration(entry):
     """The declaration file one `types` entry names, package-relative, or "".
 
@@ -444,14 +446,14 @@ def types_entry_declaration(entry):
     every entry, one to a dep and one to a label of this target's, and an entry
     both answer "" for is the compiler's own to resolve.
 
-    A relative entry that does not end in `.d.ts` is one of those: `./typings`
-    is a directory whose declarations TypeScript picks by reading it, which
-    Starlark cannot do.
+    A relative entry that does not end in a declaration extension is one of
+    those: `./typings` is a directory whose declarations TypeScript picks by
+    reading it, which Starlark cannot do.
     """
     entry = entry.strip()
     if not entry.startswith("./") and not entry.startswith("../"):
         return ""
-    return entry if entry.endswith(".d.ts") else ""
+    return entry if entry.endswith(_DECLARATION_SUFFIXES) else ""
 
 def workspace_relative(package, entry):
     """`entry`, written relative to `package`, as a path from the workspace root.
@@ -779,6 +781,7 @@ def _generate_tsconfig(
         baseline_file = None,
         allow_js = False,
         emit_declarations = False,
+        isolated_declarations = False,
         emit_root_dir = None,
         emit_out_dir = None,
         types_files = None):
@@ -822,6 +825,8 @@ def _generate_tsconfig(
         allow_js:     True when a JavaScript src is in `include`.
         emit_declarations: True when tsgo emits the .d.ts (declarations =
                       "tsgo"), False when it only reports diagnostics.
+        isolated_declarations: True when oxc emits the .d.ts, whose syntactic
+                      emit requires every export to be annotated.
         emit_root_dir: Exec-root-relative common source directory.
         emit_out_dir: Exec-root-relative directory the .d.ts must land in.
         types_files:  The staged file each relative `types` entry resolved to,
@@ -1037,10 +1042,7 @@ def _generate_tsconfig(
         opts["outDir"] = _relative_path(tsconfig_dir, emit_out_dir) if emit_out_dir != None else "."
         opts["declarationDir"] = opts["outDir"]
         opts["rootDir"] = _relative_path(tsconfig_dir, emit_root_dir) if emit_root_dir != None else "."
-    else:
-        # oxc's syntactic emit genuinely requires isolated declarations. In tsgo
-        # mode the compiler has the full program and infers the types, so
-        # demanding annotations would buy nothing.
+    if isolated_declarations:
         opts["isolatedDeclarations"] = True
 
     # ── Bazel-owned: the file set ─────────────────────────────────────────
@@ -1735,8 +1737,8 @@ def _classify_srcs(ctx):
             )
         else:
             fail(
-                "ts_compile: srcs must contain only .ts, .tsx, .js, .mjs, .cjs " +
-                "or .d.ts files; got '{}' (extension: .{}).\n".format(f.short_path, f.extension) +
+                "ts_compile: srcs must contain only .ts, .tsx, .js, .mjs, .cjs, " +
+                ".d.ts, .d.mts or .d.cts files; got '{}' (extension: .{}).\n".format(f.short_path, f.extension) +
                 "Remove this file from srcs, or if you need to pass through assets " +
                 "use a filegroup or a dedicated rule for that file type.\n" +
                 "Did you mean to add it to a different attribute?",
@@ -2209,18 +2211,25 @@ def _ts_compile_impl(ctx):
     # JavaScript needs no transform, so it is staged in the output tree as-is:
     # a relative import of it from compiled TypeScript has to resolve at runtime
     # in the same directory layout.
+    # TypeScript keeps the higher-priority extension of a .mjs / .d.mts pair listed
+    # together, so the .mjs leaves the program and tsgo writes nothing for it.
+    checked_in_dts = {_package_relative_path(d, pkg): True for d in passthrough_dts}
     js_passthrough = []
     for src in js_srcs:
         rel = _package_relative_path(src, pkg)
         staged = ctx.actions.declare_file(rel)
         ctx.actions.symlink(output = staged, target_file = src)
         js_passthrough.append(staged)
-        if tsgo_emits_dts:
-            stem = rel[:-(len(src.extension) + 1)]
-            dts_ext = _JS_DECLARATION_EXTENSION[src.extension]
-            dts_outputs.append(ctx.actions.declare_file(stem + dts_ext))
+        stem = rel[:-(len(src.extension) + 1)]
+        dts_rel = stem + _JS_DECLARATION_EXTENSION[src.extension]
+        if tsgo_emits_dts and dts_rel not in checked_in_dts:
+            dts_outputs.append(ctx.actions.declare_file(dts_rel))
             if ctx.attr.declaration_map:
-                dts_map_outputs.append(ctx.actions.declare_file(stem + dts_ext + ".map"))
+                dts_map_outputs.append(ctx.actions.declare_file(dts_rel + ".map"))
+
+    # JavaScript srcs whose declarations are all checked in leave tsgo nothing
+    # to write: a program to check, not one to emit from.
+    tsgo_emits_dts = tsgo_emits_dts and bool(dts_outputs)
 
     all_outputs = js_outputs + js_map_outputs + dts_outputs + dts_map_outputs + js_passthrough
 
@@ -2313,6 +2322,7 @@ def _ts_compile_impl(ctx):
             baseline_file = baseline_file,
             allow_js = bool(js_srcs),
             emit_declarations = tsgo_emits_dts,
+            isolated_declarations = oxc_emits_dts,
             emit_root_dir = emit_root_dir,
             emit_out_dir = out_base if tsgo_emits_dts else None,
             types_files = declaration_types,
@@ -2526,15 +2536,21 @@ ts_compile = rule(
                 program. allowJs is set for them, so JSDoc types cross the
                 package boundary; add checkJs through compiler_options to have
                 them type-checked. Under declarations = "tsgo" each one also
-                gets a declaration (.d.ts / .d.mts / .d.cts), the same as tsc.
-.d.ts           ambient declarations: type context for the check, passed
-                straight through to consumers, never in `include`. One with no
-                top-level import or export declares globals, and those are in
-                scope in this target only, unless public_globals names the file.
+                gets a declaration (.d.ts / .d.mts / .d.cts), the same as tsc,
+                unless srcs already holds that file.
+.d.ts / .d.mts / .d.cts
+                declarations: type context for the check, passed straight
+                through to consumers. One with no top-level import or export
+                declares globals, and those are in scope in this target only,
+                unless public_globals names the file. A .d.mts is the
+                declaration of the .mjs of the same stem, whether or not that
+                .mjs is in srcs: "./x.mjs" resolves to x.d.mts, and a .mjs
+                listed beside its .d.mts is staged but leaves the type program,
+                as under tsc, so the checked-in file is its only declaration.
 
 Paths are kept relative to the target's package, so srcs may span a subtree.
 """,
-            allow_files = [".ts", ".tsx", ".d.ts", ".js", ".jsx", ".mjs", ".cjs"],
+            allow_files = [".ts", ".tsx", ".d.ts", ".d.mts", ".d.cts", ".js", ".jsx", ".mjs", ".cjs"],
             mandatory = True,
         ),
         "public_globals": attr.label_list(
@@ -2568,7 +2584,7 @@ of its own -- @types/node for `process` -- or name the file here.
 Every entry must be in srcs, and must be global: naming a module-scoped .d.ts
 fails the build rather than passing as a no-op.
 """,
-            allow_files = [".d.ts"],
+            allow_files = [".d.ts", ".d.mts", ".d.cts"],
         ),
         "deps": attr.label_list(
             doc = "Other ts_compile, ts_npm_package, css_library, css_module, asset_library, or json_library targets that this target depends on.",
@@ -2779,7 +2795,7 @@ import or export -- resolves and joins the program, but its declarations stay
 scoped to it, so nothing global arrives; public_globals rejects one outright and
 this does not, because a module in the program is still what a module
 augmentation inside it needs.""",
-            allow_files = [".d.ts"],
+            allow_files = [".d.ts", ".d.mts", ".d.cts"],
         ),
     },
     toolchains = [

@@ -23,7 +23,7 @@ func main() {
 		WorkspaceRel: "tests/integration/gazelle_roundtrip",
 		Lockfile:     "tests/npm/pnpm-lock.yaml",
 	}, func(it *harness.IT) {
-		dirs := []string{"src/lib", "src/app", "src/icons", "worker", "worker/src", "aliased", "aliased/shared", "aliased/src"}
+		dirs := []string{"src/lib", "src/app", "src/icons", "src/typed", "worker", "worker/src", "aliased", "aliased/shared", "aliased/src"}
 
 		// Written here rather than shipped in the workspace: a BUILD file under
 		// a --deleted_packages entry is a package of the OUTER workspace, and
@@ -100,6 +100,7 @@ func main() {
 		assetDeclarationTypeApplies(it)
 		anchoredExcludeHitsOnePath(it)
 		jsSrcsAreCompiledAndDeclared(it)
+		checkedInDeclarationTypesTheJavaScript(it)
 		lintWithoutTheLinterIsRefused(it, gazelleLog)
 	})
 }
@@ -242,6 +243,38 @@ func jsSrcsAreCompiledAndDeclared(it *harness.IT) {
 		it.Fail("//src/app failed to build for some other reason than the assignment")
 	}
 	it.Pass("assigning format()'s result to a number is TS2322, so the JSDoc type crossed the package boundary")
+}
+
+// src/typed is the monorepo shape: an untyped compile.mjs, the compile.d.mts
+// that declares it -- tsc pairs the two by name -- and a test importing
+// "./compile.mjs". Both files belong to the package target and the test depends
+// on it; whether the checked-in declaration is the type in force, rather than
+// the `any` tsgo infers from the JavaScript, is what only a compile that has to
+// fail can say.
+func checkedInDeclarationTypesTheJavaScript(it *harness.IT) {
+	build := it.Path("src/typed/BUILD.bazel")
+	for _, want := range []string{`"compile.d.mts"`, `"compile.mjs"`} {
+		it.RequireContains(build, want, "src/typed/BUILD.bazel does not name %s", want)
+	}
+	it.Pass("src/typed/BUILD.bazel names the declaration and the JavaScript it declares")
+	it.RequireContains(build, `":typed"`, "the test does not depend on the target holding compile.d.mts")
+	it.Pass("//src/typed:typed_test depends on //src/typed:typed")
+
+	// compile.d.mts takes a number; the JavaScript takes anything.
+	test := it.Path("src/typed/compile.test.ts")
+	restore := it.Read(test)
+	it.Write(test, "import { compile } from \"./compile.mjs\";\n\nexport const s: string = compile(\"x\");\n")
+	log, err := it.BazelLog("checked_in_declaration_is_in_force", "build", "//src/typed:_typed_test_compile")
+	it.Write(test, restore)
+	if err == nil {
+		log.Dump()
+		it.Fail("//src/typed:_typed_test_compile compiled compile(\"x\"); the checked-in .d.mts is not the type in force")
+	}
+	if !log.Contains("TS2345") {
+		log.Dump()
+		it.Fail("//src/typed:_typed_test_compile failed for some other reason than the argument")
+	}
+	it.Pass("compile(\"x\") is TS2345, so compile.d.mts types the import, not tsgo's inference from the .mjs")
 }
 
 // aliased/tsconfig.json maps #shared/* to ./shared/*, and a test file in each

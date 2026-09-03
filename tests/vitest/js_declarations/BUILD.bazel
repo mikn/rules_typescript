@@ -1,0 +1,36 @@
+"""The monorepo shape: a test importing "./compile.mjs", typed by compile.d.mts.
+
+Two placements of the declaration. `:compile` holds it beside the JavaScript it
+declares -- the target Gazelle writes for a module-scoped one -- and the test
+reaches both through the dep. `:inline_test` carries it in its own srcs, where
+an ambient one lands, and meets the JavaScript only at runtime.
+"""
+
+load("//ts:defs.bzl", "ts_compile", "ts_test")
+
+ts_compile(
+    name = "compile",
+    srcs = [
+        "compile.d.mts",
+        "compile.mjs",
+    ],
+)
+
+ts_test(
+    name = "compile_test",
+    srcs = ["compile.test.ts"],
+    deps = [
+        ":compile",
+        "@npm//:vitest",
+    ],
+)
+
+ts_test(
+    name = "inline_test",
+    srcs = [
+        "compile.d.mts",
+        "inline.test.ts",
+    ],
+    data = ["compile.mjs"],
+    deps = ["@npm//:vitest"],
+)

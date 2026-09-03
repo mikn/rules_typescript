@@ -717,3 +717,117 @@ func TestGenerate_JSSrcsResolveASiblingImport(t *testing.T) {
 		t.Errorf("ts_test deps = %v, want the sibling ts_compile that compiles helper.mjs", deps)
 	}
 }
+
+// ---- .d.mts / .d.cts -------------------------------------------------------
+
+// declarationFlavours is the pairing tsc resolves by name: an untyped .mjs
+// beside the .d.mts that declares it, imported as "./compile.mjs". A declaration
+// is a declaration whatever its extension, so it is a source the way a .d.ts is,
+// with no directive -- the JavaScript still waits on ts_js_srcs.
+var declarationFlavours = map[string]string{
+	"pkg/entry.ts":        "export const e = 1;\n",
+	"pkg/compile.mjs":     "export function compile(v) { return `${v}`; }\n",
+	"pkg/compile.d.mts":   "export declare function compile(v: number): string;\n",
+	"pkg/shim.cjs":        "module.exports = { shim: 1 };\n",
+	"pkg/shim.d.cts":      "export declare const shim: number;\n",
+	"pkg/globals.d.mts":   "declare const BUILD_ID: string;\n",
+	"pkg/compile.test.ts": "import { compile } from './compile.mjs';\nexport const t = compile(1);\n",
+}
+
+var declarationFlavoursRolledUp = map[string]string{
+	"pkg/tsconfig.json":     `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
+	"pkg/index.ts":          "export * from './lib/compile.mjs';\n",
+	"pkg/lib/compile.mjs":   "export function compile(v) { return `${v}`; }\n",
+	"pkg/lib/compile.d.mts": "export declare function compile(v: number): string;\n",
+}
+
+func TestGenerate_DeclarationFlavoursAreSourcesLikeADTs(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		tree     map[string]string
+		builds   map[string]string
+		kind     string
+		contains []string
+		omits    []string
+	}{
+		{
+			name:     "a module-scoped declaration joins the package target; its JavaScript does not",
+			tree:     declarationFlavours,
+			kind:     "ts_compile",
+			contains: []string{"entry.ts", "compile.d.mts", "shim.d.cts", "globals.d.mts"},
+			omits:    []string{"compile.mjs", "shim.cjs"},
+		},
+		{
+			name:     "an ambient one joins the test target too; a module-scoped one stays out",
+			tree:     declarationFlavours,
+			kind:     "ts_test",
+			contains: []string{"compile.test.ts", "globals.d.mts"},
+			omits:    []string{"compile.d.mts", "shim.d.cts"},
+		},
+		{
+			name:     "ts_js_srcs admits the JavaScript beside a declaration already admitted",
+			tree:     declarationFlavours,
+			builds:   map[string]string{"pkg/BUILD.bazel": "# gazelle:ts_js_srcs .mjs .cjs\n"},
+			kind:     "ts_compile",
+			contains: []string{"compile.d.mts", "compile.mjs", "shim.d.cts", "shim.cjs"},
+		},
+		{
+			name:     "the rollup walk classifies one the same way",
+			tree:     declarationFlavoursRolledUp,
+			builds:   map[string]string{"pkg/BUILD.bazel": "# gazelle:ts_package_boundary tsconfig\n"},
+			kind:     "ts_compile",
+			contains: []string{"index.ts", "lib/compile.d.mts"},
+			omits:    []string{"lib/compile.mjs"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			files := make(map[string]string, len(tt.tree)+len(tt.builds))
+			for name, content := range tt.tree {
+				files[name] = content
+			}
+			for name, content := range tt.builds {
+				files[name] = content
+			}
+
+			srcs := genSrcsOfKind(generateUnder(t, files, "pkg"), tt.kind)
+			for _, want := range tt.contains {
+				if !hasSrc(srcs, want) {
+					t.Errorf("%s srcs = %v, want it to hold %q", tt.kind, srcs, want)
+				}
+			}
+			for _, unwanted := range tt.omits {
+				if hasSrc(srcs, unwanted) {
+					t.Errorf("%s srcs = %v, want it not to hold %q", tt.kind, srcs, unwanted)
+				}
+			}
+		})
+	}
+}
+
+// The dep edge the monorepo test needed: compile.d.mts is in the package target
+// and "./compile.mjs" is what the test imports, so the target holding the
+// declaration answers for the JavaScript module it declares -- the one key that
+// specifier produces, since only a .js suffix is ever dropped from one.
+func TestGenerate_DeclarationAnswersForTheJavaScriptItDeclares(t *testing.T) {
+	root, _ := convergeWorkspace(t, map[string]string{
+		"scripts/lib/compile.mjs":   "export function compile(v) { return `${v}`; }\n",
+		"scripts/lib/compile.d.mts": "export declare function compile(v: number): string;\n",
+		"scripts/lib/compile.test.ts": "import { compile } from './compile.mjs';\n" +
+			"export const t = compile(1);\n",
+	})
+
+	srcs := srcsOfKind(t, root, "scripts/lib", "ts_compile")
+	if !hasSrc(srcs, "compile.d.mts") || hasSrc(srcs, "compile.mjs") {
+		t.Fatalf("ts_compile srcs = %v, want compile.d.mts and no compile.mjs", srcs)
+	}
+
+	var deps []string
+	for _, r := range loadRules(t, root, "scripts/lib") {
+		if r.Kind() == "ts_test" {
+			deps = append(deps, r.AttrStrings("deps")...)
+		}
+	}
+	if !hasSrc(deps, ":lib") {
+		t.Errorf("ts_test deps = %v, want the sibling ts_compile holding compile.d.mts", deps)
+	}
+}

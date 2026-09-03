@@ -22,7 +22,7 @@ wiring, no extra flags in `.bazelrc`.
 
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `srcs` | `label_list` | required | `.ts`, `.tsx`, `.d.ts`, `.js`, `.mjs` or `.cjs` files. See [Sources](#sources) |
+| `srcs` | `label_list` | required | `.ts`, `.tsx`, `.d.ts`, `.d.mts`, `.d.cts`, `.js`, `.mjs` or `.cjs` files. See [Sources](#sources) |
 | `deps` | `label_list` | `[]` | `ts_compile`, `ts_npm_package`, `css_library`, `css_module`, `asset_library` or `json_library` targets |
 | `target` | `string` | `"es2022"` | ECMAScript target version |
 | `jsx_mode` | `string` | `"react-jsx"` | JSX transform: `react-jsx`, `react`, `preserve`; empty disables JSX |
@@ -53,6 +53,17 @@ checked.
 
 A `.jsx` src is rejected at analysis time, because oxc has no output extension
 for one. The message says to rename it `.tsx`.
+
+A `.d.mts` or `.d.cts` src is a declaration, handled as a `.d.ts` is: passed
+through to consumers, and global when it has no top-level import or export. It
+is the declaration of the `.mjs` or `.cjs` of the same stem — the pairing `tsc`
+resolves by name — so `import { compile } from "./compile.mjs"` resolves to
+`compile.d.mts` ahead of `compile.mjs`, and a checked-in declaration types an
+untyped JavaScript module whether or not that module is in `srcs`. When it is,
+the `.mjs` is staged and leaves the type program — TypeScript keeps the
+higher-priority extension of a pair listed together, as `tsc` does — so the
+checked-in file is the module's only declaration, and `checkJs` does not reach
+that `.mjs`.
 
 ### Source and Declaration Maps
 
