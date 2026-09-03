@@ -947,8 +947,9 @@ def _nested_config_json(package, group, tsconfig_path, ambient):
     why the root's aliases still work from down here.
     """
     depth = len(package.split("/"))
-    to_root = "/".join([".."] * depth) + "/" + tsconfig_path
-    extends = [to_root] + ["./" + _relative_to(package, path) for path in group.extends]
+    to_workspace = "/".join([".."] * depth) + "/"
+    to_root = to_workspace + tsconfig_path
+    extends = [to_root] + [_relative_to(package, path, to_workspace) for path in group.extends]
 
     # An editor program must not write anything, and it is the one place these can
     # be pinned: they sit in the nested file's OWN compilerOptions, which beat
@@ -978,7 +979,7 @@ def _nested_config_json(package, group, tsconfig_path, ambient):
         # ambient declaration is named, so an empty one here loses @types/node
         # and every `declare module` with it.
         "files": [
-            "/".join([".."] * len(package.split("/"))) + "/" + entry.removeprefix("./")
+            to_workspace + entry.removeprefix("./")
             for entry in ambient
         ],
         "compilerOptions": options,
@@ -986,12 +987,12 @@ def _nested_config_json(package, group, tsconfig_path, ambient):
         "exclude": [],
     }
 
-def _relative_to(package, path):
+def _relative_to(package, path, to_workspace):
     """`path`, which is workspace-relative, expressed from inside `package`."""
     prefix = package + "/"
     if path.startswith(prefix):
-        return path[len(prefix):]
-    return path
+        return "./" + path[len(prefix):]
+    return to_workspace + path
 
 def _ide_tsconfig_impl(ctx):
     sources = [dep[TsconfigSourcesInfo] for dep in ctx.attr.deps]
