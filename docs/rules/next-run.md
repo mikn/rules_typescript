@@ -2,10 +2,10 @@
 
 Two ways to run the app [`next_build`](next-build.md) compiles.
 
-| Rule | Command | Project directory | What it is for |
+| Rule | Command | Project directory | Serves |
 | --- | --- | --- | --- |
-| `next_dev_server` | `next dev` | your source tree | the inner loop: an edit reaches the response through Next.js's watcher, with no rebuild |
-| `next_serve` | `next start` | a staged copy of the build | server-rendering the built app |
+| `next_dev_server` | `next dev` | the source tree | the source, through Next.js's watcher; an edit reaches the response with no rebuild |
+| `next_serve` | `next start` | a staged copy of the build | the built app, server-rendered |
 
 Neither rule generates a config. Next.js reads `next.config.*` from its project
 directory; what the rules supply is the Bazel-built npm tree.
@@ -51,8 +51,7 @@ bazel run //:serve -- --port 41234    # any port, e.g. one a test reserved
 ```
 
 Gazelle generates the `dev` target beside `next_build` and does not generate
-`serve`: which files a served app needs beside `.next`, and on which port, is a
-deployment decision.
+`serve`.
 
 ## Attributes
 
@@ -83,28 +82,27 @@ Next.js seeds webpack's `resolve.modules` from `NODE_PATH`
 too. Both rules set it to the Bazel npm tree, so the app's bare imports resolve
 there and no `node_modules` symlink is planted in a source directory.
 
-## What `next_serve` stages
+## The `next_serve` Staging Directory
 
-The staged project directory holds a **copy** of `.next`, not a symlink into
+The staged project directory holds a copy of `.next`, not a symlink into
 `bazel-bin`. The image optimizer writes into `.next/cache` when it serves
 `/_next/image?url=…`, and a Bazel output tree is read-only. The copy is
 discarded when the server exits.
 
-`public/` is the other half: `next build` never copies it into `.next`, because
-Next.js serves it from the project root at request time. It reaches the staged
-directory through `srcs`, which is also where a module the config imports goes.
+`next build` does not copy `public/` into `.next`; Next.js serves it from the
+project root at request time. `srcs` stages it, and stages any module the config
+imports.
 
-`next_serve` runs the build; it is not a deployment artifact. The deployable
-unit is the build output plus the config, `public/` and the npm tree, which is
-what the rule assembles at run time. `output: "standalone"` is untested here.
+`next_serve` runs the build and is not a deployment artifact. It assembles the
+build output, the config, `public/` and the npm tree at run time.
+`output: "standalone"` is untested.
 
-## What `next dev` writes
+## Files `next dev` Writes
 
-`next dev` treats its project directory as its own: it writes `.next/` and
-`next-env.d.ts` there, and adds `.next/types/**/*.ts` to the `include` of
-`tsconfig.json`. `distDir` is a `next.config` setting and the rule does not own
-your config, so this is Next.js's own behaviour showing through. All three are
-the paths a Next.js project gitignores anyway.
+`next dev` writes `.next/` and `next-env.d.ts` into the project directory and
+adds `.next/types/**/*.ts` to the `include` of `tsconfig.json`. `distDir` is a
+`next.config` setting; the rule does not own the config. All three are paths a
+Next.js project gitignores.
 
 ## Turbopack
 
@@ -118,7 +116,7 @@ and asserts over HTTP:
 
 - two requests to a `force-dynamic` route return different HTML: the route
   renders a per-request nonce. Before the servers start, the same test reads
-  `prerender-manifest.json` out of the build — that route is absent from it
+  `prerender-manifest.json` out of the build: that route is absent from it
   while a sibling static route is present;
 - the `Host` header the request supplied appears in the server-rendered HTML,
   for both the App Router (`headers()`) and the Pages Router

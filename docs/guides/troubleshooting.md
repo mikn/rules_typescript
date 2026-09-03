@@ -51,7 +51,7 @@ No repository visible as '@npm' from main repository and referenced by
 ```
 
 Gazelle resolved a bare import to an `@npm//:…` label and there is no hub yet.
-One npm dependency is enough to need the extension — the three lines above. A
+One npm dependency is enough to need the extension: the three lines above. A
 label naming a second hub (`@npm_tools//:…`) means that hub is missing from
 `use_repo`; see [more than one hub](npm.md#more-than-one-hub).
 
@@ -65,7 +65,7 @@ ERROR: No test targets were found, yet testing was requested
 `bazel test //...` exits 4 when the pattern matches no test target, and a project
 with no `*.test.ts` / `*.spec.ts` yet has none. Gazelle generates a `ts_test` from
 the first such file it sees; vitest comes from your lockfile.
-[The quickstart's step 9](../getting-started/quickstart.md#path-a-new-project)
+[The quickstart's step 8](../getting-started/quickstart.md#path-a-new-project)
 walks the first-test path.
 
 ## BUILD file not found for //:MODULE.bazel
@@ -80,9 +80,9 @@ repository root to be a Bazel package. Create a `BUILD.bazel` at the root; an
 empty file is enough, though the [quickstart](../getting-started/quickstart.md)
 puts the Gazelle target there.
 
-## No tsgo toolchain / declarations are missing
+## No tsgo Toolchain / Declarations Are Missing
 
-Toolchain registration is the **consumer's** job. Your `MODULE.bazel` needs:
+Toolchain registration is the consumer's job. Your `MODULE.bazel` needs:
 
 ```python
 register_toolchains("@rules_typescript//ts/toolchain:all")
@@ -123,7 +123,7 @@ tree (bazel-out/k8-fastbuild/bin/packages/ui).
 ```
 
 A path under `bazel-out/` embeds the build configuration, so it stops resolving
-under `-c opt` or a different exec platform. `path_aliases` is for **source**
+under `-c opt` or a different exec platform. `path_aliases` is for source
 directories. To import another target by bare specifier, set `module_name` on
 the target that produces its declarations and depend on it.
 
@@ -172,8 +172,8 @@ ts_compile: path_aliases["@math"] on @@//src/app:app points at "src/lib/math",
 where none of this target's inputs live.
 ```
 
-Map the alias to the directory instead -- `"@lib/*": ["src/lib/*"]`, imported as
-`@lib/math` -- or set `module_name` on `//src/lib` and import it by that name.
+Map the alias to the directory (`"@lib/*": ["src/lib/*"]`, imported as
+`@lib/math`), or set `module_name` on `//src/lib` and import it by that name.
 
 ## npm: pnpm-lock.yaml declares patchedDependencies with no patch file
 
@@ -273,7 +273,7 @@ bazel run //:gazelle
 The check and Gazelle share one specifier scanner, so a Gazelle run that leaves
 a reported failure unfixed is a bug. Two things are outside the check:
 `/// <reference types="x" />`, for which Gazelle generates no dep either, and an
-import nothing in the closure provides at all, which TypeScript reports as
+import nothing in the closure provides, which TypeScript reports as
 `TS2307`.
 
 ## Option 'baseUrl' has been removed
@@ -284,11 +284,11 @@ Please remove it from your configuration.
 ```
 
 `baseUrl` is gone in tsgo, and the generated config cannot take it back out of
-your file: the diagnostic fires on the key being *present* anywhere in the
+your file: the diagnostic fires on the key being present anywhere in the
 `extends` chain, so re-stating it above yours only moves the error. Delete it
-from the `tsconfig.json` the target names — `paths` here is Bazel's, rewritten
-per configuration, so nothing in this ruleset resolves against a `baseUrl`
-anyway. `compiler_options` rejects the key at analysis for the same reason; use
+from the `tsconfig.json` the target names. `paths` here is Bazel's, rewritten
+per configuration, so nothing in this ruleset resolves against a `baseUrl`.
+`compiler_options` rejects the key at analysis for the same reason; use
 `path_aliases` for a source alias.
 
 ## Option 'moduleResolution' must be set to 'NodeNext'
@@ -298,10 +298,10 @@ pkg/tsconfig.json(2,3): error TS5109: Option 'moduleResolution' must be set to
 'NodeNext' (or left unspecified) when option 'module' is set to 'NodeNext'.
 ```
 
-Two layers each supplying one half of a coupled pair. The ruleset states
+Two layers each supply one half of a coupled pair. The ruleset states
 `moduleResolution` only where it also owns the `module` it belongs to, so a
-`module` of yours never has a stray baseline resolver under it — but two layers
-*of yours* still can: a `module` in the `tsconfig.json` the target names and a
+`module` of yours never has a stray baseline resolver under it. Two layers of
+yours still can: a `module` in the `tsconfig.json` the target names and a
 `moduleResolution` in `compiler_options` above it, or the same split across your
 own `extends` chain. Put both halves in one file, or drop the `moduleResolution`
 and let tsgo derive it.
@@ -312,11 +312,11 @@ the label and the value to set.
 
 ## Import Not Resolving in tsgo
 
-tsgo resolves with `moduleResolution: "Bundler"` — the ruleset's baseline, and
-what tsgo derives from every `module` but `Node16`/`NodeNext` — plus `paths`
-entries for direct npm deps.
-A bare import that resolves nowhere — no `TsStrictDeps` failure, just `TS2307` —
-means no dep in the closure provides it at all. Add the package:
+tsgo resolves with `moduleResolution: "Bundler"` (the ruleset's baseline, and
+what tsgo derives from every `module` but `Node16`/`NodeNext`) plus `paths`
+entries for direct npm deps. A bare import that resolves nowhere, with no
+`TsStrictDeps` failure and only `TS2307`, means no dep in the closure provides
+it. Add the package:
 
 ```python
 ts_compile(
@@ -338,12 +338,12 @@ TypeScript's type-reference resolver, which walks `node_modules/@types` and
 `typeRoots`, not the `paths` map that carries npm deps here. There is no
 `node_modules` to walk, so no `deps` entry makes it resolve.
 
-One caveat: while `bazel run //:dev` is running there *is* a `node_modules` at
-the workspace root — the dev server links the npm tree in so bare specifiers
-resolve (see [Dev Server](dev-server.md#how-a-bare-npm-specifier-resolves)). Your
-editor may then resolve this directive, and bare imports with no `deps` entry,
-for as long as the server runs. `bazel build` never does; a green editor and a
-red build means the link is what your editor found.
+While `bazel run //:dev` is running there is a `node_modules` at the workspace
+root: the dev server links the npm tree in so bare specifiers resolve (see
+[Dev Server](dev-server.md#how-a-bare-npm-specifier-resolves)). The editor may
+then resolve this directive, and bare imports with no `deps` entry, for as long
+as the server runs. `bazel build` never does. A green editor and a red build
+means the editor found the link.
 
 Delete the directive and ask for the same globals through the rule:
 
@@ -358,16 +358,16 @@ ts_compile(
 `vite_types` prepends a standalone ambient shim: it declares the Vite client
 globals without referencing `vite/client`, so `vite` does not become a
 compile-time dependency. It is a src like any other, so it types the target
-that sets the attribute and no other -- a consumer using `import.meta.env` sets
+that sets the attribute and no other; a consumer using `import.meta.env` sets
 `vite_types = True` itself. Anything else the directive was reaching for is an
 ordinary `@types/*` package. Name it in `deps`, or in
 [`# gazelle:ts_ambient_types`](../gazelle/directives.md#declare-ambient-types-once-for-the-whole-repo)
 if the whole tree needs it.
 
 Gazelle does not rewrite the directive, and neither the import scanner nor the
-strict-deps checker reads it. That is the directive in a file of your own; one
-in an npm package's declaration entry -- `@types/bun/index.d.ts` is exactly
-`/// <reference types="bun-types" />` -- is followed by the rule, see
+strict-deps checker reads it. That covers the directive in a file of your own.
+One in an npm package's declaration entry (`@types/bun/index.d.ts` is
+`/// <reference types="bun-types" />`) is followed by the rule; see
 [`@types/*` packages](../rules/ts-compile.md#types-packages).
 
 ## compilerOptions.types entry "vite/client" resolves to nothing
@@ -394,16 +394,16 @@ ts_compile(
 
 The message names the subpaths a package that is already a dep does designate,
 and any dep whose name is near the entry's. Two other ways out: name a
-declaration file instead (`types = ["./worker-configuration.d.ts"]`, with the
-file in `types_srcs` -- see below), or state a `typeRoots` in
-`compiler_options`, which exempts the target from this check -- what sits under
-a `typeRoots` is the compiler's to find at action time.
+declaration file (`types = ["./worker-configuration.d.ts"]`, with the file in
+`types_srcs`; see below), or state a `typeRoots` in `compiler_options`. A
+`typeRoots` exempts the target from this check; what sits under it is the
+compiler's to find at action time.
 
-It fails at analysis because nothing downstream would say it. `tsc` reports
-`TS2688` for such an entry; tsgo, the compiler this ruleset runs, reports
-nothing at all and exits 0, so the target compiles without the declarations and
-the error lands on whatever needed them -- `TS2339` on `import.meta.env` without
-`vite/client`, `TS2591` on `process` without `node`.
+It fails at analysis because nothing downstream reports it. `tsc` reports
+`TS2688` for such an entry; tsgo reports nothing and exits 0, so the target
+compiles without the declarations and the error lands on whatever needed them:
+`TS2339` on `import.meta.env` without `vite/client`, `TS2591` on `process`
+without `node`.
 
 ## compilerOptions.types entry names a path no file of mine sits at
 
@@ -413,10 +413,10 @@ ts_compile: compilerOptions.types entry "../../worker-configuration.d.ts" on
   which no file this target stages sits at.
 ```
 
-A relative `types` entry is a path, and a path resolves against the sandbox:
-only what this target's action stages is in it -- its `srcs`, its `types_srcs`,
-its `path_alias_srcs`, its deps' declarations, checked in or generated. Name
-the file with a label:
+A relative `types` entry is a path, and a path resolves against the sandbox,
+which holds only what this target's action stages: its `srcs`, `types_srcs`,
+`path_alias_srcs` and its deps' declarations, checked in or generated. Name the
+file with a label:
 
 ```python
 ts_compile(
@@ -433,10 +433,10 @@ it as part of this program either way, so a syntax error in the file fails this
 target; what it declares goes unchecked under the baseline's `skipLibCheck`.
 
 It fails at analysis for the same reason the package shape does: tsgo reports
-nothing for a `types` entry that resolves to nothing, so the target used to
+nothing for a `types` entry that resolves to nothing, so the target would
 compile against a smaller type environment than it asked for and the error
-landed on whatever needed the globals -- `TS2304: Cannot find name` on a
-Worker's `Env`. A `typeRoots` does not exempt this shape: `./x.d.ts` and
+would land on whatever needed the globals (`TS2304: Cannot find name` on a
+Worker's `Env`). A `typeRoots` does not exempt this shape: `./x.d.ts` and
 `../x.d.ts` are resolved against the config's own directory, never through
 `typeRoots`.
 
@@ -446,15 +446,14 @@ The mirror of it. `types_srcs` stages a declaration for an entry to resolve and
 is not `include`, so a file no entry names reaches the program by no route at
 all. Name it in `types`, or drop the label.
 
-## The `types` in my tsconfig file does nothing
+## `types` in the tsconfig File Is Not Read
 
-Only the `types` in `compiler_options` is resolved and guarded. In the
-`tsconfig` file a target names it is a layer the rule does not read, so those
-entries reach tsgo unresolved: a target whose `tsconfig` holds
-`"types": ["vite/client"]` and whose `deps` hold `@npm//:vite` analyses with no
-complaint, generates a config whose `files` is empty, and fails in tsgo with
-`TS2339` on the `import.meta.env` the declarations that never arrived would have
-typed. Move the entries to `compiler_options`.
+Only the `types` in `compiler_options` is resolved and guarded. The `tsconfig`
+file a target names is a layer the rule does not read, so its entries reach tsgo
+unresolved: a target whose `tsconfig` holds `"types": ["vite/client"]` and whose
+`deps` hold `@npm//:vite` passes analysis, generates a config whose `files` is
+empty, and fails in tsgo with `TS2339` on `import.meta.env`. Move the entries to
+`compiler_options`.
 
 ## ts_test: vitest not found
 
@@ -496,7 +495,7 @@ the production code imports: the auto tree is built from `ts_test`'s own npm dep
 and their transitive npm deps, and a `ts_compile` dep does not contribute its
 own.
 
-## Isolated declarations error: missing return type
+## Isolated Declarations Error: Missing Return Type
 
 Reachable only under `declarations = "oxc"`, where Oxc derives `.d.ts` from
 syntax and so needs an explicit type on every export:
@@ -510,9 +509,9 @@ Add the annotation Oxc names, or drop that target back to the default
 `declarations = "tsgo"`, where the compiler infers it. See
 [Isolated Declarations](../getting-started/isolated-declarations.md).
 
-## Type errors are not failing the build
+## Type Errors Are Not Failing the Build
 
-Under the default `declarations = "tsgo"` they always do: the `.d.ts` are real
+Under the default `declarations = "tsgo"` they always do: the `.d.ts` are
 outputs of the type-checking action, so a target with a type error produces
 nothing.
 
@@ -536,17 +535,17 @@ If Gazelle generates incorrect `deps` for an import:
 
 1. Check that the import specifier matches an npm package name in the lockfile.
 2. For path aliases, check `compilerOptions.paths` in the nearest
-   `tsconfig.json` — Gazelle reads it directly, as JSONC — or set
+   `tsconfig.json` (Gazelle reads it directly, as JSONC), or set
    `# gazelle:ts_path_alias @/ src/` explicitly.
 3. Use `# gazelle:ts_ignore` to suppress generation for a directory and write
    its BUILD file manually.
 
 ## typescript: &lt;framework&gt; detected: bundling it is unsupported
 
-Not an error. Gazelle recognised a framework it generates no bundle target for —
-currently SolidStart, and nothing else — and the message carries the reason. The
-rest of the workspace still compiles and tests. For a client-only build, declare
-a `ts_bundle` by hand with no `vite_config`. See
+Not an error. Gazelle recognised a framework it generates no bundle target for
+(SolidStart, and no other) and the message carries the reason. The rest of the
+workspace still compiles and tests. For a client-only build, declare a
+`ts_bundle` by hand with no `vite_config`. See
 [Framework detection](../gazelle/overview.md#framework-detection).
 
 ## rule '//app:entry_client' does not exist, after Gazelle on a framework workspace
@@ -572,10 +571,10 @@ the exclusion, or declare the bundle by hand with a "# keep" comment above the
 rule -- without one the next run that does find an entry rewrites it.
 ```
 
-The missing rule therefore belongs to a bundle Gazelle is not maintaining: one
-carrying a `# keep`, or one whose `entry_point` you pointed at a target of your
-own. Setting `entry_point` by hand does not help; the next run that finds an
-entry rewrites it.
+The missing rule belongs to a bundle Gazelle is not maintaining: one carrying a
+`# keep`, or one whose `entry_point` you pointed at a target of your own.
+Setting `entry_point` by hand does not help; the next run that finds an entry
+rewrites it.
 
 Put the framework's client entry where the framework expects it, drop any
 `# gazelle:ts_exclude` covering it, and re-run Gazelle: it writes the single-file
@@ -634,7 +633,7 @@ node_modules(
 )
 ```
 
-Name it `node_modules` — see the next entry.
+Name it `node_modules`; see the next entry.
 
 ## Cannot find package 'rolldown' imported from …/vite/dist/node/chunks/node.js
 
@@ -648,7 +647,7 @@ The `node_modules()` target is named something other than `node_modules`. The
 tree is materialised at the target's own name, and Node resolves a bare specifier
 by walking up for a directory called `node_modules` and nothing else, so Vite 8,
 whose entry imports `rolldown` that way, does not start. The "Did you mean" line
-shows the package sitting right there in the tree.
+shows the package in the tree.
 
 Rename the target to `node_modules` (one per Bazel package) and update the attr
 pointing at it. `@vitejs/plugin-react` fails the same walk-up for its
@@ -664,7 +663,7 @@ Error: [vite]: Rolldown failed to resolve import "zod" from
 ("Rollup" in place of "Rolldown" before Vite 8; the cause is the same.)
 
 A `ts_bundle` whose bundler's `node_modules` tree cannot answer a bare specifier
-in the bundled graph. Two causes, the first the common one:
+in the bundled graph. Two causes:
 
 - **the package is not in the tree.** The tree supplies Vite and every npm
   package anything in the graph imports; a `ts_compile` dep does not contribute
@@ -683,8 +682,8 @@ consumes the bundle. See
 
 The dev server does not start: it could not load the Fast Refresh plugin out of
 the Bazel `node_modules` tree, and the message ends with the underlying cause.
-Almost always the package is not in the tree; add it to the `node_modules`
-target the dev server uses:
+Usually the package is not in the tree; add it to the `node_modules` target the
+dev server uses:
 
 ```python
 node_modules(
@@ -705,12 +704,12 @@ analysis time instead, because oj applies Fast Refresh itself and stacking
 
 ## [rules_typescript] Failed to load vite_config
 
-`ts_dev_server` and `ts_bundle` both load a **copy** of your `vite_config` from
+`ts_dev_server` and `ts_bundle` both load a copy of your `vite_config` from
 `bazel-bin`, so the file's own imports resolve beside the Bazel npm tree, not in
 your source tree. Staged there are the config and the modules `vite_config_srcs`
 declares, nothing else:
 
-- a **relative** import of a module not in `vite_config_srcs` fails, and the
+- a relative import of a module not in `vite_config_srcs` fails, and the
   message names the file. Declare it:
 
   ```python
@@ -721,7 +720,7 @@ declares, nothing else:
   A module outside the config's own Bazel package cannot be declared, since it
   would have to stage above the staging root; that is a separate analysis-time
   error naming the file and the package;
-- a **bare npm** import works, as long as the `node_modules` target is in the same
+- a bare npm import works, as long as the `node_modules` target is in the same
   Bazel package as the dev server. Move it back beside the server, or add a
   `node_modules` target there.
 
@@ -764,11 +763,11 @@ source.
 
 ## gazelle: typescript: paths entry "…" resolves on disk to N directories
 
-Not an error, but something is being dropped. `compilerOptions.paths` values are
-arrays and a `path_aliases` entry holds one directory, so Gazelle picks one:
-`bazel-*` and tool-managed dot-directory entries are skipped, then the first
-entry that exists on disk wins. The line fires only when two or more entries in
-one chain are real directories.
+Not an error; the other entries in the array are dropped.
+`compilerOptions.paths` values are arrays and a `path_aliases` entry holds one
+directory, so Gazelle picks one: `bazel-*` and tool-managed dot-directory
+entries are skipped, then the first entry that exists on disk wins. The line
+fires only when two or more entries in one chain are real directories.
 
 A specifier reaching only through an ignored directory gets no dep edge, and the
 `tsconfig.json` `ts_compile` generates carries no such directory either, so the
@@ -782,29 +781,28 @@ are all absent from the working tree, where the first entry is used as before.
 
 ## invalid repository name '{$username}.tsx'
 
-A source file whose name starts with `@` — a TanStack Start route on a dynamic
-segment is written `@{$username}.tsx` — reached a `srcs` list bare. A `srcs`
-entry is a label, and Bazel reads the head of the string rather than the file
-system: `@` opens a repository name, `//` an absolute package, and a `:`
-anywhere splits package from target. So the bare name names a repository that
-does not exist, and one such entry fails `bazel query //...` for every package
-in the workspace rather than for the one target.
+A source file whose name starts with `@` (a TanStack Start route on a dynamic
+segment is written `@{$username}.tsx`) reached a `srcs` list bare. A `srcs`
+entry is a label, and Bazel parses the head of the string before it looks at the
+file system: `@` opens a repository name, `//` an absolute package, and a `:`
+anywhere splits package from target. The bare name names a repository that does
+not exist, and one such entry fails `bazel query //...` for every package in the
+workspace, not for the one target.
 
 Gazelle writes `":@{$username}.tsx"` for these, which pins the name to the
 package the way a bare name does for every other file. Hand-written BUILD files
 need the same leading colon.
 
-A name holding a `:` has no label in any spelling — a target name may not
-contain one — and Gazelle leaves such a file out of every target it generates,
-saying so on one line per file. Rename the file.
+A name holding a `:` has no label in any spelling, since a target name may not
+contain one. Gazelle leaves such a file out of every target it generates, saying
+so on one line per file. Rename the file.
 
-**`exports_files` wants the opposite spelling.** Its argument is a list of
-target names, not of labels, so the bare `exports_files(["@{$username}.tsx"])`
-is the correct form there and `exports_files([":@{$username}.tsx"])` fails with
-`target names may not contain ':'` — misleading, since the colon is the fix one
-attribute over. Applying the `srcs` rule here is what produces that error. A
-`filegroup` whose `srcs` is a `glob()` avoids the question entirely: a glob
-pattern is matched against the file system rather than parsed as a label.
+`exports_files` takes the opposite spelling. Its argument is a list of target
+names, not of labels, so the bare `exports_files(["@{$username}.tsx"])` is the
+form there, and `exports_files([":@{$username}.tsx"])` fails with
+`target names may not contain ':'`. A `filegroup` whose `srcs` is a `glob()`
+needs neither spelling: a glob pattern is matched against the file system, not
+parsed as a label.
 
 ## Snapshot 'x 1' mismatched, or a snapshot vitest says is new
 
@@ -813,7 +811,7 @@ a snapshot the sandbox cannot read counts as absent. Two causes:
 
 - The `.snap` is not in `snapshots`, so it never reached the runfiles tree. Add
   `snapshots = glob(["__snapshots__/*.snap"])`.
-- The snapshot is genuinely stale. Regenerate it:
+- The snapshot is stale. Regenerate it:
   `bazel run //path/to:my_test.update_snapshots`, then commit.
 
 Full workflow: [Snapshots](testing.md#snapshots).
@@ -821,10 +819,9 @@ Full workflow: [Snapshots](testing.md#snapshots).
 ## Slow First Build
 
 The first build downloads a Rust toolchain, a tsgo npm tarball, a Node.js
-tarball, and the npm packages your targets reach — not the whole lockfile — then
-compiles `oxc-bazel` and its crate graph from Rust source. That compile is the
-long pole: budget minutes, and do not `bazel clean` afterwards. Everything after
-it is cached.
+tarball, and the npm packages your targets reach (not the whole lockfile), then
+compiles `oxc-bazel` and its crate graph from Rust source. That compile takes
+minutes. Everything after it is cached; do not `bazel clean`.
 
 Mount a persistent cache volume so CI pays it once:
 

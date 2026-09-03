@@ -58,16 +58,16 @@ npm publish $(bazel cquery --output=files //:lib_pkg | grep '\.tar$')
 The template is read as JSON and re-emitted as pretty-printed JSON, so its
 formatting is not preserved.
 
-Three fields are filled in **only when the template does not declare them** —
-`main`, `types` and `exports` — from the entry point the rule identifies
+Three fields, `main`, `types` and `exports`, are filled in only when the
+template does not declare them, from the entry point the rule identifies
 (`index.js`/`index.d.ts`, or the single `.js` output when there is exactly one).
-Declaring one keeps your value verbatim; declare it empty (`"main": ""`) to
-suppress the auto-fill for a field you do not want.
+A declared value is kept verbatim; an empty one (`"main": ""`) suppresses the
+fill.
 
-`version` is different: when the rule's `version` attr is set it **replaces**
+`version` is different: when the rule's `version` attr is set it replaces
 whatever the template has. Leave the attr at `""` to keep the template's.
 
-A template can therefore be as short as this:
+A template can be as short as this:
 
 ```json
 {

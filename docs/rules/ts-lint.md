@@ -54,13 +54,12 @@ bazel build //... --output_groups=+_validation
 
 oxlint needs no config for basic use; eslint needs a flat config.
 
-`linter_binary` is mandatory: there is no linter toolchain, and which oxlint or
-eslint runs is a property of your lockfile.
+`linter_binary` is mandatory: there is no linter toolchain, and the lockfile
+decides which oxlint or eslint runs.
 
 ## Provider
 
-`TsLintInfo` carries one field, `stamp` — the file written only on a clean run.
-A rule wanting to depend on "this target was linted" reads it.
+`TsLintInfo` carries one field, `stamp`, the file written only on a clean run.
 
 ## Paths
 
@@ -68,7 +67,7 @@ Every source and the config reach the linter as **execroot-absolute** paths,
 substituted into the command line by the `tsaction` helper. An `npm_bin` wrapper
 `cd`s to `RUNFILES_DIR` before running the package's own binary, which
 invalidates every execroot-relative path it was given. A linter reporting
-`ENOENT` on a file that plainly exists is this going wrong.
+`ENOENT` on a file that exists is this.
 
 ## Action Environment
 

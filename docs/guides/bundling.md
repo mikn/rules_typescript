@@ -14,7 +14,7 @@ tests inside workerd.
 
 ## With Vite
 
-Declare the three targets at the **workspace root**. See
+Declare the three targets at the workspace root. See
 [where the bundler's tree has to sit](#where-the-bundlers-node_modules-has-to-sit).
 
 ```python
@@ -48,7 +48,7 @@ ts_bundle(
 )
 ```
 
-### Where the bundler's `node_modules` has to sit
+### Where the Bundler's `node_modules` Has to Sit
 
 That tree supplies Vite and every npm package the bundled graph imports; a
 `ts_compile` dep does not carry its own npm packages into it. A missing package
@@ -65,8 +65,7 @@ walk-up from the importer, so the tree has to sit in an ancestor directory of
 every compiled `.js` that imports one. A tree in `//src/app` does not serve an
 import in `//src/lib`; one at the workspace root serves the whole repository.
 
-`external` is the other way out, for a specifier you want left as an import for
-whoever consumes the bundle.
+`external` leaves a specifier as an import for the bundle's consumer.
 
 ## Running Without a Bundler
 
@@ -115,7 +114,7 @@ a tree built from `deps = ["@npm//:vite"]`. `False` also pins
 dead-code pass, which re-emits every chunk from its AST and drops a plugin's
 `renderChunk` output.
 
-## CSS, CSS modules and assets
+## CSS, CSS Modules and Assets
 
 A stylesheet, a `*.module.css` and an imported asset need no bundle-level
 configuration. They reach the bundler through the entry point's `CssInfo`,
@@ -126,9 +125,9 @@ into `bazel-bin` beside the compiled `.js` that imports them.
 The two modes differ in what comes out:
 
 - **App mode** hashes every imported stylesheet and asset
-  (`assets/index-C_rPVxYH.css`, `assets/big_logo-DWeKL6j3.svg`) and rewrites the
+  (`assets/index-<hash>.css`, `assets/big_logo-<hash>.svg`) and rewrites the
   references in the emitted HTML. An asset under Vite's 4096-byte
-  `assetsInlineLimit` is inlined as a `data:` URI and gets no filename at all.
+  `assetsInlineLimit` is inlined as a `data:` URI and gets no filename.
 - **Lib mode** extracts all CSS into one `<bundle_name>.css`, never referenced
   from the JS, so the library's consumer includes it. Bazel declares that file
   explicitly: Vite writes it either way, and an undeclared output goes out with
@@ -136,7 +135,7 @@ The two modes differ in what comes out:
   map. An asset too large to inline is a loose file, undeclared, and goes out
   with the sandbox; app mode declares a directory and keeps it.
 
-### Static files (`public_dir`)
+### Static Files (`public_dir`)
 
 `public_dir` names the files that must keep the name they were given: a
 `robots.txt`, a favicon referenced from an HTML tag, anything fetched by a URL
@@ -185,15 +184,15 @@ for filenames it did not choose. Vite's own `index.html` needs none of it.
 Both attrs are app mode only and fail at analysis time in lib mode, which
 declares its output filenames.
 
-## Framework plugins via `vite_config`
+## Framework Plugins via `vite_config`
 
 `vite_config` takes the config file, `vite_config_srcs` the local modules it
 imports. Both are staged into `bazel-bin`, and the generated config loads the
 staged copy and prepends its plugins to Bazel's. TanStack Start's plugin goes
-through that hook, and Remix's when a client-only bundle is what you want. Two
-frameworks do not fit through it: SvelteKit, which has
+through that hook, and Remix's for a client-only bundle. Two frameworks do not
+fit through it: SvelteKit, which has
 [a rule of its own](../rules/sveltekit-build.md), and Solid Start, which has no
-rule and no bundle target at all. See
+rule and no bundle target. See
 [framework detection](../gazelle/overview.md#framework-detection).
 
 ```typescript
@@ -240,8 +239,7 @@ Three constraints:
 
 ### Keys the Generated Config Reads
 
-The generated config reads a fixed set of keys out of yours, so a config that
-computes the build is not expressible:
+The generated config reads a fixed set of keys out of yours:
 
 | Rule | Keys it reads |
 |---|---|
@@ -257,11 +255,11 @@ silently discarded. Move what you need into a plugin, or open an
 issue for the option.
 ```
 
-`define`, `resolve.alias`, `build.target` and `optimizeDeps` are the options a
-real framework config sets; the build stops on them. Where an attribute owns the
-option, use it: `define`, `env_vars`, `external`, `minify`, `split_chunks`,
-`public_dir`, `manifest`. The check runs where the config is loaded, not at
-analysis time, because only the loaded object says which keys it has.
+A config that sets `define`, `resolve.alias`, `build.target` or `optimizeDeps`
+stops the build. Where an attribute owns the option, use it: `define`,
+`env_vars`, `external`, `minify`, `split_chunks`, `public_dir`, `manifest`. The
+check runs where the config is loaded, not at analysis time, because only the
+loaded object says which keys it has.
 
 A config carrying `root` builds under `ts_bundle` and fails under
 `ts_dev_server`, which takes its serve root from the target. Under oj, `root` is
@@ -270,9 +268,8 @@ served directory from argv.
 
 ## Custom Bundler (BundlerInfo Interface)
 
-Any Bazel rule that returns `BundlerInfo` can plug into `ts_bundle` and
-`ts_binary`. This lets you bring your own bundler — esbuild, Rolldown, webpack —
-without modifying `rules_typescript`.
+Any Bazel rule that returns `BundlerInfo` plugs into `ts_bundle` and
+`ts_binary`; `rules_typescript` itself needs no change for another bundler.
 
 ```python
 load("@rules_typescript//ts:defs.bzl", "BundlerInfo")
@@ -299,7 +296,7 @@ my_bundler = rule(
 
 ### BundlerInfo Invocation Modes
 
-**Mode 1 — Standard CLI** (`use_generated_config = False`, the default)
+**Mode 1: Standard CLI** (`use_generated_config = False`, the default)
 
 `ts_bundle` invokes the bundler binary with:
 
@@ -319,7 +316,7 @@ Output is expected at `<out-dir>/<bundle_name>.js` (and `.js.map` if `--sourcema
 `public_dir` and `manifest` are Vite options and fail at analysis time on a
 target whose bundler is invoked this way.
 
-**Mode 2 — Generated config** (`use_generated_config = True`)
+**Mode 2: Generated Config** (`use_generated_config = True`)
 
 `ts_bundle` generates a `vite.config.mjs` containing all bundle options and
 invokes the binary with six positional arguments, all execroot-relative. The
@@ -348,12 +345,11 @@ own lib convention:
 App mode, and lib mode with `split_chunks = True`, declare that directory
 itself, because the hashed filenames are not known at analysis time.
 
-oj is a [dev server](dev-server.md#choosing-the-server) here and not a bundler.
-Its binary has a `build` subcommand, and the oj revision this module pins gives that
-subcommand the `--config` flag `oj dev` already had. What is still missing is a
-rule: nothing in the ruleset returns `BundlerInfo` for oj, and `oj build`'s CLI
-matches neither invocation mode, since it takes its root positionally and names
-its output with `--out`.
+oj is a [dev server](dev-server.md#choosing-the-server) here, not a bundler. Its
+binary has a `build` subcommand, and the oj revision this module pins gives that
+subcommand the `--config` flag `oj dev` already had. Nothing in the ruleset
+returns `BundlerInfo` for oj, and `oj build`'s CLI matches neither invocation
+mode: it takes its root positionally and names its output with `--out`.
 
 ### BundlerInfo Fields
 
@@ -383,7 +379,7 @@ The two attribute sets differ. Shared:
 the [ts_bundle reference](../rules/ts-bundle.md#attributes).
 
 `ts_binary` only: `entry_file` (which `.js` is the entry when the target emits
-several) and `node_modules`. See the
+several), `data` and `node_modules`. See the
 [ts_binary reference](../rules/ts-binary.md#attributes).
 
-Setting `minify` on a `ts_binary` fails the build; it is not a silent no-op.
+Setting `minify` on a `ts_binary` fails the build.

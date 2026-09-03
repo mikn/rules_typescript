@@ -3,12 +3,11 @@
 Creates a hermetic `node_modules` directory in the Bazel sandbox holding exactly
 the packages named and their transitive dependencies.
 
-Most workspaces declare few of these by hand. `ts_test` builds its own from
-`deps` (see [ts_test](ts-test.md)), Gazelle writes the `node_modules` a
-generated `vite_bundler` or `next_dev_server` needs, and a `ts_compile` target
-needs none at all: it reaches npm declarations through depsets. Declare one by
-hand for what Gazelle cannot infer — a program or tool that needs packages on
-disk at runtime, and a `ts_test` whose tree is not the one its `deps` describe.
+`ts_test` builds its own from `deps` (see [ts_test](ts-test.md)). Gazelle
+writes the `node_modules` a generated `vite_bundler` or `next_dev_server` needs.
+A `ts_compile` target needs none: it reaches npm declarations through depsets. A
+hand-written one covers a program or tool that needs packages on disk at
+runtime, and a `ts_test` whose tree is not the one its `deps` describe.
 
 ## Usage
 
@@ -37,9 +36,8 @@ sandbox.
 | `deps` | `label_list` | required | npm package targets from `@npm` to include in `node_modules` |
 
 On a framework root Gazelle generates `deps` from the framework's own
-requirements and recomputes it every run. A package no import implies —
-`sharp`, which `next/image` loads at runtime — needs a `# keep` on its line to
-survive. See
+requirements and recomputes it every run. A package no import implies (`sharp`,
+which `next/image` loads at runtime) needs a `# keep` on its line. See
 [Attributes Gazelle owns](../gazelle/directives.md#attributes-gazelle-owns).
 
 ## The Layout
@@ -55,12 +53,11 @@ node_modules/
   glob/node_modules/minimatch                    ← relative link, → the store above
 ```
 
-A resolution is name, version **and peer set**. pnpm resolves a package once per
-distinct set of peers and keys the outcomes apart —
-`fdir@6.5.0(picomatch@4.0.3)` beside `fdir@6.5.0(picomatch@4.0.7)` — because
-they share a tarball and have different dependency edges. Two of those in one
-closure get two store entries, distinguished by a peer component after the
-version:
+A resolution is name, version and peer set. pnpm resolves a package once per
+distinct set of peers and records each outcome: `fdir@6.5.0(picomatch@4.0.3)`
+beside `fdir@6.5.0(picomatch@4.0.7)`. They share a tarball and have different
+dependency edges. Two of those in one closure get two store entries,
+distinguished by a peer component after the version:
 
 ```
   .pnpm/fdir@6.5.0_picomatch_4_0_3_<digest>/node_modules/fdir/
@@ -74,10 +71,8 @@ version:
 - **Every other resolution** gets its bytes exactly once under
   `.pnpm/<name>@<version>[_<peer set>]/node_modules/<name>`, using pnpm's own
   encoding for a scoped name (`.pnpm/@scope+name@1.2.3/node_modules/@scope/name`).
-  The peer component is a readable prefix plus a digest of the whole peer set: a
-  nested peer set can run to hundreds of characters, and truncation alone would
-  collide two resolutions into one directory.
-- **A link is emitted only for an edge that disagrees with the primary**, at
+  The peer component is a readable prefix plus a digest of the whole peer set.
+- **Links** are emitted only for an edge that disagrees with the primary, at
   `<dependent>/node_modules/<name>`, pointing at the store copy with a relative
   target. Cost scales with the disagreeing edges. Links chain: a store copy's
   own disagreeing dep gets a link inside it.
@@ -86,7 +81,7 @@ The links are relative and internal to the tree, so they survive everywhere the
 tree goes: as an input to another action, in a test's runfiles, and under
 `bazel run`.
 
-## Two resolutions of one name in `deps`
+## Two Resolutions of One Name in `deps`
 
 Declaring two resolutions of a name directly on one `node_modules` target is an
 error:
@@ -117,10 +112,10 @@ package that needs it? A resolution reached transitively keeps its own peers.
 Otherwise split the two into separate node_modules targets.
 ```
 
-The transitive arrival both messages point at is the case the layout above
-handles.
+The transitive case both messages point at is the one
+[The Layout](#the-layout) handles.
 
-## Trees `ts_test` generates
+## Trees `ts_test` Generates
 
 `ts_test` generates a per-target tree from its `deps` through this same builder,
 so a test gets the same layout with nothing to declare. See

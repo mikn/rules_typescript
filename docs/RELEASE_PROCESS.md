@@ -12,7 +12,7 @@ that is the version a first release cuts. See
 
 Before releasing, ensure:
 
-1. **All tests pass** — the lane CI runs, named in `.bazelrc`:
+1. **All tests pass**: the lane CI runs, named in `.bazelrc`:
    ```bash
    bazel test --config=ci //...
    bazel build --config=ci //... --output_groups=+_validation
@@ -21,7 +21,7 @@ Before releasing, ensure:
    invocations: `cd e2e/basic && bazel test //...`, then `bazel build //...`
    in each `examples/*` directory.
 
-2. **Determinism is verified** — build one target from two empty output bases
+2. **Determinism is verified**: build one target from two empty output bases
    and compare, which is what the `determinism` job in
    `.github/workflows/ci.yml` does:
    ```bash
@@ -45,7 +45,7 @@ Before releasing, ensure:
    - Patch version: Bug fixes
    - Pre-release: X.Y.Z-rc.1, X.Y.Z-alpha, etc.
 
-5. **Fold the changelog** — entries since the last release live in
+5. **Fold the changelog**: entries since the last release live in
    `changelog.d/`, one file per PR, and are not in `CHANGELOG.md` until this
    runs:
    ```bash
@@ -55,9 +55,8 @@ Before releasing, ensure:
    git commit -m "docs(changelog): assemble v0.2.0"
    ```
    It inserts the assembled section above the newest release and deletes the
-   fragments it consumed. It belongs here rather than after Step 1:
-   `//tools/release` refuses to run against a dirty working tree, and the tag
-   has to carry the changelog.
+   fragments it consumed. It runs before Step 1: `//tools/release` refuses a
+   dirty working tree, and the tag has to carry the changelog.
 
 ## Step 1: Bump, Commit, Tag
 
@@ -71,7 +70,7 @@ and:
 
 1. Validates the version format
 2. Stops if the tag already exists or the working tree is dirty
-3. Rewrites the version inside `module()` in `MODULE.bazel` — and only there,
+3. Rewrites the version inside `module()` in `MODULE.bazel`, and only there,
    so `bazel_dep` versions are untouched
 4. Commits `MODULE.bazel` as `chore: release v0.2.0`
 5. Creates the annotated tag `v0.2.0`
@@ -193,7 +192,7 @@ Example:
 bazel run //tools/release -- 0.2.1 --push
 ```
 
-## Pre-release Workflow
+## Pre-Release Workflow
 
 For testing before a major release, use pre-release versions:
 
@@ -247,7 +246,7 @@ After releasing v0.2.0, prepare for v0.2.1:
 
 ## Troubleshooting
 
-### "Tag v0.2.0 already exists"
+### "tag v0.2.0 already exists"
 
 Someone has already released this version:
 

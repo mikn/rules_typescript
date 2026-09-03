@@ -36,10 +36,10 @@ Only glibc linux is supported. `NODE_PLATFORMS` (`ts/private/runtime.bzl`),
 `//platforms` has no musl key. Node.js publishes no official musl tarball, so
 there is nothing to register.
 
-A `libc: [musl]` tarball in `pnpm-lock.yaml` therefore matches no platform, and
-the `npm` extension drops it without declaring a repository for it — the same
-path a tarball with `cpu: [ppc64]` or `os: [aix]` already takes. It is never
-fetched, never extracted, and never staged into an action.
+A `libc: [musl]` tarball in `pnpm-lock.yaml` matches no platform, and the `npm`
+extension drops it without declaring a repository for it, the same path a
+tarball with `cpu: [ppc64]` or `os: [aix]` takes. It is never fetched, extracted
+or staged into an action.
 
 On a musl host the Node the ruleset downloads is still the glibc build.
 
@@ -72,18 +72,18 @@ and `ts_bundle`, `ts_dev_server` and `ts_test` generate configuration for
 whatever version that resolves to. "Supported" here means a test in this
 repository exercises that version; nothing constrains what you pin.
 
-There is **one lane** — one Vite version and one vitest version. The workspace
-translates several lockfiles; four of them resolve one or both tools, and they
-agree on the version, so no test runs a generated config against a second major:
+There is one lane: one Vite version and one vitest version. The workspace
+translates six lockfiles; four resolve one or both tools, all at one version, so
+no test runs a generated config against a second major:
 
 | Hub | Lockfile | Vite | vitest | Coverage |
 |---|---|---|---|---|
-| `@npm` | `tests/npm/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` (the whole `tests/vitest` suite), `ts_dev_server` (seven servers started for real and interrogated over HTTP, six under Vite and one under oj), `ts_bundle` output (`tests/vite_bundle`), `vite-plugin-bazel`'s own tests, and the `lsp`, `npm_deps` and `vite_bundle` integration workspaces |
+| `@npm` | `tests/npm/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` (the whole `tests/vitest` suite), `ts_dev_server` (seven servers started and interrogated over HTTP, six under Vite and one under oj), `ts_bundle` output (`tests/vite_bundle`), `vite-plugin-bazel`'s own tests, and the `lsp`, `npm_deps` and `vite_bundle` integration workspaces |
 | `@npm_tailwind` | `tests/tailwind/pnpm-lock.yaml` | 8.2.2 | — | Tailwind v4 through `vite_config`: app mode, lib mode, and the dev server under both implementations |
 | `@npm_workers` | `tests/workers/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` with the Workers pool (vitest inside workerd), `ts_worker_dry_run_test`, `ts_worker_deploy` |
 | `@npm_eslint` | `tests/eslint/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | the ESLint plugin's own `ts_test` target, against `@typescript-eslint`'s rule tester |
 | `@npm_features` | `tests/npm/pnpm-lock-features.yaml` | — | — | pnpm's patched dependencies, npm aliases, peer-dependency variants, per-importer resolution; resolves neither tool |
-| `@npm_css` | `ts/private/css/pnpm-lock.yaml` | — | — | the packages the ruleset's own build actions run: postcss 8.5.26 and postcss-modules 9.0.1 for `css_module`'s compiler, and the esbuild that bundles `vite-plugin-bazel`. The one hub here that is **not** a fixture — both bundles ship to consumers as API |
+| `@npm_css` | `ts/private/css/pnpm-lock.yaml` | — | — | the packages the ruleset's own build actions run: postcss 8.5.26 and postcss-modules 9.0.1 for `css_module`'s compiler, and the esbuild that bundles `vite-plugin-bazel`. The one hub that is not a fixture; both bundles ship to consumers as API |
 
 The `examples/` modules and the `svelte` and `sveltekit` integration workspaces
 are separate Bazel modules with their own lockfiles, outside the table above.
@@ -135,11 +135,12 @@ The two places a generated config is known to be version-sensitive:
 
 ## oj
 
-oj is the second `ts_dev_server` implementation, and unlike Vite it comes from
-this ruleset rather than from your lockfile. It publishes no npm package and no
-release binary, so cargo is the only channel to pin it from: `MODULE.bazel`'s
-`oj_crates` extension pins the crate at `=0.1.6` and rules_rust builds it from
-source. The first build of a target selecting oj is a Rust compile.
+oj is the second `ts_dev_server` implementation. It comes from this ruleset, not
+from your lockfile: oj publishes no npm package and no release binary, so
+`MODULE.bazel`'s `oj_crates` hub pins the crate to a git revision of
+`github.com/mikn/oj`, upstream main plus nine fixes each open as its own
+upstream PR (listed beside the pin), and rules_rust builds it from source. The
+first build of a target selecting oj is a Rust compile.
 
 What tests it:
 
@@ -150,10 +151,10 @@ What tests it:
 | `//tests/dev_server:dev_oj_hmr_latency_test` | edit-to-HMR, over oj's own `/__ws` socket |
 | `//tests/tailwind:tailwind_dev_oj_test` | `@tailwindcss/vite`, a Vite-API plugin, in oj's plugin host |
 
-oj is not a bundler here. Nothing in the ruleset returns `BundlerInfo` for it.
-The oj revision this module pins gives `oj build` the `--config` flag `oj dev`
-already had, so a generated config can now name itself to a build, but
-`oj build`'s CLI still matches neither `BundlerInfo` invocation mode.
+oj is not a bundler here; nothing in the ruleset returns `BundlerInfo` for it.
+The pinned oj revision gives `oj build` the `--config` flag `oj dev` has, so a
+generated config can be handed to a build, but `oj build`'s CLI matches neither
+`BundlerInfo` invocation mode.
 
 ## Versioning Policy
 
@@ -176,7 +177,7 @@ patch for fixes.
 Everything is unstable pre-1.0. The split below ranks how likely a thing is to
 move.
 
-### Load-bearing
+### Load-Bearing
 
 Breaks get a changelog entry with the required edit.
 

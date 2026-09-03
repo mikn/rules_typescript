@@ -9,7 +9,7 @@ release, production users and Windows support. This has none of the three.
 **Choose `rules_ts` (Aspect) if:**
 - You need full `tsc` compatibility for every TypeScript edge case, including decorator metadata
 - You need Windows support today
-- You want a battle-tested, BCR-published ruleset used in production by many companies
+- You want a BCR-published ruleset with production users
 - You're already invested in `rules_js` and the Aspect ecosystem
 
 **Choose `rules_typescript` (this) if:**
@@ -30,17 +30,17 @@ release, production users and Windows support. This has none of the three.
 | **Compilation boundary** | tsc project references | `.d.ts` per target |
 | **Bundler** | Bring your own | Vite, through `ts_bundle`; any other bundler through `BundlerInfo` |
 | **Dev server** | None built-in | Vite or oj, chosen per target, with HMR and React Fast Refresh |
-| **npm management** | rules_js (pnpm virtual store, symlinks) | Own pnpm lockfile reader — a `pnpm-lock.yaml` is required, npm and yarn lockfiles are not read; one Bazel repository per package, fetched on demand |
+| **npm management** | rules_js (pnpm virtual store, symlinks) | Own pnpm lockfile reader: a `pnpm-lock.yaml` is required, npm and yarn lockfiles are not read; one Bazel repository per package, fetched on demand |
 | **BUILD generation** | Aspect CLI (proprietary) | Gazelle (open-source, directives) |
 | **Framework support** | None built-in | TanStack Start bundles through a Vite-plugin hook; Remix, SvelteKit and Next.js each have a rule of their own. Solid Start is detected and deliberately unsupported (see [framework detection](../gazelle/overview.md#framework-detection)) |
 | **Bazel deps** | rules_js + rules_nodejs | rules_nodejs, rules_rust, rules_go + gazelle, rules_shell, bazel_skylib, platforms, toolchain_utils |
 | **Isolated declarations** | Not required | Not required; opt-in per package for throughput |
 | **pnpm** | System install required | Hermetic, always downloaded ([hermetic pnpm](../guides/npm.md#hermetic-pnpm)); Linux and macOS only |
-| **BCR** | Published, stable | Not published; no tag or release either — consumers pin a commit |
+| **BCR** | Published, stable | Not published; no tag or release either, so consumers pin a commit |
 | **Production users** | Many companies | None yet |
 | **Windows** | Supported | Not supported |
 
-## Trade-offs: where rules_ts is better
+## Where rules_ts Is Better
 
 ### tsc Edge-Case Compatibility
 
@@ -52,10 +52,9 @@ are what TypeScript itself would emit.
 
 ### Mature Ecosystem
 
-`rules_ts` is published on BCR, used in production by real companies, and
-battle-tested at scale. `rules_typescript` has no tag, no BCR entry and no
-production users, and its API has broken repeatedly pre-1.0. Expect rough edges,
-and read the [changelog](../changelog.md) when you move a pin.
+`rules_ts` is published on the BCR and used in production. `rules_typescript`
+has no tag, no BCR entry and no production users, and its API has broken
+repeatedly pre-1.0. Read the [changelog](../changelog.md) when you move a pin.
 
 ### npm Handling
 
@@ -72,7 +71,7 @@ Our parser handles the common cases (scoped packages, `@types` pairing, multiple
 now; it may be considered in the future. See
 [Compatibility](../compatibility.md#windows).
 
-## Trade-offs: where rules_typescript is better
+## Where rules_typescript Is Better
 
 ### Compilation Speed
 
@@ -97,18 +96,17 @@ same specifier scanner the check uses.
 
 Each target's `.d.ts` is a real Bazel artifact, so changing a function body
 without changing its exported types leaves that artifact byte-identical and no
-downstream target recompiles. This holds under either declaration emitter. It is
-architecturally impossible with tsc project references, which always re-check
-the dependency graph.
+downstream target recompiles. This holds under either declaration emitter.
+`tsc -b` with project references always re-checks the dependency graph.
 
-### Vite-native
+### Vite-Native
 
 Bundling, dev serving, HMR, React Fast Refresh and framework Vite plugins are
 built in, and all of them go through one generated Vite config. Vite runs it, or
 oj does: `ts_dev_server(server = ...)` is a per-target choice. `rules_ts` has no
 bundler and no dev server; you wire those yourself.
 
-### No JS-ruleset Layer
+### No JS-Ruleset Layer
 
 There is no `rules_js` and no virtual store: the ruleset reads `pnpm-lock.yaml`
 itself and declares one Bazel repository per package behind a `@npm` alias hub.
@@ -119,7 +117,7 @@ toolchains. `rules_ts` needs neither.
 
 ### Gazelle
 
-Open-source BUILD file generation with eleven `# gazelle:ts_*` directives,
+Open-source BUILD file generation with fifteen `# gazelle:ts_*` directives,
 framework auto-detection, codegen auto-detection, and automatic
 lint/dev-server/bundler target generation. `rules_ts` relies on the proprietary
 Aspect CLI.
@@ -163,7 +161,7 @@ If you decide to migrate from `rules_ts`:
    alone; the [quickstart](quickstart.md#path-b-existing-project) shows the
    shape that gets both. `module_name` is the cheaper boundary where the
    producing target can carry one
-6. Nothing else. Missing explicit return types are fine — the default emitter
+6. Nothing else. Missing explicit return types are fine; the default emitter
    infers them
 
 ### Key Conceptual Differences
@@ -188,7 +186,7 @@ move type-checking off the critical path.
 **`node_modules` is automatic.** `ts_test` builds its `node_modules` tree from
 deps; a manual `node_modules` target is needed only to override a specific case.
 The layout is its own, not pnpm's virtual store. A name's primary resolution sits
-flat at the top level. Every other resolution of that name — another version, or
-the same version resolved against different peers — gets its own store directory
+flat at the top level. Every other resolution of that name (another version, or
+the same version resolved against different peers) gets its own store directory
 plus a link from the dependent that resolved to it, which is the part of pnpm's
 layout Node's resolution needs.

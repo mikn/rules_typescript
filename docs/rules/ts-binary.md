@@ -5,10 +5,9 @@ JavaScript file. Without a bundler it runs that entry `.js` on the JS runtime;
 with one it bundles first and runs the bundle.
 
 `ts_binary` and [`ts_bundle`](ts-bundle.md) are separate rules with overlapping
-attributes, not aliases. `ts_binary` is the rule for `bazel run`. `ts_bundle`
-produces a bundle as a build artifact, requires a `bundler`, and adds the
-app-mode, HTML, `vite_config` and `staging_srcs` surface that framework builds
-need.
+attributes. `ts_binary` is the rule for `bazel run`. `ts_bundle` produces a
+bundle as a build artifact, requires a `bundler`, and adds the app-mode, HTML,
+`vite_config` and `staging_srcs` attributes.
 
 ## Usage
 
@@ -44,7 +43,7 @@ accept them.
 ## A JavaScript File as the Entry Point
 
 `entry_point` also takes a `.js`, `.mjs` or `.cjs` source directly, for a
-program that is already plain JavaScript — most often a
+program that is already plain JavaScript, such as a
 [`ts_codegen`](ts-codegen.md) generator:
 
 ```python
@@ -57,14 +56,12 @@ ts_binary(
 ```
 
 The modules the entry imports go in `data`. Node resolves a relative import from
-the entry's real path, which in a local runfiles tree is the workspace source —
-so an undeclared sibling can still load there and then be missing under a
-manifest-only or remote layout. Declare every one.
+the entry's real path, which in a local runfiles tree is the workspace source, so
+an undeclared sibling loads there and is missing under a manifest-only or remote
+layout.
 
-A `.ts` entry point is refused, with a message pointing at `ts_compile`: this
-rule does not compile TypeScript, and standing up an implicit compile here would
-be a second one with no `deps`, no `tsconfig` and no choice of declaration
-emitter.
+A `.ts` entry point is refused with a message pointing at `ts_compile`; this
+rule does not compile TypeScript.
 
 ## Without a Bundler
 
@@ -78,4 +75,4 @@ See [Bundling with Vite](../guides/bundling.md) for a complete example with `vit
 
 ## Custom Bundler
 
-Any rule returning `BundlerInfo` can plug in. See [Bundling — Custom Bundler](../guides/bundling.md#custom-bundler-bundlerinfo-interface).
+Any rule returning `BundlerInfo` can plug in. See [Bundling § Custom Bundler](../guides/bundling.md#custom-bundler-bundlerinfo-interface).
