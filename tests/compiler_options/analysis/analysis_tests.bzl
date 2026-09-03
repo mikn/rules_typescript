@@ -496,6 +496,39 @@ def _test_types_forwarded_impl(ctx):
         asserts.equals(env, ["vite/client"], json.decode(folded).get("types"), "ts_test folds `types` for the rule to read")
     asserts.equals(env, "", test_compiler_options_json(None, None, None), "no options stays absent, not an empty object")
 
+    # `globals` is the runtime half; the entry is the one that declares them,
+    # and it lands whether or not the target asked for any `types` of its own.
+    asserts.equals(
+        env,
+        ["vitest/globals"],
+        json.decode(test_compiler_options_json(None, None, None, True)).get("types"),
+        "globals alone earns the entry",
+    )
+    asserts.equals(
+        env,
+        ["vite/client", "vitest/globals"],
+        json.decode(test_compiler_options_json(None, ["vite/client"], None, True)).get("types"),
+        "the entry lands after the target's own, which outrank it",
+    )
+    asserts.equals(
+        env,
+        ["node", "vitest/globals"],
+        json.decode(test_compiler_options_json(None, ["vite/client"], {"types": ["node"]}, True)).get("types"),
+        "compiler_options wins over `types`, and the entry still lands",
+    )
+    asserts.equals(
+        env,
+        [" vitest/globals "],
+        json.decode(test_compiler_options_json(None, [" vitest/globals "], None, True)).get("types"),
+        "an entry the target already wrote is not written twice",
+    )
+    asserts.equals(
+        env,
+        "",
+        test_compiler_options_json(None, None, None, False),
+        "globals = False adds nothing",
+    )
+
     return unittest.end(env)
 
 test_types_forwarded_test = unittest.make(_test_types_forwarded_impl)
@@ -514,3 +547,7 @@ unresolved_type_root_test = _fails_with(
 )
 unresolved_type_near_miss_test = _fails_with("Did you mean one of these deps: vitest?")
 unresolved_test_types_test = _fails_with("compilerOptions.types entry \"vite/client\" on")
+unresolved_globals_types_test = _fails_with(
+    "compilerOptions.types entry \"vitest/globals\" on",
+    "Add the package to deps (e.g. \"@npm//:vitest\")",
+)

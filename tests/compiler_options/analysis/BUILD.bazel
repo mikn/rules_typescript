@@ -32,6 +32,7 @@ load(
     "types_entry_package_ref_test",
     "types_file_entries_test",
     "unpaired_resolution_test",
+    "unresolved_globals_types_test",
     "unresolved_test_types_test",
     "unresolved_type_entry_test",
     "unresolved_type_near_miss_test",
@@ -354,6 +355,20 @@ ts_test(
 unresolved_test_types_test(
     name = "unresolved_test_types_test",
     target_under_test = ":_unresolved_test_types_compile",
+)
+
+# The one route to the guard where the entry is the macro's rather than the
+# target's: `globals = True` asks for declarations only vitest publishes.
+ts_test(
+    name = "globals_without_vitest",
+    srcs = ["lone.ts"],
+    globals = True,
+    tags = ["manual"],
+)
+
+unresolved_globals_types_test(
+    name = "unresolved_globals_types_test",
+    target_under_test = ":_globals_without_vitest_compile",
 )
 
 ts_compile(

@@ -50,7 +50,7 @@ do not describe.
 | `setup_files` | `label_list` | `[]` | `test.setupFiles`. `.ts`/`.tsx` entries are compiled with the same `deps` as the tests |
 | `global_setup` | `label_list` | `[]` | `test.globalSetup`; compiled like `setup_files` |
 | `data` | `label_list` | `[]` | Extra runfiles: fixtures, and files a `config` or setup entry imports |
-| `globals` | `bool` | `False` | `test.globals` — global `describe`/`it`/`expect` |
+| `globals` | `bool` | `False` | `test.globals` — global `describe`/`it`/`expect`, and the `types` entry that declares them — see [Globals](#globals) |
 | `reporters` | `string_list` | `[]` | `test.reporters`, e.g. `["default", "junit"]` |
 | `coverage_thresholds` | `string_dict` | `{}` | `test.coverage.thresholds`, e.g. `{"lines": "80", "perFile": "true"}`. Values that look numeric or boolean are emitted as such |
 | `coverage_provider` | `string` | `""` | `test.coverage.provider`: `"v8"` (vitest's default) or `"istanbul"` — see [Coverage](#coverage) |
@@ -74,6 +74,43 @@ ships behind such a subpath reaches the program: nothing imports the declaration
 and a tsconfig `types` entry resolves through a `node_modules` this ruleset does
 not have, so the subpath is resolved from the manifest and the file put in the
 program's `files`.
+
+## Globals
+
+`globals = True` sets `test.globals`, which is the runtime half: vitest installs
+`describe`, `it`, `expect` and the rest as globals so a test file imports
+nothing. The compiler learns about them from a separate place — vitest publishes
+their declarations behind its `vitest/globals` subpath — so the attribute adds
+that entry to the internal `ts_compile`'s `types` as well. Without it the test
+runs and does not compile: `TS2593` on `describe`, `TS2304` on `expect`.
+
+The entry is resolved from the target's own `deps`, so `globals = True` needs
+vitest listed there, and says so at analysis time when it is not:
+
+```
+ts_compile: compilerOptions.types entry "vitest/globals" on
+//path:_my_test_compile resolves to nothing.
+```
+
+That is not the dep the runner needs. The guard resolves the entry from the
+test's own `deps`; the runner finds vitest in the `node_modules` tree, which the
+`node_modules` attr can supply on its own. So a `globals = True` test that
+supplied vitest only through that attr analysed before this and now has to list
+it in `deps` as well. The injected entry is folded in last, after anything the
+target wrote.
+
+Under Gazelle the dep needs `# keep`. Nothing in a `globals = True` test imports
+vitest, and `deps` is a managed attribute, so a run rewrites the list without
+the entry — `globals = True` itself survives, since no directive writes it:
+
+```python
+ts_test(
+    name = "math_test",
+    srcs = ["math.test.ts"],
+    globals = True,
+    deps = ["@npm//:vitest"],  # keep
+)
+```
 
 ## Path Aliases
 

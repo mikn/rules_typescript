@@ -1,0 +1,18 @@
+"""`globals = True` supplies vitest's global describe/it/expect to the compiler.
+
+globals.test.ts imports nothing and declares nothing: every name in it is a
+global vitest's own `vitest/globals` declares.  The target compiling is the
+whole assertion -- a `types` entry that never reached the compile leaves
+TS2593 on `describe` and TS2304 on `expect`/`afterEach`.
+
+  bazel test //tests/vitest/globals:globals_test
+"""
+
+load("//ts:defs.bzl", "ts_test")
+
+ts_test(
+    name = "globals_test",
+    srcs = ["globals.test.ts"],
+    globals = True,
+    deps = ["@npm//:vitest"],  # keep
+)
