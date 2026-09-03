@@ -16,8 +16,8 @@ pnpm add react react-dom --lockfile-only
 ```
 
 `--lockfile-only` updates the lockfile without creating a `node_modules/`
-directory. No `node_modules/` exists in the source tree; Bazel materialises one
-inside the sandbox for the targets that need it.
+directory. The rules read no `node_modules/` from the source tree; Bazel
+materialises one inside the sandbox for the targets that need it.
 
 A `pnpm-lock.yaml` is the only npm input these rules read; there is no npm or
 yarn lockfile path. A pnpm of your own writes the first one. Every edit after
