@@ -331,7 +331,7 @@ func TestResolveRelative(t *testing.T) {
 		{"allowImportingTsExtensions specifier", "../lib/helper.ts", "//src/lib:core"},
 		{"nodenext .js specifier inside the package", "./main.js", ""},
 	} {
-		if got := resolveRelative(c, ix, tt.imp, from); got != tt.want {
+		if got := resolveRelative(c, ix, getConfig(c), tt.imp, from); got != tt.want {
 			t.Errorf("%s: resolveRelative(%q) = %q, want %q", tt.name, tt.imp, got, tt.want)
 		}
 	}
@@ -353,7 +353,7 @@ func TestResolveRelative_SrcsInSubdirectoryOfThePackage(t *testing.T) {
 		"../pkg/nested/leaf":    "//pkg:everything",
 		"../pkg/util.js":        "//pkg:everything",
 	} {
-		if got := resolveRelative(c, ix, imp, from); got != want {
+		if got := resolveRelative(c, ix, getConfig(c), imp, from); got != want {
 			t.Errorf("resolveRelative(%q) = %q, want %q", imp, got, want)
 		}
 	}
@@ -391,7 +391,7 @@ func TestLabelForUnindexed(t *testing.T) {
 		"src/absent":         "",
 		"src/absent/math.ts": "",
 	} {
-		if got := labelForUnindexed(root, rel, from); got != want {
+		if got := labelForUnindexed(boundaryEveryDir, root, rel, from); got != want {
 			t.Errorf("labelForUnindexed(%q) = %q, want %q", rel, got, want)
 		}
 	}
@@ -717,7 +717,7 @@ func TestResolvePathAlias_OverlappingKeysResolveToOneLabel(t *testing.T) {
 		{"@sharedX/value", ""},
 	} {
 		for i, aliases := range aliasPermutations(overlappingAliases) {
-			tc := &tsConfig{pathAliases: aliases}
+			tc := &tsConfig{pathAliases: aliases, packageBoundaryMode: boundaryEveryDir}
 			if got := resolvePathAlias(c, ix, tc, tt.imp, from); got != tt.want {
 				t.Fatalf("perm %d: resolvePathAlias(%q) = %q, want %q", i, tt.imp, got, tt.want)
 			}
@@ -953,7 +953,7 @@ func TestLabelForUnindexed_UnclassifiedExtensionFabricatesNothing(t *testing.T) 
 		"src/lib/schema.graphql",
 		"src/lib/widget.js.bin",
 	} {
-		if got := labelForUnindexed(root, rel, from); got != "" {
+		if got := labelForUnindexed(boundaryEveryDir, root, rel, from); got != "" {
 			t.Errorf("labelForUnindexed(%q) = %q, want %q", rel, got, "")
 		}
 	}
@@ -1011,7 +1011,7 @@ func TestLabelForUnindexed_DirectoryTheGeneratorSkipsFabricatesNothing(t *testin
 		"web/node_modules/acme/index.ts",
 		"bazel-out/gen/thing.ts",
 	} {
-		if got := labelForUnindexed(root, rel, from); got != "" {
+		if got := labelForUnindexed(boundaryEveryDir, root, rel, from); got != "" {
 			t.Errorf("labelForUnindexed(%q) = %q, want %q", rel, got, "")
 		}
 	}
@@ -1048,7 +1048,7 @@ func TestLabelForUnindexed_ACheckedInBuildFileMakesItAPackage(t *testing.T) {
 		// No BUILD file, so the generator's refusal to walk it still stands.
 		"web/.no-build/sub": "",
 	} {
-		if got := labelForUnindexed(root, rel, from); got != want {
+		if got := labelForUnindexed(boundaryEveryDir, root, rel, from); got != want {
 			t.Errorf("labelForUnindexed(%q) = %q, want %q", rel, got, want)
 		}
 	}
@@ -1128,7 +1128,7 @@ func TestLabelForUnindexed_ADotNameDirectoryIsNotAFileExtension(t *testing.T) {
 		"p/tools/.eslintrc": "",
 		"p/missing.wasm":    "",
 	} {
-		if got := labelForUnindexed(root, rel, from); got != want {
+		if got := labelForUnindexed(boundaryEveryDir, root, rel, from); got != want {
 			t.Errorf("labelForUnindexed(%q) = %q, want %q", rel, got, want)
 		}
 	}
@@ -1176,7 +1176,7 @@ func TestResolveRelative_IndexedDotDirectoryStillResolves(t *testing.T) {
 		"../.config/data.json": "//p/.config:data_json",
 		"../.config":           "//p/.config",
 	} {
-		if got := resolveRelative(c, ix, imp, from); got != want {
+		if got := resolveRelative(c, ix, getConfig(c), imp, from); got != want {
 			t.Errorf("resolveRelative(%q) = %q, want %q", imp, got, want)
 		}
 	}
@@ -1271,7 +1271,7 @@ func TestResolveRelative_TextAssetBesideASource(t *testing.T) {
 		"./SKILL.md":       ":SKILL_md",
 		"./wrangler.jsonc": ":wrangler_jsonc",
 	} {
-		if got := resolveRelative(c, ix, imp, from); got != want {
+		if got := resolveRelative(c, ix, getConfig(c), imp, from); got != want {
 			t.Errorf("resolveRelative(%q) = %q, want %q", imp, got, want)
 		}
 	}

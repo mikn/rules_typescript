@@ -286,7 +286,7 @@ func resolveImport(
 	imp = dropBundlerQuery(imp)
 	switch {
 	case isRelativeImport(imp):
-		return resolveRelative(c, ix, imp, from)
+		return resolveRelative(c, ix, tc, imp, from)
 	case isPathAlias(tc, imp):
 		return resolvePathAlias(c, ix, tc, imp, from)
 	default:
@@ -440,6 +440,7 @@ func isRelativeImport(imp string) bool {
 func resolveRelative(
 	c *config.Config,
 	ix *resolve.RuleIndex,
+	tc *tsConfig,
 	imp string,
 	from label.Label,
 ) string {
@@ -458,7 +459,7 @@ func resolveRelative(
 		return lbl
 	}
 
-	return labelForUnindexed(c.RepoRoot, targetRel, from)
+	return labelForUnindexed(tc.packageBoundaryMode, c.RepoRoot, targetRel, from)
 }
 
 // relativeImportExtensions are the source extensions a relative specifier may
@@ -534,7 +535,7 @@ func lookupInIndex(ix *resolve.RuleIndex, impPath string, from label.Label) (str
 //
 // The package is the module's DIRECTORY: a file path read as a directory leaves
 // "no such package", which reads as a defect here rather than a missing target.
-func labelForUnindexed(repoRoot, rel string, from label.Label) string {
+func labelForUnindexed(mode, repoRoot, rel string, from label.Label) string {
 	pkg := path.Clean(rel)
 	switch {
 	case namesAFile(pkg):
@@ -560,7 +561,7 @@ func labelForUnindexed(repoRoot, rel string, from label.Label) string {
 	}
 	// A checked-in BUILD file is the only proof that matters: what the generator
 	// would write there says nothing about a package somebody already wrote.
-	if generatorSkips(pkg) && !isBazelPackage(dir) {
+	if generatorSkips(mode, repoRoot, pkg) && !isBazelPackage(dir) {
 		return ""
 	}
 	return label.New("", pkg, path.Base(pkg)).String()
@@ -587,17 +588,18 @@ func isBazelPackage(dir string) bool {
 	return false
 }
 
-// generatorSkips reports whether pkg lies under a directory the generator
-// refuses to walk, and so one it will never WRITE a BUILD file in. It does not
-// answer whether the directory is a package -- isBazelPackage does that, and a
-// dot-directory holding a hand-written BUILD file is one.
-func generatorSkips(pkg string) bool {
+// generatorSkips reports whether pkg is a directory the generator will never
+// WRITE a BUILD file in: one it refuses to walk, or one the boundary mode in
+// force rolls into the package above. It does not answer whether the directory
+// is a package -- isBazelPackage does that, and a dot-directory holding a
+// hand-written BUILD file is one.
+func generatorSkips(mode, repoRoot, pkg string) bool {
 	for _, seg := range strings.Split(pkg, "/") {
 		if skipRolledUpDir(seg) {
 			return true
 		}
 	}
-	return false
+	return dirIsRolledUpIn(mode, filepath.Join(repoRoot, filepath.FromSlash(pkg)))
 }
 
 // namesAFile reports whether rel's last segment is a file the ruleset
@@ -748,7 +750,7 @@ func resolvePathAlias(
 		return lbl
 	}
 
-	return labelForUnindexed(c.RepoRoot, targetRel, from)
+	return labelForUnindexed(tc.packageBoundaryMode, c.RepoRoot, targetRel, from)
 }
 
 // ---- npm package resolution ------------------------------------------------

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
@@ -263,5 +264,59 @@ func TestBoundaryTsConfig_CodegenWithoutSrcsReadsTheRolledUpSources(t *testing.T
 		if !slices.Contains(got, want) {
 			t.Errorf("ts_codegen srcs = %v, missing %s", got, want)
 		}
+	}
+}
+
+// The tree the resolver defect was measured on: a tsconfig at the package root
+// and subdirectories holding none, so the roll-up claims their files. `tools`
+// holds one, so its label has to survive -- the fix must not drop every label.
+var boundaryRolledUpDirWorkspace = map[string]string{
+	"packages/BUILD.bazel":          "# gazelle:ts_package_boundary tsconfig\n",
+	"packages/plugin/package.json":  `{"name":"@acme/plugin"}` + "\n",
+	"packages/plugin/tsconfig.json": `{"include":["src/**/*","scripts/**/*"]}` + "\n",
+	"packages/plugin/src/main.ts": "import \"./widgets\";\n" +
+		"import \"../tools/generated.css\";\n" +
+		"export const main = 1;\n",
+	"packages/plugin/src/widgets/widget.ts": "export const widget = 1;\n",
+	// The bundler emits the stylesheet, so the specifier names a file no rule
+	// here provides -- which is what leaves the label to be constructed.
+	"packages/plugin/scripts/preview.ts":  "import \"./preview.css\";\nexport const preview = 1;\n",
+	"packages/plugin/tools/tsconfig.json": `{"include":["*.ts"]}` + "\n",
+	"packages/plugin/tools/build.ts":      "export const build = 1;\n",
+}
+
+// A subdirectory the roll-up absorbed is not a package: a dep naming it is
+// `no such package` during analysis, which fails every target in the build.
+func TestBoundaryTsConfig_RolledUpSubdirectoryIsNotADep(t *testing.T) {
+	root := t.TempDir()
+	writeWorkspace(t, root, boundaryRolledUpDirWorkspace)
+	captureLog(t, func() { convergeGazelle(t, root) })
+
+	var compile *rule.Rule
+	for _, r := range loadRules(t, root, "packages/plugin") {
+		if r.Kind() == "ts_compile" && r.Name() == "plugin" {
+			compile = r
+		}
+	}
+	if compile == nil {
+		t.Fatalf("no ts_compile named plugin in packages/plugin/BUILD.bazel")
+	}
+	srcs := compile.AttrStrings("srcs")
+	for _, want := range []string{"scripts/preview.ts", "src/widgets/widget.ts"} {
+		if !slices.Contains(srcs, want) {
+			t.Fatalf("ts_compile(plugin) srcs = %v, missing %s: the roll-up did not claim the "+
+				"subdirectory, so this fixture never reaches the label the resolver mints for one",
+				srcs, want)
+		}
+	}
+	if deps := compile.AttrStrings("deps"); !slices.Contains(deps, "//packages/plugin/tools") {
+		t.Errorf("ts_compile(plugin) deps = %v, missing //packages/plugin/tools -- a "+
+			"subdirectory holding its own tsconfig is a package, and its label has to survive",
+			deps)
+	}
+	if dangling := danglingLabels(t, root); len(dangling) > 0 {
+		t.Errorf("%d label(s) name a package the generator declined to write, which fails "+
+			"analysis for the whole workspace:\n      %s",
+			len(dangling), strings.Join(dangling, "\n      "))
 	}
 }

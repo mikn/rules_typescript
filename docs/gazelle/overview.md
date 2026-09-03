@@ -712,16 +712,20 @@ and if nobody has generated that directory Bazel answers `no such package`
 before any compile runs. Dropping the dep leaves the one `TS2307` the missing
 module deserves.
 
-A specifier that lands in a directory the generator refuses to walk resolves to
-nothing for the same reason. `rolledUpIn` skips a dot-directory, `node_modules`,
-`dist` and `bazel-out`, so outside `every-dir` mode nothing claims their files
-and no BUILD file appears in them: `../../shared/public/.well-known/assetlinks.json?raw`
-would name `//web/shared/public/.well-known`, a package the generator has
-already decided will not exist. An indexed rule in such a directory still
-answers first, so a dot-directory package generated in `every-dir` mode is
-unaffected, and so is one whose `BUILD` file is checked in by hand: that file is
-the proof Bazel can load the package, and what the generator would or would not
-write there says nothing about it.
+A specifier that lands in a directory the generator will never write a BUILD
+file in resolves to nothing for the same reason. Two rules decide that, and the
+resolver reads both: `rolledUpIn` skips a dot-directory, `node_modules`, `dist`
+and `bazel-out`, and outside `every-dir` mode a directory that is not a boundary
+of its own is rolled into the package above it. So
+`../../shared/public/.well-known/assetlinks.json?raw` names
+`//web/shared/public/.well-known`, and under
+`# gazelle:ts_package_boundary tsconfig` a `./preview.css` written in a
+rolled-up `scripts/preview.ts` names `//pkg/scripts` — both packages the
+generator has already decided will not exist. An indexed rule in such a
+directory still answers first, so a dot-directory package generated in
+`every-dir` mode is unaffected, and so is one whose `BUILD` file is checked in
+by hand: that file is the proof Bazel can load the package, and what the
+generator would or would not write there says nothing about it.
 
 A bare specifier a `declare module "x"` block in the target's own sources names
 resolves to nothing, before the npm step. In a script-mode declaration file such

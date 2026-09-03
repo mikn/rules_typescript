@@ -415,10 +415,10 @@ func dirTargetLabel(rel, name string) string {
 // Outside every-dir mode a plain subdirectory's sources roll up into its
 // nearest package, and generation there emits nothing to name.
 func dirGetsItsOwnTargets(absDir string, tc *tsConfig, rel string) bool {
-	if rel == "" || tc.packageBoundaryMode == boundaryEveryDir {
+	if rel == "" {
 		return true
 	}
-	return dirIsItsOwnPackageIn(tc.packageBoundaryMode, absDir)
+	return !dirIsRolledUpIn(tc.packageBoundaryMode, absDir)
 }
 
 // ---- helpers ---------------------------------------------------------------
@@ -649,7 +649,7 @@ func generationCanStage(absDir, rel string, tc *tsConfig) bool {
 			frameworkName(tc.detectedFramework), rel, stageByHandAdvice)
 		return false
 	}
-	if tc.packageBoundaryMode != boundaryEveryDir && !dirIsItsOwnPackageIn(tc.packageBoundaryMode, absDir) {
+	if dirIsRolledUpIn(tc.packageBoundaryMode, absDir) {
 		log.Printf("typescript: %s detected: %s holds staged sources but %s package "+
 			"boundaries roll them into the nearest package, so no \"sources\" filegroup is "+
 			"written there and the bundle does not name it. Make it a boundary of its own "+

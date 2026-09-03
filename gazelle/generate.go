@@ -1499,13 +1499,11 @@ func ownTsConfigRule(args language.GenerateArgs, tc *tsConfig) *rule.Rule {
 }
 
 // tsConfigPackageCosts reports whether writing a BUILD file into absDir would
-// take sources away from the package above it. In every-dir mode nothing is
-// rolled up, so a new package costs nothing; in a roll-up mode the walk stops
-// at every directory that is a package of its own, and one that becomes a
+// take sources away from the package above it: a directory that becomes a
 // package for the sake of a ts_config target takes the whole subtree beneath it
 // out of the target that was compiling it.
 func tsConfigPackageCosts(mode, absDir string) bool {
-	return mode != boundaryEveryDir && !dirIsItsOwnPackageIn(mode, absDir)
+	return dirIsRolledUpIn(mode, absDir)
 }
 
 // boundaryModeAt is the boundary mode dirRel is generated under, and whether

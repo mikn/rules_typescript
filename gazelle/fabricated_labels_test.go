@@ -93,7 +93,7 @@ func TestResolveImports_EveryDepNamesSomethingLoadable(t *testing.T) {
 			t.Errorf("%s: deps = %v, want %v", tt.imp, got, tt.want)
 		}
 		for _, dep := range got {
-			assertLoadable(t, root, ambientModuleNames(c, r, from), tt.imp, dep)
+			assertLoadable(t, c, ambientModuleNames(c, r, from), tt.imp, dep)
 		}
 	}
 }
@@ -102,8 +102,9 @@ func TestResolveImports_EveryDepNamesSomethingLoadable(t *testing.T) {
 // name it will not parse, or -- for a label in this repository -- a directory
 // that is not there or that the generator refuses to walk, and so will never
 // hold a BUILD file.
-func assertLoadable(t *testing.T, root string, ambient []string, imp, dep string) {
+func assertLoadable(t *testing.T, c *config.Config, ambient []string, imp, dep string) {
 	t.Helper()
+	root := c.RepoRoot
 	if strings.ContainsAny(dep, "?#*[] ") {
 		t.Errorf("%s: dep %q is not a label Bazel will parse", imp, dep)
 		return
@@ -127,7 +128,7 @@ func assertLoadable(t *testing.T, root string, ambient []string, imp, dep string
 	}
 	// A checked-in BUILD file makes it loadable whatever the generator's walk
 	// would do -- reading that walk as the answer is what #90 got wrong.
-	if generatorSkips(pkg) && !isBazelPackage(dir) {
+	if generatorSkips(getConfig(c).packageBoundaryMode, root, pkg) && !isBazelPackage(dir) {
 		t.Errorf("%s: dep %q names a directory that will never hold a BUILD file", imp, dep)
 	}
 }
