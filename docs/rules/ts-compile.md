@@ -585,7 +585,10 @@ there is guarded: with `"types": ["vite/client"]` in the tsconfig and
 `@npm//:vite` in `deps`, the target analyses without complaint, generates a
 config whose `files` is empty, and fails in tsgo with `TS2339` on the
 `import.meta.env` those declarations would have typed. Put the entries in
-`compiler_options`.
+`compiler_options`. Gazelle does that for the shape it can act on -- a relative
+entry naming a file in the tsconfig's own directory -- rebasing it onto each
+target below and naming the file in `types_srcs`; see
+[a declaration the tsconfig names](../gazelle/overview.md#a-declaration-the-tsconfig-names).
 
 ### When two ambients declare the same thing
 
@@ -636,9 +639,10 @@ heard of.
 
 A consumer that turns out to need a global no `public_globals` names sees the
 identifier as undefined: nothing distinguishes a global that stayed private
-from one that never existed. Give that consumer the declaration through a dep
-of its own -- `@types/node` for `process` -- or name the file in the owning
-target's `public_globals`.
+from one that never existed. Three things give it one: a dep of its own --
+`@types/node` for `process` -- the owning target's `public_globals`, or a
+relative `types` entry with the file in `types_srcs`, which stages it into this
+one program and no other.
 
 The unit is the file, because the module-or-global question TypeScript answers
 is per file. A `.d.ts` mixing a shim for the package's own build with a

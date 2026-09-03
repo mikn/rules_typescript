@@ -74,6 +74,7 @@ go_test(
         "remix_staging_test.go",
         "resolve_test.go",
         "rollup_assets_test.go",
+        "root_ambient_types_test.go",
         "sveltekit_bundle_test.go",
         "tsconfig_baseline_test.go",
         "tsconfig_extends_test.go",

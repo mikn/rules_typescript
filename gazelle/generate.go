@@ -463,12 +463,19 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	// no source at all, and returning early there is what would leave the label
 	// its subpackages name pointing at a package nothing writes.
 	tsConfigRule := ownTsConfigRule(args, tc)
+	var tsConfigTypesRule *rule.Rule
+	if tsConfigRule != nil {
+		tsConfigTypesRule = ownTsConfigTypesRule(tc, args.Rel)
+	}
 
 	// A tsconfig.json that has been deleted or moved leaves the ts_config behind,
 	// and this directory may hold nothing else for a later run to notice it by.
 	var tsConfigEmpty []*rule.Rule
 	if tsConfigRule == nil && ruleExists(args, "ts_config", tsConfigTargetName) {
 		tsConfigEmpty = append(tsConfigEmpty, rule.NewRule("ts_config", tsConfigTargetName))
+	}
+	if tsConfigTypesRule == nil && ruleExists(args, "filegroup", tsConfigTypesTargetName) {
+		tsConfigEmpty = append(tsConfigEmpty, rule.NewRule("filegroup", tsConfigTypesTargetName))
 	}
 
 	totalNonTS := len(cssFiles) + len(cssModuleFiles) + len(assetFiles) + len(jsonFiles)
@@ -512,6 +519,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	}
 	if tsConfigRule != nil {
 		reserved[tsConfigRule.Name()] = struct{}{}
+		reserved[tsConfigTypesTargetName] = struct{}{}
 	}
 	for _, name := range codegenTargetNames(codegenPatterns) {
 		reserved[name] = struct{}{}
@@ -524,6 +532,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	if (isBoundary && len(srcFiles) > 0) || len(testFiles) > 0 || len(docFiles) > 0 || hasEntry {
 		tsConfigAttr = tsConfigLabel(args, tc)
 	}
+	typesEntries, typesSrcsLabel := rootAmbientTypes(args.Rel, tc, tsConfigAttr)
 
 	// ---- css_library targets -----------------------------------------------
 	// Generate one css_library rule per plain .css file (side-effect imports).
@@ -599,6 +608,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		}
 
 		setTsConfig(r, tsConfigAttr)
+		setRootAmbientTypes(r, typesEntries, typesSrcsLabel)
 
 		// Collect imports for all src files.
 		allImports := importsIn(args.Dir, srcFiles)
@@ -661,6 +671,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		entryImports := importsIn(args.Dir, []string{entryFile})
 		r := frameworkEntryRule(entryName, entryFile, ambientFiles, tc)
 		setTsConfig(r, tsConfigAttr)
+		setRootAmbientTypes(r, typesEntries, typesSrcsLabel)
 		setPathAliases(args, r, usedPathAliases(tc, args.Rel, []string{entryFile}, entryImports))
 		gen = append(gen, r)
 		imports = append(imports, uniqueImports(entryImports))
@@ -776,6 +787,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		}
 
 		setTsConfig(r, tsConfigAttr)
+		setRootAmbientTypes(r, typesEntries, typesSrcsLabel)
 
 		// ts_test auto-builds a node_modules tree from its @npm// deps, so no
 		// explicit node_modules rule is generated. The ts_test macro filters deps
@@ -866,6 +878,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		// types and strictness for the same reason its sources do, and the same
 		// label they name, so a refusal refuses for all of them at once.
 		setTsConfig(r, tsConfigAttr)
+		setRootAmbientTypes(r, typesEntries, typesSrcsLabel)
 
 		docImports := importsIn(args.Dir, docFiles)
 		if used := usedPathAliases(tc, args.Rel, docSrcs, docImports); len(used) > 0 {
@@ -978,6 +991,10 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	// ---- ts_config for this package's own tsconfig.json --------------------
 	// The baseline every target at or below this directory names, and a source
 	// file only becomes a label another package can reach through a target.
+	if tsConfigTypesRule != nil {
+		gen = append(gen, tsConfigTypesRule)
+		imports = append(imports, []string{})
+	}
 	if tsConfigRule != nil {
 		gen = append(gen, tsConfigRule)
 		imports = append(imports, nil)
@@ -1024,6 +1041,7 @@ func emptyResult(args language.GenerateArgs) language.GenerateResult {
 			rule.NewRule("ts_dev_server", "dev"),
 			rule.NewRule("node_modules", "node_modules"),
 			rule.NewRule("ts_config", tsConfigTargetName),
+			rule.NewRule("filegroup", tsConfigTypesTargetName),
 		},
 	}
 }
@@ -1204,6 +1222,72 @@ func setTsConfig(r *rule.Rule, label string) {
 	}
 }
 
+// tsConfigTypesTargetName is the filegroup Gazelle writes beside a package's
+// tsconfig.json for the declaration files it names in compilerOptions.types.
+const tsConfigTypesTargetName = tsConfigTargetName + "_types"
+
+func tsConfigNameTaken(name string) bool {
+	return name == tsConfigTargetName || name == tsConfigTypesTargetName
+}
+
+// ownTsConfigTypesRule stages the declaration files this directory's tsconfig
+// names in compilerOptions.types, for the targets that compile under it.
+//
+// A filegroup, so the file is an action input of exactly the targets naming it:
+// a ts_compile would publish declarations of its own, and public_globals on one
+// would put what the file declares in every transitive consumer's program.
+func ownTsConfigTypesRule(tc *tsConfig, rel string) *rule.Rule {
+	if len(tc.tsconfigTypeFiles) == 0 || tc.tsconfigTypesDir != rel {
+		return nil
+	}
+	r := rule.NewRule("filegroup", tsConfigTypesTargetName)
+	r.SetAttr("srcs", srcLabels(tc.tsconfigTypeFiles))
+	r.SetAttr("visibility", []string{"//visibility:public"})
+	return r
+}
+
+// rootAmbientTypes is the compilerOptions.types a target in rel writes, and the
+// label staging the declaration files among those entries. Empty unless the
+// tsconfig those entries came from is the file the target names for its
+// baseline, since rebasing them against another directory names nothing.
+func rootAmbientTypes(rel string, tc *tsConfig, tsConfigAttr string) ([]string, string) {
+	if tsConfigAttr == "" || len(tc.tsconfigTypeFiles) == 0 {
+		return nil, ""
+	}
+	if path.Dir(path.Join(".", tc.tsConfigFile)) != path.Join(".", tc.tsconfigTypesDir) {
+		return nil, ""
+	}
+	entries := make([]string, 0, len(tc.tsconfigTypes))
+	for _, entry := range tc.tsconfigTypes {
+		entries = append(entries, rebasedTypeEntry(tc.tsconfigTypesDir, rel, entry))
+	}
+	return entries, strings.TrimSuffix(tsConfigAttr, tsConfigTargetName) + tsConfigTypesTargetName
+}
+
+// rebasedTypeEntry rewrites one entry from the tsconfig's directory to rel.
+// A package name is not a path and is returned as written.
+func rebasedTypeEntry(typesDir, rel, entry string) string {
+	if _, isFile := typeEntryFileName(entry); !isFile {
+		return entry
+	}
+	name := strings.TrimPrefix(entry, "./")
+	if rel == typesDir {
+		return "./" + name
+	}
+	below := strings.TrimPrefix(strings.TrimPrefix(rel, typesDir), "/")
+	return strings.Repeat("../", len(strings.Split(below, "/"))) + name
+}
+
+// Both or neither: an entry with no label staging its file is an analysis
+// error, and a staged file no entry names is the same error from the other side.
+func setRootAmbientTypes(r *rule.Rule, entries []string, typesSrcs string) {
+	if len(entries) == 0 || typesSrcs == "" {
+		return
+	}
+	r.SetAttr("types", entries)
+	r.SetAttr("types_srcs", []string{typesSrcs})
+}
+
 // tsConfigLabel is the label a target generated in args.Rel names for its
 // baseline, or "" when there is none it can name.
 //
@@ -1267,11 +1351,12 @@ func tsConfigLabel(args language.GenerateArgs, tc *tsConfig) string {
 			dirRel, args.Rel, mode, dirRel, args.Rel, dirRel)
 		return ""
 	}
-	if targetNameForDir(local.tc, dirRel) == tsConfigTargetName {
-		log.Printf("typescript: %s already generates a target named %q, so there is no name "+
-			"left for the ts_config beside its tsconfig.json and %s keeps the ruleset's "+
-			"baseline. Rename the directory's target with a # gazelle:ts_target_name.",
-			dirRel, tsConfigTargetName, args.Rel)
+	if name := targetNameForDir(local.tc, dirRel); tsConfigNameTaken(name) {
+		log.Printf("typescript: %s already generates a target named %q, which is one of the "+
+			"two names the ts_config beside its tsconfig.json and the filegroup staging the "+
+			"declarations it names need, so %s keeps the ruleset's baseline. Rename the "+
+			"directory's target with a # gazelle:ts_target_name.",
+			dirRel, name, args.Rel)
 		return ""
 	}
 	return "//" + dirRel + ":" + tsConfigTargetName
@@ -1291,7 +1376,7 @@ func ownTsConfigRule(args language.GenerateArgs, tc *tsConfig) *rule.Rule {
 	if tsConfigPackageCosts(tc.packageBoundaryMode, args.Dir) {
 		return nil
 	}
-	if targetNameForDir(tc, args.Rel) == tsConfigTargetName {
+	if tsConfigNameTaken(targetNameForDir(tc, args.Rel)) {
 		return nil
 	}
 	r := rule.NewRule("ts_config", tsConfigTargetName)

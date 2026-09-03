@@ -5,7 +5,7 @@ that simulate real user scenarios end-to-end:
   - create a project from scratch
   - run Gazelle to generate BUILD files
   - build with ts_compile / tsgo type-checking
-  - run ts_test / vitest (npm test only)
+  - run ts_test / vitest (the tests carrying a pnpm-lock.yaml)
 
 Each test workspace lives in a subdirectory of this package and contains:
   - MODULE.bazel (with {RULES_TS_ROOT} placeholder substituted at runtime)
@@ -213,6 +213,10 @@ bazel_integration_test(
 # ── gazelle_roundtrip ─────────────────────────────────────────────────────────
 # Tests: delete BUILD files → Gazelle regenerates → diff → build + test passes.
 # Verifies Gazelle output is idempotent and the regenerated BUILD files work.
+# The worker/ subtree is where a generated BUILD file is LOADED rather than
+# compared as text: a rule there that does not take `types_srcs` is a load error
+# on the whole package. pnpm-lock.yaml is sourced from tests/npm/ at runtime by
+# the runner, because the generated ts_test runs a real vitest.
 
 bazel_integration_test(
     name = "gazelle_roundtrip_test",

@@ -381,8 +381,10 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 				"staging_srcs":  true,
 			},
 		},
-		// filegroup is generated in stage-dir sub-packages to export sources
-		// for ts_bundle.staging_srcs. Only the srcs attr is managed by Gazelle.
+		// filegroup is generated twice: in stage-dir sub-packages to export
+		// sources for ts_bundle.staging_srcs, and beside a tsconfig.json for
+		// the declaration files it names in compilerOptions.types. Only the
+		// srcs attr is managed by Gazelle.
 		"filegroup": {
 			MatchAny:   false,
 			MatchAttrs: []string{"name"},

@@ -70,15 +70,25 @@ is replaced unless a `# keep` holds it. `ts_compile.deps` and
 | `ts_bundle` (framework root) | `staging_srcs`, `entry_point`, `html`, `vite_config`, `mode`, `bundler` |
 | `vite_bundler` | `vite`, `node_modules` |
 | `node_modules` (framework root) | `deps` |
-| `filegroup(name = "sources")` | `srcs`, `visibility` |
+| `filegroup(name = "sources")`, `filegroup(name = "tsconfig_types")` | `srcs`, `visibility` |
 
 `ts_compile.public_globals` is deliberately absent. Whether a `.d.ts`'s globals
 are part of the package's public type surface is a decision nothing in the
 source states, so no directive writes it and a hand-written value survives every
-run, `# keep` or not. `types_srcs` is absent for the same reason -- it answers a
-`types` entry in `compiler_options`, which no directive writes either -- and a
-hand-written one survives too. A `.d.ts` in the package is in the `srcs` Gazelle
-generates, which is where a relative `types` entry naming it resolves from.
+run, `# keep` or not.
+
+`types` and `types_srcs` are a third case: generated, and not owned. Gazelle
+writes both where the nearest `tsconfig.json` names a declaration file of its
+own directory in `compilerOptions.types` — see
+[a declaration the tsconfig names](overview.md#a-declaration-the-tsconfig-names).
+Neither is mergeable, so the value on disk wins whenever there is one, and
+`rule.MergeRules` copies in an attribute the rule does not carry at all: which
+means **deleting the lines does not opt out** — they come back on the next run.
+Two things stick. `types = []` with `types_srcs = []` keeps both attributes
+present and asks for no ambient types at all, dropping the package entries the
+tsconfig named along with the file. A `# keep` above the whole `ts_compile`
+keeps whatever you wrote and leaves the entries where `extends` puts them,
+unresolved, which is where they were before Gazelle wrote anything.
 
 Three kinds are the exception: `ts_dev_server`, `ts_pnpm` and `ts_add_package`.
 Each is written once, when no rule of that name exists, and left alone from then

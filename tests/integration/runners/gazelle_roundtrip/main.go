@@ -21,8 +21,9 @@ func main() {
 	harness.Run(harness.Config{
 		Name:         "gazelle_roundtrip",
 		WorkspaceRel: "tests/integration/gazelle_roundtrip",
+		Lockfile:     "tests/npm/pnpm-lock.yaml",
 	}, func(it *harness.IT) {
-		dirs := []string{"src/lib", "src/app", "src/icons"}
+		dirs := []string{"src/lib", "src/app", "src/icons", "worker", "worker/src"}
 
 		// Written here rather than shipped in the workspace: a BUILD file under
 		// a --deleted_packages entry is a package of the OUTER workspace, and
@@ -89,6 +90,7 @@ func main() {
 			it.Pass("output file exists: %s", rel)
 		}
 
+		rootAmbientTypesReachTheTreeBelow(it)
 		codegenGlobLoads(it)
 		assetDeclarationTypeApplies(it)
 		anchoredExcludeHitsOnePath(it)
@@ -218,4 +220,145 @@ func jsSrcsAreCompiledAndDeclared(it *harness.IT) {
 		it.Fail("//src/app failed to build for some other reason than the assignment")
 	}
 	it.Pass("assigning format()'s result to a number is TS2322, so the JSDoc type crossed the package boundary")
+}
+
+// worker/tsconfig.json states `types: ["./worker-configuration.d.ts"]`, and
+// worker/src/handler.ts uses two of the declarations that file makes. The
+// generated per-directory config states its own `include`, `files` and
+// `exclude` and inherits only compilerOptions, so the entry arrives written
+// relative to a directory in bazel-out: Gazelle has to rebase it and name a
+// label that stages the file.
+func rootAmbientTypesReachTheTreeBelow(it *harness.IT) {
+	it.RequireContains(it.Path("worker/BUILD.bazel"), `name = "tsconfig_types"`,
+		"the tsconfig's own package supplies no label for the declaration it names")
+	it.Pass("worker/BUILD.bazel carries the filegroup staging worker-configuration.d.ts")
+
+	it.RequireNotContains(it.Path("worker/BUILD.bazel"), "public_globals",
+		"the declaration was published to consumers, which is the propagating shape")
+	it.Pass("nothing publishes the declaration to consumers")
+
+	below := it.Path("worker/src/BUILD.bazel")
+	it.RequireContains(below, `types = ["../worker-configuration.d.ts"]`,
+		"//worker/src names no rebased types entry")
+	it.RequireContains(below, `types_srcs = ["//worker:tsconfig_types"]`,
+		"//worker/src names no label staging the declaration")
+	it.Pass("//worker/src carries the rebased entry and the label that answers it")
+
+	it.RequireFile(it.Bin("worker/src/handler.js"),
+		"//worker/src did not compile, so the declarations never reached its program")
+	it.Pass("//worker/src type-checks against declarations nothing there imports")
+
+	everyKindLoads(it, below)
+	inheritedEntryResolvesToNothing(it, below)
+	theDeclarationStopsAtTheSubtree(it)
+}
+
+// Writing an attribute is not Bazel accepting it: a ts_test that does not take
+// types_srcs is a load error on the package, which generated text cannot show.
+func everyKindLoads(it *harness.IT, below string) {
+	for _, attr := range []string{`types = ["../worker-configuration.d.ts"]`, `types_srcs = ["//worker:tsconfig_types"]`} {
+		if strings.Count(it.Read(below), attr) != 2 {
+			fmt.Fprint(os.Stderr, it.Read(below))
+			it.Fail("worker/src holds a ts_compile and a ts_test; %s is not on both", attr)
+		}
+	}
+	it.Pass("both rules Gazelle wrote in worker/src carry the pair")
+
+	targets := strings.Fields(it.BazelStdout("query", "kind(ts_test, //worker/...)"))
+	if len(targets) != 1 {
+		it.Fail("expected one generated ts_test under //worker, got %v -- the load below would be vacuous", targets)
+	}
+	it.Pass("Bazel loaded the package Gazelle wrote both attributes into: %s", targets[0])
+
+	it.MustBazel("test", targets[0])
+	it.Pass("%s runs, so the test files' own program resolved the entry", targets[0])
+}
+
+// The measurement behind writing the entry at all: with the entry only
+// inherited through `extends` -- and the file staged on a dep edge, so it is in
+// the sandbox -- the name resolves against the generated config's own directory
+// and finds nothing.
+func inheritedEntryResolvesToNothing(it *harness.IT, below string) {
+	restore := it.Read(below)
+	it.Write(below, `load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "src",
+    srcs = ["handler.ts"],
+    tsconfig = "//worker:tsconfig",
+    visibility = ["//visibility:public"],
+    deps = ["//worker:worker"],
+)
+`)
+	log, err := it.BazelLog("inherited_types_entry", "build", "//worker/src")
+	it.Write(below, restore)
+	if err == nil {
+		log.Dump()
+		it.Fail("//worker/src compiled on the inherited entry alone; Gazelle need not write one")
+	}
+	if !log.Matches(`(?i)TS2304`) {
+		log.Dump()
+		it.Fail("//worker/src failed for some other reason than the undefined identifiers")
+	}
+	it.Pass("the entry inherited through extends resolves to nothing: TS2304")
+
+	// So types_srcs alone was never the smaller change: the rule guards a
+	// staged file no entry of its own names.
+	it.Write(below, `load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "src",
+    srcs = ["handler.ts"],
+    tsconfig = "//worker:tsconfig",
+    types_srcs = ["//worker:tsconfig_types"],
+    visibility = ["//visibility:public"],
+)
+`)
+	log, err = it.BazelLog("types_srcs_without_an_entry", "build", "//worker/src")
+	it.Write(below, restore)
+	if err == nil {
+		log.Dump()
+		it.Fail("types_srcs with no entry naming the file built, so Gazelle need write no entry")
+	}
+	if !log.Matches(`which no compilerOptions.types entry names`) {
+		log.Dump()
+		it.Fail("//worker/src failed for some other reason than the unnamed types_srcs")
+	}
+	it.Pass("types_srcs with no entry naming the file is an analysis error")
+}
+
+// The failure the previous shape had: a declaration reaching every transitive
+// consumer. types_srcs stages a file into one program and travels on no edge,
+// so a consumer outside the tsconfig's subtree that deps a target inside it
+// does not get the declarations.
+func theDeclarationStopsAtTheSubtree(it *harness.IT) {
+	it.Write(it.Path("outside/ok.ts"), "export const ran = 1;\n")
+	it.Write(it.Path("outside/leaked.ts"), "export const seen = WORKER_BUILD_ID;\n")
+	it.Write(it.Path("outside/BUILD.bazel"), `load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "ok",
+    srcs = ["ok.ts"],
+    deps = ["//worker/src"],
+)
+
+ts_compile(
+    name = "leaked",
+    srcs = ["leaked.ts"],
+    deps = ["//worker/src"],
+)
+`)
+	it.MustBazel("build", "//outside:ok")
+	it.Pass("the dep edge into the subtree analyses and builds")
+
+	log, err := it.BazelLog("declaration_stops_at_the_subtree", "build", "//outside:leaked")
+	if err == nil {
+		log.Dump()
+		it.Fail("the declaration reached a consumer outside the tsconfig's subtree")
+	}
+	if !log.Matches(`(?i)TS2304`) {
+		log.Dump()
+		it.Fail("//outside:leaked failed for some other reason than the undefined identifier")
+	}
+	it.Pass("the same dep edge carries no declaration out of the subtree: TS2304")
 }
