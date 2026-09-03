@@ -19,7 +19,7 @@ release, production users and Windows support. This has none of the three.
 - You want the `.d.ts` compilation boundary: a body-only change recompiles nothing downstream
 - You want type errors to fail the build without extra flags
 - You use Remix, TanStack Start, or other Vite-based frameworks
-- You want no system prerequisite but Bazelisk (no system Node, no `pnpm install`)
+- You want no system prerequisite but Bazelisk (no system Node, no `pnpm install`; a pnpm only to write the first lockfile)
 
 ## Comparison
 
@@ -126,8 +126,10 @@ Aspect CLI.
 
 Bazelisk is the only one. Node.js, Go and Rust are downloaded hermetically. pnpm
 can be too, in [two lines of setup](../guides/npm.md#hermetic-pnpm), and is
-needed only to edit the lockfile, never to build or test. `rules_ts` requires a
-system Node.js and pnpm.
+needed only to edit the lockfile, never to build or test. The first lockfile is
+the exception: the extension reads `pnpm-lock.yaml` while `MODULE.bazel` is
+evaluated, so the hermetic pnpm is not runnable before the file exists, and a
+pnpm of your own writes it. `rules_ts` requires a system Node.js and pnpm.
 
 ## Migration Steps
 
@@ -147,12 +149,20 @@ If you decide to migrate from `rules_ts`:
    `ts_pnpm` and a `ts_add_package` target beside the lockfile, and both name
    `@pnpm`. See [Setup](../guides/npm.md#setup).
 
-3. Keep your `tsconfig.json` out of BUILD `deps`. Either drop it entirely and
-   take the zero-config baseline, or pass it as `ts_compile(tsconfig = ...)` to
-   have the generated config extend it — see
+3. Leave your `tsconfig.json` where it is, under its name. Step 4 wires it:
+   Gazelle writes `ts_config(name = "tsconfig", src = "tsconfig.json")` beside
+   it and `tsconfig = "//:tsconfig"` on every `ts_compile` and `ts_test` below,
+   so the generated config extends yours; see
    [where compiler options come from](../rules/ts-compile.md#where-compiler-options-come-from).
-   Rename it first if you also run `ts_refresh_tsconfig`, which
-   [overwrites the root `tsconfig.json` in full](ide-setup.md#setup)
+   Deleting the file gives the zero-config baseline and loses the
+   `compilerOptions.paths` step 5 reads. Renaming it loses the same thing:
+   Gazelle reads only a file named `tsconfig.json`. Delete `baseUrl` from it;
+   tsgo rejects the key
+   ([Option 'baseUrl' has been removed](../guides/troubleshooting.md#option-baseurl-has-been-removed)).
+   If you also run `ts_refresh_tsconfig`, which
+   [overwrites the file at `tsconfig`](ide-setup.md#setup), point that at
+   another name and extend it from yours
+   ([Extending the generated file](ide-setup.md#extending-the-generated-file))
 4. Run `bazel run //:gazelle` to regenerate BUILD files
 5. Leave `compilerOptions.paths` alone. Gazelle turns a `paths` entry into a
    `path_aliases` attr and, where none of the target's own srcs sits under the
