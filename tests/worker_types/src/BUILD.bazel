@@ -1,0 +1,23 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "ts_compile")
+
+package(default_visibility = ["//:__pkg__"])
+
+# `Env`, `KVNamespace`, `Request` and `Response` are all declared by the
+# generated file and by nothing else in this program: lib is es2022 with no DOM,
+# and no @cloudflare/workers-types is in deps.
+ts_compile(
+    name = "src",
+    srcs = ["index.ts"],
+    tsconfig = "//tests/worker_types:tsconfig",
+    types = ["../worker-configuration.d.ts"],
+    types_srcs = ["//tests/worker_types:worker_types"],
+)
+
+build_test(
+    name = "src_builds_test",
+    targets = [":src"],
+)
+
+# The generated editor program for this package; see //:refresh_tsconfig.
+exports_files(["tsconfig.json"])

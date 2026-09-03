@@ -144,7 +144,10 @@ on owning its subtree in the editor. Each entry gets its own staleness
 Each generated file `extends` the root **and** the package's own `ts_compile`
 baseline, root first so the baseline wins. Inherited `paths` are not re-resolved,
 so the root's aliases still work from down there; `include` and `exclude` are
-re-resolved against the extending file, so they are written out. `noEmit`,
+re-resolved against the extending file, so they are written out. A relative
+`types` entry the build resolved to a generated declaration -- a
+[`ts_worker_types`](../rules/ts-worker-types.md) output -- is written through
+the `bazel-bin` symlink, since the source tree has no such file. `noEmit`,
 `composite`, `incremental`, `rootDir` and `files` are pinned in the file itself,
 since a baseline inherited whole would emit into your source tree, reject files
 outside one target's `rootDir`, and lose every ambient declaration.

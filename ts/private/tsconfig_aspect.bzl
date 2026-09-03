@@ -41,6 +41,7 @@ load(
     "types_entry_file",
     "types_entry_package_ref",
     "types_package_alias",
+    "workspace_relative",
 )
 
 TsconfigSourcesInfo = provider(
@@ -52,7 +53,7 @@ TsconfigSourcesInfo = provider(
         "npm_ambient": "depset of struct(name, version, entry): @types/* entry points to name in the tsconfig `files` array, relative to the package's own directory.",
         "npm_files": "depset of struct(name, version, dest, file): the files an npm entry point needs on disk, and where under the package each one goes.",
         "npm_untyped": "depset of struct(name, label): each npm package a reached target named in `untyped_packages`, and the target that named it. One `paths` map serves the whole editor, so this is what ide_tsconfig checks against the packages the rest of the graph still contributes.",
-        "option_groups": "depset of struct(package, label, options_json, extends, include): the compilerOptions one target sets, which no single root block can carry -- a target that turns `strict` off, or names a `lib` its target does not imply, is checked correctly by the build and wrongly by the editor unless the editor gets its own program for those files.",
+        "option_groups": "depset of struct(package, label, options_json, extends, include, generated): the compilerOptions one target sets, which no single root block can carry -- a target that turns `strict` off, or names a `lib` its target does not imply, is checked correctly by the build and wrongly by the editor unless the editor gets its own program for those files. `generated` is the declaration files among its srcs and types_srcs that are build outputs, which a relative `types` entry reaches only through the bazel-bin symlink.",
         "has_content": "Whether anything above is non-empty here or anywhere below, so that a fragment is written only where there is something to say.",
     },
 )
@@ -547,6 +548,14 @@ def _option_group(target, ctx):
     if not include:
         return []
 
+    # The editor reaches a generated declaration through the bazel-bin symlink,
+    # whose name only _nested_config_json knows.
+    generated = [
+        f.short_path
+        for f in sources + list(getattr(ctx.rule.files, "types_srcs", []))
+        if f.short_path.endswith(".d.ts") and not f.is_source
+    ]
+
     # JSON and a tuple, not a dict and a list: a depset element has to be
     # immutable, and these travel to _ide_tsconfig_impl through one.
     return [struct(
@@ -555,6 +564,7 @@ def _option_group(target, ctx):
         options_json = json.encode(options),
         extends = extends,
         include = tuple(sorted(include)),
+        generated = tuple(sorted(generated)),
     )]
 
 def _tsconfig_aspect_impl(target, ctx):
@@ -881,6 +891,7 @@ def _nested_configs(sources, root_options):
             owners = {},
             extends = {},
             include = {},
+            generated = {},
         ))
         for key, value in json.decode(entry.options_json).items():
             if key in group.options and group.options[key] != value:
@@ -915,6 +926,8 @@ def _nested_configs(sources, root_options):
             group.extends[entry.extends] = entry.label
         for path in entry.include:
             group.include[path] = True
+        for path in entry.generated:
+            group.generated[path] = True
 
     out = []
     for package in sorted(groups):
@@ -933,10 +946,11 @@ def _nested_configs(sources, root_options):
             options = options,
             extends = sorted(group.extends),
             include = sorted(group.include),
+            generated = sorted(group.generated),
         ))
     return out
 
-def _nested_config_json(package, group, tsconfig_path, ambient):
+def _nested_config_json(package, group, tsconfig_path, ambient, bin_dir):
     """The nested tsconfig's own content.
 
     `extends` is an array with the root FIRST so that a package baseline the
@@ -969,6 +983,13 @@ def _nested_config_json(package, group, tsconfig_path, ambient):
     # says vite/src, which puts vite/tsup.config.ts outside it (TS6059).
     options["rootDir"] = "."
 
+    if "types" in options and group.generated:
+        bin_root = to_workspace + bin_dir.removeprefix("./")
+        options["types"] = [
+            _bin_types_entry(package, entry, group.generated, bin_root)
+            for entry in options["types"]
+        ]
+
     return {
         "_comment": _HEADER,
         "extends": extends,
@@ -986,6 +1007,14 @@ def _nested_config_json(package, group, tsconfig_path, ambient):
         "include": group.include,
         "exclude": [],
     }
+
+# The build writes a `types` entry as the path to the file it resolved to; a
+# generated one is in bazel-out, which from the source tree is the bazel-bin symlink.
+def _bin_types_entry(package, entry, generated, bin_root):
+    path = workspace_relative(package, entry)
+    if path in generated:
+        return bin_root + "/" + path
+    return entry
 
 def _relative_to(package, path, to_workspace):
     """`path`, which is workspace-relative, expressed from inside `package`."""
@@ -1159,6 +1188,7 @@ def _ide_tsconfig_impl(ctx):
                     group,
                     ctx.attr.tsconfig_path,
                     ambient,
+                    bin_dir,
                 )),
                 indent = "  ",
             ) + "\n",

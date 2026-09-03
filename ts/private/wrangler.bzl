@@ -19,12 +19,17 @@ Three rules over one implementation and one attribute set:
 | `ts_worker_dry_run_test` | no      | CI                              |
 | `ts_worker_dry_run`      | no      | a local look at the bundle      |
 | `ts_worker_deploy`       | **yes** | a deliberate `bazel run`        |
+
+`ts_worker_types` reads the same config for the other thing it declares: the
+bindings, as the declarations the worker's sources are typed against. It is a
+build action rather than a launcher, so it is a macro over `ts_codegen`.
 """
 
 load("//tools/launcher:launcher.bzl", "LAUNCHER_ATTRS", "declare_launcher", "rlocation_path")
 load("//ts/private:node_modules.bzl", "build_node_modules_action", "collect_npm_packages")
 load("//ts/private:providers.bzl", "JsInfo", "NpmPackageInfo")
 load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "get_js_runtime")
+load("//ts/private:ts_codegen.bzl", "ts_codegen")
 
 # The launcher's contract for what to do once the worker is bundled. Its own
 # default is the dry run, so a config that names neither cannot upload.
@@ -181,3 +186,77 @@ downgrades a deploy to a dry run. The reverse is refused: a `--no-dry-run` hande
 to a `ts_worker_dry_run` target is an error, not an upload.
 """,
 )
+
+def ts_worker_types(
+        name,
+        config,
+        node_modules,
+        srcs = [],
+        wrangler_args = [],
+        out = "worker-configuration.d.ts",
+        **kwargs):
+    """Generates a worker's `worker-configuration.d.ts` from its wrangler config.
+
+    The bindings a worker reads off `env` are declared in the wrangler config,
+    and `wrangler types` is what turns them into an `Env` interface -- plus the
+    runtime's own globals, `Request`, `KVNamespace` and the rest, matched to the
+    config's compatibility date. A worker repo checks the file in and re-runs the
+    command by hand; this runs it as a build action, so the declarations follow
+    the config on every build.
+
+    The output is an ambient .d.ts. A tsconfig names one in
+    `compilerOptions.types`, and so does a target: `types` with the entry and
+    `types_srcs` with this target, which is the pair Gazelle writes under a
+    tsconfig that names the file.
+
+        ts_worker_types(
+            name = "worker_types",
+            config = "wrangler.jsonc",
+            node_modules = ":node_modules",
+        )
+
+        ts_compile(
+            name = "src",
+            srcs = ["index.ts"],
+            tsconfig = "//workers/api:tsconfig",
+            types = ["../worker-configuration.d.ts"],
+            types_srcs = ["//workers/api:worker_types"],
+        )
+
+    Args:
+        name:          Name of the ts_codegen target.
+        config:        The wrangler config. Its bindings are what the declarations
+                       name, and its compatibility date is what the runtime half
+                       is generated for.
+        node_modules:  A node_modules() target carrying wrangler.
+        srcs:          Worker sources to stage beside the config. Not needed for
+                       a binding: the config is read alone. With the file `main`
+                       names present, wrangler also writes
+                       `Cloudflare.GlobalProps.mainModule` as `typeof import` of
+                       it; without it that block is left out.
+        wrangler_args: Flags for `wrangler types`, as written on its command
+                       line: `--strict-vars=false`,
+                       `--env-interface CloudflareBindings`,
+                       `--include-runtime=false`, `--env staging`.
+        out:           Name of the generated file. The default is what wrangler
+                       writes and what a checked-in one is called, so a package
+                       holding both gets Bazel's overlap error rather than two
+                       answers.
+        **kwargs:      Passed to the underlying ts_codegen (`visibility`, `tags`).
+    """
+    ts_codegen(
+        name = name,
+        srcs = [config] + srcs,
+        outs = [out],
+        generator = Label("//tools/codegen:wrangler_types"),
+        node_modules = node_modules,
+        args = [
+            "--config",
+            config.rsplit(":", 1)[-1].rsplit("/", 1)[-1],
+            "--out",
+            "{out}",
+            "--srcs",
+            "{srcs}",
+        ] + wrangler_args,
+        **kwargs
+    )

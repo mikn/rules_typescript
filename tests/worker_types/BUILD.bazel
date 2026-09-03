@@ -1,0 +1,46 @@
+"""A worker typed against the worker-configuration.d.ts Bazel generates.
+
+The layout is the one Gazelle writes under a tsconfig that names the file: the
+project tsconfig here, the sources one package down, and the declaration a
+`types` entry rebased onto the target below with `types_srcs` naming the label
+that stages it -- except that the label is the generating target and the file
+exists nowhere in the source tree.
+"""
+
+load("@rules_go//go:def.bzl", "go_test")
+load("//npm:defs.bzl", "node_modules")
+load("//ts:defs.bzl", "ts_config", "ts_worker_types")
+
+package(default_visibility = [
+    "//:__pkg__",
+    "//tests/worker_types:__subpackages__",
+])
+
+# gazelle:ts_npm_hub npm_workers
+
+node_modules(
+    name = "node_modules",
+    deps = ["@npm_workers//:wrangler"],
+)
+
+ts_worker_types(
+    name = "worker_types",
+    config = "wrangler.jsonc",
+    node_modules = ":node_modules",
+    wrangler_args = ["--strict-vars=false"],
+)
+
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+)
+
+# The Env half is read out of the config, and the runtime half is what the
+# compatibility date in it selects.
+go_test(
+    name = "worker_types_test",
+    size = "small",
+    srcs = ["worker_types_test.go"],
+    data = [":worker_types"],
+    deps = ["//tests/verify"],
+)
