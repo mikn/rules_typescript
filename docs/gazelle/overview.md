@@ -310,10 +310,36 @@ out of the very targets that would name them.
 
 Starlark cannot read a tsconfig to follow its `extends` chain, so a file that
 extends another needs that chain in the generated `ts_config`'s `deps`. Gazelle
-does not own that attribute, and a value written there survives every later run
-without a `# keep`. `tsconfig` on the compile, doc and test targets **is**
-Gazelle's, recomputed on every run, so a hand-picked baseline needs a `# keep`
-on its line.
+writes it for the one shape it can read without guessing: a single relative
+specifier naming an ancestor directory's own `tsconfig.json`, which is what a
+per-directory tsconfig split produces.
+
+```python
+# workers/proxy/test/BUILD.bazel — its tsconfig.json is {"extends": "../tsconfig.json"}
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+    deps = ["//workers/proxy:tsconfig"],
+    visibility = ["//visibility:public"],
+)
+```
+
+Without that dep the base is not an input to any action, so tsgo reads the path
+out of the config, finds nothing at it and reports `TS5083: Cannot read file`
+before it reaches a question about the sources.
+
+Every other shape is the author's to declare. An `extends` array states a merge
+order and not which entry to stage; a package-form specifier resolves through
+node_modules; an absolute path resolves on the one machine that wrote it. So
+does a base with no label to name it — outside the repository, at a path no file
+sits at, or in a directory that generates no `ts_config` for one of the three
+reasons listed above, which is logged where it applies.
+
+`deps` is Gazelle's, recomputed on every run, which is what lets a run correct
+the label it wrote when the base moves or goes away — a `deps` Gazelle could not
+revisit would leave a label no target satisfies and fail analysis for the whole
+workspace. So a hand-written value needs a `# keep` on its line to survive the
+next run, as does a hand-picked `tsconfig` on the compile, doc and test targets.
 
 ### A declaration the tsconfig names
 

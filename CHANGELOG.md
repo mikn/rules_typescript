@@ -623,8 +623,8 @@ Changes made since the newest section below are not here yet: they sit in
   `ts_compile` and `ts_test` now names the nearest hand-written `tsconfig.json`
   walking up, the way tsserver resolves one, and a `ts_config` target beside
   that file makes it a label a subpackage can reach. `deps` on that target — the
-  `extends` chain Starlark cannot read — is yours and survives every run without
-  a `# keep`.
+  `extends` chain Starlark cannot read — is Gazelle's, recomputed on every run,
+  so a hand-written value there needs a `# keep` on its line.
 
   The `ts_config` is written even into a directory that holds nothing else, which
   is what the pnpm workspace-member layout is: `package.json` and `tsconfig.json`

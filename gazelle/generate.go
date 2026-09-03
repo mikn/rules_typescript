@@ -15,6 +15,7 @@ import (
 	"github.com/bazelbuild/bazel-gazelle/rule"
 	bzl "github.com/bazelbuild/buildtools/build"
 
+	"github.com/mikn/rules_typescript/gazelle/jsonc"
 	"github.com/mikn/rules_typescript/gazelle/remix"
 	"github.com/mikn/rules_typescript/gazelle/tanstack"
 )
@@ -1316,50 +1317,159 @@ func tsConfigLabel(args language.GenerateArgs, tc *tsConfig) string {
 		return ":" + tsConfigTargetName
 	}
 
-	repoRoot := args.Config.RepoRoot
-	absDir := filepath.Join(repoRoot, filepath.FromSlash(dirRel))
-	local := readLocalPackage(absDir, dirRel, tc)
-
-	if local.ignored {
+	reach, detail := tsConfigReachFrom(args, tc, dirRel)
+	switch reach {
+	case reachIgnored:
 		log.Printf("typescript: %s holds the tsconfig.json %s would compile under, but a "+
 			"ts_ignore directive stops Gazelle writing anything there, so no target names the "+
 			"file and %s keeps the ruleset's baseline. Drop the directive, or set tsconfig by "+
 			"hand with a \"# keep\" on its line.", dirRel, args.Rel, args.Rel)
 		return ""
-	}
-	if nextOwnsDir(dirRel, tc) || svelteKitOwnsDir(dirRel, tc) {
+	case reachFrameworkGlob:
 		log.Printf("typescript: %s detected: %s holds the tsconfig.json %s would compile "+
 			"under, but the framework stages that tree by glob and a BUILD file there would "+
 			"make a package the glob cannot descend into. %s keeps the ruleset's baseline.",
 			frameworkName(tc.detectedFramework), dirRel, args.Rel, args.Rel)
 		return ""
-	}
-	mode, agreed := boundaryModeAt(repoRoot, dirRel, args.Rel, tc.packageBoundaryMode)
-	if !agreed {
+	case reachBoundaryUndeclared:
 		log.Printf("typescript: a ts_package_boundary directive between %s and %s leaves the "+
 			"two disagreeing about whether %s becomes a package, so %s names no tsconfig "+
 			"rather than risk a label into a package nothing writes. Declare the mode once, at "+
 			"or above %s.", dirRel, args.Rel, dirRel, args.Rel, dirRel)
 		return ""
-	}
-	if tsConfigPackageCosts(mode, absDir) {
+	case reachBoundaryCost:
 		log.Printf("typescript: %s holds the tsconfig.json %s would compile under, but %s "+
 			"package boundaries roll the sources below %s into the nearest package above it, "+
 			"and a BUILD file written there just to hold the ts_config target would drop every "+
 			"one of them. %s keeps the ruleset's baseline; make %s a package of its own with an "+
 			"index file or a # gazelle:ts_package_boundary true.",
-			dirRel, args.Rel, mode, dirRel, args.Rel, dirRel)
+			dirRel, args.Rel, detail, dirRel, args.Rel, dirRel)
 		return ""
-	}
-	if name := targetNameForDir(local.tc, dirRel); tsConfigNameTaken(name) {
+	case reachNameTaken:
 		log.Printf("typescript: %s already generates a target named %q, which is one of the "+
 			"two names the ts_config beside its tsconfig.json and the filegroup staging the "+
 			"declarations it names need, so %s keeps the ruleset's baseline. Rename the "+
 			"directory's target with a # gazelle:ts_target_name.",
-			dirRel, name, args.Rel)
+			dirRel, detail, args.Rel)
 		return ""
 	}
 	return "//" + dirRel + ":" + tsConfigTargetName
+}
+
+// tsConfigReach is why a ts_config target in one directory is not a label a
+// target generated in another may name.
+type tsConfigReach int
+
+const (
+	reachOK tsConfigReach = iota
+	reachIgnored
+	reachFrameworkGlob
+	reachBoundaryUndeclared
+	reachBoundaryCost
+	reachNameTaken
+)
+
+// tsConfigReachFrom asks the one question a label into another directory turns
+// on -- will Gazelle write a BUILD file there holding a ts_config -- and
+// returns the one value the answer's own message names: the boundary mode
+// dirRel is generated under, or the target name already taken there. dirRel is
+// an ancestor of args.Rel, so every directive at or above dirRel reaches both.
+func tsConfigReachFrom(args language.GenerateArgs, tc *tsConfig, dirRel string) (tsConfigReach, string) {
+	repoRoot := args.Config.RepoRoot
+	absDir := filepath.Join(repoRoot, filepath.FromSlash(dirRel))
+	local := readLocalPackage(absDir, dirRel, tc)
+
+	if local.ignored {
+		return reachIgnored, ""
+	}
+	if nextOwnsDir(dirRel, tc) || svelteKitOwnsDir(dirRel, tc) {
+		return reachFrameworkGlob, ""
+	}
+	mode, agreed := boundaryModeAt(repoRoot, dirRel, args.Rel, tc.packageBoundaryMode)
+	if !agreed {
+		return reachBoundaryUndeclared, mode
+	}
+	if tsConfigPackageCosts(mode, absDir) {
+		return reachBoundaryCost, mode
+	}
+	if name := targetNameForDir(local.tc, dirRel); tsConfigNameTaken(name) {
+		return reachNameTaken, name
+	}
+	return reachOK, mode
+}
+
+// extendsChainDep is the ts_config target this directory's tsconfig.json
+// extends, or "" when Gazelle will not name one. Only a single relative
+// specifier naming an ancestor directory's own tsconfig.json qualifies: that is
+// the shape a per-directory tsconfig split produces, and the one where the file
+// on the other end already has a ts_config target and a label that reaches it.
+func extendsChainDep(args language.GenerateArgs, tc *tsConfig) string {
+	tsConfigPath := filepath.Join(args.Dir, "tsconfig.json")
+	spec, ok := soleRelativeExtends(tsConfigPath)
+	if !ok {
+		return ""
+	}
+	basePath, ok := resolveExtendsSpecifier(args.Dir, spec)
+	if !ok || filepath.Base(basePath) != "tsconfig.json" {
+		return ""
+	}
+	baseDir := filepath.Dir(basePath)
+	rel, err := filepath.Rel(args.Config.RepoRoot, baseDir)
+	if err != nil {
+		return ""
+	}
+	dirRel := filepath.ToSlash(rel)
+	if dirRel == "." {
+		dirRel = ""
+	}
+	// A base outside the repository leaves a "../" here, which no package path
+	// ever starts with, so this is also what stops a label naming nothing.
+	if !dirIsAncestorOf(dirRel, args.Rel) {
+		return ""
+	}
+	if handWrittenTsConfigIn(baseDir, args.Config.RepoRoot) == "" {
+		return ""
+	}
+	if tc.excludesIn(dirRel).drops("tsconfig.json") {
+		return ""
+	}
+	if reach, _ := tsConfigReachFrom(args, tc, dirRel); reach != reachOK {
+		log.Printf("typescript: the tsconfig in %s extends %q, and Gazelle writes no ts_config "+
+			"in %s that a label can name, so the base is not an input to the type-check here. "+
+			"Declare deps by hand, or make %s a package that generates one.",
+			args.Rel, spec, dirRel, dirRel)
+		return ""
+	}
+	return "//" + dirRel + ":" + tsConfigTargetName
+}
+
+// soleRelativeExtends is the one relative specifier tsConfigPath extends. An
+// array states a merge order and not which file Bazel should stage, and a
+// package-form specifier resolves through node_modules; both stay the author's.
+func soleRelativeExtends(tsConfigPath string) (string, bool) {
+	data, err := os.ReadFile(tsConfigPath)
+	if err != nil {
+		return "", false
+	}
+	var tsc tsConfigJSON
+	if err := jsonc.Unmarshal(data, &tsc); err != nil {
+		return "", false
+	}
+	if len(tsc.Extends) != 1 {
+		return "", false
+	}
+	spec := tsc.Extends[0]
+	if !strings.HasPrefix(spec, "./") && !strings.HasPrefix(spec, "../") {
+		return "", false
+	}
+	return spec, true
+}
+
+func dirIsAncestorOf(ancestor, descendant string) bool {
+	if ancestor == descendant {
+		return false
+	}
+	return ancestor == "" || strings.HasPrefix(descendant, ancestor+"/")
 }
 
 // ownTsConfigRule is the ts_config target for this directory's own hand-written
@@ -1381,6 +1491,9 @@ func ownTsConfigRule(args language.GenerateArgs, tc *tsConfig) *rule.Rule {
 	}
 	r := rule.NewRule("ts_config", tsConfigTargetName)
 	r.SetAttr("src", "tsconfig.json")
+	if dep := extendsChainDep(args, tc); dep != "" {
+		r.SetAttr("deps", []string{dep})
+	}
 	r.SetAttr("visibility", []string{"//visibility:public"})
 	return r
 }
