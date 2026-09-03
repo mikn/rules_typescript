@@ -73,8 +73,8 @@ See [chunk splitting](../guides/bundling.md#chunk-splitting) for `minify` and
 [static files](../guides/bundling.md#static-files-public_dir) for `public_dir`
 and `manifest`.
 
-The `vite_config` plugins run first, which is how a framework plugin gets in:
-TanStack Start's and Remix's do, SvelteKit's and Solid Start's do not. See
+The `vite_config` plugins run before Bazel's. TanStack Start's and Remix's
+plugins run this way; SvelteKit's and Solid Start's do not. See
 [framework detection](../gazelle/overview.md#framework-detection). Its local
 imports need `vite_config_srcs`; see
 [Bundling § Framework plugins](../guides/bundling.md#framework-plugins-via-vite_config).
@@ -90,6 +90,6 @@ fails the build naming itself; see
 fails there.
 
 A `.css`, a `*.module.css` and an asset reach the bundler the same way the `.js`
-does — through the entry point's `CssInfo`, `CssModuleInfo` and `AssetInfo`. See
+does: through the entry point's `CssInfo`, `CssModuleInfo` and `AssetInfo`. See
 [css_library, css_module, asset_library](css-and-assets.md) for what each one
 promises, and [Bundling](../guides/bundling.md) for the complete guide.

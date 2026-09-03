@@ -24,16 +24,16 @@ svelte_library(
 )
 ```
 
-The compiler is not vendored: it is loaded from the `node_modules` tree the
-target names, so the Svelte version is the one in your lockfile.
+The compiler is loaded from the `node_modules` tree the target names, so the
+Svelte version is the lockfile's.
 
 ## Attributes
 
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `srcs` | `label_list` | — | Svelte component sources (`*.svelte`). Required. |
+| `srcs` | `label_list` | required | Svelte component sources (`*.svelte`) |
 | `deps` | `label_list` | `[]` | Targets whose JavaScript and CSS the components import. Forwarded transitively through `JsInfo` and `CssInfo`. |
-| `node_modules` | `label` | — | A `node_modules()` tree containing `svelte`. Required. |
+| `node_modules` | `label` | required | A `node_modules()` tree containing `svelte` |
 | `generate` | `string` | `"client"` | Which compiler output to emit: `"client"` (browser) or `"server"` (SSR). |
 | `dev` | `bool` | `False` | Compile with the compiler's `dev` option: runtime checks and source locations. |
 
@@ -47,14 +47,11 @@ src/Card.svelte  →  src/Card.svelte.js      (JsInfo.js_files)
                     src/Card.svelte.css     (CssInfo.css_files)
 ```
 
-All three come out of one action per component: Svelte scopes a component's CSS
-with a class whose hash also appears in its JavaScript, so JS and CSS emitted by
-two actions would eventually disagree about the class name and the styles would
-stop applying.
+All three come out of one action per component. Svelte scopes a component's
+CSS with a class whose hash also appears in its JavaScript.
 
-The `.css` is always present, and is empty for a component with no `<style>`
-block. Whether a component has styles is not knowable at analysis time, and a
-declared Bazel output has to exist.
+The `.css` is always present and is empty for a component with no `<style>`
+block.
 
 The output name keeps the source extension, so the import specifier does too:
 
@@ -71,13 +68,12 @@ for a `.ts` file.
 
 ## `<script lang="ts">`
 
-The Svelte compiler strips types itself: annotations, `interface`, `type`,
-generics, `as`, and type-only imports all come out as JavaScript. It is not a
-TypeScript compiler, though: anything needing runtime emit, `enum` and parameter
-properties among them, fails the build with its `typescript_invalid_feature`
-error.
+The Svelte compiler strips types: annotations, `interface`, `type`, generics,
+`as`, and type-only imports come out as JavaScript. Anything needing runtime
+emit, `enum` and parameter properties among them, fails the build with its
+`typescript_invalid_feature` error.
 
-Two related gaps:
+Two gaps:
 
 - No `.d.ts` is emitted, so a `.ts` file importing a component does not
   type-check against its props. Generating one needs `svelte2tsx`, which the

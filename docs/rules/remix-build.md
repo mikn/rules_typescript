@@ -4,10 +4,10 @@ Wraps `remix vite:build` as a single Bazel action and returns both halves of a
 Remix v2 application: the browser bundle under `client/` and the request handler
 under `server/`.
 
-The action stages a Remix project directory from declared inputs alone — the
+The action stages a Remix project directory from declared inputs alone: the
 `app/` sources, a `node_modules` tree, the Vite config carrying the Remix
-plugin, an optional `tsconfig.json` — runs the build in it, and moves Remix's
-build directory into one declared output artifact.
+plugin, an optional `tsconfig.json`. It runs the build in that directory and
+moves Remix's build directory into one declared output artifact.
 
 ## Usage
 
@@ -64,9 +64,9 @@ export default {
 
 Each `srcs` file lands at its path relative to the target's package. Remix loads
 `config` itself, so every Vite option in it reaches the build; it must not set
-the plugin's `buildDirectory`, which the rule owns. `config_srcs` is what
-makes a `./plugins/foo` import from the config resolve. `staging_srcs` has the
-same contract as [`next_build`](next-build.md)'s.
+the plugin's `buildDirectory`, which the rule owns. `config_srcs` makes a
+`./plugins/foo` import from the config resolve. `staging_srcs` has the same
+contract as [`next_build`](next-build.md)'s.
 
 ## Output
 
@@ -82,38 +82,35 @@ server/index.js                       the request handler build
 .vite/server-manifest.json
 ```
 
-## Why this is a rule and not a `ts_bundle`
+## Two Vite Builds
 
-`remix vite:build` is not one `vite build`. It loads the Vite config to read the
-Remix plugin's own options, then runs `vite build` twice against that same
-config — once with `build.ssr = false`, once with `build.ssr = true` — and the
-plugin's `config` hook replaces `build.outDir` and `build.rollupOptions.input`
-differently for each half.
+`remix vite:build` loads the Vite config to read the Remix plugin's options,
+then runs `vite build` twice against that config: once with `build.ssr = false`,
+once with `build.ssr = true`. The plugin's `config` hook replaces `build.outDir`
+and `build.rollupOptions.input` differently for each half.
 
-The order is load-bearing. The SSR half's `writeBundle` reads the SSR Vite
-manifest and moves the SSR-emitted assets into the client directory, and the
-browser asset manifest `client/assets/manifest-<hash>.js` — the
-`window.__remixManifest` a hydrating client reads — is emitted by the server
-build. The two halves are not independently cacheable, and a build that declares
-only `client/` as its output produces a bundle that cannot boot.
+The SSR half's `writeBundle` reads the SSR Vite manifest and moves the
+SSR-emitted assets into the client directory. The browser asset manifest
+`client/assets/manifest-<hash>.js` (the `window.__remixManifest` a hydrating
+client reads) is emitted by the server build. Neither half is cacheable on its
+own, so both come out of one action; a build that declares only `client/` as its
+output produces a bundle that cannot boot.
 
-[`ts_bundle`](ts-bundle.md)'s Vite wrapper hardcodes exactly one
+[`ts_bundle`](ts-bundle.md)'s Vite wrapper runs exactly one
 `vite build --config`, and the config it generates reads only `plugins` and
-`root` out of a user `vite_config`, throwing on any other key. A real framework
-config exceeds that, so `config` here is the file Remix itself loads.
+`root` out of a user `vite_config`, failing on any other key. `config` here is
+the file Remix itself loads.
 
 ## SPA Mode
 
-A config with `ssr: false` produces something that cannot answer a request:
+A config with `ssr: false` produces no server half:
 
-- a `loader` export becomes a hard build error
-  (`SPA Mode: N invalid route export(s)`), so no route can load data;
-- a resource route compiles to an empty client chunk, because a route that only
-  exports a `loader` has nothing to ship to a browser;
+- a `loader` export is a build error (`SPA Mode: N invalid route export(s)`);
+- a resource route compiles to an empty client chunk;
 - the server directory is deleted after `index.html` is prerendered.
 
-`remix_build` fails and names the missing half. For a client-only bundle, use
-the [`ts_bundle`](ts-bundle.md) path with `vite_config`.
+`remix_build` fails and names the missing half. A client-only bundle is a
+[`ts_bundle`](ts-bundle.md) with `vite_config`.
 
 ## Testing the Server Half
 
@@ -123,7 +120,7 @@ it needs the `node_modules` tree above it and a `package.json` saying
 `"type": "module"`.
 
 `//tests/integration:remix_ssr_test` copies `server/` next to the tree, imports
-it through `createRequestHandler` from `@remix-run/node`, and asserts on real
+it through `createRequestHandler` from `@remix-run/node`, and asserts on the
 responses: loader data in the HTML and in `window.__remixContext.loaderData`, a
 nested layout and its child each running their own loader, a `POST` whose action
 echoes the submitted form field, and a resource route answering `text/plain`
