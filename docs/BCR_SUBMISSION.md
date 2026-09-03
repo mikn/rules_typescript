@@ -15,13 +15,13 @@ Pushing a tag does everything up to and including the `.bcr/source.json` PR.
 Getting that into the registry is a pull request a person opens by hand against
 another repository.
 
-1. **Release Workflow** (`.github/workflows/release.yml`) — automated
+1. **Release Workflow** (`.github/workflows/release.yml`): automated
    - Triggered on git tag push (e.g. `git tag v0.2.0`)
    - Builds the `git archive` tarball, computes the SHA256 in hex and SRI form
    - Creates the GitHub release with a build-provenance attestation
    - Opens the PR that fills in `.bcr/source.json`
 
-2. **Publish to BCR Workflow** (`.github/workflows/publish-to-bcr.yml`) — a
+2. **Publish to BCR Workflow** (`.github/workflows/publish-to-bcr.yml`): a
    pre-flight check. It asserts that `.bcr/metadata.json`, `.bcr/source.json` and
    `.bcr/presubmit.yml` exist and that the two JSON files parse (`jq -e`),
    `HEAD`s the tarball URL (a warning, not a failure), prints the manual
@@ -56,8 +56,8 @@ It validates the version format, checks that the git working tree is clean, bump
 `module(version)` in `MODULE.bazel`, commits that, creates the annotated tag
 `v<version>`, and with `--push` pushes it, which starts the Release workflow. It
 builds no tarball and computes no integrity hash: an archive built locally is not
-the archive GitHub publishes. Everything downstream of the tag — `git archive`,
-the GitHub release, the SRI hash and the `.bcr/source.json` update — is
+the archive GitHub publishes. Everything downstream of the tag (`git archive`,
+the GitHub release, the SRI hash and the `.bcr/source.json` update) is
 `.github/workflows/release.yml`.
 
 ### 2. GitHub Release Creation

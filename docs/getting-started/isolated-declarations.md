@@ -1,13 +1,11 @@
 # Isolated Declarations
 
 An opt-in throughput mode, enabled per target with `declarations = "oxc"`. The
-default is `declarations = "tsgo"`, and nothing here requires the opt-in mode.
+default is `declarations = "tsgo"`.
 
-Earlier versions required it. The tsgo action already builds a complete type
-program per target in order to type-check, so explicit annotations on every
-export bought nothing that was not already being computed. tsgo emits the
-declarations it derives, and `declarations = "oxc"` is the opt-in path for the
-extra throughput.
+Earlier versions required the opt-in mode. The tsgo action builds a complete
+type program per target to type-check, and emits the declarations from it;
+`declarations = "oxc"` is the opt-in path for the extra throughput.
 
 ## What It Means
 
@@ -25,7 +23,7 @@ Both modes cache the same way: change `math.ts` without changing its exported
 types and the emitted `.d.ts` is byte-identical, so Bazel skips every downstream
 target.
 
-What the mode buys is **pipelining**. Oxc emits a `.d.ts` without a type program,
+The mode buys pipelining. Oxc emits a `.d.ts` without a type program,
 so declaration emit never waits for an upstream type-check, and type-checking
 becomes a validation action that nothing blocks on. On a deep dependency chain
 that shortens the critical path substantially:
@@ -44,7 +42,7 @@ your own graph.
 ## The Requirement
 
 ```typescript
-// Rejected under declarations = "oxc" — the return type is inferred
+// Rejected under declarations = "oxc": the return type is inferred
 export function add(a: number, b: number) {
   return a + b;
 }
@@ -63,18 +61,18 @@ violations itself and fails the build:
 │ with --isolatedDeclarations.
 ```
 
-The build fails hard because a syntactic emitter faced with an un-annotated
-export can only widen it: an object of five `RegExp`s becomes `{}`, a `RegExp`
-becomes `unknown`, and the target still builds. Oxc did not check and tsgo saw
-perfectly valid TypeScript, so nothing reports it and the damage surfaces later
-in a consumer, against the wrong file:
+The build fails because a syntactic emitter can only widen an un-annotated
+export: an object of five `RegExp`s becomes `{}`, a `RegExp` becomes `unknown`,
+and the target still builds. Oxc did not check and tsgo saw valid TypeScript,
+so nothing reports it and the error surfaces later in a consumer, against the
+wrong file:
 
 ```
 parseDomain.ts(95,51): error TS2339: Property 'idPreview' does not exist on type '{}'.
 parseDomain.ts(96,41): error TS18046: 'UUID_PATTERN' is of type 'unknown'.
 ```
 
-The mode therefore has no partial version. Either a package's exports are
+The mode has no partial version. Either a package's exports are
 annotated and it can use `"oxc"`, or it stays on the default.
 
 ## What the ESLint Rule Covers

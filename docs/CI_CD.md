@@ -16,10 +16,10 @@ bazelisk and repository caches in all of them, the external cache in all but
 ### Workflow Jobs
 
 1. **Unit Tests & Type Checking** (`test`)
-   - On ubuntu only, first: `tools/ci/check_test_sources.sh` — every tracked
-     test source has to be claimed by a test target that actually runs. It goes
-     first because it is a loading-phase query the next step pays for anyway
-     (see [below](#every-test-source-is-claimed-by-a-target))
+   - On ubuntu only, first: `tools/ci/check_test_sources.sh`, which requires
+     every tracked test source to be claimed by a test target that runs. It is
+     a loading-phase query the next step pays for anyway
+     (see [below](#test-source-coverage))
    - On ubuntu only, second: `tools/ci/check_integration_shards.sh`. Every
      integration test has to land on exactly one leg of the `integration-tests`
      matrix. Both gates run before the suite and neither skips it: the two
@@ -34,8 +34,8 @@ bazelisk and repository caches in all of them, the external cache in all but
    - Matrix: `ubuntu-latest` and `macos-latest`
 
 3. **Examples Build** (`examples`)
-   - One matrix leg per workspace under `examples/` — `basic`, `app`,
-     `react-app`, `remix-app`, `tanstack-app`, `nextjs-app` — each a separate
+   - One matrix leg per workspace under `examples/` (`basic`, `app`,
+     `react-app`, `remix-app`, `tanstack-app`, `nextjs-app`), each a separate
      Bazel invocation, `fail-fast: false`. Every leg builds `//...` except
      `tanstack-app`, which builds `//... -//:app`: `//:app` loads its
      `vite_config` from the source tree and resolves `@tanstack/react-start`
@@ -50,11 +50,11 @@ bazelisk and repository caches in all of them, the external cache in all but
      action, so this check stays a sequence of invocations
    - No disk cache: a hit on the second build would compare it against a copy of
      the first
-   - Scratch space is `/mnt/rules_ts_det`, provisioned per run. `/mnt` is not a
-     separate ephemeral disk on this image — it is a directory on the root
-     filesystem, which is why both jobs log `df -h /mnt /` — so the two full
-     toolchain trees do not change volume; the separate directory keeps them out
-     of the checkout and makes their size visible to `df`
+   - Scratch space is `/mnt/rules_ts_det`, provisioned per run. `/mnt` is a
+     directory on the root filesystem, not a separate disk, so the two full
+     toolchain trees do not change volume; both jobs log `df -h /mnt /`. The
+     separate directory keeps them out of the checkout and makes their size
+     visible to `df`
 
 5. **Integration Tests (nested Bazel)** (`integration-tests`)
    - Four legs, one per shard (`nextjs-tanstack`, `remix-svelte`, `npm`,
@@ -71,19 +71,17 @@ bazelisk and repository caches in all of them, the external cache in all but
    - The targets carry `cpu:2` in place of `exclusive`, so Bazel bounds how many
      nested Bazel servers run at once by the machine's cores
    - Each nested Bazel gets its own output base under the test's `TEST_TMPDIR`,
-     inside `<outer output base>/execroot/_main/_tmp` — which the outer Bazel
-     clears in full on each `bazel test`, whatever the target. So a killed run
-     leaves nothing that outlives the next invocation, and two checkouts running
-     one test cannot share a directory. `/mnt/rules_ts_it` holds only the
-     repository, disk and bazelisk caches now; whether moving the tens of GB to the outer
-     output base takes them off the volume `/mnt` is a directory on is what the
-     job's `df -h /mnt /` records, before and after
-   - Moving them there costs this job nothing. `/mnt/rules_ts_it` is a bare
-     `mkdir -p` on a fresh runner and the cache step below restores only the three
-     cache subdirectories, never the per-test output bases, so every nested
-     output base was already being created empty on every run. The retained
-     output base this gives up is worth a measured ~13.5s per test to a local
-     developer and nothing here
+     inside `<outer output base>/execroot/_main/_tmp`, which the outer Bazel
+     clears in full on each `bazel test`. A killed run leaves nothing that
+     outlives the next invocation, and two checkouts running one test cannot
+     share a directory. `/mnt/rules_ts_it` holds only the repository, disk and
+     bazelisk caches; the job's `df -h /mnt /`, before and after, records
+     whether the tens of GB of output bases changed volume
+   - `/mnt/rules_ts_it` is a bare `mkdir -p` on a fresh runner, and the cache
+     step below restores only the three cache subdirectories, never the per-test
+     output bases, so every nested output base starts empty on every run. A
+     retained output base saves a local developer a measured ~13.5s per test
+     and saves CI nothing
    - The harness appends `common --repository_cache=<shared>` and
      `common --disk_cache=<shared>` to every staged workspace's `.bazelrc`
      (`prepare()` in `tests/integration/harness/harness.go`). Without it each
@@ -123,20 +121,20 @@ bazelisk and repository caches in all of them, the external cache in all but
      the site only on push to `main`, so without this step a broken nav or page
      reference is caught only after merge
 
-### Every Test Source Is Claimed by a Target
+### Test Source Coverage
 
 `bazel build //...`, `bazel test //...` and a byte-identical Gazelle rerun are
-all satisfied by a Gazelle run that **deletes** a test target.
+all satisfied by a Gazelle run that deletes a test target.
 `check_test_sources.sh` is not: the set of test files on disk is not something
 Gazelle writes.
 
-Tagging a test `manual` defeats the same three checks — the target still exists,
-still claims its srcs, and `//...` skips it. Each file's claim is therefore
-checked twice: against every test target, and against only the targets
-`bazel test //...` runs. A file with the first claim but not the second is
-manual-only and has to be named in the script's `MANUAL_ONLY` list **with a
-reason**. The list is exact in both directions: tagging a test `manual` fails
-until someone writes down why, and untagging it fails until the entry is removed.
+Tagging a test `manual` defeats the same three checks: the target still exists,
+still claims its srcs, and `//...` skips it. Each file's claim is checked twice:
+against every test target, and against only the targets `bazel test //...`
+runs. A file with the first claim but not the second is manual-only and has to
+be named in the script's `MANUAL_ONLY` list with a reason. The list is exact in
+both directions: tagging a test `manual` fails until the reason is written down,
+and untagging it fails until the entry is removed.
 
 Directories holding their own `MODULE.bazel`, and `.bazelignore` roots, are out
 of scope: `//...` does not descend into them.
@@ -169,7 +167,7 @@ bazel build --config=ci //... --output_groups=+_validation
 bazel test --config=ci-integration //tests/integration/...
 
 # e2e/ and examples/ are separate workspaces (.bazelignore), so they are
-# separate invocations — a --config cannot change workspace.
+# separate invocations: a --config cannot change workspace.
 cd e2e/basic && bazel build //... && bazel test //...
 cd examples/basic && bazel build //...
 ```
@@ -209,7 +207,7 @@ rule of your own has to do.
 ### 2. File Ordering in Directory Outputs
 
 **Risk**: With `ctx.actions.declare_directory`, file ordering inside the directory follows the filesystem's readdir order, which varies across kernels and filesystems.
-**Status in rules_typescript**: The rules with a declared output directory — `ts_bundle`, `ts_npm_publish`, `node_modules`, `ts_codegen`, `next_build`, `remix_build`, `sveltekit_build` — are all staging directories, never inputs to further compilation, so ordering matters only in a byte-for-byte directory comparison.
+**Status in rules_typescript**: The rules with a declared output directory (`ts_bundle`, `ts_npm_publish`, `node_modules`, `ts_codegen`, `next_build`, `remix_build`, `sveltekit_build`) are all staging directories, never inputs to further compilation, so ordering matters only in a byte-for-byte directory comparison.
 **Mitigation**: Check directory artifacts with `diff -r`, which is order-insensitive; `tar c ... | sha256sum` is not.
 
 ### 3. Vite Bundle Content Hashes
@@ -243,7 +241,7 @@ ordering dependency.
 
 **Risk**: An action shelling out to a host interpreter or coreutil produces
 whatever that version produces.
-**Status**: not applicable. There is no Python in the ruleset — the house rule is
+**Status**: not applicable. There is no Python in the ruleset; the house rule is
 Starlark's `json.decode`/`json.encode` or awk. `package.json` generation in
 `ts_npm_publish` runs a JS script through the registered JS runtime toolchain
 with a Starlark-encoded JSON patch, and staging and tarballing are a checked-in
@@ -279,7 +277,7 @@ input.
   mints a random `BUILD_ID`.
 - **A release tarball** is `git archive` over a tag, so it is a function of the
   commit.
-- **Sandbox isolation** is the sandbox's, with no default shell env — see
+- **Sandbox isolation** is the sandbox's, with no default shell env; see
   [Environment Variable Leaks](#6-environment-variable-leaks).
 
 ## Release Process
@@ -498,7 +496,7 @@ build:rbe --remote_instance_name=rules_typescript
 ```
 
 The one host utility an executor needs is `bash`, which the BuildBuddy image
-has. Everything else an action runs — node, tsgo, oxc, pnpm — is a toolchain
+has. Everything else an action runs (node, tsgo, oxc, pnpm) is a toolchain
 input.
 
 ### EngFlow RBE Setup
@@ -518,7 +516,7 @@ For additional system tools, build on the minimal image:
 FROM ubuntu:22.04
 # Only a POSIX shell is needed: the Vite bundler and the framework build rules
 # (next_build, remix_build, sveltekit_build) wrap their actions in bash.
-# Everything else runs a declared binary — no host tar, no python, no coreutils
+# Everything else runs a declared binary: no host tar, no python, no coreutils
 # dependency.
 RUN apt-get update && apt-get install -y \
     bash \

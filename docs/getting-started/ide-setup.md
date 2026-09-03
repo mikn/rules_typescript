@@ -5,7 +5,7 @@ read:
 
 1. A workspace-root `tsconfig.json` whose `compilerOptions.paths` names every
    source root, path alias, `module_name` and npm package your targets reach.
-   This is the primary mechanism, and the file is meant to be checked in.
+   The file is checked in.
 2. A **tsserver plugin** that resolves the same set live, following `bazel build`
    outputs with no tsconfig reload. It is a layer on top of the generated file,
    and it needs editor configuration; the generated file needs none.
@@ -30,9 +30,9 @@ ts_refresh_tsconfig(
 An aspect walks `deps` from each entry, so listing a target covers everything it
 depends on. Two constraints:
 
-- **`deps = []` is the attribute default, and it reaches nothing.** No packages,
-  no aliases, no npm entries: a `tsconfig.json` with an empty `paths`, and an
-  editor told nothing.
+- **`deps = []` is the attribute default, and it reaches nothing.** The result is
+  a `tsconfig.json` with an empty `paths`: no packages, no aliases, no npm
+  entries.
 - **`deps` obeys visibility**, so a package-private `ts_compile` target cannot be
   listed here. Gazelle writes `visibility = ["//visibility:public"]` on the
   targets it generates, and so does `ts_test` for the `ts_compile` targets it
@@ -52,7 +52,7 @@ That writes, into the source tree:
 
 | Path | What it is |
 |---|---|
-| `tsconfig.json` | Compiler options and the `paths` map. **Check this in** |
+| `tsconfig.json` | Compiler options and the `paths` map; checked in |
 | `.bazel/npm/` | The `.d.ts` (and `package.json`) of every npm package the `paths` entries name, plus a `.gitignore` of `*` |
 | `.bazel/tsserver-hook-data.json` | The same graph facts, in the shape the plugin reads |
 | `.bazel/node_modules/@rules_typescript/tsserver-plugin/` | The tsserver plugin, as a package tsserver can load by name |
@@ -105,7 +105,7 @@ Anchor each entry with `**/`, the way the built-in exclusions
 
 One `compilerOptions` block cannot serve a target that turns `strict` off beside
 one that leaves it on, or a target naming a `lib` its `target` does not imply.
-An editor resolves a file to a program **by directory**, so such a package needs
+An editor resolves a file to a program by directory, so such a package needs
 its own `tsconfig.json` next to its sources, and the root has to stop claiming
 those files.
 
@@ -135,24 +135,24 @@ Two details affect that comparison:
   default off the list, and keeps two targets spelling one value differently from
   reading as a conflict.
 
-The rule **fails when the declared list disagrees with the graph**, in either
+The rule fails when the declared list disagrees with the graph, in either
 direction, and the message names what to add or remove. The list is declared
 because `glob()` does not cross a package boundary, and a leftover entry would go
 on owning its subtree in the editor. Each entry gets its own staleness
 `diff_test`.
 
-Each generated file `extends` the root **and** the package's own `ts_compile`
+Each generated file `extends` the root and the package's own `ts_compile`
 baseline, root first so the baseline wins. Inherited `paths` are not re-resolved,
 so the root's aliases still work from down there; `include` and `exclude` are
 re-resolved against the extending file, so they are written out. A relative
-`types` entry the build resolved to a generated declaration -- a
-[`ts_worker_types`](../rules/ts-worker-types.md) output -- is written through
+`types` entry the build resolved to a generated declaration (a
+[`ts_worker_types`](../rules/ts-worker-types.md) output) is written through
 the `bazel-bin` symlink, since the source tree has no such file. `noEmit`,
 `composite`, `incremental`, `rootDir` and `files` are pinned in the file itself,
 since a baseline inherited whole would emit into your source tree, reject files
 outside one target's `rootDir`, and lose every ambient declaration.
 
-A package whose targets set **the same** option to **different** values has no
+A package whose targets set the same option to different values has no
 representation, since one directory cannot hold both answers. That is an error
 naming both targets; move one target into its own package.
 
@@ -161,11 +161,11 @@ TypeScript applies an `extends` array later-wins, so listing both baselines woul
 let one's keys replace the other's for both targets' sources. A package gets at
 most one baseline, from whichever of its targets name one.
 
-A target in that package naming **no** `tsconfig` inherits that baseline in the
+A target in that package naming no `tsconfig` inherits that baseline in the
 editor, and does not in the build: the rule applies its own baseline options
 (`strict`, `module: Preserve`, `moduleResolution: Bundler`, `skipLibCheck`,
 `esModuleInterop`) in either mode, and with no `tsconfig` above them that is all
-it gets — which is what the root block already holds.
+it gets, which is what the root block holds.
 The nested file's own `compilerOptions` restate every option any target in the
 package sets explicitly and beat every `extends`, so a baseline reaches only keys
 no target in the package has an opinion about. In `//vite`, `:plugin_typecheck`
@@ -199,18 +199,17 @@ version bump never enters the config.
 The copied `.d.ts` is the entry point the package's own metadata designates. See
 [how that is resolved](../guides/npm.md#where-a-packages-type-declarations-come-from).
 The wildcard entry lists the package root and then that file's directory, in the
-order npm would look: with no `exports` map — which is most of the registry —
-`pkg/sub` is a plain path under the package root, and a package whose subpaths do
-sit beside its entry is answered by the second substitution.
+order npm would look: with no `exports` map (most of the registry) `pkg/sub` is
+a plain path under the package root, and a package whose subpaths do sit beside
+its entry is answered by the second substitution.
 
 ```json
 "vite":   ["./.bazel/npm/vite/dist/node/index.d.ts"],
 "vite/*": ["./.bazel/npm/vite/*", "./.bazel/npm/vite/dist/node/*"]
 ```
 
-A `@types/*` package is keyed by the name it types rather than its own, which is
-the only specifier anything imports it by, and installs under its own name, which
-the key points into:
+A `@types/*` package is keyed by the name it types, the only specifier anything
+imports it by, and installs under its own name, which the key points into:
 
 ```json
 "estree":   ["./.bazel/npm/@types/estree/index.d.ts"],
@@ -220,15 +219,15 @@ the key points into:
 Which of the two names wins follows npm, the same way it does in the tsconfig
 `ts_compile` generates: the runtime package answers `x` when it publishes
 declarations of its own, `@types/x` when it publishes none, and a `path_aliases`
-prefix outranks both. Where two packages in the graph claim one key — a target
-whose closure holds `@types/x` and no `x`, beside a target that has the real `x`
-— the same rule picks, so the aggregate config agrees with each target's own.
+prefix outranks both. Where two packages in the graph claim one key (a target
+whose closure holds `@types/x` and no `x`, beside a target that has the real
+`x`) the same rule picks, so the aggregate config agrees with each target's own.
 
-That key is the only route a `@types/*` package reached **transitively** has.
-The other route is `files`, which carries the globals such a package declares
-([Ambient Types in the Editor](#ambient-types-in-the-editor)) — but `files` is
-built from what each reached target names in its own `deps`, and `from "estree"`
-is usually written in a dependency's `.d.ts` rather than in your sources. So
+That key is the only route a transitively reached `@types/*` package has. The
+other route is `files`, which carries the globals such a package declares
+([Ambient Types in the Editor](#ambient-types-in-the-editor)); `files` is built
+from what each reached target names in its own `deps`, and `from "estree"` is
+usually written in a dependency's `.d.ts`, not in your sources. So
 `@types/estree` behind `rollup` gets a `paths` key and no `files` entry, while a
 `@types/node` you depend on directly gets both, naming one installed copy.
 
@@ -252,7 +251,7 @@ Turn it on once the file is checked in.
 ## Complete Coverage for the Resolution Map
 
 `deps` is a rule attribute, so it reaches only what this workspace's visibility
-lets a rule name. An **aspect** propagates along the dependency edges a build
+lets a rule name. An aspect propagates along the dependency edges a build
 already has and creates none, so it needs no grant. Two lines in `.bazelrc` turn
 that on for every build:
 
@@ -305,20 +304,20 @@ The checked-in `tsconfig.json` does not change either. It stays what
 ## Ambient Types in the Editor
 
 The editor is more permissive than the build in one place. `ts_compile` names a
-target's **direct** `@types/*` deps in the tsconfig it gives tsgo, plus what
-their entries name in `/// <reference types=...>` (`@types/bun` forwards to
+target's direct `@types/*` deps in the tsconfig it gives tsgo, plus what their
+entries name in `/// <reference types=...>` (`@types/bun` forwards to
 `bun-types`, whose entry references `node`), so a global reaches a target
 because that target asked for it, or for a package whose entry references it.
 The editor program has one root `compilerOptions` block for the whole workspace,
-and its `files` array is the **union** of what every reached target declares —
-each target's own direct `@types/*` deps and what those reference, pooled. A
-file using `process` therefore type-checks in the editor as soon as *some*
-target in the graph declared `@types/node`, and then fails `bazel build` with
-the strict-deps error naming the label to add.
+and its `files` array is the union of what every reached target declares: each
+target's own direct `@types/*` deps and what those reference. A file using
+`process` type-checks in the editor as soon as any target in the graph declared
+`@types/node`, and then fails `bazel build` with the strict-deps error naming
+the label to add.
 
 The union is over direct deps and what their entries reference, so a `@types/*`
-package reached only through an import — `from "estree"` in a dependency's own
-`.d.ts` — is named in `files` nowhere, in either config. It still resolves as a
+package reached only through an import (`from "estree"` in a dependency's own
+`.d.ts`) is named in `files` nowhere, in either config. It still resolves as a
 module, through the `paths` key it takes under the name it types
 ([npm Declarations](#npm-declarations)); `files` is what it is not in.
 
@@ -352,17 +351,16 @@ facts in one editor's spelling.
 }
 ```
 
-That is the whole of it. VS Code passes no `--globalPlugins`, so the plugin has
-to be named in the config the editor is using as well — but the generated
-`tsconfig.json` already names it, and `bazel run //:refresh_tsconfig` keeps it
-there. Do not add the entry by hand to a config that macro owns: the next
-refresh rewrites the file whole and drops it, and tsserver logs and ignores a
-plugin it cannot load, so the only symptom is imports quietly going unresolved
-again.
+VS Code passes no `--globalPlugins`, so the plugin has to be named in the config
+the editor is using as well; the generated `tsconfig.json` names it, and
+`bazel run //:refresh_tsconfig` keeps it there. Do not add the entry by hand to
+a config the macro owns: the next refresh rewrites the file whole and drops it,
+and tsserver logs and ignores a plugin it cannot load, so the only symptom is
+unresolved imports.
 
-A workspace whose editor config is its own file — `ts_refresh_tsconfig(tsconfig
-= "tsconfig.bazel.json")` with a hand-written `tsconfig.json` that `extends` it
-— inherits the entry through `extends` and needs nothing either.
+A workspace whose editor config is its own file (`ts_refresh_tsconfig(tsconfig
+= "tsconfig.bazel.json")` with a hand-written `tsconfig.json` that `extends` it)
+inherits the entry through `extends` and needs nothing either.
 
 Restart the TS server: `Cmd+Shift+P` → `TypeScript: Restart TS Server`.
 
@@ -413,37 +411,33 @@ Any client that spawns tsserver itself takes the two flags:
 
 ## Coding Agent Harnesses
 
-A coding agent that reads TypeScript usually runs a language server of its own
-rather than an editor's. Claude Code, for example, installs
-`typescript-language-server` and `typescript`. The short answer for those:
+A coding agent that reads TypeScript usually runs its own language server, not
+an editor's. Claude Code installs `typescript-language-server` and `typescript`.
 
-**The generated `tsconfig.json` works with no configuration at all.** It is a
-checked-in file with a `paths` map, which is the mechanism every TypeScript tool
-already reads. An agent's language server resolves a Bazel-built `.d.ts` through
-it without knowing Bazel exists, and resolves it to the real declarations rather
-than to `any` — a nonexistent member on an imported symbol is still an error.
-Keep the file current with `bazel run //:refresh_tsconfig`, which the
-[staleness test](#staleness-test) will ask for.
+**The generated `tsconfig.json` needs no configuration.** It is a checked-in
+file with a `paths` map, which every TypeScript tool reads. An agent's language
+server resolves a Bazel-built `.d.ts` through it to the real declarations, not
+to `any`; a nonexistent member on an imported symbol is still an error.
+`bazel run //:refresh_tsconfig` keeps the file current, and the
+[staleness test](#staleness-test) asks for it.
 
-**The plugin needs the harness to let you configure the server**, which is the
-part that varies. If the harness exposes LSP `initializationOptions`, pass the
-`plugins` entry from the
-[nvim-lspconfig recipe](#neovim-nvim-lspconfig-with-typescript-language-server) —
-`typescript-language-server` is what most of them run. If it does not, the plugin
+**The plugin needs a configurable server.** If the harness exposes LSP
+`initializationOptions`, pass the `plugins` entry from the
+[nvim-lspconfig recipe](#neovim-nvim-lspconfig-with-typescript-language-server);
+most harnesses run `typescript-language-server`. If it does not, the plugin
 cannot be reached and the `tsconfig.json` is the whole answer.
 
-Two things to know before reaching for a generic mechanism:
+Two facts about `NODE_OPTIONS`:
 
 - **`NODE_OPTIONS` is not a way in.** It propagates into the forked tsserver, so
   the preload does load there, but loading is not the same as taking effect; see
   [What the preload does not reach](#what-the-preload-does-not-reach).
-- **A relative path in `NODE_OPTIONS` is worse than useless.** Node resolves
-  `--require ./x.js` against the process's cwd, and from any other directory the
-  process fails to start at all — `Cannot find module`, with
-  `requireStack: [ 'internal/preload' ]`, exit 1. An agent's language server
-  would die rather than degrade. Absolute paths only.
+- **A relative path in `NODE_OPTIONS` kills the process.** Node resolves
+  `--require ./x.js` against the process's cwd; from any other directory the
+  process fails to start: `Cannot find module`, with
+  `requireStack: [ 'internal/preload' ]`, exit 1. Absolute paths only.
 
-To check what your harness actually gives you, ask its language server for
+To check what a harness gives you, ask its language server for
 diagnostics on a file importing a Bazel-built package. `TS2307 Cannot find
 module` before `bazel run //:refresh_tsconfig` and no diagnostic after it means
 the `tsconfig.json` path works. `TSSERVER_HOOK_DEBUG=1` in the server's
@@ -454,29 +448,27 @@ entries its map holds.
 
 `.bazel/tsserver-hook.js` patches the `typescript` module's exported
 `resolveModuleName`. That reaches a client which builds a `LanguageService` host
-itself and routes resolution through the public API. It does **not** reach a
+itself and routes resolution through the public API. It does not reach a
 standalone tsserver process, and every editor above spawns one.
 
-Two measured facts, in case the distinction matters to you. `lib/tsserver.js`
-loads its bundle as `require("./typescript.js")`, which the preload's matcher
-does not accept, so the patch never installs. Widen the matcher so it does
-install, and a real tsserver still reports `TS2307` for the same import: the
-language service resolves through its `LanguageServiceHost`, not through the
-export. Decorating that host is what the plugin does, and it is why the plugin
-exists.
+Two measured facts. `lib/tsserver.js` loads its bundle as
+`require("./typescript.js")`, which the preload's matcher does not accept, so the
+patch never installs. With the matcher widened, a real tsserver still reports
+`TS2307` for the same import: the language service resolves through its
+`LanguageServiceHost`, not through the export. The plugin decorates that host.
 
 ## How It Works
 
 The plugin is TypeScript's equivalent of Go's
 [GOPACKAGESDRIVER](https://jayconrod.com/posts/125/go-editor-support-in-bazel-workspaces),
-with one difference: **it never runs Bazel**. Everything Bazel knows arrives
+with one difference: it never runs Bazel. Everything Bazel knows arrives
 through `.bazel/tsserver-hook-data.json`, which `refresh_tsconfig` wrote at
 analysis time. A long-lived editor process asking the Bazel server for anything
 would sit on the same lock a build wants.
 
-1. **Worker thread** reads `.bazel/tsserver-hook-data.json` — the npm entry
+1. **Worker thread** reads `.bazel/tsserver-hook-data.json` (the npm entry
    points, the `ts_compile` package list, the `module_name` specifiers, the path
-   aliases — and turns it into a module-name → declaration-path map
+   aliases) and turns it into a module-name → declaration-path map
 2. **npm packages** resolved from the declarations installed under `npm_dir`,
    the same set the generated `tsconfig.json` names
 3. **Internal packages** resolved from `bazel-bin` (`.d.ts` after a build) or the
@@ -524,7 +516,7 @@ plugin loaded, which project it decorated, how many entries the map holds, and
 each invalidation. It is the server's stderr and not the tsserver log, so where
 it surfaces depends on the client.
 
-## Debugging Tests in vs Code
+## Debugging Tests in VS Code
 
 To attach a debugger to vitest running inside the Bazel sandbox:
 

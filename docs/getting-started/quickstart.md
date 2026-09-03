@@ -4,8 +4,7 @@ The only prerequisite is **Bazelisk** (or Bazel 9+ directly). Bazel fetches
 everything else hermetically on the first build: the Rust toolchain, the Go
 SDK, the Node.js runtime, tsgo, and the npm packages your targets reach. It
 also compiles `oxc-bazel` from Rust source, which dominates the wall time:
-expect minutes at any project size. After that everything is cached, and small
-changes rebuild in milliseconds.
+expect minutes at any project size. After that everything is cached.
 
 Choose your path:
 
@@ -59,11 +58,10 @@ whenever the repository cache is cold, which makes the build non-reproducible.
 
 ### archive_override
 
-`git_override` runs a full `git clone` and pays for the whole history, which
-still carries about 145 MB of packed cargo build output (524 MB uncompressed)
-that was tracked by mistake before it was removed. A codeload tarball is a
-single snapshot of about 1.7 MB; prefer it on CI. Compute the integrity hash
-for the commit you want:
+`git_override` runs a full `git clone` of the whole history, which carries
+about 145 MB of packed cargo build output (524 MB uncompressed) tracked by
+mistake before it was removed. A codeload tarball is a single snapshot of about
+1.7 MB; prefer it on CI. Compute the integrity hash for the commit you want:
 
 ```bash
 COMMIT=<full 40-char sha>
@@ -201,7 +199,7 @@ pnpm add vitest --lockfile-only
 ```
 
 ```python
-# MODULE.bazel — add to what Step 3 wrote
+# MODULE.bazel: add to what Step 2 wrote
 npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
 npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
 use_repo(npm, "npm", "pnpm")
@@ -241,7 +239,7 @@ coverage, snapshots and sharding.
 **Step 1.** Set up the same root files as Path A: `.bazelversion`,
 `MODULE.bazel` and `.bazelrc`.
 
-**Step 2.** Create `BUILD.bazel` at the repo root. No escape hatch is needed:
+**Step 2.** Create `BUILD.bazel` at the repo root:
 
 ```python
 load("@gazelle//:def.bzl", "gazelle")
@@ -297,9 +295,9 @@ type-checker. "Missing return type" errors apply only to
     the alias directory. The near-universal `"@/*": ["src/*"]` gets
     `path_aliases` alone and builds: `src/app/main.ts` importing `@/lib/math`
     is itself under `src/`, and the declarations arrive on the `deps` edge.
-    Where none of the target's own srcs is under the alias directory --
-    `@lib/*` mapped to `src/lib/*` and imported from `src/app/` -- Gazelle also
-    writes `path_alias_srcs` naming the target the import resolved to:
+    Where none of the target's own srcs is under the alias directory (`@lib/*`
+    mapped to `src/lib/*` and imported from `src/app/`), Gazelle also writes
+    `path_alias_srcs` naming the target the import resolved to:
 
     ```python
     # src/app/BUILD.bazel

@@ -15,7 +15,7 @@
 
 ## Development Environment
 
-The only prerequisite is **Bazelisk** (or Bazel 9+). Every other dependency — the Rust toolchain, Go toolchain, Node.js, and npm packages — is fetched hermetically by Bazel on the first build.
+The only prerequisite is **Bazelisk** (or Bazel 9+). Every other dependency (the Rust toolchain, Go toolchain, Node.js, and npm packages) is fetched hermetically by Bazel on the first build.
 
 ### Install Bazelisk
 
@@ -50,28 +50,26 @@ bazel test //...
 
 The first build fetches a Rust toolchain, a Go SDK, Node.js and tsgo, then
 compiles `oxc-bazel` and its crate graph from source. The Rust compile takes
-minutes. Subsequent builds are fast via Bazel's content-addressed cache, so do
-not `bazel clean` afterwards.
+minutes. Subsequent builds hit Bazel's content-addressed cache; do not
+`bazel clean`.
 
-### Enable the pre-push hook
+### Pre-Push Hook
 
 ```bash
 git config core.hooksPath .githooks
 ```
 
-`.githooks/pre-push` refuses a push whose working tree differs from `HEAD` —
-tracked edits and untracked files alike, since `.gitignore` already covers what
-a working checkout really does carry. A push sends commits, so a file you
-edited but never committed is not in it: three PRs in one day were pushed
-missing a file that only existed in the author's worktree, and one of them
-turned `main` red for hours. The failure names the files and tells you to
-commit or stash; `git push --no-verify` pushes anyway.
+`.githooks/pre-push` refuses a push whose working tree differs from `HEAD`,
+tracked edits and untracked files alike; `.gitignore` covers what a working
+checkout carries. A push sends commits, so a file edited but never committed is
+not in it. The failure names the files and says to commit or stash;
+`git push --no-verify` pushes anyway.
 
 It is opt-in per clone, because `core.hooksPath` is repository config and
 repository config is not checked in. A linked worktree inherits it from the
 clone it was created from.
 
-### Optional: buildifier for Starlark formatting
+### Buildifier
 
 See [Starlark](#starlark-build-files-and-bzl-files) under Code Style.
 
@@ -82,12 +80,12 @@ See [Starlark](#starlark-build-files-and-bzl-files) under Code Style.
 One formatter per language. The `lint` CI job checks Starlark and Go; Rust and
 TypeScript formatting are local conventions.
 
-### Starlark (BUILD files and .bzl files)
+### Starlark (BUILD Files and .bzl Files)
 
 Use **buildifier**:
 
 ```bash
-# buildifier is not a bazel_dep — there is no @buildifier repo to run. Use the
+# buildifier is not a bazel_dep: there is no @buildifier repo to run. Use the
 # released binary, which is what CI checks with.
 curl -fsSL -o /usr/local/bin/buildifier \
   https://github.com/bazelbuild/buildtools/releases/download/v8.2.1/buildifier-linux-amd64
@@ -100,11 +98,11 @@ buildifier --mode=check -r .                     # what CI runs
 Key conventions (see also AGENTS.md):
 - `ctx.actions.run` over `ctx.actions.run_shell` wherever possible
 - `depset(order = "postorder")` for transitive file sets
-- `args.add_all()` for file lists — never materialize depsets at analysis time
+- `args.add_all()` for file lists; never materialize depsets at analysis time
 - Private attrs prefixed with `_`
 - Public rules exposed from `defs.bzl`; raw implementations in `ts/private/`
 
-### Go (Gazelle extension)
+### Go (Gazelle Extension)
 
 Use **gofmt**:
 
@@ -155,17 +153,17 @@ A rules_rust bump also invalidates the renderings: the digest covers the cargo
 and rustc versions rules_rust pins, so repin in the same commit as the bump.
 Without it, every build fails with "The current `lockfile` is out of date".
 
-### TypeScript (test fixtures and e2e workspaces)
+### TypeScript (Test Fixtures and E2E Workspaces)
 
 Use **prettier** (if you have it locally). The TypeScript files in `tests/` and
-`e2e/` are fixtures — keep them minimal and readable, illustrating the feature
-under test. CI does not lint them.
+`e2e/` are fixtures: keep them minimal, illustrating the feature under test. CI
+does not lint them.
 
 ---
 
 ## Running Tests
 
-### Unit tests and type checking (main repo)
+### Unit Tests and Type Checking (Main Repo)
 
 ```bash
 # Run all tests
@@ -185,22 +183,20 @@ bazel test //gazelle/...
 tools/ci/check_test_sources.sh
 ```
 
-`bazel test //...` passing does not mean your test ran. A Gazelle run that
-**deletes** a test target satisfies `bazel build //...`, `bazel test //...` and a
-byte-identical Gazelle rerun alike. This script compares the test sources on disk
-against the srcs of every test target, and again against only the targets
-`bazel test //...` actually runs, so a target tagged `manual` does not count as
-coverage.
+A Gazelle run that deletes a test target still satisfies `bazel build //...`,
+`bazel test //...` and a byte-identical Gazelle rerun. The script compares the
+test sources on disk against the srcs of every test target, and again against
+only the targets `bazel test //...` runs, so a target tagged `manual` does not
+count as coverage.
 
 If a file's only target is `manual`, add the file to `MANUAL_ONLY` inside the
-script **with the reason it cannot run**. The list is exact in both directions:
-tagging a test `manual` fails CI until someone writes the reason down, and
-untagging it fails until the entry is removed.
+script with the reason it cannot run. The list is exact in both directions:
+tagging a test `manual` fails CI until the reason is written down, and untagging
+it fails until the entry is removed.
 
 The script is read-only: a loading-phase query and `git ls-files`. It is the
-first step of the `test` job in CI. One local caveat — `git ls-files` cannot see
-an unstaged new file, so a local run reports green on a test you have not
-`git add`ed yet.
+first step of the `test` job in CI. `git ls-files` cannot see an unstaged new
+file, so a local run reports green on a test not yet `git add`ed.
 
 ### Integration Tests
 
@@ -253,16 +249,15 @@ bazel test //...
 ## Pull Request Process
 
 1. **Fork** the repository and create your branch from `main`.
-2. **Write tests** for new behaviour. The project has coverage at unit,
-   integration and e2e level — add tests at the appropriate one.
+2. **Write tests** for new behaviour, at unit, integration or e2e level.
 3. **Run the full test suite** before opening a PR:
    ```bash
    bazel test //...
    bazel build //... --output_groups=+_validation
    ```
-4. **Add a changelog entry** — a new file in `changelog.d/`, not an edit to
-   `CHANGELOG.md`. Its first line is the `###` section the entry belongs under,
-   and the rest is the entry itself, in as much prose as the change needs:
+4. **Add a changelog entry**: a new file in `changelog.d/`, not an edit to
+   `CHANGELOG.md`. Its first line is the `###` section the entry belongs under;
+   the rest is the entry:
 
    ```bash
    cat > changelog.d/ts-binary-js-entry.md <<'EOF'
@@ -276,15 +271,14 @@ bazel test //...
    ```
 
    `changelog.d/README.md` lists the sections and the rules. A release folds the
-   fragments into `CHANGELOG.md`; editing `CHANGELOG.md` directly is what put
-   nine PRs in one day into a rebase over the same few added lines.
-5. **Update documentation** — a public-API change (rule attributes, providers,
+   fragments into `CHANGELOG.md`.
+5. **Update documentation**: a public-API change (rule attributes, providers,
    directives) lands with its page under `docs/` in the same PR, plus `README.md`
    and `AGENTS.md` where they say the same thing. `mkdocs build --strict` runs in
    the `lint` job, so a nav entry without a page, or a link to a page that does
    not exist, fails CI.
 6. **Open the PR** against `main` with the provided pull request template filled in.
-7. A maintainer will review and may request changes. Please respond to review comments within a reasonable time (two weeks is a good guideline).
+7. A maintainer reviews and may request changes. Respond to review comments within two weeks.
 8. Once approved, a maintainer will squash-merge your PR.
 
 ### What Makes a Good PR
@@ -367,13 +361,13 @@ extension written in Go.
 
 | File | Role |
 |---|---|
-| `gazelle/language.go` | Entry point — registers the language, `Kinds()`, `Loads()`, `KnownDirectives()` |
+| `gazelle/language.go` | Entry point: registers the language, `Kinds()`, `Loads()`, `KnownDirectives()` |
 | `gazelle/config.go` | Directive parsing (`# gazelle:ts_*`), framework and codegen detection |
-| `gazelle/generate.go` | Rule generation — produces `ts_compile`, `ts_test` and the rest |
-| `gazelle/resolve.go` | Import resolution — maps import specifiers to Bazel labels |
+| `gazelle/generate.go` | Rule generation: produces `ts_compile`, `ts_test` and the rest |
+| `gazelle/resolve.go` | Import resolution: maps import specifiers to Bazel labels |
 | `gazelle/imports.go` | Import extraction from TypeScript sources |
 | `gazelle/jsonc/` | JSONC parser, its own Go package, so a commented `tsconfig.json` still yields its `paths` |
-| `gazelle/framework_bundle.go` | Vite-based framework bundle targets — TanStack Start and Remix (Next.js and SvelteKit have their own: `framework_next.go`, `sveltekit_bundle.go`) |
+| `gazelle/framework_bundle.go` | Vite-based framework bundle targets: TanStack Start and Remix (Next.js and SvelteKit have their own: `framework_next.go`, `sveltekit_bundle.go`) |
 | `gazelle/codegen.go` | Auto-detected codegen targets |
 
 **AGENTS.md** is the architectural reference for contributors: package boundary
@@ -390,5 +384,5 @@ It also carries the Go and proto languages, because this repo generates BUILD
 files for its own `.go` sources. `//gazelle:gazelle_typescript` is the exported
 one and carries TypeScript alone, so it never rewrites a consumer's Go BUILD
 files. A consumer workspace declares its own `gazelle` target pointing at
-`@rules_typescript//gazelle:gazelle_typescript` — `e2e/basic/BUILD.bazel` is the
-worked example — and runs `bazel run //:gazelle`.
+`@rules_typescript//gazelle:gazelle_typescript` (`e2e/basic/BUILD.bazel` is the
+worked example) and runs `bazel run //:gazelle`.
