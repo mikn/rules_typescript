@@ -201,6 +201,12 @@ func dirIsItsOwnPackageIn(mode string, dir string) bool {
 	return false
 }
 
+// dirIsRolledUpIn reports whether the boundary mode in force rolls dir's files
+// into the package above it instead of making it a package of its own.
+func dirIsRolledUpIn(mode, dir string) bool {
+	return mode != boundaryEveryDir && !dirIsItsOwnPackageIn(mode, dir)
+}
+
 // dirHasTsConfig reports whether dir holds the tsconfig.json that makes it a
 // TypeScript project root.
 func dirHasTsConfig(dir string) bool {

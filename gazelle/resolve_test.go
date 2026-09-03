@@ -717,7 +717,7 @@ func TestResolvePathAlias_OverlappingKeysResolveToOneLabel(t *testing.T) {
 		{"@sharedX/value", ""},
 	} {
 		for i, aliases := range aliasPermutations(overlappingAliases) {
-			tc := &tsConfig{pathAliases: aliases}
+			tc := &tsConfig{pathAliases: aliases, packageBoundaryMode: boundaryEveryDir}
 			if got := resolvePathAlias(c, ix, tc, tt.imp, from); got != tt.want {
 				t.Fatalf("perm %d: resolvePathAlias(%q) = %q, want %q", i, tt.imp, got, tt.want)
 			}
@@ -1578,5 +1578,40 @@ func TestResolveCodegenTree_StopsAtTheRoot(t *testing.T) {
 		if got := resolveCodegenTree(ix, imp, from); got != "" {
 			t.Errorf("resolveCodegenTree(%q) = %q, want \"\"", imp, got)
 		}
+	}
+}
+
+// The mode at the target directory costs one BUILD-file read per ancestor, paid
+// per unindexed import; a checked-in BUILD file short-circuits before the walk.
+func BenchmarkLabelForUnindexed(b *testing.B) {
+	root := b.TempDir()
+	deep := "a/b/c/d/e/f"
+	if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(deep)), 0o755); err != nil {
+		b.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "BUILD.bazel"),
+		[]byte("# gazelle:ts_package_boundary every-dir\n"), 0o644); err != nil {
+		b.Fatal(err)
+	}
+	from := label.New("", "importer", "importer")
+	for _, bb := range []struct {
+		name  string
+		build string
+	}{
+		{"walks_to_the_root", ""},
+		{"stops_at_a_checked_in_build_file", filepath.Join(root, filepath.FromSlash(deep), "BUILD.bazel")},
+	} {
+		if bb.build != "" {
+			if err := os.WriteFile(bb.build, nil, 0o644); err != nil {
+				b.Fatal(err)
+			}
+		}
+		b.Run(bb.name, func(b *testing.B) {
+			for range b.N {
+				if got := labelForUnindexed(root, deep+"/emitted.css", from); got == "" {
+					b.Fatalf("no label for %s", deep)
+				}
+			}
+		})
 	}
 }

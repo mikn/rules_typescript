@@ -560,7 +560,7 @@ func labelForUnindexed(repoRoot, rel string, from label.Label) string {
 	}
 	// A checked-in BUILD file is the only proof that matters: what the generator
 	// would write there says nothing about a package somebody already wrote.
-	if generatorSkips(pkg) && !isBazelPackage(dir) {
+	if !isBazelPackage(dir) && generatorSkips(repoRoot, pkg) {
 		return ""
 	}
 	return label.New("", pkg, path.Base(pkg)).String()
@@ -587,17 +587,19 @@ func isBazelPackage(dir string) bool {
 	return false
 }
 
-// generatorSkips reports whether pkg lies under a directory the generator
-// refuses to walk, and so one it will never WRITE a BUILD file in. It does not
-// answer whether the directory is a package -- isBazelPackage does that, and a
-// dot-directory holding a hand-written BUILD file is one.
-func generatorSkips(pkg string) bool {
+// generatorSkips reports whether pkg is a directory the generator will never
+// WRITE a BUILD file in: one it refuses to walk, or one the boundary mode in
+// force rolls into the package above. It does not answer whether the directory
+// is a package -- isBazelPackage does that, and a dot-directory holding a
+// hand-written BUILD file is one.
+func generatorSkips(repoRoot, pkg string) bool {
 	for _, seg := range strings.Split(pkg, "/") {
 		if skipRolledUpDir(seg) {
 			return true
 		}
 	}
-	return false
+	absDir := filepath.Join(repoRoot, filepath.FromSlash(pkg))
+	return dirIsRolledUpIn(boundaryModeInForce(repoRoot, pkg), absDir)
 }
 
 // namesAFile reports whether rel's last segment is a file the ruleset
