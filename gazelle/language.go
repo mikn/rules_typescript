@@ -42,8 +42,8 @@ func NewLanguage() language.Language {
 func (l *tsLang) Name() string { return languageName }
 
 // RegisterFlags registers command-line flags for the TypeScript extension.
-// Currently no top-level flags are defined; configuration is driven by the
-// gazelle_ts.json file and in-BUILD directives.
+// Currently no top-level flags are defined; configuration is driven by
+// in-BUILD directives.
 func (l *tsLang) RegisterFlags(_ *flag.FlagSet, _ string, _ *config.Config) {}
 
 // CheckFlags validates flags after they have been parsed. No-op for now.
@@ -72,10 +72,14 @@ func (l *tsLang) KnownDirectives() []string {
 		directiveAmbientTypes,
 		// Add a file glob pattern to exclude from source targets.
 		directiveExclude,
+		// Add a directory basename Gazelle does not enter.
+		directiveExcludeDir,
 		// Register a custom ts_codegen target via a directive.
 		directiveCodegen,
 		// Name the npm hub repo that bare specifiers in this tree resolve into.
 		directiveNpmHub,
+		// Overlay a hand-written npm name -> label mapping on the inventory.
+		directiveNpmMapping,
 		// Declare what an asset extension's import resolves to in this tree.
 		directiveAssetDeclarationType,
 		// Admit JavaScript sources of the named extensions into generated srcs.

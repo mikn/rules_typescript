@@ -130,7 +130,7 @@ one. A target exporting none runs no such action and provides no such file.
 - Consumer toolchain registration is explicit: `register_toolchains("@rules_typescript//ts/toolchain:all")`
 
 **Gazelle (Go):**
-- All config via `# gazelle:ts_*` directives (not `gazelle_ts.json`, which is deprecated)
+- All config via `# gazelle:ts_*` directives. There is no config file.
 - Default: every-dir (every directory with .ts files is a package)
 - `ts_test` auto-generates node_modules from npm deps in the `deps` list
 - Register all new directives in `KnownDirectives()`, all new rules in `Kinds()` + `Loads()`
@@ -367,7 +367,6 @@ puts the working directory in the user's source tree.
 
 - Don't add Python dependencies. All codegen uses awk or Starlark `json.decode()`.
 - Don't generate bash scripts for Windows compatibility paths. Use Node.js via the runtime toolchain, or the Go launcher for anything runnable. Runners are Go now; what is left is a few build-action wrappers (the Vite bundler, `next_build`) and the `node_modules` bash fallback. Don't add to that set.
-- Don't add `gazelle_ts.json` features. Use directives.
 - Don't create separate `_check` targets. Use `_validation` output group on the compile target.
 - Don't assume `@npm` is the only repo name. Support custom names via the npm extension.
 - Don't push directly to main. Use PRs.
@@ -381,7 +380,7 @@ puts the working directory in the user's source tree.
 - **Framework Vite plugins need writable filesystems.** `staging_srcs` solves this by copying source files to a temp dir inside the Bazel action. General mechanism, not framework-specific.
 - **`bazel clean` is never the answer.** If the build is broken, the bug is in the rules, not the cache. Fix the root cause.
 - **Every `fail()` should tell the user what to do.** "Did you mean...?" suggestions prevent hours of debugging.
-- **Gazelle directives > config files.** `gazelle_ts.json` was a mistake. Directives are visible, inheritable, version-controlled in BUILD files.
+- **Gazelle directives > config files.** `gazelle_ts.json` was a mistake, and is gone. Directives are visible, inheritable, version-controlled in BUILD files — and they inherit, where a nested config file replaced the list an ancestor had built, so two sites asking "which excludes apply here" got different answers depending on where they asked.
 - **`pnpm add --lockfile-only`** is the correct workflow. No `node_modules/` directory should ever exist in the source tree.
 - **Two recognisers of one thing drift.** Gazelle's import scanner and the strict-deps checker must agree specifier for specifier, or a hard error becomes unfixable by the tool meant to fix it. Same shape as the `node_modules` tree: the layout planner and the builder read one manifest, not two ideas of it.
 - **A name is not a resolution.** Keying anything by npm package name alone (a `node_modules` destination, a patch pairing, a dep edge) loses the version and fails silently, because every version involved is a real version. `name@version` is one key short too: pnpm resolves once per peer set.

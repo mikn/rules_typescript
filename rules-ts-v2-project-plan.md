@@ -153,7 +153,7 @@ A Go library that calls `oxc_resolver` (via C FFI) to resolve import specifiers 
 Resolution strategy:
 - Relative imports → file in same or adjacent directory → Bazel label in same or sibling package
 - Bare specifiers → lookup in lockfile-derived mapping → `@npm//` label
-- Path aliases → parsed from a `gazelle_ts.json` config file (NOT tsconfig) → Bazel labels
+- Path aliases → parsed from `tsconfig.json` or `# gazelle:ts_path_alias` directives → Bazel labels
 
 **Verification:**
 - [ ] `import "./utils"` in `src/app/page.tsx` resolves to `//src/app:app` or `//src/app/utils:utils` depending on directory structure

@@ -59,6 +59,30 @@ func (tc *tsConfig) addExcludePattern(rel, pattern string) {
 	}
 }
 
+// addExcludeDir appends one ts_exclude_dir basename to the set inherited from
+// the parent, and refuses a value the traversal would never compare against.
+func (tc *tsConfig) addExcludeDir(rel, name string) {
+	switch {
+	case name == "":
+		log.Printf("typescript: %s: # gazelle:ts_exclude_dir needs a directory basename after it.",
+			orRepoRoot(rel))
+	case strings.Contains(name, "/"):
+		log.Printf("typescript: %s: # gazelle:ts_exclude_dir %s excludes nothing: the traversal "+
+			"compares a directory's basename against this value literally, so a path never "+
+			"matches. Name the basename alone (# gazelle:ts_exclude_dir %s), or use "+
+			"# gazelle:ts_exclude %s%s to drop that one path.",
+			orRepoRoot(rel), name, path.Base(name), anchoredExcludePrefix, name)
+	case strings.ContainsAny(name, "*?["):
+		log.Printf("typescript: %s: # gazelle:ts_exclude_dir %s excludes nothing: the traversal "+
+			"compares a directory's basename against this value literally, so a glob never "+
+			"matches. Name each basename in its own directive, or use "+
+			"# gazelle:ts_exclude %s%s, which does glob a path.",
+			orRepoRoot(rel), name, anchoredExcludePrefix, name)
+	default:
+		tc.excludeDirs = append(tc.excludeDirs, name)
+	}
+}
+
 // excludeSet is the ts_exclude rules in force for one package plus where that
 // package sits, which is what an anchored pattern is compared against.
 type excludeSet struct {

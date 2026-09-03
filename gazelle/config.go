@@ -114,6 +114,21 @@ const (
 	//   # gazelle:ts_exclude ./vite.config.ts
 	directiveExclude = "ts_exclude"
 
+	// directiveExcludeDir names one directory basename Gazelle does not enter,
+	// in addition to the built-in set (.next, .nuxt, .svelte-kit, dist, build).
+	// It may appear more than once and appends to the set inherited from the
+	// parent directory, so the effective set does not depend on which directory
+	// asks for it.
+	//
+	//	# gazelle:ts_exclude_dir coverage
+	//
+	// It is declared in an ancestor rather than in the directory it names,
+	// because a directory Gazelle should not enter is exactly the kind with no
+	// build file to carry a ts_ignore. The value is a basename and not a path:
+	// a basename is all the traversal ever compares against, and excluding one
+	// named path is what an anchored ts_exclude already does.
+	directiveExcludeDir = "ts_exclude_dir"
+
 	// directiveCodegen registers a custom ts_codegen target via a directive.
 	// Format: # gazelle:ts_codegen <name> <generator_label> <outs_csv> [srcs:<csv>] [args...]
 	// The <outs_csv> field is a comma-separated list of output file names.
@@ -141,6 +156,19 @@ const (
 	// of the whole repo. Without this the generated label named a hub the
 	// package does not use, which is a label that does not exist.
 	directiveNpmHub = "ts_npm_hub"
+
+	// directiveNpmMapping names a JSON file, workspace-root-relative, mapping
+	// npm package names to Bazel label strings:
+	//
+	//	# gazelle:ts_npm_mapping npm/package_mapping.json
+	//
+	// It overlays the lockfile inventory rather than replacing it: a name the
+	// file gives a label keeps that label, and every name it leaves out keeps
+	// the lockfile's answer. Root-relative because its values are workspace
+	// labels, so the file is a workspace-level artifact wherever it is named.
+	// Repeatable, and inherited: a subtree can overlay again on top of what an
+	// ancestor mapped.
+	directiveNpmMapping = "ts_npm_mapping"
 
 	// directiveAssetDeclarationType hands Gazelle one entry of the
 	// declaration_type dict on every asset_library in this tree, generated or
@@ -232,8 +260,8 @@ type tsConfig struct {
 
 	// pathAliases maps a TypeScript path alias prefix (e.g. "@/") to a
 	// workspace-relative directory path (e.g. "src/"). Can be populated from
-	// tsconfig.json, gazelle_ts.json (deprecated), or # gazelle:ts_path_alias
-	// directives. Directives take priority over file-based sources.
+	// tsconfig.json or # gazelle:ts_path_alias directives. Directives take
+	// priority over the file-based source.
 	pathAliases map[string]string
 
 	// aliasesFromDirectives records that pathAliases was declared rather than
@@ -255,8 +283,8 @@ type tsConfig struct {
 	// use as a dep (e.g. "@npm//react"); "" means the entry asserts only that
 	// the hub declares this name, so the label comes from the npmHub convention
 	// and a ts_npm_hub directive still gets to choose the repository.
-	// pnpm-lock.yaml supplies "" for everything it declares, while
-	// gazelle_ts.json's npmMappingFile supplies real labels and overrides the
+	// pnpm-lock.yaml supplies "" for everything it declares, while a
+	// # gazelle:ts_npm_mapping file supplies real labels and overrides the
 	// lockfile per key.
 	//
 	// nil is a weaker claim than an empty map: no inventory could be read at
@@ -293,17 +321,16 @@ type tsConfig struct {
 	warnUnresolved bool
 
 	// excludePatterns holds the file glob patterns to exclude from source
-	// targets, from gazelle_ts.json (deprecated) or # gazelle:ts_exclude
-	// directives. Directives append to the inherited list, and each entry
-	// remembers the directory that declared it -- what an anchored pattern
-	// resolves against and the only build file where editing the directive
-	// changes anything.
+	// targets, from # gazelle:ts_exclude directives. A directive appends to the
+	// inherited list, and each entry remembers the directory that declared it
+	// -- what an anchored pattern resolves against and the only build file
+	// where editing the directive changes anything.
 	excludePatterns []excludeRule
 
 	// excludeDirs holds directory basenames that should be excluded from
-	// Gazelle traversal. Loaded from the "excludeDirs" key in gazelle_ts.json
-	// (deprecated). The built-in set (.next, .nuxt, .svelte-kit, dist, build)
-	// is always excluded regardless of this setting.
+	// Gazelle traversal, from # gazelle:ts_exclude_dir directives. Directives
+	// append to the inherited list. The built-in set (.next, .nuxt,
+	// .svelte-kit, dist, build) is always excluded regardless of this setting.
 	excludeDirs []string
 
 	// linterConfig is the workspace-relative path to the nearest linter
@@ -325,9 +352,8 @@ type tsConfig struct {
 	tsConfigFile string
 
 	// runtimeDepsTest is the list of additional Bazel label strings that
-	// should be appended to every generated ts_test deps list. Can be
-	// populated from gazelle_ts.json (deprecated) or
-	// # gazelle:ts_runtime_dep directives. Directives append to the list.
+	// should be appended to every generated ts_test deps list. Populated from
+	// # gazelle:ts_runtime_dep directives, which append to the list.
 	// Use this for packages that are needed at test runtime but are never
 	// statically imported (e.g. "happy-dom", "@vitest/coverage-v8").
 	runtimeDepsTest []string
@@ -434,6 +460,10 @@ func (tc *tsConfig) clone() *tsConfig {
 		cp.runtimeDepsTest = make([]string, len(tc.runtimeDepsTest))
 		copy(cp.runtimeDepsTest, tc.runtimeDepsTest)
 	}
+	if len(tc.excludeDirs) > 0 {
+		cp.excludeDirs = make([]string, len(tc.excludeDirs))
+		copy(cp.excludeDirs, tc.excludeDirs)
+	}
 	// A child directive adds, overrides or clears one extension, so the map has
 	// to be the child's own before configureTsConfig writes into it.
 	if tc.assetDeclarationType != nil {
@@ -450,8 +480,6 @@ func (tc *tsConfig) clone() *tsConfig {
 	}
 	return &cp
 }
-
-// ---- gazelle_ts.json -------------------------------------------------------
 
 // ---- package.json framework detection -------------------------------------
 
@@ -1190,59 +1218,6 @@ func aliasTargetPath(target string) string {
 	return strings.TrimPrefix(strings.TrimSuffix(target, "/*"), "./")
 }
 
-// ---- gazelle_ts.json -------------------------------------------------------
-
-// gazelleTs is the schema for gazelle_ts.json, a per-repo configuration file
-// that provides TypeScript path aliases and npm package mapping overrides.
-//
-// Example gazelle_ts.json:
-//
-//	{
-//	  "pathAliases": {
-//	    "@/": "src/",
-//	    "@components/": "src/components/"
-//	  },
-//	  "npmMappingFile": "npm/package_mapping.json",
-//	  "excludePatterns": ["*.generated.ts", "./vite.config.ts"],
-//	  "excludeDirs": ["coverage", "storybook-static"],
-//	  "runtimeDeps": {
-//	    "test": ["@npm//:happy-dom", "@npm//:react", "@npm//:react-dom"]
-//	  }
-//	}
-type gazelleTs struct {
-	// PathAliases maps TypeScript path alias prefixes to workspace-relative
-	// directory prefixes. Keys should end with "/" if they represent directory
-	// aliases.
-	PathAliases map[string]string `json:"pathAliases"`
-
-	// NpmMappingFile is an optional path (relative to the workspace root) to a
-	// JSON file that maps npm package names to Bazel label strings. When absent,
-	// bare-specifier imports are resolved using the default @npm// convention.
-	NpmMappingFile string `json:"npmMappingFile"`
-
-	// ExcludePatterns is a list of file glob patterns to exclude from source
-	// targets. An entry reads exactly as the value of a # gazelle:ts_exclude
-	// directive does: bare, it is matched against the file basename at every
-	// depth below this directory; written with a leading "./", it is resolved
-	// against the directory holding this gazelle_ts.json and matched against
-	// the path. Patterns use filepath.Match semantics.
-	ExcludePatterns []string `json:"excludePatterns"`
-
-	// ExcludeDirs is a list of directory basenames to exclude from Gazelle
-	// traversal in addition to the built-in set (.next, .nuxt, .svelte-kit,
-	// dist, build).
-	ExcludeDirs []string `json:"excludeDirs"`
-
-	// RuntimeDeps contains Bazel labels that are appended to generated targets
-	// even when they are never statically imported. Each key is a target kind:
-	//   "test"    — labels appended to every ts_test deps list
-	// Use "test" for packages needed at test runtime without a static import:
-	// happy-dom, @vitest/coverage-v8, react (JSX runtime), etc.
-	RuntimeDeps struct {
-		Test []string `json:"test"`
-	} `json:"runtimeDeps"`
-}
-
 // loadNpmMappingFile reads a JSON file that maps npm package names to Bazel
 // label strings. The file is expected to have the shape:
 //
@@ -1269,8 +1244,8 @@ func loadNpmMappingFile(path string) map[string]string {
 // file listing three overrides from shrinking the inventory to three packages.
 //
 // The lockfile inventory is shared by pointer across every directory, so this
-// copies rather than writing into it -- a gazelle_ts.json in one subtree must
-// not become the whole workspace's answer.
+// copies rather than writing into it -- a ts_npm_mapping directive in one
+// subtree must not become the whole workspace's answer.
 func overlayNpmMapping(inventory, mapping map[string]string) map[string]string {
 	if mapping == nil {
 		return inventory
@@ -1352,8 +1327,8 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 
 	// Always check for a tsconfig.json in the current directory. When found,
 	// read compilerOptions.paths and compilerOptions.baseUrl and use them as
-	// the path alias mapping. This is the lower-priority source: gazelle_ts.json
-	// (loaded below) overrides tsconfig.json when both are present.
+	// the path alias mapping. This is the lower-priority source: the
+	// ts_path_alias directives applied below override it.
 	tsConfigCandidate := filepath.Join(currentDir, "tsconfig.json")
 	if tsConfigAliases := loadTsConfigPaths(tsConfigCandidate, rel); tsConfigAliases != nil {
 		tc.pathAliases = tsConfigAliases
@@ -1377,53 +1352,6 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 	} else if tc.tsConfigFile == "" {
 		tc.tsConfigFile = nearestHandWrittenTsConfig(c.RepoRoot, currentDir)
 	}
-
-	// Always check for a gazelle_ts.json in the current directory. A local
-	// file overrides any settings inherited from a parent directory, allowing
-	// sub-trees to carry their own path aliases and npm package mappings.
-	// gazelle_ts.json takes priority over tsconfig.json for path aliases but
-	// is lower-priority than # gazelle: directives (applied below).
-	//
-	// gazelle_ts.json is deprecated. Users should migrate to directives.
-	candidate := filepath.Join(currentDir, "gazelle_ts.json")
-	var gazelleJSON *gazelleTs
-	if data, err := os.ReadFile(candidate); err == nil {
-		log.Printf("typescript: gazelle_ts.json at %s is deprecated.\n"+
-			"Migrate to # gazelle: directives in your root BUILD.bazel:\n"+
-			"  pathAliases      → # gazelle:ts_path_alias @/ src/\n"+
-			"  excludePatterns  → # gazelle:ts_exclude *.generated.ts\n"+
-			"  runtimeDeps.test → # gazelle:ts_runtime_dep @npm//:happy-dom",
-			candidate)
-		var gtsCfg gazelleTs
-		if jsonErr := json.Unmarshal(data, &gtsCfg); jsonErr != nil {
-			log.Printf("typescript: failed to parse %s: %v", candidate, jsonErr)
-		} else {
-			gazelleJSON = &gtsCfg
-			if gtsCfg.PathAliases != nil {
-				// gazelle_ts.json explicitly sets pathAliases — this takes
-				// priority over any tsconfig.json paths we read above, but
-				// directives (applied below) take priority over this.
-				tc.pathAliases = gtsCfg.PathAliases
-			}
-			if gtsCfg.NpmMappingFile != "" {
-				npmPath := filepath.Join(c.RepoRoot, gtsCfg.NpmMappingFile)
-				tc.npmPackages = overlayNpmMapping(tc.npmPackages, loadNpmMappingFile(npmPath))
-			}
-			if len(gtsCfg.ExcludePatterns) > 0 {
-				tc.excludePatterns = nil
-				for _, pattern := range gtsCfg.ExcludePatterns {
-					tc.addExcludePattern(rel, pattern)
-				}
-			}
-			if len(gtsCfg.ExcludeDirs) > 0 {
-				tc.excludeDirs = gtsCfg.ExcludeDirs
-			}
-			if len(gtsCfg.RuntimeDeps.Test) > 0 {
-				tc.runtimeDepsTest = gtsCfg.RuntimeDeps.Test
-			}
-		}
-	}
-	_ = gazelleJSON // used for backwards compat above; directives below take priority
 
 	// An entry here fills a key the sources above left open rather than
 	// replacing the answer one of them gave -- except an answer an outer
@@ -1528,9 +1456,9 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 				// On first encounter in this BUILD file, seed the directive map
 				// from the inherited aliases so that children can add new keys
 				// or override existing ones without losing the parent's aliases.
-				// Directives still take priority over file-based sources
-				// (tsconfig.json / gazelle_ts.json) because we always write
-				// into directiveAliases and merge it back after the loop.
+				// Directives still take priority over tsconfig.json because we
+				// always write into directiveAliases and merge it back after
+				// the loop.
 				if directiveAliases == nil {
 					// Seed from inherited aliases so a child can add new keys.
 					directiveAliases = make(map[string]string, len(tc.pathAliases))
@@ -1563,6 +1491,13 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 				}
 			case directiveExclude:
 				tc.addExcludePattern(rel, strings.TrimSpace(d.Value))
+			case directiveExcludeDir:
+				tc.addExcludeDir(rel, strings.TrimSpace(d.Value))
+			case directiveNpmMapping:
+				if mappingRel := strings.TrimSpace(d.Value); mappingRel != "" {
+					tc.npmPackages = overlayNpmMapping(tc.npmPackages,
+						loadNpmMappingFile(filepath.Join(c.RepoRoot, mappingRel)))
+				}
 			case directiveAssetDeclarationType:
 				ext, typeExpr, ok := parseAssetDeclarationTypeDirective(d.Value)
 				if !ok {
@@ -1588,7 +1523,7 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 	}
 
 	// If any ts_path_alias directives were present, they replace the
-	// file-based path aliases (tsconfig.json / gazelle_ts.json).
+	// path aliases tsconfig.json gave.
 	if directiveAliases != nil {
 		tc.pathAliases = directiveAliases
 	}
