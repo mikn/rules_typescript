@@ -396,17 +396,18 @@ nothing at all and exits 0, so the target compiles without the declarations and
 the error lands on whatever needed them -- `TS2339` on `import.meta.env` without
 `vite/client`, `TS2591` on `process` without `node`.
 
-## compilerOptions.types entry names a path no source file of mine sits at
+## compilerOptions.types entry names a path no file of mine sits at
 
 ```
 ts_compile: compilerOptions.types entry "../../worker-configuration.d.ts" on
 @@//workers/proxy/src/lib:lib names "workers/proxy/worker-configuration.d.ts",
-  which no source file this target stages sits at.
+  which no file this target stages sits at.
 ```
 
 A relative `types` entry is a path, and a path resolves against the sandbox:
-only what this target's action stages is in it -- its `srcs`, its deps'
-passed-through `.d.ts`, its `path_alias_srcs`. Name the file with a label:
+only what this target's action stages is in it -- its `srcs`, its `types_srcs`,
+its `path_alias_srcs`, its deps' declarations, checked in or generated. Name
+the file with a label:
 
 ```python
 ts_compile(

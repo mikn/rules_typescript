@@ -390,6 +390,30 @@ on no dep edge, and nothing here names the file in `public_globals`, which is
 what would put the declaration in every transitive consumer — see
 [which ambients a consumer gets](../rules/ts-compile.md#which-ambients-a-consumer-gets).
 
+A file that a [`ts_worker_types`](../rules/ts-worker-types.md) target in the
+tsconfig's own BUILD file writes is not in the source tree, so no filegroup is
+written for it: the target is the label. Gazelle reads the target's `out`
+(default `worker-configuration.d.ts`) to pair it with the entry.
+
+```python
+# workers/proxy/BUILD.bazel -- hand-written; Gazelle leaves it in place
+ts_worker_types(
+    name = "worker_types",
+    config = "wrangler.jsonc",
+    node_modules = ":node_modules",
+)
+
+# workers/proxy/src/BUILD.bazel
+ts_compile(
+    name = "src",
+    srcs = ["handler.ts"],
+    tsconfig = "//workers/proxy:tsconfig",
+    types = ["../worker-configuration.d.ts"],
+    types_srcs = ["//workers/proxy:worker_types"],
+    visibility = ["//visibility:public"],
+)
+```
+
 The whole `types` list is written, not just the file entries: `types` is one
 key and `extends` replaces it whole, so a target carrying a subset would drop
 the packages the project asked for. Whether those resolve is unchanged — a
@@ -401,7 +425,8 @@ the same key already supplies.
 generated config — it states its own — so it makes no claim about the tree
 below it. Two shapes are logged and produce nothing rather than a guess: an
 entry naming a path outside the tsconfig's own directory, which no label of
-that package can stage, and one naming a file that is not there.
+that package can stage, and one naming a file that is neither there nor written
+by a `ts_worker_types` target beside the tsconfig.
 
 ## Automatic Lint Targets
 

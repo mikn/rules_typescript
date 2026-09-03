@@ -21,17 +21,15 @@
   to list it in. The `typeRoots` exemption does not extend to this shape: a
   relative entry never goes through `typeRoots`.
 
-  No *generated* declaration is nameable this way, whatever its
-  package-relative path looks like: the entry resolves against the source tree
-  and that file is in `bazel-out`. Two shapes reach that failure and the message
-  names the one you have. A dep's is staged on the dep edge already, so drop the
-  entry and take what it declares the way the dep edge carries it — globals when
-  that dep names their src in `public_globals`, exports through an `import`. One
-  in this target's own `srcs` has no such route: `include` names it and the
-  default `exclude` drops it again for sitting under `outDir`, and
-  `public_globals` here publishes to consumers without adding anything to this
-  program — so it wants its own `ts_compile`, `public_globals` there, and a dep
-  edge to it.
+  The entry is written into the generated config as the path to the file it
+  resolved to, so a generated declaration — a `ts_worker_types` output, a
+  `.d.ts` a genrule wrote — is named exactly the way a checked-in one is: the
+  entry as the tsconfig spells it, and the label that stages the file in
+  `types_srcs`, in `srcs`, or on a dep edge. Measured on the fixtures that ship
+  with this: in the build, the previous rule refused such a target at analysis
+  and this one type-checks it; in the package's editor program, the entry
+  written against the source tree gives `TS2304: Cannot find name 'Env'` and
+  written through `bazel-bin`, where the file is, gives 0 diagnostics.
 
   Two shapes stay the compiler's own. `./typings`, a directory, is rebased onto
   the generated config as before and then walked at action time — which

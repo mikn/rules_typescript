@@ -529,7 +529,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	if (isBoundary && len(srcFiles) > 0) || len(testFiles) > 0 || len(docFiles) > 0 || hasEntry {
 		tsConfigAttr = tsConfigLabel(args, tc)
 	}
-	typesEntries, typesSrcsLabel := rootAmbientTypes(args.Rel, tc, tsConfigAttr)
+	typesEntries, typesSrcsLabels := rootAmbientTypes(args.Rel, tc, tsConfigAttr)
 
 	// ---- css_library targets -----------------------------------------------
 	// Generate one css_library rule per plain .css file (side-effect imports).
@@ -605,7 +605,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		}
 
 		setTsConfig(r, tsConfigAttr)
-		setRootAmbientTypes(r, typesEntries, typesSrcsLabel)
+		setRootAmbientTypes(r, typesEntries, typesSrcsLabels)
 
 		// Collect imports for all src files.
 		allImports := importsIn(args.Dir, srcFiles)
@@ -670,7 +670,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		entryImports := importsIn(args.Dir, []string{entryFile})
 		r := frameworkEntryRule(entryName, entryFile, ambientFiles, tc)
 		setTsConfig(r, tsConfigAttr)
-		setRootAmbientTypes(r, typesEntries, typesSrcsLabel)
+		setRootAmbientTypes(r, typesEntries, typesSrcsLabels)
 		setPathAliases(args, r, usedPathAliases(tc, args.Rel, []string{entryFile}, entryImports))
 		gen = append(gen, r)
 		imports = append(imports, uniqueImports(entryImports))
@@ -786,7 +786,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		}
 
 		setTsConfig(r, tsConfigAttr)
-		setRootAmbientTypes(r, typesEntries, typesSrcsLabel)
+		setRootAmbientTypes(r, typesEntries, typesSrcsLabels)
 
 		// ts_test auto-builds a node_modules tree from its @npm// deps, so no
 		// explicit node_modules rule is generated. The ts_test macro filters deps
@@ -877,7 +877,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		// types and strictness for the same reason its sources do, and the same
 		// label they name, so a refusal refuses for all of them at once.
 		setTsConfig(r, tsConfigAttr)
-		setRootAmbientTypes(r, typesEntries, typesSrcsLabel)
+		setRootAmbientTypes(r, typesEntries, typesSrcsLabels)
 
 		docImports := importsIn(args.Dir, docFiles)
 		if used := usedPathAliases(tc, args.Rel, docSrcs, docImports); len(used) > 0 {
@@ -1229,8 +1229,10 @@ func tsConfigNameTaken(name string) bool {
 	return name == tsConfigTargetName || name == tsConfigTypesTargetName
 }
 
-// ownTsConfigTypesRule stages the declaration files this directory's tsconfig
-// names in compilerOptions.types, for the targets that compile under it.
+// ownTsConfigTypesRule stages the checked-in declaration files this directory's
+// tsconfig names in compilerOptions.types, for the targets that compile under
+// it. A generated one has the ts_worker_types target that writes it for a label
+// and needs nothing here.
 //
 // A filegroup, so the file is an action input of exactly the targets naming it:
 // a ts_compile would publish declarations of its own, and public_globals on one
@@ -1246,21 +1248,33 @@ func ownTsConfigTypesRule(tc *tsConfig, rel string) *rule.Rule {
 }
 
 // rootAmbientTypes is the compilerOptions.types a target in rel writes, and the
-// label staging the declaration files among those entries. Empty unless the
-// tsconfig those entries came from is the file the target names for its
-// baseline, since rebasing them against another directory names nothing.
-func rootAmbientTypes(rel string, tc *tsConfig, tsConfigAttr string) ([]string, string) {
-	if tsConfigAttr == "" || len(tc.tsconfigTypeFiles) == 0 {
-		return nil, ""
+// labels staging the declaration files among those entries: the filegroup for
+// the checked-in ones, and each ts_worker_types target for the file it writes.
+// Empty unless the tsconfig those entries came from is the file the target
+// names for its baseline, since rebasing them against another directory names
+// nothing.
+func rootAmbientTypes(rel string, tc *tsConfig, tsConfigAttr string) ([]string, []string) {
+	if tsConfigAttr == "" || (len(tc.tsconfigTypeFiles) == 0 && len(tc.tsconfigTypeGenerators) == 0) {
+		return nil, nil
 	}
 	if path.Dir(path.Join(".", tc.tsConfigFile)) != path.Join(".", tc.tsconfigTypesDir) {
-		return nil, ""
+		return nil, nil
 	}
 	entries := make([]string, 0, len(tc.tsconfigTypes))
 	for _, entry := range tc.tsconfigTypes {
 		entries = append(entries, rebasedTypeEntry(tc.tsconfigTypesDir, rel, entry))
 	}
-	return entries, strings.TrimSuffix(tsConfigAttr, tsConfigTargetName) + tsConfigTypesTargetName
+	pkg := strings.TrimSuffix(tsConfigAttr, tsConfigTargetName)
+	var labels []string
+	if len(tc.tsconfigTypeFiles) > 0 {
+		labels = append(labels, pkg+tsConfigTypesTargetName)
+	}
+	generators := make([]string, 0, len(tc.tsconfigTypeGenerators))
+	for _, target := range tc.tsconfigTypeGenerators {
+		generators = append(generators, pkg+target)
+	}
+	sort.Strings(generators)
+	return entries, append(labels, generators...)
 }
 
 // rebasedTypeEntry rewrites one entry from the tsconfig's directory to rel.
@@ -1279,12 +1293,12 @@ func rebasedTypeEntry(typesDir, rel, entry string) string {
 
 // Both or neither: an entry with no label staging its file is an analysis
 // error, and a staged file no entry names is the same error from the other side.
-func setRootAmbientTypes(r *rule.Rule, entries []string, typesSrcs string) {
-	if len(entries) == 0 || typesSrcs == "" {
+func setRootAmbientTypes(r *rule.Rule, entries []string, typesSrcs []string) {
+	if len(entries) == 0 || len(typesSrcs) == 0 {
 		return
 	}
 	r.SetAttr("types", entries)
-	r.SetAttr("types_srcs", []string{typesSrcs})
+	r.SetAttr("types_srcs", typesSrcs)
 }
 
 // tsConfigLabel is the label a target generated in args.Rel names for its

@@ -1735,6 +1735,13 @@
         "./tests/vitest/workspace/*",
         "./bazel-bin/tests/vitest/workspace/*"
       ],
+      "tests/worker_types/src": [
+        "./tests/worker_types/src/index"
+      ],
+      "tests/worker_types/src/*": [
+        "./tests/worker_types/src/*",
+        "./bazel-bin/tests/worker_types/src/*"
+      ],
       "tests/workers/*": [
         "./tests/workers/*",
         "./bazel-bin/tests/workers/*"
@@ -2034,6 +2041,7 @@
     "tests/compiler_options/js_sources/math.js",
     "tests/compiler_options/jsx/view.tsx",
     "tests/compiler_options/worker/index.ts",
+    "tests/worker_types/src/index.ts",
     "tests/workers/src/index.ts",
     "tests/workers/src/worker.test.ts",
     "vite/src/index.ts",

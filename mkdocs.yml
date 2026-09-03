@@ -70,6 +70,7 @@ nav:
     - ts_dev_server: rules/ts-dev-server.md
     - ts_worker_dry_run: rules/ts-worker-dry-run.md
     - ts_worker_deploy: rules/ts-worker-deploy.md
+    - ts_worker_types: rules/ts-worker-types.md
     - ts_lint: rules/ts-lint.md
     - ts_codegen: rules/ts-codegen.md
     - next_build: rules/next-build.md

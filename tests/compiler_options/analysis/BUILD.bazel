@@ -26,12 +26,11 @@ load(
     "exec_root_source_test",
     "forwarded_files_test",
     "generated_tsconfig_test",
-    "generated_type_file_test",
+    "generated_types_entry_test",
     "jsx_source_test",
     "misplaced_type_file_test",
     "mixed_source_roots_test",
     "module_exports_paths_test",
-    "own_generated_type_file_test",
     "oxc_command_line_test",
     "quoted_option_test",
     "rejected_tsgo_arg_test",
@@ -427,30 +426,9 @@ misplaced_type_file_test(
 )
 
 # A dep's declaration at the path the entry names, generated rather than checked
-# in: the rebased entry points into the source tree, so tsgo would find nothing
-# there and the message has to say which of the two is the problem.
-ts_compile(
-    name = "generated_ambient",
-    srcs = ["generated_ambient.ts"],
-)
-
-ts_compile(
-    name = "generated_type_file",
-    srcs = ["lone.ts"],
-    compiler_options = {"types": ["./generated_ambient.d.ts"]},
-    tags = ["manual"],
-    deps = [":generated_ambient"],
-)
-
-generated_type_file_test(
-    name = "generated_type_file_test",
-    target_under_test = ":generated_type_file",
-)
-
-# The other shape reaching that branch: the generated declaration is in this
-# target's OWN srcs, where the dep advice does not apply -- public_globals here
-# publishes to consumers and puts nothing in this program -- so it has its own
-# message and its own lever.
+# in. A .d.ts in a dep's srcs is passed through at its bazel-out path, and the
+# entry is written to point there: GENERATED_IN_SRCS is declared by that file
+# and nowhere else, so the src compiles only if the entry resolved.
 genrule(
     name = "gen_ambient_in_srcs",
     outs = ["generated_in_srcs.d.ts"],
@@ -458,23 +436,47 @@ genrule(
 )
 
 ts_compile(
+    name = "generated_ambient",
+    srcs = ["generated_in_srcs.d.ts"],
+)
+
+ts_compile(
+    name = "generated_type_file",
+    srcs = ["generated_dep_consumer.ts"],
+    compiler_options = {"types": ["./generated_in_srcs.d.ts"]},
+    deps = [":generated_ambient"],
+)
+
+build_test(
+    name = "generated_type_file_build_test",
+    targets = [":generated_type_file"],
+)
+
+# The same declaration in this target's OWN srcs, where `include` names it and
+# the default `exclude` drops it again for sitting under `outDir`: the entry is
+# what puts it in the program.
+ts_compile(
     name = "own_generated_type_file",
     srcs = [
         "generated_in_srcs.d.ts",
-        "lone.ts",
+        "generated_own_consumer.ts",
     ],
     compiler_options = {"types": ["./generated_in_srcs.d.ts"]},
-    tags = ["manual"],
 )
 
-own_generated_type_file_test(
-    name = "own_generated_type_file_test",
+generated_types_entry_test(
+    name = "generated_types_entry_test",
     target_under_test = ":own_generated_type_file",
 )
 
-# The lever that message names, so that it is an instruction and not a guess:
-# the generated declaration compiled on its own, named in public_globals, and a
-# consumer reading the global with no `types` entry anywhere.
+build_test(
+    name = "own_generated_type_file_build_test",
+    targets = [":own_generated_type_file"],
+)
+
+# The other route to a generated global, with no `types` entry anywhere: the
+# target holding the declaration names it in public_globals, and every consumer
+# gets it.
 ts_compile(
     name = "generated_ambient_published",
     srcs = ["generated_in_srcs.d.ts"],

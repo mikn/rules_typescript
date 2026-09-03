@@ -538,32 +538,24 @@ entries only; a declaration file is a path in the sandbox either way.
 
 `types = ["./worker-configuration.d.ts"]` names a path, and a path resolves
 against the sandbox: only what this target's action stages is in it. So the
-entry is resolved against the source files it stages -- its `srcs`, its deps'
-passed-through `.d.ts` (a `.d.ts` in `srcs` is a declaration output unchanged,
-so a dep edge stages it at its source path), its `path_alias_srcs`, and
-`types_srcs` -- and an entry none of them sits at fails at analysis, for the
-reason a package entry does: tsgo reports nothing for a `types` entry that
-resolves to nothing, and the target compiles without the declarations it asked
-for.
+entry is resolved against the files it stages -- its `srcs`, its deps'
+declarations (a `.d.ts` in `srcs` is a declaration output unchanged, so a dep
+edge stages it), its `path_alias_srcs`, and `types_srcs` -- and an entry none
+of them sits at fails at analysis, for the reason a package entry does: tsgo
+reports nothing for a `types` entry that resolves to nothing, and the target
+compiles without the declarations it asked for.
 
-No *generated* declaration is nameable, whichever label it arrives by: the entry
-resolves against the source tree and the file is in `bazel-out`. Two shapes
-reach that failure and it names the one you have. A dep's generated declaration
-is staged on the dep edge already, so drop the entry and take what it declares
-the way the dep edge carries it: globals when that dep names their src in
-`public_globals`, exports through an `import`. A generated declaration in this
-target's own `srcs` has no such route -- `include` names it and the default
-`exclude` drops it again for sitting under `outDir`, and `public_globals` here
-publishes to consumers without adding anything to this program. Compile it in
-its own `ts_compile`, name it in `public_globals` there and depend on that
-target.
+The entry is written into the generated config as the path to the file it
+resolved to. A checked-in declaration is in the source tree and a generated one
+-- what [`ts_worker_types`](ts-worker-types.md) writes -- is in `bazel-out`, and
+the entry points wherever the label put it, so the two are named the same way:
 
 ```python
 ts_compile(
     name = "lib",
     srcs = glob(["*.ts"]),
     types = ["../../worker-configuration.d.ts"],
-    types_srcs = ["//workers/proxy:worker-configuration.d.ts"],
+    types_srcs = ["//workers/proxy:worker_types"],
 )
 ```
 

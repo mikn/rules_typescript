@@ -381,12 +381,15 @@ type tsConfig struct {
 	tsconfigAmbientTypes []string
 
 	// tsconfigTypes is that same key unread, tsconfigTypesDir the directory
-	// its entries are written relative to, and tsconfigTypeFiles the ones
-	// naming a declaration file that directory holds. Empty unless every
-	// file-shaped entry names such a file.
-	tsconfigTypes     []string
-	tsconfigTypesDir  string
-	tsconfigTypeFiles []string
+	// its entries are written relative to, tsconfigTypeFiles the ones naming
+	// a declaration file that directory holds, and tsconfigTypeGenerators the
+	// ones naming a file a ts_worker_types target there writes, keyed by file
+	// name with the target's name as the value. Empty unless every file-shaped
+	// entry is one or the other.
+	tsconfigTypes          []string
+	tsconfigTypesDir       string
+	tsconfigTypeFiles      []string
+	tsconfigTypeGenerators map[string]string
 
 	// declarations is the .d.ts emitter for generated ts_compile rules:
 	// "tsgo" (default, no attribute emitted) or "oxc". Set via
@@ -465,6 +468,12 @@ func (tc *tsConfig) clone() *tsConfig {
 	if len(tc.tsconfigTypeFiles) > 0 {
 		cp.tsconfigTypeFiles = make([]string, len(tc.tsconfigTypeFiles))
 		copy(cp.tsconfigTypeFiles, tc.tsconfigTypeFiles)
+	}
+	if len(tc.tsconfigTypeGenerators) > 0 {
+		cp.tsconfigTypeGenerators = make(map[string]string, len(tc.tsconfigTypeGenerators))
+		for name, target := range tc.tsconfigTypeGenerators {
+			cp.tsconfigTypeGenerators[name] = target
+		}
 	}
 	if len(tc.runtimeDepsTest) > 0 {
 		cp.runtimeDepsTest = make([]string, len(tc.runtimeDepsTest))
@@ -1356,7 +1365,7 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 		// to it: tsc gives a file one project, not the union of the projects
 		// above it.
 		tc.tsconfigAmbientTypes = loadTsConfigAmbientTypes(tsConfigCandidate)
-		tc.tsconfigTypes, tc.tsconfigTypeFiles = loadTsConfigTypeFiles(tsConfigCandidate, rel)
+		tc.tsconfigTypes, tc.tsconfigTypeFiles, tc.tsconfigTypeGenerators = loadTsConfigTypeFiles(tsConfigCandidate, rel, f)
 		tc.tsconfigTypesDir = rel
 	}
 
@@ -1718,26 +1727,28 @@ func loadTsConfigAmbientTypes(tsConfigPath string) []string {
 }
 
 // loadTsConfigTypeFiles reads the other half of the same key: the entries that
-// name a declaration file in the tsconfig's own directory, and -- when there is
-// at least one -- the whole list they are part of.
+// name a declaration file in the tsconfig's own directory -- on disk, or
+// written there by a ts_worker_types target in the BUILD file -- and, when
+// there is at least one, the whole list they are part of.
 //
 // TypeScript resolves a relative entry against the config the program was
 // invoked with, which is the generated one in bazel-out, so an inherited entry
 // names nothing. The whole list comes back because `extends` replaces `types`
 // whole rather than merging it.
-func loadTsConfigTypeFiles(tsConfigPath, rel string) (entries, files []string) {
+func loadTsConfigTypeFiles(tsConfigPath, rel string, f *rule.File) (entries, files []string, generators map[string]string) {
 	data, err := os.ReadFile(tsConfigPath)
 	if err != nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	var tsc tsConfigJSON
 	if err := jsonc.Unmarshal(data, &tsc); err != nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if tsc.CompilerOptions.Types == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	dir := filepath.Dir(tsConfigPath)
+	generated := workerTypesOutputs(f)
 	seen := make(map[string]struct{})
 	for _, entry := range *tsc.CompilerOptions.Types {
 		name, isFile := typeEntryFileName(entry)
@@ -1750,28 +1761,59 @@ func loadTsConfigTypeFiles(tsConfigPath, rel string) (entries, files []string) {
 				"nothing below that directory resolves the entry. Move the file next to the "+
 				"tsconfig, or write types and types_srcs by hand with a \"# keep\".",
 				orRepoRoot(rel), strings.TrimSpace(entry))
-			return nil, nil
-		}
-		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
-			log.Printf("typescript: the tsconfig in %s names %q in compilerOptions.types and "+
-				"no such file is there, so the entry resolves to nothing wherever it is "+
-				"written. Fix the entry or drop it.", orRepoRoot(rel), strings.TrimSpace(entry))
-			return nil, nil
+			return nil, nil, nil
 		}
 		if _, dup := seen[name]; dup {
 			continue
 		}
 		seen[name] = struct{}{}
+		if target, ok := generated[name]; ok {
+			if generators == nil {
+				generators = make(map[string]string)
+			}
+			generators[name] = target
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			log.Printf("typescript: the tsconfig in %s names %q in compilerOptions.types and "+
+				"no such file is there, so the entry resolves to nothing wherever it is "+
+				"written. Fix the entry or drop it.", orRepoRoot(rel), strings.TrimSpace(entry))
+			return nil, nil, nil
+		}
 		files = append(files, name)
 	}
-	if len(files) == 0 {
-		return nil, nil
+	if len(files) == 0 && len(generators) == 0 {
+		return nil, nil, nil
 	}
 	sort.Strings(files)
 	for _, entry := range *tsc.CompilerOptions.Types {
 		entries = append(entries, strings.TrimSpace(entry))
 	}
-	return entries, files
+	return entries, files, generators
+}
+
+// workerTypesOutputs is the file each ts_worker_types rule in f writes, keyed by
+// its name, with the rule's name as the value. The file is a build output, so
+// it is nowhere on disk for os.Stat to find.
+func workerTypesOutputs(f *rule.File) map[string]string {
+	if f == nil {
+		return nil
+	}
+	var out map[string]string
+	for _, r := range f.Rules {
+		if r.Kind() != "ts_worker_types" {
+			continue
+		}
+		name := r.AttrString("out")
+		if name == "" {
+			name = "worker-configuration.d.ts"
+		}
+		if out == nil {
+			out = make(map[string]string)
+		}
+		out[name] = r.Name()
+	}
+	return out
 }
 
 // typeEntryFileName splits a `types` entry into the declaration file it names
