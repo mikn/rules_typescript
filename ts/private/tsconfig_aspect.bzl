@@ -432,6 +432,7 @@ _EDITOR_IRRELEVANT_OPTIONS = [
     "outDir",
     "rootDir",
     "rootDirs",
+    "preserveSymlinks",
     "declarationDir",
     "declaration",
     "declarationMap",

@@ -114,9 +114,9 @@ the declarations.
 Remove "paths" from compiler_options on //src/app:app.
 ```
 
-Sixteen `compilerOptions` keys encode the sandbox layout or the action's declared
-outputs, and `compiler_options` rejects all sixteen. The message names the
-attribute to use; the full list is in
+Seventeen `compilerOptions` keys encode the sandbox layout or the action's
+declared outputs, and `compiler_options` rejects all seventeen. The message
+names the attribute to use; the full list is in
 [ts_compile](../rules/ts-compile.md#the-two-hard-errors).
 
 ## path_aliases points into the output tree
