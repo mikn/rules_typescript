@@ -172,9 +172,9 @@ bazel run //:gazelle           # picks up new package, updates BUILD files
 bazel build //...              # fetches just that package's closure, builds
 ```
 
-Bazel fetches a package the first time a target needs it. No `node_modules/`
-directory ever exists in the source tree; the lockfile is the only npm artifact
-in git.
+Bazel fetches a package the first time a target needs it. The rules read no
+`node_modules/` from the source tree; the lockfile is the only npm artifact in
+git.
 
 `bazel run //:pnpm -- add zod --lockfile-only` uses a hermetic pnpm
 ([two lines of setup](https://mikn.github.io/rules_typescript/guides/npm/#hermetic-pnpm)).
