@@ -58,6 +58,7 @@ the tree, so what it holds is already compiled output.
 |---|---|---|
 | `declaration_files` | `depset of File` | The declarations this target produces, plus the ambient ones it passes through from `srcs` |
 | `transitive_declaration_files` | `depset of File` | Every declaration from this target and its deps |
+| `transitive_npm_packages` | `depset of NpmPackageInfo` | The npm packages whose declarations are in `transitive_declaration_files`. A dep's emitted `.d.ts` imports the packages the dep declared and resolves them in the consumer's program, so the consumer writes a `paths` key for each. An npm package target names its `transitive_deps`; the package itself arrives through its `NpmPackageInfo` |
 | `global_entry_files` | `depset of File` | A generated `.d.ts` referencing the srcs `public_globals` names, for a consumer to list in its tsconfig `files`. A target naming none provides no entry |
 | `transitive_global_entry_files` | `depset of File` | The closure of `global_entry_files`. A global is global to the whole program, so the closure travels, not the direct set |
 

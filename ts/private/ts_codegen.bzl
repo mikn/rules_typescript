@@ -220,6 +220,7 @@ def _ts_codegen_impl(ctx):
         TsDeclarationInfo(
             declaration_files = files,
             transitive_declaration_files = files,
+            transitive_npm_packages = depset(),
             global_entry_files = depset(),
             transitive_global_entry_files = depset(),
         ),

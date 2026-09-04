@@ -1867,6 +1867,7 @@ def _ts_compile_impl(ctx):
 
     # Collect transitive deps.
     transitive_dts_sets = []
+    dep_npm_closure_sets = []
     global_entry_sets = []
     transitive_js_sets = []
     transitive_js_map_sets = []
@@ -1920,6 +1921,7 @@ def _ts_compile_impl(ctx):
     for dep in ctx.attr.deps:
         if TsDeclarationInfo in dep:
             transitive_dts_sets.append(dep[TsDeclarationInfo].transitive_declaration_files)
+            dep_npm_closure_sets.append(dep[TsDeclarationInfo].transitive_npm_packages)
             global_entry_sets.append(dep[TsDeclarationInfo].transitive_global_entry_files)
             direct_provided_sets.append(dep[TsDeclarationInfo].declaration_files)
 
@@ -1979,15 +1981,21 @@ def _ts_compile_impl(ctx):
     # untyped_packages applies here too: the leak this attribute exists for
     # arrives through a dependency's own .d.ts, so a package named only there is
     # the usual one to keep out.
+    reached = []
     for npm_info in direct_npm_infos:
-        for transitive_info in npm_info.transitive_deps.to_list():
-            trans_name = transitive_info.package_name
-            if transitive_info.package_dir:
-                resolved_npm_names[trans_name] = True
-                if trans_name in untyped:
-                    untyped_pkg_dirs[transitive_info.package_dir.dirname] = True
-            if trans_name not in pkg_info_map and transitive_info.package_dir and trans_name not in untyped:
-                pkg_info_map[trans_name] = transitive_info
+        reached.extend(npm_info.transitive_deps.to_list())
+
+    # A ts_compile dep's closure last: its .d.ts import what it declared, and
+    # this target's own npm deps claim every name first.
+    reached.extend(depset(transitive = dep_npm_closure_sets, order = "postorder").to_list())
+    for transitive_info in reached:
+        trans_name = transitive_info.package_name
+        if transitive_info.package_dir:
+            resolved_npm_names[trans_name] = True
+            if trans_name in untyped:
+                untyped_pkg_dirs[transitive_info.package_dir.dirname] = True
+        if trans_name not in pkg_info_map and transitive_info.package_dir and trans_name not in untyped:
+            pkg_info_map[trans_name] = transitive_info
 
     _untyped_names(ctx, resolved_npm_names)
 
@@ -2455,6 +2463,11 @@ def _ts_compile_impl(ctx):
         TsDeclarationInfo(
             declaration_files = direct_dts,
             transitive_declaration_files = transitive_dts,
+            transitive_npm_packages = depset(
+                direct_npm_infos,
+                transitive = [info.transitive_deps for info in direct_npm_infos] + dep_npm_closure_sets,
+                order = "postorder",
+            ),
             global_entry_files = depset(own_global_entries),
             transitive_global_entry_files = depset(
                 own_global_entries,
