@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/bazelbuild/bazel-gazelle/rule"
 )
 
 func generated(t *testing.T, root string, parts ...string) string {
@@ -229,7 +231,7 @@ func TestRootAmbientTypes_UnstageableShapesAreRefused(t *testing.T) {
 		name:  "below the tsconfig",
 		types: `["./types/globals.d.ts"]`,
 		files: map[string]string{"worker/types/globals.d.ts": workerAmbient},
-		said:  "a label can only stage a file of the directory the tsconfig itself is in",
+		said:  "a label stages a file of its own directory alone",
 	}, {
 		name:  "no such file",
 		types: `["./missing.d.ts"]`,
@@ -347,4 +349,222 @@ ts_worker_types(
 	if !strings.Contains(owner, `name = "worker_types"`) {
 		t.Errorf("the hand-written ts_worker_types did not survive the run:\n%s", owner)
 	}
+}
+
+// A test directory's tsconfig names the worker's declaration one directory up;
+// the label staging it is the one the ancestor's tsconfig already produced.
+func TestRootAmbientTypes_ParentEntryNamesTheAncestorsLabel(t *testing.T) {
+	root := t.TempDir()
+	writeWorkspace(t, root, map[string]string{
+		"package.json":                     `{"name":"w"}` + "\n",
+		"worker/tsconfig.json":             `{"compilerOptions": {"types": ["./worker-configuration.d.ts"]}}` + "\n",
+		"worker/worker-configuration.d.ts": workerAmbient,
+		"worker/src/handler.ts":            "export const env = WORKER_ENV;\n",
+		"worker/test/tsconfig.json": `{"extends": "../tsconfig.json", "compilerOptions": {"types": ` +
+			`["@cloudflare/vitest-pool-workers/types", "../worker-configuration.d.ts"]}}` + "\n",
+		"worker/test/index.spec.ts": "export const env = WORKER_ENV;\n",
+		"worker/test/mocks/env.ts":  "export const env = WORKER_ENV;\n",
+	})
+	logged := captureLog(t, func() { convergeGazelle(t, root) })
+	if strings.Contains(logged, "compilerOptions.types") {
+		t.Errorf("an entry the ancestor stages was refused: %s", logged)
+	}
+
+	requireTypesPair(t, loadRules(t, root, "worker/test"), "ts_test", "test_test",
+		[]string{"@cloudflare/vitest-pool-workers/types", "../worker-configuration.d.ts"},
+		[]string{"//worker:tsconfig_types"})
+	requireTypesPair(t, loadRules(t, root, "worker/test/mocks"), "ts_compile", "mocks",
+		[]string{"@cloudflare/vitest-pool-workers/types", "../../worker-configuration.d.ts"},
+		[]string{"//worker:tsconfig_types"})
+
+	leaf := generated(t, root, "worker", "test", "BUILD.bazel")
+	if strings.Contains(leaf, `name = "tsconfig_types"`) {
+		t.Errorf("the leaf got a filegroup over a file it does not hold:\n%s", leaf)
+	}
+	owner := generated(t, root, "worker", "BUILD.bazel")
+	if n := strings.Count(owner, `name = "tsconfig_types"`); n != 1 {
+		t.Errorf("the ancestor carries %d filegroups named tsconfig_types, want 1:\n%s", n, owner)
+	}
+}
+
+// The label exists only where the tsconfig at the directory the hops name
+// names the file; a tsconfig at the root has nothing above it to name.
+func TestRootAmbientTypes_ParentEntryNothingAboveStagesIsRefused(t *testing.T) {
+	cases := []struct {
+		name  string
+		files map[string]string
+		leaf  string
+		said  string
+	}{{
+		name: "the tsconfig above names other entries",
+		files: map[string]string{
+			"worker/tsconfig.json":             `{"compilerOptions": {"types": ["node"]}}` + "\n",
+			"worker/worker-configuration.d.ts": workerAmbient,
+		},
+		leaf: "worker/test",
+		said: `a tsconfig there has to name "./worker-configuration.d.ts" in its own compilerOptions.types`,
+	}, {
+		name: "no tsconfig above",
+		files: map[string]string{
+			"worker/worker-configuration.d.ts": workerAmbient,
+		},
+		leaf: "worker/test",
+		said: "nothing in worker stages that file",
+	}, {
+		name: "above the workspace root",
+		leaf: "",
+		said: "a path above the workspace root",
+	}}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			files := map[string]string{
+				"package.json":                          `{"name":"w"}` + "\n",
+				filepath.Join(tc.leaf, "tsconfig.json"): `{"compilerOptions": {"types": ["../worker-configuration.d.ts"]}}` + "\n",
+				filepath.Join(tc.leaf, "index.spec.ts"): "export const env = 1;\n",
+			}
+			for rel, body := range tc.files {
+				files[rel] = body
+			}
+			writeWorkspace(t, root, files)
+			logged := captureLog(t, func() { convergeGazelle(t, root) })
+
+			if !strings.Contains(logged, tc.said) {
+				t.Errorf("the refusal was not said: %s", logged)
+			}
+			if n := strings.Count(logged, "typescript: the tsconfig in"); n != 1 {
+				t.Errorf("the refusal was said %d times, want once: %s", n, logged)
+			}
+			below := generated(t, root, filepath.FromSlash(tc.leaf), "BUILD.bazel")
+			if strings.Contains(below, "types_srcs") || strings.Contains(below, "worker-configuration") {
+				t.Errorf("an entry nothing stages produced the pair anyway:\n%s", below)
+			}
+			if _, err := os.Stat(filepath.Join(root, "worker", "BUILD.bazel")); err == nil {
+				if owner := generated(t, root, "worker", "BUILD.bazel"); strings.Contains(owner, "tsconfig_types") {
+					t.Errorf("a directory whose tsconfig names no file got a filegroup:\n%s", owner)
+				}
+			}
+		})
+	}
+}
+
+// The tsconfig at the directory the hops name decides, whatever sits between:
+// the leaf's list replaces the one between whole, as `extends` does.
+func TestRootAmbientTypes_ParentEntryClimbsPastTheTsconfigsBetween(t *testing.T) {
+	cases := []struct {
+		name        string
+		files       map[string]string
+		between     []string
+		betweenSrcs []string
+	}{{
+		name: "the tsconfig between names other entries",
+		files: map[string]string{
+			"worker/test/tsconfig.json":      `{"extends": "../tsconfig.json", "compilerOptions": {"types": ["node"]}}` + "\n",
+			"worker/test/deep/tsconfig.json": `{"extends": "../tsconfig.json", "compilerOptions": {"types": ["../../worker-configuration.d.ts"]}}` + "\n",
+		},
+		between: []string{"node"},
+	}, {
+		name: "the tsconfig between carries the entry one hop shorter",
+		files: map[string]string{
+			"worker/test/tsconfig.json":      `{"extends": "../tsconfig.json", "compilerOptions": {"types": ["../worker-configuration.d.ts"]}}` + "\n",
+			"worker/test/deep/tsconfig.json": `{"extends": "../tsconfig.json", "compilerOptions": {"types": ["../../worker-configuration.d.ts"]}}` + "\n",
+		},
+		between:     []string{"../worker-configuration.d.ts"},
+		betweenSrcs: []string{"//worker:tsconfig_types"},
+	}, {
+		name: "no tsconfig between",
+		files: map[string]string{
+			"worker/test/deep/tsconfig.json": `{"extends": "../../tsconfig.json", "compilerOptions": {"types": ["../../worker-configuration.d.ts"]}}` + "\n",
+		},
+		between:     []string{"../worker-configuration.d.ts"},
+		betweenSrcs: []string{"//worker:tsconfig_types"},
+	}}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			files := map[string]string{
+				"package.json":                     `{"name":"w"}` + "\n",
+				"worker/tsconfig.json":             `{"compilerOptions": {"types": ["./worker-configuration.d.ts"]}}` + "\n",
+				"worker/worker-configuration.d.ts": workerAmbient,
+				"worker/test/index.spec.ts":        "export const env = 1;\n",
+				"worker/test/deep/index.spec.ts":   "export const env = WORKER_ENV;\n",
+			}
+			for rel, body := range tc.files {
+				files[rel] = body
+			}
+			writeWorkspace(t, root, files)
+			logged := captureLog(t, func() { convergeGazelle(t, root) })
+			if strings.Contains(logged, "compilerOptions.types") {
+				t.Errorf("an entry the tsconfig two directories up stages was refused: %s", logged)
+			}
+
+			requireTypesPair(t, loadRules(t, root, "worker/test/deep"), "ts_test", "deep_test",
+				[]string{"../../worker-configuration.d.ts"}, []string{"//worker:tsconfig_types"})
+			requireTypesPair(t, loadRules(t, root, "worker/test"), "ts_test", "test_test", tc.between, tc.betweenSrcs)
+			for _, dir := range []string{"worker/test", "worker/test/deep"} {
+				if build := generated(t, root, filepath.FromSlash(dir), "BUILD.bazel"); strings.Contains(build, `name = "tsconfig_types"`) {
+					t.Errorf("%s got a filegroup over a file it does not hold:\n%s", dir, build)
+				}
+			}
+		})
+	}
+}
+
+// A list with no file entry is the same one key that `extends` replaces whole;
+// the rule resolves a package entry from deps, so no types_srcs and no filegroup.
+func TestRootAmbientTypes_PackageOnlyListIsWrittenWhole(t *testing.T) {
+	root := t.TempDir()
+	writeWorkspace(t, root, map[string]string{
+		"package.json":      `{"name":"w"}` + "\n",
+		"app/tsconfig.json": `{"compilerOptions": {"types": ["vite/client"]}}` + "\n",
+		"app/index.ts":      "export const mode = import.meta.env.MODE;\n",
+		"app/src/main.ts":   "export const mode = import.meta.env.MODE;\n",
+	})
+	captureLog(t, func() { convergeGazelle(t, root) })
+
+	for pkg, name := range map[string]string{"app": "app", "app/src": "src"} {
+		requireTypesPair(t, loadRules(t, root, pkg), "ts_compile", name, []string{"vite/client"}, nil)
+		for _, r := range loadRules(t, root, pkg) {
+			if r.Kind() == "ts_compile" && r.Name() == name && !hasLabel(r.AttrStrings("deps"), "@npm//:vite") {
+				t.Errorf("//%s:%s names vite/client in types and has no dep the rule can resolve it from: %q",
+					pkg, name, r.AttrStrings("deps"))
+			}
+		}
+	}
+	if owner := generated(t, root, "app", "BUILD.bazel"); strings.Contains(owner, "tsconfig_types") {
+		t.Errorf("a list naming no file got a filegroup:\n%s", owner)
+	}
+}
+
+// `"types": []` names no file and the generated config inherits the empty list
+// through `extends`: nothing to write.
+func TestRootAmbientTypes_EmptyListWritesNothing(t *testing.T) {
+	root := t.TempDir()
+	writeWorkspace(t, root, map[string]string{
+		"package.json":      `{"name":"w"}` + "\n",
+		"app/tsconfig.json": `{"compilerOptions": {"types": []}}` + "\n",
+		"app/index.ts":      "export const ok = 1;\n",
+	})
+	captureLog(t, func() { convergeGazelle(t, root) })
+
+	if owner := generated(t, root, "app", "BUILD.bazel"); strings.Contains(owner, "types =") {
+		t.Errorf("an empty list wrote a types attribute:\n%s", owner)
+	}
+}
+
+func requireTypesPair(t *testing.T, rules []*rule.Rule, kind, name string, types, typesSrcs []string) {
+	t.Helper()
+	for _, r := range rules {
+		if r.Kind() != kind || r.Name() != name {
+			continue
+		}
+		if got := r.AttrStrings("types"); strings.Join(got, " ") != strings.Join(types, " ") {
+			t.Errorf("%s(%q) carries types = %q, want %q", kind, name, got, types)
+		}
+		if got := r.AttrStrings("types_srcs"); strings.Join(got, " ") != strings.Join(typesSrcs, " ") {
+			t.Errorf("%s(%q) carries types_srcs = %q, want %q", kind, name, got, typesSrcs)
+		}
+		return
+	}
+	t.Errorf("no %s named %q was generated, so this test says nothing about it", kind, name)
 }

@@ -23,7 +23,7 @@ func main() {
 		WorkspaceRel: "tests/integration/gazelle_roundtrip",
 		Lockfile:     "tests/npm/pnpm-lock.yaml",
 	}, func(it *harness.IT) {
-		dirs := []string{"src/lib", "src/app", "src/icons", "src/typed", "worker", "worker/src", "aliased", "aliased/shared", "aliased/src"}
+		dirs := []string{"src/lib", "src/app", "src/icons", "src/typed", "worker", "worker/src", "worker/test", "worker/test/deep", "aliased", "aliased/shared", "aliased/src"}
 
 		// Written here rather than shipped in the workspace: a BUILD file under
 		// a --deleted_packages entry is a package of the OUTER workspace, and
@@ -420,6 +420,8 @@ func rootAmbientTypesReachTheTreeBelow(it *harness.IT) {
 	everyKindLoads(it, below)
 	inheritedEntryResolvesToNothing(it, below)
 	theDeclarationStopsAtTheSubtree(it)
+	parentEntryNamesTheAncestorsLabel(it)
+	packageOnlyListIsWrittenWhole(it)
 }
 
 // Writing an attribute is not Bazel accepting it: a ts_test that does not take
@@ -433,9 +435,9 @@ func everyKindLoads(it *harness.IT, below string) {
 	}
 	it.Pass("both rules Gazelle wrote in worker/src carry the pair")
 
-	targets := strings.Fields(it.BazelStdout("query", "kind(ts_test, //worker/...)"))
+	targets := strings.Fields(it.BazelStdout("query", "kind(ts_test, //worker/src/...)"))
 	if len(targets) != 1 {
-		it.Fail("expected one generated ts_test under //worker, got %v -- the load below would be vacuous", targets)
+		it.Fail("expected one generated ts_test under //worker/src, got %v -- the load below would be vacuous", targets)
 	}
 	it.Pass("Bazel loaded the package Gazelle wrote both attributes into: %s", targets[0])
 
@@ -530,4 +532,54 @@ ts_compile(
 		it.Fail("//outside:leaked failed for some other reason than the undefined identifier")
 	}
 	it.Pass("the same dep edge carries no declaration out of the subtree: TS2304")
+}
+
+// worker/test names the worker's declaration as `../` and worker/test/deep as
+// `../../`; the one label staging it is the filegroup beside the worker's tsconfig.
+func parentEntryNamesTheAncestorsLabel(it *harness.IT) {
+	for _, leaf := range []struct{ dir, entry string }{
+		{"worker/test", "../worker-configuration.d.ts"},
+		{"worker/test/deep", "../../worker-configuration.d.ts"},
+	} {
+		build := it.Path(leaf.dir, "BUILD.bazel")
+		it.RequireContains(build, `types = ["`+leaf.entry+`"]`,
+			"//%s names no %s entry", leaf.dir, leaf.entry)
+		it.RequireContains(build, `types_srcs = ["//worker:tsconfig_types"]`,
+			"//%s names no label of the ancestor staging the declaration", leaf.dir)
+		it.RequireNotContains(build, `name = "tsconfig_types"`,
+			"%s got a filegroup over a file it does not hold", leaf.dir)
+		it.Pass("//%s carries the %s entry and the ancestor's label", leaf.dir, leaf.entry)
+	}
+
+	targets := strings.Fields(it.BazelStdout("query", "kind(ts_test, //worker/test/...)"))
+	if len(targets) != 2 {
+		it.Fail("expected one generated ts_test in each of //worker/test and //worker/test/deep, got %v -- the run below would be vacuous", targets)
+	}
+	it.MustBazel(append([]string{"test"}, targets...)...)
+	it.Pass("%s run, so each test program resolved its entry through //worker:tsconfig_types", strings.Join(targets, " and "))
+}
+
+// src/app/tsconfig.json names vite/client and no file; the rule puts a package
+// entry's declaration in `files` only when the attribute carries the entry.
+func packageOnlyListIsWrittenWhole(it *harness.IT) {
+	build := it.Path("src/app/BUILD.bazel")
+	it.RequireContains(build, `types = ["vite/client"]`,
+		"//src/app carries no types for a package-only list")
+	it.RequireNotContains(build, "types_srcs",
+		"//src/app got a types_srcs with no file to stage")
+	it.Pass("//src/app carries the package-only list and no types_srcs")
+
+	restore := it.Read(build)
+	it.Replace(build, "    types = [\"vite/client\"],\n", "")
+	log, err := it.BazelLog("package_entry_inherited_only", "build", "//src/app")
+	it.Write(build, restore)
+	if err == nil {
+		log.Dump()
+		it.Fail("//src/app compiled with the entry inherited through extends alone; Gazelle need not write it")
+	}
+	if !log.Contains("TS2339") {
+		log.Dump()
+		it.Fail("//src/app failed for some other reason than import.meta.env")
+	}
+	it.Pass("with the entry inherited alone, import.meta.env is TS2339: the attribute is what puts vite/client in the program")
 }

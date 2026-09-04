@@ -451,19 +451,51 @@ ts_compile(
 )
 ```
 
-The whole `types` list is written, not just the file entries. `types` is one
-key and `extends` replaces it whole, so a target carrying a subset would drop
-the packages the project asked for. Whether those resolve is unchanged: a
-package entry is answered from `deps`, which the `ts_ambient_types` reading of
-the same key already supplies.
+The whole `types` list is written, not just the file entries, and a list with
+no file entry is written too, with no `types_srcs`. `types` is one key and
+`extends` replaces it whole, so a target carrying a subset would drop the
+packages the project asked for. A package entry is resolved from `deps`, which
+the `ts_ambient_types` reading of the same key already supplies; see
+[a `types` entry that names a package](../rules/ts-compile.md#a-types-entry-that-names-a-package).
+
+A `../<name>.d.ts` entry names a file in an ancestor directory, the way a test
+directory's tsconfig names the worker's declaration beside the tsconfig it
+extends. The label staging it is the one written beside the tsconfig at the
+directory the entry climbs to, whichever tsconfigs sit between, so that
+tsconfig has to name the file as `./<name>.d.ts` in its own
+`compilerOptions.types`:
+
+```jsonc
+// workers/proxy/test/tsconfig.json
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": { "types": ["../worker-configuration.d.ts"] }
+}
+```
+
+```python
+# workers/proxy/test/BUILD.bazel
+ts_test(
+    name = "test_test",
+    srcs = ["handler.test.ts"],
+    tsconfig = ":tsconfig",
+    types = ["../worker-configuration.d.ts"],
+    types_srcs = ["//workers/proxy:tsconfig_types"],
+    deps = ["//workers/proxy/src", "@npm//:vitest"],
+)
+```
+
+A directory below the leaf carries the entry rebased again,
+`../../worker-configuration.d.ts`, and the same label.
 
 `compilerOptions.types` is the only key read for this. A declaration named in
 `include` gets nothing: `include` does not survive `extends` into the generated
-config, which states its own, so it makes no claim about the tree below it. Two
-shapes are logged and produce nothing: an entry naming a path outside the
-tsconfig's own directory, which no label of that package can stage, and one
-naming a file that is neither there nor written by a `ts_worker_types` target
-beside the tsconfig.
+config, which states its own, so it makes no claim about the tree below it.
+Three shapes are logged and produce nothing: an entry naming a path below the
+tsconfig's directory or below an ancestor's, which no label there stages; a
+`../` entry the tsconfig at the directory it climbs to does not name, or that
+climbs above the workspace root; and one naming a file that is neither there
+nor written by a `ts_worker_types` target beside the tsconfig.
 
 ## Automatic Lint Targets
 

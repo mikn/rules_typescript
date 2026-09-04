@@ -179,23 +179,29 @@ func TestTsConfigTypes_EntryShapesAreClassifiedLikeTheRule(t *testing.T) {
 	}
 }
 
-// The other half of the same vocabulary, and tsc names a .mjs module's
-// declaration .d.mts: a file entry is one whatever declaration extension it ends in.
+// The other half of the same vocabulary: a file entry is one whatever
+// declaration extension it ends in, and each leading `../` is one directory up.
 func TestTsConfigTypes_FileEntryNamesEveryDeclarationExtension(t *testing.T) {
 	for _, tc := range []struct {
 		entry  string
+		hops   int
 		name   string
 		isFile bool
 	}{
-		{"./worker-configuration.d.ts", "worker-configuration.d.ts", true},
-		{"./compile.d.mts", "compile.d.mts", true},
-		{"./shim.d.cts", "shim.d.cts", true},
-		{"./types/globals.d.mts", "", true},
-		{"./typings", "", false},
+		{"./worker-configuration.d.ts", 0, "worker-configuration.d.ts", true},
+		{"./compile.d.mts", 0, "compile.d.mts", true},
+		{"./shim.d.cts", 0, "shim.d.cts", true},
+		{"../worker-configuration.d.ts", 1, "worker-configuration.d.ts", true},
+		{"../../worker-configuration.d.ts", 2, "worker-configuration.d.ts", true},
+		{"./types/globals.d.mts", 0, "", true},
+		{"../types/globals.d.ts", 1, "", true},
+		{"./typings", 0, "", false},
+		{"../typings", 0, "", false},
 	} {
-		name, isFile := typeEntryFileName(tc.entry)
-		if name != tc.name || isFile != tc.isFile {
-			t.Errorf("typeEntryFileName(%q) = (%q, %v), want (%q, %v)", tc.entry, name, isFile, tc.name, tc.isFile)
+		hops, name, isFile := typeEntryFileName(tc.entry)
+		if hops != tc.hops || name != tc.name || isFile != tc.isFile {
+			t.Errorf("typeEntryFileName(%q) = (%d, %q, %v), want (%d, %q, %v)",
+				tc.entry, hops, name, isFile, tc.hops, tc.name, tc.isFile)
 		}
 	}
 }
