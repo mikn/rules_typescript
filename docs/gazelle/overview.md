@@ -282,7 +282,9 @@ Non-TypeScript libraries keep the extension in the name: `button.css` →
 `ts_compile` target free (a `components/` directory holding `components.css`
 would otherwise generate two targets named `components`) and keeps files that
 share a stem apart (`logo.svg` and `logo.json`). A tie that survives both gets a
-numeric suffix on the later name (`_2`).
+numeric suffix on the later name (`_2`). A plain `srcs` list on one of these
+rules is read back as a claim on its file, so the rule is written once; the run
+after the file is deleted removes it.
 
 The generated `ts_dev_server` gets `plugin` set and no `server`, so it runs the
 default Vite implementation. Gazelle writes the rule only when the package has

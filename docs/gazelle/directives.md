@@ -64,7 +64,7 @@ ts_compile(
 
 `visibility` is the common case: it is a merged attribute and every rule Gazelle
 generates carries `//visibility:public`, so without `# keep` a hand-narrowed
-visibility widens back on every run. See
+visibility widens back on every run that re-emits the rule. See
 [getting the clean-tree diff to empty](overview.md#getting-the-clean-tree-diff-to-empty).
 
 ### Attributes Gazelle Owns
@@ -79,7 +79,6 @@ is replaced unless a `# keep` holds it. `ts_compile.deps` and
 | `ts_test` | `srcs`, `deps`, `tsconfig`, `path_aliases`, `path_alias_srcs` |
 | `ts_config` | `src`, `deps`, `visibility` |
 | `ts_lint` | `srcs`, `linter`, `linter_binary`, `config`, `fail_on_warnings` |
-| `css_library`, `css_module`, `asset_library`, `json_library` | `srcs`, `deps`, `visibility` |
 | `asset_library` | `declaration_type`, one entry per extension a `ts_asset_declaration_type` directive names; an extension no directive names is yours |
 | `ts_codegen` | `outs`, `out_dir`, `visibility` |
 | `next_build` | `srcs` (a `glob()`), `staging_srcs`, `config`, `tsconfig`, `node_modules` |
@@ -137,12 +136,25 @@ and asks for no ambient types at all, dropping the package entries the tsconfig
 named along with the file. A `# keep` above the whole `ts_compile` keeps
 whatever you wrote and leaves the entries where `extends` puts them, unresolved.
 
-Three kinds are the exception: the package-level `ts_dev_server` named `dev`,
-`ts_pnpm` and `ts_add_package`. Each is written once, when no rule of that name
-exists, and left alone from then on. Gazelle emits no candidate for a rule that
-already exists, so the merger never runs on one. `ts_add_package` declares
-`pnpm_lock` mergeable and no merge ever reaches it. Their attributes are yours
-after the first run, `# keep` or not. The `ts_dev_server` a framework bundle
+Seven kinds are the exception: the package-level `ts_dev_server` named `dev`,
+`ts_pnpm`, `ts_add_package`, `css_library`, `css_module`, `asset_library` and
+`json_library`. Each is written once and left alone while it holds its claim:
+Gazelle emits no candidate for it, so the merger never runs on it, and its
+attributes are yours from the second run on, `# keep` or not;
+`asset_library.declaration_type` is written into the existing rule, as the table
+says. The first three claim a name and are written when no rule of that name
+exists. A data-file rule claims a file. Gazelle writes one when the file is in
+no plain `srcs` of a `ts_compile`, `ts_test`, `css_library`, `css_module`,
+`asset_library` or `json_library` in the package; the `srcs` it recomputes on
+the `ts_compile` and `ts_test` targets it writes itself do not count, and
+neither does a `filegroup` naming the file. Later runs read the rule's own
+`srcs` as the claim, so a `glob()` there claims nothing: the rule gets a
+candidate on every run, `visibility` widens back, and the merger logs the
+`glob()` it cannot merge. When the file is deleted, the next run removes the
+rule, as it removes a `ts_compile` with no sources; `# keep` above the rule
+holds it. A `srcs` holding a label, a file a rule in the package generates, or
+a `glob()` is not judged. `ts_add_package` declares `pnpm_lock`
+mergeable and no merge ever reaches it. The `ts_dev_server` a framework bundle
 writes beside `ts_bundle` at the workspace root is not one of them: it is
 re-emitted on every run like the bundle, and its `entry_point` and
 `node_modules` are recomputed.

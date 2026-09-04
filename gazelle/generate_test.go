@@ -831,3 +831,118 @@ func TestGenerate_DeclarationAnswersForTheJavaScriptItDeclares(t *testing.T) {
 		t.Errorf("ts_test deps = %v, want the sibling ts_compile holding compile.d.mts", deps)
 	}
 }
+
+// emptyRuleNames lists the rules a result withdraws, as kind(name).
+func emptyRuleNames(res language.GenerateResult) []string {
+	var names []string
+	for _, r := range res.Empty {
+		names = append(names, r.Kind()+"("+r.Name()+")")
+	}
+	return names
+}
+
+func withdraws(res language.GenerateResult, kind, name string) bool {
+	for _, r := range res.Empty {
+		if r.Kind() == kind && r.Name() == name {
+			return true
+		}
+	}
+	return false
+}
+
+// A data-file rule is read back on later runs as a claim on its file, so the run
+// after the file is deleted regenerated nothing over it and the rule stayed.
+func TestGenerate_DataFileRuleWhoseFileIsGoneIsWithdrawn(t *testing.T) {
+	res := runGenerateWithBuild(t, "web", `
+asset_library(
+    name = "compiled_README_md",
+    srcs = ["compiled/README.md"],
+    visibility = ["//visibility:public"],
+)
+
+json_library(
+    name = "tokens_json",
+    srcs = ["tokens.json"],
+    visibility = ["//visibility:public"],
+)
+`, map[string]string{
+		"app.ts":      "export const x = 1;\n",
+		"tokens.json": "{}\n",
+	})
+
+	if !withdraws(res, "asset_library", "compiled_README_md") {
+		t.Errorf("asset_library compiled_README_md names a file that is gone and is not withdrawn; Empty = %v", emptyRuleNames(res))
+	}
+	if withdraws(res, "json_library", "tokens_json") {
+		t.Errorf("json_library tokens_json names a file still on disk and is withdrawn; Empty = %v", emptyRuleNames(res))
+	}
+}
+
+// The directory the file left behind may hold nothing else, which is the path
+// that returned before any existing rule was read.
+func TestGenerate_DataFileRuleInAnEmptiedDirectoryIsWithdrawn(t *testing.T) {
+	res := runGenerateWithBuild(t, "icons", `
+asset_library(
+    name = "logo_svg",
+    srcs = ["logo.svg"],
+    visibility = ["//visibility:public"],
+)
+`, map[string]string{})
+
+	if !withdraws(res, "asset_library", "logo_svg") {
+		t.Errorf("asset_library logo_svg is alone in a directory holding no file and is not withdrawn; Empty = %v", emptyRuleNames(res))
+	}
+}
+
+// A label, a glob() and a file another rule in the package generates are all
+// present as far as the run can tell, and a rule naming one stays.
+func TestGenerate_DataFileRuleItCannotJudgeIsLeftAlone(t *testing.T) {
+	repoRoot := t.TempDir()
+	dir := filepath.Join(repoRoot, "web")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f, err := rule.LoadData(filepath.Join(dir, "BUILD.bazel"), "web", []byte(`
+asset_library(
+    name = "generated_svg",
+    srcs = ["generated.svg"],
+)
+
+asset_library(
+    name = "from_label",
+    srcs = [":some_target"],
+)
+
+asset_library(
+    name = "globbed",
+    srcs = glob(["*.png"]),
+)
+
+css_library(
+    name = "gone_css",
+    srcs = ["gone.css"],
+)
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &config.Config{RepoRoot: repoRoot, Exts: make(map[string]interface{})}
+	configureTsConfig(c, "", nil)
+	configureTsConfig(c, "web", f)
+	res := generateRules(language.GenerateArgs{
+		Config:   c,
+		Dir:      dir,
+		Rel:      "web",
+		File:     f,
+		GenFiles: []string{"generated.svg"},
+	})
+
+	for _, kept := range []string{"generated_svg", "from_label", "globbed"} {
+		if withdraws(res, "asset_library", kept) {
+			t.Errorf("asset_library %s is withdrawn over a srcs this run cannot judge; Empty = %v", kept, emptyRuleNames(res))
+		}
+	}
+	if !withdraws(res, "css_library", "gone_css") {
+		t.Errorf("css_library gone_css names a file that is gone and is not withdrawn; Empty = %v", emptyRuleNames(res))
+	}
+}
