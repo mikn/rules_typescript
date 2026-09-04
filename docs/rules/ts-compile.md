@@ -283,10 +283,12 @@ either, so the check would have no label to suggest.
 
 ### Action Inputs
 
-The action inputs stay transitive. One `paths` map serves the whole type
-program; without the transitive entries a declared dep's own `.d.ts` could not
-resolve its imports, and TypeScript would widen them to `any` without a report.
-`TsStrictDeps` stops your own source from using them.
+The action inputs stay transitive, and so does `paths`: one map serves the whole
+type program, and it names every npm package the closure reaches, through a
+direct dep's own dependencies or through a `ts_compile` dep's. A dep's emitted
+`.d.ts` imports the packages the dep declared and resolves them in this
+program; without the key TypeScript widens what that declaration exports to
+`any` without a report. `TsStrictDeps` stops your own source from using them.
 
 ### `@types/*` Packages
 
@@ -730,9 +732,10 @@ Fields for all three, and the load path, are in
 - **`JsInfo`**: this target's `.js` and `.js.map` files as direct depsets, and
   the closure of both as transitive ones; `ts_binary` and `ts_bundle` read the
   transitive `.js` set
-- **`TsDeclarationInfo`**: this target's declarations and their closure, plus
-  the global-entry files `public_globals` produces; a downstream `ts_compile`
-  type-checks against the closure
+- **`TsDeclarationInfo`**: this target's declarations and their closure, the
+  npm packages that closure imports, plus the global-entry files
+  `public_globals` produces; a downstream `ts_compile` type-checks against the
+  closure and writes a `paths` key per package
 - **`TsModuleInfo`**: the `module_name` this target is importable as, plus the
   directories its declarations land in, propagated transitively so a dependent
   can build its own `paths` entries

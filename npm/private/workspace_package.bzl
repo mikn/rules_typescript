@@ -79,9 +79,9 @@ def _workspace_npm_deps_impl(target, ctx):
 _workspace_npm_deps = aspect(
     implementation = _workspace_npm_deps_impl,
     attr_aspects = ["deps"],
-    doc = "Collects the npm packages a workspace member imports, which its own " +
-          "providers do not carry: ts_compile forwards declarations and files, " +
-          "not the package identities a node_modules tree places directories by.",
+    doc = "Collects the npm packages a workspace member imports. TsDeclarationInfo " +
+          "carries the closure; the direct set, which names the top-level " +
+          "directories of a node_modules tree, travels nowhere else.",
 )
 
 def _label_text(label):

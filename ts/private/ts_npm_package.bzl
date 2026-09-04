@@ -146,6 +146,12 @@ def _ts_npm_package_impl(ctx):
             ctx.file.exports_types,
         )
 
+    transitive_npm_deps = depset(
+        direct_npm_dep_infos,
+        transitive = transitive_npm_dep_sets,
+        order = "postorder",
+    )
+
     return [
         DefaultInfo(
             files = depset(all_files),
@@ -162,6 +168,7 @@ def _ts_npm_package_impl(ctx):
                 transitive = transitive_dts_sets,
                 order = "postorder",
             ),
+            transitive_npm_packages = transitive_npm_deps,
             global_entry_files = depset(),
             transitive_global_entry_files = depset(),
         ),
@@ -176,13 +183,7 @@ def _ts_npm_package_impl(ctx):
             json_files = depset(json_files),
             declaration_files = direct_decls,
             direct_deps = direct_npm_dep_infos,
-            transitive_deps = depset(
-                # Include direct dep NpmPackageInfo instances so that
-                # consumers can find them in the flattened transitive list.
-                direct_npm_dep_infos,
-                transitive = transitive_npm_dep_sets,
-                order = "postorder",
-            ),
+            transitive_deps = transitive_npm_deps,
             transitive_package_dirs = depset(
                 transitive = transitive_pkg_dir_sets,
                 order = "postorder",

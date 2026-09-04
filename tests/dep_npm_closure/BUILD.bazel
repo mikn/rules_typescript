@@ -1,0 +1,35 @@
+"""A dep's npm closure reaches the consumer's `paths`.
+
+lib.d.ts imports zod, which :consumer never declares. Its program holds zod's
+declarations through :lib's closure, and resolving that import takes a `paths`
+key from the same closure; without it `Props` keeps only its own member, and
+consumer.ts is TS2353.
+"""
+
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "ts_compile")
+load(":closure_tests.bzl", "closure_paths_test")
+
+package(default_visibility = ["//:__pkg__"])
+
+ts_compile(
+    name = "lib",
+    srcs = ["lib.ts"],
+    deps = ["@npm//:zod"],
+)
+
+ts_compile(
+    name = "consumer",
+    srcs = ["consumer.ts"],
+    deps = [":lib"],
+)
+
+build_test(
+    name = "dep_npm_closure_test",
+    targets = [":consumer"],
+)
+
+closure_paths_test(
+    name = "closure_paths_test",
+    target_under_test = ":consumer",
+)
