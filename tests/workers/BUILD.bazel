@@ -1,5 +1,7 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "ts_compile", "ts_test")
+load("//ts/private:tsconfig_aspect.bzl", "ide_tsconfig")
+load(":shipped_subpath_tests.bzl", "shipped_subpath_editor_test", "shipped_subpath_entry_test")
 
 package(default_visibility = ["//:__pkg__"])
 
@@ -59,6 +61,43 @@ ts_test(
 build_test(
     name = "worker_builds_test",
     targets = [":worker"],
+)
+
+# The manifest has no `exports`, so the subpath is found among the files the
+# package ships; JsRpcPromise is declared there and in no other entry of it.
+ts_compile(
+    name = "experimental_types",
+    srcs = ["src/experimental_types.ts"],
+    lib = [
+        "esnext",
+        "webworker",
+    ],
+    types = ["@cloudflare/workers-types/experimental"],
+    deps = ["@npm_workers//:cloudflare_workers-types"],
+)
+
+shipped_subpath_entry_test(
+    name = "shipped_subpath_entry_test",
+    target_under_test = ":experimental_types",
+)
+
+build_test(
+    name = "experimental_types_build_test",
+    targets = [":experimental_types"],
+)
+
+# Read by the test, never installed: one workspace-wide `files` list would hand
+# the package's 17k-line global script to every editor program in the repo.
+ide_tsconfig(
+    name = "experimental_types_ide_tsconfig",
+    nested_tsconfigs = ["tests/workers/tsconfig.json"],
+    tags = ["manual"],
+    deps = [":experimental_types"],
+)
+
+shipped_subpath_editor_test(
+    name = "shipped_subpath_editor_test",
+    target_under_test = ":experimental_types_ide_tsconfig",
 )
 
 # The generated editor program for this package; see //:refresh_tsconfig.

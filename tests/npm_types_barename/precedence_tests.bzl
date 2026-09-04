@@ -12,7 +12,7 @@ resolve a @types/* package at all.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
-load("//ts/private:ts_compile.bzl", "types_package_alias")
+load("//ts/private:ts_compile.bzl", "types_package_alias", "types_package_name")
 load("//ts/private:tsconfig_aspect.bzl", "WorkspaceCopyInfo", "npm_key_beats", "npm_view")
 
 _TYPES = "+npm+npm__types_"
@@ -106,6 +106,10 @@ def _types_package_alias_impl(ctx):
     asserts.equals(env, "estree", types_package_alias("@types/estree"), "an unscoped name")
     asserts.equals(env, None, types_package_alias("estree"), "a package that is not a @types one")
     asserts.equals(env, None, types_package_alias("@babel/core"), "a scoped package of its own")
+
+    asserts.equals(env, "@types/culori", types_package_name("culori"), "the @types package of an unscoped name")
+    asserts.equals(env, "@types/cloudflare__workers-types", types_package_name("@cloudflare/workers-types"), "and of a scoped one, the scope mangled")
+    asserts.equals(env, "@cloudflare/workers-types", types_package_alias(types_package_name("@cloudflare/workers-types")), "the two are inverses")
 
     # DefinitelyTyped mangles the scope separator, and only the first one: the
     # types for `@a/b__c` are published as `@types/a__b__c`.

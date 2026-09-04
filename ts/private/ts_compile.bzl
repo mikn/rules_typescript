@@ -277,6 +277,16 @@ def types_package_alias(package_name):
     scope, separator, name = unmangled.partition("__")
     return "@" + scope + "/" + name if separator else unmangled
 
+def types_package_name(package_name):
+    """The `@types/*` package DefinitelyTyped publishes `package_name`'s declarations as.
+
+    The inverse of `types_package_alias`: `@a/b` is `@types/a__b`. Exported for
+    the unit test.
+    """
+    if package_name.startswith("@"):
+        return "@types/" + package_name[1:].replace("/", "__", 1)
+    return "@types/" + package_name
+
 def include_entry(tsconfig_dir, src_dir, basename):
     """Returns a src's `include` entry, relative to the generated tsconfig.
 
@@ -481,10 +491,24 @@ def types_entry_file(entry, npm_info):
     attribute stays the same reader, rather than a copy that comes to disagree
     about one entry.
 
-    Three package spellings resolve, each one TypeScript would have walked
-    node_modules for: the package itself, one of its `exports` subpaths, and the
-    bare name a paired @types/* package supplies -- `types = ["node"]` is
-    @types/node, which is the only place DefinitelyTyped puts it.
+    Four package spellings resolve, each one TypeScript would have walked
+    node_modules for: the package itself; one of its `exports` subpaths; a
+    subpath its manifest says nothing about, answered by the declaration the
+    package ships there, so `@cloudflare/workers-types/2023-07-01` is that
+    package's `2023-07-01/index.d.ts`; and the bare name a paired @types/*
+    package supplies -- `types = ["node"]` is @types/node, which is the only
+    place DefinitelyTyped puts it.
+
+    For the third, TypeScript consults the manifest three ways before it reads
+    a file, and NpmPackageInfo carries none of the three: a `typesVersions`
+    mapping, a package.json inside the subpath's directory, and whether an
+    `exports` map exists at all, since one that omits the subpath stops tsc.
+    This reads the shipped files alone, in tsc's order
+    (`_shipped_subpath_candidates`). Where a manifest maps the subpath in
+    `typesVersions` the two part: web-streams-polyfill rewrites `dist/types/*`
+    to `dist/types/ts3.6/*`, so `web-streams-polyfill/dist/types/polyfill` is
+    `dist/types/ts3.6/polyfill.d.ts` to tsc and `dist/types/polyfill.d.ts`
+    here. The unit test pins that answer.
     """
     ref = types_entry_package_ref(entry)
     if not ref:
@@ -493,10 +517,41 @@ def types_entry_file(entry, npm_info):
     if ref == name:
         return npm_info.exports_types_file or npm_info.ambient_types_file
     if ref.startswith(name + "/"):
-        return npm_info.subpath_types.get("." + ref[len(name):])
+        subpath = ref[len(name):]
+        return npm_info.subpath_types.get("." + subpath) or _shipped_subpath_file(subpath[1:], npm_info)
     if types_package_alias(name) == ref:
         return npm_info.ambient_types_file
     return None
+
+def _shipped_subpath_candidates(sub, npm_info):
+    """Every file `pkg/<sub>` may resolve to among the package's own, in TypeScript's order.
+
+    typeRoots are read before node_modules is walked, so `<sub>/index.d.ts` under
+    the paired @types package outranks everything the package itself ships, and
+    that package's `<sub>.d.ts` comes last. `shown` is the path as the package
+    publishes it, for the message an unresolved entry fails with.
+    """
+    name, own = npm_info.package_name, npm_info.package_root
+    file, index = "/" + sub + ".d.ts", "/" + sub + "/index.d.ts"
+    shipped = [(own + file, name + file), (own + index, name + index)]
+    if npm_info.types_package_dir:
+        types, types_name = npm_info.types_package_dir.dirname, types_package_name(name)
+        shipped = [(types + index, types_name + index)] + shipped + [(types + file, types_name + file)]
+    return [struct(path = path, shown = shown) for path, shown in shipped]
+
+def _shipped_subpath_file(sub, npm_info):
+    if not sub:
+        return None
+    ranked = {c.path: rank for rank, c in enumerate(_shipped_subpath_candidates(sub, npm_info))}
+    best = None
+
+    # One package's own declarations, and only for a subpath its manifest left
+    # unnamed: a depset answers "which file sits at this path" no other way.
+    for f in npm_info.declaration_files.to_list():
+        rank = ranked.get(f.path)
+        if rank != None and (best == None or rank < best[0]):
+            best = (rank, f)
+    return best[1] if best else None
 
 def _requested_type_files(ctx, npm_info):
     out = []
@@ -710,9 +765,13 @@ def _unresolved_type_reason(entry, npm_infos):
             continue
         if package == entry:
             return "\"{}\" is a dep, but its package.json designates no declarations for the package root.\n".format(package)
-        return "\"{package}\" is a dep, but its package.json designates no declarations for the subpath \"{subpath}\".\n".format(
+        sub = entry[len(package) + 1:]
+        if not sub:
+            return "\"{}\" is a dep, but the entry ends in \"/\" and names no subpath of it.\n".format(package)
+        return "\"{package}\" is a dep, but its package.json designates no declarations for the subpath \"./{sub}\", and nothing is shipped at any path the entry is otherwise answered from: {searched}.\n".format(
             package = package,
-            subpath = "." + entry[len(package):],
+            sub = sub,
+            searched = ", ".join([c.shown for c in _shipped_subpath_candidates(sub, npm_info)]),
         )
     return "No dep of this target publishes \"{}\", and a `types` entry is resolved from this target's own deps -- there is no node_modules for TypeScript to walk.\n".format(package)
 
@@ -1936,8 +1995,13 @@ def _ts_compile_impl(ctx):
             if NpmPackageInfo in dep and dep[NpmPackageInfo].package_name not in untyped:
                 npm_info = dep[NpmPackageInfo]
                 types_candidates.append(npm_info)
-                entries = [npm_info.ambient_types_file] if npm_info.ambient_types_file else []
-                for entry in entries + _requested_type_files(ctx, npm_info):
+
+                # An entry naming this package says which of its declarations
+                # the target wants; the root joins unasked only when none does.
+                entries = _requested_type_files(ctx, npm_info)
+                if not entries and npm_info.ambient_types_file:
+                    entries = [npm_info.ambient_types_file]
+                for entry in entries:
                     for reached in referenced_type_files(entry, npm_info, untyped):
                         ambient_dts[reached.file.path] = reached.file
         if JsInfo in dep:

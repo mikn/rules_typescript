@@ -49,8 +49,10 @@ load(
     "unresolved_test_types_test",
     "unresolved_type_entry_test",
     "unresolved_type_near_miss_test",
+    "unresolved_type_paired_subpath_test",
     "unresolved_type_root_test",
     "unresolved_type_subpath_test",
+    "unresolved_type_trailing_slash_test",
     "zero_config_baseline_test",
 )
 
@@ -197,11 +199,12 @@ quoted_option_test(
 
 # ── compilerOptions.types ────────────────────────────────────────────────────
 
-# The three package spellings a `types` entry takes, all of them resolved from
-# this target's deps because there is no node_modules to walk: an `exports`
+# Three of the four package spellings a `types` entry takes, all of them resolved
+# from this target's deps because there is no node_modules to walk: an `exports`
 # subpath, a @types/* package under its own name, and the bare name that package
-# supplies. import.meta.env is vite/client's, so the src compiles only if the
-# first one resolved.
+# supplies; the fourth, a subpath the manifest leaves unnamed, is
+# //tests/workers:experimental_types. import.meta.env is vite/client's, so the
+# src compiles only if the first one resolved.
 #
 # The subpath is padded on purpose. Gazelle trims an entry before it reads it,
 # so a padded one is an entry it writes the dep for, and this target is where
@@ -361,6 +364,36 @@ ts_compile(
 unresolved_type_subpath_test(
     name = "unresolved_type_subpath_test",
     target_under_test = ":unresolved_type_subpath",
+)
+
+# A package paired with an @types one is searched in both, and the message
+# names every location, in the order TypeScript reads them.
+ts_compile(
+    name = "unresolved_type_paired_subpath",
+    srcs = ["lone.ts"],
+    compiler_options = {"types": ["culori/nope"]},
+    tags = ["manual"],
+    deps = ["@npm//:culori"],
+)
+
+unresolved_type_paired_subpath_test(
+    name = "unresolved_type_paired_subpath_test",
+    target_under_test = ":unresolved_type_paired_subpath",
+)
+
+# A trailing slash names no subpath, and the message says that rather than
+# listing paths with an empty segment.
+ts_compile(
+    name = "unresolved_type_trailing_slash",
+    srcs = ["lone.ts"],
+    compiler_options = {"types": ["vite/"]},
+    tags = ["manual"],
+    deps = ["@npm//:vite"],
+)
+
+unresolved_type_trailing_slash_test(
+    name = "unresolved_type_trailing_slash_test",
+    target_under_test = ":unresolved_type_trailing_slash",
 )
 
 # The dep is there and its manifest designates no declarations at all, root or

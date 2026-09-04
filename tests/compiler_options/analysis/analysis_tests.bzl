@@ -481,13 +481,29 @@ def _generated_types_entry_impl(ctx):
 
 generated_types_entry_test = analysistest.make(_generated_types_entry_impl)
 
-def _fake_npm_package(name, root = None, subpaths = None, ambient = None):
+def _fake_file(path):
+    return struct(path = path, dirname = path.rsplit("/", 1)[0])
+
+# `shipped` and `types_shipped` are package-relative declaration paths under the
+# package's root and its paired @types package's, as declaration_files has both.
+def _fake_npm_package(name, root = None, subpaths = None, ambient = None, shipped = [], types_shipped = []):
+    package_root = "npm/" + name
+    types_root = "npm/@types/" + name
     return struct(
         package_name = name,
+        package_root = package_root,
+        types_package_dir = _fake_file(types_root + "/package.json") if types_shipped else None,
+        declaration_files = depset(
+            [_fake_file(package_root + "/" + p) for p in shipped] +
+            [_fake_file(types_root + "/" + p) for p in types_shipped],
+        ),
         exports_types_file = root,
         subpath_types = subpaths or {},
         ambient_types_file = ambient,
     )
+
+def _path(f):
+    return f.path if f else None
 
 def _types_entry_package_ref_impl(ctx):
     env = unittest.begin(ctx)
@@ -557,6 +573,72 @@ def _types_entry_file_impl(ctx):
     asserts.equals(env, None, types_entry_file("./client.d.ts", vite), "a file, not this package")
     asserts.equals(env, None, types_entry_file("vite/nope", vite), "a subpath it does not designate")
     asserts.equals(env, None, types_entry_file("vitest", vite), "a longer name with the same prefix")
+
+    # A subpath the manifest leaves unnamed resolves to what the package ships
+    # there, `<sub>.d.ts` ahead of `<sub>/index.d.ts`, as tsc's node_modules walk reads.
+    workers = _fake_npm_package(
+        "@cloudflare/workers-types",
+        root = "index.d.ts",
+        shipped = ["index.d.ts", "2023-07-01/index.d.ts", "experimental/index.d.ts"],
+    )
+    asserts.equals(
+        env,
+        "npm/@cloudflare/workers-types/2023-07-01/index.d.ts",
+        _path(types_entry_file("@cloudflare/workers-types/2023-07-01", workers)),
+        "a shipped subpath directory",
+    )
+    asserts.equals(env, None, types_entry_file("@cloudflare/workers-types/2023-07-1", workers), "a directory it does not ship")
+    asserts.equals(env, None, types_entry_file("@cloudflare/workers-types/", workers), "the package with a trailing slash")
+
+    shapes = _fake_npm_package(
+        "shapes",
+        shipped = ["both.d.ts", "both/index.d.ts", "modern.d.mts", "nested/deep.d.ts", "dist/elsewhere.d.ts"],
+    )
+    asserts.equals(env, "npm/shapes/both.d.ts", _path(types_entry_file("shapes/both", shapes)), "a file ahead of the directory of the same name")
+    asserts.equals(env, None, types_entry_file("shapes/modern", shapes), "a .d.mts, which tsc reads for no `types` entry")
+    asserts.equals(env, "npm/shapes/nested/deep.d.ts", _path(types_entry_file("shapes/nested/deep", shapes)), "a subpath more than one directory down")
+    asserts.equals(env, None, types_entry_file("shapes/elsewhere", shapes), "a declaration shipped somewhere else under the root")
+    asserts.equals(env, None, types_entry_file("shapes/nested", shapes), "a directory with no index")
+
+    # Where the manifest has an answer it is the answer; the walk over shipped
+    # files is for the subpaths it is silent about.
+    designated = _fake_npm_package(
+        "designated",
+        subpaths = {"./client": "dist/client.d.ts"},
+        shipped = ["client.d.ts", "dist/client.d.ts"],
+    )
+    asserts.equals(env, "dist/client.d.ts", types_entry_file("designated/client", designated), "the manifest's answer over a same-named shipped file")
+
+    # typesVersions is not carried, so a subpath its map rewrites (tsc reads
+    # dist/types/ts3.6/polyfill.d.ts here) answers with the file at the spelled path.
+    polyfill = _fake_npm_package(
+        "web-streams-polyfill",
+        root = "dist/types/polyfill.d.ts",
+        shipped = ["dist/types/polyfill.d.ts", "dist/types/ponyfill.d.ts", "dist/types/ts3.6/polyfill.d.ts", "dist/types/ts3.6/ponyfill.d.ts"],
+    )
+    asserts.equals(
+        env,
+        "npm/web-streams-polyfill/dist/types/polyfill.d.ts",
+        _path(types_entry_file("web-streams-polyfill/dist/types/polyfill", polyfill)),
+        "a subpath the manifest's typesVersions rewrites: the shipped file at the spelled path",
+    )
+
+    # `react/jsx-runtime` is @types/react's jsx-runtime.d.ts, a file under the
+    # paired @types package: the last place tsc's node_modules walk reads.
+    react = _fake_npm_package("react", shipped = ["own.d.ts"], types_shipped = ["index.d.ts", "jsx-runtime.d.ts"])
+    asserts.equals(env, "npm/@types/react/jsx-runtime.d.ts", _path(types_entry_file("react/jsx-runtime", react)), "a file only the paired @types package ships")
+    asserts.equals(env, "npm/react/own.d.ts", _path(types_entry_file("react/own", react)), "a file only the runtime package ships")
+
+    # With a candidate in both roots, the @types package's directory index is
+    # TypeScript's first answer (typeRoots), its file the last.
+    twice = _fake_npm_package(
+        "twice",
+        shipped = ["both.d.ts", "both/index.d.ts", "file.d.ts", "dir/index.d.ts"],
+        types_shipped = ["both/index.d.ts", "both.d.ts", "file.d.ts", "dir.d.ts"],
+    )
+    asserts.equals(env, "npm/@types/twice/both/index.d.ts", _path(types_entry_file("twice/both", twice)), "the @types package's directory index ahead of all the package ships")
+    asserts.equals(env, "npm/twice/file.d.ts", _path(types_entry_file("twice/file", twice)), "the package's file ahead of the @types package's file")
+    asserts.equals(env, "npm/twice/dir/index.d.ts", _path(types_entry_file("twice/dir", twice)), "the package's directory index ahead of the @types package's file")
 
     scoped = _fake_npm_package(
         "@cloudflare/vitest-pool-workers",
@@ -631,7 +713,16 @@ unresolved_type_entry_test = _fails_with(
 )
 unresolved_type_subpath_test = _fails_with(
     "designates no declarations for the subpath \"./nope\"",
+    "nothing is shipped at any path the entry is otherwise answered from: vite/nope.d.ts, vite/nope/index.d.ts.",
     "Did you mean one of the subpaths it does designate: ./client, ./internal, ./module-runner?",
+)
+unresolved_type_paired_subpath_test = _fails_with(
+    "\"culori\" is a dep, but its package.json designates no declarations for the subpath \"./nope\"",
+    "@types/culori/nope/index.d.ts, culori/nope.d.ts, culori/nope/index.d.ts, @types/culori/nope.d.ts.",
+)
+unresolved_type_trailing_slash_test = _fails_with(
+    "compilerOptions.types entry \"vite/\" on",
+    "\"vite\" is a dep, but the entry ends in \"/\" and names no subpath of it.",
 )
 unresolved_type_root_test = _fails_with(
     "\"picomatch\" is a dep, but its package.json designates no declarations for the package root",

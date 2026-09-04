@@ -338,7 +338,9 @@ def _ambient_entries(rule_attr):
         info = dep[NpmPackageInfo]
         if info.package_name in untyped:
             continue
-        ambient = info.ambient_types_file or _first_requested_file(info, requested)
+
+        # What a `types` entry names outranks the root, as in ts_compile.
+        ambient = _first_requested_file(info, requested) or info.ambient_types_file
         if not ambient:
             continue
         for reached in referenced_type_files(ambient, info, untyped):
