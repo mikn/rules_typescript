@@ -7,10 +7,10 @@
   designates into the generated tsconfig's `files`. An entry no dep answered
   used to resolve to nothing, silently. `tsc` does report one: `error TS2688:
   Cannot find type definition file`, exit 2, with and without a `typeRoots`
-  holding a real type package (typescript 5.9.2). tsgo, the compiler this
-  ruleset runs, prints nothing on either probe and exits 0 (the toolchain's
-  `7.0.0-dev.20260311.1`); it does report `TS2688` for a
-  `/// <reference types="…" />` in a source file, so the silence is this
+  holding a real type package (typescript 5.9.2), and so does tsgo 7.0.2, from
+  the action and naming no dep. The `7.0.0-dev.20260311.1` nightly printed
+  nothing on either probe and exited 0; it did report `TS2688` for a
+  `/// <reference types="…" />` in a source file, so the silence was this
   option's. Through the rule the same entry built green with no output at all,
   and the error landed later on whatever used the missing declarations:
   `TS2339` on `import.meta.env` for a missing `vite/client`, `TS2591` on
@@ -43,5 +43,6 @@
   nothing guards them: a target whose `tsconfig` holds
   `"types": ["vite/client"]` and whose `deps` hold `@npm//:vite` analyses
   without complaint, generates a config whose `files` is empty, and fails in
-  tsgo with `TS2339` on the `import.meta.env` the declarations that never
-  arrived would have typed. Put the entries in `compiler_options`.
+  the compiler: `TS2688` on the entry from tsgo 7.0.2, `TS2339` on the
+  `import.meta.env` the declarations never typed from the nightly. Put the
+  entries in `compiler_options`.

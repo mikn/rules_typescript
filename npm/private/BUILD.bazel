@@ -5,6 +5,7 @@ load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 package(default_visibility = [
     "//npm:__subpackages__",
     "//tests:__subpackages__",
+    "//ts:__subpackages__",
 ])
 
 # npm_import.bzl writes a load() of this file into every generated spoke repo's
@@ -27,9 +28,15 @@ bzl_library(
     name = "npm_import",
     srcs = ["npm_import.bzl"],
     deps = [
+        ":npmrc_auth",
         ":workspace_package",
         "//ts/private:ts_npm_package",
     ],
+)
+
+bzl_library(
+    name = "npmrc_auth",
+    srcs = ["npmrc_auth.bzl"],
 )
 
 bzl_library(

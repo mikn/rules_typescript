@@ -215,7 +215,7 @@ func declarationMovesToACodegen(it *harness.IT) {
 // Every tsconfig.json here is below the root, so tsgo lists each; that the tsgo
 // is the toolchain's, out of the binary's runfiles, only a consumer's run can say.
 func programsAreListedWithTheToolchainsTsgo(it *harness.IT, gazelleLog *harness.Log) {
-	binary := regexp.MustCompile(`listing programs with \S+/ts/toolchain/tsgo_resolved/tsgo \(runfiles\)`).FindString(gazelleLog.Text)
+	binary := regexp.MustCompile(`listing programs with \S+/ts/toolchain/tsgo_resolved/(?:tsc|tsgo) \(runfiles\)`).FindString(gazelleLog.Text)
 	if binary == "" {
 		gazelleLog.Dump()
 		it.Fail("Gazelle did not find tsgo through the runfiles")
@@ -669,11 +669,11 @@ ts_compile(
 		log.Dump()
 		it.Fail("//worker/src compiled on the inherited entry alone; Gazelle need not write one")
 	}
-	if !log.Matches(`(?i)TS2304`) {
+	if !log.Matches(`(?i)TS2688.*worker-configuration\.d\.ts|TS2304`) {
 		log.Dump()
-		it.Fail("//worker/src failed for some other reason than the undefined identifiers")
+		it.Fail("//worker/src failed for some other reason than the inherited entry resolving to nothing")
 	}
-	it.Pass("the entry inherited through extends resolves to nothing: TS2304")
+	it.Pass("the entry inherited through extends resolves to nothing")
 
 	// So types_srcs alone was never the smaller change: the rule guards a
 	// staged file no entry of its own names.
@@ -779,9 +779,9 @@ func packageOnlyListIsWrittenWhole(it *harness.IT) {
 		log.Dump()
 		it.Fail("//src/app compiled with the entry inherited through extends alone; Gazelle need not write it")
 	}
-	if !log.Contains("TS2339") {
+	if !log.Matches(`(?i)TS2688.*vite/client|TS2339`) {
 		log.Dump()
-		it.Fail("//src/app failed for some other reason than import.meta.env")
+		it.Fail("//src/app failed for some other reason than vite/client resolving to nothing")
 	}
-	it.Pass("with the entry inherited alone, import.meta.env is TS2339: the attribute is what puts vite/client in the program")
+	it.Pass("with the entry inherited alone, vite/client resolves to nothing: the attribute is what puts it in the program")
 }

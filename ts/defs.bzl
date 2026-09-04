@@ -145,17 +145,18 @@ def ts_compile(
                                srcs, its deps' passed-through .d.ts, and
                                `types_srcs` -- since that is what a path resolves
                                against. An entry neither answers is an analysis
-                               error: tsgo reports nothing for an entry that
-                               resolves to nothing. A target that sets typeRoots
-                               is exempt for the package shape -- what sits under
-                               one is the compiler's to find -- and not for a
-                               relative entry, which never goes through one.
+                               error naming the dep or file to add; the
+                               compiler's own TS2688 names none. A target that
+                               sets typeRoots is exempt for the package shape --
+                               what sits under one is the compiler's to find --
+                               and not for a relative entry, which never goes
+                               through one.
                                Only this attribute is read: a `types` in the
                                `tsconfig` file is a layer the rule cannot read,
                                so nothing resolves those entries and nothing
-                               guards them -- a package named only there stays
-                               unresolved, with no diagnostic for the entry and
-                               the failure landing on whatever used it.
+                               guards them -- a package named only there reaches
+                               the compiler unresolved, and tsgo 7.0.2 reports
+                               TS2688 for it, naming no dep.
         compiler_options:      Any other compilerOptions, as a dict, e.g.
                                {"allowImportingTsExtensions": True}. Passed
                                through verbatim; relative paths in them resolve

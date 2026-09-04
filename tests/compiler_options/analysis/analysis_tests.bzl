@@ -387,11 +387,21 @@ def _requested_types_impl(ctx):
     # nothing. Analysis reaching this assertion at all is the rest of the
     # coverage -- the guard fails the target for any of the three entries it
     # cannot resolve.
-    files = json.decode(action.content).get("files", [])
+    config = json.decode(action.content)
+    files = config.get("files", [])
     asserts.true(
         env,
         [f for f in files if "npm__vite__" in f and f.endswith("/client.d.ts")],
         "the vite/client declaration is not in `files`: {}".format(files),
+    )
+
+    # Each entry a dep answered leaves the list: TypeScript would resolve it
+    # through node_modules, find nothing, and report TS2688 (tsgo 7.0.2 does).
+    asserts.equals(
+        env,
+        [],
+        config["compilerOptions"].get("types"),
+        "a `types` entry a dep answers is not left for the compiler to resolve",
     )
     return analysistest.end(env)
 

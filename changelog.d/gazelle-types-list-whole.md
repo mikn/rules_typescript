@@ -5,8 +5,10 @@
   entry naming a file in the tsconfig's own directory was read for `deps`
   alone, so `"types": ["vite/client"]` put `@npm//:vite` on the target and no
   `types` attribute; the rule resolves a package entry only from the attribute,
-  so the generated config's `files` stayed empty and `import.meta.env` was
-  `TS2339`. A `../worker-configuration.d.ts` entry, the way a test directory's
+  so the generated config's `files` stayed empty and the entry reached the
+  compiler unresolved: `TS2688` on `vite/client` from tsgo 7.0.2, `TS2339` on
+  `import.meta.env` from the `7.0.0-dev.20260311.1` nightly. A
+  `../worker-configuration.d.ts` entry, the way a test directory's
   tsconfig names the worker's declaration beside the tsconfig it extends, was
   refused as a path outside the tsconfig's directory, an entry tsc accepts.
   `extends` replaces `types` whole, so the leaf's list was the whole answer for

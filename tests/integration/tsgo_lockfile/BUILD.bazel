@@ -1,0 +1,38 @@
+"""Integration test: the tsgo toolchain is the TypeScript a consumer's lockfile pins.
+
+`ts.tsgo(pnpm_lock = ...)` is evaluated in the module extension, so the fetch it
+declares, the version that arrives and the messages a lockfile without a
+fetchable compiler gets cannot be reached from a Starlark unit test: skylib's
+unittest cannot catch a `fail()` raised during extension evaluation, and no
+analysis test downloads anything. //tests/toolchain:tsgo_lock_tests covers what
+the reader makes of a lockfile's text; this test is the only place the fetch,
+the binary that answers `--version`, the integrity gate and the consumer-visible
+refusals are pinned.
+
+The child workspace lives in workspace/ and keeps its root BUILD file as
+BUILD.bazel.tpl, which the runner renames in the scratch copy: a real
+BUILD.bazel there would make workspace/ a subpackage, and glob() does not see
+into a subpackage.
+
+  bazel test //tests/integration/tsgo_lockfile:tsgo_lockfile_test
+"""
+
+load("@bazel_binaries//:defs.bzl", "bazel_binaries")
+load(
+    "@rules_bazel_integration_test//bazel_integration_test:defs.bzl",
+    "bazel_integration_test",
+    "integration_test_utils",
+)
+load("//tests/integration:tags.bzl", "nested_bazel_tags")
+
+bazel_integration_test(
+    name = "tsgo_lockfile_test",
+    timeout = "long",
+    bazel_binaries = bazel_binaries,
+    bazel_version = bazel_binaries.versions.current,
+    data = ["//:MODULE.bazel"],
+    tags = nested_bazel_tags(),
+    test_runner = "//tests/integration/runners:tsgo_lockfile_runner",
+    workspace_files = integration_test_utils.glob_workspace_files("workspace"),
+    workspace_path = "workspace",
+)

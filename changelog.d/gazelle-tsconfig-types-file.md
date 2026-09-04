@@ -7,10 +7,12 @@
   config states its own `files`, `include` and `exclude` and takes
   `compilerOptions` from the project file through `extends`, and TypeScript
   resolves a relative entry against the config the program was invoked with,
-  which is the generated one in `bazel-out`. The entry named nothing, and every
-  global that file declares was `TS2304` in every directory below. On the
-  roundtrip fixture added here, with the entry inherited and the file staged
-  on a dep edge: `TS2552` on `WorkerEnv`, `TS2304` on `WORKER_BUILD_ID`.
+  which is the generated one in `bazel-out`. The entry named nothing in every
+  directory below: `TS2688` on the entry from tsgo 7.0.2, and from the
+  `7.0.0-dev.20260311.1` nightly nothing for the entry and `TS2304` on every
+  global that file declares. On the roundtrip fixture added here, with the
+  entry inherited and the file staged on a dep edge, the nightly gave `TS2552`
+  on `WorkerEnv` and `TS2304` on `WORKER_BUILD_ID`.
 
   Gazelle rebases the entry onto the three kinds that type-check (the package
   `ts_compile`, the `_doc` compile and the `ts_test`) and names the file by a

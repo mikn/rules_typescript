@@ -46,6 +46,8 @@ bzl_library(
     name = "extensions",
     srcs = ["extensions.bzl"],
     deps = [
+        "//npm/private:npm_translate_lock",
         "//ts/private:toolchain",
+        "//ts/private:tsgo_lock",
     ],
 )

@@ -617,17 +617,8 @@ def _bare_package_name(entry):
         return entry
     return entry.split("/")[0]
 
-# A `types` entry that resolves to nothing is `error TS2688: Cannot find type
-# definition file` and exit 2 from tsc, with and without a typeRoots holding a
-# real type package (typescript 5.9.2). tsgo, the compiler this ruleset runs,
-# prints nothing on either probe and exits 0 (the toolchain's
-# 7.0.0-dev.20260311.1). It does report TS2688 for the other spelling of the
-# same wish, a `/// <reference types=...>` in a source file, so the silence is
-# this option's rather than the diagnostic's. An entry no dep answers is
-# therefore a target compiling against a smaller type environment than it asked
-# for with nothing anywhere saying so, and the rule says it here -- as a fail()
-# rather than a print(), because analysis output is not replayed on a cache hit:
-# a warning would be as silent as the bug on every build after the first.
+# tsc and tsgo 7.0.2 report TS2688 for such an entry at action time, naming no
+# dep; a fail() here names it, and unlike a print() survives a cache hit.
 #
 # A `typeRoots` of the target's own is the one case this cannot judge. It names
 # a directory tsgo scans at action time, holding declarations the rule never
@@ -648,18 +639,31 @@ def _fail_on_unresolved_types(ctx, npm_infos):
                 label = ctx.label,
             ) +
             _unresolved_type_reason(ref, npm_infos) +
-            "tsgo reports no error for that, so this target would compile without " +
-            "the declarations the entry names.\n" +
+            "The declarations the entry names would never join this target's program.\n" +
             _unresolved_type_fix(ref, npm_infos),
         )
+
+def _dep_answered_types(ctx, npm_infos):
+    """The `types` entries a dep answers, which the generated config must not repeat.
+
+    Their declarations reach the compiler through `files`; TypeScript resolves
+    the entry itself through typeRoots and node_modules, neither of which the
+    sandbox has, and reports TS2688 for it -- tsgo 7.0.2 included.
+    """
+    answered = {}
+    for entry in _requested_types(ctx):
+        ref = types_entry_package_ref(entry)
+        if ref and _types_entry_resolves(ref, npm_infos):
+            answered[entry] = True
+    return answered
 
 # Keyed by short_path, so a generated file answers by the same workspace-relative
 # path a checked-in one does; _generate_tsconfig writes the entry to where it is.
 def _declaration_type_files(ctx, dep_declarations):
     """The file each relative `types` entry names, keyed by the entry.
 
-    An entry nothing stages fails: tsgo resolves it to nothing and -- as for a
-    package no dep publishes -- says nothing about having done so.
+    An entry nothing stages fails here, naming the label to add; the compiler
+    would report TS2688 for it from the action, naming none.
     """
     written = [types_entry_declaration(entry) for entry in _requested_types(ctx)]
     written = [entry for entry in written if entry]
@@ -689,9 +693,8 @@ def _declaration_type_files(ctx, dep_declarations):
             ) +
             "  which no file this target stages sits at.\n" +
             "The type-check action stages srcs, types_srcs, path_alias_srcs and its " +
-            "deps' declarations, so tsgo would resolve the entry to nothing -- and " +
-            "report nothing for it, the way it reports nothing for a package no dep " +
-            "answers.\nList the file in types_srcs, which stages it without " +
+            "deps' declarations, so the entry would resolve to nothing there.\n" +
+            "List the file in types_srcs, which stages it without " +
             "publishing it as this target's own declaration the way a .d.ts in srcs " +
             "is.\n" +
             ("Did you mean \"{}\"?\n".format(near[0]) if near else ""),
@@ -844,7 +847,8 @@ def _generate_tsconfig(
         isolated_declarations = False,
         emit_root_dir = None,
         emit_out_dir = None,
-        types_files = None):
+        types_files = None,
+        answered_types = None):
     """Generates the tsconfig.json tsgo is invoked with.
 
     Layered lowest precedence first:
@@ -956,6 +960,7 @@ def _generate_tsconfig(
             user_opts[key] = [
                 _rebase_types_entry(entry, package_rel, tsconfig_dir, types_files or {})
                 for entry in user_opts[key]
+                if key != "types" or entry not in (answered_types or {})
             ]
 
     opts.update(user_opts)
@@ -1106,6 +1111,10 @@ def _generate_tsconfig(
         opts["outDir"] = _relative_path(tsconfig_dir, emit_out_dir) if emit_out_dir != None else "."
         opts["declarationDir"] = opts["outDir"]
         opts["rootDir"] = _relative_path(tsconfig_dir, emit_root_dir) if emit_root_dir != None else "."
+    else:
+        # Every input is under the exec root. tsgo 7.0.2 checks the program against
+        # rootDir under --noEmit too (TS6059), inferring the config's own directory.
+        opts["rootDir"] = _relative_path(tsconfig_dir, "")
     if isolated_declarations:
         opts["isolatedDeclarations"] = True
 
@@ -2027,6 +2036,7 @@ def _ts_compile_impl(ctx):
             transitive_package_dir_sets.append(npm_info.transitive_package_dirs)
 
     _fail_on_unresolved_types(ctx, types_candidates)
+    answered_types = _dep_answered_types(ctx, types_candidates)
 
     # Every direct dep claims its name before any transitive one is offered:
     # `paths` has one key per package name, and a transitive dependent's older
@@ -2403,6 +2413,7 @@ def _ts_compile_impl(ctx):
             emit_root_dir = emit_root_dir,
             emit_out_dir = out_base if tsgo_emits_dts else None,
             types_files = declaration_types,
+            answered_types = answered_types,
         )
 
         # Build the depset of transitive npm package.json files so that
@@ -2860,9 +2871,8 @@ dep with module_name is the cheaper boundary where one is available.""",
 `types = ["../../worker-configuration.d.ts"]` is a path, and a path resolves
 against the sandbox: only what this action stages is in it. A src or a dep's
 declaration is already there; this is the attribute for the file that is
-neither, and an entry no staged file sits at is an analysis error -- tsgo
-reports nothing for a `types` entry it resolves to nothing, so the target would
-compile without the declarations it asked for.
+neither, and an entry no staged file sits at is an analysis error naming the
+label to add, where the compiler's own TS2688 from the action would name none.
 
 A label, so the file may live in another package or be a build output -- the
 entry is written to point wherever the file is; and, unlike a .d.ts in srcs,

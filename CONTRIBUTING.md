@@ -64,11 +64,14 @@ bazel run //ts/toolchain:tsgo_resolved -- --version
 bazel run //ts/toolchain:node_resolved -- --version
 ```
 
-The second prints `Version 7.0.0-dev.20260311.1` and the third `v22.23.1`, the
-versions `MODULE.bazel` pins. `oxc_resolved` builds `oxc-bazel` first. No test
-asserts what the three print; `node_resolved` is the node the `tests/dev_server`,
-`tests/lsp` and `tests/integration` suites run, and `//tests/toolchain` pins
-which platform each toolchain's binary comes from.
+The second prints `Version 7.0.2` and the third `v22.23.1`: the `typescript`
+release `ts/private/tsgo/pnpm-lock.yaml` pins and the Node.js version
+`MODULE.bazel` pins. `oxc_resolved` builds `oxc-bazel` first. No test asserts
+what the three print here; `//tests/integration/tsgo_lockfile` asserts what
+`tsgo_resolved` prints in a consumer workspace against that workspace's
+lockfile. `node_resolved` is the node the `tests/dev_server`, `tests/lsp` and
+`tests/integration` suites run, and `//tests/toolchain` pins which platform each
+toolchain's binary comes from.
 
 ### Pre-Push Hook
 

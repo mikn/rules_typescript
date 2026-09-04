@@ -141,6 +141,16 @@ bzl_library(
     name = "toolchain",
     srcs = ["toolchain.bzl"],
     deps = [
+        "//npm/private:npmrc_auth",
+        "//platforms",
+    ],
+)
+
+bzl_library(
+    name = "tsgo_lock",
+    srcs = ["tsgo_lock.bzl"],
+    deps = [
+        "//npm/private:npm_translate_lock",
         "//platforms",
     ],
 )

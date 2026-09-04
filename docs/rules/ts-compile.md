@@ -100,9 +100,9 @@ program and therefore no `.d.ts` at all; see
 
 The generated tsconfig carries the machinery the rules own: `rootDirs` bridging
 the source and output trees, `paths` for npm packages, the `files` list that
-carries each `@types/*` dep, `preserveSymlinks`, and under
-`declarations = "tsgo"` the `outDir`/`rootDir`/`noEmitOnError` triple. A user
-tsconfig supplies the baseline, and the generated one `extends` it.
+carries each `@types/*` dep, `preserveSymlinks`, `rootDir`, and under
+`declarations = "tsgo"` `outDir` and `noEmitOnError`. A user tsconfig supplies
+the baseline, and the generated one `extends` it.
 
 `preserveSymlinks` is what keeps a program to its declared inputs. Bazel stages
 every input as a symlink into the source tree; resolved through the link, a
@@ -550,13 +550,18 @@ its root entry in `files` unasked, the way a direct `@types/*` dep does, so
 `types = ["@cloudflare/workers-types/2023-07-01"]` compiles against that
 date's declarations alone rather than those and the package's latest.
 
+An entry a dep answers is dropped from the generated config: its declarations
+arrive through `files`, and TypeScript resolves the entry itself through
+`typeRoots` and `node_modules`, neither of which the sandbox has.
+
 An entry no dep answers fails at analysis, naming the entry and the dep to
 add; for a subpath of a dep, the message lists every path it looked at, the
 paired `@types/*` package's included, in the order above. `tsc` reports
-`error TS2688: Cannot find type definition file` for such an
-entry; tsgo reports nothing and exits 0, and the failure surfaces on whatever
-used the declarations: `TS2339` on `import.meta.env` without `vite/client`,
-`TS2591` on `process` without `node`.
+`error TS2688: Cannot find type definition file` for such an entry, and so
+does tsgo 7.0.2, from the action and naming no dep; the
+`7.0.0-dev.20260311.1` nightly reported nothing, and the failure surfaced on
+whatever used the declarations: `TS2339` on `import.meta.env` without
+`vite/client`, `TS2591` on `process` without `node`.
 
 Two alternatives to the dep: name a declaration file instead (the next
 section), or set `typeRoots` in `compiler_options`. A target with a `typeRoots`
@@ -569,9 +574,8 @@ find at action time. A declaration-file entry is checked either way.
 against the sandbox. The entry is resolved against the files the action stages:
 `srcs`, the deps' declarations (a `.d.ts` in `srcs` is a declaration output
 unchanged, so a dep edge stages it), `path_alias_srcs`, and `types_srcs`. An
-entry none of them sits at fails at analysis: tsgo reports nothing for a
-`types` entry that resolves to nothing, and the target would compile without
-the declarations it asked for.
+entry none of them sits at fails at analysis, naming the label to add, where
+the compiler's own `TS2688` from the action would name none.
 
 The entry is written into the generated config as the path to the file it
 resolved to. A checked-in declaration is in the source tree; a generated one,
@@ -619,9 +623,9 @@ augmentation inside it needs the module in the program.
 Only the attribute is checked. The rule does not read a `types` in the
 `tsconfig` file the target names: with `"types": ["vite/client"]` in the
 tsconfig and `@npm//:vite` in `deps`, the target analyses, generates a config
-whose `files` is empty, and fails in tsgo with `TS2339` on the
-`import.meta.env` those declarations would have typed. Put the entries in
-`compiler_options`. Gazelle does that where the nearest tsconfig names entries
+whose `files` is empty, and fails in tsgo 7.0.2 with `TS2688` on `vite/client`
+(the 20260311.1 nightly reported `TS2339` on the `import.meta.env` those
+declarations would have typed). Put the entries in `compiler_options`. Gazelle does that where the nearest tsconfig names entries
 and a label stages every file among them, rebasing a file entry onto each
 target below and naming the file in `types_srcs`; see
 [a declaration the tsconfig names](../gazelle/overview.md#a-declaration-the-tsconfig-names).
@@ -796,7 +800,9 @@ tsgo runs as a separate Bazel action against the generated `tsconfig.json`.
 Under `declarations = "tsgo"` that tsconfig sets `declaration`,
 `emitDeclarationOnly`, `rootDir` and `outDir` so the emitted declarations land
 beside Oxc's `.js` (mnemonic `TsgoDeclare`). Under `declarations = "oxc"` it
-runs with `--noEmit` and writes only a stamp (mnemonic `TsgoCheck`).
+runs with `--noEmit` and writes only a stamp (mnemonic `TsgoCheck`); `rootDir`
+is the exec root there, which every input is under, since tsgo checks the
+program against it even when nothing is emitted (`TS6059`).
 
 ## Output Paths
 

@@ -91,7 +91,9 @@ one. A target exporting none runs no such action and provides no such file.
 - `npm/extensions.bzl` — the `npm` module extension (translate_lock, pnpm tags)
 - `npm/lazy.bzl` — whole-graph analysis + one `npm_import` per package + the alias hub
 - `npm/private/npm_import.bzl` — the per-package repository rule and `npm_hub`
+- `npm/private/npmrc_auth.bzl` — the credentials an `.npmrc` grants a fetch; loaded by `npm_import` and the tsgo toolchain's repository rule
 - `ts/private/pnpm.bzl` — hermetic pnpm download + `ts_pnpm`/`ts_add_package` macros
+- `ts/private/tsgo_lock.bzl` — which compiler a pnpm lockfile pins, the reader behind `ts.tsgo(pnpm_lock = ...)`; `ts/private/tsgo/pnpm-lock.yaml` is the default
 - `ts/private/ts_config.bzl` — the public `ts_config` rule (a hand-written tsconfig.json and its `extends` chain)
 - `platforms/platforms.bzl` — the one platform table (`PLATFORMS`) everything loads
 - `ts/toolchain/BUILD.bazel` — toolchain types and instances; `//ts/toolchain:all`

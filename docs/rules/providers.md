@@ -233,6 +233,24 @@ constrained on the exec platform; one Node runtime toolchain per platform in
 `NODE_PLATFORMS`, constrained on the target platform; and one Node tool
 toolchain per platform, constrained on the exec platform.
 
+Which compiler the tsgo toolchains hold is the `ts` extension's to say, and it
+reads a pnpm lockfile: the root importer's `typescript` entry names the version,
+and the `packages:` entries of that version's platform packages
+(`@typescript/typescript-<os>-<cpu>`) carry the tarball and integrity of each
+`lib/tsc`, which is what the per-platform repository rule downloads and
+verifies. A consumer names its own lockfile:
+
+```python
+ts = use_extension("@rules_typescript//ts:extensions.bzl", "ts")
+ts.tsgo(pnpm_lock = "//:pnpm-lock.yaml")
+```
+
+With no call the lockfile is rules_typescript's own
+`ts/private/tsgo/pnpm-lock.yaml`. `ts.tsgo(version = "...")` is the alternative
+for a release no lockfile states, downloaded unverified;
+`package = "@typescript/native-preview"` selects the nightly, whose binary is
+`lib/tsgo`. `TsgoToolchainInfo.tsgo_binary` is that file either way.
+
 `//tests/toolchain:foreign_target_platform_test` pins the split. It analyses a
 probe rule under `--platforms=//platforms:windows_amd64`, a platform with a Node
 runtime and no compiler binary: oxc and tsgo still resolve to exec-platform

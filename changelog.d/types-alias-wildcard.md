@@ -21,7 +21,8 @@
     reads. The entry names a package TypeScript resolves by walking
     `node_modules/@types`, and there is none here, so `tsc` reports
     `TS2688: Cannot find type definition file for 'node'` (measured against
-    typescript 5.9.2) where `tsgo` reports nothing. The editor's copy of
+    typescript 5.9.2) where the `7.0.0-dev.20260311.1` nightly reported
+    nothing. The editor's copy of
     `ts_compile`'s resolver recognised `pkg` and `pkg/sub` and not the bare name
     a paired `@types/*` package supplies. There is now one resolver,
     `types_entry_file`, exported from `ts_compile` and called from both.
