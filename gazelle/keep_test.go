@@ -623,9 +623,8 @@ func TestManagedAttrCasesCoverGeneratedAttrs(t *testing.T) {
 		covered[nc.kind+"."+nc.attr] = struct{}{}
 	}
 
-	// ts_dev_server is written once and then left: generation skips the rule
-	// when one already exists, so no candidate ever reaches the merger and
-	// there is no rewrite to ask about.
+	// ts_dev_server is created only when absent, and a data-file rule's plain srcs
+	// list is a claim no candidate is emitted over: the merger has nothing to ask about.
 	exempt := map[string]string{
 		"ts_dev_server.entry_point":  "created only when absent",
 		"ts_dev_server.port":         "created only when absent",
@@ -635,6 +634,11 @@ func TestManagedAttrCasesCoverGeneratedAttrs(t *testing.T) {
 		"ts_dev_server.host":         "created only when absent",
 		"ts_dev_server.open":         "created only when absent",
 		"ts_dev_server.bundler":      "created only when absent",
+	}
+	for kind := range dataFileKinds {
+		for _, attr := range []string{"srcs", "deps", "visibility"} {
+			exempt[kind+"."+attr] = "created only when absent"
+		}
 	}
 
 	kinds := (&tsLang{}).Kinds()

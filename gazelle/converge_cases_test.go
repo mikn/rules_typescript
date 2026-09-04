@@ -102,6 +102,8 @@ func convergeCases() []convergeCase {
 				"src/lib/helper.ts":      "export const helper = 1;\n",
 				"src/lib/helper.test.ts": "export const t = 1;\n",
 				"src/lib/helper.doc.ts":  "export * from \"./helper\";\n",
+				"src/lib/tokens.json":    `{"a":1}` + "\n",
+				"src/icons/logo.svg":     "<svg/>\n",
 			},
 			mutations: []convergeMutation{
 				{kind: "add_colocated_module", write: map[string]string{"src/routes/home.data.ts": "export const data = 1;\n"}},
@@ -120,6 +122,10 @@ func convergeCases() []convergeCase {
 				{kind: "add_file_to_existing_target", write: map[string]string{"src/lib/format.ts": "export const format = 1;\n"}},
 				{kind: "delete_route", remove: []string{"src/routes/home.ts"}},
 				{kind: "delete_doc", remove: []string{"src/lib/helper.doc.ts"}},
+				// A data-file rule is read back as a claim on its file, so the
+				// run after the deletion has nothing to regenerate over it.
+				{kind: "delete_json_beside_sources", remove: []string{"src/lib/tokens.json"}},
+				{kind: "delete_only_asset_in_dir", remove: []string{"src/icons/logo.svg"}},
 			},
 		},
 		{

@@ -486,6 +486,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	if tsConfigTypesRule == nil && ruleExists(args, "filegroup", tsConfigTypesTargetName) {
 		tsConfigEmpty = append(tsConfigEmpty, rule.NewRule("filegroup", tsConfigTypesTargetName))
 	}
+	staleDataFiles := staleDataFileRules(args)
 
 	totalNonTS := len(cssFiles) + len(cssModuleFiles) + len(assetFiles) + len(jsonFiles)
 	if !isBoundary && len(srcFiles) == 0 && len(testFiles) == 0 && len(docFiles) == 0 &&
@@ -493,7 +494,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		// No TypeScript, CSS, asset, or JSON files and not a boundary: nothing to do.
 		// A declared generator is a target of its own, though: a package whose
 		// sources are all generated holds nothing else.
-		return language.GenerateResult{Empty: tsConfigEmpty}
+		return language.GenerateResult{Empty: append(tsConfigEmpty, staleDataFiles...)}
 	}
 
 	var gen []*rule.Rule
@@ -1013,6 +1014,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		imports = append(imports, nil)
 	}
 	empty = append(empty, tsConfigEmpty...)
+	empty = append(empty, staleDataFiles...)
 
 	result := language.GenerateResult{
 		Gen:     gen,
@@ -1877,6 +1879,39 @@ var dataFileKinds = map[string]bool{
 	"css_module":    true,
 	"asset_library": true,
 	"json_library":  true,
+}
+
+// staleDataFileRules stubs every data-file rule whose srcs name only files that
+// are gone: claimedSrcs reads the rule as a claim, so nothing regenerates over it.
+func staleDataFileRules(args language.GenerateArgs) []*rule.Rule {
+	if args.File == nil {
+		return nil
+	}
+	var stale []*rule.Rule
+	for _, r := range args.File.Rules {
+		if !dataFileKinds[r.Kind()] {
+			continue
+		}
+		srcs := r.AttrStrings("srcs")
+		if len(srcs) == 0 {
+			continue
+		}
+		gone := true
+		for _, src := range srcs {
+			if isLabelSrc(src) || slices.Contains(args.GenFiles, src) {
+				gone = false
+				break
+			}
+			if _, err := os.Stat(filepath.Join(args.Dir, filepath.FromSlash(src))); err == nil {
+				gone = false
+				break
+			}
+		}
+		if gone {
+			stale = append(stale, rule.NewRule(r.Kind(), r.Name()))
+		}
+	}
+	return stale
 }
 
 // codegenOutDirResult withdraws what Gazelle generates inside an out_dir. A BUILD
