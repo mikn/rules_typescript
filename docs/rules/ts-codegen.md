@@ -179,8 +179,7 @@ Some generated files have to be in the source tree. A route tree is one: the
 routes are typed against it, and one `ts_compile` cannot hold both it and them.
 `refresh_workspace_files` copies build outputs into the workspace under
 `bazel run`, and a `diff_test` beside it fails when the checked-in copy drifts.
-`examples/tanstack-app/src/routes/BUILD.bazel` is the worked example, built in
-CI; abridged here to the two rules:
+The two rules, for a TanStack Router route tree:
 
 ```python
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
@@ -231,6 +230,70 @@ under `bazel run` and refuses a destination outside the workspace
 declares one over the generated tsconfig, the hook data and the tsserver plugin
 files, and the nested editor tsconfigs reach the copier through a private
 provider the generator returns.
+
+## Cloudflare Worker Bindings
+
+`wrangler types` turns the bindings a worker reads off `env`, declared in its
+wrangler config, into an `Env` interface plus the runtime's own globals
+(`Request`, `Response`, `KVNamespace` and the rest) for the config's
+compatibility date. The ruleset ships that command as a generator,
+`@rules_typescript//tools/codegen:wrangler_types`, so the declaration is a build
+output and no `worker-configuration.d.ts` is checked in:
+
+```python
+load("@rules_typescript//npm:defs.bzl", "node_modules")
+load("@rules_typescript//ts:defs.bzl", "ts_codegen")
+
+node_modules(
+    name = "node_modules",
+    deps = ["@npm//:wrangler"],
+)
+
+ts_codegen(
+    name = "worker_types",
+    srcs = ["wrangler.jsonc"],
+    outs = ["worker-configuration.d.ts"],
+    args = [
+        "--config",
+        "wrangler.jsonc",
+        "--out",
+        "{out}",
+        "--srcs",
+        "{srcs}",
+        "--strict-vars=false",
+    ],
+    generator = "@rules_typescript//tools/codegen:wrangler_types",
+    node_modules = ":node_modules",
+    visibility = ["//visibility:public"],
+)
+```
+
+The generator takes `--config <basename>`, `--out {out}` and `--srcs {srcs}`,
+then the rest of the `wrangler types` command line as written:
+`--strict-vars=false` types `vars` as `string` rather than their literal values,
+`--env-interface CloudflareBindings` renames the interface,
+`--include-runtime=false` leaves out the runtime half for a program that takes
+it from `@cloudflare/workers-types` (the two are the same declarations, and a
+program holding both gets a duplicate identifier for each), `--env staging`
+picks one environment's bindings. The config is the one src it reads; adding
+the file `main` names to `srcs` puts `Cloudflare.GlobalProps.mainModule` in the
+output and changes nothing else. The runtime half comes from booting the
+`workerd` in `node_modules` over loopback: measured with wrangler 4.126.0 in
+the Bazel sandbox, it needs no network and no `CLOUDFLARE_API_TOKEN`, and two
+runs over one config are byte-identical. A worker typed against the output has
+`lib` without DOM and no `@cloudflare/workers-types` in `deps`.
+
+The output has no top-level import or export, so what it declares is global. A
+tsconfig names it in `compilerOptions.types` as `./worker-configuration.d.ts`,
+and a target names the label that stages it in
+[`types_srcs`](ts-compile.md#a-types-entry-that-names-a-declaration-file);
+Gazelle writes both onto every target under that tsconfig, reading the file
+name off this target's `outs`. Those targets sit in packages of their own, so
+the `visibility` has to reach them. See
+[a declaration the tsconfig names](../gazelle/overview.md#a-declaration-the-tsconfig-names);
+`//tests/worker_types` is the worked example, and the package's nested editor
+program writes the entry through the `bazel-bin` symlink, so `bazel build` puts
+the declarations where the editor reads them.
 
 ## Placeholders in `args`
 

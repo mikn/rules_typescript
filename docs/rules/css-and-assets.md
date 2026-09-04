@@ -90,8 +90,8 @@ TypeError [ERR_UNKNOWN_FILE_EXTENSION]: Unknown file extension ".css" for /…/b
 ```
 
 A target with a `css_library`, `css_module` or `asset_library` dep is consumed
-by [`ts_bundle`](ts-bundle.md), by [`ts_dev_server`](ts-dev-server.md), or by a
-downstream bundler reading the published package.
+by [`ts_dev_server`](ts-dev-server.md), by a [`ts_binary`](ts-binary.md) with a
+bundler, or by a downstream bundler reading the published package.
 
 ## Copies in `bazel-bin`
 
@@ -135,8 +135,9 @@ _<local name>_<first 8 hex of sha256(hash_prefix + stylesheet bytes)>
 
 The name depends on the local name and the stylesheet bytes only: no filename,
 no cwd, no line number. A build in a different sandbox or output base mints the
-same name. `ts_bundle`, `ts_dev_server` and `ts_test` install a Bazel-owned Vite
-plugin that hands Vite that map, so the bundler's CSS-modules pass emits the
+same name. `ts_binary`'s bundle action, `ts_dev_server` and `ts_test` install a
+Bazel-owned Vite plugin that hands Vite that map, so the bundler's CSS-modules
+pass emits the
 same names. Under `ts_test` the import resolves to the same map.
 
 Four attributes change the names: `locals_convention`, `scope_behaviour`,
@@ -210,11 +211,7 @@ to.
 
 ## In a Bundle
 
-App mode hashes every imported stylesheet and asset and rewrites the references
-in the HTML. Lib mode extracts all CSS into one declared `<bundle_name>.css` and
-does not reference it from the JS, so the consumer has to include it.
-
-Static files that must keep their name (`robots.txt`, a favicon named from an
-HTML tag) go in `ts_bundle`'s `public_dir`, not an `asset_library`. `public_dir`
-files are copied verbatim, unhashed. See
-[Bundling](../guides/bundling.md#css-css-modules-and-assets).
+The lib-mode bundle a `ts_binary` bundler produces in generated-config mode
+extracts all CSS into one declared `<bundle_name>.css` and does not reference it
+from the JS, so the consumer has to include it. See
+[Bundling](../guides/bundling.md#bundlerinfo-invocation-modes).

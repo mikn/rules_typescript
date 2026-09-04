@@ -4,8 +4,8 @@ package typescript
 // well-known tools (Prisma, GraphQL Codegen, OpenAPI).
 //
 // TanStack Router is deliberately absent: its route tree is written by the
-// Start Vite plugin during the bundle, into the writable staging directory
-// ts_bundle hands it, so a second generator in bazel-bin only drifts from it.
+// Start Vite plugin during the build, so a second generator in bazel-bin only
+// drifts from it.
 //
 // Detection works at the directory level: detectCodegen scans the file list
 // and the npm dependency set and emits one CodegenPattern per recognised tool.

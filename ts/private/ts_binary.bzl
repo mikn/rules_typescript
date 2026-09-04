@@ -10,7 +10,7 @@ ts_binary:
 When a `bundler` attribute is provided (a target returning BundlerInfo), the
 bundler CLI is invoked with a standard set of arguments and the launcher
 executes the bundled output. Without a bundler the launcher executes the entry
-point .js file directly (use ts_bundle for a non-executable bundle artifact).
+point .js file directly.
 
 Launcher behaviour (//tools/launcher, driven by the generated JSON config):
   - Resolves every path through the runfiles library, so a manifest-only
@@ -24,9 +24,9 @@ Launcher behaviour (//tools/launcher, driven by the generated JSON config):
 """
 
 load("//tools/launcher:launcher.bzl", "LAUNCHER_ATTRS", "declare_launcher", "rlocation_path")
+load("//ts/private:bundle_action.bzl", "BUNDLE_ACTION_ATTRS", "create_bundle_action")
 load("//ts/private:providers.bzl", "BundlerInfo", "JsInfo")
 load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "get_js_runtime")
-load("//ts/private:ts_bundle.bzl", "BUNDLE_ACTION_ATTRS", "create_bundle_action")
 
 # ─── Executable implementation ─────────────────────────────────────────────────
 
@@ -281,11 +281,11 @@ Example (no bundler — run entry point .js directly):
         entry_point = "//src/app:app",
     )
 
-Example (with bundler — run bundled output):
+Example (with bundler — run bundled output; `bundler` is any target returning BundlerInfo):
     ts_binary(
         name = "app",
         entry_point = "//src/app:app",
-        bundler = ":vite",
+        bundler = ":bundler",
         format = "cjs",
     )
 

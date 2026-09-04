@@ -559,76 +559,6 @@ If Gazelle generates incorrect `deps` for an import:
 3. Use `# gazelle:ts_ignore` to suppress generation for a directory and write
    its BUILD file manually.
 
-## typescript: &lt;framework&gt; detected: bundling it is unsupported
-
-Not an error. Gazelle recognised a framework it generates no bundle target for
-(SolidStart, and no other) and the message carries the reason. The rest of the
-workspace still compiles and tests. For a client-only build, declare a
-`ts_bundle` by hand with no `vite_config`. See
-[Framework detection](../gazelle/overview.md#framework-detection).
-
-## rule '//app:entry_client' does not exist, after Gazelle on a framework workspace
-
-The generated framework `ts_bundle` names a single-file entry target in the
-package holding the framework's client entry: for Remix, `app/entry.client.tsx`
-becomes `//app:entry_client`. Nothing declares that name when no source file maps
-to it, or when a `# gazelle:ts_exclude` drops the one that would. Gazelle then
-generates no `ts_bundle` and withdraws one it wrote earlier, since an unresolvable
-label fails analysis for every target that reaches it:
-
-```
-typescript: Remix detected: ts_bundle(app_remix) is being withdrawn -- its
-entry_point "//app:entry_client" names a target nothing declares any more, and
-an unresolvable label fails analysis for every target that reaches it. A bundle
-you maintain yourself needs a "# keep" comment above the rule to survive this.
-typescript: Remix detected: nothing in app/ declares the client entry target
-"entry_client" -- no source file there maps to that name, or a ts_exclude
-directive drops it -- so no app_remix bundle target was generated: entry_point
-//app:entry_client would name nothing, and an unresolvable label fails analysis
-for every target that reaches it. Add the framework's client entry there, drop
-the exclusion, or declare the bundle by hand with a "# keep" comment above the
-rule -- without one the next run that does find an entry rewrites it.
-```
-
-The missing rule belongs to a bundle Gazelle is not maintaining: one carrying a
-`# keep`, or one whose `entry_point` you pointed at a target of your own.
-Setting `entry_point` by hand does not help; the next run that finds an entry
-rewrites it.
-
-Put the framework's client entry where the framework expects it, drop any
-`# gazelle:ts_exclude` covering it, and re-run Gazelle: it writes the single-file
-`ts_compile`, the `sources` filegroup and the bundle.
-
-Declaring the pair by hand also works. Gazelle owns both attributes, so each rule
-needs a `# keep` to survive later runs, and `deps` stop tracking the entry's
-imports:
-
-```python
-# app/BUILD.bazel
-# gazelle:ts_exclude entry.client.tsx
-
-load("@rules_typescript//ts:defs.bzl", "ts_compile")
-
-# keep
-ts_compile(
-    name = "entry_client",
-    srcs = ["entry.client.tsx"],
-    deps = ["@npm//:remix-run_react"],  # yours to keep current
-    visibility = ["//visibility:public"],
-)
-
-filegroup(
-    name = "sources",
-    srcs = ["entry.client.tsx"],  # plus the package's other sources
-    visibility = ["//visibility:public"],
-)
-```
-
-`ts_exclude` takes the file out of every generated target, so the `sources`
-filegroup puts it back for the framework, which reads its client entry from the
-staging root by name. See
-[The entry point is generated](../gazelle/overview.md#the-entry-point-is-generated).
-
 ## ts_dev_server: has no node_modules attr
 
 ```
@@ -641,9 +571,8 @@ generated config resolves every bare specifier through that tree.
 Gazelle generates the `ts_dev_server` target with `plugin` set and
 `node_modules` empty, because nothing in the source tree says which tree the app
 resolves against. Declare it in the dev server's own Bazel package, listing
-every npm package the app imports, plus `@npm//:vite` under the default server;
-an oj target needs the app's own packages and no vite. Gazelle leaves the attr
-alone from then on:
+every npm package the app imports, plus `@npm//:vite` under the default server.
+Gazelle leaves the attr alone from then on:
 
 ```python
 node_modules(
@@ -672,31 +601,6 @@ Rename the target to `node_modules` (one per Bazel package) and update the attr
 pointing at it. `@vitejs/plugin-react` fails the same walk-up for its
 `react-refresh` runtime, so `react_refresh = True` needs the same name.
 
-## [vite]: failed to resolve import "…" from …/bazel-out/…/bin/…
-
-```
-Error: [vite]: Rolldown failed to resolve import "zod" from
-"…/bazel-out/k8-fastbuild/bin/src/lib/math.js".
-```
-
-("Rollup" in place of "Rolldown" before Vite 8; the cause is the same.)
-
-A `ts_bundle` whose bundler's `node_modules` tree cannot answer a bare specifier
-in the bundled graph. Two causes:
-
-- **the package is not in the tree.** The tree supplies Vite and every npm
-  package anything in the graph imports; a `ts_compile` dep does not contribute
-  its own. Add it to the `node_modules` target's `deps`;
-- **the tree is in the wrong place.** It is materialised under the bundler's
-  package in `bazel-bin`, and rolldown resolves from the importer by Node's
-  walk-up, so the tree has to be an ancestor of every compiled `.js` doing the
-  importing. A bundle in `//bundle` cannot serve `bin/src/lib/math.js`. Declare
-  `node_modules`, `vite_bundler` and `ts_bundle` at the workspace root.
-
-`external` is a third option, leaving the specifier as an import for whoever
-consumes the bundle. See
-[where the bundler's node_modules has to sit](bundling.md#where-the-bundlers-node_modules-has-to-sit).
-
 ## ts_dev_server: sets react_refresh = True, but @vitejs/plugin-react did not load
 
 The dev server does not start: it could not load the Fast Refresh plugin out of
@@ -717,13 +621,9 @@ node_modules(
 The target name matters too: the plugin resolves the `react-refresh` runtime by
 Node's own walk-up, which only looks in directories called `node_modules`.
 
-Under oj this error does not arise. `react_refresh = True` is rejected at
-analysis time instead, because oj applies Fast Refresh itself and stacking
-`@vitejs/plugin-react` on top would instrument every component twice.
-
 ## [rules_typescript] Failed to load vite_config
 
-`ts_dev_server` and `ts_bundle` both load a copy of your `vite_config` from
+`ts_dev_server` loads a copy of your `vite_config` from
 `bazel-bin`, so the file's own imports resolve beside the Bazel npm tree, not in
 your source tree. Staged there are the config and the modules `vite_config_srcs`
 declares, nothing else:
@@ -745,24 +645,15 @@ declares, nothing else:
 
 See [`vite_config`: what it may import](dev-server.md#vite_config-what-it-may-import).
 
-## [rules_typescript] ts_bundle: the vite_config sets …, which the generated config does not read
+## [rules_typescript] ts_dev_server: the vite_config sets …, which the generated config does not read
 
-The generated config reads a fixed set of keys out of your `vite_config`, and the
-set differs between the two rules because the dev server takes its serve root
-from elsewhere:
-
-| Rule | Keys it reads |
-|---|---|
-| `ts_bundle` | `plugins`, `root` |
-| `ts_dev_server` | `plugins` |
-
-Every other key would be silently discarded, so the load throws, naming the keys
-it found and the keys it honours. A framework config that sets `define`,
-`resolve.alias`, `build.target` or `optimizeDeps` hits this, as does one carrying
-`root` that builds under `ts_bundle` and fails under `ts_dev_server`. Move what
-you need into a plugin, or use the `ts_bundle` attribute that owns it (`define`,
-`env_vars`, `external`, `minify`, `split_chunks`). The check runs at config-load
-time, not analysis time, because only the loaded object says what keys it has.
+The generated config reads `plugins` out of your `vite_config` and nothing else;
+the dev server takes its serve root from the target. Every other key would be
+silently discarded, so the load throws, naming the keys it found and the keys it
+honours. A framework config that sets `define`, `resolve.alias`, `build.target`,
+`optimizeDeps` or `root` hits this. Move what you need into a plugin. The check
+runs at config-load time, not analysis time, because only the loaded object says
+what keys it has.
 
 ## Dev server: Failed to resolve import "some-package"
 

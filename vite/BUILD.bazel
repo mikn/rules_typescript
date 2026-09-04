@@ -22,10 +22,6 @@
 #
 # For production distribution, the pre-built dist/ (built with tsup) is used
 # for npm publishing.  The Bazel build target is for in-workspace use only.
-#
-# bundler.bzl is the Bazel-side complement: it defines the vite_bundler rule
-# that returns a BundlerInfo provider wiring a pre-built Vite binary into the
-# ts_binary / ts_bundle bundler interface.
 
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@rules_typescript//npm:defs.bzl", "node_modules")
@@ -37,15 +33,6 @@ package(default_visibility = ["//visibility:public"])
 
 # //vite/tests:peer_version_test reads peerDependencies.vite out of the manifest.
 exports_files(["package.json"])
-
-bzl_library(
-    name = "bundler",
-    srcs = ["bundler.bzl"],
-    deps = [
-        "//ts/private:providers",
-        "//ts/private:runtime",
-    ],
-)
 
 bzl_library(
     name = "dev_server_bzl",

@@ -18,9 +18,10 @@
   it replaces, with one difference: directives inherit and merge, where a nested
   `gazelle_ts.json` replaced the whole list an ancestor had built
   (`excludePatterns`, `excludeDirs` and `runtimeDeps.test` alike). Gazelle's own
-  walk merges, so the two places that ask "which excludes apply here", the
-  per-directory generation and the framework bundle's staging walk, answered
-  differently depending on which directory asked. One run produced an invalid
-  workspace and, elsewhere, a silently deleted target. If a subtree has to
-  narrow what an ancestor declared, move the ancestor's directive down to the
-  directories it is meant for.
+  walk merges, so "which excludes apply here" had one answer in the directory
+  that declared a list and another in a subtree that replaced it, and Gazelle
+  asks from two places: the per-directory generation, and the lookup a
+  directory makes into an ancestor to name the ancestor's tsconfig. One run
+  produced an invalid workspace and, elsewhere, a silently deleted target. If a
+  subtree has to narrow what an ancestor declared, move the ancestor's
+  directive down to the directories it is meant for.

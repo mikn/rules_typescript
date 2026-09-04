@@ -16,7 +16,7 @@
   resolves to the directory its hops name, whichever tsconfigs sit between, and
   its label is the one Gazelle writes beside the tsconfig there when that
   tsconfig names the file as `./<name>.d.ts` in its own list: the
-  `tsconfig_types` filegroup, or the `ts_worker_types` target writing it. The
+  `tsconfig_types` filegroup, or the `ts_codegen` whose `outs` names it. The
   entry is rebased on the way down, so a directory below the leaf carries
   `../../worker-configuration.d.ts` and the same label. Where no tsconfig there
   names the file, or the entry climbs above the workspace root, the entry is

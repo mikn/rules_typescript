@@ -54,7 +54,8 @@ Typical patterns:
          sh_binary(name = "legacy_gen", srcs = ["legacy_gen.sh"])
 
   3. A generator this ruleset ships:
-     //tools/codegen:tanstack_routes writes a TanStack Router route tree.
+     //tools/codegen:tanstack_routes writes a TanStack Router route tree, and
+     //tools/codegen:wrangler_types a worker's worker-configuration.d.ts.
 
          ts_codegen(
              name = "route_tree",
@@ -67,8 +68,7 @@ Typical patterns:
 
      A route tree has to be checked in -- the routes are typed against it, and
      one ts_compile cannot hold both it and them -- so pair the target with
-     refresh_workspace_files and diff_test. examples/tanstack-app/src/routes
-     is the worked example.
+     refresh_workspace_files and diff_test.
 
 Placeholder substitution in args:
   {srcs_dir}         → execroot-relative directory of the first src file

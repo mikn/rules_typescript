@@ -13,12 +13,11 @@ release, production users and Windows support. This has none of the three.
 - You're already invested in `rules_js` and the Aspect ecosystem
 
 **Choose `rules_typescript` (this) if:**
-- You bundle with Vite, and dev-serve with Vite or oj
+- You dev-serve with Vite
 - You want Gazelle to generate the BUILD files, and can live with pinning the
   occasional hand-narrowed attribute with `# keep`
 - You want the `.d.ts` compilation boundary: a body-only change recompiles nothing downstream
 - You want type errors to fail the build without extra flags
-- You use Remix, TanStack Start, or other Vite-based frameworks
 - You want no system prerequisite but Bazelisk (no system Node, no `pnpm install`; a pnpm only to write the first lockfile)
 
 ## Comparison
@@ -28,11 +27,11 @@ release, production users and Windows support. This has none of the three.
 | **Compiler** | tsc (JavaScript) | Oxc (Rust) |
 | **Type-checker** | tsc | tsgo (Go port of TypeScript) |
 | **Compilation boundary** | tsc project references | `.d.ts` per target |
-| **Bundler** | Bring your own | Vite, through `ts_bundle`; any other bundler through `BundlerInfo` |
-| **Dev server** | None built-in | Vite or oj, chosen per target, with HMR and React Fast Refresh |
+| **Bundler** | Bring your own | Bring your own, through `BundlerInfo` on `ts_binary` |
+| **Dev server** | None built-in | Vite, with HMR and React Fast Refresh; any `DevServerInfo` rule per target |
 | **npm management** | rules_js (pnpm virtual store, symlinks) | Own pnpm lockfile reader: a `pnpm-lock.yaml` is required, npm and yarn lockfiles are not read; one Bazel repository per package, fetched on demand |
 | **BUILD generation** | Aspect CLI (proprietary) | Gazelle (open-source, directives) |
-| **Framework support** | None built-in | TanStack Start bundles through a Vite-plugin hook; Remix, SvelteKit and Next.js each have a rule of their own. Solid Start is detected and deliberately unsupported (see [framework detection](../gazelle/overview.md#framework-detection)) |
+| **Framework support** | None built-in | None built-in; a framework's Vite plugin runs in the dev server through `vite_config` |
 | **Bazel deps** | rules_js + rules_nodejs | rules_nodejs, rules_rust, rules_go + gazelle, rules_shell, bazel_skylib, platforms, toolchain_utils |
 | **Isolated declarations** | Not required | Not required; opt-in per package for throughput |
 | **pnpm** | System install required | Hermetic, always downloaded ([hermetic pnpm](../guides/npm.md#hermetic-pnpm)); Linux and macOS only |
@@ -101,10 +100,10 @@ downstream target recompiles. This holds under either declaration emitter.
 
 ### Vite-Native
 
-Bundling, dev serving, HMR, React Fast Refresh and framework Vite plugins are
-built in, and all of them go through one generated Vite config. Vite runs it, or
-oj does: `ts_dev_server(server = ...)` is a per-target choice. `rules_ts` has no
-bundler and no dev server; you wire those yourself.
+Dev serving, HMR, React Fast Refresh and framework Vite plugins are built in,
+and all of them go through one generated Vite config. Vite runs it, or any rule
+returning `DevServerInfo` does: `ts_dev_server(server = ...)` is a per-target
+choice. `rules_ts` has no dev server; you wire that yourself.
 
 ### No JS-Ruleset Layer
 
@@ -118,8 +117,7 @@ toolchains. `rules_ts` needs neither.
 ### Gazelle
 
 Open-source BUILD file generation with fifteen `# gazelle:ts_*` directives,
-framework auto-detection, codegen auto-detection, and automatic
-lint/dev-server/bundler target generation. `rules_ts` relies on the proprietary
+codegen auto-detection, and automatic lint and dev-server target generation. `rules_ts` relies on the proprietary
 Aspect CLI.
 
 ### System Prerequisites

@@ -11,22 +11,11 @@
 // contrived one: it is the shape of a real edit-and-reload loop, and under Vite
 // the names still match, because the generator is a pure function of the
 // stylesheet's bytes and the bytes are the ones css_module compiled.
-//
-// Under oj they do not, and this pins why. oj loads the plugin -- its host
-// reports it active -- but adopts no `css.*` from a Vite config, so the
-// `generateScopedName` the plugin's config() hook returns is dropped, and oj's
-// own CSS-modules pass names the classes after the FILE:
-// `panel-module_panel_4JHZ6q`. Which is both a different name from the .d.ts's
-// and a name derived from a path, the thing css_module's content hash exists to
-// avoid. Closing it needs oj to adopt css.modules, or needs the ruleset to emit
-// the scoped stylesheet itself and take the naming away from the server -- a
-// design the dev server's Bazel-out-of-the-inner-loop property argues against.
 package dev_server_test
 
 import (
 	"path/filepath"
 	"regexp"
-	"strings"
 	"testing"
 
 	"github.com/mikn/rules_typescript/tests/verify"
@@ -35,7 +24,6 @@ import (
 func TestServedCssModuleNames(t *testing.T) {
 	tree := verify.New(t)
 	target := env(t, "DEV_TARGET")
-	impl := env(t, "DEV_IMPL")
 
 	launcher := tree.File("tests/dev_server/" + target + "_launcher")
 	stylesheet := tree.File("tests/dev_server/panel.module.css")
@@ -70,11 +58,6 @@ func TestServedCssModuleNames(t *testing.T) {
 			served.status, served.body, srv.log(t))
 	}
 
-	if impl == "oj" {
-		assertOjKeepsItsOwnNames(t, srv, served.body, exports)
-		return
-	}
-
 	// Key next to value, not each of them somewhere in the body: a server that
 	// exported the semantic names and mentioned the scoped ones only inside the
 	// stylesheet text would pass a containment check and still be wrong.
@@ -84,43 +67,6 @@ func TestServedCssModuleNames(t *testing.T) {
 				"panel.module.css.d.ts was generated from\nserved:\n%s\n%s",
 				key, scoped, served.body, srv.log(t))
 		}
-	}
-}
-
-// assertOjKeepsItsOwnNames pins the gap, so that oj gaining the capability fails
-// this lane and says so rather than passing quietly with the wrong assertion.
-func assertOjKeepsItsOwnNames(t *testing.T, srv *server, body string, exports map[string]string) {
-	t.Helper()
-
-	agrees := true
-	for key, scoped := range exports {
-		if !binds(body, key, scoped) {
-			agrees = false
-		}
-	}
-	if agrees {
-		t.Errorf("oj now serves the names css_module generated the .d.ts from. "+
-			"Delete this branch and let the Vite assertion run for oj too.\nserved:\n%s", body)
-		return
-	}
-
-	// The KEYS are still right -- oj reads the same stylesheet -- so the typed
-	// API describes the right property set and only the strings are another
-	// server's.
-	for key := range exports {
-		if !regexp.MustCompile(`["']` + regexp.QuoteMeta(key) + `["']\s*:`).MatchString(body) {
-			t.Errorf("oj does not export %q at all, so the .d.ts is wrong about the "+
-				"property set and not merely about the strings\nserved:\n%s\n%s",
-				key, body, srv.log(t))
-		}
-	}
-
-	// And oj's name is derived from the FILE, which is the path dependence
-	// css_module's content hash exists to avoid: the same stylesheet under
-	// another name would be scoped differently.
-	if !strings.Contains(body, "panel-module_panel_") {
-		t.Errorf("oj's scoping changed shape; this lane's description of the gap "+
-			"is now wrong\nserved:\n%s", body)
 	}
 }
 

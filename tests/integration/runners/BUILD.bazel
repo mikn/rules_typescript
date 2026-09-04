@@ -20,19 +20,12 @@ is already the price of the older child-workspace layout.
 # gazelle:exclude gazelle_roundtrip
 # gazelle:exclude lsp
 # gazelle:exclude new_project
-# gazelle:exclude nextjs
 # gazelle:exclude npm_deps
 # gazelle:exclude npm_integrity
 # gazelle:exclude npmrc_registry
 # gazelle:exclude oxc_declarations
 # gazelle:exclude public_globals
-# gazelle:exclude remix
-# gazelle:exclude remix_ssr
-# gazelle:exclude svelte
-# gazelle:exclude sveltekit
-# gazelle:exclude tanstack
 # gazelle:exclude untyped_packages
-# gazelle:exclude vite_bundle
 
 load("@rules_go//go:def.bzl", "go_binary")
 
@@ -44,19 +37,12 @@ _RUNNERS = [
     "gazelle_roundtrip",
     "lsp",
     "new_project",
-    "nextjs",
     "npm_deps",
     "npm_integrity",
     "npmrc_registry",
     "oxc_declarations",
     "public_globals",
-    "remix",
-    "remix_ssr",
-    "svelte",
-    "sveltekit",
-    "tanstack",
     "untyped_packages",
-    "vite_bundle",
 ]
 
 [

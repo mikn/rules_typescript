@@ -31,16 +31,6 @@ func makeTcWithNpm(pkgs ...string) *tsConfig {
 	return tc
 }
 
-// makeTcWithFramework builds a minimal tsConfig with a detected framework and
-// no npmPackages map (simulates no lockfile loaded).
-func makeTcWithFramework(f Framework) *tsConfig {
-	return &tsConfig{
-		packageBoundaryMode: boundaryEveryDir,
-		declarations:        "tsgo",
-		detectedFramework:   f,
-	}
-}
-
 // ---- fileSet tests ---------------------------------------------------------
 
 func TestFileSet_ContainsExpectedFiles(t *testing.T) {

@@ -2,15 +2,12 @@ load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 
 package(default_visibility = [
     "//npm:__subpackages__",
-    "//oj:__subpackages__",
     "//ts:__subpackages__",
     "//vite:__subpackages__",
 ])
 
 exports_files([
     "node_test_hook.mjs",
-    "npm_package_json.mjs",
-    "svelte_compile.mjs",
 ])
 
 bzl_library(
@@ -97,8 +94,8 @@ bzl_library(
 )
 
 bzl_library(
-    name = "ts_bundle",
-    srcs = ["ts_bundle.bzl"],
+    name = "bundle_action",
+    srcs = ["bundle_action.bzl"],
     deps = [
         ":providers",
     ],
@@ -108,9 +105,9 @@ bzl_library(
     name = "ts_binary",
     srcs = ["ts_binary.bzl"],
     deps = [
+        ":bundle_action",
         ":providers",
         ":runtime",
-        ":ts_bundle",
     ],
 )
 
@@ -119,47 +116,6 @@ bzl_library(
     srcs = ["ts_dev_server.bzl"],
     deps = [
         ":providers",
-        ":runtime",
-    ],
-)
-
-bzl_library(
-    name = "next_build",
-    srcs = ["next_build.bzl"],
-    deps = [
-        ":runtime",
-    ],
-)
-
-bzl_library(
-    name = "next_server",
-    srcs = ["next_server.bzl"],
-    deps = [
-        ":runtime",
-    ],
-)
-
-bzl_library(
-    name = "remix_build",
-    srcs = ["remix_build.bzl"],
-    deps = [
-        ":runtime",
-    ],
-)
-
-bzl_library(
-    name = "svelte_library",
-    srcs = ["svelte_library.bzl"],
-    deps = [
-        ":providers",
-        ":runtime",
-    ],
-)
-
-bzl_library(
-    name = "sveltekit_build",
-    srcs = ["sveltekit_build.bzl"],
-    deps = [
         ":runtime",
     ],
 )
@@ -202,15 +158,6 @@ bzl_library(
     srcs = ["ts_lint.bzl"],
     deps = [
         ":providers",
-    ],
-)
-
-bzl_library(
-    name = "ts_npm_publish",
-    srcs = ["ts_npm_publish.bzl"],
-    deps = [
-        ":providers",
-        ":runtime",
     ],
 )
 

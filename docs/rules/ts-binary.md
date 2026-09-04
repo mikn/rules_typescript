@@ -4,11 +4,6 @@ Produces a runnable target from a `ts_compile` entry point, or from a plain
 JavaScript file. Without a bundler it runs that entry `.js` on the JS runtime;
 with one it bundles first and runs the bundle.
 
-`ts_binary` and [`ts_bundle`](ts-bundle.md) are separate rules with overlapping
-attributes. `ts_binary` is the rule for `bazel run`. `ts_bundle` produces a
-bundle as a build artifact, requires a `bundler`, and adds the app-mode, HTML,
-`vite_config` and `staging_srcs` attributes.
-
 ## Usage
 
 ```python
@@ -36,9 +31,6 @@ ts_binary(
 | `external` | `string_list` | `[]` | Module specifiers to leave external |
 | `define` | `string_dict` | `{}` | Global constant replacements |
 | `node_modules` | `label` | `None` | `node_modules` target for packages the program needs at runtime |
-
-`minify` and `split_chunks` are `ts_bundle` attributes; `ts_binary` does not
-accept them.
 
 ## A JavaScript File as the Entry Point
 
@@ -69,10 +61,6 @@ Without a `bundler`, `ts_binary` runs the entry point's own `.js` file on the JS
 runtime, with the transitive `.js` outputs in its runfiles. The imports resolve
 as written; nothing is concatenated.
 
-## With Vite
+## With a Bundler
 
-See [Bundling with Vite](../guides/bundling.md) for a complete example with `vite_bundler`.
-
-## Custom Bundler
-
-Any rule returning `BundlerInfo` can plug in. See [Bundling § Custom Bundler](../guides/bundling.md#custom-bundler-bundlerinfo-interface).
+Any rule returning `BundlerInfo` plugs in; the ruleset ships none. See [Bundling § Custom Bundler](../guides/bundling.md#custom-bundler-bundlerinfo-interface).

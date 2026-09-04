@@ -170,22 +170,9 @@ Default rules for inferring target boundaries:
 - `# gazelle:ts_package_boundary` directive for manual override
 
 **Verification:**
-- [ ] On a 50-directory TanStack Start app, `gazelle` produces BUILD files that result in a passing `bazel build //...` with zero manual edits
+- [ ] On a 50-directory application, `gazelle` produces BUILD files that result in a passing `bazel build //...` with zero manual edits
 - [ ] Adding a new `.ts` file and re-running `gazelle` correctly adds it to an existing target or creates a new one
 - [ ] Deleting a file and re-running `gazelle` removes it
-
-### 3.4 — Framework plugin: TanStack Start
-
-A Gazelle plugin that recognizes TanStack Start conventions:
-- `routes/` directory tree → route targets
-- `__root.tsx` → root layout
-- `routeTree.gen.ts` → generated, excluded from source targets
-
-**Verification:**
-- [ ] A standard TanStack Start starter project gets correct BUILD files from `gazelle` with zero manual edits
-- [ ] Route targets have correct deps on shared components
-
----
 
 ## Phase 4: Test and binary rules
 
@@ -269,7 +256,7 @@ An oxlint rule (or eslint rule) that reports all exported symbols missing explic
 
 ## Success criteria (end-to-end)
 
-On a real TanStack Start application with 500+ source files and 100+ npm dependencies:
+On a real application with 500+ source files and 100+ npm dependencies:
 
 | Metric | Target |
 |---|---|

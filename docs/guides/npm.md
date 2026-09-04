@@ -210,9 +210,8 @@ Three things follow from a second hub:
 - **Gazelle has to be told**, per package, which hub that tree's imports come
   from: `# gazelle:ts_npm_hub npm_tools`. Otherwise generated deps name `@npm`,
   which for those packages is a label that does not exist. `deps` and a
-  `ts_lint`'s `linter_binary` follow the directive; the `ts_codegen` generator,
-  `vite_bundler`'s `vite`, a framework bundle's `node_modules` deps and the
-  tsconfig `types` labels do not yet, and still name `@npm`. See
+  `ts_lint`'s `linter_binary` follow the directive; the `ts_codegen` generator
+  and the tsconfig `types` labels do not yet, and still name `@npm`. See
   [More than one npm hub](../gazelle/directives.md#more-than-one-npm-hub).
 - **One `ts_add_package` target per hub.** pnpm rewrites whichever lockfile it
   resolves against, so the hub belongs in the command a person types:

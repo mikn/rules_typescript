@@ -101,7 +101,7 @@ css_library = rule(
             providers = [[CssInfo]],
         ),
     },
-    doc = """Collects CSS files and makes them available to ts_compile and ts_bundle.
+    doc = """Collects CSS files and makes them available to ts_compile and ts_dev_server.
 
 A css_library target provides CssInfo and TsDeclarationInfo (with generated
 .css.d.ts ambient declarations) so that:

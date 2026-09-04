@@ -149,21 +149,16 @@ bazel build //oxc_cli:oxc-bazel
 
 #### Repinning Crate Dependencies
 
-Two `crate_universe` hubs are pinned by checked-in lockfiles. rules_rust
-requires a lockfile for a hub declared by a non-root module, and rules_typescript
-is a dependency in a consumer's build, where repinning across the module boundary
-is not possible:
+The `@crates` hub is pinned by two checked-in lockfiles, `oxc_cli/Cargo.lock`
+(the Cargo resolution) and `oxc_cli/Cargo.Bazel.lock` (the rendering).
+rules_rust requires a lockfile for a hub declared by a non-root module, and
+rules_typescript is a dependency in a consumer's build, where repinning across
+the module boundary is not possible.
 
-| Hub          | Rendering            | Cargo resolution      |
-| ------------ | -------------------- | --------------------- |
-| `@crates`    | `oxc_cli/Cargo.Bazel.lock` | `oxc_cli/Cargo.lock` |
-| `@oj_crates` | `oj/Cargo.Bazel.lock`      | `oj/Cargo.lock`      |
-
-After editing `oxc_cli/Cargo.toml` or the `crate.spec` for `oj` in
-`MODULE.bazel`, regenerate all four:
+After editing `oxc_cli/Cargo.toml`, regenerate both:
 
 ```bash
-CARGO_BAZEL_REPIN=1 bazel query "@crates//:all + @oj_crates//:all"
+CARGO_BAZEL_REPIN=1 bazel query "@crates//:all"
 ```
 
 A rules_rust bump also invalidates the renderings: the digest covers the cargo
@@ -328,13 +323,13 @@ Use the **Conventional Commits** format:
 - `chore` — maintenance (dependency updates, build scripts, toolchain bumps)
 
 **Scopes** (optional, use when helpful):
-- `ts_compile`, `ts_test`, `ts_binary`, `ts_bundle` — rule changes
+- `ts_compile`, `ts_test`, `ts_binary` — rule changes
 - `gazelle` — Gazelle extension
 - `oxc_cli` — Rust CLI
 - `npm` — npm/lockfile support
 - `toolchain` — toolchain registration
 - `runtime` — JS runtime support
-- `vite` — Vite bundler integration
+- `vite` — the Vite dev server and plugin under `vite/`
 
 **Examples:**
 
@@ -379,12 +374,11 @@ extension written in Go.
 | File | Role |
 |---|---|
 | `gazelle/language.go` | Entry point: registers the language, `Kinds()`, `Loads()`, `KnownDirectives()` |
-| `gazelle/config.go` | Directive parsing (`# gazelle:ts_*`), framework and codegen detection |
+| `gazelle/config.go` | Directive parsing (`# gazelle:ts_*`), codegen detection |
 | `gazelle/generate.go` | Rule generation: produces `ts_compile`, `ts_test` and the rest |
 | `gazelle/resolve.go` | Import resolution: maps import specifiers to Bazel labels |
 | `gazelle/imports.go` | Import extraction from TypeScript sources |
 | `gazelle/jsonc/` | JSONC parser, its own Go package, so a commented `tsconfig.json` still yields its `paths` |
-| `gazelle/framework_bundle.go` | Vite-based framework bundle targets: TanStack Start and Remix (Next.js and SvelteKit have their own: `framework_next.go`, `sveltekit_bundle.go`) |
 | `gazelle/codegen.go` | Auto-detected codegen targets |
 
 **AGENTS.md** is the architectural reference for contributors: package boundary

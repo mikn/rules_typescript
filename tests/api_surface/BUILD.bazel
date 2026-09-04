@@ -1,0 +1,10 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+# The public surface of //ts:defs.bzl, as an exact list. A load() can prove a
+# name exists and nothing else, so the file is read and its assignments diffed.
+sh_test(
+    name = "defs_surface_test",
+    size = "small",
+    srcs = ["defs_surface_test.sh"],
+    data = ["//ts:defs.bzl"],
+)

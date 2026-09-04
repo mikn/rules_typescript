@@ -1,7 +1,5 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
-load("@rules_go//go:def.bzl", "go_test")
-load("//npm:defs.bzl", "node_modules")
-load("//ts:defs.bzl", "ts_compile", "ts_test", "ts_worker_deploy", "ts_worker_dry_run", "ts_worker_dry_run_test")
+load("//ts:defs.bzl", "ts_compile", "ts_test")
 
 package(default_visibility = ["//:__pkg__"])
 
@@ -60,75 +58,7 @@ ts_test(
 
 build_test(
     name = "worker_builds_test",
-    targets = [
-        ":worker",
-        # Naming the deploy target here is what analyses it on every
-        # `bazel test //...`, which is the whole point of it existing in a
-        # ruleset's own test tree. `manual` on the target keeps it out of
-        # `bazel build //...` and out of every other wildcard, so nobody reaches
-        # a real upload of this fixture by expanding a pattern; being a dep here
-        # is explicit and `manual` does not apply.
-        ":deploy",
-    ],
-)
-
-# wrangler needs its own tree: the pool's node_modules is built from the test's
-# deps, and wrangler is not one of them.
-node_modules(
-    name = "node_modules",
-    deps = ["@npm_workers//:wrangler"],
-)
-
-# Does this worker still deploy? Everything a deploy does up to the upload, with
-# no credentials and nothing sent.
-ts_worker_dry_run_test(
-    name = "deploy_dry_run_test",
-    size = "medium",
-    config = "wrangler.jsonc",
-    node_modules = ":node_modules",
-    deps = [":worker"],
-)
-
-# The same worker through a config written for `wrangler dev` rather than for
-# Bazel: `main` names the .ts, and nodejs_compat makes wrangler import a package
-# from beside itself in the tree. Neither resolves without staging that answers
-# to both.
-ts_worker_dry_run_test(
-    name = "deploy_dry_run_ts_entry_test",
-    size = "medium",
-    config = "wrangler.ts-entry.jsonc",
-    node_modules = ":node_modules",
-    deps = [":worker"],
-)
-
-# A worker whose environments differ, to be dry-run one environment at a time.
-ts_worker_dry_run(
-    name = "deploy_dry_run_staging",
-    config = "wrangler.envs.jsonc",
-    env_name = "staging",
-    node_modules = ":node_modules",
-    deps = [":worker"],
-)
-
-# A dry-run *_test reports only wrangler's exit status, and an --env that
-# selected nothing still exits 0; the bindings it printed are the evidence.
-go_test(
-    name = "worker_dry_run_env_test",
-    size = "medium",
-    srcs = ["worker_dry_run_env_test.go"],
-    data = [":deploy_dry_run_staging"],
-    deps = ["//tests/verify"],
-)
-
-# The upload, as a run target. Never run in CI, and never run at all so far --
-# it would publish this fixture to whichever Cloudflare account the environment
-# points at.
-ts_worker_deploy(
-    name = "deploy",
-    config = "wrangler.jsonc",
-    node_modules = ":node_modules",
-    tags = ["manual"],
-    deps = [":worker"],
+    targets = [":worker"],
 )
 
 # The generated editor program for this package; see //:refresh_tsconfig.

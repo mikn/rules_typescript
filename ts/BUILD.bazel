@@ -19,6 +19,9 @@ bool_flag(
 # ts_compile which auto-includes it.
 exports_files(["vite_env.d.ts"])
 
+# //tests/api_surface:defs_surface_test reads the exported names out of it.
+exports_files(["defs.bzl"])
+
 bzl_library(
     name = "defs",
     srcs = ["defs.bzl"],
@@ -27,19 +30,14 @@ bzl_library(
         "//ts/private:css_library",
         "//ts/private:css_module",
         "//ts/private:json_library",
-        "//ts/private:next_build",
-        "//ts/private:next_server",
         "//ts/private:pnpm",
         "//ts/private:providers",
-        "//ts/private:remix_build",
         "//ts/private:ts_binary",
-        "//ts/private:ts_bundle",
         "//ts/private:ts_codegen",
         "//ts/private:ts_compile",
         "//ts/private:ts_config",
         "//ts/private:ts_dev_server",
         "//ts/private:ts_lint",
-        "//ts/private:ts_npm_publish",
         "//ts/private:ts_test",
     ],
 )

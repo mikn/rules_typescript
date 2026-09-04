@@ -27,11 +27,11 @@ filters `-nested-bazel`) for the everyday loop.
 None of these is `exclusive` or `manual`: a plain `bazel test //...` runs them,
 which is the only reason the negative cases below are ever checked, and `cpu:2`
 apiece is what bounds how many nested Bazel servers share one machine. Roughly
-three minutes each -- nextjs_test is ~293s alone. Which CI leg runs a test is
-its shard tag; tags.bzl holds both.
+three minutes each. Which CI leg runs a test is its shard tag; tags.bzl holds
+both.
 
-  bazel test //tests/integration/...                 the whole suite, 20 tests
-  bazel test //tests/integration:integration_tests   the 17 in this package
+  bazel test //tests/integration/...                 the whole suite, 13 tests
+  bazel test //tests/integration:integration_tests   the 10 in this package
   bazel test //tests/integration:new_project_test    one of them
   bazel test --config=ci-integration-npm \
     //tests/integration/...                          one CI leg's subset
@@ -41,7 +41,7 @@ The three tests outside this package -- //tests/integration/npm_integrity,
 //tests/integration/npmrc_registry and //tests/integration/public_globals --
 are not in :integration_tests and cannot be: no such package exports its test.
 `//tests/integration/...`, which is what CI runs, is the pattern that covers
-all 20.
+all 13.
 """
 
 # Each child workspace is staged into a scratch dir at test time; Gazelle must
@@ -54,18 +54,11 @@ all 20.
 # gazelle:exclude gazelle_roundtrip
 # gazelle:exclude lsp
 # gazelle:exclude new_project
-# gazelle:exclude nextjs
 # gazelle:exclude npm_deps
 # gazelle:exclude npmrc_registry
 # gazelle:exclude oxc_declarations
 # gazelle:exclude public_globals
-# gazelle:exclude remix
-# gazelle:exclude remix_ssr
-# gazelle:exclude svelte
-# gazelle:exclude sveltekit
-# gazelle:exclude tanstack
 # gazelle:exclude untyped_packages
-# gazelle:exclude vite_bundle
 
 load("@bazel_binaries//:defs.bzl", "bazel_binaries")
 load(
@@ -161,22 +154,6 @@ bazel_integration_test(
     workspace_path = "css_assets",
 )
 
-# ── vite_bundle ───────────────────────────────────────────────────────────────
-# Tests: Vite production bundle from scratch.
-# pnpm-lock.yaml is sourced from tests/npm/ at runtime by the runner.
-
-bazel_integration_test(
-    name = "vite_bundle_test",
-    timeout = "long",
-    bazel_binaries = bazel_binaries,
-    bazel_version = bazel_binaries.versions.current,
-    data = ["//:MODULE.bazel"],
-    tags = nested_bazel_tags(shard = "npm"),
-    test_runner = "//tests/integration/runners:vite_bundle_runner",
-    workspace_files = integration_test_utils.glob_workspace_files("vite_bundle"),
-    workspace_path = "vite_bundle",
-)
-
 # ── dev_server ────────────────────────────────────────────────────────────────
 # Tests: ts_dev_server builds correctly (runner script + vite.config.mjs exist).
 # Does not run the actual dev server (no network access needed).
@@ -217,7 +194,9 @@ bazel_integration_test(
 # rather than compared as text: a rule there that does not take `types_srcs` is
 # a load error on the whole package, and a ts_test whose alias no staged file
 # validates is an analysis error. pnpm-lock.yaml is sourced from tests/npm/ at
-# runtime by the runner, because the generated ts_test runs a real vitest.
+# runtime by the runner, because the generated ts_test runs a real vitest, and
+# tests/workers/pnpm-lock.yaml beside it as pnpm-lock.workers.yaml, for the
+# wrangler that generated_worker/'s hand-written ts_codegen runs.
 
 bazel_integration_test(
     name = "gazelle_roundtrip_test",
@@ -247,147 +226,6 @@ bazel_integration_test(
     test_runner = "//tests/integration/runners:lsp_runner",
     workspace_files = integration_test_utils.glob_workspace_files("lsp"),
     workspace_path = "lsp",
-)
-
-# ── nextjs ────────────────────────────────────────────────────────────────────
-# Tests: next_build compiles every Next.js convention it claims to support --
-# both routers, both API-route flavours, a "use client"/"use server" pair,
-# middleware, CSS, a statically imported image -- and that the network is
-# blocked while it does. Then it RUNS the app twice, on a kernel-assigned port:
-# next_serve over the build and next_dev_server over the source tree, which is
-# the only way to tell a route rendered per request from a prerendered file.
-# pnpm-lock.yaml is sourced from examples/nextjs-app/ at runtime by the runner.
-#
-# `eternal`, not `long`: this one drives six nested `next build` runs (a green
-# app, a font target that must fail, two negative cases and their reverts) and
-# two servers. Measured 293s alone and 692s while the rest of the suite ran
-# beside it, so the 900s `long` budget is close enough to flake on.
-
-bazel_integration_test(
-    name = "nextjs_test",
-    timeout = "eternal",
-    bazel_binaries = bazel_binaries,
-    bazel_version = bazel_binaries.versions.current,
-    data = ["//:MODULE.bazel"],
-    tags = nested_bazel_tags(shard = "nextjs-tanstack"),
-    test_runner = "//tests/integration/runners:nextjs_runner",
-    workspace_files = integration_test_utils.glob_workspace_files("nextjs"),
-    workspace_path = "nextjs",
-)
-
-# ── remix ────────────────────────────────────────────────────────────────────
-# Tests: Gazelle generates the Remix framework bundle, and building it produces
-# a real Remix SPA -- per-route chunks compiled from the staged sources.
-# pnpm-lock.yaml is sourced from examples/remix-app/ at runtime by the runner.
-#
-# The child workspace sits under remix/workspace/ and keeps its root BUILD file
-# as .tpl, which the runner renames in the scratch copy, so it needs no
-# //.bazelrc --deleted_packages entry. app/ ships no BUILD file at all: both
-# targets in it -- the package target and the single-file client entry the
-# bundle's entry_point names -- are what Gazelle generates.
-
-bazel_integration_test(
-    name = "remix_test",
-    timeout = "long",
-    bazel_binaries = bazel_binaries,
-    bazel_version = bazel_binaries.versions.current,
-    data = ["//:MODULE.bazel"],
-    tags = nested_bazel_tags(shard = "remix-svelte"),
-    test_runner = "//tests/integration/runners:remix_runner",
-    workspace_files = integration_test_utils.glob_workspace_files("remix/workspace"),
-    workspace_path = "remix/workspace",
-)
-
-# ── remix_ssr ─────────────────────────────────────────────────────────────────
-# Tests the two-half Remix build: remix_build produces client/ AND server/, and
-# the test EXECUTES the server half -- loader data, nested layout loaders, an
-# action reading a submitted form, a resource route -- rather than only checking
-# that the routes compiled. pnpm-lock.yaml is sourced from examples/remix-app/
-# at runtime by the runner.
-
-bazel_integration_test(
-    name = "remix_ssr_test",
-    timeout = "long",
-    bazel_binaries = bazel_binaries,
-    bazel_version = bazel_binaries.versions.current,
-    data = ["//:MODULE.bazel"],
-    tags = nested_bazel_tags(shard = "remix-svelte"),
-    test_runner = "//tests/integration/runners:remix_ssr_runner",
-    workspace_files = integration_test_utils.glob_workspace_files("remix_ssr/workspace"),
-    workspace_path = "remix_ssr/workspace",
-)
-
-# ── svelte ────────────────────────────────────────────────────────────────────
-# Tests svelte_library against a real Svelte compiler: what the two outputs of
-# one component contain, that they agree on the scope class, and that the two
-# ways the setup can be wrong -- TypeScript the compiler cannot strip, a
-# node_modules tree without svelte -- fail by name. The workspace carries its
-# own pnpm-lock.yaml, since no example app in this repo depends on svelte.
-#
-# Its BUILD file is a .tpl the runner renames, which is what keeps it out of
-# //.bazelrc's --deleted_packages list.
-
-bazel_integration_test(
-    name = "svelte_test",
-    timeout = "long",
-    bazel_binaries = bazel_binaries,
-    bazel_version = bazel_binaries.versions.current,
-    data = ["//:MODULE.bazel"],
-    tags = nested_bazel_tags(shard = "remix-svelte"),
-    test_runner = "//tests/integration/runners:svelte_runner",
-    workspace_files = integration_test_utils.glob_workspace_files("svelte/workspace"),
-    workspace_path = "svelte/workspace",
-)
-
-# ── tanstack ─────────────────────────────────────────────────────────────────
-# Tests: Gazelle generates the TanStack Start framework bundle, and building it
-# produces both halves the framework emits -- a chunk per route, the route
-# manifest, and a server bundle that answers a request. The runner also runs the
-# built server bundle, so the server function is proven wired rather than merely
-# compiled; `data` carries the Node binary it needs for that.
-# pnpm-lock.yaml is sourced from examples/tanstack-app/ at runtime by the runner.
-
-bazel_integration_test(
-    name = "tanstack_test",
-    timeout = "long",
-    bazel_binaries = bazel_binaries,
-    bazel_version = bazel_binaries.versions.current,
-    data = [
-        "//:MODULE.bazel",
-        "//ts/toolchain:node_resolved",
-    ],
-    tags = nested_bazel_tags(shard = "nextjs-tanstack"),
-    test_runner = "//tests/integration/runners:tanstack_runner",
-    workspace_files = integration_test_utils.glob_workspace_files("tanstack/workspace"),
-    workspace_path = "tanstack/workspace",
-)
-
-# ── sveltekit ─────────────────────────────────────────────────────────────────
-# Tests sveltekit_build against a real SvelteKit installation: that the two
-# halves of one `vite build` both land, that the route files became route
-# entries and route ids in SvelteKit's own manifest carrying markers from their
-# own sources, that two clean builds agree on every hashed chunk name, and that
-# the ways this setup degrades silently are each called out -- an unpinned
-# kit.version.name, a missing src/app.html, a svelte config Node or SvelteKit
-# would not read, a srcs glob carrying no routes, and the two halves of losing
-# routes without losing the build: a BUILD file inside a route directory, and a
-# staged route SvelteKit never compiled.
-# The workspace carries its own pnpm-lock.yaml, since no example app in this
-# repo is a SvelteKit app.
-#
-# Its BUILD file is a .tpl the runner renames, which is what keeps it out of
-# //.bazelrc's --deleted_packages list.
-
-bazel_integration_test(
-    name = "sveltekit_test",
-    timeout = "long",
-    bazel_binaries = bazel_binaries,
-    bazel_version = bazel_binaries.versions.current,
-    data = ["//:MODULE.bazel"],
-    tags = nested_bazel_tags(shard = "remix-svelte"),
-    test_runner = "//tests/integration/runners:sveltekit_runner",
-    workspace_files = integration_test_utils.glob_workspace_files("sveltekit/workspace"),
-    workspace_path = "sveltekit/workspace",
 )
 
 # ── untyped_packages ──────────────────────────────────────────────────────────
@@ -425,15 +263,8 @@ test_suite(
         ":gazelle_roundtrip_test",
         ":lsp_test",
         ":new_project_test",
-        ":nextjs_test",
         ":npm_deps_test",
         ":oxc_declarations_test",
-        ":remix_ssr_test",
-        ":remix_test",
-        ":svelte_test",
-        ":sveltekit_test",
-        ":tanstack_test",
         ":untyped_packages_test",
-        ":vite_bundle_test",
     ],
 )

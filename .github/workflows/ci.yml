@@ -104,20 +104,12 @@ jobs:
           - basic
           - app
           - react-app
-          - remix-app
-          - tanstack-app
-          - nextjs-app
-        include:
-          # //:app loads its vite_config from the source tree and resolves
-          # @tanstack/react-start there, where a fresh checkout has no node_modules.
-          - example: tanstack-app
-            targets: //... -//:app
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
 
-      # 432 of every example's ~700 actions are the same oxc/Rust + toolchain
-      # prefix, so one key shared by all six legs, not one per leg (10 GB cap).
+      # Most of every example's actions are the same oxc/Rust + toolchain
+      # prefix, so one key shared by all three legs, not one per leg (10 GB cap).
       - uses: bazel-contrib/setup-bazel@0.18.0
         with:
           bazelisk-version: 1.x
@@ -126,7 +118,7 @@ jobs:
           disk-cache: examples
 
       - name: Build examples/${{ matrix.example }}
-        run: cd examples/${{ matrix.example }} && bazel build -- ${{ matrix.targets || '//...' }}
+        run: cd examples/${{ matrix.example }} && bazel build //...
 
   determinism:
     name: Build Determinism Check
@@ -176,10 +168,10 @@ jobs:
           echo "Build is bit-for-bit reproducible."
 
   integration-tests:
-    # 18 nested-Bazel tests at ~3 minutes each. "cpu:2" already runs several at
+    # 13 nested-Bazel tests at ~3 minutes each. "cpu:2" already runs several at
     # once, so this was never serial -- but one runner only has so many cores,
-    # which is what kept the lane at 1164s and on the critical path. These legs
-    # spread it over four runners.
+    # which is what kept the lane on the critical path. These legs spread it
+    # over two runners.
     name: Integration Tests (${{ matrix.shard }})
     runs-on: ubuntu-latest
     strategy:
@@ -189,10 +181,10 @@ jobs:
       matrix:
         # One name per `test:ci-integration-<name>` config in //.bazelrc, which
         # is where the tag filter behind each leg lives. `core` is the
-        # complement of the other three, so a test added with no shard tag runs
+        # complement of the other, so a test added with no shard tag runs
         # there rather than nowhere; check_integration_shards.sh (in the `test`
         # job) fails if these three sources ever disagree.
-        shard: [nextjs-tanstack, remix-svelte, npm, core]
+        shard: [npm, core]
     steps:
       - uses: actions/checkout@v4
 
@@ -224,13 +216,13 @@ jobs:
       # all download the same artifacts. Content-addressed, so a stale restore
       # is a miss and never a wrong answer.
       #
-      # One key for all four legs, deliberately: the caches they would build
+      # One key for both legs, deliberately: the caches they would build
       # separately overlap almost entirely, and only the first leg to finish
-      # gets to save one (the others log "already exists" and move on). Four
+      # gets to save one (the other logs "already exists" and moves on). Two
       # legs starting cold do not reintroduce the problem this cache solves --
       # that one is several nested Bazel servers racing for ONE repository cache
       # directory, and a leg on its own machine shares that directory with
-      # nobody. Cold legs cost four independent fetches of a subset each, and
+      # nobody. Cold legs cost two independent fetches of a subset each, and
       # `restore-keys` means a cold start needs a MODULE.bazel change first.
       #
       # `bazelisk` is the exception to the content-addressing above: it holds one

@@ -401,7 +401,7 @@ func devServerFixture(t *testing.T) (*Resolver, map[string]string) {
 		"_main/tests/app/node_modules":                  dirMarker,
 		"_main/tests/app/node_modules/vite/bin/vite.js": "x",
 		"_main/vite/vite_plugin_bazel.mjs":              "x",
-		"_main/oj/oj":                                   "#!/bin/sh\n",
+		"_main/tools/native_server/serve":               "#!/bin/sh\n",
 		"+node+/bin/node":                               "#!/bin/sh\n",
 	})
 }
@@ -476,10 +476,10 @@ func TestPlanDevServerExplainsAMissingVite(t *testing.T) {
 	}
 }
 
-func ojDevServerConfig() *Config {
+func nativeDevServerConfig() *Config {
 	cfg := devServerConfig()
 	cfg.DevServer.ServerInTree = ""
-	cfg.DevServer.ServerBinary = "_main/oj/oj"
+	cfg.DevServer.ServerBinary = "_main/tools/native_server/serve"
 	cfg.DevServer.Argv = []string{"dev", "--config", "{config}", "{root}"}
 	cfg.DevServer.RunsInJsRuntime = false
 	return cfg
@@ -488,12 +488,12 @@ func ojDevServerConfig() *Config {
 func TestPlanDevServerRunsANativeServerWithoutTheJsRuntime(t *testing.T) {
 	r, real := devServerFixture(t)
 	ws := devServerWorkspace(t)
-	plan, err := MakePlan(ojDevServerConfig(), r, nil)
+	plan, err := MakePlan(nativeDevServerConfig(), r, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []string{
-		real["_main/oj/oj"], "dev", "--config",
+		real["_main/tools/native_server/serve"], "dev", "--config",
 		real["_main/tests/app/dev_vite.config.mjs"], ws, "--port", "5173",
 	}
 	if strings.Join(plan.Argv, "\x00") != strings.Join(want, "\x00") {
@@ -584,7 +584,7 @@ func TestPlanVitestStagesAPrivateRootWithoutARunfilesDirectory(t *testing.T) {
 func TestEnvironCollapsesDuplicateKeys(t *testing.T) {
 	t.Setenv("RUNFILES_DIR", "relative/path")
 	t.Setenv("KEEP_ME", "yes")
-	got := Environ(map[string]string{"RUNFILES_DIR": "/absolute/path"}, nil, []string{"RUNFILES_DIR=from/library"})
+	got := Environ(map[string]string{"RUNFILES_DIR": "/absolute/path"}, []string{"RUNFILES_DIR=from/library"})
 
 	seen := 0
 	for _, entry := range got {
@@ -600,25 +600,6 @@ func TestEnvironCollapsesDuplicateKeys(t *testing.T) {
 	}
 	if !slices.Contains(got, "KEEP_ME=yes") {
 		t.Error("Environ dropped an inherited variable")
-	}
-}
-
-// Removing a variable is not setting it to the empty string: to getenv an empty
-// value is still a variable that is set, and wrangler treats a present
-// CLOUDFLARE_API_TOKEN as an attempt to authenticate.
-func TestEnvironRemovesUnsetKeys(t *testing.T) {
-	t.Setenv("DROP_ME", "value")
-	t.Setenv("KEEP_ME", "value")
-	got := Environ(nil, []string{"DROP_ME", "ALSO_DROP_ME"}, []string{"ALSO_DROP_ME=from/library"})
-	for _, entry := range got {
-		for _, key := range []string{"DROP_ME=", "ALSO_DROP_ME="} {
-			if strings.HasPrefix(entry, key) {
-				t.Errorf("%s survived, empty or not", strings.TrimSuffix(key, "="))
-			}
-		}
-	}
-	if !slices.Contains(got, "KEEP_ME=value") {
-		t.Error("Environ dropped a variable it was not asked to")
 	}
 }
 
@@ -708,9 +689,9 @@ func TestPlanDevServerRefusesToDeleteAnInstalledNodeModules(t *testing.T) {
 	}
 }
 
-// A server that names the port in its own argv -- oj does, because its TanStack
-// Start path never reads the config -- has to be given it once. Passing it twice
-// is not a later-wins: oj exits with "cannot be used multiple times".
+// A server that names the port in its own argv has to be given it once: a CLI
+// that rejects a repeated flag would otherwise exit rather than take the later
+// value.
 func TestPlanDevServerSubstitutesThePortIntoArgvWithoutRepeatingIt(t *testing.T) {
 	r, real := devServerFixture(t)
 	devServerWorkspace(t)
@@ -743,7 +724,7 @@ func TestPlanDevServerCreatesTheScratchDirectoriesItNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"OJ_CACHE_DIR", "TSR_TMP_DIR"} {
+	for _, name := range []string{"TSR_TMP_DIR"} {
 		dir := plan.EnvOverrides[name]
 		if dir == "" {
 			t.Errorf("%s is unset", name)

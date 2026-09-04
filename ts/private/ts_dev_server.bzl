@@ -8,8 +8,8 @@ Architecture
 ────────────
 Dev and prod want opposite things from the same import, and get them.
 
-`vite build` (ts_bundle): Bazel compiled every first-party .ts to .js under
-bazel-bin, and the plugin redirects imports there.  Bazel owns the transform.
+A production bundle: Bazel compiled every first-party .ts to .js under
+bazel-bin, and the bundler reads them there.  Bazel owns the transform.
 
 `bazel run //app:dev`: Bazel is OUT of the inner loop.  Vite transforms
 checked-in first-party source in memory, so a keystroke reaches the browser
@@ -154,11 +154,11 @@ def _bin_relative(f):
 def _server_config_input_js(server_info, server_binary_rl):
     """The restart input naming whichever dev server is actually serving.
 
-    A rebuild that moved the server -- a new Vite in the npm tree, a new oj
-    binary -- leaves a running server that is no longer the one the graph was
-    planned around. Which file that is depends on the implementation, so it
-    cannot be the hardcoded `vite/package.json` it used to be: an oj target need
-    not have vite in its tree at all.
+    A rebuild that moved the server -- a new Vite in the npm tree, a new native
+    server binary -- leaves a running server that is no longer the one the graph
+    was planned around. Which file that is depends on the implementation, so it
+    cannot be the hardcoded `vite/package.json` it used to be: a native server
+    need not have vite in its tree at all.
     """
     if server_info.server_in_tree:
         segments = server_info.server_in_tree.split("/")
@@ -634,9 +634,8 @@ def _ts_dev_server_impl(ctx):
                 "ts_dev_server: bundler '{}' does not provide BundlerInfo.\n".format(
                     ctx.attr.bundler.label,
                 ) +
-                "The bundler attr must be a target that provides BundlerInfo " +
-                "(e.g. a vite_bundler() or custom bundler rule).\n" +
-                "Did you mean: bundler = \"//vite:bundler\"?",
+                "The bundler attr must be a target that provides BundlerInfo.\n" +
+                "Did you mean to drop the attr? The default Vite dev server needs none.",
             )
         bundler_info = ctx.attr.bundler[BundlerInfo]
         bundler_runtime_files = bundler_info.runtime_deps
@@ -839,16 +838,14 @@ ts_dev_server = rule(
                   "When set, the bundler's binary and runtime_deps are included in the runfiles " +
                   "tree so that a custom dev server (non-Vite) can be invoked. " +
                   "The default Vite-based dev server does not require this attr — Vite is " +
-                  "resolved from the node_modules tree. " +
-                  "Example: bundler = \"//vite:bundler\" for explicit Vite bundler wiring.",
+                  "resolved from the node_modules tree.",
             providers = [BundlerInfo],
         ),
         "server": attr.label(
             doc = "Which dev server implementation serves this target, as a " +
-                  "target providing DevServerInfo. Defaults to Vite. " +
-                  "`@rules_typescript//oj:dev_server` selects oj instead, which " +
-                  "reads the same generated config but is a native binary and " +
-                  "needs no @npm//:vite in the node_modules tree. A server that " +
+                  "target providing DevServerInfo. Defaults to Vite; any other " +
+                  "rule returning the provider reads the same generated config. " +
+                  "A server that " +
                   "does not read a config field this target set is an analysis-" +
                   "time error naming both, so switching implementations cannot " +
                   "silently drop a setting.",
@@ -999,7 +996,7 @@ Example (with explicit bundler wiring via BundlerInfo):
         name = "dev",
         entry_point = ":app",
         node_modules = ":node_modules",
-        bundler = "//vite:bundler",
+        bundler = ":bundler",
         port = 5173,
     )
 

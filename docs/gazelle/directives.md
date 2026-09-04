@@ -71,7 +71,7 @@ visibility widens back on every run that re-emits the rule. See
 
 Gazelle recomputes these from the tree on every run, so a value it cannot derive
 is replaced unless a `# keep` holds it. `ts_compile.deps` and
-`next_build.staging_srcs` are equally Gazelle's:
+`ts_config.deps` are equally Gazelle's:
 
 | Rule | Attributes Gazelle owns |
 |------|-------------------------|
@@ -81,14 +81,7 @@ is replaced unless a `# keep` holds it. `ts_compile.deps` and
 | `ts_lint` | `srcs`, `linter`, `linter_binary`, `config`, `fail_on_warnings` |
 | `asset_library` | `declaration_type`, one entry per extension a `ts_asset_declaration_type` directive names; an extension no directive names is yours |
 | `ts_codegen` | `outs`, `out_dir`, `visibility` |
-| `next_build` | `srcs` (a `glob()`), `staging_srcs`, `config`, `tsconfig`, `node_modules` |
-| `next_dev_server` | `node_modules` |
-| `sveltekit_build` | `srcs` (a `glob()`), `staging_srcs`, `config`, `svelte_config`, `node_modules` |
-| `ts_bundle` (framework root) | `staging_srcs`, `entry_point`, `html`, `vite_config`, `mode`, `bundler` |
-| `ts_dev_server` (framework root, beside the `ts_bundle`) | `entry_point`, `node_modules` |
-| `vite_bundler` | `vite`, `node_modules` |
-| `node_modules` (framework root) | `deps` |
-| `filegroup(name = "sources")`, `filegroup(name = "tsconfig_types")` | `srcs`, `visibility` |
+| `filegroup(name = "tsconfig_types")` | `srcs`, `visibility` |
 
 `ts_config.deps` is the `extends` chain. Gazelle writes it from the one
 specifier shape it can read without guessing: a single relative path naming an
@@ -155,51 +148,34 @@ candidate on every run, `visibility` widens back, and the merger logs the
 rule, as it removes a `ts_compile` with no sources; `# keep` above the rule
 holds it. A `srcs` holding a label, a file a rule in the package generates, or
 a `glob()` is not judged. `ts_add_package` declares `pnpm_lock`
-mergeable and no merge ever reaches it. The `ts_dev_server` a framework bundle
-writes beside `ts_bundle` at the workspace root is not one of them: it is
-re-emitted on every run like the bundle, and its `entry_point` and
-`node_modules` are recomputed.
+mergeable and no merge ever reaches it.
 
-`# keep` works at three granularities: one value, one attribute, one rule. All
-three write paths honour all three: the merger's; the direct write a `glob()`
-needs, since the merger cannot merge a call expression; and the entry-by-entry
-merge `path_aliases` needs, since the merger has no case for a dict:
+`# keep` works at three granularities: one value, one attribute, one rule. Both
+write paths honour all three: the merger's, and the entry-by-entry merge
+`path_aliases` needs, since the merger has no case for a dict:
 
 ```python
-next_build(
-    name = "app",
-    # A single pattern Gazelle did not derive: an assets tree the framework
-    # config points somewhere unconventional.
-    srcs = glob([
-        "app/**",
-        "content/**",  # keep
-    ]),
-    # A dep no import implies: next/image loads sharp at runtime.
-    node_modules = ":node_modules",
-    staging_srcs = [
-        "//lib",
-        "//vendor:vendor_hand",  # keep
-    ],
-    # keep
-    config = "custom.next.config.mjs",
-)
-
 ts_compile(
     name = "app",
-    srcs = ["main.ts"],
+    srcs = [
+        "main.ts",
+        "legacy.js",  # keep
+    ],
     # One alias entry no import implies: a directory a codegen action writes.
     path_aliases = {
         "@/": "src/",
         "@gen/": "src/generated/",  # keep
     },
+    # keep
+    tsconfig = "//:tsconfig_build",
 )
 ```
 
 A run that drops a value from one of these attributes reports it:
 
 ```
-typescript: next_build(app) in BUILD.bazel: Gazelle generates staging_srcs and
-recomputed it from the tree, so "//vendor:vendor_hand" is no longer declared. A
+typescript: ts_compile(app) in BUILD.bazel: Gazelle generates srcs and
+recomputed it from the tree, so "legacy.js" is no longer declared. A
 value Gazelle cannot derive needs a "# keep" comment on its own line to survive
 the next run; "# keep" above the attribute hands the whole attribute back to you.
 ```
@@ -211,10 +187,10 @@ a label you wrote into either goes without a report unless `# keep` holds it.
 Gazelle's Go extension drops the same values silently; what survives a run is
 identical either way.
 
-One case is silent: a value whose file or package is no longer on disk. Deleting
-a staged directory drops the label that named it, and holding that label with
-`# keep` would name a source nothing provides, which fails analysis. A value
-whose target is still on disk is always reported.
+One case is silent: a value whose file is no longer on disk. Deleting a source
+drops the entry that named it, and holding that entry with `# keep` would name a
+source nothing provides, which fails analysis. A value whose file is still on
+disk is always reported.
 
 #### Values Gazelle Cannot Merge
 
@@ -230,8 +206,8 @@ your expression and Gazelle stops recomputing it. `rules_go`'s extension behaves
 the same way, since both call the same merger. Neither outcome is silent here:
 
 ```
-typescript: BUILD.bazel:28: next_build(app) declares staging_srcs as an
-expression Gazelle's merger cannot reconcile value by value, so staging_srcs is
+typescript: BUILD.bazel:28: ts_compile(app) declares srcs as an
+expression Gazelle's merger cannot reconcile value by value, so srcs is
 no longer an attribute Gazelle maintains: it either replaces the whole
 expression, losing what it computed, or leaves it untouched and stops updating
 it. A "# keep" comment above the attribute makes that yours deliberately.
@@ -241,19 +217,6 @@ Either way the attribute has stopped being maintained. Two resolutions: put
 `# keep` above the attribute and own it, or rewrite the value as a plain list of
 strings with `# keep` on the entries Gazelle cannot derive, which hands the
 attribute back to it.
-
-A `glob()` is the one shape this extension decides itself, since the merger never
-sees it: `srcs` on `next_build` and `sveltekit_build` is written directly. A
-`glob()` whose arguments are not plain lists of strings is left alone, because
-`rule.ParseGlobExpr` reads only part of such a call and a rewrite would drop the
-rest. The run reports it with the file and the span of the value:
-
-```
-typescript: BUILD.bazel:28.20-28.25: could not merge expression -- next_build(app)
-declares srcs that is not a glob() of plain strings, so Gazelle left it alone. It
-now has to cover app/**, content/** by hand: a file srcs does not name is absent
-from the staged tree and does not resolve.
-```
 
 ## Examples
 
@@ -310,8 +273,7 @@ split across Bazel packages:
   barrel re-exporting `./rules` while `./rules` imports `../utils`.
 
 A directory the covering `tsconfig.json` does not sit in becomes a package of its
-own with `# gazelle:ts_package_boundary true`. The diagnostic about a
-framework's staged sources landing under a boundary advises that.
+own with `# gazelle:ts_package_boundary true`.
 
 ### More than One npm Hub
 
@@ -330,10 +292,9 @@ Generated deps in that tree then read `@npm_eslint//:eslint`, not
 not use, and that label does not exist. Both `npm_eslint` and `@npm_eslint` are
 accepted.
 
-Four generated labels do not follow the directive yet and still name `@npm`:
-the `ts_codegen` generator Gazelle detects (`@npm//:prisma_bin`), the
-`vite_bundler`'s `vite`, the `node_modules` deps of a framework bundle, and the
-deps a tsconfig `types` entry produces.
+Two generated labels do not follow the directive yet and still name `@npm`:
+the `ts_codegen` generator Gazelle detects (`@npm//:prisma_bin`), and the deps
+a tsconfig `types` entry produces.
 
 Declaring a hub is `npm.translate_lock(name = ...)` plus a matching `use_repo`,
 and each hub needs its own `ts_add_package` target. See
@@ -518,8 +479,8 @@ workspace has a `pnpm-lock.yaml`, one without the other emits nothing, which
 keeps a monorepo's shared `package.json` from generating targets everywhere.
 
 TanStack Router is excluded: its route tree is written by the Start Vite plugin
-during the bundle, into the writable staging directory `ts_bundle` hands it, so
-a second copy in `bazel-bin` would drift from the one the build used.
+during the build, so a second copy in `bazel-bin` would drift from the one the
+build used.
 
 ### Declare What an Asset Extension Imports As
 
@@ -632,9 +593,8 @@ untyped `.mjs` beside its hand-written declaration gets the dep edge with the
 JavaScript admitted or not. Nothing checks in an `eslint.config.d.mts`.
 
 Admission is about `srcs` and nothing else. What makes a directory a package in
-`tsconfig` mode is still a `tsconfig.json`, and a framework entry point is still
-`.ts`/`.tsx`: an admitted `.mjs` is compiled by the target that claims it, and is
-not a reason for a directory to become one or for an app to boot from it.
+`tsconfig` mode is still a `tsconfig.json`: an admitted `.mjs` is compiled by the
+target that claims it, and is not a reason for a directory to become one.
 `checkJs` is off, as it is in `ts_compile`: the JSDoc types in an admitted file
 cross the package boundary, and the file's own body is not checked unless
 `compiler_options` says so.
@@ -668,7 +628,7 @@ files those are. The fixes are to move them out, or to put the tree under
 
 Files matching `*.generated.ts` are excluded from `srcs` lists in this directory
 and every directory below it. One name is excluded on its own: `routeTree.gen.ts`
-(or `.tsx`), which the TanStack Start Vite plugin writes during the bundle. Every
+(or `.tsx`), which the TanStack Start Vite plugin writes during the build. Every
 other checked-in file is a source unless a rule in the package declares it as an
 output, however it is named.
 
@@ -707,17 +667,14 @@ directive.
 
 #### Directory Patterns and the Boundary Mode
 
-A directory name is read in two places, not one: the rollup walk, which runs in
-`tsconfig` mode alone, and the framework bundle's staging walk, which runs at
-the workspace root and reads the root build file's patterns alone. Under the
-default `every-dir` mode a subdirectory holding sources is a package in its own
-right, and a directory pattern changes nothing about what it compiles. A
-directory pattern declared at the workspace root still drops that directory and
-everything under it from the bundle's `staging_srcs`, in either mode.
+A directory name is read in one place: the rollup walk, which runs in
+`tsconfig` mode alone. Under the default `every-dir` mode a subdirectory holding
+sources is a package in its own right, and a directory pattern changes nothing
+about what it compiles.
 
 | In `web/BUILD.bazel`, with `web/sub/s.ts` | default `every-dir` | `tsconfig` |
 | --- | --- | --- |
-| `# gazelle:ts_exclude sub` (or `./sub`) | `web/sub` is still its own package and still compiles `s.ts`, and a framework bundle still stages it | `web` does not roll `sub/s.ts` up, so no target compiles it |
+| `# gazelle:ts_exclude sub` (or `./sub`) | `web/sub` is still its own package and still compiles `s.ts` | `web` does not roll `sub/s.ts` up, so no target compiles it |
 | `# gazelle:exclude sub` (Gazelle's own) | the walk is pruned: no BUILD file in `web/sub`, and nothing compiles `s.ts` | the walk is pruned, but the rollup walk is not: `web` still claims `sub/s.ts` |
 
 Under the default mode, dropping a whole directory is `# gazelle:exclude`

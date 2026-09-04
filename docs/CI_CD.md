@@ -35,14 +35,11 @@ bazelisk and repository caches in all of them, the external cache in all but
 
 3. **Examples Build** (`examples`)
    - One matrix leg per workspace under `examples/` (`basic`, `app`,
-     `react-app`, `remix-app`, `tanstack-app`, `nextjs-app`), each a separate
-     Bazel invocation, `fail-fast: false`. Every leg builds `//...` except
-     `tanstack-app`, which builds `//... -//:app`: `//:app` loads its
-     `vite_config` from the source tree and resolves `@tanstack/react-start`
-     there, where a fresh checkout has no `node_modules`
-   - All six legs share one disk cache key (`disk-cache: examples`). Most of each
-     example's actions are the same oxc/Rust and toolchain prefix, and six keys
-     would not fit GitHub's 10 GB cache limit
+     `react-app`), each a separate Bazel invocation, `fail-fast: false`. Every
+     leg builds `//...`
+   - All three legs share one disk cache key (`disk-cache: examples`). Most of
+     each example's actions are the same oxc/Rust and toolchain prefix, and
+     three keys would not fit GitHub's 10 GB cache limit
 
 4. **Build Determinism Check** (`determinism`)
    - `//tests/smoke:hello` built from two empty output bases, then
@@ -57,12 +54,11 @@ bazelisk and repository caches in all of them, the external cache in all but
      visible to `df`
 
 5. **Integration Tests (nested Bazel)** (`integration-tests`)
-   - Four legs, one per shard (`nextjs-tanstack`, `remix-svelte`, `npm`,
-     `core`), each running
+   - Two legs, one per shard (`npm`, `core`), each running
      `bazelisk test --config=ci-integration-<shard> //tests/integration/... --test_env=RULES_TS_IT_SCRATCH=/mnt/rules_ts_it`.
      Each config in `.bazelrc` selects tests by the `shard-<name>` tag
      `nested_bazel_tags(shard = ...)` in `tests/integration/tags.bzl` adds;
-     `core` is the complement of the other three, so a test with no shard tag
+     `core` is the complement of the other, so a test with no shard tag
      still runs. `tools/ci/check_integration_shards.sh` fails when the three
      sources disagree
    - The only job that runs them. `--config=ci` in the `test` job expands
@@ -92,7 +88,7 @@ bazelisk and repository caches in all of them, the external cache in all but
      `/mnt/rules_ts_it/bazelisk` under the key `nested-bazel-<runner.os>-<hash of
      MODULE.bazel, tests/npm/pnpm-lock.yaml, oxc_cli/Cargo.lock, .bazelversion>`,
      with `nested-bazel-<runner.os>-` as the restore-key prefix. One key serves
-     all four legs; only the first leg to finish saves it. Cold, the concurrent
+     both legs; only the first leg to finish saves it. Cold, the concurrent
      servers all miss the shared cache at once and fetch the same artifacts, a
      measured ~4GB (`tests/integration/tags.bzl`). The cache is
      content-addressed, so a stale restore is a miss, never a wrong answer.
@@ -207,7 +203,7 @@ rule of your own has to do.
 ### 2. File Ordering in Directory Outputs
 
 **Risk**: With `ctx.actions.declare_directory`, file ordering inside the directory follows the filesystem's readdir order, which varies across kernels and filesystems.
-**Status in rules_typescript**: The rules with a declared output directory (`ts_bundle`, `ts_npm_publish`, `node_modules`, `ts_codegen`, `next_build`, `remix_build`, `sveltekit_build`) are all staging directories, never inputs to further compilation, so ordering matters only in a byte-for-byte directory comparison.
+**Status in rules_typescript**: The rules with a declared output directory (`node_modules`, `ts_codegen`) are staging directories, never inputs to further compilation, so ordering matters only in a byte-for-byte directory comparison.
 **Mitigation**: Check directory artifacts with `diff -r`, which is order-insensitive; `tar c ... | sha256sum` is not.
 
 ### 3. Vite Bundle Content Hashes
@@ -242,13 +238,9 @@ ordering dependency.
 **Risk**: An action shelling out to a host interpreter or coreutil produces
 whatever that version produces.
 **Status**: not applicable. There is no Python in the ruleset; the house rule is
-Starlark's `json.decode`/`json.encode` or awk. `package.json` generation in
-`ts_npm_publish` runs a JS script through the registered JS runtime toolchain
-with a Starlark-encoded JSON patch, and staging and tarballing are a checked-in
-Go binary in place of `install` and `tar`. The one host dependency left is
-`bash`, for the Vite bundler, the framework builds (`next_build`, `remix_build`,
-`sveltekit_build`), and the `node_modules` fallback taken when no JS runtime
-toolchain is registered.
+Starlark's `json.decode`/`json.encode` or awk. The one host dependency left is
+`bash`, for the `node_modules` fallback taken when no JS runtime toolchain is
+registered.
 **Mitigation**: none needed. In a `genrule` of your own, reach for a toolchain
 input.
 
@@ -265,16 +257,13 @@ input.
 | oxc compiled .js/.js.map | Compilation | Yes | No timestamps |
 | tsgo generated .d.ts | Type checking | Yes | Sorted output |
 | Vite bundle | Bundling | Yes (per source tree) | Chunk hashes change with source |
-| ts_npm_publish package.json | Publishing | Yes | generated by a toolchain JS runtime; keys keep the template's order, patch fields appended |
 | node_modules tree | Runtime | Yes | per-package isolation |
 | Gazelle BUILD generation | Repo structure | Yes | sorted output |
 
 ## Guarantees
 
 - **Determinism** is verified by the `determinism` CI job over the targets it
-  names, and is not a blanket property of every rule. `next_build` is not
-  byte-reproducible: Next.js bakes the project path into its server bundles and
-  mints a random `BUILD_ID`.
+  names, and is not a blanket property of every rule.
 - **A release tarball** is `git archive` over a tag, so it is a function of the
   commit.
 - **Sandbox isolation** is the sandbox's, with no default shell env; see
@@ -514,8 +503,8 @@ For additional system tools, build on the minimal image:
 
 ```dockerfile
 FROM ubuntu:22.04
-# Only a POSIX shell is needed: the Vite bundler and the framework build rules
-# (next_build, remix_build, sveltekit_build) wrap their actions in bash.
+# Only a POSIX shell is needed: the node_modules fallback taken when no JS
+# runtime toolchain is registered is a bash action.
 # Everything else runs a declared binary — no host tar, no python, no coreutils
 # dependency.
 RUN apt-get update && apt-get install -y \

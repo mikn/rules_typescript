@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -28,7 +27,7 @@ type nonLiteralCase struct {
 	kind      string
 	target    string
 	attr      string
-	class     string // "list", "scalar", "glob" or "dict"
+	class     string // "list", "scalar" or "dict"
 }
 
 // managedAttrCases names every attribute in keep.go's managedAttrs, in a
@@ -36,29 +35,6 @@ type nonLiteralCase struct {
 // stops being covered here is one this test stops asking about.
 func managedAttrCases() []nonLiteralCase {
 	return []nonLiteralCase{
-		{workspace: "next", kind: "next_build", target: "app", attr: "srcs", class: "glob"},
-		{workspace: "next", kind: "next_build", target: "app", attr: "staging_srcs", class: "list"},
-		{workspace: "next", kind: "next_build", target: "app", attr: "config", class: "scalar"},
-		{workspace: "next", kind: "next_build", target: "app", attr: "tsconfig", class: "scalar"},
-		{workspace: "next", kind: "next_build", target: "app", attr: "node_modules", class: "scalar"},
-		{workspace: "next", kind: "next_dev_server", target: "dev", attr: "node_modules", class: "scalar"},
-		{workspace: "next", kind: "node_modules", target: "node_modules", attr: "deps", class: "list"},
-
-		{workspace: "sveltekit", kind: "sveltekit_build", target: "app", attr: "srcs", class: "glob"},
-		{workspace: "sveltekit", kind: "sveltekit_build", target: "app", attr: "staging_srcs", class: "list"},
-		{workspace: "sveltekit", kind: "sveltekit_build", target: "app", attr: "config", class: "scalar"},
-		{workspace: "sveltekit", kind: "sveltekit_build", target: "app", attr: "svelte_config", class: "scalar"},
-		{workspace: "sveltekit", kind: "sveltekit_build", target: "app", attr: "node_modules", class: "scalar"},
-
-		{workspace: "remix", kind: "ts_bundle", target: "app_remix", attr: "staging_srcs", class: "list"},
-		{workspace: "remix", kind: "ts_bundle", target: "app_remix", attr: "entry_point", class: "scalar"},
-		{workspace: "remix", kind: "ts_bundle", target: "app_remix", attr: "html", class: "scalar"},
-		{workspace: "remix", kind: "ts_bundle", target: "app_remix", attr: "vite_config", class: "scalar"},
-		{workspace: "remix", kind: "ts_bundle", target: "app_remix", attr: "mode", class: "scalar"},
-		{workspace: "remix", kind: "ts_bundle", target: "app_remix", attr: "bundler", class: "scalar"},
-		{workspace: "remix", kind: "vite_bundler", target: "vite", attr: "vite", class: "scalar"},
-		{workspace: "remix", kind: "vite_bundler", target: "vite", attr: "node_modules", class: "scalar"},
-
 		{workspace: "path_aliases", pkg: "src", kind: "ts_compile", target: "src",
 			attr: "path_aliases", class: "dict"},
 		{workspace: "path_aliases", pkg: "src", kind: "ts_compile", target: "src",
@@ -80,10 +56,6 @@ func managedAttrCases() []nonLiteralCase {
 		{workspace: "plain", kind: "ts_config", target: "tsconfig", attr: "visibility", class: "list"},
 
 		{workspace: "pnpm_member", pkg: "packages/core/src", kind: "ts_test", target: "src_test", attr: "deps", class: "list"},
-
-		{workspace: "tanstack", kind: "ts_bundle", target: "app", attr: "staging_srcs", class: "list"},
-		{workspace: "tanstack", pkg: "src/routes", kind: "filegroup", target: "sources", attr: "srcs", class: "list"},
-		{workspace: "tanstack", pkg: "src/routes", kind: "filegroup", target: "sources", attr: "visibility", class: "list"},
 	}
 }
 
@@ -91,7 +63,6 @@ func managedAttrCases() []nonLiteralCase {
 var nonLiteralShapes = map[string][]string{
 	"list":   {"ident", "concat", "select", "mixed"},
 	"scalar": {"ident"},
-	"glob":   {"glob_ident", "glob_mixed"},
 	"dict":   {"ident", "dict_mixed"},
 }
 
@@ -137,14 +108,6 @@ func runNonLiteralCase(t *testing.T, tc convergeCase, nc nonLiteralCase, shape s
 	authored := writeNonLiteralAttr(t, root, nc, shape, false)
 	buildPath := filepath.Join(root, filepath.FromSlash(nc.pkg), "BUILD.bazel")
 
-	if nc.class == "glob" {
-		// srcs is not mergeable on these kinds: setGeneratedGlob writes it, so
-		// the expression is this extension's to leave alone rather than the
-		// merger's to replace.
-		assertGlobLeftAlone(t, root, nc, shape, authored, buildPath)
-		return
-	}
-
 	logged := captureLog(t, func() { convergeGazelle(t, root) })
 	text := buildFileText(t, root, nc.pkg)
 
@@ -182,34 +145,6 @@ func runNonLiteralCase(t *testing.T, tc convergeCase, nc nonLiteralCase, shape s
 	// "# keep" is what the diagnostic tells the user to reach for, so it has to
 	// hold every shape, whichever way the merger would have gone.
 	assertKeepHoldsExpr(t, tc, nc, shape)
-}
-
-// assertGlobLeftAlone: a glob() of anything but plain strings is one
-// rule.ParseGlobExpr reads only part of, so rewriting from what it read would
-// drop the rest. setGeneratedGlob leaves it and says what it now has to cover.
-func assertGlobLeftAlone(t *testing.T, root string, nc nonLiteralCase, shape string, authored authoredExpr, buildPath string) {
-	t.Helper()
-	for run := 2; run <= 3; run++ {
-		logged := captureLog(t, func() { convergeGazelle(t, root) })
-		text := buildFileText(t, root, nc.pkg)
-		if got := exprShape(declaredAttrExpr(t, root, nc)); got != shape {
-			t.Fatalf("%s(%s).%s was authored as %s and is %s after run %d. ParseGlobExpr skips "+
-				"an argument it cannot read, so a rewrite from what it did read drops "+
-				"everything it did not.\n%s\nthe run said:\n%s",
-				nc.kind, nc.target, nc.attr, shape, got, run, indent(text), indentLog(logged))
-		}
-		if missing := missingFrom(declaredStrings(t, root, nc.pkg), authored.values); len(missing) > 0 {
-			t.Fatalf("%s(%s).%s lost %v on run %d: a staged source disappeared from a glob "+
-				"Gazelle does not rewrite.\n%s\nthe run said:\n%s",
-				nc.kind, nc.target, nc.attr, missing, run, indent(text), indentLog(logged))
-		}
-		if !unmergeableReported(logged, buildPath) {
-			t.Fatalf("%s(%s).%s holds a %s expression Gazelle stopped maintaining and run %d "+
-				"did not say so. The user is left believing an attribute Gazelle has given up "+
-				"on is still recomputed.\n%s\nthe run said:\n%s",
-				nc.kind, nc.target, nc.attr, shape, run, indent(text), indentLog(logged))
-		}
-	}
 }
 
 // assertKeepHoldsExpr: the same shape, marked, across two runs and in silence.
@@ -271,19 +206,6 @@ func rewriteReported(logged, buildPath string, nc nonLiteralCase) bool {
 	return false
 }
 
-// setGeneratedGlob's own line for a glob() it will not rewrite, in the file and
-// span rule.MergeRules would name it by.
-var unmergeableLine = regexp.MustCompile(`(?m)^(typescript: )?(\S+):\d+\.\d+-\d+\.\d+: could not merge expression`)
-
-func unmergeableReported(logged, buildPath string) bool {
-	for _, m := range unmergeableLine.FindAllStringSubmatch(logged, -1) {
-		if m[2] == buildPath {
-			return true
-		}
-	}
-	return false
-}
-
 // ---- authoring the expression ----------------------------------------------
 
 type authoredExpr struct {
@@ -308,7 +230,7 @@ func writeNonLiteralAttr(t *testing.T, root string, nc nonLiteralCase, shape str
 	}
 
 	hand := handValueFor(nc)
-	generated, excludes := generatedValues(t, target, nc)
+	generated := generatedValues(t, target, nc)
 	values := append(append([]string(nil), generated...), hand)
 
 	const indent = "    "
@@ -342,12 +264,6 @@ func writeNonLiteralAttr(t *testing.T, root string, nc nonLiteralCase, shape str
 	case "dict_mixed":
 		prelude = fmt.Sprintf("_HAND = %q", hand)
 		replacement = fmt.Sprintf("%s%s = {%s%q: _HAND},", indent, nc.attr, entries, handAliasKey)
-	case "glob_ident":
-		prelude = fmt.Sprintf("_HAND = [%s]", quoted(values))
-		replacement = indent + nc.attr + " = glob(_HAND),"
-	case "glob_mixed":
-		prelude = fmt.Sprintf("_HAND = %q", hand)
-		replacement = fmt.Sprintf("%s%s = glob([%s, _HAND]%s),", indent, nc.attr, quoted(generated), excludes)
 	default:
 		t.Fatalf("no expression for shape %q", shape)
 	}
@@ -394,8 +310,6 @@ func handValueFor(nc nonLiteralCase) string {
 		return handAliasDir
 	case nc.attr == "visibility":
 		return "//vendor:__pkg__"
-	case nc.attr == "srcs" && nc.class == "glob":
-		return "content/**"
 	case nc.attr == "srcs":
 		return "hand_extra.ts"
 	case nc.attr == "deps":
@@ -407,28 +321,13 @@ func handValueFor(nc nonLiteralCase) string {
 	}
 }
 
-// generatedValues are the values already in the attribute, plus the exclude
-// argument a generated glob() carries, which the rewrite has to keep too.
-func generatedValues(t *testing.T, r *rule.Rule, nc nonLiteralCase) (values []string, excludes string) {
+// generatedValues are the values already in the attribute.
+func generatedValues(t *testing.T, r *rule.Rule, nc nonLiteralCase) []string {
 	t.Helper()
 	if nc.class == "dict" {
-		return dictValues(r.Attr(nc.attr)), ""
+		return dictValues(r.Attr(nc.attr))
 	}
-	if nc.class != "glob" {
-		return attrValues(r, nc.attr), ""
-	}
-	glob, ok := rule.ParseGlobExpr(r.Attr(nc.attr))
-	if !ok {
-		t.Fatalf("%s(%s).%s is not a glob() call", nc.kind, nc.target, nc.attr)
-	}
-	if len(glob.Excludes) > 0 {
-		quoted := make([]string, 0, len(glob.Excludes))
-		for _, v := range glob.Excludes {
-			quoted = append(quoted, fmt.Sprintf("%q", v))
-		}
-		excludes = ", exclude = [" + strings.Join(quoted, ", ") + "]"
-	}
-	return glob.Patterns, excludes
+	return attrValues(r, nc.attr)
 }
 
 // ---- reading the expression back -------------------------------------------
@@ -474,17 +373,7 @@ func exprShape(e bzl.Expr) string {
 		if callee.Name == "select" {
 			return "select"
 		}
-		if callee.Name != "glob" || len(v.List) == 0 {
-			return callee.Name + "()"
-		}
-		switch shape := exprShape(v.List[0]); shape {
-		case "literal list":
-			return "glob"
-		case "ident":
-			return "glob_ident"
-		default:
-			return "glob_" + shape
-		}
+		return callee.Name + "()"
 	}
 	return fmt.Sprintf("%T", e)
 }

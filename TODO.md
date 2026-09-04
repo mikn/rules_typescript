@@ -5,24 +5,19 @@
 **"TypeScript on Bazel should feel like Go on Bazel."**
 
 Today we have: compilation (oxc), type-checking and declaration emit (tsgo), npm
-deps (pnpm lockfile), Gazelle, vitest testing, a Vite bundler, a dev server with
-HMR, CSS/asset rules, and `next_build`. See the readiness table below per area.
+deps (pnpm lockfile), Gazelle, vitest testing, a dev server with HMR, and
+CSS/asset rules. See the readiness table below per area.
 
 What is still thin:
 
 - Consumers build oxc from Rust source on first use, so cold start is nowhere
   near `rules_go`'s prebuilt-toolchain experience. This is the widest remaining
   gap against the vision above.
-- A `vite_config` is loaded through Vite's own config loader after both
-  `ts_bundle` and `ts_dev_server` stage it into bazel-bin with the local modules
-  it imports (`vite_config_srcs`), so it resolves beside the Bazel npm tree
-  rather than through a source-tree `node_modules`. What it still cannot carry is
-  a *second* config file a framework wants beside it — the SvelteKit case below.
-- SvelteKit and Solid Start are detected and deliberately get no bundle target.
-  That is honest, and it is not support. Solid Start needs a Vite plugin
-  `@solidjs/start` does not ship at all; SvelteKit needs `.svelte` compilation
-  plus a second config file beside the Vite config, which the `vite_config`
-  contract cannot carry.
+- A `vite_config` is loaded through Vite's own config loader after
+  `ts_dev_server` stages it into bazel-bin with the local modules it imports
+  (`vite_config_srcs`), so it resolves beside the Bazel npm tree rather than
+  through a source-tree `node_modules`. What it still cannot carry is a *second*
+  config file a framework wants beside it.
 
 ### Current Readiness
 
@@ -34,12 +29,10 @@ What is still thin:
 | node_modules trees | Every *resolution* placed — name, version and peer set (primary flat, the rest under `.pnpm/<name>@<version>[_<peer set>]/`, with a relative link per disagreeing edge) |
 | Gazelle BUILD generation | Production-ready (JS/TS, CSS, assets, path aliases from tsconfig.json, ts_dev_server); alias resolution is deterministic, extension-spelling specifiers resolve, and one scanner is shared with the strict-deps check. A run on this clean tree changes zero files (`bazel run //gazelle -- -mode=diff` prints no diff). CI pins two properties of a run (the output builds; generating twice from scratch is byte-identical); two more are verified by hand against this tree and are **not** a CI job (the suite still passes; the test-target set is unchanged) |
 | Testing (vitest) | Solid (DOM run for real, coverage, custom config, snapshots read *and* written, watch mode, debugging). Gap: `coverage_thresholds` enforcement is unproven |
-| Bundling | Vite bundler (production quality), exercised on Vite 8. `vite_config` composes: a TypeScript config plus the local modules it imports (`vite_config_srcs`), staged into bazel-bin by both `ts_bundle` and `ts_dev_server` and loaded through Vite's own config loader. Both modes emit CSS: app mode through the HTML, lib mode as a declared `<bundle_name>.css` |
-| Dev server + HMR | Pluggable: `ts_dev_server(server = ...)` takes a `DevServerInfo`, Vite by default and oj (`//oj:dev_server`) as the second implementation, one generated config driving either. Serves first-party source with Bazel out of the inner loop; resolves bare npm specifiers through the `node_modules` tree via the `bazel:npm-resolve` plugin; codegen rebuilds and config-aware restarts under ibazel; does not typecheck. oj reaches npm packages through the same plugin, unpatched since oj 0.1.6 |
+| Bundling | `ts_binary` takes any `BundlerInfo` bundler, in the CLI mode or the generated-Vite-config mode; the ruleset ships no implementation, so nothing in this tree exercises the bundle action |
+| Dev server + HMR | Pluggable: `ts_dev_server(server = ...)` takes a `DevServerInfo`, Vite by default. Serves first-party source with Bazel out of the inner loop; resolves bare npm specifiers through the `node_modules` tree via the `bazel:npm-resolve` plugin; codegen rebuilds and config-aware restarts under ibazel; does not typecheck |
 | IDE integration | Generated tsconfig + tsserver hook; `module_name` and `extra_exclude` supported. A package whose targets disagree with the root `compilerOptions` gets its own generated tsconfig, declared in `nested_tsconfigs` and staleness-tested; the root excludes those files individually so unclaimed ones stay in its program. Zero tsc errors across the root and all nine nested programs |
-| CSS / assets | css_library, css_module, asset_library, json_library rules; CSS module mock in ts_test. The first three copy a source src into bazel-bin (a generated one is already there), which is what makes a relative import resolve for a bundler and what a bundle's input depset collects. `ts_bundle` takes `public_dir` and `manifest` in app mode; the manifest's keys are rewritten workspace-relative, so they are usable and configuration-stable. The `.module.css` `.d.ts` key set is compared against postcss-modules' real export map rather than asserted. Tailwind v4 works through `vite_config` in both bundle modes and under both dev servers |
-| Framework integration | TanStack Start and Remix get generated bundle targets, Remix with a nested-Bazel integration test; Next.js has its own `next_build`; SvelteKit and Solid Start are detected and get a named refusal instead of a target |
-| npm publishing | ts_npm_publish with auto-filled main/types/exports |
+| CSS / assets | css_library, css_module, asset_library, json_library rules; CSS module mock in ts_test. The first three copy a source src into bazel-bin (a generated one is already there), which is what makes a relative import resolve for a bundler and what a bundle's input depset collects. The `.module.css` `.d.ts` key set is compared against postcss-modules' real export map rather than asserted. Tailwind v4 works through `vite_config` under the dev server |
 | CI/CD | Docs: remote caching (BuildBuddy/EngFlow), RBE, GitLab CI, non-determinism — documented, not exercised by this repo's CI |
 
 ### Known gaps, with the mechanism
@@ -50,10 +43,10 @@ to rediscover them. Each names the file to change.
 - **`json_library` is a type-only dep: a bundler cannot resolve the `.json`.**
   `css_library`, `css_module` and `asset_library` each copy a source src into
   bazel-bin and carry it in `AssetInfo`, which is how the relative import
-  resolves for a bundler and how `ts_bundle` collects it (`ts_bundle.bzl` builds
-  `non_js_inputs` from `CssInfo`, `CssModuleInfo` and `AssetInfo` only).
-  `ts/private/json_library.bzl` does neither: it emits a `.d.ts` and puts the
-  untouched source in `DefaultInfo`. A `ts_bundle` over
+  resolves for a bundler and how the bundle action collects it
+  (`bundle_action.bzl` builds `non_js_inputs` from `CssInfo`, `CssModuleInfo`
+  and `AssetInfo` only). `ts/private/json_library.bzl` does neither: it emits a
+  `.d.ts` and puts the untouched source in `DefaultInfo`. A bundle over
   `import data from "./data.json"` fails with rolldown's
   `[UNRESOLVED_IMPORT] Could not resolve './data.json'`. Typing works; runtime
   does not. Fixing it means copying into bazel-bin and providing `AssetInfo` --
@@ -64,27 +57,15 @@ to rediscover them. Each names the file to change.
   what makes an untyped package reached transitively (vitest → @vitest/expect →
   chai) resolve to its `@types/*`. The IDE tsconfig the aspect writes still walks
   direct deps, so the editor sees `chai` as untyped where the build does not.
-- **oj carries no patch: the fix went upstream.** `oj_server` served a module only
-  when a plugin `load` hook returned its contents, so a plugin that maps a bare
-  specifier to a path -- the only way to reach an npm tree that is a build output
-  rather than a directory above the importer -- got a 404 for every module it
-  resolved correctly. Rollup's contract is that a `resolveId` result naming a real
-  file *is* the module and a null `load` means "read it from disk". Fixed in
-  [raphamorim/oj#108](https://github.com/raphamorim/oj/pull/108), released as
-  0.1.6, which is what `MODULE.bazel` pins; the carried patch and
-  `crate.annotation(patches = ...)` are gone.
-  `//tests/dev_server:dev_oj_behaviour_test` asserts `import "zod"` lands in the
-  Bazel tree under oj, the same assertion the Vite lanes get.
-- **Tailwind v4: `@source` is needed for a bundle, not for the dev server.**
-  `@tailwindcss/vite` scans from Vite's resolved `root`. `ts_bundle` sets that to
-  the HTML staging directory in app mode, which holds only the HTML, so the files
-  to scan have to be named; the dev server's root is the workspace root and needs
-  nothing. Prefer `@import "tailwindcss" source("<dir>")` to a bare `@source`:
-  the former is validated and fails on a missing directory, the latter exits 0
-  and emits nothing. Scanning a compiled `.js` also loses a class name that only
-  ever appeared in a type position. Both servers are covered by
-  `//tests/tailwind:tailwind_dev_{vite,oj}_test`.
-- **Workers: tests and a deploy dry-run both run.** `//tests/workers:worker_test` runs
+- **Tailwind v4 scans from Vite's resolved `root`.** Under the dev server that
+  is the workspace root, so the stylesheet needs no `@source` line; a bundler
+  that sets another root has to name the files to scan. Prefer
+  `@import "tailwindcss" source("<dir>")` to a bare `@source`: the former is
+  validated and fails on a missing directory, the latter exits 0 and emits
+  nothing. Scanning a compiled `.js` also loses a class name that only ever
+  appeared in a type position. `//tests/tailwind:tailwind_dev_vite_test` covers
+  the dev server.
+- **Workers: tests run inside workerd.** `//tests/workers:worker_test` runs
   inside workerd against the `.js` Bazel compiled, via `SELF.fetch()`. The
   earlier diagnosis here -- that the pool must own the transform and cannot take
   compiled output -- was wrong; compiled `.js` is fine. Two things were missing:
@@ -96,11 +77,9 @@ to rediscover them. Each names the file to change.
   is a second module identity. Omitting the second reads as
   `Cannot read properties of undefined (reading 'config')`, which looks like a
   plugin-API problem and is not.
-  Deploy is now `ts_worker_dry_run_test` (and `ts_worker_dry_run` to run it):
-  everything a deploy does up to the upload, with no credentials and nothing
-  sent. Publishing for real stays a command a human or a release job runs -- it
-  needs credentials, is not reproducible, and must not fire because the graph
-  changed.
+  The deploy dry run that sat beside it (`ts_worker_dry_run_test`) went with
+  M1's deletion of the wrangler rules; publishing stays a command a human or a
+  release job runs outside the build.
   Also: `bazel coverage` now reports real per-line coverage for code executing
   inside workerd (`LH:4 LF:4` for `tests/workers/src/index.js`). The diagnosis
   recorded here before -- that instrumentation had to reach another runtime and a
@@ -165,11 +144,6 @@ to rediscover them. Each names the file to change.
   …)`,** the external label, which resolves through the module's self-mapping but
   is not what a maintainer writes by hand — so BUILD files here carry both forms.
   Cosmetic, and it costs a reader a moment every time.
-- **`vite/bundler.bzl`: a `node_modules()` target not named `node_modules`
-  resolves through a sibling that is.** After the wrapper's `ln -sf`, Node
-  realpaths through the symlink, so the upward walk starts inside the real tree
-  and reaches another target's `<pkg>/node_modules` in the same Bazel package.
-  Consequence: **two Vite majors cannot coexist in one Bazel package.**
 - **Gazelle's node-builtin list is still hand-written; it is no longer
   unchecked.** The list omitted 15 names `builtinModules` reports — `sys` and
   the legacy `_http_*`/`_stream_*`/`_tls_*` modules — so a bare `import "sys"`
@@ -255,45 +229,19 @@ to rediscover them. Each names the file to change.
 
 ---
 
-## Sub-Project 1: Real Bundler Integration
+## Sub-Project 1: Bundlers
 
-**Goal:** `ts_bundle(bundler = "//vite:bundler")` produces production-quality bundles with tree-shaking, code splitting, and minification. Vite is the default shipped implementation.
+**Goal:** `ts_binary(bundler = ...)` runs any bundler returning `BundlerInfo`.
 
-### 1.1 Vite Bundler — Build & Distribution
-- [ ] Build `vite/src/plugin.ts` inside Bazel (currently TypeScript source, never compiled)
-- [ ] Create `ts_compile` target for the Vite plugin (or use `tsup` genrule)
-- [ ] Package the compiled plugin as an npm-publishable artifact
-- [ ] Create `vite_toolchain` — repository rule that downloads Vite binary + our plugin
-- [ ] Register Vite as the default bundler toolchain (optional, like tsgo)
-- [x] Make `vite_bundler` rule accept @npm//:vite + node_modules() tree and generate a working wrapper script (SP1 partial: uses @npm//:vite_bin infra from SP6)
+The Vite bundler and the bundle rule were deleted: the consumer this ruleset is
+built for never instantiated either, and a bundler nothing runs is a maintenance
+cost with no test to defend it. `ts_binary` keeps the `BundlerInfo` seam in both
+invocation modes, so a bundler is a rule returning the provider.
 
-### 1.2 Vite Build Integration
-- [x] Wire `vite build` as the bundler action in `ts_bundle` when Vite bundler is set
-- [x] Generate `vite.config.mjs` as a Bazel action (not hand-written)
-  - [x] `build.rollupOptions.input` (entry path via VITE_ENTRY_PATH env var)
-  - [x] `build.outDir` pointing at declared outputs (via VITE_OUT_DIR env var)
-  - [x] `resolve.alias` mapping Bazel package paths to bazel-bin outputs (via EXEC_ROOT env var)
-  - [x] `build.lib` mode (lib mode with explicit fileName to control output name)
-- [x] Support `format` attr (esm/cjs/iife) → Vite output format
-- [x] Support `external` attr → Vite externals
-- [x] Support `define` attr → Vite define
-- [x] Support `sourcemap` attr → Vite sourcemap config
-- [x] Declare output files: `<name>.<fmt>.js`, `<name>.<fmt>.js.map`
-- [x] Support chunk splitting via `split_chunks` attr (`build.rollupOptions.output.manualChunks`, the spelling every Vite generation from 6 honours; output is a directory)
-
-### 1.3 Minification & Tree-Shaking
-- [x] Pass through minification options via the `minify` attr
-- [x] Verify tree-shaking works with `.d.ts` compilation boundary (confirmed: `add` and `PI` are inlined, dead exports dropped)
-- [x] Add `minify` attr to `ts_bundle` (bool, default True; emits `build.minify: true` -- the running Vite's own default minifier, since naming one picks an optional peer absent from the tree. False also pins `output.minify: false` so a plugin's renderChunk output survives the dead-code pass)
-
-### 1.4 Alternative Bundlers
-- [x] Document the `BundlerInfo` interface for custom bundler authors (README: Custom bundler section)
+### 1.1 Alternative Bundlers
+- [x] Document the `BundlerInfo` interface for custom bundler authors (docs/guides/bundling.md)
 - [ ] Create esbuild bundler implementation (for speed-focused users)
 - [ ] Create Rolldown bundler implementation (when Rolldown stabilizes)
-
-### 1.5 Source Map Chain
-- [x] Verify 3-level source map chain: `.ts` → oxc `.js.map` → Vite bundle `.js.map` → browser (test: //tests/vite_bundle:sourcemap_chain_test)
-- [x] Ensure `sourcesContent` is populated for debugging without source files (verified in sourcemap_chain_test)
 
 ---
 
@@ -380,65 +328,11 @@ to rediscover them. Each names the file to change.
 
 ## Sub-Project 4: Framework Integration
 
-**Goal:** Real Next.js, TanStack Start, Remix, and SvelteKit apps build, test, and serve via Bazel.
-
-Where this stands: TanStack Start and Remix get generated Vite bundle targets (Remix with a nested-Bazel integration test that Gazelles a fresh workspace, builds it, and asserts a chunk per route); Next.js has `next_build`; SvelteKit and Solid Start are detected and get a named refusal rather than a target, because bundling them needs work no BUILD file can substitute for.
-
-### 4.1 Next.js
-- [x] Create `next_build` rule that wraps `next build` as a Bazel action (exported from `ts/defs.bzl`; //tests/integration:nextjs_test)
-- [ ] Inputs: compiled .js from ts_compile, node_modules tree, next.config.js
-- [ ] Outputs: .next build directory (or selective outputs)
-- [ ] Support App Router (app/ directory convention)
-- [ ] Support Pages Router (pages/ directory convention)
-- [ ] Support API Routes
-- [ ] Support Server Components (`"use client"` / `"use server"` directives)
-- [ ] Support `next/image` optimization
-- [ ] Support `next/font` loading
-- [ ] Support middleware
-- [ ] Create `next_dev_server` rule for `next dev` integration
-- [ ] Gazelle plugin for Next.js file conventions
-- [ ] Example: real Next.js app with pages, API routes, and SSR
-
-### 4.2 TanStack Start
-- [ ] Create `tanstack_build` rule wrapping Vinxi/Nitro build
-- [x] Support file-based routing (routes/ convention) in Gazelle
-- [ ] Support server functions (RPC serialization)
-- [ ] Support route validation (zod schemas in route params)
-- [x] Extend existing Gazelle TanStack plugin with build metadata (RouteInfo, route comments)
-- [x] Support dynamic route params in Gazelle ($userId.tsx → :userId)
-- [ ] Create `tanstack_dev_server` rule
-- [ ] Example: real TanStack Start app with routes and server functions
-
-### 4.3 Remix
-- [ ] Create `remix_build` rule
-- [ ] Support route conventions (routes/ with nested layouts)
-- [ ] Support loader/action functions
-- [ ] Support resource routes
-- [ ] Gazelle plugin for Remix conventions
-- [x] Gazelle emits the Remix bundle wiring, with `entry_point = "//app:entry_client"` and `package.json` in `staging_srcs` (both load-bearing: dropping either fails the build, and //tests/integration:remix_test pins both)
-
-### 4.4 SvelteKit
-Bundling is currently REFUSED with a reason rather than attempted: the plugin runs SvelteKit's own `sync.all()` from the Vite `config` hook (which wants `src/app.html` and a `svelte.config.js` of its own beside the vite config, a second file `vite_config` cannot carry), and `.svelte` files are not TypeScript, so no `staging_srcs` filegroup Gazelle emits carries the routes. All four items below are prerequisites for removing that refusal.
-- [ ] Support `.svelte` file compilation (requires Svelte compiler)
-- [ ] Create `sveltekit_build` rule
-- [ ] Support +page/+layout conventions
-- [ ] Support server-side modules (+page.server.ts)
-
-### 4.5 Framework Detection in Gazelle
-- [x] Auto-detect framework from package.json dependencies (@tanstack/react-router, @tanstack/start → TanStack; next → NextJS)
-- [x] Load appropriate plugin (TanStack enabled automatically when detected)
-- [x] Generate framework-specific build targets automatically for the frameworks whose bundling works (TanStack Start, Remix -> node_modules + vite_bundler + ts_bundle + per-stage-dir filegroups; Next.js -> node_modules + next_build)
-- [x] Refuse, by name and with the reason, for a detected framework whose bundling cannot work (`unsupportedBundling` in gazelle/framework_bundle.go). A framework in NEITHER map gets no target and no explanation, which is the outcome to avoid
-- [ ] Generate the single-file entry-point target the framework `ts_bundle` needs. `generateFrameworkBundle` runs only at `rel == ""` and the per-directory hook returns one rule, so the user still hand-declares it behind a `# gazelle:ts_exclude`
-
-### 4.6 Solid Start
-Bundling is REFUSED with a reason, and unlike SvelteKit the obstacle is not
-effort in this repository: `@solidjs/start` ships no Vite plugin. Its `./config`
-export has exactly one symbol, `defineConfig`, which returns a **vinxi app** —
-no `plugins` array — so `ts_bundle`'s `vite_config` injection discards it. Left
-generating a target, that produced the worst outcome available: a green
-`bazel build` emitting a plain Vite bundle with zero framework involvement.
-- [ ] Decide whether a vinxi app is worth a `BundlerInfo` implementation of its own, or whether Solid Start stays out of scope
+Deleted. The framework build rules, the Vite bundler they built on, Gazelle's
+framework detection and its bundle writers had no consumer and went with M1 of
+the migration. A framework's Vite plugin runs in the dev
+server through `vite_config`; nothing runs a framework's own build. Reopening
+this is a design question, not a checklist.
 
 ---
 
@@ -531,7 +425,7 @@ generating a target, that produced the worst outcome available: a green
 
 ## Sub-Project 7: Gazelle Improvements
 
-**Goal:** Gazelle handles real-world TypeScript patterns including CSS, dynamic imports, path aliases, and framework conventions.
+**Goal:** Gazelle handles real-world TypeScript patterns including CSS, dynamic imports and path aliases.
 
 ### 7.1 CSS Import Recognition
 - [ ] Extract CSS imports from `.ts`/`.tsx` files
@@ -561,12 +455,6 @@ generating a target, that produced the worst outcome available: a green
 - [x] Exclude `.next/`, `.nuxt/`, `.svelte-kit/`, `dist/`, `build/` directories
 - [x] Configurable exclude patterns via `# gazelle:ts_exclude`
 - [x] Handle `*.gen.ts`, `*.generated.ts`, `*.auto.ts` patterns
-
-### 7.7 Framework Plugins
-- [ ] Next.js plugin: detect pages/, app/, recognize file conventions
-- [ ] Remix plugin: detect routes/, handle nested layouts
-- [ ] SvelteKit plugin: detect +page/+layout, handle .svelte files
-- [ ] Auto-load plugin based on detected framework
 
 ---
 
@@ -611,7 +499,7 @@ generating a target, that produced the worst outcome available: a green
 
 ### 9.2 Error Messages
 - [x] Audit all `fail()` calls — ensured each has actionable guidance
-- [x] Added `Did you mean...?` suggestions for common mistakes (ts_binary, ts_bundle, node_modules)
+- [x] Added `Did you mean...?` suggestions for common mistakes (ts_binary, node_modules)
 - [x] `build --output_groups=+_validation` in all .bazelrc files: type errors now fail `bazel build` by default
 - [ ] Improve oxc error output for isolated declarations failures
 
@@ -688,7 +576,7 @@ generating a target, that produced the worst outcome available: a green
 - [x] Replace the bash runner scripts in `ts_test.bzl`, `ts_binary.bzl`, `ts_dev_server.bzl` and `npm_bin.bzl` with one checked-in Go launcher (`//tools/launcher`) reading a per-target JSON config. The generated file is `<target>_launcher`; `--dump-config` prints what it resolved
 
 **Remaining for full Windows support:**
-- [ ] Replace the remaining bash *action* wrappers: `vite/bundler.bzl`, `next_build.bzl`, and the `node_modules` fallback taken when no JS runtime toolchain is registered
+- [ ] Replace the remaining bash *action* wrapper: the `node_modules` fallback taken when no JS runtime toolchain is registered
 - [ ] Windows path handling in whatever replaces them (backslash vs forward slash)
 - [ ] Build oxc-bazel for Windows (x86_64, arm64) via rules_rust cross-compilation or pre-built binaries
 - [ ] Verify tsgo Windows binaries exist in the `@typescript/native-preview` npm packages
@@ -719,12 +607,8 @@ generating a target, that produced the worst outcome available: a green
 - [x] Support `# gazelle:ts_package_boundary` for explicit boundaries (existing feature)
 
 ### 12.2 Publishable Packages
-- [x] Create `ts_npm_publish` rule (ts/private/ts_npm_publish.bzl)
-- [x] Inputs: ts_compile target + package.json template
-- [x] Outputs: tarball ready for `npm publish` (both staging dir and .tar)
-- [x] Generate package.json with correct `main`, `types`, `exports` fields (auto-filled from compiled outputs when absent from template)
-- [x] Include compiled .js, .d.ts, and .js.map in tarball
-- [x] Support scoped packages (@org/name) (no rule changes needed; package.json controls name)
+The npm publish rule was deleted with M1 of the migration: no consumer
+instantiated it. Publishing is out of scope until one does.
 
 ### 12.3 Workspace References
 - [ ] Parse `pnpm-workspace.yaml`
@@ -746,11 +630,7 @@ generating a target, that produced the worst outcome available: a green
 - [x] Test: `@npm//:shared` alias resolves to `@@//packages/shared:shared` (//tests/npm:workspace_consumer)
 
 ### 13.2 Invisible node_modules Naming
-- [x] `vite_bundler` wrapper script auto-creates a `node_modules` symlink at the correct location instead of requiring the user to name their target `node_modules`
-- [x] Remove the `basename != "node_modules"` validation from `vite/bundler.bzl`
-- [x] The wrapper creates a `node_modules` symlink pointing at the actual tree artifact before invoking Vite (when name differs)
 - [x] `node_modules()` rule uses `ctx.label.name` as output directory name, enabling multiple targets per package
-- [x] Test: vite_bundler works with any node_modules target name (//tests/vite_bundle:vite_bundle_test via entry_vite_alt_nm)
 
 ### 13.3 JSON Imports Return Typed Data
 - [x] Create `json_library` rule (separate from `asset_library`) that generates a proper `.d.ts` with the JSON structure
@@ -767,20 +647,6 @@ generating a target, that produced the worst outcome available: a green
 - [x] `deps` attr on the runner rule relaxed to accept any labels (no provider constraint), CSS module deps detected at analysis time
 - [x] Test: component test that imports CSS modules passes without manual config (//tests/css_module_test:button_test)
 
-### 13.5 import.meta.env.* Support
-- [x] Add `env_vars` attr to `ts_bundle` (string_dict) for Vite-style env variable injection
-- [x] Generate `define` entries mapping `import.meta.env.KEY` to their double-quoted literal values
-- [x] Test: bundled output replaces `import.meta.env.VITE_API_URL` with the literal value (//tests/vite_bundle:env_vars_test)
-
-### 13.6 Vite App-Mode Bundling
-- [x] Add `mode` attr to `ts_bundle`: `"lib"` (current default) or `"app"`
-- [x] In app mode, generate a Vite config with `build.rollupOptions.input` pointing at an HTML file
-- [x] Accept `html` attr (label to index.html) for app mode entry point
-- [x] Asset hashing is enabled by default (Vite's default behavior)
-- [x] Output is a complete deployable directory (HTML + JS + CSS + assets) declared as a `declare_directory`
-- [x] Test: app-mode bundle produces index.html with hashed script/link tags (//tests/vite_bundle:app_mode_test)
-- [ ] In app mode, `publicDir` points at a directory containing static assets (future work)
-
 ### 13.7 vite/client Types Automatically Available
 - [x] Created `ts/vite_env.d.ts` standalone shim (no vite npm dep needed) with:
   - `ImportMetaEnv` interface (MODE, BASE_URL, PROD, DEV, SSR, [key: string])
@@ -789,7 +655,6 @@ generating a target, that produced the worst outcome available: a green
   - CSS module declarations (*.module.css, *.module.scss, etc.)
 - [x] Added `vite_types` bool attr to `ts_compile` macro that auto-prepends `@rules_typescript//ts:vite_env.d.ts`
 - [x] Exported via `exports_files(["vite_env.d.ts"])` in `ts/BUILD.bazel`
-- [x] Test: `env_entry.ts` uses `import.meta.env.VITE_API_URL` and `import.meta.env.PROD` with `vite_types = True` and type-checks cleanly (//tests/vite_bundle:env_entry)
 
 ### 13.8 Coverage with bazel coverage
 - [x] Declare coverage output directory in `ts_test` when `coverage = True`
@@ -821,13 +686,10 @@ Sub-projects that make the existing system more robust:
 
 ### Phase B — Core Value (months)
 Sub-projects that unlock real application support:
-5. **SP1: Real bundler** (1.1-1.2 Vite integration)
 6. **SP3: CSS support** (3.1-3.2 CSS imports and modules)
 7. **SP2: Dev server** (2.1-2.3 ts_dev_server with HMR — done, minus a committed latency benchmark)
 
-### Phase C — Framework Support (months)
-Sub-projects that target specific frameworks:
-8. **SP4: Frameworks** (4.1 Next.js, 4.2 TanStack Start)
+### Phase C — Developer Experience (months)
 9. **SP9: Developer experience** (9.1 IDE integration)
 
 ### Phase D — Scale & Polish (ongoing)
@@ -841,20 +703,14 @@ Sub-projects that target specific frameworks:
 
 **What works today:**
 - Pure TypeScript library monorepo with npm deps, vitest tests, hermetic builds. Good for backend services, shared libraries, CLI tools.
-- Vite bundler: production-quality bundles with tree-shaking, code splitting, minification, sourcemaps.
 - CSS and asset support: css_library, css_module, asset_library, and json_library rules with Gazelle integration. json_library generates fully-typed .d.ts declarations by parsing JSON at build time. CSS modules are mocked in Node.js tests automatically when ts_test detects CssModuleInfo deps.
 - Gazelle: generates ts_compile, ts_test, ts_lint, css_library, css_module, asset_library, and ts_dev_server targets from TypeScript source files. Reads path aliases from tsconfig.json compilerOptions.paths/baseUrl.
 - Dev server: ts_dev_server serves first-party source through Vite with Bazel out of the inner loop; bazel-bin supplies codegen output, assets and the npm tree. Under ibazel one Vite process lives across rebuilds and restarts only when the config's own inputs change. It does not typecheck, which is native Vite parity but makes the editor load-bearing. bundler attr accepts BundlerInfo for custom dev server implementations. react_refresh = True wires @vitejs/plugin-react for React Fast Refresh.
-- npm publishing: ts_npm_publish assembles publish-ready tarballs; auto-fills main/types/exports fields from compiled outputs.
 - CI/CD: documented remote caching (BuildBuddy/EngFlow/self-hosted), remote execution, GitLab CI template, and known sources of non-determinism. Documented, not exercised: this repository's own CI configures no remote or disk cache.
 
-**What doesn't work today:** framework-level build pipelines beyond a Vite
-plugin list. A Remix client bundle with per-route chunks does build, and
-`//tests/integration:remix_test` asserts the chunks — so "no framework builds" is
-no longer true — but that is the framework's *client* build reached through
-`vite_config`, not its own pipeline: no server build, no SSR, no loaders. Next.js
-goes through `next_build`, which runs the framework's own build rather than
-expressing it. SvelteKit and Solid Start do not bundle at all, by decision (SP4.4,
-SP4.6).
+**What doesn't work today:** production bundling and framework build
+pipelines. `ts_binary` takes a `BundlerInfo` bundler and the ruleset ships
+none; a framework's Vite plugin runs in the dev server through `vite_config`,
+and nothing runs a framework's own build.
 
-**Effort estimate:** Sub-project 4 (framework integration: Next.js, Remix, TanStack Start, SvelteKit) represents ~3-6 months per framework to reach production quality. Sub-project 2 HMR (ibazel protocol, React Fast Refresh, <500ms latency) is another 1-2 months. Full feature parity with the JavaScript ecosystem is a multi-year effort.
+**Effort estimate:** Sub-project 2 HMR (ibazel protocol, React Fast Refresh, <500ms latency) is another 1-2 months. Full feature parity with the JavaScript ecosystem is a multi-year effort.

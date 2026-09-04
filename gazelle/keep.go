@@ -289,7 +289,7 @@ func (m pathAliasMap) Merge(other bzl.Expr) bzl.Expr {
 // goes on the generated rule: rule.MergeRules re-adds, in its post-resolve pass,
 // every attribute the generated rule carries that the merged file does not, an
 // empty dict included. So a map recomputed down to nothing is applied to the
-// rule on disk here, the way setGeneratedGlob applies a glob().
+// rule on disk here.
 func setPathAliases(args language.GenerateArgs, gen *rule.Rule, used map[string]string) {
 	if len(used) > 0 {
 		gen.SetAttr("path_aliases", pathAliasMap(used))
@@ -325,133 +325,12 @@ func matchingRule(args language.GenerateArgs, gen *rule.Rule) *rule.Rule {
 	return nil
 }
 
-// ---- attributes the merger cannot reconcile --------------------------------
-
-// Written onto the rule in the BUILD file too, since the merger cannot merge a
-// glob() call -- so keep is honoured here rather than by the merger.
-func setGeneratedGlob(args language.GenerateArgs, gen *rule.Rule, patterns []string) {
-	gen.SetAttr("srcs", rule.GlobValue{Patterns: patterns})
-	if args.File == nil {
-		return
-	}
-	for _, r := range args.File.Rules {
-		if r.Kind() != gen.Kind() || r.Name() != gen.Name() {
-			continue
-		}
-		if r.ShouldKeep() || attrKept(r, "srcs") {
-			return
-		}
-		expr := r.Attr("srcs")
-		if expr == nil {
-			// Nothing on disk to leave alone: the merger copies in an attribute
-			// the existing rule does not carry.
-			return
-		}
-		have, ok := rule.ParseGlobExpr(expr)
-		if !ok || !isLiteralGlobExpr(expr) {
-			start, end := expr.Span()
-			log.Printf("typescript: %s:%d.%d-%d.%d: could not merge expression -- %s(%s) declares "+
-				"srcs that is not a glob() of plain strings, so Gazelle left it alone. It now has "+
-				"to cover %s by hand: a file srcs does not name is absent from the staged tree "+
-				"and does not resolve.",
-				args.File.Path, start.Line, start.LineRune, end.Line, end.LineRune,
-				r.Kind(), r.Name(), strings.Join(patterns, ", "))
-			return
-		}
-		kept, dropped := globPatternsKept(expr, patterns)
-		reportDroppedValues(args, r, "srcs", dropped)
-		merged := append(append([]string(nil), patterns...), keptPatternValues(kept)...)
-		if sameValues(have.Patterns, merged) {
-			return
-		}
-		r.SetAttr("srcs", globKeeping(patterns, have.Excludes, kept))
-		return
-	}
-}
-
-// ParseGlobExpr skips an argument it cannot read rather than refusing the call,
-// so a rewrite from what it did read drops everything it did not.
-func isLiteralGlobExpr(e bzl.Expr) bool {
-	call, ok := e.(*bzl.CallExpr)
-	if !ok {
-		return false
-	}
-	for _, arg := range call.List {
-		if assign, named := arg.(*bzl.AssignExpr); named {
-			arg = assign.RHS
-		}
-		if !isLiteralAttrValue(arg) {
-			return false
-		}
-	}
-	return true
-}
-
-// Kept patterns come back as expressions, comment and all, so the mark itself
-// survives the rewrite.
-func globPatternsKept(expr bzl.Expr, patterns []string) (kept []bzl.Expr, dropped []string) {
-	for _, e := range listElements(globPatternList(expr)) {
-		s, ok := e.(*bzl.StringExpr)
-		if !ok || slices.Contains(patterns, s.Value) {
-			continue
-		}
-		if rule.ShouldKeep(e) {
-			kept = append(kept, e)
-			continue
-		}
-		dropped = append(dropped, s.Value)
-	}
-	return kept, dropped
-}
-
-// globKeeping is the glob() call the recomputed and the kept patterns make up.
-func globKeeping(patterns, excludes []string, kept []bzl.Expr) bzl.Expr {
-	expr := rule.GlobValue{Patterns: patterns, Excludes: excludes}.BzlExpr()
-	if len(kept) == 0 {
-		return expr
-	}
-	list, ok := globPatternList(expr).(*bzl.ListExpr)
-	if !ok {
-		return expr
-	}
-	list.List = append(list.List, kept...)
-	list.ForceMultiLine = true
-	return expr
-}
-
-func keptPatternValues(kept []bzl.Expr) []string {
-	out := make([]string, 0, len(kept))
-	for _, e := range kept {
-		if s, ok := e.(*bzl.StringExpr); ok {
-			out = append(out, s.Value)
-		}
-	}
-	return out
-}
-
-func globPatternList(expr bzl.Expr) bzl.Expr {
-	call, ok := expr.(*bzl.CallExpr)
-	if !ok || len(call.List) == 0 {
-		return nil
-	}
-	return call.List[0]
-}
-
 func listElements(e bzl.Expr) []bzl.Expr {
 	list, ok := e.(*bzl.ListExpr)
 	if !ok {
 		return nil
 	}
 	return list.List
-}
-
-// As sets: both sides are label-sorted on the way into the file.
-func sameValues(a, b []string) bool {
-	x := append([]string(nil), a...)
-	y := append([]string(nil), b...)
-	sort.Strings(x)
-	sort.Strings(y)
-	return slices.Equal(x, y)
 }
 
 // ---- declaration_type, the dict a directive owns ---------------------------

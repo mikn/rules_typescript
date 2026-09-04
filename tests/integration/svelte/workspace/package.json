@@ -1,8 +1,0 @@
-{
-  "name": "svelte-library-integration",
-  "private": true,
-  "type": "module",
-  "devDependencies": {
-    "svelte": "5.42.2"
-  }
-}

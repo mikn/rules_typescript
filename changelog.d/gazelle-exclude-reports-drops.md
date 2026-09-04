@@ -1,7 +1,7 @@
 ### Added
 
 - **A `# gazelle:ts_exclude` pattern now says what it dropped.** Excluded
-  sources were collected only to diagnose a hand-maintained framework entry,
+  sources were collected only to diagnose a hand-maintained entry target,
   and the rollup walk did not collect them at all, so a pattern matching more
   than it meant to removed files from the program in silence. A run now reports
   one line per pattern per package, naming the directive, the count, and up to

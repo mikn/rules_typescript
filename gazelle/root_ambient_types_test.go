@@ -266,12 +266,12 @@ func TestRootAmbientTypes_UnstageableShapesAreRefused(t *testing.T) {
 	}
 }
 
-// Four separate call sites write the pair, and the ts_test one was the shape
+// Three separate call sites write the pair, and the ts_test one was the shape
 // that shipped a BUILD file Bazel refuses to load.
 func TestRootAmbientTypes_EveryGeneratedKindCarriesThem(t *testing.T) {
 	root := t.TempDir()
 	writeWorkspace(t, root, map[string]string{
-		"package.json":              `{"name":"w","dependencies":{"@tanstack/react-router":"1.0.0"}}` + "\n",
+		"package.json":              `{"name":"w"}` + "\n",
 		"BUILD.bazel":               "# gazelle:ts_package_boundary every-dir\n",
 		"tsconfig.json":             `{"compilerOptions": {"types": ["./globals.d.ts"]}}` + "\n",
 		"globals.d.ts":              workerAmbient,
@@ -285,7 +285,6 @@ func TestRootAmbientTypes_EveryGeneratedKindCarriesThem(t *testing.T) {
 
 	want := map[string]string{
 		"app":      "ts_compile",
-		"main":     "ts_compile",
 		"app_test": "ts_test",
 		"app_doc":  "ts_compile",
 	}
@@ -309,45 +308,52 @@ func TestRootAmbientTypes_EveryGeneratedKindCarriesThem(t *testing.T) {
 	}
 }
 
-// The file is not there: a ts_worker_types target in the tsconfig's own BUILD
-// file writes it. That target is the label staging it, and the filegroup --
-// which could only name a source file -- is not written.
+// The file is not there: the ts_codegen in the tsconfig's own BUILD file names
+// it in outs, so that target is the label and no filegroup is written.
 func TestRootAmbientTypes_GeneratedDeclarationNamesItsGenerator(t *testing.T) {
 	root := t.TempDir()
 	writeWorkspace(t, root, map[string]string{
 		"package.json":         `{"name":"w"}` + "\n",
 		"worker/tsconfig.json": `{"compilerOptions": {"types": ["./worker-configuration.d.ts"]}}` + "\n",
-		"worker/BUILD.bazel": `load("@rules_typescript//ts:defs.bzl", "ts_worker_types")
+		"worker/BUILD.bazel": `load("@rules_typescript//ts:defs.bzl", "ts_codegen")
 
-ts_worker_types(
+ts_codegen(
     name = "worker_types",
-    config = "wrangler.jsonc",
+    srcs = ["wrangler.jsonc"],
+    outs = ["worker-configuration.d.ts"],
+    args = [
+        "--config",
+        "wrangler.jsonc",
+        "--out",
+        "{out}",
+        "--srcs",
+        "{srcs}",
+    ],
+    generator = "@rules_typescript//tools/codegen:wrangler_types",
     node_modules = ":node_modules",
 )
 `,
 		"worker/wrangler.jsonc": `{"name": "w", "main": "src/handler.ts"}` + "\n",
+		"worker/index.ts":       "export const env = WORKER_ENV;\n",
+		"worker/index.test.ts":  "export const t = WORKER_ENV;\n",
 		"worker/src/handler.ts": "export const env = WORKER_ENV;\n",
 	})
 	logged := captureLog(t, func() { convergeGazelle(t, root) })
 	if strings.Contains(logged, "no such file is there") {
-		t.Errorf("a file a ts_worker_types target writes was refused as absent: %s", logged)
+		t.Errorf("a file a ts_codegen writes was refused as absent: %s", logged)
 	}
 
-	below := generated(t, root, "worker", "src", "BUILD.bazel")
-	if !strings.Contains(below, `types = ["../worker-configuration.d.ts"]`) {
-		t.Errorf("//worker/src names no rebased `types` entry:\n%s", below)
-	}
-	if !strings.Contains(below, `types_srcs = ["//worker:worker_types"]`) {
-		t.Errorf("//worker/src does not name the generating target, so nothing stages the "+
-			"declaration:\n%s", below)
-	}
+	own := loadRules(t, root, "worker")
+	requireTypesPair(t, own, "ts_compile", "worker", []string{"./worker-configuration.d.ts"}, []string{":worker_types"})
+	requireTypesPair(t, own, "ts_test", "worker_test", []string{"./worker-configuration.d.ts"}, []string{":worker_types"})
+	requireTypesPair(t, loadRules(t, root, "worker/src"), "ts_compile", "src", []string{"../worker-configuration.d.ts"}, []string{"//worker:worker_types"})
 
 	owner := generated(t, root, "worker", "BUILD.bazel")
 	if strings.Contains(owner, "tsconfig_types") {
 		t.Errorf("a filegroup was written over a file that is not in the source tree:\n%s", owner)
 	}
 	if !strings.Contains(owner, `name = "worker_types"`) {
-		t.Errorf("the hand-written ts_worker_types did not survive the run:\n%s", owner)
+		t.Errorf("the hand-written ts_codegen did not survive the run:\n%s", owner)
 	}
 }
 

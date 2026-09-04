@@ -1,9 +1,5 @@
 # Root BUILD file for rules_typescript
 
-# oj writes its config-extraction cache into the directory it serves, so a
-# workspace where the oj dev server has ever run has one of these at its root.
-# gazelle:exclude .oj-cache
-
 load("//ts:defs.bzl", "ts_add_package", "ts_pnpm")
 load("//ts/private:tsconfig_aspect.bzl", "ts_refresh_tsconfig")
 
@@ -136,7 +132,6 @@ ts_refresh_tsconfig(
         "//tests/npm:app",
         "//tests/npm:nested_workspace_consumer",
         "//tests/npm:workspace_consumer",
-        "//tests/npm_publish:math",
         "//tests/smoke:button",
         "//tests/smoke:hello",
         "//tests/strict_deps:builtins",
@@ -163,8 +158,6 @@ ts_refresh_tsconfig(
         "//tests/validation:annotated_oxc",
         "//tests/validation:correct",
         "//tests/validation:inferred",
-        "//tests/vite_bundle:entry",
-        "//tests/vite_bundle:env_entry",
         "//tests/vitest:_math_test_compile",
         "//tests/vitest:math",
         "//tests/vitest/attrs:_attrs_test_compile",

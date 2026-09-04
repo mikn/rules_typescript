@@ -11,12 +11,11 @@ import (
 )
 
 // What each dependent resolves must not depend on whether the resolver follows
-// symlinks. `--preserve-symlinks` (Vite's `resolve.preserveSymlinks`, oj's
-// `resolve.preserveSymlinks`) changes a module's IDENTITY -- its cache key and
-// __filename -- and this ruleset already needs it both ways: ts_test turns it on
-// because a DOM environment realpaths ids straight out of the sandbox, and
-// tests/workers turns it back off because the pool would otherwise hold two
-// identities for one file.
+// symlinks. `--preserve-symlinks` (Vite's `resolve.preserveSymlinks`) changes a
+// module's IDENTITY -- its cache key and __filename -- and this ruleset already
+// needs it both ways: ts_test turns it on because a DOM environment realpaths
+// ids straight out of the sandbox, and tests/workers turns it back off because
+// the pool would otherwise hold two identities for one file.
 //
 // Which version a dependent gets is a different question, and the answer has to
 // be the same in both modes: the store keeps a package's own pinned

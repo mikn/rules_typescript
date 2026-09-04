@@ -11,7 +11,8 @@ ts_binary(
     visibility = ["//visibility:public"],
 )
 
-# A worker's `worker-configuration.d.ts`; ts_worker_types is the macro over it.
+# A worker's `worker-configuration.d.ts`. Point a ts_codegen at it with a node_modules
+# providing wrangler and args = ["--config", "<basename>", "--out", "{out}", "--srcs", "{srcs}"].
 ts_binary(
     name = "wrangler_types",
     entry_point = "wrangler_types.mjs",
