@@ -253,6 +253,12 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		return emptyResult(args)
 	}
 
+	// The out_dir of a ts_codegen and everything below it is that target's
+	// output, whatever a local run of the generator left on disk.
+	if root, ok := codegenOutDirOwning(args.Rel, tc); ok {
+		return codegenOutDirResult(args, root)
+	}
+
 	// Ahead of every return below: a directory holding nothing but assets an
 	// existing asset_library already claims classifies no source at all and
 	// returns early, and those are exactly the rules the directive is for.
@@ -414,7 +420,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		if !isBoundary {
 			return language.GenerateResult{}
 		}
-		rolled := rolledUp(args.Dir, ownExcludes, tc.jsSrcExts)
+		rolled := rolledUp(args.Dir, ownExcludes, tc.jsSrcExts, codegenOutDirsBelow(args.Rel, tc, codegenPatterns))
 		dropped = append(dropped, rolled.excluded...)
 		// Every kind, not only the TypeScript ones: a declared out that is also
 		// checked in below the boundary would otherwise be a source and an
@@ -1043,6 +1049,7 @@ func emptyResult(args language.GenerateArgs) language.GenerateResult {
 	return language.GenerateResult{
 		Empty: []*rule.Rule{
 			rule.NewRule("ts_compile", name),
+			rule.NewRule("ts_compile", docTargetName(name)),
 			rule.NewRule("ts_test", testTargetName(name)),
 			rule.NewRule("ts_lint", name+"_lint"),
 			rule.NewRule("ts_dev_server", "dev"),
@@ -1826,6 +1833,69 @@ func codegenGlobClaims(rel string, files []string, tc *tsConfig) map[string]stru
 		}
 	}
 	return claimed
+}
+
+// codegenOutDirOwning returns the out_dir root rel is at or below, if any.
+func codegenOutDirOwning(rel string, tc *tsConfig) (string, bool) {
+	for _, root := range tc.codegenOutDirs {
+		if rel == root || strings.HasPrefix(rel, root+"/") {
+			return root, true
+		}
+	}
+	return "", false
+}
+
+// codegenOutDirsBelow returns the out_dir trees inside the package at rel,
+// package-relative: the inherited roots below it plus this run's own patterns.
+func codegenOutDirsBelow(rel string, tc *tsConfig, patterns []CodegenPattern) []string {
+	var dirs []string
+	add := func(dir string) {
+		dir = path.Clean(dir)
+		if dir != "." && !slices.Contains(dirs, dir) {
+			dirs = append(dirs, dir)
+		}
+	}
+	for _, root := range tc.codegenOutDirs {
+		if rel == "" {
+			add(root)
+		} else if sub, ok := strings.CutPrefix(root, rel+"/"); ok {
+			add(sub)
+		}
+	}
+	for _, p := range patterns {
+		if p.OutDir != "" {
+			add(p.OutDir)
+		}
+	}
+	sort.Strings(dirs)
+	return dirs
+}
+
+// dataFileKinds are the generated rules carrying one non-TypeScript file each.
+var dataFileKinds = map[string]bool{
+	"css_library":   true,
+	"css_module":    true,
+	"asset_library": true,
+	"json_library":  true,
+}
+
+// codegenOutDirResult withdraws what Gazelle generates inside an out_dir. A BUILD
+// file left there can be emptied but not deleted, so its package outlives the run.
+func codegenOutDirResult(args language.GenerateArgs, root string) language.GenerateResult {
+	res := emptyResult(args)
+	if args.File == nil {
+		return res
+	}
+	for _, r := range args.File.Rules {
+		if dataFileKinds[r.Kind()] {
+			res.Empty = append(res.Empty, rule.NewRule(r.Kind(), r.Name()))
+		}
+	}
+	log.Printf("typescript: %s is inside %s, the out_dir of a ts_codegen, so everything in it is "+
+		"that target's output and nothing here is a source. Gazelle withdraws the targets it "+
+		"generated here and cannot delete the BUILD file, which keeps the directory a package "+
+		"of its own; delete it by hand.", args.Rel, root)
+	return res
 }
 
 // Gazelle can empty a BUILD file it did not write but cannot delete it, so the

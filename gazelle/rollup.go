@@ -5,6 +5,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -39,10 +40,12 @@ type rolledUpFiles struct {
 // gives that import nothing to resolve to.
 //
 // The walk stops at a descendant that is a package in its own right, which
-// dirIsItsOwnPackage decides.
-func rolledUp(dir string, excludes excludeSet, jsSrcExts []string) rolledUpFiles {
+// dirIsItsOwnPackage decides, and at a directory in skip (a ts_codegen out_dir).
+func rolledUp(dir string, excludes excludeSet, jsSrcExts []string, skip []string) rolledUpFiles {
 	var out rolledUpFiles
-	stops := dirIsItsOwnPackage
+	stops := func(subRel string) bool {
+		return slices.Contains(skip, subRel) || dirIsItsOwnPackage(filepath.Join(dir, subRel))
+	}
 	var walk func(rel string)
 	walk = func(rel string) {
 		entries, err := os.ReadDir(filepath.Join(dir, rel))
@@ -101,7 +104,7 @@ func rolledUp(dir string, excludes excludeSet, jsSrcExts []string) rolledUpFiles
 			if excludes.drops(subRel) {
 				continue
 			}
-			if stops(filepath.Join(dir, subRel)) {
+			if stops(subRel) {
 				continue
 			}
 			walk(subRel)
@@ -114,7 +117,7 @@ func rolledUp(dir string, excludes excludeSet, jsSrcExts []string) rolledUpFiles
 		if excludes.drops(sub) {
 			continue
 		}
-		if stops(filepath.Join(dir, sub)) {
+		if stops(sub) {
 			continue
 		}
 		walk(sub)

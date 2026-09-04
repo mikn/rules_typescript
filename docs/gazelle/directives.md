@@ -488,6 +488,12 @@ target's `module_name`. Nothing compiles the tree, so the generator has to write
 `.js` beside `.d.ts`. See
 [a directory of output](../rules/ts-codegen.md#a-directory-of-output).
 
+The directory is the target's output whether or not a local run of the
+generator has left a copy on disk: Gazelle lists nothing under it in any
+`srcs`, and writes no BUILD file at or below it in either boundary mode. A
+detected generator and a `ts_codegen` written by hand count the same as one a
+directive wrote.
+
 Gazelle also auto-detects Prisma, GraphQL codegen and OpenAPI generators, so a
 directive is only needed for a generator it does not recognise. Each of those
 three needs both halves in the same directory: the input file (`schema.prisma`;

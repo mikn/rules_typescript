@@ -415,6 +415,23 @@ type tsConfig struct {
 	// These patterns are appended to whatever detectCodegen returns, each in
 	// the one directory it was declared in.
 	customCodegens []CodegenPattern
+
+	// codegenOutDirs is the workspace-relative root of every out_dir tree a
+	// ts_codegen at or above this directory declares, by directive or by rule.
+	codegenOutDirs []string
+}
+
+// addCodegenOutDir records one out_dir root; a directive, the detector and the
+// rule they wrote name the same tree.
+func (tc *tsConfig) addCodegenOutDir(rel, outDir string) {
+	if outDir == "" {
+		return
+	}
+	root := path.Join(rel, outDir)
+	if root == "." || slices.Contains(tc.codegenOutDirs, root) {
+		return
+	}
+	tc.codegenOutDirs = append(tc.codegenOutDirs, root)
 }
 
 // getConfig retrieves the tsConfig from a config.Config. Returns a default
@@ -496,6 +513,10 @@ func (tc *tsConfig) clone() *tsConfig {
 	if len(tc.customCodegens) > 0 {
 		cp.customCodegens = make([]CodegenPattern, len(tc.customCodegens))
 		copy(cp.customCodegens, tc.customCodegens)
+	}
+	if len(tc.codegenOutDirs) > 0 {
+		cp.codegenOutDirs = make([]string, len(tc.codegenOutDirs))
+		copy(cp.codegenOutDirs, tc.codegenOutDirs)
 	}
 	return &cp
 }
@@ -1528,6 +1549,19 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 						"  format: # gazelle:ts_codegen <name> <generator_label> <outs_csv_or_dir:path> [srcs:<csv>] [args...]", d.Value)
 				}
 			}
+		}
+		for _, r := range f.Rules {
+			if r.Kind() == "ts_codegen" {
+				tc.addCodegenOutDir(rel, r.AttrString("out_dir"))
+			}
+		}
+	}
+
+	// The directories below this one are visited before generateRules runs
+	// here, so a detected generator's out_dir has to be recorded now.
+	if !tc.ignore {
+		for _, cp := range detectCodegen(rel, detectorInputs(currentDir, f), tc) {
+			tc.addCodegenOutDir(rel, cp.OutDir)
 		}
 	}
 

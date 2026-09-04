@@ -30,6 +30,7 @@ func main() {
 		// glob_workspace_files would stop collecting the fixture below it --
 		// the same boundary this case is about.
 		it.Write(it.Path("src/i18n/BUILD.bazel"), codegenGlobDirective)
+		it.Write(it.Path("src/locales/BUILD.bazel"), outDirCodegenPackage)
 
 		gazelleLog, err := it.BazelLog("gazelle_pass_1", "run", "//:gazelle")
 		if err != nil {
@@ -97,6 +98,7 @@ func main() {
 		rootAmbientTypesReachTheTreeBelow(it)
 		aliasAttrsFollowTheSrcs(it)
 		codegenGlobLoads(it)
+		outDirContentsAreNotSources(it)
 		assetDeclarationTypeApplies(it)
 		anchoredExcludeHitsOnePath(it)
 		jsSrcsAreCompiledAndDeclared(it)
@@ -123,6 +125,48 @@ func lintWithoutTheLinterIsRefused(it *harness.IT, gazelleLog *harness.Log) {
 
 const codegenGlobDirective = "# gazelle:ts_codegen locales //:catalogue_gen locales.ts " +
 	"srcs:settings.json,glob([\"messages/*.json\"]) {srcs} {out}\n"
+
+// A hand-written out_dir ts_codegen in a tsconfig-mode package, with a tree
+// checked in under compiled/ standing in for what a local run leaves behind.
+const outDirCodegenPackage = `# gazelle:ts_package_boundary tsconfig
+
+load("@rules_typescript//ts:defs.bzl", "ts_codegen")
+
+ts_codegen(
+    name = "tree",
+    srcs = ["names.txt"],
+    args = [
+        "--names",
+        "{srcs}",
+        "--outdir",
+        "{out}",
+    ],
+    generator = "//:tree_gen",
+    module_name = "@roundtrip/locales",
+    out_dir = "compiled",
+)
+`
+
+// A file under the out_dir read into srcs is one output declared twice, the tree
+// and a file inside it; the `bazel build //...` above is where Bazel says so.
+func outDirContentsAreNotSources(it *harness.IT) {
+	build := it.Path("src/locales/BUILD.bazel")
+	it.RequireNotContains(build, "compiled/",
+		"src/locales/BUILD.bazel names a file under the out_dir of :tree")
+	it.Pass("src/locales/BUILD.bazel names nothing under compiled/")
+
+	it.RequireContains(build, `deps = [":tree"]`,
+		"the import of @roundtrip/locales did not resolve to the out_dir target")
+	it.Pass("the import of :tree's module_name resolves to :tree")
+
+	for _, dir := range []string{"src/locales/compiled", "src/locales/compiled/messages"} {
+		it.RequireNoFile(it.Path(dir, "BUILD.bazel"), "Gazelle made %s a package inside :tree's out_dir", dir)
+	}
+	it.Pass("no package under src/locales/compiled")
+
+	it.RequireFile(it.Bin("src/locales/app.js"), "//src/locales did not compile against the tree")
+	it.Pass("//src/locales compiles against the generated tree")
+}
 
 // The converge tests assert generated BUILD text; nothing there asks Bazel to
 // load it. A ts_codegen srcs glob reaching into a subdirectory is the case
