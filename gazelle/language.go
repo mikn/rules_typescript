@@ -9,6 +9,8 @@ package typescript
 import (
 	"context"
 	"flag"
+	"fmt"
+	"os"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
 	"github.com/bazelbuild/bazel-gazelle/label"
@@ -28,7 +30,8 @@ const languageName = "typescript"
 // recorded there and read once the last one is in.
 type tsLang struct {
 	language.BaseLifecycleManager
-	cycles cycleGraph
+	cycles   cycleGraph
+	programs *programStore
 }
 
 // NewLanguage returns a new instance of the TypeScript Gazelle language extension.
@@ -41,13 +44,24 @@ func NewLanguage() language.Language {
 // prefix when resolving import specs and when keying per-language config state.
 func (l *tsLang) Name() string { return languageName }
 
-// RegisterFlags registers command-line flags for the TypeScript extension.
-// Currently no top-level flags are defined; configuration is driven by
-// in-BUILD directives.
-func (l *tsLang) RegisterFlags(_ *flag.FlagSet, _ string, _ *config.Config) {}
+func (l *tsLang) RegisterFlags(fs *flag.FlagSet, _ string, c *config.Config) {
+	tc := defaultTsConfig()
+	fs.StringVar(&tc.programs.tsgoFlag, "ts_tsgo", "",
+		"the tsgo binary that lists each tsconfig.json program; the default is the toolchain's, in the Gazelle binary's runfiles")
+	fs.BoolVar(&tc.programs.verbose, "ts_verbose", false,
+		"say which tsgo lists the programs, one line per tsconfig.json with what it listed or why it was not listed, and the .ts files no program lists")
+	l.programs = tc.programs
+	c.Exts[languageName] = tc
+}
 
-// CheckFlags validates flags after they have been parsed. No-op for now.
-func (l *tsLang) CheckFlags(_ *flag.FlagSet, _ *config.Config) error { return nil }
+func (l *tsLang) CheckFlags(_ *flag.FlagSet, c *config.Config) error {
+	if tsgo := getConfig(c).programs.tsgoFlag; tsgo != "" {
+		if _, err := os.Stat(tsgo); err != nil {
+			return fmt.Errorf("-ts_tsgo: %w", err)
+		}
+	}
+	return nil
+}
 
 // KnownDirectives lists the # gazelle: directives this extension understands.
 // Gazelle emits a warning for unrecognised directives, so every directive
@@ -353,6 +367,12 @@ func (l *tsLang) Fix(_ *config.Config, _ *rule.File) {}
 // described by args. The heavy lifting lives in generate.go.
 func (l *tsLang) GenerateRules(args language.GenerateArgs) language.GenerateResult {
 	return generateRules(args)
+}
+
+func (l *tsLang) DoneGeneratingRules() {
+	if l.programs != nil {
+		l.programs.reportUnlisted()
+	}
 }
 
 // Imports returns the set of ImportSpecs that can be used to import the given

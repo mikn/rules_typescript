@@ -227,6 +227,14 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		return emptyResult(args)
 	}
 
+	if tc.programs == nil {
+		tc.programs = newProgramStore()
+	}
+	tc.programs.visit(args.Rel, args.RegularFiles)
+	if handWrittenTsConfigIn(args.Dir, args.Config.RepoRoot) != "" {
+		listTsConfigProgram(args, tc)
+	}
+
 	// The out_dir of a ts_codegen and everything below it is that target's
 	// output, whatever a local run of the generator left on disk.
 	if root, ok := codegenOutDirOwning(args.Rel, tc); ok {

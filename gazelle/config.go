@@ -386,6 +386,9 @@ type tsConfig struct {
 	// codegenOutDirs is the workspace-relative root of every out_dir tree a
 	// ts_codegen at or above this directory declares, by directive or by rule.
 	codegenOutDirs []string
+
+	// programs is the run's tsgo listings, one store every directory shares.
+	programs *programStore
 }
 
 // addCodegenOutDir records one out_dir root; a directive, the detector and the
@@ -407,10 +410,15 @@ func getConfig(c *config.Config) *tsConfig {
 	if v, ok := c.Exts[languageName]; ok {
 		return v.(*tsConfig)
 	}
+	return defaultTsConfig()
+}
+
+func defaultTsConfig() *tsConfig {
 	return &tsConfig{
 		packageBoundaryMode: boundaryEveryDir,
 		declarations:        "tsgo",
 		npmHub:              defaultNpmHub,
+		programs:            newProgramStore(),
 	}
 }
 
@@ -685,6 +693,8 @@ func nearestHandWrittenTsConfig(repoRoot, dir string) string {
 
 type tsConfigJSON struct {
 	Extends         tsConfigExtends `json:"extends"`
+	Include         *[]string       `json:"include"`
+	Files           *[]string       `json:"files"`
 	CompilerOptions struct {
 		BaseURL string              `json:"baseUrl"`
 		Paths   map[string][]string `json:"paths"`
@@ -712,14 +722,14 @@ func (e *tsConfigExtends) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// resolvedTsConfig is an extends chain flattened to the compilerOptions that
-// win, each paired with the directory of the config that wrote it: a relative
-// value resolves against its own file, not against the leaf.
+// An extends chain flattened leaf-wins; a compilerOption keeps its writer's
+// directory because a relative value resolves against that file, not the leaf.
 type resolvedTsConfig struct {
 	baseURL    string
 	baseURLDir string
 	paths      map[string][]string
 	pathsDir   string
+	inputs     bool
 }
 
 // resolveTsConfigChain reads a tsconfig and, depth first, the configs it
@@ -762,6 +772,7 @@ func resolveTsConfigChain(tsConfigPath string, ancestors map[string]bool) *resol
 		baseURLDir: dir,
 		paths:      tsc.CompilerOptions.Paths,
 		pathsDir:   dir,
+		inputs:     tsc.Include != nil || tsc.Files != nil,
 	})
 	return resolved
 }
@@ -772,6 +783,9 @@ func (r *resolvedTsConfig) override(other *resolvedTsConfig) {
 	}
 	if other.paths != nil {
 		r.paths, r.pathsDir = other.paths, other.pathsDir
+	}
+	if other.inputs {
+		r.inputs = true
 	}
 }
 
@@ -1224,12 +1238,7 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 	if parent, ok := c.Exts[languageName]; ok {
 		tc = parent.(*tsConfig).clone()
 	} else {
-		// Fresh root config: apply defaults.
-		tc = &tsConfig{
-			packageBoundaryMode: boundaryEveryDir,
-			declarations:        "tsgo",
-			npmHub:              defaultNpmHub,
-		}
+		tc = defaultTsConfig()
 	}
 
 	// The lockfile is the workspace's npm inventory, read once and inherited.
