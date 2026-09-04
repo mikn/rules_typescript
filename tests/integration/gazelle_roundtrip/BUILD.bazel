@@ -41,3 +41,11 @@ sh_binary(
     srcs = ["tools/catalogue_gen.sh"],
     visibility = ["//visibility:public"],
 )
+
+# The generator the runner's src/locales ts_codegen names; the compiled/ tree
+# checked in beside it stands in for what a local run leaves behind.
+sh_binary(
+    name = "tree_gen",
+    srcs = ["tools/tree_gen.sh"],
+    visibility = ["//visibility:public"],
+)

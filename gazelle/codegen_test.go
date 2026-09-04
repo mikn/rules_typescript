@@ -981,3 +981,139 @@ func TestBuildCodegenRule_RefusesAGlobBrokenByWhitespace(t *testing.T) {
 		t.Errorf("rule emitted from a truncated glob, srcs %v", r.Attr("srcs"))
 	}
 }
+
+// The rule as a consumer writes it by hand: an out_dir tree with a module_name,
+// in the package the tsconfig-mode rollup reads.
+const outDirCodegenRule = `ts_codegen(
+    name = "messages",
+    srcs = ["names.txt"],
+    args = ["--names", "{srcs}", "--outdir", "{out}"],
+    generator = "//tools:tree_gen",
+    module_name = "@web/messages",
+    out_dir = "compiled",
+)
+`
+
+// A local run of the generator leaves its output under out_dir, and the rollup
+// read it into srcs over files the ts_codegen already declares as its output.
+func TestConverge_FilesUnderAnOutDirAreNotRolledUpSrcs(t *testing.T) {
+	repoRoot := convergeTree(t, map[string]string{
+		"BUILD.bazel":                      "",
+		"web/BUILD.bazel":                  "# gazelle:ts_package_boundary tsconfig\n\n" + outDirCodegenRule,
+		"web/tsconfig.json":                `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
+		"web/names.txt":                    "hello\n",
+		"web/app.ts":                       "import { hello } from \"@web/messages/hello\";\nexport const s = hello(1);\n",
+		"web/compiled/index.ts":            "export const generated = 1;\n",
+		"web/compiled/messages/hello.d.ts": "export declare const hello: (count: number) => string;\n",
+		"web/compiled/README.md":           "# generated\n",
+	})
+
+	data, err := os.ReadFile(filepath.Join(repoRoot, "web", "BUILD.bazel"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	build := string(data)
+	if strings.Contains(build, "compiled/") {
+		t.Errorf("web/BUILD.bazel names a file under the out_dir of :messages:\n%s", build)
+	}
+	if !strings.Contains(build, `deps = [":messages"]`) {
+		t.Errorf("web/BUILD.bazel does not resolve @web/messages/hello to :messages:\n%s", build)
+	}
+}
+
+// every-dir mode visits the out_dir and every directory below it as a package
+// candidate, and each one holding a source got a BUILD file inside the tree.
+func TestConverge_AnOutDirLeavesItsSubdirectoriesUnpackaged(t *testing.T) {
+	repoRoot := convergeTree(t, map[string]string{
+		"BUILD.bazel":                      "",
+		"web/BUILD.bazel":                  "# gazelle:ts_codegen messages //tools:paraglide dir:compiled srcs:settings.json --outdir {out}\n",
+		"web/settings.json":                "{}\n",
+		"web/app.ts":                       "export const x = 1;\n",
+		"web/compiled/index.ts":            "export const generated = 1;\n",
+		"web/compiled/messages/hello.d.ts": "export declare const hello: (count: number) => string;\n",
+		"web/compiled/README.md":           "# generated\n",
+	})
+
+	for _, dir := range []string{"web/compiled", "web/compiled/messages"} {
+		if data, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(dir), "BUILD.bazel")); err == nil {
+			t.Errorf("%s is under the out_dir of //web:messages and got a package of its own:\n%s", dir, data)
+		}
+	}
+}
+
+// A detected generator's out_dir was known only after the directories below it
+// were visited, so the first run wrote a package into each one holding a source.
+func TestConverge_ADetectedOutDirLeavesItsSubdirectoriesUnpackagedOnTheFirstRun(t *testing.T) {
+	repoRoot := convergeTree(t, map[string]string{
+		"BUILD.bazel":                               "",
+		"web/schema.prisma":                         "generator client {\n  provider = \"prisma-client-js\"\n}\n",
+		"web/app.ts":                                "export const x = 1;\n",
+		"web/generated/client/index.d.ts":           "export declare const PrismaClient: unknown;\n",
+		"web/generated/client/index.js":             "module.exports = {};\n",
+		"web/generated/client/runtime/index.ts":     "export const runtime = 1;\n",
+		"web/generated/client/runtime/library.d.ts": "export declare const library: number;\n",
+	})
+
+	data, err := os.ReadFile(filepath.Join(repoRoot, "web", "BUILD.bazel"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `out_dir = "generated/client"`) {
+		t.Fatalf("web/BUILD.bazel holds no detected ts_codegen over generated/client:\n%s", data)
+	}
+	for _, dir := range []string{"web/generated/client", "web/generated/client/runtime"} {
+		if data, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(dir), "BUILD.bazel")); err == nil {
+			t.Errorf("%s is under the out_dir of the detected //web:prisma_client and got a package of its own:\n%s", dir, data)
+		}
+	}
+}
+
+// Gazelle can empty a BUILD file an earlier run left inside the out_dir but
+// cannot delete it, so the run says which directory to clear by hand.
+func TestConverge_APackageLeftUnderAnOutDirIsEmptied(t *testing.T) {
+	var repoRoot string
+	logged := captureLog(t, func() {
+		repoRoot = convergeTree(t, map[string]string{
+			"BUILD.bazel":     "",
+			"web/BUILD.bazel": outDirCodegenRule,
+			"web/names.txt":   "hello\n",
+			"web/app.ts":      "export const x = 1;\n",
+			"web/compiled/BUILD.bazel": `load("@rules_typescript//ts:defs.bzl", "asset_library", "ts_compile")
+
+ts_compile(
+    name = "compiled",
+    srcs = ["index.ts"],
+    visibility = ["//visibility:public"],
+)
+
+ts_compile(
+    name = "compiled_doc",
+    srcs = ["index.doc.ts"],
+    visibility = ["//visibility:public"],
+)
+
+asset_library(
+    name = "README_md",
+    srcs = ["README.md"],
+    visibility = ["//visibility:public"],
+)
+`,
+			"web/compiled/index.ts":     "export const generated = 1;\n",
+			"web/compiled/index.doc.ts": "export const story = 1;\n",
+			"web/compiled/README.md":    "# generated\n",
+		})
+	})
+
+	data, err := os.ReadFile(filepath.Join(repoRoot, "web", "compiled", "BUILD.bazel"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kept := range []string{"ts_compile(", "asset_library("} {
+		if strings.Contains(string(data), kept) {
+			t.Errorf("web/compiled/BUILD.bazel still holds a %s over the generator's output:\n%s", kept, data)
+		}
+	}
+	if !strings.Contains(logged, "web/compiled") {
+		t.Errorf("the run did not name web/compiled as a package inside an out_dir; logged %q", logged)
+	}
+}

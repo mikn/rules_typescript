@@ -51,7 +51,9 @@ directive registers a generator it does not recognise; see
 It writes the `ts_compile` that consumes the output too, named
 `<name>_compile`, and resolves imports of the generated module to it. A
 checked-in file a `ts_codegen` declares as an out is kept out of the package's
-`srcs`. A checked-in `*.gen.ts` no rule declares is an ordinary source.
+`srcs`, and so is everything under a declared `out_dir`: the tree is the
+target's output whether or not a local run of the generator left a copy on
+disk. A checked-in `*.gen.ts` no rule declares is an ordinary source.
 `routeTree.gen.ts` is the exception: the Start Vite plugin writes it.
 [`# gazelle:ts_exclude`](../gazelle/directives.md#exclude-generated-files)
 takes one out of `srcs`.

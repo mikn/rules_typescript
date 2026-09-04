@@ -189,6 +189,10 @@ project whose ambient declaration and its sources sit in different directories,
 or whose directories import each other. Both are legal in a single `tsc`
 program, and a cycle once every directory is a target of its own.
 
+In both modes, the `out_dir` of a `ts_codegen` and every directory below it is
+that target's output: Gazelle writes no package there, and the rollup does not
+enter it, whatever a local run of the generator has left on disk.
+
 Test files (`*.test.ts`, `*.spec.ts`, `*.test.tsx`, `*.spec.tsx`) generate `ts_test` targets automatically in both modes.
 
 Doc and story files (`*.doc.ts`, `*.doc.tsx`, `*.stories.ts`, `*.stories.tsx`) generate a separate `ts_compile` target in both modes. A doc file consumes the library and does not belong to it: left in the package target, a design system where `switch/switch.doc.tsx` imports `../label` and `label/label.doc.tsx` imports `../switch` is a dependency cycle between the two component packages, though neither component depends on the other. Like test files, they are outside the `ts_lint` target's sources. Like the `ts_test` target, they get the package's ambient `.d.ts` files: nothing imports an ambient declaration, so only `srcs` membership puts it in a program. `.mdx` files are not TypeScript sources and are unaffected.

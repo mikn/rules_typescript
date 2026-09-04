@@ -19,9 +19,13 @@ package typescript
 // positives in repos that share a monorepo package.json.
 
 import (
+	"os"
 	"path"
+	"slices"
 	"sort"
 	"strings"
+
+	"github.com/bazelbuild/bazel-gazelle/rule"
 )
 
 // ---- CodegenPattern --------------------------------------------------------
@@ -243,6 +247,37 @@ func detectCodegen(rel string, files []string, tc *tsConfig) []CodegenPattern {
 	}
 
 	return patterns
+}
+
+// detectorInputs lists the files of dir the way the walk hands them to
+// generateRules: regular files, less what an `exclude` directive in f names.
+func detectorInputs(dir string, f *rule.File) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var excludes []string
+	if f != nil {
+		for _, d := range f.Directives {
+			if d.Key == "exclude" {
+				excludes = append(excludes, strings.TrimSpace(d.Value))
+			}
+		}
+	}
+	var files []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		excluded := slices.ContainsFunc(excludes, func(pattern string) bool {
+			ok, _ := path.Match(pattern, e.Name())
+			return ok
+		})
+		if !excluded {
+			files = append(files, e.Name())
+		}
+	}
+	return files
 }
 
 // ---- detector: Prisma ------------------------------------------------------
