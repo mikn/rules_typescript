@@ -167,11 +167,9 @@ func sameRepoTargetKey(dep string, from label.Label) (string, bool) {
 
 // reportCycles names every cross-package cycle among the recorded targets, once
 // each, and empties the graph. A component confined to one directory is left
-// alone, and only the framework entry split among those is reported at all --
-// by reportEntryImportCycle, which names the entry_point behind it. The doc and
-// test splits put two targets in one directory too, and a cycle between either
-// of those and the library goes unreported: see docs/gazelle/overview.md
-// § Import Cycles Between Packages.
+// alone: the doc and test splits put two targets in one directory, and a cycle
+// between either of those and the library goes unreported: see
+// docs/gazelle/overview.md § Import Cycles Between Packages.
 func (g *cycleGraph) reportCycles() {
 	defer func() { *g = cycleGraph{} }()
 

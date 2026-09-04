@@ -27,7 +27,7 @@ func loadNpmInventory(repoRoot string) (inventory map[string]string, lockNames m
 	inventory, err = parsePnpmLockInventory(string(data))
 	if err != nil {
 		log.Printf("typescript: %s: %v\n"+
-			"The npm inventory is unavailable, so codegen and framework-bundle "+
+			"The npm inventory is unavailable, so codegen "+
 			"targets fall back to file-presence heuristics and a `node:` import "+
 			"gets no @types/node dep.", path, err)
 		return nil, nil, nil

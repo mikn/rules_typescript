@@ -251,11 +251,9 @@ held `deps` agrees with the imports the cycle is reported, and the held list is
 part of what closes it: removing the import is not enough, because the label
 stays where you wrote it.
 
-Only a cycle that crosses package boundaries is reported here. Of the cycles
-inside one directory, the framework entry split is the one that is reported, by
-the framework-entry check, which names the `entry_point` that split the target
-in two. The doc-target and test-target splits put two targets in one directory
-too, and a cycle between one of those and the library (`thing.ts` importing
+Only a cycle that crosses package boundaries is reported here. The doc-target
+and test-target splits put two targets in one directory, and a cycle between
+one of those and the library (`thing.ts` importing
 `./thing.doc` while `thing.doc.tsx` imports `./thing`) is emitted with nothing
 printed and left for Bazel to reject.
 
@@ -288,9 +286,8 @@ after the file is deleted removes it.
 
 The generated `ts_dev_server` gets `plugin` set and no `server`, so it runs the
 default Vite implementation. Gazelle writes the rule only when the package has
-no `dev` target yet, so a hand-added
-`server = "@rules_typescript//oj:dev_server"` survives later runs. See
-[Choosing the server](../guides/dev-server.md#choosing-the-server).
+no `dev` target yet, so a hand-added `server` survives later runs. See
+[Bringing your own server](../guides/dev-server.md#bringing-your-own-server).
 
 ## The `compilerOptions` Baseline
 
@@ -335,8 +332,7 @@ Three cases get no attribute instead of a label into a directory Gazelle writes
 no BUILD file into, each logged with the fix. The label is resolved once per
 package, so a refusal reaches every target there, the `_doc` one included:
 
-- a directory under a `# gazelle:ts_ignore`, and one inside a tree Next.js or
-  SvelteKit stages by glob;
+- a directory under a `# gazelle:ts_ignore`;
 - one a `# gazelle:ts_package_boundary` directive between it and the naming
   package leaves the two disagreeing about: the mode inherited by the second
   says nothing about the first, and a guess either way is a label nothing writes;
@@ -391,11 +387,11 @@ which is the generated one in `bazel-out`. So
 nothing from a directory below, and every global that file declares is
 `TS2304`.
 
-Gazelle rebases the entry onto the four kinds it generates under the tsconfig
-that type-check (the package `ts_compile`, the framework client entry, the
-`_doc` compile and the `ts_test`) and names the file by a label. A
-`ts_bundle`, a `ts_dev_server`, a `node_modules` or the `ts_config` itself has
-no type program, and gets neither the entry nor the label:
+Gazelle rebases the entry onto the three kinds it generates under the tsconfig
+that type-check (the package `ts_compile`, the `_doc` compile and the
+`ts_test`) and names the file by a label. A `ts_dev_server`, a `node_modules`
+or the `ts_config` itself has no type program, and gets neither the entry nor
+the label:
 
 ```python
 # workers/proxy/BUILD.bazel
@@ -427,17 +423,28 @@ targets that name it and of nothing else. It reaches no consumer's program:
 consumer. See
 [which ambients a consumer gets](../rules/ts-compile.md#which-ambients-a-consumer-gets).
 
-A file that a [`ts_worker_types`](../rules/ts-worker-types.md) target in the
-tsconfig's own BUILD file writes is not in the source tree, so no filegroup is
-written for it: the target is the label. Gazelle reads the target's `out`
-(default `worker-configuration.d.ts`) to pair it with the entry.
+A file that a [`ts_codegen`](../rules/ts-codegen.md#cloudflare-worker-bindings)
+in the tsconfig's own BUILD file names in `outs` is not in the source tree, so
+no filegroup is written for it: the target is the label. Gazelle reads the
+`outs` list to pair it with the entry.
 
 ```python
 # workers/proxy/BUILD.bazel -- hand-written; Gazelle leaves it in place
-ts_worker_types(
+ts_codegen(
     name = "worker_types",
-    config = "wrangler.jsonc",
+    srcs = ["wrangler.jsonc"],
+    outs = ["worker-configuration.d.ts"],
+    args = [
+        "--config",
+        "wrangler.jsonc",
+        "--out",
+        "{out}",
+        "--srcs",
+        "{srcs}",
+    ],
+    generator = "@rules_typescript//tools/codegen:wrangler_types",
     node_modules = ":node_modules",
+    visibility = ["//workers/proxy:__subpackages__"],
 )
 
 # workers/proxy/src/BUILD.bazel
@@ -495,7 +502,7 @@ Three shapes are logged and produce nothing: an entry naming a path below the
 tsconfig's directory or below an ancestor's, which no label there stages; a
 `../` entry the tsconfig at the directory it climbs to does not name, or that
 climbs above the workspace root; and one naming a file that is neither there
-nor written by a `ts_worker_types` target beside the tsconfig.
+nor named in the `outs` of a `ts_codegen` beside the tsconfig.
 
 ## Automatic Lint Targets
 
@@ -583,120 +590,6 @@ directives included, and the directives in its own BUILD file then merge on top.
 - `@npm//:react-dom`: required for React test utilities
 - `@npm//:types_react`: type declarations for JSX
 
-## Framework Detection
-
-When the workspace-root `package.json` names a framework Gazelle recognises, the
-root BUILD file gets that framework's bundle wiring: a `node_modules` tree, a
-`vite_bundler`, and a `ts_bundle` with `staging_srcs`, `vite_config` and
-`entry_point` already set. Detection is by dependency name, in `dependencies` or
-`devDependencies`; there is nothing to configure.
-
-| `package.json` names | Gazelle emits |
-|---|---|
-| `@tanstack/react-router`, `@tanstack/start` | the Vite bundle targets |
-| `@remix-run/dev`, `@remix-run/react` | the Vite bundle targets |
-| `next` | `node_modules` + `next_build` + `next_dev_server`; its own rules, not Vite |
-| `@sveltejs/kit` | `node_modules` + `sveltekit_build`; its own rule, not Vite |
-| `@solidjs/start`, `solid-start` | nothing, plus a message saying why |
-
-For the last one a generated `ts_bundle` would fail `bazel build //...`, and no
-BUILD file closes the gap. Gazelle writes no bundle target and logs the
-framework, the reason, and the fallback:
-
-```
-typescript: SolidStart detected: bundling it is unsupported, so no bundle target
-was generated — @solidjs/start ships no Vite plugin: defineConfig() returns a
-vinxi app, which ts_bundle's vite_config contract (a default export with a
-plugins array) cannot consume. Your TypeScript still compiles and tests; for a
-client-only build, declare a ts_bundle by hand with no vite_config.
-```
-
-SvelteKit is off the `ts_bundle` path for a reason of the same kind. Its plugin
-runs SvelteKit's own sync step from the Vite `config` hook, which wants a
-`src/app.html` and a `svelte.config.js` of its own beside the Vite config, and it
-reads the route tree off `process.cwd()`. `sveltekit_build` owns that instead: it
-globs `src/` and the assets tree, and TypeScript outside them reaches the build
-through `staging_srcs`.
-
-### Solid Start
-
-`@solidjs/start`'s `./config` export has one symbol, `defineConfig`, and the vinxi
-app it returns has no `plugins` array: vinxi owns the server, the router manifest
-and the build. `ts_bundle`'s `vite_config` contract is a default export whose
-`plugins` are prepended to Bazel's, and `unhandled_keys_js` rejects a
-`vite_config` whose own keys are not a subset of `plugins` and `root`. A vinxi app
-is nothing but other keys, so a generated target fails to build. Solid Start is
-registered in `unsupportedBundling` and not as a `frameworkConfigs` entry.
-
-Two changes would each reopen it:
-
-- **`@solidjs/start` ships a Vite plugin.** Solid Start then joins TanStack Start
-  and Remix on the existing path with no new rule code: a three-line
-  `solid-vite.config.mjs` naming the plugin, a `frameworkConfigs` entry for the
-  npm deps, stage dirs and client entry, and the refusal deleted.
-- **A `BundlerInfo` implementation drives vinxi.** `ts_bundle` takes any bundler
-  returning [`BundlerInfo`](../guides/bundling.md#custom-bundler-bundlerinfo-interface),
-  so a rule wrapping vinxi's build as the bundler binary sidesteps the
-  `vite_config` contract. vinxi's route manifest, server output and multi-target
-  build have no counterpart in either `BundlerInfo` invocation mode.
-
-`solid-js` with `vite-plugin-solid` is an ordinary Vite plugin and goes through
-`vite_config` like any other. Detection matches only `@solidjs/start` and
-`solid-start`, so a plain `solid-js` workspace never reaches the unsupported
-path. No test in this repository covers that combination.
-
-!!! note "Documented from the refusal, not from an install"
-
-    `@solidjs/start` is in no `package.json` or lockfile here. The shape of
-    `defineConfig`'s return value above comes from the refusal string in
-    `gazelle/framework_bundle.go` and the package's published API. Confirm against
-    the installed package before acting on it.
-
-### The Entry Point Is Generated
-
-`ts_bundle` takes exactly one `.js` as its entry, and Gazelle merges every source
-in a directory into one target, so the framework's conventional client entry needs
-a target of its own. Gazelle writes it: it recognises the file the `entry_point`
-label names, gives it a single-file `ts_compile`, and leaves it out of the
-directory-wide one.
-
-```python
-# app/BUILD.bazel — generated
-ts_compile(
-    name = "entry_client",
-    srcs = ["entry.client.tsx"],
-    visibility = ["//visibility:public"],
-)
-
-ts_compile(
-    name = "app",
-    srcs = ["root.tsx"],
-    visibility = ["//visibility:public"],
-)
-```
-
-Nothing to declare, and nothing to exclude. The pre-0.2 recipe (a
-`# gazelle:ts_exclude` on the entry file plus a hand-written `ts_compile`) still
-works, but Gazelle maintains neither half of it: the exclusion drops the file
-before the generator sees it. The run reports it:
-
-```
-typescript: Remix detected: a ts_exclude directive drops app/entry.client.tsx,
-the bundle's client entry, so Gazelle generates no "entry_client" target and does
-not maintain the one you wrote in its place -- an import added to the entry never
-reaches its deps, and ts_compile's strict-deps check fails on that import. Drop
-the directive and the hand-written target: Gazelle writes the single-file entry
-target itself now.
-```
-
-When nothing in that package maps to the entry name, no bundle target is generated
-either: `entry_point` would name nothing, and a dangling label fails
-`bazel build //...` for the whole workspace. That covers both a missing file and
-one an `exclude` drops. `//tests/integration:remix_test` pins the workspace-wide
-failure and the generated entry target;
-`TestFrameworkEntry_BuiltinExcludeAndTsIgnoreLeaveNoDanglingLabel` pins the
-skipped bundle.
-
 ## Import Resolution
 
 Gazelle resolves TypeScript imports to Bazel labels in this order:
@@ -764,8 +657,8 @@ Two bounds on that, both deliberate:
 - Only lockfile format 6.x and 9.x are read, the same two
   `npm/private/npm_translate_lock.bzl` reads. Any other version logs a warning
   and leaves the inventory absent, which is not the same as empty: everything
-  gated on the inventory (the `@types/node` dep, the codegen detectors, the
-  framework bundle's npm deps) falls back to file-presence heuristics and does
+  gated on the inventory (the `@types/node` dep and the codegen detectors)
+  falls back to file-presence heuristics and does
   not conclude that the workspace declares nothing.
 
 A repo with no lockfile is in that same absent state. That is why the codegen

@@ -26,8 +26,6 @@
   resolved labels close beside it is reported as any other. A dep no import
   explains is not an edge, so a cycle a hand-written label closes, the whole
   cycle or only its last edge, is left to Bazel, whose loop of labels names
-  the BUILD file that label is written in. Of the cycles inside a single
-  directory, only the framework entry split is reported, by the framework-entry
-  report, which can name the `entry_point` behind it. The doc-target and
-  test-target splits are not covered, and neither is a cycle through a
-  `ts_test` dep that no source of its own imports.
+  the BUILD file that label is written in. A cycle inside a single directory
+  -- the doc-target and test-target splits -- is not covered, and neither is a
+  cycle through a `ts_test` dep that no source of its own imports.

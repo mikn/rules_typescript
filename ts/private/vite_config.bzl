@@ -88,8 +88,7 @@ def stage_vite_config(ctx, config_file, extra_srcs, subdir):
 # TypeScript. Vite's own loader does -- it is what Vite runs on a root config --
 # and it also resolves the extensionless relative imports that bundler-resolution
 # configs are written with. So that is tried first, and the dynamic import is the
-# fallback for a plain .mjs when vite is not in the tree (an oj target need not
-# have it).
+# fallback for a plain .mjs when vite is not in the tree.
 # What the generated config actually reads out of a user vite_config. Everything
 # else it would silently discard, and a real framework config sets several of
 # them -- `define`, `resolve.alias`, `build.target`, `optimizeDeps` -- so the

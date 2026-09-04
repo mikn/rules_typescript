@@ -118,17 +118,6 @@ ts_dev_server(
     vite_config_srcs = ["user_config_helper.mjs"],
 )
 
-# The same app under oj instead of Vite, which is the point of the server attr:
-# one generated config, two implementations reading it. oj needs no @npm//:vite
-# in the tree -- it is here only because the Vite variants above share this one.
-ts_dev_server(
-    name = "dev_oj",
-    entry_point = ":dev_app",
-    node_modules = ":node_modules",
-    port = 5179,
-    server = "//oj:dev_server",
-)
-
 # The other side of that boundary: only the config file itself is copied, so its
 # relative import of a sibling module resolves nowhere. :vite_config_boundary_test
 # starts this one and asserts it dies naming the file it could not load.
@@ -183,9 +172,6 @@ ts_dev_server(
         # Same assertions, but the plugin comes from a module the config imports
         # relatively -- which only resolves because vite_config_srcs staged it.
         ("dev_with_composed_user_config", "5180", "0", "0", "1", "vite"),
-        # The same assertions against oj: what the seam is for is that one
-        # generated config drives either implementation.
-        ("dev_oj", "5179", "0", "0", "0", "oj"),
     ]
 ]
 
@@ -208,37 +194,28 @@ go_test(
     ],
 )
 
-# A .module.css through a running server, per implementation: the class names it
-# serves have to be the ones the .d.ts was generated from, or the dev loop and
-# the build disagree about every one of them.
-[
-    go_test(
-        name = "{}_css_module_test".format(target),
-        size = "medium",
-        srcs = [
-            "css_module_test.go",
-            "devserver_harness_test.go",
-            "launcher_config_test.go",
-        ],
-        data = [
-            ":panel_module_css",
-            ":{}".format(target),
-        ],
-        env = {
-            "DEV_IMPL": impl,
-            "DEV_TARGET": target,
-        },
-        tags = ["requires-network"],
-        deps = [
-            "//tests/hmrsocket",
-            "//tests/verify",
-        ],
-    )
-    for target, impl in [
-        ("dev", "vite"),
-        ("dev_oj", "oj"),
-    ]
-]
+# A .module.css through a running server: the class names it serves have to be
+# the ones the .d.ts was generated from, or the dev loop and the build disagree
+# about every one of them.
+go_test(
+    name = "dev_css_module_test",
+    size = "medium",
+    srcs = [
+        "css_module_test.go",
+        "devserver_harness_test.go",
+        "launcher_config_test.go",
+    ],
+    data = [
+        ":dev",
+        ":panel_module_css",
+    ],
+    env = {"DEV_TARGET": "dev"},
+    tags = ["requires-network"],
+    deps = [
+        "//tests/hmrsocket",
+        "//tests/verify",
+    ],
+)
 
 # What a vite_config can and cannot import, and where the rule loads it from.
 # No server comes up here: a config that fails to load fails before Vite listens.
@@ -262,15 +239,14 @@ go_test(
     ],
 )
 
-# The edit-to-HMR benchmark, over both server implementations. It measures the
-# whole loop -- save, watcher, transform, frame on a held-open HMR socket -- so
-# it needs to know where that socket is, which is the one part of the protocol
-# the two servers do not share: Vite upgrades on the base path and only for the
-# "vite-hmr" subprotocol, oj upgrades on /__ws for anything.
+# The edit-to-HMR benchmark. It measures the whole loop -- save, watcher,
+# transform, frame on a held-open HMR socket -- so it needs to know where that
+# socket is: Vite upgrades on the base path and only for the "vite-hmr"
+# subprotocol.
 #
-# One lane per server, plus the plugin lane, because the plugin adds a second
-# watcher to the same process and that is exactly the kind of thing that would
-# cost the inner loop without anyone noticing.
+# A plain lane and a plugin lane, because the plugin adds a second watcher to
+# the same process and that is exactly the kind of thing that would cost the
+# inner loop without anyone noticing.
 [
     go_test(
         name = "{}_hmr_latency_test".format(target),
@@ -297,6 +273,5 @@ go_test(
     for target, impl, ws_path, ws_protocol in [
         ("dev", "vite", "/", "vite-hmr"),
         ("dev_with_plugin", "vite", "/", "vite-hmr"),
-        ("dev_oj", "oj", "/__ws", ""),
     ]
 ]

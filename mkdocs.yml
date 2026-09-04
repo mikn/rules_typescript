@@ -1,6 +1,6 @@
 site_name: rules_typescript
 site_url: https://mikn.github.io/rules_typescript
-site_description: Opinionated Bazel rules for TypeScript + Vite. Oxc compiles, tsgo type-checks, Vite bundles, and Vite or oj serves the same generated config.
+site_description: Opinionated Bazel rules for TypeScript. Oxc compiles, tsgo type-checks, and Vite serves the generated config.
 repo_url: https://github.com/mikn/rules_typescript
 repo_name: mikn/rules_typescript
 
@@ -57,7 +57,6 @@ nav:
     - Dev Server: guides/dev-server.md
     - Tailwind v4: guides/tailwind.md
     - Monorepo Layout: guides/monorepo.md
-    - Publishing Packages: guides/publishing.md
     - Troubleshooting: guides/troubleshooting.md
   - Gazelle:
     - Overview: gazelle/overview.md
@@ -66,20 +65,10 @@ nav:
     - ts_compile: rules/ts-compile.md
     - ts_test: rules/ts-test.md
     - ts_binary: rules/ts-binary.md
-    - ts_bundle: rules/ts-bundle.md
     - ts_dev_server: rules/ts-dev-server.md
-    - ts_worker_dry_run: rules/ts-worker-dry-run.md
-    - ts_worker_deploy: rules/ts-worker-deploy.md
-    - ts_worker_types: rules/ts-worker-types.md
     - ts_lint: rules/ts-lint.md
     - ts_codegen: rules/ts-codegen.md
-    - next_build: rules/next-build.md
-    - next_dev_server / next_serve: rules/next-run.md
-    - remix_build: rules/remix-build.md
-    - sveltekit_build: rules/sveltekit-build.md
-    - svelte_library: rules/svelte-library.md
     - CSS and assets: rules/css-and-assets.md
-    - ts_npm_publish: rules/ts-npm-publish.md
     - node_modules: rules/node-modules.md
     - Providers and toolchains: rules/providers.md
   - Compatibility: compatibility.md

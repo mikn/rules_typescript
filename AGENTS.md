@@ -96,7 +96,7 @@ one. A target exporting none runs no such action and provides no such file.
 - `platforms/platforms.bzl` — the one platform table (`PLATFORMS`) everything loads
 - `ts/toolchain/BUILD.bazel` — toolchain types and instances; `//ts/toolchain:all`
 - `ts/private/ts_test.bzl` — test macro: vitest by default, `runner = "node:test"` for node's own runner (auto node_modules)
-- `ts/private/ts_bundle.bzl` — Vite production bundler (staging_srcs for frameworks)
+- `ts/private/bundle_action.bzl` — the bundle action behind `ts_binary`'s `bundler` attr
 - `ts/private/ts_dev_server.bzl` — dev server with HMR
 - `ts/private/ts_codegen.bzl` — general code generation
 - `ts/private/tsconfig_aspect.bzl` — the IDE tsconfig, the hook data, and the
@@ -106,11 +106,9 @@ one. A target exporting none runs no such action and provides no such file.
   resolved per-target JSON config
 - `gazelle/generate.go` — BUILD file generation
 - `gazelle/resolve.go` — import → label resolution
-- `gazelle/config.go` — directives, framework detection, codegen detection
-- `gazelle/framework_bundle.go` — auto-generated framework bundle targets
+- `gazelle/config.go` — directives, codegen detection
 - `gazelle/codegen.go` — auto-detected codegen targets
 - `oxc_cli/src/main.rs` — Rust CLI (parse → isolated_declarations → transform → codegen)
-- `vite/bundler.bzl` — Vite bundler wrapper
 
 ## Rules
 
@@ -136,7 +134,6 @@ one. A target exporting none runs no such action and provides no such file.
 - Default: every-dir (every directory with .ts files is a package)
 - `ts_test` auto-generates node_modules from npm deps in the `deps` list
 - Register all new directives in `KnownDirectives()`, all new rules in `Kinds()` + `Loads()`
-- Framework bundle targets auto-generated at root when framework detected in `package.json`
 - `bazel run //gazelle -- -mode=diff` on a clean tree must print nothing. A
   fixture that differs only in Gazelle's own rendering (a one-element list
   inline, a genrule's output filename over its label) makes real drift
@@ -198,10 +195,10 @@ Every `ts_npm_package` provides: `JsInfo` + `TsDeclarationInfo` +
 `css_library`/`css_module`/`asset_library`/`json_library` provide `TsDeclarationInfo` (for .d.ts stubs).
 `css_module` additionally provides `CssModuleInfo`, whose `exports_files` carry
 the `<source>.exports.json` its compile action wrote, the map the `.d.ts` keys
-came from; anything that needs the runtime values reads that file. `ts_bundle`,
-`ts_dev_server` and `ts_test` install `//ts/private/css:css_module_vite_plugin`,
-which hands that map to the bundler; a fourth consumer installs it too, or Vite
-scopes the stylesheet again.
+came from; anything that needs the runtime values reads that file. `ts_binary`'s
+bundle action, `ts_dev_server` and `ts_test` install
+`//ts/private/css:css_module_vite_plugin`, which hands that map to the bundler;
+a fourth consumer installs it too, or Vite scopes the stylesheet again.
 
 ## npm Internals
 
@@ -302,40 +299,6 @@ relative import does not resolve, because only the one file is copied; the
 server dies naming it. `//tests/dev_server:vite_config_boundary_test` pins all
 three sides.
 
-## Framework Support
-
-The mechanism is three parts:
-1. `staging_srcs` on `ts_bundle`: copies source files to a writable dir for framework plugin scanning
-2. `vite_config` attr: user provides a 3-line `.mjs` with the framework plugin
-3. Gazelle auto-generates `node_modules` + `vite_bundler` + `ts_bundle` + `filegroup` targets at the workspace root
-
-**`gazelle/framework_bundle.go` has two maps.** `frameworkConfigs` gets
-`ts_bundle` targets; `unsupportedBundling` gets a named log line and no targets.
-Only Solid Start is in the second map: `@solidjs/start` ships no Vite plugin
-(`defineConfig()` returns a vinxi app, which the `vite_config` contract cannot
-consume). A framework in neither map gets no target and no explanation. A new
-framework goes into one of the two, or, when `ts_bundle` cannot host it, into a
-generation path of its own.
-
-Two frameworks have such a path, each with a rule that owns a staging root and
-runs the framework's own build in it: `next_build` (`generateNextJSBundle`) and
-`sveltekit_build` (`generateSvelteKitBundle`, in `gazelle/sveltekit_bundle.go`).
-SvelteKit resolves `svelte.config.js`, `src/app.html` and the route tree against
-`process.cwd()`, and its plugin forces `root: cwd` back over any override, so
-`VITE_STAGING_ROOT`, `ts_bundle`'s redirection mechanism, is inert for it.
-`generateSvelteKitBundle` also suppresses TypeScript targets under `src/`: a BUILD
-file there would make a subpackage, and the `glob(["src/**"])` feeding the bundle
-does not descend into one. Suppression only stops Gazelle writing one. A BUILD
-file already in the tree is named in the log, and the `sveltekit_build` macro
-fails on it via `native.subpackages()`; a partial route tree would otherwise
-build green.
-
-The generated `entry_point` names a single-file `ts_compile` the user declares
-(`# gazelle:ts_exclude <entry>` plus the target), because `ts_bundle` needs
-exactly one `.js` and Gazelle merges a directory into one target. Until that
-target exists the label dangles and `bazel build //...` fails for the whole
-workspace; `//tests/integration:remix_test` pins both sides.
-
 ## Vite and vitest Versions
 
 Neither is a ruleset dependency; both come from a consumer lockfile, and the rules
@@ -343,10 +306,9 @@ generate config for whatever it resolves to. `MODULE.bazel` translates six
 lockfiles into six hubs. Four resolve Vite (`@npm`, `@npm_tailwind`,
 `@npm_workers`, `@npm_eslint`), all at 8.2.2, with vitest 4.1.11 wherever a hub
 resolves vitest at all, so there is one lane. `@npm` (`tests/npm/pnpm-lock.yaml`)
-carries most of it: `tests/vitest/**`, `tests/dev_server/**`,
-`tests/vite_bundle/**`, `vite/tests/**` (vite-plugin-bazel's own tests), and the
-`lsp`, `npm_deps` and `vite_bundle` integration workspaces, which copy that
-lockfile verbatim. `@npm_features` (`tests/npm/pnpm-lock-features.yaml`, declared
+carries most of it: `tests/vitest/**`, `tests/dev_server/**`, `vite/tests/**`
+(vite-plugin-bazel's own tests), and the `lsp` and `npm_deps` integration
+workspaces, which copy that lockfile verbatim. `@npm_features` (`tests/npm/pnpm-lock-features.yaml`, declared
 `dev_dependency`) is the pnpm patch/alias/peer-variant fixture and resolves
 neither tool; `@npm_css` (`ts/private/css/pnpm-lock.yaml`) holds the ruleset's own
 build-action packages and resolves neither either. The per-hub table is in
@@ -357,17 +319,14 @@ grep -rnE '^  (vite|vitest)@' --include=pnpm-lock.yaml .
 ```
 
 A second hub on a second major is not a second lane, only a second lockfile to
-keep in step: `@npm_vite` had `ts_bundle` on Vite 8 while the integration test
+keep in step: `@npm_vite` had the bundler on Vite 8 while the integration test
 of the same rule ran on Vite 6. The coupling is a test:
 `//vite/tests:peer_version_test` reads `peerDependencies.vite` out of
 `vite/package.json` and asserts the installed major is one that range names, so
 widening the range is an edit to both files.
 
-Two version-sensitive spots in the generated config: `ts_bundle` emits
-`output.manualChunks` and an unnamed `minify` (the plugin `split_chunks` used to
-emit is gone in Vite 7; naming `esbuild` picks an optional peer that is not in
-the tree), and `ts_test`'s array-`config` form emits `test.projects` (vitest 4
-throws on `test.workspace`).
+One version-sensitive spot in the generated config: `ts_test`'s array-`config`
+form emits `test.projects` (vitest 4 throws on `test.workspace`).
 
 ## Snapshots Under Bazel
 
@@ -384,7 +343,7 @@ puts the working directory in the user's source tree.
 ## Anti-Patterns
 
 - Don't add Python dependencies. All codegen uses awk or Starlark `json.decode()`.
-- Don't generate bash scripts for Windows compatibility paths. Use Node.js via the runtime toolchain, or the Go launcher for anything runnable. Runners are Go now; what is left is a few build-action wrappers (the Vite bundler, `next_build`) and the `node_modules` bash fallback. Don't add to that set.
+- Don't generate bash scripts for Windows compatibility paths. Use Node.js via the runtime toolchain, or the Go launcher for anything runnable. Runners are Go now; what is left is the `node_modules` bash fallback. Don't add to that set.
 - Don't create separate `_check` targets. Use `_validation` output group on the compile target.
 - Don't assume `@npm` is the only repo name. Support custom names via the npm extension.
 - Don't push directly to main. Use PRs.
@@ -395,7 +354,6 @@ puts the working directory in the user's source tree.
 - **End-to-end tests catch real bugs.** The nested-Bazel journey tests found 5 bugs on their first run, including a Rust binary bug where oxc-bazel ignored the isolated-declarations flag. They also spent a release tagged `manual`, which is how "34 pass" came to read as full coverage of a 54-target suite.
 - **Shell escaping is never optional.** Every path interpolated into a shell string must use `_shell_escape()`. Three separate review rounds caught injection vectors.
 - **npm alias support is non-obvious.** pnpm's `"h3-v2": "npm:h3@2.0.1-rc.16"` pattern requires both the alias name AND real name as `ts_npm_package` targets with different `package_name` values.
-- **Framework Vite plugins need writable filesystems.** `staging_srcs` solves this by copying source files to a temp dir inside the Bazel action. General mechanism, not framework-specific.
 - **`bazel clean` is never the answer.** If the build is broken, the bug is in the rules, not the cache. Fix the root cause.
 - **Every `fail()` should tell the user what to do.** "Did you mean...?" suggestions prevent hours of debugging.
 - **Gazelle directives over config files.** Directives are visible, inheritable and version-controlled in BUILD files. A nested config file replaced the list an ancestor had built, so two sites asking which excludes apply got different answers.
@@ -404,7 +362,7 @@ puts the working directory in the user's source tree.
 - **A name is not a resolution.** Keying anything by npm package name alone (a `node_modules` destination, a patch pairing, a dep edge) loses the version and fails silently, because every version involved is a real version. `name@version` is one key short too: pnpm resolves once per peer set.
 - **A green suite is not a preserved suite.** `bazel run //gazelle` once deleted hand-written `go_test` targets and still satisfied "builds" and "idempotent"; a deleted test passes both. `bazel query 'tests(//...)'` before and after is the check that catches it, and it is now part of the Gazelle acceptance run.
 - **A test that never ran is not a test.** `tests/vitest/environment` was two `manual` targets behind a `build_test`, so no non-default vitest environment had ever executed; the moment one did it failed on runfiles realpathing out of the sandbox. Same for snapshots: `toMatchSnapshot()` asserted nothing at all, because the `.snap` was not in runfiles and vitest treated every run as a first run.
-- **Emitting a target that cannot build is worse than emitting none, and silence is worse than both.** Gazelle now names the framework and the reason instead.
+- **Emitting a target that cannot build is worse than emitting none, and silence is worse than both.** Gazelle names what it refused and the reason instead.
 - **A config option another tool owns configures nothing.** `resolve.modules` is webpack's; Vite ignored it silently, so the dev server had no npm resolution at all and no test noticed, because no test imported an npm package from served source. A generated option is only real once something reads back the behaviour it was supposed to produce.
 - **A `catch` that warns is how a feature becomes a no-op.** `react_refresh = True` reached into `@vitejs/plugin-react/dist/index.mjs`, a filename that major no longer shipped, and served without Fast Refresh behind a `console.warn`. Fail with the label and the fix, or do not catch.
 - **The editor has one `paths` map.** A nested tsconfig extends the root and
@@ -432,8 +390,6 @@ puts the working directory in the user's source tree.
   and it feeds `//vite:vite_plugin_bazel`, which `ts_dev_server` takes through
   its `plugin` attr and which Gazelle writes when it generates a dev server (it
   leaves an existing one alone). `plugin` has no default, and no workspace here
-  set it, so nothing had reached the label and no build had failed; three of
-  this repo's six examples have no esbuild in their lockfile and would have. The
-  `@npm` labels still in `//vite` and `//ts/private/css` are unreached, not
-  sanctioned. Two trees pin the rule, `//vite:esbuild_node_modules` and
+  set it, so nothing had reached the label and no build had failed. The `@npm`
+  labels still in `//vite` and `//ts/private/css` are unreached, not sanctioned. Two trees pin the rule, `//vite:esbuild_node_modules` and
   `//ts/private/css:node_modules`, declared in `tests/npm/BUILD.bazel`.

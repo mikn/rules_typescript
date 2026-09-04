@@ -168,21 +168,14 @@ func planDevServer(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, 
 	plan.setEnv("BAZEL_BIN_DIR", bazelBin)
 
 	// A dev server's scratch belongs in the output tree, not in the sources it
-	// is serving. Left alone, oj writes .oj-cache/ and TanStack Start writes
-	// .tanstack/ into the workspace root, where they survive the server, get
-	// walked by anything that lists the workspace, and dirty a tree a build is
-	// entitled to find clean. Vite's own cacheDir is set in the generated
-	// config, which is the same decision made where Vite reads it.
-	// A dev server's scratch belongs in the output tree, not in the sources it
-	// is serving. Left alone, oj writes .oj-cache/ and TanStack Start writes
-	// .tanstack/ into the workspace root, where they survive the server and get
+	// is serving. Left alone, a TanStack Start plugin in the vite_config writes
+	// .tanstack/ into the workspace root, where it survives the server and gets
 	// walked by anything that lists the workspace. Created rather than only
 	// named: a tool given a directory that does not exist may or may not make
-	// one.
+	// one. Vite's own cacheDir is set in the generated config.
 	scratch := filepath.Join(bazelBin, filepath.FromSlash(d.ScratchDir))
 	for name, dir := range map[string]string{
-		"OJ_CACHE_DIR": filepath.Join(scratch, "oj-cache"),
-		"TSR_TMP_DIR":  filepath.Join(scratch, "tanstack-tmp"),
+		"TSR_TMP_DIR": filepath.Join(scratch, "tanstack-tmp"),
 	} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, fmt.Errorf("ts_dev_server: cannot create %s at %s: %w", name, dir, err)
@@ -270,4 +263,32 @@ func anchorNodeModules(workspace, nodeModules string, plan *Plan) (string, error
 	// the link only -- never its target, which is the Bazel tree.
 	plan.Cleanup = func() { os.Remove(link) }
 	return link, nil
+}
+
+// portOverride lets an argument override the port the rule was given, so a test
+// can take a kernel-assigned one. The override is consumed rather than appended:
+// a server that takes the last of a repeated --port would leave the launcher's
+// own message naming a port nothing is listening on, and one that rejects a
+// repeated --port would not start at all.
+func portOverride(port int, args []string) (int, []string) {
+	kept := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		flag, value := args[i], ""
+		if eq := strings.IndexByte(flag, '='); eq >= 0 {
+			flag, value = flag[:eq], flag[eq+1:]
+		} else if flag == "-p" || flag == "--port" {
+			if i+1 < len(args) {
+				i++
+				value = args[i]
+			}
+		}
+		if flag != "-p" && flag != "--port" {
+			kept = append(kept, args[i])
+			continue
+		}
+		if parsed, err := strconv.Atoi(value); err == nil {
+			port = parsed
+		}
+	}
+	return port, kept
 }

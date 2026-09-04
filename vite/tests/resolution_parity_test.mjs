@@ -5,7 +5,7 @@
  *
  * Serving first-party source in dev and pre-compiled .js in prod means the same
  * import specifier travels two different code paths, and the failure mode of
- * that is "works under `bazel run //:dev`, fails under ts_bundle". Two suites
+ * that is "works under `bazel run //:dev`, fails under `vite build`". Two suites
  * that each pass prove nothing about it. So this builds ONE fixture graph on
  * disk -- checked-in source, its bazel-bin output, an npm package -- and asserts
  * that each specifier lands on the same MODULE IDENTITY in both modes:

@@ -167,26 +167,6 @@ func TestIsFrameworkGeneratedFile(t *testing.T) {
 	}
 }
 
-func TestIsConfiguredExclude(t *testing.T) {
-	patterns := []string{"*.generated.ts", "*.auto.ts", "schema-*.ts"}
-	cases := []struct {
-		name string
-		want bool
-	}{
-		{"foo.generated.ts", true},
-		{"bar.auto.ts", true},
-		{"schema-v2.ts", true},
-		{"foo.ts", false},
-		{"auto.ts", false}, // doesn't end with .auto.ts
-	}
-	for _, tc := range cases {
-		got := isConfiguredExclude(tc.name, patterns)
-		if got != tc.want {
-			t.Errorf("isConfiguredExclude(%q): got %v, want %v", tc.name, got, tc.want)
-		}
-	}
-}
-
 func TestIsExcludedDir_BuiltinDirs(t *testing.T) {
 	cases := []struct {
 		dir  string

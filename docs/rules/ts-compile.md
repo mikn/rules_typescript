@@ -546,7 +546,8 @@ the declarations it asked for.
 
 The entry is written into the generated config as the path to the file it
 resolved to. A checked-in declaration is in the source tree; a generated one,
-such as [`ts_worker_types`](ts-worker-types.md) writes, is in `bazel-out`. The
+such as the [`ts_codegen`](ts-codegen.md#cloudflare-worker-bindings) running
+`wrangler types` writes, is in `bazel-out`. The
 entry points wherever the label put it, so the two are named the same way:
 
 ```python
@@ -730,8 +731,8 @@ Fields for all three, and the load path, are in
 [Providers and Toolchains](providers.md).
 
 - **`JsInfo`**: this target's `.js` and `.js.map` files as direct depsets, and
-  the closure of both as transitive ones; `ts_binary` and `ts_bundle` read the
-  transitive `.js` set
+  the closure of both as transitive ones; `ts_binary` reads the transitive `.js`
+  set
 - **`TsDeclarationInfo`**: this target's declarations and their closure, the
   npm packages that closure imports, plus the global-entry files
   `public_globals` produces; a downstream `ts_compile` type-checks against the

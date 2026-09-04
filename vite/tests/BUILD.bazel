@@ -6,9 +6,7 @@ so every ibazel rebuild was dropped without a word.
 """
 
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
-load("@rules_typescript//npm:defs.bzl", "node_modules")
 load("@rules_typescript//ts:defs.bzl", "ts_test")
-load("@rules_typescript//vite:bundler.bzl", "vite_bundler")
 
 # The vitest major the ruleset's own test path runs on, against the Vite major
 # the plugin declares. The hub's Vite and the plugin's peerDependencies range are
@@ -46,29 +44,5 @@ sh_test(
         "resolution_parity_test.mjs",
         "//ts/toolchain:node_resolved",
         "//vite:vite_plugin_bazel",
-    ],
-)
-
-# The wrapper under test only needs to run far enough to reach the runtime, so
-# the runtime is a stub and the node_modules tree is never built.
-node_modules(
-    name = "stub_node_modules",
-    deps = ["@npm//:vite"],
-)
-
-vite_bundler(
-    name = "stub_bundler",
-    node_modules = ":stub_node_modules",
-    runtime = "stub_runtime.sh",
-    vite = "@npm//:vite",
-)
-
-sh_test(
-    name = "wrapper_config_node_modules_test",
-    size = "small",
-    srcs = ["wrapper_config_node_modules_test.sh"],
-    data = [
-        "stub_runtime.sh",
-        ":stub_bundler",
     ],
 )

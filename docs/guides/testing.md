@@ -302,35 +302,6 @@ only condition is `types`, where the pool puts the ambient declaration for
 it under a ruleset with no `node_modules`, so it is resolved from the package
 manifest into the program's `files`.
 
-### Deploy Dry Run
-
-`ts_worker_dry_run_test` checks that the Worker still deploys: a
-`wrangler deploy --dry-run` with no credentials and no network, in the same
-package:
-
-```python
-node_modules(
-    name = "wrangler_node_modules",
-    deps = ["@npm_workers//:wrangler"],
-)
-
-ts_worker_dry_run_test(
-    name = "deploy_dry_run_test",
-    size = "medium",
-    config = "wrangler.jsonc",
-    node_modules = ":wrangler_node_modules",
-    deps = [":worker"],
-)
-```
-
-wrangler needs a tree of its own: the pool's `node_modules` is built from the
-test's `deps`, and wrangler is not one of them. Full reference:
-[ts_worker_dry_run](../rules/ts-worker-dry-run.md).
-
-Uploading the Worker is a separate `bazel run` target that never runs from
-`bazel build` or `bazel test`:
-[ts_worker_deploy](../rules/ts-worker-deploy.md).
-
 ## Sharding
 
 `ts_test` distributes test files across shards using `TEST_SHARD_INDEX` and

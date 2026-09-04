@@ -197,7 +197,7 @@ func TestDevServerBehaviour(t *testing.T) {
 	}
 
 	// Args past the launcher reach the server's own CLI, which is not a shared
-	// surface: --strictPort is Vite's, and oj rejects it outright.
+	// surface: --strictPort is Vite's.
 	var extraArgs []string
 	if impl == "vite" {
 		extraArgs = append(extraArgs, "--strictPort")
@@ -246,14 +246,7 @@ func TestDevServerBehaviour(t *testing.T) {
 		r := get(t, base, "/gen_entry.js")
 		t.Logf("gen_entry.js (status %d) = %s", r.status, r.body)
 		if !wantBazelPlugin {
-			// Neither server can see bazel-bin without the plugin; they differ in
-			// when they say so. Vite fails the transform, oj serves the module with
-			// the specifier untouched so the failure lands in the browser instead.
-			if impl == "oj" {
-				r.contains(t, srv, "./generated/routes.ts")
-				r.excludes(t, "bazel-bin/generated/routes.ts")
-				return
-			}
+			// Vite cannot see bazel-bin without the plugin, and fails the transform.
 			if r.status == 200 {
 				t.Fatalf("GET /gen_entry.js returned 200 without the plugin; bazel-bin "+
 					"is not Vite's to resolve\n%s", r.body)
@@ -303,9 +296,9 @@ func TestDevServerBehaviour(t *testing.T) {
 			t.Fatalf("nothing in the response points at a resolved dependency:\n%s", r.body)
 		}
 		m := get(t, base, dep)
-		// Two landings are both the Bazel tree. Vite pre-bundles the package and
+		// Two landings are both the Bazel tree: Vite pre-bundles the package and
 		// serves the rewrite out of cacheDir, which this rule points inside
-		// bazel-bin; oj serves the file where it lies. Neither may be a path the
+		// bazel-bin, or serves the file where it lies. Neither may be a path the
 		// host happened to have.
 		if !strings.Contains(m.finalURL, "/node_modules/zod/") &&
 			!strings.Contains(m.finalURL, "/vite-cache/deps/") {
@@ -317,10 +310,9 @@ func TestDevServerBehaviour(t *testing.T) {
 		}
 
 		// And the plugin resolves rather than invents: a package no tree has must
-		// not come back as anything. Where that failure surfaces differs -- Vite
-		// resolves while transforming and fails the module, oj defers to a
-		// container URL and fails when it is requested -- so the assertion is that
-		// it fails, not when.
+		// not come back as anything. A server may fail the module while
+		// transforming it or defer to a container URL that fails when requested, so
+		// the assertion is that it fails, not when.
 		missing := get(t, base, "/npm_missing.js")
 		if missing.status != 200 {
 			missing.contains(t, srv, "Failed to resolve import")
@@ -357,14 +349,6 @@ func TestDevServerBehaviour(t *testing.T) {
 		r := get(t, base, "/widget.tsx")
 		if r.status != 200 {
 			t.Fatalf("GET /widget.tsx returned %d, want 200\n%s\n%s", r.status, r.body, srv.log(t))
-		}
-		if impl == "oj" {
-			// oj applies Fast Refresh itself, which is why ts_dev_server rejects
-			// react_refresh = True against it rather than stacking plugin-react on
-			// top. The transform is oj's own, so the plugin-react preamble that the
-			// Vite variants assert on is not what shows up here.
-			r.contains(t, srv, "$RefreshReg$")
-			return
 		}
 		if !wantReactRefresh {
 			r.excludes(t, "react-refresh", "$RefreshReg$")

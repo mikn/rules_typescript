@@ -1531,10 +1531,6 @@
         "./tests/npm/*",
         "./bazel-bin/tests/npm/*"
       ],
-      "tests/npm_publish/*": [
-        "./tests/npm_publish/*",
-        "./bazel-bin/tests/npm_publish/*"
-      ],
       "tests/smoke/*": [
         "./tests/smoke/*",
         "./bazel-bin/tests/smoke/*"
@@ -1690,10 +1686,6 @@
       "tests/validation/*": [
         "./tests/validation/*",
         "./bazel-bin/tests/validation/*"
-      ],
-      "tests/vite_bundle/*": [
-        "./tests/vite_bundle/*",
-        "./bazel-bin/tests/vite_bundle/*"
       ],
       "tests/vitest/*": [
         "./tests/vitest/*",

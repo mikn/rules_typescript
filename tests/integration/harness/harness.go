@@ -235,9 +235,9 @@ func bazeliskHome() string {
 
 // The per-run half -- child workspace, scratch dir and nested output base --
 // goes under TEST_TMPDIR, and the outer Bazel clears the whole execroot _tmp on
-// each `bazel test` -- measured: a full suite left 6.8G across 19 nested output
-// bases there, and the next `bazel test`, of one unrelated target, left only
-// that target's 264K. One persistent root keyed by the test's name is what let
+// each `bazel test` -- measured: a full suite left 6.8G of nested output bases
+// there, and the next `bazel test`, of one unrelated target, left only that
+// target's 264K. One persistent root keyed by the test's name is what let
 // two checkouts stage into one directory and read each other's half-written
 // state as their own failures; there is no name left to collide here.
 //

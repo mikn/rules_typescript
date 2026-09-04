@@ -3,9 +3,8 @@
 Creates a hermetic `node_modules` directory in the Bazel sandbox holding exactly
 the packages named and their transitive dependencies.
 
-`ts_test` builds its own from `deps` (see [ts_test](ts-test.md)). Gazelle
-writes the `node_modules` a generated `vite_bundler` or `next_dev_server` needs.
-A `ts_compile` target needs none: it reaches npm declarations through depsets. A
+`ts_test` builds its own from `deps` (see [ts_test](ts-test.md)). A
+`ts_compile` target needs none: it reaches npm declarations through depsets. A
 hand-written one covers a program or tool that needs packages on disk at
 runtime, and a `ts_test` whose tree is not the one its `deps` describe.
 
@@ -34,11 +33,6 @@ sandbox.
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `deps` | `label_list` | required | npm package targets from `@npm` to include in `node_modules` |
-
-On a framework root Gazelle generates `deps` from the framework's own
-requirements and recomputes it every run. A package no import implies (`sharp`,
-which `next/image` loads at runtime) needs a `# keep` on its line. See
-[Attributes Gazelle owns](../gazelle/directives.md#attributes-gazelle-owns).
 
 ## The Layout
 

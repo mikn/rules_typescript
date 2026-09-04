@@ -97,9 +97,8 @@ file also gets a generated ambient .d.ts declaration so that TypeScript accepts
 DevServerInfo = provider(
     doc = """How to start one dev server implementation.
 
-The shipped implementations are Vite (`//vite:dev_server`) and oj
-(`//oj:dev_server`); `ts_dev_server(server = ...)` picks between them per
-target, and a third is any rule returning this provider.
+The shipped implementation is Vite (`//vite:dev_server`), the default of
+`ts_dev_server(server = ...)`; another is any rule returning this provider.
 
 Two things differ between implementations and neither can be papered over.
 A server shipping as an npm package has no `File` to point at -- its executable
@@ -107,18 +106,17 @@ is a path inside the `node_modules` tree artifact, which Starlark cannot address
 at analysis time -- so it sets `server_in_tree` and leaves `server_binary` None.
 A native binary is the other way round; exactly one of the two must be set.
 
-`config_dialect` names the config the server is handed. Both shipped servers
-read Vite's, because oj adopts `vite.config`. They do not read all of it, and a
-field one of them drops is not always a field it does without: oj takes the
-serve root from argv instead. `argv` covers the second case and
-`ignored_config_fields` the first.
+`config_dialect` names the config the server is handed; only Vite's is
+generated. A server need not read all of it, and a field it drops is not always
+a field it does without: one taking the serve root from argv instead says so in
+`argv`, and one ignoring a field says so in `ignored_config_fields`.
 """,
     fields = {
         "server_binary": "File or None: the server executable, for a server that is a build artifact. None when the server ships inside the npm tree, in which case server_in_tree names it instead.",
         "server_in_tree": "string: the server executable's path relative to the root of the node_modules tree, for a server that ships as an npm package. Empty when server_binary is set.",
         "argv": "list of string: the command line after the executable. `{config}` expands to the generated config's path and `{root}` to the directory being served; a server taking either somewhere other than where the other one takes it says so here rather than in the launcher.",
         "config_dialect": "string: which config format this server is handed. Only \"vite\" is generated today; a server reading its own format declares its own dialect, and the generator has to learn it before that server can be selected.",
-        "runs_in_js_runtime": "bool: True when the executable is JavaScript and the toolchain Node runs it, False for a native binary. A native server still gets the toolchain Node on PATH -- oj's plugin host is a Node process, so a native server is not necessarily a Node-free one.",
+        "runs_in_js_runtime": "bool: True when the executable is JavaScript and the toolchain Node runs it, False for a native binary. A native server still gets the toolchain Node on PATH: one whose plugin host is a Node process is not a Node-free one.",
         "ignored_config_fields": "list of string: dotted config paths this server does not honour, e.g. [\"server.open\"]. A target whose configuration depends on one of these fails at analysis time naming the field and the server, rather than starting a server that quietly does something else.",
         "native_react_refresh": "bool: True when the server applies React Fast Refresh itself. `react_refresh = True` then fails rather than stacking @vitejs/plugin-react on top of a transform that already ran.",
         "runtime_deps": "depset of File: everything the server needs in runfiles beyond the generated config and the npm tree.",
@@ -128,9 +126,9 @@ serve root from argv instead. `argv` covers the second case and
 BundlerInfo = provider(
     doc = """Information about a JavaScript bundler.
 
-BundlerInfo provides a pluggable bundler abstraction. The shipped implementation
-uses Vite (via vite/bundler.bzl), but users can bring their own bundler by
-creating a rule that returns this provider.
+BundlerInfo is the interface behind ts_binary's `bundler` attr. The ruleset
+ships no implementation; a consumer writes a rule that returns this provider
+and names it there.
 
 Two invocation modes are supported:
 
@@ -144,18 +142,16 @@ Mode 1 — Standard CLI (use_generated_config = False, the default):
     --config <config_file>   (optional)
 
 Mode 2 — Generated config (use_generated_config = True):
-  ts_bundle generates a vite.config.mjs and invokes the bundler with:
-    <generated_config_path>
-  (single positional argument — the absolute path to the generated config)
-  The bundler binary is responsible for running the actual bundler
-  (e.g., `node vite.js build --config <config>`).
-  Output filenames follow Vite's lib mode convention:
-    <bundle_name>.<format>.js  (e.g., app.es.js for esm, app.umd.cjs for iife)
+  ts_binary generates a Vite lib-mode vite.config.mjs and invokes the bundler
+  with four exec-root-relative arguments: that config, the entry .js, the
+  output directory and the stylesheet to create. The binary runs Vite over the
+  config with EXEC_ROOT, VITE_ENTRY_PATH and VITE_OUT_DIR set; see
+  ts/private/bundle_action.bzl for the outputs it must produce.
 """,
     fields = {
         "bundler_binary": "File: The bundler CLI executable.",
         "config_file": "File or None: Optional static bundler config file passed via --config (mode 1 only).",
         "runtime_deps": "depset of File: Additional files needed by the bundler at runtime.",
-        "use_generated_config": "bool: When True, ts_bundle generates a vite.config.mjs and passes its path as the sole argument to bundler_binary (mode 2). Default False.",
+        "use_generated_config": "bool: When True, ts_binary generates a vite.config.mjs and invokes bundler_binary in mode 2. Default False.",
     },
 )

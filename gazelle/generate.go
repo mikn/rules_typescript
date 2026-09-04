@@ -16,8 +16,6 @@ import (
 	bzl "github.com/bazelbuild/buildtools/build"
 
 	"github.com/mikn/rules_typescript/gazelle/jsonc"
-	"github.com/mikn/rules_typescript/gazelle/remix"
-	"github.com/mikn/rules_typescript/gazelle/tanstack"
 )
 
 // globExprPrefix marks a CodegenPattern.Srcs entry that is a glob() call to be
@@ -51,9 +49,9 @@ func isDeclarationFile(name string) bool {
 
 // isCompileSrcFile is isTypeScriptFile widened by the declaration flavours and
 // by whatever a ts_js_srcs directive admitted. It answers the srcs question
-// only: what makes a file an index or a framework entry point stays .ts/.tsx,
-// since an admitted .mjs is compiled by the target that claims it and is not a
-// reason for a directory to become a package or for an app to boot from it.
+// only: what makes a file an index stays .ts/.tsx, since an admitted .mjs is
+// compiled by the target that claims it and is not a reason for a directory to
+// become a package.
 func isCompileSrcFile(name string, jsSrcExts []string) bool {
 	return isTypeScriptFile(name) || isDeclarationFile(name) ||
 		slices.Contains(jsSrcExts, strings.ToLower(path.Ext(name)))
@@ -136,10 +134,10 @@ func isDocFile(name string) bool {
 }
 
 // isFrameworkGeneratedFile reports whether the build writes name itself. Only
-// the TanStack Start route tree does: the Start Vite plugin regenerates it into
-// the staging tree on every bundle, and the tree it emits imports the router
-// module that imports the tree back, which is a cycle between two Bazel
-// packages however the two are split.
+// the TanStack Start route tree does: the Start Vite plugin regenerates it on
+// every build, and the tree it emits imports the router module that imports the
+// tree back, which is a cycle between two Bazel packages however the two are
+// split.
 //
 // A checked-in file no rule declares as an output is an ordinary source however
 // it is named -- see claimedSrcs, which is what defers to ts_codegen. A
@@ -148,17 +146,6 @@ func isDocFile(name string) bool {
 func isFrameworkGeneratedFile(name string) bool {
 	base := strings.TrimSuffix(strings.TrimSuffix(name, ".tsx"), ".ts")
 	return base == "routeTree.gen"
-}
-
-// isConfiguredExclude returns true when a file's basename matches any of the
-// given exclude patterns, under filepath.Match semantics.
-func isConfiguredExclude(name string, patterns []string) bool {
-	for _, pattern := range patterns {
-		if globMatches(pattern, name) {
-			return true
-		}
-	}
-	return false
 }
 
 // isExcludedDir returns true when the given directory basename should be
@@ -240,19 +227,6 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		return emptyResult(args)
 	}
 
-	// SvelteKit's route tree is the framework's own, not a TypeScript package.
-	if svelteKitOwnsDir(args.Rel, tc) {
-		warnSvelteKitSrcPackage(args)
-		return emptyResult(args)
-	}
-
-	// Next.js's route trees likewise: next_build stages them by glob, and a
-	// BUILD file inside one would make a subpackage the glob cannot see into.
-	if nextOwnsDir(args.Rel, tc) {
-		warnNextOwnedPackage(args)
-		return emptyResult(args)
-	}
-
 	// The out_dir of a ts_codegen and everything below it is that target's
 	// output, whatever a local run of the generator left on disk.
 	if root, ok := codegenOutDirOwning(args.Rel, tc); ok {
@@ -273,8 +247,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		cssModuleFiles []string      // *.module.css files (default import → typed styles)
 		assetFiles     []string      // image/font/svg asset files (NOT json)
 		jsonFiles      []string      // .json data files → json_library (typed .d.ts)
-		excludedSrcs   []string      // .ts/.tsx a ts_exclude directive dropped, for the entry report
-		dropped        []excludedSrc // the same, plus the rolled-up ones, for the diagnostic
+		dropped        []excludedSrc // .ts/.tsx a ts_exclude directive dropped, plus the rolled-up ones, for the diagnostic
 		ambientFiles   []string      // .d.ts declaring globals, which only srcs membership carries
 		hasIndex       bool
 	)
@@ -314,11 +287,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 			continue
 		}
 		if r, isDropped := ownExcludes.dropsBy(f); isDropped {
-			excludedSrcs = append(excludedSrcs, f)
 			dropped = append(dropped, excludedSrc{path: f, rule: r})
-			continue
-		}
-		if nextOwnsFile(args.Rel, f, tc) {
 			continue
 		}
 		if isAmbientDeclaration(args.Dir, f) {
@@ -345,7 +314,6 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 
 	// Two targets over one source declare the same .js and .d.ts, which Bazel
 	// rejects as conflicting actions rather than tolerating as a duplicate.
-	srcsBeforeClaim := append([]string(nil), srcFiles...)
 	if claimed := claimedSrcs(args, tc, codegenPatterns); len(claimed) > 0 {
 		srcFiles = dropClaimed(srcFiles, claimed)
 		testFiles = dropClaimed(testFiles, claimed)
@@ -501,32 +469,9 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	var empty []*rule.Rule
 	var imports []any
 
-	// The framework client entry gets its own single-file target, so it leaves
-	// the directory-wide one. Only a second compile action is the problem, so
-	// srcsWithEntry -- the package as it is on disk -- is what everything else
-	// still reads: the staged sources, the linter, and the sibling test's tree.
-	srcsWithEntry := srcFiles
-	entryFile, entryName, hasEntry := frameworkEntrySrc(args.Rel, tc, srcFiles)
-	if hasEntry && entryName == targetNameForDir(tc, args.Rel) {
-		hasEntry = reportEntryNameCollision(args, tc, entryName)
-	}
-	if hasEntry {
-		srcFiles = dropClaimed(srcFiles, map[string]struct{}{entryFile: {}})
-	} else if claimed, _, ok := frameworkEntrySrc(args.Rel, tc, srcsBeforeClaim); ok {
-		// A target that is not Gazelle's compiles the entry, and the staged tree
-		// still needs the file itself.
-		srcsWithEntry = append(append([]string(nil), srcFiles...), claimed)
-	} else {
-		reportHandMaintainedEntry(args, tc, excludedSrcs)
-	}
-	sort.Strings(srcsWithEntry)
-
 	// Assigned up front so the names cannot collide with each other or with
 	// the TypeScript targets below.
 	reserved := reservedTSTargetNames(tc, args.Rel)
-	if hasEntry {
-		reserved[entryName] = struct{}{}
-	}
 	if tsConfigRule != nil {
 		reserved[tsConfigRule.Name()] = struct{}{}
 		reserved[tsConfigTypesTargetName] = struct{}{}
@@ -539,7 +484,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	// Resolved once, and only where a target would carry it: a refusal is worth
 	// one log line per package that wanted the baseline, not one per directory.
 	tsConfigAttr := ""
-	if (isBoundary && len(srcFiles) > 0) || len(testFiles) > 0 || len(docFiles) > 0 || hasEntry {
+	if (isBoundary && len(srcFiles) > 0) || len(testFiles) > 0 || len(docFiles) > 0 {
 		tsConfigAttr = tsConfigLabel(args, tc)
 	}
 	typesEntries, typesSrcsLabels := rootAmbientTypes(args.Rel, tc, tsConfigAttr)
@@ -623,10 +568,6 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		// Collect imports for all src files.
 		allImports := importsIn(args.Dir, srcFiles)
 
-		if hasEntry {
-			reportEntryImportCycle(args, tc, entryFile, entryName, srcFiles, allImports)
-		}
-
 		// Aliases let tsgo resolve source-level specifiers like "@/components".
 		// One tsconfig `paths` map serves a whole workspace, so a target takes
 		// only the entries it can carry -- see usedPathAliases.
@@ -647,7 +588,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 				}
 			} else {
 				lr := rule.NewRule("ts_lint", lintName)
-				lr.SetAttr("srcs", srcLabels(srcsWithEntry))
+				lr.SetAttr("srcs", srcLabels(srcFiles))
 				lr.SetAttr("linter", tc.linterType)
 				lr.SetAttr("linter_binary", linterBinaryLabel(tc))
 				lr.SetAttr("config", linterConfigLabel(tc.linterConfig))
@@ -674,26 +615,6 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		}
 	}
 
-	// ---- framework client entry target -------------------------------------
-	// The single-file ts_compile the generated ts_bundle's entry_point names.
-
-	// Re-emitted on every run: srcs and deps are mergeable, and emitting the
-	// candidate is what keeps a single-file target following its own imports.
-	if hasEntry {
-		entryImports := importsIn(args.Dir, []string{entryFile})
-		r := frameworkEntryRule(entryName, entryFile, ambientFiles, tc)
-		setTsConfig(r, tsConfigAttr)
-		setRootAmbientTypes(r, typesEntries, typesSrcsLabels)
-		setAliasAttrs(args, r, tc, []string{entryFile}, entryImports)
-		gen = append(gen, r)
-		imports = append(imports, uniqueImports(entryImports))
-	} else if name, ok := frameworkEntryTargetName(args.Rel, tc); ok &&
-		ruleExists(args, "ts_compile", name) && !frameworkEntryFileExists(args.RegularFiles, name) {
-		// The entry was renamed or moved away, so the rule left behind names a
-		// source that is gone -- which fails `bazel build //...` outright.
-		empty = append(empty, rule.NewRule("ts_compile", name))
-	}
-
 	// ---- ts_dev_server target (app packages only) --------------------------
 	// Generate a ts_dev_server target when this directory looks like an
 	// application entry point. Detection heuristics (in priority order):
@@ -712,9 +633,9 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	// alone (Gazelle's merge strategy handles updates to other attrs).
 
 	if isBoundary && len(srcFiles) > 0 {
-		_, hasAppEntry := detectAppEntryPoint(srcsWithEntry)
+		_, hasAppEntry := detectAppEntryPoint(srcFiles)
 		hasHTML := hasIndexHTML(args.Dir)
-		if (hasAppEntry || hasHTML) && !reportUnsupportedDevServer(tc.detectedFramework) {
+		if hasAppEntry || hasHTML {
 			libName := targetNameForDir(tc, args.Rel)
 			devName := "dev"
 
@@ -747,10 +668,6 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		}
 	}
 
-	// The framework bundle owns node_modules(name = "node_modules") at the
-	// workspace root; the stale-rule cleanup below must not delete it.
-	frameworkOwnsNodeModules := args.Rel == "" && tc.detectedFramework != FrameworkNone
-
 	// ---- ts_test targets ---------------------------------------------------
 
 	if len(testFiles) > 0 {
@@ -772,7 +689,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		// imports, which left this package's sources when the doc target did.
 		var allPackageImports []string
 		allPackageImports = append(allPackageImports, allImports...)
-		allPackageImports = append(allPackageImports, importsIn(args.Dir, srcsWithEntry)...)
+		allPackageImports = append(allPackageImports, importsIn(args.Dir, srcFiles)...)
 		allPackageImports = append(allPackageImports, importsIn(args.Dir, docFiles)...)
 
 		name := testTargetName(targetNameForDir(tc, args.Rel))
@@ -833,7 +750,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 			// target was also being deleted. This prevents Gazelle from deleting
 			// user-managed Vite node_modules targets at the workspace root or in
 			// packages that never had ts_test.
-			if hadTestTarget && !frameworkOwnsNodeModules {
+			if hadTestTarget {
 				for _, r := range args.File.Rules {
 					if r.Name() == "node_modules" && r.Kind() == "node_modules" {
 						empty = append(empty, rule.NewRule("node_modules", "node_modules"))
@@ -850,7 +767,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	//
 	// Exception: if any ts_test rule in this BUILD file has an explicit node_modules
 	// attr set, the user is managing node_modules manually and we must not delete it.
-	if len(testFiles) > 0 && args.File != nil && !frameworkOwnsNodeModules {
+	if len(testFiles) > 0 && args.File != nil {
 		hasManualNodeModules := false
 		for _, existingRule := range args.File.Rules {
 			if existingRule.Kind() == "ts_test" && existingRule.Attr("node_modules") != nil {
@@ -966,42 +883,6 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		imports = append(imports, pnpmImports...)
 	}
 
-	// ---- framework bundle targets (root package only) ---------------------
-	// When we are at the workspace root and a framework is detected, generate
-	// the framework-appropriate bundle targets:
-	//   - Vite-based frameworks: node_modules, vite_bundler, ts_bundle
-	//   - Next.js: node_modules, next_build
-	// These targets are only emitted at the root; sub-packages handle their
-	// own ts_compile targets via the normal path above.
-	if args.Rel == "" && tc.detectedFramework != FrameworkNone {
-		bundleRules, bundleImports, bundleEmpty := generateFrameworkBundle(args, tc)
-		gen = append(gen, bundleRules...)
-		imports = append(imports, bundleImports...)
-		empty = append(empty, bundleEmpty...)
-		reportMissingFrameworkEntry(args, tc)
-	}
-
-	// ---- filegroup "sources" for framework staging_srcs --------------------
-	// When a framework is detected and this directory is one of the stage dirs,
-	// generate a "sources" filegroup that exports all non-test .ts/.tsx files.
-	// The root ts_bundle staging_srcs references these filegroups via labels
-	// like //src/routes:sources.
-	//
-	// The directory listing, not srcFiles: the framework's plugin reads the
-	// route or entry off the staging tree by name, so ts_exclude and a sibling
-	// target's claim -- which decide what compiles here, not what exists --
-	// must not take a file out of the staged copy.
-	//
-	// Re-emitted even when the rule is already in the BUILD file: filegroup.srcs
-	// is mergeable, and skipping the existing rule freezes the staged tree at
-	// what the first run saw, so a route added later never reaches the bundle.
-	if args.Rel != "" && tc.detectedFramework != FrameworkNone && isStagedDir(args.Rel, tc) {
-		if fg := generateSourcesFilegroup(stagedSources(args.RegularFiles)); fg != nil {
-			gen = append(gen, fg)
-			imports = append(imports, nil)
-		}
-	}
-
 	// ---- ts_config for this package's own tsconfig.json --------------------
 	// The baseline every target at or below this directory names, and a source
 	// file only becomes a label another package can reach through a target.
@@ -1020,21 +901,6 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		Gen:     gen,
 		Empty:   empty,
 		Imports: imports,
-	}
-
-	// Post-process with the TanStack plugin when the framework is detected.
-	// The plugin adjusts rules for directories inside the routes/ tree:
-	// it removes generated files from srcs, annotates rules with route
-	// metadata, and adds route pattern comments.
-	if tc.detectedFramework == FrameworkTanStack {
-		result = tanstack.AdjustGenerateResult(args, result)
-	}
-
-	// The Remix plugin does the same for app/: it annotates route targets with
-	// the route tree, stages the folder routes the static stage-dir list cannot
-	// name, and names the conventions it refuses to apply.
-	if tc.detectedFramework == FrameworkRemix {
-		result = remix.AdjustGenerateResult(args, result)
 	}
 
 	reportManagedAttrDrops(args, result.Gen)
@@ -1101,6 +967,54 @@ func generatePnpmTargets(args language.GenerateArgs) ([]*rule.Rule, []any) {
 }
 
 // ---- helper functions ------------------------------------------------------
+
+// ruleExists returns true when the BUILD file already contains a rule with the
+// given kind and name.
+func ruleExists(args language.GenerateArgs, kind, name string) bool {
+	if args.File == nil {
+		return false
+	}
+	for _, r := range args.File.Rules {
+		if r.Kind() == kind && r.Name() == name {
+			return true
+		}
+	}
+	return false
+}
+
+// localPackage is what a directory's own BUILD file says about generation there;
+// a label computed from another directory reads it or names a target nothing writes.
+type localPackage struct {
+	tc      *tsConfig
+	ignored bool
+}
+
+func readLocalPackage(absDir, rel string, tc *tsConfig) localPackage {
+	local := *tc
+	lp := localPackage{tc: &local}
+	if rel == "" {
+		return lp
+	}
+	local.targetName = ""
+	for _, buildName := range []string{"BUILD.bazel", "BUILD"} {
+		f, err := rule.LoadFile(filepath.Join(absDir, buildName), rel)
+		if err != nil {
+			continue
+		}
+		for _, d := range f.Directives {
+			switch d.Key {
+			case directiveTargetName:
+				local.targetName = d.Value
+			case directiveIgnore:
+				if d.Value != "false" {
+					lp.ignored = true
+				}
+			}
+		}
+		break
+	}
+	return lp
+}
 
 // detectorCodegenNames mirrors the names the detectors in codegen.go emit.
 // Change one there, change it here.
@@ -1271,8 +1185,8 @@ func tsConfigNameTaken(name string) bool {
 
 // ownTsConfigTypesRule stages the checked-in declaration files this directory's
 // tsconfig names in compilerOptions.types, for the targets that compile under
-// it. A generated one has the ts_worker_types target that writes it for a label
-// and needs nothing here.
+// it. A generated one has the ts_codegen that writes it for a label and needs
+// nothing here.
 //
 // A filegroup, so the file is an action input of exactly the targets naming it:
 // a ts_compile would publish declarations of its own, and public_globals on one
@@ -1350,8 +1264,7 @@ func setRootAmbientTypes(r *rule.Rule, entries []string, typesSrcs []string) {
 // target in the package that holds it -- and that package exists only if
 // Gazelle writes a BUILD file there. Naming one it does not write is a dangling
 // label, which fails analysis for the whole workspace and not just for the
-// target that named it. That is generationCanStage's question asked about a
-// different directory, and it is answered the same way: refuse, and say why.
+// target that named it. So: refuse, and say why.
 func tsConfigLabel(args language.GenerateArgs, tc *tsConfig) string {
 	if tc.tsConfigFile == "" {
 		return ""
@@ -1379,12 +1292,6 @@ func tsConfigLabel(args language.GenerateArgs, tc *tsConfig) string {
 			"file and %s keeps the ruleset's baseline. Drop the directive, or set tsconfig by "+
 			"hand with a \"# keep\" on its line.", dirRel, args.Rel, args.Rel)
 		return ""
-	case reachFrameworkGlob:
-		log.Printf("typescript: %s detected: %s holds the tsconfig.json %s would compile "+
-			"under, but the framework stages that tree by glob and a BUILD file there would "+
-			"make a package the glob cannot descend into. %s keeps the ruleset's baseline.",
-			frameworkName(tc.detectedFramework), dirRel, args.Rel, args.Rel)
-		return ""
 	case reachBoundaryUndeclared:
 		log.Printf("typescript: a ts_package_boundary directive between %s and %s leaves the "+
 			"two disagreeing about whether %s becomes a package, so %s names no tsconfig "+
@@ -1409,7 +1316,6 @@ type tsConfigReach int
 const (
 	reachOK tsConfigReach = iota
 	reachIgnored
-	reachFrameworkGlob
 	reachBoundaryUndeclared
 	reachNameTaken
 )
@@ -1426,9 +1332,6 @@ func tsConfigReachFrom(args language.GenerateArgs, tc *tsConfig, dirRel string) 
 
 	if local.ignored {
 		return reachIgnored, ""
-	}
-	if nextOwnsDir(dirRel, tc) || svelteKitOwnsDir(dirRel, tc) {
-		return reachFrameworkGlob, ""
 	}
 	if !boundaryModeAgreesAt(repoRoot, dirRel, args.Rel) {
 		return reachBoundaryUndeclared, ""
@@ -1646,11 +1549,6 @@ func reservedTSTargetNames(tc *tsConfig, rel string) map[string]struct{} {
 		docTargetName(name):  {},
 		"dev":                {},
 		"node_modules":       {},
-	}
-	// The framework entry target: leaving it out let claimedSrcs read Gazelle's
-	// own rule as a hand-written claim, freezing that rule after run 1.
-	if entry, ok := frameworkEntryTargetName(rel, tc); ok {
-		reserved[entry] = struct{}{}
 	}
 	return reserved
 }

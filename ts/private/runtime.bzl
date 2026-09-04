@@ -6,7 +6,7 @@ platforms:
   js_runtime_type  the runtime a ts_test / ts_binary program executes on.  It
                    belongs to the TARGET platform and is built for it.
   js_tool_type     node as a build tool (node_modules tree builder, ts_codegen,
-                   next_build, bundlers).  It runs on the EXEC platform.
+                   bundlers).  It runs on the EXEC platform.
 
 They are equal under a plain host build and differ the moment --platforms does.
 Both are backed here by Node.js from rules_nodejs; a consumer can register

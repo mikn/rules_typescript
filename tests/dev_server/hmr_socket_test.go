@@ -12,8 +12,7 @@ type hmrSocket = hmrsocket.Socket
 
 // dialHMR completes the WebSocket handshake against a dev server's HMR endpoint.
 // Where that endpoint is, and whether it demands a subprotocol, is per
-// implementation: Vite upgrades on the base path and only for "vite-hmr", oj
-// upgrades on /__ws for anything.
+// implementation: Vite upgrades on the base path and only for "vite-hmr".
 func dialHMR(t *testing.T, addr, path, protocol string) *hmrSocket {
 	t.Helper()
 	sock, err := hmrsocket.Dial(addr, path, protocol)

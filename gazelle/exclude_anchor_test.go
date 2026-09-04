@@ -6,7 +6,6 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -384,9 +383,9 @@ func TestExclude_PatternThatDropsNothingIsSilent(t *testing.T) {
 }
 
 // convergeWorkspace is one gazelle run over a whole little workspace, written
-// to a temp root and left on disk for the assertions to read: the boundary mode,
-// the framework staging walk and the tsconfig label are all decided by the walk
-// rather than by one generateRules call, so generateUnder cannot see them.
+// to a temp root and left on disk for the assertions to read: the boundary mode
+// and the tsconfig label are decided by the walk rather than by one
+// generateRules call, so generateUnder cannot see them.
 func convergeWorkspace(t *testing.T, files map[string]string) (root, logged string) {
 	t.Helper()
 	root = t.TempDir()
@@ -547,96 +546,6 @@ func TestExclude_TheAnchoredSpellingTheReportGivesWorks(t *testing.T) {
 	}
 }
 
-// stagingSrcsOf is the staging_srcs of the generated bundle, which is the list
-// of labels the framework walk decided to name.
-func stagingSrcsOf(t *testing.T, root string) []string {
-	t.Helper()
-	for _, r := range loadRules(t, root, "") {
-		if r.Kind() == "ts_bundle" {
-			return r.AttrStrings("staging_srcs")
-		}
-	}
-	t.Fatalf("no ts_bundle generated:\n%s", buildFileText(t, root, ""))
-	return nil
-}
-
-// TestExclude_AnchoredDirectoryPatternSkipsAStagedSubtree pins
-// stagingLabelsOutside: the walk that decides which "sources" filegroups the
-// bundle names reads the exclusion workspace-relative, since it runs only at
-// the root. A namesake directory elsewhere is what says the anchor held.
-func TestExclude_AnchoredDirectoryPatternSkipsAStagedSubtree(t *testing.T) {
-	root, _ := convergeWorkspace(t, map[string]string{
-		"BUILD.bazel":               "# gazelle:ts_exclude ./shared/vendor\n",
-		"package.json":              tanstackPackageJSON,
-		"src/app/main.tsx":          "export const m = 1;\n",
-		"src/routes/index.tsx":      "export const i = 1;\n",
-		"shared/hub.ts":             "export const h = 1;\n",
-		"shared/vendor/only.ts":     "export const o = 1;\n",
-		"shared/vendor/deep/two.ts": "export const t = 1;\n",
-		"shared/other/vendor/x.ts":  "export const x = 1;\n",
-	})
-
-	staging := stagingSrcsOf(t, root)
-	for _, absent := range []string{"//shared/vendor", "//shared/vendor/deep"} {
-		if slices.Contains(staging, absent) {
-			t.Errorf("staging_srcs = %v still names %q, which the exclusion skipped",
-				staging, absent)
-		}
-	}
-	if !slices.Contains(staging, "//shared/other/vendor") {
-		t.Errorf("staging_srcs = %v lost the namesake directory the anchor does not name",
-			staging)
-	}
-}
-
-// TestExclude_AnchoredFilePatternDropsOneStagedPackagesLabel pins
-// packageStagingLabels, the other half of the staging walk: excluding the only
-// source in a directory withdraws that directory's label and nothing below it,
-// where excluding the directory itself withdraws the subtree.
-func TestExclude_AnchoredFilePatternDropsOneStagedPackagesLabel(t *testing.T) {
-	root, _ := convergeWorkspace(t, map[string]string{
-		"BUILD.bazel":               "# gazelle:ts_exclude ./shared/vendor/only.ts\n",
-		"package.json":              tanstackPackageJSON,
-		"src/app/main.tsx":          "export const m = 1;\n",
-		"src/routes/index.tsx":      "export const i = 1;\n",
-		"shared/vendor/only.ts":     "export const o = 1;\n",
-		"shared/vendor/deep/two.ts": "export const t = 1;\n",
-	})
-
-	staging := stagingSrcsOf(t, root)
-	if slices.Contains(staging, "//shared/vendor") {
-		t.Errorf("staging_srcs = %v names //shared/vendor, whose only source was excluded, so "+
-			"generation writes no target there", staging)
-	}
-	if !slices.Contains(staging, "//shared/vendor/deep") {
-		t.Errorf("staging_srcs = %v lost the subtree below the excluded file", staging)
-	}
-}
-
-// TestExclude_AnchoredPatternHidesTheFrameworkEntry pins entryTargetIsCovered:
-// the entry_point label is decided by reading the entry package off disk, and an
-// anchored pattern naming the entry has to be read there too. Otherwise the
-// bundle names an entry_point nothing writes, and a dangling label fails
-// analysis for every target that reaches it.
-func TestExclude_AnchoredPatternHidesTheFrameworkEntry(t *testing.T) {
-	root, logged := convergeWorkspace(t, map[string]string{
-		"BUILD.bazel":          "# gazelle:ts_exclude ./app/entry.client.tsx\n",
-		"package.json":         remixPackageJSON,
-		"app/entry.client.tsx": remixEntryClient,
-		"app/root.tsx":         remixRoot,
-	})
-
-	if !strings.Contains(logged, "declares the client entry target") {
-		t.Errorf("the withdrawn entry was not reported:\n%s", logged)
-	}
-	for _, r := range loadRules(t, root, "") {
-		if r.Kind() == "ts_bundle" {
-			t.Errorf("a ts_bundle was written with entry_point = %q, which the exclusion left "+
-				"nothing to name", r.AttrString("entry_point"))
-		}
-	}
-}
-
 // TestExclude_AnchoredPatternDropsTheTsConfigTarget pins the two tsconfig call
 // sites at once. ownTsConfigRule decides whether the directory holding the file
 // writes a ts_config, and tsConfigLabel decides whether a package below it may
@@ -693,60 +602,5 @@ ts_compile(
 	if strings.Contains(logged, "nothing in the build compiles") {
 		t.Errorf("the report claims the file reaches no compile, and a kept srcs entry "+
 			"compiles it:\n%s", logged)
-	}
-}
-
-// A directory pattern under the default `every-dir` boundary mode reaches
-// nothing: the directory keeps its own target, and the framework bundle still
-// stages it. This pins the behaviour, not the mechanism -- moving
-// stagingLabelsOutside' owned() short-circuit past its drops() check leaves both
-// assertions green, because an owned directory is staged by the label its own
-// package exports rather than by that walk.
-//
-// Asserted because the docs first claimed a directory name is read in the rollup
-// walk alone, and the first correction of that claim asserted a staging prune
-// that does not happen.
-func TestExclude_DirectoryPatternReachesNothingUnderEveryDir(t *testing.T) {
-	repoRoot := t.TempDir()
-	writeWorkspace(t, repoRoot, remixWorkspace)
-	writeWorkspace(t, repoRoot, map[string]string{
-		"app/routes/panel/nested/thing.ts": "export const thing = 3;\n",
-	})
-	gazellePass(t, repoRoot)
-
-	nestedBuild := filepath.Join(repoRoot, "app", "routes", "panel", "nested", "BUILD.bazel")
-	if _, ok := filegroupSrcs(t, nestedBuild); !ok {
-		t.Fatalf("baseline: nested has no sources filegroup, so the assertions below would be vacuous")
-	}
-	staged := func() map[string]bool {
-		out := map[string]bool{}
-		for _, l := range attrStrings(t, filepath.Join(repoRoot, "BUILD.bazel"), "ts_bundle", "app_remix", "staging_srcs") {
-			out[l] = true
-		}
-		return out
-	}
-	const label = "//app/routes/panel/nested:sources"
-	if !staged()[label] {
-		t.Fatalf("baseline: %s is not staged, so pruning it proves nothing", label)
-	}
-
-	root, err := os.ReadFile(filepath.Join(repoRoot, "BUILD.bazel"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeWorkspace(t, repoRoot, map[string]string{
-		"BUILD.bazel": "# gazelle:ts_exclude nested\n" + string(root),
-	})
-	gazellePass(t, repoRoot)
-
-	if !staged()[label] {
-		t.Errorf("a directory pattern pruned the bundle's staging walk: %s is gone. Under every-dir the directory owns its own package, so stagingLabelsOutside skips it before reading the pattern -- if that short-circuit moves, the docs are wrong", label)
-	}
-	srcs, ok := filegroupSrcs(t, nestedBuild)
-	if !ok {
-		t.Fatalf("the directory's own package lost its sources filegroup: under every-dir it is a package in its own right")
-	}
-	if got := strings.Join(srcs, ","); got != "thing.ts" {
-		t.Errorf("the directory's own target srcs = %q, want \"thing.ts\": a directory pattern must not stop it compiling its own sources", got)
 	}
 }

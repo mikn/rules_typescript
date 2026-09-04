@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -23,7 +24,7 @@ func main() {
 		WorkspaceRel: "tests/integration/gazelle_roundtrip",
 		Lockfile:     "tests/npm/pnpm-lock.yaml",
 	}, func(it *harness.IT) {
-		dirs := []string{"src/lib", "src/app", "src/icons", "src/typed", "worker", "worker/src", "worker/test", "worker/test/deep", "aliased", "aliased/shared", "aliased/src"}
+		dirs := []string{"src/lib", "src/app", "src/icons", "src/typed", "worker", "worker/src", "worker/test", "worker/test/deep", "generated_worker/src", "aliased", "aliased/shared", "aliased/src"}
 
 		// Written here rather than shipped in the workspace: a BUILD file under
 		// a --deleted_packages entry is a package of the OUTER workspace, and
@@ -31,6 +32,9 @@ func main() {
 		// the same boundary this case is about.
 		it.Write(it.Path("src/i18n/BUILD.bazel"), codegenGlobDirective)
 		it.Write(it.Path("src/locales/BUILD.bazel"), outDirCodegenPackage)
+		it.Write(it.Path("generated_worker/BUILD.bazel"), generatedWorkerPackage)
+		// The harness stages one lockfile, vitest's; wrangler is in tests/workers'.
+		it.Write(it.Path("pnpm-lock.workers.yaml"), it.Read(filepath.Join(it.RulesTSRoot, "tests/workers/pnpm-lock.yaml")))
 
 		gazelleLog, err := it.BazelLog("gazelle_pass_1", "run", "//:gazelle")
 		if err != nil {
@@ -96,6 +100,7 @@ func main() {
 		}
 
 		rootAmbientTypesReachTheTreeBelow(it)
+		generatedDeclarationNamesItsGenerator(it)
 		aliasAttrsFollowTheSrcs(it)
 		codegenGlobLoads(it)
 		outDirContentsAreNotSources(it)
@@ -146,6 +151,78 @@ ts_codegen(
     out_dir = "compiled",
 )
 `
+
+// A worker with nothing checked in: the ts_codegen beside the config writes the
+// declaration its tsconfig names.
+const generatedWorkerPackage = `load("@rules_typescript//npm:defs.bzl", "node_modules")
+load("@rules_typescript//ts:defs.bzl", "ts_codegen")
+
+node_modules(
+    name = "node_modules",
+    deps = ["@npm_workers//:wrangler"],
+)
+
+ts_codegen(
+    name = "worker_types",
+    srcs = ["wrangler.jsonc"],
+    outs = ["worker-configuration.d.ts"],
+    args = [
+        "--config",
+        "wrangler.jsonc",
+        "--out",
+        "{out}",
+        "--srcs",
+        "{srcs}",
+        "--strict-vars=false",
+    ],
+    generator = "@rules_typescript//tools/codegen:wrangler_types",
+    node_modules = ":node_modules",
+    visibility = ["//generated_worker:__subpackages__"],
+)
+`
+
+// The converge test says Gazelle names the ts_codegen for a declaration not on
+// disk; only a build says the program then type-checks against what it wrote.
+func generatedDeclarationNamesItsGenerator(it *harness.IT) {
+	owner := it.Path("generated_worker/BUILD.bazel")
+	it.RequireContains(owner, `name = "worker_types"`,
+		"the hand-written ts_codegen did not survive the Gazelle run")
+	it.RequireNotContains(owner, "tsconfig_types",
+		"a filegroup was written over a file that is not in the source tree")
+	it.Pass("generated_worker/BUILD.bazel keeps the ts_codegen and gets no filegroup")
+
+	below := it.Path("generated_worker/src/BUILD.bazel")
+	it.RequireContains(below, `types = ["../worker-configuration.d.ts"]`,
+		"//generated_worker/src names no rebased types entry")
+	it.RequireContains(below, `types_srcs = ["//generated_worker:worker_types"]`,
+		"//generated_worker/src does not name the ts_codegen staging the declaration")
+	it.Pass("//generated_worker/src carries the rebased entry and the ts_codegen's label")
+
+	declaration := it.Bin("generated_worker/worker-configuration.d.ts")
+	it.RequireFile(declaration, "the wrangler types action did not run")
+	it.RequireContains(declaration, "CACHE: KVNamespace;",
+		"the generated declaration names no binding from wrangler.jsonc")
+	it.Pass("wrangler types wrote the declaration from wrangler.jsonc, with no checked-in copy")
+	it.RequireFile(it.Bin("generated_worker/src/index.js"),
+		"//generated_worker/src did not compile against the generated declaration")
+	it.Pass("//generated_worker/src type-checks against the Env and runtime globals the generated file declares")
+
+	// A binding the config does not declare; only the generated Env can refuse it.
+	consumer := it.Path("generated_worker/src/index.ts")
+	restore := it.Read(consumer)
+	it.Write(consumer, strings.Replace(restore, "env.GREETING", "env.MISSING", 1))
+	log, err := it.BazelLog("generated_env_is_in_force", "build", "//generated_worker/src")
+	it.Write(consumer, restore)
+	if err == nil {
+		log.Dump()
+		it.Fail("//generated_worker/src compiled a binding wrangler.jsonc does not declare; the generated Env is not the type in force")
+	}
+	if !log.Contains("TS2339") {
+		log.Dump()
+		it.Fail("//generated_worker/src failed for some other reason than the undeclared binding")
+	}
+	it.Pass("env.MISSING is TS2339, so the generated Env types the worker")
+}
 
 // A file under the out_dir read into srcs is one output declared twice, the tree
 // and a file inside it; the `bazel build //...` above is where Bazel says so.

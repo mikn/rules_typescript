@@ -22,7 +22,7 @@
   goes through `typeRoots`.
 
   The entry is written into the generated config as the path to the file it
-  resolved to, so a generated declaration (a `ts_worker_types` output, a
+  resolved to, so a generated declaration (a `ts_codegen` output, a
   `.d.ts` a genrule wrote) is named the way a checked-in one is: the entry as
   the tsconfig spells it, and the label that stages the file in `types_srcs`,
   in `srcs`, or on a dep edge. On the fixtures that ship with this: in the

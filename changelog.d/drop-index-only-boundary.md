@@ -14,6 +14,6 @@
   and drops every source beneath it. With `index-only` gone the case cannot
   arise. In `tsconfig` mode a directory holding a `tsconfig.json` is a package,
   and under `every-dir` the roll-up walk does not run. The remaining refusals
-  are unchanged: a `ts_ignore`, a framework's staging glob, a boundary
+  are unchanged: a `ts_ignore`, a boundary
   directive declared between the two directories, and a target already named
   `tsconfig`.

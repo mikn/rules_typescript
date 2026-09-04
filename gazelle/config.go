@@ -18,36 +18,6 @@ import (
 	"github.com/mikn/rules_typescript/gazelle/jsonc"
 )
 
-// ---- framework detection ---------------------------------------------------
-
-// Framework represents a frontend framework detected from package.json.
-type Framework int
-
-const (
-	// FrameworkNone means no recognised framework was detected.
-	FrameworkNone Framework = iota
-
-	// FrameworkTanStack is set when @tanstack/react-router or @tanstack/start
-	// is listed in package.json dependencies.
-	FrameworkTanStack
-
-	// FrameworkNextJS is set when "next" is listed in package.json
-	// dependencies. Reserved for future use.
-	FrameworkNextJS
-
-	// FrameworkRemix is set when @remix-run/dev or @remix-run/react is listed
-	// in package.json dependencies.
-	FrameworkRemix
-
-	// FrameworkSvelteKit is set when @sveltejs/kit is listed in package.json
-	// dependencies.
-	FrameworkSvelteKit
-
-	// FrameworkSolidStart is set when @solidjs/start or solid-start is listed
-	// in package.json dependencies.
-	FrameworkSolidStart
-)
-
 // ---- directive keys --------------------------------------------------------
 
 const (
@@ -237,17 +207,6 @@ func boundaryFromDirective(value string) (mode string, marksDir bool, err error)
 // directory. An instance is stored in config.Config.Exts keyed by languageName
 // and is inherited (shallow-copied) through the directory hierarchy.
 type tsConfig struct {
-	// detectedFramework is the framework detected from the workspace-root
-	// package.json. Populated once at the repo root and inherited by all
-	// descendant directories via the clone mechanism. The zero value
-	// (FrameworkNone) means no framework was detected.
-	detectedFramework Framework
-
-	// svelteKitAssets is the directory kit.files.assets names in
-	// svelte.config.js -- a documented relocatable option, so the default
-	// "static" cannot be assumed. Read once at the root and inherited.
-	svelteKitAssets string
-
 	// packageBoundaryMode controls how package boundaries are detected:
 	// boundaryEveryDir (the default) or boundaryTsConfig.
 	packageBoundaryMode string
@@ -383,7 +342,7 @@ type tsConfig struct {
 	// tsconfigTypes is that same key unread, tsconfigTypesDir the directory
 	// its entries are written relative to, tsconfigTypeFiles the ones naming
 	// a declaration file that directory holds, and tsconfigTypeGenerators the
-	// ones naming a file a ts_worker_types target there writes, keyed by file
+	// ones naming a file a ts_codegen there declares in outs, keyed by file
 	// name with the target's name as the value. Empty unless every file-shaped
 	// entry is one or the other.
 	tsconfigTypes          []string
@@ -537,76 +496,6 @@ func (tc *tsConfig) clone() *tsConfig {
 		copy(cp.codegenOutDirs, tc.codegenOutDirs)
 	}
 	return &cp
-}
-
-// ---- package.json framework detection -------------------------------------
-
-// packageJSON is a minimal representation of package.json used only for
-// framework detection. Only the fields we need are decoded.
-type packageJSON struct {
-	Dependencies    map[string]string `json:"dependencies"`
-	DevDependencies map[string]string `json:"devDependencies"`
-}
-
-// detectFramework reads the workspace-root package.json (if present) and
-// returns the framework it implies, or FrameworkNone.
-//
-// Detection rules (checked in order of priority):
-//   - @tanstack/start or @tanstack/react-router → FrameworkTanStack
-//   - @remix-run/dev or @remix-run/react        → FrameworkRemix
-//   - @sveltejs/kit                             → FrameworkSvelteKit
-//   - @solidjs/start or solid-start             → FrameworkSolidStart
-//   - next                                      → FrameworkNextJS
-func detectFramework(repoRoot string) Framework {
-	data, err := os.ReadFile(filepath.Join(repoRoot, "package.json"))
-	if err != nil {
-		// No package.json at root — not a framework project.
-		return FrameworkNone
-	}
-	var pj packageJSON
-	if err := json.Unmarshal(data, &pj); err != nil {
-		log.Printf("typescript: failed to parse workspace root package.json: %v", err)
-		return FrameworkNone
-	}
-
-	// Merge deps and devDeps into one map for a single-pass check.
-	allDeps := make(map[string]string, len(pj.Dependencies)+len(pj.DevDependencies))
-	for k, v := range pj.Dependencies {
-		allDeps[k] = v
-	}
-	for k, v := range pj.DevDependencies {
-		allDeps[k] = v
-	}
-
-	// TanStack takes priority over Next.js in case both appear.
-	if _, ok := allDeps["@tanstack/start"]; ok {
-		return FrameworkTanStack
-	}
-	if _, ok := allDeps["@tanstack/react-router"]; ok {
-		return FrameworkTanStack
-	}
-	// Remix detection.
-	if _, ok := allDeps["@remix-run/dev"]; ok {
-		return FrameworkRemix
-	}
-	if _, ok := allDeps["@remix-run/react"]; ok {
-		return FrameworkRemix
-	}
-	// SvelteKit detection.
-	if _, ok := allDeps["@sveltejs/kit"]; ok {
-		return FrameworkSvelteKit
-	}
-	// SolidStart detection.
-	if _, ok := allDeps["@solidjs/start"]; ok {
-		return FrameworkSolidStart
-	}
-	if _, ok := allDeps["solid-start"]; ok {
-		return FrameworkSolidStart
-	}
-	if _, ok := allDeps["next"]; ok {
-		return FrameworkNextJS
-	}
-	return FrameworkNone
 }
 
 // ---- linter config detection -----------------------------------------------
@@ -1344,9 +1233,9 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 	}
 
 	// The lockfile is the workspace's npm inventory, read once and inherited.
-	// Not gated on rel == "" the way framework detection is: c.RepoRoot is the
-	// workspace root whichever directory Gazelle was pointed at, so a run
-	// rooted below it still gets the inventory.
+	// Not gated on rel == "": c.RepoRoot is the workspace root whichever
+	// directory Gazelle was pointed at, so a run rooted below it still gets the
+	// inventory.
 	if !tc.npmInventoryLoaded {
 		tc.npmInventoryLoaded = true
 		if inventory, lockNames, members := loadNpmInventory(c.RepoRoot); inventory != nil {
@@ -1354,16 +1243,6 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 			tc.npmLockNames = lockNames
 			tc.workspaceMembers = members
 		}
-	}
-
-	// Detect the framework once at the workspace root, then inherit downward.
-	// We check rel == "" (root dir) and only run detection when the field has
-	// not been set yet (fresh zero value = FrameworkNone and no parent set it).
-	if rel == "" && tc.detectedFramework == FrameworkNone {
-		tc.detectedFramework = detectFramework(c.RepoRoot)
-	}
-	if rel == "" && tc.detectedFramework == FrameworkSvelteKit {
-		tc.svelteKitAssets, _ = svelteKitAssetsTree(c.RepoRoot)
 	}
 
 	// Detect linter config for this directory.
@@ -1795,7 +1674,7 @@ func loadTsConfigTypeFiles(tsConfigPath, rel string, f *rule.File, staged map[st
 		return nil, nil, nil, nil
 	}
 	dir := filepath.Dir(tsConfigPath)
-	generated := workerTypesOutputs(f)
+	generated := codegenDeclarationOutputs(f)
 	seen := make(map[string]struct{})
 	for _, entry := range *tsc.CompilerOptions.Types {
 		hops, name, isFile := typeEntryFileName(entry)
@@ -1885,26 +1764,26 @@ func stagedTypeLabels(rel string, files []string, generators map[string]string) 
 	return staged
 }
 
-// workerTypesOutputs is the file each ts_worker_types rule in f writes, keyed by
-// its name, with the rule's name as the value. The file is a build output, so
-// it is nowhere on disk for os.Stat to find.
-func workerTypesOutputs(f *rule.File) map[string]string {
+// codegenDeclarationOutputs maps each .d.ts a ts_codegen in f declares in outs to
+// the rule's name: a build output, so nowhere on disk for os.Stat to find.
+func codegenDeclarationOutputs(f *rule.File) map[string]string {
 	if f == nil {
 		return nil
 	}
 	var out map[string]string
 	for _, r := range f.Rules {
-		if r.Kind() != "ts_worker_types" {
+		if r.Kind() != "ts_codegen" {
 			continue
 		}
-		name := r.AttrString("out")
-		if name == "" {
-			name = "worker-configuration.d.ts"
+		for _, name := range r.AttrStrings("outs") {
+			if !isDeclarationFile(name) || strings.Contains(name, "/") {
+				continue
+			}
+			if out == nil {
+				out = make(map[string]string)
+			}
+			out[name] = r.Name()
 		}
-		if out == nil {
-			out = make(map[string]string)
-		}
-		out[name] = r.Name()
 	}
 	return out
 }
@@ -1944,6 +1823,11 @@ func ambientTypeLabel(entry string) string {
 		return npmLabel(barePackageName(entry))
 	}
 	return npmLabel("@types/" + entry)
+}
+
+// npmLabel converts an npm package name to its @npm//:<label> form.
+func npmLabel(pkgName string) string {
+	return "@npm//:" + npmPackageToLabelName(pkgName)
 }
 
 // packageJSONTypeDeps is the sliver of a package.json that says which @types

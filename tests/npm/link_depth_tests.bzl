@@ -9,7 +9,7 @@ Nothing notices while the whole chain is symlinks, because resolution moves into
 the physical directory at the first hop. Bazel restages a tree artifact though --
 staging one into a sandbox replaces its internal links -- and an inner link left
 behind at the wrong depth is then dangling. `chmod` on one of those is ENOENT,
-one of the two ways the remix_ssr integration test has failed in CI; the other
+one of the two ways a nested-Bazel integration test has failed in CI; the other
 is that the restaging itself comes out short, which is why the tree is no longer
 allowed to come out of a cache (see NEVER_FROM_A_CACHE in node_modules.bzl).
 

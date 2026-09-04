@@ -5,10 +5,8 @@ exec_node_test.bzl); the assertion is that none of their actions reaches for the
 Windows Node.
 """
 
-load("@rules_typescript//npm:defs.bzl", "node_modules")
-load("@rules_typescript//vite:bundler.bzl", "vite_bundler")
 load("//ts:defs.bzl", "css_module", "json_library")
-load(":exec_node_test.bzl", "exec_node_action_test", "exec_node_bundler_test")
+load(":exec_node_test.bzl", "exec_node_action_test")
 
 css_module(
     name = "styles",
@@ -38,22 +36,4 @@ exec_node_action_test(
     name = "vite_plugin_exec_node_test",
     mnemonic = "EsbuildBundle",
     target_under_test = "//vite:vite_plugin_bazel",
-)
-
-node_modules(
-    name = "vite_node_modules",
-    tags = ["manual"],
-    deps = ["@npm//:vite"],
-)
-
-vite_bundler(
-    name = "vite",
-    node_modules = ":vite_node_modules",
-    tags = ["manual"],
-    vite = "@npm//:vite",
-)
-
-exec_node_bundler_test(
-    name = "vite_bundler_exec_node_test",
-    target_under_test = ":vite",
 )

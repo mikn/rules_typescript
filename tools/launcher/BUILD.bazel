@@ -8,14 +8,12 @@ go_library(
         "exec_other.go",
         "exec_unix.go",
         "main.go",
-        "next.go",
         "node.go",
         "nodetest.go",
         "plan.go",
         "resolve.go",
         "run.go",
         "vitest.go",
-        "wrangler.go",
     ],
     importpath = "github.com/mikn/rules_typescript/tools/launcher",
     visibility = ["//visibility:public"],
@@ -32,11 +30,9 @@ go_test(
     name = "launcher_test",
     srcs = [
         "config_test.go",
-        "next_test.go",
         "nodetest_test.go",
         "plan_test.go",
         "resolve_test.go",
-        "wrangler_test.go",
     ],
     # keep: this package's library is `launcher`, not the `launcher_lib` the Go
     # naming convention picks for a main package.

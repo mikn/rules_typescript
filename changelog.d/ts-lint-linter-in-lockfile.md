@@ -14,7 +14,7 @@
   The `linter_binary` also follows the tree's `# gazelle:ts_npm_hub`, the way
   a bare import's dep does: `@npm_eslint//:eslint_bin` under
   `# gazelle:ts_npm_hub npm_eslint`, where it used to name `@npm` regardless.
-  The `ts_codegen` generator, `vite_bundler`, framework `node_modules` and
+  The `ts_codegen` generator and
   tsconfig `types` labels do not follow it yet and still name `@npm`.
   A tree under its own hub resolves against a lockfile this reader never saw,
   so nothing there is refused, and a workspace with no root lockfile keeps

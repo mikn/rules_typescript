@@ -53,11 +53,8 @@ _BASE_TAGS = [
 #
 # A test with no shard is not left out: the `core` leg's filter is the
 # complement of every name here, so the shards only ever move tests OFF the
-# default leg and cannot drop one. Balance the legs by cost, not by count --
-# nextjs_test alone is ~293s.
+# default leg and cannot drop one. Balance the legs by cost, not by count.
 SHARDS = [
-    "nextjs-tanstack",
-    "remix-svelte",
     "npm",
 ]
 

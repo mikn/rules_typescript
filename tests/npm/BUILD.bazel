@@ -502,7 +502,7 @@ conflicting_direct_peers_test(
 )
 
 # Both bundles are consumer API -- //vite's through ts_dev_server's `plugin`
-# attr, the css one as a private attr default on ts_test/ts_bundle/ts_dev_server.
+# attr, the css one as a private attr default on ts_test/ts_binary/ts_dev_server.
 hub_provenance_test(
     name = "vite_plugin_hub_test",
     size = "small",

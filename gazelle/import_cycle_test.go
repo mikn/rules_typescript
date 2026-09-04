@@ -11,9 +11,8 @@ import (
 // tests drive the whole run -- generate, index, resolve, finish -- the way
 // convergeGazelle does, and read what the finished run said.
 
-// cycleReport is the clause this reporter is recognised by. "dependency cycle"
-// alone would not do: reportEntryImportCycle says that too, and the
-// same-directory control below would then pass on the wrong message.
+// cycleReport is the clause this reporter is recognised by, so the
+// same-directory controls below cannot pass on another message.
 const cycleReport = "a dependency cycle Bazel rejects"
 
 // mutualImports is the two-directory cycle most of these fixtures are built on.
@@ -246,37 +245,10 @@ func TestImportCycle_AcyclicTreeIsSilent(t *testing.T) {
 	}
 }
 
-// TestImportCycle_SameDirectoryCycleIsSaidOnce is a CONTROL: it passes both
-// before and after the detector exists. A framework entry split puts two
-// generated targets in one directory, and reportEntryImportCycle already names
-// the entry_point that caused it. Two reporters on one cycle is the noise this
-// feature exists to avoid. It is not the only split that does this, only the
-// one that is reported -- the doc- and test-split controls below hold the gap.
-func TestImportCycle_SameDirectoryCycleIsSaidOnce(t *testing.T) {
-	logged := captureLog(t, func() {
-		convergeTree(t, map[string]string{
-			"BUILD.bazel":          "",
-			"package.json":         remixPackageJSON,
-			"app/entry.client.tsx": "import App from \"./root\";\nexport default App;\n",
-			"app/root.tsx":         remixRoot,
-			"app/helper.tsx":       "import \"./entry.client\";\nexport const x = 1;\n",
-		})
-	})
-
-	if !strings.Contains(logged, "bundle's entry_point") {
-		t.Fatalf("the entry-split cycle went unreported; log was %q", logged)
-	}
-	if strings.Contains(logged, cycleReport) {
-		t.Errorf("a same-package cycle drew a second report from the cross-package "+
-			"detector; log was %q", logged)
-	}
-}
-
 // TestImportCycle_DocSplitInOneDirectoryIsNotReported is a CONTROL and a
 // documented gap: it passes both before and after the detector exists. A doc
 // file is its own target in the same directory, so a doc file and the library
-// importing each other is a cycle Bazel rejects -- and the framework-entry
-// report, the only same-directory reporter, does not see this shape. The
+// importing each other is a cycle Bazel rejects that no reporter sees. The
 // fixture asserts the emitted cycle so the gap cannot be mistaken for absence.
 func TestImportCycle_DocSplitInOneDirectoryIsNotReported(t *testing.T) {
 	var repoRoot string

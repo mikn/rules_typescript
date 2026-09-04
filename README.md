@@ -1,8 +1,8 @@
 # rules_typescript
 
-An opinionated Bazel ruleset for TypeScript, optimised for the **Oxc + Vite** toolchain. For a stack of TypeScript, Vite and a Vite-based framework, it replaces `tsc`, the bundler and the dev server with a single hermetic build. For `tsc` compatibility or non-Vite toolchains, see [aspect-build/rules_ts](https://github.com/aspect-build/rules_ts).
+An opinionated Bazel ruleset for TypeScript, optimised for the **Oxc + Vite** toolchain. For a stack of TypeScript and Vite, it replaces `tsc` and the dev server with a single hermetic build. For `tsc` compatibility or non-Vite toolchains, see [aspect-build/rules_ts](https://github.com/aspect-build/rules_ts).
 
-Rust and Go do the work: [Oxc](https://oxc.rs/) compiles, [tsgo](https://github.com/microsoft/typescript-go) type-checks. Bundling and dev serving speak one generated [Vite](https://vite.dev/) config, run by Vite or by [oj](https://github.com/raphamorim/oj). [Gazelle](https://github.com/bazelbuild/bazel-gazelle) writes the BUILD files. Write `.ts`, run Gazelle, `bazel build //...`. No `node_modules/`. No system Node. Just Bazelisk.
+Rust and Go do the work: [Oxc](https://oxc.rs/) compiles, [tsgo](https://github.com/microsoft/typescript-go) type-checks. The dev server runs one generated [Vite](https://vite.dev/) config. [Gazelle](https://github.com/bazelbuild/bazel-gazelle) writes the BUILD files. Write `.ts`, run Gazelle, `bazel build //...`. No `node_modules/`. No system Node. Just Bazelisk.
 
 Coming from an existing TypeScript repository: [Install](#install) is the short
 path, and the
@@ -11,37 +11,13 @@ covers the migration questions.
 
 **Full documentation: [mikn.github.io/rules_typescript](https://mikn.github.io/rules_typescript)**
 
-## Built for the Vite Ecosystem
-
-Vite bundles, and Vite or oj serves. Frameworks that ship a Vite plugin fit
-either, because both read the same generated config.
-
-- **React + Vite** — plain Vite: SPA bundle, CSS modules, and Fast Refresh HMR under `react_refresh = True`.
-- **Remix** — SPA bundle **and** SSR via [`remix_build`](https://mikn.github.io/rules_typescript/rules/remix-build/). Routes get their own chunks.
-- **SvelteKit** — SSR via [`sveltekit_build`](https://mikn.github.io/rules_typescript/rules/sveltekit-build/), components via [`svelte_library`](https://mikn.github.io/rules_typescript/rules/svelte-library/). Both Vite passes run: hashed chunks in `client/`, and a `server/manifest.js` route id per route directory. `svelte_library` emits either the compiler's browser or its SSR output, picked by `generate` (`"client"` by default).
-- **TanStack Start** — bundle, and server functions that reach the client through a generated handler id. Gazelle writes the `ts_dev_server` beside the bundle at the workspace root; it takes the same `vite_config`. `//tests/integration:tanstack_test` starts it and checks that every route renders server-side.
-- **Solid Start** — no bundle target. `@solidjs/start` ships no Vite plugin: `defineConfig()` returns a vinxi app, which `ts_bundle`'s `vite_config` contract (a default export with a `plugins` array) cannot consume.
-
-Where a target cannot be built, Gazelle writes none and reports why.
-
-Non-Vite frameworks are not a priority. Next.js is the exception. `next_build`
-runs the framework's own build from declared inputs;
-[`next_dev_server` and `next_serve`](https://mikn.github.io/rules_typescript/rules/next-run/)
-run the app from source or from that build. Both routers work, both API-route
-flavours, `"use client"`/`"use server"`, middleware, CSS and static image
-imports. The build action runs with the network blocked, so `next/font/google`
-fails with a diagnostic naming the download; `allow_network = True` is the
-opt-out. See
-[next_build](https://mikn.github.io/rules_typescript/rules/next-build/).
-
 ## Key Ideas
 
 - **Oxc compiles** — Rust-based TypeScript/JSX transformer. `.js` + `.js.map` per file, and `.d.ts` too under `declarations = "oxc"`.
 - **tsgo type-checks** — Go port of TypeScript, and it emits the declarations too, so unmodified TypeScript compiles: no export annotations required, and the `.d.ts` are what `tsc` would produce. Type errors fail `bazel build`.
-- **Vite bundles** — production bundles with tree-shaking, code splitting, minification. App mode (HTML + hashed assets) and lib mode.
-- **The dev server is swappable** — `ts_dev_server(server = ...)` takes any target providing `DevServerInfo`. Vite is the default; `@rules_typescript//oj:dev_server` selects [oj](https://github.com/raphamorim/oj), a Rust-native server that adopts the same generated Vite config and needs no `@npm//:vite` in the tree. What each server does not read is declared in its provider, so a target depending on a field its server ignores fails at analysis time naming both.
+- **The dev server is swappable** — `ts_dev_server(server = ...)` takes any target providing `DevServerInfo`. Vite is the default. What a server does not read is declared in its provider, so a target depending on a field its server ignores fails at analysis time naming both.
 - **Isolated declarations** — annotate a package's exports and set `declarations = "oxc"`, and Oxc emits its `.d.ts` syntactically, which moves type-checking off the critical path and shortens a deep dependency chain substantially. Opt-in, per package — see [Cost of each mode](https://mikn.github.io/rules_typescript/rules/ts-compile/#cost-of-each-mode).
-- **Gazelle generates BUILD files** — infers targets from the directory tree, resolves imports to labels, generates lint, bundler and dev-server targets, and takes fifteen `# gazelle:ts_*` directives. It regenerates the attributes it owns on every run and names every value it drops, so a value it cannot derive needs `# keep` — see [Attributes Gazelle owns](https://mikn.github.io/rules_typescript/gazelle/directives/#attributes-gazelle-owns).
+- **Gazelle generates BUILD files** — infers targets from the directory tree, resolves imports to labels, generates lint and dev-server targets, and takes fifteen `# gazelle:ts_*` directives. It regenerates the attributes it owns on every run and names every value it drops, so a value it cannot derive needs `# keep` — see [Attributes Gazelle owns](https://mikn.github.io/rules_typescript/gazelle/directives/#attributes-gazelle-owns).
 - **CSS modules** — `css_module` runs postcss-modules once, generates the `.d.ts` and the scoped-name map from that result, and hands the map to Vite. `styles.button` type-checks against the keys the stylesheet exports, and the class name in a test is the one in the bundle — see [CSS and assets](https://mikn.github.io/rules_typescript/rules/css-and-assets/).
 - **Direct dependencies** — a source may import only what a direct dep provides. A declaration arriving through another dep's own deps does not satisfy an import: the build fails naming the file, the specifier and the label to add, and `bazel run //:gazelle` writes it.
 - **How npm packages are fetched** — one Bazel repository per package, fetched on demand, behind a `@npm` alias hub, so a target fetches only its own dependency closure. A generated `node_modules` tree holds every resolution that closure made — name, version and peer set — flat where a name resolved once, keyed by resolution where it did not.
@@ -234,10 +210,10 @@ such package fails the snippet above until the list is filled in. That attribute
 - **[Isolated Declarations](https://mikn.github.io/rules_typescript/getting-started/isolated-declarations/)** — the opt-in throughput mode
 - **[npm Dependencies](https://mikn.github.io/rules_typescript/guides/npm/)** — pnpm lockfile integration, platform-specific packages, bin scripts
 - **[Testing with vitest](https://mikn.github.io/rules_typescript/guides/testing/)** — `ts_test`, snapshots, sharding, watch mode with ibazel; `runner = "node:test"` for tests written against node's own runner
-- **[Bundling](https://mikn.github.io/rules_typescript/guides/bundling/)** — `ts_bundle` with Vite or any `BundlerInfo`-compatible bundler
-- **[Dev Server](https://mikn.github.io/rules_typescript/guides/dev-server/)** — a pluggable dev server with ibazel HMR: Vite by default, oj through `server = "@rules_typescript//oj:dev_server"`, one generated config driving either
+- **[Bundling](https://mikn.github.io/rules_typescript/guides/bundling/)** — `ts_binary` with any `BundlerInfo`-compatible bundler
+- **[Dev Server](https://mikn.github.io/rules_typescript/guides/dev-server/)** — a pluggable dev server with ibazel HMR: Vite by default, any `DevServerInfo` rule through `server`
 - **[Monorepo Layout](https://mikn.github.io/rules_typescript/guides/monorepo/)** — package boundaries, cross-package `.d.ts` caching
-- **[Gazelle Reference](https://mikn.github.io/rules_typescript/gazelle/overview/)** — directives, framework detection, auto-detected lint and codegen targets
+- **[Gazelle Reference](https://mikn.github.io/rules_typescript/gazelle/overview/)** — directives, auto-detected lint and codegen targets
 - **[Rules Reference](https://mikn.github.io/rules_typescript/rules/ts-compile/)** — all attributes, providers, and outputs
 - **[Migration from rules_ts](https://mikn.github.io/rules_typescript/getting-started/migration/)** — differences from aspect-build/rules_ts
 - **[Troubleshooting](https://mikn.github.io/rules_typescript/guides/troubleshooting/)** — the error messages, by message text

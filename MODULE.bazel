@@ -39,17 +39,6 @@ use_repo(rust, "rust_toolchains")
 
 register_toolchains("@rust_toolchains//:all")
 
-# cargo resolves a binary-only crate through artifact-dependencies, which is
-# nightly-gated. These tools run only when the oj_crates repo below is
-# generated; every rust_binary in this module still builds on the stable
-# toolchain pinned above.
-rust_host_tools = use_extension("@rules_rust//rust:extensions.bzl", "rust_host_tools")
-rust_host_tools.host_tools(
-    name = "rust_host_tools_nightly",
-    version = "nightly",
-)
-use_repo(rust_host_tools, "rust_host_tools_nightly")
-
 # ─── Go toolchain (for Gazelle extension) ────────────────────────────────────
 
 go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
@@ -74,68 +63,7 @@ crate.from_cargo(
     lockfile = "//oxc_cli:Cargo.Bazel.lock",
     manifests = ["//oxc_cli:Cargo.toml"],
 )
-
-# oj ships neither an npm package nor a release binary, so cargo is the only
-# channel it can be pinned from. It is a pure binary crate, hence gen_binaries
-# rather than a dep of the manifest above -- whose graph it must stay out of,
-# rolldown being the heaviest thing either tool pulls.
-crate.spec(
-    artifact = "bin",
-    git = "https://github.com/mikn/oj",
-    package = "oj",
-    repositories = ["oj_crates"],
-    rev = "91970c006406fdfcf1909711ab4196f850c97431",
-)
-
-# A git source rather than the crates.io release, because the fixes oj needs to
-# serve a TanStack Start app are not released yet. That rev is upstream main
-# plus one commit per gap and nothing else, and every one of them is open as its
-# own PR upstream:
-#
-#   raphamorim/oj#110  an explicit config path on `oj build`
-#   raphamorim/oj#115  the injected-head-scripts virtual module, without which
-#                      every document request dies in the ESM loader
-#   raphamorim/oj#116  tsr.config.json reaches the route generator, so an app
-#                      whose tree is not at the default path gets one tree
-#   raphamorim/oj#117  package.json "imports" beats the hardcoded src/router,
-#                      so a configured `router.entry` resolves
-#   raphamorim/oj#118  the declare-module footer the framework's own plugin
-#                      appends, so serving leaves a checked-in tree alone
-#   raphamorim/oj#119  --config reaches the Start dev server; without it
-#                      ts_dev_server's port and every other field are ignored
-#   raphamorim/oj#120  OJ_CACHE_DIR, so a dev server writes nothing into the
-#                      workspace it is serving
-#   raphamorim/oj#121  an extraction that produced no values says so instead of
-#                      looking like a config with nothing in it
-#   raphamorim/oj#123  the extractor compares realpaths to decide it is the
-#                      entry module; a symlink anywhere in the path (every path
-#                      under /var on macOS) otherwise makes it skip its own body
-#                      and exit 0 in silence
-#
-# `git diff v0.1.8..<rev>` is the whole of what is carried, and the pin goes back
-# to a plain version once they land in a release. This is a git source rather
-# than crate.annotation(patches = ...)
-# on purpose: an annotation's patches are labels, and crate_universe renders
-# them into the checked-in lockfile already canonicalised. `//oj/patches:x`
-# becomes `@@//oj/patches:x`, which means THIS repo here and the consumer's own
-# repo downstream, so a patched hub can only ever work in one of the two. There
-# is no spelling that works in both -- the root module's canonical name is "",
-# and `@@rules_typescript+` does not resolve here. Drop this block for a plain
-# version pin once the PRs land in a release.
-crate.annotation(
-    crate = "oj",
-    gen_all_binaries = True,
-    repositories = ["oj_crates"],
-)
-crate.from_specs(
-    name = "oj_crates",
-    # A spec-only hub resolves its own manifest, but rules_rust 0.73 reads this
-    # path unconditionally once `lockfile` stops it from repinning.
-    cargo_lockfile = "//oj:Cargo.lock",
-    host_tools = "@rust_host_tools_nightly",
-    lockfile = "//oj:Cargo.Bazel.lock",
-)
-use_repo(crate, "crates", "oj_crates")
+use_repo(crate, "crates")
 
 # ─── Node.js toolchain (via rules_nodejs) ───────────────────────────────────
 
@@ -230,8 +158,7 @@ npm_dev.translate_lock(
 )
 
 # Cloudflare Workers: the vitest pool that runs tests inside workerd, and the
-# wrangler that deploys them. One hub for both, since the pool depends on
-# wrangler and miniflare anyway.
+# wrangler that //tools/codegen:wrangler_types runs; the pool depends on it anyway.
 npm_dev.translate_lock(
     name = "npm_workers",
     pnpm_lock = "//tests/workers:pnpm-lock.yaml",
