@@ -349,11 +349,8 @@ Delete it. `paths` here is Bazel's and resolves against no `baseUrl`; see
     name is the cheaper boundary. See
     [importing another target by bare specifier](../rules/ts-compile.md#importing-another-target-by-bare-specifier).
 
-    The file also gets a `ts_dev_server` named `dev`, elided above. `main.ts`
-    is one of the four file names (`main.tsx`, `main.ts`, `app.tsx`, `app.ts`)
-    that mark a directory as an application, and an `index.html` in the
-    directory does the same. The target names `:app` as its `entry_point`, with
-    `port = 5173` and `plugin = "@rules_typescript//vite:vite_plugin_bazel"`.
+    Gazelle does not write or touch `ts_dev_server`; an application adds its
+    own by hand. See [Dev Server](../guides/dev-server.md).
 
 **Step 6.** Optional. Once a package's exports are all annotated, move it to
 Oxc's syntactic declaration emit, which takes type-checking off the critical
@@ -374,9 +371,7 @@ root `BUILD.bazel` holding the Gazelle target, `src/BUILD.bazel`,
 `src/lib/math.ts`, `src/lib/index.ts`, `src/lib/BUILD.bazel`, `src/app/main.ts`
 and `src/app/BUILD.bazel`. `src/lib` and `src/app` each hold a hand-written
 `ts_compile` each, `//src/lib` and `//src/app`; the `math.ts` carries explicit
-return types. The next `bazel run //:gazelle` keeps both targets and adds a
-`ts_dev_server` named `dev` beside `//src/app`, since `main.ts` is an
-application entry name.
+return types. The next `bazel run //:gazelle` keeps both targets.
 
 `--rules-path` adds a `local_path_override` naming the checkout; it has to be
 absolute, because `bazel run` starts the tool inside its runfiles tree, not in

@@ -57,6 +57,7 @@ go_test(
         "codegen_test.go",
         "converge_cases_test.go",
         "converge_test.go",
+        "dev_server_test.go",
         "directives_test.go",
         "doc_targets_test.go",
         "exclude_anchor_test.go",

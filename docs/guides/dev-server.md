@@ -9,17 +9,15 @@ Vite is the default implementation; another is any rule returning
 
 ## Setup
 
-Gazelle generates the `ts_dev_server` target next to the `ts_compile` it serves,
-with `plugin` set and `node_modules` empty; nothing in the source tree says
-which tree the app resolves against. The first `bazel run` then stops before
-Vite starts:
+Gazelle does not write or touch `ts_dev_server`; write it by hand next to the
+`ts_compile` it serves, naming the `node_modules` tree the app resolves against.
+Nothing in the source tree says which tree that is, and without the attr the
+first `bazel run` stops before Vite starts:
 
 ```
 ts_dev_server: @@//src/app:dev has no node_modules attr, so the app's own
 dependencies are not in runfiles.
 ```
-
-Add the tree once; Gazelle leaves the attr alone from then on.
 
 ```python
 load("@rules_typescript//ts:defs.bzl", "ts_dev_server")
@@ -162,8 +160,8 @@ The `plugin` attribute wires `vite-plugin-bazel`, which:
 - makes the restart decision under
   [Watch Mode with ibazel](#watch-mode-with-ibazel).
 
-Gazelle sets `plugin = "@rules_typescript//vite:vite_plugin_bazel"` on the first
-generation of a `ts_dev_server` target only; it can be removed.
+`plugin = "@rules_typescript//vite:vite_plugin_bazel"` wires it; a
+`ts_dev_server` without the attribute runs Vite alone.
 
 ## React Fast Refresh
 

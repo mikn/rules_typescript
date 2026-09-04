@@ -388,8 +388,7 @@ puts the working directory in the user's source tree.
   lockfile the consumer registered, and the `dev_dependency` hubs do not exist
   for a consumer at all. `//vite:esbuild_node_modules` named `@npm//:esbuild`,
   and it feeds `//vite:vite_plugin_bazel`, which `ts_dev_server` takes through
-  its `plugin` attr and which Gazelle writes when it generates a dev server (it
-  leaves an existing one alone). `plugin` has no default, and no workspace here
+  its `plugin` attr. `plugin` has no default, and no workspace here
   set it, so nothing had reached the label and no build had failed. The `@npm`
   labels still in `//vite` and `//ts/private/css` are unreached, not sanctioned. Two trees pin the rule, `//vite:esbuild_node_modules` and
   `//ts/private/css:node_modules`, declared in `tests/npm/BUILD.bazel`.
