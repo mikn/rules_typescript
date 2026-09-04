@@ -589,9 +589,9 @@ Only the attribute is checked. The rule does not read a `types` in the
 tsconfig and `@npm//:vite` in `deps`, the target analyses, generates a config
 whose `files` is empty, and fails in tsgo with `TS2339` on the
 `import.meta.env` those declarations would have typed. Put the entries in
-`compiler_options`. Gazelle does that for a relative entry naming a file in the
-tsconfig's own directory, rebasing it onto each target below and naming the
-file in `types_srcs`; see
+`compiler_options`. Gazelle does that where the nearest tsconfig names entries
+and a label stages every file among them, rebasing a file entry onto each
+target below and naming the file in `types_srcs`; see
 [a declaration the tsconfig names](../gazelle/overview.md#a-declaration-the-tsconfig-names).
 
 ### Ambient Precedence

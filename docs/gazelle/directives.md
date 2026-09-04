@@ -125,8 +125,9 @@ no directive writes it and a hand-written value survives every run, `# keep` or
 not.
 
 `types` and `types_srcs` are a third case: generated, and not owned. Gazelle
-writes both where the nearest `tsconfig.json` names a declaration file of its
-own directory in `compilerOptions.types`; see
+writes `types` where the nearest `tsconfig.json` names entries in
+`compilerOptions.types` and a label stages every file among them, and
+`types_srcs` beside it where there is such a file; see
 [a declaration the tsconfig names](overview.md#a-declaration-the-tsconfig-names).
 Neither is mergeable, so the value on disk wins whenever there is one, and
 `rule.MergeRules` copies in an attribute the rule does not carry at all.

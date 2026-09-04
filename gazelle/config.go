@@ -391,6 +391,14 @@ type tsConfig struct {
 	tsconfigTypeFiles      []string
 	tsconfigTypeGenerators map[string]string
 
+	// tsconfigTypeAncestors is the labels staging the entries that name a file
+	// in an ancestor directory, `../worker-configuration.d.ts` from a test dir.
+	tsconfigTypeAncestors []string
+
+	// tsconfigTypesStaged is the label each tsconfig at or above this directory
+	// stages a declaration file by, keyed by directory and then file name.
+	tsconfigTypesStaged map[string]map[string]string
+
 	// declarations is the .d.ts emitter for generated ts_compile rules:
 	// "tsgo" (default, no attribute emitted) or "oxc". Set via
 	// # gazelle:ts_declarations.
@@ -490,6 +498,16 @@ func (tc *tsConfig) clone() *tsConfig {
 		cp.tsconfigTypeGenerators = make(map[string]string, len(tc.tsconfigTypeGenerators))
 		for name, target := range tc.tsconfigTypeGenerators {
 			cp.tsconfigTypeGenerators[name] = target
+		}
+	}
+	if len(tc.tsconfigTypeAncestors) > 0 {
+		cp.tsconfigTypeAncestors = make([]string, len(tc.tsconfigTypeAncestors))
+		copy(cp.tsconfigTypeAncestors, tc.tsconfigTypeAncestors)
+	}
+	if len(tc.tsconfigTypesStaged) > 0 {
+		cp.tsconfigTypesStaged = make(map[string]map[string]string, len(tc.tsconfigTypesStaged))
+		for dir, staged := range tc.tsconfigTypesStaged {
+			cp.tsconfigTypesStaged[dir] = staged
 		}
 	}
 	if len(tc.runtimeDepsTest) > 0 {
@@ -1382,8 +1400,14 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 		// to it: tsc gives a file one project, not the union of the projects
 		// above it.
 		tc.tsconfigAmbientTypes = loadTsConfigAmbientTypes(tsConfigCandidate)
-		tc.tsconfigTypes, tc.tsconfigTypeFiles, tc.tsconfigTypeGenerators = loadTsConfigTypeFiles(tsConfigCandidate, rel, f)
+		tc.tsconfigTypes, tc.tsconfigTypeFiles, tc.tsconfigTypeGenerators, tc.tsconfigTypeAncestors = loadTsConfigTypeFiles(tsConfigCandidate, rel, f, tc.tsconfigTypesStaged)
 		tc.tsconfigTypesDir = rel
+		if staged := stagedTypeLabels(rel, tc.tsconfigTypeFiles, tc.tsconfigTypeGenerators); len(staged) > 0 {
+			if tc.tsconfigTypesStaged == nil {
+				tc.tsconfigTypesStaged = make(map[string]map[string]string)
+			}
+			tc.tsconfigTypesStaged[rel] = staged
+		}
 	}
 
 	// The compilerOptions baseline, resolved the way tsserver resolves one:
@@ -1756,42 +1780,58 @@ func loadTsConfigAmbientTypes(tsConfigPath string) []string {
 	return labels
 }
 
-// loadTsConfigTypeFiles reads the other half of the same key: the entries that
-// name a declaration file in the tsconfig's own directory -- on disk, or
-// written there by a ts_worker_types target in the BUILD file -- and, when
-// there is at least one, the whole list they are part of.
-//
-// TypeScript resolves a relative entry against the config the program was
-// invoked with, which is the generated one in bazel-out, so an inherited entry
-// names nothing. The whole list comes back because `extends` replaces `types`
-// whole rather than merging it.
-func loadTsConfigTypeFiles(tsConfigPath, rel string, f *rule.File) (entries, files []string, generators map[string]string) {
+// loadTsConfigTypeFiles reads compilerOptions.types whole, with the label that
+// stages each file entry; staged is what the tsconfigs above rel stage.
+func loadTsConfigTypeFiles(tsConfigPath, rel string, f *rule.File, staged map[string]map[string]string) (entries, files []string, generators map[string]string, ancestors []string) {
 	data, err := os.ReadFile(tsConfigPath)
 	if err != nil {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	var tsc tsConfigJSON
 	if err := jsonc.Unmarshal(data, &tsc); err != nil {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	if tsc.CompilerOptions.Types == nil {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	dir := filepath.Dir(tsConfigPath)
 	generated := workerTypesOutputs(f)
 	seen := make(map[string]struct{})
 	for _, entry := range *tsc.CompilerOptions.Types {
-		name, isFile := typeEntryFileName(entry)
+		hops, name, isFile := typeEntryFileName(entry)
 		if !isFile {
 			continue
 		}
 		if name == "" {
 			log.Printf("typescript: the tsconfig in %s names %q in compilerOptions.types, and "+
-				"a label can only stage a file of the directory the tsconfig itself is in, so "+
-				"nothing below that directory resolves the entry. Move the file next to the "+
-				"tsconfig, or write types and types_srcs by hand with a \"# keep\".",
+				"a label stages a file of its own directory alone, so a path into a directory "+
+				"below resolves to nothing. Move the file next to the tsconfig, or write types "+
+				"and types_srcs by hand with a \"# keep\".",
 				orRepoRoot(rel), strings.TrimSpace(entry))
-			return nil, nil, nil
+			return nil, nil, nil, nil
+		}
+		if hops > 0 {
+			owner, inTree := ancestorDir(rel, hops)
+			if !inTree {
+				log.Printf("typescript: the tsconfig in %s names %q in compilerOptions.types, a "+
+					"path above the workspace root, so nothing stages the file. Fix the entry or "+
+					"drop it.", orRepoRoot(rel), strings.TrimSpace(entry))
+				return nil, nil, nil, nil
+			}
+			lbl := staged[owner][name]
+			if lbl == "" {
+				log.Printf("typescript: the tsconfig in %s names %q in compilerOptions.types, and "+
+					"nothing in %s stages that file for it: a tsconfig there has to name \"./%s\" "+
+					"in its own compilerOptions.types. Name the file there, or write types and "+
+					"types_srcs by hand with a \"# keep\".",
+					orRepoRoot(rel), strings.TrimSpace(entry), orRepoRoot(owner), name)
+				return nil, nil, nil, nil
+			}
+			if _, dup := seen[lbl]; !dup {
+				seen[lbl] = struct{}{}
+				ancestors = append(ancestors, lbl)
+			}
+			continue
 		}
 		if _, dup := seen[name]; dup {
 			continue
@@ -1808,18 +1848,41 @@ func loadTsConfigTypeFiles(tsConfigPath, rel string, f *rule.File) (entries, fil
 			log.Printf("typescript: the tsconfig in %s names %q in compilerOptions.types and "+
 				"no such file is there, so the entry resolves to nothing wherever it is "+
 				"written. Fix the entry or drop it.", orRepoRoot(rel), strings.TrimSpace(entry))
-			return nil, nil, nil
+			return nil, nil, nil, nil
 		}
 		files = append(files, name)
 	}
-	if len(files) == 0 && len(generators) == 0 {
-		return nil, nil, nil
-	}
 	sort.Strings(files)
+	sort.Strings(ancestors)
 	for _, entry := range *tsc.CompilerOptions.Types {
 		entries = append(entries, strings.TrimSpace(entry))
 	}
-	return entries, files, generators
+	return entries, files, generators, ancestors
+}
+
+// ancestorDir is the directory hops levels above rel; false above the root.
+func ancestorDir(rel string, hops int) (string, bool) {
+	for ; hops > 0; hops-- {
+		if rel == "" {
+			return "", false
+		}
+		if rel = path.Dir(rel); rel == "." {
+			rel = ""
+		}
+	}
+	return rel, true
+}
+
+// stagedTypeLabels is the label staging each file the tsconfig in rel names.
+func stagedTypeLabels(rel string, files []string, generators map[string]string) map[string]string {
+	staged := make(map[string]string, len(files)+len(generators))
+	for _, name := range files {
+		staged[name] = "//" + rel + ":" + tsConfigTypesTargetName
+	}
+	for name, target := range generators {
+		staged[name] = "//" + rel + ":" + target
+	}
+	return staged
 }
 
 // workerTypesOutputs is the file each ts_worker_types rule in f writes, keyed by
@@ -1846,25 +1909,25 @@ func workerTypesOutputs(f *rule.File) map[string]string {
 	return out
 }
 
-// typeEntryFileName splits a `types` entry into the declaration file it names
-// in the tsconfig's own directory. isFile is false for an entry that names a
-// package; the name is "" for a path the tsconfig's own package cannot hold.
-//
-// The shapes are `types_entry_declaration`'s in ts/private/ts_compile.bzl, the
-// half the rule resolves against staged files: one vocabulary, two readers.
-func typeEntryFileName(entry string) (string, bool) {
+// typeEntryFileName splits a file-shaped `types` entry into the `..` hops above
+// the tsconfig's directory and the file's name there, "" for a path below one.
+func typeEntryFileName(entry string) (hops int, name string, isFile bool) {
 	entry = strings.TrimSpace(entry)
 	if !strings.HasPrefix(entry, "./") && !strings.HasPrefix(entry, "../") {
-		return "", false
+		return 0, "", false
 	}
 	if !isDeclarationFile(entry) {
-		return "", false
+		return 0, "", false
 	}
-	name := strings.TrimPrefix(entry, "./")
+	name = strings.TrimPrefix(entry, "./")
+	for strings.HasPrefix(name, "../") {
+		hops++
+		name = strings.TrimPrefix(name, "../")
+	}
 	if strings.Contains(name, "/") {
-		return "", true
+		return hops, "", true
 	}
-	return name, true
+	return hops, name, true
 }
 
 // ambientTypeLabel converts one compilerOptions.types entry to an @npm label,

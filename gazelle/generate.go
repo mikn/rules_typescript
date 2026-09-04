@@ -1287,14 +1287,10 @@ func ownTsConfigTypesRule(tc *tsConfig, rel string) *rule.Rule {
 	return r
 }
 
-// rootAmbientTypes is the compilerOptions.types a target in rel writes, and the
-// labels staging the declaration files among those entries: the filegroup for
-// the checked-in ones, and each ts_worker_types target for the file it writes.
-// Empty unless the tsconfig those entries came from is the file the target
-// names for its baseline, since rebasing them against another directory names
-// nothing.
+// rootAmbientTypes is the compilerOptions.types a target in rel writes and the
+// labels staging its file entries, nil unless the target names their tsconfig.
 func rootAmbientTypes(rel string, tc *tsConfig, tsConfigAttr string) ([]string, []string) {
-	if tsConfigAttr == "" || (len(tc.tsconfigTypeFiles) == 0 && len(tc.tsconfigTypeGenerators) == 0) {
+	if tsConfigAttr == "" || len(tc.tsconfigTypes) == 0 {
 		return nil, nil
 	}
 	if path.Dir(path.Join(".", tc.tsConfigFile)) != path.Join(".", tc.tsconfigTypesDir) {
@@ -1314,31 +1310,37 @@ func rootAmbientTypes(rel string, tc *tsConfig, tsConfigAttr string) ([]string, 
 		generators = append(generators, pkg+target)
 	}
 	sort.Strings(generators)
-	return entries, append(labels, generators...)
+	labels = append(labels, generators...)
+	return entries, append(labels, tc.tsconfigTypeAncestors...)
 }
 
 // rebasedTypeEntry rewrites one entry from the tsconfig's directory to rel.
 // A package name is not a path and is returned as written.
 func rebasedTypeEntry(typesDir, rel, entry string) string {
-	if _, isFile := typeEntryFileName(entry); !isFile {
+	hops, name, isFile := typeEntryFileName(entry)
+	if !isFile {
 		return entry
 	}
-	name := strings.TrimPrefix(entry, "./")
-	if rel == typesDir {
+	if rel != typesDir {
+		below := strings.TrimPrefix(strings.TrimPrefix(rel, typesDir), "/")
+		hops += len(strings.Split(below, "/"))
+	}
+	if hops == 0 {
 		return "./" + name
 	}
-	below := strings.TrimPrefix(strings.TrimPrefix(rel, typesDir), "/")
-	return strings.Repeat("../", len(strings.Split(below, "/"))) + name
+	return strings.Repeat("../", hops) + name
 }
 
-// Both or neither: an entry with no label staging its file is an analysis
-// error, and a staged file no entry names is the same error from the other side.
+// entries is empty unless every file entry in it has a label, so `types` goes
+// out with the list and `types_srcs` only where a file is staged for it.
 func setRootAmbientTypes(r *rule.Rule, entries []string, typesSrcs []string) {
-	if len(entries) == 0 || len(typesSrcs) == 0 {
+	if len(entries) == 0 {
 		return
 	}
 	r.SetAttr("types", entries)
-	r.SetAttr("types_srcs", typesSrcs)
+	if len(typesSrcs) > 0 {
+		r.SetAttr("types_srcs", typesSrcs)
+	}
 }
 
 // tsConfigLabel is the label a target generated in args.Rel names for its
