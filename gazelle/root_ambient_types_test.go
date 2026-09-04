@@ -574,3 +574,336 @@ func requireTypesPair(t *testing.T, rules []*rule.Rule, kind, name string, types
 	}
 	t.Errorf("no %s named %q was generated, so this test says nothing about it", kind, name)
 }
+
+func ruleNamed(rules []*rule.Rule, kind, name string) *rule.Rule {
+	for _, r := range rules {
+		if r.Kind() == kind && r.Name() == name {
+			return r
+		}
+	}
+	return nil
+}
+
+// The declaration leaves for a ts_codegen's outs and the filegroup goes with it;
+// neither attribute merges, so every rule below kept a label no target satisfied.
+func TestRootAmbientTypes_StagingLabelFollowsTheDeclaration(t *testing.T) {
+	root := t.TempDir()
+	writeWorkspace(t, root, map[string]string{
+		"package.json":                     `{"name":"w"}` + "\n",
+		"worker/tsconfig.json":             `{"compilerOptions": {"types": ["./worker-configuration.d.ts"]}}` + "\n",
+		"worker/worker-configuration.d.ts": workerAmbient,
+		"worker/wrangler.jsonc":            `{"name": "w", "main": "src/handler.ts"}` + "\n",
+		"worker/src/handler.ts":            "export const env = WORKER_ENV;\n",
+		"worker/test/tsconfig.json":        `{"extends": "../tsconfig.json", "compilerOptions": {"types": ["../worker-configuration.d.ts"]}}` + "\n",
+		"worker/test/index.spec.ts":        "export const t = WORKER_ENV;\n",
+	})
+	captureLog(t, func() { convergeGazelle(t, root) })
+	requireTypesPair(t, loadRules(t, root, "worker/src"), "ts_compile", "src",
+		[]string{"../worker-configuration.d.ts"}, []string{"//worker:tsconfig_types"})
+
+	// The migration commit: the file goes, the target writing it lands.
+	if err := os.Remove(filepath.Join(root, "worker", "worker-configuration.d.ts")); err != nil {
+		t.Fatal(err)
+	}
+	appendFile(t, root, "worker/BUILD.bazel", convergeWorkerTypesCodegen)
+	logged := captureLog(t, func() { convergeGazelle(t, root) })
+
+	requireTypesPair(t, loadRules(t, root, "worker/src"), "ts_compile", "src",
+		[]string{"../worker-configuration.d.ts"}, []string{"//worker:worker_types"})
+	requireTypesPair(t, loadRules(t, root, "worker/test"), "ts_test", "test_test",
+		[]string{"../worker-configuration.d.ts"}, []string{"//worker:worker_types"})
+	if !strings.Contains(logged, "//worker:tsconfig_types") {
+		t.Errorf("a label was replaced on two rules and the run did not say so:\n%s", logged)
+	}
+
+	owner := generated(t, root, "worker", "BUILD.bazel")
+	if strings.Contains(owner, "tsconfig_types") {
+		t.Errorf("the filegroup outlived the file it staged:\n%s", owner)
+	}
+	if strings.Contains(owner, "ts_compile(") {
+		t.Errorf("the ts_compile whose only source was the declaration outlived it:\n%s", owner)
+	}
+}
+
+// The file goes and nothing writes it: the tsconfig entry is refused and said,
+// and the label leaves the rules below rather than naming a withdrawn filegroup.
+func TestRootAmbientTypes_StagingLabelIsWithdrawnWhenNothingStages(t *testing.T) {
+	root := t.TempDir()
+	writeWorkspace(t, root, map[string]string{
+		"package.json":                     `{"name":"w"}` + "\n",
+		"worker/tsconfig.json":             `{"compilerOptions": {"types": ["./worker-configuration.d.ts"]}}` + "\n",
+		"worker/worker-configuration.d.ts": workerAmbient,
+		"worker/src/handler.ts":            "export const env = WORKER_ENV;\n",
+	})
+	captureLog(t, func() { convergeGazelle(t, root) })
+	if err := os.Remove(filepath.Join(root, "worker", "worker-configuration.d.ts")); err != nil {
+		t.Fatal(err)
+	}
+	logged := captureLog(t, func() { convergeGazelle(t, root) })
+	if !strings.Contains(logged, "no such file is there") {
+		t.Errorf("the entry naming a file that is gone was not refused:\n%s", logged)
+	}
+
+	src := ruleNamed(loadRules(t, root, "worker/src"), "ts_compile", "src")
+	if src == nil {
+		t.Fatal("no ts_compile src in worker/src")
+	}
+	if got := src.AttrStrings("types_srcs"); len(got) > 0 {
+		t.Errorf("//worker/src still names %q in types_srcs, and nothing stages the declaration", got)
+	}
+	if owner := generated(t, root, "worker", "BUILD.bazel"); strings.Contains(owner, "tsconfig_types") {
+		t.Errorf("the filegroup outlived the file it staged:\n%s", owner)
+	}
+}
+
+// A label Gazelle did not write is not its to rewrite, and a "# keep" holds even
+// one it did; a hand-written label beside Gazelle's stays when Gazelle's goes.
+func TestRootAmbientTypes_HandWrittenStagingLabelStays(t *testing.T) {
+	const handTypes = `# gazelle:ts_ignore
+
+filegroup(
+    name = "hand_types",
+    srcs = ["hand.d.ts"],
+    visibility = ["//visibility:public"],
+)
+`
+	root := t.TempDir()
+	writeWorkspace(t, root, map[string]string{
+		"package.json":                     `{"name":"w"}` + "\n",
+		"vendor/BUILD.bazel":               handTypes,
+		"vendor/hand.d.ts":                 "declare const HAND: string;\n",
+		"worker/tsconfig.json":             `{"compilerOptions": {"types": ["./worker-configuration.d.ts"]}}` + "\n",
+		"worker/worker-configuration.d.ts": workerAmbient,
+		"worker/wrangler.jsonc":            `{"name": "w", "main": "src/handler.ts"}` + "\n",
+		"worker/src/handler.ts":            "export const env = WORKER_ENV;\n",
+		"worker/src/BUILD.bazel": `load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "src",
+    srcs = ["handler.ts"],
+    tsconfig = "//worker:tsconfig",
+    types = ["../worker-configuration.d.ts"],
+    types_srcs = ["//vendor:hand_types"],
+    visibility = ["//visibility:public"],
+)
+`,
+		"worker/test/tsconfig.json": `{"extends": "../tsconfig.json", "compilerOptions": {"types": ["../worker-configuration.d.ts"]}}` + "\n",
+		"worker/test/index.spec.ts": "export const t = WORKER_ENV;\n",
+		"worker/test/BUILD.bazel": `load("@rules_typescript//ts:defs.bzl", "ts_test")
+
+ts_test(
+    name = "test_test",
+    srcs = ["index.spec.ts"],
+    tsconfig = ":tsconfig",
+    types = ["../worker-configuration.d.ts"],
+    # keep
+    types_srcs = ["//worker:tsconfig_types"],
+)
+`,
+		"worker/test/mocks/env.ts": "export const env = WORKER_ENV;\n",
+		"worker/test/mocks/BUILD.bazel": `load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "mocks",
+    srcs = ["env.ts"],
+    tsconfig = "//worker/test:tsconfig",
+    types = ["../../worker-configuration.d.ts"],
+    types_srcs = [
+        "//vendor:hand_types",
+        "//worker:tsconfig_types",
+    ],
+    visibility = ["//visibility:public"],
+)
+`,
+	})
+	captureLog(t, func() { convergeGazelle(t, root) })
+	requireTypesPair(t, loadRules(t, root, "worker/src"), "ts_compile", "src",
+		[]string{"../worker-configuration.d.ts"}, []string{"//vendor:hand_types"})
+
+	if err := os.Remove(filepath.Join(root, "worker", "worker-configuration.d.ts")); err != nil {
+		t.Fatal(err)
+	}
+	appendFile(t, root, "worker/BUILD.bazel", convergeWorkerTypesCodegen)
+	captureLog(t, func() { convergeGazelle(t, root) })
+
+	requireTypesPair(t, loadRules(t, root, "worker/src"), "ts_compile", "src",
+		[]string{"../worker-configuration.d.ts"}, []string{"//vendor:hand_types"})
+	requireTypesPair(t, loadRules(t, root, "worker/test"), "ts_test", "test_test",
+		[]string{"../worker-configuration.d.ts"}, []string{"//worker:tsconfig_types"})
+	requireTypesPair(t, loadRules(t, root, "worker/test/mocks"), "ts_compile", "mocks",
+		[]string{"../../worker-configuration.d.ts"}, []string{"//vendor:hand_types", "//worker:worker_types"})
+}
+
+// Gazelle writes a tsconfig_types label from the rule's package or one above it,
+// so one naming another package's filegroup is hand-written and not judged.
+func TestRootAmbientTypes_StagingLabelFromAnotherPackageStays(t *testing.T) {
+	root := t.TempDir()
+	writeWorkspace(t, root, map[string]string{
+		"package.json":    `{"name":"w"}` + "\n",
+		"a/tsconfig.json": `{"compilerOptions": {"types": ["./a.d.ts"]}}` + "\n",
+		"a/a.d.ts":        "declare const A: string;\n",
+		"a/src/x.ts":      "export const x = A;\n",
+		"b/tsconfig.json": `{"compilerOptions": {"strict": true}}` + "\n",
+		"b/src/y.ts":      "export const y = A;\n",
+		"b/src/BUILD.bazel": `load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "src",
+    srcs = ["y.ts"],
+    tsconfig = "//b:tsconfig",
+    types = ["../../a/a.d.ts"],
+    types_srcs = ["//a:tsconfig_types"],
+    visibility = ["//visibility:public"],
+)
+`,
+	})
+	logged := captureLog(t, func() { convergeGazelle(t, root) })
+
+	if owner := generated(t, root, "a", "BUILD.bazel"); !strings.Contains(owner, `name = "tsconfig_types"`) {
+		t.Fatalf("a/ stages nothing, so this test says nothing about a live label:\n%s", owner)
+	}
+	requireTypesPair(t, loadRules(t, root, "b/src"), "ts_compile", "src",
+		[]string{"../../a/a.d.ts"}, []string{"//a:tsconfig_types"})
+	if strings.Contains(logged, "//a:tsconfig_types") {
+		t.Errorf("the run spoke of a label it never wrote:\n%s", logged)
+	}
+}
+
+// The rewrite edits the list in place, so a "# keep" on an entry beside the
+// stale one survives, and one on the stale entry itself holds it.
+func TestRootAmbientTypes_ValueKeepSurvivesTheRewrite(t *testing.T) {
+	root := t.TempDir()
+	writeWorkspace(t, root, map[string]string{
+		"package.json": `{"name":"w"}` + "\n",
+		"vendor/BUILD.bazel": `# gazelle:ts_ignore
+
+filegroup(
+    name = "hand_types",
+    srcs = ["hand.d.ts"],
+    visibility = ["//visibility:public"],
+)
+`,
+		"vendor/hand.d.ts":                 "declare const HAND: string;\n",
+		"worker/tsconfig.json":             `{"compilerOptions": {"types": ["./worker-configuration.d.ts"]}}` + "\n",
+		"worker/worker-configuration.d.ts": workerAmbient,
+		"worker/wrangler.jsonc":            `{"name": "w", "main": "src/handler.ts"}` + "\n",
+		"worker/src/handler.ts":            "export const env = WORKER_ENV;\n",
+		"worker/src/BUILD.bazel": `load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "src",
+    srcs = ["handler.ts"],
+    tsconfig = "//worker:tsconfig",
+    types = ["../worker-configuration.d.ts"],
+    types_srcs = [
+        "//vendor:hand_types",  # keep
+        "//worker:tsconfig_types",
+    ],
+    visibility = ["//visibility:public"],
+)
+`,
+		"worker/test/tsconfig.json": `{"extends": "../tsconfig.json", "compilerOptions": {"types": ["../worker-configuration.d.ts"]}}` + "\n",
+		"worker/test/index.spec.ts": "export const t = WORKER_ENV;\n",
+		"worker/test/BUILD.bazel": `load("@rules_typescript//ts:defs.bzl", "ts_test")
+
+ts_test(
+    name = "test_test",
+    srcs = ["index.spec.ts"],
+    tsconfig = ":tsconfig",
+    types = ["../worker-configuration.d.ts"],
+    types_srcs = [
+        "//worker:tsconfig_types",  # keep
+    ],
+)
+`,
+	})
+	captureLog(t, func() { convergeGazelle(t, root) })
+	if err := os.Remove(filepath.Join(root, "worker", "worker-configuration.d.ts")); err != nil {
+		t.Fatal(err)
+	}
+	appendFile(t, root, "worker/BUILD.bazel", convergeWorkerTypesCodegen)
+	captureLog(t, func() { convergeGazelle(t, root) })
+
+	if src := generated(t, root, "worker", "src", "BUILD.bazel"); !strings.Contains(src, `"//vendor:hand_types",  # keep`) {
+		t.Errorf("the # keep on the entry beside the rewritten one was dropped:\n%s", src)
+	}
+	requireTypesPair(t, loadRules(t, root, "worker/src"), "ts_compile", "src",
+		[]string{"../worker-configuration.d.ts"}, []string{"//vendor:hand_types", "//worker:worker_types"})
+	requireTypesPair(t, loadRules(t, root, "worker/test"), "ts_test", "test_test",
+		[]string{"../worker-configuration.d.ts"}, []string{"//worker:tsconfig_types"})
+}
+
+// The entry is judged by the filegroup it names, not by this rule's recomputed
+// value: a hand-written rule whose own tsconfig names no file may still name it.
+func TestRootAmbientTypes_StagingLabelOfALiveAncestorFilegroupStays(t *testing.T) {
+	root := t.TempDir()
+	writeWorkspace(t, root, map[string]string{
+		"package.json":                     `{"name":"w"}` + "\n",
+		"worker/tsconfig.json":             `{"compilerOptions": {"types": ["./worker-configuration.d.ts"]}}` + "\n",
+		"worker/worker-configuration.d.ts": workerAmbient,
+		"worker/src/handler.ts":            "export const env = WORKER_ENV;\n",
+		"worker/tools/tsconfig.json":       `{"compilerOptions": {"strict": true}}` + "\n",
+		"worker/tools/build.ts":            "export const b = WORKER_ENV;\n",
+		"worker/tools/BUILD.bazel": `load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "tools",
+    srcs = ["build.ts"],
+    tsconfig = ":tsconfig",
+    types = ["../worker-configuration.d.ts"],
+    types_srcs = ["//worker:tsconfig_types"],
+    visibility = ["//visibility:public"],
+)
+`,
+	})
+	logged := captureLog(t, func() { convergeGazelle(t, root) })
+
+	if owner := generated(t, root, "worker", "BUILD.bazel"); !strings.Contains(owner, `name = "tsconfig_types"`) {
+		t.Fatalf("worker/ stages nothing, so this test says nothing about a live label:\n%s", owner)
+	}
+	requireTypesPair(t, loadRules(t, root, "worker/tools"), "ts_compile", "tools",
+		[]string{"../worker-configuration.d.ts"}, []string{"//worker:tsconfig_types"})
+	if strings.Contains(logged, "//worker:tsconfig_types") {
+		t.Errorf("the run spoke of a label naming a filegroup it still writes:\n%s", logged)
+	}
+}
+
+// The label is live while the filegroup it names is on disk after the run: one
+// held by a "# keep" under the reserved name, in a package that stages nothing.
+func TestRootAmbientTypes_KeptFilegroupByTheReservedNameIsLive(t *testing.T) {
+	root := t.TempDir()
+	writeWorkspace(t, root, map[string]string{
+		"package.json":         `{"name":"w"}` + "\n",
+		"worker/tsconfig.json": `{"compilerOptions": {"strict": true}}` + "\n",
+		"worker/hand.d.ts":     "declare const HAND: string;\n",
+		"worker/BUILD.bazel": `# keep
+filegroup(
+    name = "tsconfig_types",
+    srcs = ["hand.d.ts"],
+    visibility = ["//visibility:public"],
+)
+`,
+		"worker/src/handler.ts": "export const env = HAND;\n",
+		"worker/src/BUILD.bazel": `load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "src",
+    srcs = ["handler.ts"],
+    tsconfig = "//worker:tsconfig",
+    types = ["../hand.d.ts"],
+    types_srcs = ["//worker:tsconfig_types"],
+    visibility = ["//visibility:public"],
+)
+`,
+	})
+	logged := captureLog(t, func() { convergeGazelle(t, root) })
+
+	if owner := generated(t, root, "worker", "BUILD.bazel"); !strings.Contains(owner, `name = "tsconfig_types"`) {
+		t.Fatalf("the # keep did not hold the filegroup, so this test says nothing about a live label:\n%s", owner)
+	}
+	requireTypesPair(t, loadRules(t, root, "worker/src"), "ts_compile", "src",
+		[]string{"../hand.d.ts"}, []string{"//worker:tsconfig_types"})
+	if strings.Contains(logged, "//worker:tsconfig_types") {
+		t.Errorf("the run spoke of a label naming a filegroup it leaves in place:\n%s", logged)
+	}
+}

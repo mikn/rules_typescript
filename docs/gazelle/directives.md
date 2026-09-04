@@ -122,13 +122,27 @@ writes `types` where the nearest `tsconfig.json` names entries in
 `compilerOptions.types` and a label stages every file among them, and
 `types_srcs` beside it where there is such a file; see
 [a declaration the tsconfig names](overview.md#a-declaration-the-tsconfig-names).
-Neither is mergeable, so the value on disk wins whenever there is one, and
-`rule.MergeRules` copies in an attribute the rule does not carry at all.
-**Deleting the lines does not opt out**: they come back on the next run. Two
-things stick. `types = []` with `types_srcs = []` keeps both attributes present
-and asks for no ambient types at all, dropping the package entries the tsconfig
-named along with the file. A `# keep` above the whole `ts_compile` keeps
-whatever you wrote and leaves the entries where `extends` puts them, unresolved.
+Neither is mergeable: the value on disk wins, except the one label below that
+Gazelle takes back, and `rule.MergeRules` copies in an attribute the rule does
+not carry at all. **Deleting the lines does not opt out**: they come back on
+the next run. The label Gazelle takes back is a `types_srcs` entry naming the
+`tsconfig_types` filegroup of the rule's own package or of a package above it,
+the only ones Gazelle writes into a rule, spelled `:tsconfig_types` or
+`//pkg:tsconfig_types` as Gazelle spells them, on a `ts_compile` or `ts_test`
+on disk whose kind and name match a rule the run generates in that package; a
+rule by any other name is not read. Where the run does not write that
+filegroup, because the file moved into a `ts_codegen`'s `outs` or is gone, the
+entry is replaced by the labels the run stages the rule's own entries by, or
+dropped when there are none, and the run says so per rule. An entry naming a
+filegroup the run writes stays, on a rule whose own tsconfig names no file too,
+and so does one naming a filegroup a `# keep` holds under that name in its
+package, which the run leaves in place; so does one naming anything else, the
+`tsconfig_types` of a package elsewhere in the tree included. `# keep` on the
+entry or above the attribute holds even one Gazelle wrote. Two things stick.
+`types = []` with `types_srcs = []` keeps both attributes present and asks for
+no ambient types at all, dropping the package entries the tsconfig named along
+with the file. A `# keep` above the whole `ts_compile` keeps whatever you wrote
+and leaves the entries where `extends` puts them, unresolved.
 
 Seven kinds are the exception: the package-level `ts_dev_server` named `dev`,
 `ts_pnpm`, `ts_add_package`, `css_library`, `css_module`, `asset_library` and
@@ -145,14 +159,19 @@ neither does a `filegroup` naming the file. Later runs read the rule's own
 `srcs` as the claim, so a `glob()` there claims nothing: the rule gets a
 candidate on every run, `visibility` widens back, and the merger logs the
 `glob()` it cannot merge. When the file is deleted, the next run removes the
-rule, as it removes a `ts_compile` with no sources; `# keep` above the rule
-holds it. A `srcs` holding a label, a file a rule in the package generates, or
-a `glob()` is not judged. `ts_add_package` declares `pnpm_lock`
+rule, as it removes a `ts_compile` whose plain `srcs` name only files that are
+gone, with the `ts_lint` beside it; `# keep` above the rule holds it, and above
+the `ts_compile` holds the `ts_lint` too. A `srcs` holding a label or a
+`glob()` is not judged for either kind. A file a rule in the package generates
+counts as present for both, except a declaration a `ts_codegen` in the package
+writes, which counts as gone for the package `ts_compile`: that target's label
+stages it, and no plain `srcs` lists it. `ts_add_package` declares `pnpm_lock`
 mergeable and no merge ever reaches it.
 
-`# keep` works at three granularities: one value, one attribute, one rule. Both
-write paths honour all three: the merger's, and the entry-by-entry merge
-`path_aliases` needs, since the merger has no case for a dict:
+`# keep` works at three granularities: one value, one attribute, one rule. Every
+write path honours all three: the merger's, the entry-by-entry merge
+`path_aliases` needs, since the merger has no case for a dict, and the
+`types_srcs` rewrite above:
 
 ```python
 ts_compile(

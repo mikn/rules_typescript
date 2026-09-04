@@ -111,7 +111,64 @@ func main() {
 		checkedInDeclarationTypesTheJavaScript(it)
 		lintWithoutTheLinterIsRefused(it, gazelleLog)
 		programsAreListedWithTheToolchainsTsgo(it, gazelleLog)
+		// Last: it rewrites the tree the checks above read.
+		declarationMovesToACodegen(it)
 	})
+}
+
+// The hand-written target the migration below appends to worker/BUILD.bazel,
+// without its load line: the Gazelle run adds the symbol to the file's load.
+const workerTypesCodegen = `
+ts_codegen(
+    name = "worker_types",
+    srcs = ["bindings.txt"],
+    outs = ["worker-configuration.d.ts"],
+    args = [
+        "--bindings",
+        "{srcs}",
+        "--out",
+        "{out}",
+    ],
+    generator = "//:env_types_gen",
+    visibility = ["//worker:__subpackages__"],
+)
+`
+
+// Bazel says the half the converge test cannot: the rewritten labels resolve,
+// and every program under worker/ type-checks against the generated declaration.
+func declarationMovesToACodegen(it *harness.IT) {
+	if err := os.Remove(it.Path("worker/worker-configuration.d.ts")); err != nil {
+		it.Fail("cannot delete the checked-in declaration: %v", err)
+	}
+	it.Write(it.Path("worker/bindings.txt"), "bucket\n")
+	owner := it.Path("worker/BUILD.bazel")
+	it.Write(owner, it.Read(owner)+workerTypesCodegen)
+	it.MustBazel("run", "//:gazelle")
+	it.Pass("gazelle run over the migration: declaration deleted, ts_codegen appended")
+
+	it.RequireContains(owner, `name = "worker_types"`,
+		"the hand-written ts_codegen did not survive the Gazelle run")
+	it.RequireNotContains(owner, "tsconfig_types",
+		"the filegroup outlived the file it staged")
+	it.RequireNotContains(owner, "ts_compile(",
+		"the ts_compile whose only src was the deleted declaration survived")
+	it.Pass("worker/BUILD.bazel keeps the ts_codegen and loses the filegroup and the ts_compile")
+
+	for _, dir := range []string{"worker/src", "worker/test", "worker/test/deep"} {
+		build := it.Path(dir, "BUILD.bazel")
+		it.RequireNotContains(build, "tsconfig_types",
+			"//%s still names the withdrawn filegroup", dir)
+		it.RequireContains(build, `types_srcs = ["//worker:worker_types"]`,
+			"//%s does not name the ts_codegen staging the declaration", dir)
+		it.Pass("//%s names the ts_codegen where it named the filegroup", dir)
+	}
+
+	it.MustBazel("test", "//worker/...")
+	it.Pass("bazel test //worker/...: every program under worker/ resolves the generated declaration")
+	declaration := it.Bin("worker/worker-configuration.d.ts")
+	it.RequireContains(declaration, "readonly bucket: string;",
+		"the generated declaration names no binding from bindings.txt")
+	it.Pass("the declaration the programs compiled against is the generated one")
 }
 
 // Every tsconfig.json here is below the root, so tsgo lists each; that the tsgo

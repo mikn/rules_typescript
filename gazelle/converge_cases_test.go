@@ -18,6 +18,7 @@ import (
 type convergeMutation struct {
 	kind   string
 	write  map[string]string
+	extend map[string]string // appended to a file that may not exist yet
 	remove []string
 }
 
@@ -39,6 +40,24 @@ func writeWorkspace(t *testing.T, root string, files map[string]string) {
 		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func appendFile(t *testing.T, root, rel, body string) {
+	t.Helper()
+	full := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(full, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(body); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -72,6 +91,23 @@ const (
 
 	convergeAliasTsConfig = `{"compilerOptions":{"baseUrl":".","paths":{` +
 		`"@/*":["./src/*"],"@lib/*":["./src/lib/*"],"@ui/*":["./src/ui/*"]}}}` + "\n"
+
+	// Appended without its load line: FixLoads writes the file's one load, and
+	// a second, hand-placed one would part the two trees by position alone.
+	convergeWorkerTypesCodegen = `
+ts_codegen(
+    name = "worker_types",
+    srcs = ["wrangler.jsonc"],
+    outs = ["worker-configuration.d.ts"],
+    args = [
+        "--config",
+        "wrangler.jsonc",
+        "--out",
+        "{out}",
+    ],
+    generator = "@rules_typescript//tools/codegen:wrangler_types",
+)
+`
 )
 
 func convergeFixture(t *testing.T, name string) convergeCase {
@@ -122,6 +158,9 @@ func convergeCases() []convergeCase {
 				// run after the deletion has nothing to regenerate over it.
 				{kind: "delete_json_beside_sources", remove: []string{"src/lib/tokens.json"}},
 				{kind: "delete_only_asset_in_dir", remove: []string{"src/icons/logo.svg"}},
+				// A directory with no source is no boundary, so the run after the
+				// last one left has nothing to regenerate over its ts_compile.
+				{kind: "delete_only_sources_in_dir", remove: []string{"src/routes/index.ts", "src/routes/home.ts"}},
 			},
 		},
 		{
@@ -195,6 +234,27 @@ func convergeCases() []convergeCase {
 				{kind: "add_nested_source_dir", write: map[string]string{"packages/core/src/nested/leaf.ts": "export const leaf = 1;\n"}},
 			},
 		},
+		{
+			// The declaration a worker's tsconfig names leaves the tree for a ts_codegen's
+			// outs in one commit, the target appended to the BUILD file Gazelle wrote.
+			name: "worker",
+			files: map[string]string{
+				"package.json":                     `{"name":"w"}` + "\n",
+				"worker/tsconfig.json":             `{"compilerOptions":{"types":["./worker-configuration.d.ts"]}}` + "\n",
+				"worker/worker-configuration.d.ts": "declare const WORKER_ENV: string;\n",
+				"worker/wrangler.jsonc":            `{"name":"w","main":"src/handler.ts"}` + "\n",
+				"worker/src/handler.ts":            "export const env = WORKER_ENV;\n",
+				"worker/test/tsconfig.json":        `{"extends":"../tsconfig.json","compilerOptions":{"types":["../worker-configuration.d.ts"]}}` + "\n",
+				"worker/test/handler.test.ts":      "export const t = WORKER_ENV;\n",
+			},
+			mutations: []convergeMutation{
+				{
+					kind:   "replace_declaration_with_codegen",
+					remove: []string{"worker/worker-configuration.d.ts"},
+					extend: map[string]string{"worker/BUILD.bazel": convergeWorkerTypesCodegen},
+				},
+			},
+		},
 	}
 }
 
@@ -250,6 +310,9 @@ func applyMutation(t *testing.T, root string, mut convergeMutation) {
 	t.Helper()
 	if len(mut.write) > 0 {
 		writeWorkspace(t, root, mut.write)
+	}
+	for rel, body := range mut.extend {
+		appendFile(t, root, rel, body)
 	}
 	for _, rel := range mut.remove {
 		if err := os.RemoveAll(filepath.Join(root, filepath.FromSlash(rel))); err != nil {

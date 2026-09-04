@@ -56,6 +56,10 @@ func managedAttrCases() []nonLiteralCase {
 		{workspace: "plain", kind: "ts_config", target: "tsconfig", attr: "visibility", class: "list"},
 
 		{workspace: "pnpm_member", pkg: "packages/core/src", kind: "ts_test", target: "src_test", attr: "deps", class: "list"},
+
+		{workspace: "worker", pkg: "worker", kind: "filegroup", target: "tsconfig_types", attr: "srcs", class: "list"},
+		{workspace: "worker", pkg: "worker", kind: "filegroup", target: "tsconfig_types", attr: "visibility", class: "list"},
+		{workspace: "worker", pkg: "worker/test", kind: "ts_config", target: "tsconfig", attr: "deps", class: "list"},
 	}
 }
 

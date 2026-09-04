@@ -184,6 +184,13 @@ every npm package, and it is meant to be dropped.
 By default (**every-dir mode**), every directory that contains `.ts` or `.tsx` source files gets a `ts_compile` target. This matches Go's behaviour where every directory with `.go` files is a package.
 
 **every-dir mode** (default): a directory becomes a boundary when it has any `.ts` files.
+When the last of them goes, the `ts_compile` it left behind goes on the next
+run: a package target whose plain `srcs` name only files that are gone, neither
+on disk nor the output of a rule in the package, is reported empty, with its
+`ts_lint`. A declaration a `ts_codegen` in the package writes counts as gone,
+since that target's label stages it and no plain `srcs` lists it; a label or a
+`glob()` in `srcs` is not judged. `# keep` above the rule holds it and the
+`ts_lint` beside it.
 
 These are the two modes. A third, `index-only`, was removed, and a BUILD file
 still naming it stops the run; see
@@ -469,6 +476,12 @@ ts_compile(
     visibility = ["//visibility:public"],
 )
 ```
+
+A declaration that moves from the source tree into such a target takes its
+label with it: the next run withdraws the filegroup and the `ts_compile` whose
+only src the file was, and rewrites the `tsconfig_types` entry on every
+`ts_compile` and `ts_test` it generates below to the target, so the deletion
+and the `ts_codegen` land in one commit.
 
 The whole `types` list is written, not just the file entries, and a list with
 no file entry is written too, with no `types_srcs`. `types` is one key and
