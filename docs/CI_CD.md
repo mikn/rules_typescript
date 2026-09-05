@@ -225,7 +225,7 @@ ordering dependency.
 
 **Risk**: `tsgo` type-checks with goroutines, so diagnostic message ordering can vary between runs on different hardware.
 **Status**: tsgo `.d.ts` outputs are deterministic (Go's `sort.Slice` is not random). Diagnostic ordering is consistent within one binary and may differ between tsgo versions.
-**Mitigation**: Pin the tsgo version. This repository pins it as `_DEFAULT_TSGO_VERSION` in `ts/extensions.bzl`; a consumer overrides it with `ts.tsgo(version = ...)` on the `ts` module extension.
+**Mitigation**: Pin the tsgo version. This repository pins it through `ts/private/tsgo/pnpm-lock.yaml`, the lockfile the `ts` extension reads when no `ts.tsgo()` is called; a consumer points the extension at its own with `ts.tsgo(pnpm_lock = "//:pnpm-lock.yaml")`, so the toolchain moves only when `pnpm install` moves `typescript`.
 
 ### 6. Environment Variable Leaks
 

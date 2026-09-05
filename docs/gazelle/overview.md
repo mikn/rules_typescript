@@ -402,8 +402,8 @@ entry. The generated per-directory config states its own `files`, `include` and
 TypeScript resolves `./x.d.ts` against the config the program was invoked with,
 which is the generated one in `bazel-out`. So
 `"types": ["./worker-configuration.d.ts"]`, the form wrangler writes, reaches
-nothing from a directory below, and every global that file declares is
-`TS2304`.
+nothing from a directory below: `TS2688` on the entry from tsgo 7.0.2, `TS2304`
+on every global that file declares from the `7.0.0-dev.20260311.1` nightly.
 
 Gazelle rebases the entry onto the three kinds it generates under the tsconfig
 that type-check (the package `ts_compile`, the `_doc` compile and the

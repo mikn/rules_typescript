@@ -9,6 +9,7 @@ runtime used as a build tool must not be.
 
 load(":probe.bzl", "toolchain_probe")
 load(":resolution_test.bzl", "foreign_target_platform_test")
+load(":tsgo_lock_tests.bzl", "tsgo_lock_test_suite")
 
 toolchain_probe(
     name = "probe",
@@ -19,3 +20,7 @@ foreign_target_platform_test(
     name = "foreign_target_platform_test",
     target_under_test = ":probe",
 )
+
+# Lockfile-text tests: which compiler ts.tsgo(pnpm_lock = ...) reads out of a
+# pnpm-lock.yaml, and what it refuses.
+tsgo_lock_test_suite(name = "tsgo_lock_tests")

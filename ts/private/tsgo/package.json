@@ -1,0 +1,8 @@
+{
+  "name": "rules_typescript_tsgo_toolchain",
+  "version": "0.0.0",
+  "private": true,
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
+}

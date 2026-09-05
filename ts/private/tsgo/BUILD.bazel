@@ -1,0 +1,10 @@
+# The default toolchain's lockfile; after editing package.json, regenerate with
+# `bazel run //:pnpm -- install --lockfile-only --dir ts/private/tsgo`.
+# gazelle:ts_ignore
+
+package(default_visibility = ["//ts:__subpackages__"])
+
+exports_files([
+    "package.json",
+    "pnpm-lock.yaml",
+])

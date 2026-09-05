@@ -281,8 +281,8 @@ func readReason(p *program, file, reason string) error {
 	return fmt.Errorf("%s: unrecognised --explainFiles reason %q; the grammar is tsgo's, pinned in gazelle/program.go", file, reason)
 }
 
-// tsgo 7.0.0-dev.20260311.1's --explainFiles templates for a program without
-// project references, from its string table, each with what it says of its file.
+// tsgo's --explainFiles templates for a program without project references,
+// from its string table, each with what it says of its file.
 type reasonForm struct {
 	re   *regexp.Regexp
 	read func(p *program, file string, m []string)

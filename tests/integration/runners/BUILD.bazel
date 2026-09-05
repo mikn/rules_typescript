@@ -25,6 +25,7 @@ is already the price of the older child-workspace layout.
 # gazelle:exclude npmrc_registry
 # gazelle:exclude oxc_declarations
 # gazelle:exclude public_globals
+# gazelle:exclude tsgo_lockfile
 # gazelle:exclude untyped_packages
 
 load("@rules_go//go:def.bzl", "go_binary")
@@ -42,6 +43,7 @@ _RUNNERS = [
     "npmrc_registry",
     "oxc_declarations",
     "public_globals",
+    "tsgo_lockfile",
     "untyped_packages",
 ]
 

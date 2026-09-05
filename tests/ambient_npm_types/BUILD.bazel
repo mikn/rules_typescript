@@ -57,13 +57,8 @@ no_ambient_entry_test(
 )
 
 # ── `types = ["node"]`, the spelling Gazelle writes ──────────────────────────
-# A `types` entry names a package TypeScript would find by walking
-# node_modules/@types, and DefinitelyTyped publishes node's declarations only as
-# @types/node -- so the entry resolves against the paired package, not against
-# one literally named `node`. The rule stages the declarations into `files` and
-# the editor has to strip the entry from the program it writes: there is no
-# node_modules for tsserver to walk either, and real tsc reports
-# `TS2688: Cannot find type definition file for 'node'` for an entry left in.
+# The entry resolves against the paired @types/node dep and is dropped from the
+# written config: with no node_modules to walk, tsgo 7.0.2 reports TS2688 on it.
 ts_compile(
     name = "bare_types_entry",
     srcs = ["bare_types_entry.ts"],

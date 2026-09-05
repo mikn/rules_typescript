@@ -4,13 +4,15 @@
   analysis error.** `types = ["./worker-configuration.d.ts"]` names a path, and
   TypeScript resolves `./x` and `../x` against the config's own directory. The
   entry resolves against the sandbox, where only what the action stages exists.
-  Nothing staged the file, so the entry resolved to nothing, and tsgo said
-  nothing about it, as for a package no dep publishes. On the fixture added
-  with this change, the entry rebased into the generated tsconfig correctly,
-  the file it names appeared in none of the action's inputs, and the target
-  failed with `TS2304: Cannot find name 'STAGED_AMBIENT'`, the global that
-  declaration file declares. The unresolved-`types` check that landed before
-  this one covered the package shape only.
+  Nothing staged the file, so the entry resolved to nothing, and the
+  `7.0.0-dev.20260311.1` nightly said nothing about it, as for a package no dep
+  publishes; tsgo 7.0.2 reports `TS2688` on it, naming no label. On the fixture
+  added with this change, the entry rebased into the generated tsconfig
+  correctly, the file it names appeared in none of the action's inputs, and the
+  target failed under the nightly with `TS2304: Cannot find name
+  'STAGED_AMBIENT'`, the global that declaration file declares. The
+  unresolved-`types` check that landed before this one covered the package
+  shape only.
 
   Name the file with a label and the entry resolves: `srcs`; a dep whose `srcs`
   hold it (a `.d.ts` in `srcs` is a declaration output unchanged, so the dep

@@ -95,12 +95,16 @@ register_toolchains("@rules_typescript//ts/toolchain:all")
 Without it nothing resolves the tsgo toolchain, and under the default
 `declarations = "tsgo"` that means no `.d.ts` and no type-checking.
 
-To pin a tsgo version:
+To choose the compiler, point the `ts` extension at the lockfile that pins
+`typescript` (7 or later):
 
 ```python
 ts = use_extension("@rules_typescript//ts:extensions.bzl", "ts")
-ts.tsgo(version = "7.0.0-dev.20260311.1")
+ts.tsgo(pnpm_lock = "//:pnpm-lock.yaml")
 ```
+
+`ts.tsgo(version = "7.0.2")` downloads a named release unverified instead. Both
+are in [Version Pinning](../getting-started/quickstart.md#version-pinning).
 
 Windows is not supported, so no tsgo toolchain resolves there. See
 [COMPATIBILITY.md](https://github.com/mikn/rules_typescript/blob/main/COMPATIBILITY.md#windows).
@@ -403,11 +407,12 @@ declaration file (`types = ["./worker-configuration.d.ts"]`, with the file in
 `typeRoots` exempts the target from this check; what sits under it is the
 compiler's to find at action time.
 
-It fails at analysis because nothing downstream reports it. `tsc` reports
-`TS2688` for such an entry; tsgo reports nothing and exits 0, so the target
-compiles without the declarations and the error lands on whatever needed them:
-`TS2339` on `import.meta.env` without `vite/client`, `TS2591` on `process`
-without `node`.
+It fails at analysis because that is where the dep can be named. `tsc` reports
+`TS2688` for such an entry, and so does tsgo 7.0.2, from the action, with no
+dep in the message; the `7.0.0-dev.20260311.1` nightly reported nothing, so the
+target compiled without the declarations and the error landed on whatever
+needed them: `TS2339` on `import.meta.env` without `vite/client`, `TS2591` on
+`process` without `node`.
 
 ## compilerOptions.types entry names a path no file of mine sits at
 
@@ -436,10 +441,11 @@ as this target's own declaration, which listing it in `srcs` would. tsgo parses
 it as part of this program either way, so a syntax error in the file fails this
 target; what it declares goes unchecked under the baseline's `skipLibCheck`.
 
-It fails at analysis for the same reason the package shape does: tsgo reports
-nothing for a `types` entry that resolves to nothing, so the target would
-compile against a smaller type environment than it asked for and the error
-would land on whatever needed the globals (`TS2304: Cannot find name` on a
+It fails at analysis for the same reason the package shape does: the compiler's
+own `TS2688` from the action names no label to add, and the
+`7.0.0-dev.20260311.1` nightly reported nothing for the entry at all, so the
+target compiled against a smaller type environment than it asked for and the
+error landed on whatever needed the globals (`TS2304: Cannot find name` on a
 Worker's `Env`). A `typeRoots` does not exempt this shape: `./x.d.ts` and
 `../x.d.ts` are resolved against the config's own directory, never through
 `typeRoots`.
@@ -456,8 +462,9 @@ Only the `types` in `compiler_options` is resolved and guarded. The `tsconfig`
 file a target names is a layer the rule does not read, so its entries reach tsgo
 unresolved: a target whose `tsconfig` holds `"types": ["vite/client"]` and whose
 `deps` hold `@npm//:vite` passes analysis, generates a config whose `files` is
-empty, and fails in tsgo with `TS2339` on `import.meta.env`. Move the entries to
-`compiler_options`.
+empty, and fails in the compiler with `TS2688` on `vite/client` (tsgo 7.0.2; the
+20260311.1 nightly reported `TS2339` on `import.meta.env` instead). Move the
+entries to `compiler_options`.
 
 ## ts_test: vitest not found
 
@@ -758,5 +765,6 @@ RUN bazel build //...
 ```
 
 Mount a cache volume, for the reason above. ARM64 containers work: `rules_rust`
-builds `oxc-bazel` natively and `@typescript/native-preview-linux-arm64` provides
-tsgo.
+builds `oxc-bazel` natively and the toolchain fetches the compiler's
+`linux-arm64` platform package (`@typescript/typescript-linux-arm64` for a
+`typescript` release).

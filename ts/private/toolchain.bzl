@@ -1,10 +1,11 @@
 """Toolchain definitions for rules_typescript.
 
 Defines the toolchain providers and rules for the oxc-bazel and tsgo
-compilers, and the repository rule that fetches a tsgo binary.
+compilers, and the repository rule that fetches a TypeScript compiler binary.
 """
 
-load("//platforms:platforms.bzl", "constraints", "npm_arch")
+load("//npm/private:npmrc_auth.bzl", "npmrc_auth")
+load("//platforms:platforms.bzl", "constraints")
 
 # ─── Toolchain type labels ────────────────────────────────────────────────────
 
@@ -115,10 +116,8 @@ def get_tsgo_toolchain(ctx):
 
 # ─── Supported platforms ──────────────────────────────────────────────────────
 
-# The platforms this ruleset declares a tsgo toolchain for; keys of
-# //platforms:platforms.bzl%PLATFORMS.  Not the platforms
-# @typescript/native-preview publishes -- it has win32 builds too, and Windows is
-# unsupported here for the reasons in COMPATIBILITY.md#windows.
+# Keys of //platforms:platforms.bzl%PLATFORMS. Both compiler packages publish
+# win32 builds too; Windows is unsupported here (COMPATIBILITY.md#windows).
 TSGO_PLATFORMS = ["linux_amd64", "linux_arm64", "darwin_amd64", "darwin_arm64"]
 
 # oxc-bazel needs no such list: it is built from source by rules_rust for
@@ -179,81 +178,67 @@ def declare_tsgo_toolchains(name, repo_prefix = None):
 
 # ─── tsgo repository rule ─────────────────────────────────────────────────────
 
-_NPM_REGISTRY = "https://registry.npmjs.org"
-
-_TSGO_NPM_PACKAGE = "@typescript/native-preview"
-
-# sha256 of each @typescript/native-preview-<arch> tarball, per version.  A
-# version this table does not cover downloads unverified, with a warning.
-_TSGO_CHECKSUMS = {
-    "7.0.0-dev.20260311.1": {
-        "linux_amd64": "e0379b70c1631d2193dc871610adceb6552c43407ea43ff637b642cace956958",
-        "linux_arm64": "7806d9089b7367de7098598feee39bab046fceb8991ac46bd33af79a00c56410",
-        "darwin_amd64": "7f5a64672732144761025bc41fd9685e0e3004d591ec53055cf7f4de69b0e1d5",
-        "darwin_arm64": "c8378be9b3c35560e7c446abaa2665e6b4b75b604ba8deea8042ee6d83391152",
-    },
-}
+def _auth_for_fetch(repository_ctx, url):
+    npmrc = repository_ctx.attr.npmrc
+    if not npmrc:
+        return {}
+    repository_ctx.watch(npmrc)
+    return npmrc_auth(repository_ctx.read(npmrc), url, repository_ctx.getenv, str(npmrc))
 
 def _tsgo_toolchain_repo_impl(repository_ctx):
-    version = repository_ctx.attr.version
-    platform = repository_ctx.attr.platform
-
-    if platform not in TSGO_PLATFORMS:
-        fail("tsgo_toolchain_repo: no tsgo binary is published for platform '{}'. Supported platforms are: {}.".format(
-            platform,
-            ", ".join(TSGO_PLATFORMS),
-        ))
-
-    # e.g. @typescript/native-preview-linux-x64, whose tarball the registry
-    # serves from the scope directory under its unscoped basename.
-    scoped_pkg = "{}-{}".format(_TSGO_NPM_PACKAGE, npm_arch(platform))
-    pkg_base = scoped_pkg.split("/")[1]
-    tarball_url = "{registry}/{scoped}/-/{base}-{version}.tgz".format(
-        registry = _NPM_REGISTRY,
-        scoped = scoped_pkg,
-        base = pkg_base,
-        version = version,
-    )
-
-    checksum = _TSGO_CHECKSUMS.get(version, {}).get(platform, "")
-    if not checksum:
-        # buildifier: disable=print
-        print("WARNING: no sha256 for tsgo {} on {}; downloading unverified.".format(version, platform))
+    url = repository_ctx.attr.url
+    integrity = repository_ctx.attr.integrity
+    binary = repository_ctx.attr.binary
 
     download_kwargs = {
-        "url": tarball_url,
+        "url": url,
         "stripPrefix": "package",
+        "auth": _auth_for_fetch(repository_ctx, url),
     }
-    if checksum:
-        download_kwargs["sha256"] = checksum
+    if integrity:
+        download_kwargs["integrity"] = integrity
+    else:
+        # buildifier: disable=print
+        print("WARNING: tsgo from {} has no integrity; downloading unverified. ts.tsgo(pnpm_lock = ...) verifies every download.".format(url))
     repository_ctx.download_and_extract(**download_kwargs)
 
-    # The npm package ships the binary at lib/tsgo; give it a platform-free
-    # label so the toolchain macro does not have to know the layout.
+    if not repository_ctx.path("lib/" + binary).exists:
+        fail("tsgo_toolchain_repo: the tarball at {} has no lib/{}. The platform packages of `typescript` ship lib/tsc and those of @typescript/native-preview lib/tsgo; ts.tsgo(package = ...) names which.".format(url, binary))
+
+    # Platform-free label over the binary, so the toolchain macro does not have
+    # to know the layout or which of the two compiler packages this is.
     repository_ctx.file("BUILD.bazel", """\
 alias(
     name = "tsgo",
-    actual = "lib/tsgo",
+    actual = "lib/{binary}",
     visibility = ["//visibility:public"],
 )
 
-exports_files(["lib/tsgo"])
-""")
+exports_files(["lib/{binary}"])
+""".format(binary = binary))
 
 tsgo_toolchain_repo = repository_rule(
     implementation = _tsgo_toolchain_repo_impl,
     attrs = {
-        "version": attr.string(
-            doc = "Version of @typescript/native-preview to download.",
+        "url": attr.string(
+            doc = "The platform package's tarball: `package/lib/<binary>` inside.",
             mandatory = True,
         ),
-        "platform": attr.string(
-            doc = "Platform key (see //platforms:platforms.bzl) to download tsgo for.",
+        "integrity": attr.string(
+            doc = "The tarball's SRI integrity, as pnpm writes it. Empty downloads unverified.",
+        ),
+        "binary": attr.string(
+            doc = "The compiler's file name under lib/: tsc or tsgo.",
             mandatory = True,
+        ),
+        "npmrc": attr.label(
+            allow_single_file = True,
+            doc = "The workspace .npmrc, read at fetch time for the credentials of the " +
+                  "registry `url` points at, so no token is ever an attribute value.",
         ),
     },
-    doc = """Downloads the tsgo binary for one platform.
+    doc = """Downloads the TypeScript compiler binary for one platform.
 
-One repository per platform, so that a build fetches only the tsgo it runs.
+One repository per platform, so that a build fetches only the compiler it runs.
 """,
 )

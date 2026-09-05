@@ -385,13 +385,38 @@ overwrites files that exist, and `--bazel-version` changes `.bazelversion`.
 
 ## Version Pinning
 
-The `ts` extension lets you pin specific tool versions. Add to `MODULE.bazel`:
+The tsgo toolchain is a TypeScript 7 release. The `typescript` npm package is a
+launcher whose Go compiler lives in per-platform optional dependencies
+(`@typescript/typescript-linux-x64` and the like), so a pnpm lockfile that pins
+`typescript` already states, for every platform, the tarball and the integrity
+of the compiler your `tsc` runs. Point the `ts` extension at that lockfile and
+the toolchain is the same compiler. Add to `MODULE.bazel`:
 
 ```python
-# Pin tsgo to a specific release. The root module's value wins.
 ts = use_extension("@rules_typescript//ts:extensions.bzl", "ts")
-ts.tsgo(version = "7.0.0-dev.20260311.1")
+ts.tsgo(pnpm_lock = "//:pnpm-lock.yaml")
 ```
+
+The root importer's `typescript` entry names the version, Bazel verifies each
+download against the lockfile's integrity, and a `pnpm install` that moves the
+version moves the toolchain. The lockfile needs TypeScript 7 or later pinned at
+the workspace root (`pnpm add -D typescript@7`); a version before 7, an alias
+under the name, or two versions with no root pin fails at extension evaluation
+naming the lockfile and the fix. `package = "@typescript/native-preview"` reads
+the nightly's entry instead, and `npmrc = "//:.npmrc"` names the registry the
+tarballs come from and its credentials, as it does for `npm.translate_lock`.
+Only the root module's
+`ts.tsgo()` takes effect; with no call the toolchain is the release
+rules_typescript's own `ts/private/tsgo/pnpm-lock.yaml` pins.
+
+The alternative is a version literal, for a build no lockfile describes:
+
+```python
+ts.tsgo(version = "7.0.2")
+```
+
+Nothing verifies that download: the registry tarball is fetched as is, with a
+warning naming the URL. Prefer `pnpm_lock` wherever there is a lockfile.
 
 To pin Node.js:
 

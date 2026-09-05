@@ -13,6 +13,10 @@
 # A compilerOptions baseline, not data: it is named by the tsconfig attr.
 # gazelle:exclude silent.tsconfig.json
 
+# The typeRoots directory types_under_type_roots stages: its .d.ts is a src of
+# that target, not a package of its own.
+# gazelle:exclude type_roots
+
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "css_library", "ts_compile", "ts_test")
 load(
@@ -279,13 +283,8 @@ types_entry_package_ref_test(name = "types_entry_package_ref_test")
 
 types_entry_declaration_test(name = "types_entry_declaration_test")
 
-# The entries both guards have to leave alone, one per shape that neither a dep
-# nor a label of this target's answers for -- a package-relative directory,
-# whose declarations only reading the directory names; an absolute path;
-# a bare one, which TypeScript walks typeRoots and node_modules for -- plus two
-# that name nothing at all, which Gazelle writes no dep for either: demanding
-# one would be a failure nothing can clear. tsgo resolves the first three, each
-# by its own route, and none of the five exists: the target still analyses.
+# Path-shaped entries no dep or label could answer, so the guards demand none;
+# manual, since none of the five exists and tsgo 7.0.2 reports TS2688 for each.
 ts_compile(
     name = "types_file_entries",
     srcs = ["types_file_entries.ts"],
@@ -296,6 +295,7 @@ ts_compile(
         "",
         "   ",
     ]},
+    tags = ["manual"],
 )
 
 types_file_entries_test(
@@ -303,22 +303,14 @@ types_file_entries_test(
     target_under_test = ":types_file_entries",
 )
 
-# tsgo has to accept the five of them in the config it reads, which only a real
-# build says: it is the compiler's business that none of the paths exists.
-build_test(
-    name = "types_file_entries_build_test",
-    targets = [":types_file_entries"],
-)
-
-# The escape hatch: a target stating its own typeRoots is not judged at all.
-# `local-types` is published by no dep and sits under no directory this target
-# stages, so the guard would fail it -- what this pins is that stating typeRoots
-# stops the guard, leaving the entry to the compiler, which resolves what it
-# finds under the directory at action time and says nothing about what it does
-# not.
+# The escape hatch: a stated typeRoots stops the guard (no dep has local-types);
+# the compiler resolves the entry under the staged type_roots/ at action time.
 ts_compile(
     name = "types_under_type_roots",
-    srcs = ["types_under_type_roots.ts"],
+    srcs = [
+        "type_roots/local-types/index.d.ts",
+        "types_under_type_roots.ts",
+    ],
     compiler_options = {
         "typeRoots": ["./type_roots"],
         "types": ["local-types"],
