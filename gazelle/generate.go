@@ -171,50 +171,6 @@ func isIndexFile(name string) bool {
 	return base == "index.ts" || base == "index.tsx"
 }
 
-// ---- app entry point detection ---------------------------------------------
-
-// appEntryFileNames is the ordered list of TypeScript file names that indicate
-// an application entry point suitable for a ts_dev_server target.
-// The first match wins.
-var appEntryFileNames = []string{
-	"main.tsx",
-	"main.ts",
-	"app.tsx",
-	"app.ts",
-}
-
-// isAppEntryPoint returns true when the given file is a known application entry
-// point. This is used to decide whether to generate a ts_dev_server target.
-func isAppEntryPoint(name string) bool {
-	lower := strings.ToLower(name)
-	for _, n := range appEntryFileNames {
-		if lower == n {
-			return true
-		}
-	}
-	return false
-}
-
-// detectAppEntryPoint scans srcFiles for a known app entry point file.
-// Returns the matched source file name and true if one is found.
-func detectAppEntryPoint(srcFiles []string) (string, bool) {
-	for _, want := range appEntryFileNames {
-		for _, f := range srcFiles {
-			if strings.ToLower(f) == want {
-				return f, true
-			}
-		}
-	}
-	return "", false
-}
-
-// hasIndexHTML returns true when the directory contains an index.html file,
-// which is a strong signal that this is an application package.
-func hasIndexHTML(dir string) bool {
-	_, err := os.Stat(filepath.Join(dir, "index.html"))
-	return err == nil
-}
-
 // ---- generate entry point --------------------------------------------------
 
 // generateRules is the core generation logic invoked by tsLang.GenerateRules.
@@ -617,59 +573,6 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		empty = append(empty, staleCompile...)
 	}
 
-	// ---- ts_dev_server target (app packages only) --------------------------
-	// Generate a ts_dev_server target when this directory looks like an
-	// application entry point. Detection heuristics (in priority order):
-	//   1. One of the source files is a known entry file (main.tsx, main.ts,
-	//      app.tsx, app.ts).
-	//   2. The directory contains an index.html (strong signal for Vite apps).
-	//
-	// The generated target:
-	//   - name: "dev" (conventional name for dev server targets)
-	//   - entry_point: the primary ts_compile target for this directory
-	//   - node_modules: ":node_modules" when a node_modules rule is already
-	//     generated (or exists in the build file) — omitted otherwise.
-	//
-	// We only generate the target once: if a ts_dev_server named "dev" already
-	// exists in the build file with a non-empty entry_point attr, we leave it
-	// alone (Gazelle's merge strategy handles updates to other attrs).
-
-	if isBoundary && len(srcFiles) > 0 {
-		_, hasAppEntry := detectAppEntryPoint(srcFiles)
-		hasHTML := hasIndexHTML(args.Dir)
-		if hasAppEntry || hasHTML {
-			libName := targetNameForDir(tc, args.Rel)
-			devName := "dev"
-
-			// Only generate if there is no existing ts_dev_server rule named
-			// "dev" in the current build file. Gazelle's merge will update
-			// attrs on the existing rule, so we only generate when absent.
-			existingDevServer := false
-			if args.File != nil {
-				for _, existingRule := range args.File.Rules {
-					if existingRule.Name() == devName && existingRule.Kind() == "ts_dev_server" {
-						existingDevServer = true
-						break
-					}
-				}
-			}
-
-			if !existingDevServer {
-				devR := rule.NewRule("ts_dev_server", devName)
-				devR.SetAttr("entry_point", ":"+libName)
-				devR.SetAttr("port", 5173)
-				// Wire the Bazel-aware Vite plugin by default so that ibazel
-				// triggers component-level HMR updates instead of full-page
-				// reloads. Consumers can remove this attr if they do not use Vite.
-				devR.SetAttr("plugin", "@rules_typescript//vite:vite_plugin_bazel")
-				devR.SetAttr("visibility", []string{"//visibility:public"})
-				gen = append(gen, devR)
-				// ts_dev_server has no import resolution needs.
-				imports = append(imports, nil)
-			}
-		}
-	}
-
 	// ---- ts_test targets ---------------------------------------------------
 
 	if len(testFiles) > 0 {
@@ -923,7 +826,6 @@ func emptyResult(args language.GenerateArgs) language.GenerateResult {
 			rule.NewRule("ts_compile", docTargetName(name)),
 			rule.NewRule("ts_test", testTargetName(name)),
 			rule.NewRule("ts_lint", name+"_lint"),
-			rule.NewRule("ts_dev_server", "dev"),
 			rule.NewRule("node_modules", "node_modules"),
 			rule.NewRule("ts_config", tsConfigTargetName),
 			rule.NewRule("filegroup", tsConfigTypesTargetName),

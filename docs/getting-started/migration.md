@@ -117,7 +117,7 @@ toolchains. `rules_ts` needs neither.
 ### Gazelle
 
 Open-source BUILD file generation with fifteen `# gazelle:ts_*` directives,
-codegen auto-detection, and automatic lint and dev-server target generation. `rules_ts` relies on the proprietary
+codegen auto-detection, and automatic lint target generation. `rules_ts` relies on the proprietary
 Aspect CLI.
 
 ### System Prerequisites

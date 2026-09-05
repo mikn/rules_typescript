@@ -12,6 +12,9 @@ Vite is the default implementation; `server` names any other rule returning
 The dev server does not type-check; type errors come from the editor and
 `bazel build`.
 
+Gazelle does not write or touch this rule; write it by hand. A run leaves the
+rule and its load symbol as written.
+
 ## Usage
 
 ```python

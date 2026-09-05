@@ -34,6 +34,7 @@ func main() {
 		it.Write(it.Path("src/i18n/BUILD.bazel"), codegenGlobDirective)
 		it.Write(it.Path("src/locales/BUILD.bazel"), outDirCodegenPackage)
 		it.Write(it.Path("generated_worker/BUILD.bazel"), generatedWorkerPackage)
+		it.Write(it.Path("devserver/BUILD.bazel"), handWrittenDevServerPackage)
 		// The harness stages one lockfile, vitest's; wrangler is in tests/workers'.
 		it.Write(it.Path("pnpm-lock.workers.yaml"), it.Read(filepath.Join(it.RulesTSRoot, "tests/workers/pnpm-lock.yaml")))
 
@@ -48,6 +49,8 @@ func main() {
 			it.RequireFile(it.Path(dir, "BUILD.bazel"), "Gazelle did not generate %s/BUILD.bazel", dir)
 			it.Pass("%s/BUILD.bazel generated (pass 1)", dir)
 		}
+
+		devServerAfterFirstRun := it.Read(it.Path("devserver/BUILD.bazel"))
 
 		before := testTargets(it)
 		if len(before) == 0 {
@@ -111,9 +114,47 @@ func main() {
 		checkedInDeclarationTypesTheJavaScript(it)
 		lintWithoutTheLinterIsRefused(it, gazelleLog)
 		programsAreListedWithTheToolchainsTsgo(it, gazelleLog)
+		handWrittenDevServerIsLeftAlone(it, devServerAfterFirstRun)
 		// Last: it rewrites the tree the checks above read.
 		declarationMovesToACodegen(it)
 	})
+}
+
+// Gazelle writes no ts_dev_server and knows no such kind; beside a main.ts and
+// an index.html, this is the only dev target the package has.
+const handWrittenDevServerRule = `ts_dev_server(
+    name = "dev",
+    entry_point = ":devserver",
+    port = 5173,
+)
+`
+
+const handWrittenDevServerPackage = `load("@rules_typescript//ts:defs.bzl", "ts_dev_server")
+
+` + handWrittenDevServerRule
+
+// The converge test says the text survives a run; only a nested Bazel says the
+// rule still loads and builds against the ts_compile Gazelle wrote beside it.
+func handWrittenDevServerIsLeftAlone(it *harness.IT, afterFirstRun string) {
+	build := it.Path("devserver/BUILD.bazel")
+	second := it.Read(build)
+	if second != afterFirstRun {
+		fmt.Fprintf(os.Stderr, "--- devserver/BUILD.bazel pass 1 ---\n%s--- pass 2 ---\n%s", afterFirstRun, second)
+		it.Fail("the package holding the hand-written ts_dev_server changed between two Gazelle runs")
+	}
+	it.Pass("devserver/BUILD.bazel is identical across both Gazelle runs")
+
+	it.RequireContains(build, handWrittenDevServerRule,
+		"the hand-written ts_dev_server did not come through the Gazelle runs verbatim")
+	it.RequireContains(build, `"ts_dev_server"`,
+		"the load statement lost the ts_dev_server symbol")
+	it.RequireContains(build, `name = "devserver"`,
+		"Gazelle wrote no ts_compile for main.ts beside the hand-written rule")
+	it.Pass("the ts_dev_server, its load symbol and the ts_compile beside it are all in devserver/BUILD.bazel")
+
+	it.RequireFile(it.Bin("devserver/dev_launcher"),
+		"//devserver:dev did not build; the `bazel build //...` above wrote no launcher for it")
+	it.Pass("//devserver:dev built against the ts_compile Gazelle wrote beside it")
 }
 
 // The hand-written target the migration below appends to worker/BUILD.bazel,

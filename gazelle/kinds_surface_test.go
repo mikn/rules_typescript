@@ -21,15 +21,14 @@ var wantKinds = []string{
 	"ts_codegen",
 	"ts_compile",
 	"ts_config",
-	"ts_dev_server",
 	"ts_lint",
 	"ts_pnpm",
 	"ts_test",
 }
 
-// A goneKind back in Kinds() or a load would have Gazelle write a rule no .bzl
-// defines.
-var goneKinds = []string{"next_build", "next_dev_server", "sveltekit_build", "ts_bundle", "vite_bundler"}
+// A goneKind back in Kinds() or a load would have Gazelle write a rule it must
+// not: five that no .bzl defines, and ts_dev_server, which is written by hand.
+var goneKinds = []string{"next_build", "next_dev_server", "sveltekit_build", "ts_bundle", "ts_dev_server", "vite_bundler"}
 
 func TestKinds_ExactSurface(t *testing.T) {
 	kinds := (&tsLang{}).Kinds()

@@ -290,7 +290,6 @@ through such a label is not reported.
 | `ts_test` | `<ts_compile name>_test` |
 | `ts_compile` (docs and stories) | `<ts_compile name>_doc` |
 | `ts_lint` | `<ts_compile name>_lint` |
-| `ts_dev_server` | `dev` |
 | `css_library`, `css_module`, `asset_library`, `json_library` | the source filename with `.` replaced by `_` |
 
 Non-TypeScript libraries keep the extension in the name: `button.css` →
@@ -303,10 +302,10 @@ numeric suffix on the later name (`_2`). A plain `srcs` list on one of these
 rules is read back as a claim on its file, so the rule is written once; the run
 after the file is deleted removes it.
 
-The generated `ts_dev_server` gets `plugin` set and no `server`, so it runs the
-default Vite implementation. Gazelle writes the rule only when the package has
-no `dev` target yet, so a hand-added `server` survives later runs. See
-[Bringing your own server](../guides/dev-server.md#bringing-your-own-server).
+Gazelle does not write or touch `ts_dev_server`; write it by hand beside the
+`ts_compile` it serves. Gazelle knows no such kind, so the rule and its load
+symbol come through every run as written, `# keep` or not. See
+[Dev Server](../guides/dev-server.md).
 
 ## The `compilerOptions` Baseline
 

@@ -144,15 +144,14 @@ no ambient types at all, dropping the package entries the tsconfig named along
 with the file. A `# keep` above the whole `ts_compile` keeps whatever you wrote
 and leaves the entries where `extends` puts them, unresolved.
 
-Seven kinds are the exception: the package-level `ts_dev_server` named `dev`,
-`ts_pnpm`, `ts_add_package`, `css_library`, `css_module`, `asset_library` and
-`json_library`. Each is written once and left alone while it holds its claim:
-Gazelle emits no candidate for it, so the merger never runs on it, and its
-attributes are yours from the second run on, `# keep` or not;
-`asset_library.declaration_type` is written into the existing rule, as the table
-says. The first three claim a name and are written when no rule of that name
-exists. A data-file rule claims a file. Gazelle writes one when the file is in
-no plain `srcs` of a `ts_compile`, `ts_test`, `css_library`, `css_module`,
+Six kinds are the exception: `ts_pnpm`, `ts_add_package`, `css_library`,
+`css_module`, `asset_library` and `json_library`. Each is written once and left
+alone while it holds its claim: Gazelle emits no candidate for it, so the merger
+never runs on it, and its attributes are yours from the second run on, `# keep`
+or not; `asset_library.declaration_type` is written into the existing rule, as
+the table says. The first two claim a name and are written when no rule of that
+name exists. A data-file rule claims a file. Gazelle writes one when the file is
+in no plain `srcs` of a `ts_compile`, `ts_test`, `css_library`, `css_module`,
 `asset_library` or `json_library` in the package; the `srcs` it recomputes on
 the `ts_compile` and `ts_test` targets it writes itself do not count, and
 neither does a `filegroup` naming the file. Later runs read the rule's own
@@ -167,6 +166,11 @@ counts as present for both, except a declaration a `ts_codegen` in the package
 writes, which counts as gone for the package `ts_compile`: that target's label
 stages it, and no plain `srcs` lists it. `ts_add_package` declares `pnpm_lock`
 mergeable and no merge ever reaches it.
+
+`ts_dev_server` is outside all of this: Gazelle does not write or touch it;
+write it by hand. Gazelle knows no such kind, so the rule and its load symbol
+come through every run as written, `# keep` or not. See
+[Dev Server](../guides/dev-server.md).
 
 `# keep` works at three granularities: one value, one attribute, one rule. Every
 write path honours all three: the merger's, the entry-by-entry merge

@@ -568,11 +568,10 @@ Add node_modules = ":node_modules" pointing at a node_modules() target; the
 generated config resolves every bare specifier through that tree.
 ```
 
-Gazelle generates the `ts_dev_server` target with `plugin` set and
-`node_modules` empty, because nothing in the source tree says which tree the app
-resolves against. Declare it in the dev server's own Bazel package, listing
-every npm package the app imports, plus `@npm//:vite` under the default server.
-Gazelle leaves the attr alone from then on:
+Nothing in the source tree says which tree the app resolves against, and
+Gazelle does not write or touch `ts_dev_server`. Declare the tree in the dev
+server's own Bazel package, listing every npm package the app imports, plus
+`@npm//:vite` under the default server, and name it on the rule:
 
 ```python
 node_modules(
