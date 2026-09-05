@@ -277,11 +277,15 @@ it from `@cloudflare/workers-types` (the two are the same declarations, and a
 program holding both gets a duplicate identifier for each), `--env staging`
 picks one environment's bindings. The config is the one src it reads; adding
 the file `main` names to `srcs` puts `Cloudflare.GlobalProps.mainModule` in the
-output and changes nothing else. The runtime half comes from booting the
-`workerd` in `node_modules` over loopback: measured with wrangler 4.126.0 in
-the Bazel sandbox, it needs no network and no `CLOUDFLARE_API_TOKEN`, and two
-runs over one config are byte-identical. A worker typed against the output has
-`lib` without DOM and no `@cloudflare/workers-types` in `deps`.
+output and changes nothing else. `build` is removed from the staged copy, at the
+top level and under every `env`: `wrangler types` runs `build.command` before it
+resolves `main` and drops the entry when the command fails, so nothing the
+config names runs in the action and the output is the one a config without the
+block gives. The runtime half comes from booting the `workerd` in
+`node_modules` over loopback: measured with wrangler 4.126.0 in the Bazel
+sandbox, it needs no network and no `CLOUDFLARE_API_TOKEN`, and two runs over
+one config are byte-identical. A worker typed against the output has `lib`
+without DOM and no `@cloudflare/workers-types` in `deps`.
 
 The output has no top-level import or export, so what it declares is global. A
 tsconfig names it in `compilerOptions.types` as `./worker-configuration.d.ts`,
