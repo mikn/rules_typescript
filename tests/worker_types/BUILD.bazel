@@ -25,11 +25,36 @@ node_modules(
 
 ts_codegen(
     name = "worker_types",
-    srcs = ["wrangler.jsonc"],
+    srcs = [
+        "wrangler.jsonc",
+        "//tests/worker_types/src:index.ts",
+    ],
     outs = ["worker-configuration.d.ts"],
     args = [
         "--config",
         "wrangler.jsonc",
+        "--out",
+        "{out}",
+        "--srcs",
+        "{srcs}",
+        "--strict-vars=false",
+    ],
+    generator = "//tools/codegen:wrangler_types",
+    node_modules = ":node_modules",
+)
+
+# The same config plus a `build` whose command fails. `wrangler types` runs
+# build.command before it resolves `main`; the test pins that the action does not.
+ts_codegen(
+    name = "worker_types_build",
+    srcs = [
+        "wrangler.build.jsonc",
+        "//tests/worker_types/src:index.ts",
+    ],
+    outs = ["worker-configuration.build.d.ts"],
+    args = [
+        "--config",
+        "wrangler.build.jsonc",
         "--out",
         "{out}",
         "--srcs",
@@ -51,6 +76,9 @@ go_test(
     name = "worker_types_test",
     size = "small",
     srcs = ["worker_types_test.go"],
-    data = [":worker_types"],
+    data = [
+        ":worker_types",
+        ":worker_types_build",
+    ],
     deps = ["//tests/verify"],
 )

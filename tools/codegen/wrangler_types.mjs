@@ -11,6 +11,7 @@
 
 import { copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { basename, dirname, join, relative, resolve } from "node:path";
 
 const fail = (message) => {
@@ -57,6 +58,30 @@ try {
     mkdirSync(dirname(staged), { recursive: true });
     copyFileSync(file, staged);
   }
+
+  // `wrangler types` runs the config's build.command before it resolves `main`
+  // and drops the entry when the command fails, so the copy has no `build`.
+  const require_ = createRequire(resolve(nodeModules) + "/_anchor.cjs");
+  const { experimental_readRawConfig, experimental_patchConfig } = require_("wrangler");
+  const stagedConfig = join(work, config);
+  const { rawConfig } = experimental_readRawConfig({ config: stagedConfig });
+  const patch = {};
+  if (rawConfig.build) patch.build = undefined;
+  for (const [name, env] of Object.entries(rawConfig.env ?? {})) {
+    if (env?.build) (patch.env ??= {})[name] = { build: undefined };
+  }
+  if (Object.keys(patch).length > 0) {
+    try {
+      experimental_patchConfig(stagedConfig, patch);
+    } catch (error) {
+      fail(
+        `cannot remove build from ${config}: ${error.message}\n` +
+          "wrangler refuses to patch a .toml containing '#'; " +
+          "move the config to wrangler.jsonc.",
+      );
+    }
+  }
+
   // esbuild and wrangler's own imports resolve a bare specifier by walking up
   // from the staged config, so the tree has to be a sibling of it under the
   // name "node_modules" whatever the Bazel target is called.

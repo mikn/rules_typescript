@@ -21,3 +21,7 @@ build_test(
 
 # The generated editor program for this package; see //:refresh_tsconfig.
 exports_files(["tsconfig.json"])
+
+# `main` of both configs one package up: staged into their ts_codegen, it puts
+# Cloudflare.GlobalProps.mainModule in the output.
+exports_files(["index.ts"])
