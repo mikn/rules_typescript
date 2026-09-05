@@ -103,6 +103,76 @@ func TestResolveImports_NestedPackageKeepsTheHubLabel(t *testing.T) {
 	}
 }
 
+// A ts_test's compile target is never the hub's, and only the hub's TsModuleInfo
+// writes the member's name and its `exports` subpaths into the test's `paths`.
+func TestResolveImports_TestSelfReferenceTakesTheHubLabel(t *testing.T) {
+	c, _ := selfImportRepo(t)
+	ix := selfImportIndex(t, c)
+
+	for _, imp := range []string{"@acme/lib/wire", "@acme/lib/icons/Check", "@acme/lib"} {
+		r := rule.NewRule("ts_test", "lib_test")
+		resolveImports(c, ix, r, []string{imp}, label.New("", "packages/lib", "lib_test"))
+		want := []string{"@npm//:acme_lib"}
+		if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+			t.Errorf("%q: deps = %v, want %v", imp, got, want)
+		}
+	}
+}
+
+// packages/lib is a member no importer links, so the hub declares no target for
+// its name.
+const unlinkedMemberLock = `lockfileVersion: '9.0'
+
+importers:
+
+  .:
+    dependencies:
+      zod:
+        specifier: ^3.0.0
+        version: 3.24.2
+
+  packages/lib:
+    dependencies:
+      zod:
+        specifier: ^3.0.0
+        version: 3.24.2
+
+packages:
+
+  zod@3.24.2: {}
+
+snapshots:
+
+  zod@3.24.2: {}
+`
+
+// The hub label passes the lockfile gate: a member nothing links has no hub
+// target, so the test gets no label, and the ts_compile keeps the local target.
+func TestResolveImports_TestSelfReferenceOfAnUnlinkedMemberIsNoDep(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, pnpmLockfileName), unlinkedMemberLock)
+	writeFile(t, filepath.Join(root, "packages/lib/package.json"), `{
+		"name": "@acme/lib",
+		"exports": {"./wire": "./src/wire/index.ts"}
+	}`)
+	c := &config.Config{RepoRoot: root, Exts: make(map[string]interface{})}
+	configureTsConfig(c, "", nil)
+	ix := selfImportIndex(t, c)
+
+	test := rule.NewRule("ts_test", "lib_test")
+	resolveImports(c, ix, test, []string{"@acme/lib/wire"}, label.New("", "packages/lib", "lib_test"))
+	if got := test.AttrStrings("deps"); len(got) != 0 {
+		t.Errorf("ts_test deps = %v, want none", got)
+	}
+
+	compile := rule.NewRule("ts_compile", "consumer")
+	resolveImports(c, ix, compile, []string{"@acme/lib/wire"}, label.New("", "packages/lib/consumer", "consumer"))
+	want := []string{"//packages/lib/src/wire"}
+	if got := compile.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+		t.Errorf("ts_compile deps = %v, want %v", got, want)
+	}
+}
+
 // A member importing a package it merely installed still goes to the hub.
 func TestResolveImports_SelfReferenceLeavesInstalledPackagesAlone(t *testing.T) {
 	c, _ := selfImportRepo(t)

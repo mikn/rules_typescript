@@ -310,7 +310,7 @@ func (g *cycleGraph) confirmedFrom(key string, inCandidate map[string]bool) map[
 		dirRel := path.Dir(src)
 		for _, imp := range ScanImports(string(data)) {
 			resolved := resolveImport(
-				n.c, g.ix, tc, ambient, rebaseRelative(imp.Specifier, dirRel), n.from)
+				n.c, g.ix, tc, n.r.Kind(), ambient, rebaseRelative(imp.Specifier, dirRel), n.from)
 			if resolved == "" {
 				continue
 			}
