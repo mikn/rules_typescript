@@ -36,7 +36,7 @@ What the rows pin, beyond one expected path each:
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
-load("//npm/private:npm_import.bzl", "exports_types", "package_stanza")
+load("//npm/private:npm_import.bzl", "exports_subpath_types", "exports_types", "package_stanza")
 load("//ts/private:providers.bzl", "NpmPackageInfo")
 
 _CASES = [
@@ -50,12 +50,14 @@ _CASES = [
             ".": "./dist/node/index.js",
             "./client": { "types": "./client.d.ts" },
             "./module-runner": "./dist/node/module-runner.js",
+            "./internal": "./dist/node/internal.js",
+            "./dist/client/*": "./dist/client/*",
             "./types/*": { "types": "./types/*" },
             "./types/internal/*": null,
             "./package.json": "./package.json"
           }
         }""",
-        files = ["client.d.ts", "dist/node/index.d.ts", "dist/node/module-runner.d.ts"],
+        files = ["client.d.ts", "dist/node/index.d.ts", "dist/node/internal.d.ts", "dist/node/module-runner.d.ts"],
         expected = "dist/node/index.d.ts",
     ),
     struct(
@@ -376,6 +378,39 @@ _CASES = [
     ),
 ]
 
+# The subpaths a manifest designates, which is its `exports` map and nothing else:
+# web-streams-polyfill's typesVersions rewrite, which tsc follows, is not a designation.
+_SUBPATH_CASES = [
+    struct(
+        package = "vite@8.2.2",
+        shape = "a `types` condition, two .js whose declarations sit beside them, two wildcards, a null, a manifest file",
+        manifest = _CASES[0].manifest,
+        files = _CASES[0].files,
+        expected = {"./client": "client.d.ts", "./internal": "dist/node/internal.d.ts", "./module-runner": "dist/node/module-runner.d.ts"},
+    ),
+    struct(
+        package = "web-streams-polyfill@3.3.3",
+        shape = "no `exports`; typesVersions maps dist/types/* to dist/types/ts3.6/*, and the map is not a designation",
+        manifest = """{
+          "name": "web-streams-polyfill",
+          "version": "3.3.3",
+          "main": "dist/polyfill",
+          "browser": "dist/polyfill.min.js",
+          "module": "dist/polyfill.mjs",
+          "types": "dist/types/polyfill.d.ts",
+          "typesVersions": {
+            ">=3.6": {
+              "dist/types/*": [
+                "dist/types/ts3.6/*"
+              ]
+            }
+          }
+        }""",
+        files = ["dist/types/polyfill.d.ts", "dist/types/ponyfill.d.ts", "dist/types/ts3.6/polyfill.d.ts", "dist/types/ts3.6/ponyfill.d.ts"],
+        expected = {},
+    ),
+]
+
 def _shipping(files):
     def has_file(path):
         return path in files
@@ -396,6 +431,21 @@ def _published_shapes_test(ctx):
     return unittest.end(env)
 
 published_shapes_test = unittest.make(_published_shapes_test)
+
+def _published_subpaths_test(ctx):
+    env = unittest.begin(ctx)
+
+    for case in _SUBPATH_CASES:
+        asserts.equals(
+            env,
+            case.expected,
+            exports_subpath_types(json.decode(case.manifest), _shipping(case.files)),
+            "{}: {}".format(case.package, case.shape),
+        )
+
+    return unittest.end(env)
+
+published_subpaths_test = unittest.make(_published_subpaths_test)
 
 # Resolved against this package because the one the BUILD file is generated into
 # exists only inside a fetch; whether a string names a path or a repository is
@@ -437,7 +487,7 @@ def _written_form_test(ctx):
 written_form_test = unittest.make(_written_form_test)
 
 def exports_types_test_suite(name):
-    unittest.suite(name, published_shapes_test, written_form_test)
+    unittest.suite(name, published_shapes_test, published_subpaths_test, written_form_test)
 
 def _written_tsconfig(env):
     for action in analysistest.target_actions(env):

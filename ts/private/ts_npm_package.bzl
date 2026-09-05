@@ -241,10 +241,10 @@ ts_npm_package = rule(
             doc = "Each non-root `exports` subpath that designates a declaration, " +
                   "mapped to that declaration's package-relative path. A consumer " +
                   "naming one in `compiler_options[\"types\"]` gets the file in its " +
-                  "tsconfig `files`, which is the only way an ambient module a " +
-                  "package ships behind a subpath reaches the program: tsconfig " +
-                  "`types` resolves through node_modules, and npm packages reach " +
-                  "the compiler through `paths`.",
+                  "tsconfig `files`: tsconfig `types` resolves through node_modules, " +
+                  "and npm packages reach the compiler through `paths`. A subpath " +
+                  "this map leaves unnamed is looked for among the package's own " +
+                  "declarations instead.",
         ),
         "type_references": attr.string_list_dict(
             doc = "Each declaration the manifest designates -- the entry and the " +

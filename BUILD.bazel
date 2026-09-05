@@ -32,7 +32,9 @@ exports_files([
 # analysis is meant to fail, so listing one here fails this target instead. So do
 # the fixtures that exist only to be read by an analysis test of the generated
 # file, //tests/lsp/module_fixture among them -- what they declare belongs in
-# that test, not in the checked-in tsconfig.
+# that test, not in the checked-in tsconfig. //tests/workers:experimental_types
+# stays out too: one workspace-wide `files` list would hand workers-types'
+# 17k-line global script, which merges into lib.dom, to every program here.
 #
 # extra_exclude names the TypeScript that is not in this module's graph at all.
 # e2e/, examples/ and tests/integration/ are separate Bazel modules, each with

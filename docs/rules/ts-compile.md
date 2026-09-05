@@ -518,13 +518,42 @@ declaration sits, when that target names the file in `public_globals`.
 
 `types = ["vite/client"]` names a package, and TypeScript would resolve it by
 walking `node_modules` for it. There is no `node_modules` here, so the rule
-resolves the entry against this target's `deps` and puts the declaration the
-package's own manifest designates into the generated config's `files`. Three
-spellings resolve: the package itself, one of its `exports` subpaths, and the
-bare name a paired `@types/*` package supplies (`node` is `@types/node`).
+resolves the entry against this target's `deps` and puts the declaration it
+resolves to into the generated config's `files`. Four spellings resolve: the
+package itself, whose manifest designates the file; one of its `exports`
+subpaths, likewise; a subpath the manifest says nothing about, which resolves
+to the declaration the package ships there, so
+`@cloudflare/workers-types/2023-07-01` is that package's
+`2023-07-01/index.d.ts`; and the bare name a paired `@types/*` package supplies
+(`node` is `@types/node`).
 
-An entry no dep answers fails at analysis, naming the entry and the dep to add.
-`tsc` reports `error TS2688: Cannot find type definition file` for such an
+For the third, the rule reads the files TypeScript would, in its order:
+`<subpath>/index.d.ts` under the paired `@types/*` package, which `typeRoots`
+puts ahead of the `node_modules` walk; then the package's own `<subpath>.d.ts`,
+then its `<subpath>/index.d.ts`; then `<subpath>.d.ts` under the `@types/*`
+package. A `.d.mts` or `.d.cts` at those paths does not answer, as it does not
+for `tsc`. TypeScript consults the manifest three ways before it reads any of
+those files, and the rule consults it none of them, since `NpmPackageInfo`
+carries none: a `typesVersions` mapping of the subpath, a `package.json` inside
+the subpath's directory, and whether an `exports` map exists at all -- one that
+omits the subpath stops `tsc` with `TS2688`, where the rule goes on to the
+shipped file. The one of the three that changes an answer rather than
+withholding it is `typesVersions`: `web-streams-polyfill` maps `dist/types/*`
+to `dist/types/ts3.6/*` and ships both, so
+`types = ["web-streams-polyfill/dist/types/polyfill"]` is
+`dist/types/ts3.6/polyfill.d.ts` to `tsc` and `dist/types/polyfill.d.ts` here.
+The rule's unit test pins that answer.
+
+A package the target names an entry of contributes what the entry names and
+nothing more. A dep that ships declarations and no JavaScript otherwise puts
+its root entry in `files` unasked, the way a direct `@types/*` dep does, so
+`types = ["@cloudflare/workers-types/2023-07-01"]` compiles against that
+date's declarations alone rather than those and the package's latest.
+
+An entry no dep answers fails at analysis, naming the entry and the dep to
+add; for a subpath of a dep, the message lists every path it looked at, the
+paired `@types/*` package's included, in the order above. `tsc` reports
+`error TS2688: Cannot find type definition file` for such an
 entry; tsgo reports nothing and exits 0, and the failure surfaces on whatever
 used the declarations: `TS2339` on `import.meta.env` without `vite/client`,
 `TS2591` on `process` without `node`.

@@ -20,14 +20,16 @@
   target and on no build after it.
 
   The check covers `ts_test`, which folds `types` into a `ts_compile` of its
-  own. Three spellings resolve: the package itself, one of its `exports`
-  subpaths (`vite/client`), and the bare name a paired `@types/*` package
-  supplies (`node` is `@types/node`). An entry naming a path (one starting with
-  `.` or `/`, or ending in `.d.ts`) is no dep's to answer, so this check leaves
-  it alone; a `./` or `../` one is resolved from `srcs` and `types_srcs`
-  instead, and guarded there. A blank entry is guarded by neither; whitespace
-  is trimmed before any of that, which is the reading Gazelle's
-  `ambientTypeLabel` gives an entry before it writes the dep.
+  own. Four spellings resolve: the package itself, one of its `exports`
+  subpaths (`vite/client`), a subpath the manifest leaves unnamed that the
+  package ships a declaration for (`@cloudflare/workers-types/2023-07-01`), and
+  the bare name a paired `@types/*` package supplies (`node` is `@types/node`).
+  An entry naming a path (one starting with `.` or `/`, or ending in `.d.ts`)
+  is no dep's to answer, so this check leaves it alone; a `./` or `../` one is
+  resolved from `srcs` and `types_srcs` instead, and guarded there. A blank
+  entry is guarded by neither; whitespace is trimmed before any of that, which
+  is the reading Gazelle's `ambientTypeLabel` gives an entry before it writes
+  the dep.
 
   Add the dep that publishes the package (`@npm//:vite` for `vite/client`); the
   message names the entry and, for a package that is a dep already, the
