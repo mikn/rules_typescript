@@ -49,3 +49,11 @@ sh_binary(
     srcs = ["tools/tree_gen.sh"],
     visibility = ["//visibility:public"],
 )
+
+# The generator the runner's worker/ ts_codegen names once the checked-in
+# declaration is deleted: wrangler's job on the fixture's own terms.
+sh_binary(
+    name = "env_types_gen",
+    srcs = ["tools/env_types_gen.sh"],
+    visibility = ["//visibility:public"],
+)

@@ -463,6 +463,9 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		tsConfigEmpty = append(tsConfigEmpty, rule.NewRule("filegroup", tsConfigTypesTargetName))
 	}
 	staleDataFiles := staleDataFileRules(args)
+	// In every-dir mode the package target's last source leaves a directory that
+	// is no boundary, so nothing regenerates over the rule to withdraw it.
+	staleCompile := stalePackageCompile(args, tc)
 
 	totalNonTS := len(cssFiles) + len(cssModuleFiles) + len(assetFiles) + len(jsonFiles)
 	if !isBoundary && len(srcFiles) == 0 && len(testFiles) == 0 && len(docFiles) == 0 &&
@@ -470,7 +473,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		// No TypeScript, CSS, asset, or JSON files and not a boundary: nothing to do.
 		// A declared generator is a target of its own, though: a package whose
 		// sources are all generated holds nothing else.
-		return language.GenerateResult{Empty: append(tsConfigEmpty, staleDataFiles...)}
+		return language.GenerateResult{Empty: append(append(tsConfigEmpty, staleDataFiles...), staleCompile...)}
 	}
 
 	var gen []*rule.Rule
@@ -607,20 +610,11 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 			}
 		}
 	} else if isBoundary && len(srcFiles) == 0 {
-		// Boundary directory with no source files: emit an empty rule to clean
-		// up any stale ts_compile target.
-		name := targetNameForDir(tc, args.Rel)
-		empty = append(empty, rule.NewRule("ts_compile", name))
-		// Clean up any stale ts_lint target too.
-		if args.File != nil {
-			lintName := name + "_lint"
-			for _, existingRule := range args.File.Rules {
-				if existingRule.Name() == lintName && existingRule.Kind() == "ts_lint" {
-					empty = append(empty, rule.NewRule("ts_lint", lintName))
-					break
-				}
-			}
-		}
+		// Boundary directory with no source files: withdraw the package target
+		// and the ts_lint beside it.
+		empty = append(empty, withdrawnCompile(args, targetNameForDir(tc, args.Rel))...)
+	} else {
+		empty = append(empty, staleCompile...)
 	}
 
 	// ---- ts_dev_server target (app packages only) --------------------------
@@ -911,6 +905,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		Imports: imports,
 	}
 
+	replaceStaleTypesSrcs(args, tc, result.Gen)
 	reportManagedAttrDrops(args, result.Gen)
 	markKeptAttrs(args, result.Gen)
 
@@ -979,15 +974,19 @@ func generatePnpmTargets(args language.GenerateArgs) ([]*rule.Rule, []any) {
 // ruleExists returns true when the BUILD file already contains a rule with the
 // given kind and name.
 func ruleExists(args language.GenerateArgs, kind, name string) bool {
+	return existingRule(args, kind, name) != nil
+}
+
+func existingRule(args language.GenerateArgs, kind, name string) *rule.Rule {
 	if args.File == nil {
-		return false
+		return nil
 	}
 	for _, r := range args.File.Rules {
 		if r.Kind() == kind && r.Name() == name {
-			return true
+			return r
 		}
 	}
-	return false
+	return nil
 }
 
 // localPackage is what a directory's own BUILD file says about generation there;
@@ -1263,6 +1262,98 @@ func setRootAmbientTypes(r *rule.Rule, entries []string, typesSrcs []string) {
 	if len(typesSrcs) > 0 {
 		r.SetAttr("types_srcs", typesSrcs)
 	}
+}
+
+// Neither attribute merges, so a tsconfig_types label one run wrote outlives the
+// filegroup a later run withdraws. The list is edited in place so a "# keep" on an entry holds.
+func replaceStaleTypesSrcs(args language.GenerateArgs, tc *tsConfig, gen []*rule.Rule) {
+	if args.File == nil {
+		return
+	}
+	for _, want := range gen {
+		if want.Kind() != "ts_compile" && want.Kind() != "ts_test" {
+			continue
+		}
+		for _, have := range args.File.Rules {
+			if have.Kind() != want.Kind() || have.Name() != want.Name() ||
+				have.ShouldKeep() || attrKept(have, "types_srcs") {
+				continue
+			}
+			list, ok := have.Attr("types_srcs").(*bzl.ListExpr)
+			if !ok {
+				continue
+			}
+			staged := want.AttrStrings("types_srcs")
+			var kept []bzl.Expr
+			var stale []string
+			for _, el := range list.List {
+				s, isString := el.(*bzl.StringExpr)
+				if isString && !rule.ShouldKeep(el) && ownStagingLabelGone(s.Value, args.Rel, tc) {
+					stale = append(stale, s.Value)
+					continue
+				}
+				kept = append(kept, el)
+			}
+			if len(stale) == 0 {
+				continue
+			}
+			for _, lbl := range staged {
+				if !slices.Contains(stringValues(kept), lbl) {
+					kept = append(kept, &bzl.StringExpr{Value: lbl})
+				}
+			}
+			outcome := "the attribute is dropped, since nothing stages the file for it"
+			if len(kept) > 0 {
+				list.List = kept
+				have.SetAttr("types_srcs", list)
+				outcome = "the attribute now names " + strings.Join(stringValues(kept), ", ")
+			} else {
+				have.DelAttr("types_srcs")
+			}
+			log.Printf("typescript: %s(%s) in %s: types_srcs named %s, a tsconfig_types filegroup "+
+				"of this package or one above it that this run does not write; %s.",
+				have.Kind(), have.Name(), args.File.Path, strings.Join(stale, ", "), outcome)
+		}
+	}
+}
+
+// Gazelle writes a tsconfig_types label into rel from rel itself or a directory
+// above it; such a label is stale once the run neither writes nor keeps the filegroup it names.
+func ownStagingLabelGone(lbl, rel string, tc *tsConfig) bool {
+	pkg, name, ok := strings.Cut(lbl, ":")
+	if !ok || name != tsConfigTypesTargetName {
+		return false
+	}
+	switch {
+	case pkg == "":
+		pkg = rel
+	case strings.HasPrefix(pkg, "//"):
+		pkg = pkg[2:]
+	default:
+		return false
+	}
+	if pkg != "" && pkg != rel && !strings.HasPrefix(rel, pkg+"/") {
+		return false
+	}
+	if tc.tsconfigTypesKept[pkg] {
+		return false
+	}
+	for _, staged := range tc.tsconfigTypesStaged[pkg] {
+		if staged == "//"+pkg+":"+tsConfigTypesTargetName {
+			return false
+		}
+	}
+	return true
+}
+
+func stringValues(list []bzl.Expr) []string {
+	out := make([]string, 0, len(list))
+	for _, el := range list {
+		if s, ok := el.(*bzl.StringExpr); ok {
+			out = append(out, s.Value)
+		}
+	}
+	return out
 }
 
 // tsConfigLabel is the label a target generated in args.Rel names for its
@@ -1795,31 +1886,69 @@ func staleDataFileRules(args language.GenerateArgs) []*rule.Rule {
 	if args.File == nil {
 		return nil
 	}
+	present := func(src string) bool {
+		return slices.Contains(args.GenFiles, src) || onDisk(args.Dir, src)
+	}
 	var stale []*rule.Rule
 	for _, r := range args.File.Rules {
-		if !dataFileKinds[r.Kind()] {
-			continue
-		}
-		srcs := r.AttrStrings("srcs")
-		if len(srcs) == 0 {
-			continue
-		}
-		gone := true
-		for _, src := range srcs {
-			if isLabelSrc(src) || slices.Contains(args.GenFiles, src) {
-				gone = false
-				break
-			}
-			if _, err := os.Stat(filepath.Join(args.Dir, filepath.FromSlash(src))); err == nil {
-				gone = false
-				break
-			}
-		}
-		if gone {
+		if dataFileKinds[r.Kind()] && srcsGone(r, present) {
 			stale = append(stale, rule.NewRule(r.Kind(), r.Name()))
 		}
 	}
 	return stale
+}
+
+// stalePackageCompile stubs the package target whose plain srcs name only files that
+// are gone; a declaration a ts_codegen here writes is staged by its label, never listed.
+func stalePackageCompile(args language.GenerateArgs, tc *tsConfig) []*rule.Rule {
+	if args.File == nil {
+		return nil
+	}
+	name := targetNameForDir(tc, args.Rel)
+	declarations := codegenDeclarationOutputs(args.File)
+	present := func(src string) bool {
+		if _, generated := declarations[src]; generated {
+			return false
+		}
+		return slices.Contains(args.GenFiles, src) || onDisk(args.Dir, src)
+	}
+	for _, r := range args.File.Rules {
+		if r.Kind() == "ts_compile" && r.Name() == name && srcsGone(r, present) {
+			return withdrawnCompile(args, name)
+		}
+	}
+	return nil
+}
+
+// A "# keep" above the ts_compile holds the ts_lint over the same sources with it.
+func withdrawnCompile(args language.GenerateArgs, name string) []*rule.Rule {
+	if have := existingRule(args, "ts_compile", name); have != nil && have.ShouldKeep() {
+		return nil
+	}
+	stubs := []*rule.Rule{rule.NewRule("ts_compile", name)}
+	if ruleExists(args, "ts_lint", name+"_lint") {
+		stubs = append(stubs, rule.NewRule("ts_lint", name+"_lint"))
+	}
+	return stubs
+}
+
+// A label, or a srcs that is not a plain list, is not judged.
+func srcsGone(r *rule.Rule, present func(string) bool) bool {
+	srcs := r.AttrStrings("srcs")
+	if len(srcs) == 0 {
+		return false
+	}
+	for _, src := range srcs {
+		if isLabelSrc(src) || present(src) {
+			return false
+		}
+	}
+	return true
+}
+
+func onDisk(dir, src string) bool {
+	_, err := os.Stat(filepath.Join(dir, filepath.FromSlash(src)))
+	return err == nil
 }
 
 // codegenOutDirResult withdraws what Gazelle generates inside an out_dir. A BUILD

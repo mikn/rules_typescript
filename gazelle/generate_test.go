@@ -946,3 +946,217 @@ css_library(
 		t.Errorf("css_library gone_css names a file that is gone and is not withdrawn; Empty = %v", emptyRuleNames(res))
 	}
 }
+
+// A directory with no source is no boundary, so nothing regenerated over the
+// target; its src is a ts_codegen's out now, which the package target never lists.
+func TestGenerate_CompileWhoseEverySrcIsGoneIsWithdrawn(t *testing.T) {
+	repoRoot := t.TempDir()
+	dir := filepath.Join(repoRoot, "worker")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		"tsconfig.json":  `{"compilerOptions":{"strict":true}}` + "\n",
+		"wrangler.jsonc": `{"name":"w"}` + "\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f, err := rule.LoadData(filepath.Join(dir, "BUILD.bazel"), "worker", []byte(`
+ts_compile(
+    name = "worker",
+    srcs = ["worker-configuration.d.ts"],
+    tsconfig = ":tsconfig",
+    visibility = ["//visibility:public"],
+)
+
+ts_lint(
+    name = "worker_lint",
+    srcs = ["worker-configuration.d.ts"],
+    linter = "oxlint",
+)
+
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+)
+
+ts_codegen(
+    name = "worker_types",
+    srcs = ["wrangler.jsonc"],
+    outs = ["worker-configuration.d.ts"],
+    generator = "//:gen",
+)
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &config.Config{RepoRoot: repoRoot, Exts: make(map[string]interface{})}
+	configureTsConfig(c, "", nil)
+	configureTsConfig(c, "worker", f)
+	res := generateRules(language.GenerateArgs{
+		Config:       c,
+		Dir:          dir,
+		Rel:          "worker",
+		File:         f,
+		RegularFiles: []string{"tsconfig.json", "wrangler.jsonc"},
+		GenFiles:     []string{"worker-configuration.d.ts"},
+	})
+
+	if !withdraws(res, "ts_compile", "worker") {
+		t.Errorf("ts_compile worker names only a source that is gone and is not withdrawn; Empty = %v", emptyRuleNames(res))
+	}
+	if !withdraws(res, "ts_lint", "worker_lint") {
+		t.Errorf("ts_lint worker_lint lints a target that is withdrawn and is not withdrawn with it; Empty = %v", emptyRuleNames(res))
+	}
+}
+
+// The directory the source left behind may hold nothing else, which is the path
+// that returned before any existing rule was read.
+func TestGenerate_CompileInAnEmptiedDirectoryIsWithdrawn(t *testing.T) {
+	res := runGenerateWithBuild(t, "routes", `
+ts_compile(
+    name = "routes",
+    srcs = ["index.ts"],
+    visibility = ["//visibility:public"],
+)
+`, map[string]string{})
+
+	if !withdraws(res, "ts_compile", "routes") {
+		t.Errorf("ts_compile routes is alone in a directory holding no file and is not withdrawn; Empty = %v", emptyRuleNames(res))
+	}
+}
+
+// A src still on disk, a label and a glob() are all present as far as the run
+// can tell, and a package target naming one stays.
+func TestGenerate_CompileItCannotJudgeIsLeftAlone(t *testing.T) {
+	cases := []struct {
+		rel   string
+		build string
+		files map[string]string
+	}{
+		{"scripts", `ts_compile(name = "scripts", srcs = ["run.js"])`, map[string]string{"run.js": "export const run = 1;\n"}},
+		{"mixed", `ts_compile(name = "mixed", srcs = ["gone.ts", "here.js"])`, map[string]string{"here.js": "export const here = 1;\n"}},
+		{"labelled", `ts_compile(name = "labelled", srcs = [":generated"])`, map[string]string{}},
+		{"globbed", `ts_compile(name = "globbed", srcs = glob(["*.ts"]))`, map[string]string{}},
+	}
+	for _, tc := range cases {
+		res := runGenerateWithBuild(t, tc.rel, tc.build+"\n", tc.files)
+		if withdraws(res, "ts_compile", tc.rel) {
+			t.Errorf("ts_compile %s is withdrawn over a srcs this run cannot judge; Empty = %v", tc.rel, emptyRuleNames(res))
+		}
+	}
+}
+
+// A generated .ts is present the way it is for a data-file rule; only a
+// declaration a ts_codegen in the package writes is one no plain srcs lists.
+func TestGenerate_CompileOverAGeneratedSourceIsLeftAlone(t *testing.T) {
+	repoRoot := t.TempDir()
+	dir := filepath.Join(repoRoot, "gen")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f, err := rule.LoadData(filepath.Join(dir, "BUILD.bazel"), "gen", []byte(`
+genrule(
+    name = "make",
+    outs = ["gen.ts"],
+    cmd = "echo 'export const g = 1;' > $@",
+)
+
+ts_compile(
+    name = "gen",
+    srcs = ["gen.ts"],
+    visibility = ["//visibility:public"],
+)
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &config.Config{RepoRoot: repoRoot, Exts: make(map[string]interface{})}
+	configureTsConfig(c, "", nil)
+	configureTsConfig(c, "gen", f)
+	res := generateRules(language.GenerateArgs{
+		Config:   c,
+		Dir:      dir,
+		Rel:      "gen",
+		File:     f,
+		GenFiles: []string{"gen.ts"},
+	})
+
+	if withdraws(res, "ts_compile", "gen") {
+		t.Errorf("ts_compile gen is withdrawn over a src a genrule in the package writes; Empty = %v", emptyRuleNames(res))
+	}
+}
+
+// The merger holds a kept rule against its stub, and left the ts_lint's stub to
+// take the lint alone; neither path withdraws half of what a "# keep" holds.
+func TestGenerate_KeptCompileIsNotWithdrawnOnEitherPath(t *testing.T) {
+	const build = `# keep
+ts_compile(
+    name = "routes",
+    srcs = ["index.ts"],
+    visibility = ["//visibility:public"],
+)
+
+ts_lint(
+    name = "routes_lint",
+    srcs = ["index.ts"],
+    linter = "oxlint",
+)
+`
+	// A tsconfig.json makes a boundary in tsconfig mode only; every-dir mode
+	// reaches the non-boundary branch with the same files.
+	for _, path := range []struct {
+		name, directive string
+	}{
+		{"tsconfig-boundary", "# gazelle:ts_package_boundary tsconfig\n"},
+		{"every-dir", ""},
+	} {
+		res := runGenerateWithBuild(t, "routes", path.directive+build,
+			map[string]string{"tsconfig.json": `{"compilerOptions":{"strict":true}}` + "\n"})
+		for _, kind := range []string{"ts_compile", "ts_lint"} {
+			name := "routes"
+			if kind == "ts_lint" {
+				name += "_lint"
+			}
+			if withdraws(res, kind, name) {
+				t.Errorf("%s: %s %s is withdrawn under a # keep on the ts_compile; Empty = %v", path.name, kind, name, emptyRuleNames(res))
+			}
+		}
+	}
+}
+
+// Through the merger: the sources go, the "# keep" holds the package target, and
+// the ts_lint Gazelle wrote beside it stays as it did before either was judged.
+func TestGenerate_KeptCompileHoldsItsLint(t *testing.T) {
+	root := t.TempDir()
+	writeWorkspace(t, root, map[string]string{
+		pnpmLockfileName:      oxlintOnlyLock,
+		"oxlint.json":         "{}\n",
+		"package.json":        `{"name":"w"}` + "\n",
+		"src/routes/index.ts": "export const index = 1;\n",
+	})
+	convergeGazelle(t, root)
+	if ruleNamed(loadRules(t, root, "src/routes"), "ts_lint", "routes_lint") == nil {
+		t.Fatalf("no ts_lint beside the ts_compile, so this test says nothing:\n%s", generated(t, root, "src", "routes", "BUILD.bazel"))
+	}
+
+	build := filepath.Join(root, "src", "routes", "BUILD.bazel")
+	held := strings.Replace(generated(t, root, "src", "routes", "BUILD.bazel"), "ts_compile(\n", "# keep\nts_compile(\n", 1)
+	if err := os.WriteFile(build, []byte(held), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(root, "src", "routes", "index.ts")); err != nil {
+		t.Fatal(err)
+	}
+	convergeGazelle(t, root)
+
+	rules := loadRules(t, root, "src/routes")
+	if ruleNamed(rules, "ts_compile", "routes") == nil {
+		t.Errorf("the # keep did not hold the ts_compile:\n%s", generated(t, root, "src", "routes", "BUILD.bazel"))
+	}
+	if ruleNamed(rules, "ts_lint", "routes_lint") == nil {
+		t.Errorf("the ts_lint beside the kept ts_compile was withdrawn:\n%s", generated(t, root, "src", "routes", "BUILD.bazel"))
+	}
+}

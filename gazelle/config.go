@@ -358,6 +358,10 @@ type tsConfig struct {
 	// stages a declaration file by, keyed by directory and then file name.
 	tsconfigTypesStaged map[string]map[string]string
 
+	// tsconfigTypesKept is each directory at or above this one whose BUILD file
+	// holds a "# keep" filegroup by the reserved tsconfig_types name.
+	tsconfigTypesKept map[string]bool
+
 	// declarations is the .d.ts emitter for generated ts_compile rules:
 	// "tsgo" (default, no attribute emitted) or "oxc". Set via
 	// # gazelle:ts_declarations.
@@ -475,6 +479,12 @@ func (tc *tsConfig) clone() *tsConfig {
 		cp.tsconfigTypesStaged = make(map[string]map[string]string, len(tc.tsconfigTypesStaged))
 		for dir, staged := range tc.tsconfigTypesStaged {
 			cp.tsconfigTypesStaged[dir] = staged
+		}
+	}
+	if len(tc.tsconfigTypesKept) > 0 {
+		cp.tsconfigTypesKept = make(map[string]bool, len(tc.tsconfigTypesKept))
+		for dir, kept := range tc.tsconfigTypesKept {
+			cp.tsconfigTypesKept[dir] = kept
 		}
 	}
 	if len(tc.runtimeDepsTest) > 0 {
@@ -1297,6 +1307,12 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 			tc.tsconfigTypesStaged[rel] = staged
 		}
 	}
+	if keptRule(f, "filegroup", tsConfigTypesTargetName) {
+		if tc.tsconfigTypesKept == nil {
+			tc.tsconfigTypesKept = make(map[string]bool)
+		}
+		tc.tsconfigTypesKept[rel] = true
+	}
 
 	// The compilerOptions baseline, resolved the way tsserver resolves one:
 	// nearest file walking up. Inherited from the parent, so the walk only runs
@@ -1771,6 +1787,18 @@ func stagedTypeLabels(rel string, files []string, generators map[string]string) 
 		staged[name] = "//" + rel + ":" + target
 	}
 	return staged
+}
+
+func keptRule(f *rule.File, kind, name string) bool {
+	if f == nil {
+		return false
+	}
+	for _, r := range f.Rules {
+		if r.Kind() == kind && r.Name() == name {
+			return r.ShouldKeep()
+		}
+	}
+	return false
 }
 
 // codegenDeclarationOutputs maps each .d.ts a ts_codegen in f declares in outs to
