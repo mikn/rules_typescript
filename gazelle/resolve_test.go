@@ -498,7 +498,7 @@ func TestResolveImport_DispatchesOnSpecifierShape(t *testing.T) {
 		"node:fs":    "",
 		"@types/pkg": "@npm//:types_pkg",
 	} {
-		if got := resolveImport(c, ix, tc, nil, imp, from); got != want {
+		if got := resolveImport(c, ix, tc, "ts_compile", nil, imp, from); got != want {
 			t.Errorf("resolveImport(%q) = %q, want %q", imp, got, want)
 		}
 	}
@@ -789,7 +789,7 @@ func TestResolveImport_BareSpecifiers(t *testing.T) {
 		{"npm package", "zod", "@npm//:zod"},
 		{"scoped npm package", "@tanstack/router", "@npm//:tanstack_router"},
 	} {
-		if got := resolveImport(c, ix, tc, nil, tt.imp, from); got != tt.want {
+		if got := resolveImport(c, ix, tc, "ts_compile", nil, tt.imp, from); got != tt.want {
 			t.Errorf("%s: resolveImport(%q) = %q, want %q", tt.name, tt.imp, got, tt.want)
 		}
 	}
@@ -1493,7 +1493,7 @@ func TestResolveImport_CodegenTreeSubpath(t *testing.T) {
 		{"a sibling of the tree is not the tree", "#shared/i18n/messages", ""},
 		{"an npm package is still an npm package", "zod", "@npm//:zod"},
 	} {
-		if got := resolveImport(c, ix, tc, nil, tt.imp, from); got != tt.want {
+		if got := resolveImport(c, ix, tc, "ts_compile", nil, tt.imp, from); got != tt.want {
 			t.Errorf("%s: resolveImport(%q) = %q, want %q", tt.name, tt.imp, got, tt.want)
 		}
 	}
@@ -1518,7 +1518,7 @@ func TestResolveImport_CodegenModuleNameBeatsTheNpmHub(t *testing.T) {
 		"@acme/db-client/a/b/c":      "//packages/db:prisma_client",
 		"@acme/db-client-extensions": "@npm//:acme_db-client-extensions",
 	} {
-		if got := resolveImport(c, ix, tc, nil, imp, from); got != want {
+		if got := resolveImport(c, ix, tc, "ts_compile", nil, imp, from); got != want {
 			t.Errorf("resolveImport(%q) = %q, want %q", imp, got, want)
 		}
 	}

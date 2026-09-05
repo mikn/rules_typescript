@@ -120,7 +120,7 @@ func TestResolveImport_PackageImportsNpmTarget(t *testing.T) {
 		"#poly/stable": "@npm//:some-polyfill",
 		"#unlisted":    "",
 	} {
-		if got := resolveImport(c, ix, tc, nil, imp, from); got != want {
+		if got := resolveImport(c, ix, tc, "ts_compile", nil, imp, from); got != want {
 			t.Errorf("resolveImport(%q) = %q, want %q", imp, got, want)
 		}
 	}
@@ -205,14 +205,14 @@ func TestResolveImport_PackageImportsSpecifier(t *testing.T) {
 	)
 	from := label.New("", "web/modules/admin", "admin")
 
-	if got, want := resolveImport(c, ix, tc, nil, "#shared/flags", from), "//web/shared/flags"; got != want {
+	if got, want := resolveImport(c, ix, tc, "ts_compile", nil, "#shared/flags", from), "//web/shared/flags"; got != want {
 		t.Errorf("resolveImport(%q) = %q, want %q", "#shared/flags", got, want)
 	}
 
 	// No entry covers it, and a hub has no package of that name: a label here
 	// is one whose target nothing declares, which fails analysis for the whole
 	// build rather than leaving TypeScript to report TS2307.
-	if got := resolveImport(c, ix, tc, nil, "#nothing/here", from); got != "" {
+	if got := resolveImport(c, ix, tc, "ts_compile", nil, "#nothing/here", from); got != "" {
 		t.Errorf("resolveImport(%q) = %q, want no dep", "#nothing/here", got)
 	}
 }

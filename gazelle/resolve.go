@@ -261,7 +261,7 @@ func resolveImports(
 
 	ambient := ambientModuleNames(c, r, from)
 	for _, imp := range imports {
-		resolved := resolveImport(c, ix, tc, ambient, imp, from)
+		resolved := resolveImport(c, ix, tc, r.Kind(), ambient, imp, from)
 		if resolved == "" {
 			if tc.warnUnresolved && !isNodeBuiltin(barePackageName(imp)) {
 				log.Printf("gazelle: WARNING: unresolved import %q in //%s:%s (tried: relative, path-alias, npm)", imp, from.Pkg, from.Name)
@@ -335,7 +335,7 @@ func setPathAliasSrcs(
 	seen := map[string]struct{}{}
 	var srcs []string
 	for _, imp := range imports {
-		lbl := resolveImport(c, ix, tc, ambient, imp, from)
+		lbl := resolveImport(c, ix, tc, r.Kind(), ambient, imp, from)
 		if _, dup := seen[lbl]; lbl == "" || dup {
 			continue
 		}
@@ -350,10 +350,12 @@ func setPathAliasSrcs(
 
 // resolveImport attempts to resolve a single import specifier to a Bazel label
 // string. Returns "" if the import cannot be resolved and should be skipped.
+// kind is the importing rule's, which decides where a member's own name goes.
 func resolveImport(
 	c *config.Config,
 	ix *resolve.RuleIndex,
 	tc *tsConfig,
+	kind string,
 	ambient []string,
 	imp string,
 	from label.Label,
@@ -383,7 +385,7 @@ func resolveImport(
 		if lbl := resolveCodegenTree(ix, imp, from); lbl != "" {
 			return lbl
 		}
-		if lbl, isSelf := resolveWorkspaceSelfImport(c, ix, tc, imp, from); isSelf {
+		if lbl, isSelf := resolveWorkspaceSelfImport(c, ix, tc, kind, imp, from); isSelf {
 			return lbl
 		}
 		// The target's own `declare module "x"` is the module: nothing installed
@@ -432,8 +434,11 @@ func declaredAmbiently(names []string, imp string) bool {
 //
 // The npm hub declares that name too, because pnpm resolved it to a workspace
 // link, and its target is the member's own compiling target: a dep on it from
-// inside the member is a cycle back to the importer. The local module the
-// manifest designates is the same code without the round trip.
+// a ts_compile inside the member is a cycle back to the importer. The local
+// module the manifest designates is the same code without the round trip.
+//
+// From a ts_test it is no self-import: its compile target is never the hub's,
+// and only the hub's TsModuleInfo puts the member's name and subpaths in `paths`.
 //
 // isSelf reports that the specifier was the member's own name and the hub label
 // must not be used, whether or not a target was found for it.
@@ -441,9 +446,13 @@ func resolveWorkspaceSelfImport(
 	c *config.Config,
 	ix *resolve.RuleIndex,
 	tc *tsConfig,
+	kind string,
 	imp string,
 	from label.Label,
 ) (lbl string, isSelf bool) {
+	if kind == "ts_test" {
+		return "", false
+	}
 	dir, ok := workspaceMemberDir(c, tc, from.Pkg)
 	if !ok {
 		return "", false

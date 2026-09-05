@@ -657,6 +657,23 @@ label: there is no npm package of that name. Node allows `*` anywhere in a
 pattern, but an alias key matches by prefix, so `#internal/*/utils` is dropped
 instead of being recorded as a key that could never fire.
 
+A pnpm workspace member may import itself by its package name, Node's
+self-reference: `import "@acme/lib/wire"` from a file under `packages/lib`
+goes through the member's own `exports` map. The member is the nearest
+directory above the importing package holding a `package.json`, when the
+lockfile's `importers:` lists it. On a `ts_compile` the specifier resolves to
+the local target the manifest designates, `//packages/lib/src/wire` for
+`"./wire": "./src/wire/index.ts"`: the hub target for that name is the member's
+own compiling target, and a dep on it from inside the member is a cycle. On a
+`ts_test` it resolves to the hub label, `@npm//:acme_lib`, as it does from any
+other consumer. The test's compile target is never the hub's, and only the hub
+target's `TsModuleInfo` writes the member's name and its declared subpaths into
+the generated `paths`; on the local target alone the import is `TS2307`. The
+hub label passes the lockfile gate below like every other bare specifier, so a
+member no importer links gets no dep. A package nested inside a member, with a
+`package.json` of its own, is not the member and takes the hub label from every
+kind.
+
 Node built-ins resolve to `@types/node`, with or without the `node:` prefix:
 `import "path"` and `import "node:path"` both take the declarations dep, since
 Node supplies the module at runtime but nothing supplies its types. A package

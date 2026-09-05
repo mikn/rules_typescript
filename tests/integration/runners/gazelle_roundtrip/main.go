@@ -35,6 +35,7 @@ func main() {
 		it.Write(it.Path("src/locales/BUILD.bazel"), outDirCodegenPackage)
 		it.Write(it.Path("generated_worker/BUILD.bazel"), generatedWorkerPackage)
 		it.Write(it.Path("devserver/BUILD.bazel"), handWrittenDevServerPackage)
+		it.Write(it.Path("packages/shared/BUILD.bazel"), memberPackage)
 		// The harness stages one lockfile, vitest's; wrangler is in tests/workers'.
 		it.Write(it.Path("pnpm-lock.workers.yaml"), it.Read(filepath.Join(it.RulesTSRoot, "tests/workers/pnpm-lock.yaml")))
 
@@ -51,6 +52,7 @@ func main() {
 		}
 
 		devServerAfterFirstRun := it.Read(it.Path("devserver/BUILD.bazel"))
+		memberAfterFirstRun := it.Read(it.Path("packages/shared/BUILD.bazel"))
 
 		before := testTargets(it)
 		if len(before) == 0 {
@@ -95,8 +97,10 @@ func main() {
 		}
 		it.Pass("test target set unchanged across a delete-and-regenerate: %d", len(after))
 
-		it.MustBazel("test", "//...")
-		it.Pass("bazel test //... on Gazelle's own output")
+		// The member's test is run on its own below, where its runtime failure
+		// is the measurement; here it would fail the whole run.
+		it.MustBazel("test", "--", "//...", "-//packages/shared:shared_test")
+		it.Pass("bazel test //... on Gazelle's own output, the member's test aside")
 
 		for _, rel := range []string{"src/lib/math.js", "src/lib/math.d.ts", "src/app/index.js", "src/app/index.d.ts"} {
 			it.RequireFile(it.Bin(rel), "expected output file not found: %s", rel)
@@ -116,9 +120,78 @@ func main() {
 		lintWithoutTheLinterIsRefused(it, gazelleLog)
 		programsAreListedWithTheToolchainsTsgo(it, gazelleLog)
 		handWrittenDevServerIsLeftAlone(it, devServerAfterFirstRun)
+		memberSelfImportTakesTheHubLabel(it, memberAfterFirstRun)
 		// Last: it rewrites the tree the checks above read.
 		declarationMovesToACodegen(it)
 	})
+}
+
+// packages/shared is a member of the staged lockfile entered through an exports
+// map; the boundary directive makes it the one target the hub's `target` names.
+const memberPackage = "# gazelle:ts_package_boundary tsconfig\n"
+
+// Only the hub target's TsModuleInfo writes the member's name into `paths`, so
+// a test importing the member by name needs the hub label beside :shared.
+func memberSelfImportTakesTheHubLabel(it *harness.IT, afterFirstRun string) {
+	build := it.Path("packages/shared/BUILD.bazel")
+	if second := it.Read(build); second != afterFirstRun {
+		fmt.Fprintf(os.Stderr, "--- packages/shared/BUILD.bazel pass 1 ---\n%s--- pass 2 ---\n%s", afterFirstRun, second)
+		it.Fail("the member's BUILD file changed between two Gazelle runs")
+	}
+	it.Pass("packages/shared/BUILD.bazel is identical across both Gazelle runs")
+
+	it.RequireContains(build, `name = "shared_test"`,
+		"Gazelle wrote no ts_test for the member's test files")
+	// The member's own target too, from the relative imports of the sources
+	// under test: the first target to carry the member and its hub label at once.
+	const deps = "    deps = [\n        \":shared\",\n        \"@npm//:shared\",\n        \"@npm//:vitest\",\n    ],\n"
+	if text := it.Read(build); !strings.Contains(text, deps) {
+		fmt.Fprint(os.Stderr, text)
+		it.Fail("//packages/shared:shared_test does not carry the hub label beside the member's own target")
+	}
+	it.Pass("//packages/shared:shared_test depends on @npm//:shared beside :shared")
+
+	for _, rel := range []string{"packages/shared/src/entry.test.js", "packages/shared/src/wire.test.js"} {
+		it.RequireFile(it.Bin(rel),
+			"%s was not written; the `bazel build //...` above did not compile the test program", rel)
+	}
+	it.Pass("the test program resolved `shared` and `shared/wire` through the hub's paths entries")
+
+	// The measurement behind writing the hub label: the member's own target
+	// alone has no paths key for its name.
+	restore := it.Read(build)
+	it.Replace(build, "        \"@npm//:shared\",\n", "")
+	log, err := it.BazelLog("self_import_without_the_hub", "build", "//packages/shared:_shared_test_compile")
+	it.Write(build, restore)
+	if err == nil {
+		log.Dump()
+		it.Fail("the test program compiled without the hub label; Gazelle need not write it")
+	}
+	for _, specifier := range []string{"shared", "shared/wire"} {
+		if !log.Contains(fmt.Sprintf("TS2307: Cannot find module '%s'", specifier)) {
+			log.Dump()
+			it.Fail("without the hub label the compile did not fail on %q", specifier)
+		}
+	}
+	it.Pass("without the hub label `shared` and `shared/wire` are TS2307: the member's own target carries no paths key for its name")
+
+	// The hub's generated package.json names no entry and no exports, so Vite finds
+	// neither file under the package root; a pass here says to run it under //... again.
+	log, err = it.BazelLog("self_import_at_run_time", "test", "//packages/shared:shared_test")
+	if err == nil {
+		log.Dump()
+		it.Fail("//packages/shared:shared_test passed: the runtime link answers the member's own name, so run it under `bazel test //...` above instead of pinning the failure here")
+	}
+	for _, want := range []string{
+		`Failed to resolve entry for package "shared"`,
+		`Cannot find package 'shared/wire'`,
+	} {
+		if !log.Contains(want) {
+			log.Dump()
+			it.Fail("//packages/shared:shared_test failed for some other reason than the runtime link: no %q", want)
+		}
+	}
+	it.Pass("//packages/shared:shared_test type-checks and fails in the resolver on `shared` and `shared/wire`: the runtime link has no exports map")
 }
 
 // Gazelle writes no ts_dev_server and knows no such kind; beside a main.ts and
