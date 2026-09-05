@@ -242,8 +242,8 @@ def _exports_subpath_types(pkg_json, has_file):
     is resolved here, where the manifest is, and the file it names is put in the
     consumer's `files`.
 
-    A subpath with a wildcard is skipped: it designates a pattern rather than a
-    file, and `_declaration_at` cannot name one.
+    A subpath with a star designates a pattern rather than a file, and is
+    `_exports_subpath_patterns`' business.
     """
     exports = pkg_json.get("exports")
     if type(exports) != "dict":
@@ -256,6 +256,49 @@ def _exports_subpath_types(pkg_json, has_file):
             designated = _declaration_at(target, has_file)
             if designated:
                 out[key] = designated
+                break
+    return out
+
+def _pattern_target(target, has_file):
+    """The package-relative pattern one starred subpath's target designates, or "".
+
+    A target with a star is checked at the directory before it, the most a
+    pattern can be checked at. One without is the file every match of the key
+    resolves to -- unenv's `./mock/proxy-cjs/*` is its `lib/mock.d.cts` -- and is
+    checked as an exact subpath's target is. Two stars fit no `paths` pattern.
+    """
+    path = target.removeprefix("./")
+    stars = path.count("*")
+    if not path or stars > 1:
+        return ""
+    if stars == 0:
+        return _declaration_at(target, has_file)
+    directory = path[:path.find("*")].rpartition("/")[0]
+    return path if not directory or has_file(directory) else ""
+
+def _exports_subpath_patterns(pkg_json, has_file):
+    """The pattern each one-star `exports` subpath maps to, keyed by subpath.
+
+    `"./*": {"import": "./dist/esm/*"}` says where every subpath the map does not
+    name outright lives, and tsconfig `paths` can say the same: TypeScript
+    substitutes the matched star into the whole value, so the target travels with
+    its prefix and suffix intact (`./utils/*` -> `dist/types/utils/*.d.ts`) and
+    the declaration beside a `.js` is TypeScript's own to find. The first
+    condition `_export_targets` reaches whose target fits one star wins, in the
+    map's own order. A key with two stars matches no `paths` pattern and gets no
+    entry.
+    """
+    exports = pkg_json.get("exports")
+    if type(exports) != "dict":
+        return {}
+    out = {}
+    for key in exports.keys():
+        if not key.startswith("./") or key.count("*") != 1:
+            continue
+        for target in _export_targets(exports[key]):
+            pattern = _pattern_target(target, has_file)
+            if pattern:
+                out[key] = pattern
                 break
     return out
 
@@ -451,7 +494,7 @@ def _package_relative_label(path):
     """
     return ":" + path
 
-def _package_stanza(attrs, target_name, package_name, deps_expr, declaration_entry, subpath_declarations, type_references):
+def _package_stanza(attrs, target_name, package_name, deps_expr, declaration_entry, subpath_declarations, subpath_patterns, type_references):
     """The ts_npm_package call for one name this package is imported under."""
     stanza = [
         "ts_npm_package(",
@@ -477,6 +520,11 @@ def _package_stanza(attrs, target_name, package_name, deps_expr, declaration_ent
         stanza.append("    subpath_types = {")
         for subpath in sorted(subpath_declarations.keys()):
             stanza.append('        "{}": "{}",'.format(subpath, subpath_declarations[subpath]))
+        stanza.append("    },")
+    if subpath_patterns:
+        stanza.append("    subpath_patterns = {")
+        for subpath in sorted(subpath_patterns.keys()):
+            stanza.append('        "{}": "{}",'.format(subpath, subpath_patterns[subpath]))
         stanza.append("    },")
     if type_references:
         stanza.append("    type_references = {")
@@ -567,6 +615,7 @@ def _npm_import_impl(rctx):
 
     declaration_entry = _exports_types(pkg_json, _rctx_has_file(rctx))
     subpath_declarations = _exports_subpath_types(pkg_json, _rctx_has_file(rctx))
+    subpath_patterns = _exports_subpath_patterns(pkg_json, _rctx_has_file(rctx))
     type_references = _type_references(
         _rctx_read(rctx),
         ([declaration_entry] if declaration_entry else []) + sorted(subpath_declarations.values()),
@@ -585,6 +634,7 @@ def _npm_import_impl(rctx):
         deps_expr,
         declaration_entry,
         subpath_declarations,
+        subpath_patterns,
         type_references,
     ))
 
@@ -601,6 +651,7 @@ def _npm_import_impl(rctx):
             deps_expr,
             declaration_entry,
             subpath_declarations,
+            subpath_patterns,
             type_references,
         ))
 
@@ -1057,6 +1108,7 @@ link_block = _link_block
 target_name_in = _target_name_in
 exports_types = _exports_types
 exports_subpath_types = _exports_subpath_types
+exports_subpath_patterns = _exports_subpath_patterns
 triple_slash_directives = _triple_slash_directives
 referenced_types = _referenced_types
 type_references = _type_references

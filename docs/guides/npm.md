@@ -393,10 +393,13 @@ manifest naming a `.d.ts` it does not ship falls through to the next
 candidate. Six `@babel/helper-*` resolutions in this repository's own lockfile
 designate a `lib/index.d.ts` their tarball does not contain.
 
-!!! note "`paths` for subpaths is rooted at the entry's directory"
-    A package designating `dist/index.d.ts` gets `pkg/*` → `dist/*`. Importing
-    `pkg/sub` where the subpath's declarations sit somewhere other than beside the
-    entry will not resolve in the editor, even though the build is fine.
+!!! note "Subpaths"
+    `pkg/*` lists the package root and then the entry's directory, in the build's
+    tsconfig and the editor's alike. A subpath the `exports` map names gets an
+    exact key; a one-star pattern in the map (`"./*": "./dist/esm/*"`) puts its
+    target ahead of those two, star and suffix kept, so `pkg/server/mcp.js` is
+    `dist/esm/server/mcp.js` and TypeScript finds the declaration beside it. See
+    [Action Inputs](../rules/ts-compile.md#action-inputs).
 
 ## What a Workspace Member Is Imported As
 

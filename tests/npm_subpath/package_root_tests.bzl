@@ -9,7 +9,7 @@ written the way the package's own layout spells it.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
-load("//ts/private:ts_compile.bzl", "subpath_roots")
+load("//ts/private:ts_compile.bzl", "subpath_pattern_paths", "subpath_roots")
 
 def _paths_of(env):
     for action in analysistest.target_actions(env):
@@ -80,3 +80,42 @@ def _subpath_roots_impl(ctx):
     return unittest.end(env)
 
 subpath_roots_test = unittest.make(_subpath_roots_impl)
+
+def _subpath_pattern_paths_impl(ctx):
+    env = unittest.begin(ctx)
+
+    # The manifest's target first, star kept, then the two guesses spelled with
+    # the key's own prefix and suffix.
+    asserts.equals(
+        env,
+        ["../../ext/pkg/dist/esm/*", "../../ext/pkg/*", "../../ext/pkg/dist/*"],
+        subpath_pattern_paths("../../ext/pkg", "../../ext/pkg/dist", "./*", "dist/esm/*"),
+    )
+    asserts.equals(
+        env,
+        ["../../ext/pkg/dist/types/utils/*.d.ts", "../../ext/pkg/utils/*", "../../ext/pkg/dist/utils/*"],
+        subpath_pattern_paths("../../ext/pkg", "../../ext/pkg/dist", "./utils/*", "dist/types/utils/*.d.ts"),
+    )
+
+    # A key with a suffix of its own keeps it in the guesses; a starless target
+    # is one file every match resolves to.
+    asserts.equals(
+        env,
+        ["../../ext/pkg/libesm/*.d.ts", "../../ext/pkg/lib/*.js"],
+        subpath_pattern_paths("../../ext/pkg", "../../ext/pkg", "./lib/*.js", "libesm/*.d.ts"),
+    )
+    asserts.equals(
+        env,
+        ["../../ext/pkg/lib/mock.d.cts", "../../ext/pkg/mock/proxy-cjs/*", "../../ext/pkg/dist/mock/proxy-cjs/*"],
+        subpath_pattern_paths("../../ext/pkg", "../../ext/pkg/dist", "./mock/proxy-cjs/*", "lib/mock.d.cts"),
+    )
+
+    # A pattern mapping a directory to itself is the root guess, not repeated.
+    asserts.equals(
+        env,
+        ["../../ext/pkg/types/*", "../../ext/pkg/dist/node/types/*"],
+        subpath_pattern_paths("../../ext/pkg", "../../ext/pkg/dist/node", "./types/*", "types/*"),
+    )
+    return unittest.end(env)
+
+subpath_pattern_paths_test = unittest.make(_subpath_pattern_paths_impl)

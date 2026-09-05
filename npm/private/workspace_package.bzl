@@ -124,6 +124,7 @@ def _npm_package_info(ctx, member):
         ),
         exports_types_file = None,
         subpath_types = {},
+        subpath_patterns = {},
         type_references = {},
         ambient_types_file = None,
         types_package_dir = None,

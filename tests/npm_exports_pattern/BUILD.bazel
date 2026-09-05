@@ -1,0 +1,45 @@
+"""An `exports` subpath pattern of an npm package resolves where the manifest maps it.
+
+unenv maps `./*` to `./dist/runtime/*.d.mts` under `types`, so `unenv/node/path`
+is `dist/runtime/node/path.d.mts`: under neither the package root nor the entry
+declaration's directory, the two places the `unenv/*` wildcard guesses. Compiling
+is the assertion: an unresolved subpath is TS2307, which fails the tsgo action.
+"""
+
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "ts_compile")
+load("//ts/private:tsconfig_aspect.bzl", "ide_tsconfig")
+load(":exports_pattern_tests.bzl", "pattern_paths_editor_test", "pattern_paths_test")
+
+package(default_visibility = ["//:__pkg__"])
+
+# gazelle:ts_npm_hub npm_workers
+
+ts_compile(
+    name = "npm_exports_pattern",
+    srcs = ["runtime_subpath.ts"],
+    visibility = ["//visibility:public"],
+    deps = ["@npm_workers//:unenv"],
+)
+
+build_test(
+    name = "exports_pattern_test",
+    targets = [":npm_exports_pattern"],
+)
+
+pattern_paths_test(
+    name = "pattern_paths_test",
+    target_under_test = ":npm_exports_pattern",
+)
+
+# Read by the test, never installed; see //:refresh_tsconfig.
+ide_tsconfig(
+    name = "npm_exports_pattern_ide_tsconfig",
+    tags = ["manual"],
+    deps = [":npm_exports_pattern"],
+)
+
+pattern_paths_editor_test(
+    name = "pattern_paths_editor_test",
+    target_under_test = ":npm_exports_pattern_ide_tsconfig",
+)

@@ -280,11 +280,14 @@ The copied `.d.ts` is the entry point the package's own metadata designates. See
 The wildcard entry lists the package root and then that file's directory, in the
 order npm would look: with no `exports` map (most of the registry) `pkg/sub` is
 a plain path under the package root, and a package whose subpaths do sit beside
-its entry is answered by the second substitution.
+its entry is answered by the second substitution. A one-star `exports` pattern
+goes ahead of both, its target spelled as the manifest wrote it, star and suffix
+included, since TypeScript substitutes the matched star into the whole value.
 
 ```json
-"vite":   ["./.bazel/npm/vite/dist/node/index.d.ts"],
-"vite/*": ["./.bazel/npm/vite/*", "./.bazel/npm/vite/dist/node/*"]
+"vite":    ["./.bazel/npm/vite/dist/node/index.d.ts"],
+"vite/*":  ["./.bazel/npm/vite/*", "./.bazel/npm/vite/dist/node/*"],
+"unenv/*": ["./.bazel/npm/unenv/dist/runtime/*.d.mts", "./.bazel/npm/unenv/*", "./.bazel/npm/unenv/dist/*"]
 ```
 
 A `@types/*` package is keyed by the name it types, the only specifier anything

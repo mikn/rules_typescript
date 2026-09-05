@@ -37,6 +37,7 @@ load(
     "//ts/private:ts_compile.bzl",
     "TsModuleInfo",
     "referenced_type_files",
+    "subpath_pattern_paths",
     "subpath_wildcards",
     "types_entry_file",
     "types_entry_package_ref",
@@ -49,7 +50,7 @@ TsconfigSourcesInfo = provider(
     fields = {
         "packages": "depset of struct(path, has_index, module_name, declared_paths): package of every ts_compile target reached, whether it has an index file to name as the package entry point, the bare specifier the target declared with `module_name` (empty when it declared none), and -- for a workspace member -- TsModuleInfo.declared_paths, what its own package.json says each of its specifiers resolves to.",
         "aliases": "depset of struct(prefix, dir): path_aliases entries, workspace-relative.",
-        "npm_paths": "depset of struct(key, name, version, entry, is_file, wildcard): npm entry points, relative to the package's own directory. `key` is the specifier that resolves to one and `name` the package installed under `npm_dir`; they differ for a `@types/*` package, which answers the name it types and is installed under its own, and for an `exports` subpath, which answers a key under the package's name. `wildcard` is whether the key also takes a `<key>/*` companion -- false on a subpath entry, whose key names one file and whose own subpaths are not a thing.",
+        "npm_paths": "depset of struct(key, name, version, entry, is_file, wildcard, patterns): npm entry points, relative to the package's own directory. `key` is the specifier that resolves to one and `name` the package installed under `npm_dir`; they differ for a `@types/*` package, which answers the name it types and is installed under its own, and for an `exports` subpath, which answers a key under the package's name. `wildcard` is whether the key also takes a `<key>/*` companion -- false on a subpath entry, whose key names one file and whose own subpaths are not a thing. `patterns` is NpmPackageInfo.subpath_patterns as sorted (subpath, target) pairs, each written as a `<key><subpath>` key ahead of the wildcard's guesses; empty on a subpath entry and on a package a paired `@types/*` answers.",
         "npm_ambient": "depset of struct(name, version, entry): @types/* entry points to name in the tsconfig `files` array, relative to the package's own directory.",
         "npm_files": "depset of struct(name, version, dest, file): the files an npm entry point needs on disk, and where under the package each one goes.",
         "npm_untyped": "depset of struct(name, label): each npm package a reached target named in `untyped_packages`, and the target that named it. One `paths` map serves the whole editor, so this is what ide_tsconfig checks against the packages the rest of the graph still contributes.",
@@ -124,7 +125,8 @@ def _npm_entries(rule_attr):
     NpmPackageInfo.subpath_types and give each subpath its own key, because a
     `<name>/*` wildcard only guesses at one -- it substitutes the subpath as a
     path under the package and probes `.ts`, `.d.ts` and `/index.d.ts`, so it
-    finds `postcss/lib/node.d.ts` and misses `rolldown/dist/config.d.mts`.
+    finds `postcss/lib/node.d.ts` and misses `rolldown/dist/config.d.mts`. The
+    one-star patterns are NpmPackageInfo.subpath_patterns, read by both too.
 
     An entry's `key` is the specifier that resolves to it and its `name` is the
     package whose files are installed under `npm_dir`. The two differ for a
@@ -208,9 +210,10 @@ def _npm_entries(rule_attr):
             entry = first.rsplit("/", 1)[0] if "/" in first else ""
             is_file = False
 
-            # A subpath the runtime manifest designates points into the runtime
-            # package, and this branch stages the @types one instead.
+            # A subpath or pattern the runtime manifest designates points into the
+            # runtime package, and this branch stages the @types one instead.
             subpaths = {}
+            patterns = ()
         else:
             root = info.package_dir.dirname
 
@@ -225,6 +228,7 @@ def _npm_entries(rule_attr):
             is_file = entry != None
             entry = entry or ""
             subpaths = info.subpath_types
+            patterns = tuple(sorted(info.subpath_patterns.items()))
 
         paths.append(struct(
             key = alias or name,
@@ -233,6 +237,7 @@ def _npm_entries(rule_attr):
             entry = entry,
             is_file = is_file,
             wildcard = True,
+            patterns = patterns,
         ))
 
         # What the manifest said a subpath designates, which the `<name>/*`
@@ -250,6 +255,7 @@ def _npm_entries(rule_attr):
                 entry = dest,
                 is_file = True,
                 wildcard = False,
+                patterns = (),
             ))
         for src in sources:
             dest = _under(src, root)
@@ -1062,10 +1068,11 @@ def _ide_tsconfig_impl(ctx):
             # package, which is how a package with no `exports` map spells its
             # subpaths, and the build has always resolved it.
             if entry.wildcard:
-                paths[entry.key + "/*"] = subpath_wildcards(
-                    "./{}/{}".format(ctx.attr.npm_dir, entry.name),
-                    installed.rsplit("/", 1)[0] if entry.is_file else installed,
-                )
+                root = "./{}/{}".format(ctx.attr.npm_dir, entry.name)
+                entry_dir = installed.rsplit("/", 1)[0] if entry.is_file else installed
+                paths[entry.key + "/*"] = subpath_wildcards(root, entry_dir)
+                for subpath, target in entry.patterns:
+                    paths[entry.key + subpath[1:]] = subpath_pattern_paths(root, entry_dir, subpath, target)
 
         for npm_file in npm_files:
             copies.append(struct(

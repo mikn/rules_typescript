@@ -45,6 +45,7 @@
         "./.bazel/npm/@cloudflare/unenv-preset/dist/index.d.ts"
       ],
       "@cloudflare/unenv-preset/*": [
+        "./.bazel/npm/@cloudflare/unenv-preset/dist/runtime/*.d.mts",
         "./.bazel/npm/@cloudflare/unenv-preset/*",
         "./.bazel/npm/@cloudflare/unenv-preset/dist/*"
       ],
@@ -279,8 +280,16 @@
       "@speed-highlight/core/detect": [
         "./.bazel/npm/@speed-highlight/core/dist/detect.d.ts"
       ],
+      "@speed-highlight/core/languages/*.js": [
+        "./.bazel/npm/@speed-highlight/core/dist/languages/*.js",
+        "./.bazel/npm/@speed-highlight/core/languages/*.js"
+      ],
       "@speed-highlight/core/terminal": [
         "./.bazel/npm/@speed-highlight/core/dist/terminal.d.ts"
+      ],
+      "@speed-highlight/core/themes/*.css": [
+        "./.bazel/npm/@speed-highlight/core/dist/themes/*.css",
+        "./.bazel/npm/@speed-highlight/core/themes/*.css"
       ],
       "@standard-schema/spec": [
         "./.bazel/npm/@standard-schema/spec/dist/index.d.ts"
@@ -1312,6 +1321,10 @@
         "./.bazel/npm/rollup/*",
         "./.bazel/npm/rollup/dist/*"
       ],
+      "rollup/dist/*": [
+        "./.bazel/npm/rollup/dist/*",
+        "./.bazel/npm/rollup/dist/dist/*"
+      ],
       "rollup/getLogFilter": [
         "./.bazel/npm/rollup/dist/getLogFilter.d.ts"
       ],
@@ -1827,11 +1840,17 @@
         "./.bazel/npm/unenv/dist/index.d.mts"
       ],
       "unenv/*": [
+        "./.bazel/npm/unenv/dist/runtime/*.d.mts",
         "./.bazel/npm/unenv/*",
         "./.bazel/npm/unenv/dist/*"
       ],
       "unenv/mock/proxy-cjs": [
         "./.bazel/npm/unenv/lib/mock.d.cts"
+      ],
+      "unenv/mock/proxy-cjs/*": [
+        "./.bazel/npm/unenv/lib/mock.d.cts",
+        "./.bazel/npm/unenv/mock/proxy-cjs/*",
+        "./.bazel/npm/unenv/dist/mock/proxy-cjs/*"
       ],
       "update-browserslist-db": [
         "./.bazel/npm/update-browserslist-db/index.d.ts"
@@ -1856,11 +1875,19 @@
       "vite/client": [
         "./.bazel/npm/vite/client.d.ts"
       ],
+      "vite/dist/client/*": [
+        "./.bazel/npm/vite/dist/client/*",
+        "./.bazel/npm/vite/dist/node/dist/client/*"
+      ],
       "vite/internal": [
         "./.bazel/npm/vite/dist/node/internal.d.ts"
       ],
       "vite/module-runner": [
         "./.bazel/npm/vite/dist/node/module-runner.d.ts"
+      ],
+      "vite/types/*": [
+        "./.bazel/npm/vite/types/*",
+        "./.bazel/npm/vite/dist/node/types/*"
       ],
       "vitest": [
         "./.bazel/npm/vitest/dist/index.d.ts"
@@ -1981,6 +2008,11 @@
         "./.bazel/npm/youch/*",
         "./.bazel/npm/youch/build/*"
       ],
+      "youch/templates/*": [
+        "./.bazel/npm/youch/build/src/templates/*/main.js",
+        "./.bazel/npm/youch/templates/*",
+        "./.bazel/npm/youch/build/templates/*"
+      ],
       "youch/types": [
         "./.bazel/npm/youch/build/src/types.d.ts"
       ],
@@ -1989,6 +2021,10 @@
       ],
       "zod/*": [
         "./.bazel/npm/zod/*"
+      ],
+      "zod/locales/*": [
+        "./.bazel/npm/zod/lib/locales/*",
+        "./.bazel/npm/zod/locales/*"
       ]
     },
     "plugins": [
