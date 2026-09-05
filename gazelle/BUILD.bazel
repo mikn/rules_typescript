@@ -7,6 +7,10 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 # the Go language would generate a go_test embedding the runner.
 # gazelle:exclude *_test.go
 
+# The checked-in tsgo listing under testdata/ is the parser's fixture, which the
+# TypeScript language would otherwise write an asset_library for.
+# gazelle:exclude testdata
+
 go_library(
     name = "typescript",
     srcs = [
@@ -21,11 +25,15 @@ go_library(
         "language.go",
         "package_entry.go",
         "pnpm_lock.go",
+        "program.go",
         "resolve.go",
         "rollup.go",
+        "tsconfig.go",
     ],
+    data = ["//ts/toolchain:tsgo_resolved"],
     importpath = "github.com/mikn/rules_typescript/gazelle",
     visibility = ["//visibility:public"],
+    x_defs = {"tsgoRlocationpath": "$(rlocationpath //ts/toolchain:tsgo_resolved)"},
     deps = [
         "//gazelle/jsonc",
         "@com_github_bazelbuild_buildtools//build",
@@ -35,6 +43,7 @@ go_library(
         "@gazelle//repo",
         "@gazelle//resolve",
         "@gazelle//rule",
+        "@rules_go//go/runfiles",
     ],
 )
 
@@ -66,6 +75,7 @@ go_test(
         "package_entry_test.go",
         "package_imports_test.go",
         "path_alias_srcs_test.go",
+        "program_test.go",
         "resolve_test.go",
         "rollup_assets_test.go",
         "root_ambient_types_test.go",
@@ -74,6 +84,7 @@ go_test(
         "unknown_bare_name_test.go",
         "workspace_self_import_test.go",
     ],
+    data = glob(["testdata/**"]),
     embed = [":typescript"],
     deps = [
         "@com_github_bazelbuild_buildtools//build",

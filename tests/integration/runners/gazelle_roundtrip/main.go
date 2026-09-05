@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -36,7 +37,7 @@ func main() {
 		// The harness stages one lockfile, vitest's; wrangler is in tests/workers'.
 		it.Write(it.Path("pnpm-lock.workers.yaml"), it.Read(filepath.Join(it.RulesTSRoot, "tests/workers/pnpm-lock.yaml")))
 
-		gazelleLog, err := it.BazelLog("gazelle_pass_1", "run", "//:gazelle")
+		gazelleLog, err := it.BazelLog("gazelle_pass_1", "run", "//:gazelle", "--", "-ts_verbose")
 		if err != nil {
 			gazelleLog.Dump()
 			it.Fail("bazel run //:gazelle exited non-zero: %v", err)
@@ -109,7 +110,33 @@ func main() {
 		jsSrcsAreCompiledAndDeclared(it)
 		checkedInDeclarationTypesTheJavaScript(it)
 		lintWithoutTheLinterIsRefused(it, gazelleLog)
+		programsAreListedWithTheToolchainsTsgo(it, gazelleLog)
 	})
+}
+
+// Every tsconfig.json here is below the root, so tsgo lists each; that the tsgo
+// is the toolchain's, out of the binary's runfiles, only a consumer's run can say.
+func programsAreListedWithTheToolchainsTsgo(it *harness.IT, gazelleLog *harness.Log) {
+	binary := regexp.MustCompile(`listing programs with \S+/ts/toolchain/tsgo_resolved/tsgo \(runfiles\)`).FindString(gazelleLog.Text)
+	if binary == "" {
+		gazelleLog.Dump()
+		it.Fail("Gazelle did not find tsgo through the runfiles")
+	}
+	it.Pass("Gazelle lists programs with the toolchain's tsgo from its runfiles: %s", binary)
+
+	for _, dir := range []string{"src/app", "src/locales", "aliased", "worker", "worker/test", "worker/test/deep", "generated_worker"} {
+		if !gazelleLog.Matches(dir + `/tsconfig.json: \d+ files listed, [1-9]\d* roots, \d+ edges, \d+ type entries`) {
+			gazelleLog.Dump()
+			it.Fail("Gazelle did not list %s/tsconfig.json", dir)
+		}
+		it.Pass("%s/tsconfig.json listed", dir)
+	}
+	summary := regexp.MustCompile(`\d+ \.ts/\.tsx/\.mts/\.cts files in no program across \d+ director(y|ies)`).FindString(gazelleLog.Text)
+	if summary == "" {
+		gazelleLog.Dump()
+		it.Fail("Gazelle did not report the files in no program once the walk was done")
+	}
+	it.Pass("Gazelle reports the files in no program: %s", summary)
 }
 
 // src/app holds an eslint.config.js, and tests/npm's lockfile has oxlint and no

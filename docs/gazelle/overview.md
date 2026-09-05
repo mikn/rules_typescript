@@ -37,6 +37,18 @@ Run Gazelle:
 bazel run //:gazelle
 ```
 
+Each run lists every hand-written `tsconfig.json` it meets through tsgo, from
+the repository root: `tsgo -p <dir>/tsconfig.json --noEmit --listFilesOnly
+--explainFiles --pretty false`; a root `tsconfig.json` whose extends chain sets
+neither `include` nor `files` is skipped, since tsgo would enumerate the whole
+repository. The binary is the toolchain's, carried in
+`gazelle_typescript`'s runfiles, so the program Gazelle reads is the one the
+build type-checks; `-ts_tsgo=<path>` names another one. A run says nothing
+about the listings, tsgo's diagnostics included; `-ts_verbose` prints which
+binary ran, one line per `tsconfig.json` with what it listed or why it was not,
+tsgo's diagnostics for it, and the `.ts`/`.tsx`/`.mts`/`.cts` files no program
+lists, per directory and in total: `bazel run //:gazelle -- -ts_verbose`.
+
 ### Verifying a Run
 
 Taking Gazelle's output wholesale is the intended workflow.
