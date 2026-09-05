@@ -231,3 +231,17 @@ func importsIn(dir string, files []string) []string {
 	}
 	return all
 }
+
+func typeReferencesIn(dir string, files []string) []string {
+	var all []string
+	for _, f := range files {
+		filePath := filepath.Join(dir, f)
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			log.Printf("typescript: error reading %s: %v", filePath, err)
+			continue
+		}
+		all = append(all, ScanTypeReferences(string(data))...)
+	}
+	return all
+}

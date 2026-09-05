@@ -241,6 +241,13 @@ func resolveImports(
 		for _, lbl := range tc.tsconfigAmbientTypes {
 			addDep(lbl)
 		}
+		for _, name := range typeReferences(r) {
+			if lbl := typeReferenceLabel(tc, name); lbl != "" {
+				addDep(lbl)
+			} else if tc.warnUnresolved {
+				log.Printf("gazelle: WARNING: unresolved /// <reference types=%q /> in //%s:%s (the lockfile names no package answering it)", name, from.Pkg, from.Name)
+			}
+		}
 	}
 
 	imports, ok := asImports(importsIface)
@@ -285,6 +292,30 @@ func resolveImports(
 	sort.Strings(deps)
 	r.SetAttr("deps", deps)
 	return importDeps
+}
+
+func typeReferences(r *rule.Rule) []string {
+	names, _ := r.PrivateAttr(typeReferencesKey).([]string)
+	return names
+}
+
+// The package a `types` entry of that name maps to, resolved as a bare specifier
+// is; a bare name whose @types/<name> the lockfile lacks takes <name>, tsc's order.
+func typeReferenceLabel(tc *tsConfig, name string) string {
+	pkg := ambientTypePackage(name)
+	if pkg == "" {
+		return ""
+	}
+	if lbl := resolveNpmPackage(tc, pkg); lbl != "" {
+		return lbl
+	}
+	// The directive names a package, never a Node builtin: `events` with no such
+	// package in the lockfile is TS2688 under tsc, not a use of @types/node.
+	bare := barePackageName(name)
+	if bare == pkg || (isNodeBuiltin(bare) && !hasNpmPackage(tc, bare)) {
+		return ""
+	}
+	return resolveNpmPackage(tc, bare)
 }
 
 // setPathAliasSrcs stages, through path_alias_srcs, the target each import noted

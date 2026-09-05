@@ -77,6 +77,8 @@ go_test(
         "package_imports_test.go",
         "path_alias_srcs_test.go",
         "program_test.go",
+        "reference_types_scan_test.go",
+        "reference_types_test.go",
         "resolve_test.go",
         "rollup_assets_test.go",
         "root_ambient_types_test.go",

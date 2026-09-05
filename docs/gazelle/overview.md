@@ -664,6 +664,19 @@ installed under a built-in's name (the browserify `path` shim, say) still wins.
 When the lockfile has no `@types/node` the import gets no dep at all: a label
 no hub declares would turn a type error into an analysis failure.
 
+A `/// <reference types="google.maps" />` in the comments before a source's
+first token names a package the way a tsconfig `types` entry does, and every
+`ts_compile` and `ts_test` listing the source gets the dep: `@types/<name>` for
+a bare name, the package itself for a scoped or subpath name (`vite/client` is
+`@npm//:vite`), resolved through the lockfile as a bare specifier is. A bare
+name whose `@types/<name>` the lockfile lacks takes the package called `<name>`,
+the order tsc tries the two in. A name the lockfile does not answer gets no dep,
+and `# gazelle:ts_warn_unresolved true` lists it. TypeScript reads the
+directive out of the leading comments and nowhere else, so one after a statement
+is a comment here too. The `types` attribute is not written for it: tsc resolves
+the directive through `node_modules/@types`, which the sandbox does not have,
+and the dep is what puts the declarations in the program.
+
 ### The npm Inventory
 
 The names in step 4 come from the workspace-root `pnpm-lock.yaml`, read once per

@@ -39,8 +39,7 @@ Changes made since the newest section below are not here yet: they sit in
   in the closure provides is left to TypeScript's `TS2307`, since there is no
   label to suggest. There is no flag and no opt-out. Run `bazel run //:gazelle`
   to fix a failure, or add the printed labels by hand.
-  `/// <reference types="x" />` is not checked, and Gazelle generates no dep for
-  it either.
+  `/// <reference types="x" />` is not checked; Gazelle writes the dep it names.
 - `isolated_declarations = True|False` is replaced by
   `declarations = "tsgo"|"oxc"`, default `"tsgo"`. `"tsgo"` emits `.d.ts` from
   the full type program: no export needs an explicit type annotation, and a

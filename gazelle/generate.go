@@ -534,6 +534,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 
 		// Collect imports for all src files.
 		allImports := importsIn(args.Dir, srcFiles)
+		setTypeReferences(r, args.Dir, srcFiles)
 
 		// Aliases let tsgo resolve source-level specifiers like "@/components".
 		// One tsconfig `paths` map serves a whole workspace, so a target takes
@@ -626,6 +627,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		// The test files are a program of their own: the package target's alias
 		// map reaches nothing the test compiles.
 		setAliasAttrs(args, r, tc, testSrcs, allImports)
+		setTypeReferences(r, args.Dir, testSrcs)
 
 		// ts_test auto-builds a node_modules tree from its @npm// deps, so no
 		// explicit node_modules rule is generated. The ts_test macro filters deps
@@ -720,6 +722,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 
 		docImports := importsIn(args.Dir, docFiles)
 		setAliasAttrs(args, r, tc, docSrcs, docImports)
+		setTypeReferences(r, args.Dir, docSrcs)
 
 		gen = append(gen, r)
 		imports = append(imports, uniqueImports(docImports))
@@ -1055,6 +1058,16 @@ func setAliasAttrs(args language.GenerateArgs, r *rule.Rule, tc *tsConfig, srcs,
 
 // aliasSrcImportsKey carries the imports only path_alias_srcs can validate to Resolve.
 const aliasSrcImportsKey = "_alias_src_imports"
+
+// typeReferencesKey carries the names a rule's srcs reference in
+// `/// <reference types>` to Resolve, where the lockfile turns each into a dep.
+const typeReferencesKey = "_type_references"
+
+func setTypeReferences(r *rule.Rule, dir string, srcs []string) {
+	if names := uniqueImports(typeReferencesIn(dir, srcs)); len(names) > 0 {
+		r.SetPrivateAttr(typeReferencesKey, names)
+	}
+}
 
 // aliasCoversSrcs mirrors ts_compile's _validate_path_aliases: an alias holds only
 // when one of the target's own sources sits at or under its directory.

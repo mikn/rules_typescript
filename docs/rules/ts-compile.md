@@ -278,8 +278,9 @@ anything under a `path_aliases` prefix, since an alias resolves to files this
 target already stages. An import that nothing in the closure provides is left
 alone, because there is no label to suggest; TypeScript reports it as `TS2307`.
 
-`/// <reference types="x" />` is not checked: Gazelle generates no dep for it
-either, so the check would have no label to suggest.
+`/// <reference types="x" />` is not checked: it is not an import. The dep it
+names is Gazelle's to write
+([Import Resolution](../gazelle/overview.md#import-resolution)).
 
 ### Action Inputs
 

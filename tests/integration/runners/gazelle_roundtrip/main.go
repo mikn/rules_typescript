@@ -25,7 +25,7 @@ func main() {
 		WorkspaceRel: "tests/integration/gazelle_roundtrip",
 		Lockfile:     "tests/npm/pnpm-lock.yaml",
 	}, func(it *harness.IT) {
-		dirs := []string{"src/lib", "src/app", "src/icons", "src/typed", "worker", "worker/src", "worker/test", "worker/test/deep", "generated_worker/src", "aliased", "aliased/shared", "aliased/src"}
+		dirs := []string{"src/lib", "src/app", "src/icons", "src/typed", "src/env", "worker", "worker/src", "worker/test", "worker/test/deep", "generated_worker/src", "aliased", "aliased/shared", "aliased/src"}
 
 		// Written here rather than shipped in the workspace: a BUILD file under
 		// a --deleted_packages entry is a package of the OUTER workspace, and
@@ -104,6 +104,7 @@ func main() {
 		}
 
 		rootAmbientTypesReachTheTreeBelow(it)
+		referenceTypesBecomeADep(it)
 		generatedDeclarationNamesItsGenerator(it)
 		aliasAttrsFollowTheSrcs(it)
 		codegenGlobLoads(it)
@@ -591,6 +592,36 @@ func aliasAttrsFollowTheSrcs(it *harness.IT) {
 		it.Fail("//aliased/src:src failed for some other reason than the alias guard")
 	}
 	it.Pass("without path_alias_srcs the alias fails analysis: nothing //aliased/src stages sits under aliased/shared/")
+}
+
+// tsc finds env.d.ts's `/// <reference types="node" />` in node_modules/@types; the
+// sandbox has none, so index.ts's `process` is TS2591 until a dep carries the declarations.
+func referenceTypesBecomeADep(it *harness.IT) {
+	build := it.Path("src/env/BUILD.bazel")
+	it.RequireContains(build, `deps = ["@npm//:types_node"]`,
+		"//src/env does not carry the dep its /// <reference types=\"node\" /> names")
+	it.RequireNotContains(build, "types =",
+		"the directive was written as a types attribute rather than a dep")
+	it.Pass("//src/env carries @npm//:types_node from the directive and no types attribute")
+
+	it.RequireFile(it.Bin("src/env/index.js"),
+		"//src/env did not compile, so @types/node's declarations never reached its program")
+	it.Pass("//src/env type-checks a use of `process` against declarations nothing imports")
+
+	// The measurement behind writing the dep at all.
+	restore := it.Read(build)
+	it.Replace(build, "    deps = [\"@npm//:types_node\"],\n", "")
+	log, err := it.BazelLog("reference_types_without_the_dep", "build", "//src/env")
+	it.Write(build, restore)
+	if err == nil {
+		log.Dump()
+		it.Fail("//src/env compiled without the dep; the directive alone reaches the declarations and Gazelle need not write one")
+	}
+	if !log.Contains("TS2591") {
+		log.Dump()
+		it.Fail("//src/env failed for some other reason than the missing global")
+	}
+	it.Pass("without the dep `process` is TS2591: the directive resolves to nothing in the sandbox")
 }
 
 // worker/tsconfig.json states `types: ["./worker-configuration.d.ts"]`, and

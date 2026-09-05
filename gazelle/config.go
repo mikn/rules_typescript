@@ -1846,9 +1846,9 @@ func typeEntryFileName(entry string) (hops int, name string, isFile bool) {
 	return hops, name, true
 }
 
-// ambientTypeLabel converts one compilerOptions.types entry to an @npm label,
-// returning "" for an entry that names a file rather than a package.
-func ambientTypeLabel(entry string) string {
+// ambientTypePackage is the package one compilerOptions.types entry names, ""
+// for an entry that names a file rather than a package.
+func ambientTypePackage(entry string) string {
 	entry = strings.TrimSpace(entry)
 	if entry == "" {
 		return ""
@@ -1857,9 +1857,19 @@ func ambientTypeLabel(entry string) string {
 		return ""
 	}
 	if strings.HasPrefix(entry, "@") || strings.Contains(entry, "/") {
-		return npmLabel(barePackageName(entry))
+		return barePackageName(entry)
 	}
-	return npmLabel("@types/" + entry)
+	return "@types/" + entry
+}
+
+// ambientTypeLabel converts one compilerOptions.types entry to an @npm label,
+// returning "" for an entry that names a file rather than a package.
+func ambientTypeLabel(entry string) string {
+	pkg := ambientTypePackage(entry)
+	if pkg == "" {
+		return ""
+	}
+	return npmLabel(pkg)
 }
 
 // npmLabel converts an npm package name to its @npm//:<label> form.
