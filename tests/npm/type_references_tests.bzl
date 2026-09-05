@@ -168,6 +168,7 @@ def _written_form_test(ctx):
         "",
         "index.d.ts",
         {},
+        {},
         references,
     )
     asserts.true(
@@ -183,6 +184,7 @@ def _written_form_test(ctx):
             "@types/bun",
             "",
             "index.d.ts",
+            {},
             {},
             {},
         ),

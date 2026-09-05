@@ -36,7 +36,7 @@ What the rows pin, beyond one expected path each:
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
-load("//npm/private:npm_import.bzl", "exports_subpath_types", "exports_types", "package_stanza")
+load("//npm/private:npm_import.bzl", "exports_subpath_patterns", "exports_subpath_types", "exports_types", "package_stanza")
 load("//ts/private:providers.bzl", "NpmPackageInfo")
 
 _CASES = [
@@ -411,9 +411,145 @@ _SUBPATH_CASES = [
     ),
 ]
 
+# The one-star `exports` patterns a manifest designates. `files` may hold no
+# declaration under a pattern's directory: the check is on the directory before the star.
+_PATTERN_CASES = [
+    struct(
+        package = "unenv@2.0.0-rc.24",
+        shape = "`./*` into dist/runtime with a .d.mts suffix; a starred key whose target has no star",
+        manifest = """{
+          "name": "unenv",
+          "version": "2.0.0-rc.24",
+          "type": "module",
+          "exports": {
+            ".": {
+              "types": "./dist/index.d.mts",
+              "default": "./dist/index.mjs"
+            },
+            "./package.json": "./package.json",
+            "./mock/proxy-cjs": {
+              "types": "./lib/mock.d.cts",
+              "default": "./lib/mock.cjs"
+            },
+            "./mock/proxy-cjs/*": {
+              "types": "./lib/mock.d.cts",
+              "default": "./lib/mock.cjs"
+            },
+            "./*": {
+              "types": "./dist/runtime/*.d.mts",
+              "default": "./dist/runtime/*.mjs"
+            }
+          },
+          "types": "./dist/index.d.mts"
+        }""",
+        files = ["dist/index.d.mts", "dist/runtime/node/path.d.mts", "lib/mock.d.cts"],
+        expected = {"./*": "dist/runtime/*.d.mts", "./mock/proxy-cjs/*": "lib/mock.d.cts"},
+    ),
+    struct(
+        package = "@modelcontextprotocol/sdk@1.28.0",
+        shape = "`import` and `require` only: the ESM build's directory, the declaration beside each .js",
+        manifest = """{
+          "name": "@modelcontextprotocol/sdk",
+          "version": "1.28.0",
+          "exports": {
+            ".": {
+              "import": "./dist/esm/index.js",
+              "require": "./dist/cjs/index.js"
+            },
+            "./client": {
+              "import": "./dist/esm/client/index.js",
+              "require": "./dist/cjs/client/index.js"
+            },
+            "./server": {
+              "import": "./dist/esm/server/index.js",
+              "require": "./dist/cjs/server/index.js"
+            },
+            "./validation": {
+              "import": "./dist/esm/validation/index.js",
+              "require": "./dist/cjs/validation/index.js"
+            },
+            "./validation/ajv": {
+              "import": "./dist/esm/validation/ajv-provider.js",
+              "require": "./dist/cjs/validation/ajv-provider.js"
+            },
+            "./validation/cfworker": {
+              "import": "./dist/esm/validation/cfworker-provider.js",
+              "require": "./dist/cjs/validation/cfworker-provider.js"
+            },
+            "./experimental": {
+              "import": "./dist/esm/experimental/index.js",
+              "require": "./dist/cjs/experimental/index.js"
+            },
+            "./experimental/tasks": {
+              "import": "./dist/esm/experimental/tasks/index.js",
+              "require": "./dist/cjs/experimental/tasks/index.js"
+            },
+            "./*": {
+              "import": "./dist/esm/*",
+              "require": "./dist/cjs/*"
+            }
+          }
+        }""",
+        files = ["dist/cjs/server/mcp.d.ts", "dist/cjs/types.d.ts", "dist/esm/server/mcp.d.ts", "dist/esm/types.d.ts"],
+        expected = {"./*": "dist/esm/*"},
+    ),
+    struct(
+        package = "diff@8.0.3",
+        shape = "a suffix on the key itself, and `types` two conditions down; a trailing-slash key is no pattern",
+        manifest = """{
+          "name": "diff",
+          "version": "8.0.3",
+          "main": "./libcjs/index.js",
+          "types": "libcjs/index.d.ts",
+          "exports": {
+            ".": {
+              "import": { "types": "./libesm/index.d.ts", "default": "./libesm/index.js" },
+              "require": { "types": "./libcjs/index.d.ts", "default": "./libcjs/index.js" }
+            },
+            "./package.json": "./package.json",
+            "./lib/*.js": {
+              "import": { "types": "./libesm/*.d.ts", "default": "./libesm/*.js" },
+              "require": { "types": "./libcjs/*.d.ts", "default": "./libcjs/*.js" }
+            },
+            "./lib/": {
+              "import": { "types": "./libesm/", "default": "./libesm/" },
+              "require": { "types": "./libcjs/", "default": "./libcjs/" }
+            }
+          }
+        }""",
+        files = ["libcjs/index.d.ts", "libesm/index.d.ts"],
+        expected = {"./lib/*.js": "libesm/*.d.ts"},
+    ),
+    struct(
+        package = "vite@8.2.2",
+        shape = "two patterns mapping a directory to itself, one to `null`",
+        manifest = """{
+          "name": "vite",
+          "version": "8.2.2",
+          "exports": {
+            ".": "./dist/node/index.js",
+            "./client": { "types": "./client.d.ts" },
+            "./module-runner": "./dist/node/module-runner.js",
+            "./internal": "./dist/node/internal.js",
+            "./dist/client/*": "./dist/client/*",
+            "./types/*": { "types": "./types/*" },
+            "./types/internal/*": null,
+            "./package.json": "./package.json"
+          }
+        }""",
+        files = ["client.d.ts", "dist/client/client.mjs", "dist/node/index.d.ts", "types/hot.d.ts"],
+        expected = {"./dist/client/*": "dist/client/*", "./types/*": "types/*"},
+    ),
+]
+
 def _shipping(files):
+    # A directory is shipped when a listed file sits under it, as the repository
+    # rule's predicate answers: a pattern is checked at the directory before its star.
     def has_file(path):
-        return path in files
+        for f in files:
+            if f == path or f.startswith(path + "/"):
+                return True
+        return False
 
     return has_file
 
@@ -447,6 +583,47 @@ def _published_subpaths_test(ctx):
 
 published_subpaths_test = unittest.make(_published_subpaths_test)
 
+def _stanza_for(case, patterns):
+    package_name, _, version = case.package.rpartition("@")
+    return package_stanza(
+        struct(version = version, peer_id = "", types_dep = "", is_types_package = False),
+        "pkg",
+        package_name,
+        "",
+        "",
+        {},
+        patterns,
+        {},
+    )
+
+def _published_patterns_test(ctx):
+    env = unittest.begin(ctx)
+
+    for case in _PATTERN_CASES:
+        asserts.equals(
+            env,
+            case.expected,
+            exports_subpath_patterns(json.decode(case.manifest), _shipping(case.files)),
+            "{}: {}".format(case.package, case.shape),
+        )
+
+    unenv = _PATTERN_CASES[0]
+    stanza = _stanza_for(unenv, exports_subpath_patterns(json.decode(unenv.manifest), _shipping(unenv.files)))
+    asserts.true(
+        env,
+        '    subpath_patterns = {\n        "./*": "dist/runtime/*.d.mts",\n        "./mock/proxy-cjs/*": "lib/mock.d.cts",\n    },\n' in stanza,
+        "the stanza carries the attribute as written: " + stanza,
+    )
+    asserts.true(
+        env,
+        "subpath_patterns" not in _stanza_for(unenv, {}),
+        "and a manifest with no pattern does not name the attribute",
+    )
+
+    return unittest.end(env)
+
+published_patterns_test = unittest.make(_published_patterns_test)
+
 # Resolved against this package because the one the BUILD file is generated into
 # exists only inside a fetch; whether a string names a path or a repository is
 # the same question in either.
@@ -474,6 +651,7 @@ def _written_form_test(ctx):
             exports_types(json.decode(case.manifest), _shipping(case.files)),
             {},
             {},
+            {},
         )
         asserts.equals(
             env,
@@ -487,7 +665,7 @@ def _written_form_test(ctx):
 written_form_test = unittest.make(_written_form_test)
 
 def exports_types_test_suite(name):
-    unittest.suite(name, published_shapes_test, published_subpaths_test, written_form_test)
+    unittest.suite(name, published_shapes_test, published_subpaths_test, published_patterns_test, written_form_test)
 
 def _written_tsconfig(env):
     for action in analysistest.target_actions(env):

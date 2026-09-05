@@ -291,6 +291,22 @@ direct dep's own dependencies or through a `ts_compile` dep's. A dep's emitted
 program; without the key TypeScript widens what that declaration exports to
 `any` without a report. `TsStrictDeps` stops your own source from using them.
 
+A package's subpaths get three kinds of key. `<pkg>/*` lists the package root
+and then the entry declaration's directory, the two places a subpath lives when
+the manifest says nothing about it. An `exports` subpath the manifest designates
+a declaration for gets an exact key naming that file. A one-star `exports`
+pattern gets a pattern key whose first value is the manifest's target with the
+star and any suffix kept, the two guesses behind it:
+`"./*": {"import": "./dist/esm/*"}` writes `<pkg>/*` as `<repo>/dist/esm/*`,
+`<repo>/*`, `<repo>/<entry dir>/*`, and
+`"./utils/*": {"types": "./dist/types/utils/*.d.ts"}` writes `<pkg>/utils/*`
+with `<repo>/dist/types/utils/*.d.ts` first. TypeScript substitutes the matched
+star into the whole `paths` value and reads no `exports` map for a `paths`
+match, so the pattern is spelled out where the map is read, at fetch time. The
+first condition in the map's own order whose target fits one star wins, `types`
+included; a target with no star is the one file every match resolves to; a key
+with two stars, or a `null` target, gets no key of its own.
+
 ### `@types/*` Packages
 
 DefinitelyTyped publishes `x`'s declarations as `@types/x`, and a scoped

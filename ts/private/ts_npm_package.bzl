@@ -190,6 +190,7 @@ def _ts_npm_package_impl(ctx):
             ),
             exports_types_file = ctx.file.exports_types,
             subpath_types = subpath_types,
+            subpath_patterns = ctx.attr.subpath_patterns,
             type_references = type_references,
             ambient_types_file = ambient_types_file,
             types_package_dir = types_package_dir,
@@ -245,6 +246,15 @@ ts_npm_package = rule(
                   "and npm packages reach the compiler through `paths`. A subpath " +
                   "this map leaves unnamed is looked for among the package's own " +
                   "declarations instead.",
+        ),
+        "subpath_patterns": attr.string_dict(
+            doc = "Each one-star `exports` subpath, mapped to the package-relative " +
+                  "pattern the first condition to fit one star names, star and " +
+                  "suffix kept (`\"./*\": \"dist/esm/*\"`), or to the one file every " +
+                  "match resolves to when that target has no star. A consumer writes " +
+                  "it as the first value of the `paths` key for the subpath, ahead of " +
+                  "the wildcard's layout guesses: `paths` substitutes into the whole " +
+                  "value and never consults `exports`. Written by npm_import.",
         ),
         "type_references": attr.string_list_dict(
             doc = "Each declaration the manifest designates -- the entry and the " +

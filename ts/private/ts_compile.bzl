@@ -262,6 +262,24 @@ def subpath_wildcards(pkg_root_rel, entry_rel_dir):
     roots = [pkg_root_rel] if pkg_root_rel == entry_rel_dir else [pkg_root_rel, entry_rel_dir]
     return [r + "/*" for r in roots]
 
+def subpath_pattern_paths(pkg_root_rel, entry_rel_dir, key, target):
+    """`paths` values for one `exports` pattern key, the manifest's answer first.
+
+    `key` is the `exports` key (`./utils/*`) and `target` the package-relative
+    pattern it maps to (`dist/types/utils/*.d.ts`); TypeScript substitutes the
+    matched star into the whole value, so both keep their prefix and suffix.
+    Behind the answer come the guesses `subpath_wildcards` makes for `<pkg>/*`,
+    each spelled with the key's own shape, so a manifest naming a directory the
+    tarball lacks resolves no worse than one nobody read. Exported for
+    tsconfig_aspect and the unit test.
+    """
+    values = [pkg_root_rel + "/" + target]
+    for root in subpath_wildcards(pkg_root_rel, entry_rel_dir):
+        guess = root[:-len("/*")] + key[1:]
+        if guess not in values:
+            values.append(guess)
+    return values
+
 def types_package_alias(package_name):
     """The name `@types/x` supplies declarations for, or None for any other package.
 
@@ -872,7 +890,9 @@ def _generate_tsconfig(
         ctx:          Rule context.
         srcs:         Source files to type-check (.ts/.tsx/.js/.mjs/.cjs plus
                       ambient .d.ts).
-        npm_pkg_dirs: (package_name, path, is_file, package_root) tuples for npm deps.
+        npm_pkg_dirs: (package_name, path, is_file, package_root, subpath_patterns)
+                      tuples for npm deps; the last is NpmPackageInfo's, empty
+                      for a package a paired @types/* answers.
         npm_subpath_dts: (specifier, declaration path) pairs, one per `exports`
                       subpath an npm dep designates a declaration for.
         npm_types_aliases: struct(key, path, is_file, wildcard) per `paths` key a
@@ -1002,7 +1022,7 @@ def _generate_tsconfig(
     aliased = {key: True for key in paths}
 
     for entry in npm_pkg_dirs or []:
-        pkg_name, path, is_file, pkg_root = entry[0], entry[1], entry[2], entry[3]
+        pkg_name, path, is_file, pkg_root, patterns = entry
         pkg_dir = path[:path.rfind("/")] if "/" in path else ""
         rel_dir = explicitly_relative(_relative_path(tsconfig_dir, pkg_dir if is_file else path))
         if is_file:
@@ -1010,6 +1030,12 @@ def _generate_tsconfig(
         else:
             paths[pkg_name] = [rel_dir]
         paths[pkg_name + "/*"] = subpath_roots(tsconfig_dir, pkg_root, rel_dir)
+
+        # What the manifest maps a subpath pattern to, ahead of those guesses;
+        # for `./*` this rewrites the wildcard just written.
+        root_rel = explicitly_relative(_relative_path(tsconfig_dir, pkg_root))
+        for key in sorted(patterns):
+            paths[pkg_name + key[1:]] = subpath_pattern_paths(root_rel, rel_dir, key, patterns[key])
 
     # After the wildcard, which is a guess wherever a manifest gates subpaths.
     # Where the manifest said which declaration a subpath designates, that answer
@@ -1948,10 +1974,8 @@ def _ts_compile_impl(ctx):
     # be satisfied from. The transitive sets above stay the action inputs.
     direct_provided_sets = []
 
-    # npm_pkg_dirs: list of (package_name, package_dir_path) for tsconfig paths.
-    # We collect ALL transitive npm deps so that tsgo can resolve bare module
-    # specifiers in transitively-imported .d.ts files (e.g. vitest's index.d.ts
-    # imports from @vitest/runner which must be in the tsconfig paths).
+    # Every transitive npm package, not the direct ones alone: tsgo resolves the
+    # bare specifiers inside a transitively imported .d.ts from `paths` alone.
     #
     # Pass 1: collect ALL transitive package dirs from all direct npm deps.
     # This builds a complete map of pkg_name → dir_path that covers both direct
@@ -2115,7 +2139,7 @@ def _ts_compile_impl(ctx):
                 break
 
     # Step 1c: build npm_pkg_dirs from pkg_info_map using types_override.
-    # npm_pkg_dirs entries: (pkg_name, pkg_dir_or_file_path, is_file, pkg_root)
+    # npm_pkg_dirs entries: (pkg_name, pkg_dir_or_file_path, is_file, pkg_root, subpath_patterns)
     #   When is_file is True, pkg_dir_or_file_path points directly to a .d.ts file
     #   (from exports_types_file). This generates a more precise paths entry like:
     #     "pkg": ["path/to/index.d.ts"]
@@ -2155,7 +2179,11 @@ def _ts_compile_impl(ctx):
             entry, is_file = npm_info.exports_types_file.path, True
         else:
             entry, is_file = pkg_dir, False
-        npm_pkg_dirs.append((pkg_name, entry, is_file, pkg_dir))
+
+        # A paired @types/* answers the name; the runtime manifest's patterns point
+        # into a package with no declarations, so tsconfig_aspect drops them too.
+        patterns = {} if pkg_name in types_override else npm_info.subpath_patterns
+        npm_pkg_dirs.append((pkg_name, entry, is_file, pkg_dir, patterns))
         if alias:
             npm_types_aliases.append(struct(
                 key = alias,
