@@ -395,12 +395,14 @@ These labels are appended to every generated `ts_test` deps list in the repo.
 Appended to every generated `ts_compile` and `ts_test` deps list in the tree,
 including a target whose sources import nothing at all.
 
-This is the one dep Gazelle cannot infer. Every other dep comes from a specifier
-in a source file, and an **ambient** declaration is one nothing imports: a file
-using `process`, `Buffer` or `__dirname` gives the resolver nothing to work from.
-A strict-deps failure over a global is the one failure `bazel run //:gazelle`
-cannot repair; the alternative is adding `@types/node` by hand to every target
-that touches a global.
+This is the dep for a global no file names. Every other dep comes from a
+specifier in a source file, a `/// <reference types="node" />` in its leading
+comments included ([Import Resolution](overview.md#import-resolution)); an
+**ambient** declaration is one nothing imports, so a file using `process`,
+`Buffer` or `__dirname` with no such directive gives the resolver nothing to
+work from. A strict-deps failure over a global is the one failure
+`bazel run //:gazelle` cannot repair; the alternatives are the directive in the
+file, or `@types/node` by hand on every target that touches a global.
 
 Scope it to a subtree by putting the directive in that directory's BUILD file; it
 is inherited by that tree only. Labels accumulate down the tree, so a root

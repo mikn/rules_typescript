@@ -2,6 +2,7 @@ package typescript
 
 import (
 	"os"
+	"regexp"
 	"strings"
 )
 
@@ -283,6 +284,61 @@ func extractFromSource(src string) []string {
 		result = append(result, imp.Specifier)
 	}
 	return result
+}
+
+// ---- /// <reference types> -------------------------------------------------
+
+// TypeScript's pragma reader takes the attributes in any order, so
+// `preserve="true" types="x"` counts, and either quote does.
+var (
+	referenceDirective = regexp.MustCompile(`^///\s*<reference\s(.*?)/>`)
+	typesAttribute     = regexp.MustCompile(`(?:^|\s)types\s*=\s*(?:"([^"]*)"|'([^']*)')`)
+)
+
+// ScanTypeReferences reads `/// <reference types="x" />` names from the comments
+// before src's first token, where TypeScript reads them; a later one is a comment.
+func ScanTypeReferences(src string) []string {
+	var found []string
+	i, n := 0, len(src)
+	if strings.HasPrefix(src, "\ufeff") {
+		i = len("\ufeff")
+	}
+	if strings.HasPrefix(src[i:], "#!") {
+		for i < n && src[i] != '\n' {
+			i++
+		}
+	}
+	for i < n {
+		c := src[i]
+		switch {
+		case c == ' ' || c == '\t' || c == '\r' || c == '\n':
+			i++
+
+		case c == '/' && i+1 < n && src[i+1] == '/':
+			start := i
+			for i < n && src[i] != '\n' {
+				i++
+			}
+			if m := referenceDirective.FindStringSubmatch(src[start:i]); m != nil {
+				if attr := typesAttribute.FindStringSubmatch(m[1]); attr != nil {
+					if name := attr[1] + attr[2]; name != "" {
+						found = append(found, name)
+					}
+				}
+			}
+
+		case c == '/' && i+1 < n && src[i+1] == '*':
+			i += 2
+			for i < n && !(src[i] == '*' && i+1 < n && src[i+1] == '/') {
+				i++
+			}
+			i = min(i+2, n)
+
+		default:
+			return found
+		}
+	}
+	return found
 }
 
 // ---- lexer -----------------------------------------------------------------

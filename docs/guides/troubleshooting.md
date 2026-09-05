@@ -280,9 +280,9 @@ bazel run //:gazelle
 
 The check and Gazelle share one specifier scanner, so a Gazelle run that leaves
 a reported failure unfixed is a bug. Two things are outside the check:
-`/// <reference types="x" />`, for which Gazelle generates no dep either, and an
-import nothing in the closure provides, which TypeScript reports as
-`TS2307`.
+`/// <reference types="x" />`, which is not an import (Gazelle writes the dep
+it names), and an import nothing in the closure provides, which TypeScript
+reports as `TS2307`.
 
 ## Option 'baseUrl' has been removed
 
@@ -368,15 +368,17 @@ globals without referencing `vite/client`, so `vite` does not become a
 compile-time dependency. It is a src like any other, so it types the target
 that sets the attribute and no other; a consumer using `import.meta.env` sets
 `vite_types = True` itself. Anything else the directive was reaching for is an
-ordinary `@types/*` package. Name it in `deps`, or in
-[`# gazelle:ts_ambient_types`](../gazelle/directives.md#declare-ambient-types-once-for-the-whole-repo)
-if the whole tree needs it.
+ordinary `@types/*` package, which is the dep Gazelle writes from the directive
+([Import Resolution](../gazelle/overview.md#import-resolution)); a direct
+`@types/*` dep puts its declarations in the program with the directive itself
+resolving to nothing. A whole tree that needs the package names it in
+[`# gazelle:ts_ambient_types`](../gazelle/directives.md#declare-ambient-types-once-for-the-whole-repo).
 
-Gazelle does not rewrite the directive, and neither the import scanner nor the
-strict-deps checker reads it. That covers the directive in a file of your own.
-One in an npm package's declaration entry (`@types/bun/index.d.ts` is
-`/// <reference types="bun-types" />`) is followed by the rule; see
-[`@types/*` packages](../rules/ts-compile.md#types-packages).
+That is the directive in a file of your own: Gazelle writes the dep it names
+and rewrites nothing else, and neither the specifier scanner nor the
+strict-deps checker reads it. One in an npm package's declaration entry
+(`@types/bun/index.d.ts` is `/// <reference types="bun-types" />`) is followed
+by the rule; see [`@types/*` packages](../rules/ts-compile.md#types-packages).
 
 ## compilerOptions.types entry "vite/client" resolves to nothing
 
