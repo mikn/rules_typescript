@@ -1,0 +1,6 @@
+{
+  "name": "rules_typescript_config_at_root_test",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": { "test": "vitest" }
+}

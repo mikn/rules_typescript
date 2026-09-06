@@ -1,0 +1,11 @@
+# A pool-free config at the package root with a root-relative setupFiles entry;
+# the test lives in test/, its own package.
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["package.json"])
+
+filegroup(
+    name = "vitest_config",
+    srcs = ["vitest.config.mjs"],
+    visibility = ["//visibility:public"],
+)

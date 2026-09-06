@@ -253,8 +253,8 @@ keeps the label until edited. No label is written into a directory under a
 it and the test leaves the two disagreeing about, one whose own target is
 already named `vitest_config`, or, in tsconfig mode, one below the root that
 holds no `tsconfig.json`; the test then gets no `config`, as before. Vite's root
-is the test's package either way, so a relative path in a config found above
-the tests resolves against the test's directory, not the config's.
+is the config's package, so a relative path in a config found above the tests
+resolves against the config's directory, as under plain `vitest`.
 
 Doc and story files (`*.doc.ts`, `*.doc.tsx`, `*.stories.ts`, `*.stories.tsx`) generate a separate `ts_compile` target in both modes. A doc file consumes the library and does not belong to it: left in the package target, a design system where `switch/switch.doc.tsx` imports `../label` and `label/label.doc.tsx` imports `../switch` is a dependency cycle between the two component packages, though neither component depends on the other. Like test files, they are outside the `ts_lint` target's sources. Like the `ts_test` target, they get the package's ambient `.d.ts` files: nothing imports an ambient declaration, so only `srcs` membership puts it in a program. `.mdx` files are not TypeScript sources and are unaffected.
 

@@ -1,0 +1,14 @@
+{
+  // `main` names what Bazel built, as //tests/workers does; the pool resolves
+  // it against this file's directory, the config's package.
+  "name": "rules-typescript-nested-worker",
+  "main": "src/index.js",
+  "compatibility_date": "2026-01-01",
+  "vars": { "GREETING": "top-level" },
+  "env": {
+    "test": {
+      "main": "src/index.js",
+      "vars": { "GREETING": "from-env-test" }
+    }
+  }
+}

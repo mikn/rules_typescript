@@ -18,6 +18,8 @@ func TestEveryAttributeReachesTheGeneratedConfig(t *testing.T) {
 		`reporters: ["default"]`,
 		`coverage: { provider: "v8", thresholds: { "lines": 0, "perFile": true } }`,
 		`{"test":{"testTimeout":20000}}`,
+		`root: resolve(process.env.TS_TEST_PACKAGE_DIR, "."),`,
+		`const workersPoolLayer = undefined;`,
 		`merge(merge(bazelLayer, user), attrLayer)`,
 	)
 }

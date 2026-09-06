@@ -136,8 +136,9 @@ Gazelle writes `config` from the file plain `vitest` would read: a
 `vitest.config.*` beside the tests by name, else the one in the nearest
 directory above holding a `package.json`, or the repository root, as the label
 `//pkg:vitest_config` of a public `filegroup` Gazelle writes over the file in
-that package. Vite's root is the test's package either way, so a relative path
-in such a config resolves against the test's directory, not the config's. See
+that package. Vite's root is the config's package either way, so a relative
+path in such a config resolves against the directory it sits in, as it does
+under plain `vitest`; `//tests/config_at_root` is the example. See
 [the package boundary heuristic](../gazelle/overview.md#package-boundary-heuristic).
 
 ### Other Attributes
@@ -268,7 +269,6 @@ implies.
 import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
 
 export default {
-  resolve: { preserveSymlinks: false },
   plugins: [
     cloudflareTest({
       remoteBindings: false,
@@ -287,16 +287,24 @@ to a virtual id, `load` returns the runtime's bytes. The pool forwards
 to workerd, so with no plugin registered nothing resolves it and vitest falls
 back to Node package resolution, which fails.
 
-`resolve.preserveSymlinks: false` is the other required line. `ts_test`'s Bazel
-layer turns it on for the sandbox reason above. The pool resolves modules for
-workerd through a second path, where a lexical path is a second module identity
-for the same file, and the user layer wins. Without it the run fails with
+`ts_test`'s Bazel layer turns `resolve.preserveSymlinks` on for the sandbox
+reason above and, when the config's `plugins` hold the pool's, off: the pool
+resolves modules for workerd through a second path, where a lexical path is a
+second module identity for the same file. Left on, the run fails with
 `TypeError: Cannot read properties of undefined (reading 'config')` from inside
-the pool runner.
+the pool runner (pool 0.22.0; `No such module ".../vitest/dist/@vitest/spy"` on
+0.18.4). The same layer resolves the compiled worker's bare imports from the
+root, where the runfiles `node_modules` link is, and refuses an import of a
+build output the runfiles do not hold; see
+[the generated config](../rules/ts-test.md#the-generated-vitest-config).
 
 The wrangler `configPath` is relative because `ts_test` roots Vite at the
-package, which is where `data = ["wrangler.jsonc"]` stages the file and where the
-compiled worker its `main` names is staged too.
+config's package, here the test's own, which is where `data = ["wrangler.jsonc"]`
+stages the file and where the compiled worker its `main` names is staged too. A
+config at the worker root with the tests under `test/` is rooted at the worker
+root the same way; `//tests/workers_nested` is that shape, with
+`config = "//tests/workers_nested:vitest_config"` and
+`data = ["//tests/workers_nested:wrangler.jsonc"]`.
 
 ### `coverage_provider` and `types`
 

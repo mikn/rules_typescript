@@ -1,0 +1,34 @@
+load("//ts:defs.bzl", "ts_compile")
+
+# The monorepo shape: package.json, the vitest config and the wrangler config at
+# the worker root, the tests in test/ as a package of their own.
+package(default_visibility = ["//visibility:public"])
+
+# The worker has its srcs in src/; a BUILD file there would turn it into a
+# package and make those labels cross a package boundary.
+# gazelle:exclude src
+
+# gazelle:ts_npm_hub npm_workers
+
+exports_files([
+    "package.json",
+    "wrangler.jsonc",
+])
+
+filegroup(
+    name = "vitest_config",
+    srcs = ["vitest.config.mjs"],
+    visibility = ["//visibility:public"],
+)
+
+# A bare import from the compiled worker: its realpath in bazel-out has no
+# node_modules above it, so the import is resolved from the root instead.
+ts_compile(
+    name = "worker",
+    srcs = ["src/index.ts"],
+    lib = [
+        "esnext",
+        "webworker",
+    ],
+    deps = ["@npm_workers//:zod"],
+)

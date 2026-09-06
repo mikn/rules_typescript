@@ -1,0 +1,49 @@
+load("@rules_go//go:def.bzl", "go_test")
+load("//tests/vitest:vitest_config.bzl", "vitest_config")
+load("//ts:defs.bzl", "ts_test")
+
+# The go_test is hand-named, so the Go language would add a second target for
+# the same source.
+# gazelle:exclude *_test.go
+
+# The config from the package root reaches the test by label, and vite is rooted
+# there: its `./wrangler.jsonc` names the file `data` stages beside it.
+ts_test(
+    name = "worker_test",
+    size = "medium",
+    srcs = [
+        "raw.d.ts",
+        "worker.test.ts",
+    ],
+    config = "//tests/workers_nested:vitest_config",
+    coverage_provider = "istanbul",
+    data = ["//tests/workers_nested:wrangler.jsonc"],
+    lib = [
+        "esnext",
+        "webworker",
+    ],
+    types = ["@cloudflare/vitest-pool-workers/types"],
+    deps = [
+        "//tests/workers_nested:worker",
+        "@npm_workers//:cloudflare_vitest-pool-workers",
+        "@npm_workers//:vitest",
+        "@npm_workers//:vitest_coverage-istanbul",
+    ],
+)
+
+vitest_config(
+    name = "worker_test_config",
+    testonly = True,
+    test = ":worker_test",
+)
+
+go_test(
+    name = "config_root_test",
+    size = "small",
+    srcs = ["config_root_test.go"],
+    data = [
+        ":worker_test_config",
+        "//tests/workers:worker_test_config",
+    ],
+    deps = ["//tests/verify"],
+)
