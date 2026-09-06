@@ -35,7 +35,6 @@ load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("//ts/private:providers.bzl", "NpmPackageInfo", "TsConfigInfo")
 load(
     "//ts/private:ts_compile.bzl",
-    "TsModuleInfo",
     "referenced_type_files",
     "subpath_pattern_paths",
     "subpath_wildcards",
@@ -48,7 +47,7 @@ load(
 TsconfigSourcesInfo = provider(
     doc = "What a workspace-root tsconfig.json needs from the ts_compile targets under it.",
     fields = {
-        "packages": "depset of struct(path, has_index, module_name, declared_paths): package of every ts_compile target reached, whether it has an index file to name as the package entry point, the bare specifier the target declared with `module_name` (empty when it declared none), and -- for a workspace member -- TsModuleInfo.declared_paths, what its own package.json says each of its specifiers resolves to.",
+        "packages": "depset of struct(path, has_index, module_name): package of every ts_compile target reached, whether it has an index file to name as the package entry point, and the bare specifier the target declared with `module_name` (empty when it declared none).",
         "aliases": "depset of struct(prefix, dir): path_aliases entries, workspace-relative.",
         "npm_paths": "depset of struct(key, name, version, entry, is_file, wildcard, patterns): npm entry points, relative to the package's own directory. `key` is the specifier that resolves to one and `name` the package installed under `npm_dir`; they differ for a `@types/*` package, which answers the name it types and is installed under its own, and for an `exports` subpath, which answers a key under the package's name. `wildcard` is whether the key also takes a `<key>/*` companion -- false on a subpath entry, whose key names one file and whose own subpaths are not a thing. `patterns` is NpmPackageInfo.subpath_patterns as sorted (subpath, target) pairs, each written as a `<key><subpath>` key ahead of the wildcard's guesses; empty on a subpath entry and on a package a paired `@types/*` answers.",
         "npm_ambient": "depset of struct(name, version, entry): @types/* entry points to name in the tsconfig `files` array, relative to the package's own directory.",
@@ -577,11 +576,12 @@ def _option_group(target, ctx):
     )]
 
 def _tsconfig_aspect_impl(target, ctx):
-    inherited = [
-        dep[TsconfigSourcesInfo]
-        for dep in getattr(ctx.rule.attr, "deps", [])
-        if TsconfigSourcesInfo in dep
-    ]
+    # A workspace member's view reaches the member through `target`, the way a
+    # ts_compile reaches its deps; ts_compile's own `target` is an ES version.
+    reached = list(getattr(ctx.rule.attr, "deps", []))
+    if type(getattr(ctx.rule.attr, "target", None)) == "Target":
+        reached.append(ctx.rule.attr.target)
+    inherited = [dep[TsconfigSourcesInfo] for dep in reached if TsconfigSourcesInfo in dep]
 
     packages = []
     aliases = []
@@ -590,25 +590,15 @@ def _tsconfig_aspect_impl(target, ctx):
     npm_files = []
     npm_untyped = []
     option_groups = []
-    if ctx.rule.kind == "npm_workspace_package":
-        # The hub target carries the npm name a workspace member is imported by,
-        # and it is the only place that name exists -- the member itself never
-        # restates it. Without this the editor cannot resolve the bare specifier
-        # the build resolves fine.
-        module = target[TsModuleInfo]
-        packages = [struct(
-            path = module.source_root,
-            has_index = True,
-            module_name = module.module_name,
-            declared_paths = module.declared_paths,
-        )]
-    elif ctx.rule.kind == "ts_compile":
+
+    # A workspace member's view adds nothing of its own: the checkout's
+    # node_modules holds pnpm's link to the member, and the editor resolves it there.
+    if ctx.rule.kind == "ts_compile":
         if target.label.package:
             packages = [struct(
                 path = target.label.package,
                 has_index = _has_index(target, ctx),
                 module_name = getattr(ctx.rule.attr, "module_name", ""),
-                declared_paths = (),
             )]
         aliases = _aliases(ctx.rule.attr)
         npm_paths, npm_files = _npm_entries(ctx.rule.attr)
@@ -834,27 +824,6 @@ def _modules(sources):
         if chosen == None or package.path < chosen.path:
             modules[package.module_name] = package
     return modules
-
-def _module_entries(package, bin_dir, declarations):
-    """Each declaration a manifest designates, in the source tree and in bazel-bin.
-
-    Without the extension: the declaration is what Bazel emits, and the file at
-    the same path in the SOURCE tree is the `.ts` it was emitted from. TypeScript
-    appends its own extension list to a `paths` value, so one entry answers both
-    trees -- which is what the wildcard entries beside these have always done.
-    """
-    out = []
-    for declaration in declarations:
-        stem = declaration
-        for extension in (".d.ts", ".d.mts", ".d.cts"):
-            if stem.endswith(extension):
-                stem = stem[:-len(extension)]
-                break
-        for root in ["./" + package, "{}/{}".format(bin_dir, package)]:
-            entry = root + "/" + stem
-            if entry not in out:
-                out.append(entry)
-    return out
 
 def _installed_entry(npm_dir, entry):
     base = "{}/{}".format(npm_dir, entry.name)
@@ -1104,35 +1073,11 @@ def _ide_tsconfig_impl(ctx):
 
     # Last, so a first-party module_name wins over a same-named npm package --
     # the precedence the tsconfig ts_compile generates applies too.
-    #
-    # What a workspace member's own package.json designates goes ahead of the
-    # guesses, exactly as it does in the tsconfig ts_compile generates: an editor
-    # that resolves `@scope/pkg/button` by a different rule than the build is a
-    # divergence, and the guesses stay behind it so a manifest naming a file this
-    # build does not produce is no worse than a manifest nobody read.
     for module_name, module in sorted(_modules(sources).items()):
         package = module.path
-        declared = {d.specifier: d.declarations for d in module.declared_paths}
-        entry = _module_entries(package, bin_dir, declared.get("", ()))
         if packages.get(package):
-            entry = entry + ["./{}/index".format(package)]
-        if entry:
-            paths[module_name] = entry
-        paths[module_name + "/*"] = (
-            _module_entries(package, bin_dir, declared.get("/*", ())) +
-            ["./{}/*".format(package), "{}/{}/*".format(bin_dir, package)]
-        )
-
-        # An exact `paths` key beats a pattern one, so `<name>/*` stops being
-        # consulted for a subpath the moment it is named: each declared subpath
-        # repeats the wildcard's own expansion behind its answer.
-        for specifier in sorted(declared):
-            if specifier == "" or specifier == "/*":
-                continue
-            paths[module_name + specifier] = (
-                _module_entries(package, bin_dir, declared[specifier]) +
-                ["./{}{}".format(package, specifier), "{}/{}{}".format(bin_dir, package, specifier)]
-            )
+            paths[module_name] = ["./{}/index".format(package)]
+        paths[module_name + "/*"] = ["./{}/*".format(package), "{}/{}/*".format(bin_dir, package)]
 
     config = {
         "_comment": _HEADER,

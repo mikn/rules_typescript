@@ -471,7 +471,7 @@ func declaredAmbiently(names []string, imp string) bool {
 // module the manifest designates is the same code without the round trip.
 //
 // From a ts_test it is no self-import: its compile target is never the hub's,
-// and only the hub's TsModuleInfo puts the member's name and subpaths in `paths`.
+// and only the hub's view links the member at node_modules/<name>.
 //
 // isSelf reports that the specifier was the member's own name and the hub label
 // must not be used, whether or not a target was found for it.

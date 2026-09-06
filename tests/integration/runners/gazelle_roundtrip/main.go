@@ -99,10 +99,8 @@ func main() {
 		}
 		it.Pass("test target set unchanged across a delete-and-regenerate: %d", len(after))
 
-		// The member's test is run on its own below, where its runtime failure
-		// is the measurement; here it would fail the whole run.
-		it.MustBazel("test", "--", "//...", "-//packages/shared:shared_test")
-		it.Pass("bazel test //... on Gazelle's own output, the member's test aside")
+		it.MustBazel("test", "//...")
+		it.Pass("bazel test //... on Gazelle's own output")
 
 		for _, rel := range []string{"src/lib/math.js", "src/lib/math.d.ts", "src/app/index.js", "src/app/index.d.ts"} {
 			it.RequireFile(it.Bin(rel), "expected output file not found: %s", rel)
@@ -134,8 +132,9 @@ func main() {
 // map; the boundary directive makes it the one target the hub's `target` names.
 const memberPackage = "# gazelle:ts_package_boundary tsconfig\n"
 
-// Only the hub target's TsModuleInfo writes the member's name into `paths`, so
-// a test importing the member by name needs the hub label beside :shared.
+// Only the hub's view links the member at node_modules/<name>, in the test's
+// forest and its runtime tree alike, so a test importing the member by name
+// needs the hub label beside :shared.
 func memberSelfImportTakesTheHubLabel(it *harness.IT, afterFirstRun string) {
 	build := it.Path("packages/shared/BUILD.bazel")
 	if second := it.Read(build); second != afterFirstRun {
@@ -159,10 +158,10 @@ func memberSelfImportTakesTheHubLabel(it *harness.IT, afterFirstRun string) {
 		it.RequireFile(it.Bin(rel),
 			"%s was not written; the `bazel build //...` above did not compile the test program", rel)
 	}
-	it.Pass("the test program resolved `shared` and `shared/wire` through the hub's paths entries")
+	it.Pass("the test program resolved `shared` and `shared/wire` through the hub view's link")
 
 	// The measurement behind writing the hub label: the member's own target
-	// alone has no paths key for its name.
+	// alone puts nothing at node_modules/shared.
 	restore := it.Read(build)
 	it.Replace(build, "        \"@npm//:shared\",\n", "")
 	log, err := it.BazelLog("self_import_without_the_hub", "build", "//packages/shared:_shared_test_compile")
@@ -177,25 +176,25 @@ func memberSelfImportTakesTheHubLabel(it *harness.IT, afterFirstRun string) {
 			it.Fail("without the hub label the compile did not fail on %q", specifier)
 		}
 	}
-	it.Pass("without the hub label `shared` and `shared/wire` are TS2307: the member's own target carries no paths key for its name")
+	it.Pass("without the hub label `shared` and `shared/wire` are TS2307: only the hub's view links the member into the forest")
 
-	// The hub's generated package.json names no entry and no exports, so Vite finds
-	// neither file under the package root; a pass here says to run it under //... again.
+	// The view's package.json is the member's with its exports map rewritten to
+	// the emitted files, so node resolves both specifiers through the link.
 	log, err = it.BazelLog("self_import_at_run_time", "test", "//packages/shared:shared_test")
-	if err == nil {
+	if err != nil {
 		log.Dump()
-		it.Fail("//packages/shared:shared_test passed: the runtime link answers the member's own name, so run it under `bazel test //...` above instead of pinning the failure here")
+		it.Fail("//packages/shared:shared_test failed: %v", err)
 	}
-	for _, want := range []string{
+	for _, stale := range []string{
 		`Failed to resolve entry for package "shared"`,
 		`Cannot find package 'shared/wire'`,
 	} {
-		if !log.Contains(want) {
+		if log.Contains(stale) {
 			log.Dump()
-			it.Fail("//packages/shared:shared_test failed for some other reason than the runtime link: no %q", want)
+			it.Fail("the runtime link still fails to resolve: %q", stale)
 		}
 	}
-	it.Pass("//packages/shared:shared_test type-checks and fails in the resolver on `shared` and `shared/wire`: the runtime link has no exports map")
+	it.Pass("//packages/shared:shared_test type-checks and runs: the runtime link resolves `shared` and `shared/wire` through the member's exports map")
 }
 
 // configured/ keeps its vitest.config.mts beside package.json and its test one

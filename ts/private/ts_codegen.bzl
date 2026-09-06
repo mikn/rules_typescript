@@ -207,7 +207,6 @@ def _ts_codegen_impl(ctx):
             label = label_text(ctx.label),
             declaration_root = root,
             source_root = root,
-            declared_paths = (),
         ))
     return [
         DefaultInfo(files = files),
@@ -229,7 +228,6 @@ def _ts_codegen_impl(ctx):
             label = label_text(ctx.label),
             declaration_root = root,
             source_root = root,
-            declared_paths = (),
             transitive_modules = depset(own_modules),
         ),
     ]

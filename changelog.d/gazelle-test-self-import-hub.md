@@ -9,9 +9,6 @@
   key for the specifier and the compile failed with `TS2307: Cannot find module
   'shared/wire'`. From a `ts_test`, whose compile target is never the hub's, the
   member's name now resolves as any other bare specifier does, to
-  `@npm//:<member>` through the lockfile gate, and the hub's `TsModuleInfo`
-  writes the name and every declared subpath into `paths`. A `ts_compile` inside
-  the member keeps the local target. The runtime link is unchanged: the hub's
-  generated `package.json` names no entry and no `exports`, so such a test
-  type-checks and, unless the member is entered through a root `index`, fails in
-  the resolver at run time.
+  `@npm//:<member>` through the lockfile gate, and the hub's view links the
+  member with its `exports` map at `node_modules/<member>`. A `ts_compile`
+  inside the member keeps the local target.

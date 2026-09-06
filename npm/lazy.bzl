@@ -55,8 +55,8 @@ a whole-graph decision that one package cannot make about itself:
 """
 
 load(
-    "//npm/private:member_paths.bzl",
-    "member_module_paths",
+    "//npm/private:member_manifest.bzl",
+    "member_manifest_json",
 )
 load(
     "//npm/private:npm_import.bzl",
@@ -234,8 +234,8 @@ def _patch_by_package(module_ctx, lock_content, patch_labels):
         )
     return result
 
-def _workspace_link_entry(name, path):
-    """The hub's record of one pnpm `link:` dependency.
+def _member_entry(name, path):
+    """The hub's record of one workspace member.
 
     The member's PATH, not the label of a target inside it: which directory of a
     member holds its target is a Gazelle decision, read from BUILD files that do
@@ -250,30 +250,13 @@ def _workspace_link_entry(name, path):
     """
     return "{name}|{path}".format(name = name, path = path)
 
-def _member_module_paths(module_ctx, workspace_root, path):
-    """The member's directory and what its manifest says its specifiers mean, or "".
-
-    Worked out here rather than shipped as the manifest itself: an `exports` map
-    is ordered -- a resolver tries its conditions in the order they are written --
-    and `json.encode` sorts keys, so the manifest cannot cross into analysis
-    without losing the one thing that makes it readable. The answer can: its order
-    is in lists.
-
-    Empty for a member with no package.json, and for one that says nothing about
-    how it is entered. Both leave npm_workspace_package with the guesses it made
-    before, which is the right answer for a member entered through an index at its
-    root.
-    """
+def _member_manifest(module_ctx, workspace_root, path):
+    """The member's decoded package.json, or None when the directory holds none."""
     manifest = workspace_root.get_child(*(path.split("/") + ["package.json"]))
     if not manifest.exists:
-        return ""
+        return None
     decoded = json.decode(module_ctx.read(manifest))
-    if type(decoded) != "dict":
-        return ""
-    module_paths = member_module_paths(decoded)
-    if not module_paths:
-        return ""
-    return "{dir}|{json}".format(dir = path, json = json.encode(module_paths))
+    return decoded if type(decoded) == "dict" else None
 
 def platforms_of_package(pkg):
     """The PLATFORMS keys a published tarball is built for.
@@ -657,23 +640,56 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
             alias_owner[label] = sid
             aliases[label] = "@{}//:{}".format(repo_of[sid], _alias_target_name(alias))
 
-    # A link claims its label outright, as it did when both lived in one dict:
-    # the member IS what that name means, and two targets of one name in the
-    # generated package would not load at all.
-    links = {}
-    link_module_paths = {}
+    # ── Workspace members: one view per member directory ─────────────────────
+    # Every `link:` target, by the lockfile's name, and every importer but the
+    # root (the workspace itself) whose package.json has a name.
+    candidates = {}
     for name, path in importers["links"].items():
-        if path:
-            label = package_name_to_label(name)
-            links[label] = _workspace_link_entry(name, path)
-            record = _member_module_paths(module_ctx, workspace_root, path)
-            if record:
-                link_module_paths["|{}".format(label)] = record
-            aliases.pop(label, None)
+        if not path:
+            continue
+        if path in candidates and candidates[path] != name:
+            fail(
+                "npm: the workspace member at {} is linked as both '{}' and '{}' in this lockfile, ".format(
+                    path,
+                    candidates[path],
+                    name,
+                ) +
+                "so @{} has no one view of it.".format(hub_name),
+            )
+        candidates[path] = name
+    for path in importers["importers"]:
+        if path != "." and path not in candidates:
+            candidates[path] = None
+
+    members = {}
+    member_manifests = {}
+    member_dirs = {}
+    for path in sorted(candidates):
+        manifest = _member_manifest(module_ctx, workspace_root, path)
+        name = candidates[path] or (manifest.get("name") if manifest else None)
+        if type(name) != "string" or not name:
+            continue
+        label = package_name_to_label(name)
+        if label in member_dirs:
+            fail(
+                "npm: the workspace members at {} and {} are both named '{}', ".format(
+                    member_dirs[label],
+                    path,
+                    name,
+                ) +
+                "so @{}//:{} cannot mean one of them.".format(hub_name, label),
+            )
+        member_dirs[label] = path
+        members[label] = _member_entry(name, path)
+        text = member_manifest_json(manifest)
+        if text:
+            member_manifests[label] = text
+
+        # The member IS what that name means; two targets of one name would not load.
+        aliases.pop(label, None)
 
     # ── Per-importer packages: what each workspace member actually declared ───
     importer_aliases = {}
-    importer_links = {}
     for path, entry in importers["importers"].items():
         if path == ".":
             continue
@@ -684,21 +700,13 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
             imported_as = dep_name if live[dep_sid]["name"] != dep_name else ""
             importer_aliases["{}|{}".format(path, label)] = _dep_label(dep_sid, imported_as)
             importer_aliases["{}|{}_bin".format(path, label)] = "@{}//:bin".format(repo_of[dep_sid])
-        for dep_name, link_path in entry["links"].items():
-            key = "{}|{}".format(path, package_name_to_label(dep_name))
-            importer_links[key] = _workspace_link_entry(dep_name, link_path)
-            record = _member_module_paths(module_ctx, workspace_root, link_path)
-            if record:
-                link_module_paths[key] = record
-            importer_aliases.pop(key, None)
 
     npm_hub(
         name = hub_name,
         pnpm_lock = pnpm_lock,
         aliases = aliases,
         importer_aliases = importer_aliases,
-        links = links,
-        importer_links = importer_links,
-        link_module_paths = link_module_paths,
+        members = members,
+        member_manifests = member_manifests,
         broken_cycle_edges = ["{} -> {}".format(a, b) for (a, b) in broken],
     )

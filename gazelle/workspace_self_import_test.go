@@ -103,8 +103,8 @@ func TestResolveImports_NestedPackageKeepsTheHubLabel(t *testing.T) {
 	}
 }
 
-// A ts_test's compile target is never the hub's, and only the hub's TsModuleInfo
-// writes the member's name and its `exports` subpaths into the test's `paths`.
+// A ts_test's compile target is never the hub's, and only the hub's view links
+// the member, with its `exports` map, at node_modules/<name>.
 func TestResolveImports_TestSelfReferenceTakesTheHubLabel(t *testing.T) {
 	c, _ := selfImportRepo(t)
 	ix := selfImportIndex(t, c)

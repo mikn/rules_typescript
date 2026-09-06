@@ -78,8 +78,7 @@ own `paths` entry from it.
 | `label` | `string` | The target's label, as a dep list writes it |
 | `declaration_root` | `string` | Exec-root-relative directory the generated `.d.ts` files land in |
 | `source_root` | `string` | Exec-root-relative package directory, where a `.d.ts` passed straight through stays |
-| `declared_paths` | `tuple of struct(specifier, declarations)` | What the module's own `package.json` says its specifiers resolve to: `specifier` is the part after the module name (`""`, `"/button"`, `"/tokens/*"`), `declarations` the module-root-relative declaration paths, in resolution order. Empty on a target that declared its name with `module_name` |
-| `transitive_modules` | `depset of struct` | This target's modules and its deps', each with the five fields above |
+| `transitive_modules` | `depset of struct` | This target's modules and its deps', each with the four fields above |
 
 `ts_dev_server` reads the same provider to write one `resolve.alias` entry per
 first-party `module_name`.

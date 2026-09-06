@@ -18,3 +18,18 @@
   `jsxImportSource` the same file yields; the baseline now carries
   `target: es2022`, `jsx: react-jsx` and `allowArbitraryExtensions`, the values
   the rule used to inject over the file.
+- **A workspace member's view carries the member's package.json as built.**
+  `npm_hub` writes one `npm_workspace_package` per workspace member -- every
+  `link:` target and every importer whose package.json has a name, one view per
+  member directory, at `@npm//:<name>` -- and the view's `package.json` is the
+  member's own with every source-file target under `main`, `module`, `browser`,
+  `exports` and `imports` rewritten to the emitted `.js` and every `types`
+  target to the `.d.ts`, key order kept. The forest and the runtime tree link it
+  at `node_modules/<name>` beside the member's `.js` and `.d.ts` at the paths
+  the manifest names, so a bare import and an `exports` subpath resolve for
+  tsgo and for node through one manifest; the stub manifest that named no
+  entry, and the `paths` entries `TsModuleInfo` derived from the member's
+  `exports`, are gone. A member whose directory holds no package.json with a
+  name gets a comment in the hub and no view. The editor tsconfig writes no
+  `paths` key for a member: the checkout's node_modules holds pnpm's link to
+  it.

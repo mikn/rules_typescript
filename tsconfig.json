@@ -1074,13 +1074,6 @@
       "nanoid/url-alphabet": [
         "./.bazel/npm/nanoid/index.d.cts"
       ],
-      "nested-shared": [
-        "./packages/nested-shared/index"
-      ],
-      "nested-shared/*": [
-        "./packages/nested-shared/*",
-        "./bazel-bin/packages/nested-shared/*"
-      ],
       "node": [
         "./.bazel/npm/@types/node/index.d.ts"
       ],
@@ -1112,9 +1105,6 @@
       "packages/nested-shared/*": [
         "./packages/nested-shared/*",
         "./bazel-bin/packages/nested-shared/*"
-      ],
-      "packages/shared": [
-        "./packages/shared/index"
       ],
       "packages/shared/*": [
         "./packages/shared/*",
@@ -1343,13 +1333,6 @@
       ],
       "rollup/parseAst": [
         "./.bazel/npm/rollup/dist/parseAst.d.ts"
-      ],
-      "shared": [
-        "./packages/shared/index"
-      ],
-      "shared/*": [
-        "./packages/shared/*",
-        "./bazel-bin/packages/shared/*"
       ],
       "sharp": [
         "./.bazel/npm/sharp/dist/index.d.mts"
@@ -1984,13 +1967,6 @@
       ],
       "ws": [
         "./.bazel/npm/ws"
-      ],
-      "ws-linked": [
-        "./packages/ws-linked/index"
-      ],
-      "ws-linked/*": [
-        "./packages/ws-linked/*",
-        "./bazel-bin/packages/ws-linked/*"
       ],
       "ws/*": [
         "./.bazel/npm/ws/*"

@@ -26,10 +26,18 @@ is the statement that the target is not there, and a label written anyway would
 name a target Bazel cannot resolve -- which fails analysis for every consumer of
 the hub, while a missing target fails only what asks for the member. Nothing
 built from the hub can tell those two apart, because both fail whatever names the
-member, so the generated text is the only place the difference is visible.
+member, so the generated text is the only place the difference is visible. A
+member whose directory holds no package.json with a name gets the same
+treatment: the view carries that manifest, so there is nothing to write.
+
+What the view carries, pinned on @npm//:shared: the member's package.json with
+every source-file target under `exports` rewritten to the emitted file, and the
+member's .js and .d.ts at the paths that manifest names. tsc maps a `.js` target
+to the `.d.ts` beside it and node runs the `.js`, so one manifest serves
+//tests/npm:workspace_consumer's check and :workspace_runtime_test's run.
 """
 
-load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
+load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
 load(
     "//npm/private:npm_import.bzl",
     "link_block",
@@ -38,6 +46,7 @@ load(
     "manifest_entries",
     "target_name_in",
 )
+load("//ts/private:providers.bzl", "NpmPackageInfo")
 
 _CASES = [
     struct(
@@ -259,11 +268,12 @@ def _link_target_label_test(ctx):
         )
     return unittest.end(env)
 
-_LINKS = {"no-target-member": "no-target-member|packages/no-target-member"}
+_MEMBERS = {"no-target-member": "no-target-member|packages/no-target-member"}
+_MANIFEST = '{"name":"no-target-member","type":"module"}'
 
 def _unresolved_link_block_test(ctx):
     env = unittest.begin(ctx)
-    lines = link_block(_LINKS, {"packages/no-target-member": None}, {})
+    lines = link_block(_MEMBERS, {"packages/no-target-member": None}, {"no-target-member": _MANIFEST})
 
     asserts.equals(
         env,
@@ -284,22 +294,89 @@ def _unresolved_link_block_test(ctx):
         "every consumer of the hub",
     )
 
-    resolved = link_block(_LINKS, {"packages/no-target-member": "@@//packages/x:x"}, {})
+    unmanifested = link_block(_MEMBERS, {"packages/no-target-member": "@@//packages/x:x"}, {})
+    asserts.equals(
+        env,
+        1,
+        len([line for line in unmanifested if line.startswith("# NO MANIFEST for 'no-target-member'.")]),
+        "a member whose directory holds no package.json with a name is named in a comment",
+    )
+    asserts.equals(
+        env,
+        [],
+        [line for line in unmanifested if line and not line.startswith("#")],
+        "and gets no target: the view carries the manifest, so there is nothing to write",
+    )
+
+    resolved = link_block(_MEMBERS, {"packages/no-target-member": "@@//packages/x:x"}, {"no-target-member": _MANIFEST})
     asserts.equals(
         env,
         [
             "npm_workspace_package(",
             '    name = "no-target-member",',
             '    package_name = "no-target-member",',
+            '    member_dir = "packages/no-target-member",',
             '    target = "@@//packages/x:x",',
+            "    manifest_json = " + json.encode(_MANIFEST) + ",",
             ")",
             "",
         ],
         resolved,
-        "the same link with a target, so the case above is a missing label and " +
-        "not a missing block",
+        "the same link with a target and a manifest, so the cases above are a " +
+        "missing label and not a missing block",
     )
     return unittest.end(env)
+
+def _view_manifest(env):
+    for action in analysistest.target_actions(env):
+        outputs = action.outputs.to_list()
+        if len(outputs) == 1 and outputs[0].basename == "package.json":
+            return json.decode(action.content)
+    return None
+
+def _member_view_impl(ctx):
+    env = analysistest.begin(ctx)
+    manifest = _view_manifest(env)
+    asserts.true(env, manifest != None, "the view writes no package.json")
+    if manifest != None:
+        asserts.equals(env, "shared", manifest.get("name"), "the member's own name")
+        asserts.equals(env, "module", manifest.get("type"), "the emitted .js is ESM")
+        asserts.equals(
+            env,
+            {".": "./src/index.js", "./wire": "./src/wire/index.js"},
+            manifest.get("exports"),
+            "every source-file target in exports names the emitted file: " + str(manifest.get("exports")),
+        )
+
+    info = analysistest.target_under_test(env)[NpmPackageInfo]
+    asserts.equals(env, "shared", info.package_name, "the name the lockfile links the member by")
+    asserts.true(
+        env,
+        info.package_root.endswith("/packages/shared"),
+        "the view's root is the member's directory under bazel-bin, not the compiling " +
+        "target's package: " + info.package_root,
+    )
+    root = info.package_root + "/"
+    asserts.equals(
+        env,
+        [
+            "package.json",
+            "src/index.d.ts",
+            "src/index.js",
+            "src/index.js.map",
+            "src/wire/index.d.ts",
+            "src/wire/index.js",
+            "src/wire/index.js.map",
+        ],
+        sorted([
+            f.path[len(root):] if f.path.startswith(root) else f.basename
+            for f in info.all_files.to_list()
+        ]),
+        "the link holds the manifest and the member's .js and .d.ts at the paths the manifest names",
+    )
+    return analysistest.end(env)
+
+member_view_test = analysistest.make(_member_view_impl)
 
 def _target_name_test(ctx):
     env = unittest.begin(ctx)

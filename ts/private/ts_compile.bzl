@@ -48,8 +48,7 @@ tsconfig by hand.
         "label": "string: the label of this target, as a dep list writes it.",
         "declaration_root": "string: exec-root-relative directory the target's generated .d.ts files land in.",
         "source_root": "string: exec-root-relative package directory, where .d.ts files passed straight through stay.",
-        "declared_paths": "tuple of struct(specifier, declarations): what the module's own package.json says its specifiers resolve to. `specifier` is the part after the module name -- \"\" for the bare name, \"/button\" for a subpath, \"/tokens/*\" for a wildcard one -- and `declarations` are the module-root-relative declaration paths it designates, in resolution order. Empty on a target that declared its name with `module_name`: nothing there reads a manifest.",
-        "transitive_modules": "depset of struct(module_name, label, declaration_root, source_root, declared_paths): this target's modules and its deps'.",
+        "transitive_modules": "depset of struct(module_name, label, declaration_root, source_root): this target's modules and its deps'.",
     },
 )
 
@@ -1312,8 +1311,8 @@ def _ts_compile_impl(ctx):
     )
 
     # One entry per name for the undeclared-import check, the direct deps'
-    # resolution first. A workspace member has no package_dir; its module name
-    # answers for it below.
+    # resolution first. A workspace member has no package_dir: a consumer names
+    # its view directly, and npm_direct answers for it.
     reachable_by_name = {}
     for npm_info in forest_packages:
         if npm_info.package_dir and npm_info.package_name not in reachable_by_name:
@@ -1698,14 +1697,12 @@ def _ts_compile_impl(ctx):
             label = label_text(ctx.label),
             declaration_root = declaration_root,
             source_root = source_root,
-            declared_paths = (),
         ))
     providers.append(TsModuleInfo(
         module_name = ctx.attr.module_name,
         label = label_text(ctx.label),
         declaration_root = declaration_root,
         source_root = source_root,
-        declared_paths = (),
         transitive_modules = depset(own_modules, transitive = module_sets),
     ))
 

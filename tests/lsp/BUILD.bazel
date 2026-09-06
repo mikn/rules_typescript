@@ -14,8 +14,8 @@
                                 the .bazelrc-optional half of the map.
   :module_paths_test            what the generated tsconfig says about a
                                 `module_name` and about extra_exclude.
-  :member_paths_test            and what it says about a pnpm workspace member,
-                                whose specifiers its own package.json declares.
+  :member_paths_test            and that it says nothing about a pnpm workspace
+                                member, which the checkout's node_modules links.
   :fragments_reach_private_test  that those bytes exist at all, for a target no
                                 rule in this package may name.
   :test_resolve_integration     the monkey-patch itself -- ts.resolveModuleName
@@ -225,12 +225,10 @@ module_paths_test(
 
 # ── The same question for a pnpm workspace member ─────────────────────────────
 # A member's bare specifier and its subpaths are declared in its own
-# package.json, and //packages/pulse is the member whose manifest is the whole
-# fixture. The editor map guessed `<root>/index` and `<root>/*` for both, which
-# resolves `pulse` by luck and `pulse/button` not at all -- while the tsconfig
-# ts_compile generates for the same member reads the manifest
-# (//tests/compiler_options/analysis:module_exports_paths_test). Two answers for
-# one import is the divergence a generated editor config exists to end.
+# package.json, which pnpm links into the checkout's node_modules and the build
+# links into the forest as built. Both resolvers read that manifest, so the
+# editor map carries no key for //packages/pulse: a key here would name Bazel's
+# declarations where the checkout has the sources.
 ide_tsconfig(
     name = "member_ide_tsconfig",
     tags = ["manual"],
