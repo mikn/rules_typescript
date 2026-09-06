@@ -229,7 +229,9 @@ Objects merge key by key; arrays concatenate base-first, matching vite's own
 `mergeConfig`. A user `plugins` list therefore never displaces the CSS-module
 plugin, and a user `setupFiles` list never displaces `setup_files`: the
 attribute's entries run after the config's. Scalars from a later layer win, so
-`environment` overrides an environment set inside `config`.
+`environment` overrides an environment set inside `config`. Once the layers have
+merged, a `setupFiles` or `globalSetup` entry naming a TypeScript source is
+rewritten to its compiled sibling; see [Setup Files](#setup-files).
 
 Layer 4 is root-only because `resolveSnapshotPath` is one of vitest's
 non-project options: it is applied once, to the root config, and never merged
@@ -337,6 +339,18 @@ listed: TypeScript entries first, compiled by the macro with the same `deps` as
 the tests, then `.js`/`.mjs`/`.cjs` entries, which are passed through. All of
 them run after any `setupFiles` the `config` attr contributes.
 `global_setup` is `test.globalSetup`, which runs once around the whole run.
+
+A `test.setupFiles` or `test.globalSetup` entry inside the `config` is resolved
+against the root and loaded as written, and the runfiles hold no TypeScript
+source: what a `deps` entry stages at that path is the compiled sibling. Once
+the layers have merged, an entry ending in `.ts`, `.tsx`, `.mts` or `.cts` whose
+file is absent while the `.js`, `.mjs` or `.cjs` beside it exists is
+rewritten to that sibling, so `setupFiles: ["./test/vitest.setup.ts"]` in a
+config at the package root runs `test/vitest.setup.js`; left as written, the
+run fails with `Cannot find module '.../test/vitest.setup.ts'`. The `ts_compile`
+over the source has to be in `deps`, and nothing imports a setup file, so
+Gazelle writes no such dep: the entry is `# keep`. `//tests/setup_files_compiled`
+is the example, with the config at the package root and beside the tests.
 
 ### A Workers Pool
 
