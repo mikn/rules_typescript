@@ -9,3 +9,13 @@ func programNamesInputs(tsConfigPath string) (inputs, ok bool) {
 	}
 	return resolved.inputs, true
 }
+
+// loadTsConfigJsxImportSource returns compilerOptions.jsxImportSource as the extends
+// chain leaves it; "" when no config in the chain names one or the file is unreadable.
+func loadTsConfigJsxImportSource(tsConfigPath string) string {
+	resolved := resolveTsConfigChain(tsConfigPath, map[string]bool{})
+	if resolved == nil {
+		return ""
+	}
+	return resolved.jsxImportSource
+}

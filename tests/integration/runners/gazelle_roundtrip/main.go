@@ -25,7 +25,7 @@ func main() {
 		WorkspaceRel: "tests/integration/gazelle_roundtrip",
 		Lockfile:     "tests/npm/pnpm-lock.yaml",
 	}, func(it *harness.IT) {
-		dirs := []string{"src/lib", "src/app", "src/icons", "src/typed", "src/env", "worker", "worker/src", "worker/test", "worker/test/deep", "generated_worker/src", "aliased", "aliased/shared", "aliased/src"}
+		dirs := []string{"src/lib", "src/app", "src/icons", "src/typed", "src/env", "worker", "worker/src", "worker/test", "worker/test/deep", "generated_worker/src", "aliased", "aliased/shared", "aliased/src", "jsx", "jsx/view"}
 
 		// Written here rather than shipped in the workspace: a BUILD file under
 		// a --deleted_packages entry is a package of the OUTER workspace, and
@@ -36,6 +36,7 @@ func main() {
 		it.Write(it.Path("generated_worker/BUILD.bazel"), generatedWorkerPackage)
 		it.Write(it.Path("devserver/BUILD.bazel"), handWrittenDevServerPackage)
 		it.Write(it.Path("packages/shared/BUILD.bazel"), memberPackage)
+		it.Write(it.Path("jsx/runtime/BUILD.bazel"), jsxRuntimePackage)
 		// The harness stages one lockfile, vitest's; wrangler is in tests/workers'.
 		it.Write(it.Path("pnpm-lock.workers.yaml"), it.Read(filepath.Join(it.RulesTSRoot, "tests/workers/pnpm-lock.yaml")))
 
@@ -53,6 +54,7 @@ func main() {
 
 		devServerAfterFirstRun := it.Read(it.Path("devserver/BUILD.bazel"))
 		memberAfterFirstRun := it.Read(it.Path("packages/shared/BUILD.bazel"))
+		runtimeAfterFirstRun := it.Read(it.Path("jsx/runtime/BUILD.bazel"))
 
 		before := testTargets(it)
 		if len(before) == 0 {
@@ -109,6 +111,7 @@ func main() {
 
 		rootAmbientTypesReachTheTreeBelow(it)
 		referenceTypesBecomeADep(it)
+		jsxRuntimeBecomesADep(it, runtimeAfterFirstRun)
 		generatedDeclarationNamesItsGenerator(it)
 		aliasAttrsFollowTheSrcs(it)
 		codegenGlobLoads(it)
@@ -695,6 +698,51 @@ func referenceTypesBecomeADep(it *harness.IT) {
 		it.Fail("//src/env failed for some other reason than the missing global")
 	}
 	it.Pass("without the dep `process` is TS2591: the directive resolves to nothing in the sandbox")
+}
+
+// Gazelle writes no module_name, and `@acme/jsx/jsx-runtime` has to be answered
+// by name; the rule Gazelle generates for the directory merges into this one.
+const jsxRuntimePackage = `load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "runtime",
+    srcs = ["jsx-runtime.ts"],
+    module_name = "@acme/jsx",
+)
+`
+
+// jsx/tsconfig.json names @acme/jsx as the JSX runtime and view/Icon.tsx imports
+// nothing: the tag's implicit `@acme/jsx/jsx-runtime` import is the whole dep.
+func jsxRuntimeBecomesADep(it *harness.IT, runtimeAfterFirstRun string) {
+	if second := it.Read(it.Path("jsx/runtime/BUILD.bazel")); second != runtimeAfterFirstRun {
+		fmt.Fprintf(os.Stderr, "--- jsx/runtime/BUILD.bazel pass 1 ---\n%s--- pass 2 ---\n%s", runtimeAfterFirstRun, second)
+		it.Fail("the runtime's BUILD file changed between two Gazelle runs")
+	}
+	it.Pass("jsx/runtime/BUILD.bazel is identical across both Gazelle runs")
+
+	build := it.Path("jsx/view/BUILD.bazel")
+	it.RequireContains(build, `deps = ["//jsx/runtime"]`,
+		"//jsx/view does not carry the runtime its tsconfig's jsxImportSource names")
+	it.Pass("//jsx/view carries //jsx/runtime from jsxImportSource alone: nothing in it imports")
+
+	it.RequireFile(it.Bin("jsx/view/Icon.js"),
+		"//jsx/view did not compile, so @acme/jsx/jsx-runtime never reached its program")
+	it.Pass("//jsx/view type-checks a JSX tag against a runtime nothing imports")
+
+	// The measurement behind writing the dep at all.
+	restore := it.Read(build)
+	it.Replace(build, "    deps = [\"//jsx/runtime\"],\n", "")
+	log, err := it.BazelLog("jsx_runtime_without_the_dep", "build", "//jsx/view")
+	it.Write(build, restore)
+	if err == nil {
+		log.Dump()
+		it.Fail("//jsx/view compiled without the dep; the tsconfig alone reaches the runtime and Gazelle need not write one")
+	}
+	if !log.Contains("TS2875") || !log.Contains("'@acme/jsx/jsx-runtime'") {
+		log.Dump()
+		it.Fail("//jsx/view failed for some other reason than the missing runtime")
+	}
+	it.Pass("without the dep the tag is TS2875 on '@acme/jsx/jsx-runtime': the implicit import resolves to nothing in the sandbox")
 }
 
 // worker/tsconfig.json states `types: ["./worker-configuration.d.ts"]`, and

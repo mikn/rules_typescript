@@ -208,8 +208,8 @@ func asImports(importsIface any) ([]string, bool) {
 // resolveImports converts raw import strings (stored in GenerateResult.Imports)
 // into Bazel deps on rule r.
 // The returned labels are the ones some source file's specifier named, which is
-// what the cycle check is a claim about: an ambient-types or test-runtime label
-// is a dep nothing imported.
+// what the cycle check is a claim about: an ambient-types, JSX-runtime or
+// test-runtime label is a dep no specifier named.
 func resolveImports(
 	c *config.Config,
 	ix *resolve.RuleIndex,
@@ -231,6 +231,8 @@ func resolveImports(
 		}
 	}
 
+	ambient := ambientModuleNames(c, r, from)
+
 	// Ambient declarations have no import to infer a dep from, so they are the
 	// one thing this resolver cannot derive and Gazelle cannot repair. A file
 	// using only `process` has no imports at all, hence before the guard below.
@@ -248,6 +250,13 @@ func resolveImports(
 				log.Printf("gazelle: WARNING: unresolved /// <reference types=%q /> in //%s:%s (the lockfile names no package answering it)", name, from.Pkg, from.Name)
 			}
 		}
+		if spec := jsxRuntimeSpecifier(tc, r); spec != "" {
+			if lbl := resolveImport(c, ix, tc, r.Kind(), ambient, spec, from); lbl != "" {
+				addDep(lbl)
+			} else if tc.warnUnresolved {
+				log.Printf("gazelle: WARNING: unresolved JSX runtime %q in //%s:%s (the import every JSX tag makes; tried: path-alias, module_name, npm)", spec, from.Pkg, from.Name)
+			}
+		}
 	}
 
 	imports, ok := asImports(importsIface)
@@ -259,7 +268,6 @@ func resolveImports(
 		return nil
 	}
 
-	ambient := ambientModuleNames(c, r, from)
 	for _, imp := range imports {
 		resolved := resolveImport(c, ix, tc, r.Kind(), ambient, imp, from)
 		if resolved == "" {
@@ -277,8 +285,7 @@ func resolveImports(
 	// For ts_test targets, append the ts_runtime_dep labels in force here.
 	// These are already valid Bazel labels (e.g.
 	// "@npm//:happy-dom") for packages needed at test runtime that are
-	// never statically imported — happy-dom, @vitest/coverage-v8, react
-	// (JSX runtime), etc.
+	// never statically imported — happy-dom, @vitest/coverage-v8, etc.
 	if r.Kind() == "ts_test" {
 		for _, lbl := range tc.runtimeDepsTest {
 			addDep(lbl)
@@ -297,6 +304,32 @@ func resolveImports(
 func typeReferences(r *rule.Rule) []string {
 	names, _ := r.PrivateAttr(typeReferencesKey).([]string)
 	return names
+}
+
+// jsxRuntimeSpecifier is the module every JSX tag in r's sources imports without
+// writing it, under the jsx ts_compile compiles with; "" when r has no .tsx src.
+func jsxRuntimeSpecifier(tc *tsConfig, r *rule.Rule) string {
+	if !hasTsxSource(r) {
+		return ""
+	}
+	// ts_compile compiles under jsx_mode, react-jsx unless a rule sets it and
+	// Gazelle writes none, whatever jsx the tsconfig says: the runtime is react's.
+	source := tc.tsconfigJsxImportSource
+	if source == "" {
+		source = "react"
+	}
+	return source + "/jsx-runtime"
+}
+
+// The extension alone, tag or no tag in the file; a .jsx is never a src Gazelle
+// writes (isTypeScriptFile), so there is no branch for it.
+func hasTsxSource(r *rule.Rule) bool {
+	for _, src := range r.AttrStrings("srcs") {
+		if strings.HasSuffix(src, ".tsx") {
+			return true
+		}
+	}
+	return false
 }
 
 // The package a `types` entry of that name maps to, resolved as a bare specifier

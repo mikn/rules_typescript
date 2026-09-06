@@ -68,6 +68,7 @@ go_test(
         "import_cycle_test.go",
         "imports_test.go",
         "jsonc_test.go",
+        "jsx_runtime_test.go",
         "keep_test.go",
         "kinds_surface_test.go",
         "labels_test.go",
