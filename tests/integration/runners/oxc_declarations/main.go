@@ -18,20 +18,20 @@ func main() {
 
 		for _, dir := range []string{"src/lib", "src/bad"} {
 			build := it.Path(dir, "BUILD.bazel")
-			if !it.Contains(build, `declarations = "oxc"`) {
+			if it.Contains(build, "declarations") {
 				it.Dump(build)
-				it.Fail("%s/BUILD.bazel is missing declarations = \"oxc\" (ts_declarations directive not respected)", dir)
+				it.Fail("%s/BUILD.bazel names the emitter; it is the build's --//ts:declarations flag", dir)
 			}
-			it.Pass("%s/BUILD.bazel has declarations = \"oxc\"", dir)
+			it.Pass("%s/BUILD.bazel carries no declarations attribute", dir)
 		}
 
-		// --output_groups=+_validation is explicit rather than in a .bazelrc:
-		// under declarations = "oxc" the tsgo check lives in the validation
+		// --output_groups=+_validation is explicit rather than in the .bazelrc:
+		// under --//ts:declarations=oxc the tsgo check lives in the validation
 		// output group, and the next step deliberately builds WITHOUT it.
 		if err := it.Bazel("build", "//src/lib:all", "--output_groups=+_validation"); err != nil {
-			it.Fail("annotated target failed to build or type-check under declarations = \"oxc\"")
+			it.Fail("annotated target failed to build or type-check under --//ts:declarations=oxc")
 		}
-		it.Pass("annotated target builds and type-checks under declarations = \"oxc\"")
+		it.Pass("annotated target builds and type-checks under --//ts:declarations=oxc")
 
 		dts := it.Bin("src/lib/annotated.d.ts")
 		it.RequireFile(dts, "oxc did not emit src/lib/annotated.d.ts")
@@ -44,9 +44,9 @@ func main() {
 			if badDTS := it.Bin("src/bad/inferred.d.ts"); it.Exists(badDTS) {
 				it.Dump(badDTS)
 			}
-			it.Fail("un-annotated exports built under declarations = \"oxc\"; they must be rejected, never widened")
+			it.Fail("un-annotated exports built under --//ts:declarations=oxc; they must be rejected, never widened")
 		}
-		it.Pass("un-annotated exports were rejected under declarations = \"oxc\"")
+		it.Pass("un-annotated exports were rejected under --//ts:declarations=oxc")
 
 		if !bad.Matches(`(?i)isolated declarations|TS901[0-9]|TS90[0-9][0-9]`) {
 			bad.Dump()

@@ -255,16 +255,13 @@ target the same `tsconfig`, or its own package, when that is not close enough.
 
 ### Bare Specifiers for First-Party Packages
 
-A target that sets `module_name = "@acme/ui"` gets an `@acme/ui/*` `paths` entry
-of its own, and `@acme/ui` too once the package has an index file, so the editor
-resolves the same bare specifier `ts_compile` resolves during the build. Those
-keys are written last, so a first-party `module_name` wins over a same-named npm
-package, the precedence `ts_compile`'s own generated tsconfig uses.
-
-`module_name` also covers a pnpm `link:`/`workspace:` dependency imported by its
-package name. Bazel resolves the hub's alias before Starlark sees it, so the name
-the code imports exists only inside the alias; `module_name` on the target that
-produces the declarations puts it back in the graph.
+Every package the aspect reaches gets a `paths` key of its own in the root
+config -- `@/<rest>/*` for a package under `src/`, the package path otherwise,
+plus the bare key once the package has an index file -- mapped to the source
+directory and its bazel-bin twin. A pnpm `link:`/`workspace:` dependency
+imported by its package name gets no key: the checkout's `node_modules` holds
+pnpm's link to the member, which is where the build resolves it too, through the
+hub's view of the member.
 
 ### npm Declarations
 
@@ -385,7 +382,6 @@ disagrees.
 | | Covered by | Reaches package-private targets |
 |---|---|---|
 | `ts_compile` source roots | fragments, and the data file | yes, via fragments |
-| `module_name` bare specifiers | fragments, and the data file | yes, via fragments |
 | npm `.d.ts` declarations | `.bazel/npm`, installed by `bazel run //:refresh_tsconfig` | **no** |
 
 The npm row is the exception for the same reason `.bazel/npm` exists: a fragment

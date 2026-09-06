@@ -83,21 +83,6 @@ func importsForRule(_ *config.Config, r *rule.Rule, f *rule.File) []resolve.Impo
 		}
 	}
 
-	// A workspace link's package name: no path key covers it, and an unindexed
-	// bare specifier is indistinguishable from an npm package.
-	if moduleName := r.AttrString("module_name"); moduleName != "" {
-		specs = append(specs, resolve.ImportSpec{Lang: languageName, Imp: moduleName})
-		for _, src := range srcs {
-			if isIndexFile(src) || isLabelSrc(src) {
-				continue
-			}
-			specs = append(specs, resolve.ImportSpec{
-				Lang: languageName,
-				Imp:  path.Join(moduleName, indexedModule(src)),
-			})
-		}
-	}
-
 	return specs
 }
 
@@ -118,7 +103,7 @@ func indexedModule(src string) string {
 
 // codegenTreeSpecs returns the ImportSpecs an out_dir ts_codegen answers to.
 // The tree is a declare_directory the generator fills at build time, so what
-// its modules are called cannot be read here; each root is indexed instead, and
+// its modules are called cannot be read here; the root is indexed instead, and
 // resolveCodegenTree matches a specifier to the root above it.
 //
 // An outs ts_codegen is indexed through the ts_compile whose srcs name its
@@ -129,18 +114,11 @@ func codegenTreeSpecs(r *rule.Rule, pkg string) []resolve.ImportSpec {
 	if outDir == "" {
 		return nil
 	}
-	roots := []string{path.Join(pkg, outDir)}
-	if moduleName := r.AttrString("module_name"); moduleName != "" {
-		roots = append(roots, moduleName)
+	root := path.Join(pkg, outDir)
+	return []resolve.ImportSpec{
+		{Lang: languageName, Imp: root},
+		{Lang: languageName, Imp: codegenTreeKey(root)},
 	}
-	var specs []resolve.ImportSpec
-	for _, root := range roots {
-		specs = append(specs,
-			resolve.ImportSpec{Lang: languageName, Imp: root},
-			resolve.ImportSpec{Lang: languageName, Imp: codegenTreeKey(root)},
-		)
-	}
-	return specs
 }
 
 // codegenTreeKey namespaces a codegen tree root, so that the ancestor walk in
@@ -190,6 +168,16 @@ func codegenOutsOf(f *rule.File, name string) []string {
 // The kinds whose sources tsgo type-checks, which is what makes an ambient
 // declaration reach them.
 var ambientTypesKinds = map[string]bool{"ts_compile": true, "ts_test": true}
+
+// typesFileLabel is the target staging the file a path-shaped `types` entry
+// names: the ts_codegen whose outs write it, else the one whose srcs hold it.
+func typesFileLabel(ix *resolve.RuleIndex, tc *tsConfig, file string, from label.Label) string {
+	if codegen, ok := tc.codegenOuts[file]; ok {
+		return label.New(from.Repo, codegen.Pkg, codegen.Name).Rel(from.Repo, from.Pkg).String()
+	}
+	lbl, _ := lookupInIndex(ix, path.Join(path.Dir(file), indexedModule(path.Base(file))), from)
+	return lbl
+}
 
 func asImports(importsIface any) ([]string, bool) {
 	if importsIface == nil {
@@ -242,8 +230,10 @@ func resolveImports(
 		for _, lbl := range tc.tsconfigAmbientTypes {
 			addDep(lbl)
 		}
-		for _, codegen := range tc.tsconfigCodegenTypes {
-			addDep(label.New(from.Repo, codegen.Pkg, codegen.Name).Rel(from.Repo, from.Pkg).String())
+		for _, file := range tc.tsconfigTypesFiles {
+			if lbl := typesFileLabel(ix, tc, file, from); lbl != "" {
+				addDep(lbl)
+			}
 		}
 		for _, name := range typeReferences(r) {
 			if lbl := typeReferenceLabel(tc, name); lbl != "" {
@@ -256,7 +246,7 @@ func resolveImports(
 			if lbl := resolveImport(c, ix, tc, r.Kind(), ambient, spec, from); lbl != "" {
 				addDep(lbl)
 			} else if tc.warnUnresolved {
-				log.Printf("gazelle: WARNING: unresolved JSX runtime %q in //%s:%s (the import every JSX tag makes; tried: path-alias, module_name, npm)", spec, from.Pkg, from.Name)
+				log.Printf("gazelle: WARNING: unresolved JSX runtime %q in //%s:%s (the import every JSX tag makes; tried: path-alias, npm)", spec, from.Pkg, from.Name)
 			}
 		}
 	}
@@ -379,7 +369,7 @@ func resolveImport(
 			}
 			imp = target
 		}
-		// A module_name before an npm package: the hub has no such package.
+		// A first-party module the index answers before an npm package.
 		if lbl, selfImport := lookupInIndex(ix, imp, from); lbl != "" {
 			return lbl
 		} else if selfImport {
@@ -418,8 +408,7 @@ func ambientModuleNames(c *config.Config, r *rule.Rule, from label.Label) []stri
 }
 
 // declaredAmbiently reports whether imp names one of the declared modules, or a
-// subpath of one -- the same prefix rule the strict-deps check applies to a
-// dep's module_name.
+// subpath of one.
 func declaredAmbiently(names []string, imp string) bool {
 	for _, name := range names {
 		if imp == name || strings.HasPrefix(imp, name+"/") {

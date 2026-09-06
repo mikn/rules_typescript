@@ -968,14 +968,13 @@ func TestBuildCodegenRule_RefusesAGlobBrokenByWhitespace(t *testing.T) {
 	}
 }
 
-// The rule as a consumer writes it by hand: an out_dir tree with a module_name,
-// in the package the tsconfig-mode rollup reads.
+// The rule as a consumer writes it by hand: an out_dir tree in the package the
+// tsconfig-mode rollup reads, reached through the tsconfig's `paths`.
 const outDirCodegenRule = `ts_codegen(
     name = "messages",
     srcs = ["names.txt"],
     args = ["--names", "{srcs}", "--outdir", "{out}"],
     generator = "//tools:tree_gen",
-    module_name = "@web/messages",
     out_dir = "compiled",
 )
 `
@@ -986,7 +985,7 @@ func TestConverge_FilesUnderAnOutDirAreNotRolledUpSrcs(t *testing.T) {
 	repoRoot := convergeTree(t, map[string]string{
 		"BUILD.bazel":                      "",
 		"web/BUILD.bazel":                  "# gazelle:ts_package_boundary tsconfig\n\n" + outDirCodegenRule,
-		"web/tsconfig.json":                `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
+		"web/tsconfig.json":                `{"compilerOptions":{"lib":["es2022"],"paths":{"@web/messages/*":["./compiled/*"]}}}` + "\n",
 		"web/names.txt":                    "hello\n",
 		"web/app.ts":                       "import { hello } from \"@web/messages/hello\";\nexport const s = hello(1);\n",
 		"web/compiled/index.ts":            "export const generated = 1;\n",

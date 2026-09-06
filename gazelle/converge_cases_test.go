@@ -584,9 +584,9 @@ func buildFileText(t *testing.T, root, pkg string) string {
 
 // ---- a tsconfig `types` entry ----------------------------------------------
 
-// The rule reads `paths` and `types` from the tsconfig, so a BUILD file repeats none
-// of it; a `types` entry a ts_codegen writes still needs the codegen as a dep.
-func TestTypesEntryNamingACodegenOutIsADep(t *testing.T) {
+// A path-shaped `types` entry is a dep on the target staging the file: the
+// ts_compile holding a checked-in declaration, or the ts_codegen writing it.
+func TestTypesEntryIsADepOnTheTargetStagingIt(t *testing.T) {
 	fixture := convergeFixture(t, "worker")
 	var mutation convergeMutation
 	for _, mut := range fixture.mutations {
@@ -605,6 +605,10 @@ func TestTypesEntryNamingACodegenOutIsADep(t *testing.T) {
 	captureLog(t, func() { convergeGazelle(t, checkedIn) })
 	for _, program := range programs {
 		r := onlyRuleOfKind(t, checkedIn, program.pkg, program.kind)
+		if deps := r.AttrStrings("deps"); !contains(deps, "//worker") {
+			t.Errorf("%s(%s) in //%s has deps = %v, want //worker: the target holding worker-configuration.d.ts is what stages the declaration the tsconfig names in `types`:\n%s",
+				r.Kind(), r.Name(), program.pkg, deps, indent(buildFileText(t, checkedIn, program.pkg)))
+		}
 		for _, attr := range attrsBeyondTheRule(r) {
 			t.Errorf("%s(%s) in //%s carries %s while the declaration is checked in; the tsconfig names it and the rule reads the tsconfig:\n%s",
 				r.Kind(), r.Name(), program.pkg, attr, indent(buildFileText(t, checkedIn, program.pkg)))

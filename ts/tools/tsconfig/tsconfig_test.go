@@ -235,6 +235,30 @@ func TestResolve_JsxImportSourceLeafWins(t *testing.T) {
 	}
 }
 
+// tsc replaces an inherited `types` whole; a leaf that sets none keeps the
+// base's list, and the entries resolve against the leaf's own directory.
+func TestResolve_TypesLeafWins(t *testing.T) {
+	repo := t.TempDir()
+	write(t, filepath.Join(repo, "base.json"), `{"compilerOptions": {"types": ["./env.d.ts", "node"]}}`)
+	write(t, filepath.Join(repo, "inherits.json"), `{"extends": "./base.json"}`)
+	write(t, filepath.Join(repo, "overrides.json"),
+		`{"extends": "./base.json", "compilerOptions": {"types": []}}`)
+	write(t, filepath.Join(repo, "unset.json"), `{"compilerOptions": {"strict": true}}`)
+
+	for name, want := range map[string][]string{
+		"inherits.json":  {"./env.d.ts", "node"},
+		"overrides.json": {},
+	} {
+		got := mustResolve(t, filepath.Join(repo, name)).Types
+		if got == nil || !reflect.DeepEqual(*got, want) {
+			t.Errorf("%s: Types = %v, want %v", name, got, want)
+		}
+	}
+	if got := mustResolve(t, filepath.Join(repo, "unset.json")).Types; got != nil {
+		t.Errorf("unset.json: Types = %v, want nil: no file in the chain sets the key", *got)
+	}
+}
+
 // The leaf's own failure is the caller's to handle; a base that cannot be read
 // is said and skipped, because the leaf still describes a program.
 func TestResolve_LeafFailsBaseIsSkipped(t *testing.T) {

@@ -323,9 +323,9 @@ type tsConfig struct {
 	// as its extends chain leaves it; "" when no config in the chain names one.
 	tsconfigJsxImportSource string
 
-	// tsconfigCodegenTypes is the ts_codegen behind each path-shaped `types` entry
-	// of the nearest tsconfig: the dep that stages the declaration it names.
-	tsconfigCodegenTypes []label.Label
+	// tsconfigTypesFiles is each file a path-shaped `types` entry of the nearest
+	// tsconfig's chain names, repo-relative; Resolve finds the target staging it.
+	tsconfigTypesFiles []string
 
 	// codegenOuts is the ts_codegen declaring each out, by the out's repo-relative path.
 	codegenOuts map[string]label.Label
@@ -938,7 +938,7 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 		// above it.
 		tc.tsconfigAmbientTypes = loadTsConfigAmbientTypes(tsConfigCandidate)
 		tc.tsconfigJsxImportSource = loadTsConfigJsxImportSource(tsConfigCandidate)
-		tc.tsconfigCodegenTypes = codegenTypesDeps(tsConfigCandidate, rel, tc.codegenOuts)
+		tc.tsconfigTypesFiles = typesEntryFiles(tsConfigCandidate, rel)
 	}
 
 	// The compilerOptions baseline, resolved the way tsserver resolves one:
@@ -1236,16 +1236,16 @@ func trailingSlash(p string) string {
 // With no `types` key tsc includes every @types package in scope, which under
 // pnpm's isolated node_modules is exactly the ones the package.json declares.
 func loadTsConfigAmbientTypes(tsConfigPath string) []string {
-	tsc, err := tsconfig.Read(tsConfigPath)
+	resolved, err := tsconfig.Resolve(tsConfigPath)
 	if err != nil {
 		return nil
 	}
-	if tsc.CompilerOptions.Types == nil {
+	if resolved.Types == nil {
 		return declaredTypesPackages(filepath.Join(filepath.Dir(tsConfigPath), "package.json"))
 	}
 	var labels []string
 	seen := make(map[string]struct{})
-	for _, entry := range *tsc.CompilerOptions.Types {
+	for _, entry := range *resolved.Types {
 		lbl := ambientTypeLabel(entry)
 		if lbl == "" {
 			continue
@@ -1301,24 +1301,24 @@ func (tc *tsConfig) recordCodegenOuts(rel string, f *rule.File) {
 	}
 }
 
-// codegenTypesDeps is the ts_codegen behind each path-shaped `types` entry of the
-// tsconfig at tsConfigPath; tsc resolves the entry against that file's directory.
-func codegenTypesDeps(tsConfigPath, rel string, codegenOuts map[string]label.Label) []label.Label {
-	tsc, err := tsconfig.Read(tsConfigPath)
-	if err != nil || tsc.CompilerOptions.Types == nil {
+// The files the chain's path-shaped `types` entries name, repo-relative: tsc
+// resolves an inherited entry against the program's directory, not its setter's.
+func typesEntryFiles(tsConfigPath, rel string) []string {
+	resolved, err := tsconfig.Resolve(tsConfigPath)
+	if err != nil || resolved.Types == nil {
 		return nil
 	}
-	var deps []label.Label
-	for _, entry := range *tsc.CompilerOptions.Types {
+	var files []string
+	for _, entry := range *resolved.Types {
 		entry = strings.TrimSpace(entry)
 		if !strings.HasPrefix(entry, "./") && !strings.HasPrefix(entry, "../") {
 			continue
 		}
-		if codegen, ok := codegenOuts[path.Join(rel, entry)]; ok && !slices.Contains(deps, codegen) {
-			deps = append(deps, codegen)
+		if file := path.Join(rel, entry); !slices.Contains(files, file) {
+			files = append(files, file)
 		}
 	}
-	return deps
+	return files
 }
 
 // ambientTypePackage is the package one compilerOptions.types entry names, ""

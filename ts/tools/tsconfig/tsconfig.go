@@ -71,6 +71,7 @@ type Resolved struct {
 	BaseURLDir      string
 	Paths           map[string][]string
 	PathsDir        string
+	Types           *[]string
 	JsxImportSource string
 	// Inputs reports whether a file in the chain sets include or files;
 	// without either, tsc enumerates the directory tree.
@@ -119,6 +120,7 @@ func resolve(path string, ancestors map[string]bool) (*Resolved, error) {
 		BaseURLDir:      dir,
 		Paths:           f.CompilerOptions.Paths,
 		PathsDir:        dir,
+		Types:           f.CompilerOptions.Types,
 		JsxImportSource: f.CompilerOptions.JsxImportSource,
 		Inputs:          f.Include != nil || f.Files != nil,
 	})
@@ -131,6 +133,9 @@ func (r *Resolved) override(other *Resolved) {
 	}
 	if other.Paths != nil {
 		r.Paths, r.PathsDir = other.Paths, other.PathsDir
+	}
+	if other.Types != nil {
+		r.Types = other.Types
 	}
 	if other.JsxImportSource != "" {
 		r.JsxImportSource = other.JsxImportSource

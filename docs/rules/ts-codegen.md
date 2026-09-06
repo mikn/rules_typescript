@@ -106,15 +106,12 @@ sets is expressible: oxc groups its sources by root and runs once per group.
 | `generator` | `label` | required | The executable, built for the exec configuration |
 | `args` | `string_list` | `[]` | The generator's command line, after placeholder substitution |
 | `node_modules` | `label` | `None` | An npm tree for a generator that imports packages at runtime. Name the target `node_modules` if the generator uses ESM |
-| `module_name` | `string` | `""` | The bare specifier the `out_dir` tree is importable as. Requires `out_dir` |
 | `env` | `string_dict` | `{}` | Extra environment for the action |
 
 `outs` and `out_dir` are **mutually exclusive, and exactly one is required**.
 Both being unset and both being set are separate analysis-time errors. Bazel
 requires every output to be declared at analysis time, so a generator whose
 output set depends on its input is only expressible as `out_dir`.
-
-`module_name` requires `out_dir`; see [A directory of output](#a-directory-of-output).
 
 ## A Directory of Output
 
@@ -130,18 +127,21 @@ ts_codegen(
     out_dir = "compiled",
     args = ["--project", "{srcs_dir}", "--outdir", "{out}"],
     generator = ":compile_messages",
-    module_name = "#app/messages",
     node_modules = ":node_modules",
 )
 
 ts_compile(
     name = "app",
     srcs = ["main.ts"],
+    tsconfig = "tsconfig.json",
     deps = [":messages"],
 )
 ```
 
-`main.ts` imports `#app/messages`, and the declarations inside the tree type it.
+`main.ts` imports `#app/messages`, which the tsconfig's `paths` sends into the
+tree (`"#app/messages": ["./compiled/index"]`); the rule writes a bazel-bin twin
+of every `paths` value, so the entry reaches the tree the action wrote, and the
+declarations inside it type the import.
 
 The tree goes in `deps`, never in `srcs`. `srcs` declares one output per input
 file at analysis time, and a directory has no file list until its action has
@@ -150,9 +150,9 @@ generator has to emit compiled output, `.js` beside `.d.ts`; nothing downstream
 compiles the tree. A generator that emits `.ts` sources into a tree has no
 route today.
 
-`module_name` is the only way to import out of the tree by name. Without it the
-tree is still staged for the consumer's type-check, but no `paths` entry points
-at it and the import does not resolve:
+A `paths` entry is the only way to import out of the tree by name. Without one
+the tree is still staged for the consumer's type-check, but nothing points at it
+and the import does not resolve:
 
 ```
 error TS2307: Cannot find module '#app/messages' or its corresponding type
@@ -160,15 +160,14 @@ declarations.
 ```
 
 A relative import into the tree, `./compiled/messages/greeting.js` from a source
-in the same package, needs no `module_name`. The undeclared-import check
-resolves it against the directory, so it still names the label when the tree
-arrives only through another dep.
+in the same package, needs no entry. The undeclared-import check resolves it
+against the directory, so it still names the label when the tree arrives only
+through another dep.
 
 Gazelle writes the `deps` entry for either spelling. An `out_dir` target is
-indexed by the roots its modules sit under: its `module_name`, and the
-workspace-relative `out_dir` path a relative or aliased specifier reaches it by.
-A specifier under one of those roots resolves to the target. The root is
-matched as a prefix, after every indexed source has failed to claim the
+indexed by the workspace-relative `out_dir` path a relative or aliased
+specifier reaches it by; a specifier under that root resolves to the target. The
+root is matched as a prefix, after every indexed source has failed to claim the
 specifier. An `outs` target is indexed under no root: it returns no `JsInfo`,
 so nothing depends on it, and its outputs are importable through the
 `ts_compile` that names it in `srcs`.

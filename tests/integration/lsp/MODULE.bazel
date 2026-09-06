@@ -1,9 +1,10 @@
 """Integration test: LSP / IDE tsconfig generation.
 
-Verifies that `bazel run //:refresh_tsconfig` generates a tsconfig.json that:
-  1. Names no npm package in paths (e.g. "zod"): the checkout's node_modules
-     answers those.
-  2. Contains paths entries for # gazelle:ts_path_alias directives (e.g. "@/*").
+Verifies that `bazel run //:refresh_tsconfig` generates a root tsconfig.json
+that names no npm package in paths (e.g. "zod": the checkout's node_modules
+answers those), and a nested tsconfig.json per package whose targets name
+src/tsconfig.json, extending it, so the editor program inherits the `paths`
+alias the build resolved through.
 
 The {RULES_TS_ROOT} placeholder is substituted at test runtime by test_runner.sh
 with the absolute path to the rules_typescript checkout.

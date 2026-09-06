@@ -122,9 +122,8 @@ bazel_integration_test(
 )
 
 # ── oxc_declarations ──────────────────────────────────────────────────────────
-# Tests the # gazelle:ts_declarations oxc path: annotated exports build and emit
-# declarations from syntax, while un-annotated exports are REJECTED rather than
-# silently widened to `{}` / `unknown`.
+# .bazelrc sets --@rules_typescript//ts:declarations=oxc: annotated exports emit
+# declarations from syntax, and an un-annotated export is rejected, not widened.
 
 bazel_integration_test(
     name = "oxc_declarations_test",
@@ -188,15 +187,8 @@ bazel_integration_test(
 )
 
 # ── gazelle_roundtrip ─────────────────────────────────────────────────────────
-# Tests: delete BUILD files → Gazelle regenerates → diff → build + test passes.
-# Verifies Gazelle output is idempotent and the regenerated BUILD files work.
-# The worker/ and aliased/ subtrees are where a generated BUILD file is LOADED
-# rather than compared as text: a rule there that does not take `types_srcs` is
-# a load error on the whole package, and a ts_test whose alias no staged file
-# validates is an analysis error. pnpm-lock.yaml is sourced from tests/npm/ at
-# runtime by the runner, because the generated ts_test runs a real vitest, and
-# tests/workers/pnpm-lock.yaml beside it as pnpm-lock.workers.yaml, for the
-# wrangler that generated_worker/'s hand-written ts_codegen runs.
+# Regenerates the fixture's BUILD files twice, diffs the passes, builds, tests.
+# The runner stages tests/npm's lockfile for vitest, tests/workers' for wrangler.
 
 bazel_integration_test(
     name = "gazelle_roundtrip_test",
@@ -211,11 +203,8 @@ bazel_integration_test(
 )
 
 # ── lsp ───────────────────────────────────────────────────────────────────────
-# Tests: `bazel run //:refresh_tsconfig` generates a tsconfig.json with:
-#   1. No paths entry for an npm package (e.g. "zod"): the checkout's
-#      node_modules answers those.
-#   2. Paths entries for ts_path_alias directives (e.g. "@/*").
-# pnpm-lock.yaml is sourced from tests/npm/ at runtime by the runner.
+# `bazel run //:refresh_tsconfig` writes no paths entry for an npm package and a
+# nested tsconfig.json per package extending the src/tsconfig.json targets name.
 
 bazel_integration_test(
     name = "lsp_test",
