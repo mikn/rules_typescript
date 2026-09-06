@@ -1,0 +1,23 @@
+load("//ts:defs.bzl", "ts_compile", "ts_test")
+
+ts_compile(
+    name = "test",
+    srcs = [
+        "global-setup.ts",
+        "vitest.setup.ts",
+    ],
+    visibility = ["//visibility:public"],
+    deps = ["@npm//:vitest"],
+)
+
+# Nothing imports a setup file, so the dep staging the compiled siblings is kept
+# by hand.
+ts_test(
+    name = "setup_test",
+    srcs = ["setup.test.ts"],
+    config = "//tests/setup_files_compiled:vitest_config",
+    deps = [
+        ":test",  # keep
+        "@npm//:vitest",
+    ],
+)

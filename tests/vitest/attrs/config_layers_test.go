@@ -21,5 +21,6 @@ func TestEveryAttributeReachesTheGeneratedConfig(t *testing.T) {
 		`root: resolve(process.env.TS_TEST_PACKAGE_DIR, "."),`,
 		`const workersPoolLayer = undefined;`,
 		`merge(merge(bazelLayer, user), attrLayer)`,
+		`withCompiledSetup(merge(merge(merge(bazelLayer, user), attrLayer), snapshotLayer))`,
 	)
 }

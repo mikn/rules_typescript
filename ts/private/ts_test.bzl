@@ -222,6 +222,28 @@ const merge = (a, b) => {
 };
 """
 
+_SETUP_HELPERS = """\
+// A config names its setup files as sources, which the runfiles never hold;
+// what a dep stages at that path is the compiled sibling.
+const COMPILED_EXT = { '.ts': '.js', '.tsx': '.js', '.mts': '.mjs', '.cts': '.cjs' };
+const compiledSetupEntry = (root) => (entry) => {
+  const m = typeof entry === 'string' ? /\\.[cm]?tsx?$/.exec(entry) : null;
+  if (!m || !(m[0] in COMPILED_EXT) || existsSync(resolve(root, entry))) return entry;
+  const sibling = entry.slice(0, -m[0].length) + COMPILED_EXT[m[0]];
+  return existsSync(resolve(root, sibling)) ? sibling : entry;
+};
+const withCompiledSetup = (config) => {
+  if (!isPlainObject(config.test)) return config;
+  const rewrite = compiledSetupEntry(resolve(config.root ?? '.'));
+  const test = { ...config.test };
+  for (const key of ['setupFiles', 'globalSetup']) {
+    if (Array.isArray(test[key])) test[key] = test[key].map(rewrite);
+    else if (typeof test[key] === 'string') test[key] = rewrite(test[key]);
+  }
+  return { ...config, test };
+};
+"""
+
 def _relative_dir(from_dir, to_dir):
     """Relative path from one workspace directory to another, "." when equal."""
     a = [p for p in from_dir.split("/") if p]
@@ -335,9 +357,10 @@ def _vitest_config_content(
         ("basename, dirname, join, resolve, sep" if snapshot_bases else "dirname, resolve") +
         " } from 'node:path';",
         "import { fileURLToPath } from 'node:url';",
+        "import { " +
+        ("existsSync, readFileSync" if snapshot_bases else "existsSync") +
+        " } from 'node:fs';",
     ]
-    if snapshot_bases:
-        lines.append("import { readFileSync } from 'node:fs';")
     if css_module_plugin_rf:
         # The plugin that answers a *.module.css import with the export map
         # css_module wrote, so a test reads the class name the browser gets.
@@ -438,6 +461,7 @@ def _vitest_config_content(
     lines += [
         "",
         _CONFIG_MERGE_HELPERS,
+        _SETUP_HELPERS,
         "export default async (env) => {",
     ]
     if user_config_rf or user_config_json:
@@ -454,7 +478,7 @@ def _vitest_config_content(
         lines.append("  const user = {};")
     lines += [
         "  if (typeof workersPoolLayer === 'function') bazelLayer = workersPoolLayer(bazelLayer, user, resolve(process.env.TS_TEST_PACKAGE_DIR, {}));".format(_js(workspace_rel)),
-        "  const merged = merge(merge(merge(bazelLayer, user), attrLayer), snapshotLayer);",
+        "  const merged = withCompiledSetup(merge(merge(merge(bazelLayer, user), attrLayer), snapshotLayer));",
         "  // Every project gets its own Vite server, so the Bazel layer and the",
         "  // attribute layer have to be applied to each project too.",
         "  const projects = merged.test && merged.test.projects;",
@@ -462,7 +486,7 @@ def _vitest_config_content(
         "    merged.test = {",
         "      ...merged.test,",
         "      projects: projects.map((p) =>",
-        "        isPlainObject(p) ? merge(merge(bazelLayer, p), attrLayer) : p,",
+        "        isPlainObject(p) ? withCompiledSetup(merge(merge(bazelLayer, p), attrLayer)) : p,",
         "      ),",
         "    };",
         "  }",

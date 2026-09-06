@@ -1,0 +1,7 @@
+# A config at the package root names its setup files as sources; the tests in
+# test/ run the compiled siblings a dep stages.
+filegroup(
+    name = "vitest_config",
+    srcs = ["vitest.config.mjs"],
+    visibility = ["//visibility:public"],
+)
