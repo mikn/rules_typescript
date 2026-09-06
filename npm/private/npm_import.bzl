@@ -418,15 +418,15 @@ def _type_references(read, declarations):
             out[path] = names
     return out
 
-def _rctx_has_file(rctx):
+def _rctx_has_file(rctx, package_root):
     def has_file(path):
-        return rctx.path(path).exists
+        return rctx.path(package_root + "/" + path).exists
 
     return has_file
 
-def _rctx_read(rctx):
+def _rctx_read(rctx, package_root):
     def read(path):
-        p = rctx.path(path)
+        p = rctx.path(package_root + "/" + path)
         return rctx.read(p) if p.exists and not p.is_dir else None
 
     return read
@@ -485,17 +485,18 @@ def _label_list_expr(rctx_name, platforms, common, by_platform, indent = "      
         return ""
     return " + ".join(parts)
 
-def _package_relative_label(path):
-    """A path inside the package, written so a label attribute reads it as one.
+# TypeScript takes a `paths` match for a library file -- type-checked, never
+# emitted, exempt from rootDir -- only when its path holds a node_modules segment.
+def _package_root(package):
+    return "node_modules/" + package
 
-    A first segment starting with `@` -- formdata-node keeps its declarations in
-    a directory called `@type` -- is otherwise a repository reference, and Bazel
-    rejects the entire generated repository rather than the one attribute.
-    """
-    return ":" + path
+def _package_relative_label(package_root, path):
+    """The label of a file inside the package, relative to the generated BUILD file."""
+    return ":" + package_root + "/" + path
 
 def _package_stanza(attrs, target_name, package_name, deps_expr, declaration_entry, subpath_declarations, subpath_patterns, type_references):
     """The ts_npm_package call for one name this package is imported under."""
+    package_root = _package_root(attrs.package)
     stanza = [
         "ts_npm_package(",
         '    name = "{}",'.format(target_name),
@@ -505,8 +506,8 @@ def _package_stanza(attrs, target_name, package_name, deps_expr, declaration_ent
     if attrs.peer_id:
         stanza.append('    peer_id = "{}",'.format(attrs.peer_id))
     stanza += [
-        '    package_dir = ":package.json",',
-        '    package_files = glob(["**/*"], exclude_directories = 1, allow_empty = True),',
+        '    package_dir = "{}",'.format(_package_relative_label(package_root, "package.json")),
+        '    package_files = glob(["{}/**/*"], exclude_directories = 1, allow_empty = True),'.format(package_root),
     ]
     if deps_expr:
         stanza.append("    deps = {},".format(deps_expr))
@@ -515,7 +516,7 @@ def _package_stanza(attrs, target_name, package_name, deps_expr, declaration_ent
     if attrs.is_types_package:
         stanza.append("    is_types_package = True,")
     if declaration_entry:
-        stanza.append('    exports_types = "{}",'.format(_package_relative_label(declaration_entry)))
+        stanza.append('    exports_types = "{}",'.format(_package_relative_label(package_root, declaration_entry)))
     if subpath_declarations:
         stanza.append("    subpath_types = {")
         for subpath in sorted(subpath_declarations.keys()):
@@ -580,6 +581,22 @@ def _apply_patch(rctx):
     rctx.patch(local, strip = 1)
     rctx.delete(local)
 
+# Bazel reads each as a package or repository boundary, which would take the
+# package out of its own glob; at the repository root the generated file won.
+_BOUNDARY_FILES = ("BUILD", "BUILD.bazel", "WORKSPACE", "WORKSPACE.bazel", "MODULE.bazel", "REPO.bazel")
+
+def _move_package(rctx, package_root):
+    """Moves the package from the repository root, where rctx.patch applies, to `package_root`.
+
+    Staged, since a package can ship a node_modules of its own (@parcel/watcher-wasm).
+    """
+    staging = "_pkg"
+    for entry in rctx.path(".").readdir(watch = "no"):
+        rctx.rename(entry.basename, staging + "/" + entry.basename)
+    rctx.rename(staging, package_root)
+    for name in _BOUNDARY_FILES:
+        rctx.delete(package_root + "/" + name)
+
 def _npm_import_impl(rctx):
     tarball = "_pkg.tgz"
     auth = _auth_for_fetch(rctx, rctx.attr.url)
@@ -601,8 +618,11 @@ def _npm_import_impl(rctx):
     if rctx.attr.patch:
         _apply_patch(rctx)
 
+    package_root = _package_root(rctx.attr.package)
+    _move_package(rctx, package_root)
+
     pkg_json = {}
-    pkg_json_path = rctx.path("package.json")
+    pkg_json_path = rctx.path(package_root + "/package.json")
     if pkg_json_path.exists:
         pkg_json = json.decode(rctx.read(pkg_json_path))
 
@@ -611,13 +631,14 @@ def _npm_import_impl(rctx):
     if bins:
         lines.append('load("@rules_typescript//npm/private:npm_bin.bzl", "npm_bin")\n')
     lines.append('package(default_visibility = ["//visibility:public"])\n')
-    lines.append('exports_files(["package.json"])\n')
+    lines.append('exports_files(["{}/package.json"])\n'.format(package_root))
 
-    declaration_entry = _exports_types(pkg_json, _rctx_has_file(rctx))
-    subpath_declarations = _exports_subpath_types(pkg_json, _rctx_has_file(rctx))
-    subpath_patterns = _exports_subpath_patterns(pkg_json, _rctx_has_file(rctx))
+    has_file = _rctx_has_file(rctx, package_root)
+    declaration_entry = _exports_types(pkg_json, has_file)
+    subpath_declarations = _exports_subpath_types(pkg_json, has_file)
+    subpath_patterns = _exports_subpath_patterns(pkg_json, has_file)
     type_references = _type_references(
-        _rctx_read(rctx),
+        _rctx_read(rctx, package_root),
         ([declaration_entry] if declaration_entry else []) + sorted(subpath_declarations.values()),
     )
 
@@ -669,7 +690,7 @@ def _npm_import_impl(rctx):
             "npm_bin(",
             '    name = "{}",'.format(bin_name),
             '    entry_script = "{}",'.format(bin_path.removeprefix("./")),
-            '    package_files = glob(["**/*"], exclude_directories = 1, allow_empty = True),',
+            '    package_files = glob(["{}/**/*"], exclude_directories = 1, allow_empty = True),'.format(package_root),
         ]
         if optional_expr:
             bin_stanza.append("    optional_dep_packages = {},".format(optional_expr))

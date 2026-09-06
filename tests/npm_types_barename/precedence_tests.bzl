@@ -81,8 +81,7 @@ def _types_package_root_impl(ctx):
         return analysistest.end(env)
 
     # @types/culori keeps `all/`, `css/` and `fn/` beside its index. Naming one
-    # of those instead of the package puts `culori` inside a single module and
-    # leaves every subpath unresolvable, so the key has to end at the package.
+    # instead of the package puts `culori` inside one module and loses every subpath.
     for key in ("culori", "culori/*"):
         value = paths.get(key)
         asserts.true(env, value != None, "{} has no paths entry".format(key))
@@ -91,7 +90,7 @@ def _types_package_root_impl(ctx):
         directory = value[0][:-len("/*")] if key.endswith("/*") else value[0]
         asserts.true(
             env,
-            directory.split("/")[-1].endswith("npm__types_culori__2_1_1"),
+            _TYPES + "culori__2_1_1" in directory and directory.endswith("/node_modules/@types/culori"),
             "{} resolves inside the @types package, not to it: {}".format(key, value),
         )
     return analysistest.end(env)

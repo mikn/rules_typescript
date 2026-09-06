@@ -19,7 +19,7 @@ func TestVersionedLabelsStayApart(t *testing.T) {
 		{"rolldown_pluginutils__1_0_0_rc_3", "1.0.0-rc.3"},
 		{"rolldown_pluginutils__1_0_1", "1.0.1"},
 	} {
-		dir := tree.FoundDir("*" + c.dirSuffix)
+		dir := tree.FoundDir("*" + c.dirSuffix + "/node_modules/@rolldown/pluginutils")
 		var pkg struct {
 			Version string `json:"version"`
 		}

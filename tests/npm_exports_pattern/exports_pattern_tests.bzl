@@ -43,7 +43,7 @@ def _pattern_paths_impl(ctx):
         )
         asserts.true(
             env,
-            _REPO in wildcard[1][:-len("/*")].split("/")[-1],
+            _in_package(wildcard[1]) and wildcard[1].endswith("/node_modules/unenv/*"),
             "the package root second: " + str(wildcard),
         )
         asserts.true(env, wildcard[2].endswith("/dist/*"), "the entry's directory last: " + str(wildcard))

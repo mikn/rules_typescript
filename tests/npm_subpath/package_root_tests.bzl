@@ -18,13 +18,13 @@ def _paths_of(env):
             return json.decode(action.content)["compilerOptions"]["paths"]
     return None
 
-# The package root is the npm repository directory itself: nothing stands
-# between it and the `*`.
-def _rooted_at_package(value, repo_prefix):
+# The package root is `node_modules/<name>` inside the npm repository: nothing
+# stands between it and the `*`.
+def _rooted_at_package(value, pkg):
     if not value.endswith("/*"):
         return False
     directory = value[:-len("/*")]
-    return repo_prefix in directory.split("/")[-1]
+    return pkg.repo_prefix in directory and directory.endswith("/node_modules/" + pkg.name)
 
 _PACKAGES = [
     # Every one of these enters through a declaration in a subdirectory, so the
@@ -48,7 +48,7 @@ def _wildcard_root_impl(ctx):
             continue
         asserts.true(
             env,
-            _rooted_at_package(value[0], pkg.repo_prefix),
+            _rooted_at_package(value[0], pkg),
             "{}/* must look under the package root first, not {}".format(pkg.name, value[0]),
         )
         asserts.true(

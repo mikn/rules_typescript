@@ -87,9 +87,9 @@ def _no_link_lands_on_a_package_that_has_links(ctx):
 _NESTED_DEST = "@babel/helper-compilation-targets/node_modules/semver"
 _NESTED_STORE = ".pnpm/semver@6.3.1/node_modules/semver"
 _NESTED_FILES = [
-    ("external/+npm+npm__semver__6.3.1/package.json", "package.json"),
-    ("external/+npm+npm__semver__6.3.1/range.bnf", "range.bnf"),
-    ("external/+npm+npm__semver__6.3.1/bin/semver.js", "bin/semver.js"),
+    ("external/+npm+npm__semver__6.3.1/node_modules/semver/package.json", "package.json"),
+    ("external/+npm+npm__semver__6.3.1/node_modules/semver/range.bnf", "range.bnf"),
+    ("external/+npm+npm__semver__6.3.1/node_modules/semver/bin/semver.js", "bin/semver.js"),
 ]
 
 def _every_file_of_a_nested_package_is_placed(ctx):

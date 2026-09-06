@@ -59,15 +59,15 @@ const pathsOf = (file) => {
 /**
  * A value split at the package directory, or null when it names no npm package.
  *
- * The build's route is an external repository, one path segment. The editor's
- * is the installed tree, where a scoped package is two.
+ * The build's route is `external/<repo>/node_modules/<name>`, the editor's the
+ * installed tree; in both a scoped name is two segments.
  *
  * @param {string} value
  * @returns {{pkg: string, under: string} | null}
  */
 const split = (value) => {
-  const build = /\/external\/([^/]+)(?:\/(.*))?$/.exec(value);
-  if (build) return { pkg: build[1], under: build[2] || '' };
+  const build = /\/external\/([^/]+)\/node_modules\/((?:@[^/]+\/)?[^/]+)(?:\/(.*))?$/.exec(value);
+  if (build) return { pkg: build[1], under: build[3] || '' };
   const editor = /\.bazel\/npm\/(.*)$/.exec(value);
   if (!editor) return null;
   const segments = editor[1].split('/');

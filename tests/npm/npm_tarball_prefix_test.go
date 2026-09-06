@@ -12,7 +12,7 @@ import (
 func TestUnpredictableTarballPrefixIsStripped(t *testing.T) {
 	tree := verify.New(t)
 
-	dir := tree.FoundDir("*types_express-serve-static-core__4_19_6")
+	dir := tree.FoundDir("*types_express-serve-static-core__4_19_6/node_modules/@types/express-serve-static-core")
 	dir.File("index.d.ts").Exists()
 	dir.File("package.json").Exists()
 
