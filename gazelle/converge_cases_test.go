@@ -227,6 +227,11 @@ func convergeCases() []convergeCase {
 					"packages/ui/tsconfig.json": `{"compilerOptions":{"jsx":"react-jsx"}}` + "\n",
 					"packages/ui/src/button.ts": "export const button = 1;\n",
 				}},
+				{kind: "add_jsx_member", write: map[string]string{
+					"packages/icons/package.json":  `{"name":"@w/icons","version":"1.0.0"}` + "\n",
+					"packages/icons/tsconfig.json": `{"compilerOptions":{"jsx":"react-jsx","jsxImportSource":"preact"}}` + "\n",
+					"packages/icons/src/icon.tsx":  "export const icon: string = <div />;\n",
+				}},
 				{kind: "add_tsconfig_to_member", write: map[string]string{
 					"packages/app/tsconfig.json": `{"compilerOptions":{"strict":false}}` + "\n",
 				}},

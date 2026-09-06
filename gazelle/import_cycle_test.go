@@ -260,10 +260,10 @@ func TestImportCycle_DocSplitInOneDirectoryIsNotReported(t *testing.T) {
 		})
 	})
 
-	emitted := readBuildFile(t, repoRoot, "a")
-	if !strings.Contains(emitted, `deps = [":a_doc"]`) || !strings.Contains(emitted, `deps = [":a"]`) {
+	if !contains(depsOf(t, repoRoot, "a", "ts_compile", "a"), ":a_doc") ||
+		!contains(depsOf(t, repoRoot, "a", "ts_compile", "a_doc"), ":a") {
 		t.Fatalf("the doc split no longer emits a cycle, so this control says nothing; "+
-			"a/BUILD.bazel was:\n%s", emitted)
+			"a/BUILD.bazel was:\n%s", readBuildFile(t, repoRoot, "a"))
 	}
 	if strings.Contains(logged, cycleReport) {
 		t.Errorf("the same-directory doc-split cycle is reported now -- the documented "+

@@ -339,6 +339,10 @@ type tsConfig struct {
 	// one project.
 	tsconfigAmbientTypes []string
 
+	// tsconfigJsxImportSource is the nearest tsconfig's compilerOptions.jsxImportSource
+	// as its extends chain leaves it; "" when no config in the chain names one.
+	tsconfigJsxImportSource string
+
 	// tsconfigTypes is that same key unread, tsconfigTypesDir the directory
 	// its entries are written relative to, tsconfigTypeFiles the ones naming
 	// a declaration file that directory holds, and tsconfigTypeGenerators the
@@ -710,7 +714,8 @@ type tsConfigJSON struct {
 		Paths   map[string][]string `json:"paths"`
 		// A pointer because "types": [] and no "types" key at all mean
 		// opposite things to tsc: none, versus every @types package in scope.
-		Types *[]string `json:"types"`
+		Types           *[]string `json:"types"`
+		JsxImportSource string    `json:"jsxImportSource"`
 	} `json:"compilerOptions"`
 }
 
@@ -735,11 +740,12 @@ func (e *tsConfigExtends) UnmarshalJSON(data []byte) error {
 // An extends chain flattened leaf-wins; a compilerOption keeps its writer's
 // directory because a relative value resolves against that file, not the leaf.
 type resolvedTsConfig struct {
-	baseURL    string
-	baseURLDir string
-	paths      map[string][]string
-	pathsDir   string
-	inputs     bool
+	baseURL         string
+	baseURLDir      string
+	paths           map[string][]string
+	pathsDir        string
+	jsxImportSource string
+	inputs          bool
 }
 
 // resolveTsConfigChain reads a tsconfig and, depth first, the configs it
@@ -778,11 +784,12 @@ func resolveTsConfigChain(tsConfigPath string, ancestors map[string]bool) *resol
 		}
 	}
 	resolved.override(&resolvedTsConfig{
-		baseURL:    tsc.CompilerOptions.BaseURL,
-		baseURLDir: dir,
-		paths:      tsc.CompilerOptions.Paths,
-		pathsDir:   dir,
-		inputs:     tsc.Include != nil || tsc.Files != nil,
+		baseURL:         tsc.CompilerOptions.BaseURL,
+		baseURLDir:      dir,
+		paths:           tsc.CompilerOptions.Paths,
+		pathsDir:        dir,
+		jsxImportSource: tsc.CompilerOptions.JsxImportSource,
+		inputs:          tsc.Include != nil || tsc.Files != nil,
 	})
 	return resolved
 }
@@ -793,6 +800,9 @@ func (r *resolvedTsConfig) override(other *resolvedTsConfig) {
 	}
 	if other.paths != nil {
 		r.paths, r.pathsDir = other.paths, other.pathsDir
+	}
+	if other.jsxImportSource != "" {
+		r.jsxImportSource = other.jsxImportSource
 	}
 	if other.inputs {
 		r.inputs = true
@@ -1298,6 +1308,7 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 		// to it: tsc gives a file one project, not the union of the projects
 		// above it.
 		tc.tsconfigAmbientTypes = loadTsConfigAmbientTypes(tsConfigCandidate)
+		tc.tsconfigJsxImportSource = loadTsConfigJsxImportSource(tsConfigCandidate)
 		tc.tsconfigTypes, tc.tsconfigTypeFiles, tc.tsconfigTypeGenerators, tc.tsconfigTypeAncestors = loadTsConfigTypeFiles(tsConfigCandidate, rel, f, tc.tsconfigTypesStaged)
 		tc.tsconfigTypesDir = rel
 		if staged := stagedTypeLabels(rel, tc.tsconfigTypeFiles, tc.tsconfigTypeGenerators); len(staged) > 0 {

@@ -379,7 +379,6 @@ imports go through it.
 # BUILD.bazel (repo root)
 
 # gazelle:ts_runtime_dep @npm//:happy-dom
-# gazelle:ts_runtime_dep @npm//:react
 ```
 
 These labels are appended to every generated `ts_test` deps list in the repo.

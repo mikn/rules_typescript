@@ -610,9 +610,11 @@ directives included, and the directives in its own BUILD file then merge on top.
 `# gazelle:ts_runtime_dep` lists Bazel labels appended to every generated `ts_test` deps list. Use it for packages needed at test runtime and never statically imported:
 
 - `@npm//:happy-dom`: the vitest environment, imported by the vitest config and not by your test files
-- `@npm//:react`: the JSX runtime (`react/jsx-runtime`), never directly imported
 - `@npm//:react-dom`: required for React test utilities
 - `@npm//:types_react`: type declarations for JSX
+
+The JSX runtime is not one: a `ts_test` with a `.tsx` source gets its
+`jsxImportSource` package as a dep under [Import Resolution](#import-resolution).
 
 ## Import Resolution
 
@@ -693,6 +695,23 @@ directive out of the leading comments and nowhere else, so one after a statement
 is a comment here too. The `types` attribute is not written for it: tsc resolves
 the directive through `node_modules/@types`, which the sandbox does not have,
 and the dep is what puts the declarations in the program.
+
+A `.tsx` source imports its JSX runtime without writing the import: under
+`react-jsx` every tag is a call into `<jsxImportSource>/jsx-runtime`, which tsc
+resolves through `node_modules` and the sandbox has none. Every `ts_compile` and
+`ts_test` with a `.tsx` source gets the dep that specifier resolves to, resolved
+as a written bare specifier is. The extension is the whole test: a `.tsx` with
+no tag in it gets the dep as well, since Gazelle reads the srcs list and not the
+file, while tsc makes the import only for a file with a tag. The package is the
+nearest `tsconfig.json`'s `jsxImportSource`, read through its `extends` chain
+with the leaf winning, else `react`: `ts_compile` compiles under its
+`jsx_mode`, `react-jsx` unless the rule sets another, whatever `jsx` the file
+says, and Gazelle reads neither a rule's `jsx_mode` nor its `jsx_import_source`.
+A first-party `module_name` target with a `jsx-runtime.ts` source answers the
+specifier before the hub, a `declare module "react/jsx-runtime"` block in the
+target's own sources answers it as it does a written specifier (below), and a
+name the lockfile does not answer gets no dep, which
+`# gazelle:ts_warn_unresolved true` lists.
 
 ### The npm Inventory
 
