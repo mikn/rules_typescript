@@ -47,9 +47,8 @@ What the rows pin, beyond one expected path each:
   as a path, and Bazel rejects the entire generated repository over it.
 """
 
-load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
+load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
 load("//npm/private:npm_import.bzl", "exports_subpath_patterns", "exports_subpath_types", "exports_types", "module_entry", "package_stanza")
-load("//ts/private:providers.bzl", "NpmPackageInfo")
 
 _CASES = [
     struct(
@@ -762,65 +761,3 @@ written_form_test = unittest.make(_written_form_test)
 
 def exports_types_test_suite(name):
     unittest.suite(name, published_shapes_test, published_subpaths_test, published_patterns_test, written_form_test)
-
-def _written_tsconfig(env):
-    for action in analysistest.target_actions(env):
-        outputs = action.outputs.to_list()
-        if len(outputs) == 1 and outputs[0].basename.endswith(".tsconfig.json"):
-            return json.decode(action.content)
-    return None
-
-def _declaration_entry_impl(ctx):
-    env = analysistest.begin(ctx)
-    config = _written_tsconfig(env)
-    asserts.true(env, config != None, "the target under test generated no tsconfig")
-    if config == None:
-        return analysistest.end(env)
-
-    npm = ctx.attr.npm_package[NpmPackageInfo]
-    entry = npm.module_entry_file
-    resolved = "{}@{} -> {}".format(
-        npm.package_name,
-        npm.package_version,
-        entry.path if entry else "no module entry",
-    )
-
-    asserts.true(env, entry != None, "the package designates a module entry: " + resolved)
-    if entry == None:
-        return analysistest.end(env)
-
-    # Under the package root rather than beside it: a paths entry pointing into
-    # some other resolution of the same name type-checks against a version this
-    # target never depends on.
-    asserts.true(
-        env,
-        entry.path.startswith(npm.package_dir.dirname + "/"),
-        "the declaration belongs to the resolution under test: " + resolved,
-    )
-
-    mapped = config["compilerOptions"].get("paths", {}).get(npm.package_name, [])
-    asserts.equals(env, 1, len(mapped), "one paths entry for " + npm.package_name + ": " + str(mapped))
-    if len(mapped) != 1:
-        return analysistest.end(env)
-
-    # A directory here is the failure that reads as success: tsgo resolves it by
-    # re-reading the package's own manifest, and answers with nothing when the
-    # manifest is a shape it disagrees with.
-    asserts.true(
-        env,
-        mapped[0].endswith(entry.path),
-        "tsgo is pointed at the entry itself, not a directory: {} vs {}".format(mapped[0], resolved),
-    )
-
-    return analysistest.end(env)
-
-declaration_entry_test = analysistest.make(
-    _declaration_entry_impl,
-    attrs = {
-        "npm_package": attr.label(
-            mandatory = True,
-            providers = [NpmPackageInfo],
-            doc = "The npm package whose declarations the target under test type-checks against.",
-        ),
-    },
-)

@@ -4,7 +4,8 @@ load("@rules_go//go:def.bzl", "go_test")
 load("//npm:defs.bzl", "node_modules")
 load("//ts:defs.bzl", "ts_compile", "ts_test")
 load(":direct_version_tests.bzl", "direct_version_wins_test")
-load(":exports_types_tests.bzl", "declaration_entry_test", "exports_types_test_suite")
+load(":exports_types_tests.bzl", "exports_types_test_suite")
+load(":forest_tests.bzl", "forest_test")
 load(":hub_provenance_tests.bzl", "hub_provenance_test")
 load(":link_depth_tests.bzl", "link_depth_test_suite")
 load(":member_paths_tests.bzl", "member_paths_test_suite")
@@ -44,22 +45,86 @@ types_only_test_suite(name = "types_only_tests")
 # directives name, and that the stanza carries them.
 type_references_test_suite(name = "type_references_tests")
 
-# The end of that resolution: the ruleset's own Vite plugin type-checks against
-# the declarations of the Vite it depends on, named as a file. Nothing else
-# fails when it does not -- tsgo reports no error for a bare specifier it cannot
-# type, and the plugin's own peer range is checked in a different lane
-# (//vite/tests:peer_version_test), against the runtime package.
-declaration_entry_test(
-    name = "vite_plugin_declaration_entry_test",
-    size = "small",
-    npm_package = "@npm//:vite",
-    target_under_test = "//vite:plugin_typecheck",
-)
-
 ts_compile(
     name = "app",
     srcs = ["app.ts"],
     deps = ["@npm//:zod"],
+)
+
+# The forest the tsgo action stages, and the tsconfig it reads: bare specifiers
+# resolve through node_modules alone, so the config names no package.
+forest_test(
+    name = "app_forest_test",
+    size = "small",
+    linked = ["zod/package.json"],
+    target_under_test = ":app",
+)
+
+# @types/node's globals reach a program by one route and are kept out by the
+# other: a direct dep is written into `types`; a package the closure merely
+# carries is linked in the forest and stays out of scope.
+ts_compile(
+    name = "direct_types_probe",
+    srcs = ["direct_types_probe.ts"],
+    deps = ["@npm//:types_node"],
+)
+
+ts_compile(
+    name = "transitive_types_probe",
+    srcs = ["transitive_types_probe.ts"],
+    deps = ["@npm//:vite"],
+)
+
+build_test(
+    name = "types_probes_build_test",
+    targets = [
+        ":direct_types_probe",
+        ":transitive_types_probe",
+    ],
+)
+
+forest_test(
+    name = "direct_types_forest_test",
+    size = "small",
+    linked = ["@types/node/package.json"],
+    target_under_test = ":direct_types_probe",
+    types_deps = ["node"],
+)
+
+forest_test(
+    name = "transitive_types_forest_test",
+    size = "small",
+    linked = [
+        "@types/node/package.json",
+        "vite/package.json",
+    ],
+    target_under_test = ":transitive_types_probe",
+)
+
+[
+    filegroup(
+        name = target + "_tsconfig",
+        testonly = True,
+        srcs = [":" + target],
+        output_group = "tsconfig",
+    )
+    for target in [
+        "app",
+        "direct_types_probe",
+        "transitive_types_probe",
+    ]
+]
+
+go_test(
+    name = "forest_tsconfig_test",
+    size = "small",
+    srcs = ["forest_tsconfig_test.go"],
+    data = [
+        ":app_tsconfig",
+        ":direct_types_probe_tsconfig",
+        ":transitive_types_probe_tsconfig",
+    ],
+    deps = ["//tests/verify"],
 )
 
 # An importer's own resolution against a transitive dependent's older copy of
@@ -88,8 +153,8 @@ direct_version_wins_test(
 # → alias(name = "shared", actual = "@@//packages/shared:shared")
 #
 # This target verifies that the @npm alias resolves to the workspace package,
-# and type-checks: Bazel resolves the alias before Starlark sees it, so the
-# bare specifier is recoverable only from module_name on the aliased target.
+# and type-checks: the bare specifier is answered by the hub target's link in
+# the forest, node_modules/shared, which carries the member's declarations.
 ts_compile(
     name = "workspace_consumer",
     srcs = ["workspace_consumer.ts"],

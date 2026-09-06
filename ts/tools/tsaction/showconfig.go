@@ -1,5 +1,6 @@
-// The tsconfig step writes the action's tsconfig from the user's file and what
-// `tsgo --showConfig` says it means; the oxc step reads the same answer.
+// The tsconfig step writes the action's tsconfig from the ruleset's baseline,
+// the user's file and what `tsgo --showConfig` says the two mean; the oxc step
+// reads the same answer.
 
 package main
 
@@ -75,7 +76,7 @@ func decodeShowConfig(out []byte) (*effectiveOptions, error) {
 // tsconfig cannot: where the sandbox puts things and what this build emits.
 type actionConfig struct {
 	tsgo, project, baseline, out, options string
-	binDir, nodeModules                   string
+	binDir                                string
 	typesDeps                             stringList
 	srcs                                  []string
 	emit                                  bool
@@ -103,12 +104,11 @@ func writeTsconfig(args []string) error {
 	var a actionConfig
 	flags := flag.NewFlagSet("tsconfig", flag.ExitOnError)
 	flags.StringVar(&a.tsgo, "tsgo", "", "the tsgo binary")
-	flags.StringVar(&a.project, "tsconfig", "", "the user's tsconfig.json")
+	flags.StringVar(&a.project, "tsconfig", "", "the user's tsconfig.json, when the target names one")
 	flags.StringVar(&a.baseline, "baseline", "", "the ruleset's baseline options, extended before the user's file")
 	flags.StringVar(&a.out, "out", "", "the tsconfig to write")
 	flags.StringVar(&a.options, "options", "", "the oxc options file to write")
 	flags.StringVar(&a.binDir, "bin_dir", "", "the output tree's root")
-	flags.StringVar(&a.nodeModules, "node_modules", "", "the target's node_modules forest")
 	flags.Var(&a.typesDeps, "types_dep", "a direct @types dep's name, written to types when the user's chain sets none (repeatable)")
 	flags.BoolVar(&a.emit, "emit", false, "tsgo emits this target's declarations")
 	flags.StringVar(&a.outDir, "out_dir", "", "where the declarations land, with -emit")
@@ -121,50 +121,70 @@ func writeTsconfig(args []string) error {
 	}
 	a.srcs = flags.Args()
 	for _, required := range []struct{ name, value string }{
-		{"-tsgo", a.tsgo}, {"-tsconfig", a.project}, {"-baseline", a.baseline}, {"-out", a.out},
-		{"-options", a.options}, {"-bin_dir", a.binDir}, {"-node_modules", a.nodeModules},
+		{"-tsgo", a.tsgo}, {"-baseline", a.baseline}, {"-out", a.out}, {"-options", a.options}, {"-bin_dir", a.binDir},
 	} {
 		if required.value == "" {
 			return fmt.Errorf("tsconfig needs %s", required.name)
 		}
 	}
 
-	// Over the user's file alone: the baseline sets none of the keys read here.
-	effective, err := showConfig(a.tsgo, a.project)
-	if err != nil {
+	// showConfig reads a file, and the options this program runs under are the
+	// merged chain's: the config is written with its extends alone first.
+	dir := path.Dir(a.out)
+	if err := writeJSON(a.out, struct {
+		Extends []string `json:"extends"`
+		Files   []string `json:"files"`
+	}{a.extends(dir), []string{}}); err != nil {
 		return err
 	}
-	chain, err := tsconfig.Resolve(a.project)
+	config, options, err := a.resolve(dir)
 	if err != nil {
-		return err
-	}
-	config, err := a.build(effective, chain)
-	if err != nil {
-		return err
+		return errors.Join(err, os.Remove(a.out))
 	}
 	if err := writeJSON(a.out, config); err != nil {
 		return err
 	}
-	return writeJSON(a.options, oxcOptions{
+	return writeJSON(a.options, options)
+}
+
+func (a *actionConfig) resolve(dir string) (*tsconfigFile, oxcOptions, error) {
+	effective, err := showConfig(a.tsgo, a.out)
+	if err != nil {
+		return nil, oxcOptions{}, err
+	}
+	var chain *tsconfig.Resolved
+	if a.project != "" {
+		if chain, err = tsconfig.Resolve(a.project); err != nil {
+			return nil, oxcOptions{}, err
+		}
+	}
+	config, err := a.build(effective, chain, dir)
+	if err != nil {
+		return nil, oxcOptions{}, err
+	}
+	return config, oxcOptions{
 		Target:          effective.Target,
 		Jsx:             effective.Jsx,
 		JsxImportSource: effective.JsxImportSource,
-	})
+	}, nil
 }
 
-func (a *actionConfig) build(effective *effectiveOptions, chain *tsconfig.Resolved) (*tsconfigFile, error) {
-	dir := path.Dir(a.out)
+func (a *actionConfig) extends(dir string) []string {
+	out := []string{fileRelative(dir, a.baseline)}
+	if a.project != "" {
+		out = append(out, fileRelative(dir, a.project))
+	}
+	return out
+}
+
+func (a *actionConfig) build(effective *effectiveOptions, chain *tsconfig.Resolved, dir string) (*tsconfigFile, error) {
 	types, err := a.types(effective, dir)
 	if err != nil {
 		return nil, err
 	}
+	// typeRoots stays unset: a custom one stops tsgo's node_modules walk, and
+	// that walk is where a `types` entry naming a package outside @types resolves.
 	opts := map[string]any{
-		// The second root is where a `types` entry naming a package outside
-		// @types resolves; `types` is always written, so neither root auto-includes.
-		"typeRoots": []string{
-			explicitlyRelative(relativePath(dir, a.nodeModules+"/@types")),
-			explicitlyRelative(relativePath(dir, a.nodeModules)),
-		},
 		"types":               types,
 		"rootDirs":            []string{relativePath(dir, ""), relativePath(dir, a.binDir)},
 		"preserveSymlinks":    true,
@@ -174,8 +194,13 @@ func (a *actionConfig) build(effective *effectiveOptions, chain *tsconfig.Resolv
 		"composite":           false,
 		"incremental":         false,
 	}
-	if paths := a.paths(chain, dir); paths != nil {
-		opts["paths"] = paths
+	if a.hasJavaScriptSrc() {
+		opts["allowJs"] = true
+	}
+	if chain != nil {
+		if paths := a.paths(chain, dir); paths != nil {
+			opts["paths"] = paths
+		}
 	}
 	if a.emit {
 		opts["noEmit"] = false
@@ -198,13 +223,24 @@ func (a *actionConfig) build(effective *effectiveOptions, chain *tsconfig.Resolv
 		include = append(include, fileRelative(dir, src))
 	}
 	return &tsconfigFile{
-		Extends:         []string{fileRelative(dir, a.baseline), fileRelative(dir, a.project)},
+		Extends:         a.extends(dir),
 		CompilerOptions: opts,
 		Include:         include,
 		Files:           []string{},
 		Exclude:         []string{},
 		References:      []string{},
 	}, nil
+}
+
+// A JavaScript src is in `include`; without allowJs tsgo reports TS6504 on it.
+func (a *actionConfig) hasJavaScriptSrc() bool {
+	for _, src := range a.srcs {
+		switch path.Ext(src) {
+		case ".js", ".mjs", ".cjs", ".jsx":
+			return true
+		}
+	}
+	return false
 }
 
 // paths is the user's map read from the directory of the chain file that set
@@ -232,12 +268,16 @@ func (a *actionConfig) paths(chain *tsconfig.Resolved, dir string) map[string][]
 }
 
 // types is the user's list with each path-shaped entry rebased to where the
-// sandbox stages it, or the direct @types deps when the chain sets none.
+// sandbox stages it, or the direct @types deps when the chain sets none. It is
+// always written, so what is in scope is what the chain or the deps named.
 func (a *actionConfig) types(effective *effectiveOptions, dir string) ([]string, error) {
 	if effective.Types == nil {
 		return append([]string{}, a.typesDeps...), nil
 	}
-	projectDir := path.Dir(a.project)
+	projectDir := "."
+	if a.project != "" {
+		projectDir = path.Dir(a.project)
+	}
 	out := make([]string, 0, len(*effective.Types))
 	for _, entry := range *effective.Types {
 		if !isRelative(entry) {

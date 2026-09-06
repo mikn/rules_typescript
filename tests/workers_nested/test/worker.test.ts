@@ -1,3 +1,4 @@
+/// <reference types="@cloudflare/vitest-pool-workers/types" />
 import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 

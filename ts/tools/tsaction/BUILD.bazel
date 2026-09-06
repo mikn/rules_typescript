@@ -8,6 +8,7 @@ go_library(
     srcs = [
         "main.go",
         "showconfig.go",
+        "tsgo.go",
     ],
     importpath = "github.com/mikn/rules_typescript/ts/tools/tsaction",
     visibility = ["//visibility:private"],
@@ -23,7 +24,10 @@ go_binary(
 go_test(
     name = "tsaction_test",
     size = "small",
-    srcs = ["showconfig_test.go"],
+    srcs = [
+        "showconfig_test.go",
+        "tsgo_test.go",
+    ],
     data = glob(["testdata/**"]),
     embed = [":tsaction_lib"],
 )

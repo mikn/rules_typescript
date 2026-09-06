@@ -2089,7 +2089,6 @@
     "vite/tsup.config.ts"
   ],
   "files": [
-    "./.bazel/npm/@cloudflare/vitest-pool-workers/types/cloudflare-test.d.ts",
     "./.bazel/npm/@types/node/index.d.ts",
     "./.bazel/npm/vitest/globals.d.ts"
   ],

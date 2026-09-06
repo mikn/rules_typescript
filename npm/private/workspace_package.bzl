@@ -105,7 +105,11 @@ def _npm_package_info(ctx, member):
     js = member[JsInfo] if JsInfo in member else None
     npm = member[_WorkspaceNpmDeps] if _WorkspaceNpmDeps in member else None
     direct_deps = npm.direct if npm else []
-    file_sets = [js.js_files, js.js_map_files] if js else []
+    declarations = member[TsDeclarationInfo].declaration_files if TsDeclarationInfo in member else depset()
+
+    # The declarations ride with the JS: a consumer's tsgo reads them out of the
+    # link, where the manifest and the runtime's .js already are.
+    file_sets = ([js.js_files, js.js_map_files] if js else []) + [declarations]
 
     return NpmPackageInfo(
         package_name = ctx.attr.package_name,
@@ -116,7 +120,7 @@ def _npm_package_info(ctx, member):
         all_files = depset([manifest], transitive = file_sets),
         js_files = js.js_files if js else depset(),
         json_files = depset(),
-        declaration_files = member[TsDeclarationInfo].declaration_files if TsDeclarationInfo in member else depset(),
+        declaration_files = declarations,
         direct_deps = direct_deps,
         transitive_deps = npm.closure if npm else depset(),
         transitive_package_dirs = depset(

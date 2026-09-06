@@ -82,12 +82,6 @@ esbuild_bundle(
 ts_compile(
     name = "plugin_typecheck",
     srcs = glob(["src/*.ts"]),
-    # npm deps reach tsgo as tsconfig `paths` entries pointing at package
-    # directories, which node16 ESM resolution cannot resolve.
-    compiler_options = {
-        "module": "Preserve",
-        "moduleResolution": "Bundler",
-    },
     tsconfig = "vite.tsconfig.json",
     deps = [
         "@npm//:types_node",

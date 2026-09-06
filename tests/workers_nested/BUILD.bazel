@@ -1,4 +1,4 @@
-load("//ts:defs.bzl", "asset_library", "ts_compile")
+load("//ts:defs.bzl", "asset_library", "ts_compile", "ts_config")
 
 # The monorepo shape: package.json, the vitest config and the wrangler config at
 # the worker root, the tests in test/ as a package of their own.
@@ -9,6 +9,16 @@ package(default_visibility = ["//visibility:public"])
 # gazelle:exclude src
 
 # gazelle:ts_npm_hub npm_workers
+
+# A ts_compile baseline, not data: it is named by the tsconfig attr.
+# gazelle:exclude tsconfig.worker.json
+
+# The worker's and its test's options: `webworker` is in no set `target`
+# implies, and the two programs are checked against the same lib.
+ts_config(
+    name = "worker_tsconfig",
+    src = "tsconfig.worker.json",
+)
 
 exports_files([
     "package.json",
@@ -41,10 +51,7 @@ asset_library(
 ts_compile(
     name = "worker",
     srcs = ["src/index.ts"],
-    lib = [
-        "esnext",
-        "webworker",
-    ],
+    tsconfig = ":worker_tsconfig",
     deps = [
         ":greeting_txt",
         "@npm_workers//:zod",

@@ -123,7 +123,6 @@ func (e *execroot) tsconfigArgs(extra ...string) []string {
 		"-out=" + binDir + "/pkg/pkg.tsconfig.json",
 		"-options=" + binDir + "/pkg/pkg.options.json",
 		"-bin_dir=" + binDir,
-		"-node_modules=" + binDir + "/pkg/node_modules",
 	}
 	args = append(args, extra...)
 	return append(args, "pkg/src/a.ts", "pkg/globals.d.ts")
@@ -202,18 +201,20 @@ func TestDecodeShowConfig_DiagnosticsAreNotAConfig(t *testing.T) {
 }
 
 // The written config extends the baseline and the user's file, owns the keys
-// that encode the sandbox, and rewrites the three the user's chain answers:
+// that encode the sandbox, and rewrites the two the user's chain answers:
 // paths from the directory of the base that set them with a bin-dir twin per
-// value, types with each path-shaped entry rebased to the staged source or
-// bin-dir file, and typeRoots pointing at the forest. No key names a forest
-// package: react and @types/node resolve through node_modules alone.
+// value, and types with each path-shaped entry rebased to the staged source or
+// bin-dir file. No key names a forest package and typeRoots stays unset: react
+// and @types/node resolve through node_modules alone. showConfig reads the
+// config itself, written first with its extends alone, so the baseline's
+// defaults are in what it prints.
 func TestTsconfigStep_WritesTheForestShapedConfig(t *testing.T) {
 	capture := readTestdata(t, "showconfig-chain.json")
 	e := newExecroot(t, chainLeaf, capture)
 
 	mustWriteTsconfig(t, e.tsconfigArgs("-declaration_map", "-types_dep=node"))
 
-	if got, want := recordedArgs(t, e.argv), []string{"--showConfig", "-p", "pkg/tsconfig.json"}; !reflect.DeepEqual(got, want) {
+	if got, want := recordedArgs(t, e.argv), []string{"--showConfig", "-p", binDir + "/pkg/pkg.tsconfig.json"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("tsgo ran with %q, want %q", got, want)
 	}
 	assertJSON(t, "pkg.tsconfig.json", readJSON(t, binDir+"/pkg/pkg.tsconfig.json"), `{
@@ -231,7 +232,6 @@ func TestTsconfigStep_WritesTheForestShapedConfig(t *testing.T) {
     "preserveSymlinks": true,
     "rootDir": "../../../..",
     "rootDirs": ["../../../..", ".."],
-    "typeRoots": ["./node_modules/@types", "./node_modules"],
     "types": ["../../../../pkg/globals.d.ts", "./generated.d.ts", "node", "@cloudflare/workers-types"]
   },
   "include": ["../../../../pkg/src/a.ts", "../../../../pkg/globals.d.ts"],
@@ -260,6 +260,46 @@ func TestTsconfigStep_NoTypesWritesTheDirectTypesDeps(t *testing.T) {
 	mustWriteTsconfig(t, e.tsconfigArgs())
 	config = readJSON(t, binDir+"/pkg/pkg.tsconfig.json")
 	assertJSON(t, "types with no @types dep", config["compilerOptions"].(map[string]any)["types"], `[]`)
+}
+
+// A target with no tsconfig extends the baseline alone: no chain, no paths.
+func TestTsconfigStep_NoTsconfigExtendsTheBaselineAlone(t *testing.T) {
+	e := newExecroot(t, noTypesLeaf, `{"compilerOptions": {"target": "es2022", "jsx": "react-jsx"}}`)
+	args := []string{
+		"-tsgo=" + e.tsgo,
+		"-baseline=" + binDir + "/pkg/pkg.tsconfig_baseline.json",
+		"-out=" + binDir + "/pkg/pkg.tsconfig.json",
+		"-options=" + binDir + "/pkg/pkg.options.json",
+		"-bin_dir=" + binDir,
+		"-types_dep=node",
+		"pkg/src/a.ts",
+	}
+	mustWriteTsconfig(t, args)
+
+	config := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")
+	assertJSON(t, "extends", config["extends"], `["./pkg.tsconfig_baseline.json"]`)
+	opts := config["compilerOptions"].(map[string]any)
+	if _, ok := opts["paths"]; ok {
+		t.Errorf("paths = %v, want none: no chain sets one", opts["paths"])
+	}
+	assertJSON(t, "types", opts["types"], `["node"]`)
+	assertJSON(t, "pkg.options.json", readJSON(t, binDir+"/pkg/pkg.options.json"), `{"target": "es2022", "jsx": "react-jsx"}`)
+}
+
+// A JavaScript src is in include, and tsgo reads it only under allowJs.
+func TestTsconfigStep_JavaScriptSrcSetsAllowJs(t *testing.T) {
+	e := newExecroot(t, noTypesLeaf, readTestdata(t, "showconfig-no-types.json"))
+	writeFile(t, "pkg/src/b.js", "export const b = 1;\n")
+
+	mustWriteTsconfig(t, e.tsconfigArgs())
+	if got := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")["compilerOptions"].(map[string]any)["allowJs"]; got != nil {
+		t.Errorf("allowJs = %v with no JavaScript src, want unset", got)
+	}
+
+	mustWriteTsconfig(t, append(e.tsconfigArgs(), "pkg/src/b.js"))
+	if got := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")["compilerOptions"].(map[string]any)["allowJs"]; got != true {
+		t.Errorf("allowJs = %v with a JavaScript src, want true", got)
+	}
 }
 
 func TestTsconfigStep_EmitShape(t *testing.T) {

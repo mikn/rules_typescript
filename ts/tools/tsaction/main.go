@@ -5,9 +5,10 @@
 //	tsaction stamp -stamp=FILE -- TOOL [ARG...]
 //	tsaction stage -out=DIR SRC DEST [SRC DEST...]
 //	tsaction tar -out=FILE -dir=DIR [-prefix=P]
-//	tsaction tsconfig -tsgo=BIN -tsconfig=FILE -baseline=FILE -out=FILE -options=FILE
-//	    -bin_dir=DIR -node_modules=DIR [-types_dep=NAME]... [-emit -out_dir=DIR -root_dir=DIR]
+//	tsaction tsconfig -tsgo=BIN [-tsconfig=FILE] -baseline=FILE -out=FILE -options=FILE
+//	    -bin_dir=DIR [-types_dep=NAME]... [-emit -out_dir=DIR -root_dir=DIR]
 //	    [-declaration_map] [-isolated_declarations] [-lib_check] SRC...
+//	tsaction tsgo -root=DIR -node_modules=DIR [-stamp=FILE] -- TSGO [ARG...]
 //	tsaction oxc -options=FILE -- OXC [ARG...]
 //
 // Any argument of the form @FILE is a Bazel params file in "multiline" format
@@ -38,9 +39,10 @@ const usage = `usage:
   tsaction stamp -stamp=FILE -- TOOL [ARG...]
   tsaction stage -out=DIR SRC DEST [SRC DEST...]
   tsaction tar -out=FILE -dir=DIR [-prefix=P]
-  tsaction tsconfig -tsgo=BIN -tsconfig=FILE -baseline=FILE -out=FILE -options=FILE
-      -bin_dir=DIR -node_modules=DIR [-types_dep=NAME]... [-emit -out_dir=DIR -root_dir=DIR]
+  tsaction tsconfig -tsgo=BIN [-tsconfig=FILE] -baseline=FILE -out=FILE -options=FILE
+      -bin_dir=DIR [-types_dep=NAME]... [-emit -out_dir=DIR -root_dir=DIR]
       [-declaration_map] [-isolated_declarations] [-lib_check] SRC...
+  tsaction tsgo -root=DIR -node_modules=DIR [-stamp=FILE] -- TSGO [ARG...]
   tsaction oxc -options=FILE -- OXC [ARG...]`
 
 func main() {
@@ -60,6 +62,8 @@ func main() {
 		err = writeTar(args)
 	case "tsconfig":
 		err = writeTsconfig(args)
+	case "tsgo":
+		err = runTsgo(args)
 	case "oxc":
 		err = runOxc(args)
 	default:
@@ -131,7 +135,12 @@ func stamp(args []string) error {
 // runTool runs cmdline on the action's stdout and stderr; the tool's own exit
 // status comes back wrapped, for main to relay.
 func runTool(cmdline []string) error {
+	return runToolIn("", cmdline)
+}
+
+func runToolIn(dir string, cmdline []string) error {
 	cmd := exec.Command(cmdline[0], cmdline[1:]...)
+	cmd.Dir = dir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

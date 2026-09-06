@@ -98,7 +98,6 @@ ts_refresh_tsconfig(
         "//packages/nested-shared",
         "//packages/shared",
         "//tests/ambient_npm_types:consumer",
-        "//tests/ambient_npm_types:consumer_no_types",
         "//tests/assets:header_lib",
         "//tests/bundle:app",
         "//tests/codegen:consumer_compile",

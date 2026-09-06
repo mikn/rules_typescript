@@ -1,3 +1,4 @@
+/// <reference types="@cloudflare/vitest-pool-workers/types" />
 // This runs inside workerd, not Node: the pool boots the worker from
 // wrangler.jsonc and SELF dispatches to its fetch handler. A Node-pool run
 // would have no SELF to import, which is what makes this a real pool test

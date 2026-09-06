@@ -151,6 +151,13 @@ def _ts_npm_package_impl(ctx):
             ctx.file.exports_types,
         )
 
+    # The paired @types/* package travels in the closure, so a forest links it
+    # beside this package: TypeScript looks for `@types/<name>` next to a
+    # package that ships no declarations.
+    if ctx.attr.types_dep and NpmPackageInfo in ctx.attr.types_dep:
+        types_npm = ctx.attr.types_dep[NpmPackageInfo]
+        transitive_npm_dep_sets.append(depset([types_npm], transitive = [types_npm.transitive_deps]))
+
     transitive_npm_deps = depset(
         direct_npm_dep_infos,
         transitive = transitive_npm_dep_sets,
