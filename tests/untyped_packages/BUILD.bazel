@@ -41,6 +41,8 @@ across 21 files that name neither package.
               the other side of the same pair -- `@types/ms` excluded and `ms`
               kept, where the redirection into the departed declarations is what
               has to stop.
+  :leaks_test / :excluded_test  the same pair on the program ts_test generates;
+              :excluded_test's setup file compiles under the same exclusion.
 
 None of these are in //:refresh_tsconfig -- one editor `paths` map cannot both
 resolve the package for :resolver and drop it for :excluded, which is what
@@ -51,7 +53,7 @@ and the root editor program would apply them workspace-wide.
 """
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
-load("//ts:defs.bzl", "ts_compile")
+load("//ts:defs.bzl", "ts_compile", "ts_test")
 load("//ts/private:tsconfig_aspect.bzl", "ide_tsconfig")
 load(
     ":untyped_tests.bzl",
@@ -246,6 +248,44 @@ paths_redirect_test(
 dep_keeps_untyped_test(
     name = "dep_keeps_untyped_test",
     target_under_test = ":sibling",
+)
+
+# ── The same pair on the program ts_test generates ───────────────────────────
+
+ts_test(
+    name = "leaks_test",
+    srcs = ["leaks.test.ts"],
+    tags = ["manual"],
+    deps = [
+        "@npm_workers//:vitest",
+        "@npm_workers//:wrangler",
+    ],
+)
+
+paths_keep_untyped_test(
+    name = "test_paths_keep_untyped_test",
+    target_under_test = ":_leaks_test_compile",
+)
+
+ts_test(
+    name = "excluded_test",
+    srcs = ["excluded.test.ts"],
+    setup_files = ["excluded_setup.ts"],
+    untyped_packages = ["@cloudflare/workers-types"],
+    deps = [
+        "@npm_workers//:vitest",
+        "@npm_workers//:wrangler",
+    ],
+)
+
+paths_omit_untyped_test(
+    name = "test_paths_omit_untyped_test",
+    target_under_test = ":_excluded_test_compile",
+)
+
+paths_omit_untyped_test(
+    name = "setup_paths_omit_untyped_test",
+    target_under_test = ":_excluded_test_setup",
 )
 
 # ── And what the editor's own config says ────────────────────────────────────
