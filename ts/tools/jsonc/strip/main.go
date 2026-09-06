@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/mikn/rules_typescript/gazelle/jsonc"
+	"github.com/mikn/rules_typescript/ts/tools/jsonc"
 )
 
 func main() {

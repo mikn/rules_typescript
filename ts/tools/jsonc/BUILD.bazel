@@ -1,9 +1,11 @@
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 
+# gazelle:prefix github.com/mikn/rules_typescript/ts/tools/jsonc
+
 go_library(
     name = "jsonc",
     srcs = ["jsonc.go"],
-    importpath = "github.com/mikn/rules_typescript/gazelle/jsonc",
+    importpath = "github.com/mikn/rules_typescript/ts/tools/jsonc",
     visibility = ["//visibility:public"],
 )
 

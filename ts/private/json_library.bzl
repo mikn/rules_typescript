@@ -1,7 +1,7 @@
 """json_library rule — reads a JSON file at build time and generates a typed .d.ts.
 
 The file is read as JSONC -- comments and trailing commas -- through the same
-//gazelle/jsonc stripper Gazelle decodes tsconfig.json with, so the rule and the
+//ts/tools/jsonc stripper Gazelle decodes tsconfig.json with, so the rule and the
 BUILD generator cannot disagree about what a file says.
 
 Unlike asset_library which emits `declare const data: unknown`, json_library
@@ -234,7 +234,7 @@ json_library = rule(
             providers = [[TsDeclarationInfo]],
         ),
         "_jsonc_strip": attr.label(
-            default = Label("//gazelle/jsonc/strip"),
+            default = Label("//ts/tools/jsonc/strip"),
             executable = True,
             cfg = "exec",
         ),

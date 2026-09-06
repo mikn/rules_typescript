@@ -35,7 +35,8 @@ go_library(
     visibility = ["//visibility:public"],
     x_defs = {"tsgoRlocationpath": "$(rlocationpath //ts/toolchain:tsgo_resolved)"},
     deps = [
-        "//gazelle/jsonc",
+        "//ts/tools/jsonc",
+        "//ts/tools/tsconfig",
         "@com_github_bazelbuild_buildtools//build",
         "@gazelle//config",
         "@gazelle//label",

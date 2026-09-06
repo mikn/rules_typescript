@@ -15,7 +15,7 @@ import (
 	"github.com/bazelbuild/bazel-gazelle/rule"
 	bzl "github.com/bazelbuild/buildtools/build"
 
-	"github.com/mikn/rules_typescript/gazelle/jsonc"
+	"github.com/mikn/rules_typescript/ts/tools/tsconfig"
 )
 
 // globExprPrefix marks a CodegenPattern.Srcs entry that is a glob() call to be
@@ -1376,7 +1376,7 @@ func extendsChainDep(args language.GenerateArgs, tc *tsConfig) string {
 	if !ok {
 		return ""
 	}
-	basePath, ok := resolveExtendsSpecifier(args.Dir, spec)
+	basePath, ok := tsconfig.ResolveExtends(args.Dir, spec)
 	if !ok || filepath.Base(basePath) != "tsconfig.json" {
 		return ""
 	}
@@ -1414,12 +1414,8 @@ func extendsChainDep(args language.GenerateArgs, tc *tsConfig) string {
 // array states a merge order and not which file Bazel should stage, and a
 // package-form specifier resolves through node_modules; both stay the author's.
 func soleRelativeExtends(tsConfigPath string) (string, bool) {
-	data, err := os.ReadFile(tsConfigPath)
+	tsc, err := tsconfig.Read(tsConfigPath)
 	if err != nil {
-		return "", false
-	}
-	var tsc tsConfigJSON
-	if err := jsonc.Unmarshal(data, &tsc); err != nil {
 		return "", false
 	}
 	if len(tsc.Extends) != 1 {

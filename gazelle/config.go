@@ -15,7 +15,8 @@ import (
 	"github.com/bazelbuild/bazel-gazelle/config"
 	"github.com/bazelbuild/bazel-gazelle/rule"
 
-	"github.com/mikn/rules_typescript/gazelle/jsonc"
+	"github.com/mikn/rules_typescript/ts/tools/jsonc"
+	"github.com/mikn/rules_typescript/ts/tools/tsconfig"
 )
 
 // ---- directive keys --------------------------------------------------------
@@ -703,145 +704,6 @@ func nearestHandWrittenTsConfig(repoRoot, dir string) string {
 	}
 }
 
-// ---- tsconfig.json reading -------------------------------------------------
-
-type tsConfigJSON struct {
-	Extends         tsConfigExtends `json:"extends"`
-	Include         *[]string       `json:"include"`
-	Files           *[]string       `json:"files"`
-	CompilerOptions struct {
-		BaseURL string              `json:"baseUrl"`
-		Paths   map[string][]string `json:"paths"`
-		// A pointer because "types": [] and no "types" key at all mean
-		// opposite things to tsc: none, versus every @types package in scope.
-		Types           *[]string `json:"types"`
-		JsxImportSource string    `json:"jsxImportSource"`
-	} `json:"compilerOptions"`
-}
-
-// tsConfigExtends is the list of configs a tsconfig inherits from, written as
-// one specifier or, since TypeScript 5.0, an array of them.
-type tsConfigExtends []string
-
-func (e *tsConfigExtends) UnmarshalJSON(data []byte) error {
-	var single string
-	if err := json.Unmarshal(data, &single); err == nil {
-		*e = tsConfigExtends{single}
-		return nil
-	}
-	var many []string
-	if err := json.Unmarshal(data, &many); err != nil {
-		return err
-	}
-	*e = many
-	return nil
-}
-
-// An extends chain flattened leaf-wins; a compilerOption keeps its writer's
-// directory because a relative value resolves against that file, not the leaf.
-type resolvedTsConfig struct {
-	baseURL         string
-	baseURLDir      string
-	paths           map[string][]string
-	pathsDir        string
-	jsxImportSource string
-	inputs          bool
-}
-
-// resolveTsConfigChain reads a tsconfig and, depth first, the configs it
-// extends, and returns what a leaf-wins merge leaves standing. tsc replaces an
-// inherited compilerOptions key wholesale instead of merging it key by key, so
-// paths always arrives from exactly one file in the chain.
-func resolveTsConfigChain(tsConfigPath string, ancestors map[string]bool) *resolvedTsConfig {
-	tsConfigPath = filepath.Clean(tsConfigPath)
-	// Only an ancestor repeat is a cycle. A config reached twice down two
-	// branches is read twice, because merge order decides which one wins.
-	if ancestors[tsConfigPath] {
-		return nil
-	}
-	ancestors[tsConfigPath] = true
-	defer delete(ancestors, tsConfigPath)
-
-	data, err := os.ReadFile(tsConfigPath)
-	if err != nil {
-		return nil
-	}
-	var tsc tsConfigJSON
-	if err := jsonc.Unmarshal(data, &tsc); err != nil {
-		log.Printf("typescript: failed to parse %s: %v", tsConfigPath, err)
-		return nil
-	}
-
-	dir := filepath.Dir(tsConfigPath)
-	resolved := &resolvedTsConfig{}
-	for _, spec := range tsc.Extends {
-		basePath, ok := resolveExtendsSpecifier(dir, spec)
-		if !ok {
-			continue
-		}
-		if base := resolveTsConfigChain(basePath, ancestors); base != nil {
-			resolved.override(base)
-		}
-	}
-	resolved.override(&resolvedTsConfig{
-		baseURL:         tsc.CompilerOptions.BaseURL,
-		baseURLDir:      dir,
-		paths:           tsc.CompilerOptions.Paths,
-		pathsDir:        dir,
-		jsxImportSource: tsc.CompilerOptions.JsxImportSource,
-		inputs:          tsc.Include != nil || tsc.Files != nil,
-	})
-	return resolved
-}
-
-func (r *resolvedTsConfig) override(other *resolvedTsConfig) {
-	if other.baseURL != "" {
-		r.baseURL, r.baseURLDir = other.baseURL, other.baseURLDir
-	}
-	if other.paths != nil {
-		r.paths, r.pathsDir = other.paths, other.pathsDir
-	}
-	if other.jsxImportSource != "" {
-		r.jsxImportSource = other.jsxImportSource
-	}
-	if other.inputs {
-		r.inputs = true
-	}
-}
-
-// resolveExtendsSpecifier turns an extends value into a path on disk. A bare or
-// scoped specifier resolves through node_modules, which a Bazel checkout does
-// not have, so it is reported and skipped.
-func resolveExtendsSpecifier(dir, spec string) (string, bool) {
-	if spec == "" {
-		return "", false
-	}
-	relative := strings.HasPrefix(spec, "./") || strings.HasPrefix(spec, "../")
-	if !relative && !filepath.IsAbs(spec) {
-		warnNodeModulesExtends(dir, spec)
-		return "", false
-	}
-	if !strings.HasSuffix(spec, ".json") {
-		spec += ".json"
-	}
-	if !relative {
-		return spec, true
-	}
-	return filepath.Join(dir, filepath.FromSlash(spec)), true
-}
-
-var nodeModulesExtendsWarned sync.Map
-
-func warnNodeModulesExtends(dir, spec string) {
-	if _, warned := nodeModulesExtendsWarned.LoadOrStore(spec, true); warned {
-		return
-	}
-	log.Printf("typescript: the tsconfig in %s extends %q, which resolves through node_modules; "+
-		"Gazelle reads only configs on disk and skips it. Any paths or baseUrl that config "+
-		"contributes are missing from the generated targets: inline them, or extend a "+
-		"checked-in config instead.", dir, spec)
-}
-
 // loadTsConfigPaths reads compilerOptions.paths and compilerOptions.baseUrl
 // from a tsconfig.json file and the chain of configs it extends. The baseUrl
 // (if present) is used to resolve the target directories in the paths entries.
@@ -875,18 +737,18 @@ func warnNodeModulesExtends(dir, spec string) {
 //	"@/*": ["./*"]            → "@/" → "src/"
 //	"utils": ["utils/index"]  → "utils" → "src/utils/index"
 func loadTsConfigPaths(tsConfigPath, pkgRel string) map[string]string {
-	resolved := resolveTsConfigChain(tsConfigPath, map[string]bool{})
-	if resolved == nil || len(resolved.paths) == 0 {
+	resolved, err := tsconfig.Resolve(tsConfigPath)
+	if err != nil || len(resolved.Paths) == 0 {
 		return nil
 	}
 
-	baseURL := strings.TrimSuffix(resolved.baseURL, "/")
+	baseURL := strings.TrimSuffix(resolved.BaseURL, "/")
 
 	// Targets hang off the directory of the config that wrote the value they
 	// are relative to, which stops being the leaf as soon as extends is used.
-	originDir := resolved.pathsDir
+	originDir := resolved.PathsDir
 	if baseURL != "" {
-		originDir = resolved.baseURLDir
+		originDir = resolved.BaseURLDir
 	}
 	originRel := repoRelDir(pkgRel, filepath.Dir(tsConfigPath), originDir)
 	if strings.HasPrefix(originRel, "../") {
@@ -902,15 +764,15 @@ func loadTsConfigPaths(tsConfigPath, pkgRel string) map[string]string {
 
 	// Two patterns can normalise to the same alias key, so iteration order
 	// decides which entry survives, and which order the log lines come out in.
-	patterns := make([]string, 0, len(resolved.paths))
-	for aliasPattern := range resolved.paths {
+	patterns := make([]string, 0, len(resolved.Paths))
+	for aliasPattern := range resolved.Paths {
 		patterns = append(patterns, aliasPattern)
 	}
 	sort.Strings(patterns)
 
-	aliases := make(map[string]string, len(resolved.paths))
+	aliases := make(map[string]string, len(resolved.Paths))
 	for _, aliasPattern := range patterns {
-		targets := resolved.paths[aliasPattern]
+		targets := resolved.Paths[aliasPattern]
 		if len(targets) == 0 {
 			continue
 		}
@@ -1668,12 +1530,8 @@ func trailingSlash(p string) string {
 // With no `types` key tsc includes every @types package in scope, which under
 // pnpm's isolated node_modules is exactly the ones the package.json declares.
 func loadTsConfigAmbientTypes(tsConfigPath string) []string {
-	data, err := os.ReadFile(tsConfigPath)
+	tsc, err := tsconfig.Read(tsConfigPath)
 	if err != nil {
-		return nil
-	}
-	var tsc tsConfigJSON
-	if err := jsonc.Unmarshal(data, &tsc); err != nil {
 		return nil
 	}
 	if tsc.CompilerOptions.Types == nil {
@@ -1698,12 +1556,8 @@ func loadTsConfigAmbientTypes(tsConfigPath string) []string {
 // loadTsConfigTypeFiles reads compilerOptions.types whole, with the label that
 // stages each file entry; staged is what the tsconfigs above rel stage.
 func loadTsConfigTypeFiles(tsConfigPath, rel string, f *rule.File, staged map[string]map[string]string) (entries, files []string, generators map[string]string, ancestors []string) {
-	data, err := os.ReadFile(tsConfigPath)
+	tsc, err := tsconfig.Read(tsConfigPath)
 	if err != nil {
-		return nil, nil, nil, nil
-	}
-	var tsc tsConfigJSON
-	if err := jsonc.Unmarshal(data, &tsc); err != nil {
 		return nil, nil, nil, nil
 	}
 	if tsc.CompilerOptions.Types == nil {
