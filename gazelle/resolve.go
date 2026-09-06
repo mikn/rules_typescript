@@ -122,9 +122,9 @@ func indexedModule(src string) string {
 // its modules are called cannot be read here; each root is indexed instead, and
 // resolveCodegenTree matches a specifier to the root above it.
 //
-// An outs ts_codegen returns no JsInfo and so cannot be a dep at all: it
-// belongs in a ts_compile's srcs, which importsForRule indexes through that
-// target.
+// An outs ts_codegen is indexed through the ts_compile whose srcs name its
+// outputs; a `types` entry naming a declaration it writes is resolved by
+// codegenOutsOf.
 func codegenTreeSpecs(r *rule.Rule, pkg string) []resolve.ImportSpec {
 	outDir := r.AttrString("out_dir")
 	if outDir == "" {

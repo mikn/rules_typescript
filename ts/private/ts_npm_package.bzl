@@ -181,8 +181,6 @@ def _ts_npm_package_impl(ctx):
                 order = "postorder",
             ),
             transitive_npm_packages = transitive_npm_deps,
-            global_entry_files = depset(),
-            transitive_global_entry_files = depset(),
         ),
         NpmPackageInfo(
             package_name = ctx.attr.package_name,
@@ -253,12 +251,9 @@ ts_npm_package = rule(
         ),
         "subpath_types": attr.string_dict(
             doc = "Each non-root `exports` subpath that designates a declaration, " +
-                  "mapped to that declaration's package-relative path. A consumer " +
-                  "naming one in `compiler_options[\"types\"]` gets the file in its " +
-                  "tsconfig `files`: tsconfig `types` resolves through node_modules, " +
-                  "and npm packages reach the compiler through `paths`. A subpath " +
-                  "this map leaves unnamed is looked for among the package's own " +
-                  "declarations instead.",
+                  "mapped to that declaration's package-relative path. The editor's " +
+                  "tsconfig writes a `paths` key for each; a subpath this map leaves " +
+                  "unnamed is looked for among the package's own declarations instead.",
         ),
         "subpath_patterns": attr.string_dict(
             doc = "Each one-star `exports` subpath, mapped to the package-relative " +

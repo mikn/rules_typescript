@@ -179,8 +179,8 @@ export class BazelResolver {
    * Resolves a module `id` as seen by Vite's `resolveId` hook.
    *
    * Bare specifiers always return null in both modes: npm packages and
-   * first-party `module_name` packages are resolved through `resolve.alias` in
-   * the generated config, which is where the Bazel-computed mapping lives.
+   * workspace members are resolved through the node_modules tree the launcher
+   * links, and a `resolve.alias` a user config declares is Vite's to apply.
    */
   resolveId(id: string, importer?: string): Resolution | null {
     if (this.mode === 'build') {

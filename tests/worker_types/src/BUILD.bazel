@@ -5,13 +5,14 @@ package(default_visibility = ["//:__pkg__"])
 
 # `Env`, `KVNamespace`, `Request` and `Response` are all declared by the
 # generated file and by nothing else in this program: lib is es2022 with no DOM,
-# and no @cloudflare/workers-types is in deps.
+# and no @cloudflare/workers-types is in deps. The tsconfig one package up names
+# the file in `types`; the ts_codegen that writes it is the dep, so the entry
+# resolves to the output under bazel-bin.
 ts_compile(
     name = "src",
     srcs = ["index.ts"],
     tsconfig = "//tests/worker_types:tsconfig",
-    types = ["../worker-configuration.d.ts"],
-    types_srcs = ["//tests/worker_types:worker_types"],
+    deps = ["//tests/worker_types"],
 )
 
 build_test(

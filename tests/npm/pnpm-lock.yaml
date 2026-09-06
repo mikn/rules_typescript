@@ -60,6 +60,12 @@ importers:
       pulse:
         specifier: workspace:*
         version: link:packages/pulse
+      # A member under tests/, imported by the scoped name its package.json
+      # declares: //tests/compiler_options/member/consumer resolves it through
+      # the hub's view.
+      '@acme/ui':
+        specifier: workspace:*
+        version: link:tests/compiler_options/member/lib
     devDependencies:
       '@types/node':
         specifier: 22.20.1

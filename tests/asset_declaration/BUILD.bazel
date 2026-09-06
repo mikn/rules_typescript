@@ -14,8 +14,11 @@ What these targets pin:
   :via_alias        an alias finds the same generated declaration a relative
                     import does, so the ambient does not decide there either.
   :two_ambients     the separate wildcard race: two `declare module "*.svg"`
-                    in one program, and the one the generated tsconfig lists
-                    first in `files` wins -- the project's own, as under tsc.
+                    in one program, and the one the tsconfig's `types` lists
+                    first wins -- the project's own, as under tsc.
+
+Every consumer names svgr.d.ts in its tsconfig `types`: a global declaration
+reaches a consumer's program that way, and the dep edge stages the file.
 """
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
@@ -26,17 +29,20 @@ package(default_visibility = ["//:__pkg__"])
 
 # gazelle:exclude *_test.go
 
+# Compiler options, not data: each is named by a tsconfig attr.
+# gazelle:exclude tsconfig.alias.json
+# gazelle:exclude tsconfig.svgr.json
+# gazelle:exclude tsconfig.svgr_and_vite.json
+
 _SVG_COMPONENT = "(props: { className?: string }) => null"
 
 _TEXT_ASSET = "{ readonly words: number }"
 
 # The whole target is the ambient, and every consumer here is written against
-# it, so the `declare module` blocks in it are the public type surface rather
-# than a shim for this target's own build.
+# it.
 ts_compile(
     name = "svgr_ambient",
     srcs = ["svgr.d.ts"],
-    public_globals = ["svgr.d.ts"],
 )
 
 # ── The controlled pair ───────────────────────────────────────────────────────
@@ -46,6 +52,7 @@ ts_compile(
 ts_compile(
     name = "ambient_only",
     srcs = ["ambient_only.ts"],
+    tsconfig = "tsconfig.svgr.json",
     deps = [":svgr_ambient"],
 )
 
@@ -59,6 +66,7 @@ asset_library(
 ts_compile(
     name = "generated_wins",
     srcs = ["generated_wins.ts"],
+    tsconfig = "tsconfig.svgr.json",
     deps = [
         ":mark_svg",
         ":svgr_ambient",
@@ -115,7 +123,7 @@ ts_compile(
 )
 
 # A type expression naming an npm package. The package resolves through the
-# consuming target's `paths`, which is why @npm//:vite is a dep of the
+# consuming target's forest, which is why @npm//:vite is a dep of the
 # ts_compile and not of the asset_library.
 asset_library(
     name = "chart_svg",
@@ -145,7 +153,7 @@ asset_library(
 ts_compile(
     name = "monorepo_shape",
     srcs = ["monorepo_shape.ts"],
-    compiler_options = {"types": ["vite/client"]},
+    tsconfig = "tsconfig.svgr_and_vite.json",
     deps = [
         ":crest_svg",
         ":svgr_ambient",
@@ -154,14 +162,13 @@ ts_compile(
 )
 
 # No asset_library, so the two wildcards race each other. The first
-# declaration of a pattern wins and `files` holds the project's own ambient
-# ahead of the `types`-supplied vite/client.d.ts, so the import is a
-# component -- what tsc gives natively for the same pair, reaching a `types`
-# package through a type-reference directive that joins after the root files.
+# declaration of a pattern wins and `types` lists the project's own ambient
+# ahead of vite/client, so the import is a component -- what tsc gives for the
+# same pair.
 ts_compile(
     name = "two_ambients",
     srcs = ["two_ambients.ts"],
-    compiler_options = {"types": ["vite/client"]},
+    tsconfig = "tsconfig.svgr_and_vite.json",
     deps = [
         ":svgr_ambient",
         "@npm//:vite",
@@ -175,13 +182,12 @@ asset_library(
     srcs = ["glyph.svg"],
 )
 
-# `string`, the same answer :generated_wins gets relatively: the alias covers
-# the bazel-bin mirror of its directory, where glyph.svg.d.ts sits.
+# `string`, the same answer :generated_wins gets relatively: the alias's bin-dir
+# twin covers the directory where glyph.svg.d.ts sits.
 ts_compile(
     name = "via_alias",
     srcs = ["via_alias.ts"],
-    path_alias_srcs = ["glyph.svg"],
-    path_aliases = {"#assets/": "tests/asset_declaration/"},
+    tsconfig = "tsconfig.alias.json",
     deps = [
         ":glyph_svg",
         ":svgr_ambient",

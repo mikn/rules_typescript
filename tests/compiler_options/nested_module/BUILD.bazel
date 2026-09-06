@@ -1,31 +1,31 @@
-"""A `module_name` dep in a package nested under the target that imports it."""
+"""A `paths` value under the consumer's own directory, resolved to a dep's declaration.
+
+A value naming a directory beside the tsconfig relativizes to a bare segment
+once the action tsconfig rewrites it, and TypeScript reads a bare `paths` value
+as a module specifier (TS5090). tsaction spells every value explicitly relative;
+the bare form failed before a compiler ever read the imports, so the build is
+the assertion.
+"""
+
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.badge.json
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "ts_compile")
-load(
-    ":nested_module_tests.bzl",
-    "explicitly_relative_test",
-    "nested_module_paths_test",
-)
 
 package(default_visibility = ["//:__pkg__"])
 
+# lib/index.ts is another target's src, so the source-tree twin of the value is
+# not in this action's sandbox and the bin-dir twin -- the dep's index.d.ts --
+# is what resolves.
 ts_compile(
     name = "app",
     srcs = ["main.ts"],
+    tsconfig = "tsconfig.badge.json",
     deps = ["//tests/compiler_options/nested_module/lib:badge"],
 )
 
-nested_module_paths_test(
-    name = "nested_module_paths_test",
-    target_under_test = ":app",
-)
-
-# The `paths` map is only a claim until tsgo resolves through it: the bare form
-# this pins failed at TS5090 before a compiler ever read the imports.
 build_test(
     name = "nested_module_build_test",
     targets = [":app"],
 )
-
-explicitly_relative_test(name = "explicitly_relative_test")

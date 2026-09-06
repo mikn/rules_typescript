@@ -26,7 +26,7 @@ passes_declarations_through_test = analysistest.make(_passes_declarations_throug
 # TypeScript keeps the higher-priority extension of a .mjs / .d.mts pair listed
 # together, so the .mjs leaves the program and tsgo writes nothing for it: an
 # output declared at that path is never created, and a second declaration for
-# one module would shadow the checked-in file for module_name consumers anyway.
+# one module would shadow the checked-in file for its consumers anyway.
 def _one_declaration_per_module_impl(ctx):
     env = analysistest.begin(ctx)
     for name in _CHECKED_IN:

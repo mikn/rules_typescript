@@ -3,9 +3,9 @@
  *
  * Runs in a worker thread (spawned by tsserver-hook.js).
  * Builds a resolution map from:
- *   1. The npm packages, ts_compile packages, declared module names and path
- *      aliases named in .bazel/tsserver-hook-data.json, which
- *      `bazel run //:refresh_tsconfig` writes from the build graph.
+ *   1. The npm packages and ts_compile packages named in
+ *      .bazel/tsserver-hook-data.json, which `bazel run //:refresh_tsconfig`
+ *      writes from the build graph.
  *   2. The .tsconfig-fragment.json files tsconfig_aspect's `ide_fragments`
  *      output group writes into bazel-out, one per target. A rule's `deps` obey
  *      visibility and an aspect's edges do not, so these cover the targets the
@@ -102,29 +102,9 @@ function buildResolutionMap() {
       scanPackageForResolution(pkg, srcDir, binDir, map);
     }
 
-    // Step 2b: the bare specifiers targets declared with `module_name`. Same
-    // directories as step 2, under the name an import actually writes.
-    for (const module of data.modules || []) {
-      if (!module || !module.name || !module.package || map[module.name]) continue;
-      scanPackageForResolution(
-        module.name,
-        path.join(workspaceRoot, module.package),
-        path.join(workspaceRoot, 'bazel-bin', module.package),
-        map
-      );
-    }
-
-    // Step 3: the path aliases the build graph carries.
-    for (const alias of data.aliases || []) {
-      if (!alias || !alias.prefix || !alias.dir) continue;
-      const key = `__alias__${alias.prefix.replace(/\/$/, '')}/`;
-      if (map[key]) continue;
-      map[key] = path.join(workspaceRoot, alias.dir.replace(/\/$/, ''));
-      log(`path alias: ${alias.prefix} → ${map[key]}`);
-    }
   }
 
-  // Step 4: the aspect's per-target fragments, which reach the targets no rule
+  // Step 3: the aspect's per-target fragments, which reach the targets no rule
   // can name. They augment what the data file already resolved, never replace
   // it, and there are none at all until a build requests the output group.
   let tree = { packages: [], aliases: [] };
@@ -135,8 +115,7 @@ function buildResolutionMap() {
   }
   mergeFragments(readFragments(tree.packages), npmDir, map);
 
-  // Step 5: path aliases from BUILD files, which cover directives added since
-  // the last refresh. The graph wins over them: it is what the build resolves.
+  // Step 4: path aliases from BUILD files (# gazelle:ts_path_alias).
   for (const alias of tree.aliases) {
     const key = `__alias__${alias.prefix}/`;
     if (map[key]) continue;
@@ -193,7 +172,7 @@ function fragmentRoots() {
  * in, and a fragment whose package has since been deleted is never opened.
  *
  * @param {string[]} packageDirs - Workspace-relative dirs holding a BUILD file.
- * @returns {Array<{label: string, packages: string[], modules: Array<{name: string, package: string}>, aliases: Array<{prefix: string, dir: string}>, npm: Array<{name: string, dir: string, version: string, entry: string, isFile: boolean}>}>}
+ * @returns {Array<{label: string, packages: string[], npm: Array<{name: string, dir: string, version: string, entry: string, isFile: boolean}>}>}
  */
 function readFragments(packageDirs) {
   const seen = new Set();
@@ -243,7 +222,7 @@ function parseFragment(file) {
     return null;
   }
 
-  const fragment = { label: null, packages: [], modules: [], aliases: [], npm: [] };
+  const fragment = { label: null, packages: [], npm: [] };
   for (const line of lines) {
     if (!line.trim()) continue;
     let record;
@@ -261,14 +240,6 @@ function parseFragment(file) {
       fragment.label = record.label;
     } else if (typeof record.package === 'string') {
       fragment.packages.push(record.package);
-      if (typeof record.module === 'string' && record.module) {
-        fragment.modules.push({ name: record.module, package: record.package });
-      }
-    } else if (typeof record.alias === 'string' && typeof record.dir === 'string') {
-      fragment.aliases.push({
-        prefix: record.alias.replace(/\/$/, ''),
-        dir: record.dir.replace(/\/$/, ''),
-      });
     } else if (typeof record.npm === 'string') {
       fragment.npm.push({
         name: record.npm,
@@ -323,20 +294,10 @@ function beatsHeldEntry(entry, held) {
  */
 function mergeFragments(fragments, npmDir, map) {
   const packages = new Set();
-  const modules = new Map();
-  const aliases = new Map();
   const npm = new Map();
 
   for (const fragment of fragments) {
     for (const pkg of fragment.packages) packages.add(pkg);
-    for (const module of fragment.modules) {
-      if (!modules.has(module.name)) modules.set(module.name, module.package);
-    }
-    for (const alias of fragment.aliases) {
-      if (alias.prefix && alias.dir && !aliases.has(alias.prefix)) {
-        aliases.set(alias.prefix, alias.dir);
-      }
-    }
     for (const entry of fragment.npm) {
       if (beatsHeldEntry(entry, npm.get(entry.name))) npm.set(entry.name, entry);
     }
@@ -367,31 +328,6 @@ function mergeFragments(fragments, npmDir, map) {
       path.join(workspaceRoot, 'bazel-bin', pkg),
       map
     );
-  }
-
-  for (const [name, pkg] of [...modules].sort(byKey)) {
-    if (map[name]) continue;
-    scanPackageForResolution(
-      name,
-      path.join(workspaceRoot, pkg),
-      path.join(workspaceRoot, 'bazel-bin', pkg),
-      map
-    );
-  }
-
-  for (const [prefix, dir] of [...aliases].sort(byKey)) {
-    const key = `__alias__${prefix}/`;
-    if (map[key]) continue;
-    const absDir = path.join(workspaceRoot, dir);
-    // The data file is rewritten whole on every refresh; a fragment is not, so
-    // a renamed alias leaves the old one in bazel-out until that target is next
-    // built. A directory that is gone is how that shows up.
-    if (!fs.existsSync(absDir)) {
-      log(`fragment alias: ${prefix} → ${absDir} (gone, skipped)`);
-      continue;
-    }
-    map[key] = absDir;
-    log(`fragment alias: ${prefix} → ${absDir}`);
   }
 }
 

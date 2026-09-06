@@ -1,5 +1,5 @@
-"""Analysis-time proof of what the IDE tsconfig says: ambient types, module paths,
-npm pairing, and the per-package programs the root block cannot carry.
+"""Analysis-time proof of what the IDE tsconfig says: ambient types, npm pairing,
+and the per-package programs the root block cannot carry.
 
 An @types/* package reaches the compiler through the entry point a consumer names
 in `files`, never through a module specifier, so no `paths` entry can stand in
@@ -114,63 +114,6 @@ def _no_ambient_types_impl(ctx):
 
 no_ambient_types_test = analysistest.make(_no_ambient_types_impl)
 
-def _module_paths_impl(ctx):
-    env = analysistest.begin(ctx)
-    config = _written_config(env)
-    asserts.true(env, config != None, "ide_tsconfig wrote no tsconfig")
-    if config == None:
-        return analysistest.end(env)
-
-    paths = config["compilerOptions"]["paths"]
-
-    # The bare specifier an import writes. Nothing else in the file carries it:
-    # the target's package path is what the label says, not what the import does.
-    asserts.equals(
-        env,
-        ["./tests/lsp/module_fixture/index"],
-        paths.get("@acme/widget"),
-        "module_name resolves to the declaring package's entry point",
-    )
-    asserts.equals(
-        env,
-        ["./tests/lsp/module_fixture/*", "./bazel-bin/tests/lsp/module_fixture/*"],
-        paths.get("@acme/widget/*"),
-        "and its subpaths reach both the sources and the generated declarations",
-    )
-
-    # A module_name is an addition, not a replacement: the package path still
-    # resolves, since a relative import from a sibling package uses it.
-    asserts.equals(
-        env,
-        ["./tests/lsp/module_fixture/*", "./bazel-bin/tests/lsp/module_fixture/*"],
-        paths.get("tests/lsp/module_fixture/*"),
-        "the package-path key survives alongside it",
-    )
-
-    # Every value, not just the module's: a bare one is a module specifier to
-    # TypeScript, which is TS5090 in the compile tsconfig and a silently
-    # unresolved import here.
-    asserts.equals(
-        env,
-        [],
-        [v for key in sorted(paths) for v in paths[key] if not v.startswith(".")],
-        "every paths value is visibly relative",
-    )
-
-    asserts.true(
-        env,
-        "**/vendor" in config["exclude"],
-        "extra_exclude reaches the generated exclude: " + str(config["exclude"]),
-    )
-    asserts.true(
-        env,
-        "**/node_modules" in config["exclude"],
-        "and the built-in globs are still there: " + str(config["exclude"]),
-    )
-    return analysistest.end(env)
-
-module_paths_test = analysistest.make(_module_paths_impl)
-
 def _transitive_types_pairing_impl(ctx):
     env = analysistest.begin(ctx)
     config = _written_config(env)
@@ -244,11 +187,14 @@ def _option_merge_impl(ctx):
     if config == None:
         return analysistest.end(env)
 
-    # One directory, one program: two targets that disagree about nothing get a
-    # single block holding what each of them asked for.
-    options = config["compilerOptions"]
-    asserts.equals(env, True, options.get("noUnusedParameters"), "one target's key survives")
-    asserts.equals(env, True, options.get("noFallthroughCasesInSwitch"), "and so does the other's")
+    # One directory, one program: two targets naming one tsconfig get a single
+    # file extending it, holding both their sources.
+    asserts.equals(
+        env,
+        ["../../../tsconfig.json", "./two.tsconfig.json"],
+        config["extends"],
+        "the root first, then the tsconfig both targets check under",
+    )
     asserts.equals(
         env,
         ["fallthrough.ts", "params.ts"],
@@ -287,6 +233,4 @@ def _fails_with(message):
 
     return analysistest.make(_impl, expect_failure = True)
 
-option_conflict_test = _fails_with("compilerOptions.noUnusedLocals to ")
-root_value_conflict_test = _fails_with("compilerOptions.strict to ")
 baseline_conflict_test = _fails_with("extend the tsconfig baselines ")

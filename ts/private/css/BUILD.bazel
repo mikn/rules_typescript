@@ -74,10 +74,6 @@ ts_compile(
         "scoped_name.ts",
         "vite_plugin.ts",
     ],
-    compiler_options = {
-        "module": "Preserve",
-        "moduleResolution": "Bundler",
-    },
     visibility = ["//:__pkg__"],
     deps = [
         "@npm//:types_node",

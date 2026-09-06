@@ -200,12 +200,10 @@ def _json_library_impl(ctx):
     # Build transitive depsets from any json_library deps.
     transitive_dts_sets = []
     npm_closure_sets = []
-    global_entry_sets = []
     for dep in ctx.attr.deps:
         if TsDeclarationInfo in dep:
             transitive_dts_sets.append(dep[TsDeclarationInfo].transitive_declaration_files)
             npm_closure_sets.append(dep[TsDeclarationInfo].transitive_npm_packages)
-            global_entry_sets.append(dep[TsDeclarationInfo].transitive_global_entry_files)
 
     direct_dts = depset(dts_outputs)
     transitive_dts = depset(dts_outputs, transitive = transitive_dts_sets, order = "postorder")
@@ -216,8 +214,6 @@ def _json_library_impl(ctx):
             declaration_files = direct_dts,
             transitive_declaration_files = transitive_dts,
             transitive_npm_packages = depset(transitive = npm_closure_sets, order = "postorder"),
-            global_entry_files = depset(),
-            transitive_global_entry_files = depset(transitive = global_entry_sets, order = "postorder"),
         ),
     ]
 

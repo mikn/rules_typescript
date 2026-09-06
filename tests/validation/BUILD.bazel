@@ -1,4 +1,5 @@
 load("@rules_go//go:def.bzl", "go_test")
+load("//tests:flags.bzl", "ts_under_flags")
 load("//ts:defs.bzl", "ts_compile")
 
 package(default_visibility = ["//:__pkg__"])
@@ -7,7 +8,7 @@ package(default_visibility = ["//:__pkg__"])
 # Go language would add a second target for the same source.
 # gazelle:exclude *_test.go
 
-# ── declarations = "tsgo" (the default): tsgo emits the .d.ts ─────────────────
+# ── --//ts:declarations=tsgo (the default): tsgo emits the .d.ts ─────────────
 
 ts_compile(
     name = "correct",
@@ -15,8 +16,8 @@ ts_compile(
 )
 
 # Un-annotated exports. Buildable here precisely because tsgo has the full
-# program; the same sources under declarations = "oxc" are :inferred_oxc below
-# and must fail.
+# program; the same sources under --//ts:declarations=oxc are :inferred_oxc in
+# //tests/integration:oxc_declarations_test and must fail.
 ts_compile(
     name = "inferred",
     srcs = ["inferred.ts"],
@@ -33,14 +34,19 @@ go_test(
     deps = ["//tests/verify"],
 )
 
-# ── declarations = "oxc": syntactic emit, diagnostics in _validation ──────────
+# ── --//ts:declarations=oxc: syntactic emit, diagnostics in _validation ───────
 
 # Its own source, not correct.ts: ts_compile derives output paths from the
 # source file name, so two targets in one package cannot share a source.
 ts_compile(
-    name = "annotated_oxc",
+    name = "annotated",
     srcs = ["annotated.ts"],
+)
+
+ts_under_flags(
+    name = "annotated_oxc",
     declarations = "oxc",
+    target = ":annotated",
 )
 
 # Exposes the tscheck stamp. Building this filegroup proves tsgo ran and found

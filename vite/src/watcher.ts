@@ -189,8 +189,8 @@ export interface ConfigWatcherOptions {
  *
  * Vite restarts itself when its own config file changes, but it has no concept
  * of the thing that GENERATES that config — natively nothing does. Under Bazel
- * something does: `ts_dev_server` regenerates the config from BUILD deps,
- * module_name aliases, the entry point and the npm tree. A rebuild that changes
+ * something does: `ts_dev_server` regenerates the config from BUILD deps, the
+ * entry point and the npm tree. A rebuild that changes
  * any of those means the running server is configured for a graph that no
  * longer exists; a rebuild that only rewrites `ts_codegen` output means it is
  * still correct and HMR handles it.

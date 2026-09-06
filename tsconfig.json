@@ -9,17 +9,6 @@
     "moduleResolution": "Bundler",
     "noEmit": true,
     "paths": {
-      "@acme/jsx/*": [
-        "./tests/compiler_options/jsx/*",
-        "./bazel-bin/tests/compiler_options/jsx/*"
-      ],
-      "@acme/ui": [
-        "./tests/compiler_options/module_name/lib/index"
-      ],
-      "@acme/ui/*": [
-        "./tests/compiler_options/module_name/lib/*",
-        "./bazel-bin/tests/compiler_options/module_name/lib/*"
-      ],
       "@babel/parser": [
         "./.bazel/npm/@babel/parser/typings/babel-parser.d.ts"
       ],
@@ -70,13 +59,6 @@
       ],
       "@cspotcode/source-map-support/*": [
         "./.bazel/npm/@cspotcode/source-map-support/*"
-      ],
-      "@devserver/lib": [
-        "./tests/dev_server/lib/index"
-      ],
-      "@devserver/lib/*": [
-        "./tests/dev_server/lib/*",
-        "./bazel-bin/tests/dev_server/lib/*"
       ],
       "@eslint-community/eslint-utils": [
         "./.bazel/npm/@eslint-community/eslint-utils/index.d.mts"
@@ -255,20 +237,6 @@
       ],
       "@rolldown/pluginutils/filter": [
         "./.bazel/npm/@rolldown/pluginutils/dist/filter/index.d.mts"
-      ],
-      "@rules_typescript/eslint-plugin-isolated-declarations": [
-        "./eslint-plugin/src/index"
-      ],
-      "@rules_typescript/eslint-plugin-isolated-declarations/*": [
-        "./eslint-plugin/src/*",
-        "./bazel-bin/eslint-plugin/src/*"
-      ],
-      "@shared": [
-        "./tests/compiler_options/path_aliases/shared/index"
-      ],
-      "@shared/*": [
-        "./tests/compiler_options/path_aliases/shared/*",
-        "./bazel-bin/tests/compiler_options/path_aliases/shared/*"
       ],
       "@sindresorhus/is": [
         "./.bazel/npm/@sindresorhus/is/distribution/index.d.ts"
@@ -1464,16 +1432,16 @@
         "./tests/compiler_options/jsx/*",
         "./bazel-bin/tests/compiler_options/jsx/*"
       ],
-      "tests/compiler_options/module_name/consumer/*": [
-        "./tests/compiler_options/module_name/consumer/*",
-        "./bazel-bin/tests/compiler_options/module_name/consumer/*"
+      "tests/compiler_options/member/consumer/*": [
+        "./tests/compiler_options/member/consumer/*",
+        "./bazel-bin/tests/compiler_options/member/consumer/*"
       ],
-      "tests/compiler_options/module_name/lib": [
-        "./tests/compiler_options/module_name/lib/index"
+      "tests/compiler_options/member/lib": [
+        "./tests/compiler_options/member/lib/index"
       ],
-      "tests/compiler_options/module_name/lib/*": [
-        "./tests/compiler_options/module_name/lib/*",
-        "./bazel-bin/tests/compiler_options/module_name/lib/*"
+      "tests/compiler_options/member/lib/*": [
+        "./tests/compiler_options/member/lib/*",
+        "./bazel-bin/tests/compiler_options/member/lib/*"
       ],
       "tests/compiler_options/path_aliases/*": [
         "./tests/compiler_options/path_aliases/*",
@@ -2038,7 +2006,6 @@
     "**/e2e",
     "**/examples",
     "**/tests/integration",
-    "**/tests/untyped_packages",
     "tests/compiler_options/ext_helper.ts",
     "tests/compiler_options/ext_main.ts",
     "tests/compiler_options/webworker.ts",
@@ -2054,19 +2021,21 @@
     "tests/compiler_options/js_sources/main.ts",
     "tests/compiler_options/js_sources/math.js",
     "tests/compiler_options/jsx/view.tsx",
+    "tests/compiler_options/path_aliases/app/main.ts",
+    "tests/compiler_options/path_aliases/shared/value.ts",
     "tests/compiler_options/worker/index.ts",
+    "tests/vitest/attrs/attrs.test.ts",
+    "tests/vitest/attrs/setup.ts",
     "tests/worker_types/src/index.ts",
     "tests/workers/src/index.ts",
     "tests/workers/src/worker.test.ts",
     "vite/src/index.ts",
     "vite/src/plugin.ts",
     "vite/src/resolver.ts",
-    "vite/src/watcher.ts",
-    "vite/tsup.config.ts"
+    "vite/src/watcher.ts"
   ],
   "files": [
-    "./.bazel/npm/@types/node/index.d.ts",
-    "./.bazel/npm/vitest/globals.d.ts"
+    "./.bazel/npm/@types/node/index.d.ts"
   ],
   "include": [
     "**/*"

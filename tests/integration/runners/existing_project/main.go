@@ -70,11 +70,11 @@ func main() {
 	})
 }
 
-// A file listed by a target in another package used to reach analysis, where it
-// hit the one-rootDir check and was reported as "srcs hang off 2 different
-// roots ... a mix of checked-in and generated sources" -- which names neither
-// the file nor what is wrong with it. Written here rather than checked in so
-// that Gazelle, which runs first, has no say in it.
+// A file listed by a target in another package hangs off a root of its own --
+// the exec root -- while the package's files hang off the package, and one
+// declaration emit has one rootDir. The check is at analysis, names both roots
+// and the flag that emits nothing from tsgo. Written here rather than checked
+// in so that Gazelle, which runs first, has no say in it.
 func sharedSrc(it *harness.IT) {
 	it.Write(it.Path("shared/BUILD.bazel"), "exports_files([\"util.ts\"])\n")
 	it.Write(it.Path("shared/util.ts"), "export const util = 1;\n")
@@ -97,17 +97,17 @@ ts_compile(
 	}
 	it.Pass("//consumer:consumer failed")
 
-	for _, want := range []string{"//shared:util.ts", "outside it"} {
+	for _, want := range []string{
+		"hang off 2 different roots, and one declaration emit has one rootDir",
+		"the exec root",
+		"--//ts:declarations=oxc",
+	} {
 		if !log.Contains(want) {
 			log.Dump()
-			it.Fail("the failure does not mention %q, so it is not the loading-phase check", want)
+			it.Fail("the failure does not mention %q, so it is not the one-rootDir check", want)
 		}
 	}
-	if log.Contains("different roots") {
-		log.Dump()
-		it.Fail("the failure is still the analysis-time rootDir error")
-	}
-	it.Pass("the shared src is rejected while loading, naming the file")
+	it.Pass("the shared src is rejected at analysis, naming both roots and the flag")
 }
 
 // The four srcs shapes that are not the mix and build on origin/main: a

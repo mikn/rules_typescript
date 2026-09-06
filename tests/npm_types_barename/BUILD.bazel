@@ -1,61 +1,38 @@
 """A `@types/x` package answers an import of `x`, which is the only name for it.
 
 DefinitelyTyped ships `x`'s declarations as `@types/x`, and TypeScript pairs the
-two by walking `node_modules/@types`. Nothing here has a node_modules: npm
-packages reach the compiler through `paths`, so without a key spelled `x` the
-declarations are in the program under a name no import uses. Every package below
-is in this repo's own lockfile.
+two by walking `node_modules/@types`, which the forest lays out beside `x`.
+Every package below is in this repo's own lockfile.
 """
 
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.rollup.json
+
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
-load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//ts:defs.bzl", "ts_compile")
 load("//ts/private:tsconfig_aspect.bzl", "ide_tsconfig")
 load(
     ":precedence_tests.bzl",
-    "editor_alias_beats_types_test",
     "editor_key_collision_test",
     "editor_transitive_types_test",
     "editor_types_alias_test",
     "editor_types_precedence_test",
     "npm_ambient_repoint_test",
     "npm_key_beats_test",
-    "types_alias_precedence_test",
     "types_package_alias_test",
-    "types_package_root_test",
 )
 
 package(default_visibility = ["//:__pkg__"])
 
-# Each names a ts_compile target with a `tsconfig` output group and an
-# ide_tsconfig over it, which is what :test_config_agreement compares.
-_AGREEMENT_FIXTURES = [
-    "own_import",
-    "mangled_scope",
-    "subdirectory_declarations",
-    "subpath_exports",
-]
-
-# `:keys` asks for the key sets to match too, which holds only where the closure
-# has no declaration-free package for the editor to drop -- see
-# config_agreement_test.mjs. Everything else is compared by value.
-_AGREEMENT_ARGS = [
-    "own_import:keys",
-    "mangled_scope",
-    "subdirectory_declarations",
-    "subpath_exports:keys",
-]
-
 # rollup's own dist/rollup.d.ts opens with `import type * as estree from
 # 'estree'`, and @types/estree has no runtime package at all to be reached
-# under. skipLibCheck hides that failure, so this target turns it off; the
-# `lib` is rollup's own requirement, unrelated and only visible for the same
-# reason.
+# under. skipLibCheck hides that failure, so this target's tsconfig turns it
+# off; the `lib` is rollup's own requirement, unrelated and only visible for
+# the same reason.
 ts_compile(
     name = "inside_a_dependency",
     srcs = ["inside_a_dependency.ts"],
-    compiler_options = {"skipLibCheck": False},
-    lib = ["esnext"],
+    tsconfig = "tsconfig.rollup.json",
     deps = ["@npm//:rollup"],
 )
 
@@ -87,24 +64,6 @@ ts_compile(
     ],
 )
 
-# The closure behind the precedence assertions: @types/estree with a path_alias
-# claiming the name it types, and four @babel packages that differ in whether
-# they publish declarations of their own.
-ts_compile(
-    name = "precedence",
-    srcs = ["precedence.ts"],
-    path_aliases = {"estree": "tests/npm_types_barename"},
-    deps = [
-        "@npm//:rollup",
-        "@npm//:vitejs_plugin-react",
-    ],
-)
-
-types_alias_precedence_test(
-    name = "types_alias_precedence_test",
-    target_under_test = ":precedence",
-)
-
 types_package_alias_test(name = "types_package_alias_test")
 
 # culori publishes no declarations of its own, and @types/culori keeps most of
@@ -127,11 +86,6 @@ build_test(
         ":subpath_exports",
         ":widened_to_any",
     ],
-)
-
-types_package_root_test(
-    name = "types_package_root_test",
-    target_under_test = ":subdirectory_declarations",
 )
 
 # ── The same resolution, in the tsconfig an editor reads ─────────────────────
@@ -177,20 +131,6 @@ ide_tsconfig(
 editor_types_precedence_test(
     name = "editor_types_precedence_test",
     target_under_test = ":mangled_scope_ide_tsconfig",
-)
-
-# A path_alias outranks the @types package that would take the name, in the
-# editor for the same reason as in the build: the consumer named the module
-# outright.
-ide_tsconfig(
-    name = "precedence_ide_tsconfig",
-    tags = ["manual"],
-    deps = [":precedence"],
-)
-
-editor_alias_beats_types_test(
-    name = "editor_alias_beats_types_test",
-    target_under_test = ":precedence_ide_tsconfig",
 )
 
 # nanoid designates three `exports` subpaths and depends on nothing, so its
@@ -261,38 +201,3 @@ editor_key_collision_test(
 npm_key_beats_test(name = "npm_key_beats_test")
 
 npm_ambient_repoint_test(name = "npm_ambient_repoint_test")
-
-# ── The two configs, compared ────────────────────────────────────────────────
-# Neither analysis test above can see both files: a rule's generated tsconfig
-# and the editor's are written by two different targets. So the comparison is a
-# test over the bytes, and it compares the values and not only the key set --
-# the key set agreed on `@babel/core/*` while the build resolved it into
-# @babel/core's own repository, which holds no .d.ts at all, and the editor
-# resolved it into @types/babel__core.
-#
-# Three fixtures, for the three shapes an npm value has: one @types/* package on
-# its own, a demangled scope beside runtime packages that publish their own
-# declarations, and a runtime package whose @types/* pairing keeps declarations
-# in subdirectories.
-[
-    filegroup(
-        name = target + "_build_tsconfig",
-        testonly = True,
-        srcs = [":" + target],
-        output_group = "tsconfig",
-    )
-    for target in _AGREEMENT_FIXTURES
-]
-
-sh_test(
-    name = "test_config_agreement",
-    size = "small",
-    srcs = ["test_config_agreement.sh"],
-    args = _AGREEMENT_ARGS,
-    data = [
-               "config_agreement_test.mjs",
-               "//ts/toolchain:node_resolved",
-           ] + [":" + target + "_build_tsconfig" for target in _AGREEMENT_FIXTURES] +
-           [":" + target + "_ide_tsconfig" for target in _AGREEMENT_FIXTURES],
-    deps = ["@bazel_tools//tools/bash/runfiles"],
-)

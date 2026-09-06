@@ -41,7 +41,6 @@ ts_codegen(
 ts_compile(
     name = "generated_compile",
     srcs = [":generated_ts"],
-    declarations = "oxc",
 )
 
 go_test(

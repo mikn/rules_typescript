@@ -10,23 +10,29 @@ the .d.ts; read at the realpath it resolves to the source-tree file, and the
 build fails on an error in a file the target never named.
 """
 
-# stray.ts is the fixture, the one file that must be in no target's srcs, and
-# bindings.d.ts is staged by types_srcs: an ambient .d.ts counts as a source.
-# gazelle:exclude bindings.d.ts
+# stray.ts is the fixture, the one file that must be in no target's srcs.
 # gazelle:exclude stray.ts
+
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.bindings.json
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "ts_compile")
 
 package(default_visibility = ["//:__pkg__"])
 
+ts_compile(
+    name = "bindings",
+    srcs = ["bindings.d.ts"],
+)
+
 # The shape the monorepo trial failed in: a wrangler-generated
 # worker-configuration.d.ts reached through `types`, holding `typeof import("./src/index")`.
 ts_compile(
     name = "app",
     srcs = ["app.ts"],
-    compiler_options = {"types": ["./bindings.d.ts"]},
-    types_srcs = ["bindings.d.ts"],
+    tsconfig = "tsconfig.bindings.json",
+    deps = [":bindings"],
 )
 
 build_test(

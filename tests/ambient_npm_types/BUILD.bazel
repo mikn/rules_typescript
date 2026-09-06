@@ -4,10 +4,11 @@ The sources use `process`, `setTimeout`, `Buffer` and `node:fs`, none of which
 any `lib` declares, so compiling :consumer is the assertion.
 """
 
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.node.json
+
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "ts_compile")
-load("//ts/private:tsconfig_aspect.bzl", "ide_tsconfig")
-load(":ambient_tests.bzl", "bare_types_entry_test")
 
 package(default_visibility = ["//:__pkg__"])
 
@@ -38,35 +39,16 @@ build_test(
     targets = [":ambient_module_consumer"],
 )
 
-# ── `types = ["node"]`, the spelling Gazelle writes ──────────────────────────
-# The entry resolves against the paired @types/node dep and is dropped from the
-# written config: with no node_modules to walk, tsgo 7.0.2 reports TS2688 on it.
+# ── `types: ["node"]`, the spelling a tsconfig writes ────────────────────────
+# The entry resolves through the forest's node_modules/@types/node.
 ts_compile(
     name = "bare_types_entry",
     srcs = ["bare_types_entry.ts"],
-    compiler_options = {
-        # `noUnusedLocals` is what earns this package its own editor program,
-        # so the nested file exists whether or not `types` survives into it --
-        # which is what the assertion is about.
-        "noUnusedLocals": True,
-        "types": ["node"],
-    },
+    tsconfig = "tsconfig.node.json",
     deps = ["@npm//:types_node"],
 )
 
 build_test(
     name = "bare_types_entry_build_test",
     targets = [":bare_types_entry"],
-)
-
-ide_tsconfig(
-    name = "bare_types_entry_ide_tsconfig",
-    nested_tsconfigs = ["tests/ambient_npm_types/tsconfig.json"],
-    tags = ["manual"],
-    deps = [":bare_types_entry"],
-)
-
-bare_types_entry_test(
-    name = "bare_types_entry_test",
-    target_under_test = ":bare_types_entry_ide_tsconfig",
 )

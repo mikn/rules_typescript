@@ -14,7 +14,7 @@ const pkg = "tests/compiler_options/js_declarations/"
 func TestDeclarationFlavoursInSrcs(t *testing.T) {
 	tree := verify.New(t)
 
-	for _, compiled := range []string{"typed.js", "main.js", "consumer.js", "uses_global.js"} {
+	for _, compiled := range []string{"typed.js", "main.js", "consumer.js"} {
 		tree.File(pkg + compiled).Exists()
 	}
 

@@ -1,11 +1,12 @@
 """A .json file an npm package publishes is importable.
 
-`resolveJsonModule` resolves the specifier through the same `paths` key as any
-other subpath, so the key has been right for as long as the wildcard has. What
-was missing is the file: the declaration depsets carry no .json, so nothing put
-it in the sandbox and the import was TS2307 with a correct key pointing at it.
-Compiling this is the assertion.
+`resolveJsonModule` resolves the specifier through the forest like any other
+subpath; the file is in the package's tree there. Compiling this is the
+assertion.
 """
+
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.json_modules.json
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "ts_compile")
@@ -15,7 +16,7 @@ package(default_visibility = ["//:__pkg__"])
 ts_compile(
     name = "versions_data",
     srcs = ["versions_data.ts"],
-    compiler_options = {"resolveJsonModule": True},
+    tsconfig = "tsconfig.json_modules.json",
     deps = ["@npm//:electron-to-chromium"],
 )
 

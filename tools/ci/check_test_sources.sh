@@ -54,9 +54,6 @@ tests/workers_nested/test/data_shadow.test.ts
 # failure, so `bazel test //...` running it directly would report a red test for
 # a passing behaviour.
 tests/vitest/thresholds/missed/partial.test.ts
-# Meant to fail to compile: the ts_test half of the //tests/untyped_packages
-# pair without the attribute, whose generated compile an analysis test reads.
-tests/untyped_packages/leaks.test.ts
 ALLOWLIST
 )
 

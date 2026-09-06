@@ -7,10 +7,6 @@ ts_compile(
         "rules/require-explicit-types.ts",
         "utils.ts",
     ],
-    # keep: the name package.json publishes. The tests import the plugin by it
-    # rather than relatively, which is what a consumer does, and without this
-    # there is no target for that specifier to resolve to.
-    module_name = "@rules_typescript/eslint-plugin-isolated-declarations",
     visibility = ["//visibility:public"],
     deps = ["@npm_eslint//:typescript-eslint_utils"],
 )

@@ -94,10 +94,6 @@ ts_compile(
 ts_compile(
     name = "tsup_config",
     srcs = ["tsup.config.ts"],
-    compiler_options = {
-        "module": "Preserve",
-        "moduleResolution": "Bundler",
-    },
     deps = ["@npm//:tsup"],
 )
 

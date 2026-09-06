@@ -10,11 +10,10 @@
  *
  * All the halves of the map are checked here, including the parts that are
  * left OUT: an npm package the data names but nothing installed, a ts_compile
- * package with no entry point, a declared module_name whose package has no entry
- * point either, a nested workspace's directives, and a "~" alias prefix that the
- * worker's character screen rejects even though gazelle accepts it. A @types/*
- * package is here too, because it is the one entry whose map key and installed
- * directory are different names.
+ * package with no entry point, a nested workspace's directives, and a "~" alias
+ * prefix that the worker's character screen rejects even though gazelle accepts
+ * it. A @types/* package is here too, because it is the one entry whose map key
+ * and installed directory are different names.
  *
  * //tests/lsp:test_resolution_map runs the same worker over this repo's own
  * generated data rather than a fixture.
@@ -63,8 +62,6 @@ write('src/app/index.ts', 'export const b = 2;\n');
 const appDts = write('bazel-bin/src/app/index.d.ts', 'export declare const b: number;\n');
 // An internal package with no index file at all: nothing to resolve to.
 write('src/empty/helpers.ts', 'export const c = 3;\n');
-// The directory the alias in the generated data points at.
-write('packages/ui/src/index.ts', 'export const ui = 1;\n');
 
 // A nested workspace. Its directives belong to that workspace, so the walk must
 // stop at the boundary rather than adopting them.
@@ -113,14 +110,6 @@ write(
       { name: 'estree', dir: '@types/estree', entry: 'index.d.ts', isFile: true },
     ],
     packages: ['src/lib', 'src/app', 'src/empty'],
-    // The bare specifiers targets declared with `module_name`, each naming the
-    // package it resolves to -- the same directories as `packages`, under the
-    // name an import writes.
-    modules: [
-      { name: '@acme/widget', package: 'src/lib' },
-      { name: '@acme/nothing', package: 'src/empty' },
-    ],
-    aliases: [{ prefix: '@ui', dir: 'packages/ui/src' }],
   })
 );
 
@@ -196,12 +185,7 @@ worker.once('message', (msg) => {
   expectEntry(map, 'src/app', appDts);
   expectAbsent(map, 'src/empty', 'no index.ts/index.d.ts to resolve to');
 
-  // A module_name: the bare specifier resolving to the package that declared it.
-  expectEntry(map, '@acme/widget', libIndex);
-  expectAbsent(map, '@acme/nothing', 'the package it names has no index to resolve to');
-
-  // Path aliases: one from the generated data, one from a BUILD directive.
-  expectEntry(map, '__alias__@ui/', path.join(root, 'packages/ui/src'));
+  // Path aliases from BUILD directives.
   expectEntry(map, '__alias__@/', path.join(root, 'src'));
   expectAbsent(map, '__alias__@child/', 'the walk stops at a nested workspace boundary');
   expectAbsent(map, '__alias__~lib/', 'a "~" prefix fails the worker\'s character screen');

@@ -1,10 +1,8 @@
 """The workspace-root tsconfig.json an IDE reads, built from the build graph.
 
 Everything the file needs is already in the graph: a ts_compile target's package
-is its source root, its `module_name` is the bare specifier that resolves to
-that root, its `path_aliases` attr is what a `# gazelle:ts_path_alias` directive
-turns into, and NpmPackageInfo names the .d.ts entry point of every npm package
-reachable from it. So the tsconfig is a declared output of a rule over an aspect,
+is its source root, and NpmPackageInfo names the .d.ts entry point of every npm
+package reachable from it. So the tsconfig is a declared output of a rule over an aspect,
 and `bazel run //:refresh_tsconfig` only copies that output into the source
 tree.
 
@@ -38,22 +36,17 @@ load(
     "referenced_type_files",
     "subpath_pattern_paths",
     "subpath_wildcards",
-    "types_entry_file",
-    "types_entry_package_ref",
     "types_package_alias",
-    "workspace_relative",
 )
 
 TsconfigSourcesInfo = provider(
     doc = "What a workspace-root tsconfig.json needs from the ts_compile targets under it.",
     fields = {
-        "packages": "depset of struct(path, has_index, module_name): package of every ts_compile target reached, whether it has an index file to name as the package entry point, and the bare specifier the target declared with `module_name` (empty when it declared none).",
-        "aliases": "depset of struct(prefix, dir): path_aliases entries, workspace-relative.",
+        "packages": "depset of struct(path, has_index): package of every ts_compile target reached, and whether it has an index file to name as the package entry point.",
         "npm_paths": "depset of struct(key, name, version, entry, is_file, wildcard, patterns): npm entry points, relative to the package's own directory. `key` is the specifier that resolves to one and `name` the package installed under `npm_dir`; they differ for a `@types/*` package, which answers the name it types and is installed under its own, and for an `exports` subpath, which answers a key under the package's name. `wildcard` is whether the key also takes a `<key>/*` companion -- false on a subpath entry, whose key names one file and whose own subpaths are not a thing. `patterns` is NpmPackageInfo.subpath_patterns as sorted (subpath, target) pairs, each written as a `<key><subpath>` key ahead of the wildcard's guesses; empty on a subpath entry and on a package a paired `@types/*` answers.",
         "npm_ambient": "depset of struct(name, version, entry): @types/* entry points to name in the tsconfig `files` array, relative to the package's own directory.",
         "npm_files": "depset of struct(name, version, dest, file): the files an npm entry point needs on disk, and where under the package each one goes.",
-        "npm_untyped": "depset of struct(name, label): each npm package a reached target named in `untyped_packages`, and the target that named it. One `paths` map serves the whole editor, so this is what ide_tsconfig checks against the packages the rest of the graph still contributes.",
-        "option_groups": "depset of struct(package, label, options_json, extends, include, generated): the compilerOptions one target sets, which no single root block can carry -- a target that turns `strict` off, or names a `lib` its target does not imply, is checked correctly by the build and wrongly by the editor unless the editor gets its own program for those files. `generated` is the declaration files among its srcs and types_srcs that are build outputs, which a relative `types` entry reaches only through the bazel-bin symlink.",
+        "option_groups": "depset of struct(package, label, options_json, extends, include): the program one target checks under, which the root block cannot carry -- the tsconfig it names, and allowJs for its JavaScript srcs. A target whose tsconfig turns `strict` off or names a `lib` is checked correctly by the build and wrongly by the editor unless the editor gets its own program for those files.",
         "has_content": "Whether anything above is non-empty here or anywhere below, so that a fragment is written only where there is something to say.",
     },
 )
@@ -63,7 +56,7 @@ TsconfigFragmentInfo = provider(
     fields = {
         "fragments": """depset of File: one fragment per target the aspect reached.
 
-Each is complete for its own closure -- packages, aliases and npm entry points --
+Each is complete for its own closure -- packages and npm entry points --
 so any one of them is a usable answer on its own, which is what makes a
 partially built bazel-out still readable. The ambient entry points are not in
 there: naming one is a tsconfig `files` concern, which a resolution map has no
@@ -83,18 +76,6 @@ def _under(file, dir):
     if not file.path.startswith(dir + "/"):
         return None
     return file.path[len(dir) + 1:]
-
-def untyped_packages(rule_attr):
-    """The npm package names one ts_compile target keeps out of its type program.
-
-    ts_compile's `untyped_packages`, read from the attr rather than from a
-    provider: it is a fact about the target, and every route into a program the
-    editor writes -- `paths`, `files`, the fragment the tsserver hook merges --
-    has to honour the same one the build's tsconfig does.
-
-    Exported for the unit test.
-    """
-    return {name: True for name in getattr(rule_attr, "untyped_packages", [])}
 
 def _types_root(infos, dts):
     """The @types package `dts` came from: its root directory and its package.json."""
@@ -131,13 +112,8 @@ def _npm_entries(rule_attr):
     package whose files are installed under `npm_dir`. The two differ for a
     `@types/*` package, which is imported under the name it types and installed
     under its own.
-
-    A package the target named in `untyped_packages` is in neither list: it has
-    no entry in the tsconfig ts_compile generates either, and an editor that
-    resolved it would report what the build does not.
     """
     infos = {}
-    untyped = untyped_packages(rule_attr)
 
     for dep in getattr(rule_attr, "deps", []):
         if NpmPackageInfo not in dep:
@@ -186,10 +162,8 @@ def _npm_entries(rule_attr):
         # anything writes for it -- rollup's own .d.ts says `from "estree"` --
         # and reaching it through `files` puts the declarations in the program
         # under no name that resolves.
-        if name in untyped:
-            continue
         alias = types_package_alias(name)
-        if alias in ships_declarations or alias in untyped:
+        if alias in ships_declarations:
             alias = None
         if name.startswith("@types/") and not alias:
             continue
@@ -267,55 +241,6 @@ def _npm_entries(rule_attr):
                 ))
     return paths, files
 
-def _npm_type_packages(rule_attr):
-    """The compilerOptions.types entries an npm dep actually provides.
-
-    Only these are dropped from an editor program's options: they are the ones
-    that resolve through node_modules, which is what does not exist here. The
-    question is ts_compile's, so it is ts_compile's resolver that answers it --
-    a copy of the answer went stale the moment that resolver grew a third
-    spelling, and `types = ["node"]` stayed in a nested config where real tsc
-    reports TS2688 for it.
-    """
-    requested = _requested_type_packages(rule_attr)
-    if not requested:
-        return []
-    provided = []
-    for dep in getattr(rule_attr, "deps", []):
-        if NpmPackageInfo not in dep:
-            continue
-        info = dep[NpmPackageInfo]
-        for entry in requested:
-            if types_entry_file(entry, info):
-                provided.append(entry)
-    return provided
-
-def _requested_type_packages(rule_attr):
-    """The compilerOptions.types entries that name a package rather than a path."""
-    raw = getattr(rule_attr, "compiler_options_json", "")
-    if not raw:
-        return []
-    decoded = json.decode(raw)
-    if type(decoded) != "dict":
-        return []
-
-    # The classification is ts_compile's: `not t.startswith(".")` was a fourth
-    # spelling of it, and a narrower one -- it kept `/abs.d.ts` and
-    # `x.d.ts`, which name a file no dep resolves.
-    return [
-        t
-        for t in decoded.get("types", [])
-        if type(t) == "string" and types_entry_package_ref(t)
-    ]
-
-def _first_requested_file(info, requested):
-    """The first declaration any `types` entry designates on this package."""
-    for entry in requested:
-        designated = types_entry_file(entry, info)
-        if designated:
-            return designated
-    return None
-
 def _ambient_entries(rule_attr):
     """The @types/* entry points one ts_compile target declares, and their files.
 
@@ -333,22 +258,16 @@ def _ambient_entries(rule_attr):
     only through an import is in no `files` array and reaches the editor's
     program through its `paths` key alone.
     """
-    requested = _requested_type_packages(rule_attr)
-    untyped = untyped_packages(rule_attr)
     entries = []
     files = []
     for dep in getattr(rule_attr, "deps", []):
         if NpmPackageInfo not in dep:
             continue
         info = dep[NpmPackageInfo]
-        if info.package_name in untyped:
-            continue
-
-        # What a `types` entry names outranks the root, as in ts_compile.
-        ambient = _first_requested_file(info, requested) or info.ambient_types_file
+        ambient = info.ambient_types_file
         if not ambient:
             continue
-        for reached in referenced_type_files(ambient, info, untyped):
+        for reached in referenced_type_files(ambient, info):
             package = reached.package
             if not package.package_dir:
                 continue
@@ -372,15 +291,6 @@ def _ambient_entries(rule_attr):
                     ))
     return entries, files
 
-def _aliases(rule_attr):
-    entries = []
-    for prefix, dir in getattr(rule_attr, "path_aliases", {}).items():
-        prefix = prefix.rstrip("/")
-        dir = dir.rstrip("/")
-        if prefix and dir and prefix != dir:
-            entries.append(struct(prefix = prefix, dir = dir))
-    return entries
-
 def _has_index(target, ctx):
     package = target.label.package
     for src in getattr(ctx.rule.files, "srcs", []):
@@ -394,13 +304,7 @@ FRAGMENT_SUFFIX = ".tsconfig-fragment.json"
 _FRAGMENT_FORMAT = "tsconfig-fragment-v1"
 
 def _fragment_package(package):
-    record = {"package": package.path, "index": package.has_index}
-    if package.module_name:
-        record["module"] = package.module_name
-    return json.encode(record)
-
-def _fragment_alias(alias):
-    return json.encode({"alias": alias.prefix, "dir": alias.dir})
+    return json.encode({"package": package.path, "index": package.has_index})
 
 def _fragment_npm(entry):
     record = {
@@ -425,44 +329,17 @@ def _fragment(target, ctx, sources):
     args.set_param_file_format("multiline")
     args.add(json.encode({"format": _FRAGMENT_FORMAT, "label": str(target.label)}))
     args.add_all(sources.packages, map_each = _fragment_package, uniquify = True)
-    args.add_all(sources.aliases, map_each = _fragment_alias, uniquify = True)
     args.add_all(sources.npm_paths, map_each = _fragment_npm, uniquify = True)
 
     out = ctx.actions.declare_file(target.label.name + FRAGMENT_SUFFIX)
     ctx.actions.write(out, args)
     return out
 
-# Options a target sets that the root block cannot also be set to. Bazel-owned
-# keys are dropped: they describe the sandbox's shape, not the semantics an
-# editor has to agree with, and every one of them is rejected on the attr anyway.
-_EDITOR_IRRELEVANT_OPTIONS = [
-    "outDir",
-    "rootDir",
-    "rootDirs",
-    "preserveSymlinks",
-    "declarationDir",
-    "declaration",
-    "declarationMap",
-    "emitDeclarationOnly",
-    "sourceMap",
-    "noEmit",
-    "noEmitOnError",
-    "isolatedDeclarations",
-    "composite",
-    "incremental",
-    "tsBuildInfoFile",
-    "baseUrl",
-    "paths",
-]
-
-# The root block's own values, so a target matching them needs no nested config.
-# ts_compile defaults `target` and `jsx_mode` to these.
+# The root block's own values.
 _ROOT_TARGET = "ES2022"
 _ROOT_JSX = "react-jsx"
 
 # TypeScript compares these values case-insensitively, and treats `lib` as a set.
-# Two targets spelling one value differently are not a conflict, so the delta is
-# canonicalised before anything compares or emits it.
 _CASE_INSENSITIVE_OPTIONS = [
     "target",
     "module",
@@ -484,47 +361,21 @@ def _canonical_options(options):
     return canonical
 
 def _option_group(target, ctx):
-    """The compilerOptions delta one ts_compile target needs, or []."""
+    """The editor program one ts_compile target needs beyond the root block, or []."""
 
-    # A `manual` target is one nothing builds -- //tests/compiler_options/analysis
-    # has one whose option value is deliberately nonsense to tsgo, read by an
-    # analysis test rather than run. There is no editor program to get right.
+    # A `manual` target is one nothing builds -- a fixture read by an analysis
+    # test rather than run. There is no editor program to get right.
     if "manual" in getattr(ctx.rule.attr, "tags", []):
         return []
-
-    raw = getattr(ctx.rule.attr, "compiler_options_json", "")
-    options = {}
-    if raw:
-        decoded = json.decode(raw)
-        if type(decoded) == "dict":
-            options = {
-                k: v
-                for k, v in decoded.items()
-                if k not in _EDITOR_IRRELEVANT_OPTIONS
-            }
-
-            # A `types` entry that names an npm package cannot resolve from a
-            # nested config either -- there is still no node_modules to walk --
-            # so those reach the editor through `files`, installed by
-            # _ambient_entries. Every other entry stays: a relative path is a
-            # workspace file, and a bare name under a declared `typeRoots` is a
-            # local type package, which resolves from here exactly as it does for
-            # the build.
-            if "types" in options:
-                npm_named = _npm_type_packages(ctx.rule.attr)
-                kept = [t for t in options["types"] if t not in npm_named]
-                if kept:
-                    options["types"] = kept
-                else:
-                    options.pop("types")
 
     # A .js source is only in the program at all with allowJs, which ts_compile
     # infers from srcs rather than making the author say it.
     sources = [f for src in ctx.rule.files.srcs for f in [src]]
+    options = {}
     if any([f.extension in ("js", "jsx", "mjs", "cjs") for f in sources]):
         options["allowJs"] = True
 
-    # The baseline this target checks against. An editor program for these files
+    # The tsconfig this target checks against. An editor program for these files
     # has to start from the same place, or it disagrees for a second reason.
     extends = ""
     tsconfig = getattr(ctx.rule.attr, "tsconfig", None)
@@ -532,17 +383,6 @@ def _option_group(target, ctx):
         extends = tsconfig[TsConfigInfo].tsconfig.short_path
     elif getattr(ctx.rule.file, "tsconfig", None):
         extends = ctx.rule.file.tsconfig.short_path
-
-    # target and jsx_mode are rule attrs the build injects, so they never appear
-    # in compiler_options_json. Left out here the editor checks an es2017 or
-    # preserve-JSX target against the root's ES2022/react-jsx and disagrees with
-    # the build -- the divergence a nested config exists to end.
-    if ctx.rule.attr.target and ctx.rule.attr.target.lower() != _ROOT_TARGET.lower():
-        options["target"] = ctx.rule.attr.target
-    if ctx.rule.attr.jsx_mode and ctx.rule.attr.jsx_mode.lower() != _ROOT_JSX.lower():
-        options["jsx"] = ctx.rule.attr.jsx_mode
-
-    options = _canonical_options(options)
 
     if not options and not extends:
         return []
@@ -556,14 +396,6 @@ def _option_group(target, ctx):
     if not include:
         return []
 
-    # The editor reaches a generated declaration through the bazel-bin symlink,
-    # whose name only _nested_config_json knows.
-    generated = [
-        f.short_path
-        for f in sources + list(getattr(ctx.rule.files, "types_srcs", []))
-        if f.short_path.endswith(".d.ts") and not f.is_source
-    ]
-
     # JSON and a tuple, not a dict and a list: a depset element has to be
     # immutable, and these travel to _ide_tsconfig_impl through one.
     return [struct(
@@ -572,7 +404,6 @@ def _option_group(target, ctx):
         options_json = json.encode(options),
         extends = extends,
         include = tuple(sorted(include)),
-        generated = tuple(sorted(generated)),
     )]
 
 def _tsconfig_aspect_impl(target, ctx):
@@ -584,11 +415,9 @@ def _tsconfig_aspect_impl(target, ctx):
     inherited = [dep[TsconfigSourcesInfo] for dep in reached if TsconfigSourcesInfo in dep]
 
     packages = []
-    aliases = []
     npm_paths = []
     npm_ambient = []
     npm_files = []
-    npm_untyped = []
     option_groups = []
 
     # A workspace member's view adds nothing of its own: the checkout's
@@ -598,27 +427,19 @@ def _tsconfig_aspect_impl(target, ctx):
             packages = [struct(
                 path = target.label.package,
                 has_index = _has_index(target, ctx),
-                module_name = getattr(ctx.rule.attr, "module_name", ""),
             )]
-        aliases = _aliases(ctx.rule.attr)
         npm_paths, npm_files = _npm_entries(ctx.rule.attr)
         npm_ambient, ambient_files = _ambient_entries(ctx.rule.attr)
         npm_files = npm_files + ambient_files
-        npm_untyped = [
-            struct(name = name, label = str(target.label))
-            for name in sorted(untyped_packages(ctx.rule.attr))
-        ]
         option_groups = _option_group(target, ctx)
 
     sources = TsconfigSourcesInfo(
         packages = depset(packages, transitive = [s.packages for s in inherited], order = "postorder"),
-        aliases = depset(aliases, transitive = [s.aliases for s in inherited], order = "postorder"),
         npm_paths = depset(npm_paths, transitive = [s.npm_paths for s in inherited], order = "postorder"),
         npm_ambient = depset(npm_ambient, transitive = [s.npm_ambient for s in inherited], order = "postorder"),
         npm_files = depset(npm_files, transitive = [s.npm_files for s in inherited], order = "postorder"),
-        npm_untyped = depset(npm_untyped, transitive = [s.npm_untyped for s in inherited], order = "postorder"),
         option_groups = depset(option_groups, transitive = [s.option_groups for s in inherited], order = "postorder"),
-        has_content = bool(packages or aliases or npm_paths) or any([s.has_content for s in inherited]),
+        has_content = bool(packages or npm_paths) or any([s.has_content for s in inherited]),
     )
 
     fragments = [dep[TsconfigFragmentInfo].fragments for dep in getattr(ctx.rule.attr, "deps", []) if TsconfigFragmentInfo in dep]
@@ -634,7 +455,7 @@ def _tsconfig_aspect_impl(target, ctx):
 tsconfig_aspect = aspect(
     implementation = _tsconfig_aspect_impl,
     attr_aspects = ["deps", "target"],
-    doc = """Collects the source roots, path aliases and npm entry points an IDE tsconfig needs.
+    doc = """Collects the source roots and npm entry points an IDE tsconfig needs.
 
 Also writes one `<target>.tsconfig-fragment.json` per target reached, in the
 `ide_fragments` output group. That group is how the tsserver hook gets the
@@ -764,66 +585,12 @@ def npm_view(sources, host_only = []):
         ambient[entry.name] = struct(dir = dir, entry = entry.entry)
     return entries, sorted(ambient.items()), files
 
-def check_untyped_agreement(sources, entries, ambient, files, host_only):
-    """Fails when the editor cannot answer a target's `untyped_packages` the build's way.
-
-    One `paths` map serves every editor program -- a nested tsconfig extends the
-    root and inherits its map unchanged -- so "this package is out of the type
-    program" is a per-target fact on the build and a workspace-wide one here.
-    Where every target that reaches a package excludes it, the two agree with no
-    help: the package simply arrives in none of `entries`, `ambient` or `files`,
-    and this passes. Where one target excludes it and another still resolves it,
-    the editor would report what that target's build does not, and
-    host_only_packages is the only place a workspace-wide answer fits.
-
-    Exported for the unit test.
-    """
-    contributed = {e.name: True for e in entries}
-    for name, _ in ambient:
-        contributed[name] = True
-    for entry in files:
-        contributed[entry.name] = True
-    skip = {name: True for name in host_only}
-    for entry in _collect(sources, "npm_untyped"):
-        if entry.name in skip or entry.name not in contributed:
-            continue
-        fail(
-            "ts_refresh_tsconfig: {label} keeps \"{name}\" out of its type program\n".format(
-                label = entry.label,
-                name = entry.name,
-            ) +
-            "  (untyped_packages), and this config still resolves it for something it\n" +
-            "  reaches. One `paths` map serves every editor program -- a nested tsconfig\n" +
-            "  inherits it -- so an editor here would report what that target's build\n" +
-            "  does not.\n" +
-            "Add \"{name}\" to host_only_packages to drop it from the editor everywhere,\n".format(name = entry.name) +
-            "or name it in untyped_packages on the targets that still resolve it.\n" +
-            "`bazel query \"rdeps(//..., @npm//:<the package>)\"` names those targets.\n",
-        )
-
 def _packages(sources):
     """Every package the aspect reached, and whether any target in it has an index file."""
     indexed = {}
     for package in _collect(sources, "packages"):
         indexed[package.path] = indexed.get(package.path, False) or package.has_index
     return indexed
-
-def _modules(sources):
-    """The reached target each `module_name` resolves to, keyed by the specifier.
-
-    A module_name is a bare specifier, so it needs its own paths key: the
-    package-path key the target already has is not what the import says. Two
-    targets declaring one name would fight over that key, so the lowest package
-    path wins for the whole name.
-    """
-    modules = {}
-    for package in _collect(sources, "packages"):
-        if not package.module_name:
-            continue
-        chosen = modules.get(package.module_name)
-        if chosen == None or package.path < chosen.path:
-            modules[package.module_name] = package
-    return modules
 
 def _installed_entry(npm_dir, entry):
     base = "{}/{}".format(npm_dir, entry.name)
@@ -840,53 +607,28 @@ def _nested_configs(sources, root_options):
     """One editor program per package whose options the root block cannot carry.
 
     tsserver picks the nearest tsconfig.json walking up from a file, so a package
-    whose targets disagree with the root block needs its own file there. Grouping
-    is by package because that is the only granularity tsserver has: two targets
-    in one directory setting the same key to different values have no
-    representation at all, and that is an error rather than a silent pick.
+    whose targets check under a tsconfig of their own needs a file there that
+    extends it. Grouping is by package because that is the only granularity
+    tsserver has: two targets in one directory naming two tsconfigs have no
+    representation at all, and that is an error rather than a silent pick --
+    `extends` would take both, but TypeScript applies the array later-wins, so
+    one file's keys would replace the other's for both targets' sources.
 
-    A `tsconfig` baseline is checked the same way, because it is the same thing: a
-    bag of compilerOptions, applied to whichever sources the file that names it
-    claims. `extends` would take two of them, but TypeScript applies the array
-    later-wins, so listing both would let one baseline's keys replace the other's
-    for both targets' sources -- a silent pick spelled as a merge.
-
-    A key whose value already equals the root's is dropped, so a target that only
+    allowJs is dropped where the root already sets it, so a target that only
     restates the defaults produces no file. That subtraction is sound only
-    without a baseline: the root is the FIRST entry of the nested `extends` array,
-    so a baseline after it wins every key the group leaves out.
+    without a tsconfig: the root is the FIRST entry of the nested `extends`
+    array, so a tsconfig after it wins every key the group leaves out.
     """
-
-    # Both sides of the equality have to be canonical, or a root value spelled
-    # "Preserve" stops matching a group's "preserve" and every package gets a
-    # file it does not need.
     root_options = _canonical_options(root_options)
 
     groups = {}
     for entry in sources.option_groups.to_list():
         group = groups.setdefault(entry.package, struct(
             options = {},
-            owners = {},
             extends = {},
             include = {},
-            generated = {},
         ))
-        for key, value in json.decode(entry.options_json).items():
-            if key in group.options and group.options[key] != value:
-                fail(
-                    "ts_refresh_tsconfig: {} and {} are in the same package and set\n".format(
-                        group.owners[key],
-                        entry.label,
-                    ) +
-                    "  compilerOptions.{} to {} and {}.\n".format(
-                        key,
-                        json.encode(group.options[key]),
-                        json.encode(value),
-                    ) +
-                    _ONE_ANSWER_PER_DIRECTORY,
-                )
-            group.options[key] = value
-            group.owners[key] = entry.label
+        group.options.update(json.decode(entry.options_json))
         if entry.extends:
             for baseline, owner in group.extends.items():
                 if baseline != entry.extends:
@@ -904,8 +646,6 @@ def _nested_configs(sources, root_options):
             group.extends[entry.extends] = entry.label
         for path in entry.include:
             group.include[path] = True
-        for path in entry.generated:
-            group.generated[path] = True
 
     out = []
     for package in sorted(groups):
@@ -924,11 +664,10 @@ def _nested_configs(sources, root_options):
             options = options,
             extends = sorted(group.extends),
             include = sorted(group.include),
-            generated = sorted(group.generated),
         ))
     return out
 
-def _nested_config_json(package, group, tsconfig_path, ambient, bin_dir):
+def _nested_config_json(package, group, tsconfig_path, ambient):
     """The nested tsconfig's own content.
 
     `extends` is an array with the root FIRST so that a package baseline the
@@ -936,7 +675,7 @@ def _nested_config_json(package, group, tsconfig_path, ambient, bin_dir):
     rather than inherited: a relative path in an extended config is re-resolved
     against the extending file, so an inherited root `exclude` would name
     something else entirely here. Inherited `paths` are not re-resolved, which is
-    why the root's aliases still work from down here.
+    why the root's package keys still work from down here.
     """
     depth = len(package.split("/"))
     to_workspace = "/".join([".."] * depth) + "/"
@@ -961,13 +700,6 @@ def _nested_config_json(package, group, tsconfig_path, ambient, bin_dir):
     # says vite/src, which puts vite/tsup.config.ts outside it (TS6059).
     options["rootDir"] = "."
 
-    if "types" in options and group.generated:
-        bin_root = to_workspace + bin_dir.removeprefix("./")
-        options["types"] = [
-            _bin_types_entry(package, entry, group.generated, bin_root)
-            for entry in options["types"]
-        ]
-
     return {
         "_comment": _HEADER,
         "extends": extends,
@@ -986,14 +718,6 @@ def _nested_config_json(package, group, tsconfig_path, ambient, bin_dir):
         "exclude": [],
     }
 
-# The build writes a `types` entry as the path to the file it resolved to; a
-# generated one is in bazel-out, which from the source tree is the bazel-bin symlink.
-def _bin_types_entry(package, entry, generated, bin_root):
-    path = workspace_relative(package, entry)
-    if path in generated:
-        return bin_root + "/" + path
-    return entry
-
 def _relative_to(package, path, to_workspace):
     """`path`, which is workspace-relative, expressed from inside `package`."""
     prefix = package + "/"
@@ -1006,23 +730,11 @@ def _ide_tsconfig_impl(ctx):
     bin_dir = "./{}bin".format(ctx.attr.symlink_prefix)
 
     packages = _packages(sources)
-    aliases = sorted([(a.prefix, a.dir) for a in _collect(sources, "aliases")])
     npm_entries, npm_ambient, npm_files = npm_view(sources, ctx.attr.host_only_packages)
-    check_untyped_agreement(
-        sources,
-        npm_entries,
-        npm_ambient,
-        npm_files,
-        ctx.attr.host_only_packages,
-    )
 
     paths = {}
     copies = []
     ambient = []
-
-    for prefix, dir in aliases:
-        paths[prefix] = ["./{}/index".format(dir)]
-        paths[prefix + "/*"] = ["./{}/*".format(dir), "{}/{}/*".format(bin_dir, dir)]
 
     if ctx.attr.npm_dir:
         for entry in npm_entries:
@@ -1070,14 +782,6 @@ def _ide_tsconfig_impl(ctx):
         if packages[package]:
             paths[key] = ["./{}/index".format(package)]
         paths[key + "/*"] = ["./{}/*".format(package), "{}/{}/*".format(bin_dir, package)]
-
-    # Last, so a first-party module_name wins over a same-named npm package --
-    # the precedence the tsconfig ts_compile generates applies too.
-    for module_name, module in sorted(_modules(sources).items()):
-        package = module.path
-        if packages.get(package):
-            paths[module_name] = ["./{}/index".format(package)]
-        paths[module_name + "/*"] = ["./{}/*".format(package), "{}/{}/*".format(bin_dir, package)]
 
     config = {
         "_comment": _HEADER,
@@ -1143,7 +847,6 @@ def _ide_tsconfig_impl(ctx):
                     group,
                     ctx.attr.tsconfig_path,
                     ambient,
-                    bin_dir,
                 )),
                 indent = "  ",
             ) + "\n",
@@ -1208,13 +911,7 @@ fields match, so a package that exists on one developer's machine and not
 another's makes a checked-in tsconfig differ per host -- and the staleness test
 then fails for everyone on the other platform. Packages shipping no
 declarations are already dropped, which covers the platform binaries; this is
-for one that does ship them, such as `fsevents`.
-
-It is also where a workspace answers, for every editor program at once, what
-ts_compile's `untyped_packages` answers per target. A package that every target
-reaching it excludes needs no entry here -- it arrives in this map from nowhere.
-An entry belongs here when the graph disagrees about one, which is the case
-`check_untyped_agreement` refuses to leave silent.""",
+for one that does ship them, such as `fsevents`.""",
     ),
     "npm_dir": attr.string(
         default = ".bazel/npm",
@@ -1263,14 +960,7 @@ checked-in copy has gone stale.""",
 
 def _ide_hook_data_impl(ctx):
     sources = [dep[TsconfigSourcesInfo] for dep in ctx.attr.deps]
-    npm_entries, npm_ambient, npm_files = npm_view(sources, ctx.attr.host_only_packages)
-    check_untyped_agreement(
-        sources,
-        npm_entries,
-        npm_ambient,
-        npm_files,
-        ctx.attr.host_only_packages,
-    )
+    npm_entries, _, _ = npm_view(sources, ctx.attr.host_only_packages)
 
     data = {
         "_comment": _HEADER,
@@ -1280,14 +970,6 @@ def _ide_hook_data_impl(ctx):
             for e in (npm_entries if ctx.attr.npm_dir else [])
         ],
         "packages": sorted(_packages(sources)),
-        "modules": [
-            {"name": name, "package": module.path}
-            for name, module in sorted(_modules(sources).items())
-        ],
-        "aliases": [
-            {"prefix": prefix, "dir": dir}
-            for prefix, dir in sorted([(a.prefix, a.dir) for a in _collect(sources, "aliases")])
-        ],
     }
 
     out = ctx.actions.declare_file(ctx.label.name + ".json")
@@ -1300,8 +982,8 @@ ide_hook_data = rule(
     doc = """Writes what the tsserver hook needs from the build graph.
 
 The hook runs inside a long-lived editor process, so it reads this file rather
-than asking Bazel: the package list, the npm entry points and the path aliases
-are all analysis-time facts, and querying for them would fight the server lock.""",
+than asking Bazel: the package list and the npm entry points are analysis-time
+facts, and querying for them would fight the server lock.""",
 )
 
 def _rlocation(ctx, file):
@@ -1424,11 +1106,10 @@ def ts_refresh_tsconfig(
                   Packages that need their own editor program, as
                   workspace-relative paths to the tsconfig.json each one gets
                   (e.g. "tests/compiler_options/jsx/tsconfig.json"). A package
-                  belongs here when its targets set compilerOptions the root
-                  block cannot also be set to -- `strict` off, a `lib` its
-                  target does not imply -- because an editor resolves a file to
-                  a program by directory and the root program would check those
-                  files against the wrong options. The list is declared rather
+                  belongs here when its targets name a tsconfig of their own,
+                  because an editor resolves a file to a program by directory
+                  and the root program would check those files against the
+                  wrong options. The list is declared rather
                   than discovered (glob() cannot cross a package boundary) and
                   the rule fails when it disagrees with the graph in either
                   direction.

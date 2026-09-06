@@ -109,14 +109,12 @@ def _asset_library_impl(ctx):
     transitive_asset_sets = []
     transitive_dts_sets = []
     npm_closure_sets = []
-    global_entry_sets = []
     for dep in ctx.attr.deps:
         if AssetInfo in dep:
             transitive_asset_sets.append(dep[AssetInfo].transitive_asset_files)
         if TsDeclarationInfo in dep:
             transitive_dts_sets.append(dep[TsDeclarationInfo].transitive_declaration_files)
             npm_closure_sets.append(dep[TsDeclarationInfo].transitive_npm_packages)
-            global_entry_sets.append(dep[TsDeclarationInfo].transitive_global_entry_files)
 
     direct_assets = depset(bin_asset_files)
     transitive_assets = depset(bin_asset_files, transitive = transitive_asset_sets, order = "postorder")
@@ -133,8 +131,6 @@ def _asset_library_impl(ctx):
             declaration_files = direct_dts,
             transitive_declaration_files = transitive_dts,
             transitive_npm_packages = depset(transitive = npm_closure_sets, order = "postorder"),
-            global_entry_files = depset(),
-            transitive_global_entry_files = depset(transitive = global_entry_sets, order = "postorder"),
         ),
     ]
 
@@ -197,9 +193,9 @@ A key that is not an asset extension fails the build. The type expression is
 unchecked, and a name that does not resolve does not error either: the
 declaration is a .d.ts and this ruleset compiles with `skipLibCheck`, so the
 import silently widens to `any`. To surface it, build with
-`--//ts:lib_check`, or the consuming target alone with
-`compiler_options = {"skipLibCheck": False}` -- the error then names the
-generated `<asset>.d.ts`, whose header names this target and this attribute.""",
+`--//ts:lib_check`, or set `skipLibCheck: false` in the consuming target's
+tsconfig -- the error then names the generated `<asset>.d.ts`, whose header
+names this target and this attribute.""",
         ),
     },
     doc = """Collects static asset files and generates ambient TypeScript declarations.

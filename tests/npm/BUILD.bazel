@@ -221,9 +221,8 @@ ts_compile(
     deps = ["@npm//:nested-shared"],
 )
 
-# A workspace member imported by its PACKAGE NAME, with no module_name anywhere:
-# //packages/ws-linked declares none, and the name reaches the compiler through
-# the hub's view of the `link:` in tests/npm/pnpm-lock-features.yaml. An alias
+# A workspace member imported by its PACKAGE NAME: the name reaches the compiler
+# through the hub's view of the `link:` in tests/npm/pnpm-lock-features.yaml. An alias
 # cannot carry it -- Bazel resolves an alias before any rule implementation
 # runs -- so this compiles only because the hub generates a target that
 # declares the name itself.

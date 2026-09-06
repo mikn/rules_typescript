@@ -1,4 +1,4 @@
-"""A pnpm workspace member with no `module_name` of its own.
+"""A pnpm workspace member imported by the name its package.json declares.
 
 //tests/npm:ws_linked_consumer imports it as `ws-linked`, the name
 tests/npm/pnpm-lock-features.yaml links to this package. The name reaches the

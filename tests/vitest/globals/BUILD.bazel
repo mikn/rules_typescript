@@ -1,4 +1,4 @@
-"""`globals = True` supplies vitest's global describe/it/expect to the compiler.
+"""`globals = True` at run time, `vitest/globals` in the tsconfig for the compiler.
 
 globals.test.ts imports nothing and declares nothing: every name in it is a
 global vitest's own `vitest/globals` declares.  The target compiling is the
@@ -8,11 +8,15 @@ TS2593 on `describe` and TS2304 on `expect`/`afterEach`.
   bazel test //tests/vitest/globals:globals_test
 """
 
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.vitest.json
+
 load("//ts:defs.bzl", "ts_test")
 
 ts_test(
     name = "globals_test",
     srcs = ["globals.test.ts"],
     globals = True,
+    tsconfig = "tsconfig.vitest.json",  # keep
     deps = ["@npm//:vitest"],  # keep
 )

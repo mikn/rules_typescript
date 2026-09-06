@@ -4,10 +4,7 @@
     "composite": false,
     "incremental": false,
     "noEmit": true,
-    "rootDir": ".",
-    "types": [
-      "../../../bazel-bin/tests/worker_types/worker-configuration.d.ts"
-    ]
+    "rootDir": "."
   },
   "exclude": [],
   "extends": [
@@ -15,8 +12,7 @@
     "../../../tests/worker_types/tsconfig.json"
   ],
   "files": [
-    "../../../.bazel/npm/@types/node/index.d.ts",
-    "../../../.bazel/npm/vitest/globals.d.ts"
+    "../../../.bazel/npm/@types/node/index.d.ts"
   ],
   "include": [
     "index.ts"

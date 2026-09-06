@@ -56,14 +56,12 @@ def _css_library_impl(ctx):
     transitive_css_sets = []
     transitive_dts_sets = []
     npm_closure_sets = []
-    global_entry_sets = []
     for dep in ctx.attr.deps:
         if CssInfo in dep:
             transitive_css_sets.append(dep[CssInfo].transitive_css_files)
         if TsDeclarationInfo in dep:
             transitive_dts_sets.append(dep[TsDeclarationInfo].transitive_declaration_files)
             npm_closure_sets.append(dep[TsDeclarationInfo].transitive_npm_packages)
-            global_entry_sets.append(dep[TsDeclarationInfo].transitive_global_entry_files)
 
     direct_css = depset(bin_css_files)
     transitive_css = depset(bin_css_files, transitive = transitive_css_sets, order = "postorder")
@@ -83,8 +81,6 @@ def _css_library_impl(ctx):
             declaration_files = direct_dts,
             transitive_declaration_files = transitive_dts,
             transitive_npm_packages = depset(transitive = npm_closure_sets, order = "postorder"),
-            global_entry_files = depset(),
-            transitive_global_entry_files = depset(transitive = global_entry_sets, order = "postorder"),
         ),
     ]
 

@@ -12,6 +12,12 @@ exports_files([
     "wrangler_test_config.mjs",
 ])
 
+# //tests/api_surface:ts_compile_attrs_test reads the rule's attrs dict out of it.
+exports_files(
+    ["ts_compile.bzl"],
+    visibility = ["//tests/api_surface:__pkg__"],
+)
+
 bzl_library(
     name = "providers",
     srcs = ["providers.bzl"],

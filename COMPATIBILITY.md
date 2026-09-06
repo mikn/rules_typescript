@@ -146,7 +146,7 @@ Breaks get a changelog entry with the required edit.
   their documented attributes
 - `ts_pnpm` and `ts_add_package`, which Gazelle writes into every root
   `BUILD.bazel` beside a lockfile
-- `JsInfo`, `TsDeclarationInfo`, `TsModuleInfo`, `BundlerInfo`, `CssInfo`,
+- `JsInfo`, `TsDeclarationInfo`, `BundlerInfo`, `CssInfo`,
   `CssModuleInfo`, `AssetInfo`, `TsLintInfo` providers
 - The `npm` module extension (`npm.translate_lock`, `npm.pnpm`) and the `@npm`
   label surface (`@npm//:zod`, `@npm//:types_react`, `@npm//:vitest_bin`)

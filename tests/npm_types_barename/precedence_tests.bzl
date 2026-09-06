@@ -1,103 +1,15 @@
 """What the bare-name key a @types/* package gets is allowed to displace.
 
-The build targets next to this file prove the key resolves. These prove it
-resolves to the right thing: npm answers `x` from `node_modules/x` and falls
-back to `node_modules/@types/x` only when the first ships no declarations, and a
-path_alias is the consumer naming the module outright.
-
-Each question is asked twice, once of the tsconfig ts_compile hands the compiler
-and once of the tsconfig `bazel run //:refresh_tsconfig` installs for an editor.
-Two code paths generate those from one graph, and only the first of them used to
-resolve a @types/* package at all.
+The build targets next to this file prove the key resolves through the forest.
+These prove the editor's tsconfig, which `bazel run //:refresh_tsconfig`
+installs from the same graph, resolves it to the right thing: npm answers `x`
+from `node_modules/x` and falls back to `node_modules/@types/x` only when the
+first ships no declarations.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
 load("//ts/private:ts_compile.bzl", "types_package_alias", "types_package_name")
 load("//ts/private:tsconfig_aspect.bzl", "WorkspaceCopyInfo", "npm_key_beats", "npm_view")
-
-_TYPES = "+npm+npm__types_"
-
-def _paths_of(env):
-    for action in analysistest.target_actions(env):
-        outputs = action.outputs.to_list()
-        if len(outputs) == 1 and outputs[0].basename.endswith(".tsconfig.json"):
-            return json.decode(action.content)["compilerOptions"]["paths"]
-    return None
-
-def _types_alias_precedence_impl(ctx):
-    env = analysistest.begin(ctx)
-    paths = _paths_of(env)
-    asserts.true(env, paths != None, "ts_compile generated no tsconfig")
-    if paths == None:
-        return analysistest.end(env)
-
-    # No runtime package of that name, and the path_alias claims it anyway.
-    # Asserted as "no value names the @types package" rather than as the exact
-    # list: how many trees an alias expands to is path_aliases' business.
-    alias_value = paths.get("estree")
-    asserts.true(env, alias_value != None, "the path_alias key is gone")
-    asserts.true(
-        env,
-        alias_value and alias_value[0].endswith("/tests/npm_types_barename"),
-        "the path_alias no longer resolves to its own directory: {}".format(alias_value),
-    )
-    asserts.true(
-        env,
-        alias_value and not [v for v in alias_value if _TYPES in v],
-        "a path_alias must outrank the @types package that would take the name: {}".format(alias_value),
-    )
-    asserts.true(
-        env,
-        paths.get("@types/estree") != None,
-        "the @types package keeps its own key",
-    )
-
-    # @babel/core, /generator, /template and /traverse publish no .d.ts, so
-    # their declarations are only in @types/babel__*; @babel/types and
-    # @babel/parser publish their own, and nothing may displace those.
-    for name in ("core", "generator", "template", "traverse"):
-        value = paths.get("@babel/" + name)
-        asserts.true(env, value != None, "@babel/{} has no paths entry".format(name))
-        asserts.true(
-            env,
-            value and _TYPES + "babel__" + name in value[0],
-            "@babel/{} resolves to {}, not its @types package".format(name, value),
-        )
-    for name in ("parser", "types"):
-        value = paths.get("@babel/" + name)
-        asserts.true(env, value != None, "@babel/{} has no paths entry".format(name))
-        asserts.true(
-            env,
-            value and _TYPES not in value[0],
-            "@babel/{} resolves to {}, not to what it publishes itself".format(name, value),
-        )
-    return analysistest.end(env)
-
-def _types_package_root_impl(ctx):
-    env = analysistest.begin(ctx)
-    paths = _paths_of(env)
-    asserts.true(env, paths != None, "ts_compile generated no tsconfig")
-    if paths == None:
-        return analysistest.end(env)
-
-    # @types/culori keeps `all/`, `css/` and `fn/` beside its index. Naming one
-    # instead of the package puts `culori` inside one module and loses every subpath.
-    for key in ("culori", "culori/*"):
-        value = paths.get(key)
-        asserts.true(env, value != None, "{} has no paths entry".format(key))
-        if value == None:
-            continue
-        directory = value[0][:-len("/*")] if key.endswith("/*") else value[0]
-        asserts.true(
-            env,
-            _TYPES + "culori__2_1_1" in directory and directory.endswith("/node_modules/@types/culori"),
-            "{} resolves inside the @types package, not to it: {}".format(key, value),
-        )
-    return analysistest.end(env)
-
-types_package_root_test = analysistest.make(_types_package_root_impl)
-
-types_alias_precedence_test = analysistest.make(_types_alias_precedence_impl)
 
 def _types_package_alias_impl(ctx):
     env = unittest.begin(ctx)
@@ -215,26 +127,6 @@ def _editor_types_precedence_impl(ctx):
     return analysistest.end(env)
 
 editor_types_precedence_test = analysistest.make(_editor_types_precedence_impl)
-
-def _editor_alias_beats_types_impl(ctx):
-    env = analysistest.begin(ctx)
-    config = _editor_config(env)
-    asserts.true(env, config != None, "ide_tsconfig wrote no tsconfig")
-    if config == None:
-        return analysistest.end(env)
-
-    paths = config["compilerOptions"]["paths"]
-    value = paths.get("estree")
-    asserts.true(env, value != None, "the path_alias key is gone")
-    asserts.equals(
-        env,
-        ["./tests/npm_types_barename/index"],
-        value,
-        "a path_alias must outrank the @types package that would take the name",
-    )
-    return analysistest.end(env)
-
-editor_alias_beats_types_test = analysistest.make(_editor_alias_beats_types_impl)
 
 def _editor_key_collision_impl(ctx):
     env = analysistest.begin(ctx)

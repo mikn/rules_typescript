@@ -1,0 +1,6 @@
+{
+  "compilerOptions": {
+    "typeRoots": ["./type_roots"],
+    "types": ["local-types"]
+  }
+}

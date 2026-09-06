@@ -9,7 +9,7 @@ subpath is TS2307, which fails the tsgo action.
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "ts_compile")
-load(":package_root_tests.bzl", "subpath_pattern_paths_test", "subpath_roots_test", "wildcard_root_test")
+load(":package_root_tests.bzl", "subpath_pattern_paths_test", "subpath_roots_test")
 
 package(default_visibility = ["//:__pkg__"])
 
@@ -57,11 +57,6 @@ build_test(
         ":outside_entry_dir",
         ":package_root",
     ],
-)
-
-wildcard_root_test(
-    name = "wildcard_root_test",
-    target_under_test = ":package_root",
 )
 
 subpath_roots_test(name = "subpath_roots_test")

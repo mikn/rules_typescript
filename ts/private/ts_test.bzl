@@ -85,7 +85,7 @@ load("//tools/launcher:launcher.bzl", "LAUNCHER_ATTRS", "declare_launcher", "rlo
 load("//ts/private:node_modules.bzl", "build_node_modules_action", "collect_npm_packages")
 load("//ts/private:providers.bzl", "AssetInfo", "CssModuleInfo", "JsInfo", "NpmPackageInfo", "TsDeclarationInfo")
 load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "JS_TOOL_TOOLCHAIN_TYPE", "get_js_runtime", "get_js_tool")
-load("//ts/private:ts_compile.bzl", "fail_on_mixed_src_packages", "ts_compile")
+load("//ts/private:ts_compile.bzl", "ts_compile")
 
 # ─── Internal auto node_modules rule ──────────────────────────────────────────
 #
@@ -1197,7 +1197,7 @@ _ts_snapshot_updater = rule(
     doc = "Internal snapshot-updater rule; use ts_test(update_snapshots=True) macro instead.",
 )
 
-def _compile_setup_sources(name, sources, deps, target, jsx_mode, visibility, tags, untyped_packages):
+def _compile_setup_sources(name, sources, deps, tsconfig, visibility, tags):
     """Compiles the .ts/.tsx entries of `sources`, passing the rest through."""
     ts_sources = [s for s in sources if s.endswith(".ts") or s.endswith(".tsx")]
     if not ts_sources:
@@ -1206,36 +1206,11 @@ def _compile_setup_sources(name, sources, deps, target, jsx_mode, visibility, ta
         name = name,
         srcs = ts_sources,
         deps = deps,
-        target = target,
-        jsx_mode = jsx_mode,
-        untyped_packages = untyped_packages,
+        tsconfig = tsconfig,
         visibility = visibility,
         tags = tags,
     )
     return [":" + name] + [s for s in sources if s not in ts_sources]
-
-_VITEST_GLOBALS_TYPES_ENTRY = "vitest/globals"
-
-# The generated test compile is the ts_compile RULE, which takes one JSON blob
-# rather than the macro's lib / types / compiler_options -- so the macro's
-# folding of those three has to happen here too. Empty stays empty: the rule
-# treats an absent value differently from an empty object. `globals` folds in
-# last, after anything the target wrote.
-def test_compiler_options_json(lib, types, compiler_options, globals = False):
-    opts = {}
-    if lib != None:
-        opts["lib"] = lib
-    if types != None:
-        opts["types"] = types
-    for key, value in (compiler_options or {}).items():
-        opts[key] = value
-    if globals:
-        entries = opts.get("types", [])
-        if _VITEST_GLOBALS_TYPES_ENTRY not in [e.strip() for e in entries]:
-            opts["types"] = entries + [_VITEST_GLOBALS_TYPES_ENTRY]
-    if not opts:
-        return ""
-    return json.encode(opts)
 
 # ─── Public macro ─────────────────────────────────────────────────────────────
 
@@ -1251,17 +1226,7 @@ def ts_test(
         size = "medium",
         timeout = None,
         tags = [],
-        target = "es2022",
-        jsx_mode = "react-jsx",
-        declarations = "tsgo",
-        lib = None,
-        types = None,
-        compiler_options = None,
         tsconfig = None,
-        path_aliases = None,
-        path_alias_srcs = None,
-        types_srcs = None,
-        untyped_packages = None,
         visibility = None,
         runner = RUNNER_VITEST,
         environment = "",
@@ -1314,13 +1279,6 @@ def ts_test(
                            macro generates, which no BUILD file names and a
                            wildcard would otherwise analyse; every other tag
                            goes to the test rule alone.
-        target:            ECMAScript target for the internal ts_compile.
-        jsx_mode:          JSX transform mode for the internal ts_compile.
-        declarations:      Declaration emitter for the internal ts_compile
-                           target, "tsgo" (default) or "oxc". Nothing consumes a
-                           test target's .d.ts, so there is rarely a reason to
-                           move tests to "oxc" and pay for annotations on test
-                           helpers.
         visibility:        Bazel visibility for the test target, and for the
                            ts_compile targets this macro generates from `srcs`,
                            `setup_files` and `global_setup`. Those default to
@@ -1331,10 +1289,8 @@ def ts_test(
                            written against node's own runner -- vitest's
                            collector never sees a `test()` registered with
                            node:test, so such a file collects zero tests under
-                           the default. The compile attributes (`lib`, `types`,
-                           `compiler_options`, `tsconfig`, `path_aliases`,
-                           `path_alias_srcs`, `types_srcs`, `untyped_packages`)
-                           apply on either runner. node:test configures itself
+                           the default. `tsconfig` applies on either runner.
+                           node:test configures itself
                            from CLI flags and the test file, so every
                            vitest-shaped attr (`config`, `environment`,
                            `globals`, `reporters`, `setup_files`,
@@ -1351,42 +1307,15 @@ def ts_test(
                            `bazel coverage` is always on regardless of this
                            attr — every vitest ts_test supports `bazel coverage`
                            without any opt-in.
-        lib:               Forwarded to the generated ts_compile: the `lib` set the
-                           tests type-check against. A worker test is what needs
-                           it -- webworker is in no set `target` implies.
-        types:             Forwarded to the generated ts_compile: ambient type
-                           packages to put in the program. A vitest pool that
-                           declares its own module (`cloudflare:test`) is
-                           reachable no other way, nothing importing the
-                           declaration. An entry naming a package this test's
-                           `deps` do not publish is an analysis error, the same
-                           as on ts_compile.
-        compiler_options:  Forwarded to the generated ts_compile, for whatever
-                           the two above do not cover.
-        tsconfig:          Forwarded to the generated ts_compile: the package's
-                           own tsconfig.json, or a ts_config target when that
-                           file extends others. The three above override it.
-        path_aliases:      Forwarded to the generated ts_compile: the source-level
-                           alias prefixes the test files import through. A package
-                           whose ts_compile needs one needs it here too -- the
-                           test files are a program of their own, and `paths` is
-                           one key the `tsconfig` layer cannot contribute to.
-        path_alias_srcs:   Forwarded to the generated ts_compile: the files an
-                           alias resolves to. A test target's srcs are the test
-                           files, so an alias into the code under test is covered
-                           by nothing else and fails analysis without this.
-        types_srcs:        Forwarded to the generated ts_compile: the labels
-                           whose files a relative `types` entry resolves to.
-                           A test target's srcs are the test files, so unless a
-                           dep already stages the declaration, this is what
-                           does.
-        untyped_packages:  Forwarded to every ts_compile this macro generates,
+        tsconfig:          Forwarded to every ts_compile this macro generates --
                            the one over `srcs` and the ones over `setup_files`
-                           and `global_setup`: npm packages those type programs
-                           leave out. The test files are a program of their own
-                           over every dep's npm closure, so a global-script
-                           package a dep reaches leaks into it exactly as into
-                           a library's, and nothing else can say so here.
+                           and `global_setup`: the package's own tsconfig.json,
+                           or a ts_config target when that file extends others.
+                           Every compiler option the tests check under is its:
+                           the `lib` a worker test needs, a `types` entry naming
+                           a pool's ambient module (`cloudflare:test`) or
+                           `vitest/globals`, the `paths` the test files import
+                           through.
         config:            Vitest config, either a label pointing at a config file
                            (.ts/.mts/.js/.mjs) or an inline dict.  It is MERGED
                            into the config rules_typescript generates rather than
@@ -1411,10 +1340,9 @@ def ts_test(
         data:              Extra runfiles: fixtures the tests read, and files that
                            `config` or `setup_files` entries import.
         globals:           Enables vitest's global describe/it/expect
-                           (test.globals), and adds "vitest/globals" to the
-                           compile's `types` so the type program sees them too.
-                           Requires vitest among `deps`, which is where a
-                           `types` entry is resolved from.
+                           (test.globals). The type program sees them through a
+                           `types` entry naming "vitest/globals" in `tsconfig`,
+                           with vitest among `deps`.
         reporters:         Vitest reporters (test.reporters).
         coverage_thresholds: Coverage thresholds (test.coverage.thresholds), e.g.
                            {"lines": "80"}.  Enforced only when coverage runs
@@ -1466,8 +1394,6 @@ def ts_test(
         )
     """
 
-    fail_on_mixed_src_packages("ts_test", name, srcs, declarations, True)
-
     # Step 1: compile the test source files. Their declarations are the only
     # handle on the test's own types -- an IDE tsconfig has to be able to name
     # this target -- and `//visibility:private` here is one no BUILD file can
@@ -1478,32 +1404,17 @@ def ts_test(
     # `manual` is the tag a wildcard reads, and the targets below it are named
     # in no BUILD file, so a `bazel build //...` that skipped the test would
     # analyse them anyway -- which is not skipping the test:
-    # //tests/compiler_options/analysis has a manual ts_test whose generated
-    # compile is asserted to fail at analysis. So `manual` reaches every target
-    # this macro generates. Every other tag says how the test runs, which is
-    # nothing to a compile or a `bazel run`.
+    # //tests/node_test/analysis has manual ts_tests asserted to fail at
+    # analysis. So `manual` reaches every target this macro generates. Every
+    # other tag says how the test runs, which is nothing to a compile or a
+    # `bazel run`.
     wildcard_tags = ["manual"] if "manual" in tags else []
 
     ts_compile(
         name = compile_name,
         srcs = srcs,
         deps = deps,
-        target = target,
-        jsx_mode = jsx_mode,
-        declarations = declarations,
-        # The rule rejects `globals` under node:test; without this gate the
-        # compile would fail first, on a "vitest/globals" entry no dep resolves.
-        compiler_options_json = test_compiler_options_json(
-            lib,
-            types,
-            compiler_options,
-            globals and runner == RUNNER_VITEST,
-        ),
         tsconfig = tsconfig,
-        path_aliases = path_aliases,
-        path_alias_srcs = path_alias_srcs,
-        types_srcs = types_srcs,
-        untyped_packages = untyped_packages,
         visibility = compile_visibility,
         tags = wildcard_tags,
     )
@@ -1538,9 +1449,7 @@ def ts_test(
         name = "_{}_setup".format(name),
         sources = setup_files,
         deps = deps,
-        target = target,
-        jsx_mode = jsx_mode,
-        untyped_packages = untyped_packages,
+        tsconfig = tsconfig,
         visibility = compile_visibility,
         tags = wildcard_tags,
     )
@@ -1548,9 +1457,7 @@ def ts_test(
         name = "_{}_global_setup".format(name),
         sources = global_setup,
         deps = deps,
-        target = target,
-        jsx_mode = jsx_mode,
-        untyped_packages = untyped_packages,
+        tsconfig = tsconfig,
         visibility = compile_visibility,
         tags = wildcard_tags,
     )

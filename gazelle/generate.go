@@ -1120,8 +1120,7 @@ func tsConfigNameTaken(name string) bool {
 // nothing here.
 //
 // A filegroup, so the file is an action input of exactly the targets naming it:
-// a ts_compile would publish declarations of its own, and public_globals on one
-// would put what the file declares in every transitive consumer's program.
+// a ts_compile would publish declarations of its own to every consumer.
 func ownTsConfigTypesRule(tc *tsConfig, rel string) *rule.Rule {
 	if len(tc.tsconfigTypeFiles) == 0 || tc.tsconfigTypesDir != rel {
 		return nil

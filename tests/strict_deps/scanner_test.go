@@ -118,7 +118,7 @@ func TestGazelleAndTheCheckerRecogniseTheSameImports(t *testing.T) {
 			// checker reports exactly the specifiers it recognised.
 			var manifest []string
 			for _, name := range append(append([]string{}, tc.want...), tc.decoys...) {
-				manifest = append(manifest, moduleTransitive(name, "//pkg:"+name))
+				manifest = append(manifest, npmTransitive(name, "@npm//:"+name))
 			}
 			out, ok := c.run(strings.NewReplacer(" ", "_", ".", "_").Replace(tc.name), tc.source, manifest...)
 			if ok && len(tc.want) > 0 {

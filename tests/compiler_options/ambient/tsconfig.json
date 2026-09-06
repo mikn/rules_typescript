@@ -4,21 +4,15 @@
     "composite": false,
     "incremental": false,
     "noEmit": true,
-    "rootDir": ".",
-    "typeRoots": [
-      "./typings"
-    ],
-    "types": [
-      "my-globals"
-    ]
+    "rootDir": "."
   },
   "exclude": [],
   "extends": [
-    "../../../tsconfig.json"
+    "../../../tsconfig.json",
+    "./tsconfig.ambient.json"
   ],
   "files": [
-    "../../../.bazel/npm/@types/node/index.d.ts",
-    "../../../.bazel/npm/vitest/globals.d.ts"
+    "../../../.bazel/npm/@types/node/index.d.ts"
   ],
   "include": [
     "app.ts"

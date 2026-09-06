@@ -65,7 +65,6 @@ go_test(
         "exclude_dir_test.go",
         "fabricated_labels_test.go",
         "generate_test.go",
-        "globals_attrs_test.go",
         "import_cycle_test.go",
         "imports_test.go",
         "jsonc_test.go",

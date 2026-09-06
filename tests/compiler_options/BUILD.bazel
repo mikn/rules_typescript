@@ -1,8 +1,13 @@
-"""Coverage for the compiler-options surface of ts_compile.
+"""Coverage for the compiler-options surface of ts_compile: the tsconfig.
 
-Every target here compiles code that does NOT compile without the option it
-exercises, so building the package is the assertion.
+Every target here compiles code that does NOT compile without an option the
+package's tsconfig sets, so building the package is the assertion. One tsconfig
+for the package: an editor resolves a file to a program by directory, so two
+targets here cannot check under two.
 """
+
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.options.json
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "ts_compile")
@@ -14,21 +19,17 @@ package(default_visibility = ["//:__pkg__"])
 ts_compile(
     name = "webworker_lib",
     srcs = ["webworker.ts"],
-    lib = [
-        "es2022",
-        "webworker",
-    ],
+    tsconfig = "tsconfig.options.json",
 )
 
-# compiler_options reaches tsgo verbatim: a ".ts" specifier is TS5097 without
-# allowImportingTsExtensions.
+# A ".ts" specifier is TS5097 without allowImportingTsExtensions.
 ts_compile(
     name = "ts_extension_imports",
     srcs = [
         "ext_helper.ts",
         "ext_main.ts",
     ],
-    compiler_options = {"allowImportingTsExtensions": True},
+    tsconfig = "tsconfig.options.json",
 )
 
 build_test(

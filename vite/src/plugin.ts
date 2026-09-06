@@ -63,8 +63,8 @@ export interface BazelPluginOptions {
    *
    * The tree is added to `server.fs.allow` so the dev server can serve from it.
    * Vite resolves bare specifiers itself and exposes no search-path option, so
-   * this does not redirect `import "react"`; `ts_dev_server` emits
-   * `resolve.alias` entries for that.
+   * this does not redirect `import "react"`; the launcher's node_modules link
+   * puts the Bazel tree on the resolver's own walk for that.
    */
   nodeModules?: string;
 

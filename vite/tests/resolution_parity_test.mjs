@@ -13,11 +13,11 @@
  *
  * What differs is who transforms it (`precompiled`), which is asserted too.
  *
- * The alias table is the one `ts_dev_server` generates from TsModuleInfo, and it
- * is applied identically in both modes, because `resolve.alias` is honoured by
- * `vite dev` and `vite build` alike. Its shape is load-bearing: an exact-match
- * RegExp for the package plus a string prefix for subpaths, because a string
- * `find` in Vite's alias plugin also matches everything under it.
+ * The alias table is one a user's vite config declares, and it is applied
+ * identically in both modes, because `resolve.alias` is honoured by `vite dev`
+ * and `vite build` alike. Its shape is load-bearing: an exact-match RegExp for
+ * the package plus a string prefix for subpaths, because a string `find` in
+ * Vite's alias plugin also matches everything under it.
  */
 
 import assert from 'node:assert/strict';
