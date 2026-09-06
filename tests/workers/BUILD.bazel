@@ -1,4 +1,5 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//tests/vitest:vitest_config.bzl", "vitest_config")
 load("//ts:defs.bzl", "ts_compile", "ts_test")
 load("//ts/private:tsconfig_aspect.bzl", "ide_tsconfig")
 load(":library_paths_tests.bzl", "library_paths_test")
@@ -63,6 +64,14 @@ ts_test(
 build_test(
     name = "worker_builds_test",
     targets = [":worker"],
+)
+
+# The same-package control for //tests/workers_nested/test:config_root_test.
+vitest_config(
+    name = "worker_test_config",
+    testonly = True,
+    test = ":worker_test",
+    visibility = ["//tests/workers_nested/test:__pkg__"],
 )
 
 # The manifest has no `exports`, so the subpath is found among the files the

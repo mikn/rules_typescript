@@ -219,7 +219,7 @@ that layers four sources, lowest precedence first:
 
 | Layer | Contents | Workspace projects |
 |-------|----------|---|
-| 1. Bazel | `root` (the package, `TS_TEST_PACKAGE_DIR`), `resolve.preserveSymlinks`, `test.coverage.allowExternal`, and the CSS-module plugin when a dep carries a `*.module.css` | yes |
+| 1. Bazel | `root` (the `config`'s package; the test's own with an inline dict or none), `cacheDir` under `TEST_TMPDIR`, `resolve.preserveSymlinks`, `test.coverage.allowExternal`, the CSS-module plugin when a dep carries a `*.module.css`, and under a `config` whose `plugins` hold `@cloudflare/vitest-pool-workers` `preserveSymlinks: false` and the runfiles-imports plugin | yes |
 | 2. user | the `config` attr: a config file or an inline dict | it supplies the projects |
 | 3. attributes | `environment`, `setup_files`, `global_setup`, `globals`, `reporters`, `coverage_thresholds`, `coverage_provider` | yes |
 | 4. snapshots | `test.resolveSnapshotPath`, and in update mode `test.dir`, `test.include` and `cacheDir` | no, root only |
@@ -237,10 +237,23 @@ into a project.
 `preserveSymlinks` in layer 1 is a default. A DOM environment resolves every
 module id to its realpath, which for a runfiles symlink walks out of the test
 sandbox, so layer 1 turns it on. Under `@cloudflare/vitest-pool-workers` a
-lexical path is a second module identity for the same file, so a Workers config
-sets `resolve.preserveSymlinks: false` and the user layer wins. Leaving it out
-fails as `Cannot read properties of undefined (reading 'config')` from inside
-the pool runner. `//tests/workers` is the example.
+lexical path is a second module identity for the same file, so when the
+`config`'s `plugins` hold the pool's plugin layer 1 turns it off instead. Left
+on, the pool fails inside its runner: `Cannot read properties of undefined
+(reading 'config')` on pool 0.22.0 / vitest 4.1.11, `No such module
+".../vitest/dist/@vitest/spy"` on 0.18.4 / 4.1.5. A `resolve.preserveSymlinks`
+the config sets still wins, as any user value does.
+
+On realpaths a compiled module is imported from `bazel-out`, which has no
+`node_modules` above it and every output the output base holds beside it, so
+the same case adds a plugin: a compiled module's relative imports are resolved
+from its runfiles path (what the test stages, under whatever name), its bare
+imports from the root, where the runfiles tree's `node_modules` link is, and an
+import that resolves to a build output the runfiles do not hold at its own path
+is refused with `rules_typescript: "<id>" resolved to <path>, a build output
+this test's runfiles do not hold`. `//tests/workers` is the example with the
+config beside the tests, `//tests/workers_nested` the one with the config at the
+package root.
 
 Two things sit outside the layering and outrank it: npm resolution into the
 runfiles tree (`NODE_PATH`, set by the launcher) and coverage output paths
@@ -277,11 +290,13 @@ either. An array is read as a list of vitest projects and becomes
 layer too, because every project gets its own Vite server. Anything the config
 imports relatively must be in `data`; it is not a build input otherwise.
 
-Vite's root is the package, so a relative path in the config names the package,
-not the working directory the test runs in. The config file itself is staged
-beside the `node_modules` tree, where its bare imports resolve, so a path
-relative to the config file is a different path. `TS_TEST_PACKAGE_DIR` holds the
-directory Vite is rooted at, for a path that has to be absolute.
+Vite's root is the config's package, so a relative path in the config names the
+directory the file sits in, as under plain `vitest`, whether the test is in that
+package or one below it; with an inline dict or no config it is the test's
+package. The config file itself is staged beside the `node_modules` tree, where
+its bare imports resolve, so a path relative to the config file is a different
+path. `TS_TEST_PACKAGE_DIR` holds the test's package directory, which the root
+is resolved from, for a path that has to be absolute.
 
 !!! warning "The array form needs vitest 3.2 or later"
     `test.projects` is the name `test.workspace` was renamed to in vitest 3.2;

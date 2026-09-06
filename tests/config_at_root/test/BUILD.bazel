@@ -1,0 +1,9 @@
+load("//ts:defs.bzl", "ts_test")
+
+ts_test(
+    name = "answer_test",
+    srcs = ["answer.test.ts"],
+    config = "//tests/config_at_root:vitest_config",
+    data = ["setup.mjs"],
+    deps = ["@npm//:vitest"],
+)

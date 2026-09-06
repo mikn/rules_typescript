@@ -72,9 +72,10 @@ to rediscover them. Each names the file to change.
   the pool has to be installed as a **Vite plugin** (`cloudflareTest()`, which
   both installs the pool runner and owns `cloudflare:test` through its own
   `resolveId`/`load`), not as `test.pool` (`cloudflarePool()` is only the runner);
-  and `resolve.preserveSymlinks` must be **false**, against ts_test's own layer,
-  because the pool resolves modules for a second runtime and a lexical path there
-  is a second module identity. Omitting the second reads as
+  and `resolve.preserveSymlinks` must be **false** (ts_test's own layer sets it
+  so when the config's plugins hold the pool's), because the pool resolves
+  modules for a second runtime and a lexical path there is a second module
+  identity. Left true it reads as
   `Cannot read properties of undefined (reading 'config')`, which looks like a
   plugin-API problem and is not.
   The deploy dry run that sat beside it (`ts_worker_dry_run_test`) went with
