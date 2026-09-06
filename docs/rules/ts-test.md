@@ -46,6 +46,7 @@ cannot iterate) or when you need a tree the deps do not describe.
 | `path_aliases` | `string_dict` | `None` | Source-level alias prefixes for the internal `ts_compile`; see [Path aliases](#path-aliases) |
 | `path_alias_srcs` | `label_list` | `None` | The files an alias resolves to, when they are not in the test's own `srcs`; see [Path aliases](#path-aliases) |
 | `types_srcs` | `label_list` | `None` | The files a relative `types` entry resolves to; see [A `types` entry that names a declaration file](#a-types-entry-that-names-a-declaration-file) |
+| `untyped_packages` | `string_list` | `None` | npm packages the generated `ts_compile` targets' type programs leave out; see [Keeping a package out of the program](#keeping-a-package-out-of-the-program) |
 | `runner` | `string` | `"vitest"` | Which runner runs the compiled tests, `"vitest"` or `"node:test"`; see [The node:test runner](#the-nodetest-runner). Every attribute below this row except `data` is vitest's, and an analysis error under `"node:test"` |
 | `environment` | `string` | `""` | `test.environment`: `node`, `jsdom`, `happy-dom`, `edge-runtime`, or any custom vitest environment package. The package must be in `deps` |
 | `coverage` | `bool` | `False` | Also instrument during plain `bazel test`. `bazel coverage` works on every vitest target regardless |
@@ -177,6 +178,38 @@ Both attributes carry the meaning they carry on
 entry no staged file sits at is an analysis error, and a `types_srcs` file no
 entry names is one too. A declaration a `deps` entry already stages needs no
 label here.
+
+## Keeping a Package Out of the Program
+
+`untyped_packages` is forwarded to every `ts_compile` the macro generates, the
+one over `srcs` and the ones over the TypeScript entries of `setup_files` and
+`global_setup`, with the meaning it has on
+[`ts_compile`](ts-compile.md#keeping-a-package-out-of-the-program): a named
+package gets no `paths` key and no `files` entry in that compile's tsconfig,
+stays in `deps`, and no JavaScript moves.
+
+The test files are a program of their own, and its `paths` map covers the npm
+closure of every dep. A global-script package one first-party dep reaches
+through its own npm closure leaks into the test program exactly as into a
+library's, once a declaration file in the program imports it, and merges its
+declarations ahead of anything the test's `types` entries put there: a worker
+test whose `types` names the wrangler-generated `worker-configuration.d.ts`
+sees `@cloudflare/workers-types`' `Headers` and `Cloudflare.Env` instead when
+some dep of the worker depends on that package.
+
+```starlark
+ts_test(
+    name = "handler_test",
+    srcs = glob(["*.test.ts"]),
+    types = ["../worker-configuration.d.ts"],
+    types_srcs = ["//worker:worker_types"],
+    untyped_packages = ["@cloudflare/workers-types"],
+    deps = [":src", "@npm//:vitest"],
+)
+```
+
+The two refusals hold as on `ts_compile`: an entry naming no package in the
+test's closure, and a package named in both `untyped_packages` and `types`.
 
 ## The Generated vitest Config
 
@@ -387,9 +420,10 @@ ts_test(
 ```
 
 The compile attributes carry over unchanged: `lib`, `types`,
-`compiler_options`, `tsconfig`, `path_aliases`, `path_alias_srcs` and
-`types_srcs` mean on a node:test target what they mean above. An alias is
-type-checking only on either runner; see [Path aliases](#path-aliases).
+`compiler_options`, `tsconfig`, `path_aliases`, `path_alias_srcs`,
+`types_srcs` and `untyped_packages` mean on a node:test target what they mean
+above. An alias is type-checking only on either runner; see
+[Path aliases](#path-aliases).
 
 node:test takes no config file; it is configured by CLI flags and by the test
 file itself. Every vitest attribute is an analysis error under it, naming the

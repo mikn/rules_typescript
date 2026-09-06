@@ -1036,7 +1036,7 @@ _ts_snapshot_updater = rule(
     doc = "Internal snapshot-updater rule; use ts_test(update_snapshots=True) macro instead.",
 )
 
-def _compile_setup_sources(name, sources, deps, target, jsx_mode, visibility, tags):
+def _compile_setup_sources(name, sources, deps, target, jsx_mode, visibility, tags, untyped_packages):
     """Compiles the .ts/.tsx entries of `sources`, passing the rest through."""
     ts_sources = [s for s in sources if s.endswith(".ts") or s.endswith(".tsx")]
     if not ts_sources:
@@ -1047,6 +1047,7 @@ def _compile_setup_sources(name, sources, deps, target, jsx_mode, visibility, ta
         deps = deps,
         target = target,
         jsx_mode = jsx_mode,
+        untyped_packages = untyped_packages,
         visibility = visibility,
         tags = tags,
     )
@@ -1099,6 +1100,7 @@ def ts_test(
         path_aliases = None,
         path_alias_srcs = None,
         types_srcs = None,
+        untyped_packages = None,
         visibility = None,
         runner = RUNNER_VITEST,
         environment = "",
@@ -1169,16 +1171,17 @@ def ts_test(
                            node:test, so such a file collects zero tests under
                            the default. The compile attributes (`lib`, `types`,
                            `compiler_options`, `tsconfig`, `path_aliases`,
-                           `path_alias_srcs`, `types_srcs`) apply on either
-                           runner. node:test configures itself from CLI flags
-                           and the test file, so every vitest-shaped attr
-                           (`config`, `environment`, `globals`, `reporters`,
-                           `setup_files`, `global_setup`, `snapshots`, the
-                           coverage trio and `vitest`) is an analysis error
-                           under it, a CssModuleInfo dep is too, and
-                           `bazel coverage` is unsupported. `--test_filter`
-                           reaches it as node's --test-name-pattern; sharding
-                           works as it does for vitest.
+                           `path_alias_srcs`, `types_srcs`, `untyped_packages`)
+                           apply on either runner. node:test configures itself
+                           from CLI flags and the test file, so every
+                           vitest-shaped attr (`config`, `environment`,
+                           `globals`, `reporters`, `setup_files`,
+                           `global_setup`, `snapshots`, the coverage trio and
+                           `vitest`) is an analysis error under it, a
+                           CssModuleInfo dep is too, and `bazel coverage` is
+                           unsupported. `--test_filter` reaches it as node's
+                           --test-name-pattern; sharding works as it does for
+                           vitest.
         environment:       Vitest test environment: 'node', 'happy-dom', or 'jsdom'.
                            Requires the corresponding package in node_modules.
         coverage:          When True, also enables coverage during `bazel test`
@@ -1215,6 +1218,13 @@ def ts_test(
                            A test target's srcs are the test files, so unless a
                            dep already stages the declaration, this is what
                            does.
+        untyped_packages:  Forwarded to every ts_compile this macro generates,
+                           the one over `srcs` and the ones over `setup_files`
+                           and `global_setup`: npm packages those type programs
+                           leave out. The test files are a program of their own
+                           over every dep's npm closure, so a global-script
+                           package a dep reaches leaks into it exactly as into
+                           a library's, and nothing else can say so here.
         config:            Vitest config, either a label pointing at a config file
                            (.ts/.mts/.js/.mjs) or an inline dict.  It is MERGED
                            into the config rules_typescript generates rather than
@@ -1326,6 +1336,7 @@ def ts_test(
         path_aliases = path_aliases,
         path_alias_srcs = path_alias_srcs,
         types_srcs = types_srcs,
+        untyped_packages = untyped_packages,
         visibility = compile_visibility,
         tags = wildcard_tags,
     )
@@ -1362,6 +1373,7 @@ def ts_test(
         deps = deps,
         target = target,
         jsx_mode = jsx_mode,
+        untyped_packages = untyped_packages,
         visibility = compile_visibility,
         tags = wildcard_tags,
     )
@@ -1371,6 +1383,7 @@ def ts_test(
         deps = deps,
         target = target,
         jsx_mode = jsx_mode,
+        untyped_packages = untyped_packages,
         visibility = compile_visibility,
         tags = wildcard_tags,
     )
