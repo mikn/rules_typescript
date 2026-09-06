@@ -82,6 +82,7 @@ is replaced unless a `# keep` holds it. `ts_compile.deps` and
 | `asset_library` | `declaration_type`, one entry per extension a `ts_asset_declaration_type` directive names; an extension no directive names is yours |
 | `ts_codegen` | `outs`, `out_dir`, `visibility` |
 | `filegroup(name = "tsconfig_types")` | `srcs`, `visibility` |
+| `filegroup(name = "vitest_config")` | `srcs`, `visibility` |
 
 `ts_config.deps` is the `extends` chain. Gazelle writes it from the one
 specifier shape it can read without guessing: a single relative path naming an

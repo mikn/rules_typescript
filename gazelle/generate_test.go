@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -451,6 +452,200 @@ func TestGenerate_NoVitestConfigLeavesTheAttributeUnset(t *testing.T) {
 			t.Errorf("ts_test config = %q, want unset", r.AttrString("config"))
 		}
 	}
+}
+
+// writeTree writes a repository-relative tree under a fresh repo root, for a
+// package whose generation reads directories above it.
+func writeTree(t *testing.T, tree map[string]string) string {
+	t.Helper()
+	repoRoot := t.TempDir()
+	for name, content := range tree {
+		writeFile(t, filepath.Join(repoRoot, filepath.FromSlash(name)), content)
+	}
+	return repoRoot
+}
+
+// generateAt runs the generator over the directory already on disk at rel.
+func generateAt(t *testing.T, repoRoot, rel string) language.GenerateResult {
+	t.Helper()
+	dir := filepath.Join(repoRoot, filepath.FromSlash(rel))
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			names = append(names, e.Name())
+		}
+	}
+	c := &config.Config{RepoRoot: repoRoot, Exts: make(map[string]interface{})}
+	configureTsConfig(c, "", nil)
+	if rel != "" {
+		configureTsConfig(c, rel, nil)
+	}
+	return generateRules(language.GenerateArgs{
+		Config:       c,
+		Dir:          dir,
+		Rel:          rel,
+		RegularFiles: names,
+	})
+}
+
+func testImports(t *testing.T, res language.GenerateResult, r *rule.Rule) []string {
+	t.Helper()
+	imports, ok := res.Imports[indexOfRule(res, r)].([]string)
+	if !ok {
+		t.Fatalf("no imports recorded for %s", r.Name())
+	}
+	return imports
+}
+
+// Plain `vitest` runs from the package root and reads the config there, while the
+// tests sit a package down: the config reaches them as a label the root writes.
+func TestGenerate_VitestConfigAtThePackageRootReachesATestBelow(t *testing.T) {
+	for _, name := range []string{"vitest.config.ts", "vitest.config.mts"} {
+		t.Run(name, func(t *testing.T) {
+			repoRoot := writeTree(t, map[string]string{
+				"pkg/package.json":       "{}\n",
+				"pkg/" + name:            "import { defineConfig } from 'vitest/config';\nexport default defineConfig({ test: { server: { deps: { inline: [/some-pkg/] } } } });\n",
+				"pkg/src/index.ts":       "export const x = 1;\n",
+				"pkg/test/index.test.ts": "import { x } from '../src/index';\n",
+			})
+
+			res := generateAt(t, repoRoot, "pkg/test")
+			test := generatedRule(res, "test_test")
+			if test == nil {
+				t.Fatalf("no ts_test generated: %v", generatedNames(t, res))
+			}
+			if got := test.AttrString("config"); got != "//pkg:vitest_config" {
+				t.Errorf("ts_test config = %q, want %q", got, "//pkg:vitest_config")
+			}
+			if !slices.Contains(testImports(t, res, test), "vitest/config") {
+				t.Errorf("the config's own imports never reached the test target")
+			}
+
+			owner := generateAt(t, repoRoot, "pkg")
+			fg := generatedRule(owner, "vitest_config")
+			if fg == nil || fg.Kind() != "filegroup" {
+				t.Fatalf("no filegroup named vitest_config in pkg; got %v", generatedNames(t, owner))
+			}
+			if got := fg.AttrStrings("srcs"); !reflect.DeepEqual(got, []string{name}) {
+				t.Errorf("filegroup srcs = %v, want %v", got, []string{name})
+			}
+			if got := fg.AttrStrings("visibility"); !reflect.DeepEqual(got, []string{"//visibility:public"}) {
+				t.Errorf("filegroup visibility = %v, want public", got)
+			}
+		})
+	}
+}
+
+// With no package.json anywhere the walk ends at the repository root, whose
+// label has no package part.
+func TestGenerate_VitestConfigAtTheRepoRootIsTheRootLabel(t *testing.T) {
+	repoRoot := writeTree(t, map[string]string{
+		"vitest.config.ts":       "export default { test: { globals: true } };\n",
+		"pkg/test/index.test.ts": "export const t = 1;\n",
+	})
+
+	res := generateAt(t, repoRoot, "pkg/test")
+	test := generatedRule(res, "test_test")
+	if test == nil {
+		t.Fatalf("no ts_test generated: %v", generatedNames(t, res))
+	}
+	if got := test.AttrString("config"); got != "//:vitest_config" {
+		t.Errorf("ts_test config = %q, want %q", got, "//:vitest_config")
+	}
+	owner := generateAt(t, repoRoot, "")
+	if fg := generatedRule(owner, "vitest_config"); fg == nil || fg.Kind() != "filegroup" {
+		t.Errorf("no filegroup named vitest_config at the root; got %v", generatedNames(t, owner))
+	}
+}
+
+// A config beside the tests is the one `vitest` run there reads; the root's
+// imports are not this test's deps.
+func TestGenerate_VitestConfigBesideTheTestsBeatsThePackageRoots(t *testing.T) {
+	repoRoot := writeTree(t, map[string]string{
+		"pkg/package.json":           "{}\n",
+		"pkg/vitest.config.ts":       "import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config';\nexport default defineWorkersConfig({});\n",
+		"pkg/test/vitest.config.mts": "export default { test: { globals: true } };\n",
+		"pkg/test/index.test.ts":     "export const t = 1;\n",
+	})
+
+	res := generateAt(t, repoRoot, "pkg/test")
+	test := generatedRule(res, "test_test")
+	if test == nil {
+		t.Fatalf("no ts_test generated: %v", generatedNames(t, res))
+	}
+	if got := test.AttrString("config"); got != "vitest.config.mts" {
+		t.Errorf("ts_test config = %q, want %q", got, "vitest.config.mts")
+	}
+	if slices.Contains(testImports(t, res, test), "@cloudflare/vitest-pool-workers/config") {
+		t.Errorf("the package root's config imports reached a test that runs under its own config")
+	}
+}
+
+// A package.json in the test's own directory makes it the directory plain
+// `vitest` runs from, and there is no config there to read.
+func TestGenerate_APackageJsonInTheTestDirEndsTheWalk(t *testing.T) {
+	repoRoot := writeTree(t, map[string]string{
+		"pkg/package.json":       "{}\n",
+		"pkg/vitest.config.ts":   "export default { test: { globals: true } };\n",
+		"pkg/test/package.json":  "{}\n",
+		"pkg/test/index.test.ts": "export const t = 1;\n",
+	})
+
+	res := generateAt(t, repoRoot, "pkg/test")
+	test := generatedRule(res, "test_test")
+	if test == nil {
+		t.Fatalf("no ts_test generated: %v", generatedNames(t, res))
+	}
+	if test.Attr("config") != nil {
+		t.Errorf("ts_test config = %q, want unset", test.AttrString("config"))
+	}
+}
+
+// A config in a directory with no package.json is one `vitest` run from the
+// package root never reads, so neither side names it.
+func TestGenerate_VitestConfigOffThePackageRootIsNotExported(t *testing.T) {
+	repoRoot := writeTree(t, map[string]string{
+		"pkg/package.json":           "{}\n",
+		"pkg/src/vitest.config.ts":   "export default { test: { globals: true } };\n",
+		"pkg/src/unit/index.test.ts": "export const t = 1;\n",
+	})
+
+	res := generateAt(t, repoRoot, "pkg/src/unit")
+	test := generatedRule(res, "unit_test")
+	if test == nil {
+		t.Fatalf("no ts_test generated: %v", generatedNames(t, res))
+	}
+	if test.Attr("config") != nil {
+		t.Errorf("ts_test config = %q, want unset", test.AttrString("config"))
+	}
+	if fg := generatedRule(generateAt(t, repoRoot, "pkg/src"), "vitest_config"); fg != nil {
+		t.Errorf("pkg/src exports a vitest config plain `vitest` would not read")
+	}
+}
+
+// The config moved or went, and the directory may hold nothing else for a
+// later run to notice the filegroup by.
+func TestGenerate_WithdrawsTheVitestConfigFilegroupWithTheFile(t *testing.T) {
+	build := "filegroup(\n    name = \"vitest_config\",\n    srcs = [\"vitest.config.ts\"],\n    visibility = [\"//visibility:public\"],\n)\n"
+	res := runGenerateWithBuild(t, "pkg", build, map[string]string{"package.json": "{}\n"})
+	for _, r := range res.Empty {
+		if r.Kind() == "filegroup" && r.Name() == "vitest_config" {
+			return
+		}
+	}
+	t.Errorf("the filegroup outlived its file; Empty = %v", emptyNames(res))
+}
+
+func emptyNames(res language.GenerateResult) []string {
+	var names []string
+	for _, r := range res.Empty {
+		names = append(names, r.Kind()+" "+r.Name())
+	}
+	return names
 }
 
 func indexOfRule(res language.GenerateResult, want *rule.Rule) int {

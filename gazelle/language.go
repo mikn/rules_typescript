@@ -307,9 +307,8 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 				"visibility": true,
 			},
 		},
-		// filegroup is generated beside a tsconfig.json for the declaration
-		// files it names in compilerOptions.types. Only the srcs attr is
-		// managed by Gazelle.
+		// filegroup stages a file for the packages below: the declarations a
+		// tsconfig.json's compilerOptions.types names, and a vitest config.
 		"filegroup": {
 			MatchAny:   false,
 			MatchAttrs: []string{"name"},
