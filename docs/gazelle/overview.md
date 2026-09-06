@@ -214,6 +214,48 @@ enter it, whatever a local run of the generator has left on disk.
 
 Test files (`*.test.ts`, `*.spec.ts`, `*.test.tsx`, `*.spec.tsx`) generate `ts_test` targets automatically in both modes.
 
+A `ts_test` runs under the vitest config plain `vitest` would read for its
+files. A `vitest.config.*` beside the tests goes into the target's `config` by
+name. With none there, Gazelle walks up to the directory plain `vitest` runs
+from, the nearest one holding a `package.json` or the repository root, and takes
+the config it holds: that directory gets a public `filegroup` named
+`vitest_config` over the file, and the test names it by label. A directory
+between the two with no `package.json` is passed over, as `vitest` run from the
+package root passes it over. Without the config the tests run in plain Node, so
+a worker's `defineWorkersConfig` pool becomes no pool and a dependency that only
+resolves through Vite (`test.server.deps.inline`) fails at import time.
+
+```python
+# workers/proxy/BUILD.bazel -- package.json and vitest.config.mts sit here
+filegroup(
+    name = "vitest_config",
+    srcs = ["vitest.config.mts"],
+    visibility = ["//visibility:public"],
+)
+
+# workers/proxy/test/BUILD.bazel
+ts_test(
+    name = "test_test",
+    srcs = ["handler.test.ts"],
+    config = "//workers/proxy:vitest_config",
+    deps = ["//workers/proxy/src", "@npm//:vitest"],
+)
+```
+
+A bare specifier the config imports (`vitest/config`, a pool package) is a dep
+of the test wherever the config sits. Gazelle reads a relative import in a
+config found above the tests against the test's package, not the config's, so
+it gets neither a dep nor the `data` it needs. The filegroup follows the file
+and is withdrawn when the file goes; the `config` of the tests below is not
+Gazelle's ([the attributes it owns](directives.md#attributes-gazelle-owns)) and
+keeps the label until edited. No label is written into a directory under a
+`# gazelle:ts_ignore`, one a `# gazelle:ts_package_boundary` directive between
+it and the test leaves the two disagreeing about, one whose own target is
+already named `vitest_config`, or, in tsconfig mode, one below the root that
+holds no `tsconfig.json`; the test then gets no `config`, as before. Vite's root
+is the test's package either way, so a relative path in a config found above
+the tests resolves against the test's directory, not the config's.
+
 Doc and story files (`*.doc.ts`, `*.doc.tsx`, `*.stories.ts`, `*.stories.tsx`) generate a separate `ts_compile` target in both modes. A doc file consumes the library and does not belong to it: left in the package target, a design system where `switch/switch.doc.tsx` imports `../label` and `label/label.doc.tsx` imports `../switch` is a dependency cycle between the two component packages, though neither component depends on the other. Like test files, they are outside the `ts_lint` target's sources. Like the `ts_test` target, they get the package's ambient `.d.ts` files: nothing imports an ambient declaration, so only `srcs` membership puts it in a program. `.mdx` files are not TypeScript sources and are unaffected.
 
 ### Import Cycles Between Packages

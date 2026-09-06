@@ -25,7 +25,7 @@ func main() {
 		WorkspaceRel: "tests/integration/gazelle_roundtrip",
 		Lockfile:     "tests/npm/pnpm-lock.yaml",
 	}, func(it *harness.IT) {
-		dirs := []string{"src/lib", "src/app", "src/icons", "src/typed", "src/env", "worker", "worker/src", "worker/test", "worker/test/deep", "generated_worker/src", "aliased", "aliased/shared", "aliased/src", "jsx", "jsx/view"}
+		dirs := []string{"src/lib", "src/app", "src/icons", "src/typed", "src/env", "worker", "worker/src", "worker/test", "worker/test/deep", "generated_worker/src", "aliased", "aliased/shared", "aliased/src", "jsx", "jsx/view", "configured", "configured/test"}
 
 		// Written here rather than shipped in the workspace: a BUILD file under
 		// a --deleted_packages entry is a package of the OUTER workspace, and
@@ -124,6 +124,7 @@ func main() {
 		programsAreListedWithTheToolchainsTsgo(it, gazelleLog)
 		handWrittenDevServerIsLeftAlone(it, devServerAfterFirstRun)
 		memberSelfImportTakesTheHubLabel(it, memberAfterFirstRun)
+		packageRootVitestConfigReachesTheTestBelow(it)
 		// Last: it rewrites the tree the checks above read.
 		declarationMovesToACodegen(it)
 	})
@@ -195,6 +196,42 @@ func memberSelfImportTakesTheHubLabel(it *harness.IT, afterFirstRun string) {
 		}
 	}
 	it.Pass("//packages/shared:shared_test type-checks and fails in the resolver on `shared` and `shared/wire`: the runtime link has no exports map")
+}
+
+// configured/ keeps its vitest.config.mts beside package.json and its test one
+// package down; the config answers the test's `virtual:answer` import.
+const packageRootVitestConfigFilegroup = `filegroup(
+    name = "vitest_config",
+    srcs = ["vitest.config.mts"],
+    visibility = ["//visibility:public"],
+)
+`
+
+func packageRootVitestConfigReachesTheTestBelow(it *harness.IT) {
+	it.RequireContains(it.Path("configured/BUILD.bazel"), packageRootVitestConfigFilegroup,
+		"the package root writes no filegroup over its vitest config")
+	it.Pass("configured/BUILD.bazel carries the vitest_config filegroup")
+
+	below := it.Path("configured/test/BUILD.bazel")
+	const attr = "    config = \"//configured:vitest_config\",\n"
+	it.RequireContains(below, attr, "//configured/test:test_test names no config")
+	it.Pass("//configured/test:test_test names the package root's config by label")
+
+	// `bazel test //...` above ran it under the config; without the attr nothing
+	// resolves the import the plugin answers.
+	restore := it.Read(below)
+	it.Replace(below, attr, "")
+	log, err := it.BazelLog("test_without_the_package_root_config", "test", "//configured/test:test_test")
+	it.Write(below, restore)
+	if err == nil {
+		log.Dump()
+		it.Fail("//configured/test:test_test passed without the config; Gazelle need not write it")
+	}
+	if !log.Contains("virtual:answer") {
+		log.Dump()
+		it.Fail("without the config the test did not fail on the import the plugin answers")
+	}
+	it.Pass("without the config //configured/test:test_test fails on `virtual:answer`: the setting reached the test through the label")
 }
 
 // Gazelle writes no ts_dev_server and knows no such kind; beside a main.ts and

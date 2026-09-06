@@ -408,15 +408,19 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	if tsConfigRule != nil {
 		tsConfigTypesRule = ownTsConfigTypesRule(tc, args.Rel)
 	}
+	vitestConfigRule := ownVitestConfigRule(args, tc)
 
-	// A tsconfig.json that has been deleted or moved leaves the ts_config behind,
-	// and this directory may hold nothing else for a later run to notice it by.
-	var tsConfigEmpty []*rule.Rule
+	// A tsconfig.json or vitest config that has been deleted or moved leaves its
+	// rule behind, and this directory may hold nothing else for a run to notice.
+	var withdrawn []*rule.Rule
 	if tsConfigRule == nil && ruleExists(args, "ts_config", tsConfigTargetName) {
-		tsConfigEmpty = append(tsConfigEmpty, rule.NewRule("ts_config", tsConfigTargetName))
+		withdrawn = append(withdrawn, rule.NewRule("ts_config", tsConfigTargetName))
 	}
 	if tsConfigTypesRule == nil && ruleExists(args, "filegroup", tsConfigTypesTargetName) {
-		tsConfigEmpty = append(tsConfigEmpty, rule.NewRule("filegroup", tsConfigTypesTargetName))
+		withdrawn = append(withdrawn, rule.NewRule("filegroup", tsConfigTypesTargetName))
+	}
+	if vitestConfigRule == nil && ruleExists(args, "filegroup", vitestConfigTargetName) {
+		withdrawn = append(withdrawn, rule.NewRule("filegroup", vitestConfigTargetName))
 	}
 	staleDataFiles := staleDataFileRules(args)
 	// In every-dir mode the package target's last source leaves a directory that
@@ -425,11 +429,11 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 
 	totalNonTS := len(cssFiles) + len(cssModuleFiles) + len(assetFiles) + len(jsonFiles)
 	if !isBoundary && len(srcFiles) == 0 && len(testFiles) == 0 && len(docFiles) == 0 &&
-		totalNonTS == 0 && len(codegenPatterns) == 0 && tsConfigRule == nil {
+		totalNonTS == 0 && len(codegenPatterns) == 0 && tsConfigRule == nil && vitestConfigRule == nil {
 		// No TypeScript, CSS, asset, or JSON files and not a boundary: nothing to do.
 		// A declared generator is a target of its own, though: a package whose
 		// sources are all generated holds nothing else.
-		return language.GenerateResult{Empty: append(append(tsConfigEmpty, staleDataFiles...), staleCompile...)}
+		return language.GenerateResult{Empty: append(append(withdrawn, staleDataFiles...), staleCompile...)}
 	}
 
 	var gen []*rule.Rule
@@ -442,6 +446,9 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	if tsConfigRule != nil {
 		reserved[tsConfigRule.Name()] = struct{}{}
 		reserved[tsConfigTypesTargetName] = struct{}{}
+	}
+	if vitestConfigRule != nil {
+		reserved[vitestConfigTargetName] = struct{}{}
 	}
 	for _, name := range codegenTargetNames(codegenPatterns) {
 		reserved[name] = struct{}{}
@@ -603,16 +610,19 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		r := rule.NewRule("ts_test", name)
 		r.SetAttr("srcs", srcLabels(testSrcs))
 
-		// A vitest config beside the tests names the pool, the environment and
-		// the deps to inline. Dropped, the tests run in plain Node: a worker's
-		// `defineWorkersConfig` pool becomes no pool, and a dependency that only
-		// resolves through Vite fails at import time.
-		if cfg := vitestConfigIn(args.Dir); cfg != "" {
+		// Without its vitest config a test runs in plain Node: a worker pool
+		// becomes no pool, and a dep that resolves only through Vite fails to import.
+		cfgDir, cfg := args.Dir, vitestConfigIn(args.Dir)
+		if cfg != "" {
 			r.SetAttr("config", cfg)
-			// The config is a module the runner imports, so what it imports is a
-			// dep of the test like any other. `defineWorkersConfig` comes from the
-			// pool package, and without it the runner dies before the first test.
-			allPackageImports = append(allPackageImports, importsIn(args.Dir, []string{cfg})...)
+		} else if ownerRel, name := ancestorVitestConfig(args, tc); name != "" {
+			r.SetAttr("config", "//"+ownerRel+":"+vitestConfigTargetName)
+			cfgDir, cfg = filepath.Join(args.Config.RepoRoot, filepath.FromSlash(ownerRel)), name
+		}
+		if cfg != "" {
+			// The runner imports the config, so what it imports is a dep of the
+			// test: `defineWorkersConfig` comes from the pool package.
+			allPackageImports = append(allPackageImports, importsIn(cfgDir, []string{cfg})...)
 		}
 
 		// Same emitter as the ts_compile targets in this package, so the internal
@@ -802,7 +812,11 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		gen = append(gen, tsConfigRule)
 		imports = append(imports, nil)
 	}
-	empty = append(empty, tsConfigEmpty...)
+	if vitestConfigRule != nil {
+		gen = append(gen, vitestConfigRule)
+		imports = append(imports, []string{})
+	}
+	empty = append(empty, withdrawn...)
 	empty = append(empty, staleDataFiles...)
 
 	result := language.GenerateResult{
@@ -832,6 +846,7 @@ func emptyResult(args language.GenerateArgs) language.GenerateResult {
 			rule.NewRule("node_modules", "node_modules"),
 			rule.NewRule("ts_config", tsConfigTargetName),
 			rule.NewRule("filegroup", tsConfigTypesTargetName),
+			rule.NewRule("filegroup", vitestConfigTargetName),
 		},
 	}
 }
@@ -1964,4 +1979,88 @@ func vitestConfigIn(dir string) string {
 		}
 	}
 	return ""
+}
+
+// vitestConfigTargetName is the filegroup Gazelle writes beside a vitest config
+// for the tests in the packages below it.
+const vitestConfigTargetName = "vitest_config"
+
+func hasPackageJSON(dir string) bool {
+	st, err := os.Stat(filepath.Join(dir, "package.json"))
+	return err == nil && !st.IsDir()
+}
+
+// vitestRootAbove is where plain `vitest` reads its config for a test in dir with
+// none of its own: the nearest ancestor holding a package.json, else repoRoot.
+func vitestRootAbove(repoRoot, dir string) string {
+	if dir == repoRoot || hasPackageJSON(dir) {
+		return ""
+	}
+	for {
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+		if dir == repoRoot || hasPackageJSON(dir) {
+			return dir
+		}
+	}
+}
+
+// exportedVitestConfig is the vitest config the package at rel makes a label for
+// the packages below: where plain `vitest` reads it, beside a package.json or at the root.
+func exportedVitestConfig(dir, rel string, tc *tsConfig) string {
+	if rel != "" && !hasPackageJSON(dir) {
+		return ""
+	}
+	name := vitestConfigIn(dir)
+	if name == "" || tc.excludesIn(rel).drops(name) || targetNameForDir(tc, rel) == vitestConfigTargetName {
+		return ""
+	}
+	return name
+}
+
+// ownVitestConfigRule is the filegroup over this directory's own vitest config,
+// nil when it exports none.
+func ownVitestConfigRule(args language.GenerateArgs, tc *tsConfig) *rule.Rule {
+	name := exportedVitestConfig(args.Dir, args.Rel, tc)
+	if name == "" {
+		return nil
+	}
+	r := rule.NewRule("filegroup", vitestConfigTargetName)
+	r.SetAttr("srcs", srcLabels([]string{name}))
+	r.SetAttr("visibility", []string{"//visibility:public"})
+	return r
+}
+
+// ancestorVitestConfig is the package above args.Rel whose exported vitest config
+// a test here runs under, and the file's name; "" when Gazelle writes no BUILD file there.
+func ancestorVitestConfig(args language.GenerateArgs, tc *tsConfig) (string, string) {
+	repoRoot := args.Config.RepoRoot
+	dir := vitestRootAbove(repoRoot, args.Dir)
+	if dir == "" {
+		return "", ""
+	}
+	rel, err := filepath.Rel(repoRoot, dir)
+	if err != nil {
+		return "", ""
+	}
+	if rel = filepath.ToSlash(rel); rel == "." {
+		rel = ""
+	}
+	local := readLocalPackage(dir, rel, tc)
+	if local.ignored || !boundaryModeAgreesAt(repoRoot, rel, args.Rel) {
+		return "", ""
+	}
+	// Under a tsconfig boundary a directory without a tsconfig.json is no
+	// package, and a BUILD file written there would split the rollup.
+	if tc.packageBoundaryMode == boundaryTsConfig && rel != "" && !dirHasTsConfig(dir) {
+		return "", ""
+	}
+	name := exportedVitestConfig(dir, rel, local.tc)
+	if name == "" {
+		return "", ""
+	}
+	return rel, name
 }

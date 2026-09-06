@@ -131,6 +131,14 @@ runs on any vitest 3 or 4.
 config = {"test": {"testTimeout": 30000, "retry": 2}},
 ```
 
+Gazelle writes `config` from the file plain `vitest` would read: a
+`vitest.config.*` beside the tests by name, else the one in the nearest
+directory above holding a `package.json`, or the repository root, as the label
+`//pkg:vitest_config` of a public `filegroup` Gazelle writes over the file in
+that package. Vite's root is the test's package either way, so a relative path
+in such a config resolves against the test's directory, not the config's. See
+[the package boundary heuristic](../gazelle/overview.md#package-boundary-heuristic).
+
 ### Other Attributes
 
 ```python
