@@ -591,12 +591,8 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		// Collect all imports from test files for dep resolution.
 		allImports := importsIn(args.Dir, testFiles)
 
-		// Also collect npm imports from production source files in this package.
-		// ts_test auto-generates a node_modules tree from its own @npm// deps, so
-		// the deps list must include ALL npm packages the tests need at runtime —
-		// both what the test files directly import AND what the production code in
-		// this package imports.  Without the production imports, the auto-generated
-		// node_modules tree would be missing packages needed by the SUT.
+		// The production sources' npm imports too: the tree follows each ts_compile dep's
+		// closure (ts_test.bzl), and a dep listed here is the resolution it keeps flat.
 		//
 		// The doc files too: a test that composes a story runs the story's npm
 		// imports, which left this package's sources when the doc target did.
@@ -639,10 +635,8 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		setAliasAttrs(args, r, tc, testSrcs, allImports)
 		setTypeReferences(r, args.Dir, testSrcs)
 
-		// ts_test auto-builds a node_modules tree from its @npm// deps, so no
-		// explicit node_modules rule is generated. The ts_test macro filters deps
-		// by @npm// label convention and creates an internal _<name>_node_modules
-		// target automatically.
+		// ts_test builds its own node_modules tree from its deps, so no explicit
+		// node_modules rule is generated.
 		//
 		// Pass allPackageImports (test + production imports) to the resolver so
 		// that the generated deps list includes npm packages from production code.

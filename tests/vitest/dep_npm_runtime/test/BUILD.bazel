@@ -1,0 +1,18 @@
+"""The test lives in its own package and lists only what it imports itself."""
+
+load("//ts:defs.bzl", "ts_test")
+load(":tree_tests.bzl", "dep_closure_inputs_test")
+
+ts_test(
+    name = "test_test",
+    srcs = ["lib.test.ts"],
+    deps = [
+        "//tests/vitest/dep_npm_runtime",
+        "@npm//:vitest",
+    ],
+)
+
+dep_closure_inputs_test(
+    name = "dep_closure_inputs_test",
+    target_under_test = ":_test_test_node_modules",
+)

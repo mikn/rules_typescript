@@ -17,9 +17,9 @@ ts_test(
 
 `node_modules` is optional: when it is unset and `deps` is a plain list,
 `ts_test` builds a per-target `node_modules` tree from every dep that provides
-`NpmPackageInfo`, plus their transitive npm deps. Pass it explicitly when `deps`
-is a `select()` (which a macro cannot iterate) or when you need a tree the deps
-do not describe.
+`NpmPackageInfo`, their transitive npm deps, and the npm closure of every
+`ts_compile` dep. Pass it explicitly when `deps` is a `select()` (which a macro
+cannot iterate) or when you need a tree the deps do not describe.
 
 ## Attributes
 
@@ -503,11 +503,14 @@ sources: a module that only some dep's own deps provide fails the build with the
 label to add. See
 [Deps have to be direct](ts-compile.md#deps-have-to-be-direct).
 
-A `ts_compile` dep contributes none of its own npm dependencies to the
-auto-generated tree, so `deps` must list every npm package needed at runtime, by
-the test files and by the production code under test, the way `go_test` requires
-all direct imports. `bazel run //:gazelle` writes that list, collecting imports
-from the test files and the production sources in the package.
+A `ts_compile` dep brings its npm closure into the auto-generated tree: its
+compiled JS value-imports the packages it declared, and `TsDeclarationInfo`
+carries that closure (`transitive_npm_packages`) beside the declarations, so a
+test in one package runs production code from another without repeating its npm
+deps. `deps` lists what the test files import; where the closure resolves a name
+more than one way, the test's own dep is the resolution that sits flat.
+`bazel run //:gazelle` writes the list, collecting imports from the test files
+and the production sources in the package.
 
 The tree keys each resolution apart by name, version and peer set wherever one
 name resolved more than once; see [the layout](node-modules.md#the-layout).

@@ -32,10 +32,11 @@ bazel test //path/to:math_test
 ```
 
 No `node_modules` target is needed. `ts_test` builds a per-target
-`node_modules` tree from every dep that provides `NpmPackageInfo`, plus their
-transitive npm deps. A `ts_compile` dep contributes none of its own npm
-packages, so `deps` lists every npm package the run needs, imported by the tests
-or by the production code under test. `bazel run //:gazelle` writes that list.
+`node_modules` tree from every dep that provides `NpmPackageInfo`, their
+transitive npm deps, and the npm closure of every `ts_compile` dep, so the
+production code under test runs against the packages it declared. `deps` lists
+what the tests import and the npm imports of the package's production sources;
+`bazel run //:gazelle` writes that list.
 
 Test sources are checked for undeclared imports like any other `ts_compile`
 sources, so an import that only some dep's own deps provide fails the build with

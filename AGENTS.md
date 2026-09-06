@@ -134,7 +134,8 @@ one. A target exporting none runs no such action and provides no such file.
 **Gazelle (Go):**
 - All config via `# gazelle:ts_*` directives. There is no config file.
 - Default: every-dir (every directory with .ts files is a package)
-- `ts_test` auto-generates node_modules from npm deps in the `deps` list
+- `ts_test` auto-generates node_modules from the npm deps in `deps` and each
+  `ts_compile` dep's npm closure (`TsDeclarationInfo.transitive_npm_packages`)
 - Register all new directives in `KnownDirectives()`, all new rules in `Kinds()` + `Loads()`
 - `bazel run //gazelle -- -mode=diff` on a clean tree must print nothing. A
   fixture that differs only in Gazelle's own rendering (a one-element list

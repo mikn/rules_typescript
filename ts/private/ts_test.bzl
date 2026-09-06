@@ -44,25 +44,17 @@ The vitest runner script:
 Test sharding: the runner distributes test files across shards using
 TEST_SHARD_INDEX and TEST_TOTAL_SHARDS environment variables.
 
-npm package naming convention:
-  By default, ts_test auto-generates a node_modules tree from any deps that
-  provide NpmPackageInfo (i.e. @npm// labels).  The @npm workspace name is the
-  conventional name used by rules_js/npm_translate_lock for the npm registry.
-  If your workspace uses a non-default name (e.g. @my_npm), pass it via the
-  npm_workspace_name param.
-
-  IMPORTANT: the auto node_modules tree is built from the direct deps that
-  provide NpmPackageInfo, plus their transitive npm dependencies (via
-  NpmPackageInfo.transitive_deps).  If your production code (non-npm deps like
-  ts_compile targets) depends on npm packages that are NOT also listed in
-  ts_test's deps, those packages will be missing at runtime.  The recommended
-  practice is to list all npm packages needed at runtime — both by the test
-  files and by the production code under test — directly in ts_test's deps.
-  This mirrors how go_test works: all direct imports must be listed.
-
-  Gazelle handles this automatically: it collects imports from both the test
-  files and the production source files in the same package, and emits all
-  required @npm// labels in ts_test's deps.
+npm packages at runtime:
+  By default, ts_test auto-generates a node_modules tree from the deps that
+  provide NpmPackageInfo (i.e. @npm// labels), their transitive npm
+  dependencies (NpmPackageInfo.transitive_deps), and the npm closure every
+  other dep carries in TsDeclarationInfo.transitive_npm_packages: a ts_compile
+  dep's compiled JS value-imports the packages it declared, so the tree follows
+  the same closure its declarations do.  Where that closure resolves one name
+  more than one way, the test's own deps name the resolution that sits flat.
+  The @npm workspace name is the conventional name used by
+  rules_js/npm_translate_lock for the npm registry.  If your workspace uses a
+  non-default name (e.g. @my_npm), pass it via the npm_workspace_name param.
 
 Snapshot testing:
   Vitest resolves a .snap file next to the test file it ran, which under Bazel
@@ -91,23 +83,29 @@ Snapshot testing:
 
 load("//tools/launcher:launcher.bzl", "LAUNCHER_ATTRS", "declare_launcher", "rlocation_path")
 load("//ts/private:node_modules.bzl", "build_node_modules_action", "collect_npm_packages")
-load("//ts/private:providers.bzl", "CssModuleInfo", "JsInfo", "NpmPackageInfo")
+load("//ts/private:providers.bzl", "CssModuleInfo", "JsInfo", "NpmPackageInfo", "TsDeclarationInfo")
 load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "JS_TOOL_TOOLCHAIN_TYPE", "get_js_runtime")
 load("//ts/private:ts_compile.bzl", "fail_on_mixed_src_packages", "ts_compile")
 
 # ─── Internal auto node_modules rule ──────────────────────────────────────────
 #
-# This rule accepts any deps (no provider constraint) and builds a node_modules
-# tree from those deps that provide NpmPackageInfo.  It is used by the ts_test
-# macro to handle the case where the caller passes both @npm// labels AND
-# ts_compile targets in deps — the rule silently skips non-npm deps.
+# No provider constraint on deps: the ts_test macro passes its whole deps list,
+# @npm// labels and ts_compile targets alike.
 
 def _ts_auto_node_modules_impl(ctx):
-    packages_to_link = collect_npm_packages([
-        dep[NpmPackageInfo]
-        for dep in ctx.attr.deps
-        if NpmPackageInfo in dep
-    ])
+    direct = [dep[NpmPackageInfo] for dep in ctx.attr.deps if NpmPackageInfo in dep]
+
+    # A dep's compiled JS value-imports the packages it declared, so the tree
+    # follows the closure its declarations already carry; the test's own first.
+    dep_closure = depset(
+        transitive = [
+            dep[TsDeclarationInfo].transitive_npm_packages
+            for dep in ctx.attr.deps
+            if TsDeclarationInfo in dep and NpmPackageInfo not in dep
+        ],
+        order = "postorder",
+    )
+    packages_to_link = collect_npm_packages(direct + dep_closure.to_list())
 
     input_file_sets = [npm_info.all_files for npm_info in packages_to_link]
 
@@ -137,7 +135,7 @@ _ts_auto_node_modules = rule(
     implementation = _ts_auto_node_modules_impl,
     attrs = {
         "deps": attr.label_list(
-            doc = "Any deps; those not providing NpmPackageInfo are silently skipped.",
+            doc = "Any deps: an npm package is linked, and every other dep contributes the npm closure its TsDeclarationInfo carries.",
         ),
     },
     toolchains = [
@@ -148,7 +146,7 @@ _ts_auto_node_modules = rule(
         # prevents silent fallback to the bash path on misconfigured setups.
         config_common.toolchain_type(JS_TOOL_TOOLCHAIN_TYPE, mandatory = True),
     ],
-    doc = "Internal rule: builds a node_modules tree from any deps that provide NpmPackageInfo.",
+    doc = "Internal rule: builds a node_modules tree from the deps' npm packages and the npm closure of every other dep.",
 )
 
 # ─── Vitest config generation ────────────────────────────────────────────────
@@ -1124,22 +1122,13 @@ def ts_test(
         name:              Name of the test target.
         srcs:              TypeScript test source files (.ts, .tsx).
         deps:              ts_compile or ts_npm_package targets the tests import.
-                           Include @npm// labels here; ts_test automatically builds
-                           a node_modules directory tree from all deps that provide
-                           NpmPackageInfo (including their transitive npm deps).
-
-                           IMPORTANT: list ALL npm packages needed at runtime —
-                           both those imported by the test files and those imported
-                           by the production code under test.  Deps that are
-                           ts_compile targets (non-npm) are passed through to the
-                           runner unchanged; they do NOT automatically propagate
-                           their own npm dependencies into the node_modules tree.
-                           This mirrors how go_test works: all direct runtime
-                           dependencies must be listed explicitly.
-
-                           Gazelle handles this automatically when you run
-                           `bazel run //:gazelle` — it collects imports from both
-                           test files and production source files in the package.
+                           ts_test builds a node_modules tree from every dep that
+                           provides NpmPackageInfo, their transitive npm deps, and
+                           the npm closure each other dep carries in
+                           TsDeclarationInfo, so a ts_compile dep's own npm
+                           packages are at hand at runtime without being listed
+                           here.  A package the test files themselves import is a
+                           direct dep, as in any ts_compile.
         node_modules:      Optional: explicit node_modules target for runtime npm
                            resolution. When set, the auto-generation of an internal
                            node_modules target is skipped entirely.
@@ -1343,10 +1332,8 @@ def ts_test(
 
     # Step 2: auto-generate a node_modules target when not explicitly provided.
     #
-    # The _ts_auto_node_modules rule accepts any deps (no provider constraint)
-    # and filters to those that provide NpmPackageInfo at analysis time.  This
-    # means ALL deps — both @npm// labels and ts_compile targets — are passed
-    # through.  The rule silently skips deps that don't provide NpmPackageInfo.
+    # _ts_auto_node_modules takes the whole deps list: @npm// labels are linked,
+    # every other dep contributes its npm closure.
     #
     # If deps is a select() expression we cannot iterate over it at macro
     # evaluation time, so we skip auto-generation and require an explicit
