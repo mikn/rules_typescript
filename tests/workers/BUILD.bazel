@@ -1,6 +1,7 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "ts_compile", "ts_test")
 load("//ts/private:tsconfig_aspect.bzl", "ide_tsconfig")
+load(":library_paths_tests.bzl", "library_paths_test")
 load(":shipped_subpath_tests.bzl", "shipped_subpath_editor_test", "shipped_subpath_entry_test")
 
 package(default_visibility = ["//:__pkg__"])
@@ -78,6 +79,11 @@ ts_compile(
 
 shipped_subpath_entry_test(
     name = "shipped_subpath_entry_test",
+    target_under_test = ":experimental_types",
+)
+
+library_paths_test(
+    name = "library_paths_test",
     target_under_test = ":experimental_types",
 )
 

@@ -162,7 +162,7 @@ def _written_form_test(ctx):
         "only a declaration that names something gets an entry",
     )
     stanza = package_stanza(
-        struct(version = "1.3.5", peer_id = "", types_dep = "", is_types_package = True),
+        struct(package = "@types/bun", version = "1.3.5", peer_id = "", types_dep = "", is_types_package = True),
         "pkg",
         "@types/bun",
         "",
@@ -179,7 +179,7 @@ def _written_form_test(ctx):
     asserts.true(
         env,
         "type_references" not in package_stanza(
-            struct(version = "1.3.5", peer_id = "", types_dep = "", is_types_package = True),
+            struct(package = "@types/bun", version = "1.3.5", peer_id = "", types_dep = "", is_types_package = True),
             "pkg",
             "@types/bun",
             "",

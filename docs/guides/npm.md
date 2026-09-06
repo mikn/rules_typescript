@@ -588,6 +588,15 @@ A single repository for the whole lockfile reads `bin` and `exports` out of each
 extracted `package.json` to generate targets, so nothing can be emitted until
 everything is downloaded.
 
+Inside its repository a package sits under `node_modules/<name>/`, so every path
+the rules write for it -- a `paths` value, an action input, an exec path such as
+`external/+npm+npm__zod__4_1_5/node_modules/zod/index.d.ts` -- carries a
+`node_modules` segment. TypeScript classifies a `paths` match by that segment:
+under one the file is a library file, type-checked and never emitted; under none
+it is project source, emit-eligible and checked against `rootDir`. The
+`node_modules` tree and the editor's `.bazel/npm/<name>/` copies are laid out
+from the package root, as before.
+
 One measurement, made while both layouts existed: building one vitest test
 target from an empty output base against a 2731-package lockfile went from 392s
 and 2.9 GB of `external/` to 66s and 415 MB, fetching 138 packages (vitest's

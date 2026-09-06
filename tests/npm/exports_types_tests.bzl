@@ -586,7 +586,7 @@ published_subpaths_test = unittest.make(_published_subpaths_test)
 def _stanza_for(case, patterns):
     package_name, _, version = case.package.rpartition("@")
     return package_stanza(
-        struct(version = version, peer_id = "", types_dep = "", is_types_package = False),
+        struct(package = package_name, version = version, peer_id = "", types_dep = "", is_types_package = False),
         "pkg",
         package_name,
         "",
@@ -630,10 +630,10 @@ published_patterns_test = unittest.make(_published_patterns_test)
 _GENERATED_PACKAGE = Label("//tests/npm:BUILD.bazel")
 
 def _written_attribute(stanza, attribute):
-    prefix = '    {} = "'.format(attribute)
+    prefix = "    {} = ".format(attribute)
     for line in stanza.split("\n"):
         if line.startswith(prefix):
-            return line[len(prefix):].removesuffix('",')
+            return line[len(prefix):].removesuffix(",")
     return ""
 
 def _written_form_test(ctx):
@@ -644,7 +644,7 @@ def _written_form_test(ctx):
             continue
         package_name, _, version = case.package.rpartition("@")
         stanza = package_stanza(
-            struct(version = version, peer_id = "", types_dep = "", is_types_package = False),
+            struct(package = package_name, version = version, peer_id = "", types_dep = "", is_types_package = False),
             "pkg",
             package_name,
             "",
@@ -653,11 +653,27 @@ def _written_form_test(ctx):
             {},
             {},
         )
+
+        # node_modules/<name> is what TypeScript reads to take a `paths` match
+        # for a library file rather than project source; every label carries it.
+        root = "node_modules/" + package_name
         asserts.equals(
             env,
-            case.expected,
-            _GENERATED_PACKAGE.relative(_written_attribute(stanza, "exports_types")).name,
-            "{}: exports_types names a file in the package, not a repository".format(case.package),
+            root + "/" + case.expected,
+            _GENERATED_PACKAGE.relative(_written_attribute(stanza, "exports_types").strip('"')).name,
+            "{}: exports_types names a file under the package root, not a repository".format(case.package),
+        )
+        asserts.equals(
+            env,
+            '":{}/package.json"'.format(root),
+            _written_attribute(stanza, "package_dir"),
+            "{}: package_dir is the manifest under the package root".format(case.package),
+        )
+        asserts.equals(
+            env,
+            'glob(["{}/**/*"], exclude_directories = 1, allow_empty = True)'.format(root),
+            _written_attribute(stanza, "package_files"),
+            "{}: package_files globs the package root and nothing beside it".format(case.package),
         )
 
     return unittest.end(env)

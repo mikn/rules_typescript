@@ -291,6 +291,13 @@ direct dep's own dependencies or through a `ts_compile` dep's. A dep's emitted
 program; without the key TypeScript widens what that declaration exports to
 `any` without a report. `TsStrictDeps` stops your own source from using them.
 
+Every value that names an npm package points under `node_modules/<name>/` inside
+the package's repository, which is where the fetch puts a package. TypeScript
+reads that segment to take a `paths` match for a library file -- type-checked,
+never emitted, outside the `rootDir` check -- rather than project source. The
+map's other values -- a `module_name`, a `path_aliases` prefix, a workspace
+member -- are workspace paths.
+
 A package's subpaths get three kinds of key. `<pkg>/*` lists the package root
 and then the entry declaration's directory, the two places a subpath lives when
 the manifest says nothing about it. An `exports` subpath the manifest designates

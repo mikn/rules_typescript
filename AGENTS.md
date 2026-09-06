@@ -216,7 +216,11 @@ The analysis stays in the extension because none of it is a decision a package
 can make about itself: platform filtering, which package a bare label means
 (highest version), `@types` pairing, cycle breaking (`break_cycles`), alias
 naming, patch routing. Each package then reads its own `package.json` and writes
-its own BUILD file, which is what makes on-demand fetching possible.
+its own BUILD file, which is what makes on-demand fetching possible. The tarball
+is extracted under `node_modules/<name>/` inside the repository, the segment
+TypeScript reads to classify a `paths` match as a library file; every consumer
+derives its paths from `NpmPackageInfo.package_dir.dirname`, so nothing else
+spells the layout.
 
 Handled: scoped packages, `@types` pairing, multiple versions with
 version-suffixed labels, bin scripts (fixed `:bin` alias per package, since the
