@@ -16,6 +16,7 @@ ts_test(
     globals = True,
     runner = "node:test",
     tags = ["manual"],
+    wrangler_config = "//tests/workers_nested:wrangler.jsonc",
     deps = ["@npm//:types_node"],
 )
 

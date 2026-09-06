@@ -214,9 +214,12 @@ runtime needs `"istanbul"`. See
 
 A Worker's tests can run inside workerd, so `SELF.fetch()` dispatches to the
 `fetch` handler in the runtime. `@cloudflare/vitest-pool-workers` supplies the
-pool; `//tests/workers` is the worked example:
+pool; `//tests/workers_nested` is the worked example, in the shape a Worker
+repository has: `package.json`, the vitest config and `wrangler.jsonc` at the
+worker root, the tests in `test/`:
 
 ```python
+# workers/proxy/BUILD.bazel
 ts_compile(
     name = "worker",
     srcs = ["src/index.ts"],
@@ -226,20 +229,31 @@ ts_compile(
     ],
 )
 
+filegroup(
+    name = "vitest_config",
+    srcs = ["vitest.config.mjs"],
+    visibility = ["//visibility:public"],
+)
+
+exports_files(["wrangler.jsonc"])
+```
+
+```python
+# workers/proxy/test/BUILD.bazel
 ts_test(
     name = "worker_test",
     size = "medium",
-    srcs = ["src/worker.test.ts"],
-    config = "vitest.workers.config.mjs",
+    srcs = ["worker.test.ts"],
+    config = "//workers/proxy:vitest_config",
     coverage_provider = "istanbul",
-    data = ["wrangler.jsonc"],
     lib = [
         "esnext",
         "webworker",
     ],
     types = ["@cloudflare/vitest-pool-workers/types"],
+    wrangler_config = "//workers/proxy:wrangler.jsonc",
     deps = [
-        ":worker",
+        "//workers/proxy:worker",
         "@npm_workers//:cloudflare_vitest-pool-workers",
         "@npm_workers//:vitest",
         "@npm_workers//:vitest_coverage-istanbul",
@@ -271,8 +285,7 @@ import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
 export default {
   plugins: [
     cloudflareTest({
-      remoteBindings: false,
-      wrangler: { configPath: 'wrangler.jsonc' },
+      wrangler: { configPath: './wrangler.jsonc', environment: 'test' },
     }),
   ],
 };
@@ -298,13 +311,17 @@ root, where the runfiles `node_modules` link is, and refuses an import of a
 build output the runfiles do not hold; see
 [the generated config](../rules/ts-test.md#the-generated-vitest-config).
 
-The wrangler `configPath` is relative because `ts_test` roots Vite at the
-config's package, here the test's own, which is where `data = ["wrangler.jsonc"]`
-stages the file and where the compiled worker its `main` names is staged too. A
-config at the worker root with the tests under `test/` is rooted at the worker
-root the same way; `//tests/workers_nested` is that shape, with
-`config = "//tests/workers_nested:vitest_config"` and
-`data = ["//tests/workers_nested:wrangler.jsonc"]`.
+`configPath` is relative to the config file, and `ts_test` roots Vite at the
+config's package, so it names the file it names under plain `vitest`. That
+file's `main` is `src/index.ts`, the deploy entry, which the runfiles do not
+hold; `wrangler_config` stages a copy whose `main` and `env.test.main` are
+`src/index.js`, the compiled worker, at the file's own path, and that is the
+config the pool reads. A `rules` module the worker imports
+(`import greeting from "./greeting.txt"`) is an `asset_library` dep of the
+`ts_compile`, which puts it in the runfiles.
+[A Workers pool](../rules/ts-test.md#a-workers-pool) lists what else a config
+can name. `//tests/workers` is the same-package shape: the config beside the
+tests, `main: "src/index.js"`, and the file in `data`.
 
 ### `coverage_provider` and `types`
 

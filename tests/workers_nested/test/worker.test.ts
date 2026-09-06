@@ -5,13 +5,14 @@ import { moduleUrl } from "../src/index";
 import wranglerRaw from "../wrangler.jsonc?raw";
 
 describe("nested worker", () => {
-  it("runs in workerd with env.test and a bare import", async () => {
+  it("runs in workerd with env.test, a bare import and a Text module", async () => {
     expect(navigator.userAgent).toBe("Cloudflare-Workers");
     const res = await SELF.fetch("https://example.com/health");
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: string; greeting: string | null; module: string };
+    const body = (await res.json()) as { ok: string; greeting: string | null; text: string; module: string };
     expect(body.ok).toBe("ok");
     expect(body.greeting).toBe("from-env-test");
+    expect(body.text).toBe("hello from txt");
   });
 
   it("serves the one module the test imports", async () => {
@@ -21,7 +22,7 @@ describe("nested worker", () => {
     expect(body.module.endsWith("/src/index.js")).toBe(true);
   });
 
-  it("reads the wrangler config through a ?raw import relative to the test", () => {
+  it("reads the staged copy through a ?raw import of the wrangler config", () => {
     expect(wranglerRaw.match(/"main"\s*:\s*"[^"]*"/g)).toEqual(['"main": "src/index.js"', '"main": "src/index.js"']);
     const parsed = JSON.parse(wranglerRaw.replace(/^\s*\/\/.*$/gm, "").replace(/,(\s*[}\]])/g, "$1")) as {
       env: { test: { vars: { GREETING: string } } };

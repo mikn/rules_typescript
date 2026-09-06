@@ -1,13 +1,15 @@
 load("@rules_go//go:def.bzl", "go_test")
 load("//tests/vitest:vitest_config.bzl", "vitest_config")
 load("//ts:defs.bzl", "ts_test")
+load(":wrangler_config_tests.bzl", "data_shadow_test", "wrangler_config_runfiles_test")
 
 # The go_test is hand-named, so the Go language would add a second target for
 # the same source.
 # gazelle:exclude *_test.go
 
 # The config from the package root reaches the test by label, and vite is rooted
-# there: its `./wrangler.jsonc` names the file `data` stages beside it.
+# there: its `./wrangler.jsonc` names the copy `wrangler_config` stages at the
+# file's own path, whose `main` is the compiled worker.
 ts_test(
     name = "worker_test",
     size = "medium",
@@ -17,18 +19,39 @@ ts_test(
     ],
     config = "//tests/workers_nested:vitest_config",
     coverage_provider = "istanbul",
-    data = ["//tests/workers_nested:wrangler.jsonc"],
     lib = [
         "esnext",
         "webworker",
     ],
     types = ["@cloudflare/vitest-pool-workers/types"],
+    wrangler_config = "//tests/workers_nested:wrangler.jsonc",
     deps = [
         "//tests/workers_nested:worker",
+        "//tests/workers_nested:wrangler_jsonc",
         "@npm_workers//:cloudflare_vitest-pool-workers",
         "@npm_workers//:vitest",
         "@npm_workers//:vitest_coverage-istanbul",
     ],
+)
+
+wrangler_config_runfiles_test(
+    name = "wrangler_config_runfiles_test",
+    target_under_test = ":worker_test",
+)
+
+# The same file in `data` as well; asserted to fail at analysis, so manual.
+ts_test(
+    name = "data_shadow",
+    srcs = ["data_shadow.test.ts"],
+    data = ["//tests/workers_nested:wrangler.jsonc"],
+    tags = ["manual"],
+    wrangler_config = "//tests/workers_nested:wrangler.jsonc",
+    deps = ["@npm_workers//:cloudflare_vitest-pool-workers"],
+)
+
+data_shadow_test(
+    name = "data_shadow_test",
+    target_under_test = ":data_shadow",
 )
 
 vitest_config(
