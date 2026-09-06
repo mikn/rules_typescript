@@ -51,6 +51,7 @@ cannot iterate) or when you need a tree the deps do not describe.
 | `environment` | `string` | `""` | `test.environment`: `node`, `jsdom`, `happy-dom`, `edge-runtime`, or any custom vitest environment package. The package must be in `deps` |
 | `coverage` | `bool` | `False` | Also instrument during plain `bazel test`. `bazel coverage` works on every vitest target regardless |
 | `config` | `label` or `dict` | `None` | A vitest config file (`.ts`/`.mts`/`.cts`/`.js`/`.mjs`/`.cjs`) or an inline dict, **merged** into the generated config; see [A config file](#a-config-file) |
+| `wrangler_config` | `label` | `None` | The wrangler config a Workers-pool `config` names through `wrangler.configPath`. A copy whose `main` names the compiled entry is staged at the file's own runfiles path; the file is not also in `data`. See [A Workers pool](#a-workers-pool) |
 | `setup_files` | `label_list` | `[]` | `test.setupFiles`. `.ts`/`.tsx` entries are compiled with the same `deps` as the tests |
 | `global_setup` | `label_list` | `[]` | `test.globalSetup`; compiled like `setup_files` |
 | `data` | `label_list` | `[]` | Extra runfiles: fixtures, and files a `config` or setup entry imports |
@@ -336,6 +337,70 @@ listed: TypeScript entries first, compiled by the macro with the same `deps` as
 the tests, then `.js`/`.mjs`/`.cjs` entries, which are passed through. All of
 them run after any `setupFiles` the `config` attr contributes.
 `global_setup` is `test.globalSetup`, which runs once around the whole run.
+
+### A Workers Pool
+
+A `config` whose `plugins` hold `@cloudflare/vitest-pool-workers` runs the tests
+inside workerd. Four things put the compiled worker in front of it. Three are
+layer 1's, above: the root is the config's package, so `wrangler.configPath`
+names the file beside the config; `resolve.preserveSymlinks` is off, so a module
+has one identity; a compiled module's bare imports are resolved from the root,
+where the runfiles tree's `node_modules` link is. The fourth is
+`wrangler_config`:
+
+```python
+ts_test(
+    name = "worker_test",
+    srcs = ["worker.test.ts"],
+    config = "//workers/proxy:vitest_config",
+    coverage_provider = "istanbul",
+    lib = ["esnext", "webworker"],
+    types = ["@cloudflare/vitest-pool-workers/types"],
+    wrangler_config = "//workers/proxy:wrangler.jsonc",
+    deps = [
+        "//workers/proxy:worker",
+        "@npm//:cloudflare_vitest-pool-workers",
+        "@npm//:vitest",
+        "@npm//:vitest_coverage-istanbul",
+    ],
+)
+```
+
+The pool boots the file `main` names, resolved against the config file's
+directory. In a repository that is the source, `src/index.ts`, and the runfiles
+do not hold it: `Cannot find module '.../src/index.ts' imported from
+cloudflare:test-...`. A build action, `WranglerTestConfig`, copies the file and
+patches `main` and every `env.<name>.main` to the compiled entry with wrangler's
+`experimental_patchConfig` (`.ts` and `.tsx` to `.js`, `.mts` to `.mjs`, `.cts`
+to `.cjs`; a `.js` is left as written). wrangler is the one in the test's
+`node_modules` tree, resolved from the pool package, so the copy is patched by
+the reader that parses it. The copy is staged at the source's runfiles path,
+which is what `configPath` names, and under its own name beside the generated
+config, which is what admits its realpath when a `?raw` import of the config
+re-resolves it. Comments and every other key survive; the formatting is
+wrangler's. A config naming no `main`, or a `.toml` holding `#` comments, fails
+the action.
+
+A runfiles file at the copy's path wins over it silently, with the unpatched
+`main`. The file in `data` as well is an analysis error, `is staged through
+wrangler_config; do not list it in data too.`, and the `asset_library` Gazelle
+writes over the file is dropped from the runfiles when it is among the `deps`.
+Every other `AssetInfo` file of the deps is in the runfiles, which is what a
+wrangler `rules` module the worker imports needs. `//tests/workers_nested` is the
+example; `//tests/workers`, with the config beside the tests and
+`main: "src/index.js"` in `data`, is the same-package one.
+
+What else a wrangler config names, and where each comes from under `ts_test`:
+
+| Key | Source |
+|---|---|
+| `main`, `env.<name>.main` | the compiled entry, through the patched copy |
+| `rules` modules (`**/*.txt`, `**/*.md`, ...) | an `asset_library` dep of the worker's `ts_compile` |
+| `assets.directory` | its contents in `data`, at the same path relative to the config |
+| `.dev.vars`, `.dev.vars.<env>` | read beside the config; in `data` when a test needs one |
+| `compatibility_date`, `compatibility_flags`, `vars`, `kv_namespaces`, `r2_buckets`, `services`, `durable_objects`, `migrations` | inline values; miniflare emulates the bindings and nothing is staged |
+| `durable_objects[].script_name` naming another worker | `miniflare.workers` in the config, as under plain `vitest` |
+| `tsconfig`, `alias`, `define`, `no_bundle`, `build` | esbuild and deploy keys; the pool runs none of them |
 
 ## Coverage
 

@@ -83,8 +83,8 @@ Snapshot testing:
 
 load("//tools/launcher:launcher.bzl", "LAUNCHER_ATTRS", "declare_launcher", "rlocation_path")
 load("//ts/private:node_modules.bzl", "build_node_modules_action", "collect_npm_packages")
-load("//ts/private:providers.bzl", "CssModuleInfo", "JsInfo", "NpmPackageInfo", "TsDeclarationInfo")
-load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "JS_TOOL_TOOLCHAIN_TYPE", "get_js_runtime")
+load("//ts/private:providers.bzl", "AssetInfo", "CssModuleInfo", "JsInfo", "NpmPackageInfo", "TsDeclarationInfo")
+load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "JS_TOOL_TOOLCHAIN_TYPE", "get_js_runtime", "get_js_tool")
 load("//ts/private:ts_compile.bzl", "fail_on_mixed_src_packages", "ts_compile")
 
 # ─── Internal auto node_modules rule ──────────────────────────────────────────
@@ -508,6 +508,10 @@ def _ts_test_runner_impl(ctx):
 
     transitive_js = depset(transitive = transitive_js_sets, order = "postorder")
 
+    # A wrangler `rules` module (Text, Data) the compiled JS imports is in the
+    # sandbox only when named here.
+    transitive_asset_sets = [dep[AssetInfo].transitive_asset_files for dep in ctx.attr.deps if AssetInfo in dep]
+
     # The test .js files come from the compiled test target.
     test_js_files = ctx.files.compiled_tests
 
@@ -643,6 +647,46 @@ def _ts_test_runner_impl(ctx):
             substitutions = {},
         )
 
+    # The pool boots the file `main` names, the source; a copy naming the compiled
+    # entry takes the source's runfiles path, so `wrangler.configPath` reads it.
+    wrangler_patched = None
+    if ctx.file.wrangler_config:
+        src = ctx.file.wrangler_config
+
+        # A runfiles file at a symlink's path wins over it silently, and the
+        # unpatched `main` with it: the source's copy in data or in an asset dep.
+        for f in ctx.files.data:
+            if f.short_path == src.short_path:
+                fail("ts_test {}: {} is staged through wrangler_config; do not list it in data too.".format(ctx.label, src.short_path))
+        transitive_asset_sets = [depset([
+            f
+            for f in depset(transitive = transitive_asset_sets).to_list()
+            if f.short_path != src.short_path
+        ])]
+
+        js_tool = get_js_tool(ctx)
+        if not js_tool:
+            fail("ts_test {}: wrangler_config needs the JS tool toolchain to patch the config.".format(ctx.label))
+        if not node_modules_files:
+            fail("ts_test {}: wrangler_config needs a node_modules tree holding wrangler; the pool in deps brings it.".format(ctx.label))
+        wrangler_patched = ctx.actions.declare_file("_{}_wrangler.{}".format(ctx.label.name, src.extension))
+        ctx.actions.run(
+            inputs = depset([src, ctx.file._wrangler_patch] + node_modules_files),
+            outputs = [wrangler_patched],
+            executable = js_tool.runtime_binary,
+            arguments = js_tool.args_prefix + [
+                ctx.file._wrangler_patch.path,
+                "--config",
+                src.path,
+                "--out",
+                wrangler_patched.path,
+                "--node-modules",
+                node_modules_files[0].path,
+            ],
+            mnemonic = "WranglerTestConfig",
+            progress_message = "WranglerTestConfig %{label}",
+        )
+
     # A `config` from an ancestor package roots vite there.
     root_rel = "."
     if ctx.file.config:
@@ -742,14 +786,17 @@ def _ts_test_runner_impl(ctx):
         runfiles_files.append(css_module_plugin)
     if workers_pool:
         runfiles_files.append(workers_pool)
+    if wrangler_patched:
+        runfiles_files.append(wrangler_patched)
 
     runfiles = ctx.runfiles(
         files = runfiles_files,
-        # The stylesheets as well as the .js: the plugin above answers a
-        # *.module.css import out of the export map beside it, which is only in
-        # the sandbox because it is named here.
-        transitive_files = depset(transitive = [transitive_js] + css_module_sets),
+        # The stylesheets and the assets as well as the .js: the plugin above
+        # answers a *.module.css import out of the export map beside it, and each
+        # is in the sandbox only because it is named here.
+        transitive_files = depset(transitive = [transitive_js] + css_module_sets + transitive_asset_sets),
         root_symlinks = launcher.root_symlinks,
+        symlinks = {ctx.file.wrangler_config.short_path: wrangler_patched} if wrangler_patched else {},
     )
     for target in ctx.attr.data + ctx.attr.setup_files + ctx.attr.global_setup:
         runfiles = runfiles.merge(target[DefaultInfo].default_runfiles)
@@ -802,6 +849,7 @@ def _node_test_providers(
             ("snapshots", ctx.attr.snapshots),
             ("update_snapshots", ctx.attr.update_snapshots),
             ("vitest", ctx.attr.vitest),
+            ("wrangler_config", ctx.attr.wrangler_config),
         ]
         if value
     ]
@@ -910,8 +958,8 @@ _RUNNER_ATTRS = {
     "deps": attr.label_list(
         aspects = [_instrumented_files_aspect],
         doc = "ts_compile and other targets whose .js files may be available at test runtime. " +
-              "Deps that do not provide JsInfo (e.g. css_module, asset_library) are silently " +
-              "skipped when collecting transitive .js files.",
+              "Deps that do not provide JsInfo (e.g. css_module, asset_library) contribute " +
+              "no .js; an asset_library dep's files are in the runfiles.",
     ),
     "node_modules": attr.label(
         doc = "A node_modules target providing the runtime npm dependency tree.",
@@ -923,6 +971,10 @@ _RUNNER_ATTRS = {
     ),
     "_workers_pool": attr.label(
         default = Label("//ts/private:vitest_workers_pool.mjs"),
+        allow_single_file = True,
+    ),
+    "_wrangler_patch": attr.label(
+        default = Label("//ts/private:wrangler_test_config.mjs"),
         allow_single_file = True,
     ),
     "_node_test_hook": attr.label(
@@ -986,6 +1038,13 @@ _RUNNER_ATTRS = {
               "precedence layer as the `config` file.  Set through the ts_test " +
               "macro by passing a dict to `config`.",
         default = "",
+    ),
+    "wrangler_config": attr.label(
+        doc = "The wrangler config a Workers-pool `config` names through " +
+              "`wrangler.configPath`.  A copy whose `main` (and every " +
+              "`env.<name>.main`) names the compiled entry beside it is staged " +
+              "at this file's own runfiles path; the file is not also listed in `data`.",
+        allow_single_file = [".jsonc", ".json", ".toml"],
     ),
     "setup_files": attr.label_list(
         doc = "Files run before each test file (vitest test.setupFiles).  " +
@@ -1069,6 +1128,7 @@ _ts_test_runner_test = rule(
     fragments = ["coverage"],
     toolchains = [
         config_common.toolchain_type(JS_RUNTIME_TOOLCHAIN_TYPE, mandatory = False),
+        config_common.toolchain_type(JS_TOOL_TOOLCHAIN_TYPE, mandatory = False),
     ],
     doc = "Internal test runner rule; use ts_test macro instead.",
 )
@@ -1081,6 +1141,7 @@ _ts_snapshot_updater = rule(
     attrs = _RUNNER_ATTRS | LAUNCHER_ATTRS,
     toolchains = [
         config_common.toolchain_type(JS_RUNTIME_TOOLCHAIN_TYPE, mandatory = False),
+        config_common.toolchain_type(JS_TOOL_TOOLCHAIN_TYPE, mandatory = False),
     ],
     doc = "Internal snapshot-updater rule; use ts_test(update_snapshots=True) macro instead.",
 )
@@ -1155,6 +1216,7 @@ def ts_test(
         environment = "",
         coverage = False,
         config = None,
+        wrangler_config = None,
         setup_files = [],
         global_setup = [],
         data = [],
@@ -1283,6 +1345,11 @@ def ts_test(
                            projects (test.projects), and each project in it
                            receives the Bazel layer and the attribute layer too.
                            Files the config imports relatively belong in `data`.
+        wrangler_config:   The wrangler config a Workers-pool `config` names
+                           through `wrangler.configPath`. A copy whose `main`
+                           (and every `env.<name>.main`) names the compiled
+                           entry beside it is staged at this file's own runfiles
+                           path; the file is not also listed in `data`.
         setup_files:       Files run before every test file (test.setupFiles), in
                            the order listed — compiled .ts/.tsx entries first,
                            then plain .js/.mjs ones.  TypeScript entries are
@@ -1469,6 +1536,8 @@ def ts_test(
         runner_kwargs["config_json"] = json.encode(config)
     elif config:
         runner_kwargs["config"] = config
+    if wrangler_config:
+        runner_kwargs["wrangler_config"] = wrangler_config
 
     if update_snapshots:
         # Produce an executable target (not a test) so `bazel run` works.

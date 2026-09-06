@@ -1,7 +1,6 @@
 {
-  // The pool boots the worker from this file, so `main` has to name what Bazel
-  // built rather than the source: the test runs against compiled output in
-  // bazel-bin, which is where the config is staged from too.
+  // Staged through `data`, this file is read as written, so `main` names what
+  // Bazel built; //tests/workers_nested names the source, through `wrangler_config`.
   "name": "rules-typescript-test-worker",
   "main": "src/index.js",
   "compatibility_date": "2026-01-01"

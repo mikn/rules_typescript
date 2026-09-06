@@ -46,6 +46,9 @@ tests/vitest/environment/jsdom.test.ts
 # for the intended outcome.
 tests/node_test/analysis/attrs.test.ts
 tests/node_test/analysis/css.test.ts
+# Analysis-only fixture, asserted to FAIL at analysis: the wrangler config it
+# stages through `wrangler_config` is in its `data` too.
+tests/workers_nested/test/data_shadow.test.ts
 # Meant to fail: it misses the coverage threshold its target sets, which is the
 # assertion. //tests/vitest/thresholds:enforcement_test runs it and asserts the
 # failure, so `bazel test //...` running it directly would report a red test for
