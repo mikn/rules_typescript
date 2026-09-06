@@ -2,11 +2,11 @@
  * resolve_test.mjs — what the tsserver hook does to ts.resolveModuleName.
  *
  * Run by tests/lsp/test_resolve_integration.sh:
- *   node --require <hook.js> resolve_test.mjs <zod.d.ts> <vitest.d.ts> <alias_dir>
+ *   node --require <hook.js> resolve_test.mjs <lib.d.ts> <alias_dir>
  *
  * Four claims, each of which the hook can break on its own:
  *   - the patch applied at all (ts._bazelPatched)
- *   - a bare npm specifier in the cache resolves to that exact .d.ts
+ *   - a first-party package in the cache resolves to that exact .d.ts
  *   - a # gazelle:ts_path_alias prefix resolves through to a source file
  *   - a specifier in neither falls through to TypeScript's own resolver
  *
@@ -19,12 +19,10 @@ import { existsSync, readFileSync } from 'fs';
 
 const require = createRequire(import.meta.url);
 
-const [, , zodDts, vitestDts, aliasDir] = process.argv;
+const [, , libDts, aliasDir] = process.argv;
 
-if (!zodDts || !vitestDts || !aliasDir) {
-  process.stderr.write(
-    'FATAL: usage: resolve_test.mjs <zod.d.ts> <vitest.d.ts> <alias_dir>\n'
-  );
+if (!libDts || !aliasDir) {
+  process.stderr.write('FATAL: usage: resolve_test.mjs <lib.d.ts> <alias_dir>\n');
   process.exit(1);
 }
 
@@ -92,8 +90,7 @@ function expectResolved(label, moduleName, containingFile, want) {
   pass(`${label} -> ${got}`);
 }
 
-expectResolved('npm specifier "zod"', 'zod', `${aliasDir}/app/main.ts`, zodDts);
-expectResolved('npm specifier "vitest"', 'vitest', `${aliasDir}/app/main.ts`, vitestDts);
+expectResolved('package "src/lib"', 'src/lib', `${aliasDir}/app/main.ts`, libDts);
 expectResolved(
   'path alias "@/lib/math"',
   '@/lib/math',

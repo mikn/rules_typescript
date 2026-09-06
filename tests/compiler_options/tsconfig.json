@@ -11,9 +11,7 @@
     "../../tsconfig.json",
     "./tsconfig.options.json"
   ],
-  "files": [
-    "../../.bazel/npm/@types/node/index.d.ts"
-  ],
+  "files": [],
   "include": [
     "ext_helper.ts",
     "ext_main.ts",

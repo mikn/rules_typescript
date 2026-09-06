@@ -11,9 +11,7 @@
     "../../tsconfig.json",
     "./tsconfig.worker.json"
   ],
-  "files": [
-    "../../.bazel/npm/@types/node/index.d.ts"
-  ],
+  "files": [],
   "include": [
     "src/index.ts",
     "src/worker.test.ts"

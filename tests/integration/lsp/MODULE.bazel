@@ -1,7 +1,8 @@
 """Integration test: LSP / IDE tsconfig generation.
 
 Verifies that `bazel run //:refresh_tsconfig` generates a tsconfig.json that:
-  1. Contains paths entries for npm packages (e.g. "zod").
+  1. Names no npm package in paths (e.g. "zod"): the checkout's node_modules
+     answers those.
   2. Contains paths entries for # gazelle:ts_path_alias directives (e.g. "@/*").
 
 The {RULES_TS_ROOT} placeholder is substituted at test runtime by test_runner.sh

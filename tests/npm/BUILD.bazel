@@ -4,7 +4,6 @@ load("@rules_go//go:def.bzl", "go_test")
 load("//npm:defs.bzl", "node_modules")
 load("//ts:defs.bzl", "ts_compile", "ts_test")
 load(":direct_version_tests.bzl", "direct_version_wins_test")
-load(":exports_types_tests.bzl", "exports_types_test_suite")
 load(":forest_tests.bzl", "forest_test")
 load(":hub_provenance_tests.bzl", "hub_provenance_test")
 load(":link_depth_tests.bzl", "link_depth_test_suite")
@@ -12,8 +11,6 @@ load(":member_manifest_tests.bzl", "member_manifest_test_suite")
 load(":node_modules_cache_tests.bzl", "tree_is_never_fetched_test")
 load(":parser_tests.bzl", "parser_test_suite")
 load(":resolution_tests.bzl", "conflicting_direct_peers_test", "conflicting_direct_versions_test")
-load(":type_references_tests.bzl", "type_references_test_suite")
-load(":types_only_tests.bzl", "types_only_test_suite")
 load(":workspace_link_tests.bzl", "member_view_test", "workspace_link_test_suite")
 
 package(default_visibility = ["//:__pkg__"])
@@ -31,20 +28,10 @@ parser_test_suite(name = "parser_tests")
 
 link_depth_test_suite(name = "link_depth_tests")
 
-# Manifest-text tests: which .d.ts a published package designates as its own
-# entry point, over the manifests of packages in this repo's lockfiles.
-exports_types_test_suite(name = "exports_types_tests")
-
 workspace_link_test_suite(name = "workspace_link_tests")
 
 # Manifest-text tests: a workspace member's package.json as the view carries it.
 member_manifest_test_suite(name = "member_manifest_tests")
-
-types_only_test_suite(name = "types_only_tests")
-
-# Header-text tests: which packages a declaration's `/// <reference types=...>`
-# directives name, and that the stanza carries them.
-type_references_test_suite(name = "type_references_tests")
 
 ts_compile(
     name = "app",
@@ -100,6 +87,29 @@ forest_test(
         "vite/package.json",
     ],
     target_under_test = ":transitive_types_probe",
+)
+
+# The hub pairs `culori` with `@types/culori` and the pairing rides in the closure,
+# so the forest links the @types package where TypeScript walks for it.
+ts_compile(
+    name = "paired_types_probe",
+    srcs = ["paired_types_probe.ts"],
+    deps = ["@npm//:culori"],
+)
+
+build_test(
+    name = "paired_types_build_test",
+    targets = [":paired_types_probe"],
+)
+
+forest_test(
+    name = "paired_types_forest_test",
+    size = "small",
+    linked = [
+        "@types/culori/package.json",
+        "culori/package.json",
+    ],
+    target_under_test = ":paired_types_probe",
 )
 
 [

@@ -20,8 +20,8 @@ ts_add_package(
 
 ts_refresh_tsconfig(
     name = "refresh_tsconfig",
-    # `deps` is what the aspect walks: without it there are no packages, no
-    # aliases and no npm entries to write, which is what the runner asserts on.
+    # `deps` is what the aspect walks: without it there are no packages and no
+    # aliases to write, which is what the runner asserts on.
     deps = [
         "//src/components",
         "//src/models",

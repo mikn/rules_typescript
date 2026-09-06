@@ -4,19 +4,13 @@
  *   node worker_map_test.mjs <tsserver-hook-worker.js>
  *
  * The worker reads what `bazel run //:refresh_tsconfig` wrote from the build
- * graph -- .bazel/tsserver-hook-data.json and the npm declarations installed
- * beside it -- so a fixture workspace is the whole of its input, and there is no
- * `bazel` left to stub out.
+ * graph -- .bazel/tsserver-hook-data.json -- so a fixture workspace is the whole
+ * of its input, and there is no `bazel` left to stub out.
  *
- * All the halves of the map are checked here, including the parts that are
- * left OUT: an npm package the data names but nothing installed, a ts_compile
- * package with no entry point, a nested workspace's directives, and a "~" alias
- * prefix that the worker's character screen rejects even though gazelle accepts
- * it. A @types/* package is here too, because it is the one entry whose map key
- * and installed directory are different names.
- *
- * //tests/lsp:test_resolution_map runs the same worker over this repo's own
- * generated data rather than a fixture.
+ * Both halves of the map are checked here, including the parts that are left
+ * OUT: a ts_compile package with no entry point, a nested workspace's
+ * directives, and a "~" alias prefix that the worker's character screen rejects
+ * even though gazelle accepts it.
  */
 
 import { Worker } from 'node:worker_threads';
@@ -68,49 +62,11 @@ write('src/empty/helpers.ts', 'export const c = 3;\n');
 write('vendor/child/MODULE.bazel', 'module(name = "child")\n');
 write('vendor/child/BUILD.bazel', '# gazelle:ts_path_alias @child/ vendor/child/src/\n');
 
-// ── The installed npm declarations, and the graph data that names them ───────
-
-// A package whose own exports["."].types the aspect knew: the data names the
-// .d.ts itself.
-write('.bazel/npm/zod/package.json', JSON.stringify({ name: 'zod', types: './index.d.ts' }));
-const zodDts = write('.bazel/npm/zod/index.d.ts', 'export declare const z: unknown;\n');
-
-// A package the aspect could only name by directory: the package.json installed
-// with it is what says which .d.ts is the entry point.
-write(
-  '.bazel/npm/hublib/package.json',
-  JSON.stringify({ name: 'hublib', types: './dist/index.d.ts' })
-);
-const hubDts = write('.bazel/npm/hublib/dist/index.d.ts', 'export declare const h: number;\n');
-
-// Installed, but with no declarations to point at.
-write('.bazel/npm/binary-only/package.json', JSON.stringify({ name: 'binary-only' }));
-
-// A @types/* package: installed under its own name, and the map keys it under
-// the name it types. `dir` is what separates the two, and without it the worker
-// looks for `.bazel/npm/estree` -- which nothing installs.
-write(
-  '.bazel/npm/@types/estree/package.json',
-  JSON.stringify({ name: '@types/estree', types: 'index.d.ts' })
-);
-const estreeDts = write(
-  '.bazel/npm/@types/estree/index.d.ts',
-  'export declare interface Program { body: unknown[] }\n'
-);
+// ── The graph data ───────────────────────────────────────────────────────────
 
 write(
   '.bazel/tsserver-hook-data.json',
-  JSON.stringify({
-    npmDir: '.bazel/npm',
-    npmPackages: [
-      { name: 'zod', entry: 'index.d.ts', isFile: true },
-      { name: 'hublib', entry: '', isFile: false },
-      { name: 'binary-only', entry: '', isFile: false },
-      { name: 'never-installed', entry: '', isFile: false },
-      { name: 'estree', dir: '@types/estree', entry: 'index.d.ts', isFile: true },
-    ],
-    packages: ['src/lib', 'src/app', 'src/empty'],
-  })
+  JSON.stringify({ packages: ['src/lib', 'src/app', 'src/empty'] })
 );
 
 // ── Run the worker and check the map it sends ───────────────────────────────
@@ -168,17 +124,6 @@ worker.once('message', (msg) => {
   }
   const map = msg.data;
   process.stdout.write(`INFO: map = ${JSON.stringify(map, null, 2)}\n`);
-
-  // npm, in both forms the aspect can name an entry point.
-  expectEntry(map, 'zod', zodDts);
-  expectEntry(map, 'hublib', hubDts);
-  expectAbsent(map, 'binary-only', 'the package ships no declarations');
-  expectAbsent(map, 'never-installed', 'nothing was installed under npmDir');
-
-  // The name a @types/* package types, resolved to the package installed under
-  // its own name.
-  expectEntry(map, 'estree', estreeDts);
-  expectAbsent(map, '@types/estree', 'no import writes the package\'s own name');
 
   // Internal ts_compile packages, keyed by package path.
   expectEntry(map, 'src/lib', libIndex);

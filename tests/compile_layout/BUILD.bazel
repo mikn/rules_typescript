@@ -12,7 +12,6 @@ load(
     ":layout_tests.bzl",
     "declared_outputs_test",
     "oxc_strip_prefix_test",
-    "paths_value_test",
 )
 
 package(default_visibility = ["//:__pkg__"])
@@ -58,5 +57,3 @@ oxc_strip_prefix_test(
     name = "oxc_strip_prefix_test",
     target_under_test = ":siblings",
 )
-
-paths_value_test(name = "paths_value_test")

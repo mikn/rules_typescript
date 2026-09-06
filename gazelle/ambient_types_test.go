@@ -149,12 +149,8 @@ func TestTsConfigTypes_NearestTsConfigWinsWithoutMutatingTheParent(t *testing.T)
 	}
 }
 
-// The rule reads the same shapes out of its `types` attr, in
-// types_entry_package_ref (ts/private/ts_compile.bzl), and fails analysis for
-// every entry it reads as a package that no dep answers. An entry this side
-// writes no dep for and that side reads as a package is a fail() nothing can
-// clear, so the classification is pinned on both sides: this table, and
-// types_entry_package_ref_test in //tests/compiler_options/analysis.
+// Gazelle alone classifies a `types` entry (the rule hands its tsconfig to tsgo);
+// this table pins which shapes name a package it writes a dep for.
 func TestTsConfigTypes_EntryShapesAreClassifiedLikeTheRule(t *testing.T) {
 	for _, tc := range []struct {
 		entry string

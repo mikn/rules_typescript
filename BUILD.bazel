@@ -10,11 +10,11 @@ exports_files([
 
 # ── IDE Integration ────────────────────────────────────────────────────────────
 # The workspace-root tsconfig.json IDEs read is a declared output, written from
-# an aspect over the ts_compile graph: source roots, and the .d.ts entry point
-# NpmPackageInfo names for every npm package a target imports.
+# an aspect over the ts_compile graph: the source roots. npm packages resolve
+# through the checkout's node_modules, as they do under tsc.
 #
 #   bazel run //:refresh_tsconfig        installs it in the source tree, with
-#                                        the npm .d.ts files under .bazel/npm
+#                                        the tsserver plugin under .bazel
 #   bazel test //:refresh_tsconfig_test  fails when the checked-in copy is stale
 #
 # `deps` is what the IDE sees, and a rule's deps obey visibility. The aspect
@@ -25,16 +25,16 @@ exports_files([
 # `//:__pkg__` instead.
 #
 # The `_<test>_compile` entries are the ts_compile targets ts_test generates for
-# a test's own sources; naming them is what puts `vitest` among the npm paths
-# entries, since nothing else in the graph depends on a test's own sources.
+# a test's own sources; naming them is what puts a test's package and program in
+# the file, since nothing else in the graph depends on a test's own sources.
 #
 # The guard fixtures under //tests/compiler_options/analysis stay out: their
 # analysis is meant to fail, so listing one here fails this target instead. So do
 # the fixtures that exist only to be read by an analysis test of the generated
 # file -- what they declare belongs in that test, not in the checked-in
 # tsconfig. //tests/workers:experimental_types stays out too: one workspace-wide
-# `files` list would hand workers-types' 17k-line global script, which merges
-# into lib.dom, to every program here.
+# program would hand workers-types' 17k-line global script, which merges into
+# lib.dom, to every file here.
 #
 # extra_exclude names the TypeScript that is not in this module's graph at all.
 # e2e/, examples/ and tests/integration/ are separate Bazel modules, each with
@@ -59,10 +59,6 @@ ts_refresh_tsconfig(
         "**/examples",
         "**/tests/integration",
     ],
-    # A darwin-only optionalDependency that ships fsevents.d.ts, so it is not
-    # caught by the declaration-free filter: with it in, the checked-in file
-    # differs per host and //:refresh_tsconfig_test fails on the other one.
-    host_only_packages = ["fsevents"],
     # A package needs its own editor program when its targets name a tsconfig of
     # their own. tsserver resolves a file to a program by directory, so the root
     # program would otherwise check these against the wrong options. Declared
@@ -91,7 +87,6 @@ ts_refresh_tsconfig(
         "//eslint-plugin/src:_src_test_compile",
         "//packages/nested-shared",
         "//packages/shared",
-        "//tests/ambient_npm_types:consumer",
         "//tests/assets:header_lib",
         "//tests/bundle:app",
         "//tests/codegen:consumer_compile",
@@ -120,8 +115,6 @@ ts_refresh_tsconfig(
         "//tests/dev_server:app",
         "//tests/dev_server:dev_app",
         "//tests/json:app_lib",
-        "//tests/lsp:ambient_fixture",
-        "//tests/lsp:plain_fixture",
         "//tests/multi/app",
         "//tests/npm:app",
         "//tests/npm:nested_workspace_consumer",

@@ -1,8 +1,6 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//tests/vitest:vitest_config.bzl", "vitest_config")
 load("//ts:defs.bzl", "ts_compile", "ts_config", "ts_test")
-load("//ts/private:tsconfig_aspect.bzl", "ide_tsconfig")
-load(":module_entry_tests.bzl", "module_entry_editor_test")
 
 package(default_visibility = ["//:__pkg__"])
 
@@ -92,8 +90,8 @@ build_test(
     targets = [":experimental_types"],
 )
 
-# The package names no entry point and ships index.ts, a module, beside
-# index.d.ts, a global script; the import is answered by the first alone.
+# index.ts, a module, beside index.d.ts, a global script: tsgo walks the forest for
+# the bare import and takes index.ts first, as over a pnpm install; nothing pins it.
 ts_compile(
     name = "module_import",
     srcs = ["src/module_import.ts"],
@@ -104,19 +102,6 @@ ts_compile(
 build_test(
     name = "module_import_build_test",
     targets = [":module_import"],
-)
-
-# Read by the test, never installed; see //:refresh_tsconfig.
-ide_tsconfig(
-    name = "module_import_ide_tsconfig",
-    nested_tsconfigs = ["tests/workers/tsconfig.json"],
-    tags = ["manual"],
-    deps = [":module_import"],
-)
-
-module_entry_editor_test(
-    name = "module_entry_editor_test",
-    target_under_test = ":module_import_ide_tsconfig",
 )
 
 # The generated editor program for this package; see //:refresh_tsconfig.

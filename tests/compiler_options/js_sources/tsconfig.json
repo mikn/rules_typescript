@@ -12,9 +12,7 @@
     "../../../tsconfig.json",
     "./tsconfig.checkjs.json"
   ],
-  "files": [
-    "../../../.bazel/npm/@types/node/index.d.ts"
-  ],
+  "files": [],
   "include": [
     "esm.mjs",
     "legacy.cjs",

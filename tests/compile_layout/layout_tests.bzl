@@ -6,8 +6,7 @@ single-common-directory assumption shows up first: one --strip-dir-prefix has to
 be the package, not the directory of whichever src sorted first.
 """
 
-load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
-load("//ts/private:ts_compile.bzl", "explicitly_relative")
+load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 
 _PKG = "tests/compile_layout"
 
@@ -69,27 +68,3 @@ def _oxc_strip_prefix_impl(ctx):
     return analysistest.end(env)
 
 oxc_strip_prefix_test = analysistest.make(_oxc_strip_prefix_impl)
-
-def _paths_value_impl(ctx):
-    env = unittest.begin(ctx)
-
-    # A target under the tsconfig's own directory -- a ts_codegen tree in the
-    # consuming package, say -- relativizes to a bare segment, which TypeScript
-    # reads as a package name and rejects with TS5090.
-    asserts.equals(
-        env,
-        "./compiled/index.d.ts",
-        explicitly_relative("compiled/index.d.ts"),
-        "a bare segment names itself relative",
-    )
-    for already in ("./here", "../../there", "/abs/elsewhere"):
-        asserts.equals(
-            env,
-            already,
-            explicitly_relative(already),
-            "an already-relative value is unchanged",
-        )
-
-    return unittest.end(env)
-
-paths_value_test = unittest.make(_paths_value_impl)

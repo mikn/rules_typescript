@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -65,17 +64,14 @@ func main() {
 		}
 		paths := parsed.CompilerOptions.Paths
 
-		zod := pathsEntry(it, paths, "zod")[0]
-		fmt.Printf("INFO: zod path entry = %q\n", zod)
-		if !strings.HasSuffix(zod, ".d.ts") {
-			it.Fail("'zod' path does not end in .d.ts: %q", zod)
+		// An npm package resolves through the checkout's node_modules, as under
+		// tsc; a key here would send the editor somewhere the build does not look.
+		for key := range paths {
+			if key == "zod" || strings.HasPrefix(key, "zod/") {
+				it.Fail("tsconfig.json names the npm package zod in paths: %q", key)
+			}
 		}
-		resolved := zod
-		if !filepath.IsAbs(resolved) {
-			resolved = filepath.Join(filepath.Dir(generated), resolved)
-		}
-		it.RequireFile(resolved, "'zod' path does not exist on disk: %q", resolved)
-		it.Pass("tsconfig.json has 'zod' in paths pointing at a real .d.ts file")
+		it.Pass("tsconfig.json has no paths key for the npm package zod")
 
 		alias := pathsEntry(it, paths, "@/*")
 		fmt.Printf("INFO: @/* path entries = %q\n", alias)

@@ -11,9 +11,7 @@
     "../../../tsconfig.json",
     "./baseline.tsconfig.json"
   ],
-  "files": [
-    "../../../.bazel/npm/@types/node/index.d.ts"
-  ],
+  "files": [],
   "include": [
     "loose.ts",
     "loose_check_only.ts"

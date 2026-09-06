@@ -11,9 +11,7 @@
     "../../../tsconfig.json",
     "./tsconfig.aliases.json"
   ],
-  "files": [
-    "../../../.bazel/npm/@types/node/index.d.ts"
-  ],
+  "files": [],
   "include": [
     "app/main.ts",
     "shared/value.ts"

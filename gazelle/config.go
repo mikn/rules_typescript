@@ -972,8 +972,7 @@ func pickAliasTarget(baseDir, aliasPattern string, targets []string) string {
 		}
 	}
 	if len(usable) == 0 {
-		// A tool-managed dot-directory is meant to be dropped, and every npm
-		// declaration ts_refresh_tsconfig writes takes that path. An alias left
+		// A tool-managed dot-directory is meant to be dropped. An alias left
 		// with only output-tree entries is the one worth a word: dropping it
 		// silently replaces ts_compile's analysis error with a missing dep edge.
 		if !anyToolManaged(targets) {
@@ -1016,11 +1015,8 @@ func aliasTargetIsUsable(target string) bool {
 		return false
 	}
 
-	// A named dot-directory is tool-managed, never a Bazel package:
-	// ts_refresh_tsconfig installs npm declarations under npm_dir
-	// (.bazel/npm by default), one paths entry per package, and treating
-	// those as aliases resolved `import 'zod'` to //.bazel/npm/zod/index.d
-	// instead of @npm//:zod. A bare "." is the baseUrl root, not a dot-dir.
+	// A named dot-directory is tool-managed, never a Bazel package. A bare
+	// "." is the baseUrl root, not a dot-dir.
 	return len(head) <= 1 || head[0] != '.' || head == ".."
 }
 

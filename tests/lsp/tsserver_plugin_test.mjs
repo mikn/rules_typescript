@@ -2,9 +2,13 @@
  * tsserver_plugin_test.mjs — the gold test for tools/tsserver-plugin.js.
  *
  * Run by tests/lsp/test_tsserver_plugin.sh, which stages what
- * `bazel run //:refresh_tsconfig` installs into a scratch workspace and writes
- * the fixture package this drives tsserver over:
+ * `bazel run //:refresh_tsconfig` installs into a scratch workspace:
  *   node tsserver_plugin_test.mjs <tsserver.js> <workspace_root>
+ *
+ * This file then writes the rest of the fixture: the .d.ts a build would leave
+ * in bazel-bin for the first package the staged hook data names, and a package
+ * of two sources that import it by that name -- a bare specifier its own
+ * tsconfig cannot resolve, so the plugin is the only route.
  *
  * The subject is a real tsserver process, spoken to over its own JSON protocol
  * -- not a language service this file assembled. That distinction is the whole
@@ -14,24 +18,25 @@
  *   installed  the plugin package is where refresh_tsconfig's manifest says.
  *              tsserver logs and ignores a plugin it cannot load, so without
  *              this a broken emission would look like an unresolved import.
- *   baseline   tsserver WITHOUT the plugin reports TS2307 for "zod" -- nothing
- *              on the fixture's module search path leads to zod's declarations,
- *              so the assertions below are attributable to the plugin.
- *   resolved   with the plugin, `import { z } from "zod"` reaches zero
- *              diagnostics. The map arrives from the worker thread, so this
- *              polls until the deadline rather than asking once.
+ *   baseline   tsserver WITHOUT the plugin reports TS2307 for the package --
+ *              nothing on the fixture's module search path leads to its
+ *              declarations, so the assertions below are attributable to the
+ *              plugin.
+ *   resolved   with the plugin, the import reaches zero diagnostics. The map
+ *              arrives from the worker thread, so this polls until the deadline
+ *              rather than asking once.
  *   vscode     the same, with the plugin named in the fixture's tsconfig and NO
  *              --globalPlugins -- the one path VS Code has, since it passes
  *              only a probe location.
- *   real       a bogus member on `z` is still rejected, and the type it is
- *              rejected against comes from the declarations Bazel installed. A
+ *   real       a bogus member on the import is still rejected, and the type it
+ *              is rejected against comes from the .d.ts under bazel-bin. A
  *              stub, an `any`, or a widened import passes `resolved` and fails
  *              this.
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 const [, , tsserverJs, workspaceRoot] = process.argv;
 
@@ -45,9 +50,53 @@ const PLUGIN_DIR = join(workspaceRoot, '.bazel/node_modules', PLUGIN_NAME);
 const PROBE_DIR = join(workspaceRoot, '.bazel');
 const GOOD = join(workspaceRoot, 'fixture/src/good.ts');
 const BAD = join(workspaceRoot, 'fixture/src/bad.ts');
-const BOGUS_MEMBER = 'definitelyNotAZodMethod';
-const ZOD_DECLARATIONS = join('.bazel', 'npm', 'zod');
+const BOGUS_MEMBER = 'definitelyNotAMethod';
 const DEADLINE_MS = 60000;
+
+// The first-party package the fixture imports: the first one the staged hook
+// data names, so the test follows the graph rather than pinning a label.
+const hookData = JSON.parse(
+  readFileSync(join(workspaceRoot, '.bazel/tsserver-hook-data.json'), 'utf8')
+);
+const PKG = (hookData.packages || [])[0];
+if (!PKG) {
+  process.stderr.write('FATAL: the staged hook data names no package\n');
+  process.exit(1);
+}
+const LIB_DECLARATIONS = join('bazel-bin', PKG);
+
+function write(rel, contents) {
+  const p = join(workspaceRoot, rel);
+  mkdirSync(dirname(p), { recursive: true });
+  writeFileSync(p, contents);
+}
+
+// What a build leaves for the worker: the .d.ts in bazel-bin wins over a source.
+write(`${LIB_DECLARATIONS}/index.d.ts`, 'export declare function add(a: number, b: number): number;\n');
+
+// The fixture's own tsconfig, with no `paths`: tsserver builds these files'
+// program from it, so the package is reachable only through the plugin it names.
+write(
+  'fixture/tsconfig.json',
+  JSON.stringify(
+    {
+      compilerOptions: {
+        target: 'ES2022',
+        module: 'Preserve',
+        moduleResolution: 'Bundler',
+        strict: true,
+        noEmit: true,
+        skipLibCheck: true,
+        plugins: [{ name: PLUGIN_NAME }],
+      },
+      include: ['src'],
+    },
+    null,
+    2
+  ) + '\n'
+);
+write('fixture/src/good.ts', `import * as lib from "${PKG}";\nexport const s: number = lib.add(1, 2);\n`);
+write('fixture/src/bad.ts', `import * as lib from "${PKG}";\nexport const s = lib.${BOGUS_MEMBER}();\n`);
 
 let failures = 0;
 
@@ -146,8 +195,8 @@ async function settle(server, file, accept) {
   return last;
 }
 
-const missesZod = (diagnostics) =>
-  diagnostics.some((d) => d.code === 2307 && d.text.includes("'zod'"));
+const missesPackage = (diagnostics) =>
+  diagnostics.some((d) => d.code === 2307 && d.text.includes(`'${PKG}'`));
 
 async function main() {
   for (const file of ['index.js', 'package.json', 'tsserver-hook-resolver.js', 'tsserver-hook-worker.js']) {
@@ -167,12 +216,12 @@ async function main() {
     try {
       server.open(GOOD);
       const diagnostics = await server.diagnostics(GOOD);
-      if (missesZod(diagnostics)) {
-        pass('baseline: tsserver without the plugin cannot find "zod"');
+      if (missesPackage(diagnostics)) {
+        pass(`baseline: tsserver without the plugin cannot find "${PKG}"`);
       } else {
         fail(
-          'baseline: tsserver without the plugin cannot find "zod"',
-          `no TS2307 for zod, so the fixture resolves it without the plugin and the ` +
+          `baseline: tsserver without the plugin cannot find "${PKG}"`,
+          `no TS2307 for ${PKG}, so the fixture resolves it without the plugin and the ` +
             `assertions below would prove nothing. diagnostics: ${describe(diagnostics)}`
         );
       }
@@ -189,30 +238,30 @@ async function main() {
 
       const good = await settle(server, GOOD, (d) => d.length === 0);
       if (good.length === 0) {
-        pass('resolved: `import { z } from "zod"` type-checks clean in tsserver');
+        pass(`resolved: \`import * as lib from "${PKG}"\` type-checks clean in tsserver`);
       } else {
         fail(
-          'resolved: `import { z } from "zod"` type-checks clean in tsserver',
+          `resolved: \`import * as lib from "${PKG}"\` type-checks clean in tsserver`,
           `${describe(good)}. tsserver stderr: ${server.stderr() || '(empty)'}`
         );
       }
 
-      const bad = await settle(server, BAD, (d) => !missesZod(d));
+      const bad = await settle(server, BAD, (d) => !missesPackage(d));
       const rejection = bad.find((d) => d.text.includes(BOGUS_MEMBER));
       if (!rejection) {
         fail(
-          `real: z.${BOGUS_MEMBER}() is rejected`,
-          'a nonexistent member on `z` produced no error, so "zod" resolved to ' +
-            `something untyped rather than to its own declarations. diagnostics: ${describe(bad)}`
+          `real: lib.${BOGUS_MEMBER}() is rejected`,
+          `a nonexistent member on \`lib\` produced no error, so "${PKG}" resolved to ` +
+            `something untyped rather than to its declarations. diagnostics: ${describe(bad)}`
         );
-      } else if (!rejection.text.includes(ZOD_DECLARATIONS)) {
+      } else if (!rejection.text.includes(LIB_DECLARATIONS)) {
         fail(
-          `real: z.${BOGUS_MEMBER}() is rejected against the installed declarations`,
-          `the rejection does not name ${ZOD_DECLARATIONS}, so it came from somewhere ` +
-            `other than what refresh_tsconfig installed: ${rejection.text}`
+          `real: lib.${BOGUS_MEMBER}() is rejected against the bazel-bin declarations`,
+          `the rejection does not name ${LIB_DECLARATIONS}, so it came from somewhere ` +
+            `other than the .d.ts the map names: ${rejection.text}`
         );
       } else {
-        pass(`real: z.${BOGUS_MEMBER}() is rejected against ${ZOD_DECLARATIONS}`);
+        pass(`real: lib.${BOGUS_MEMBER}() is rejected against ${LIB_DECLARATIONS}`);
       }
     } finally {
       server.stop();

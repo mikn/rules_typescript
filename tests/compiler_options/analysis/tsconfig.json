@@ -12,9 +12,7 @@
     "../../../tsconfig.json",
     "./tsconfig.checkjs.json"
   ],
-  "files": [
-    "../../../.bazel/npm/@types/node/index.d.ts"
-  ],
+  "files": [],
   "include": [
     "nested/leaf.ts",
     "util.js",

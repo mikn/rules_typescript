@@ -9,7 +9,9 @@
 # tsserver from the lockfile's typescript through @npm, and a scratch workspace
 # staged by refresh_tsconfig's own copier -- the plugin package under test is
 # therefore the one that macro really installs, at the path it really installs
-# it to. Nothing is read from the host and nothing is skipped.
+# it to. The .mjs writes the fixture package into that workspace, since which
+# first-party package it imports comes from the staged hook data. Nothing is
+# read from the host and nothing is skipped.
 
 # --- begin runfiles.bash initialization v3 ---
 # Copy-pasted from the Bazel Bash runfiles library v3.
@@ -62,34 +64,5 @@ echo "INFO: staged $(wc -l < "${TEST_TMPDIR}/copied.txt") files into ${WORKSPACE
 
 # The marker the plugin walks up to find, and which the manifest does not carry.
 touch "${WORKSPACE_ROOT}/MODULE.bazel"
-
-# ── The fixture package ───────────────────────────────────────────────────────
-# Its own tsconfig.json, with no `paths`: an editor resolves a file to a program
-# by directory, so this is the program tsserver builds for these files, and
-# "zod" is reachable from it only through the plugin. The staged root config,
-# which does have a zod entry, claims neither file.
-#
-# `plugins` mirrors what the generator writes into a root config, and carries
-# the vscode assertion: a client that passes no --globalPlugins has only this.
-FIXTURE="${WORKSPACE_ROOT}/fixture"
-mkdir -p "${FIXTURE}/src"
-cat > "${FIXTURE}/tsconfig.json" <<'EOF'
-{
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "Preserve",
-    "moduleResolution": "Bundler",
-    "strict": true,
-    "noEmit": true,
-    "skipLibCheck": true,
-    "plugins": [{ "name": "@rules_typescript/tsserver-plugin" }]
-  },
-  "include": ["src"]
-}
-EOF
-printf 'import { z } from "zod";\nexport const s = z.string();\n' > "${FIXTURE}/src/good.ts"
-printf 'import { z } from "zod";\nexport const s = z.definitelyNotAZodMethod();\n' \
-    > "${FIXTURE}/src/bad.ts"
-pass "staged a fixture package with no zod on its module search path"
 
 exec "${NODE}" "${PLUGIN_TEST_MJS}" "${TSSERVER_JS}" "${WORKSPACE_ROOT}"

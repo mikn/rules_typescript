@@ -11,9 +11,7 @@
     "../../../tsconfig.json",
     "./tsconfig.vitest.json"
   ],
-  "files": [
-    "../../../.bazel/npm/@types/node/index.d.ts"
-  ],
+  "files": [],
   "include": [
     "attrs.test.ts",
     "setup.ts"

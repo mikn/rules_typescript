@@ -94,109 +94,6 @@ def _source_root(f, pkg):
         return p[:len(p) - len(rel) - 1]
     return f.dirname
 
-def _relative_path(from_dir, to_dir):
-    """Computes a relative path from from_dir to to_dir.
-
-    Both arguments are /-separated directory paths. Returns a string like
-    "../../other/pkg" or "." when from_dir == to_dir.
-    """
-    from_parts = [p for p in from_dir.split("/") if p]
-    to_parts = [p for p in to_dir.split("/") if p]
-    common_len = 0
-    for i in range(min(len(from_parts), len(to_parts))):
-        if from_parts[i] == to_parts[i]:
-            common_len += 1
-        else:
-            break
-    up_parts = [".."] * (len(from_parts) - common_len)
-    down_parts = to_parts[common_len:]
-    result = up_parts + down_parts
-    return "/".join(result) if result else "."
-
-def explicitly_relative(path):
-    """A `paths` value spelled so TypeScript reads it as a path, not a package.
-
-    `_relative_path` answers with a bare segment whenever the target sits under
-    the tsconfig's own directory, and tsgo removed `baseUrl`, so TypeScript reads
-    that as a module specifier and rejects it with TS5090. TypeScript's own test
-    for an already-relative path is `^\\.\\.?($|/)` -- which is why a leading
-    dot alone does not qualify: `.bazel/npm/x` is a directory named `.bazel`, not
-    a relative path. Exported for the unit test.
-    """
-    if path in (".", "..") or path.startswith("./") or path.startswith("../") or path.startswith("/"):
-        return path
-    return "./" + path
-
-def subpath_roots(tsconfig_dir, pkg_root, entry_rel_dir):
-    """Where `pkg/sub` may live, in the order npm would look.
-
-    With no `exports` map -- which is most of the registry -- `pkg/sub` is a
-    plain path under the package root, so `recharts/types/shape/Curve` is
-    `<recharts>/types/shape/Curve`. Hanging the wildcard off the entry's own
-    directory instead spells that `<recharts>/types/types/shape/Curve`. The
-    entry directory stays as a second substitution: a package whose subpaths do
-    sit beside its entry keeps resolving, and TypeScript tries each in turn.
-    Exported for the unit test.
-    """
-    return subpath_wildcards(
-        explicitly_relative(_relative_path(tsconfig_dir, pkg_root)),
-        entry_rel_dir,
-    )
-
-def subpath_wildcards(pkg_root_rel, entry_rel_dir):
-    """`subpath_roots` over two directories already relative to the tsconfig.
-
-    tsconfig_aspect reaches the same two by its own route -- the installed tree
-    under `npm_dir` rather than an external repository -- and which order they
-    go in is the rule above, not a second opinion about it. Exported for that
-    caller and for the unit test.
-    """
-    roots = [pkg_root_rel] if pkg_root_rel == entry_rel_dir else [pkg_root_rel, entry_rel_dir]
-    return [r + "/*" for r in roots]
-
-def subpath_pattern_paths(pkg_root_rel, entry_rel_dir, key, target):
-    """`paths` values for one `exports` pattern key, the manifest's answer first.
-
-    `key` is the `exports` key (`./utils/*`) and `target` the package-relative
-    pattern it maps to (`dist/types/utils/*.d.ts`); TypeScript substitutes the
-    matched star into the whole value, so both keep their prefix and suffix.
-    Behind the answer come the guesses `subpath_wildcards` makes for `<pkg>/*`,
-    each spelled with the key's own shape, so a manifest naming a directory the
-    tarball lacks resolves no worse than one nobody read. Exported for
-    tsconfig_aspect and the unit test.
-    """
-    values = [pkg_root_rel + "/" + target]
-    for root in subpath_wildcards(pkg_root_rel, entry_rel_dir):
-        guess = root[:-len("/*")] + key[1:]
-        if guess not in values:
-            values.append(guess)
-    return values
-
-def types_package_alias(package_name):
-    """The name `@types/x` supplies declarations for, or None for any other package.
-
-    DefinitelyTyped publishes `x`'s declarations as `@types/x`, and a scoped
-    `@a/b`'s as `@types/a__b`. TypeScript pairs the two by walking
-    `node_modules/@types`, which this ruleset does not have: npm packages reach
-    the compiler through `paths`, and a key spelled `@types/x` answers no import
-    anyone writes. Exported for the unit test.
-    """
-    if not package_name.startswith("@types/"):
-        return None
-    unmangled = package_name[len("@types/"):]
-    scope, separator, name = unmangled.partition("__")
-    return "@" + scope + "/" + name if separator else unmangled
-
-def types_package_name(package_name):
-    """The `@types/*` package DefinitelyTyped publishes `package_name`'s declarations as.
-
-    The inverse of `types_package_alias`: `@a/b` is `@types/a__b`. Exported for
-    the unit test.
-    """
-    if package_name.startswith("@"):
-        return "@types/" + package_name[1:].replace("/", "__", 1)
-    return "@types/" + package_name
-
 # ─── Tsconfig generation ─────────────────────────────────────────────────────
 
 # The options a TypeScript target gets from this ruleset whether or not it names
@@ -216,195 +113,6 @@ _BASELINE_OPTIONS = {
     "esModuleInterop": True,
     "allowArbitraryExtensions": True,
 }
-
-# A tsconfig `types` entry names a package, and TypeScript resolves it by walking
-# node_modules for that package and reading its manifest. The editor's tsconfig
-# (tsconfig_aspect.bzl) has no node_modules to walk, so the entry is resolved
-# here for it, against what the package's own manifest designated, and the file
-# goes in the editor's `files`.
-#
-# Gazelle reads the same shapes out of a `types` entry, in `ambientTypeLabel`
-# (gazelle/config.go), for the other half of the job: it reads the entries out of
-# a tsconfig file and writes the npm deps, while the rule reads the attribute and
-# resolves it against those deps. Different inputs, one vocabulary -- an entry
-# the two classify differently is either one the rule ignores while Gazelle
-# writes a dep for it, silently back to the bug the guard below exists for, or a
-# package the rule demands a dep for that Gazelle never writes: a fail() nothing
-# can clear. So one table of shapes is asserted on both sides:
-# `types_entry_package_ref_test` in //tests/compiler_options/analysis and
-# `TestTsConfigTypes_EntryShapesAreClassifiedLikeTheRule` in //gazelle.
-def types_entry_package_ref(entry):
-    """The package one `compilerOptions.types` entry names, or "".
-
-    The recogniser of this attribute for the whole ruleset: anything that has
-    to know what a `types` entry names calls this rather than spelling the
-    shapes again, and `types_entry_file` below is the one resolution built on
-    it. A second spelling is a second answer for some entry, and the guard
-    below turns a disagreement into a fail() no dep clears.
-
-    "" for an entry that names a path instead: one starting with `.` or `/`, or
-    ending in a declaration extension, which no dep resolves.
-    `types_entry_declaration` below takes the two of those shapes the rule
-    resolves itself. Whitespace is trimmed first, which is what Gazelle's
-    `ambientTypeLabel` does before it reads the same shapes -- so a padded entry
-    it writes a dep for is one this spends that dep on, and a blank entry, which
-    it writes no dep for, trims away to no package at all.
-    """
-    entry = entry.strip()
-    if entry.startswith(".") or entry.startswith("/") or entry.endswith(_DECLARATION_SUFFIXES):
-        return ""
-    return entry
-
-# `^\.\.?($|/)` is TypeScript's own test for a path here; this takes the `./` and
-# `../` of it that end in a declaration extension and leaves the rest --
-# `vendor/x.d.ts`, `.`, `./typings` -- to the compiler.
-def types_entry_declaration(entry):
-    """The declaration file one `types` entry names, package-relative, or "".
-
-    Paired with `types_entry_package_ref` above: between them they classify
-    every entry, one to a dep and one to a label of this target's, and an entry
-    both answer "" for is the compiler's own to resolve.
-
-    A relative entry that does not end in a declaration extension is one of
-    those: `./typings` is a directory whose declarations TypeScript picks by
-    reading it, which Starlark cannot do.
-    """
-    entry = entry.strip()
-    if not entry.startswith("./") and not entry.startswith("../"):
-        return ""
-    return entry if entry.endswith(_DECLARATION_SUFFIXES) else ""
-
-def workspace_relative(package, entry):
-    """`entry`, written relative to `package`, as a path from the workspace root.
-
-    "" when its `..` segments climb out above the root, which no input answers.
-    """
-    parts = []
-    for part in (package.split("/") if package else []) + entry.split("/"):
-        if part in ("", "."):
-            continue
-        if part != "..":
-            parts.append(part)
-        elif parts:
-            parts.pop()
-        else:
-            return ""
-    return "/".join(parts)
-
-def types_entry_file(entry, npm_info):
-    """The declaration `entry` designates in `npm_info`, or None.
-
-    The resolution for the whole ruleset, the way `types_entry_package_ref` is
-    the classification: calling these two is how a second reader of the
-    attribute stays the same reader, rather than a copy that comes to disagree
-    about one entry.
-
-    Four package spellings resolve, each one TypeScript would have walked
-    node_modules for: the package itself; one of its `exports` subpaths; a
-    subpath its manifest says nothing about, answered by the declaration the
-    package ships there, so `@cloudflare/workers-types/2023-07-01` is that
-    package's `2023-07-01/index.d.ts`; and the bare name a paired @types/*
-    package supplies -- `types = ["node"]` is @types/node, which is the only
-    place DefinitelyTyped puts it.
-
-    For the third, TypeScript consults the manifest three ways before it reads
-    a file, and NpmPackageInfo carries none of the three: a `typesVersions`
-    mapping, a package.json inside the subpath's directory, and whether an
-    `exports` map exists at all, since one that omits the subpath stops tsc.
-    This reads the shipped files alone, in tsc's order
-    (`_shipped_subpath_candidates`). Where a manifest maps the subpath in
-    `typesVersions` the two part: web-streams-polyfill rewrites `dist/types/*`
-    to `dist/types/ts3.6/*`, so `web-streams-polyfill/dist/types/polyfill` is
-    `dist/types/ts3.6/polyfill.d.ts` to tsc and `dist/types/polyfill.d.ts`
-    here. The unit test pins that answer.
-    """
-    ref = types_entry_package_ref(entry)
-    if not ref:
-        return None
-    name = npm_info.package_name
-    if ref == name:
-        return npm_info.exports_types_file or npm_info.ambient_types_file
-    if ref.startswith(name + "/"):
-        subpath = ref[len(name):]
-        return npm_info.subpath_types.get("." + subpath) or _shipped_subpath_file(subpath[1:], npm_info)
-    if types_package_alias(name) == ref:
-        return npm_info.ambient_types_file
-    return None
-
-def _shipped_subpath_candidates(sub, npm_info):
-    """Every file `pkg/<sub>` may resolve to among the package's own, in TypeScript's order.
-
-    typeRoots are read before node_modules is walked, so `<sub>/index.d.ts` under
-    the paired @types package outranks everything the package itself ships, and
-    that package's `<sub>.d.ts` comes last. `shown` is the path as the package
-    publishes it, for the message an unresolved entry fails with.
-    """
-    name, own = npm_info.package_name, npm_info.package_root
-    file, index = "/" + sub + ".d.ts", "/" + sub + "/index.d.ts"
-    shipped = [(own + file, name + file), (own + index, name + index)]
-    if npm_info.types_package_dir:
-        types, types_name = npm_info.types_package_dir.dirname, types_package_name(name)
-        shipped = [(types + index, types_name + index)] + shipped + [(types + file, types_name + file)]
-    return [struct(path = path, shown = shown) for path, shown in shipped]
-
-def _shipped_subpath_file(sub, npm_info):
-    if not sub:
-        return None
-    ranked = {c.path: rank for rank, c in enumerate(_shipped_subpath_candidates(sub, npm_info))}
-    best = None
-
-    # One package's own declarations, and only for a subpath its manifest left
-    # unnamed: a depset answers "which file sits at this path" no other way.
-    for f in npm_info.declaration_files.to_list():
-        rank = ranked.get(f.path)
-        if rank != None and (best == None or rank < best[0]):
-            best = (rank, f)
-    return best[1] if best else None
-
-def _directive_answer(name, deps):
-    """The dep of a package that answers its `/// <reference types="name" />`, and the file.
-
-    TypeScript's order: `@types/<name>` under typeRoots first, a package called
-    `name` beside it second -- both against the referencing package's own
-    dependencies, which is where npm installs them.
-    """
-    typed = [dep for dep in deps if dep.package_name.startswith("@types/")]
-    for dep in typed + [dep for dep in deps if not dep.package_name.startswith("@types/")]:
-        designated = types_entry_file(name, dep)
-        if designated:
-            return dep, designated
-    return None, None
-
-# A worklist bound Starlark's for-loop needs, not a size any chain approaches.
-_MAX_REFERENCED_DECLARATIONS = 1024
-
-def referenced_type_files(entry, npm_info):
-    """`entry` and every declaration its `/// <reference types=...>` directives reach.
-
-    A `@types/*` entry in `files` brings its own declarations; what it
-    references arrives only if something resolves the directive, and tsgo
-    cannot -- the resolver walks typeRoots and node_modules, never `paths`. So
-    each name the package recorded for the file is answered from that package's
-    own deps, and the answer's directives are followed in turn: @types/bun is
-    one line forwarding to bun-types, whose entry references `node`. Items are
-    structs of `file` and the `package` (NpmPackageInfo) it belongs to, `entry`
-    first.
-    """
-    out = [struct(file = entry, package = npm_info)]
-    seen = {entry.path: True}
-    for i in range(_MAX_REFERENCED_DECLARATIONS):
-        if i >= len(out):
-            return out
-        item = out[i]
-        for name in item.package.type_references.get(item.file.path, []):
-            dep, designated = _directive_answer(name, item.package.direct_deps)
-            if designated and designated.path not in seen:
-                seen[designated.path] = True
-                out.append(struct(file = designated, package = dep))
-    fail("ts_compile: more than {} declarations reached through /// <reference types> directives from {}".format(
-        _MAX_REFERENCED_DECLARATIONS,
-        entry.path,
-    ))
 
 def _write_baseline_tsconfig(ctx):
     """Writes _BASELINE_OPTIONS as a tsconfig for the action's config to extend.
@@ -903,7 +611,7 @@ def _ts_compile_impl(ctx):
     # files reach tsgo through the forest, and a copy staged at its own exec
     # path would be a second module of the same name.
     transitive_dts_sets = []
-    dep_npm_closure_sets = []
+    dep_npm_package_sets = []
     transitive_js_sets = []
     transitive_js_map_sets = []
     transitive_css_sets = []
@@ -925,7 +633,7 @@ def _ts_compile_impl(ctx):
             direct_npm_names[npm_info.package_name] = True
         elif TsDeclarationInfo in dep:
             transitive_dts_sets.append(dep[TsDeclarationInfo].transitive_declaration_files)
-            dep_npm_closure_sets.append(dep[TsDeclarationInfo].transitive_npm_packages)
+            dep_npm_package_sets.append(dep[TsDeclarationInfo].transitive_npm_packages)
             direct_provided_sets.append(dep[TsDeclarationInfo].declaration_files)
         if JsInfo in dep:
             transitive_js_sets.append(dep[JsInfo].transitive_js_files)
@@ -946,7 +654,7 @@ def _ts_compile_impl(ctx):
     # can name, one entry per resolution, the target's own deps flat. A dep's
     # emitted .d.ts imports the packages the dep declared.
     forest_packages = collect_npm_packages(
-        direct_npm_infos + depset(transitive = dep_npm_closure_sets, order = "postorder").to_list(),
+        direct_npm_infos + depset(transitive = dep_npm_package_sets, order = "postorder").to_list(),
     )
 
     # One entry per name for the undeclared-import check, the direct deps'
@@ -1274,7 +982,7 @@ def _ts_compile_impl(ctx):
             transitive_declaration_files = transitive_dts,
             transitive_npm_packages = depset(
                 direct_npm_infos,
-                transitive = [info.transitive_deps for info in direct_npm_infos] + dep_npm_closure_sets,
+                transitive = [info.transitive_deps for info in direct_npm_infos] + dep_npm_package_sets,
                 order = "postorder",
             ),
         ),

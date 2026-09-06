@@ -3,9 +3,8 @@
  *
  * Runs in a worker thread (spawned by tsserver-hook.js).
  * Builds a resolution map from:
- *   1. The npm packages and ts_compile packages named in
- *      .bazel/tsserver-hook-data.json, which `bazel run //:refresh_tsconfig`
- *      writes from the build graph.
+ *   1. The ts_compile packages named in .bazel/tsserver-hook-data.json, which
+ *      `bazel run //:refresh_tsconfig` writes from the build graph.
  *   2. The .tsconfig-fragment.json files tsconfig_aspect's `ide_fragments`
  *      output group writes into bazel-out, one per target. A rule's `deps` obey
  *      visibility and an aspect's edges do not, so these cover the targets the
@@ -14,9 +13,11 @@
  *   3. Path-alias directives (# gazelle:ts_path_alias) in BUILD files, for
  *      directives added since the last refresh.
  *
+ * npm packages are not in the map: the checkout's node_modules holds them and
+ * TypeScript's own resolution finds them there.
+ *
  * Sends the map to the main thread via postMessage, then sets up file-system
- * watches to rebuild the map when that data, a BUILD file or pnpm-lock.yaml
- * changes.
+ * watches to rebuild the map when that data or a BUILD file changes.
  *
  * Design constraints:
  *   - Zero npm dependencies (Node.js builtins only).
@@ -43,10 +44,6 @@ const HOOK_DATA = '.bazel/tsserver-hook-data.json';
 const FRAGMENT_SUFFIX = '.tsconfig-fragment.json';
 const FRAGMENT_FORMAT = 'tsconfig-fragment-v1';
 
-// The rule attribute's default, so fragment npm entries still resolve when no
-// data file says where the declarations were installed.
-const DEFAULT_NPM_DIR = '.bazel/npm';
-
 const DEBUG = !!process.env.TSSERVER_HOOK_DEBUG;
 
 function log(msg) {
@@ -67,10 +64,6 @@ function log(msg) {
 function buildResolutionMap() {
   const map = {};
   const data = readHookData();
-  // `npm_dir = ""` on the rule is a deliberate opt-out of npm entries, so an
-  // empty string in the data file is null here, not the default.
-  const configured = data ? data.npmDir : DEFAULT_NPM_DIR;
-  const npmDir = configured ? path.join(workspaceRoot, configured) : null;
 
   if (!data) {
     log(
@@ -78,33 +71,15 @@ function buildResolutionMap() {
         'run `bazel run //:refresh_tsconfig` to generate it'
     );
   } else {
-    // Step 1: npm packages, installed in the workspace by refresh_tsconfig.
-    // Only the packages the aspect reached are listed, which is the same set
-    // the generated tsconfig.json exposes.
-    let resolved = 0;
-    for (const pkg of npmDir ? data.npmPackages || [] : []) {
-      if (!pkg || !pkg.name || map[pkg.name]) continue;
-      const dtsPath = resolveInstalledPackage(npmDir, pkg);
-      if (dtsPath) {
-        map[pkg.name] = dtsPath;
-        resolved += 1;
-        log(`npm: ${pkg.name} → ${dtsPath}`);
-      } else {
-        log(`npm: ${pkg.name} has no declarations under ${npmDir}`);
-      }
-    }
-    log(`npm: resolved ${resolved} of ${(data.npmPackages || []).length} packages`);
-
-    // Step 2: internal ts_compile packages.
+    // Step 1: internal ts_compile packages.
     for (const pkg of data.packages || []) {
       const srcDir = path.join(workspaceRoot, pkg);
       const binDir = path.join(workspaceRoot, 'bazel-bin', pkg);
       scanPackageForResolution(pkg, srcDir, binDir, map);
     }
-
   }
 
-  // Step 3: the aspect's per-target fragments, which reach the targets no rule
+  // Step 2: the aspect's per-target fragments, which reach the targets no rule
   // can name. They augment what the data file already resolved, never replace
   // it, and there are none at all until a build requests the output group.
   let tree = { packages: [], aliases: [] };
@@ -113,9 +88,9 @@ function buildResolutionMap() {
   } catch (e) {
     log(`workspace walk failed: ${e.message}`);
   }
-  mergeFragments(readFragments(tree.packages), npmDir, map);
+  mergeFragments(readFragments(tree.packages), map);
 
-  // Step 4: path aliases from BUILD files (# gazelle:ts_path_alias).
+  // Step 3: path aliases from BUILD files (# gazelle:ts_path_alias).
   for (const alias of tree.aliases) {
     const key = `__alias__${alias.prefix}/`;
     if (map[key]) continue;
@@ -172,7 +147,7 @@ function fragmentRoots() {
  * in, and a fragment whose package has since been deleted is never opened.
  *
  * @param {string[]} packageDirs - Workspace-relative dirs holding a BUILD file.
- * @returns {Array<{label: string, packages: string[], npm: Array<{name: string, dir: string, version: string, entry: string, isFile: boolean}>}>}
+ * @returns {Array<{label: string, packages: string[]}>}
  */
 function readFragments(packageDirs) {
   const seen = new Set();
@@ -222,7 +197,7 @@ function parseFragment(file) {
     return null;
   }
 
-  const fragment = { label: null, packages: [], npm: [] };
+  const fragment = { label: null, packages: [] };
   for (const line of lines) {
     if (!line.trim()) continue;
     let record;
@@ -240,14 +215,6 @@ function parseFragment(file) {
       fragment.label = record.label;
     } else if (typeof record.package === 'string') {
       fragment.packages.push(record.package);
-    } else if (typeof record.npm === 'string') {
-      fragment.npm.push({
-        name: record.npm,
-        dir: typeof record.dir === 'string' && record.dir ? record.dir : record.npm,
-        version: String(record.version || ''),
-        entry: record.entry || '',
-        isFile: !!record.file,
-      });
     }
   }
 
@@ -258,66 +225,17 @@ function parseFragment(file) {
   return fragment;
 }
 
-const byKey = ([a], [b]) => (a < b ? -1 : a > b ? 1 : 0);
-
-/**
- * Whether `entry` should take the map key both it and `held` claim.
- *
- * Two things can collide on one key. Two versions of one package fight over the
- * same directory under npmDir, and the generated tsconfig gives the whole name
- * to the lowest version, so the hook has to agree or the two disagree about one
- * import. And two different packages fight when a `@types/x` package answers
- * `x`: `dir` is then not the key, and npm's rule -- `node_modules/x` first,
- * `node_modules/@types/x` only when it holds no declarations -- makes the
- * entry installed under the key's own name the winner. Each fragment carries
- * one target's closure, so a target that reached only `@types/x` and one that
- * reached the real `x` write records that meet here.
- *
- * @param {{name: string, dir?: string, version: string}} entry
- * @param {{name: string, dir?: string, version: string} | undefined} held
- * @returns {boolean}
- */
-function beatsHeldEntry(entry, held) {
-  if (!held) return true;
-  const ownName = (e) => (e.dir || e.name) === e.name;
-  if (ownName(entry) !== ownName(held)) return ownName(entry);
-  return entry.version < held.version;
-}
-
 /**
  * Fold the fragments into `map`, leaving every key the data file already
  * resolved alone.
  *
  * @param {object[]} fragments
- * @param {string | null} npmDir - The installed npm tree, or null when npm_dir is off.
  * @param {Record<string, string>} map
  */
-function mergeFragments(fragments, npmDir, map) {
+function mergeFragments(fragments, map) {
   const packages = new Set();
-  const npm = new Map();
-
   for (const fragment of fragments) {
     for (const pkg of fragment.packages) packages.add(pkg);
-    for (const entry of fragment.npm) {
-      if (beatsHeldEntry(entry, npm.get(entry.name))) npm.set(entry.name, entry);
-    }
-  }
-
-  for (const [name, entry] of npmDir ? [...npm].sort(byKey) : []) {
-    if (map[name]) continue;
-    // Only the first-party half of a fragment is self-contained. An npm .d.ts
-    // lives in an external repository no workspace-relative path reaches, so it
-    // resolves here only if `bazel run //:refresh_tsconfig` installed it -- and
-    // that target's own deps decide what it installs.
-    const dtsPath = resolveInstalledPackage(npmDir, {
-      name,
-      dir: entry.dir,
-      entry: entry.entry,
-      isFile: entry.isFile,
-    });
-    if (!dtsPath) continue;
-    map[name] = dtsPath;
-    log(`fragment npm: ${name} → ${dtsPath}`);
   }
 
   for (const pkg of [...packages].sort()) {
@@ -354,94 +272,12 @@ function readHookData() {
 }
 
 /**
- * The .d.ts one installed npm package resolves to, or null.
- *
- * `entry` is what the aspect knew: the package's own exports["."].types when it
- * declares one, otherwise the directory whose package.json names the rest.
- *
- * `dir` is the installed package the files sit under, which is not `name` for a
- * `@types/*` package: it answers the name it types and is installed under its
- * own. Absent on an entry written before that distinction existed, where the
- * two were always the same.
- *
- * @param {string} npmDir - Absolute path to the installed npm tree.
- * @param {{name: string, dir?: string, entry: string, isFile: boolean}} pkg
- * @returns {string | null}
- */
-function resolveInstalledPackage(npmDir, pkg) {
-  const target = path.join(npmDir, pkg.dir || pkg.name, pkg.entry || '');
-  if (pkg.isFile) {
-    return isDtsFile(target) && fs.existsSync(target) ? target : null;
-  }
-  let pkgJson = {};
-  try {
-    pkgJson = JSON.parse(fs.readFileSync(path.join(target, 'package.json'), 'utf8'));
-  } catch (_) {
-    // No package.json: resolvePackageDts still tries index.d.ts.
-  }
-  return resolvePackageDts(pkgJson, target);
-}
-
-/**
- * Resolve the primary .d.ts entry point for a package given its package.json
- * and absolute directory path.
- *
- * @param {object} pkgJson  - Parsed package.json object.
- * @param {string} pkgDir   - Absolute path to the package directory.
- * @returns {string | null}
- */
-function resolvePackageDts(pkgJson, pkgDir) {
-  // Priority 1: exports['.']['types']
-  if (pkgJson.exports && typeof pkgJson.exports === 'object') {
-    const main = pkgJson.exports['.'];
-    if (main) {
-      const typesTarget =
-        typeof main === 'object'
-          ? main.types || main.import || main.default
-          : main;
-      if (typeof typesTarget === 'string') {
-        const resolved = path.resolve(pkgDir, typesTarget);
-        if (isDtsFile(resolved) && fs.existsSync(resolved)) {
-          return resolved;
-        }
-      }
-    }
-  }
-
-  // Priority 2: top-level "types" / "typings" field
-  const typesField = pkgJson.types || pkgJson.typings;
-  if (typesField) {
-    const resolved = path.resolve(pkgDir, typesField);
-    if (isDtsFile(resolved) && fs.existsSync(resolved)) {
-      return resolved;
-    }
-  }
-
-  // Priority 3: index.d.ts at package root
-  const idx = path.join(pkgDir, 'index.d.ts');
-  if (fs.existsSync(idx)) {
-    return idx;
-  }
-
-  return null;
-}
-
-/**
- * @param {string} p
- * @returns {boolean}
- */
-function isDtsFile(p) {
-  return p.endsWith('.d.ts') || p.endsWith('.d.mts') || p.endsWith('.d.cts');
-}
-
-/**
  * Scan an internal ts_compile package and add a resolution entry.
  *
  * Prefers .d.ts in bazel-bin (post-build) over .ts source (pre-build).
  *
  * @param {string} pkg     - The map key: a package path relative to the
- *                           workspace root, e.g. "src/utils", or the bare
- *                           specifier a target declared with `module_name`.
+ *                           workspace root, e.g. "src/utils".
  * @param {string} srcDir  - Absolute path to the package source directory.
  * @param {string} binDir  - Absolute path to the package in bazel-bin.
  * @param {Record<string, string>} map
@@ -579,13 +415,12 @@ function scheduleRebuild(delay) {
   }, delay);
 }
 
-// Watch the generated graph data, the root-level BUILD files and
-// pnpm-lock.yaml: between them, everything that changes what resolves.
+// Watch the generated graph data and the root-level BUILD files: between them,
+// everything that changes what resolves.
 const rootWatchPaths = [
   providedDataFile || path.join(workspaceRoot, HOOK_DATA),
   path.join(workspaceRoot, 'BUILD.bazel'),
   path.join(workspaceRoot, 'BUILD'),
-  path.join(workspaceRoot, 'pnpm-lock.yaml'),
 ];
 
 for (const watchPath of rootWatchPaths) {

@@ -1,6 +1,0 @@
-{
-  "compilerOptions": {
-    "skipLibCheck": false,
-    "lib": ["esnext"]
-  }
-}

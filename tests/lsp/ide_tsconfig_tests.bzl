@@ -1,10 +1,8 @@
-"""Analysis-time proof of what the IDE tsconfig says: ambient types, npm pairing,
-and the per-package programs the root block cannot carry.
+"""Analysis-time proof of what the IDE tsconfig says: first-party `paths` and
+nothing npm, and the per-package programs the root block cannot carry.
 
-An @types/* package reaches the compiler through the entry point a consumer names
-in `files`, never through a module specifier, so no `paths` entry can stand in
-for it -- and the siblings that entry point references have to be installed
-beside it.
+npm packages and `@types/*` globals reach the editor through the checkout's
+node_modules, the route tsc takes, so the generated file names none of them.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
@@ -37,146 +35,33 @@ def _installed(env):
         for entry in analysistest.target_under_test(env)[WorkspaceCopyInfo].entries.to_list()
     ]
 
-def _ambient_types_impl(ctx):
+def _editor_paths_impl(ctx):
     env = analysistest.begin(ctx)
     config = _written_config(env)
     asserts.true(env, config != None, "ide_tsconfig wrote no tsconfig")
     if config == None:
         return analysistest.end(env)
 
+    # zod and @types/node are the fixture's deps, and the checkout's node_modules
+    # answers both, so the map holds the fixture's own package and no more.
     asserts.equals(
         env,
-        ["./.bazel/npm/@types/node/index.d.ts"],
-        config.get("files"),
-        "@types/node's entry point is named in `files`",
+        ["tests/lsp/*"],
+        sorted(config["compilerOptions"]["paths"].keys()),
+        "the paths map names first-party packages only",
     )
-
-    # A `files` array of its own switches off TypeScript's implicit `include`,
-    # and with it every source in the workspace.
-    asserts.equals(
-        env,
-        ["**/*"],
-        config.get("include"),
-        "the implicit include is spelled out alongside it",
-    )
-
-    installed = _installed(env)
-    asserts.true(
-        env,
-        ".bazel/npm/@types/node/index.d.ts" in installed,
-        "the entry point is installed under npm_dir: " + str(installed),
-    )
-
-    # index.d.ts is little more than a list of `/// <reference path=...>`, each
-    # resolved on disk beside it.
-    asserts.true(
-        env,
-        ".bazel/npm/@types/node/globals.d.ts" in installed,
-        "the siblings it references are installed too: " + str(installed),
-    )
-    asserts.true(
-        env,
-        ".bazel/npm/@types/node/package.json" in installed,
-        "the package.json is installed too: " + str(installed),
-    )
-
-    # A typeRoot is a directory whose *children* are the type packages, and one
-    # npm repo per package leaves no such directory to name.
-    asserts.equals(
-        env,
-        None,
-        config["compilerOptions"].get("typeRoots"),
-        "no typeRoots is derived",
-    )
-    return analysistest.end(env)
-
-ambient_types_test = analysistest.make(_ambient_types_impl)
-
-def _no_ambient_types_impl(ctx):
-    env = analysistest.begin(ctx)
-    config = _written_config(env)
-    asserts.true(env, config != None, "ide_tsconfig wrote no tsconfig")
-    if config == None:
-        return analysistest.end(env)
-
-    # No @types/* dep, so no `files` -- and therefore no reason to spell the
-    # implicit include out. Both keys absent is what the test above is measured
-    # against.
-    asserts.equals(env, None, config.get("files"), "nothing is named in `files`")
-    asserts.equals(env, None, config.get("include"), "the implicit include is left implicit")
+    asserts.equals(env, None, config.get("files"), "no @types entry point is named in `files`")
+    asserts.equals(env, None, config.get("include"), "so the implicit include is left implicit")
+    asserts.equals(env, None, config["compilerOptions"].get("typeRoots"), "no typeRoots is derived")
     asserts.equals(
         env,
         [],
-        [d for d in _installed(env) if "@types" in d],
-        "nothing from an @types package is installed",
+        _installed(env),
+        "nothing is installed beside the tsconfig: no npm copy, no .bazel/npm",
     )
     return analysistest.end(env)
 
-no_ambient_types_test = analysistest.make(_no_ambient_types_impl)
-
-def _transitive_types_pairing_impl(ctx):
-    env = analysistest.begin(ctx)
-    config = _written_config(env)
-    asserts.true(env, config != None, "ide_tsconfig wrote no tsconfig")
-    if config == None:
-        return analysistest.end(env)
-
-    # chai ships no declarations of its own and is reached only transitively
-    # (vitest -> @vitest/expect -> chai). Read from the direct deps alone the
-    # pairing is invisible: the entry still names a directory, but nothing
-    # installs @types/chai's declarations into it, so the editor resolves chai to
-    # a lone package.json where the build resolves it to the types.
-    paths = config["compilerOptions"]["paths"]
-    asserts.equals(
-        env,
-        ["./.bazel/npm/chai"],
-        paths.get("chai"),
-        "an untyped transitive package resolves to its @types/* directory",
-    )
-    asserts.equals(
-        env,
-        None,
-        paths.get("@types/chai"),
-        "and the @types/* package itself gets no entry of its own",
-    )
-
-    installed = _installed(env)
-    asserts.true(
-        env,
-        ".bazel/npm/chai/index.d.ts" in installed,
-        "@types/chai's declarations are what is installed there: " +
-        str([d for d in installed if "chai" in d]),
-    )
-    return analysistest.end(env)
-
-transitive_types_pairing_test = analysistest.make(_transitive_types_pairing_impl)
-
-def _npm_json_installed_impl(ctx):
-    env = analysistest.begin(ctx)
-
-    # ts_compile stages the same set into its sandbox (ts_compile.bzl's
-    # npm_json_depset); this is the editor half of that.
-    installed = _installed(env)
-    asserts.true(
-        env,
-        ".bazel/npm/entities/src/generated/.eslintrc.json" in installed,
-        "a package's non-manifest .json is installed beside its declarations: " +
-        str([d for d in installed if "entities/" in d and d.endswith(".json")]),
-    )
-
-    # A nested package.json is not inert data: it is the nearest manifest whose
-    # `type` a staged .d.ts inherits, and it decides what a directory-shaped
-    # `<pkg>/*` match resolves to. 22 of the 54 files this adds over the repo's
-    # own closure are these, so they are the half worth pinning.
-    asserts.true(
-        env,
-        ".bazel/npm/entities/dist/commonjs/package.json" in installed,
-        "a nested manifest comes with it: " +
-        str([d for d in installed if "entities/" in d and d.endswith("package.json")]),
-    )
-    return analysistest.end(env)
-
-npm_json_installed_test = analysistest.make(_npm_json_installed_impl)
+editor_paths_test = analysistest.make(_editor_paths_impl)
 
 _MERGED_PACKAGE = "tests/lsp/option_groups"
 

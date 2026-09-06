@@ -11,9 +11,7 @@
     "../../../tsconfig.json",
     "./tsconfig.ambient.json"
   ],
-  "files": [
-    "../../../.bazel/npm/@types/node/index.d.ts"
-  ],
+  "files": [],
   "include": [
     "app.ts"
   ]

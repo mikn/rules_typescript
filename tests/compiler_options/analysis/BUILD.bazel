@@ -31,9 +31,6 @@ load(
     "jsx_source_test",
     "mixed_source_roots_test",
     "oxc_command_line_test",
-    "types_entry_declaration_test",
-    "types_entry_file_test",
-    "types_entry_package_ref_test",
 )
 
 package(default_visibility = ["//:__pkg__"])
@@ -179,12 +176,6 @@ build_test(
     name = "requested_types_build_test",
     targets = [":requested_types"],
 )
-
-types_entry_file_test(name = "types_entry_file_test")
-
-types_entry_package_ref_test(name = "types_entry_package_ref_test")
-
-types_entry_declaration_test(name = "types_entry_declaration_test")
 
 # A declared typeRoots: the compiler resolves the entry under the staged
 # type_roots/ at action time.

@@ -86,20 +86,11 @@ def _npm_package_info(ctx, member):
         package_root = _package_root(ctx, member),
         all_files = depset([manifest], transitive = file_sets),
         js_files = js.js_files if js else depset(),
-        json_files = depset(),
-        declaration_files = declarations,
         direct_deps = direct_deps,
         transitive_deps = npm.closure if npm else depset(),
         transitive_package_dirs = depset(
             transitive = [dep.transitive_package_dirs for dep in direct_deps],
         ),
-        exports_types_file = None,
-        module_entry_file = None,
-        subpath_types = {},
-        subpath_patterns = {},
-        type_references = {},
-        ambient_types_file = None,
-        types_package_dir = None,
     )
 
 def _npm_workspace_package_impl(ctx):

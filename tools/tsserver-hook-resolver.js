@@ -10,7 +10,9 @@
  * The map itself is built by tsserver-hook-worker.js, off-thread, out of what a
  * build already wrote down: .bazel/tsserver-hook-data.json from
  * `bazel run //:refresh_tsconfig` plus tsconfig_aspect's per-target fragments in
- * bazel-out. Nothing here runs Bazel, and nothing here needs the data to exist.
+ * bazel-out. It holds first-party packages and path aliases; npm resolves
+ * through the checkout's node_modules. Nothing here runs Bazel, and nothing
+ * here needs the data to exist.
  *
  * Design constraints:
  *   - Zero npm dependencies (Node.js builtins only).
@@ -62,18 +64,10 @@ function extensionOf(fileName) {
  * @returns {{ resolvedModule: object }}
  */
 function buildResolvedModule(resolvedFileName) {
-  const npmPath = ['external', '.bazel'].some(
-    (dir) =>
-      resolvedFileName.includes(`${path.sep}${dir}${path.sep}`) ||
-      resolvedFileName.includes(`/${dir}/`)
-  );
-
   return {
     resolvedModule: {
       resolvedFileName,
-      // Declarations Bazel installed or fetched are not editable workspace
-      // files, and tsserver offers to rename symbols in the ones that are.
-      isExternalLibraryImport: npmPath,
+      isExternalLibraryImport: false,
       extension: extensionOf(resolvedFileName),
     },
   };
@@ -86,8 +80,8 @@ function buildResolvedModule(resolvedFileName) {
  * invalidate whatever it resolved from the map before.
  */
 function createResolutionSource({ workspaceRoot, workerPath, onUpdate }) {
-  // Key:   module name ("zod", "@acme/ui"), or "__alias__<prefix>" for a
-  //        ts_path_alias prefix mapped to a source directory.
+  // Key:   a first-party package path ("src/utils"), or "__alias__<prefix>"
+  //        for a ts_path_alias prefix mapped to a source directory.
   // Value: absolute path to a .d.ts / .ts, or the directory for an alias.
   const cache = new Map();
   let ready = false;

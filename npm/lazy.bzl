@@ -566,7 +566,6 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
             platform_deps = platform_deps,
             platforms = _ALL_PLATFORMS,
             types_dep = "@{}//:pkg".format(repo_of[types_sid]) if types_sid else "",
-            is_types_package = snap["name"].startswith("@types/"),
             aliases = {
                 _alias_target_name(alias): alias
                 for alias in sorted(aliases_of_sid.get(sid, {}).keys())

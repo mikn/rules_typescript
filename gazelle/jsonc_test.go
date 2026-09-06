@@ -61,9 +61,8 @@ func TestLoadTsConfigPaths_AliasValueWithDoubleSlash(t *testing.T) {
 	}
 }
 
-// A generated tsconfig carries one paths entry per npm package, pointing under
-// npm_dir. Those must not become path aliases: doing so resolved
-// `import 'zod'` to //.bazel/npm/zod/index.d instead of @npm//:zod.
+// A paths entry under a tool-managed dot-directory is not an alias: an
+// `import 'zod'` keeps resolving to @npm//:zod, never to a file there.
 func TestLoadTsConfigPaths_SkipsToolManagedDirs(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tsconfig.json")

@@ -113,7 +113,7 @@ func assertLoadable(t *testing.T, c *config.Config, ambient []string, imp, dep s
 	if !ok {
 		// An external repository has no oracle here, bar one: a specifier the
 		// target's own sources declare is installed nowhere, so no hub declares
-		// a target for it. //tests/ambient_npm_types is the end-to-end claim.
+		// a target for it. //tests/strict_deps:ambient_module is the claim.
 		if declaredAmbiently(ambient, imp) {
 			t.Errorf("%s: dep %q, but the target's own sources declare the module", imp, dep)
 		}

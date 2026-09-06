@@ -11,6 +11,7 @@ the build never notices. builtins_test.go is the same pinning for the other
 table the two share: the built-in names, against the node the check runs on.
 """
 
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_go//go:def.bzl", "go_test")
 load("//ts:defs.bzl", "ts_compile")
 load(":strict_deps_tests.bzl", "resolution_surface_test")
@@ -72,6 +73,21 @@ ts_compile(
     name = "builtins",
     srcs = ["builtins.ts"],
     deps = ["@npm//:types_node"],
+)
+
+# `acme-bridge` is installed nowhere: the .d.ts beside the source IS the module, so
+# no deps is the assertion, for tsgo, the undeclared-import check and Gazelle alike.
+ts_compile(
+    name = "ambient_module",
+    srcs = [
+        "ambient_module.d.ts",
+        "ambient_module_user.ts",
+    ],
+)
+
+build_test(
+    name = "ambient_module_test",
+    targets = [":ambient_module"],
 )
 
 resolution_surface_test(
