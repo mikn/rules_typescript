@@ -115,7 +115,21 @@ def _bin_entries(pkg_json):
 
 _DECLARATION_EXTENSIONS = (".d.ts", ".d.mts", ".d.cts")
 
-_JS_TO_DECLARATION = {".js": ".d.ts", ".mjs": ".d.mts", ".cjs": ".d.cts"}
+_SOURCE_EXTENSIONS = (".ts", ".tsx", ".mts", ".cts")
+
+# One extension table per role: a bare import takes .ts/.tsx ahead of .d.ts and a
+# `types` entry takes declarations alone, as resolveTypeReferenceDirective does.
+_MODULE_ROLE = struct(
+    source = True,
+    beside = {".js": (".ts", ".tsx", ".d.ts"), ".mjs": (".mts", ".d.mts"), ".cjs": (".cts", ".d.cts")},
+    added = (".ts", ".tsx", ".d.ts"),
+)
+
+_DECLARATION_ROLE = struct(
+    source = False,
+    beside = {".js": (".d.ts",), ".mjs": (".d.mts",), ".cjs": (".d.cts",)},
+    added = (".d.ts",),
+)
 
 # Conditions a declaration lookup descends into, matched against the exports
 # map's own key order because that is the order a resolver tries them in. "node"
@@ -164,66 +178,98 @@ def _export_targets(root):
             pending = [node[key] for key in node.keys() if key in _TYPE_CONDITIONS] + pending
     return targets
 
-def _declaration_at(target, has_file):
-    """The declaration one exports target designates, if the package ships it."""
+def _entry_at(target, has_file, role):
+    """The file one exports target or field value names for `role`, if the package ships it.
+
+    A target with a TypeScript extension is taken as written; one naming a .js,
+    .mjs or .cjs resolves to what `role` allows beside it, in TypeScript's order.
+    """
     path = target.removeprefix("./")
     if not path or "*" in path:
         return ""
     for extension in _DECLARATION_EXTENSIONS:
         if path.endswith(extension):
             return path if has_file(path) else ""
-    for js, declaration in _JS_TO_DECLARATION.items():
+    for extension in _SOURCE_EXTENSIONS:
+        if path.endswith(extension):
+            return path if role.source and has_file(path) else ""
+    for js, substitutes in role.beside.items():
         if path.endswith(js):
-            beside = path[:-len(js)] + declaration
-            return beside if has_file(beside) else ""
+            stem = path[:-len(js)]
+            for substitute in substitutes:
+                if has_file(stem + substitute):
+                    return stem + substitute
+            return ""
     return ""
 
-def _declaration_field(value, has_file):
-    """The declaration a `types`/`typings` field names, if the package ships it."""
-    named = _declaration_at(value, has_file)
+def _declaration_at(target, has_file):
+    return _entry_at(target, has_file, _DECLARATION_ROLE)
+
+def _field_entry(value, has_file, role):
+    """The file a `typings`, `types` or `main` field names for `role`, extensionless form included.
+
+    TypeScript adds the role's extensions to a field value that has none and then
+    reads it as a directory; an exports target gets neither.
+    """
+    named = _entry_at(value, has_file, role)
     if named:
         return named
-    extended = value.removeprefix("./") + ".d.ts"
-    return extended if has_file(extended) else ""
+    path = value.removeprefix("./").removesuffix("/")
+    if not path:
+        return ""
+    for suffix in ("", "/index"):
+        for extension in role.added:
+            if has_file(path + suffix + extension):
+                return path + suffix + extension
+    return ""
 
-def _exports_types(pkg_json, has_file):
-    """The .d.ts a package's own metadata designates as its entry point, or "".
+def _entry(pkg_json, has_file, role):
+    """The file a package's own metadata designates for `role`, or "".
 
-    The order is every resolver's, TypeScript's included. `exports` first, in the
-    key order the map itself is written in: a package that ships one has declared
-    there which files it means to be entered through, conditions and all. Then
-    `typings` and `types`, in that order because readPackageJsonTypesFields reads
-    them in it, which is where a package with no `exports`, or one whose `exports`
-    names no declarations, publishes them -- most of npm.
+    The order is TypeScript's, for a bare specifier and a `types` entry alike.
+    `exports` first, in the key order the map itself is written in: a package
+    that ships one has declared there which files it means to be entered through,
+    conditions and all. Then `typings` and `types`, in that order because
+    readPackageJsonTypesFields reads them in it, then `main`, then the root
+    index, which is where the resolution of a manifest naming nothing ends.
 
-    So the exports map is authoritative about what it designates and silent about
+    The exports map is authoritative about what it designates and silent about
     the rest, and this reads it that way rather than treating the silence as an
     answer. Every candidate is checked against the extracted package, because a
-    manifest that names a declaration it does not ship would otherwise become a
-    target with a missing source.
+    manifest that names a file it does not ship would otherwise become a target
+    with a missing source.
 
     Args:
         pkg_json: The package's decoded package.json.
         has_file: Predicate on a package-relative path.
+        role: Which extensions answer: _MODULE_ROLE or _DECLARATION_ROLE.
     """
     for target in _export_targets(_root_export(pkg_json.get("exports"))):
-        designated = _declaration_at(target, has_file)
+        designated = _entry_at(target, has_file, role)
         if designated:
             return designated
-    for field in ("typings", "types"):
+    for field in ("typings", "types", "main"):
         value = pkg_json.get(field)
-        if type(value) == "string":
-            named = _declaration_field(value, has_file)
+        if type(value) == "string" and value:
+            named = _field_entry(value, has_file, role)
             if named:
                 return named
+    for extension in role.added:
+        if has_file("index" + extension):
+            return "index" + extension
+    return ""
 
-    # A manifest that designates nothing has not said there are no declarations.
-    # TypeScript's own resolution ends at <pkg>/index.d.ts, and a types-only
-    # package can therefore ship one and no `types` field at all --
-    # @cloudflare/workers-types is exactly that. Without this, asking for it in
-    # compilerOptions.types resolves to nothing and its globals never join the
-    # program, which no error mentions.
-    return "index.d.ts" if has_file("index.d.ts") else ""
+def _exports_types(pkg_json, has_file):
+    """The declaration a `compilerOptions.types` entry or reference directive resolves the package to, or ""."""
+    return _entry(pkg_json, has_file, _DECLARATION_ROLE)
+
+def _module_entry(pkg_json, has_file):
+    """The file a bare import of the package resolves to, or "".
+
+    @cloudflare/workers-types names nothing and ships index.ts, a module, beside
+    index.d.ts, a global script: the first answers the import, the second `types`.
+    """
+    return _entry(pkg_json, has_file, _MODULE_ROLE)
 
 def _exports_subpath_types(pkg_json, has_file):
     """The declaration each non-root `exports` subpath designates, keyed by subpath.
@@ -494,7 +540,7 @@ def _package_relative_label(package_root, path):
     """The label of a file inside the package, relative to the generated BUILD file."""
     return ":" + package_root + "/" + path
 
-def _package_stanza(attrs, target_name, package_name, deps_expr, declaration_entry, subpath_declarations, subpath_patterns, type_references):
+def _package_stanza(attrs, target_name, package_name, deps_expr, declaration_entry, module_entry, subpath_declarations, subpath_patterns, type_references):
     """The ts_npm_package call for one name this package is imported under."""
     package_root = _package_root(attrs.package)
     stanza = [
@@ -517,6 +563,8 @@ def _package_stanza(attrs, target_name, package_name, deps_expr, declaration_ent
         stanza.append("    is_types_package = True,")
     if declaration_entry:
         stanza.append('    exports_types = "{}",'.format(_package_relative_label(package_root, declaration_entry)))
+    if module_entry:
+        stanza.append('    module_entry = "{}",'.format(_package_relative_label(package_root, module_entry)))
     if subpath_declarations:
         stanza.append("    subpath_types = {")
         for subpath in sorted(subpath_declarations.keys()):
@@ -635,6 +683,7 @@ def _npm_import_impl(rctx):
 
     has_file = _rctx_has_file(rctx, package_root)
     declaration_entry = _exports_types(pkg_json, has_file)
+    module_entry = _module_entry(pkg_json, has_file)
     subpath_declarations = _exports_subpath_types(pkg_json, has_file)
     subpath_patterns = _exports_subpath_patterns(pkg_json, has_file)
     type_references = _type_references(
@@ -654,6 +703,7 @@ def _npm_import_impl(rctx):
         rctx.attr.package,
         deps_expr,
         declaration_entry,
+        module_entry,
         subpath_declarations,
         subpath_patterns,
         type_references,
@@ -671,6 +721,7 @@ def _npm_import_impl(rctx):
             alias_package,
             deps_expr,
             declaration_entry,
+            module_entry,
             subpath_declarations,
             subpath_patterns,
             type_references,
@@ -1128,6 +1179,7 @@ link_target_label = _link_target_label
 link_block = _link_block
 target_name_in = _target_name_in
 exports_types = _exports_types
+module_entry = _module_entry
 exports_subpath_types = _exports_subpath_types
 exports_subpath_patterns = _exports_subpath_patterns
 triple_slash_directives = _triple_slash_directives

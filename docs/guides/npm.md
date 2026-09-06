@@ -370,10 +370,14 @@ directories inside one repository.
 
 ## Where a Package's Type Declarations Come From
 
-Each package target carries one declaration entry point: the file the package's
-own metadata designates, read in the order a resolver reads it. That entry is
-what the `ts_compile` boundary type-checks against and what the
-[IDE tsconfig](../getting-started/ide-setup.md) puts in `compilerOptions.paths`.
+Each package target carries two entry points, the files TypeScript resolves the
+package to, read from its own metadata in the order a resolver reads it. The
+module entry answers a bare import: it is what the `ts_compile` boundary
+type-checks against and what the [IDE tsconfig](../getting-started/ide-setup.md)
+puts in `compilerOptions.paths`. The declaration entry answers a
+`compilerOptions.types` entry or a `/// <reference types>` directive, which
+`resolveTypeReferenceDirective` reads no `.ts` for; it goes in `files`. For most
+of npm the two are one `.d.ts`.
 
 1. **`exports`, in the map's own key order.** Node and TypeScript try conditions
    as they are written, so a package that writes `require` before `import` means
@@ -381,20 +385,37 @@ what the `ts_compile` boundary type-checks against and what the
    `default`, follows array fallbacks, and understands the conditions-only
    shorthand (a map with no `.`-prefixed keys is itself the root entry) and a
    plain string. A leaf naming `.js`, `.mjs` or `.cjs` resolves to the
-   declaration beside it: `./dist/node/index.js` → `./dist/node/index.d.ts`.
+   TypeScript beside it, `.ts` and `.tsx` ahead of `.d.ts` for the module entry
+   and `.d.ts` alone for the declaration: `./dist/node/index.js` →
+   `./dist/node/index.d.ts` when no `.ts` sits there. A leaf naming a `.ts` is
+   the module entry itself and no declaration; `@humanfs/types` exports
+   `./src/hfs-types.ts`.
 2. **Top-level `typings`, then `types`,** the order
    `readPackageJsonTypesFields` reads them in, including the extensionless form
    (`"typings": "dist/index"` → `dist/index.d.ts`). This is where a package with
    no `exports` publishes its declarations, and where every `@types/*` package
    publishes them.
+3. **`main`,** with the same substitution, extensionless form and directory
+   index (`"main": "./dist/index"` → `dist/index.d.ts`). `module` is a bundler
+   field no TypeScript resolution reads.
+4. **The root index:** `index.ts`, `index.tsx`, then `index.d.ts` for the module
+   entry, `index.d.ts` for the declaration. `@cloudflare/workers-types` names
+   nothing and ships `index.ts`, a module, beside `index.d.ts`, a global script:
+   `import type { TraceItem } from "@cloudflare/workers-types"` resolves to the
+   first and `types = ["@cloudflare/workers-types"]` to the second, and one file
+   in both roles is `TS2306` for the import or no globals for the entry.
 
 Every candidate is checked against the extracted package before it is used, so a
 manifest naming a `.d.ts` it does not ship falls through to the next
 candidate. Six `@babel/helper-*` resolutions in this repository's own lockfile
 designate a `lib/index.d.ts` their tarball does not contain.
 
+A `.ts` module entry is staged beside the package's declarations and, sitting
+under `node_modules/<name>/`, is a library file to TypeScript: type-checked,
+never emitted, outside the `rootDir` check.
+
 !!! note "Subpaths"
-    `pkg/*` lists the package root and then the entry's directory, in the build's
+    `pkg/*` lists the package root and then the module entry's directory, in the build's
     tsconfig and the editor's alike. A subpath the `exports` map names gets an
     exact key; a one-star pattern in the map (`"./*": "./dist/esm/*"`) puts its
     target ahead of those two, star and suffix kept, so `pkg/server/mcp.js` is
