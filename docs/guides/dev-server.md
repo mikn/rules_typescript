@@ -81,11 +81,6 @@ fields, with the values the shipped Vite server returns for each, are in
 
 Generated code is recognised by the absence of a checked-in source file.
 
-Each first-party `module_name` in the graph becomes a `resolve.alias` entry
-pointing at that package's source, so `import "@acme/ui"` and a relative import
-of the same file are one module in Vite's graph. The mapping is the same
-`TsModuleInfo` that `ts_compile` writes into its tsconfig `paths`.
-
 ### How a Bare npm Specifier Resolves
 
 Vite has no search-path option: it resolves `import "zod"` by walking up from the

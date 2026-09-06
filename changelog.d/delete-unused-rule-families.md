@@ -43,9 +43,9 @@
   `--config`, `--out` and `--srcs` are what the macro passed; whatever follows
   is the `wrangler types` command line as written. Gazelle now reads a
   `ts_codegen` whose `outs` names the file a tsconfig lists in
-  `compilerOptions.types` as the `types_srcs` label for every target under
-  that tsconfig, where it read a `ts_worker_types` target before; the pair it
-  writes is unchanged. `ts_binary` keeps its `bundler` attr and `BundlerInfo`
+  `compilerOptions.types` as a dep of every target under that tsconfig, where
+  it read a `ts_worker_types` target before; the pair it writes is unchanged.
+  `ts_binary` keeps its `bundler` attr and `BundlerInfo`
   in both invocation modes, the generated-config one now passing four
   arguments (config, entry, output directory, stylesheet); `ts_dev_server`
   keeps `server`, defaulting to Vite, and `bundler`. `MODULE.bazel` declares

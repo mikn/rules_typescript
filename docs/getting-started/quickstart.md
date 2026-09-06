@@ -306,8 +306,8 @@ bazel build //...
 ```
 
 Type errors fail the build, because the `.d.ts` are outputs of the
-type-checker. "Missing return type" errors apply only to
-`declarations = "oxc"`.
+type-checker. "Missing return type" errors apply only under
+`--//ts:declarations=oxc`.
 
 A `baseUrl` in your `tsconfig.json` fails here. Gazelle wires the file onto
 every target as `tsconfig = "//:tsconfig"`, and tsgo rejects the key wherever
@@ -321,32 +321,25 @@ Delete it. `paths` here is Bazel's and resolves against no `baseUrl`; see
 [Option 'baseUrl' has been removed](../guides/troubleshooting.md#option-baseurl-has-been-removed).
 
 !!! note "A `compilerOptions.paths` alias that crosses a target boundary"
-    Gazelle reads `compilerOptions.paths` from your `tsconfig.json` and writes
-    a matching `path_aliases` attr on the targets whose imports go through it.
-    `ts_compile` accepts an alias only when a file the target stages sits under
-    the alias directory. The near-universal `"@/*": ["src/*"]` gets
-    `path_aliases` alone and builds: `src/app/main.ts` importing `@/lib/math`
-    is itself under `src/`, and the declarations arrive on the `deps` edge.
-    Where none of the target's own srcs is under the alias directory (`@lib/*`
-    mapped to `src/lib/*` and imported from `src/app/`), Gazelle also writes
-    `path_alias_srcs` naming the target the import resolved to:
+    Your `paths` stay in your `tsconfig.json`, and both readers take them from
+    there. The rule rewrites each value to its source and `bazel-bin` twins, so
+    an aliased import reaches a dep's declarations where the build left them.
+    Gazelle maps the import through the same entry to the target that owns the
+    directory and writes that target into `deps`; no attribute repeats the
+    alias. `"@lib/*": ["src/lib/*"]` imported from `src/app/`:
 
     ```python
     # src/app/BUILD.bazel
     ts_compile(
         name = "app",
-        srcs = ["main.ts"],
-        path_alias_srcs = ["//src/lib"],
-        path_aliases = {
-            "@lib/": "src/lib/",
-        },
+        srcs = ["main.ts"],   # import { add } from "@lib/math";
         deps = ["//src/lib"],
     )
     ```
 
-    That stages every output of `//src/lib` into this target's type-check.
-    Where the producing target can carry a `module_name`, importing it by that
-    name is the cheaper boundary. See
+    Of a fallback array Gazelle reads the first entry, the one `tsc` tries
+    first. A bare specifier naming another package of the workspace is not an
+    alias; see
     [importing another target by bare specifier](../rules/ts-compile.md#importing-another-target-by-bare-specifier).
 
     Gazelle does not write or touch `ts_dev_server`; an application adds its

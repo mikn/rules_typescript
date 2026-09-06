@@ -20,7 +20,6 @@ import (
 func makeTcWithNpm(pkgs ...string) *tsConfig {
 	tc := &tsConfig{
 		packageBoundaryMode: boundaryEveryDir,
-		declarations:        "tsgo",
 	}
 	if len(pkgs) > 0 {
 		tc.npmPackages = make(map[string]string, len(pkgs))
@@ -215,7 +214,7 @@ func TestDetectPrisma_MissingNpmPackage(t *testing.T) {
 
 func TestDetectPrisma_NoLockfileSchemaPresent(t *testing.T) {
 	// No npmPackages map — schema.prisma alone is enough.
-	tc := &tsConfig{declarations: "tsgo"}
+	tc := &tsConfig{}
 	p := detectPrisma(fileSet([]string{"schema.prisma"}), tc)
 	if p == nil {
 		t.Fatal("expected detection when schema.prisma present and npmPackages is nil")
@@ -336,7 +335,7 @@ func TestDetectOpenAPI_MissingNpmPackage(t *testing.T) {
 
 func TestDetectOpenAPI_NoNpmMap(t *testing.T) {
 	// No npm package map — spec file alone triggers detection.
-	tc := &tsConfig{declarations: "tsgo"}
+	tc := &tsConfig{}
 	p := detectOpenAPI(fileSet([]string{"openapi.json"}), tc)
 	if p == nil {
 		t.Fatal("expected detection when npmPackages is nil and openapi.json present")
@@ -612,9 +611,6 @@ func TestGenerate_ImportOfADeclaredButAbsentModuleResolves(t *testing.T) {
 	assertRule(t, generatedNames(t, res), "schema_gen_compile", "ts_compile")
 	if got, want := compile.AttrStrings("srcs"), []string{":schema_gen"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("companion srcs = %v, want %v", got, want)
-	}
-	if got := compile.AttrString("declarations"); got != "oxc" {
-		t.Errorf("companion declarations = %q, want oxc", got)
 	}
 
 	c := emptyConfig()

@@ -44,9 +44,9 @@ func TestResolveImports_EveryDepNamesSomethingLoadable(t *testing.T) {
 	writeFile(t, filepath.Join(root, "web/tools/.internal/BUILD.bazel"), "")
 
 	c := &config.Config{RepoRoot: root, Exts: make(map[string]interface{})}
-	c.Exts[languageName] = makeConfig("", []rule.Directive{
-		directive("ts_path_alias", "@/ web/shared/"),
-	})
+	tc := makeConfig("", nil)
+	tc.pathAliases = map[string]string{"@/": "web/shared/"}
+	c.Exts[languageName] = tc
 	ix := buildIndex(t, c,
 		indexedRule{kind: "ts_compile", name: "lib", pkg: "web/shared/lib", srcs: []string{"index.ts"}},
 	)

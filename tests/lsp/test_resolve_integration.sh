@@ -41,23 +41,18 @@ NODE_MODULES="$(runfile tests/lsp/lsp_node_modules)"
 
 echo "INFO: node $("${NODE}" --version)"
 
-# What a ts_path_alias directive puts in the cache: the "@/" prefix mapped to a
-# directory, so "@/lib/math" must come back as <dir>/lib/math.ts.
-ALIAS_DIR="${TEST_TMPDIR:?TEST_TMPDIR is unset}/alias_root"
-mkdir -p "${ALIAS_DIR}/lib" "${ALIAS_DIR}/app"
-echo 'export const add = (a: number, b: number): number => a + b;' > "${ALIAS_DIR}/lib/math.ts"
-
 # What the worker puts in the cache for a first-party package: its key is the
 # package path and its value the .d.ts a build wrote into bazel-bin.
-LIB_DTS="${TEST_TMPDIR}/ws/bazel-bin/src/lib/index.d.ts"
-mkdir -p "$(dirname "${LIB_DTS}")"
+WORK_DIR="${TEST_TMPDIR:?TEST_TMPDIR is unset}/ws"
+LIB_DTS="${WORK_DIR}/bazel-bin/src/lib/index.d.ts"
+mkdir -p "$(dirname "${LIB_DTS}")" "${WORK_DIR}/app"
 echo 'export declare function add(a: number, b: number): number;' > "${LIB_DTS}"
 
-PRELOAD_MAP="$(L="${LIB_DTS}" A="${ALIAS_DIR}" "${NODE}" --eval \
-  'process.stdout.write(JSON.stringify({ "src/lib": process.env.L, "__alias__@/": process.env.A }))')"
+PRELOAD_MAP="$(L="${LIB_DTS}" "${NODE}" --eval \
+  'process.stdout.write(JSON.stringify({ "src/lib": process.env.L }))')"
 echo "INFO: preload_map = ${PRELOAD_MAP}"
 
 NODE_PATH="${NODE_MODULES}" \
 TSSERVER_HOOK_PRELOAD_MAP="${PRELOAD_MAP}" \
 TSSERVER_HOOK_NO_WORKER=1 \
-  "${NODE}" --require "${HOOK_JS}" "${RESOLVE_TEST_MJS}" "${LIB_DTS}" "${ALIAS_DIR}"
+  "${NODE}" --require "${HOOK_JS}" "${RESOLVE_TEST_MJS}" "${LIB_DTS}" "${WORK_DIR}"

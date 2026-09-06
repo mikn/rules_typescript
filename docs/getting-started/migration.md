@@ -116,7 +116,7 @@ toolchains. `rules_ts` needs neither.
 
 ### Gazelle
 
-Open-source BUILD file generation with fifteen `# gazelle:ts_*` directives,
+Open-source BUILD file generation with thirteen `# gazelle:ts_*` directives,
 codegen auto-detection, and automatic lint target generation. `rules_ts` relies on the proprietary
 Aspect CLI.
 
@@ -162,23 +162,23 @@ If you decide to migrate from `rules_ts`:
    another name and extend it from yours
    ([Extending the generated file](ide-setup.md#extending-the-generated-file))
 4. Run `bazel run //:gazelle` to regenerate BUILD files
-5. Leave `compilerOptions.paths` alone. Gazelle turns a `paths` entry into a
-   `path_aliases` attr and, where none of the target's own srcs sits under the
-   alias directory, adds a `path_alias_srcs` naming the target the import
-   resolved to. `"@/*": ["src/*"]` across two packages builds on the attr
-   alone; the [quickstart](quickstart.md#path-b-existing-project) shows the
-   shape that gets both. `module_name` is the cheaper boundary where the
-   producing target can carry one
+5. Leave `compilerOptions.paths` alone. The rule reads it from your file and
+   rewrites each value to its source and `bazel-bin` twins; Gazelle reads the
+   same entries to resolve an aliased import to the target that owns the
+   directory and writes it into `deps`. No attribute repeats the alias; the
+   [quickstart](quickstart.md#path-b-existing-project) shows the shape
 6. Nothing else. Missing explicit return types are fine; the default emitter
    infers them
 
 ### Key Conceptual Differences
 
-**The tsconfig is generated, but yours can be the baseline.** `ts_compile`
-generates a tsconfig per target and owns `rootDirs`, `paths`, the `@types`
-`files` list and the emit shape, none of which a user file can supply. Pass
-`tsconfig` and the generated config `extends` yours in place. Attributes (`lib`,
-`types`, `jsx_import_source`, `compiler_options`) sit between the two.
+**The tsconfig is generated, and yours is what it extends.** `ts_compile` writes
+a tsconfig per target that extends the ruleset's baseline and then your file,
+referenced where it lives, and sets over both what Bazel owns: `rootDirs`,
+`preserveSymlinks`, the emit shape, `include` and `files`. It rewrites each
+`paths` value to its source and `bazel-bin` twins and rebases a path-shaped
+`types` entry to the staged file. Every other option is the file's; the rule
+has no attribute for any of them.
 
 **One Bazel repository per npm package.** `rules_ts` with `rules_js` builds a
 pnpm virtual store of symlinks. Here each package is its own external
@@ -186,10 +186,9 @@ repository, fetched when something needs it, and `@npm` holds only aliases into
 them. Consumer labels are unchanged: `@npm//:react`, `@npm//:types_react`,
 `@npm//:vitest_bin`.
 
-**Isolated declarations are opt-in.** Every target starts on
-`declarations = "tsgo"`, which needs no annotations. Add
-`# gazelle:ts_declarations oxc` to a package once its exports are annotated, to
-move type-checking off the critical path.
+**Isolated declarations are a build flag.** `--//ts:declarations=tsgo`, the
+default, needs no annotations; `--//ts:declarations=oxc` emits every `.d.ts`
+from the annotated source alone, taking type-checking off the critical path.
 
 **`node_modules` is automatic.** `ts_test` builds its `node_modules` tree from
 deps; a manual `node_modules` target is needed only to override a specific case.

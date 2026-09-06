@@ -10,14 +10,12 @@
  *      visibility and an aspect's edges do not, so these cover the targets the
  *      data file cannot name -- and they are optional: without the .bazelrc
  *      lines that request the group there are none, and (1) is the whole map.
- *   3. Path-alias directives (# gazelle:ts_path_alias) in BUILD files, for
- *      directives added since the last refresh.
  *
- * npm packages are not in the map: the checkout's node_modules holds them and
- * TypeScript's own resolution finds them there.
+ * npm packages and path aliases are not in the map: TypeScript resolves both
+ * itself, through the checkout's node_modules and the tsconfig's `paths`.
  *
  * Sends the map to the main thread via postMessage, then sets up file-system
- * watches to rebuild the map when that data or a BUILD file changes.
+ * watches to rebuild the map when that data or bazel-bin changes.
  *
  * Design constraints:
  *   - Zero npm dependencies (Node.js builtins only).
@@ -57,7 +55,6 @@ function log(msg) {
 /**
  * Build the full resolution map and return it as a plain object.
  * Each key is a module name; each value is an absolute path to a .d.ts / .ts.
- * Keys prefixed with "__alias__" represent path-alias prefix mappings.
  *
  * @returns {Record<string, string>}
  */
@@ -82,21 +79,13 @@ function buildResolutionMap() {
   // Step 2: the aspect's per-target fragments, which reach the targets no rule
   // can name. They augment what the data file already resolved, never replace
   // it, and there are none at all until a build requests the output group.
-  let tree = { packages: [], aliases: [] };
+  let packages = [];
   try {
-    tree = walkWorkspace(workspaceRoot);
+    packages = walkWorkspace(workspaceRoot);
   } catch (e) {
     log(`workspace walk failed: ${e.message}`);
   }
-  mergeFragments(readFragments(tree.packages), map);
-
-  // Step 3: path aliases from BUILD files (# gazelle:ts_path_alias).
-  for (const alias of tree.aliases) {
-    const key = `__alias__${alias.prefix}/`;
-    if (map[key]) continue;
-    map[key] = path.join(workspaceRoot, alias.dir);
-    log(`path alias (BUILD): ${alias.prefix} → ${map[key]}`);
-  }
+  mergeFragments(readFragments(packages), map);
 
   return map;
 }
@@ -300,11 +289,7 @@ function scanPackageForResolution(pkg, srcDir, binDir, map) {
 }
 
 /**
- * One walk of the source tree, for the two things it is the authority on: the
- * # gazelle:ts_path_alias directives in BUILD files, and where the Bazel
- * packages are.
- *
- * Directive format:  # gazelle:ts_path_alias <alias_prefix> <workspace-relative-dir>
+ * One walk of the source tree, for where the Bazel packages are.
  *
  * The package list is what makes fragment discovery cheap and self-cleaning: a
  * fragment can only sit under a package directory, so nothing else in bazel-out
@@ -312,40 +297,14 @@ function scanPackageForResolution(pkg, srcDir, binDir, map) {
  * looked in.
  *
  * @param {string} root
- * @returns {{packages: string[], aliases: Array<{prefix: string, dir: string}>}}
+ * @returns {string[]}
  */
 function walkWorkspace(root) {
-  const re = /^\s*#\s*gazelle:ts_path_alias\s+(\S+)\s+(\S+)/;
   const BOUNDARY_FILES = new Set(['MODULE.bazel', 'WORKSPACE', 'WORKSPACE.bazel']);
   const PRUNE_DIRS = new Set(['node_modules', 'dist', 'build', '.next', '.nuxt']);
   const BUILD_FILES = new Set(['BUILD.bazel', 'BUILD']);
 
   const packages = [];
-  const aliases = [];
-  const seenPrefix = new Set();
-
-  function readDirectives(filePath) {
-    let lines;
-    try {
-      lines = fs.readFileSync(filePath, 'utf8').split('\n');
-    } catch (_) {
-      return;
-    }
-    for (const line of lines) {
-      const m = line.match(re);
-      if (!m) continue;
-      const prefix = m[1]; // e.g. "@/"
-      const dir = m[2]; // e.g. "src/"
-      // Only safe characters: this is the one input that is text rather than
-      // graph, so a prefix gazelle would accept can still be refused here.
-      if (!/^[A-Za-z0-9@/_.*-]+$/.test(prefix)) continue;
-      if (!/^[A-Za-z0-9@/_.*-]+$/.test(dir)) continue;
-      const stripped = prefix.replace(/\/$/, '');
-      if (seenPrefix.has(stripped)) continue; // First occurrence wins.
-      seenPrefix.add(stripped);
-      aliases.push({ prefix: stripped, dir: dir.replace(/\/$/, '') });
-    }
-  }
 
   function walk(dir, isRoot) {
     let entries;
@@ -355,15 +314,10 @@ function walkWorkspace(root) {
       return;
     }
 
-    // A child workspace's directives and packages are that workspace's, not
-    // this one's.
+    // A child workspace's packages are that workspace's, not this one's.
     if (!isRoot && entries.some((e) => e.isFile() && BOUNDARY_FILES.has(e.name))) {
       return;
     }
-
-    // Sorted, so which BUILD file wins a repeated alias prefix does not depend
-    // on the order the filesystem happens to list directories in.
-    entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 
     let isPackage = false;
     for (const entry of entries) {
@@ -372,7 +326,6 @@ function walkWorkspace(root) {
 
       if (entry.isFile() && BUILD_FILES.has(entry.name)) {
         isPackage = true;
-        readDirectives(path.join(dir, entry.name));
       } else if (entry.isDirectory()) {
         walk(path.join(dir, entry.name), false);
       }
@@ -381,7 +334,7 @@ function walkWorkspace(root) {
   }
 
   walk(root, true);
-  return { packages: packages.sort(), aliases };
+  return packages.sort();
 }
 
 // ── Initial build ─────────────────────────────────────────────────────────────
@@ -415,19 +368,13 @@ function scheduleRebuild(delay) {
   }, delay);
 }
 
-// Watch the generated graph data and the root-level BUILD files: between them,
-// everything that changes what resolves.
-const rootWatchPaths = [
-  providedDataFile || path.join(workspaceRoot, HOOK_DATA),
-  path.join(workspaceRoot, 'BUILD.bazel'),
-  path.join(workspaceRoot, 'BUILD'),
-];
-
-for (const watchPath of rootWatchPaths) {
-  if (!fs.existsSync(watchPath)) continue;
+// Watch the generated graph data: with bazel-bin below, everything that changes
+// what resolves.
+const dataFile = providedDataFile || path.join(workspaceRoot, HOOK_DATA);
+if (fs.existsSync(dataFile)) {
   try {
-    fs.watch(watchPath, { persistent: false }, () => {
-      log(`file changed: ${watchPath}`);
+    fs.watch(dataFile, { persistent: false }, () => {
+      log(`file changed: ${dataFile}`);
       scheduleRebuild(1000);
     });
   } catch (_) {

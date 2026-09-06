@@ -1,8 +1,6 @@
 package typescript
 
 import (
-	"bytes"
-	"log"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -61,36 +59,6 @@ func TestLoadTsConfigPaths_AliasValueWithDoubleSlash(t *testing.T) {
 	}
 }
 
-// A paths entry under a tool-managed dot-directory is not an alias: an
-// `import 'zod'` keeps resolving to @npm//:zod, never to a file there.
-func TestLoadTsConfigPaths_SkipsToolManagedDirs(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "tsconfig.json")
-	body := `{
-  "compilerOptions": {
-    "paths": {
-      "zod": ["./.bazel/npm/zod/index.d.ts"],
-      "zod/*": ["./.bazel/npm/zod/*"],
-      "@/*": ["src/*"]
-    }
-  }
-}`
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-		t.Fatalf("write tsconfig: %v", err)
-	}
-
-	got := loadTsConfigPaths(path, "")
-	want := map[string]string{"@/": "src/"}
-	if len(got) != len(want) {
-		t.Fatalf("loadTsConfigPaths: got %v, want %v", got, want)
-	}
-	for k, v := range want {
-		if got[k] != v {
-			t.Errorf("alias %q: got %q, want %q", k, got[k], v)
-		}
-	}
-}
-
 func TestLoadTsConfigPaths_SkipsFirstPartyPackageSelfEntries(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tsconfig.json")
@@ -117,86 +85,6 @@ func TestLoadTsConfigPaths_SkipsFirstPartyPackageSelfEntries(t *testing.T) {
 		if got[k] != v {
 			t.Errorf("alias %q: got %q, want %q", k, got[k], v)
 		}
-	}
-}
-
-// A tsconfig paths value is a fallback chain: TypeScript tries each entry in
-// turn. Gazelle emits one directory per alias, so it has to pick the entry a
-// specifier actually resolves through rather than whichever is written first.
-func TestLoadTsConfigPaths_FallbackChains(t *testing.T) {
-	tests := []struct {
-		name    string
-		dirs    []string
-		paths   string
-		want    map[string]string
-		wantLog bool
-	}{
-		{
-			name:  "output tree mirror is never the alias",
-			dirs:  []string{"src/api", "bazel-bin/src/api"},
-			paths: `"@api/*": ["./src/api/*", "./bazel-bin/src/api/*"]`,
-			want:  map[string]string{"@api/": "src/api/"},
-		},
-		{
-			name:  "first entry missing, second on disk",
-			dirs:  []string{"generated/api"},
-			paths: `"@api/*": ["./src/api/*", "./generated/api/*"]`,
-			want:  map[string]string{"@api/": "generated/api/"},
-		},
-		{
-			name:    "two real directories keep the first and report the rest",
-			dirs:    []string{"src/api", "generated/api"},
-			paths:   `"@api/*": ["./src/api/*", "./generated/api/*"]`,
-			want:    map[string]string{"@api/": "src/api/"},
-			wantLog: true,
-		},
-		{
-			name:  "no entry on disk keeps the first",
-			paths: `"@api/*": ["./src/api/*", "./generated/api/*"]`,
-			want:  map[string]string{"@api/": "src/api/"},
-		},
-		{
-			name:  "tool-managed chain drops the alias",
-			dirs:  []string{".bazel/npm/zod", "bazel-bin/.bazel/npm/zod"},
-			paths: `"zod/*": ["./.bazel/npm/zod/*", "./bazel-bin/.bazel/npm/zod/*"]`,
-			want:  nil,
-		},
-		{
-			name:    "output-tree-only chain drops the alias and says so",
-			dirs:    []string{"bazel-bin/src/api"},
-			paths:   `"@api/*": ["./bazel-bin/src/api/*"]`,
-			want:    nil,
-			wantLog: true,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			for _, d := range tc.dirs {
-				if err := os.MkdirAll(filepath.Join(dir, filepath.FromSlash(d)), 0o755); err != nil {
-					t.Fatal(err)
-				}
-			}
-			path := filepath.Join(dir, "tsconfig.json")
-			body := "{\"compilerOptions\": {\"paths\": {" + tc.paths + "}}}"
-			if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-				t.Fatal(err)
-			}
-
-			var logs bytes.Buffer
-			restore := log.Writer()
-			log.SetOutput(&logs)
-			got := loadTsConfigPaths(path, "")
-			log.SetOutput(restore)
-
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("loadTsConfigPaths: got %v, want %v", got, tc.want)
-			}
-			if gotLog := logs.Len() > 0; gotLog != tc.wantLog {
-				t.Errorf("logged %v, want %v: %s", gotLog, tc.wantLog, logs.String())
-			}
-		})
 	}
 }
 
@@ -239,11 +127,8 @@ func TestLoadTsConfigPaths_TargetsAreRelativeToTheRepoRootNotTheTsConfig(t *test
 	}
 }
 
-// A baseUrl of "." is the shape most hand-written tsconfigs carry, and the
-// prefix it puts on every value is one ts_compile's alias guard reads as a
-// directory no input lives under: `path_aliases["@/"] ... points at "./src/",
-// where none of this target's inputs live` -- for a target whose srcs are all
-// under src/.
+// A baseUrl of "." is the shape most hand-written tsconfigs carry; the value is
+// a repo-relative path for label construction, so no "./" prefix survives it.
 func TestLoadTsConfigPaths_BaseUrlDotWritesNoDotSlash(t *testing.T) {
 	dir := t.TempDir()
 	tsconfig := `{

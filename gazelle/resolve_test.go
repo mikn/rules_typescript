@@ -419,11 +419,16 @@ func TestModuleIndexKeys_DropsTheSpelledOutExtension(t *testing.T) {
 // ---- path aliases ----------------------------------------------------------
 
 func aliasConfig() *config.Config {
+	return configWithAliases(map[string]string{"@/": "src/", "~ui/": "packages/ui/src/"})
+}
+
+// configWithAliases is a root config whose alias map is the given one, the
+// shape loadTsConfigPaths leaves behind for the resolver.
+func configWithAliases(aliases map[string]string) *config.Config {
 	c := emptyConfig()
-	c.Exts[languageName] = makeConfig("", []rule.Directive{
-		directive("ts_path_alias", "@/ src/"),
-		directive("ts_path_alias", "~ui/ packages/ui/src/"),
-	})
+	tc := makeConfig("", nil)
+	tc.pathAliases = aliases
+	c.Exts[languageName] = tc
 	return c
 }
 
@@ -964,10 +969,7 @@ func TestLabelForUnindexed_UnclassifiedExtensionFabricatesNothing(t *testing.T) 
 // -- used to become a cross-package label, and "no such package" fails analysis
 // for every target in the build where a dropped dep leaves one TS2307.
 func TestResolveImports_MissingDirectoryFabricatesNothing(t *testing.T) {
-	c := emptyConfig()
-	c.Exts[languageName] = makeConfig("", []rule.Directive{
-		directive("ts_path_alias", "#shared/ web/shared/"),
-	})
+	c := configWithAliases(map[string]string{"#shared/": "web/shared/"})
 	repoWithDirs(t, c, "web/src", "web/shared")
 	ix := buildIndex(t, c)
 	from := label.New("", "web", "web")
@@ -1457,7 +1459,7 @@ func TestImportsForRule_CodegenOutsIsNotImportable(t *testing.T) {
 	})
 
 	if got := importsForRule(c, r, f); got != nil {
-		t.Errorf("importsForRule(outs ts_codegen) = %v, want nil: it returns no JsInfo, so no dep on it resolves", got)
+		t.Errorf("importsForRule(outs ts_codegen) = %v, want nil: its outs are the companion ts_compile's modules, so no import resolves to the codegen", got)
 	}
 }
 
@@ -1465,10 +1467,7 @@ func TestImportsForRule_CodegenOutsIsNotImportable(t *testing.T) {
 // targets importing its modules, reached by a tsconfig path alias, by the
 // module_name itself, and by a relative specifier rebased onto the package.
 func TestResolveImport_CodegenTreeSubpath(t *testing.T) {
-	c := emptyConfig()
-	c.Exts[languageName] = makeConfig("", []rule.Directive{
-		directive("ts_path_alias", "#shared/ web/shared/"),
-	})
+	c := configWithAliases(map[string]string{"#shared/": "web/shared/"})
 	tc := getConfig(c)
 	ix := buildIndex(t, c,
 		indexedRule{

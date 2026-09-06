@@ -4,8 +4,8 @@
 read:
 
 1. A workspace-root `tsconfig.json` whose `compilerOptions.paths` names every
-   source root, path alias, `module_name` and npm package your targets reach.
-   The file is checked in.
+   `ts_compile` package your targets reach, source directory and `bazel-bin`
+   twin. The file is checked in.
 2. A **tsserver plugin** that resolves the same set live, following `bazel build`
    outputs with no tsconfig reload. It is a layer on top of the generated file,
    and it needs editor configuration; the generated file needs none.
@@ -84,8 +84,8 @@ package's declarations as ordinary files, and without the entry
     Gazelle reads `compilerOptions.paths` from a file named `tsconfig.json` and
     from no other, and writes the `ts_config` target and the
     `tsconfig = "//:tsconfig"` on every `ts_compile` and `ts_test` from it.
-    Rename it and the next run recomputes `path_aliases` and `tsconfig` from a
-    tree that has none, logging each value it drops, and every aliased import
+    Rename it and the next run recomputes `deps` and `tsconfig` from a tree
+    that has none, logging each value it drops, and every aliased import
     fails with `TS2307`. Set
     `ts_refresh_tsconfig(tsconfig = "tsconfig.bazel.json")` and `extends` the
     generated file from yours; see
@@ -303,8 +303,8 @@ imports it by, and installs under its own name, which the key points into:
 
 Which of the two names wins follows npm, the same way it does in the tsconfig
 `ts_compile` generates: the runtime package answers `x` when it publishes
-declarations of its own, `@types/x` when it publishes none, and a `path_aliases`
-prefix outranks both. Where two packages in the graph claim one key (a target
+declarations of its own, `@types/x` when it publishes none. Where two packages
+in the graph claim one key (a target
 whose closure holds `@types/x` and no `x`, beside a target that has the real
 `x`) the same rule picks, so the aggregate config agrees with each target's own.
 
@@ -369,8 +369,8 @@ build --aspects=@rules_typescript//ts/private:tsconfig_aspect.bzl%tsconfig_aspec
 build --output_groups=+ide_fragments
 ```
 
-Every target whose closure holds a source root, a path alias or an npm entry
-then gets a `<target>.tsconfig-fragment.json` beside its other outputs in
+Every target whose closure holds a `ts_compile` package then gets a
+`<target>.tsconfig-fragment.json` beside its other outputs in
 `bazel-out`, and the resolver merges what it finds there into the map. `+group` is
 additive, so this composes with `--output_groups=+_validation` and with anything
 a command line adds, and any ordinary `bazel build` refreshes the fragments.
@@ -386,7 +386,6 @@ disagrees.
 |---|---|---|
 | `ts_compile` source roots | fragments, and the data file | yes, via fragments |
 | `module_name` bare specifiers | fragments, and the data file | yes, via fragments |
-| `ts_path_alias` prefixes | fragments, the data file, and a BUILD-file scan | yes, via fragments |
 | npm `.d.ts` declarations | `.bazel/npm`, installed by `bazel run //:refresh_tsconfig` | **no** |
 
 The npm row is the exception for the same reason `.bazel/npm` exists: a fragment
@@ -575,24 +574,19 @@ through `.bazel/tsserver-hook-data.json`, which `refresh_tsconfig` wrote at
 analysis time. A long-lived editor process asking the Bazel server for anything
 would sit on the same lock a build wants.
 
-1. **Worker thread** reads `.bazel/tsserver-hook-data.json` (the npm entry
-   points, the `ts_compile` package list, the `module_name` specifiers, the path
-   aliases) and turns it into a module-name → declaration-path map
-2. **npm packages** resolved from the declarations installed under `npm_dir`,
-   the same set the generated `tsconfig.json` names
-3. **Internal packages** resolved from `bazel-bin` (`.d.ts` after a build) or the
+1. **Worker thread** reads `.bazel/tsserver-hook-data.json` (the `ts_compile`
+   package list) and turns it into a module-name → declaration-path map
+2. **Internal packages** resolved from `bazel-bin` (`.d.ts` after a build) or the
    source tree (`.ts` before one)
-4. **Fragments**, if the `.bazelrc` lines above are in place, add the packages and
-   aliases of every target the aspect reached, including the ones no rule may
-   name. One target built in two configurations writes two fragments, deduplicated
-   by label with the first config root in sorted order winning, so the merge does
+3. **Fragments**, if the `.bazelrc` lines above are in place, add the packages
+   of every target the aspect reached, including the ones no rule may name. One
+   target built in two configurations writes two fragments, deduplicated by
+   label with the first config root in sorted order winning, so the merge does
    not depend on what `bazel-out` holds
-5. **Path aliases** come from that graph data, plus a scan of
-   `# gazelle:ts_path_alias` directives in BUILD files to cover directives added
-   since the last refresh. The graph wins, since it is what the build resolves
-6. **File watcher** watches the graph data file, the root `BUILD.bazel` and
-   `pnpm-lock.yaml`, and `bazel-bin` recursively for new `.d.ts` and new
-   fragments; a change to any of them rebuilds the map
+4. **File watcher** watches the graph data file, and `bazel-bin` recursively for
+   new `.d.ts` and new fragments; a change to either rebuilds the map. npm
+   packages and path aliases are not in the map: TypeScript resolves both
+   itself, through the checkout's `node_modules` and the tsconfig's `paths`
 
 The main thread is never blocked: the worker builds the map off-thread and posts
 it back. tsserver returns "unresolved" briefly on first load, then resolves when

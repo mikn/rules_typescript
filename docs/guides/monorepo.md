@@ -90,13 +90,10 @@ target through another dep's own deps does not count, so the `deps` list above
 is what `apps/server` may import; `bazel run //:gazelle` keeps it current. See
 [Deps have to be direct](../rules/ts-compile.md#deps-have-to-be-direct).
 
-Relative imports across packages work as written. For a bare specifier,
-`import { Button } from "@acme/ui"`, set `module_name = "@acme/ui"` on the
-producing target; the dependent then gets a `paths` entry pointing at whatever
-`.d.ts` Bazel produced for it. Do not hand-write that entry, and do not point
-`path_aliases` into `bazel-out/`: both break under a different configuration, and
-the second is a hard error. See
-[ts_compile](../rules/ts-compile.md#importing-another-target-by-bare-specifier).
+Relative imports across packages work as written. A bare specifier,
+`import { Button } from "@acme/ui"`, names a workspace package, which the
+dependent reaches as it reaches any npm package; see
+[importing another target by bare specifier](../rules/ts-compile.md#importing-another-target-by-bare-specifier).
 
 ## Single pnpm Lockfile
 

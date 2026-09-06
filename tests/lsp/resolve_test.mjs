@@ -2,13 +2,12 @@
  * resolve_test.mjs — what the tsserver hook does to ts.resolveModuleName.
  *
  * Run by tests/lsp/test_resolve_integration.sh:
- *   node --require <hook.js> resolve_test.mjs <lib.d.ts> <alias_dir>
+ *   node --require <hook.js> resolve_test.mjs <lib.d.ts> <work_dir>
  *
- * Four claims, each of which the hook can break on its own:
+ * Three claims, each of which the hook can break on its own:
  *   - the patch applied at all (ts._bazelPatched)
  *   - a first-party package in the cache resolves to that exact .d.ts
- *   - a # gazelle:ts_path_alias prefix resolves through to a source file
- *   - a specifier in neither falls through to TypeScript's own resolver
+ *   - a specifier not in the cache falls through to TypeScript's own resolver
  *
  * Every path is supplied by the caller and asserted against, so a stale or
  * missing file fails rather than turning an assertion into a no-op.
@@ -19,10 +18,10 @@ import { existsSync, readFileSync } from 'fs';
 
 const require = createRequire(import.meta.url);
 
-const [, , libDts, aliasDir] = process.argv;
+const [, , libDts, workDir] = process.argv;
 
-if (!libDts || !aliasDir) {
-  process.stderr.write('FATAL: usage: resolve_test.mjs <lib.d.ts> <alias_dir>\n');
+if (!libDts || !workDir) {
+  process.stderr.write('FATAL: usage: resolve_test.mjs <lib.d.ts> <work_dir>\n');
   process.exit(1);
 }
 
@@ -60,7 +59,7 @@ if (ts._bazelPatched === true) {
 const host = {
   fileExists: (p) => existsSync(p),
   readFile: (p) => (existsSync(p) ? readFileSync(p, 'utf8') : undefined),
-  getCurrentDirectory: () => aliasDir,
+  getCurrentDirectory: () => workDir,
   getDirectories: () => [],
   useCaseSensitiveFileNames: () => true,
   getCanonicalFileName: (f) => f,
@@ -90,20 +89,14 @@ function expectResolved(label, moduleName, containingFile, want) {
   pass(`${label} -> ${got}`);
 }
 
-expectResolved('package "src/lib"', 'src/lib', `${aliasDir}/app/main.ts`, libDts);
-expectResolved(
-  'path alias "@/lib/math"',
-  '@/lib/math',
-  `${aliasDir}/app/main.ts`,
-  `${aliasDir}/lib/math.ts`
-);
+expectResolved('package "src/lib"', 'src/lib', `${workDir}/app/main.ts`, libDts);
 
 // Fallthrough: a specifier the cache knows nothing about must reach TypeScript's
 // own resolver rather than being answered, or thrown on, by the hook.
 {
   const label = 'unknown specifier falls through to the TypeScript resolver';
   try {
-    const result = resolve('no-such-package-anywhere', `${aliasDir}/app/main.ts`);
+    const result = resolve('no-such-package-anywhere', `${workDir}/app/main.ts`);
     if (result && result.resolvedModule) {
       fail(label, `the hook invented a resolution: ${result.resolvedModule.resolvedFileName}`);
     } else {

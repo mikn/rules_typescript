@@ -2,8 +2,8 @@
 //tools:tsserver-hook.js), and for the tsconfig an editor reads.
 
   :test_worker_map              the worker against a fixture workspace: internal
-                                ts_compile packages and path aliases, including
-                                what must stay OUT of the map.
+                                ts_compile packages, including what must stay
+                                OUT of the map.
   :test_fragment_map            the same worker, over the fragment bytes a real
                                 build wrote for a package-private target: the
                                 .bazelrc-optional half of the map.
@@ -17,7 +17,7 @@
                                 rule in this package may name.
   :test_resolve_integration     the monkey-patch itself -- ts.resolveModuleName
                                 answers a first-party package out of the map and
-                                follows ts_path_alias prefixes.
+                                falls through for everything else.
   :test_tsserver_diagnostics    a TypeScript language service with the hook
                                 active type-checks an import of a first-party
                                 package against the .d.ts the map names.

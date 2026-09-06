@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -164,10 +165,9 @@ func convergeCases() []convergeCase {
 			},
 		},
 		{
-			// path_aliases is the one attribute Gazelle owns whose value is a
-			// dict. No fixture declared compilerOptions.paths, so no fixture
-			// generated it, and nothing here asked what a merge does to a dict.
-			name: "path_aliases",
+			// Imports through a tsconfig `paths` alias: the resolver maps each
+			// to the owning target, and the alias map is the tsconfig's alone.
+			name: "alias_imports",
 			files: map[string]string{
 				"package.json":      convergePlainPkg,
 				"tsconfig.json":     convergeAliasTsConfig,
@@ -176,19 +176,16 @@ func convergeCases() []convergeCase {
 				"src/lib/helper.ts": "export const helper = 1;\n",
 				"src/lib/util.ts":   "export const util = 1;\n",
 				"src/ui/button.ts":  "export const button = 1;\n",
-				// One test under the alias directory, which validates the alias on its
-				// own srcs, and one outside it, which needs path_alias_srcs.
+				// One test under the alias directory and one outside it.
 				"src/lib/helper.test.ts": "import type { helper } from \"@lib/helper\";\nexport const t = typeof helper;\n",
 				"e2e/smoke.test.ts":      "import { button } from \"@ui/button\";\nexport const t = button;\n",
 			},
 			mutations: []convergeMutation{
-				// The alias map gains an entry: the run that recomputes it has
-				// to write the entry, not the map the first run left behind.
+				// An import through a second alias: the run recomputes deps.
 				{kind: "add_alias_import", write: map[string]string{
 					"src/extra.ts": "import { helper } from \"@lib/helper\";\nexport const b = helper;\n",
 				}},
-				// And loses its last one, which is the attribute going away
-				// rather than a value inside it.
+				// And the last aliased import goes, and the dep with it.
 				{kind: "drop_alias_import", write: map[string]string{
 					"src/index.ts": "export const a = 1;\n",
 				}},
@@ -386,16 +383,6 @@ func handAuthoredCases() []handAuthoredCase {
 			workspace: "plain", pkg: "src", kind: "ts_compile", target: "src",
 			attr: "tsconfig", shape: "scalar", value: "//:tsconfig_build",
 		},
-		{
-			workspace: "plain", pkg: "", kind: "filegroup", target: "tsconfig_types",
-			attr: "srcs", shape: "list", value: "//vendor:vendor_hand",
-			extra: map[string]string{
-				"tsconfig.json":      `{"compilerOptions":{"strict":true,"types":["./globals.d.ts"]}}` + "\n",
-				"globals.d.ts":       "declare const GLOBAL_FLAG: boolean;\n",
-				"vendor/BUILD.bazel": handVendorPackage,
-				"vendor/legacy.js":   "export const legacy = 1;\n",
-			},
-		},
 	}
 }
 
@@ -541,8 +528,7 @@ func replaceAttrLines(lines []string, attr string, replacement []string) []strin
 		}
 		depth := 0
 		for j := i; j < len(lines); j++ {
-			// Braces too: path_aliases is a dict, and counting only brackets
-			// ends the assignment at its opening line.
+			// Braces too, so a dict value ends where its brace closes.
 			depth += strings.Count(lines[j], "[") + strings.Count(lines[j], "(") +
 				strings.Count(lines[j], "{")
 			depth -= strings.Count(lines[j], "]") + strings.Count(lines[j], ")") +
@@ -594,4 +580,93 @@ func buildFileText(t *testing.T, root, pkg string) string {
 		return "(no BUILD file)"
 	}
 	return string(data)
+}
+
+// ---- a tsconfig `types` entry ----------------------------------------------
+
+// The rule reads `paths` and `types` from the tsconfig, so a BUILD file repeats none
+// of it; a `types` entry a ts_codegen writes still needs the codegen as a dep.
+func TestTypesEntryNamingACodegenOutIsADep(t *testing.T) {
+	fixture := convergeFixture(t, "worker")
+	var mutation convergeMutation
+	for _, mut := range fixture.mutations {
+		if mut.kind == "replace_declaration_with_codegen" {
+			mutation = mut
+		}
+	}
+	if mutation.kind == "" {
+		t.Fatal("the worker fixture lost its replace_declaration_with_codegen mutation")
+	}
+
+	programs := []struct{ pkg, kind string }{{"worker/src", "ts_compile"}, {"worker/test", "ts_test"}}
+
+	checkedIn := t.TempDir()
+	writeWorkspace(t, checkedIn, fixture.files)
+	captureLog(t, func() { convergeGazelle(t, checkedIn) })
+	for _, program := range programs {
+		r := onlyRuleOfKind(t, checkedIn, program.pkg, program.kind)
+		for _, attr := range attrsBeyondTheRule(r) {
+			t.Errorf("%s(%s) in //%s carries %s while the declaration is checked in; the tsconfig names it and the rule reads the tsconfig:\n%s",
+				r.Kind(), r.Name(), program.pkg, attr, indent(buildFileText(t, checkedIn, program.pkg)))
+		}
+	}
+	requireNoTsConfigTypesFilegroup(t, checkedIn)
+
+	generated := t.TempDir()
+	writeWorkspace(t, generated, fixture.files)
+	applyMutation(t, generated, mutation)
+	captureLog(t, func() { convergeGazelle(t, generated) })
+	for _, program := range programs {
+		r := onlyRuleOfKind(t, generated, program.pkg, program.kind)
+		if deps := r.AttrStrings("deps"); !contains(deps, "//worker:worker_types") {
+			t.Errorf("%s(%s) in //%s has deps = %v, want //worker:worker_types: the codegen is what stages the declaration the tsconfig names in `types`:\n%s",
+				r.Kind(), r.Name(), program.pkg, deps, indent(buildFileText(t, generated, program.pkg)))
+		}
+		for _, attr := range attrsBeyondTheRule(r) {
+			t.Errorf("%s(%s) in //%s carries %s = %v; the rule has no such attribute:\n%s",
+				r.Kind(), r.Name(), program.pkg, attr, attrValues(r, attr), indent(buildFileText(t, generated, program.pkg)))
+		}
+	}
+	requireNoTsConfigTypesFilegroup(t, generated)
+	if dangling := danglingLabels(t, generated); len(dangling) > 0 {
+		t.Errorf("the codegen dep left %d label(s) no target satisfies:\n      %s", len(dangling), strings.Join(dangling, "\n      "))
+	}
+}
+
+// attrsBeyondTheRule is every attribute on r that ts_compile and ts_test do not
+// have: srcs, deps, tsconfig, visibility and a ts_test's config are theirs.
+func attrsBeyondTheRule(r *rule.Rule) []string {
+	own := map[string]bool{"name": true, "srcs": true, "deps": true, "tsconfig": true, "visibility": true, "config": true}
+	var beyond []string
+	for _, key := range r.AttrKeys() {
+		if !own[key] {
+			beyond = append(beyond, key)
+		}
+	}
+	sort.Strings(beyond)
+	return beyond
+}
+
+func onlyRuleOfKind(t *testing.T, root, pkg, kind string) *rule.Rule {
+	t.Helper()
+	var found []*rule.Rule
+	for _, r := range loadRules(t, root, pkg) {
+		if r.Kind() == kind {
+			found = append(found, r)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("//%s holds %d %s rules, want one:\n%s", pkg, len(found), kind, indent(buildFileText(t, root, pkg)))
+	}
+	return found[0]
+}
+
+func requireNoTsConfigTypesFilegroup(t *testing.T, root string) {
+	t.Helper()
+	for _, pkg := range convergePackages(t, root) {
+		if ruleNamed(loadRules(t, root, pkg), "filegroup", "tsconfig_types") != nil {
+			t.Errorf("//%s writes filegroup(tsconfig_types); a program reaches a checked-in declaration through the target that owns it and a generated one through the codegen:\n%s",
+				pkg, indent(buildFileText(t, root, pkg)))
+		}
+	}
 }

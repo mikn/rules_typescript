@@ -7,10 +7,8 @@
  * graph -- .bazel/tsserver-hook-data.json -- so a fixture workspace is the whole
  * of its input, and there is no `bazel` left to stub out.
  *
- * Both halves of the map are checked here, including the parts that are left
- * OUT: a ts_compile package with no entry point, a nested workspace's
- * directives, and a "~" alias prefix that the worker's character screen rejects
- * even though gazelle accepts it.
+ * The map is checked including what is left OUT of it: a ts_compile package
+ * with no entry point.
  */
 
 import { Worker } from 'node:worker_threads';
@@ -36,17 +34,6 @@ const write = (rel, contents) => {
 // ── The fixture workspace ────────────────────────────────────────────────────
 
 write('MODULE.bazel', 'module(name = "fixture")\n');
-write(
-  'BUILD.bazel',
-  [
-    '# gazelle:ts_path_alias @/ src/',
-    // The worker screens alias prefixes against [A-Za-z0-9@/_.*-], so a "~"
-    // prefix -- which gazelle itself accepts and writes into tsconfig paths --
-    // is dropped here.
-    '# gazelle:ts_path_alias ~lib/ packages/lib/src/',
-    '',
-  ].join('\n')
-);
 
 // An internal package whose entry point exists only in source.
 const libIndex = write('src/lib/index.ts', 'export const a = 1;\n');
@@ -56,11 +43,6 @@ write('src/app/index.ts', 'export const b = 2;\n');
 const appDts = write('bazel-bin/src/app/index.d.ts', 'export declare const b: number;\n');
 // An internal package with no index file at all: nothing to resolve to.
 write('src/empty/helpers.ts', 'export const c = 3;\n');
-
-// A nested workspace. Its directives belong to that workspace, so the walk must
-// stop at the boundary rather than adopting them.
-write('vendor/child/MODULE.bazel', 'module(name = "child")\n');
-write('vendor/child/BUILD.bazel', '# gazelle:ts_path_alias @child/ vendor/child/src/\n');
 
 // ── The graph data ───────────────────────────────────────────────────────────
 
@@ -129,11 +111,6 @@ worker.once('message', (msg) => {
   expectEntry(map, 'src/lib', libIndex);
   expectEntry(map, 'src/app', appDts);
   expectAbsent(map, 'src/empty', 'no index.ts/index.d.ts to resolve to');
-
-  // Path aliases from BUILD directives.
-  expectEntry(map, '__alias__@/', path.join(root, 'src'));
-  expectAbsent(map, '__alias__@child/', 'the walk stops at a nested workspace boundary');
-  expectAbsent(map, '__alias__~lib/', 'a "~" prefix fails the worker\'s character screen');
 
   worker.terminate().then(() => {
     if (failures > 0) {

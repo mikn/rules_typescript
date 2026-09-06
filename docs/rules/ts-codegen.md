@@ -289,11 +289,10 @@ without DOM and no `@cloudflare/workers-types` in `deps`.
 
 The output has no top-level import or export, so what it declares is global. A
 tsconfig names it in `compilerOptions.types` as `./worker-configuration.d.ts`,
-and a target names the label that stages it in
-[`types_srcs`](ts-compile.md#a-types-entry-that-names-a-declaration-file);
-Gazelle writes both onto every target under that tsconfig, reading the file
-name off this target's `outs`. Those targets sit in packages of their own, so
-the `visibility` has to reach them. See
+and the rule rebases the entry to the staged file. Gazelle finds the file among
+this target's `outs` and puts this target, the dep that stages it, in the `deps`
+of every target under that tsconfig. Those targets sit in packages of their own,
+so the `visibility` has to reach them. See
 [a declaration the tsconfig names](../gazelle/overview.md#a-declaration-the-tsconfig-names);
 `//tests/worker_types` is the worked example, and the package's nested editor
 program writes the entry through the `bazel-bin` symlink, so `bazel build` puts

@@ -53,9 +53,8 @@ func importsForRule(_ *config.Config, r *rule.Rule, f *rule.File) []resolve.Impo
 
 	srcs := r.AttrStrings("srcs")
 	for _, src := range srcs {
-		// A ts_codegen label in srcs: its outs are modules of this target, and
-		// this target is the only label an importer can depend on -- ts_compile
-		// deps take JsInfo, which ts_codegen does not return.
+		// A ts_codegen label in srcs: its outs are this target's modules, so an
+		// importer depends on this target; the codegen is a dep only through a tsconfig `types` entry.
 		if isLabelSrc(src) {
 			for _, out := range codegenOutsOf(f, strings.TrimPrefix(src, ":")) {
 				specs = append(specs, resolve.ImportSpec{
@@ -243,6 +242,9 @@ func resolveImports(
 		for _, lbl := range tc.tsconfigAmbientTypes {
 			addDep(lbl)
 		}
+		for _, codegen := range tc.tsconfigCodegenTypes {
+			addDep(label.New(from.Repo, codegen.Pkg, codegen.Name).Rel(from.Repo, from.Pkg).String())
+		}
 		for _, name := range typeReferences(r) {
 			if lbl := typeReferenceLabel(tc, name); lbl != "" {
 				addDep(lbl)
@@ -279,8 +281,6 @@ func resolveImports(
 		addDep(resolved)
 		importDeps = append(importDeps, resolved)
 	}
-
-	setPathAliasSrcs(c, ix, tc, r, ambient, from)
 
 	// For ts_test targets, append the ts_runtime_dep labels in force here.
 	// These are already valid Bazel labels (e.g.
@@ -349,36 +349,6 @@ func typeReferenceLabel(tc *tsConfig, name string) string {
 		return ""
 	}
 	return resolveNpmPackage(tc, bare)
-}
-
-// setPathAliasSrcs stages, through path_alias_srcs, the target each import noted
-// by setAliasAttrs resolves to -- the label deps already carries, so no new edge.
-func setPathAliasSrcs(
-	c *config.Config,
-	ix *resolve.RuleIndex,
-	tc *tsConfig,
-	r *rule.Rule,
-	ambient []string,
-	from label.Label,
-) {
-	imports, ok := r.PrivateAttr(aliasSrcImportsKey).([]string)
-	if !ok {
-		return
-	}
-	seen := map[string]struct{}{}
-	var srcs []string
-	for _, imp := range imports {
-		lbl := resolveImport(c, ix, tc, r.Kind(), ambient, imp, from)
-		if _, dup := seen[lbl]; lbl == "" || dup {
-			continue
-		}
-		seen[lbl] = struct{}{}
-		srcs = append(srcs, lbl)
-	}
-	if len(srcs) > 0 {
-		sort.Strings(srcs)
-		r.SetAttr("path_alias_srcs", srcs)
-	}
 }
 
 // resolveImport attempts to resolve a single import specifier to a Bazel label

@@ -93,7 +93,7 @@ register_toolchains("@rules_typescript//ts/toolchain:all")
 ```
 
 Without it nothing resolves the tsgo toolchain, and under the default
-`declarations = "tsgo"` that means no `.d.ts` and no type-checking.
+`--//ts:declarations=tsgo` that means no `.d.ts` and no type-checking.
 
 To choose the compiler, point the `ts` extension at the lockfile that pins
 `typescript` (7 or later):
@@ -108,80 +108,6 @@ are in [Version Pinning](../getting-started/quickstart.md#version-pinning).
 
 Windows is not supported, so no tsgo toolchain resolves there. See
 [COMPATIBILITY.md](https://github.com/mikn/rules_typescript/blob/main/COMPATIBILITY.md#windows).
-
-## compilerOptions.X is set by the rule and cannot be overridden
-
-```
-ts_compile: compilerOptions.paths is set by the rule and cannot be overridden --
-use path_aliases for source aliases, or module_name on the target that produces
-the declarations.
-Remove "paths" from compiler_options on //src/app:app.
-```
-
-Seventeen `compilerOptions` keys encode the sandbox layout or the action's
-declared outputs, and `compiler_options` rejects all seventeen. The message
-names the attribute to use; the full list is in
-[ts_compile](../rules/ts-compile.md#the-two-hard-errors).
-
-## path_aliases points into the output tree
-
-```
-ts_compile: path_aliases["@acme/ui"] on //src/app:app points into the output
-tree (bazel-out/k8-fastbuild/bin/packages/ui).
-```
-
-A path under `bazel-out/` embeds the build configuration, so it stops resolving
-under `-c opt` or a different exec platform. `path_aliases` is for source
-directories. To import another target by bare specifier, set `module_name` on
-the target that produces its declarations and depend on it.
-
-## path_aliases points at a directory where none of this target's inputs live
-
-```
-ts_compile: path_aliases["@lib/"] on @@//src/app:app points at "src/lib/", where
-none of this target's inputs live.
-```
-
-`ts_compile` accepts an alias only when a file the target stages sits under the
-alias directory: one of its `srcs`, or a file `path_alias_srcs` names. `main.ts`
-is under `src/`, so an alias on `src/` passes on this target with no
-`path_alias_srcs`, and one on `src/lib/` fails until something staged sits under
-it. On a hand-written target, name the target that owns the directory:
-
-```python
-ts_compile(
-    name = "app",
-    srcs = ["main.ts"],          # import { add } from "@lib/math";
-    path_alias_srcs = ["//src/lib"],
-    path_aliases = {"@lib/": "src/lib/"},
-    deps = ["//src/lib"],
-)
-```
-
-That stages every output of `//src/lib` into this target's type-check. Where the
-producing target can carry a `module_name`, importing it by that name is the
-cheaper boundary: see
-[importing another target by bare specifier](../rules/ts-compile.md#importing-another-target-by-bare-specifier).
-
-On a generated target Gazelle writes `path_alias_srcs` itself, naming the target
-each aliased import resolved to. Two shapes still reach the error.
-
-The import resolved to no target. Gazelle logs nothing for it, and the rule
-carries the alias with no `path_alias_srcs` beside it. Fix the import.
-
-The alias names a file. A `paths` entry without a wildcard, `"@math":
-["src/lib/math"]`, is written as `"@math": "src/lib/math"`, with
-`path_alias_srcs = ["//src/lib"]` beside it. The guard passes a staged file at
-or under the value, and a `paths` entry names its file without the extension,
-so `src/lib/math.d.ts` never matches `src/lib/math`:
-
-```
-ts_compile: path_aliases["@math"] on @@//src/app:app points at "src/lib/math",
-where none of this target's inputs live.
-```
-
-Map the alias to the directory (`"@lib/*": ["src/lib/*"]`, imported as
-`@lib/math`), or set `module_name` on `//src/lib` and import it by that name.
 
 ## npm: pnpm-lock.yaml declares patchedDependencies with no patch file
 
@@ -296,8 +222,6 @@ your file: the diagnostic fires on the key being present anywhere in the
 `extends` chain, so re-stating it above yours only moves the error. Delete it
 from the `tsconfig.json` the target names. `paths` here is Bazel's, rewritten
 per configuration, so nothing in this ruleset resolves against a `baseUrl`.
-`compiler_options` rejects the key at analysis for the same reason; use
-`path_aliases` for a source alias.
 
 ## Option 'moduleResolution' must be set to 'NodeNext'
 
@@ -380,94 +304,6 @@ strict-deps checker reads it. One in an npm package's declaration entry
 (`@types/bun/index.d.ts` is `/// <reference types="bun-types" />`) is followed
 by the rule; see [`@types/*` packages](../rules/ts-compile.md#types-packages).
 
-## compilerOptions.types entry "vite/client" resolves to nothing
-
-```
-ts_compile: compilerOptions.types entry "vite/client" on @@//app:app resolves to
-nothing.
-No dep of this target publishes "vite", and a `types` entry is resolved from
-this target's own deps -- there is no node_modules for TypeScript to walk.
-```
-
-A `types` entry names a package, and the rule resolves it against this target's
-`deps`, putting the declaration the package's manifest designates into the
-generated config's `files`. Add the dep that publishes it:
-
-```python
-ts_compile(
-    name = "app",
-    srcs = ["app.ts"],
-    compiler_options = {"types": ["vite/client"]},
-    deps = ["@npm//:vite"],
-)
-```
-
-The message names the subpaths a package that is already a dep does designate,
-and any dep whose name is near the entry's. Two other ways out: name a
-declaration file (`types = ["./worker-configuration.d.ts"]`, with the file in
-`types_srcs`; see below), or state a `typeRoots` in `compiler_options`. A
-`typeRoots` exempts the target from this check; what sits under it is the
-compiler's to find at action time.
-
-It fails at analysis because that is where the dep can be named. `tsc` reports
-`TS2688` for such an entry, and so does tsgo 7.0.2, from the action, with no
-dep in the message; the `7.0.0-dev.20260311.1` nightly reported nothing, so the
-target compiled without the declarations and the error landed on whatever
-needed them: `TS2339` on `import.meta.env` without `vite/client`, `TS2591` on
-`process` without `node`.
-
-## compilerOptions.types entry names a path no file of mine sits at
-
-```
-ts_compile: compilerOptions.types entry "../../worker-configuration.d.ts" on
-@@//workers/proxy/src/lib:lib names "workers/proxy/worker-configuration.d.ts",
-  which no file this target stages sits at.
-```
-
-A relative `types` entry is a path, and a path resolves against the sandbox,
-which holds only what this target's action stages: its `srcs`, `types_srcs`,
-`path_alias_srcs` and its deps' declarations, checked in or generated. Name the
-file with a label:
-
-```python
-ts_compile(
-    name = "lib",
-    srcs = glob(["*.ts"]),
-    types = ["../../worker-configuration.d.ts"],
-    types_srcs = ["//workers/proxy:worker-configuration.d.ts"],
-)
-```
-
-`types_srcs` stages the file for the entry to resolve and does not publish it
-as this target's own declaration, which listing it in `srcs` would. tsgo parses
-it as part of this program either way, so a syntax error in the file fails this
-target; what it declares goes unchecked under the baseline's `skipLibCheck`.
-
-It fails at analysis for the same reason the package shape does: the compiler's
-own `TS2688` from the action names no label to add, and the
-`7.0.0-dev.20260311.1` nightly reported nothing for the entry at all, so the
-target compiled against a smaller type environment than it asked for and the
-error landed on whatever needed the globals (`TS2304: Cannot find name` on a
-Worker's `Env`). A `typeRoots` does not exempt this shape: `./x.d.ts` and
-`../x.d.ts` are resolved against the config's own directory, never through
-`typeRoots`.
-
-## types_srcs names a file no compilerOptions.types entry names
-
-The mirror of it. `types_srcs` stages a declaration for an entry to resolve and
-is not `include`, so a file no entry names reaches the program by no route at
-all. Name it in `types`, or drop the label.
-
-## `types` in the tsconfig File Is Not Read
-
-Only the `types` in `compiler_options` is resolved and guarded. The `tsconfig`
-file a target names is a layer the rule does not read, so its entries reach tsgo
-unresolved: a target whose `tsconfig` holds `"types": ["vite/client"]` and whose
-`deps` hold `@npm//:vite` passes analysis, generates a config whose `files` is
-empty, and fails in the compiler with `TS2688` on `vite/client` (tsgo 7.0.2; the
-20260311.1 nightly reported `TS2339` on `import.meta.env` instead). Move the
-entries to `compiler_options`.
-
 ## ts_test: vitest not found
 
 ```
@@ -510,7 +346,7 @@ own.
 
 ## Isolated Declarations Error: Missing Return Type
 
-Reachable only under `declarations = "oxc"`, where Oxc derives `.d.ts` from
+Reachable only under `--//ts:declarations=oxc`, where Oxc derives `.d.ts` from
 syntax and so needs an explicit type on every export:
 
 ```
@@ -518,17 +354,17 @@ syntax and so needs an explicit type on every export:
 │ with --isolatedDeclarations.
 ```
 
-Add the annotation Oxc names, or drop that target back to the default
-`declarations = "tsgo"`, where the compiler infers it. See
+Add the annotation Oxc names, or build under the default
+`--//ts:declarations=tsgo`, where the compiler infers it. See
 [Isolated Declarations](../getting-started/isolated-declarations.md).
 
 ## Type Errors Are Not Failing the Build
 
-Under the default `declarations = "tsgo"` they always do: the `.d.ts` are
+Under the default `--//ts:declarations=tsgo` they always do: the `.d.ts` are
 outputs of the type-checking action, so a target with a type error produces
 nothing.
 
-Under `declarations = "oxc"`, type-checking moves into the `_validation` output
+Under `--//ts:declarations=oxc`, type-checking moves into the `_validation` output
 group, off the critical path. Bazel runs those actions during `bazel build` on
 its own, unless `--norun_validations` turns them off; the `.bazelrc` line the
 quickstart writes requests the group explicitly:
@@ -536,11 +372,6 @@ quickstart writes requests the group explicitly:
 ```
 build --output_groups=+_validation
 ```
-
-With `enable_check = False` nothing type-checks the target. Under `"oxc"` the
-declarations are still complete, because Oxc enforces isolated declarations
-itself; under `"tsgo"` the target emits no `.d.ts`, intended for terminal targets
-whose declarations nothing consumes.
 
 ## ts_package_boundary index-only was removed
 
@@ -563,8 +394,7 @@ If Gazelle generates incorrect `deps` for an import:
 
 1. Check that the import specifier matches an npm package name in the lockfile.
 2. For path aliases, check `compilerOptions.paths` in the nearest
-   `tsconfig.json` (Gazelle reads it directly, as JSONC), or set
-   `# gazelle:ts_path_alias @/ src/` explicitly.
+   `tsconfig.json` (Gazelle reads it directly, as JSONC).
 3. Use `# gazelle:ts_ignore` to suppress generation for a directory and write
    its BUILD file manually.
 
@@ -674,28 +504,6 @@ node_modules(
     deps = ["@npm//:vite", "@npm//:some-package"],
 )
 ```
-
-A first-party package name needs `module_name` on the `ts_compile` target that
-produces it; the dev server turns each one into a `resolve.alias` pointing at
-source.
-
-## gazelle: typescript: paths entry "…" resolves on disk to N directories
-
-Not an error; the other entries in the array are dropped.
-`compilerOptions.paths` values are arrays and a `path_aliases` entry holds one
-directory, so Gazelle picks one: `bazel-*` and tool-managed dot-directory
-entries are skipped, then the first entry that exists on disk wins. The line
-fires only when two or more entries in one chain are real directories.
-
-A specifier reaching only through an ignored directory gets no dep edge, and the
-`tsconfig.json` `ts_compile` generates carries no such directory either, so the
-type-check fails on it too. Split the alias so each key names one directory, list
-the extra files in `path_alias_srcs`, or set `module_name` on the target that
-produces them and depend on it.
-
-Two cases are skipped without a log line: the `./bazel-bin/…` mirror
-`ts_refresh_tsconfig` writes beside each source entry, and a chain whose entries
-are all absent from the working tree, where the first entry is used as before.
 
 ## invalid repository name '{$username}.tsx'
 

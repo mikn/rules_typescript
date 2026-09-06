@@ -169,8 +169,6 @@ one. A target exporting none runs no such action and provides no such file.
 | Directive | Effect |
 |---|---|
 | `ts_package_boundary every-dir\|tsconfig\|true` | Package boundary mode; `true` marks the one directory |
-| `ts_declarations tsgo\|oxc` | Choose the declaration emitter for the subtree |
-| `ts_path_alias @/ src/` | Path alias (merges with parent) |
 | `ts_runtime_dep @npm//:happy-dom` | Always-included test dep |
 | `ts_ambient_types @npm//:types_node` | Dep appended to every generated `ts_compile` and `ts_test` in the tree |
 | `ts_exclude *.generated.ts` | Exclude pattern: a basename glob, or a `./`-anchored path |

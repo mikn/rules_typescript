@@ -404,10 +404,6 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	// no source at all, and returning early there is what would leave the label
 	// its subpackages name pointing at a package nothing writes.
 	tsConfigRule := ownTsConfigRule(args, tc)
-	var tsConfigTypesRule *rule.Rule
-	if tsConfigRule != nil {
-		tsConfigTypesRule = ownTsConfigTypesRule(tc, args.Rel)
-	}
 	vitestConfigRule := ownVitestConfigRule(args, tc)
 
 	// A tsconfig.json or vitest config that has been deleted or moved leaves its
@@ -415,9 +411,6 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	var withdrawn []*rule.Rule
 	if tsConfigRule == nil && ruleExists(args, "ts_config", tsConfigTargetName) {
 		withdrawn = append(withdrawn, rule.NewRule("ts_config", tsConfigTargetName))
-	}
-	if tsConfigTypesRule == nil && ruleExists(args, "filegroup", tsConfigTypesTargetName) {
-		withdrawn = append(withdrawn, rule.NewRule("filegroup", tsConfigTypesTargetName))
 	}
 	if vitestConfigRule == nil && ruleExists(args, "filegroup", vitestConfigTargetName) {
 		withdrawn = append(withdrawn, rule.NewRule("filegroup", vitestConfigTargetName))
@@ -445,7 +438,6 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	reserved := reservedTSTargetNames(tc, args.Rel)
 	if tsConfigRule != nil {
 		reserved[tsConfigRule.Name()] = struct{}{}
-		reserved[tsConfigTypesTargetName] = struct{}{}
 	}
 	if vitestConfigRule != nil {
 		reserved[vitestConfigTargetName] = struct{}{}
@@ -461,7 +453,6 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	if (isBoundary && len(srcFiles) > 0) || len(testFiles) > 0 || len(docFiles) > 0 {
 		tsConfigAttr = tsConfigLabel(args, tc)
 	}
-	typesEntries, typesSrcsLabels := rootAmbientTypes(args.Rel, tc, tsConfigAttr)
 
 	// ---- css_library targets -----------------------------------------------
 	// Generate one css_library rule per plain .css file (side-effect imports).
@@ -531,22 +522,11 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		r.SetAttr("srcs", srcLabels(srcFiles))
 		r.SetAttr("visibility", []string{"//visibility:public"})
 
-		// Only emit the attribute when it differs from the rule default.
-		if tc.declarations != "" && tc.declarations != "tsgo" {
-			r.SetAttr("declarations", tc.declarations)
-		}
-
 		setTsConfig(r, tsConfigAttr)
-		setRootAmbientTypes(r, typesEntries, typesSrcsLabels)
 
 		// Collect imports for all src files.
 		allImports := importsIn(args.Dir, srcFiles)
 		setTypeReferences(r, args.Dir, srcFiles)
-
-		// Aliases let tsgo resolve source-level specifiers like "@/components".
-		// One tsconfig `paths` map serves a whole workspace, so a target takes
-		// only the entries it can carry -- see usedPathAliases.
-		setAliasAttrs(args, r, tc, srcFiles, allImports)
 
 		gen = append(gen, r)
 		imports = append(imports, uniqueImports(allImports))
@@ -621,18 +601,8 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 			allPackageImports = append(allPackageImports, importsIn(cfgDir, []string{cfg})...)
 		}
 
-		// Same emitter as the ts_compile targets in this package, so the internal
-		// ts_compile inside ts_test does not disagree with its siblings.
-		if tc.declarations != "" && tc.declarations != "tsgo" {
-			r.SetAttr("declarations", tc.declarations)
-		}
-
 		setTsConfig(r, tsConfigAttr)
-		setRootAmbientTypes(r, typesEntries, typesSrcsLabels)
 
-		// The test files are a program of their own: the package target's alias
-		// map reaches nothing the test compiles.
-		setAliasAttrs(args, r, tc, testSrcs, allImports)
 		setTypeReferences(r, args.Dir, testSrcs)
 
 		// ts_test builds its own node_modules tree from its deps, so no explicit
@@ -714,18 +684,13 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		r := rule.NewRule("ts_compile", docName)
 		r.SetAttr("srcs", docSrcs)
 		r.SetAttr("visibility", []string{"//visibility:public"})
-		if tc.declarations != "" && tc.declarations != "tsgo" {
-			r.SetAttr("declarations", tc.declarations)
-		}
 
 		// A story is TypeScript in this package: it needs the package's own lib,
 		// types and strictness for the same reason its sources do, and the same
 		// label they name, so a refusal refuses for all of them at once.
 		setTsConfig(r, tsConfigAttr)
-		setRootAmbientTypes(r, typesEntries, typesSrcsLabels)
 
 		docImports := importsIn(args.Dir, docFiles)
-		setAliasAttrs(args, r, tc, docSrcs, docImports)
 		setTypeReferences(r, args.Dir, docSrcs)
 
 		gen = append(gen, r)
@@ -798,10 +763,6 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	// ---- ts_config for this package's own tsconfig.json --------------------
 	// The baseline every target at or below this directory names, and a source
 	// file only becomes a label another package can reach through a target.
-	if tsConfigTypesRule != nil {
-		gen = append(gen, tsConfigTypesRule)
-		imports = append(imports, []string{})
-	}
 	if tsConfigRule != nil {
 		gen = append(gen, tsConfigRule)
 		imports = append(imports, nil)
@@ -819,7 +780,6 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		Imports: imports,
 	}
 
-	replaceStaleTypesSrcs(args, tc, result.Gen)
 	reportManagedAttrDrops(args, result.Gen)
 	markKeptAttrs(args, result.Gen)
 
@@ -839,7 +799,6 @@ func emptyResult(args language.GenerateArgs) language.GenerateResult {
 			rule.NewRule("ts_lint", name+"_lint"),
 			rule.NewRule("node_modules", "node_modules"),
 			rule.NewRule("ts_config", tsConfigTargetName),
-			rule.NewRule("filegroup", tsConfigTypesTargetName),
 			rule.NewRule("filegroup", vitestConfigTargetName),
 		},
 	}
@@ -1019,55 +978,6 @@ func dropClaimed(files []string, claimed map[string]struct{}) []string {
 	return kept
 }
 
-// usedPathAliases narrows the inherited alias map to the entries this target can
-// carry: the ones its own imports resolve through, plus the ones whose directory
-// holds its own sources.
-//
-// The second set carries the alias into the IDE tsconfig, which only learns an
-// alias exists from the targets that declare it. It covers directive-declared
-// aliases only: one read back out of a generated tsconfig is an echo, not a
-// declaration.
-func usedPathAliases(tc *tsConfig, rel string, srcs, imports []string) map[string]string {
-	if len(tc.pathAliases) == 0 {
-		return nil
-	}
-	used := make(map[string]string)
-	for _, imp := range imports {
-		if m, ok := matchPathAlias(tc, imp); ok {
-			used[m.prefix] = m.dir
-		}
-	}
-	for prefix, dir := range tc.pathAliases {
-		if tc.aliasesFromDirectives && aliasCoversSrcs(dir, rel, srcs) {
-			used[prefix] = dir
-		}
-	}
-	return used
-}
-
-// setAliasAttrs writes the alias map a target carries and notes, for the resolver,
-// the imports whose alias none of the target's own srcs validate.
-func setAliasAttrs(args language.GenerateArgs, r *rule.Rule, tc *tsConfig, srcs, imports []string) {
-	used := usedPathAliases(tc, args.Rel, srcs, imports)
-	setPathAliases(args, r, used)
-	if len(used) == 0 {
-		return
-	}
-	var uncovered []string
-	for _, imp := range imports {
-		m, ok := matchPathAlias(tc, imp)
-		if ok && !aliasCoversSrcs(m.dir, args.Rel, srcs) {
-			uncovered = append(uncovered, imp)
-		}
-	}
-	if len(uncovered) > 0 {
-		r.SetPrivateAttr(aliasSrcImportsKey, uniqueImports(uncovered))
-	}
-}
-
-// aliasSrcImportsKey carries the imports only path_alias_srcs can validate to Resolve.
-const aliasSrcImportsKey = "_alias_src_imports"
-
 // typeReferencesKey carries the names a rule's srcs reference in
 // `/// <reference types>` to Resolve, where the lockfile turns each into a dep.
 const typeReferencesKey = "_type_references"
@@ -1076,23 +986,6 @@ func setTypeReferences(r *rule.Rule, dir string, srcs []string) {
 	if names := uniqueImports(typeReferencesIn(dir, srcs)); len(names) > 0 {
 		r.SetPrivateAttr(typeReferencesKey, names)
 	}
-}
-
-// aliasCoversSrcs mirrors ts_compile's _validate_path_aliases: an alias holds only
-// when one of the target's own sources sits at or under its directory.
-func aliasCoversSrcs(dir, rel string, srcs []string) bool {
-	norm := strings.TrimSuffix(dir, "/")
-	if norm == "" {
-		return false
-	}
-	prefix := norm + "/"
-	for _, src := range srcs {
-		p := path.Join(rel, src)
-		if p == norm || strings.HasPrefix(p, prefix) {
-			return true
-		}
-	}
-	return false
 }
 
 // ---- the compilerOptions baseline ------------------------------------------
@@ -1106,177 +999,8 @@ func setTsConfig(r *rule.Rule, label string) {
 	}
 }
 
-// tsConfigTypesTargetName is the filegroup Gazelle writes beside a package's
-// tsconfig.json for the declaration files it names in compilerOptions.types.
-const tsConfigTypesTargetName = tsConfigTargetName + "_types"
-
 func tsConfigNameTaken(name string) bool {
-	return name == tsConfigTargetName || name == tsConfigTypesTargetName
-}
-
-// ownTsConfigTypesRule stages the checked-in declaration files this directory's
-// tsconfig names in compilerOptions.types, for the targets that compile under
-// it. A generated one has the ts_codegen that writes it for a label and needs
-// nothing here.
-//
-// A filegroup, so the file is an action input of exactly the targets naming it:
-// a ts_compile would publish declarations of its own to every consumer.
-func ownTsConfigTypesRule(tc *tsConfig, rel string) *rule.Rule {
-	if len(tc.tsconfigTypeFiles) == 0 || tc.tsconfigTypesDir != rel {
-		return nil
-	}
-	r := rule.NewRule("filegroup", tsConfigTypesTargetName)
-	r.SetAttr("srcs", srcLabels(tc.tsconfigTypeFiles))
-	r.SetAttr("visibility", []string{"//visibility:public"})
-	return r
-}
-
-// rootAmbientTypes is the compilerOptions.types a target in rel writes and the
-// labels staging its file entries, nil unless the target names their tsconfig.
-func rootAmbientTypes(rel string, tc *tsConfig, tsConfigAttr string) ([]string, []string) {
-	if tsConfigAttr == "" || len(tc.tsconfigTypes) == 0 {
-		return nil, nil
-	}
-	if path.Dir(path.Join(".", tc.tsConfigFile)) != path.Join(".", tc.tsconfigTypesDir) {
-		return nil, nil
-	}
-	entries := make([]string, 0, len(tc.tsconfigTypes))
-	for _, entry := range tc.tsconfigTypes {
-		entries = append(entries, rebasedTypeEntry(tc.tsconfigTypesDir, rel, entry))
-	}
-	pkg := strings.TrimSuffix(tsConfigAttr, tsConfigTargetName)
-	var labels []string
-	if len(tc.tsconfigTypeFiles) > 0 {
-		labels = append(labels, pkg+tsConfigTypesTargetName)
-	}
-	generators := make([]string, 0, len(tc.tsconfigTypeGenerators))
-	for _, target := range tc.tsconfigTypeGenerators {
-		generators = append(generators, pkg+target)
-	}
-	sort.Strings(generators)
-	labels = append(labels, generators...)
-	return entries, append(labels, tc.tsconfigTypeAncestors...)
-}
-
-// rebasedTypeEntry rewrites one entry from the tsconfig's directory to rel.
-// A package name is not a path and is returned as written.
-func rebasedTypeEntry(typesDir, rel, entry string) string {
-	hops, name, isFile := typeEntryFileName(entry)
-	if !isFile {
-		return entry
-	}
-	if rel != typesDir {
-		below := strings.TrimPrefix(strings.TrimPrefix(rel, typesDir), "/")
-		hops += len(strings.Split(below, "/"))
-	}
-	if hops == 0 {
-		return "./" + name
-	}
-	return strings.Repeat("../", hops) + name
-}
-
-// entries is empty unless every file entry in it has a label, so `types` goes
-// out with the list and `types_srcs` only where a file is staged for it.
-func setRootAmbientTypes(r *rule.Rule, entries []string, typesSrcs []string) {
-	if len(entries) == 0 {
-		return
-	}
-	r.SetAttr("types", entries)
-	if len(typesSrcs) > 0 {
-		r.SetAttr("types_srcs", typesSrcs)
-	}
-}
-
-// Neither attribute merges, so a tsconfig_types label one run wrote outlives the
-// filegroup a later run withdraws. The list is edited in place so a "# keep" on an entry holds.
-func replaceStaleTypesSrcs(args language.GenerateArgs, tc *tsConfig, gen []*rule.Rule) {
-	if args.File == nil {
-		return
-	}
-	for _, want := range gen {
-		if want.Kind() != "ts_compile" && want.Kind() != "ts_test" {
-			continue
-		}
-		for _, have := range args.File.Rules {
-			if have.Kind() != want.Kind() || have.Name() != want.Name() ||
-				have.ShouldKeep() || attrKept(have, "types_srcs") {
-				continue
-			}
-			list, ok := have.Attr("types_srcs").(*bzl.ListExpr)
-			if !ok {
-				continue
-			}
-			staged := want.AttrStrings("types_srcs")
-			var kept []bzl.Expr
-			var stale []string
-			for _, el := range list.List {
-				s, isString := el.(*bzl.StringExpr)
-				if isString && !rule.ShouldKeep(el) && ownStagingLabelGone(s.Value, args.Rel, tc) {
-					stale = append(stale, s.Value)
-					continue
-				}
-				kept = append(kept, el)
-			}
-			if len(stale) == 0 {
-				continue
-			}
-			for _, lbl := range staged {
-				if !slices.Contains(stringValues(kept), lbl) {
-					kept = append(kept, &bzl.StringExpr{Value: lbl})
-				}
-			}
-			outcome := "the attribute is dropped, since nothing stages the file for it"
-			if len(kept) > 0 {
-				list.List = kept
-				have.SetAttr("types_srcs", list)
-				outcome = "the attribute now names " + strings.Join(stringValues(kept), ", ")
-			} else {
-				have.DelAttr("types_srcs")
-			}
-			log.Printf("typescript: %s(%s) in %s: types_srcs named %s, a tsconfig_types filegroup "+
-				"of this package or one above it that this run does not write; %s.",
-				have.Kind(), have.Name(), args.File.Path, strings.Join(stale, ", "), outcome)
-		}
-	}
-}
-
-// Gazelle writes a tsconfig_types label into rel from rel itself or a directory
-// above it; such a label is stale once the run neither writes nor keeps the filegroup it names.
-func ownStagingLabelGone(lbl, rel string, tc *tsConfig) bool {
-	pkg, name, ok := strings.Cut(lbl, ":")
-	if !ok || name != tsConfigTypesTargetName {
-		return false
-	}
-	switch {
-	case pkg == "":
-		pkg = rel
-	case strings.HasPrefix(pkg, "//"):
-		pkg = pkg[2:]
-	default:
-		return false
-	}
-	if pkg != "" && pkg != rel && !strings.HasPrefix(rel, pkg+"/") {
-		return false
-	}
-	if tc.tsconfigTypesKept[pkg] {
-		return false
-	}
-	for _, staged := range tc.tsconfigTypesStaged[pkg] {
-		if staged == "//"+pkg+":"+tsConfigTypesTargetName {
-			return false
-		}
-	}
-	return true
-}
-
-func stringValues(list []bzl.Expr) []string {
-	out := make([]string, 0, len(list))
-	for _, el := range list {
-		if s, ok := el.(*bzl.StringExpr); ok {
-			out = append(out, s.Value)
-		}
-	}
-	return out
+	return name == tsConfigTargetName
 }
 
 // tsConfigLabel is the label a target generated in args.Rel names for its
@@ -1619,15 +1343,11 @@ func uniqueImports(imps []string) []string {
 	return result
 }
 
-// buildCodegenCompileRule wraps a ts_codegen's output in the ts_compile that
-// makes it importable: ts_compile deps take JsInfo, which ts_codegen does not
-// return, so the generated source has to arrive through srcs. oxc emits the
-// declarations because tsgo's emit would put its outDir where the generated
-// source already is, and TypeScript excludes outDir from the program.
+// buildCodegenCompileRule wraps a ts_codegen's TypeScript outs in the ts_compile
+// that compiles them for their importers.
 func buildCodegenCompileRule(name, codegen string) *rule.Rule {
 	r := rule.NewRule("ts_compile", name)
 	r.SetAttr("srcs", []string{":" + codegen})
-	r.SetAttr("declarations", "oxc")
 	r.SetAttr("visibility", []string{"//visibility:public"})
 	return r
 }

@@ -182,115 +182,6 @@ func TestDirective_PackageBoundary_UnknownValueIsAnError(t *testing.T) {
 	}
 }
 
-// ---- ts_declarations directive tests ---------------------------------------
-
-func TestDirective_Declarations_DefaultIsTsgo(t *testing.T) {
-	tc := makeConfig("", nil)
-	if tc.declarations != "tsgo" {
-		t.Errorf("declarations should default to \"tsgo\", got %q", tc.declarations)
-	}
-}
-
-func TestDirective_Declarations_Oxc(t *testing.T) {
-	tc := makeConfig("", []rule.Directive{
-		directive(directiveDeclarations, "oxc"),
-	})
-	if tc.declarations != "oxc" {
-		t.Errorf("ts_declarations oxc should set declarations = \"oxc\", got %q", tc.declarations)
-	}
-}
-
-func TestDirective_Declarations_TsgoExplicit(t *testing.T) {
-	tc := makeConfig("", []rule.Directive{
-		directive(directiveDeclarations, "tsgo"),
-	})
-	if tc.declarations != "tsgo" {
-		t.Errorf("ts_declarations tsgo should set declarations = \"tsgo\", got %q", tc.declarations)
-	}
-}
-
-// An unrecognised value must not silently pick an emitter: a typo that flipped
-// a tree to oxc would demand explicit types on every export with no diagnostic
-// pointing at the directive.
-func TestDirective_Declarations_InvalidValueKeepsPrevious(t *testing.T) {
-	tc := makeConfig("", []rule.Directive{
-		directive(directiveDeclarations, "swc"),
-	})
-	if tc.declarations != "tsgo" {
-		t.Errorf("invalid ts_declarations value should keep the previous emitter, got %q", tc.declarations)
-	}
-}
-
-func TestDirective_Declarations_InheritedByChild(t *testing.T) {
-	tc := makeChildConfig(
-		[]rule.Directive{directive(directiveDeclarations, "oxc")},
-		"src/lib",
-		nil,
-	)
-	if tc.declarations != "oxc" {
-		t.Errorf("child should inherit declarations = \"oxc\" from parent, got %q", tc.declarations)
-	}
-}
-
-// ---- ts_path_alias directive tests -----------------------------------------
-
-func TestDirective_PathAlias_SingleAlias(t *testing.T) {
-	tc := makeConfig("", []rule.Directive{
-		directive(directivePathAlias, "@/ src/"),
-	})
-	if tc.pathAliases == nil {
-		t.Fatal("pathAliases should not be nil")
-	}
-	if got := tc.pathAliases["@/"]; got != "src/" {
-		t.Errorf("pathAliases[\"@/\"]: got %q, want %q", got, "src/")
-	}
-}
-
-func TestDirective_PathAlias_MultipleAliases(t *testing.T) {
-	tc := makeConfig("", []rule.Directive{
-		directive(directivePathAlias, "@/ src/"),
-		directive(directivePathAlias, "@components/ src/components/"),
-	})
-	if len(tc.pathAliases) != 2 {
-		t.Fatalf("expected 2 path aliases, got %d: %v", len(tc.pathAliases), tc.pathAliases)
-	}
-	if got := tc.pathAliases["@/"]; got != "src/" {
-		t.Errorf("pathAliases[\"@/\"]: got %q, want %q", got, "src/")
-	}
-	if got := tc.pathAliases["@components/"]; got != "src/components/" {
-		t.Errorf("pathAliases[\"@components/\"]: got %q, want %q", got, "src/components/")
-	}
-}
-
-func TestDirective_PathAlias_MergesWithInheritedAliases(t *testing.T) {
-	// Parent sets one alias; child adds a new one.  Both should be present in
-	// the child because directives merge with (not replace) inherited aliases.
-	tc := makeChildConfig(
-		[]rule.Directive{directive(directivePathAlias, "@/ src/")},
-		"sub",
-		[]rule.Directive{directive(directivePathAlias, "@utils/ utils/")},
-	)
-	// Child should have BOTH the parent's alias AND its own new alias.
-	if got := tc.pathAliases["@/"]; got != "src/" {
-		t.Errorf("parent alias should be preserved in child: pathAliases[\"@/\"]: got %q, want %q", got, "src/")
-	}
-	if got := tc.pathAliases["@utils/"]; got != "utils/" {
-		t.Errorf("child alias not present: pathAliases[\"@utils/\"]: got %q, want %q", got, "utils/")
-	}
-}
-
-func TestDirective_PathAlias_ChildCanOverrideParentKey(t *testing.T) {
-	// When child sets the same alias key as the parent, the child's value wins.
-	tc := makeChildConfig(
-		[]rule.Directive{directive(directivePathAlias, "@/ src/")},
-		"sub",
-		[]rule.Directive{directive(directivePathAlias, "@/ override/")},
-	)
-	if got := tc.pathAliases["@/"]; got != "override/" {
-		t.Errorf("child should override same key: pathAliases[\"@/\"]: got %q, want %q", got, "override/")
-	}
-}
-
 // ---- ts_runtime_dep directive tests ----------------------------------------
 
 func TestDirective_RuntimeDep_Single(t *testing.T) {
@@ -377,29 +268,11 @@ func TestDirective_Exclude_AppendedToParent(t *testing.T) {
 // ---- clone isolation tests -------------------------------------------------
 
 // Verify that modifying a child's pathAliases does not mutate the parent's map.
-func TestConfig_Clone_MapIsolation_PathAliases(t *testing.T) {
-	parent := &tsConfig{
-		packageBoundaryMode: boundaryEveryDir,
-		declarations:        "tsgo",
-		pathAliases:         map[string]string{"@/": "src/"},
-	}
-	child := parent.clone()
-	child.pathAliases["@extra/"] = "extra/"
-
-	if len(parent.pathAliases) != 1 {
-		t.Errorf("parent pathAliases mutated: got %v, want {\"@/\": \"src/\"}", parent.pathAliases)
-	}
-	if _, ok := parent.pathAliases["@extra/"]; ok {
-		t.Error("parent pathAliases should not have @extra/ key added by child")
-	}
-}
-
 // Verify that appending to a child's runtimeDepsTest does not mutate the
 // parent's slice backing array.
 func TestConfig_Clone_SliceIsolation_RuntimeDeps(t *testing.T) {
 	parent := &tsConfig{
 		packageBoundaryMode: boundaryEveryDir,
-		declarations:        "tsgo",
 		runtimeDepsTest:     []string{"@npm//:a"},
 	}
 	child := parent.clone()
@@ -415,7 +288,6 @@ func TestConfig_Clone_SliceIsolation_RuntimeDeps(t *testing.T) {
 func TestConfig_Clone_SliceIsolation_ExcludePatterns(t *testing.T) {
 	parent := &tsConfig{
 		packageBoundaryMode: boundaryEveryDir,
-		declarations:        "tsgo",
 		excludePatterns:     []excludeRule{{written: "*.gen.ts"}},
 	}
 	child := parent.clone()
@@ -428,10 +300,8 @@ func TestConfig_Clone_SliceIsolation_ExcludePatterns(t *testing.T) {
 
 // ---- tsconfig.json paths ---------------------------------------------------
 
-// TestLoadTsConfigPaths_CollidingPatternsPickTheSameEntryEveryTime covers two
-// paths patterns that normalise to one alias key. Whichever entry wins, it has
-// to be the same entry on every run: the alias map is written into generated
-// path_aliases attributes and drives dep resolution.
+// Two paths patterns that normalise to one alias key must pick the same entry on
+// every run: the alias map drives dep resolution.
 func TestLoadTsConfigPaths_CollidingPatternsPickTheSameEntryEveryTime(t *testing.T) {
 	dir := t.TempDir()
 	tsConfigPath := filepath.Join(dir, "tsconfig.json")

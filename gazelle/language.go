@@ -76,10 +76,6 @@ func (l *tsLang) KnownDirectives() []string {
 		directiveTargetName,
 		// Emit a warning for imports that cannot be resolved to a Bazel label.
 		directiveWarnUnresolved,
-		// Select the .d.ts emitter on generated ts_compile rules.
-		directiveDeclarations,
-		// Add a TypeScript path alias mapping (can appear multiple times).
-		directivePathAlias,
 		// Append a Bazel label to every ts_test deps list in this tree.
 		directiveRuntimeDep,
 		// Append a Bazel label to every ts_compile and ts_test deps list here.
@@ -210,17 +206,13 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 				"srcs": true,
 			},
 			MergeableAttrs: map[string]bool{
-				"srcs":            true,
-				"deps":            true,
-				"visibility":      true,
-				"path_aliases":    true,
-				"path_alias_srcs": true,
-				"declarations":    true,
-				"tsconfig":        true,
+				"srcs":       true,
+				"deps":       true,
+				"visibility": true,
+				"tsconfig":   true,
 			},
 			ResolveAttrs: map[string]bool{
-				"deps":            true,
-				"path_alias_srcs": true,
+				"deps": true,
 			},
 		},
 		"ts_test": {
@@ -230,15 +222,12 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 				"srcs": true,
 			},
 			MergeableAttrs: map[string]bool{
-				"srcs":            true,
-				"deps":            true,
-				"tsconfig":        true,
-				"path_aliases":    true,
-				"path_alias_srcs": true,
+				"srcs":     true,
+				"deps":     true,
+				"tsconfig": true,
 			},
 			ResolveAttrs: map[string]bool{
-				"deps":            true,
-				"path_alias_srcs": true,
+				"deps": true,
 			},
 		},
 		// ts_config makes a package's hand-written tsconfig.json a label the
