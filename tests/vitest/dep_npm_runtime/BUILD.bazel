@@ -1,0 +1,17 @@
+"""A ts_compile dep's npm closure reaches the ts_test runtime tree.
+
+lib.ts value-imports zod at module scope, and the test in test/ depends on this
+target without declaring zod. The compiled lib.js is in the test's runfiles
+through JsInfo; the package it imports has to be in the node_modules tree the
+test resolves against, or every suite importing the lib fails to load with
+ERR_MODULE_NOT_FOUND before a single test runs.
+"""
+
+load("//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "dep_npm_runtime",
+    srcs = ["lib.ts"],
+    visibility = ["//visibility:public"],
+    deps = ["@npm//:zod"],
+)
