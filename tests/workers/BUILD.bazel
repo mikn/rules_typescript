@@ -2,6 +2,7 @@ load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "ts_compile", "ts_test")
 load("//ts/private:tsconfig_aspect.bzl", "ide_tsconfig")
 load(":library_paths_tests.bzl", "library_paths_test")
+load(":module_entry_tests.bzl", "module_entry_editor_test", "module_entry_paths_test")
 load(":shipped_subpath_tests.bzl", "shipped_subpath_editor_test", "shipped_subpath_entry_test")
 
 package(default_visibility = ["//:__pkg__"])
@@ -90,6 +91,41 @@ library_paths_test(
 build_test(
     name = "experimental_types_build_test",
     targets = [":experimental_types"],
+)
+
+# The package names no entry point and ships index.ts, a module, beside
+# index.d.ts, a global script; the import is answered by the first alone.
+ts_compile(
+    name = "module_import",
+    srcs = ["src/module_import.ts"],
+    lib = [
+        "esnext",
+        "webworker",
+    ],
+    deps = ["@npm_workers//:cloudflare_workers-types"],
+)
+
+build_test(
+    name = "module_import_build_test",
+    targets = [":module_import"],
+)
+
+module_entry_paths_test(
+    name = "module_entry_paths_test",
+    target_under_test = ":module_import",
+)
+
+# Read by the test, never installed; see //:refresh_tsconfig.
+ide_tsconfig(
+    name = "module_import_ide_tsconfig",
+    nested_tsconfigs = ["tests/workers/tsconfig.json"],
+    tags = ["manual"],
+    deps = [":module_import"],
+)
+
+module_entry_editor_test(
+    name = "module_entry_editor_test",
+    target_under_test = ":module_import_ide_tsconfig",
 )
 
 # Read by the test, never installed: one workspace-wide `files` list would hand

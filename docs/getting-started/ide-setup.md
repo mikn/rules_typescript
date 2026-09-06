@@ -271,11 +271,13 @@ produces the declarations puts it back in the graph.
 Each npm package is its own lazily-fetched Bazel repository, living only under
 `<output_base>/external/`, which nothing links into the execroot the
 `bazel-<workspace>` symlink points at, so no workspace-relative path reaches it.
-Copying the `.d.ts` into `npm_dir` makes a `paths` entry possible, and the copies
-are keyed by package name, so the canonical repository name that changes on every
-version bump never enters the config.
+Copying the declarations into `npm_dir` makes a `paths` entry possible, and the
+copies are keyed by package name, so the canonical repository name that changes
+on every version bump never enters the config.
 
-The copied `.d.ts` is the entry point the package's own metadata designates. See
+The `paths` value is the module entry the package's own metadata designates, a
+`.d.ts` for most of npm and a `.ts` where the package ships one, copied with the
+declarations. See
 [how that is resolved](../guides/npm.md#where-a-packages-type-declarations-come-from).
 The wildcard entry lists the package root and then that file's directory, in the
 order npm would look: with no `exports` map (most of the registry) `pkg/sub` is
@@ -287,7 +289,8 @@ included, since TypeScript substitutes the matched star into the whole value.
 ```json
 "vite":    ["./.bazel/npm/vite/dist/node/index.d.ts"],
 "vite/*":  ["./.bazel/npm/vite/*", "./.bazel/npm/vite/dist/node/*"],
-"unenv/*": ["./.bazel/npm/unenv/dist/runtime/*.d.mts", "./.bazel/npm/unenv/*", "./.bazel/npm/unenv/dist/*"]
+"unenv/*": ["./.bazel/npm/unenv/dist/runtime/*.d.mts", "./.bazel/npm/unenv/*", "./.bazel/npm/unenv/dist/*"],
+"@cloudflare/workers-types": ["./.bazel/npm/@cloudflare/workers-types/index.ts"]
 ```
 
 A `@types/*` package is keyed by the name it types, the only specifier anything

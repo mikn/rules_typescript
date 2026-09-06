@@ -111,10 +111,10 @@ def _npm_entries(rule_attr):
     """The npm paths entries one ts_compile target implies, and the files they need.
 
     The entry point is the one ts_compile names in the tsconfig it generates for
-    tsgo: the package's own `exports["."].types` when it declares one, the paired
-    @types directory when its declarations live there, the package directory
-    otherwise. //tests/npm_types_barename:test_config_agreement compares the two
-    configs on that, by value.
+    tsgo: the package's own module entry when its manifest designates one, the
+    paired @types directory when its declarations live there, the package
+    directory otherwise. //tests/npm_types_barename:test_config_agreement
+    compares the two configs on that, by value.
 
     Which packages get an entry is not the same question, and the two configs
     still answer it differently: ts_compile names every package it resolves, and
@@ -224,7 +224,7 @@ def _npm_entries(rule_attr):
                 info.json_files.to_list() +
                 [info.package_dir]
             )
-            entry = _under(info.exports_types_file, root) if info.exports_types_file else None
+            entry = _under(info.module_entry_file, root) if info.module_entry_file else None
             is_file = entry != None
             entry = entry or ""
             subpaths = info.subpath_types

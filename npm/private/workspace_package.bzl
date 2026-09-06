@@ -123,6 +123,7 @@ def _npm_package_info(ctx, member):
             transitive = [dep.transitive_package_dirs for dep in direct_deps],
         ),
         exports_types_file = None,
+        module_entry_file = None,
         subpath_types = {},
         subpath_patterns = {},
         type_references = {},

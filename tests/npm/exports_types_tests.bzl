@@ -1,4 +1,10 @@
-"""Which declaration a package's own metadata designates, and that it reaches tsgo.
+"""Which files a package's own metadata designates, and that the entry reaches tsgo.
+
+Two files per package, in the roles TypeScript resolves them in: the MODULE
+ENTRY a bare import resolves to, and the DECLARATION a `compilerOptions.types`
+entry or a `/// <reference types>` directive resolves to. For most of npm the
+two are one file; `expected` below is the declaration and `module` the module
+entry where the two differ.
 
 Every manifest below is the published `package.json` of a package in one of this
 repo's lockfiles -- formdata-node, which is in a consumer's, is the exception --
@@ -19,11 +25,17 @@ What the rows pin, beyond one expected path each:
   still produces a real .d.ts of a real build.
 
   FALLBACK. `exports` is authoritative about what it designates and silent about
-  the rest; `types`/`typings` is where the silent majority of npm publishes; and
-  a package that designates nothing at all may still ship index.d.ts, which is
-  where TypeScript's own resolution ends. A package that resolves to nothing is
-  a package whose typecheck runs against no declarations at all, which no error
-  mentions.
+  the rest; `types`/`typings` is where the silent majority of npm publishes;
+  `main` is read after them, and a package that designates nothing at all may
+  still ship a root index, which is where TypeScript's own resolution ends. A
+  package that resolves to nothing is a package whose typecheck runs against no
+  declarations at all, which no error mentions.
+
+  ROLES. A bare import takes `.ts` and `.tsx` ahead of `.d.ts` -- for a `.js`
+  target, an extensionless field, the root index -- and a `types` entry takes
+  declarations alone. @cloudflare/workers-types ships index.ts, a module, beside
+  index.d.ts, a global script, and the one file answering both roles is TS2306
+  for the import or no globals for the entry.
 
   EXISTENCE. A manifest may name a declaration the tarball omits -- six packages
   in this closure do. Taking the name on trust generates a target whose source
@@ -36,7 +48,7 @@ What the rows pin, beyond one expected path each:
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
-load("//npm/private:npm_import.bzl", "exports_subpath_patterns", "exports_subpath_types", "exports_types", "package_stanza")
+load("//npm/private:npm_import.bzl", "exports_subpath_patterns", "exports_subpath_types", "exports_types", "module_entry", "package_stanza")
 load("//ts/private:providers.bzl", "NpmPackageInfo")
 
 _CASES = [
@@ -321,15 +333,58 @@ _CASES = [
     ),
     struct(
         package = "@cloudflare/workers-types@4.20260420.1",
-        shape = "designates nothing and ships index.d.ts, TypeScript's own last resort",
+        shape = "designates nothing and ships index.ts, a module, beside index.d.ts, a global script",
         manifest = """{
           "name": "@cloudflare/workers-types",
           "description": "TypeScript typings for Cloudflare Workers",
           "license": "MIT OR Apache-2.0",
           "version": "4.20260420.1"
         }""",
-        files = ["index.d.ts", "2023-07-01/index.d.ts"],
+        files = ["index.d.ts", "index.ts", "2023-07-01/index.d.ts"],
         expected = "index.d.ts",
+        module = "index.ts",
+    ),
+    struct(
+        package = "@humanfs/types@0.15.0",
+        shape = "`exports` and `types` both name a .ts: a module entry, and nothing for a `types` entry",
+        manifest = """{
+          "name": "@humanfs/types",
+          "version": "0.15.0",
+          "type": "module",
+          "types": "src/hfs-types.ts",
+          "exports": {
+            ".": {
+              "types": "./src/hfs-types.ts"
+            },
+            "./package.json": "./package.json"
+          }
+        }""",
+        files = ["src/hfs-types.ts"],
+        expected = "",
+        module = "src/hfs-types.ts",
+    ),
+    struct(
+        package = "postcss-value-parser@4.2.0",
+        shape = "`main` alone: the declaration beside it, which no `types` field names",
+        manifest = """{
+          "name": "postcss-value-parser",
+          "version": "4.2.0",
+          "main": "lib/index.js"
+        }""",
+        files = ["lib/index.d.ts"],
+        expected = "lib/index.d.ts",
+    ),
+    struct(
+        package = "blake3-wasm@2.1.5",
+        shape = "an extensionless `main`; `module` is a bundler field no resolution reads",
+        manifest = """{
+          "name": "blake3-wasm",
+          "version": "2.1.5",
+          "main": "./dist/index",
+          "module": "./esm/index"
+        }""",
+        files = ["dist/index.d.ts", "esm/index.d.ts"],
+        expected = "dist/index.d.ts",
     ),
     struct(
         package = "formdata-node@4.4.1",
@@ -553,6 +608,9 @@ def _shipping(files):
 
     return has_file
 
+def _module_of(case):
+    return getattr(case, "module", case.expected)
+
 def _published_shapes_test(ctx):
     env = unittest.begin(ctx)
 
@@ -562,6 +620,12 @@ def _published_shapes_test(ctx):
             case.expected,
             exports_types(json.decode(case.manifest), _shipping(case.files)),
             "{}: {}".format(case.package, case.shape),
+        )
+        asserts.equals(
+            env,
+            _module_of(case),
+            module_entry(json.decode(case.manifest), _shipping(case.files)),
+            "{}, the module entry: {}".format(case.package, case.shape),
         )
 
     return unittest.end(env)
@@ -589,6 +653,7 @@ def _stanza_for(case, patterns):
         struct(package = package_name, version = version, peer_id = "", types_dep = "", is_types_package = False),
         "pkg",
         package_name,
+        "",
         "",
         "",
         {},
@@ -640,7 +705,7 @@ def _written_form_test(ctx):
     env = unittest.begin(ctx)
 
     for case in _CASES:
-        if not case.expected:
+        if not case.expected and not _module_of(case):
             continue
         package_name, _, version = case.package.rpartition("@")
         stanza = package_stanza(
@@ -649,6 +714,7 @@ def _written_form_test(ctx):
             package_name,
             "",
             exports_types(json.decode(case.manifest), _shipping(case.files)),
+            module_entry(json.decode(case.manifest), _shipping(case.files)),
             {},
             {},
             {},
@@ -657,11 +723,25 @@ def _written_form_test(ctx):
         # node_modules/<name> is what TypeScript reads to take a `paths` match
         # for a library file rather than project source; every label carries it.
         root = "node_modules/" + package_name
+        if case.expected:
+            asserts.equals(
+                env,
+                root + "/" + case.expected,
+                _GENERATED_PACKAGE.relative(_written_attribute(stanza, "exports_types").strip('"')).name,
+                "{}: exports_types names a file under the package root, not a repository".format(case.package),
+            )
+        else:
+            asserts.equals(
+                env,
+                "",
+                _written_attribute(stanza, "exports_types"),
+                "{}: no declaration, so no exports_types".format(case.package),
+            )
         asserts.equals(
             env,
-            root + "/" + case.expected,
-            _GENERATED_PACKAGE.relative(_written_attribute(stanza, "exports_types").strip('"')).name,
-            "{}: exports_types names a file under the package root, not a repository".format(case.package),
+            root + "/" + _module_of(case),
+            _GENERATED_PACKAGE.relative(_written_attribute(stanza, "module_entry").strip('"')).name,
+            "{}: module_entry names the file a bare import resolves to, under the package root".format(case.package),
         )
         asserts.equals(
             env,
@@ -698,14 +778,14 @@ def _declaration_entry_impl(ctx):
         return analysistest.end(env)
 
     npm = ctx.attr.npm_package[NpmPackageInfo]
-    entry = npm.exports_types_file
+    entry = npm.module_entry_file
     resolved = "{}@{} -> {}".format(
         npm.package_name,
         npm.package_version,
-        entry.path if entry else "no declaration entry",
+        entry.path if entry else "no module entry",
     )
 
-    asserts.true(env, entry != None, "the package designates a declaration: " + resolved)
+    asserts.true(env, entry != None, "the package designates a module entry: " + resolved)
     if entry == None:
         return analysistest.end(env)
 
@@ -729,7 +809,7 @@ def _declaration_entry_impl(ctx):
     asserts.true(
         env,
         mapped[0].endswith(entry.path),
-        "tsgo is pointed at the declaration itself, not a directory: {} vs {}".format(mapped[0], resolved),
+        "tsgo is pointed at the entry itself, not a directory: {} vs {}".format(mapped[0], resolved),
     )
 
     return analysistest.end(env)

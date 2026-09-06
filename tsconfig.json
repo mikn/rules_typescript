@@ -60,7 +60,7 @@
         "./.bazel/npm/@cloudflare/vitest-pool-workers/types/cloudflare-test.d.ts"
       ],
       "@cloudflare/workers-types": [
-        "./.bazel/npm/@cloudflare/workers-types/index.d.ts"
+        "./.bazel/npm/@cloudflare/workers-types/index.ts"
       ],
       "@cloudflare/workers-types/*": [
         "./.bazel/npm/@cloudflare/workers-types/*"
@@ -138,6 +138,13 @@
       "@humanfs/node/*": [
         "./.bazel/npm/@humanfs/node/*",
         "./.bazel/npm/@humanfs/node/dist/*"
+      ],
+      "@humanfs/types": [
+        "./.bazel/npm/@humanfs/types/src/hfs-types.ts"
+      ],
+      "@humanfs/types/*": [
+        "./.bazel/npm/@humanfs/types/*",
+        "./.bazel/npm/@humanfs/types/src/*"
       ],
       "@humanwhocodes/module-importer": [
         "./.bazel/npm/@humanwhocodes/module-importer/dist/module-importer.d.ts"
@@ -594,10 +601,11 @@
         "./.bazel/npm/baseline-browser-mapping/dist/index.d.ts"
       ],
       "blake3-wasm": [
-        "./.bazel/npm/blake3-wasm"
+        "./.bazel/npm/blake3-wasm/dist/index.d.ts"
       ],
       "blake3-wasm/*": [
-        "./.bazel/npm/blake3-wasm/*"
+        "./.bazel/npm/blake3-wasm/*",
+        "./.bazel/npm/blake3-wasm/dist/*"
       ],
       "brace-expansion": [
         "./.bazel/npm/brace-expansion/dist/esm/index.d.ts"
@@ -901,10 +909,11 @@
         "./.bazel/npm/generic-names/*"
       ],
       "happy-dom": [
-        "./.bazel/npm/happy-dom"
+        "./.bazel/npm/happy-dom/lib/index.d.ts"
       ],
       "happy-dom/*": [
-        "./.bazel/npm/happy-dom/*"
+        "./.bazel/npm/happy-dom/*",
+        "./.bazel/npm/happy-dom/lib/*"
       ],
       "has-flag": [
         "./.bazel/npm/has-flag/index.d.ts"
@@ -1192,10 +1201,11 @@
         "./.bazel/npm/postcss-selector-parser/*"
       ],
       "postcss-value-parser": [
-        "./.bazel/npm/postcss-value-parser"
+        "./.bazel/npm/postcss-value-parser/lib/index.d.ts"
       ],
       "postcss-value-parser/*": [
-        "./.bazel/npm/postcss-value-parser/*"
+        "./.bazel/npm/postcss-value-parser/*",
+        "./.bazel/npm/postcss-value-parser/lib/*"
       ],
       "postcss/*": [
         "./.bazel/npm/postcss/*",

@@ -2140,8 +2140,8 @@ def _ts_compile_impl(ctx):
 
     # Step 1c: build npm_pkg_dirs from pkg_info_map using types_override.
     # npm_pkg_dirs entries: (pkg_name, pkg_dir_or_file_path, is_file, pkg_root, subpath_patterns)
-    #   When is_file is True, pkg_dir_or_file_path points directly to a .d.ts file
-    #   (from exports_types_file). This generates a more precise paths entry like:
+    #   When is_file is True, pkg_dir_or_file_path points directly to the module
+    #   entry (module_entry_file). This generates a more precise paths entry like:
     #     "pkg": ["path/to/index.d.ts"]
     #   rather than:
     #     "pkg": ["path/to/pkg/dir"]
@@ -2173,10 +2173,9 @@ def _ts_compile_impl(ctx):
         if pkg_name in types_override:
             pkg_dir = types_override[pkg_name]
             entry, is_file = pkg_dir, False
-        elif npm_info.exports_types_file:
-            # Package has conditional exports with a 'types' entry.
-            # Point directly at the .d.ts file for precise resolution.
-            entry, is_file = npm_info.exports_types_file.path, True
+        elif npm_info.module_entry_file:
+            # What a bare import resolves to; a `types` entry reads exports_types_file.
+            entry, is_file = npm_info.module_entry_file.path, True
         else:
             entry, is_file = pkg_dir, False
 

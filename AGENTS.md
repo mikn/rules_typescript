@@ -249,19 +249,23 @@ resolutions of one name on one target (two versions, or two peer sets of one
 version) is an error: `node_modules/<name>` is one directory and Node resolves
 the bare name to it.
 
-A package's declaration entry point is resolved by `_exports_types` in
-`npm/private/npm_import.bzl`, in resolver order, not preference order. `exports`
-first, walked in the map's own key order (Node and TypeScript try conditions as
-written, so a fixed priority answers with the wrong build's declarations for a
-package that writes `require` before `import`), through array fallbacks and the
-conditions-only shorthand; a leaf naming `.js`/`.mjs`/`.cjs` resolves to the
-declaration beside it; then top-level `types`, then `typings`, extensionless
-form included. `exports` is authoritative about what it designates and silent
-about the rest: the string-valued `exports["."]` with no `types` key is how most
-of npm publishes, every `@types/*` package included, and the walk falls through
-to the top-level fields for it. Every candidate is existence-checked against the
-extracted package: six `@babel/helper-*` resolutions in this repo's own lockfile
-designate a `lib/index.d.ts` their tarball does not contain.
+A package's two entry points are resolved by `_entry` in
+`npm/private/npm_import.bzl`, in resolver order, not preference order: the
+module entry a bare import resolves to (`module_entry`) and the declaration a
+`compilerOptions.types` entry resolves to (`exports_types`), one walk with two
+extension tables -- a bare import takes `.ts`/`.tsx` ahead of `.d.ts`, a `types`
+entry declarations alone. `exports` first, walked in the map's own key order
+(Node and TypeScript try conditions as written, so a fixed priority answers with
+the wrong build's declarations for a package that writes `require` before
+`import`), through array fallbacks and the conditions-only shorthand; a leaf
+naming `.js`/`.mjs`/`.cjs` resolves to what the role allows beside it; then
+top-level `typings`, then `types`, then `main`, extensionless form included;
+then the root index. `exports` is authoritative about what it designates and
+silent about the rest: the string-valued `exports["."]` with no `types` key is
+how most of npm publishes, every `@types/*` package included, and the walk falls
+through to the top-level fields for it. Every candidate is existence-checked
+against the extracted package: six `@babel/helper-*` resolutions in this repo's
+own lockfile designate a `lib/index.d.ts` their tarball does not contain.
 `tests/npm/exports_types_tests.bzl` is the table; add the real manifest, not a
 synthesised shape.
 

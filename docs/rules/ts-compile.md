@@ -298,8 +298,19 @@ never emitted, outside the `rootDir` check -- rather than project source. The
 map's other values -- a `module_name`, a `path_aliases` prefix, a workspace
 member -- are workspace paths.
 
+`<pkg>` names the package's module entry, the file a bare import would resolve
+to were there a `node_modules` to walk: the `exports` root, `typings`, `types`,
+`main`, then `index.ts`, `index.tsx`, `index.d.ts`, a `.js` target substituted
+`.ts`, `.tsx`, `.d.ts` in that order. A `.ts` entry is staged with the package's
+declarations and, under the segment above, checked and never emitted. The
+declaration a `compilerOptions.types` entry resolves to is read separately,
+declarations only, and reaches the program through `files` (below):
+`@cloudflare/workers-types` ships `index.ts` for the first role and `index.d.ts`,
+a global script, for the second. See
+[where a package's type declarations come from](../guides/npm.md#where-a-packages-type-declarations-come-from).
+
 A package's subpaths get three kinds of key. `<pkg>/*` lists the package root
-and then the entry declaration's directory, the two places a subpath lives when
+and then the module entry's directory, the two places a subpath lives when
 the manifest says nothing about it. An `exports` subpath the manifest designates
 a declaration for gets an exact key naming that file. A one-star `exports`
 pattern gets a pattern key whose first value is the manifest's target with the
