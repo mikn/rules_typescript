@@ -21,7 +21,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: bazel-contrib/setup-bazel@0.18.0
         id: setup
@@ -79,7 +79,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: bazel-contrib/setup-bazel@0.18.0
         with:
@@ -114,7 +114,7 @@ jobs:
             targets: //... -//:app
       fail-fast: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # 432 of every example's ~700 actions are the same oxc/Rust + toolchain
       # prefix, so one key shared by all six legs, not one per leg (10 GB cap).
@@ -132,7 +132,7 @@ jobs:
     name: Build Determinism Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: bazel-contrib/setup-bazel@0.18.0
         with:
@@ -192,7 +192,7 @@ jobs:
         # job) fails if these three sources ever disagree.
         shard: [nextjs-tanstack, remix-svelte, npm, core]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: bazel-contrib/setup-bazel@0.18.0
         with:
@@ -281,7 +281,7 @@ jobs:
     name: Linting & Code Quality
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # There is no buildifier bazel_dep in MODULE.bazel: `bazel run
       # @buildifier//:buildifier` fails with "No repository visible as
