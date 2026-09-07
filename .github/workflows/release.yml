@@ -129,7 +129,7 @@ jobs:
           cat .bcr/presubmit.yml
 
       - name: Create PR for BCR submission
-        uses: peter-evans/create-pull-request@v5
+        uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore: Update BCR metadata for v${{ needs.release.outputs.version }}"
