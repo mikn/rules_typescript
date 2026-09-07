@@ -210,10 +210,6 @@ function underPrefix(specifier, prefix) {
 // A character walk rather than a regex: a quoted string is an import specifier
 // only when the tokens before it say so, which is what keeps `{ from: "x" }`
 // and `declare module "x"` out of the results.
-//
-// Gazelle's ScanImports (gazelle/imports.go) is this same walk: a specifier
-// only one of them sees is either a dep Gazelle cannot generate or drift the
-// build never notices, so //tests/strict_deps pins the two against one table.
 const KEYWORDS_BEFORE_REGEX = new Set([
   "return", "typeof", "instanceof", "in", "of", "new", "delete", "void",
   "do", "else", "yield", "await", "case", "throw",

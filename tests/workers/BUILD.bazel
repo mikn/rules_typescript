@@ -20,8 +20,6 @@ exports_files(
 # package and make those labels cross a package boundary.
 # gazelle:exclude src
 
-# gazelle:ts_npm_hub npm_workers
-
 # ts_compile baselines, not data: they are named by the tsconfig attr.
 # gazelle:exclude tsconfig.worker.json
 # gazelle:exclude tsconfig.experimental.json

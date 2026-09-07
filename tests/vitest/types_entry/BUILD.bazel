@@ -5,10 +5,6 @@ only program the test files are ever in is the ts_compile this macro
 generates -- so the dep that stages the declaration has to reach it.
 """
 
-# An ambient .d.ts counts as a source, so every-dir would write a ts_compile
-# over it; being named by a `types` entry rather than in srcs is the fixture.
-# gazelle:exclude staged
-
 # Compiler options, not data: named by the tsconfig attr.
 # gazelle:exclude tsconfig.ambient.json
 

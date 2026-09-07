@@ -76,10 +76,8 @@ ts_compile → TsStrictDeps action (.strictdeps stamp; gates the compile)
 Change implementation without changing .d.ts → no downstream recompilation.
 
 TsStrictDeps reads the target's own sources and fails on any specifier no
-DIRECT dep provides. Its scanner is the same character walk as Gazelle's
-`ScanImports` (gazelle/imports.go) -- a specifier only one of them recognises
-is either a dep Gazelle cannot generate or drift nothing notices, so
-tests/strict_deps pins the two against one table. Change one, change both.
+DIRECT dep provides; tests/strict_deps pins the import forms its scanner
+recognises.
 
 The rule has three attributes: srcs, deps, tsconfig. Every compiler option is
 the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
@@ -115,8 +113,8 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
   resolved per-target JSON config
 - `gazelle/generate.go` — BUILD file generation
 - `gazelle/resolve.go` — import → label resolution
-- `gazelle/config.go` — directives, codegen detection
-- `gazelle/codegen.go` — auto-detected codegen targets
+- `gazelle/config.go` — the root-once lockfile load, the `ts_codegen`
+  bookkeeping, linter detection
 - `oxc_cli/src/main.rs` — Rust CLI (parse → isolated_declarations → transform → codegen)
 
 ## Rules
@@ -139,11 +137,13 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 - Consumer toolchain registration is explicit: `register_toolchains("@rules_typescript//ts/toolchain:all")`
 
 **Gazelle (Go):**
-- All config via `# gazelle:ts_*` directives. There is no config file.
-- Default: every-dir (every directory with .ts files is a package)
+- No directive of its own and no config file: a package is a directory
+  whose `tsconfig.json` lists a first-party file, its program is that listing,
+  and its deps come from the listing's edges, the lockfile and the nearest
+  `package.json`
 - `ts_test` auto-generates node_modules from the npm deps in `deps` and each
   `ts_compile` dep's npm closure (`TsDeclarationInfo.transitive_npm_packages`)
-- Register all new directives in `KnownDirectives()`, all new rules in `Kinds()` + `Loads()`
+- Register new rules in `Kinds()` + `Loads()`
 - `bazel run //gazelle -- -mode=diff` on a clean tree must print nothing. A
   fixture that differs only in Gazelle's own rendering (a one-element list
   inline, a genrule's output filename over its label) makes real drift

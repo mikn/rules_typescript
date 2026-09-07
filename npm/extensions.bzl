@@ -74,9 +74,9 @@ _translate_lock_tag = tag_class(attrs = {
         doc = """The alias hub's repository name, which is also what use_repo takes and what
 BUILD labels spell (`@npm//:react`).
 
-One call per lockfile: a workspace translating several gets one hub each, and a
-package's imports resolve into exactly one of them -- which Gazelle needs telling
-per package, with `# gazelle:ts_npm_hub <name>`. Only the root module's
+One call per lockfile: a workspace translating several gets one hub each;
+Gazelle writes labels into `@npm`, the root lockfile's hub, and a target that
+resolves into another hub is hand-written. Only the root module's
 registration for a name takes effect; a non-root module's is skipped, which is
 what lets a consumer supply its own lockfile under the name rules_typescript uses
 for its own tests.""",

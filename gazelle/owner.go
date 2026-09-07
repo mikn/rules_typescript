@@ -69,6 +69,18 @@ const (
 	declarationFile
 )
 
+// A declaration file, .d.mts and .d.cts included: tsc reads each as a script.
+func isDeclarationFile(name string) bool {
+	return strings.HasSuffix(name, ".d.ts") || strings.HasSuffix(name, ".d.mts") ||
+		strings.HasSuffix(name, ".d.cts")
+}
+
+// *.test.* and *.spec.*, whatever the source extension.
+func isTestFile(name string) bool {
+	base := strings.TrimSuffix(name, path.Ext(name))
+	return strings.HasSuffix(base, ".test") || strings.HasSuffix(base, ".spec")
+}
+
 func classify(f string) fileClass {
 	base := path.Base(f)
 	switch {

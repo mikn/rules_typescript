@@ -147,6 +147,45 @@ const (
 		"fsevents.d.ts"
 )
 
+func writeFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNpmPackageToLabelName(t *testing.T) {
+	for pkg, want := range map[string]string{
+		"vitest":           "vitest",
+		"@types/react":     "types_react",
+		"@tanstack/router": "tanstack_router",
+		"@scope/a-b.c":     "scope_a-b.c",
+		"lodash.debounce":  "lodash.debounce",
+	} {
+		if got := npmPackageToLabelName(pkg); got != want {
+			t.Errorf("npmPackageToLabelName(%q) = %q, want %q", pkg, got, want)
+		}
+	}
+}
+
+func TestBarePackageName(t *testing.T) {
+	for spec, want := range map[string]string{
+		"react":                    "react",
+		"react/jsx-runtime":        "react",
+		"@tanstack/router":         "@tanstack/router",
+		"@tanstack/router/history": "@tanstack/router",
+		"@scope":                   "@scope",
+		"a/b/c":                    "a",
+	} {
+		if got := barePackageName(spec); got != want {
+			t.Errorf("barePackageName(%q) = %q, want %q", spec, got, want)
+		}
+	}
+}
+
 // The workspace on disk. packages/ui is linked as @acme/ui, so its manifest's
 // name is no member's; nothing links workers/api-gateway, so its own name is.
 func npmRepo(t *testing.T) (string, *npmLock) {

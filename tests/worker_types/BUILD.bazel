@@ -15,8 +15,6 @@ package(default_visibility = [
     "//tests/worker_types:__subpackages__",
 ])
 
-# gazelle:ts_npm_hub npm_workers
-
 node_modules(
     name = "node_modules",
     deps = ["@npm_workers//:wrangler"],

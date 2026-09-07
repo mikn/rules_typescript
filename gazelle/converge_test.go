@@ -446,7 +446,7 @@ func crossesPackageBoundary(t *testing.T, repoRoot string) []string {
 	for _, dir := range convergePackages(t, repoRoot) {
 		for _, r := range loadRules(t, repoRoot, dir) {
 			for _, src := range r.AttrStrings("srcs") {
-				if isLabelSrc(src) && !strings.HasPrefix(src, ":") {
+				if strings.HasPrefix(src, "//") || strings.HasPrefix(src, "@") {
 					continue
 				}
 				full := path.Join(dir, strings.TrimPrefix(src, ":"))
@@ -527,15 +527,6 @@ func splitLabel(lbl string) (pkg, name string) {
 		return pkg, name
 	}
 	return body, path.Base(body)
-}
-
-func generated(t *testing.T, root string, parts ...string) string {
-	t.Helper()
-	body, err := os.ReadFile(filepath.Join(append([]string{root}, parts...)...))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(body)
 }
 
 func ruleNamed(rules []*rule.Rule, kind, name string) *rule.Rule {

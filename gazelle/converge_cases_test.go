@@ -387,9 +387,7 @@ type handAuthoredCase struct {
 	value  string
 }
 
-const handVendorPackage = `# gazelle:ts_ignore
-
-filegroup(
+const handVendorPackage = `filegroup(
     name = "vendor_hand",
     srcs = ["legacy.js"],
     visibility = ["//visibility:public"],

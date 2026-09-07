@@ -161,20 +161,6 @@ func hasSrc(srcs []string, want string) bool {
 	return slices.Contains(srcs, want)
 }
 
-// srcsOfKind is every srcs entry of every rule of one kind in one package,
-// read back off disk.
-func srcsOfKind(t *testing.T, root, pkg, kind string) []string {
-	t.Helper()
-	var out []string
-	for _, r := range loadRules(t, root, pkg) {
-		if r.Kind() == kind {
-			out = append(out, r.AttrStrings("srcs")...)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
 // onDiskRule is the rule of that kind and name in pkg's BUILD file after a run.
 func onDiskRule(t *testing.T, root, pkg, kind, name string) *rule.Rule {
 	t.Helper()

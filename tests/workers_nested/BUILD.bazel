@@ -8,8 +8,6 @@ package(default_visibility = ["//visibility:public"])
 # package and make those labels cross a package boundary.
 # gazelle:exclude src
 
-# gazelle:ts_npm_hub npm_workers
-
 # A ts_compile baseline, not data: it is named by the tsconfig attr.
 # gazelle:exclude tsconfig.worker.json
 

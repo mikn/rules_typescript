@@ -171,3 +171,16 @@ func (l *npmLock) manifestLabels(m *manifest) []string {
 	}
 	return labels
 }
+
+// barePackageName is the package a specifier names: its first segment, two
+// when the first is a scope.
+func barePackageName(spec string) string {
+	if strings.HasPrefix(spec, "@") {
+		parts := strings.SplitN(spec[1:], "/", 3)
+		if len(parts) >= 2 {
+			return "@" + parts[0] + "/" + parts[1]
+		}
+		return spec
+	}
+	return strings.SplitN(spec, "/", 2)[0]
+}

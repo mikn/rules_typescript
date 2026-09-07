@@ -222,32 +222,6 @@ func TestGenerate_LintTargetForTheLinterTheLockfileHas(t *testing.T) {
 	}
 }
 
-// A ts_npm_hub tree resolves against a lockfile this reader never saw, so it is
-// not refused, and its binary names that hub, as its bare imports' deps do.
-func TestGenerate_LintBinaryFollowsTheTreesHub(t *testing.T) {
-	c := lintWorkspace(t, oxlintOnlyLock)
-
-	var res language.GenerateResult
-	logged := captureLog(t, func() {
-		res = generateLintDir(t, c, "pkg", map[string]string{
-			"tsconfig.json":     lintTsConfig,
-			"index.ts":          "export const a = 1;\n",
-			"eslint.config.mjs": "export default [];\n",
-		}, "# gazelle:ts_npm_hub npm_eslint\n")
-	})
-
-	lr := lintRule(res)
-	if lr == nil {
-		t.Fatalf("no ts_lint generated under a ts_npm_hub directive; its lockfile was never read:\n%s", logged)
-	}
-	if got := lr.AttrString("linter_binary"); got != "@npm_eslint//:eslint_bin" {
-		t.Errorf("linter_binary = %q, want the tree's hub, @npm_eslint//:eslint_bin", got)
-	}
-	if logged != "" {
-		t.Errorf("a refusal was printed for a hub whose lockfile was never read:\n%s", logged)
-	}
-}
-
 // No lockfile is no information, not an empty workspace: the config alone still
 // gets its ts_lint, as it did before this gate existed.
 func TestGenerate_NoLockfileRefusesNoLint(t *testing.T) {

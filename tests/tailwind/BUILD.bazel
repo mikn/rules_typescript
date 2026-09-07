@@ -12,12 +12,6 @@ exports_files([
     "pnpm-lock.yaml",
 ])
 
-# The vite_config is loaded by Vite, not compiled by ts_compile, so Gazelle must
-# not claim it as a source of :entry -- it is already an input to :dev. It still
-# needs a type check, and one the IDE tsconfig can see, which is :tailwind_config
-# below (the same split as //vite:tsup_config).
-# gazelle:ts_exclude tailwind_config.ts
-
 ts_compile(
     name = "entry",
     srcs = [
