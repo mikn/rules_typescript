@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: bazel-contrib/setup-bazel@0.18.0
+      - uses: bazel-contrib/setup-bazel@0.19.0
         id: setup
         with:
           bazelisk-version: 1.x
@@ -81,7 +81,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: bazel-contrib/setup-bazel@0.18.0
+      - uses: bazel-contrib/setup-bazel@0.19.0
         with:
           bazelisk-version: 1.x
           bazelisk-cache: true
@@ -118,7 +118,7 @@ jobs:
 
       # 432 of every example's ~700 actions are the same oxc/Rust + toolchain
       # prefix, so one key shared by all six legs, not one per leg (10 GB cap).
-      - uses: bazel-contrib/setup-bazel@0.18.0
+      - uses: bazel-contrib/setup-bazel@0.19.0
         with:
           bazelisk-version: 1.x
           bazelisk-cache: true
@@ -134,7 +134,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: bazel-contrib/setup-bazel@0.18.0
+      - uses: bazel-contrib/setup-bazel@0.19.0
         with:
           bazelisk-version: 1.x
           bazelisk-cache: true
@@ -194,7 +194,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: bazel-contrib/setup-bazel@0.18.0
+      - uses: bazel-contrib/setup-bazel@0.19.0
         with:
           bazelisk-version: 1.x
           bazelisk-cache: true
