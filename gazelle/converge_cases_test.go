@@ -1,7 +1,7 @@
 package typescript
 
-// The fixtures and mutations convergeGazelle is driven with: one workspace per
-// framework Gazelle generates for, plus a plain TypeScript one.
+// The fixtures and mutations convergeGazelle is driven with: the shapes the
+// package model meets on a workspace, each a tsconfig.json program or more.
 
 import (
 	"bytes"
@@ -90,8 +90,16 @@ func contains(haystack []string, needle string) bool {
 const (
 	convergePlainPkg = `{"name":"w","dependencies":{"zod":"3.24.2"}}` + "\n"
 
-	convergeAliasTsConfig = `{"compilerOptions":{"baseUrl":".","paths":{` +
-		`"@/*":["./src/*"],"@lib/*":["./src/lib/*"],"@ui/*":["./src/ui/*"]}}}` + "\n"
+	// The root's tsconfig.json has no include: refused, and a ts_config only
+	// because src's chain extends it.
+	convergeRootTsConfig = `{"compilerOptions":{"strict":true}}` + "\n"
+
+	convergeSrcTsConfig = `{"extends":"../tsconfig.json",` +
+		`"compilerOptions":{"lib":["es2022"]},"include":["**/*"]}` + "\n"
+
+	convergeAliasTsConfig = `{"compilerOptions":{"lib":["es2022"],"paths":{` +
+		`"@/*":["./src/*"],"@lib/*":["../lib/src/*"]}},` +
+		`"include":["src/**/*","e2e/**/*"]}` + "\n"
 
 	// Appended without its load line: FixLoads writes the file's one load, and
 	// a second, hand-placed one would part the two trees by position alone.
@@ -125,16 +133,22 @@ func convergeFixture(t *testing.T, name string) convergeCase {
 func convergeCases() []convergeCase {
 	return []convergeCase{
 		{
+			// One program under src, its tests and data files with it; the
+			// root's tsconfig.json is the base the program extends.
 			name: "plain",
 			files: map[string]string{
-				"package.json":           convergePlainPkg,
-				"tsconfig.json":          `{"compilerOptions":{"strict":true}}` + "\n",
-				"src/index.ts":           "export * from \"./lib/helper\";\n",
+				"package.json":         convergePlainPkg,
+				"tsconfig.json":        convergeRootTsConfig,
+				"shared/tsconfig.json": includeTs,
+				"shared/util.ts":       "export const util = 1;\n",
+				"src/tsconfig.json":    convergeSrcTsConfig,
+				"src/vitest.config.ts": "export default { test: { globals: true } };\n",
+				"src/index.ts": "export * from \"./lib/helper\";\n" +
+					"export { util } from \"../shared/util\";\n",
 				"src/routes/index.ts":    "export const routes = 1;\n",
 				"src/routes/home.ts":     "export const home = 1;\n",
 				"src/lib/helper.ts":      "export const helper = 1;\n",
 				"src/lib/helper.test.ts": "export const t = 1;\n",
-				"src/lib/helper.doc.ts":  "export * from \"./helper\";\n",
 				"src/lib/tokens.json":    `{"a":1}` + "\n",
 				"src/icons/logo.svg":     "<svg/>\n",
 			},
@@ -146,65 +160,71 @@ func convergeCases() []convergeCase {
 				}},
 				{kind: "add_flat_route", write: map[string]string{"src/routes/about.ts": "export const about = 1;\n"}},
 				{kind: "add_nested_route_dir", write: map[string]string{"src/routes/admin/users/list.ts": "export const list = 1;\n"}},
+				// Outside every program: nothing changes.
 				{kind: "add_root_shared_file", write: map[string]string{"version.ts": "export const version = \"1\";\n"}},
 				{kind: "add_shared_dir_no_ts", write: map[string]string{
 					"styles/globals.css": ".a{color:red}\n",
 					"data/config.json":   `{"a":1}` + "\n",
 				}},
 				{kind: "add_shared_dir_with_ts", write: map[string]string{"lib2/extra.ts": "export const extra = 1;\n"}},
+				{kind: "add_data_file", write: map[string]string{
+					"src/lib/fixture.snap": "snap\n",
+				}},
 				{kind: "add_file_to_existing_target", write: map[string]string{"src/lib/format.ts": "export const format = 1;\n"}},
 				{kind: "delete_route", remove: []string{"src/routes/home.ts"}},
-				{kind: "delete_doc", remove: []string{"src/lib/helper.doc.ts"}},
-				// A directory with no source is no boundary, so the run after the
-				// last one left has nothing to regenerate over its ts_compile.
+				{kind: "delete_data_file", remove: []string{"src/lib/tokens.json"}},
 				{kind: "delete_only_sources_in_dir", remove: []string{"src/routes/index.ts", "src/routes/home.ts"}},
+				{kind: "delete_the_tests", remove: []string{"src/lib/helper.test.ts"}},
 			},
 		},
 		{
-			// Imports through a tsconfig `paths` alias: the resolver maps each
-			// to the owning target, and the alias map is the tsconfig's alone.
+			// Imports through a tsconfig `paths` alias into another package: the
+			// listing names the file and its owner is the dep.
 			name: "alias_imports",
 			files: map[string]string{
 				"package.json":      convergePlainPkg,
-				"tsconfig.json":     convergeAliasTsConfig,
-				"src/index.ts":      "import { helper } from \"@/lib/helper\";\nexport const a = helper;\n",
-				"src/main.ts":       "export const main = 1;\n",
-				"src/lib/helper.ts": "export const helper = 1;\n",
-				"src/lib/util.ts":   "export const util = 1;\n",
-				"src/ui/button.ts":  "export const button = 1;\n",
-				// One test under the alias directory and one outside it.
-				"src/lib/helper.test.ts": "import type { helper } from \"@lib/helper\";\nexport const t = typeof helper;\n",
-				"e2e/smoke.test.ts":      "import { button } from \"@ui/button\";\nexport const t = button;\n",
+				"lib/tsconfig.json": includeSrc,
+				"lib/src/helper.ts": "export const helper = 1;\n",
+				"lib/src/util.ts":   "export const util = 1;\n",
+				"app/tsconfig.json": convergeAliasTsConfig,
+				"app/src/index.ts": "import { helper } from \"@lib/helper\";\n" +
+					"export const a = helper;\n",
+				"app/src/main.ts": "import { own } from \"@/own\";\n" +
+					"export const main = own;\n",
+				"app/src/own.ts": "export const own = 1;\n",
+				"app/src/main.test.ts": "import type { helper } from " +
+					"\"@lib/helper\";\nexport const t = typeof helper;\n",
+				"app/e2e/smoke.test.ts": "import { own } from \"@/own\";\n" +
+					"export const t = own;\n",
 			},
 			mutations: []convergeMutation{
-				// An import through a second alias: the run recomputes deps.
+				// An import through the second alias: the run recomputes deps.
 				{kind: "add_alias_import", write: map[string]string{
-					"src/extra.ts": "import { helper } from \"@lib/helper\";\nexport const b = helper;\n",
+					"app/src/extra.ts": "import { util } from \"@lib/util\";\n" +
+						"export const b = util;\n",
 				}},
-				// And the last aliased import goes, and the dep with it.
+				// The library's last aliased import goes; the test keeps its own.
 				{kind: "drop_alias_import", write: map[string]string{
-					"src/index.ts": "export const a = 1;\n",
+					"app/src/index.ts": "export const a = 1;\n",
 				}},
 				{kind: "add_alias_import_in_new_dir", write: map[string]string{
-					"src/panel/view.ts": "import { button } from \"@ui/button\";\nexport const v = button;\n",
+					"app/src/panel/view.ts": "import { util } from " +
+						"\"@lib/util\";\nexport const v = util;\n",
 				}},
 				{kind: "add_file_to_existing_target", write: map[string]string{
-					"src/format.ts": "export const format = 1;\n",
+					"app/src/format.ts": "export const format = 1;\n",
 				}},
-				{kind: "delete_alias_importing_file", remove: []string{"src/index.ts"}},
+				{kind: "delete_alias_importing_file", remove: []string{"app/src/index.ts"}},
 			},
 		},
 		{
-			// The standard pnpm workspace-member shape: package.json and
-			// tsconfig.json in the member root, sources one directory down. That
-			// root classifies no source of its own, so generation there used to
-			// stop before anything was written -- and a label naming its
-			// tsconfig had nothing to resolve against.
+			// The pnpm workspace-member shape, sources one directory down; a
+			// member without a tsconfig.json is no package.
 			name: "pnpm_member",
 			files: map[string]string{
 				"package.json":                   convergePlainPkg,
 				"pnpm-workspace.yaml":            "packages:\n  - packages/*\n",
-				"tsconfig.json":                  `{"compilerOptions":{"strict":true}}` + "\n",
+				"tsconfig.json":                  convergeRootTsConfig,
 				"packages/core/package.json":     `{"name":"@w/core","version":"1.0.0"}` + "\n",
 				"packages/core/tsconfig.json":    `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
 				"packages/core/src/index.ts":     "export * from \"./util\";\n",
@@ -233,17 +253,24 @@ func convergeCases() []convergeCase {
 			},
 		},
 		{
-			// The declaration a worker's tsconfig names leaves the tree for a ts_codegen's
-			// outs in one commit, the target appended to the BUILD file Gazelle wrote.
+			// A worker: a program over its sources and the declaration its
+			// tsconfig names, a test program extending it, a vitest config.
 			name: "worker",
 			files: map[string]string{
-				"package.json":                     `{"name":"w"}` + "\n",
-				"worker/tsconfig.json":             `{"compilerOptions":{"types":["./worker-configuration.d.ts"]}}` + "\n",
+				"package.json":        `{"name":"w"}` + "\n",
+				"worker/package.json": `{"name":"worker"}` + "\n",
+				"worker/vitest.config.mts": "export default { test: " +
+					"{ globals: true } };\n",
+				"worker/tsconfig.json": `{"compilerOptions":{"lib":["es2022"],` +
+					`"types":["./worker-configuration.d.ts"]},` +
+					`"include":["src/**/*","worker-configuration.d.ts"]}` + "\n",
 				"worker/worker-configuration.d.ts": "declare const WORKER_ENV: string;\n",
 				"worker/wrangler.jsonc":            `{"name":"w","main":"src/handler.ts"}` + "\n",
 				"worker/src/handler.ts":            "export const env = WORKER_ENV;\n",
-				"worker/test/tsconfig.json":        `{"extends":"../tsconfig.json","compilerOptions":{"types":["../worker-configuration.d.ts"]}}` + "\n",
-				"worker/test/handler.test.ts":      "export const t = WORKER_ENV;\n",
+				"worker/test/tsconfig.json": `{"extends":"../tsconfig.json",` +
+					`"compilerOptions":{"types":["../worker-configuration.d.ts"]},` +
+					`"include":["*.ts"]}` + "\n",
+				"worker/test/handler.test.ts": "export const t = WORKER_ENV;\n",
 			},
 			mutations: []convergeMutation{
 				{
@@ -251,6 +278,9 @@ func convergeCases() []convergeCase {
 					remove: []string{"worker/worker-configuration.d.ts"},
 					extend: map[string]string{"worker/BUILD.bazel": convergeWorkerTypesCodegen},
 				},
+				{kind: "add_a_test_beside_the_sources", write: map[string]string{
+					"worker/src/handler.test.ts": "export const t = WORKER_ENV;\n",
+				}},
 			},
 		},
 	}
@@ -261,6 +291,7 @@ func convergeCases() []convergeCase {
 // For every fixture workspace: generate, mutate, generate again, and require
 // what one generation over the mutated tree produces.
 func TestConvergeAfterMutation(t *testing.T) {
+	requireTsgo(t)
 	for _, tc := range convergeCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, mut := range tc.mutations {
@@ -301,6 +332,11 @@ func runConvergeCase(t *testing.T, tc convergeCase, mut convergeMutation) {
 	if dangling := danglingLabels(t, twoRun); len(dangling) > 0 {
 		t.Errorf("%s/%s left %d label(s) no target satisfies, which fails analysis for the whole workspace:\n      %s",
 			tc.name, mut.kind, len(dangling), strings.Join(dangling, "\n      "))
+	}
+	if crossing := crossesPackageBoundary(t, twoRun); len(crossing) > 0 {
+		t.Errorf("%s/%s left %d src(s) under another package, which fails "+
+			"analysis for the whole workspace:\n      %s",
+			tc.name, mut.kind, len(crossing), strings.Join(crossing, "\n      "))
 	}
 }
 
@@ -385,6 +421,7 @@ func handAuthoredCases() []handAuthoredCase {
 // TestHandAuthoredAttrValue pins both halves of the contract: a value carrying
 // "# keep" survives the next run, and one without it is replaced out loud.
 func TestHandAuthoredAttrValue(t *testing.T) {
+	requireTsgo(t)
 	fixtures := map[string]convergeCase{}
 	for _, tc := range convergeCases() {
 		fixtures[tc.name] = tc
@@ -583,6 +620,7 @@ func buildFileText(t *testing.T, root, pkg string) string {
 // A path-shaped `types` entry is a dep on the target staging the file: the
 // ts_compile holding a checked-in declaration, or the ts_codegen writing it.
 func TestTypesEntryIsADepOnTheTargetStagingIt(t *testing.T) {
+	requireTsgo(t)
 	fixture := convergeFixture(t, "worker")
 	var mutation convergeMutation
 	for _, mut := range fixture.mutations {
@@ -594,33 +632,48 @@ func TestTypesEntryIsADepOnTheTargetStagingIt(t *testing.T) {
 		t.Fatal("the worker fixture lost its replace_declaration_with_codegen mutation")
 	}
 
-	programs := []struct{ pkg, kind string }{{"worker/src", "ts_compile"}, {"worker/test", "ts_test"}}
-
+	// The test program names the declaration the worker's package owns.
 	checkedIn := t.TempDir()
 	writeWorkspace(t, checkedIn, fixture.files)
 	captureLog(t, func() { convergeGazelle(t, checkedIn) })
-	for _, program := range programs {
-		r := onlyRuleOfKind(t, checkedIn, program.pkg, program.kind)
-		if deps := r.AttrStrings("deps"); !contains(deps, "//worker") {
-			t.Errorf("%s(%s) in //%s has deps = %v, want //worker: the target holding worker-configuration.d.ts is what stages the declaration the tsconfig names in `types`:\n%s",
-				r.Kind(), r.Name(), program.pkg, deps, indent(buildFileText(t, checkedIn, program.pkg)))
-		}
-		for _, attr := range attrsBeyondTheRule(r) {
-			t.Errorf("%s(%s) in //%s carries %s while the declaration is checked in; the tsconfig names it and the rule reads the tsconfig:\n%s",
-				r.Kind(), r.Name(), program.pkg, attr, indent(buildFileText(t, checkedIn, program.pkg)))
+	r := onlyRuleOfKind(t, checkedIn, "worker/test", "ts_test")
+	if deps := r.AttrStrings("deps"); !contains(deps, "//worker") {
+		t.Errorf("%s(%s) in //worker/test has deps = %v, want //worker: the "+
+			"target holding worker-configuration.d.ts is what stages the "+
+			"declaration the tsconfig names in `types`:\n%s",
+			r.Kind(), r.Name(), deps,
+			indent(buildFileText(t, checkedIn, "worker/test")))
+	}
+	for _, pkg := range []string{"worker", "worker/test"} {
+		for _, r := range loadRules(t, checkedIn, pkg) {
+			if r.Kind() != "ts_compile" && r.Kind() != "ts_test" {
+				continue
+			}
+			for _, attr := range attrsBeyondTheRule(r) {
+				t.Errorf("%s(%s) in //%s carries %s while the declaration is "+
+					"checked in; the tsconfig names it and the rule reads the "+
+					"tsconfig:\n%s", r.Kind(), r.Name(), pkg, attr,
+					indent(buildFileText(t, checkedIn, pkg)))
+			}
 		}
 	}
 	requireNoTsConfigTypesFilegroup(t, checkedIn)
 
+	// Both programs name a declaration only the codegen writes.
 	generated := t.TempDir()
 	writeWorkspace(t, generated, fixture.files)
 	applyMutation(t, generated, mutation)
 	captureLog(t, func() { convergeGazelle(t, generated) })
-	for _, program := range programs {
+	for _, program := range []struct{ pkg, kind, want string }{
+		{"worker", "ts_compile", ":worker_types"},
+		{"worker/test", "ts_test", "//worker:worker_types"},
+	} {
 		r := onlyRuleOfKind(t, generated, program.pkg, program.kind)
-		if deps := r.AttrStrings("deps"); !contains(deps, "//worker:worker_types") {
-			t.Errorf("%s(%s) in //%s has deps = %v, want //worker:worker_types: the codegen is what stages the declaration the tsconfig names in `types`:\n%s",
-				r.Kind(), r.Name(), program.pkg, deps, indent(buildFileText(t, generated, program.pkg)))
+		if deps := r.AttrStrings("deps"); !contains(deps, program.want) {
+			t.Errorf("%s(%s) in //%s has deps = %v, want %s: the codegen is what "+
+				"stages the declaration the tsconfig names in `types`:\n%s",
+				r.Kind(), r.Name(), program.pkg, deps, program.want,
+				indent(buildFileText(t, generated, program.pkg)))
 		}
 		for _, attr := range attrsBeyondTheRule(r) {
 			t.Errorf("%s(%s) in //%s carries %s = %v; the rule has no such attribute:\n%s",
@@ -630,6 +683,10 @@ func TestTypesEntryIsADepOnTheTargetStagingIt(t *testing.T) {
 	requireNoTsConfigTypesFilegroup(t, generated)
 	if dangling := danglingLabels(t, generated); len(dangling) > 0 {
 		t.Errorf("the codegen dep left %d label(s) no target satisfies:\n      %s", len(dangling), strings.Join(dangling, "\n      "))
+	}
+	if crossing := crossesPackageBoundary(t, generated); len(crossing) > 0 {
+		t.Errorf("%d src(s) sit under another package:\n      %s",
+			len(crossing), strings.Join(crossing, "\n      "))
 	}
 }
 

@@ -1,13 +1,8 @@
-// Package typescript implements a Gazelle language extension that generates
-// Bazel BUILD files for TypeScript projects using rules_typescript.
-//
-// It supports ts_compile and ts_test rules from @rules_typescript//ts:defs.bzl,
-// infers package boundaries from index.ts/tsx files, and resolves imports to
-// Bazel labels via the rule index, npm mappings, and path alias configuration.
+// Package typescript is the Gazelle language for rules_typescript: a package
+// per tsconfig.json program, its targets from tsgo's listing.
 package typescript
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -23,14 +18,8 @@ import (
 const languageName = "typescript"
 
 // tsLang is the Gazelle language extension for TypeScript.
-//
-// cycles is the whole run's dep graph over the targets this extension
-// generates. A cross-package cycle is not visible from any one GenerateRules
-// call, and the resolver is where every edge becomes a label, so it is
-// recorded there and read once the last one is in.
 type tsLang struct {
 	language.BaseLifecycleManager
-	cycles   cycleGraph
 	programs *programStore
 }
 
@@ -176,6 +165,7 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 				"srcs":     true,
 				"deps":     true,
 				"tsconfig": true,
+				"config":   true,
 			},
 			ResolveAttrs: map[string]bool{
 				"deps": true,
@@ -311,22 +301,16 @@ func (l *tsLang) Imports(c *config.Config, r *rule.Rule, f *rule.File) []resolve
 // do not embed other rules, so this always returns nil.
 func (l *tsLang) Embeds(_ *rule.Rule, _ label.Label) []label.Label { return nil }
 
-// Resolve translates the opaque imports value (produced by GenerateRules via
-// GenerateResult.Imports) into concrete Bazel deps on the rule r.
+// Resolve writes r's deps from the edges GenerateRules handed it.
 func (l *tsLang) Resolve(
 	c *config.Config,
 	ix *resolve.RuleIndex,
-	rc *repo.RemoteCache,
+	_ *repo.RemoteCache,
 	r *rule.Rule,
 	imports any,
 	from label.Label,
 ) {
-	l.cycles.note(c, ix, r, from, resolveImports(c, ix, r, imports, from))
-}
-
-// AfterResolvingDeps runs the whole-graph checks, which is what this hook is
-// for: cmd/gazelle calls it once, after the last Resolve and before any BUILD
-// file is written.
-func (l *tsLang) AfterResolvingDeps(_ context.Context) {
-	l.cycles.reportCycles()
+	if imps, ok := imports.(*ruleImports); ok && imps != nil {
+		resolveEdges(c, ix, r, imps, from)
+	}
 }

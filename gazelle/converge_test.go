@@ -79,6 +79,9 @@ func convergeGazelle(t *testing.T, repoRoot string) {
 		}
 
 		c := parent.Clone()
+		// Core's resolve config carries # gazelle:resolve, which the edge
+		// resolver reads first, as cmd/gazelle registers it.
+		(&resolve.Configurer{}).Configure(c, rel, f)
 		configureTsConfig(c, rel, f)
 
 		for _, sub := range subdirs {
@@ -106,11 +109,13 @@ func convergeGazelle(t *testing.T, repoRoot string) {
 		}
 		visits = append(visits, dirVisit{rel, c, f, res.Gen, res.Empty, res.Imports})
 	}
-	walk(&config.Config{
+	root := &config.Config{
 		RepoRoot: repoRoot,
 		RepoName: "converge_repo_root",
 		Exts:     map[string]any{},
-	}, "")
+	}
+	(&resolve.Configurer{}).RegisterFlags(nil, "", root)
+	walk(root, "")
 	ix.Finish()
 
 	for _, v := range visits {
@@ -431,6 +436,31 @@ func enclosingPackage(repoRoot, filePath string) (string, bool) {
 			dir = parent
 		}
 	}
+}
+
+// Every srcs entry naming a file under a directory that is a package of its
+// own: Bazel reads a source label out of the innermost package above the file.
+func crossesPackageBoundary(t *testing.T, repoRoot string) []string {
+	t.Helper()
+	var out []string
+	for _, dir := range convergePackages(t, repoRoot) {
+		for _, r := range loadRules(t, repoRoot, dir) {
+			for _, src := range r.AttrStrings("srcs") {
+				if isLabelSrc(src) && !strings.HasPrefix(src, ":") {
+					continue
+				}
+				full := path.Join(dir, strings.TrimPrefix(src, ":"))
+				holder, inPackage := enclosingPackage(repoRoot, full)
+				if inPackage && holder != dir {
+					out = append(out, fmt.Sprintf(
+						"%s named by %s(%s) in %s sits in package %s", full,
+						r.Kind(), r.Name(), path.Join(dir, "BUILD.bazel"), holder))
+				}
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // ---- small helpers ---------------------------------------------------------

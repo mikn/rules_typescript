@@ -216,6 +216,7 @@ func assertNoDanglingLabels(t *testing.T, root string) {
 // parent file is not an input to any action the nested targets run, so tsgo
 // reports TS5083 on a path it can see in the config and not in the sandbox.
 func TestTsConfigExtendsChain_RelativeParentBecomesADep(t *testing.T) {
+	requireTsgo(t)
 	root := t.TempDir()
 	writeWorkspace(t, root, map[string]string{
 		"package.json":                      `{"name":"w"}` + "\n",
@@ -244,6 +245,7 @@ func TestTsConfigExtendsChain_RelativeParentBecomesADep(t *testing.T) {
 // already there, written by a run that generated no deps, so the run that reads
 // the extends is the one that repairs the file.
 func TestTsConfigExtendsChain_FillsInADepsLessRuleAlreadyInTheFile(t *testing.T) {
+	requireTsgo(t)
 	root := t.TempDir()
 	writeWorkspace(t, root, map[string]string{
 		"package.json":                      `{"name":"w"}` + "\n",
@@ -272,6 +274,7 @@ ts_config(
 }
 
 func TestTsConfigExtendsChain_ClimbsMoreThanOneLevel(t *testing.T) {
+	requireTsgo(t)
 	root := t.TempDir()
 	writeWorkspace(t, root, map[string]string{
 		"package.json":                     `{"name":"w"}` + "\n",
@@ -295,6 +298,7 @@ func TestTsConfigExtendsChain_ClimbsMoreThanOneLevel(t *testing.T) {
 // label would name a target in a package that holds no tsconfig.json at all,
 // and one dangling label fails analysis for the whole workspace.
 func TestTsConfigExtendsChain_MissingBaseMintsNoLabel(t *testing.T) {
+	requireTsgo(t)
 	root := t.TempDir()
 	writeWorkspace(t, root, map[string]string{
 		"package.json":          `{"name":"w"}` + "\n",
@@ -335,6 +339,7 @@ func TestTsConfigExtendsChain_BaseOutsideTheRepoMintsNoLabel(t *testing.T) {
 // os.Stat says yes to a directory, and Gazelle writes no ts_config for one, so
 // a label computed from the extends alone would name nothing.
 func TestTsConfigExtendsChain_BaseIsADirectoryMintsNoLabel(t *testing.T) {
+	requireTsgo(t)
 	root := t.TempDir()
 	writeWorkspace(t, root, map[string]string{
 		"package.json":          `{"name":"w"}` + "\n",
@@ -354,10 +359,10 @@ func TestTsConfigExtendsChain_BaseIsADirectoryMintsNoLabel(t *testing.T) {
 	assertNoDanglingLabels(t, root)
 }
 
-// An array states a merge order, not which of its entries Bazel should stage,
-// so Gazelle writes nothing and the chain is the author's to declare -- behind
-// a "# keep", since Gazelle recomputes the attribute either way.
-func TestTsConfigExtendsChain_ArrayIsLeftToTheAuthor(t *testing.T) {
+// Every base of an extends array that is a tsconfig.json in the repository is
+// a dep; one that is not has no ts_config to name and is the author's.
+func TestTsConfigExtendsChain_ArrayBasesAreEachADep(t *testing.T) {
+	requireTsgo(t)
 	files := map[string]string{
 		"package.json":                     `{"name":"w"}` + "\n",
 		"workers/proxy/tsconfig.json":      `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
@@ -367,40 +372,48 @@ func TestTsConfigExtendsChain_ArrayIsLeftToTheAuthor(t *testing.T) {
 		"workers/proxy/test/a.test.ts":     "export const t = 1;\n",
 	}
 
-	t.Run("gazelle writes no deps", func(t *testing.T) {
+	t.Run("the tsconfig.json base is a dep, the other said", func(t *testing.T) {
 		root := t.TempDir()
 		writeWorkspace(t, root, files)
-		captureLog(t, func() { convergeGazelle(t, root) })
+		logged := captureLog(t, func() { convergeGazelle(t, root) })
 
-		if got := tsConfigDeps(t, root, "workers/proxy/test"); len(got) != 0 {
-			t.Errorf("ts_config(%s).deps in workers/proxy/test = %v, want none: the extends is an array",
-				tsConfigTargetName, got)
+		got := tsConfigDeps(t, root, "workers/proxy/test")
+		want := []string{"//workers/proxy:" + tsConfigTargetName}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("ts_config(%s).deps in workers/proxy/test = %v, want %v",
+				tsConfigTargetName, got, want)
+		}
+		if !strings.Contains(logged, "local.json") {
+			t.Errorf("the base with no ts_config was not named:\n%s", logged)
 		}
 		assertNoDanglingLabels(t, root)
 	})
 
-	t.Run("the author's kept deps survive", func(t *testing.T) {
+	t.Run("the author's kept dep joins Gazelle's", func(t *testing.T) {
 		root := t.TempDir()
 		writeWorkspace(t, root, files)
 		writeWorkspace(t, root, map[string]string{
-			"workers/proxy/test/BUILD.bazel": keptTsConfig(`"//workers/proxy:tsconfig", "local.json"`),
+			"workers/proxy/test/BUILD.bazel": authoredTsConfig(`
+        # keep
+        "local.json",
+    `),
 		})
 		captureLog(t, func() { convergeGazelle(t, root) })
 
 		got := tsConfigDeps(t, root, "workers/proxy/test")
 		want := []string{"local.json", "//workers/proxy:" + tsConfigTargetName}
 		if !reflect.DeepEqual(got, want) {
-			t.Errorf("ts_config(%s).deps in workers/proxy/test = %v, want the author's %v",
+			t.Errorf("ts_config(%s).deps in workers/proxy/test = %v, want %v",
 				tsConfigTargetName, got, want)
 		}
 		assertNoDanglingLabels(t, root)
 	})
 }
 
-// An absolute specifier resolves on exactly the machine that wrote it, and a
-// path that only one checkout has is not a chain Gazelle should bake into a
-// BUILD file the whole repository reads.
-func TestTsConfigExtendsChain_AbsoluteSpecifierIsLeftToTheAuthor(t *testing.T) {
+// An absolute specifier inside the repository is a chain file like any other:
+// tsc reads it, so the ts_config stages it.
+func TestTsConfigExtendsChain_AbsoluteSpecifierInTheRepoIsADep(t *testing.T) {
+	requireTsgo(t)
 	root := t.TempDir()
 	writeWorkspace(t, root, map[string]string{
 		"package.json":          `{"name":"w"}` + "\n",
@@ -411,9 +424,11 @@ func TestTsConfigExtendsChain_AbsoluteSpecifierIsLeftToTheAuthor(t *testing.T) {
 	})
 	captureLog(t, func() { convergeGazelle(t, root) })
 
-	if got := tsConfigDeps(t, root, "pkg/lib"); len(got) != 0 {
-		t.Errorf("ts_config(%s).deps in pkg/lib = %v, want none: the extends is an absolute path",
-			tsConfigTargetName, got)
+	got := tsConfigDeps(t, root, "pkg/lib")
+	want := []string{"//pkg:" + tsConfigTargetName}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ts_config(%s).deps in pkg/lib = %v, want %v",
+			tsConfigTargetName, got, want)
 	}
 	assertNoDanglingLabels(t, root)
 }
@@ -421,6 +436,7 @@ func TestTsConfigExtendsChain_AbsoluteSpecifierIsLeftToTheAuthor(t *testing.T) {
 // A package-form specifier resolves through node_modules, which a Bazel
 // checkout does not have and no label names.
 func TestTsConfigExtendsChain_PackageFormIsLeftToTheAuthor(t *testing.T) {
+	requireTsgo(t)
 	files := map[string]string{
 		"package.json":           `{"name":"w"}` + "\n",
 		"apps/web/base.json":     `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
@@ -463,6 +479,7 @@ func TestTsConfigExtendsChain_PackageFormIsLeftToTheAuthor(t *testing.T) {
 // run that has to clear it -- one label no target satisfies fails analysis for
 // the whole workspace, however few targets named it.
 func TestTsConfigExtendsChain_RemovedBaseDropsTheDep(t *testing.T) {
+	requireTsgo(t)
 	root := t.TempDir()
 	writeWorkspace(t, root, map[string]string{
 		"package.json":                      `{"name":"w"}` + "\n",
@@ -494,6 +511,7 @@ func TestTsConfigExtendsChain_RemovedBaseDropsTheDep(t *testing.T) {
 // that only appended would leave both, and the one Gazelle no longer computes
 // is the dangling half.
 func TestTsConfigExtendsChain_MovedBaseRepointsTheDep(t *testing.T) {
+	requireTsgo(t)
 	root := t.TempDir()
 	writeWorkspace(t, root, map[string]string{
 		"package.json":                      `{"name":"w"}` + "\n",
@@ -526,6 +544,7 @@ func TestTsConfigExtendsChain_MovedBaseRepointsTheDep(t *testing.T) {
 // is replaced -- and a declared build input disappearing has to be said out
 // loud, which reportManagedAttrDrops does for every mergeable attribute.
 func TestTsConfigExtendsChain_HandWrittenDepWithNoKeepIsReplaced(t *testing.T) {
+	requireTsgo(t)
 	root := t.TempDir()
 	writeWorkspace(t, root, map[string]string{
 		"package.json":                      `{"name":"w"}` + "\n",
@@ -554,6 +573,7 @@ func TestTsConfigExtendsChain_HandWrittenDepWithNoKeepIsReplaced(t *testing.T) {
 // The other half of the break: "# keep" on the element is the edit that holds a
 // hand-written entry, and Gazelle's own label joins it rather than replacing it.
 func TestTsConfigExtendsChain_KeptHandWrittenDepSurvives(t *testing.T) {
+	requireTsgo(t)
 	root := t.TempDir()
 	writeWorkspace(t, root, map[string]string{
 		"package.json":                      `{"name":"w"}` + "\n",

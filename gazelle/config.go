@@ -914,7 +914,7 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 		tc.pathAliases = tsConfigAliases
 		tc.importsAliases = nil
 	}
-	tc.recordCodegenOuts(rel, f)
+	tc.recordCodegenOuts(c.RepoName, rel, f)
 	if _, err := os.Stat(tsConfigCandidate); err == nil {
 		// The nearest tsconfig replaces the inherited answer rather than adding
 		// to it: tsc gives a file one project, not the union of the projects
@@ -1050,6 +1050,9 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 		for _, cp := range detectCodegen(rel, detectorInputs(currentDir, f), tc) {
 			tc.addCodegenOutDir(rel, cp.OutDir)
 		}
+	}
+	if !tc.ignore && handWrittenTsConfigIn(currentDir, c.RepoRoot) != "" {
+		listTsConfigProgram(c.RepoRoot, rel, tc)
 	}
 
 	c.Exts[languageName] = tc
@@ -1258,7 +1261,7 @@ func codegenDeclarationOutputs(f *rule.File) map[string]string {
 }
 
 // recordCodegenOuts indexes the outs of every ts_codegen in f by repo-relative path.
-func (tc *tsConfig) recordCodegenOuts(rel string, f *rule.File) {
+func (tc *tsConfig) recordCodegenOuts(repoName, rel string, f *rule.File) {
 	if f == nil {
 		return
 	}
@@ -1270,7 +1273,7 @@ func (tc *tsConfig) recordCodegenOuts(rel string, f *rule.File) {
 			if tc.codegenOuts == nil {
 				tc.codegenOuts = make(map[string]label.Label)
 			}
-			tc.codegenOuts[path.Join(rel, out)] = label.New("", rel, r.Name())
+			tc.codegenOuts[path.Join(rel, out)] = label.New(repoName, rel, r.Name())
 		}
 	}
 }

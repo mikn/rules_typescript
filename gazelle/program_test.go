@@ -430,7 +430,6 @@ func TestProgram_InputsOverTheExtendsChain(t *testing.T) {
 func generateDir(t *testing.T, c *config.Config, root, rel string) string {
 	t.Helper()
 	cc := c.Clone()
-	configureTsConfig(cc, rel, nil)
 	dir := filepath.Join(root, rel)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -445,6 +444,7 @@ func generateDir(t *testing.T, c *config.Config, root, rel string) string {
 		}
 	}
 	return captureLog(t, func() {
+		configureTsConfig(cc, rel, nil)
 		generateRules(language.GenerateArgs{Config: cc, Dir: dir, Rel: rel, RegularFiles: files, Subdirs: subdirs})
 	})
 }

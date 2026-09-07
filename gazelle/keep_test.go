@@ -34,20 +34,30 @@ type nonLiteralCase struct {
 // workspace where generation writes that rule -- so a managed attribute that
 // stops being covered here is one this test stops asking about.
 func managedAttrCases() []nonLiteralCase {
+	managed := func(workspace, pkg, kind, target, attr, class string,
+	) nonLiteralCase {
+		return nonLiteralCase{workspace: workspace, pkg: pkg, kind: kind,
+			target: target, attr: attr, class: class}
+	}
 	return []nonLiteralCase{
-		{workspace: "plain", pkg: "src", kind: "ts_compile", target: "src", attr: "srcs", class: "list"},
-		{workspace: "plain", pkg: "src", kind: "ts_compile", target: "src", attr: "deps", class: "list"},
-		{workspace: "plain", pkg: "src", kind: "ts_compile", target: "src", attr: "visibility", class: "list"},
-		{workspace: "plain", pkg: "src", kind: "ts_compile", target: "src", attr: "tsconfig", class: "scalar"},
-		{workspace: "plain", pkg: "src/lib", kind: "ts_test", target: "lib_test", attr: "srcs", class: "list"},
-		{workspace: "plain", pkg: "src/lib", kind: "ts_test", target: "lib_test", attr: "deps", class: "list"},
-		{workspace: "plain", pkg: "src/lib", kind: "ts_test", target: "lib_test", attr: "tsconfig", class: "scalar"},
-		{workspace: "plain", kind: "ts_config", target: "tsconfig", attr: "src", class: "scalar"},
-		{workspace: "plain", kind: "ts_config", target: "tsconfig", attr: "visibility", class: "list"},
+		managed("plain", "src", "ts_compile", "src", "srcs", "list"),
+		managed("plain", "src", "ts_compile", "src", "deps", "list"),
+		managed("plain", "src", "ts_compile", "src", "visibility", "list"),
+		managed("plain", "src", "ts_compile", "src", "tsconfig", "scalar"),
+		managed("plain", "src", "ts_test", "src_test", "srcs", "list"),
+		managed("plain", "src", "ts_test", "src_test", "deps", "list"),
+		managed("plain", "src", "ts_test", "src_test", "tsconfig", "scalar"),
+		managed("plain", "src", "ts_test", "src_test", "config", "scalar"),
+		managed("plain", "", "ts_config", "tsconfig", "src", "scalar"),
+		managed("plain", "", "ts_config", "tsconfig", "visibility", "list"),
+		managed("plain", "src", "ts_config", "tsconfig", "deps", "list"),
 
-		{workspace: "pnpm_member", pkg: "packages/core/src", kind: "ts_test", target: "src_test", attr: "deps", class: "list"},
+		managed("pnpm_member", "packages/core", "ts_test", "core_test", "deps",
+			"list"),
 
-		{workspace: "worker", pkg: "worker/test", kind: "ts_config", target: "tsconfig", attr: "deps", class: "list"},
+		managed("worker", "worker", "filegroup", "vitest_config", "srcs", "list"),
+		managed("worker", "worker", "filegroup", "vitest_config", "visibility",
+			"list"),
 	}
 }
 

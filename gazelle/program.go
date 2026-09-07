@@ -14,8 +14,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bazelbuild/bazel-gazelle/language"
 	"github.com/bazelbuild/rules_go/go/runfiles"
+
+	"github.com/mikn/rules_typescript/ts/tools/tsconfig"
 )
 
 // Linked in from gazelle/BUILD.bazel's x_defs; empty under a plain go build.
@@ -56,8 +57,8 @@ type typeEntry struct {
 	file  string
 }
 
-// One run's listings; every directory's config shares the pointer. packages
-// holds, per package directory, the first-party files its program lists.
+// One run's listings, one store every directory's config shares: the packages
+// and their first-party files, each walked directory's files, the chains.
 type programStore struct {
 	tsgoFlag string
 	verbose  bool
@@ -66,7 +67,10 @@ type programStore struct {
 	programs map[string]*program
 	packages map[string]map[string]bool
 	visited  map[string][]string
+	files    map[string][]string
 	walked   map[string]bool
+	bases    map[string][]string
+	extended map[string]bool
 	// The vitest configs the generated tests name, listed together at the
 	// first ask; vitestEdges is nil until then.
 	vitestConfigs  map[string]bool
@@ -80,7 +84,10 @@ func newProgramStore() *programStore {
 		programs:      map[string]*program{},
 		packages:      map[string]map[string]bool{},
 		visited:       map[string][]string{},
+		files:         map[string][]string{},
 		walked:        map[string]bool{},
+		bases:         map[string][]string{},
+		extended:      map[string]bool{},
 		vitestConfigs: map[string]bool{},
 	}
 }
@@ -128,6 +135,7 @@ var tsSourceExtensions = []string{".ts", ".tsx", ".mts", ".cts"}
 
 func (s *programStore) visit(rel string, files []string) {
 	s.walked[rel] = true
+	s.files[rel] = files
 	for _, f := range files {
 		if slices.Contains(tsSourceExtensions, path.Ext(f)) {
 			s.visited[rel] = append(s.visited[rel], path.Join(rel, f))
@@ -135,19 +143,22 @@ func (s *programStore) visit(rel string, files []string) {
 	}
 }
 
-func listTsConfigProgram(args language.GenerateArgs, tc *tsConfig) {
+// Listed from Configure, before any directory generates: every package and
+// every base an extends names is known when a rule asks about an ancestor.
+func listTsConfigProgram(repoRoot, rel string, tc *tsConfig) {
 	store := tc.programs
-	cfg := path.Join(args.Rel, "tsconfig.json")
-	inputs, ok := programNamesInputs(filepath.Join(args.Config.RepoRoot, cfg))
+	cfg := tsconfigIn(rel)
+	store.readBases(repoRoot, rel)
+	inputs, ok := programNamesInputs(filepath.Join(repoRoot, cfg))
 	var refused string
 	switch {
 	case !ok:
 		refused = "the file could not be read"
-	case !inputs && args.Rel == "":
+	case !inputs && rel == "":
 		refused = "neither include nor files in its extends chain, so tsgo would enumerate the whole repository"
 	}
 	if refused != "" {
-		store.record(&program{dir: args.Rel, refused: refused})
+		store.record(&program{dir: rel, refused: refused})
 		store.say("%s: not listed: %s", cfg, refused)
 		return
 	}
@@ -163,8 +174,8 @@ func listTsConfigProgram(args language.GenerateArgs, tc *tsConfig) {
 	if err != nil {
 		log.Fatalf("typescript: %s: %v", cfg, err)
 	}
-	isle := islandManifest(args.Config.RepoRoot, args.Rel, tc.lock)
-	p, err := listProgram(args.Config.RepoRoot, args.Rel, tsgo, isle != nil)
+	isle := islandManifest(repoRoot, rel, tc.lock)
+	p, err := listProgram(repoRoot, rel, tsgo, isle != nil)
 	if err != nil {
 		log.Fatalf("typescript: %v", err)
 	}
@@ -184,7 +195,7 @@ func listTsConfigProgram(args language.GenerateArgs, tc *tsConfig) {
 	for _, d := range p.diagnostics {
 		store.say("%s: %s", cfg, d)
 	}
-	if store.packages[args.Rel] == nil {
+	if store.packages[rel] == nil {
 		store.say("%s: not a package: its listing names no first-party file", cfg)
 		return
 	}
@@ -228,6 +239,42 @@ func plural(n int, many string, one ...string) string {
 		return strings.Join(one, "")
 	}
 	return many
+}
+
+// readBases records the tsconfig.json files rel's own extends names, the
+// ts_config deps; a base of another name has no ts_config and is said.
+func (s *programStore) readBases(repoRoot, rel string) {
+	own := filepath.Join(repoRoot, filepath.FromSlash(tsconfigIn(rel)))
+	f, err := tsconfig.Read(own)
+	if err != nil {
+		return
+	}
+	dir := filepath.Join(repoRoot, filepath.FromSlash(rel))
+	for _, spec := range f.Extends {
+		basePath, ok := tsconfig.ResolveExtends(dir, spec)
+		if !ok {
+			continue
+		}
+		if st, err := os.Stat(basePath); err != nil || st.IsDir() {
+			continue
+		}
+		baseRel, err := filepath.Rel(repoRoot, basePath)
+		if err != nil || strings.HasPrefix(baseRel, "..") {
+			continue
+		}
+		baseRel = filepath.ToSlash(baseRel)
+		if path.Base(baseRel) != "tsconfig.json" {
+			log.Printf("typescript: %s extends %q, a file Gazelle writes no "+
+				"ts_config for (only a tsconfig.json is); declare that dep by "+
+				"hand under # keep", tsconfigIn(rel), spec)
+			continue
+		}
+		baseDir := parentDir(baseRel)
+		if !slices.Contains(s.bases[rel], baseDir) {
+			s.bases[rel] = append(s.bases[rel], baseDir)
+		}
+		s.extended[baseDir] = true
+	}
 }
 
 // An island: a package whose nearest package.json is no lockfile importer, so

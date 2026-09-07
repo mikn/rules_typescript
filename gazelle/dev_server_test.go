@@ -13,8 +13,9 @@ import (
 // are both here, so a ts_dev_server in the output is one the generator wrote.
 func appPackageFiles(build string) map[string]string {
 	files := map[string]string{
-		"package.json":       convergePlainPkg,
-		"tsconfig.json":      `{"compilerOptions":{"strict":true}}` + "\n",
+		"package.json": convergePlainPkg,
+		"src/app/tsconfig.json": `{"compilerOptions":{"jsx":"react-jsx"},` +
+			`"include":["*.tsx"]}` + "\n",
 		"src/app/main.tsx":   "export const main = 1;\n",
 		"src/app/index.html": "<!doctype html>\n",
 	}
@@ -36,6 +37,7 @@ const handWrittenDevServerBuild = `load("@rules_typescript//ts:defs.bzl", "ts_de
 ` + handWrittenDevServerRule
 
 func TestDevServer_NotWrittenForAnEntryName(t *testing.T) {
+	requireTsgo(t)
 	root := t.TempDir()
 	writeWorkspace(t, root, appPackageFiles(""))
 	captureLog(t, func() { convergeGazelle(t, root) })
@@ -52,6 +54,7 @@ func TestDevServer_NotWrittenForAnEntryName(t *testing.T) {
 // Gazelle knows no ts_dev_server kind, so the merger has no candidate for the
 // rule and FixLoads keeps a symbol it does not know: both stay as written.
 func TestDevServer_HandWrittenSurvivesUntouched(t *testing.T) {
+	requireTsgo(t)
 	root := t.TempDir()
 	writeWorkspace(t, root, appPackageFiles(handWrittenDevServerBuild))
 	captureLog(t, func() { convergeGazelle(t, root) })
