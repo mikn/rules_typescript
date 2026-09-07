@@ -35,8 +35,9 @@ No `node_modules` target is needed. `ts_test` builds a per-target
 `node_modules` tree from every dep that provides `NpmPackageInfo`, their
 transitive npm deps, and the npm closure of every `ts_compile` dep, so the
 production code under test runs against the packages it declared. `deps` lists
-what the tests import and the npm imports of the package's production sources;
-`bazel run //:gazelle` writes that list.
+what the tests import, the npm imports of the package's production sources,
+the vitest config's imports and the nearest `package.json`'s dependencies;
+`bazel run //:gazelle` writes that list from tsgo's listing of the package.
 
 Test sources are checked for undeclared imports like any other `ts_compile`
 sources, so an import that only some dep's own deps provide fails the build with
@@ -138,8 +139,9 @@ directory above holding a `package.json`, or the repository root, as the label
 `//pkg:vitest_config` of a public `filegroup` Gazelle writes over the file in
 that package. Vite's root is the config's package either way, so a relative
 path in such a config resolves against the directory it sits in, as it does
-under plain `vitest`; `//tests/config_at_root` is the example. See
-[the package boundary heuristic](../gazelle/overview.md#package-boundary-heuristic).
+under plain `vitest`; `//tests/config_at_root` is the example. Every import of
+the config is a dep of the test. See
+[what Gazelle writes](../gazelle/overview.md#what-gazelle-writes).
 
 ### Other Attributes
 

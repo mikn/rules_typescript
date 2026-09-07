@@ -47,6 +47,7 @@ go_test(
         "converge_cases_test.go",
         "converge_test.go",
         "dev_server_test.go",
+        "docs_test.go",
         "generate_test.go",
         "keep_test.go",
         "kinds_surface_test.go",
@@ -60,6 +61,7 @@ go_test(
         "tsconfig_extends_test.go",
     ],
     data = glob(["testdata/**"]) + [
+        "//:docs_pages",
         "//tests/integration:gazelle_roundtrip/configured/vitest.config.mts",
         "//tests/npm:pnpm-lock.yaml",
         "//tests/workers:vitest.workers.config.mjs",

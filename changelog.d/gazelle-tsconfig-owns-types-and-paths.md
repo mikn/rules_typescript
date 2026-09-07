@@ -8,8 +8,7 @@
   `types` entry puts the target that stages the file in `deps`: the
   `ts_codegen` at or above the tsconfig that declares it in `outs`, else the
   target whose `srcs` hold the checked-in declaration; a `paths` alias stays in
-  the tsconfig, where the resolver reads it for `deps` (the first target of a
-  fallback array, the one tsc tries first). The edit:
+  the tsconfig, where tsgo reads it when it lists the program. The edit:
   `buildozer 'remove types' 'remove types_srcs' 'remove path_aliases' 'remove
   path_alias_srcs' 'remove declarations'` over the generated `ts_compile` and
   `ts_test` rules, `buildozer 'delete' //...:tsconfig_types`, and drop the two

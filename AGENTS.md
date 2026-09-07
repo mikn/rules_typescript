@@ -111,10 +111,14 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 - `tools/launcher/` — the one Go launcher `ts_binary`, `ts_test`,
   `ts_dev_server` and `npm_bin` run through; `--dump-config` prints the
   resolved per-target JSON config
-- `gazelle/generate.go` — BUILD file generation
-- `gazelle/resolve.go` — import → label resolution
-- `gazelle/config.go` — the root-once lockfile load, the `ts_codegen`
-  bookkeeping, linter detection
+- `gazelle/program.go`, `gazelle/owner.go` — the tsgo listing per
+  `tsconfig.json` and its `--explainFiles` grammar; the packages and `owner(f)`
+- `gazelle/npm.go`, `gazelle/manifest.go` — the lockfile gate, the
+  importer-scoped label, the member view; the nearest `package.json`
+- `gazelle/generate.go`, `gazelle/resolve.go` — the package's rules; `deps`
+  from the listing's edges
+- `gazelle/config.go`, `gazelle/keep.go` — the root-once lockfile load, the
+  `ts_codegen` bookkeeping, linter detection; the managed-attribute reports
 - `oxc_cli/src/main.rs` — Rust CLI (parse → isolated_declarations → transform → codegen)
 
 ## Rules
@@ -167,26 +171,12 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 
 **npm:**
 - pnpm is hermetic (`bazel run //:pnpm`). No system pnpm needed.
-- `--lockfile-only` is the standard for adding packages. No `node_modules/` in source tree.
+- `--lockfile-only` adds a package to a fixture lockfile. The build reads no
+  `node_modules/` from the source tree; Gazelle's listing does, so a workspace
+  whose root lockfile it reads is installed first. This repository has no root
+  lockfile: its lockfiles are fixtures under `tests/`.
 - npm aliases (e.g., `h3-v2: npm:h3@2.0.1-rc.16`) must produce both the alias and real targets
 - Dependency cycles broken by `break_cycles` in `npm/lazy.bzl`: a depth-first walk that drops each edge closing a cycle
-
-## Gazelle Directives
-
-| Directive | Effect |
-|---|---|
-| `ts_package_boundary every-dir\|tsconfig\|true` | Package boundary mode; `true` marks the one directory |
-| `ts_runtime_dep @npm//:happy-dom` | Always-included test dep |
-| `ts_ambient_types @npm//:types_node` | Dep appended to every generated `ts_compile` and `ts_test` in the tree |
-| `ts_exclude *.generated.ts` | Exclude pattern: a basename glob, or a `./`-anchored path |
-| `ts_exclude_dir coverage` | Directory basename Gazelle does not enter |
-| `ts_warn_unresolved true` | Warn on unresolved imports |
-| `ts_ignore` | Skip this directory |
-| `ts_target_name <name>` | Override target name |
-| `ts_codegen <name> <generator> <outs> [srcs:<csv>] [args]` | Custom codegen rule |
-| `ts_npm_hub <repo>` | The npm hub bare specifiers in this tree resolve into |
-| `ts_npm_mapping <path.json>` | Overlay a hand-written npm name → label mapping on the lockfile inventory |
-| `ts_js_srcs .mjs .cjs` | Admit JavaScript sources of those extensions into generated `srcs` |
 
 ## Provider Contract
 
@@ -353,9 +343,7 @@ puts the working directory in the user's source tree.
 - **npm alias support is non-obvious.** pnpm's `"h3-v2": "npm:h3@2.0.1-rc.16"` pattern requires both the alias name AND real name as `ts_npm_package` targets with different `package_name` values.
 - **`bazel clean` is never the answer.** If the build is broken, the bug is in the rules, not the cache. Fix the root cause.
 - **Every `fail()` should tell the user what to do.** "Did you mean...?" suggestions prevent hours of debugging.
-- **Gazelle directives over config files.** Directives are visible, inheritable and version-controlled in BUILD files. A nested config file replaced the list an ancestor had built, so two sites asking which excludes apply got different answers.
-- **`pnpm add --lockfile-only`** is the correct workflow. No `node_modules/` directory should ever exist in the source tree.
-- **Two recognisers of one thing drift.** Gazelle's import scanner and the strict-deps checker must agree specifier for specifier, or a hard error becomes unfixable by the tool meant to fix it. Same shape as the `node_modules` tree: the layout planner and the builder read one manifest, not two ideas of it.
+- **Two recognisers of one thing drift.** Gazelle's own import lexer and the strict-deps checker had to agree specifier for specifier, or a hard error became unfixable by the tool meant to fix it; Gazelle reads tsgo's listing now, the resolution the build checks. Same shape as the `node_modules` tree: the layout planner and the builder read one manifest, not two ideas of it.
 - **A name is not a resolution.** Keying anything by npm package name alone (a `node_modules` destination, a patch pairing, a dep edge) loses the version and fails silently, because every version involved is a real version. `name@version` is one key short too: pnpm resolves once per peer set.
 - **A green suite is not a preserved suite.** `bazel run //gazelle` once deleted hand-written `go_test` targets and still satisfied "builds" and "idempotent"; a deleted test passes both. `bazel query 'tests(//...)'` before and after is the check that catches it, and it is now part of the Gazelle acceptance run.
 - **A test that never ran is not a test.** `tests/vitest/environment` was two `manual` targets behind a `build_test`, so no non-default vitest environment had ever executed; the moment one did it failed on runfiles realpathing out of the sandbox. Same for snapshots: `toMatchSnapshot()` asserted nothing at all, because the `.snap` was not in runfiles and vitest treated every run as a first run.

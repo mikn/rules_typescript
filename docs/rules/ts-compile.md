@@ -42,45 +42,56 @@ through a Starlark transition; `tests/flags.bzl` is the ruleset's own.
 
 ### Sources
 
-A `.js`, `.mjs` or `.cjs` src is staged into the output tree unchanged and joins
-the type program. The rule sets `allowJs` for it, so its JSDoc types cross the
-package boundary; `checkJs` in the tsconfig has its own body checked.
+`srcs` accepts every file. Four classes of src, by extension:
 
-A `.jsx` src is rejected at analysis time, because oxc has no output extension
-for one. The message says to rename it `.tsx`.
+- **TypeScript**, `.ts` and `.tsx`: compiled by oxc to `.js` and `.js.map`,
+  type-checked by tsgo, and declared as `.d.ts` by whichever emitter
+  `--//ts:declarations` names. A `.mts` or `.cts` is refused: the rule emits
+  `.js` and `.d.ts` from `.ts` alone, and has no output shape for one.
+- **JavaScript**, `.js`, `.mjs` and `.cjs`: staged into the output tree
+  unchanged and in the type program. The rule sets `allowJs` for it, so its
+  JSDoc types reach consumers; `checkJs` in the tsconfig has its own body
+  checked. A `.jsx` is rejected at analysis time, because oxc has no output
+  extension for one; the message says to rename it `.tsx`.
+- **Declarations**, `.d.ts`, `.d.mts` and `.d.cts`: in the type program and
+  passed through to consumers unchanged, global when the file has no top-level
+  import or export. A `.d.mts` or `.d.cts` is the declaration of the `.mjs` or
+  `.cjs` of the same stem, the pairing `tsc` resolves by name, so
+  `import { compile } from "./compile.mjs"` resolves to `compile.d.mts` ahead
+  of `compile.mjs`, and a checked-in declaration types an untyped JavaScript
+  module whether or not that module is in `srcs`. When it is, the `.mjs` is
+  staged and leaves the type program: TypeScript keeps the higher-priority
+  extension of a pair listed together, as `tsc` does. The checked-in file is
+  then the module's only declaration, and `checkJs` does not reach that `.mjs`.
+- **Data**, every other file: staged into the output tree unchanged at its
+  package-relative path, so the compiled module beside it reaches it by the
+  same relative path at run time -- `import data from "./data.json"`,
+  `import "./styles.css"`, `new URL("./logo.svg", import.meta.url)`, a
+  `readFileSync` of a fixture. A consumer gets the closure as
+  `JsInfo.transitive_data_files`; `ts_test` stages it in the runfiles beside
+  the `.js`, `ts_binary` in its runfiles and its bundle, `ts_dev_server` in
+  its runfiles. What the import of a data file is typed as is the tsconfig's
+  to say: `vite/client` in `types`, or a `declare module "*.svg"` in a
+  declaration src. A data file is never a tsgo input, with one class of
+  exception: a `.json` is, this target's and its deps' alike. An import of it
+  resolves to the file and is typed from its contents under
+  `resolveJsonModule`, which bundler resolution implies, and tsc reads the
+  nearest `package.json` of every source for the module's format and for the
+  package's own name, so a package that imports itself by name
+  (`import "@scope/pkg/wire"` from inside `pkg`) resolves through the manifest
+  in `srcs`. That manifest names source targets, so it is the one data src the
+  hub's view leaves out of the link, and a `ts_test` stages the manifest as
+  built at the member's own path in its runfiles: Vite resolves the
+  self-import through the nearest `package.json` too, and reaches the emitted
+  `.js`. See [What a Workspace Member Is Imported
+  As](../guides/npm.md#what-a-workspace-member-is-imported-as).
 
-A `.d.mts` or `.d.cts` src is a declaration, handled as a `.d.ts` is: passed
-through to consumers, and global when it has no top-level import or export. It
-is the declaration of the `.mjs` or `.cjs` of the same stem, the pairing `tsc`
-resolves by name, so `import { compile } from "./compile.mjs"` resolves to
-`compile.d.mts` ahead of `compile.mjs`, and a checked-in declaration types an
-untyped JavaScript module whether or not that module is in `srcs`. When it is,
-the `.mjs` is staged and leaves the type program: TypeScript keeps the
-higher-priority extension of a pair listed together, as `tsc` does. The
-checked-in file is then the module's only declaration, and `checkJs` does not
-reach that `.mjs`.
-
-Every other src is a data file: staged into the output tree unchanged at its
-package-relative path, so the compiled module beside it reaches it by the same
-relative path at run time -- `import data from "./data.json"`,
-`new URL("./logo.svg", import.meta.url)`, a `readFileSync` of a fixture. A
-consumer gets the closure as `JsInfo.transitive_data_files`; `ts_test` stages it
-in the runfiles beside the `.js`, `ts_binary` in its runfiles and its bundle,
-`ts_dev_server` in its runfiles. A data file is never a tsgo input, with one
-class of exception: a `.json` is, this target's and its deps' alike. An import
-of it resolves to the file and is typed from its contents under
-`resolveJsonModule`, which bundler resolution implies, and tsc reads the nearest
-`package.json` of every source for the module's format and for the package's
-own name, so a package that imports itself by name (`import "@scope/pkg/wire"`
-from inside `pkg`) resolves through the manifest in `srcs`. That manifest names
-source targets, so it is the one data src the hub's view leaves out of the link,
-and a `ts_test` stages the manifest as built at the member's own path in its
-runfiles: Vite resolves the self-import through the nearest `package.json` too,
-and reaches the emitted `.js`. See [What a Workspace Member Is Imported
-As](../guides/npm.md#what-a-workspace-member-is-imported-as).
-
-A `.mts` or `.cts` src is refused: the rule emits `.js` and `.d.ts` from `.ts`
-alone, and has no output shape for one.
+Gazelle writes the first three classes from tsgo's listing of the package's
+`tsconfig.json` -- a file whose extension tsgo could have listed is a src only
+when the program lists it, the JavaScript twin of an owned declaration apart --
+and the fourth from the package's tree: every other regular file under it that
+no deeper package, `out_dir` or BUILD file claims
+([the package model](../gazelle/overview.md#the-package-model)).
 
 ### Source and Declaration Maps
 
@@ -423,7 +434,7 @@ running `wrangler types` writes, is in `bazel-bin`. What stages the file is a
 label: `srcs`, or a dep whose `srcs` hold it or whose `outs` write it (a `.d.ts`
 in `srcs` is passed through unchanged, so a dep edge stages it at the path the
 entry names). Gazelle writes that dep from the tsconfig
-([the `compilerOptions` baseline](../gazelle/overview.md#the-compileroptions-baseline)).
+([a declaration the tsconfig names](../gazelle/overview.md#a-declaration-the-tsconfig-names)).
 
 An entry nothing stages fails the `TsConfig` action before tsgo runs, where
 tsgo's own `TS2688` would name no dep:
@@ -468,20 +479,21 @@ consumer as a declaration output, and a consumer's program holds what its own
 in its own tsconfig `types`, with the owning target in `deps`:
 
 ```python
-# workers/proxy/BUILD.bazel
+# workers/proxy/BUILD.bazel -- worker-configuration.d.ts is a src of :proxy
 ts_compile(
-    name = "worker_types",
-    srcs = ["worker-configuration.d.ts"],
-    visibility = ["//workers/proxy:__subpackages__"],
+    name = "proxy",
+    srcs = ["src/handler.ts", "worker-configuration.d.ts"],
+    tsconfig = ":tsconfig",
+    visibility = ["//visibility:public"],
 )
 
 # workers/proxy/test/tsconfig.json: "types": ["../worker-configuration.d.ts"]
 # workers/proxy/test/BUILD.bazel
 ts_test(
-    name = "handler_test",
+    name = "test_test",
     srcs = ["handler.test.ts"],
-    tsconfig = "tsconfig.json",
-    deps = ["//workers/proxy:worker_types", "//workers/proxy/src", "@npm//:vitest"],
+    tsconfig = ":tsconfig",
+    deps = ["//workers/proxy", "@npm//:vitest"],
 )
 ```
 

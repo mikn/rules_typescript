@@ -14,8 +14,7 @@
   `tsc` does. The checked-in file is the module's only declaration, and the
   rule declares no `.d.mts` output for it, since tsgo writes none.
 
-  Gazelle classifies one as it classifies a `.d.ts`, with no directive: a
-  script-mode one is ambient and joins every target in the directory, a module
-  one joins the package target, and the target holding `compile.d.mts` answers
-  for `./compile.mjs`. The test importing it gets the dep edge whether or not
-  `# gazelle:ts_js_srcs` admits the JavaScript.
+  Gazelle classifies one as it classifies a `.d.ts`: a declaration the
+  package owns rides in every target of the package, and the target holding
+  `compile.d.mts` answers for `./compile.mjs`, the `.mjs` beside it a src of
+  the same target.

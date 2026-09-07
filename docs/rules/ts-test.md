@@ -555,8 +555,10 @@ carries that closure (`transitive_npm_packages`) beside the declarations, so a
 test in one package runs production code from another without repeating its npm
 deps. `deps` lists what the test files import; where the closure resolves a name
 more than one way, the test's own dep is the resolution that sits flat.
-`bazel run //:gazelle` writes the list, collecting imports from the test files
-and the production sources in the package.
+`bazel run //:gazelle` writes the list from tsgo's listing of the package:
+the edges of the test files, the production sources and the declarations, the
+vitest config's imports, and the nearest `package.json`'s `dependencies` and
+`devDependencies`.
 
 The tree keys each resolution apart by name, version and peer set wherever one
 name resolved more than once; see [the layout](node-modules.md#the-layout).

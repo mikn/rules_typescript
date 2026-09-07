@@ -8,6 +8,18 @@ exports_files([
     "LICENSE",
 ])
 
+# The pages //gazelle:typescript_test sweeps for retired directives.
+filegroup(
+    name = "docs_pages",
+    srcs = [
+        "AGENTS.md",
+        "COMPATIBILITY.md",
+        "CONTRIBUTING.md",
+        "README.md",
+    ] + glob(["docs/**/*.md"]),
+    visibility = ["//gazelle:__pkg__"],
+)
+
 # Roots only; the aspect walks deps. The analysis guard fixtures fail by design,
 # and //tests/workers:experimental_types would give every file Workers globals.
 ts_refresh_tsconfig(

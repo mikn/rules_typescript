@@ -12,6 +12,6 @@
   above the attribute, which keeps the whole value, or on an element's own
   line, which holds that entry and lets Gazelle's computed label join it.
   Without one the next run replaces the value and names, in its log, each entry
-  it dropped. An `extends` shape Gazelle does not read (an array, a
-  package-form specifier, an absolute path) computes no label, so there a
+  it dropped. An `extends` shape Gazelle does not read (a base of another name
+  than `tsconfig.json`, a package-form specifier) computes no label, so there a
   `# keep` is the only thing between a hand-written chain and an empty `deps`.

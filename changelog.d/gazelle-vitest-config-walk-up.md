@@ -11,9 +11,9 @@
   holding a `package.json`, or the repository root, and writes the config it
   finds there as `config = "//<pkg>:vitest_config"`: a public `filegroup` over
   the file, which the owning package's BUILD file gains and which the next run
-  matches by name. A bare specifier the config imports is a dep of the test as
-  before; Gazelle reads a relative import in a config above the tests against
-  the test's package, not the config's. A config beside the tests still wins, a
+  matches by name. Every import of the config, bare or relative, is a dep of
+  the test: tsgo lists the config from its own directory, as vitest loads it.
+  A config beside the tests still wins, a
   `package.json` in the test's own directory ends the walk there, and a config
   in a directory with no `package.json` above the tests is passed over, as
   `vitest` run from the package root would pass over it.

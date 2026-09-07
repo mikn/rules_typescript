@@ -2,7 +2,7 @@
 
 An opinionated Bazel ruleset for TypeScript, optimised for the **Oxc + Vite** toolchain. For a stack of TypeScript and Vite, it replaces `tsc` and the dev server with a single hermetic build. For `tsc` compatibility or non-Vite toolchains, see [aspect-build/rules_ts](https://github.com/aspect-build/rules_ts) ([comparison](getting-started/migration.md)).
 
-Rust and Go do the work: [Oxc](https://oxc.rs/) compiles, [tsgo](https://github.com/microsoft/typescript-go) type-checks. The dev server runs one generated [Vite](https://vite.dev/) config. [Gazelle](https://github.com/bazelbuild/bazel-gazelle) writes the BUILD files. Write `.ts`, run Gazelle, `bazel build //...`. No `node_modules/`. No system Node. Just Bazelisk.
+Rust and Go do the work: [Oxc](https://oxc.rs/) compiles, [tsgo](https://github.com/microsoft/typescript-go) type-checks. The dev server runs one generated [Vite](https://vite.dev/) config. [Gazelle](https://github.com/bazelbuild/bazel-gazelle) writes the BUILD files. Write `.ts`, run Gazelle, `bazel build //...`. The build reads no `node_modules/`. No system Node. Just Bazelisk.
 
 Coming from an existing TypeScript monorepo, the
 [Quick Start](getting-started/quickstart.md) is the whole path: four root files,
@@ -15,11 +15,11 @@ then `bazel run //:gazelle`. [Install](#install) and
 - **tsgo emits declarations and type-checks** — Go port of TypeScript, and the default emitter. Unmodified TypeScript compiles: no export annotations required, and the `.d.ts` are what `tsc` would produce. tsgo runs as a build action, not a separate `tsc --noEmit` job, so type errors fail `bazel build`; the declarations are real outputs, and a package type-checks against what its dependency emits.
 - **The dev server is swappable** — `ts_dev_server(server = ...)` takes any target providing `DevServerInfo`. Vite is the default. Each server declares the config fields it does not read, so a target depending on one fails at analysis time naming the field and the server. `ts_dev_server` hands the source tree to the server; HMR is the server's, not a rebuild. See [Bringing your own server](guides/dev-server.md#bringing-your-own-server).
 - **Isolated declarations** — annotate the exports, build under `--//ts:declarations=oxc`, and Oxc emits the `.d.ts` syntactically. Type-checking leaves the critical path, which shortens a deep dependency chain substantially. Opt-in, per build. See [Cost of each mode](rules/ts-compile.md#cost-of-each-mode).
-- **Gazelle generates the BUILD files** — targets inferred from the directory tree, imports resolved to labels, lint targets generated, codegen auto-detected. Thirteen `# gazelle:ts_*` directives configure it.
+- **Gazelle generates the BUILD files** — one package per `tsconfig.json`, its sources and deps read off tsgo's own listing of the program, lint targets beside them. No directive of its own: the tsconfig, the lockfile and the `package.json` say everything.
 - **Direct dependencies** — a source may import only what a direct dep provides. A declaration arriving through another dep's own deps does not satisfy an import; the build names the file, the specifier and the label to add, and Gazelle writes it.
 - **How npm packages are fetched** — one Bazel repository per package, fetched on demand, behind a `@npm` alias hub. A target's npm cost is its own closure, not the whole lockfile, and the rules read no `node_modules/` from the source tree. A materialised tree carries one entry per resolution (name, version and peer set), not one directory per name.
 - **The editor reads a generated `tsconfig.json`** — `ts_refresh_tsconfig` writes a checked-in `tsconfig.json` out of the build graph, so tsserver, a plain `tsc` run and a coding agent's language server resolve what Bazel resolves. See [IDE Setup](getting-started/ide-setup.md).
-- **Only Bazelisk required** — Node.js, Go and Rust are fetched hermetically, and [pnpm too](guides/npm.md#hermetic-pnpm) if you want it. pnpm is needed only to edit the lockfile, never to build. The first build compiles `oxc-bazel` from Rust source, which dominates the wall time.
+- **Only Bazelisk required** — Node.js, Go and Rust are fetched hermetically, and [pnpm too](guides/npm.md#hermetic-pnpm) if you want it. pnpm edits the lockfile and installs the checkout Gazelle lists, never builds. The first build compiles `oxc-bazel` from Rust source, which dominates the wall time.
 
 ## Install
 
@@ -83,14 +83,21 @@ bazel run //:gazelle
 bazel build //...
 ```
 
-Gazelle produces `src/BUILD.bazel`, one `ts_compile` per directory, named after
-the directory. See
-[Generated target names](gazelle/overview.md#generated-target-names).
+Gazelle produces `src/BUILD.bazel` for the `tsconfig.json` in `src/`: one
+`ts_compile` per program, named after the directory, and a `ts_config` over
+the file. See [What Gazelle writes](gazelle/overview.md#what-gazelle-writes).
 
 ```python
 ts_compile(
     name = "src",
     srcs = ["math.ts"],
+    tsconfig = ":tsconfig",
+    visibility = ["//visibility:public"],
+)
+
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
     visibility = ["//visibility:public"],
 )
 ```
@@ -118,9 +125,9 @@ runs there today: [Compatibility](compatibility.md#windows).
 - [Bundling](guides/bundling.md) — `ts_binary` with a `BundlerInfo` bundler
 - [Dev Server](guides/dev-server.md) — Vite behind one generated config
 - [Tailwind v4](guides/tailwind.md) — through `vite_config`, under the dev server
-- [Monorepo Layout](guides/monorepo.md) — package boundaries and cross-package deps
+- [Monorepo Layout](guides/monorepo.md) — one package per tsconfig.json, cross-package deps
 - [Troubleshooting](guides/troubleshooting.md) — the error messages, by message text
-- [Gazelle Reference](gazelle/overview.md) — directives, package boundaries, codegen detection
+- [Gazelle Reference](gazelle/overview.md) — what a run reads and writes, `# keep`
 - [Rules Reference](rules/ts-compile.md) — all rule attributes and providers
 - [Migrating from rules_ts](getting-started/migration.md) — where the other ruleset is the better choice
 - [Compatibility](compatibility.md) — Bazel and platform support, the Vite/vitest versions the tests exercise, and the pre-1.0 policy

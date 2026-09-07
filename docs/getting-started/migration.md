@@ -30,7 +30,7 @@ release, production users and Windows support. This has none of the three.
 | **Bundler** | Bring your own | Bring your own, through `BundlerInfo` on `ts_binary` |
 | **Dev server** | None built-in | Vite, with HMR and React Fast Refresh; any `DevServerInfo` rule per target |
 | **npm management** | rules_js (pnpm virtual store, symlinks) | Own pnpm lockfile reader: a `pnpm-lock.yaml` is required, npm and yarn lockfiles are not read; one Bazel repository per package, fetched on demand |
-| **BUILD generation** | Aspect CLI (proprietary) | Gazelle (open-source, directives) |
+| **BUILD generation** | Aspect CLI (proprietary) | Gazelle (open-source; one package per `tsconfig.json`) |
 | **Framework support** | None built-in | None built-in; a framework's Vite plugin runs in the dev server through `vite_config` |
 | **Bazel deps** | rules_js + rules_nodejs | rules_nodejs, rules_rust, rules_go + gazelle, rules_shell, bazel_skylib, platforms, toolchain_utils |
 | **Isolated declarations** | Not required | Not required; opt-in per package for throughput |
@@ -116,9 +116,9 @@ toolchains. `rules_ts` needs neither.
 
 ### Gazelle
 
-Open-source BUILD file generation with thirteen `# gazelle:ts_*` directives,
-codegen auto-detection, and automatic lint target generation. `rules_ts` relies on the proprietary
-Aspect CLI.
+Open-source BUILD file generation: one package per `tsconfig.json`, its deps
+from tsgo's own listing of the program, lint targets beside it, and no
+directive of its own. `rules_ts` relies on the proprietary Aspect CLI.
 
 ### System Prerequisites
 
@@ -143,18 +143,18 @@ If you decide to migrate from `rules_ts`:
    use_repo(npm, "npm", "pnpm")
    ```
 
-   `"pnpm"` goes in even if you never run pnpm through Bazel: Gazelle writes a
-   `ts_pnpm` and a `ts_add_package` target beside the lockfile, and both name
-   `@pnpm`. See [Setup](../guides/npm.md#setup).
+   `"pnpm"` is the hermetic pnpm the `ts_pnpm` and `ts_add_package` targets
+   you write beside the lockfile run, and the one that installs the checkout
+   Gazelle lists. See [Setup](../guides/npm.md#setup).
 
-3. Leave your `tsconfig.json` where it is, under its name. Step 4 wires it:
-   Gazelle writes `ts_config(name = "tsconfig", src = "tsconfig.json")` beside
-   it and `tsconfig = "//:tsconfig"` on every `ts_compile` and `ts_test` below,
-   so the generated config extends yours; see
+3. Leave your `tsconfig.json` where it is, under its name. It is the package:
+   step 4 writes `ts_config(name = "tsconfig", src = "tsconfig.json")` beside
+   it, a `ts_compile` over what it lists with `tsconfig = ":tsconfig"`, and a
+   `ts_test` over its test files, so the generated config extends yours; see
    [where compiler options come from](../rules/ts-compile.md#where-compiler-options-come-from).
-   Deleting the file gives the zero-config baseline and loses the
-   `compilerOptions.paths` step 5 reads. Renaming it loses the same thing:
-   Gazelle reads only a file named `tsconfig.json`. Delete `baseUrl` from it;
+   A repository of several projects has one `tsconfig.json` per project, each
+   its own package. Deleting or renaming the file leaves no package: Gazelle
+   reads only a file named `tsconfig.json`. Delete `baseUrl` from it;
    tsgo rejects the key
    ([Option 'baseUrl' has been removed](../guides/troubleshooting.md#option-baseurl-has-been-removed)).
    If you also run `ts_refresh_tsconfig`, which
@@ -163,9 +163,10 @@ If you decide to migrate from `rules_ts`:
    ([Extending the generated file](ide-setup.md#extending-the-generated-file))
 4. Run `bazel run //:gazelle` to regenerate BUILD files
 5. Leave `compilerOptions.paths` alone. The rule reads it from your file and
-   rewrites each value to its source and `bazel-bin` twins; Gazelle reads the
-   same entries to resolve an aliased import to the target that owns the
-   directory and writes it into `deps`. No attribute repeats the alias; the
+   rewrites each value to its source and `bazel-bin` twins; tsgo resolves an
+   aliased import through the same entries when Gazelle lists the program, and
+   the package that owns the file it landed on goes into `deps`. No attribute
+   repeats the alias; the
    [quickstart](quickstart.md#path-b-existing-project) shows the shape
 6. Nothing else. Missing explicit return types are fine; the default emitter
    infers them

@@ -72,12 +72,10 @@ package. This repository's own `.bazelignore` starts with that line.
     is a complete config and carries nothing over from yours.
 
     Move the generator, not your file. Under Gazelle the file keeps its name:
-    Gazelle reads `compilerOptions.paths` from a file named `tsconfig.json` and
-    from no other, and writes the `ts_config` target and the
-    `tsconfig = "//:tsconfig"` on every `ts_compile` and `ts_test` from it.
-    Rename it and the next run recomputes `deps` and `tsconfig` from a tree
-    that has none, logging each value it drops, and every aliased import
-    fails with `TS2307`. Set
+    a directory is a package because it holds a file named `tsconfig.json`,
+    which tsgo lists, and every target in it names the `ts_config` over that
+    file. Rename it and the next run finds no program there: every rule
+    Gazelle wrote is withdrawn, and the run names the BUILD file. Set
     `ts_refresh_tsconfig(tsconfig = "tsconfig.bazel.json")` and `extends` the
     generated file from yours; see
     [Extending the Generated File](#extending-the-generated-file).
@@ -106,9 +104,9 @@ ts_refresh_tsconfig(
 Three edits make that build:
 
 1. **The `ts_config` needs the base in `deps`.** Gazelle writes
-   `ts_config(name = "tsconfig", src = "tsconfig.json")` and fills `deps` only
-   for an `extends` naming an ancestor directory's `tsconfig.json`. Any other
-   base gets no entry, and every target fails with
+   `ts_config(name = "tsconfig", src = "tsconfig.json")` and fills `deps` for
+   an `extends` naming another `tsconfig.json` by relative path. A base of
+   another name gets no entry, and every target fails with
    `error TS5083: Cannot read file '.../tsconfig.bazel.json'.` Add the file
    with a `# keep`, since `deps` is
    [Gazelle's](../gazelle/directives.md#attributes-gazelle-owns):
@@ -328,9 +326,9 @@ Narrowing that per target would need a tsconfig per target, and a package only
 gets its own program when its targets name one
 ([`nested_tsconfigs`](#nested-tsconfigs)).
 
-Treat `bazel build` as the authority, and declare ambient packages up front.
-[`# gazelle:ts_ambient_types`](../gazelle/directives.md#declare-ambient-types-once-for-the-whole-repo)
-does that for a whole tree in one line.
+Treat `bazel build` as the authority, and declare ambient packages up front:
+`"types": ["node"]` in the tsconfig every package of a tree extends does that
+in one line.
 
 ## Editor Configuration
 
@@ -531,8 +529,7 @@ bazel run //path/to:my_test_debug
 
 Vitest pauses before executing, waiting for a debugger on port 9229. Attach VS Code via "Attach to Node Process" or use `chrome://inspect`. Source maps are configured automatically.
 
-Gazelle gives a source file to the target that names it. The next
-`bazel run //:gazelle` takes `my.test.ts` out of the generated `ts_test` and
-leaves it in this one, and a `manual` target is not in `bazel test //...`, so
-the file is no longer tested. Delete the target when the session is over; the
-following run puts the file back.
+Gazelle lists every test file the program owns in the generated `ts_test`,
+whatever other rule names it, so `my.test.ts` stays tested by `bazel test
+//...` while this `manual` target holds it too. Delete the target when the
+session is over.

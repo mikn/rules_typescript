@@ -140,8 +140,8 @@ Breaks get a changelog entry with the required edit.
 - `ts_compile`, `ts_test`, `ts_binary`, `ts_config`,
   `node_modules`, `ts_refresh_tsconfig` and `refresh_workspace_files` rules and
   their documented attributes
-- `ts_pnpm` and `ts_add_package`, which Gazelle writes into every root
-  `BUILD.bazel` beside a lockfile
+- The `ts_pnpm` and `ts_add_package` macros, written by hand into the root
+  `BUILD.bazel` beside a lockfile; Gazelle writes neither
 - `JsInfo`, `TsDeclarationInfo`, `BundlerInfo`, `TsLintInfo` providers
 - The `npm` module extension (`npm.translate_lock`, `npm.pnpm`) and the `@npm`
   label surface (`@npm//:zod`, `@npm//:types_react`, `@npm//:vitest_bin`)
@@ -149,19 +149,20 @@ Breaks get a changelog entry with the required edit.
 - `//ts/toolchain:all` as the registration target, and the four toolchain types
   it registers (`oxc_toolchain_type`, `tsgo_toolchain_type`, `js_runtime_type`,
   `js_tool_type`)
-- Gazelle `ts_compile` / `ts_test` generation and all `# gazelle:ts_*`
-  directives
+- Gazelle `ts_compile`, `ts_test` and `ts_config` generation. The extension
+  declares no directive of its own; `# keep`, `# gazelle:exclude` and
+  `# gazelle:resolve` are core Gazelle's
 
 ### Volatile
 
 May change in any commit, without a changelog entry.
 
-- `ts_dev_server`, `ts_codegen`, `ts_lint` rules
+- `ts_dev_server`, `ts_codegen`, `ts_lint` rules, and the `ts_lint` targets
+  Gazelle writes beside a `ts_compile`
 - The `ts_codegen` generators under `//tools/codegen` (`tanstack_routes`,
   `wrangler_types`)
 - `npm_bin` as a rule loaded by hand; the generated `@npm//:<pkg>_bin` labels
   are load-bearing above
 - `DevServerInfo` and its implementation, `//vite:dev_server`
 - The Vite plugin (`vite/src/`)
-- Gazelle codegen auto-detection
 - Anything under `ts/private/` or `npm/private/`

@@ -337,7 +337,7 @@ Use the **Conventional Commits** format:
 **Examples:**
 
 ```
-feat(gazelle): add ts_path_alias directive support
+feat(gazelle): list the vitest configs in one tsgo run
 fix(ts_compile): pass rootDirs to tsgo for bin_dir resolution
 docs: update COMPATIBILITY.md for Bazel 9.x support
 chore(toolchain): bump oxc to 0.120.0
@@ -376,17 +376,21 @@ extension written in Go.
 
 | File | Role |
 |---|---|
-| `gazelle/language.go` | Entry point: registers the language, `Kinds()`, `Loads()`, `KnownDirectives()` |
-| `gazelle/config.go` | Directive parsing (`# gazelle:ts_*`), codegen detection |
-| `gazelle/generate.go` | Rule generation: produces `ts_compile`, `ts_test` and the rest |
-| `gazelle/resolve.go` | Import resolution: maps import specifiers to Bazel labels |
-| `gazelle/imports.go` | Import extraction from TypeScript sources |
+| `gazelle/language.go` | Entry point: registers the language, `Kinds()`, `Loads()`; `KnownDirectives()` is empty |
+| `gazelle/program.go` | The tsgo listing of each `tsconfig.json` and its `--explainFiles` grammar; the combined run over the vitest configs; the install check |
+| `gazelle/owner.go` | The run's packages, `owner(f)`, the test/library/declaration split, the unowned report |
+| `gazelle/npm.go` | The lockfile gate, the importer-scoped label, the member table and the member view |
+| `gazelle/manifest.go` | The nearest `package.json`: its name, its dependencies |
+| `gazelle/generate.go` | One package's rules from the owner map; `Empty` where no program is |
+| `gazelle/resolve.go` | `deps` from the listing's edges: one label per edge target |
+| `gazelle/config.go` | The root-once lockfile load, the `ts_codegen` bookkeeping, linter detection |
+| `gazelle/keep.go` | The managed-attribute reports: what a run drops and what it cannot merge |
+| `gazelle/pnpm_lock.go` | The lockfile's names, importers, links and aliases |
 | `ts/tools/tsconfig/` | The `tsconfig.json` reader -- one file, or its `extends` chain flattened leaf-wins -- shared with the build actions |
 | `ts/tools/jsonc/` | JSONC parser, so a commented `tsconfig.json` still yields its `paths` |
-| `gazelle/codegen.go` | Auto-detected codegen targets |
 
-**AGENTS.md** is the architectural reference for contributors: package boundary
-heuristics, import resolution strategy, and the directive reference.
+`docs/gazelle/overview.md` is the reference for what a run reads and writes;
+**AGENTS.md** carries the contributor rules.
 
 The extension is compiled into two `gazelle_binary` targets. `//gazelle:gazelle_ts`
 is the one this repo runs, through the `gazelle` runner beside it:
