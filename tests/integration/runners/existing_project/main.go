@@ -70,11 +70,8 @@ func main() {
 	})
 }
 
-// A file listed by a target in another package hangs off a root of its own --
-// the exec root -- while the package's files hang off the package, and one
-// declaration emit has one rootDir. The check is at analysis, names both roots
-// and the flag that emits nothing from tsgo. Written here rather than checked
-// in so that Gazelle, which runs first, has no say in it.
+// Srcs off two roots (the exec root and the package) fail at analysis under the
+// tsgo emit. Written here, not checked in: Gazelle runs first and has no say.
 func sharedSrc(it *harness.IT) {
 	it.Write(it.Path("shared/BUILD.bazel"), "exports_files([\"util.ts\"])\n")
 	it.Write(it.Path("shared/util.ts"), "export const util = 1;\n")

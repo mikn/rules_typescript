@@ -20,10 +20,8 @@ json_library(
     srcs = ["shared/data.json"],
 )
 
-# main.ts reaches both trees through the one alias: value.ts from the source
-# tree, and the typed data.json.d.ts json_library generated into bazel-bin --
-# the action tsconfig gives every `paths` value a bin-dir twin. `title` is a
-# string only because that declaration is what resolved.
+# One alias reaches both trees: value.ts from the source tree and the generated
+# data.json.d.ts from bazel-bin; `title` is a string only if that one resolved.
 ts_compile(
     name = "app",
     srcs = [

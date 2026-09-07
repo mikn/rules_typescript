@@ -59,7 +59,9 @@ entries in `setup_files` and one for those in `global_setup`, plus, on the
 vitest runner, a `<name>.update_snapshots` executable.
 The `ts_compile` targets take the test's `visibility`, defaulting to
 `//visibility:public` when the test declares none, so an IDE tsconfig written by
-`ts_refresh_tsconfig` can name them.
+`ts_refresh_tsconfig` can name them. A `manual` tag on the test reaches every
+generated target, so a wildcard that skips the test analyses none of them; every
+other tag stays on the test.
 
 ## The Test's tsconfig
 

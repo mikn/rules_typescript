@@ -13,10 +13,8 @@ type actionConfig struct {
 	Files           []string       `json:"files"`
 }
 
-// The tsconfig the tsgo action reads names no npm package: bare specifiers
-// resolve through node_modules alone, `types` is the direct @types deps, and
-// typeRoots stays unset so that tsgo's own roots and its node_modules walk
-// answer a `types` entry the way they do outside Bazel.
+// The tsconfig the tsgo action reads names no npm package: `types` is the
+// direct @types deps, typeRoots unset; the node_modules walk answers them.
 func TestWrittenConfigNamesNoPackage(t *testing.T) {
 	tree := verify.New(t)
 	for _, c := range []struct {

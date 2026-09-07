@@ -54,18 +54,8 @@ export interface BazelPluginOptions {
    */
   bazelBin?: string;
 
-  /**
-   * Absolute (or root-relative) path to the generated node_modules directory
-   * that Bazel produces via the `node_modules` rule.
-   *
-   * When omitted the plugin attempts to auto-detect it by looking for a
-   * directory named `<target_name>_node_modules` inside bazel-bin.
-   *
-   * The tree is added to `server.fs.allow` so the dev server can serve from it.
-   * Vite resolves bare specifiers itself and exposes no search-path option, so
-   * this does not redirect `import "react"`; the launcher's node_modules link
-   * puts the Bazel tree on the resolver's own walk for that.
-   */
+  /** The Bazel node_modules tree, added to `server.fs.allow`. Default:
+   *  `<target_name>_node_modules` under bazel-bin. */
   nodeModules?: string;
 
   /**

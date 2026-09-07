@@ -184,20 +184,8 @@ export interface ConfigWatcherOptions {
   debounceMs?: number;
 }
 
-/**
- * Watches the inputs that generated the running Vite config.
- *
- * Vite restarts itself when its own config file changes, but it has no concept
- * of the thing that GENERATES that config — natively nothing does. Under Bazel
- * something does: `ts_dev_server` regenerates the config from BUILD deps, the
- * entry point and the npm tree. A rebuild that changes
- * any of those means the running server is configured for a graph that no
- * longer exists; a rebuild that only rewrites `ts_codegen` output means it is
- * still correct and HMR handles it.
- *
- * Content digests, not timestamps, decide which of the two happened: Bazel
- * rewrites outputs on every action, so an mtime says nothing.
- */
+// Watches the inputs that generated the running Vite config, which Vite itself
+// does not know of. Digests, not mtimes: each action run rewrites its outputs.
 export class ConfigWatcher {
   private readonly inputs: ConfigInput[];
   private readonly onStale: StaleCallback;

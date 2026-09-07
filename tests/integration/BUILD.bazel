@@ -122,8 +122,7 @@ bazel_integration_test(
 )
 
 # ── oxc_declarations ──────────────────────────────────────────────────────────
-# .bazelrc sets --@rules_typescript//ts:declarations=oxc: annotated exports emit
-# declarations from syntax, and an un-annotated export is rejected, not widened.
+# .bazelrc: --@rules_typescript//ts:declarations=oxc; un-annotated exports fail.
 
 bazel_integration_test(
     name = "oxc_declarations_test",
@@ -187,8 +186,7 @@ bazel_integration_test(
 )
 
 # ── gazelle_roundtrip ─────────────────────────────────────────────────────────
-# Regenerates the fixture's BUILD files twice, diffs the passes, builds, tests.
-# The runner stages tests/npm's lockfile for vitest, tests/workers' for wrangler.
+# Two Gazelle passes diffed, then build and test; the runner stages lockfiles.
 
 bazel_integration_test(
     name = "gazelle_roundtrip_test",
@@ -203,8 +201,7 @@ bazel_integration_test(
 )
 
 # ── lsp ───────────────────────────────────────────────────────────────────────
-# `bazel run //:refresh_tsconfig` writes no paths entry for an npm package and a
-# nested tsconfig.json per package extending the src/tsconfig.json targets name.
+# refresh_tsconfig: npm packages get no paths entry; nested tsconfig.json files.
 
 bazel_integration_test(
     name = "lsp_test",

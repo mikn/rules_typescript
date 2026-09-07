@@ -1401,13 +1401,8 @@ def ts_test(
     compile_name = "_{}_compile".format(name)
     compile_visibility = visibility if visibility else ["//visibility:public"]
 
-    # `manual` is the tag a wildcard reads, and the targets below it are named
-    # in no BUILD file, so a `bazel build //...` that skipped the test would
-    # analyse them anyway -- which is not skipping the test:
-    # //tests/node_test/analysis has manual ts_tests asserted to fail at
-    # analysis. So `manual` reaches every target this macro generates. Every
-    # other tag says how the test runs, which is nothing to a compile or a
-    # `bazel run`.
+    # `manual` reaches every generated target: a wildcard that skips the test
+    # must not analyse its compiles; //tests/node_test/analysis fails by design.
     wildcard_tags = ["manual"] if "manual" in tags else []
 
     ts_compile(

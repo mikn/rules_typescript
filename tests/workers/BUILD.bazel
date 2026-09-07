@@ -20,23 +20,16 @@ exports_files([
 # gazelle:exclude tsconfig.worker.json
 # gazelle:exclude tsconfig.experimental.json
 
-# The worker itself. `webworker` is in no set `target` implies, so without the
-# lib tsconfig.worker.json names, the Request/Response globals it is written
-# against do not resolve.
+# `webworker` is in no set `target` implies; without tsconfig.worker.json's lib
+# the Request/Response globals do not resolve.
 ts_compile(
     name = "worker",
     srcs = ["src/index.ts"],
     tsconfig = "tsconfig.worker.json",
 )
 
-# The tests run inside workerd, from the .js Bazel compiled. `cloudflare:test`
-# is owned by the pool's own Vite plugin, which is why the config installs
-# cloudflareTest() rather than setting test.pool -- see vitest.workers.config.mjs.
-#
-# The pool's ambient declaration for that module is the `exports` subpath
-# `@cloudflare/vitest-pool-workers/types`, which nothing imports; the test names
-# it in a `/// <reference types>` directive that tsgo resolves through the
-# forest's node_modules, the way tsc resolves it through pnpm's.
+# Runs inside workerd from the .js Bazel compiled. `cloudflare:test` is the pool
+# plugin's, so the config installs cloudflareTest(), not a test.pool setting.
 ts_test(
     name = "worker_test",
     size = "medium",
@@ -68,10 +61,8 @@ vitest_config(
     visibility = ["//tests/workers_nested/test:__pkg__"],
 )
 
-# A `types` entry naming a subpath of a package outside @types. The manifest has
-# no `exports`, so tsgo finds the subpath among the files the package ships,
-# walking the forest's node_modules from the tsconfig; JsRpcPromise is declared
-# there and in no other entry of it.
+# A `types` entry naming a subpath of a non-@types package with no `exports`:
+# tsgo finds it among the shipped files; JsRpcPromise is declared nowhere else.
 ts_config(
     name = "experimental_tsconfig",
     src = "tsconfig.experimental.json",

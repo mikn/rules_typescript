@@ -85,9 +85,7 @@ def _forwarded_files_impl(ctx):
 
 forwarded_files_test = analysistest.make(_forwarded_files_impl)
 
-# The options a target gets from the ruleset. Restated here rather than
-# imported: the point of the assertion is that a change to _BASELINE_OPTIONS is
-# a change somebody has to come and make here too.
+# Restated, not imported: a change to _BASELINE_OPTIONS has to be made here too.
 _BASELINE_KEYS = {
     "strict": True,
     "module": "Preserve",

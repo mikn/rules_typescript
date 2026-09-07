@@ -11,9 +11,8 @@ import (
 	"testing"
 )
 
-// The chain the testdata captures were printed over, with
-// `tsgo --showConfig -p <root>/pkg/tsconfig.json` (tsgo 7.0.2): a base in
-// another directory sets paths, target and jsx; a leaf sets types, or nothing.
+// The testdata captures were printed with `tsgo --showConfig -p` (tsgo 7.0.2):
+// a base elsewhere sets paths, target and jsx; a leaf sets types, or nothing.
 const baseConfig = `{
   // A comment: tsconfig.json is JSONC.
   "compilerOptions": {
@@ -91,8 +90,7 @@ type execroot struct {
 }
 
 // newExecroot lays the action's sandbox out under a temp dir and makes it the
-// working directory: the chain and its srcs, one generated declaration and the
-// forest under the bin dir, and a tsgo whose --showConfig prints showConfig.
+// working directory, with a tsgo whose --showConfig prints showConfig.
 func newExecroot(t *testing.T, leaf, showConfig string) *execroot {
 	t.Helper()
 	root := t.TempDir()
@@ -200,14 +198,8 @@ func TestDecodeShowConfig_DiagnosticsAreNotAConfig(t *testing.T) {
 	}
 }
 
-// The written config extends the baseline and the user's file, owns the keys
-// that encode the sandbox, and rewrites the two the user's chain answers:
-// paths from the directory of the base that set them with a bin-dir twin per
-// value, and types with each path-shaped entry rebased to the staged source or
-// bin-dir file. No key names a forest package and typeRoots stays unset: react
-// and @types/node resolve through node_modules alone. showConfig reads the
-// config itself, written first with its extends alone, so the baseline's
-// defaults are in what it prints.
+// The written config extends the baseline then the user's file, rewrites paths
+// and types, names no forest package and leaves typeRoots unset.
 func TestTsconfigStep_WritesTheForestShapedConfig(t *testing.T) {
 	capture := readTestdata(t, "showconfig-chain.json")
 	e := newExecroot(t, chainLeaf, capture)
@@ -244,9 +236,7 @@ func TestTsconfigStep_WritesTheForestShapedConfig(t *testing.T) {
 }
 
 // A chain that sets no types would let tsgo include every package under
-// typeRoots, transitive @types included. The direct @types deps are written
-// instead -- and an empty list when there are none -- so the roots never
-// auto-include.
+// typeRoots; the direct @types deps are written instead, an empty list if none.
 func TestTsconfigStep_NoTypesWritesTheDirectTypesDeps(t *testing.T) {
 	capture := readTestdata(t, "showconfig-no-types.json")
 	e := newExecroot(t, noTypesLeaf, capture)
@@ -325,9 +315,8 @@ func TestTsconfigStep_EmitShape(t *testing.T) {
 	}
 }
 
-// A path-shaped types entry that no input sits at would be TS2688 from tsgo,
-// naming no label; the step fails first, naming both places it looked, and
-// writes nothing.
+// A path-shaped types entry no input sits at fails the step, naming both places
+// it looked, before tsgo's TS2688 could name no label.
 func TestTsconfigStep_TypesEntryNowhereFails(t *testing.T) {
 	e := newExecroot(t, chainLeaf, `{"compilerOptions": {"types": ["./missing.d.ts", "node"]}}`)
 
@@ -355,8 +344,7 @@ func TestTsconfigStep_ShowConfigFailureIsTheError(t *testing.T) {
 	}
 }
 
-// The oxc step appends what the options file carries to the command line it is
-// handed, so oxc transforms with the target and jsx tsgo checked under; a key
+// The oxc step appends the options file to the command line it is handed; a key
 // the tsconfig leaves unset is not passed, and oxc's own default stands.
 func TestOxcStep_AppendsTheOptions(t *testing.T) {
 	root := t.TempDir()

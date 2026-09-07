@@ -1,36 +1,5 @@
-/**
- * tsserver_diag_test.mjs — what tools/tsserver-hook.js does to a language
- * service that resolves through ts.resolveModuleName.
- *
- * Run by tests/lsp/test_tsserver_diagnostics.sh, which supplies typescript from
- * the lockfile, writes the .d.ts a build would leave in bazel-bin for a
- * first-party package, and pre-populates the hook's cache with it:
- *   TSSERVER_HOOK_PRELOAD_MAP='{"src/lib":"<abs>/bazel-bin/src/lib/index.d.ts"}' \
- *   TSSERVER_HOOK_NO_WORKER=1 \
- *   node --require <hook.js> tsserver_diag_test.mjs <lib.d.ts>
- *
- * The claim under test is the one an editor cares about: with the hook loaded,
- * `import * as lib from "src/lib"` type-checks against the declarations the map
- * names even though nothing on the module search path leads to them. Three
- * assertions, every one of which fails if the hook stops working:
- *
- *   baseline  the same language service WITHOUT the hook's resolver reports
- *             TS2307 for "src/lib" -- without this the other two prove nothing,
- *             because ambient resolution would satisfy them on its own.
- *   resolved  with the hook's resolver, the good file has zero diagnostics AND
- *             a bogus member access on `lib` is rejected. A stub, an `any`, or
- *             a widened import would pass the first half and fail the second.
- *   direct    ts.resolveModuleName("src/lib", ...) returns the exact .d.ts path.
- *
- * Why ts.createLanguageService and not the standalone tsserver.js process:
- * because that process is not what this file's subject serves. tsserver.js does
- * reach `./typescript.js` through require, but its language service resolves
- * through its LanguageServiceHost, so replacing the module's resolveModuleName
- * changes nothing it does -- which is what tools/tsserver-plugin.js and
- * :test_tsserver_plugin exist for. The hook's own consumers are tools that call
- * ts.resolveModuleName themselves, and a host that delegates to it, as the
- * `resolved` block below does, is that surface.
- */
+// A language service resolving through the export ts.resolveModuleName, with
+// tsserver-hook.js loaded. tsserver's host bypasses it: the plugin's test.
 
 import { createRequire } from 'module';
 import { existsSync, readFileSync, statSync } from 'fs';

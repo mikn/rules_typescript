@@ -1,17 +1,5 @@
-/**
- * resolve_test.mjs — what the tsserver hook does to ts.resolveModuleName.
- *
- * Run by tests/lsp/test_resolve_integration.sh:
- *   node --require <hook.js> resolve_test.mjs <lib.d.ts> <work_dir>
- *
- * Three claims, each of which the hook can break on its own:
- *   - the patch applied at all (ts._bazelPatched)
- *   - a first-party package in the cache resolves to that exact .d.ts
- *   - a specifier not in the cache falls through to TypeScript's own resolver
- *
- * Every path is supplied by the caller and asserted against, so a stale or
- * missing file fails rather than turning an assertion into a no-op.
- */
+// What the tsserver hook does to ts.resolveModuleName. Run by the sh_test as
+// node --require <hook.js> resolve_test.mjs <lib.d.ts> <work_dir>
 
 import { createRequire } from 'module';
 import { existsSync, readFileSync } from 'fs';

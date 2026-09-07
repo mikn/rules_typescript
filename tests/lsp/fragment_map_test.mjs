@@ -92,9 +92,8 @@ process.stdout.write(`INFO: root fragment =\n${rootLines.join('\n')}\n`);
 stage(withFragments, 'k8-fastbuild', `//${FIXTURE_PKG}:leaf`, leafLines);
 stage(withFragments, 'k8-fastbuild', `//${FIXTURE_PKG}:root`, rootLines);
 
-// The same label under a second configuration. The merge must count it once --
-// the roots are sorted, so k8-fastbuild wins -- rather than letting the
-// filesystem decide how many configurations are in bazel-out.
+// The same label under a second configuration: counted once, the sorted roots
+// deciding which wins rather than the filesystem.
 stage(withFragments, 'k8-opt', `//${FIXTURE_PKG}:root`, rootLines);
 
 // A fragment whose package is gone from the source tree. Discovery never looks
@@ -204,10 +203,8 @@ expectEntry(withMap, FIXTURE_PKG, fixtureIndex);
 // The data file is still the data file.
 expectEntry(withMap, 'src/from_data', fromDataIndex);
 
-// Five fragment files carrying three labels: :root appears under two
-// configurations and is counted once, and :future's format is rejected whole.
-// The sixth file, under //deleted/pkg, is not in the count because a directory
-// the source tree does not have is never opened.
+// Five fragment files, three labels: :root under two configurations counts
+// once, :future's format is rejected whole, //deleted/pkg is never opened.
 const counted = 'fragments: 3 labels from 5 files';
 if (withRun.log.includes(counted)) {
   pass(`the merge deduped by label (${counted})`);

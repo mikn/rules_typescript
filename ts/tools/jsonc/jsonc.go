@@ -1,6 +1,5 @@
 // Package jsonc reads the JSON-with-comments dialect TypeScript accepts. Every
-// JSON reader in this ruleset goes through it (json_library through
-// //ts/tools/jsonc/strip), so one file cannot mean two things to two readers.
+// JSON reader in this ruleset goes through it, so one file has one meaning.
 package jsonc
 
 import "encoding/json"

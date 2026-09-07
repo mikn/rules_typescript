@@ -5,10 +5,8 @@ load("//ts:defs.bzl", "ts_compile")
 
 package(default_visibility = ["//:__pkg__"])
 
-# main.ts imports "@acme/ui". tests/npm/pnpm-lock.yaml links that name to
-# //tests/compiler_options/member/lib, so the hub's view of it is a dep and the
-# forest holds node_modules/@acme/ui with the member's manifest rewritten to
-# the emitted files.
+# tests/npm/pnpm-lock.yaml links "@acme/ui" to the member lib/ beside this
+# package; the forest holds node_modules/@acme/ui with its manifest as built.
 ts_compile(
     name = "app",
     srcs = ["main.ts"],

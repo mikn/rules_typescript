@@ -23,10 +23,8 @@ def _passes_declarations_through_impl(ctx):
 
 passes_declarations_through_test = analysistest.make(_passes_declarations_through_impl)
 
-# TypeScript keeps the higher-priority extension of a .mjs / .d.mts pair listed
-# together, so the .mjs leaves the program and tsgo writes nothing for it: an
-# output declared at that path is never created, and a second declaration for
-# one module would shadow the checked-in file for its consumers anyway.
+# TypeScript keeps the higher-priority extension of a .mjs / .d.mts pair, so the
+# .mjs leaves the program; nothing is written at its declared .d.mts path.
 def _one_declaration_per_module_impl(ctx):
     env = analysistest.begin(ctx)
     for name in _CHECKED_IN:

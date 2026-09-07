@@ -3,11 +3,8 @@ load("//ts:defs.bzl", "ts_compile")
 
 package(default_visibility = ["//:__pkg__"])
 
-# `Env`, `KVNamespace`, `Request` and `Response` are all declared by the
-# generated file and by nothing else in this program: lib is es2022 with no DOM,
-# and no @cloudflare/workers-types is in deps. The tsconfig one package up names
-# the file in `types`; the ts_codegen that writes it is the dep, so the entry
-# resolves to the output under bazel-bin.
+# `Env`, `KVNamespace`, `Request` and `Response` come from the generated file
+# alone (lib es2022, no DOM); the ts_codegen dep stages what `types` names.
 ts_compile(
     name = "src",
     srcs = ["index.ts"],

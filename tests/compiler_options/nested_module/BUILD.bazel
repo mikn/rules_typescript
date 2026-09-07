@@ -15,9 +15,8 @@ load("//ts:defs.bzl", "ts_compile")
 
 package(default_visibility = ["//:__pkg__"])
 
-# lib/index.ts is another target's src, so the source-tree twin of the value is
-# not in this action's sandbox and the bin-dir twin -- the dep's index.d.ts --
-# is what resolves.
+# lib/index.ts is another target's src, so the source-tree twin is not in this
+# sandbox and the bin-dir twin -- the dep's index.d.ts -- is what resolves.
 ts_compile(
     name = "app",
     srcs = ["main.ts"],

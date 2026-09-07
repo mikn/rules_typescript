@@ -15,9 +15,8 @@ ts_compile(
     srcs = ["correct.ts"],
 )
 
-# Un-annotated exports. Buildable here precisely because tsgo has the full
-# program; the same sources under --//ts:declarations=oxc are :inferred_oxc in
-# //tests/integration:oxc_declarations_test and must fail.
+# Un-annotated exports, buildable because tsgo has the full program; under
+# --//ts:declarations=oxc the same sources must fail (oxc_declarations_test).
 ts_compile(
     name = "inferred",
     srcs = ["inferred.ts"],

@@ -10,14 +10,8 @@ import (
 	"sync"
 )
 
-// What a directory's package.json says each specifier into it means.
-//
-// A directory carrying a manifest is entered through what that manifest
-// declares, which is index.ts only when it happens to say so. Falling straight
-// through to index.ts answers the packages whose entry is an index at the root
-// and answers every `exports` subpath with a file that is not there. The hub's
-// view links the manifest itself on the Bazel side; this is the side that has to
-// name the target in the first place.
+// A directory carrying a manifest is entered through what it declares, not
+// index.ts: an `exports` subpath names a file an index.ts fallthrough misses.
 
 // exportConditions are the keys a lookup descends into, kept to _TYPE_CONDITIONS
 // in npm/private/npm_import.bzl. A resolver tries a manifest's conditions in the

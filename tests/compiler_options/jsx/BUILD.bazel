@@ -13,9 +13,8 @@ ts_compile(
     srcs = ["jsx-runtime.d.ts"],
 )
 
-# Without jsxImportSource, react-jsx resolves "react/jsx-runtime" and this is
-# TS2307. With it, <div /> is typed by @acme/jsx's own JSX namespace, which the
-# tsconfig's `paths` sends to the dep's declaration.
+# Without jsxImportSource, react-jsx resolves "react/jsx-runtime" (TS2307); with
+# it, <div /> is typed by @acme/jsx, sent to the dep by the tsconfig's `paths`.
 ts_compile(
     name = "view",
     srcs = ["view.tsx"],

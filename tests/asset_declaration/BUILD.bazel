@@ -122,9 +122,8 @@ ts_compile(
     deps = [":hero_and_photo"],
 )
 
-# A type expression naming an npm package. The package resolves through the
-# consuming target's forest, which is why @npm//:vite is a dep of the
-# ts_compile and not of the asset_library.
+# The type expression names an npm package, which resolves through the consuming
+# ts_compile's forest: @npm//:vite is its dep, not the asset_library's.
 asset_library(
     name = "chart_svg",
     srcs = ["chart.svg"],
@@ -161,10 +160,8 @@ ts_compile(
     ],
 )
 
-# No asset_library, so the two wildcards race each other. The first
-# declaration of a pattern wins and `types` lists the project's own ambient
-# ahead of vite/client, so the import is a component -- what tsc gives for the
-# same pair.
+# No asset_library: the two wildcards race, the first declaration wins, and
+# `types` lists the project's own ambient ahead of vite/client, as tsc would.
 ts_compile(
     name = "two_ambients",
     srcs = ["two_ambients.ts"],

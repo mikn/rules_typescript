@@ -1433,9 +1433,8 @@ func TestImportsForRule_CodegenOutsIsNotImportable(t *testing.T) {
 	}
 }
 
-// The measured monorepo shape: an out_dir ts_codegen in the same package as the
-// targets importing its modules, reached by a tsconfig path alias and by a
-// relative specifier rebased onto the package.
+// The measured monorepo shape: an out_dir ts_codegen beside the targets that
+// import its modules, by a path alias and by a relative specifier.
 func TestResolveImport_CodegenTreeSubpath(t *testing.T) {
 	c := configWithAliases(map[string]string{"#shared/": "web/shared/"})
 	tc := getConfig(c)

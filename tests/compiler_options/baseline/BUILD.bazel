@@ -19,22 +19,16 @@ ts_config(
     deps = ["tsconfig.base.json"],
 )
 
-# Three assertions in one build:
-#   - the chain reaches tsgo: strict lives in tsconfig.base.json and loose.ts
-#     has an implicit any;
-#   - the leaf's `lib` beats the ["es5"] its base asks for;
-#   - the options Bazel owns beat the chain's noEmit / composite / outDir /
-#     declarationMap, and its files / include / exclude do not decide which
-#     sources are compiled.
+# The chain reaches tsgo (strict is tsconfig.base.json's), the leaf's `lib`
+# beats its base's, and the options Bazel owns beat the chain's values for them.
 ts_compile(
     name = "loose",
     srcs = ["loose.ts"],
     tsconfig = ":tsconfig",
 )
 
-# The same chain through the other emit path: --//ts:declarations=oxc checks
-# with --noEmit, where the Bazel-owned options are isolatedDeclarations and
-# composite instead of outDir / rootDir / noEmit.
+# The same chain under --//ts:declarations=oxc, where the Bazel-owned options
+# are isolatedDeclarations and composite instead of outDir / rootDir / noEmit.
 ts_compile(
     name = "loose_check_only",
     srcs = ["loose_check_only.ts"],

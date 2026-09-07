@@ -718,12 +718,8 @@ def _npm_hub_impl(rctx):
             lines.append("#   CYCLE BROKEN: {}".format(edge))
     rctx.file("BUILD.bazel", "\n".join(lines) + "\n")
 
-    # One package per workspace member, so `@npm//path/to/member:react` is the
-    # snapshot THAT member resolved react to. The root package above is the
-    # whole-lockfile namespace and has to pick one snapshot per name; a member's
-    # own package does not, which is the only place per-importer resolution can
-    # live given that a Bazel package has one namespace. A member's view is not
-    # scoped: a member has one resolution, at the root.
+    # One package per workspace member: `@npm//path/to/member:react` is that
+    # member's resolution; the root has one namespace and one snapshot per name.
     by_importer = {}
     for key, target in rctx.attr.importer_aliases.items():
         path, _, alias_name = key.rpartition("|")

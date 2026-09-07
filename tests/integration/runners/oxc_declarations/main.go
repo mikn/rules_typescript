@@ -25,9 +25,8 @@ func main() {
 			it.Pass("%s/BUILD.bazel carries no declarations attribute", dir)
 		}
 
-		// --output_groups=+_validation is explicit rather than in the .bazelrc:
-		// under --//ts:declarations=oxc the tsgo check lives in the validation
-		// output group, and the next step deliberately builds WITHOUT it.
+		// --output_groups=+_validation is explicit, not in the .bazelrc: the next
+		// step deliberately builds WITHOUT it.
 		if err := it.Bazel("build", "//src/lib:all", "--output_groups=+_validation"); err != nil {
 			it.Fail("annotated target failed to build or type-check under --//ts:declarations=oxc")
 		}

@@ -78,9 +78,7 @@ ts_compile(
 )
 
 # ── A declaration out, consumed as a dep ──────────────────────────────────────
-# The shape `wrangler types` writes: a global `.d.ts` that exists only once the
-# generator has run. The consumer names it in its tsconfig `types`, and the
-# entry resolves to the file under bazel-bin because the codegen is a dep.
+# The `wrangler types` shape: `types` names it and the codegen dep stages it.
 sh_binary(
     name = "globals_generator",
     srcs = ["generate_globals.sh"],

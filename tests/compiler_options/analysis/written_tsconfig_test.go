@@ -61,10 +61,8 @@ func TestWrittenConfigForASubtreeWithJavaScript(t *testing.T) {
 	}
 }
 
-// The exec root is a source root like any other. Read as a boolean it is
-// indistinguishable from "no root dir", and rootDir then points at the bin
-// directory the tsconfig sits in -- no source is under that, so tsgo writes
-// the declarations somewhere Bazel never declared.
+// The exec root is a source root. Read as a boolean it is "no root dir", and
+// rootDir then points at the bin directory, under which no source sits.
 func TestWrittenConfigForASourceFromTheExecRoot(t *testing.T) {
 	opts := readConfig(t, "from_exec_root").CompilerOptions
 	rootDir, _ := opts["rootDir"].(string)
@@ -76,10 +74,8 @@ func TestWrittenConfigForASourceFromTheExecRoot(t *testing.T) {
 	}
 }
 
-// With a `tsconfig`, the baseline is a file that config extends FIRST: a later
-// entry in the list overrides an earlier one, so the baseline reaches only the
-// keys the user's chain never mentions, and none of its keys is restated in
-// the written file where it would beat the user's.
+// The baseline is the file the config extends FIRST: a later entry overrides an
+// earlier one, so the baseline reaches only keys the user's chain never sets.
 func TestWrittenConfigExtendsTheBaselineThenTheTsconfig(t *testing.T) {
 	config := readConfig(t, "over_tsconfig")
 	if len(config.Extends) != 2 {

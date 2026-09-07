@@ -3,10 +3,8 @@ load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag")
 
 package(default_visibility = ["//visibility:public"])
 
-# The emit knobs of every ts_compile and ts_test in the build. Who emits the
-# .d.ts: tsgo from the full program (no annotations needed, the check on the
-# critical path), or oxc syntactically (every export annotated, the check a
-# validation action that runs concurrently).
+# Who emits the .d.ts: tsgo from the full program (the check on the critical
+# path), or oxc syntactically (every export annotated; the check is concurrent).
 string_flag(
     name = "declarations",
     build_setting_default = "tsgo",

@@ -101,14 +101,8 @@ func indexedModule(src string) string {
 	return dropTsExtension(src)
 }
 
-// codegenTreeSpecs returns the ImportSpecs an out_dir ts_codegen answers to.
-// The tree is a declare_directory the generator fills at build time, so what
-// its modules are called cannot be read here; the root is indexed instead, and
-// resolveCodegenTree matches a specifier to the root above it.
-//
-// An outs ts_codegen is indexed through the ts_compile whose srcs name its
-// outputs; a `types` entry naming a declaration it writes is resolved by
-// codegenOutsOf.
+// codegenTreeSpecs returns the ImportSpecs an out_dir ts_codegen answers to:
+// the tree fills at build time, so its root is indexed for resolveCodegenTree.
 func codegenTreeSpecs(r *rule.Rule, pkg string) []resolve.ImportSpec {
 	outDir := r.AttrString("out_dir")
 	if outDir == "" {
@@ -420,20 +414,8 @@ func declaredAmbiently(names []string, imp string) bool {
 
 // ---- workspace self-reference ----------------------------------------------
 
-// resolveWorkspaceSelfImport resolves a specifier naming the very package the
-// importing target belongs to -- Node's self-reference, which a workspace uses
-// to import through its own `exports` map rather than by relative path.
-//
-// The npm hub declares that name too, because pnpm resolved it to a workspace
-// link, and its target is the member's own compiling target: a dep on it from
-// a ts_compile inside the member is a cycle back to the importer. The local
-// module the manifest designates is the same code without the round trip.
-//
-// From a ts_test it is no self-import: its compile target is never the hub's,
-// and only the hub's view links the member at node_modules/<name>.
-//
-// isSelf reports that the specifier was the member's own name and the hub label
-// must not be used, whether or not a target was found for it.
+// resolveWorkspaceSelfImport sends a member's own package name, imported from
+// inside it, to the module its manifest names: the hub label would be a cycle.
 func resolveWorkspaceSelfImport(
 	c *config.Config,
 	ix *resolve.RuleIndex,

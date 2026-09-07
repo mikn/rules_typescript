@@ -640,8 +640,7 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
             aliases[label] = "@{}//:{}".format(repo_of[sid], _alias_target_name(alias))
 
     # ── Workspace members: one view per member directory ─────────────────────
-    # Every `link:` target, by the lockfile's name, and every importer but the
-    # root (the workspace itself) whose package.json has a name.
+    # Every `link:` target and every named importer but the root.
     candidates = {}
     for name, path in importers["links"].items():
         if not path:

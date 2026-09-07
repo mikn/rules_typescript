@@ -78,11 +78,8 @@ type Resolved struct {
 	Inputs bool
 }
 
-// Resolve reads path and, depth first, the configs it extends, and returns what
-// a leaf-wins merge leaves standing. tsc replaces an inherited compilerOptions
-// key wholesale instead of merging it key by key, so paths always arrives from
-// exactly one file in the chain. A base that cannot be read is reported and
-// skipped; the leaf's own failure is the error.
+// Resolve reads path and, depth first, the configs it extends; the leaf wins.
+// tsc replaces inherited compilerOptions keys whole: paths comes from one file.
 func Resolve(path string) (*Resolved, error) {
 	return resolve(path, map[string]bool{})
 }
@@ -145,9 +142,8 @@ func (r *Resolved) override(other *Resolved) {
 	}
 }
 
-// ResolveExtends turns an extends value into a path on disk. A bare or scoped
-// specifier resolves through node_modules, which this reader has no root for,
-// so it is reported once and skipped.
+// ResolveExtends turns an extends value into a path on disk. A bare specifier
+// resolves through node_modules, which this reader has no root for: skipped.
 func ResolveExtends(dir, spec string) (string, bool) {
 	if spec == "" {
 		return "", false

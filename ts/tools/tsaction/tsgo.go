@@ -10,10 +10,8 @@ import (
 	"path/filepath"
 )
 
-// runTsgo lays the program root out, runs the command from it and removes it.
-// tsgo finds a bare specifier by walking up from the importing file, and no
-// directory above a source file in the exec root is an action output, so the
-// walk has to start under one that is.
+// runTsgo lays the program root out, runs the command from it and removes it:
+// no directory above a source is an output, so the node_modules walk needs one.
 func runTsgo(args []string) error {
 	flags := flag.NewFlagSet("tsgo", flag.ExitOnError)
 	root := flags.String("root", "", "the program root to lay out, under the target's output directory")
@@ -44,9 +42,8 @@ func runTsgo(args []string) error {
 	return os.WriteFile(*stamp, nil, 0o644)
 }
 
-// layOutProgramRoot links every top-level entry of the exec root into root and
-// the forest as root/node_modules. The targets are absolute: the links live and
-// die inside this action, and the sandbox holds only the inputs.
+// layOutProgramRoot links the exec root's top-level entries into root, and the
+// forest as root/node_modules; absolute targets, the links die with the action.
 func layOutProgramRoot(root, forest string) error {
 	execroot, err := os.Getwd()
 	if err != nil {

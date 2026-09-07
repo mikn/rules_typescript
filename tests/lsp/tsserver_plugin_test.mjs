@@ -1,38 +1,5 @@
-/**
- * tsserver_plugin_test.mjs — the gold test for tools/tsserver-plugin.js.
- *
- * Run by tests/lsp/test_tsserver_plugin.sh, which stages what
- * `bazel run //:refresh_tsconfig` installs into a scratch workspace:
- *   node tsserver_plugin_test.mjs <tsserver.js> <workspace_root>
- *
- * This file then writes the rest of the fixture: the .d.ts a build would leave
- * in bazel-bin for the first package the staged hook data names, and a package
- * of two sources that import it by that name -- a bare specifier its own
- * tsconfig cannot resolve, so the plugin is the only route.
- *
- * The subject is a real tsserver process, spoken to over its own JSON protocol
- * -- not a language service this file assembled. That distinction is the whole
- * point: tsserver resolves through its LanguageServiceHost, so a mechanism that
- * only reaches ts.resolveModuleName is invisible here. Five assertions:
- *
- *   installed  the plugin package is where refresh_tsconfig's manifest says.
- *              tsserver logs and ignores a plugin it cannot load, so without
- *              this a broken emission would look like an unresolved import.
- *   baseline   tsserver WITHOUT the plugin reports TS2307 for the package --
- *              nothing on the fixture's module search path leads to its
- *              declarations, so the assertions below are attributable to the
- *              plugin.
- *   resolved   with the plugin, the import reaches zero diagnostics. The map
- *              arrives from the worker thread, so this polls until the deadline
- *              rather than asking once.
- *   vscode     the same, with the plugin named in the fixture's tsconfig and NO
- *              --globalPlugins -- the one path VS Code has, since it passes
- *              only a probe location.
- *   real       a bogus member on the import is still rejected, and the type it
- *              is rejected against comes from the .d.ts under bazel-bin. A
- *              stub, an `any`, or a widened import passes `resolved` and fails
- *              this.
- */
+// A real tsserver process over its own protocol: tsserver resolves through its
+// LanguageServiceHost, and a hook on ts.resolveModuleName is invisible to it.
 
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';

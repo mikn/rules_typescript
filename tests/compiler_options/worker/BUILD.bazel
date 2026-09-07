@@ -8,17 +8,8 @@ load("//ts:defs.bzl", "ts_compile")
 
 package(default_visibility = ["//:__pkg__"])
 
-# target es2022 implies lib.es2022.full, which is es2022 + dom + dom.iterable +
-# scripthost. A lib declaration beats an ambient one, so with DOM in scope the
-# Workers globals in worker-configuration.d.ts lose to the browser ones and the
-# source does not compile. Narrowing lib to plain es2022 is the fix Cloudflare
-# documents.
-# `types` is written the way wrangler writes it: relative to the tsconfig, and it
-# is load-bearing -- the dep edge stages the file without putting its globals in
-# this program. Dropping the entry is 6 diagnostics on index.ts: TS2304 on
-# `ExportedHandler`, `Env` and `Response`, TS7006 on the handler's two
-# parameters, TS2552 on `caches`. The entry resolves because a passed-through
-# .d.ts IS the source file, staged at the path the entry names.
+# target es2022 implies lib.es2022.full, whose DOM globals beat the Workers
+# ones, so lib is es2022. The `types` entry is relative, as wrangler writes it.
 ts_compile(
     name = "worker_configuration",
     srcs = ["worker-configuration.d.ts"],

@@ -48,9 +48,8 @@ forest_test(
     target_under_test = ":app",
 )
 
-# @types/node's globals reach a program by one route and are kept out by the
-# other: a direct dep is written into `types`; a package the closure merely
-# carries is linked in the forest and stays out of scope.
+# @types/node's globals reach a program through `types` (a direct dep) and not
+# through the forest alone (a package the closure carries).
 ts_compile(
     name = "direct_types_probe",
     srcs = ["direct_types_probe.ts"],
@@ -158,12 +157,8 @@ direct_version_wins_test(
     want_dir = "ansi-regex__5_0_1",
 )
 
-# @npm//:shared is the hub's view of the `link:` in tests/npm/pnpm-lock.yaml:
-#   shared: {specifier: workspace:*, version: link:packages/shared}
-# It carries packages/shared/package.json with its exports map rewritten to the
-# emitted files, and the forest links it at node_modules/shared beside the
-# member's .js and .d.ts. The bare name and the `./wire` subpath resolve through
-# that manifest, from a ts_compile here and from the ts_test below.
+# @npm//:shared is the hub's view of the `link:` in tests/npm/pnpm-lock.yaml,
+# its exports rewritten to the emitted files; bare name and `./wire` resolve.
 ts_compile(
     name = "workspace_consumer",
     srcs = ["workspace_consumer.ts"],
@@ -231,11 +226,8 @@ ts_compile(
     deps = ["@npm//:nested-shared"],
 )
 
-# A workspace member imported by its PACKAGE NAME: the name reaches the compiler
-# through the hub's view of the `link:` in tests/npm/pnpm-lock-features.yaml. An alias
-# cannot carry it -- Bazel resolves an alias before any rule implementation
-# runs -- so this compiles only because the hub generates a target that
-# declares the name itself.
+# A workspace member imported by its PACKAGE NAME, through the hub's view of the
+# `link:` in pnpm-lock-features.yaml; an alias carries no name the rule can see.
 ts_compile(
     name = "ws_linked_consumer",
     srcs = ["ws_linked_consumer.ts"],
@@ -281,9 +273,7 @@ build_test(
 )
 
 # The same three through a node_modules tree, each at the path its manifest's
-# `main` names: a label that resolved to some other target in the member's
-# directory would analyse cleanly and stage the wrong files, which is the half
-# `build_test` cannot see.
+# `main` names: another target's label analyses clean and stages wrong files.
 node_modules(
     name = "workspace_link_target_node_modules",
     deps = [

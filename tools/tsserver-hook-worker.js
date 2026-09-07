@@ -1,31 +1,5 @@
-/**
- * tsserver-hook-worker.js — Background worker for the Bazel-aware tsserver hook.
- *
- * Runs in a worker thread (spawned by tsserver-hook.js).
- * Builds a resolution map from:
- *   1. The ts_compile packages named in .bazel/tsserver-hook-data.json, which
- *      `bazel run //:refresh_tsconfig` writes from the build graph.
- *   2. The .tsconfig-fragment.json files tsconfig_aspect's `ide_fragments`
- *      output group writes into bazel-out, one per target. A rule's `deps` obey
- *      visibility and an aspect's edges do not, so these cover the targets the
- *      data file cannot name -- and they are optional: without the .bazelrc
- *      lines that request the group there are none, and (1) is the whole map.
- *
- * npm packages and path aliases are not in the map: TypeScript resolves both
- * itself, through the checkout's node_modules and the tsconfig's `paths`.
- *
- * Sends the map to the main thread via postMessage, then sets up file-system
- * watches to rebuild the map when that data or bazel-bin changes.
- *
- * Design constraints:
- *   - Zero npm dependencies (Node.js builtins only).
- *   - Never runs Bazel: this is an editor process, and asking the Bazel server
- *     anything from here would block on the lock a build holds. Everything
- *     Bazel knows arrives through files a build already wrote.
- *   - Must degrade gracefully when any of them is absent or stale. Nothing
- *     enters the map without the path it names existing on disk, which is also
- *     what keeps a fragment left behind by a deleted target from being wrong.
- */
+// The tsserver hook's worker (Node builtins only): the resolution map from
+// .bazel/tsserver-hook-data.json and the aspect's fragments, off-thread.
 
 'use strict';
 
@@ -76,9 +50,8 @@ function buildResolutionMap() {
     }
   }
 
-  // Step 2: the aspect's per-target fragments, which reach the targets no rule
-  // can name. They augment what the data file already resolved, never replace
-  // it, and there are none at all until a build requests the output group.
+  // Step 2: the aspect's fragments augment what the data file resolved, never
+  // replace it; there are none until a build requests the output group.
   let packages = [];
   try {
     packages = walkWorkspace(workspaceRoot);
@@ -127,17 +100,8 @@ function fragmentRoots() {
   return [...roots].sort();
 }
 
-/**
- * The fragments found under every config root, one per target label.
- *
- * Discovery is rooted in the source tree rather than in a recursive walk of
- * bazel-out: a fragment lives at `<config>/bin/<package>/<target>` +
- * FRAGMENT_SUFFIX, so `packageDirs` is the complete list of directories to look
- * in, and a fragment whose package has since been deleted is never opened.
- *
- * @param {string[]} packageDirs - Workspace-relative dirs holding a BUILD file.
- * @returns {Array<{label: string, packages: string[]}>}
- */
+// The fragments under every config root, one per label. Discovery is rooted in
+// the source tree's packages, so a deleted package's fragment is never opened.
 function readFragments(packageDirs) {
   const seen = new Set();
   const fragments = [];
@@ -260,17 +224,6 @@ function readHookData() {
   return null;
 }
 
-/**
- * Scan an internal ts_compile package and add a resolution entry.
- *
- * Prefers .d.ts in bazel-bin (post-build) over .ts source (pre-build).
- *
- * @param {string} pkg     - The map key: a package path relative to the
- *                           workspace root, e.g. "src/utils".
- * @param {string} srcDir  - Absolute path to the package source directory.
- * @param {string} binDir  - Absolute path to the package in bazel-bin.
- * @param {Record<string, string>} map
- */
 function scanPackageForResolution(pkg, srcDir, binDir, map) {
   for (const filename of ['index.d.ts', 'index.ts', 'index.tsx']) {
     const binCandidate = path.join(binDir, filename);
@@ -288,17 +241,8 @@ function scanPackageForResolution(pkg, srcDir, binDir, map) {
   }
 }
 
-/**
- * One walk of the source tree, for where the Bazel packages are.
- *
- * The package list is what makes fragment discovery cheap and self-cleaning: a
- * fragment can only sit under a package directory, so nothing else in bazel-out
- * has to be read, and a package that no longer exists in the source tree is not
- * looked in.
- *
- * @param {string} root
- * @returns {string[]}
- */
+// One walk of the source tree for the Bazel packages: a fragment can only sit
+// under a package directory, so nothing else in bazel-out is read.
 function walkWorkspace(root) {
   const BOUNDARY_FILES = new Set(['MODULE.bazel', 'WORKSPACE', 'WORKSPACE.bazel']);
   const PRUNE_DIRS = new Set(['node_modules', 'dist', 'build', '.next', '.nuxt']);

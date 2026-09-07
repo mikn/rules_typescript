@@ -192,8 +192,7 @@ def _ts_codegen_impl(ctx):
         progress_message = "TsCodegen %{label}",
     )
 
-    # The same fields a ts_compile's own outputs travel in. A tree is compiled
-    # output whole; among declared outs a declaration and a JavaScript file are
+    # A tree is compiled output whole; among declared outs a .d.ts and a .js are
     # a dep's, while a .ts out is a source for a consumer's srcs.
     files = depset(outs)
     if has_out_dir:

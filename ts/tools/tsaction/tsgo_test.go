@@ -44,9 +44,8 @@ func realpath(t *testing.T, p string) string {
 	return resolved
 }
 
-// tsgo runs from the program root, where the exec root's top-level entries
-// and the forest are links, and finds the source through them; afterwards the
-// root is gone and the stamp is there.
+// tsgo runs from the program root and finds the source through its links;
+// afterwards the root is gone and the stamp is there.
 func TestTsgoStep_RunsFromAProgramRoot(t *testing.T) {
 	root, argv := newTsgoExecroot(t,
 		"pwd >> \"$0.argv\"\nreadlink node_modules >> \"$0.argv\"\nls | tr '\\n' ' ' >> \"$0.argv\"\necho >> \"$0.argv\"\n"+

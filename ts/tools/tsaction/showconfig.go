@@ -1,6 +1,5 @@
-// The tsconfig step writes the action's tsconfig from the ruleset's baseline,
-// the user's file and what `tsgo --showConfig` says the two mean; the oxc step
-// reads the same answer.
+// The tsconfig step writes the action's tsconfig from the baseline, the user's
+// file and what `tsgo --showConfig` says the two mean; the oxc step reads that.
 
 package main
 
@@ -267,9 +266,8 @@ func (a *actionConfig) paths(chain *tsconfig.Resolved, dir string) map[string][]
 	return out
 }
 
-// types is the user's list with each path-shaped entry rebased to where the
-// sandbox stages it, or the direct @types deps when the chain sets none. It is
-// always written, so what is in scope is what the chain or the deps named.
+// types is the user's list, each path-shaped entry rebased to where the sandbox
+// stages it, or the direct @types deps when the chain sets none. Always set.
 func (a *actionConfig) types(effective *effectiveOptions, dir string) ([]string, error) {
 	if effective.Types == nil {
 		return append([]string{}, a.typesDeps...), nil

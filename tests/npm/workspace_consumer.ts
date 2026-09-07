@@ -1,6 +1,5 @@
-// @npm//:shared is the hub's view of //packages/shared:shared, linked into the
-// forest at node_modules/shared with the member's package.json as built: the
-// bare name and the exports subpath resolve through that manifest.
+// @npm//:shared is the hub's view of //packages/shared:shared, linked at
+// node_modules/shared with the member's package.json as built.
 import { greet } from "shared";
 import { frame } from "shared/wire";
 

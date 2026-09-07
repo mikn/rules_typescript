@@ -1,39 +1,5 @@
-// Package dev_server_test starts a ts_dev_server and asks it questions.
-//
-// The generated launcher and vite.config.mjs are not the deliverable; a running
-// dev server that serves the right bytes is. So this runs the launcher exactly
-// as `bazel run` does -- RUNFILES_DIR plus BUILD_WORKSPACE_DIRECTORY -- against
-// a throwaway workspace, and asserts over HTTP:
-//
-//  1. the generated config, EVALUATED (it is a module that reads its
-//     environment and the filesystem), configures the port the rule was given,
-//     an allow-list that reaches bazel-bin, a watch path ibazel's rebuilds land
-//     in, and the inputs a rebuild has to restart the server for;
-//  2. the running server serves a file from bazel-bin rather than answering 403;
-//  3. an `import "./app.ts"` lands on the .ts SOURCE in both variants: dev
-//     takes Bazel out of the inner loop, so Vite transforms first-party source
-//     itself. What the plugin adds is bazel-bin for what Vite cannot produce:
-//     a ts_codegen output with no checked-in source resolves WITH the plugin
-//     and does not without it. Same request, two answers -- which is what
-//     proves the plugin is installed and resolving rather than merely named in
-//     the config text;
-//  4. with react_refresh = True, a .tsx module comes back carrying the React
-//     Fast Refresh preamble; without it, it does not;
-//  5. the launcher survives the SIGTERM ibazel sends on every rebuild, and the
-//     server behind it keeps answering;
-//  6. a rebuild that only rewrote ts_codegen output serves the new bytes and
-//     does NOT restart Vite; a rebuild that changed the generated config does;
-//  7. a BARE npm specifier out of first-party source resolves into the Bazel npm
-//     tree and the file it lands on is served. Vite has no search-path option,
-//     so this is the bazel:npm-resolve plugin or nothing -- and a package that
-//     is not in the tree still fails, so the plugin is resolving rather than
-//     inventing;
-//  9. with a vite_config, the user's plugin is first in the container and its
-//     transform reaches the response, which also means its own bare npm import
-//     resolved.
-//
-// Which variant is under test comes from the env of the go_test target:
-// DEV_TARGET, DEV_PORT, DEV_BAZEL_PLUGIN, DEV_REACT_REFRESH, DEV_USER_CONFIG.
+// Package dev_server_test runs the launcher as `bazel run` does against a
+// throwaway workspace and asserts over HTTP; the env picks the variant.
 package dev_server_test
 
 import (

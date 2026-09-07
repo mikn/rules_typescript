@@ -137,8 +137,7 @@ sh_test(
 )
 
 # ── What the generated tsconfig says about npm ────────────────────────────────
-# An npm dep and an @types/* dep, and a root config that names neither: the
-# editor resolves both through the checkout's node_modules. Analysed, not built.
+# An npm dep, an @types/* dep, and a root config naming neither; analysed only.
 ts_compile(
     name = "npm_fixture",
     srcs = ["npm_fixture.ts"],
@@ -161,11 +160,7 @@ editor_paths_test(
 )
 
 # ── The same question for a pnpm workspace member ─────────────────────────────
-# A member's bare specifier and its subpaths are declared in its own
-# package.json, which pnpm links into the checkout's node_modules and the build
-# links into the forest as built. Both resolvers read that manifest, so the
-# editor map carries no key for //packages/pulse: a key here would name Bazel's
-# declarations where the checkout has the sources.
+# Both resolvers read the manifest; the editor map has no //packages/pulse key.
 ide_tsconfig(
     name = "member_ide_tsconfig",
     tags = ["manual"],

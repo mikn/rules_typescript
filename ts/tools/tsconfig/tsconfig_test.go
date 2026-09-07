@@ -116,9 +116,8 @@ func TestResolve_BaseURLAndPathsKeepTheirWritersDirectories(t *testing.T) {
 	}
 }
 
-// A bare or scoped specifier resolves through node_modules, which the reader
-// has no root for; the rest of the config still loads, and the skip is said
-// once per specifier.
+// A package-form extends is skipped, the rest of the config still loads, and
+// the skip is said once per specifier.
 func TestResolve_PackageFormExtendsIsSkippedAndSaidOnce(t *testing.T) {
 	repo := t.TempDir()
 	leaf := filepath.Join(repo, "tsconfig.json")
@@ -164,8 +163,7 @@ func TestResolve_CycleTerminates(t *testing.T) {
 }
 
 // Two branches of an extends array reaching the same base is not a cycle: the
-// base is read again, because where it lands in the merge order is what
-// decides whether it beats a config declared between the two branches.
+// base is read again, since its place in the merge order decides what it beats.
 func TestResolve_DiamondReReadsTheSharedBase(t *testing.T) {
 	repo := t.TempDir()
 	write(t, filepath.Join(repo, "shared.json"), `{"compilerOptions": {"paths": {"@/*": ["shared/*"]}}}`)

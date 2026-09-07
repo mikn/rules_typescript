@@ -130,9 +130,8 @@ func main() {
 // map; the boundary directive makes it the one target the hub's `target` names.
 const memberPackage = "# gazelle:ts_package_boundary tsconfig\n"
 
-// Only the hub's view links the member at node_modules/<name>, in the test's
-// forest and its runtime tree alike, so a test importing the member by name
-// needs the hub label beside :shared.
+// Only the hub's view links the member at node_modules/<name>, so a test that
+// imports it by name needs the hub label beside :shared.
 func memberSelfImportTakesTheHubLabel(it *harness.IT, afterFirstRun string) {
 	build := it.Path("packages/shared/BUILD.bazel")
 	if second := it.Read(build); second != afterFirstRun {

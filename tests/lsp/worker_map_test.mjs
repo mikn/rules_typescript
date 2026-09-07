@@ -1,15 +1,5 @@
-/**
- * worker_map_test.mjs — the tsserver-hook worker's resolution map, hermetically.
- *
- *   node worker_map_test.mjs <tsserver-hook-worker.js>
- *
- * The worker reads what `bazel run //:refresh_tsconfig` wrote from the build
- * graph -- .bazel/tsserver-hook-data.json -- so a fixture workspace is the whole
- * of its input, and there is no `bazel` left to stub out.
- *
- * The map is checked including what is left OUT of it: a ts_compile package
- * with no entry point.
- */
+// The tsserver-hook worker's resolution map, hermetically: the worker reads
+// only what `bazel run //:refresh_tsconfig` wrote, so a fixture is its input.
 
 import { Worker } from 'node:worker_threads';
 import fs from 'node:fs';

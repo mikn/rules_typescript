@@ -96,14 +96,8 @@ def _source_root(f, pkg):
 
 # ─── Tsconfig generation ─────────────────────────────────────────────────────
 
-# The options a TypeScript target gets from this ruleset whether or not it names
-# a `tsconfig`: a file the action config extends FIRST, so every key the user's
-# tsconfig (or its own extends chain) mentions wins and only the keys it says
-# nothing about fall back here. moduleResolution is not among them: TypeScript
-# rejects a resolver it did not derive from the `module` that wins (TS5109,
-# TS5110), and tsgo derives Bundler from every module but Node16/NodeNext.
-# allowArbitraryExtensions is required by the .d.ts this ruleset generates for
-# css_module, css_library, asset_library and json_library deps.
+# The file the action config extends FIRST, so every key the user's chain sets
+# wins. moduleResolution is absent: tsgo derives it from the winning `module`.
 _BASELINE_OPTIONS = {
     "strict": True,
     "module": "Preserve",
@@ -129,20 +123,9 @@ def _write_baseline_tsconfig(ctx):
     return out
 
 # ─── Undeclared imports ──────────────────────────────────────────────────────
-#
-# An import has to be satisfied by a DIRECT dep. Inputs stay transitive and
-# resolution becomes direct, and the split has to happen here rather than in the
-# forest: one node_modules serves the whole program, so leaving a transitive
-# package out would also stop a declared dep's own .d.ts from resolving ITS
-# imports, which widens those types to `any` instead of reporting anything.
-#
-# So the check reads the target's own sources and asks, per specifier, whether a
-# direct dep provides it. Only Bazel can answer that, and only Bazel knows the
-# label to name in the answer, which is what the compiler's own "cannot find
-# module" cannot tell anyone.
-#
-# The action's inputs are the target's own srcs plus a manifest of what the deps
-# provide, so it never waits on an upstream compile.
+
+# Checked here, not by thinning the forest: a transitive package missing from
+# one node_modules widens a declared dep's .d.ts types to `any`, with no error.
 
 # Embedded rather than a checked-in .mjs so that the manifest format and its one
 # reader stay in the same file. Escape sequences are doubled: this is a Starlark
@@ -607,9 +590,8 @@ def _ts_compile_impl(ctx):
 
     compile_srcs, js_srcs, passthrough_dts = _classify_srcs(ctx)
 
-    # Collect transitive deps. An npm dep contributes no declaration files: its
-    # files reach tsgo through the forest, and a copy staged at its own exec
-    # path would be a second module of the same name.
+    # An npm dep contributes no declaration files: its files reach tsgo through
+    # the forest; a copy at its own exec path would duplicate the module.
     transitive_dts_sets = []
     dep_npm_package_sets = []
     transitive_js_sets = []
@@ -650,16 +632,14 @@ def _ts_compile_impl(ctx):
             transitive_asset_sets.append(dep[AssetInfo].transitive_asset_files)
             direct_provided_sets.append(dep[AssetInfo].asset_files)
 
-    # The forest: every package this target's imports or its deps' declarations
-    # can name, one entry per resolution, the target's own deps flat. A dep's
+    # The forest: one entry per resolution, the target's own deps flat. A dep's
     # emitted .d.ts imports the packages the dep declared.
     forest_packages = collect_npm_packages(
         direct_npm_infos + depset(transitive = dep_npm_package_sets, order = "postorder").to_list(),
     )
 
-    # One entry per name for the undeclared-import check, the direct deps'
-    # resolution first. A workspace member has no package_dir: a consumer names
-    # its view directly, and npm_direct answers for it.
+    # One entry per name for the undeclared-import check, direct deps first. A
+    # workspace member has no package_dir: npm_direct answers for its view.
     reachable_by_name = {}
     for npm_info in forest_packages:
         if npm_info.package_dir and npm_info.package_name not in reachable_by_name:
@@ -690,10 +670,8 @@ def _ts_compile_impl(ctx):
     strict_deps_inputs = [strict_deps.stamp] if strict_deps else []
     strict_deps_gated = False
 
-    # The chain the action config extends: the ruleset's baseline, then the
-    # user's file and what it extends. Starlark cannot read the file to follow
-    # its chain, so a ts_config target declares it and every file in it is an
-    # action input.
+    # Starlark cannot read the file to follow its extends chain, so a ts_config
+    # target declares it and every file in it is an action input.
     baseline_file = _write_baseline_tsconfig(ctx)
     tsconfig_chain = [baseline_file]
     if ctx.file.tsconfig:
@@ -796,9 +774,7 @@ def _ts_compile_impl(ctx):
         )
 
     # ── The action tsconfig ───────────────────────────────────────────────
-    #
-    # Written by tsaction from the chain above and tsgo's own reading of it, so
-    # tsgo and oxc take target and jsx from one place.
+    # tsaction writes it from the chain, so tsgo and oxc share target and jsx.
     tsconfig = None
     options_file = None
     if program_srcs:
@@ -889,10 +865,7 @@ def _ts_compile_impl(ctx):
         )
 
     # ── tsgo action: declaration emit, or diagnostics only ────────────────
-    #
-    # The program is the srcs, the first-party deps' declarations and the
-    # forest, run from a program root that mirrors the exec root with the forest
-    # at its node_modules -- see the module docstring.
+    # Run from a program root: the exec root mirrored, forest at node_modules.
     validation_outputs = []
     if program_srcs:
         forest = build_node_modules_action(

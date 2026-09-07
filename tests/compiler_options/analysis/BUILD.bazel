@@ -35,9 +35,8 @@ load(
 
 package(default_visibility = ["//:__pkg__"])
 
-# One target holding a subtree and a JavaScript source: the subject of the
-# argv and written-config assertions below. The nested source sorts first, so a
-# strip prefix or a rootDir taken from srcs[0] would be the nested directory.
+# A subtree and a JavaScript source in one target. The nested source sorts
+# first, so a strip prefix or rootDir taken from srcs[0] would be its directory.
 ts_compile(
     name = "everything",
     srcs = [
@@ -74,10 +73,8 @@ build_test(
     targets = [":over_tsconfig"],
 )
 
-# A `module` of the target's own, so the ruleset's is gone and the resolver it
-# was paired with has to go with it. tsgo has to accept the pair, which only a
-# real build says. Its own source: the outputs of a non-manual ts_compile are
-# named after the src, not the target.
+# A `module` of the target's own drops the ruleset's and the resolver paired
+# with it; only a real build says tsgo accepts the pair.
 ts_compile(
     name = "derived_resolution",
     srcs = ["derived.ts"],
@@ -124,10 +121,8 @@ go_test(
     deps = ["//tests/verify"],
 )
 
-# A pnpm workspace member whose package.json is the only statement of what its
-# specifiers mean: `pulse` is entry.ts, `pulse/button` four directories down,
-# `pulse/tokens/<name>` a file under a directory of another name. The hub's view
-# links that manifest, rewritten to the emitted files, at node_modules/pulse.
+# A workspace member whose package.json alone says what `pulse`, `pulse/button`
+# and `pulse/tokens/<name>` mean; the hub's view links that manifest as built.
 ts_compile(
     name = "exported_subpaths",
     srcs = ["exported_subpaths.ts"],
@@ -157,10 +152,8 @@ forwarded_files_test(
 
 # ── compilerOptions.types ────────────────────────────────────────────────────
 
-# Three of the package spellings a `types` entry takes, each resolved through
-# the forest: an `exports` subpath, a @types/* package under its own name, and
-# the bare name that package supplies. import.meta.env is vite/client's, so the
-# src compiles only if the first one resolved.
+# Three package spellings of a `types` entry: an `exports` subpath, a @types/*
+# package by its own name, and the bare name it supplies.
 ts_compile(
     name = "requested_types",
     srcs = ["requested_types.ts"],
@@ -193,10 +186,8 @@ build_test(
     targets = [":types_under_type_roots"],
 )
 
-# A dep's declaration at the path the entry names, generated rather than checked
-# in. A .d.ts in a dep's srcs is passed through at its bazel-out path, and the
-# entry is rebased to point there: GENERATED_IN_SRCS is declared by that file
-# and nowhere else, so the src compiles only if the entry resolved.
+# A dep's declaration at the path the entry names, generated: the passed-through
+# .d.ts sits at its bazel-out path; GENERATED_IN_SRCS is declared nowhere else.
 genrule(
     name = "gen_ambient_in_srcs",
     outs = ["generated_in_srcs.d.ts"],
