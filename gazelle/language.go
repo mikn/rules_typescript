@@ -49,7 +49,9 @@ func (l *tsLang) RegisterFlags(fs *flag.FlagSet, _ string, c *config.Config) {
 	fs.StringVar(&tc.programs.tsgoFlag, "ts_tsgo", "",
 		"the tsgo binary that lists each tsconfig.json program; the default is the toolchain's, in the Gazelle binary's runfiles")
 	fs.BoolVar(&tc.programs.verbose, "ts_verbose", false,
-		"say which tsgo lists the programs, one line per tsconfig.json with what it listed or why it was not listed, and the .ts files no program lists")
+		"say which tsgo lists the programs, one line per tsconfig.json with "+
+			"what it listed or why it is not a package, how many are, and the "+
+			".ts files no program lists")
 	l.programs = tc.programs
 	c.Exts[languageName] = tc
 }
@@ -342,7 +344,9 @@ func (l *tsLang) GenerateRules(args language.GenerateArgs) language.GenerateResu
 
 func (l *tsLang) DoneGeneratingRules() {
 	if l.programs != nil {
+		l.programs.reportCensus()
 		l.programs.reportUnlisted()
+		l.programs.reportUnowned()
 	}
 }
 

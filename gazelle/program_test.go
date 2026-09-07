@@ -574,6 +574,8 @@ func TestProgram_FilesInNoProgramAreReported(t *testing.T) {
 	}
 
 	want := []string{
+		"typescript: 2 tsconfig.json: 1 package, 1 refused, " +
+			"0 listing no first-party file",
 		"typescript: .: 1 file in no program",
 		"typescript: pkg/scripts: 1 file in no program",
 		"typescript: stray: 2 files in no program",

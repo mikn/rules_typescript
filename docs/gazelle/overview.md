@@ -46,8 +46,17 @@ repository. The binary is the toolchain's, carried in
 build type-checks; `-ts_tsgo=<path>` names another one. A run says nothing
 about the listings, tsgo's diagnostics included; `-ts_verbose` prints which
 binary ran, one line per `tsconfig.json` with what it listed or why it was not,
-tsgo's diagnostics for it, and the `.ts`/`.tsx`/`.mts`/`.cts` files no program
-lists, per directory and in total: `bazel run //:gazelle -- -ts_verbose`.
+tsgo's diagnostics for it, how many of them are packages, and the
+`.ts`/`.tsx`/`.mts`/`.cts` files no program lists, per directory and in total:
+`bazel run //:gazelle -- -ts_verbose`.
+
+A directory is a package when its `tsconfig.json` lists a first-party file: a
+path inside the repository and not under `node_modules`. A file belongs to the
+nearest package at or above its directory when that package's program lists
+it; a file the nearest package does not list belongs to no package, and every
+run from the repository root names each such file with the programs that
+reached it, as it names a listed file under a directory the walk did not enter
+(`# gazelle:exclude`, `.bazelignore`, `# gazelle:ignore`).
 
 ### Verifying a Run
 

@@ -55,18 +55,26 @@ type typeEntry struct {
 	file  string
 }
 
-// One run's listings; every directory's config shares the pointer.
+// One run's listings; every directory's config shares the pointer. packages
+// holds, per package directory, the first-party files its program lists.
 type programStore struct {
 	tsgoFlag string
 	verbose  bool
 	tsgo     string
 	skipped  bool
 	programs map[string]*program
+	packages map[string]map[string]bool
 	visited  map[string][]string
+	walked   map[string]bool
 }
 
 func newProgramStore() *programStore {
-	return &programStore{programs: map[string]*program{}, visited: map[string][]string{}}
+	return &programStore{
+		programs: map[string]*program{},
+		packages: map[string]map[string]bool{},
+		visited:  map[string][]string{},
+		walked:   map[string]bool{},
+	}
 }
 
 func (s *programStore) say(format string, a ...any) {
@@ -111,6 +119,7 @@ func (s *programStore) binary() (string, error) {
 var tsSourceExtensions = []string{".ts", ".tsx", ".mts", ".cts"}
 
 func (s *programStore) visit(rel string, files []string) {
+	s.walked[rel] = true
 	for _, f := range files {
 		if slices.Contains(tsSourceExtensions, path.Ext(f)) {
 			s.visited[rel] = append(s.visited[rel], path.Join(rel, f))
@@ -130,7 +139,7 @@ func listTsConfigProgram(args language.GenerateArgs, tc *tsConfig) {
 		refused = "neither include nor files in its extends chain, so tsgo would enumerate the whole repository"
 	}
 	if refused != "" {
-		store.programs[args.Rel] = &program{dir: args.Rel, refused: refused}
+		store.record(&program{dir: args.Rel, refused: refused})
 		store.say("%s: not listed: %s", cfg, refused)
 		return
 	}
@@ -150,7 +159,7 @@ func listTsConfigProgram(args language.GenerateArgs, tc *tsConfig) {
 	if err != nil {
 		log.Fatalf("typescript: %v", err)
 	}
-	store.programs[args.Rel] = p
+	store.record(p)
 	if p.refused != "" {
 		store.say("%s: not listed: %s", cfg, p.refused)
 		return
@@ -159,6 +168,10 @@ func listTsConfigProgram(args language.GenerateArgs, tc *tsConfig) {
 	// types entry naming a generated file draws one on every run over a clean checkout.
 	for _, d := range p.diagnostics {
 		store.say("%s: %s", cfg, d)
+	}
+	if store.packages[args.Rel] == nil {
+		store.say("%s: not a package: its listing names no first-party file", cfg)
+		return
 	}
 	store.say("%s: %d files listed, %d roots, %d edges, %d type entries",
 		cfg, len(p.files), len(p.roots), len(p.edges), len(p.types))
