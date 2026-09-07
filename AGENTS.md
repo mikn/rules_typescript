@@ -301,9 +301,11 @@ generate config for whatever it resolves to. `MODULE.bazel` translates six
 lockfiles into six hubs. Four resolve Vite (`@npm`, `@npm_tailwind`,
 `@npm_workers`, `@npm_eslint`), all at 8.2.2, with vitest 4.1.11 wherever a hub
 resolves vitest at all, so there is one lane. `@npm` (`tests/npm/pnpm-lock.yaml`)
-carries most of it: `tests/vitest/**`, `tests/dev_server/**`, `vite/tests/**`
-(vite-plugin-bazel's own tests), and the `lsp` and `npm_deps` integration
-workspaces, which copy that lockfile verbatim. `@npm_features` (`tests/npm/pnpm-lock-features.yaml`, declared
+carries most of it: `tests/vitest/**`, `tests/dev_server/**` and `vite/tests/**`
+(vite-plugin-bazel's own tests). The integration workspaces that import npm
+(`tests/integration/gazelle_roundtrip`, `npm_deps`, `lsp`) carry their own
+lockfiles, translated by the nested Bazel: the first two resolve the same 8.2.2
+and 4.1.11, `lsp`'s resolves neither tool. `@npm_features` (`tests/npm/pnpm-lock-features.yaml`, declared
 `dev_dependency`) is the pnpm patch/alias/peer-variant fixture and resolves
 neither tool; `@npm_esbuild` (`vite/esbuild/pnpm-lock.yaml`) holds the esbuild
 that bundles `vite-plugin-bazel` and resolves neither either. The per-hub table is in

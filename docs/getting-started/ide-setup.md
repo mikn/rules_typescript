@@ -194,7 +194,10 @@ ts_refresh_tsconfig(
 The set is computed from what each target names: the `tsconfig` it compiles
 under, and `allowJs` for a target with JavaScript srcs where the root block does
 not set it. A package whose targets name a tsconfig of their own gets its own
-program; one whose targets name none stays in the root's.
+program; one whose targets name none stays in the root's. A package whose
+targets name the `tsconfig.json` in their own directory -- every package
+Gazelle writes -- has its program already, that file: nothing is generated for
+it, and the root program excludes the files it covers.
 
 The rule fails when the declared list disagrees with the graph, in either
 direction, and the message names what to add or remove. The list is declared

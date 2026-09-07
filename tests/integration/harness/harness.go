@@ -30,7 +30,6 @@ import (
 type Config struct {
 	Name         string
 	WorkspaceRel string
-	Lockfile     string
 	Renames      map[string]string
 }
 
@@ -149,15 +148,6 @@ func (it *IT) prepare(cfg Config, workspaceSrc string) error {
 			return err
 		}
 	}
-	if cfg.Lockfile != "" {
-		src := filepath.Join(it.RulesTSRoot, cfg.Lockfile)
-		if _, err := os.Stat(src); err != nil {
-			return fmt.Errorf("pnpm-lock.yaml not found at %s", src)
-		}
-		if err := copyFile(src, filepath.Join(it.WorkspaceDir, "pnpm-lock.yaml")); err != nil {
-			return err
-		}
-	}
 	return it.shareRepositoryCache()
 }
 
@@ -186,24 +176,8 @@ func (it *IT) shareRepositoryCache() error {
 	return err
 }
 
-// The persistent root holds the two content-addressed caches, plus the
-// fallback run roots below when there is no TEST_TMPDIR to use. Sharing the
-// CACHES across checkouts is safe by construction -- a key is a hash of the
-// content, so a stale entry is a miss and never a wrong answer -- and they are
-// what makes a cold run mean "no network" instead of "no cache".
-//
-// RULES_TS_IT_SCRATCH keeps its name for the sake of the CI job that sets it
-// (--test_env=RULES_TS_IT_SCRATCH=/mnt/rules_ts_it, whose two cache
-// subdirectories the actions cache restores; the run roots are never reached
-// there, since `bazel test` always supplies a TEST_TMPDIR).
-//
-// The last resort is os.TempDir() rather than TEST_TMPDIR: TEST_TMPDIR is now
-// the run root below, which Bazel clears on each `bazel test`, so caches placed
-// there would be re-fetched every time -- which is the one thing this root is
-// for. That last resort needs HOME and XDG_CACHE_HOME both unset, and it is the
-// one branch that can land a nested output base on a tmpfs: os.TempDir() is
-// $TMPDIR or /tmp, which is a 32G tmpfs on the machine this was written on. The
-// three above it name a directory CI or the developer chose.
+// The persistent root: RULES_TS_IT_SCRATCH is the name ci.yml sets. Never
+// TEST_TMPDIR: the outer Bazel clears it on each `bazel test` (docs/CI_CD.md).
 func cacheRoot() string {
 	if dir := os.Getenv("RULES_TS_IT_SCRATCH"); dir != "" {
 		return dir
@@ -217,15 +191,8 @@ func cacheRoot() string {
 	return filepath.Join(os.TempDir(), "rules_typescript_it")
 }
 
-// The third shared cache, and the one fetch the other two do not cover:
-// `bazel_binary` is not Bazel but a bazelisk wrapper, which defaults
-// BAZELISK_HOME to $PWD. command() runs it from the per-run WorkspaceDir that
-// prepare() has just recreated, so unset, all 18 tests fetch Bazel from
-// releases.bazel.build on every run -- ~1.2GB a suite, and a network dependency
-// in each one. A runner whose DNS timed out is what surfaced it; green runs hid
-// it, because Bazel echoes a test's stdout only when the test fails.
-//
-// An inherited value wins, so a developer's populated cache is left alone.
+// bazelisk defaults BAZELISK_HOME to $PWD, the WorkspaceDir prepare() recreates
+// per run: unset, every test fetches Bazel from releases.bazel.build again.
 func bazeliskHome() string {
 	if dir := os.Getenv("BAZELISK_HOME"); dir != "" {
 		return dir
@@ -233,41 +200,8 @@ func bazeliskHome() string {
 	return filepath.Join(cacheRoot(), "bazelisk")
 }
 
-// The per-run half -- child workspace, scratch dir and nested output base --
-// goes under TEST_TMPDIR, and the outer Bazel clears the whole execroot _tmp on
-// each `bazel test` -- measured: a full suite left 6.8G of nested output bases
-// there, and the next `bazel test`, of one unrelated target, left only that
-// target's 264K. One persistent root keyed by the test's name is what let
-// two checkouts stage into one directory and read each other's half-written
-// state as their own failures; there is no name left to collide here.
-//
-// Measured, against the ENOSPC warning this replaces: these tests carry
-// `no-sandbox` (tags.bzl), so TEST_TMPDIR is
-// <outer output base>/execroot/_main/_tmp/<hash> -- the same real disk as the
-// rest of the build, not a tmpfs. That hash is per target (a suite run printed
-// 19 distinct ones for the 19 tests) and the outer output base is the path in
-// front of it, so two targets differ in the hash and two checkouts differ in the
-// prefix. On CI it is the root filesystem, which is also where /mnt/rules_ts_it
-// lives on that image (see ci.yml), so the gigabytes do not change volume.
-//
-// Losing the retained output base costs a LOCAL developer a flat ~13.5s per
-// test -- five interleaved pairs put new_project_test at 27.6s retained against
-// 41.1s fresh and npm_deps_test at 28.7s against 42.5s, which is analysis and
-// repo setup, not a re-fetch, because the content-addressed caches above are
-// what make a warm run warm. CI pays nothing: it provisions /mnt/rules_ts_it
-// with a bare `mkdir -p` on a fresh runner and restores only the two cache
-// subdirectories, so every nested output base was already being created empty
-// there on every run (ci.yml).
-//
-// The fallback, when there is no TEST_TMPDIR, is keyed by the checkout and the
-// test's name under the persistent root. Not os.MkdirTemp, for two reasons: a
-// fresh random name per process turns a SIGKILL'd run's multi-GB output base
-// into a leak nothing can ever find again, where this bound is the one the old
-// code had -- one output base per test per checkout, overwritten in place by
-// that test's next run -- and os.MkdirTemp("", ...) is os.TempDir(), which is
-// the tmpfs the comment here used to warn about. Adding the checkout is what
-// the old path lacked; the surviving bound is one run of a given test per
-// checkout at a time, which is what invoking a runner by hand means anyway.
+// Under `bazel test` the run root is TEST_TMPDIR. The fallback is keyed by
+// checkout and test, not os.MkdirTemp: the next run overwrites a killed run's.
 func runRoot(name, checkout string) (string, error) {
 	if dir := os.Getenv("TEST_TMPDIR"); dir != "" {
 		return dir, nil
@@ -390,13 +324,8 @@ func makeWritable(dir string) {
 	})
 }
 
-// The output base is KEPT, for two different reasons on the two paths. Under
-// `bazel test` it sits inside TEST_TMPDIR, which the next `bazel test` in this
-// output base clears anyway, so deleting it here would only bill this run for
-// gigabytes of unlink. Outside it, the run root is stable, so the next run of
-// this test from this checkout reuses the output base instead of re-fetching
-// its toolchains -- the ~13.5s in runRoot -- and overwrites it in place, which
-// is what bounds it. Either way the shutdown releases the server first.
+// The output base is kept: under `bazel test` the next run clears TEST_TMPDIR
+// anyway, and outside it the next run of this test reuses it in place.
 func (it *IT) cleanup() {
 	for i := len(it.stops) - 1; i >= 0; i-- {
 		it.stops[i]()
@@ -499,6 +428,27 @@ func (it *IT) BazelLog(logName string, args ...string) (*Log, error) {
 		it.Fail("cannot write %s: %v", log.Path, writeErr)
 	}
 	return log, err
+}
+
+// Install runs the workspace's ts_pnpm over its lockfile: Gazelle lists that
+// tree. Its store is under the cache root, so a warm run fetches nothing.
+func (it *IT) Install() {
+	store := filepath.Join(cacheRoot(), "pnpm")
+	args := []string{"run", "//:pnpm", "--", "install", "--frozen-lockfile",
+		"--prefer-offline", "--ignore-scripts",
+		"--store-dir", filepath.Join(store, "store")}
+	fmt.Printf("INFO: bazel %s\n", strings.Join(args, " "))
+	cmd := it.command(args)
+	cmd.Env = append(cmd.Env,
+		"npm_config_cache_dir="+filepath.Join(store, "cache"),
+		"npm_config_state_dir="+filepath.Join(store, "state"))
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		it.Fail("pnpm install exited non-zero: %v", err)
+	}
+	it.RequireFile(it.Path("node_modules", ".modules.yaml"),
+		"pnpm install left no node_modules/.modules.yaml at the workspace root")
 }
 
 func (it *IT) BazelBin() string {

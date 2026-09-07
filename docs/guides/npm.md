@@ -426,9 +426,13 @@ of one name, or one directory linked under two names, fail the extension.
 
 The link holds the member's data srcs too, at their package-relative paths
 beside the `.js` that reads them: a member whose module imports `./banner.json`
-answers `import { tagline } from "shared"` from the link alone. The view
-forwards `JsInfo`, so the closure's `transitive_data_files` reach a consumer as
-any dep's do. `ts_test` inlines the tree's workspace members for vite
+answers `import { tagline } from "shared"` from the link alone. The member's
+own `package.json` is the one data src the link leaves out: the manifest as
+built stands in its place, in the link and at the member's own path in a
+`ts_test`'s runfiles, where a test inside the member resolves the member's name
+through the nearest manifest and would otherwise reach the source targets. The
+view forwards `JsInfo`, so the closure's `transitive_data_files` reach a
+consumer as any dep's do. `ts_test` inlines the tree's workspace members for vite
 (`server.deps.inline`), because a member's emitted `.js` keeps its sources'
 extensionless relative imports, which node's loader rejects and vite resolves,
 and pnpm inlines a linked package for the same reason.

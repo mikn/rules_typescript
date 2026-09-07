@@ -9,9 +9,11 @@ load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_test")
 ts_compile(
     name = "shared",
     srcs = [
+        "package.json",
         "src/banner.json",
         "src/index.ts",
         "src/wire/index.ts",
+        "src/wire/package.json",
     ],
     visibility = ["//visibility:public"],
     deps = ["@npm//:zod"],

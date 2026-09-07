@@ -77,16 +77,19 @@ no test runs a generated config against a second major:
 
 | Hub | Lockfile | Vite | vitest | Coverage |
 |---|---|---|---|---|
-| `@npm` | `tests/npm/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` (the whole `tests/vitest` suite), `ts_dev_server` (six servers started and interrogated over HTTP), `vite-plugin-bazel`'s own tests, and the `lsp` and `npm_deps` integration workspaces |
+| `@npm` | `tests/npm/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` (the whole `tests/vitest` suite), `ts_dev_server` (six servers started and interrogated over HTTP), and `vite-plugin-bazel`'s own tests |
 | `@npm_tailwind` | `tests/tailwind/pnpm-lock.yaml` | 8.2.2 | — | Tailwind v4 through `vite_config`, under the dev server |
 | `@npm_workers` | `tests/workers/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` with the Workers pool (vitest inside workerd), and the `wrangler types` generator `//tools/codegen:wrangler_types` under `ts_codegen` (`tests/worker_types`) |
 | `@npm_eslint` | `tests/eslint/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | the ESLint plugin's own `ts_test` target, against `@typescript-eslint`'s rule tester |
 | `@npm_features` | `tests/npm/pnpm-lock-features.yaml` | — | — | pnpm's patched dependencies, npm aliases, peer-dependency variants, per-importer resolution; resolves neither tool |
 | `@npm_esbuild` | `vite/esbuild/pnpm-lock.yaml` | — | — | the esbuild that bundles `vite-plugin-bazel`. The one hub that is not a fixture; the bundle ships to consumers as API |
 
-The `examples/` modules are separate Bazel modules with their own lockfiles,
-outside the table above. `examples/app` and `examples/react-app` resolve Vite
-8.2.2 and vitest 4.1.11; `examples/basic` has no npm dependencies.
+The `examples/` modules and the integration workspaces under `tests/integration/`
+are separate Bazel modules with their own lockfiles, outside the table above.
+`examples/app`, `examples/react-app`, `tests/integration/gazelle_roundtrip` and
+`tests/integration/npm_deps` resolve Vite 8.2.2 and vitest 4.1.11;
+`tests/integration/lsp` resolves neither tool, and `examples/basic` has no npm
+dependencies.
 
 To re-derive the table from the repository:
 

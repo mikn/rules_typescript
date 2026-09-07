@@ -119,3 +119,30 @@ def _fails_with(message):
     return analysistest.make(_impl, expect_failure = True)
 
 baseline_conflict_test = _fails_with("extend the tsconfig baselines ")
+
+_OWN_PROGRAM_PACKAGE = "tests/lsp/own_program"
+
+def _own_program_impl(ctx):
+    env = analysistest.begin(ctx)
+    config = _written_config(env)
+    asserts.true(env, config != None, "ide_tsconfig wrote no tsconfig")
+    if config == None:
+        return analysistest.end(env)
+
+    # The package's own tsconfig.json is the program tsserver reads for its
+    # files, so nothing is generated over it and the root leaves them out.
+    asserts.equals(
+        env,
+        [],
+        _installed(env),
+        "a generated tsconfig was written for a package that has its own",
+    )
+    asserts.true(
+        env,
+        _OWN_PROGRAM_PACKAGE + "/a.ts" in config["exclude"],
+        "the root program does not exclude the package's files: " +
+        str(config["exclude"]),
+    )
+    return analysistest.end(env)
+
+own_program_test = analysistest.make(_own_program_impl)

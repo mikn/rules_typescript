@@ -167,6 +167,7 @@ def _member_view_impl(ctx):
             "src/wire/index.d.ts",
             "src/wire/index.js",
             "src/wire/index.js.map",
+            "src/wire/package.json",
         ],
         sorted([
             f.path[len(root):] if f.path.startswith(root) else f.basename
@@ -174,7 +175,7 @@ def _member_view_impl(ctx):
         ]),
         "the link holds the manifest, the member's .js and .d.ts at the " +
         "paths the manifest names, and its data srcs at their " +
-        "package-relative paths",
+        "package-relative paths, the member's own package.json excepted",
     )
     return analysistest.end(env)
 

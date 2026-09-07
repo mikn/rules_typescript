@@ -279,10 +279,12 @@ Both names are needed: `@npm` is the alias hub your `deps` labels spell, and
 your root `BUILD.bazel`. See [npm Dependencies](../guides/npm.md) for private
 registries and patched dependencies.
 
-`pnpm install` is never needed: the lockfile is the only npm input.
+The lockfile is the build's one npm input. Gazelle's listing is tsgo over the
+checkout, which resolves a bare specifier through `node_modules/`, so a
+checkout runs `pnpm install` once; a root lockfile with no install is refused
+before the first listing.
 
-A `node_modules/` that exists anyway, for an editor or a script, is a directory
-Bazel walks. pnpm links a `workspace:` dependency into it
+Bazel walks that `node_modules/`. pnpm links a `workspace:` dependency into it
 (`workers/file-viewer/node_modules/@lovable.dev/pulse -> ../../../../packages/ui`),
 and `bazel build //...` follows the link, so every package under the linked
 member is loaded a second time under `node_modules/`. `.bazelignore` takes no

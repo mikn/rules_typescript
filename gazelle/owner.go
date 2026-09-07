@@ -103,16 +103,10 @@ func (a srcSet) equal(b srcSet) bool {
 }
 
 // srcs is what pkg's targets compile: the files it owns, less those under a
-// codegen out_dir, which are that rule's output whatever a local run left.
+// codegen out_dir, plus the JavaScript each declaration stands in for.
 func (s *programStore) srcs(pkg string, tc *tsConfig) srcSet {
 	var set srcSet
-	for _, f := range slices.Sorted(maps.Keys(s.packages[pkg])) {
-		if s.owner(f) != pkg {
-			continue
-		}
-		if _, out := codegenOutDirOwning(parentDir(f), tc); out {
-			continue
-		}
+	add := func(f string) {
 		switch classify(f) {
 		case declarationFile:
 			set.declaration = append(set.declaration, f)
@@ -122,7 +116,41 @@ func (s *programStore) srcs(pkg string, tc *tsConfig) srcSet {
 			set.library = append(set.library, f)
 		}
 	}
+	listed := s.packages[pkg]
+	for _, f := range slices.Sorted(maps.Keys(listed)) {
+		if s.owner(f) != pkg {
+			continue
+		}
+		if _, out := codegenOutDirOwning(parentDir(f), tc); out {
+			continue
+		}
+		add(f)
+		if twin := s.javaScriptTwin(f); twin != "" && !listed[twin] {
+			add(twin)
+		}
+	}
+	for _, list := range []*[]string{&set.library, &set.test, &set.declaration} {
+		slices.Sort(*list)
+	}
 	return set
+}
+
+// javaScriptTwin is the x.mjs beside a declaration x.d.mts (x.js, x.cjs
+// likewise): tsc drops it from the program and resolves "./x.mjs" to x.d.mts.
+func (s *programStore) javaScriptTwin(f string) string {
+	for _, pair := range [][2]string{
+		{".d.ts", ".js"}, {".d.mts", ".mjs"}, {".d.cts", ".cjs"},
+	} {
+		stem, ok := strings.CutSuffix(f, pair[0])
+		if !ok {
+			continue
+		}
+		twin := stem + pair[1]
+		if slices.Contains(s.files[parentDir(f)], path.Base(twin)) {
+			return twin
+		}
+	}
+	return ""
 }
 
 // Every first-party file some program lists and no package owns, with the

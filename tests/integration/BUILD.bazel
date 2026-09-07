@@ -93,10 +93,7 @@ bazel_integration_test(
 )
 
 # ── npm_deps ──────────────────────────────────────────────────────────────────
-# npm dependency resolution: zod imported and type-checked, vitest used.
-# pnpm-lock.yaml is sourced from tests/npm/ at runtime by the runner
-# (not included in workspace_files — the lockfile is not part of the
-# static child workspace because it needs to come from the parent checkout).
+# zod type-checked and vitest run over the workspace's own installed lockfile.
 
 bazel_integration_test(
     name = "npm_deps_test",
@@ -175,7 +172,7 @@ bazel_integration_test(
 )
 
 # ── gazelle_roundtrip ─────────────────────────────────────────────────────────
-# Two Gazelle passes diffed, then build and test; the runner stages lockfiles.
+# Two Gazelle passes diffed, then build and test, over an installed workspace.
 
 bazel_integration_test(
     name = "gazelle_roundtrip_test",
@@ -190,7 +187,7 @@ bazel_integration_test(
 )
 
 # ── lsp ───────────────────────────────────────────────────────────────────────
-# refresh_tsconfig: npm packages get no paths entry; nested tsconfig.json files.
+# refresh_tsconfig: no paths entry for npm; a package's own tsconfig.json stays.
 
 bazel_integration_test(
     name = "lsp_test",

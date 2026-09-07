@@ -1,10 +1,3 @@
-"""Root BUILD file for the npmrc_registry integration test workspace."""
-
-load("@gazelle//:def.bzl", "gazelle")
-
-# gazelle:ts_package_boundary every-dir
-
-gazelle(
-    name = "gazelle",
-    gazelle = "@rules_typescript//gazelle:gazelle_typescript",
-)
+"""Root BUILD file for the npmrc_registry integration test workspace. The
+consumer's BUILD file is the runner's: a fetch through the registry is what is
+under test, so nothing here runs Gazelle."""

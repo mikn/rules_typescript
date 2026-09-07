@@ -507,6 +507,22 @@ _RUNNERS = [RUNNER_VITEST, RUNNER_NODE_TEST]
 
 # ─── Internal test runner rule ─────────────────────────────────────────────────
 
+# A test inside a member resolves the member's name through the nearest
+# package.json, so the manifest as built stands at the member's own path.
+def _member_manifests(ctx, members):
+    out = {}
+    for info in members:
+        member_dir = info.package_root.removeprefix(ctx.bin_dir.path + "/")
+        for f in info.all_files.to_list():
+            if f.basename == "package.json" and not f.is_source:
+                out[member_dir + "/package.json"] = f
+    return out
+
+def _without(files, paths):
+    if not paths:
+        return files
+    return depset([f for f in files.to_list() if f.short_path not in paths])
+
 def _ts_test_runner_impl(ctx):
     # Collect transitive .js files from all deps.
     transitive_js_sets = []
@@ -517,8 +533,6 @@ def _ts_test_runner_impl(ctx):
             transitive_data_sets.append(dep[JsInfo].transitive_data_files)
 
     transitive_js = depset(transitive = transitive_js_sets, order = "postorder")
-
-    runtime_data_sets = transitive_data_sets
 
     # The test .js files come from the compiled test target.
     test_js_files = ctx.files.compiled_tests
@@ -540,11 +554,17 @@ def _ts_test_runner_impl(ctx):
         ],
         order = "postorder",
     )
-    inline_members = sorted({
-        info.package_name: True
+    members = [
+        info
         for info in collect_npm_packages(npm_direct + npm_closure.to_list())
         if info.package_dir == None
-    }.keys())
+    ]
+    inline_members = sorted({m.package_name: True for m in members}.keys())
+    member_manifests = _member_manifests(ctx, members)
+    runtime_data_sets = [_without(
+        depset(transitive = transitive_data_sets),
+        member_manifests,
+    )]
 
     # Resolve vitest binary.
     # When set via the `vitest` attr, the label points to an npm_bin wrapper
@@ -580,12 +600,13 @@ def _ts_test_runner_impl(ctx):
         return _node_test_providers(
             ctx,
             runtime_files = depset(
-                transitive = [transitive_js] + transitive_data_sets,
+                transitive = [transitive_js] + runtime_data_sets,
             ),
             test_files_list = test_files_list,
             node_modules_files = node_modules_files,
             runtime_binary = runtime_binary,
             runtime_args = runtime_args,
+            symlinks = member_manifests,
         )
 
     # ── Vitest config ─────────────────────────────────────────────────────────
@@ -782,6 +803,9 @@ def _ts_test_runner_impl(ctx):
     if wrangler_patched:
         runfiles_files.append(wrangler_patched)
 
+    symlinks = dict(member_manifests)
+    if wrangler_patched:
+        symlinks[ctx.file.wrangler_config.short_path] = wrangler_patched
     runfiles = ctx.runfiles(
         files = runfiles_files,
         # The data srcs as well as the .js: each is in the sandbox only because
@@ -790,7 +814,7 @@ def _ts_test_runner_impl(ctx):
             transitive = [transitive_js] + runtime_data_sets,
         ),
         root_symlinks = launcher.root_symlinks,
-        symlinks = {ctx.file.wrangler_config.short_path: wrangler_patched} if wrangler_patched else {},
+        symlinks = symlinks,
     )
     for target in ctx.attr.data + ctx.attr.setup_files + ctx.attr.global_setup:
         runfiles = runfiles.merge(target[DefaultInfo].default_runfiles)
@@ -825,7 +849,8 @@ def _node_test_providers(
         test_files_list,
         node_modules_files,
         runtime_binary,
-        runtime_args):
+        runtime_args,
+        symlinks):
     """Providers for a runner = "node:test" target: no generated config at all."""
     set_attrs = [
         attr_name
@@ -888,6 +913,7 @@ def _node_test_providers(
         files = runfiles_files,
         transitive_files = runtime_files,
         root_symlinks = launcher.root_symlinks,
+        symlinks = symlinks,
     )
     for target in ctx.attr.data:
         runfiles = runfiles.merge(target[DefaultInfo].default_runfiles)

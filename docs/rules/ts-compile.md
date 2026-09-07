@@ -69,12 +69,15 @@ in the runfiles beside the `.js`, `ts_binary` in its runfiles and its bundle,
 `ts_dev_server` in its runfiles. A data file is never a tsgo input, with one
 class of exception: a `.json` is, this target's and its deps' alike. An import
 of it resolves to the file and is typed from its contents under
-`resolveJsonModule`, which bundler resolution implies, and tsc reads the nearest `package.json` of every source for the
-module's format and for the package's own name, so a package that imports
-itself by name (`import "@scope/pkg/wire"` from inside `pkg`) resolves through
-the manifest in `srcs`. At run time that name resolves through the hub's view of
-the member, not the staged manifest: Vite's resolver walks `node_modules` and
-has no package self-reference.
+`resolveJsonModule`, which bundler resolution implies, and tsc reads the nearest
+`package.json` of every source for the module's format and for the package's
+own name, so a package that imports itself by name (`import "@scope/pkg/wire"`
+from inside `pkg`) resolves through the manifest in `srcs`. That manifest names
+source targets, so it is the one data src the hub's view leaves out of the link,
+and a `ts_test` stages the manifest as built at the member's own path in its
+runfiles: Vite resolves the self-import through the nearest `package.json` too,
+and reaches the emitted `.js`. See [What a Workspace Member Is Imported
+As](../guides/npm.md#what-a-workspace-member-is-imported-as).
 
 A `.mts` or `.cts` src is refused: the rule emits `.js` and `.d.ts` from `.ts`
 alone, and has no output shape for one.

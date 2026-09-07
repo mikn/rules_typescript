@@ -372,6 +372,28 @@ func TestGenerate_ADeclarationOnlyPackageWritesNoTarget(t *testing.T) {
 	}
 }
 
+// tsc drops x.mjs from a program that holds x.d.mts and reads the declaration
+// in its place, so the JavaScript a declaration stands for is a src beside it.
+func TestGenerate_ADeclarationsJavaScriptTwinIsASrc(t *testing.T) {
+	g := generateAll(t, writeTree(t, map[string]string{
+		"package.json":      rootManifest,
+		"lib/tsconfig.json": includeAll,
+		"lib/compile.d.mts": "export declare function compile(v: number): string;\n",
+		"lib/compile.mjs":   "export function compile(v) {\n  return `${v}`;\n}\n",
+		"lib/compile.test.ts": "import { compile } from \"./compile.mjs\";\n" +
+			"export const s = compile(1);\n",
+		"lib/index.ts":  "export { compile } from \"./compile.mjs\";\n",
+		"lib/legacy.js": "module.exports = 1;\n",
+	}))
+
+	compile := mustRule(t, g.results["lib"], "ts_compile", "lib")
+	wantStrings(t, "ts_compile srcs", compile.AttrStrings("srcs"),
+		[]string{"compile.d.mts", "compile.mjs", "index.ts"})
+	test := mustRule(t, g.results["lib"], "ts_test", "lib_test")
+	wantStrings(t, "ts_test srcs", test.AttrStrings("srcs"),
+		[]string{"compile.d.mts", "compile.test.ts"})
+}
+
 // ---- the worker shape -------------------------------------------------------
 
 var workerTree = map[string]string{
@@ -722,7 +744,7 @@ func TestGenerate_WithdrawsTheVitestConfigFilegroupWithTheFile(t *testing.T) {
 // ---- the .d.mts / .d.cts flavours ------------------------------------------
 
 // A declaration is a declaration whatever its extension: it rides in every
-// target, and the JavaScript beside it is a src only when the program lists it.
+// target, and the JavaScript it stands for is a src beside it, listed or not.
 func TestGenerate_DeclarationFlavoursRideInEveryTarget(t *testing.T) {
 	g := generateAll(t, writeTree(t, map[string]string{
 		"package.json": rootManifest,
@@ -739,7 +761,7 @@ func TestGenerate_DeclarationFlavoursRideInEveryTarget(t *testing.T) {
 	res := g.results["pkg"]
 	compile := mustRule(t, res, "ts_compile", "pkg")
 	wantStrings(t, "ts_compile srcs", compile.AttrStrings("srcs"),
-		[]string{"compile.d.mts", "entry.ts", "globals.d.mts"})
+		[]string{"compile.d.mts", "compile.mjs", "entry.ts", "globals.d.mts"})
 	test := mustRule(t, res, "ts_test", "pkg_test")
 	wantStrings(t, "ts_test srcs", test.AttrStrings("srcs"),
 		[]string{"compile.d.mts", "compile.test.ts", "globals.d.mts"})
