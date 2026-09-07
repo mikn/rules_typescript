@@ -58,8 +58,8 @@ rule does not compile TypeScript.
 ## Without a Bundler
 
 Without a `bundler`, `ts_binary` runs the entry point's own `.js` file on the JS
-runtime, with the transitive `.js` outputs in its runfiles. The imports resolve
-as written; nothing is concatenated.
+runtime, with the transitive `.js` outputs and data srcs in its runfiles. The
+imports resolve as written; nothing is concatenated.
 
 ## With a Bundler
 

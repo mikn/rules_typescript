@@ -23,7 +23,7 @@ flags in `.bazelrc`. Every compiler option is the tsconfig's.
 
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `srcs` | `label_list` | required | `.ts`, `.tsx`, `.d.ts`, `.d.mts`, `.d.cts`, `.js`, `.mjs` or `.cjs` files. See [Sources](#sources) |
+| `srcs` | `label_list` | required | The package's files: TypeScript is compiled, JavaScript and declarations join the program, every other file is staged as data. See [Sources](#sources) |
 | `deps` | `label_list` | `[]` | `ts_compile`, `ts_codegen`, `ts_npm_package`, `css_library`, `css_module`, `asset_library` or `json_library` targets, and a workspace member's hub view `@npm//:<name>` |
 | `tsconfig` | `label` | `None` | The project's own `tsconfig.json`, or a [`ts_config`](#ts_config) target: where every compiler option comes from. See [Where compiler options come from](#where-compiler-options-come-from) |
 
@@ -60,6 +60,25 @@ higher-priority extension of a pair listed together, as `tsc` does. The
 checked-in file is then the module's only declaration, and `checkJs` does not
 reach that `.mjs`.
 
+Every other src is a data file: staged into the output tree unchanged at its
+package-relative path, so the compiled module beside it reaches it by the same
+relative path at run time -- `import data from "./data.json"`,
+`new URL("./logo.svg", import.meta.url)`, a `readFileSync` of a fixture. A
+consumer gets the closure as `JsInfo.transitive_data_files`; `ts_test` stages it
+in the runfiles beside the `.js`, `ts_binary` in its runfiles and its bundle,
+`ts_dev_server` in its runfiles. A data file is never a tsgo input, with one
+class of exception: a `.json` is. An import of it resolves to the file and is
+typed from its contents under `resolveJsonModule`, which bundler resolution
+implies, and tsc reads the nearest `package.json` of every source for the
+module's format and for the package's own name, so a package that imports
+itself by name (`import "@scope/pkg/wire"` from inside `pkg`) resolves through
+the manifest in `srcs`. At run time that name resolves through the hub's view of
+the member, not the staged manifest: Vite's resolver walks `node_modules` and
+has no package self-reference.
+
+A `.mts` or `.cts` src is refused: the rule emits `.js` and `.d.ts` from `.ts`
+alone, and has no output shape for one.
+
 ### Source and Declaration Maps
 
 Turn `--//ts:source_map` off for a build whose JavaScript nothing debugs, or
@@ -79,6 +98,8 @@ For each source file `foo.ts`:
 | `foo.js` | Compiled JavaScript (always from Oxc) |
 | `foo.js.map` | Source map, under `--//ts:source_map` |
 | `foo.d.ts` | Declaration file, the compilation boundary |
+
+Every other src is staged at its package-relative path, unchanged.
 
 ## Where Compiler Options Come From
 
@@ -135,7 +156,7 @@ Read the tsconfig a target handed the compiler with
 ### What Fails Before tsgo Runs
 
 Analysis rejects a `.jsx` src, a directory in `srcs` (a `ts_codegen` `out_dir`
-tree belongs in `deps`), a src of any other extension,
+tree belongs in `deps`), a `.mts` or `.cts` src,
 `--//ts:declaration_map` under `--//ts:declarations=oxc`, and a target with
 sources and no tsgo toolchain. One more is the root check below. `tsaction`
 fails the `TsConfig` action on a path-shaped `types` entry no input sits at
@@ -535,7 +556,8 @@ Fields for both, and the load path, are in
 
 - **`JsInfo`**: this target's `.js` and `.js.map` files as direct depsets, and
   the closure of both as transitive ones; `ts_binary` reads the transitive `.js`
-  set
+  set. Its data srcs are `data_files`, the closure's `transitive_data_files`:
+  what `ts_test`, `ts_binary` and `ts_dev_server` stage beside the `.js`
 - **`TsDeclarationInfo`**: this target's declarations and their first-party
   closure, plus the npm packages that closure imports; a downstream `ts_compile`
   type-checks against the closure and links the packages into its forest

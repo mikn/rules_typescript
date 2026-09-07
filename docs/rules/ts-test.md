@@ -26,7 +26,7 @@ cannot iterate) or when you need a tree the deps do not describe.
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `srcs` | `label_list` | required | `.ts`/`.tsx` test files |
-| `deps` | `label_list` | `[]` | `ts_compile` and `@npm//` targets the tests import |
+| `deps` | `label_list` | `[]` | `ts_compile` and `@npm//` targets the tests import. A `ts_compile` dep's data srcs are in the runfiles beside its `.js` |
 | `node_modules` | `label` | auto | Explicit `node_modules` target; skips auto-generation entirely |
 | `npm_workspace_name` | `string` | `"npm"` | Informational only; the auto tree is built by detecting `NpmPackageInfo`, not by matching label strings |
 | `vitest` | `label` | `None` | Explicit vitest binary label (found in `node_modules` when absent) |
@@ -320,8 +320,9 @@ the action.
 A runfiles file at the copy's path wins over it silently, with the unpatched
 `main`. The file in `data` as well is an analysis error, `is staged through
 wrangler_config; do not list it in data too.`, and the `asset_library` Gazelle
-writes over the file is dropped from the runfiles when it is among the `deps`.
-Every other `AssetInfo` file of the deps is in the runfiles, which is what a
+writes over the file is dropped from the runfiles when it is among the `deps`,
+as is a `ts_compile` dep's data src at that path. Every other `AssetInfo` file
+and data src of the deps is in the runfiles, which is what a
 wrangler `rules` module the worker imports needs. `//tests/workers_nested` is the
 example; `//tests/workers`, with the config beside the tests and
 `main: "src/index.js"` in `data`, is the same-package one.

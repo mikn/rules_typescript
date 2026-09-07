@@ -13,6 +13,12 @@ JsInfo = provider(
         "js_map_files": "depset of File: .js.map source map files this target produces.",
         "transitive_js_files": "depset of File: Transitive closure of all .js files from this target and its deps.",
         "transitive_js_map_files": "depset of File: Transitive closure of all .js.map files.",
+        "data_files": "depset of File: the srcs that are neither TypeScript, " +
+                      "JavaScript nor declarations, staged into the output " +
+                      "tree at their package-relative paths beside the .js.",
+        "transitive_data_files": "depset of File: the data files of this " +
+                                 "target and its deps, what a compiled " +
+                                 "module reaches beside itself at run time.",
     },
 )
 

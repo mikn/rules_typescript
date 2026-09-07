@@ -17,8 +17,9 @@ Generated config (BundlerInfo.use_generated_config = True):
   All four exec-root-relative. The config is a Vite lib-mode build that reads
   the entry and outDir back from VITE_ENTRY_PATH and VITE_OUT_DIR and rebuilds
   every path from EXEC_ROOT, so the binary sets those three before running
-  Vite. A .css, a .module.css and an asset reach the bundler the same way the
-  .js does -- through the entry point's CssInfo, CssModuleInfo and AssetInfo.
+  Vite. A .css, a .module.css, an asset and a data src reach the bundler the
+  same way the .js does -- through the entry point's CssInfo, CssModuleInfo,
+  AssetInfo and JsInfo.transitive_data_files.
   Outputs follow Vite's lib-mode names:
     <bundle_name>.es.js     (for format=esm)
     <bundle_name>.cjs.js    (for format=cjs)
@@ -174,6 +175,7 @@ def create_bundle_action(ctx, entry_js_info, bundle_filename):
         non_js_inputs.append(entry_point_target[CssModuleInfo].transitive_exports_files)
     if AssetInfo in entry_point_target:
         non_js_inputs.append(entry_point_target[AssetInfo].transitive_asset_files)
+    non_js_inputs.append(entry_js_info.transitive_data_files)
 
     bundler_info = ctx.attr.bundler[BundlerInfo]
 

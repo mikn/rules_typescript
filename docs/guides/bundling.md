@@ -71,8 +71,10 @@ The entry point has to produce exactly one `.js`: a `ts_compile` with a single
 source file. A `.css`, a `*.module.css` and an imported asset reach the bundler
 through the entry point's `CssInfo`, `CssModuleInfo` and `AssetInfo`, the
 providers [`css_library`, `css_module` and
-`asset_library`](../rules/css-and-assets.md) populate, so every non-JS file the
-graph imports is in the sandbox beside the compiled `.js` that imports it.
+`asset_library`](../rules/css-and-assets.md) populate, and a data src in a
+`ts_compile`'s `srcs` through its `JsInfo.transitive_data_files`, so every
+non-JS file the graph imports is in the sandbox beside the compiled `.js` that
+imports it.
 
 ### BundlerInfo Invocation Modes
 

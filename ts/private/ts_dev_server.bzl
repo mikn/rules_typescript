@@ -695,7 +695,7 @@ def _ts_dev_server_impl(ctx):
     # redundant until the CSS is generated, and then it is the only copy there is.
     # It is also what lets a test run the server against its own runfiles rather
     # than against the developer's tree.
-    non_js_files = [
+    non_js_files = [entry_js_info.transitive_data_files] + [
         entry_point[provider].transitive_css_files if provider != AssetInfo else entry_point[provider].transitive_asset_files
         for provider in (CssInfo, CssModuleInfo, AssetInfo)
         if provider in entry_point

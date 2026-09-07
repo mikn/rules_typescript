@@ -96,6 +96,8 @@ def _ts_npm_package_impl(ctx):
             js_map_files = depset([]),
             transitive_js_files = depset(transitive = transitive_js_sets, order = "postorder"),
             transitive_js_map_files = depset([]),
+            data_files = depset([]),
+            transitive_data_files = depset([]),
         ),
         TsDeclarationInfo(
             declaration_files = direct_decls,

@@ -536,15 +536,19 @@ _RUNNERS = [RUNNER_VITEST, RUNNER_NODE_TEST]
 def _ts_test_runner_impl(ctx):
     # Collect transitive .js files from all deps.
     transitive_js_sets = []
+    transitive_data_sets = []
     for dep in ctx.attr.deps:
         if JsInfo in dep:
             transitive_js_sets.append(dep[JsInfo].transitive_js_files)
+            transitive_data_sets.append(dep[JsInfo].transitive_data_files)
 
     transitive_js = depset(transitive = transitive_js_sets, order = "postorder")
 
     # A wrangler `rules` module (Text, Data) the compiled JS imports is in the
     # sandbox only when named here.
     transitive_asset_sets = [dep[AssetInfo].transitive_asset_files for dep in ctx.attr.deps if AssetInfo in dep]
+
+    runtime_data_sets = transitive_data_sets + transitive_asset_sets
 
     # The test .js files come from the compiled test target.
     test_js_files = ctx.files.compiled_tests
@@ -620,7 +624,9 @@ def _ts_test_runner_impl(ctx):
     if ctx.attr.runner == RUNNER_NODE_TEST:
         return _node_test_providers(
             ctx,
-            transitive_js = transitive_js,
+            runtime_files = depset(
+                transitive = [transitive_js] + transitive_data_sets,
+            ),
             test_files_list = test_files_list,
             node_modules_files = node_modules_files,
             runtime_binary = runtime_binary,
@@ -704,13 +710,13 @@ def _ts_test_runner_impl(ctx):
         src = ctx.file.wrangler_config
 
         # A runfiles file at a symlink's path wins over it silently, and the
-        # unpatched `main` with it: the source's copy in data or in an asset dep.
+        # unpatched `main` with it: the source's copy in data or through a dep.
         for f in ctx.files.data:
             if f.short_path == src.short_path:
                 fail("ts_test {}: {} is staged through wrangler_config; do not list it in data too.".format(ctx.label, src.short_path))
-        transitive_asset_sets = [depset([
+        runtime_data_sets = [depset([
             f
-            for f in depset(transitive = transitive_asset_sets).to_list()
+            for f in depset(transitive = runtime_data_sets).to_list()
             if f.short_path != src.short_path
         ])]
 
@@ -842,10 +848,11 @@ def _ts_test_runner_impl(ctx):
 
     runfiles = ctx.runfiles(
         files = runfiles_files,
-        # The stylesheets and the assets as well as the .js: the plugin above
-        # answers a *.module.css import out of the export map beside it, and each
-        # is in the sandbox only because it is named here.
-        transitive_files = depset(transitive = [transitive_js] + css_module_sets + transitive_asset_sets),
+        # CSS, export maps, assets and data srcs as well as the .js: each is in
+        # the sandbox only because it is named here.
+        transitive_files = depset(
+            transitive = [transitive_js] + css_module_sets + runtime_data_sets,
+        ),
         root_symlinks = launcher.root_symlinks,
         symlinks = {ctx.file.wrangler_config.short_path: wrangler_patched} if wrangler_patched else {},
     )
@@ -878,7 +885,7 @@ def _ts_test_runner_impl(ctx):
 
 def _node_test_providers(
         ctx,
-        transitive_js,
+        runtime_files,
         test_files_list,
         node_modules_files,
         runtime_binary,
@@ -952,7 +959,7 @@ def _node_test_providers(
 
     runfiles = ctx.runfiles(
         files = runfiles_files,
-        transitive_files = transitive_js,
+        transitive_files = runtime_files,
         root_symlinks = launcher.root_symlinks,
     )
     for target in ctx.attr.data:
@@ -1010,7 +1017,8 @@ _RUNNER_ATTRS = {
         aspects = [_instrumented_files_aspect],
         doc = "ts_compile and other targets whose .js files may be available at test runtime. " +
               "Deps that do not provide JsInfo (e.g. css_module, asset_library) contribute " +
-              "no .js; an asset_library dep's files are in the runfiles.",
+              "no .js; an asset_library dep's files are in the runfiles, and " +
+              "so are a ts_compile dep's data srcs, beside its .js.",
     ),
     "node_modules": attr.label(
         doc = "A node_modules target providing the runtime npm dependency tree.",

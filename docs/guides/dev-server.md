@@ -77,7 +77,7 @@ fields, with the values the shipped Vite server returns for each, are in
 | first-party `.ts` | Bazel compiles it; the bundler reads `bazel-bin` | served as source, transformed by the server in memory |
 | `ts_codegen` output | from `bazel-bin` | from `bazel-bin` |
 | npm packages | the `node_modules` tree | the `node_modules` tree, linked in at the workspace root |
-| assets, passthrough `.d.ts` | from `bazel-bin` | from `bazel-bin` |
+| assets, data srcs, passthrough `.d.ts` | from `bazel-bin` | from `bazel-bin` |
 
 Generated code is recognised by the absence of a checked-in source file.
 

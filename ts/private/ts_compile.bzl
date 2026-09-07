@@ -44,6 +44,8 @@ _TS_EXTENSIONS = ["ts", "tsx"]
 
 _JS_EXTENSIONS = ["js", "mjs", "cjs"]
 
+_UNSHAPED_TS_EXTENSIONS = ["mts", "cts"]
+
 # tsc's own naming for the declaration it emits from a JavaScript source.
 _JS_DECLARATION_EXTENSION = {
     "js": ".d.ts",
@@ -547,10 +549,11 @@ def _strict_deps_check(
 # ─── Attribute validation ────────────────────────────────────────────────────
 
 def _classify_srcs(ctx):
-    """Splits srcs into the TypeScript, JavaScript and ambient-declaration sets."""
+    """Splits srcs into TypeScript, JavaScript, declaration and data sets."""
     compile_srcs = []
     js_srcs = []
     passthrough_dts = []
+    data_srcs = []
     for f in ctx.files.srcs:
         if f.is_directory:
             fail(
@@ -572,15 +575,19 @@ def _classify_srcs(ctx):
                 "output extension for.\nRename it to .tsx -- TypeScript accepts the " +
                 "JavaScript in it unchanged -- or drop the JSX and call it .js.",
             )
-        else:
+        elif f.extension in _UNSHAPED_TS_EXTENSIONS:
             fail(
-                "ts_compile: srcs must contain only .ts, .tsx, .js, .mjs, .cjs, " +
-                ".d.ts, .d.mts or .d.cts files; got '{}' (extension: .{}).\n".format(f.short_path, f.extension) +
-                "Remove this file from srcs, or if you need to pass through assets " +
-                "use a filegroup or a dedicated rule for that file type.\n" +
-                "Did you mean to add it to a different attribute?",
+                "ts_compile: '{}' on {} is a .{} file, and the rule ".format(
+                    f.short_path,
+                    ctx.label,
+                    f.extension,
+                ) +
+                "emits .js and .d.ts from .ts alone.\nRename it to .ts, or " +
+                "leave it out of srcs.",
             )
-    return compile_srcs, js_srcs, passthrough_dts
+        else:
+            data_srcs.append(f)
+    return compile_srcs, js_srcs, passthrough_dts, data_srcs
 
 # ─── Rule implementation ───────────────────────────────────────────────────────
 
@@ -588,7 +595,7 @@ def _ts_compile_impl(ctx):
     oxc = get_oxc_toolchain(ctx)
     pkg = ctx.label.package
 
-    compile_srcs, js_srcs, passthrough_dts = _classify_srcs(ctx)
+    compile_srcs, js_srcs, passthrough_dts, data_srcs = _classify_srcs(ctx)
 
     # An npm dep contributes no declaration files: its files reach tsgo through
     # the forest; a copy at its own exec path would duplicate the module.
@@ -596,6 +603,7 @@ def _ts_compile_impl(ctx):
     dep_npm_package_sets = []
     transitive_js_sets = []
     transitive_js_map_sets = []
+    transitive_data_sets = []
     transitive_css_sets = []
     transitive_css_module_sets = []
     transitive_css_exports_sets = []
@@ -620,7 +628,9 @@ def _ts_compile_impl(ctx):
         if JsInfo in dep:
             transitive_js_sets.append(dep[JsInfo].transitive_js_files)
             transitive_js_map_sets.append(dep[JsInfo].transitive_js_map_files)
+            transitive_data_sets.append(dep[JsInfo].transitive_data_files)
             direct_provided_sets.append(dep[JsInfo].js_files)
+            direct_provided_sets.append(dep[JsInfo].data_files)
         if CssInfo in dep:
             transitive_css_sets.append(dep[CssInfo].transitive_css_files)
             direct_provided_sets.append(dep[CssInfo].css_files)
@@ -658,7 +668,8 @@ def _ts_compile_impl(ctx):
             own_files = ctx.files.srcs,
             direct_provided = depset(transitive = direct_provided_sets),
             transitive_provided = depset(transitive = (
-                transitive_dts_sets + transitive_js_sets + transitive_css_sets +
+                transitive_dts_sets + transitive_js_sets +
+                transitive_data_sets + transitive_css_sets +
                 transitive_css_module_sets + transitive_asset_sets
             )),
             npm_direct = sorted(direct_npm_names),
@@ -756,14 +767,27 @@ def _ts_compile_impl(ctx):
             if declaration_map:
                 dts_map_outputs.append(ctx.actions.declare_file(dts_rel + ".map"))
 
+    data_staged = []
+    for src in data_srcs:
+        staged = ctx.actions.declare_file(_package_relative_path(src, pkg))
+        ctx.actions.symlink(output = staged, target_file = src)
+        data_staged.append(staged)
+
     # JavaScript srcs whose declarations are all checked in leave tsgo nothing
     # to write: a program to check, not one to emit from.
     tsgo_emits_dts = tsgo_emits_dts and bool(dts_outputs)
 
-    all_outputs = js_outputs + js_map_outputs + dts_outputs + dts_map_outputs + js_passthrough
+    all_outputs = (
+        js_outputs + js_map_outputs + dts_outputs + dts_map_outputs +
+        js_passthrough + data_staged
+    )
 
     program_srcs = compile_srcs + js_srcs
     check_srcs = compile_srcs + js_srcs + passthrough_dts
+
+    # tsc reads a JSON src on its own: an import resolves to it, and the nearest
+    # package.json decides a module's format and the package's own name.
+    json_srcs = [f for f in data_srcs if f.extension == "json"]
     tsgo_toolchain_info = ctx.toolchains[TSGO_TOOLCHAIN_TYPE]
     if program_srcs and not tsgo_toolchain_info:
         fail(
@@ -876,7 +900,8 @@ def _ts_compile_impl(ctx):
         )
         strict_deps_gated = True
         tsgo_inputs = depset(
-            check_srcs + [tsconfig, forest, tsgo.tsgo_binary] + tsconfig_chain + strict_deps_inputs,
+            check_srcs + json_srcs + [tsconfig, forest, tsgo.tsgo_binary] +
+            tsconfig_chain + strict_deps_inputs,
             transitive = [dep_dts_depset],
         )
         run_args = ctx.actions.args()
@@ -931,6 +956,11 @@ def _ts_compile_impl(ctx):
         transitive = transitive_js_map_sets,
         order = "postorder",
     )
+    transitive_data = depset(
+        data_staged,
+        transitive = transitive_data_sets,
+        order = "postorder",
+    )
 
     # ts_compile produces no CSS and no assets of its own, so it only forwards
     # what its deps carry: the direct fields stay empty and the closure travels
@@ -949,6 +979,8 @@ def _ts_compile_impl(ctx):
             js_map_files = direct_js_map,
             transitive_js_files = transitive_js,
             transitive_js_map_files = transitive_js_map,
+            data_files = depset(data_staged, order = "postorder"),
+            transitive_data_files = transitive_data,
         ),
         TsDeclarationInfo(
             declaration_files = direct_dts,
@@ -1005,7 +1037,7 @@ ts_compile = rule(
     implementation = _ts_compile_impl,
     attrs = {
         "srcs": attr.label_list(
-            doc = """Sources to compile.
+            doc = """The package's files.
 
 .ts / .tsx      compiled by oxc; one .js (+ .js.map, + .d.ts) output each.
 .js / .mjs/.cjs staged into the output tree unchanged and added to the type
@@ -1024,10 +1056,19 @@ ts_compile = rule(
                 resolves to x.d.mts, and a .mjs listed beside its .d.mts is
                 staged but leaves the type program, as under tsc, so the
                 checked-in file is its only declaration.
+.json           staged, and a tsgo input: an import of it resolves to the file
+                and is typed from its contents under resolveJsonModule, which
+                bundler resolution implies, and the nearest package.json decides
+                a module's format and the package's own name.
+anything else   staged into the output tree unchanged at its package-relative
+                path, so the compiled module beside it reaches it by the same
+                relative path at run time; never a tsgo input. A consumer gets
+                the closure as JsInfo.transitive_data_files. A .mts or .cts is
+                refused: the rule emits .js and .d.ts from .ts alone.
 
 Paths are kept relative to the target's package, so srcs may span a subtree.
 """,
-            allow_files = [".ts", ".tsx", ".d.ts", ".d.mts", ".d.cts", ".js", ".jsx", ".mjs", ".cjs"],
+            allow_files = True,
             mandatory = True,
         ),
         "deps": attr.label_list(
@@ -1084,9 +1125,9 @@ for all of them but Node16/NodeNext.""",
     doc = """Compiles TypeScript with oxc and checks it with tsgo.
 
 Produces one .js (+ .js.map under --//ts:source_map, the default) and one .d.ts
-per .ts/.tsx input, and stages every .js/.mjs/.cjs input into the output tree
-as-is. Output paths stay relative to the target's package, so srcs may span a
-subtree.
+per .ts/.tsx input, and stages every other src -- JavaScript, JSON, anything
+-- into the output tree as-is. Output paths stay relative to the target's
+package, so srcs may span a subtree.
 
 The .d.ts outputs are the compilation boundary: downstream ts_compile targets
 only depend on the .d.ts files, enabling fine-grained Bazel caching.
