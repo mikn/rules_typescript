@@ -24,7 +24,6 @@ ts_codegen(
 ts_compile(
     name = "route_tree_ts",
     srcs = [":route_tree"],
-    declarations = "oxc",
 )
 
 ts_compile(
@@ -39,8 +38,8 @@ script and nothing else. A generator that imports npm packages at runtime
 additionally takes `node_modules`; see
 [The environment the generator gets](#the-environment-the-generator-gets).
 
-The generated sources are their own `ts_compile` target, and it does not use the
-default declaration emit; see [Compiling the output](#compiling-the-output).
+The generated sources are their own `ts_compile` target; see
+[Compiling the output](#compiling-the-output).
 
 Gazelle detects Prisma, GraphQL codegen and OpenAPI generators from the files
 in a directory (`schema.prisma`; `.graphql`/`.gql` sources beside a
@@ -60,12 +59,11 @@ takes one out of `srcs`.
 
 ## Compiling the Output
 
-A generated file lives in the output tree, and the default emit
-(`declarations = "tsgo"`, `enable_check = True`) cannot take it from there. Two
-failures:
-
-**Checked-in and generated sources in one target fail at analysis.** One tsgo
-declaration emit has one `rootDir`, and those two sets hang off different roots:
+A generated file lives in the output tree, and one tsgo declaration emit has one
+`rootDir`. A target holding generated sources alone hangs off one root, the
+package's directory in `bazel-bin`, and builds under either emitter. Checked-in
+and generated sources in one target hang off two, and fail at analysis under the
+default emit:
 
 ```
 ts_compile: srcs on @@//src/app:app hang off 2 different roots, and one
@@ -74,27 +72,10 @@ declaration emit has one rootDir:
   src/app
 ```
 
-**Generated sources alone fail inside the tsgo action.** Under that emit
-`outDir` is the package's directory in `bazel-bin`, which is where the generated
-source already is, and TypeScript's implicit `exclude` covers `outDir`, so the
-program comes out empty:
-
-```
-error TS18003: No inputs were found in config file
-'.../route_tree_ts.tsconfig.json'. Specified 'include' paths were
-'["src/routeTree.gen.ts"]' ...
-```
-
-The target holding generated sources picks another emitter:
-
-- `declarations = "oxc"`: oxc emits the `.d.ts` syntactically, per file, with
-  no type program, and downstream targets type-check against the generated
-  code. Every export needs an explicit type.
-- `enable_check = False`: no type program and no `.d.ts`, for generated code
-  whose types nothing downstream consumes. `//tests/codegen` uses it.
-
-`declarations = "oxc"` also lifts the first error, so one target holding both
-sets is expressible: oxc groups its sources by root and runs once per group.
+Put the generated sources in their own target and depend on it, as above.
+`--//ts:declarations=oxc` lifts the error for the whole build: oxc groups its
+sources by root and runs once per group, and the check is a validation action
+that reads any layout.
 
 ## Attributes
 

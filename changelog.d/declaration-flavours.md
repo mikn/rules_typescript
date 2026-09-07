@@ -2,8 +2,7 @@
 
 - **A checked-in `.d.mts` or `.d.cts` is admitted wherever a `.d.ts` is.**
   `ts_compile` already classified one as a declaration and emitted one for a
-  `.mjs` / `.cjs` src, but `srcs`, `public_globals` and `types_srcs` refused
-  the extension. `import { compile } from "./compile.mjs"` beside a
+  `.mjs` / `.cjs` src, but `srcs` refused the extension. `import { compile } from "./compile.mjs"` beside a
   hand-written `compile.d.mts`, the pairing `tsc` resolves by name, failed as
   `TS2307` with no attribute to put the declaration in. It is passed through to
   consumers the way a `.d.ts` is, a script-mode one declares globals the way a

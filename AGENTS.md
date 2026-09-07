@@ -64,9 +64,13 @@ Do not skip the review stage.
 
 ```
 ts_compile → TsStrictDeps action (.strictdeps stamp; gates the compile)
-           → OxcCompile action (.js + .js.map; + .d.ts under declarations = "oxc")
+           → TsConfig action (<name>.tsconfig.json + <name>.options.json from
+             `tsgo --showConfig` over the baseline and the target's tsconfig)
+           → OxcCompile action (.js + .js.map; + .d.ts under --//ts:declarations=oxc)
            → TsgoDeclare action (.d.ts; the default)
-             or TsgoCheck validation action (.tscheck stamp in _validation; under "oxc")
+             or TsgoCheck validation action (.tscheck stamp in _validation; under oxc)
+           both run from a program root mirroring the exec root with the
+           target's node_modules forest at node_modules
 
 .d.ts = compilation boundary. Downstream sees only .d.ts, not .ts source.
 Change implementation without changing .d.ts → no downstream recompilation.
@@ -77,20 +81,23 @@ DIRECT dep provides. Its scanner is the same character walk as Gazelle's
 is either a dep Gazelle cannot generate or drift nothing notices, so
 tests/strict_deps pins the two against one table. Change one, change both.
 
-TsGlobalDts reads the target's .d.ts srcs and writes the reference file naming
-the ones public_globals exports -- the file a consumer's tsconfig `files`
-lists, since Starlark cannot read a source to tell a global .d.ts from a module
-one. A target exporting none runs no such action and provides no such file.
+The rule has three attributes: srcs, deps, tsconfig. Every compiler option is
+the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
+(//ts:declarations, //ts:source_map, //ts:declaration_map, //ts:lib_check).
 ```
 
 **Key files:**
 - `ts/defs.bzl` — public API (all rules, providers, macros)
 - `ts/private/ts_compile.bzl` — core compilation rule
+- `ts/tools/tsaction/` — the Go runner behind the actions: `tsconfig` writes the action config from `tsgo --showConfig`, `oxc` relays the options to oxc, `tsgo` lays out the program root and runs tsgo from it
+- `ts/tools/tsconfig/`, `ts/tools/jsonc/` — the tsconfig `extends` chain reader and the JSONC parser, shared by tsaction and Gazelle
+- `ts/private/node_modules.bzl` — the `node_modules` tree builder; `ts_compile`'s forest and `ts_test`'s runtime tree
 - `ts/private/providers.bzl` — JsInfo, TsDeclarationInfo, TsConfigInfo, NpmPackageInfo, CssInfo, CssModuleInfo, AssetInfo, DevServerInfo, BundlerInfo
 - `npm/private/npm_translate_lock.bzl` — pnpm lockfile reader (parsing only; no repository rule)
 - `npm/extensions.bzl` — the `npm` module extension (translate_lock, pnpm tags)
 - `npm/lazy.bzl` — whole-graph analysis + one `npm_import` per package + the alias hub
 - `npm/private/npm_import.bzl` — the per-package repository rule and `npm_hub`
+- `npm/private/workspace_package.bzl`, `npm/private/member_manifest.bzl` — the hub's view of a workspace member and the manifest rewrite it links
 - `npm/private/npmrc_auth.bzl` — the credentials an `.npmrc` grants a fetch; loaded by `npm_import` and the tsgo toolchain's repository rule
 - `ts/private/pnpm.bzl` — hermetic pnpm download + `ts_pnpm`/`ts_add_package` macros
 - `ts/private/tsgo_lock.bzl` — which compiler a pnpm lockfile pins, the reader behind `ts.tsgo(pnpm_lock = ...)`; `ts/private/tsgo/pnpm-lock.yaml` is the default
@@ -185,8 +192,8 @@ one. A target exporting none runs no such action and provides no such file.
 ## Provider Contract
 
 Every `ts_compile` target provides: `JsInfo` + `TsDeclarationInfo` +
-`TsModuleInfo` + `OutputGroupInfo(_validation)`. `_validation` is only populated
-under `declarations = "oxc"`; under the default the declarations are the proof.
+`OutputGroupInfo(_validation)`. `_validation` is only populated under
+`--//ts:declarations=oxc`; under the default the declarations are the proof.
 A `ts_compile` with any `deps` additionally exposes the strict-deps stamp: in
 `OutputGroupInfo(strict_deps = ...)` always, and as an input to the compile
 actions, so a violation fails the build and not only `--output_groups`.
@@ -216,9 +223,9 @@ can make about itself: platform filtering, which package a bare label means
 naming, patch routing. Each package then reads its own `package.json` and writes
 its own BUILD file, which is what makes on-demand fetching possible. The tarball
 is extracted under `node_modules/<name>/` inside the repository, the segment
-TypeScript reads to classify a `paths` match as a library file; every consumer
-derives its paths from `NpmPackageInfo.package_dir.dirname`, so nothing else
-spells the layout.
+TypeScript reads to classify a file under it as a library file; the forest links
+each package at `node_modules/<name>` from `NpmPackageInfo.package_name` and
+`package_root`, so nothing else spells the layout.
 
 Handled: scoped packages, `@types` pairing, multiple versions with
 version-suffixed labels, bin scripts (fixed `:bin` alias per package, since the
@@ -247,33 +254,16 @@ resolutions of one name on one target (two versions, or two peer sets of one
 version) is an error: `node_modules/<name>` is one directory and Node resolves
 the bare name to it.
 
-A package's two entry points are resolved by `_entry` in
-`npm/private/npm_import.bzl`, in resolver order, not preference order: the
-module entry a bare import resolves to (`module_entry`) and the declaration a
-`compilerOptions.types` entry resolves to (`exports_types`), one walk with two
-extension tables -- a bare import takes `.ts`/`.tsx` ahead of `.d.ts`, a `types`
-entry declarations alone. `exports` first, walked in the map's own key order
-(Node and TypeScript try conditions as written, so a fixed priority answers with
-the wrong build's declarations for a package that writes `require` before
-`import`), through array fallbacks and the conditions-only shorthand; a leaf
-naming `.js`/`.mjs`/`.cjs` resolves to what the role allows beside it; then
-top-level `typings`, then `types`, then `main`, extensionless form included;
-then the root index. `exports` is authoritative about what it designates and
-silent about the rest: the string-valued `exports["."]` with no `types` key is
-how most of npm publishes, every `@types/*` package included, and the walk falls
-through to the top-level fields for it. Every candidate is existence-checked
-against the extracted package: six `@babel/helper-*` resolutions in this repo's
-own lockfile designate a `lib/index.d.ts` their tarball does not contain.
-`tests/npm/exports_types_tests.bzl` is the table; add the real manifest, not a
-synthesised shape.
-
-The same repository rule reads each designated declaration's triple-slash header
-and writes the packages its `/// <reference types=...>` directives name as
-`type_references`: tsgo resolves that directive through typeRoots and
-node_modules only, never `paths`, and the sandbox has neither. `ts_compile`
-and the editor aspect follow the names through the referencing package's own
-deps when they put the file in `files`; `tests/npm/type_references_tests.bzl`
-pins the header reader and `tests/npm_types_shim` the route.
+A package's `exports`, `types`, `typings`, `main` and the `/// <reference
+types>` headers of its declarations are read by nothing here: tsgo and node read
+the manifest where the forest links it, as they do over an install, and
+`NpmPackageInfo` carries no entry point. The one manifest the rules write is a
+workspace member's: `npm/private/member_manifest.bzl` rewrites every
+source-file target under `main`, `module`, `browser`, `exports` and `imports` to
+the emitted `.js` and every `types` target to the `.d.ts`, key order kept
+(Bazel's `json.encode` sorts keys, and an `exports` condition map is read in
+the order it is written), and the hub's `npm_workspace_package` view links it
+at `node_modules/<name>`. `tests/npm/member_manifest_tests.bzl` is the table.
 
 ## Dev Server Generated Config
 
@@ -377,19 +367,17 @@ puts the working directory in the user's source tree.
 - **The editor has one `paths` map.** A nested tsconfig extends the root and
   inherits its map unchanged (so the root's aliases still resolve from a
   subdirectory): "resolve this specifier" is a per-target fact on the build and
-  a workspace-wide one in the editor. `ts_compile`'s `untyped_packages` is
-  per-target; `ts_refresh_tsconfig`'s `host_only_packages` is the workspace-wide
-  half, and `check_untyped_agreement` fails when the graph needs both answers,
-  so an editor never reports what a build does not.
-- **Silence in a metadata map is not an answer.** `_exports_types` read `exports["."]` and stopped, so a string-valued entry with no `types` key (most of npm, and every `@types/*` package) resolved to nothing and the `paths` entry pointed at a directory. Read what the map designates, then fall through to the fields it is silent about.
+  a workspace-wide one in the editor. The map names first-party packages only;
+  npm resolves through the checkout's `node_modules` in the editor and through
+  the target's forest in the build, one resolver for both.
+- **Silence in a metadata map is not an answer.** The entry reader the rules once had read `exports["."]` and stopped, so a string-valued entry with no `types` key (most of npm, and every `@types/*` package) resolved to nothing and a `paths` entry pointed at a directory. The reader is gone; tsgo reads the map in the forest, and the lesson stands for any map a rule still reads.
 - **A real version bump is a test.** Only moving `@npm` to Vite 8 / vitest 4 fired `test.workspace`, the react entry point and the declaration-entry fallback. Two hubs on two majors looked like coverage of exactly that and supplied none of it.
 - **esbuild reads the workspace `tsconfig.json`.** `srcs` reach the sandbox as
   symlinks, so esbuild walks up from the entry point's real path, finds the
-  source-tree `tsconfig.json`, and applies its `paths`, which
-  `//:refresh_tsconfig` fills with `.bazel/npm/**` `.d.ts` files. A bundled npm
-  package then resolved to a declaration file. Every `esbuild_bundle` passes
-  `--tsconfig-raw={}`; nothing noticed earlier because the vite plugin's single
-  import is `--external`.
+  source-tree `tsconfig.json`, and applies its `paths`; when those pointed npm
+  names at `.d.ts` copies, a bundled npm package resolved to a declaration
+  file. Every `esbuild_bundle` passes `--tsconfig-raw={}`; nothing noticed
+  earlier because the vite plugin's single import is `--external`.
 - **Formatting drift hides real drift.** For two rounds `bazel run //gazelle` could not be applied here, because ten fixtures differed from Gazelle's own rendering and nobody could tell those files from the ones it was actually changing. Keep the clean-tree diff empty so the next non-empty one means something.
 - **Every hub name is the consumer's to claim.** `npm/extensions.bzl` gives the
   root module's `translate_lock` priority for every hub name, so none is

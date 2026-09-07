@@ -3,10 +3,11 @@
 Creates a hermetic `node_modules` directory in the Bazel sandbox holding exactly
 the packages named and their transitive dependencies.
 
-`ts_test` builds its own from `deps` (see [ts_test](ts-test.md)). A
-`ts_compile` target needs none: it reaches npm declarations through depsets. A
-hand-written one covers a program or tool that needs packages on disk at
-runtime, and a `ts_test` whose tree is not the one its `deps` describe.
+Every `ts_compile` builds one from `deps` as the forest its tsgo action walks,
+and every `ts_test` builds one as its runtime tree (see [ts_test](ts-test.md));
+both go through this rule's builder. A hand-written one covers a program or
+tool that needs packages on disk at runtime, and a `ts_test` whose tree is not
+the one its `deps` describe.
 
 ## Usage
 
@@ -36,9 +37,14 @@ sandbox.
 
 ## The Layout
 
-One npm name can resolve more than once inside a single closure, and pnpm
-records each resolution separately. The tree is flat where flat is unambiguous
-and keyed by resolution where it is not:
+The tree is pnpm-shaped, and it is the same tree whether a test runs on it or
+tsgo type-checks against it: every package sits at `node_modules/<name>` with
+its own files, a workspace member sits there as its hub view links it (its
+`package.json` as built beside its `.js` and `.d.ts`), and a `@types/*` package
+sits beside the package it types, so TypeScript's `node_modules/@types` walk
+pairs them. One npm name can resolve more than once inside a single closure, and
+pnpm records each resolution separately. The tree is flat where flat is
+unambiguous and keyed by resolution where it is not:
 
 ```
 node_modules/
@@ -61,7 +67,9 @@ distinguished by a peer component after the version:
   declare none it is the highest version present, the same rule `@npm//:<name>`
   follows, and among peer variants of that version the one pnpm left
   un-suffixed, or the lowest-sorting peer set if every variant carries one. It
-  keeps the top-level directory Node's walk-up finds.
+  keeps the top-level directory Node's walk-up finds, and tsgo's: a target that
+  declares `zod` type-checks against the `zod` it declared, whatever version a
+  dependency's closure carries.
 - **Every other resolution** gets its bytes exactly once under
   `.pnpm/<name>@<version>[_<peer set>]/node_modules/<name>`, using pnpm's own
   encoding for a scoped name (`.pnpm/@scope+name@1.2.3/node_modules/@scope/name`).
@@ -109,11 +117,15 @@ Otherwise split the two into separate node_modules targets.
 The transitive case both messages point at is the one
 [The Layout](#the-layout) handles.
 
-## Trees `ts_test` Generates
+## Trees `ts_compile` and `ts_test` Generate
 
-`ts_test` generates a per-target tree from its `deps` through this same builder,
-so a test gets the same layout with nothing to declare. See
-[ts_test](ts-test.md).
+`ts_compile` builds `<name>/node_modules` from its npm deps, their closures, the
+paired `@types/*` packages and every first-party dep's npm closure, and tsgo
+walks it from a program root that mirrors the exec root; see
+[the node_modules forest](ts-compile.md#the-node_modules-forest). `ts_test`
+builds its runtime tree from the same closure through this same builder, so a
+test runs against the layout its compile was checked against, with nothing to
+declare. See [ts_test](ts-test.md).
 
 ## npm_bin
 

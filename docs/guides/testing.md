@@ -147,12 +147,21 @@ under plain `vitest`; `//tests/config_at_root` is the example. See
 ts_test(
     name = "math_test",
     srcs = ["math.test.ts"],
-    deps = [":math", "@npm//:vitest"],
-    globals = True,                          # global describe/it/expect
+    tsconfig = "tsconfig.json",   # "types": ["vitest/globals"]
+    globals = True,               # global describe/it/expect
     reporters = ["default", "junit"],
     coverage_thresholds = {"lines": "80"},
+    deps = [
+        ":math",
+        "@npm//:vitest",  # keep
+    ],
 )
 ```
+
+`globals = True` is the runtime half; the compiler sees `describe`, `it` and
+`expect` through the `vitest/globals` entry in the test's tsconfig, resolved
+through the forest, so vitest stays in `deps`, under `# keep` because nothing in
+the test imports it. See [Globals](../rules/ts-test.md#globals).
 
 ### The Merged Config
 
@@ -215,18 +224,33 @@ runtime needs `"istanbul"`. See
 A Worker's tests can run inside workerd, so `SELF.fetch()` dispatches to the
 `fetch` handler in the runtime. `@cloudflare/vitest-pool-workers` supplies the
 pool; `//tests/workers_nested` is the worked example, in the shape a Worker
-repository has: `package.json`, the vitest config and `wrangler.jsonc` at the
-worker root, the tests in `test/`:
+repository has: `package.json`, the vitest config, `wrangler.jsonc` and the
+worker's tsconfig at the worker root, the tests in `test/`:
+
+```jsonc
+// workers/proxy/tsconfig.worker.json
+{
+  "compilerOptions": {
+    "lib": ["esnext", "webworker"]
+  }
+}
+```
 
 ```python
 # workers/proxy/BUILD.bazel
+load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_config")
+
+package(default_visibility = ["//visibility:public"])
+
+ts_config(
+    name = "worker_tsconfig",
+    src = "tsconfig.worker.json",
+)
+
 ts_compile(
     name = "worker",
     srcs = ["src/index.ts"],
-    lib = [
-        "esnext",
-        "webworker",
-    ],
+    tsconfig = ":worker_tsconfig",
 )
 
 filegroup(
@@ -246,11 +270,7 @@ ts_test(
     srcs = ["worker.test.ts"],
     config = "//workers/proxy:vitest_config",
     coverage_provider = "istanbul",
-    lib = [
-        "esnext",
-        "webworker",
-    ],
-    types = ["@cloudflare/vitest-pool-workers/types"],
+    tsconfig = "//workers/proxy:worker_tsconfig",
     wrangler_config = "//workers/proxy:wrangler.jsonc",
     deps = [
         "//workers/proxy:worker",
@@ -262,6 +282,7 @@ ts_test(
 ```
 
 ```typescript
+/// <reference types="@cloudflare/vitest-pool-workers/types" />
 import { SELF } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 
@@ -273,9 +294,14 @@ describe('worker', () => {
 });
 ```
 
-`lib` names `webworker` on the worker target and on the test target: the
-`Request`/`Response` globals a Worker is written against are in no set `target`
-implies.
+`tsconfig` names the worker's file on the worker target and on the test target:
+the `Request`/`Response` globals a Worker is written against are in `webworker`,
+which no set `target` implies, and the test files are a program of their own,
+checked against that `lib` only when their tsconfig names it too. The
+`ts_config` puts the file behind a label the test's package can name; a test in
+the worker's own package names the file directly, `tsconfig =
+"tsconfig.worker.json"`, as `//tests/workers` does. See
+[the test's tsconfig](../rules/ts-test.md#the-tests-tsconfig).
 
 ### The vitest Config
 
@@ -323,18 +349,20 @@ config the pool reads. A `rules` module the worker imports
 can name. `//tests/workers` is the same-package shape: the config beside the
 tests, `main: "src/index.js"`, and the file in `data`.
 
-### `coverage_provider` and `types`
+### `coverage_provider` and `cloudflare:test`
 
 `coverage_provider = "istanbul"`. v8 coverage is counters read back out of
 Node's inspector, and workerd has none; istanbul instruments before the code
 crosses into the runtime, so `bazel coverage` reports per-line data for code
 running inside workerd.
 
-`types = ["@cloudflare/vitest-pool-workers/types"]` is an `exports` subpath whose
-only condition is `types`, where the pool puts the ambient declaration for
-`cloudflare:test`. Nothing imports it, and a tsconfig `types` entry cannot reach
-it under a ruleset with no `node_modules`, so it is resolved from the package
-manifest into the program's `files`.
+The pool's ambient declaration for `cloudflare:test` is the `exports` subpath
+`@cloudflare/vitest-pool-workers/types`, whose only condition is `types`.
+Nothing imports it: the test file names it in a `/// <reference types>`
+directive, as above, or the test's tsconfig names it in `types`, and tsgo
+resolves either through the forest's `node_modules`, where the pool package is
+because it is in `deps`, as tsc resolves it through pnpm's. See
+[a `types` entry that names a package](../rules/ts-compile.md#a-types-entry-that-names-a-package).
 
 ## Sharding
 

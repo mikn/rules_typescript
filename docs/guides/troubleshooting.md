@@ -230,25 +230,21 @@ pkg/tsconfig.json(2,3): error TS5109: Option 'moduleResolution' must be set to
 'NodeNext' (or left unspecified) when option 'module' is set to 'NodeNext'.
 ```
 
-Two layers each supply one half of a coupled pair. The ruleset states
-`moduleResolution` only where it also owns the `module` it belongs to, so a
-`module` of yours never has a stray baseline resolver under it. Two layers of
-yours still can: a `module` in the `tsconfig.json` the target names and a
-`moduleResolution` in `compiler_options` above it, or the same split across your
-own `extends` chain. Put both halves in one file, or drop the `moduleResolution`
-and let tsgo derive it.
+Two files each supply one half of a coupled pair. The ruleset's baseline states
+no `moduleResolution`, so a `module` of yours never has a stray baseline
+resolver under it. Your own `extends` chain still can: a `module` in one file
+and a `moduleResolution` in another. Put both halves in one file, or drop the
+`moduleResolution` and let tsgo derive it.
 
 The mirror image, `TS5110`, is a `moduleResolution` of `Node16`/`NodeNext` with
-no `module` beside it. Without a `tsconfig` that fails at analysis instead, with
-the label and the value to set.
+no `module` beside it.
 
 ## Import Not Resolving in tsgo
 
-tsgo resolves with `moduleResolution: "Bundler"` (the ruleset's baseline, and
-what tsgo derives from every `module` but `Node16`/`NodeNext`) plus `paths`
-entries for direct npm deps. A bare import that resolves nowhere, with no
-`TsStrictDeps` failure and only `TS2307`, means no dep in the closure provides
-it. Add the package:
+tsgo resolves with `moduleResolution: "Bundler"` (what tsgo derives from every
+`module` but `Node16`/`NodeNext`) against the `node_modules` forest built from
+`deps`. A bare import that resolves nowhere, with no `TsStrictDeps` failure and
+only `TS2307`, means no dep in the closure provides it. Add the package:
 
 ```python
 ts_compile(
@@ -266,36 +262,22 @@ app.ts(1,23): error TS2688: Cannot find type definition file for 'vite/client'.
 
 From a `/// <reference types="vite/client" />`, the line Vite's own project
 template puts at the top of `src/vite-env.d.ts`. The directive resolves through
-TypeScript's type-reference resolver, which walks `node_modules/@types` and
-`typeRoots`, not the `paths` map that carries npm deps here. There is no
-`node_modules` to walk, so no `deps` entry makes it resolve.
-
-While `bazel run //:dev` is running there is a `node_modules` at the workspace
-root: the dev server links the npm tree in so bare specifiers resolve (see
-[Dev Server](dev-server.md#how-a-bare-npm-specifier-resolves)). The editor may
-then resolve this directive, and bare imports with no `deps` entry, for as long
-as the server runs. `bazel build` never does. A green editor and a red build
-means the editor found the link.
-
-Delete the directive and ask for the same globals through the rule:
+TypeScript's type-reference resolver, which walks `node_modules/@types` and the
+`node_modules` above the file; under Bazel that tree is the forest built from
+`deps`, so the package has to be there:
 
 ```python
 ts_compile(
     name = "app",
-    srcs = ["src/main.ts"],
-    vite_types = True,   # import.meta.env, import.meta.hot, asset imports
+    srcs = ["src/main.ts", "src/vite-env.d.ts"],
+    deps = ["@npm//:vite"],
 )
 ```
 
-`vite_types` prepends a standalone ambient shim: it declares the Vite client
-globals without referencing `vite/client`, so `vite` does not become a
-compile-time dependency. It is a src like any other, so it types the target
-that sets the attribute and no other; a consumer using `import.meta.env` sets
-`vite_types = True` itself. Anything else the directive was reaching for is an
-ordinary `@types/*` package, which is the dep Gazelle writes from the directive
-([Import Resolution](../gazelle/overview.md#import-resolution)); a direct
-`@types/*` dep puts its declarations in the program with the directive itself
-resolving to nothing. A whole tree that needs the package names it in
+Gazelle writes that dep from the directive
+([Import Resolution](../gazelle/overview.md#import-resolution)): `@types/<name>`
+for a bare name, the package itself for a scoped or subpath name. A whole tree
+that needs a package names it in
 [`# gazelle:ts_ambient_types`](../gazelle/directives.md#declare-ambient-types-once-for-the-whole-repo).
 
 That is the directive in a file of your own: Gazelle writes the dep it names

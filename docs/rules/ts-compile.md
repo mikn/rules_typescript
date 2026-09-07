@@ -1,6 +1,6 @@
 # ts_compile
 
-Compiles TypeScript with Oxc and emits `.d.ts` declarations with tsgo.
+Compiles TypeScript with Oxc and checks it with tsgo, which emits the `.d.ts`.
 
 ## Usage
 
@@ -11,45 +11,40 @@ ts_compile(
     name = "lib",
     srcs = ["index.ts", "math.ts"],
     deps = ["//other/package", "@npm//:zod"],
+    tsconfig = "tsconfig.json",
     visibility = ["//visibility:public"],
 )
 ```
 
-Unmodified TypeScript compiles: no explicit export type annotations, no tsconfig
-wiring, no extra flags in `.bazelrc`.
+Unmodified TypeScript compiles: no explicit export type annotations, no extra
+flags in `.bazelrc`. Every compiler option is the tsconfig's.
 
 ## Attributes
 
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `srcs` | `label_list` | required | `.ts`, `.tsx`, `.d.ts`, `.d.mts`, `.d.cts`, `.js`, `.mjs` or `.cjs` files. See [Sources](#sources) |
-| `deps` | `label_list` | `[]` | `ts_compile`, `ts_npm_package`, `css_library`, `css_module`, `asset_library` or `json_library` targets |
-| `target` | `string` | `"es2022"` | ECMAScript target version |
-| `jsx_mode` | `string` | `"react-jsx"` | JSX transform: `react-jsx`, `react`, `preserve`; empty disables JSX |
-| `declarations` | `string` | `"tsgo"` | Which tool emits `.d.ts`: `"tsgo"` or `"oxc"` |
-| `enable_check` | `bool` | `True` | Run tsgo. See [Turning tsgo off](#turning-tsgo-off) |
-| `source_map` | `bool` | `True` | Emit a `.js.map` next to every `.js`. See [Source and declaration maps](#source-and-declaration-maps) |
-| `declaration_map` | `bool` | `False` | Emit a `.d.ts.map` next to every declaration. See [Source and declaration maps](#source-and-declaration-maps) |
-| `tsgo_args` | `string_list` | `[]` | Extra tsgo flags. See [tsgo flags](#tsgo-flags) |
-| `tsconfig` | `label` | `None` | The project's own `tsconfig.json`, or a [`ts_config`](#ts_config) target, as the `compilerOptions` baseline |
-| `lib` | `string_list` | `None` | `compilerOptions.lib`, e.g. `["es2022", "webworker"]`. Replaces the whole set `target` implies |
-| `types` | `string_list` | `None` | `compilerOptions.types`: which ambient type packages load. `[]` loads none; relative entries resolve against this target's package, from `srcs` or `types_srcs`. See [A `types` entry that names a declaration file](#a-types-entry-that-names-a-declaration-file) |
-| `jsx_import_source` | `string` | `None` | `compilerOptions.jsxImportSource`, e.g. `"solid-js"`, `"preact"` |
-| `compiler_options` | `dict` | `None` | Any other `compilerOptions`, passed through verbatim |
-| `module_name` | `string` | `""` | The bare specifier this target is importable as, e.g. `"@acme/ui"` |
-| `path_aliases` | `string_dict` | `{}` | Alias prefix → workspace-relative source directory. Must resolve to files this target stages: its own `srcs`, or `path_alias_srcs` |
-| `path_alias_srcs` | `label_list` | `[]` | Files a `path_aliases` entry resolves to when they are not in `srcs`. They join this target's type program, so a type error in one of them fails this target |
-| `types_srcs` | `label_list` | `[]` | The `.d.ts`, `.d.mts` or `.d.cts` files a relative `types` entry names, when neither `srcs` nor a dep stages them. See [A `types` entry that names a declaration file](#a-types-entry-that-names-a-declaration-file) |
-| `public_globals` | `label_list` | `[]` | The `.d.ts`, `.d.mts` or `.d.cts` in `srcs` whose globals every consumer gets too. Unnamed is private. See [Which ambients a consumer gets](#which-ambients-a-consumer-gets) |
-| `untyped_packages` | `string_list` | `[]` | npm packages this target's type program leaves out: no `paths` key, no `files` entry. See [Keeping a package out of the program](#keeping-a-package-out-of-the-program) |
-| `vite_types` | `bool` | `False` | Prepend the Vite ambient type shim to `srcs` |
+| `deps` | `label_list` | `[]` | `ts_compile`, `ts_codegen`, `ts_npm_package`, `css_library`, `css_module`, `asset_library` or `json_library` targets, and a workspace member's hub view `@npm//:<name>` |
+| `tsconfig` | `label` | `None` | The project's own `tsconfig.json`, or a [`ts_config`](#ts_config) target: where every compiler option comes from. See [Where compiler options come from](#where-compiler-options-come-from) |
+
+Those are the three. The emit knobs are build flags, one value for the whole
+build:
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--//ts:declarations` | `string` | `"tsgo"` | Which tool emits `.d.ts`: `"tsgo"` or `"oxc"`. See [Which tool emits the declarations](#which-tool-emits-the-declarations) |
+| `--//ts:source_map` | `bool` | `True` | Emit a `.js.map` next to every `.js`. See [Source and declaration maps](#source-and-declaration-maps) |
+| `--//ts:declaration_map` | `bool` | `False` | Emit a `.d.ts.map` next to every declaration. See [Source and declaration maps](#source-and-declaration-maps) |
+| `--//ts:lib_check` | `bool` | `False` | Turn `skipLibCheck` off for every target. See [Finding a broken declaration](#finding-a-broken-declaration) |
+
+A target that has to be built under another value of one of these is reached
+through a Starlark transition; `tests/flags.bzl` is the ruleset's own.
 
 ### Sources
 
 A `.js`, `.mjs` or `.cjs` src is staged into the output tree unchanged and joins
 the type program. The rule sets `allowJs` for it, so its JSDoc types cross the
-package boundary; add `checkJs` through `compiler_options` to have its own body
-checked.
+package boundary; `checkJs` in the tsconfig has its own body checked.
 
 A `.jsx` src is rejected at analysis time, because oxc has no output extension
 for one. The message says to rename it `.tsx`.
@@ -67,20 +62,13 @@ reach that `.mjs`.
 
 ### Source and Declaration Maps
 
-Turn `source_map` off for a target whose JavaScript nothing debugs: a codegen
-step, or a bundle input whose bundler makes its own map.
+Turn `--//ts:source_map` off for a build whose JavaScript nothing debugs, or
+whose bundler makes its own map.
 
-`declaration_map` is what makes go-to-definition across a package boundary land
-on the `.ts` source. It requires the tsgo declaration emit
-(`declarations = "tsgo"` with `enable_check = True`); oxc emits no map.
-
-### tsgo Flags
-
-`tsgo_args` accepts only the flags that report on the program:
-`--traceResolution`, `--explainFiles`, `--listFiles`, `--listEmittedFiles`,
-`--diagnostics`, `--extendedDiagnostics`, `--noErrorTruncation`. A
-compilerOption belongs in `compiler_options`, where the Bazel-owned-key guard
-can see it.
+`--//ts:declaration_map` is what makes go-to-definition across a package boundary
+land on the `.ts` source. It requires the tsgo declaration emit; under
+`--//ts:declarations=oxc` it is an analysis error naming both flags, since oxc
+emits no map.
 
 ## Outputs
 
@@ -89,20 +77,49 @@ For each source file `foo.ts`:
 | Output | Description |
 |--------|-------------|
 | `foo.js` | Compiled JavaScript (always from Oxc) |
-| `foo.js.map` | Source map |
+| `foo.js.map` | Source map, under `--//ts:source_map` |
 | `foo.d.ts` | Declaration file, the compilation boundary |
-
-Under `declarations = "tsgo"` with `enable_check = False` there is no type
-program and therefore no `.d.ts` at all; see
-[Turning tsgo off](#turning-tsgo-off).
 
 ## Where Compiler Options Come From
 
-The generated tsconfig carries the machinery the rules own: `rootDirs` bridging
-the source and output trees, `paths` for npm packages, the `files` list that
-carries each `@types/*` dep, `preserveSymlinks`, `rootDir`, and under
-`declarations = "tsgo"` `outDir` and `noEmitOnError`. A user tsconfig supplies
-the baseline, and the generated one `extends` it.
+The tsconfig the actions read is written by `tsaction tsconfig`, one `TsConfig`
+action per target. It `extends` two files, the ruleset's baseline and then the
+target's `tsconfig`, runs `tsgo --showConfig` over that chain to read the
+effective options, and writes the keys Bazel owns over both. Lowest precedence
+first:
+
+1. **The ruleset baseline**: `strict`, `module: "Preserve"`, `target: "es2022"`,
+   `jsx: "react-jsx"`, `skipLibCheck`, `esModuleInterop`,
+   `allowArbitraryExtensions`. Without a `tsconfig` they are the program's whole
+   options; with one they reach only the keys the file and its own `extends`
+   chain never mention.
+
+   `moduleResolution` is asserted nowhere: TypeScript couples it to `module`, and
+   tsgo derives the resolver from whichever `module` wins, `Bundler` for all of
+   them but `Node16`/`NodeNext`. The `.d.ts` files `css_module`, `css_library`,
+   `asset_library` and `json_library` generate need `allowArbitraryExtensions`;
+   a tsconfig that turns it off loses those imports.
+2. **`tsconfig`**: the project's own `tsconfig.json`, and whatever it extends.
+   Referenced where it lives, never copied, so relative paths inside it resolve
+   against the directory they were written for. Everything it says wins over
+   layer 1, so tsgo checks the code under the options `tsc` would.
+3. **The keys Bazel owns**, written last: `rootDirs` bridging the source and
+   output trees, `preserveSymlinks`, `declaration`, `emitDeclarationOnly`,
+   `declarationMap`, `composite`, `incremental`, `rootDir`; under the tsgo emit
+   `noEmit: false`, `noEmitOnError`, `outDir` and `declarationDir`; `allowJs`
+   when a src is JavaScript; `isolatedDeclarations` under
+   `--//ts:declarations=oxc`; `skipLibCheck: false` under `--//ts:lib_check`.
+   `include` is `srcs`; `files`, `exclude` and `references` are `[]`. Two keys
+   are the tsconfig's values rewritten: `paths`, each value from the directory
+   of the chain file that set it and a `bazel-bin` twin beside it, and `types`,
+   each path-shaped entry rebased to the file the sandbox stages (below). A
+   value the tsconfig sets for one of these keys is overridden by `extends`
+   order, not refused.
+
+`--showConfig` is run over the chain, not over the user's file alone, so a
+default the baseline supplies reaches oxc as tsgo sees it: oxc transforms with
+the `target`, `jsx` and `jsxImportSource` the same run yields, handed over in
+`<name>.options.json`, and the two compilers agree.
 
 `preserveSymlinks` is what keeps a program to its declared inputs. Bazel stages
 every input as a symlink into the source tree; resolved through the link, a
@@ -112,81 +129,25 @@ its declared inputs and nothing the source tree has beside them: an import
 inside a staged `.d.ts` that names a file nothing stages resolves to nothing,
 and `skipLibCheck` drops the `TS2307`.
 
-Lowest precedence first:
+Read the tsconfig a target handed the compiler with
+`bazel build //pkg:lib --output_groups=tsconfig`.
 
-1. **The ruleset baseline**: `strict`, `module: "Preserve"`, `skipLibCheck`,
-   `esModuleInterop`. Without a `tsconfig` they go straight into the generated
-   file; with one they go into a file the generated config `extends` before
-   yours, so they reach only the keys your file never mentions.
+### What Fails Before tsgo Runs
 
-   `moduleResolution: "Bundler"` joins them only where the baseline also owns
-   `module`: without a `tsconfig`, and while `compiler_options` names neither
-   key. TypeScript couples the two; a baseline `moduleResolution` left standing
-   after a `module: "NodeNext"` replaced the baseline's is `TS5109` before a
-   source is read. Left out, tsgo derives the resolver from whichever `module`
-   won: `Bundler` for all of them but `Node16`/`NodeNext`, which derive their
-   own.
-2. **`tsconfig`**: the project's own `tsconfig.json`, and whatever it extends.
-   Referenced where it lives, never copied, so relative paths inside it resolve
-   against the directory they were written for. Everything it says wins over
-   layer 1, so tsgo checks the code under the options `tsc` would. Setting the
-   attribute adds what the file says; the baseline stays.
-3. **`target` and `jsx_mode`**, then `jsx_import_source`, `lib`, `types`, then
-   `compiler_options`, which wins among these.
-4. **The options Bazel owns**: `paths`, `include`, and the 17 keys listed
-   below.
+Analysis rejects a `.jsx` src, a directory in `srcs` (a `ts_codegen` `out_dir`
+tree belongs in `deps`), a src of any other extension,
+`--//ts:declaration_map` under `--//ts:declarations=oxc`, and a target with
+sources and no tsgo toolchain. One more is the root check below. `tsaction`
+fails the `TsConfig` action on a path-shaped `types` entry no input sits at
+([a `types` entry that names a declaration file](#a-types-entry-that-names-a-declaration-file)),
+naming the entry, the tsconfig and the path it looked for.
 
-`target` and `jsx_mode` are injected in every mode, including over a tsconfig
-baseline, and supersede a `target` or `jsx` in the file. Oxc transforms with
-them, and the two compilers have to agree.
-
-`allowArbitraryExtensions` is set above layer 2: the `.d.ts` files generated for
-`css_module` / `css_library` / `asset_library` / `json_library` deps require it.
-It overrides the value in your tsconfig file; `compiler_options` sits above it.
-
-Layer 1 is a file, `<target>.tsconfig_baseline.json`, beside the generated
-config: Starlark cannot read your tsconfig to see which keys it sets, and
-`extends` takes a list in which a later entry overrides an earlier one.
-
-### The Two Hard Errors
-
-Both fail at analysis time.
-
-**A Bazel-owned key in `compiler_options`.** These 17 encode the sandbox layout
-or the action's declared outputs:
-
-`baseUrl`, `rootDirs`, `preserveSymlinks`, `paths`, `outDir`, `rootDir`,
-`declarationDir`, `declaration`, `emitDeclarationOnly`, `declarationMap`,
-`sourceMap`, `noEmit`, `noEmitOnError`, `isolatedDeclarations`, `composite`,
-`incremental`, `tsBuildInfoFile`.
-
-`declarationMap` and `sourceMap` follow from the `declaration_map` and
-`source_map` attributes. Each failure message names the attribute to use
-instead where there is one, and otherwise says what the key encodes.
-
-```
-ts_compile: compilerOptions.paths is set by the rule and cannot be overridden --
-use path_aliases for source aliases, or module_name on the target that produces
-the declarations.
-Remove "paths" from compiler_options on @@//src/app:app.
-```
-
-**A `path_aliases` value pointing into the output tree.** A path under
-`bazel-out/` or `bazel-bin/` embeds the build configuration, so it breaks under
-`-c opt` or a different exec platform:
-
-```
-ts_compile: path_aliases["@acme/ui"] on @@//src/app:app points into the output
-tree (bazel-out/k8-fastbuild/bin/packages/ui).
-```
-
-Set `module_name` on the producing target.
-
-### Generated and Checked-In Sources in One Target
+### One Root per Declaration Emit
 
 One tsgo declaration emit has one `rootDir`. A checked-in source hangs off the
-package directory, a generated one off the package's directory in `bazel-bin`.
-A target holding both fails at analysis under the default emit:
+package directory, a generated one off the package's directory in `bazel-bin`,
+and a src from another package off that package's directory. A target whose
+srcs hang off more than one root fails at analysis under the tsgo emit:
 
 ```
 ts_compile: srcs on @@//src/app:app hang off 2 different roots, and one
@@ -195,58 +156,12 @@ declaration emit has one rootDir:
   src/app
 ```
 
-Put the generated sources in their own target and depend on it, or set
-`declarations = "oxc"` (which groups sources by root and runs oxc once per
-group), or set `enable_check = False`. Neither of the last two emits from tsgo.
-Generated sources cannot use the default emit even on their own; see
-[ts_codegen § Compiling the output](ts-codegen.md#compiling-the-output).
-
-### A Src From Outside This Package's Tree
-
-A src is compiled into the package of the target that lists it: its outputs are
-declared under that package. Its root is the directory the file lives in, so a
-src from a sibling package, from an ancestor, or from another repository hangs
-off a root of its own while this package's sources hang off the package. A
-`srcs` list decides this on its own, so the mix is rejected while the BUILD file
-loads, before analysis:
-
-```
-ts_compile: srcs on //src/app:app mix this package's own files with files that
-live outside it:
-  //packages/shared:util.ts
-```
-
-Give the file a target in its own package and depend on that; set `module_name`
-on it when the import is by bare specifier. `declarations = "oxc"` and
-`enable_check = False` skip the check.
-
-Only the mix is rejected. Five shapes are not it:
-
-- A descendant package's file is inside this package's directory, the root this
-  package's own sources hang off: `srcs = ["a.ts",
-  "//src/app/sub:x.ts"]` in `//src/app` is the one `rootDir` `src/app`, and
-  builds. A `ts_compile` may hold a whole subtree, and a subtree may grow a
-  BUILD file without the target above it being split. A file the descendant
-  package also compiles is a conflict: both declare
-  `bazel-bin/src/app/sub/x.js`, and Bazel rejects that pair as conflicting
-  actions, naming both targets.
-- A target whose srcs all come from elsewhere has one root like any other.
-- The top-level package is the exec root, the root a src from any other package
-  hangs off too, so `srcs = ["main.ts", "//lib:util.ts"]` at the repository root
-  is one root, and builds.
-- A `.d.ts` from anywhere is passed through, not compiled. `vite_types = True`
-  prepends the Vite shim from `@rules_typescript//ts` this way.
-- A `select` resolves after the loading phase, so this check never sees its
-  branches. A mix hidden inside one reaches the analysis-time error.
-
-Only a label that names a source file is judged. `//other:some_target` stands
-for whatever files that rule or filegroup produces, wherever those live; the
-analysis-time root check covers them.
-
-A label naming a repository, `@other//pkg:f`, is outside this tree whatever its
-path. `@//pkg:f` and the canonical `@@//pkg:f` are not: an empty repository part
-is this repository, so `@@//<this package>:f` is this package. A repository
-naming itself by its own apparent name is read as foreign; spell it `//pkg:f`.
+Put the generated sources in their own target and depend on it, or build with
+`--//ts:declarations=oxc`, which groups sources by root and runs oxc once per
+group. A target holding only generated sources has one root and builds under
+either emitter. A descendant package's file is inside this package's directory
+and shares its root; a `.d.ts` from anywhere is passed through, not compiled,
+and is not judged.
 
 ## Deps Have to Be Direct
 
@@ -271,90 +186,67 @@ Re-run gazelle to regenerate deps, or add the labels above by hand.
 
 `bazel run //:gazelle` writes those labels. There is no flag and no opt-out.
 
-**What is checked:** relative imports, bare specifiers that name an npm package,
-and bare specifiers that name another target's `module_name` (including a
-subpath of one). **What is exempt:** Node builtins and `node:` specifiers, and
-anything under a `path_aliases` prefix, since an alias resolves to files this
-target already stages. An import that nothing in the closure provides is left
-alone, because there is no label to suggest; TypeScript reports it as `TS2307`.
+**What is checked:** relative imports, and bare specifiers that name an npm
+package the closure carries. **What is exempt:** Node builtins and `node:`
+specifiers, and a specifier no package in the closure answers, a tsconfig
+`paths` alias included: an alias resolves to files this target already stages,
+and an import nothing provides has no label to suggest, so TypeScript reports it
+as `TS2307`.
 
 `/// <reference types="x" />` is not checked: it is not an import. The dep it
 names is Gazelle's to write
 ([Import Resolution](../gazelle/overview.md#import-resolution)).
 
-### Action Inputs
+### The node_modules Forest
 
-The action inputs stay transitive, and so does `paths`: one map serves the whole
-type program, and it names every npm package the closure reaches, through a
-direct dep's own dependencies or through a `ts_compile` dep's. A dep's emitted
-`.d.ts` imports the packages the dep declared and resolves them in this
-program; without the key TypeScript widens what that declaration exports to
-`any` without a report. `TsStrictDeps` stops your own source from using them.
+npm packages reach tsgo the way they reach node: through a `node_modules` tree.
+Every target with a program builds one, the tree artifact `<name>/node_modules`,
+with [`node_modules`](node-modules.md)'s builder over the target's npm deps,
+their closures, the `@types/*` package paired with each, and the npm closure of
+every first-party dep (`TsDeclarationInfo.transitive_npm_packages`): a dep's
+emitted `.d.ts` imports the packages the dep declared, and they resolve in this
+program by the same walk. The tree has one entry per resolution, the target's
+own deps flat, so a name the closure resolves twice is answered for this target
+by the version it declared.
 
-Every value that names an npm package points under `node_modules/<name>/` inside
-the package's repository, which is where the fetch puts a package. TypeScript
-reads that segment to take a `paths` match for a library file -- type-checked,
-never emitted, outside the `rootDir` check -- rather than project source. The
-map's other values -- a `module_name`, a `path_aliases` prefix, a workspace
-member -- are workspace paths.
+tsgo walks up from the importing file for a bare specifier, and nothing above a
+source in the exec root is an action output, so `tsaction tsgo` lays out a
+program root under the target's output directory -- a symlink to every top-level
+entry of the exec root plus the forest at `node_modules` -- and runs tsgo from
+there. A bare specifier, an `exports` condition, a subpath, a `@types/*` pairing
+and a `types` entry resolve as tsc resolves them over a pnpm install, and a
+declaration tsgo emits names a package the way that package's `exports` allow.
+npm deps contribute no other input: a `ts_compile`'s
+`transitive_declaration_files` holds first-party declarations alone, and a
+package's file sits under `node_modules/<name>/`, the segment TypeScript reads to
+take it for a library file, type-checked and never emitted.
 
-`<pkg>` names the package's module entry, the file a bare import would resolve
-to were there a `node_modules` to walk: the `exports` root, `typings`, `types`,
-`main`, then `index.ts`, `index.tsx`, `index.d.ts`, a `.js` target substituted
-`.ts`, `.tsx`, `.d.ts` in that order. A `.ts` entry is staged with the package's
-declarations and, under the segment above, checked and never emitted. The
-declaration a `compilerOptions.types` entry resolves to is read separately,
-declarations only, and reaches the program through `files` (below):
-`@cloudflare/workers-types` ships `index.ts` for the first role and `index.d.ts`,
-a global script, for the second. See
-[where a package's type declarations come from](../guides/npm.md#where-a-packages-type-declarations-come-from).
-
-A package's subpaths get three kinds of key. `<pkg>/*` lists the package root
-and then the module entry's directory, the two places a subpath lives when
-the manifest says nothing about it. An `exports` subpath the manifest designates
-a declaration for gets an exact key naming that file. A one-star `exports`
-pattern gets a pattern key whose first value is the manifest's target with the
-star and any suffix kept, the two guesses behind it:
-`"./*": {"import": "./dist/esm/*"}` writes `<pkg>/*` as `<repo>/dist/esm/*`,
-`<repo>/*`, `<repo>/<entry dir>/*`, and
-`"./utils/*": {"types": "./dist/types/utils/*.d.ts"}` writes `<pkg>/utils/*`
-with `<repo>/dist/types/utils/*.d.ts` first. TypeScript substitutes the matched
-star into the whole `paths` value and reads no `exports` map for a `paths`
-match, so the pattern is spelled out where the map is read, at fetch time. The
-first condition in the map's own order whose target fits one star wins, `types`
-included; a target with no star is the one file every match resolves to; a key
-with two stars, or a `null` target, gets no key of its own.
+A workspace member is one of those packages. Its hub view `@npm//:<name>` links
+the member's `package.json` as built -- every source-file target under `main`,
+`module`, `browser`, `exports` and `imports` rewritten to the emitted `.js`,
+`types` to the `.d.ts` -- beside the member's `.js` and `.d.ts` at the paths the
+manifest names, so the bare name and each `exports` subpath resolve for tsgo and
+for node through one manifest. See
+[what a workspace member is imported as](../guides/npm.md#what-a-workspace-member-is-imported-as).
 
 ### `@types/*` Packages
 
 DefinitelyTyped publishes `x`'s declarations as `@types/x`, and a scoped
-`@a/b`'s as `@types/a__b`. TypeScript pairs the two by walking
-`node_modules/@types`; there is no `node_modules` here, so the pairing is a
-`paths` key. A `@types/*` dep therefore gets its entries twice: once under its
-own name, and once under the name it types.
+`@a/b`'s as `@types/a__b`. The hub pairs the two from the lockfile, and a
+`ts_npm_package` carries its paired `@types/*` package in `transitive_deps`, so
+the forest links `@types/x` beside `x` and tsgo pairs them by walking
+`node_modules/@types`, as it does over an install. Which of the two a name
+resolves to follows npm: `x` is answered by the runtime package when it
+publishes declarations of its own, and by `@types/x` when it publishes none. A
+`@types/*` entry that forwards (`@types/bun/index.d.ts` is exactly
+`/// <reference types="bun-types" />`) resolves the directive through the same
+walk.
 
-Which of the two a name resolves to follows npm: `x` is answered by the runtime
-package when that package publishes declarations of its own, and by `@types/x`
-when it publishes none. `@babel/core` ships no `.d.ts`, so `@babel/core`
-resolves into `@types/babel__core`; `@babel/types` ships its own, so it does
-not. A `path_aliases` prefix outranks both.
-
-Without the second key the declarations are in the program under a name nothing
-imports. The imports that need it are mostly inside other packages' `.d.ts`
-files (`rollup`'s say `from "estree"`, `@types/chai`'s say `from "deep-eql"`),
-where `skipLibCheck` hides the `TS2307` and the types those files export widen
-to `any`. See [Finding a broken declaration](#finding-a-broken-declaration).
-
-A `@types/*` entry that forwards (`@types/bun/index.d.ts` is exactly
-`/// <reference types="bun-types" />`) brings the package it names along.
-TypeScript resolves that directive through `typeRoots` and a `node_modules`
-walk from the referencing file, never through `paths`, so the sandbox resolves
-it to nothing and `skipLibCheck` hides the `TS2688`. The names in each
-designated declaration's header are read when the package is fetched, resolved
-against that package's own dependencies (`@types/x` first, as `typeRoots`
-goes), and the answers join `files` beside the entry, chain included:
-`bun-types`' own entry references `node`, so `@types/node` arrives with it. A
-package in `untyped_packages` answers no directive.
+`types` is always written. When the tsconfig chain sets none, the direct
+`@types/*` deps' names are written, so nothing auto-includes: a `@types/*`
+package the closure carries but no entry names is in the tree for the imports
+that reach it and out of the global scope, and a use of its globals is `TS2304`.
+`//tests/npm:transitive_types_probe` pins that.
 
 ### Finding a Broken Declaration
 
@@ -364,7 +256,7 @@ error is elsewhere, typically a `TS7006` on a callback parameter in application
 code.
 
 `--//ts:lib_check` turns `skipLibCheck` off for every target in the build, over
-whatever `compiler_options` or a named `tsconfig` say:
+whatever the target's tsconfig says:
 
 ```bash
 bazel build //... --//ts:lib_check
@@ -374,120 +266,54 @@ It reports findings unrelated to the one being chased: a `lib` a dependency
 needs and the program does not set reports here too. It is a diagnostic sweep,
 not a build mode.
 
-### Keeping a Package Out of the Program
+### What Is in Global Scope
 
 A `.d.ts` with no top-level import or export is a **global script**, and
-everything it declares belongs to every program the file is part of. A dynamic
-`import()` loads a module's declarations exactly like a static one, and the
-package one hop behind it comes along.
+everything it declares belongs to every program the file is part of. Under the
+forest a file joins the program two ways: by import, where a bare specifier
+resolves to the package's module entry and no further, and by `types`, which is
+always written. `@sentry/cloudflare`'s declarations import
+`@cloudflare/workers-types`, and that resolves to the package's `index.ts`, a
+module; its `index.d.ts`, 15k lines of global script, enters a program only
+through a `types` entry that names the package. A worker names it in its
+tsconfig; a browser target that depends on `@sentry/cloudflare` does not, and
+keeps `lib.dom`'s `Element`.
 
-One line in a browser component broke 21 files in the Lovable monorepo this
-way. `void import("@sentry/cloudflare")` sat inside an `import.meta.env.SSR`
-branch; `@sentry/cloudflare`'s own declarations import
-`@cloudflare/workers-types`, 15k lines of global script, so its
-`interface Element` and `interface Body` merged into the ones `lib.dom`
-declares. `Element.append` then took `string | ReadableStream | Response` and
-no `Node`, and the errors landed on DOM code that names neither package.
-
-`untyped_packages` keeps a package out of one target's type program:
-
-```python
-ts_compile(
-    name = "web",
-    srcs = glob(["src/**/*.ts", "src/**/*.tsx"]),
-    untyped_packages = ["@cloudflare/workers-types"],
-    deps = ["@npm//:sentry_cloudflare"],
-)
-```
-
-A named package gets no `paths` key (not its own, not one per `exports`
-subpath, and not the bare name a `@types/*` package would answer for it) and
-no `files` entry. It stays in `deps`, its files stay among the action's
-inputs, and no JavaScript moves.
-
-`TsStrictDeps` sees the exclusion. A direct dep stays declared, so an import of
-it is still attributed. A package that was only reachable leaves the reachable
-set with the key, so an import of it is a bare `TS2307`, not "add this dep":
-adding the dep would not type it.
-
-An entry names one package, and a package's declarations live wherever npm put
-them. `ms` ships none and is typed by `@types/ms`, so `["@types/ms"]` takes
-those declarations out, and `ms` then resolves to the runtime package it names.
-`["ms"]` takes away the bare name `@types/ms` answered for it. Name both to
-leave nothing.
-
-**An import of a named package resolves to nothing**, which is `TS2307`. A
-target whose own sources import one needs a `declare module` of its own in a
-`.d.ts` src:
-
-```ts
-declare module "@sentry/cloudflare" {
-  export function captureException(error: unknown): void;
-}
-```
-
-That declaration answers only because the `paths` key is gone. With the key in
-place TypeScript resolves the specifier and adds the file to the program before
-the checker ever asks about an ambient module, so the shim alone changes
-nothing and the globals still arrive.
-
-The attribute is per target and travels through no dep edge: a dependent that
-needs the package resolves it as before. A worker entry point keeps the
-Cloudflare types the browser target drops.
-
-The tsconfig `bazel run //:refresh_tsconfig` writes has one `paths` map for the
-whole workspace; a nested tsconfig extends the root and inherits it unchanged.
-Where every target reaching a package excludes it, the editor drops it too.
-Where one target excludes a package another still resolves, one map cannot
-answer both, and `ts_refresh_tsconfig` fails:
-
-```
-ts_refresh_tsconfig: @@//web:web keeps "@cloudflare/workers-types" out of its type program
-  (untyped_packages), and this config still resolves it for something it
-  reaches. ...
-Add "@cloudflare/workers-types" to host_only_packages to drop it from the editor everywhere,
-or name it in untyped_packages on the targets that still resolve it.
-`bazel query "rdeps(//..., @npm//:<the package>)"` names those targets.
-```
+An import of a package the closure does not carry is `TS2307`. A `declare
+module "x"` in a `.d.ts` src answers it, since nothing resolves the specifier
+first.
 
 ### Importing Another Target by Bare Specifier
 
-`path_aliases` maps a prefix to a source directory, as in
-`@/components` → `src/components`. The rule maps the prefix onto that directory
-and its `bazel-bin` mirror, so a `css_library`, `asset_library` or
-`json_library` declaration for a file under it resolves too. A target whose
-declarations land anywhere else is out of reach: only that target knows where
-they go under the current configuration. Set `module_name` on it:
+Two kinds of target answer a bare specifier. A pnpm workspace member is imported
+through its hub view, `@npm//:<name>`, and resolves through the forest like any
+npm package; its `exports` map, rewritten to the emitted files, decides what
+`@acme/ui` and `@acme/ui/button` are. Any other first-party target is reached
+through the tsconfig's `paths`: the rule rewrites each value to the source
+directory and its `bazel-bin` twin, so a dep's declarations, a `json_library`'s
+`.d.ts` and a `ts_codegen` `out_dir` tree resolve through the alias the tsconfig
+already has.
+
+```jsonc
+// apps/web/tsconfig.json
+{ "compilerOptions": { "paths": { "#shared/*": ["../../packages/shared/src/*"] } } }
+```
 
 ```python
-# packages/ui/BUILD.bazel
-ts_compile(
-    name = "ui",
-    srcs = glob(["*.ts", "*.tsx"]),
-    module_name = "@acme/ui",
-    visibility = ["//visibility:public"],
-)
-
 # apps/web/BUILD.bazel
 ts_compile(
     name = "web",
-    srcs = ["main.ts"],          # import { Button } from "@acme/ui";
-    deps = ["//packages/ui"],
+    srcs = ["main.ts"],          # import { flag } from "#shared/flags";
+    tsconfig = "tsconfig.json",
+    deps = ["//packages/shared"],
 )
 ```
 
-The dependent gets a `paths` entry for `@acme/ui` and `@acme/ui/*` pointing at
-the `.d.ts` files Bazel produced, with `index.d.ts` as the entry point. The name
-travels in the `TsModuleInfo` provider, transitively.
-
-For a pnpm workspace member linked through `@npm//:<name>`, its own
-`package.json` decides. The `exports` map, `typings`, `types` and `main` are
-read where the lockfile is, and each specifier the member declares becomes its
-own `paths` entry, so `@acme/ui/button` resolves to the declaration emitted from
-the file `exports["./button"]` names, wherever it sits. A wildcard subpath
-(`"./icons/*": "./icons/components/*.tsx"`) becomes a wildcard pattern. The
-default entries above stay behind every declared entry. See
-[npm workspace members](../guides/npm.md).
+The value is read from the directory of the chain file that sets it, which
+`--showConfig` does not print, so tsaction walks the `extends` chain for it. An
+alias is type-checking only: a value import through one needs the module
+reachable at runtime, which a dep on the producing target gives a `ts_test` or
+`ts_binary`.
 
 ### ts_config
 
@@ -524,152 +350,88 @@ ts_compile(
 ### A Cloudflare Worker
 
 Ambient globals from a generated `.d.ts`, no DOM, and no stray `@types` package
-from the dependency graph reaching global scope:
+from the dependency graph reaching global scope, all in the worker's own
+tsconfig:
+
+```jsonc
+// tsconfig.json
+{
+  "compilerOptions": {
+    "lib": ["es2022"],
+    "types": ["./worker-configuration.d.ts"],
+    "resolveJsonModule": true
+  }
+}
+```
 
 ```python
 ts_compile(
     name = "worker",
     srcs = ["index.ts"],
     tsconfig = "tsconfig.json",
-    lib = ["es2022"],
-    types = ["./worker-configuration.d.ts"],
-    types_srcs = ["worker-configuration.d.ts"],
-    compiler_options = {"resolveJsonModule": True},
+    deps = [":worker_types"],   # the ts_codegen whose outs write worker-configuration.d.ts
 )
 ```
 
-Relative entries in `types` and `typeRoots` are rewritten to resolve from the
-generated config, so they are written exactly as they would be in the package's
-own tsconfig. Other path-valued options are not rewritten: they resolve against
-the generated config's directory, so they belong in the `tsconfig` file.
-
-`types` names a package resolved from `deps` or a declaration file a label
-stages (both below). Neither puts a dep's globals in scope. A `.d.ts` in
-another target's `srcs` with no top-level import or export declares globals,
-and those reach every target that depends on it, however far down the graph the
-declaration sits, when that target names the file in `public_globals`.
+`types` names a package the forest resolves or a declaration file a dep stages
+(both below). Neither puts a dep's globals in scope on its own; the entry does.
 
 ### A `types` Entry That Names a Package
 
-`types = ["vite/client"]` names a package, and TypeScript would resolve it by
-walking `node_modules` for it. There is no `node_modules` here, so the rule
-resolves the entry against this target's `deps` and puts the declaration it
-resolves to into the generated config's `files`. Four spellings resolve: the
-package itself, whose manifest designates the file; one of its `exports`
-subpaths, likewise; a subpath the manifest says nothing about, which resolves
-to the declaration the package ships there, so
-`@cloudflare/workers-types/2023-07-01` is that package's
-`2023-07-01/index.d.ts`; and the bare name a paired `@types/*` package supplies
-(`node` is `@types/node`).
+`types: ["vite/client"]` names a package, and tsgo resolves it as tsc does over
+an install: the package's own `types`, an `exports` subpath
+(`@cloudflare/vitest-pool-workers/types`), a directory the package ships at that
+subpath (`@cloudflare/workers-types/2023-07-01`), or the paired `@types/*`
+package (`node` is `@types/node`). The package has to be in the forest -- a
+direct dep, or in a dep's closure -- and an entry the forest does not answer is
+tsgo's `TS2688: Cannot find type definition file`, from the action.
 
-For the third, the rule reads the files TypeScript would, in its order:
-`<subpath>/index.d.ts` under the paired `@types/*` package, which `typeRoots`
-puts ahead of the `node_modules` walk; then the package's own `<subpath>.d.ts`,
-then its `<subpath>/index.d.ts`; then `<subpath>.d.ts` under the `@types/*`
-package. A `.d.mts` or `.d.cts` at those paths does not answer, as it does not
-for `tsc`. TypeScript consults the manifest three ways before it reads any of
-those files, and the rule consults it none of them, since `NpmPackageInfo`
-carries none: a `typesVersions` mapping of the subpath, a `package.json` inside
-the subpath's directory, and whether an `exports` map exists at all -- one that
-omits the subpath stops `tsc` with `TS2688`, where the rule goes on to the
-shipped file. The one of the three that changes an answer rather than
-withholding it is `typesVersions`: `web-streams-polyfill` maps `dist/types/*`
-to `dist/types/ts3.6/*` and ships both, so
-`types = ["web-streams-polyfill/dist/types/polyfill"]` is
-`dist/types/ts3.6/polyfill.d.ts` to `tsc` and `dist/types/polyfill.d.ts` here.
-The rule's unit test pins that answer.
-
-A package the target names an entry of contributes what the entry names and
-nothing more. A dep that ships declarations and no JavaScript otherwise puts
-its root entry in `files` unasked, the way a direct `@types/*` dep does, so
-`types = ["@cloudflare/workers-types/2023-07-01"]` compiles against that
-date's declarations alone rather than those and the package's latest.
-
-An entry a dep answers is dropped from the generated config: its declarations
-arrive through `files`, and TypeScript resolves the entry itself through
-`typeRoots` and `node_modules`, neither of which the sandbox has.
-
-An entry no dep answers fails at analysis, naming the entry and the dep to
-add; for a subpath of a dep, the message lists every path it looked at, the
-paired `@types/*` package's included, in the order above. `tsc` reports
-`error TS2688: Cannot find type definition file` for such an entry, and so
-does tsgo 7.0.2, from the action and naming no dep; the
-`7.0.0-dev.20260311.1` nightly reported nothing, and the failure surfaced on
-whatever used the declarations: `TS2339` on `import.meta.env` without
-`vite/client`, `TS2591` on `process` without `node`.
-
-Two alternatives to the dep: name a declaration file instead (the next
-section), or set `typeRoots` in `compiler_options`. A target with a `typeRoots`
-is exempt from the package-entry check: what sits under it is the compiler's to
-find at action time. A declaration-file entry is checked either way.
+`typeRoots` stays unset. With a custom `typeRoots` tsgo skips the
+`node_modules` walk for a `types` entry, and that walk is the only place an
+`exports`-only subpath resolves; inside the program root tsgo's default root is
+`node_modules/@types`, so `types: ["node"]` resolves as before.
 
 ### A `types` Entry That Names a Declaration File
 
-`types = ["./worker-configuration.d.ts"]` names a path, and a path resolves
-against the sandbox. The entry is resolved against the files the action stages:
-`srcs`, the deps' declarations (a `.d.ts` in `srcs` is a declaration output
-unchanged, so a dep edge stages it), `path_alias_srcs`, and `types_srcs`. An
-entry none of them sits at fails at analysis, naming the label to add, where
-the compiler's own `TS2688` from the action would name none.
+`types: ["./worker-configuration.d.ts"]` names a path. tsc resolves it against
+the tsconfig's own directory, and tsaction rebases it to where the sandbox
+stages the file, with tsc's lookup: the path as a file or directory, or the
+path with a TypeScript or declaration extension added, in the source tree first
+and under `bazel-bin` second. A checked-in declaration is in the source tree; a
+generated one, such as the [`ts_codegen`](ts-codegen.md#cloudflare-worker-bindings)
+running `wrangler types` writes, is in `bazel-bin`. What stages the file is a
+label: `srcs`, or a dep whose `srcs` hold it or whose `outs` write it (a `.d.ts`
+in `srcs` is passed through unchanged, so a dep edge stages it at the path the
+entry names). Gazelle writes that dep from the tsconfig
+([the `compilerOptions` baseline](../gazelle/overview.md#the-compileroptions-baseline)).
 
-The entry is written into the generated config as the path to the file it
-resolved to. A checked-in declaration is in the source tree; a generated one,
-such as the [`ts_codegen`](ts-codegen.md#cloudflare-worker-bindings) running
-`wrangler types` writes, is in `bazel-out`. The
-entry points wherever the label put it, so the two are named the same way:
+An entry nothing stages fails the `TsConfig` action before tsgo runs, where
+tsgo's own `TS2688` would name no dep:
 
-```python
-ts_compile(
-    name = "lib",
-    srcs = glob(["*.ts"]),
-    types = ["../../worker-configuration.d.ts"],
-    types_srcs = ["//workers/proxy:worker_types"],
-)
+```
+tsaction: compilerOptions.types entry "./worker-configuration.d.ts" in
+worker/tsconfig.json names worker/worker-configuration.d.ts, which no input of
+this action sits at: not in the source tree, not under bazel-out/k8-fastbuild/bin.
+A declaration this program names is a src of the target or an output of one of
+its deps.
 ```
 
-!!! note "Upgrading"
-    A relative `types` entry no label answers used to resolve to nothing in
-    silence. It is an analysis error now. For each `./x.d.ts` or `../x.d.ts`
-    entry in `types`, name the file with a label: in `srcs`, on a dep whose
-    `srcs` hold it, or in `types_srcs`. The message names the path it looked
-    for and the attribute to list it in.
-
-`types_srcs` is for the file neither `srcs` nor a dep stages. It is a label
-list, so the file may live in another package. Unlike a `.d.ts` in `srcs`, it
-is not passed through as this target's own declaration. tsgo parses it as part
-of this program, so a syntax error in the file fails this target (`TS1434` and
-friends). What it declares goes unchecked, since it is a `.d.ts` under the
-baseline's `skipLibCheck`; `--//ts:lib_check` or
-`compiler_options = {"skipLibCheck": False}` surfaces a type error inside it. A
-file listed there that no entry names is an analysis error too: nothing else
-puts it in the program.
-
-Only the two relative shapes are paths. TypeScript resolves `./x.d.ts` and
-`../x.d.ts` against the config's own directory, and anything else (`x.d.ts`,
-`vendor/x.d.ts`) through `typeRoots` and `node_modules/@types`, a walk the
-compiler does at action time and this rule neither rewrites nor resolves.
-`./typings`, a directory, is the compiler's too.
+Only the two relative shapes are paths. `./x.d.ts` and `../x.d.ts` resolve
+against the tsconfig's directory; anything else (`x.d.ts`, `vendor/x.d.ts`) is a
+package name to tsc and to tsaction alike. A `../` entry reaches a file in an
+ancestor directory, the way a test directory's tsconfig names the worker's
+declaration beside the tsconfig it extends.
 
 Such an entry is for globals. A module (a `.d.ts` with a top-level import or
-export) resolves and joins the program, but its declarations stay scoped to it.
-`public_globals` rejects a module; a `types` entry does not, since a module
-augmentation inside it needs the module in the program.
-
-Only the attribute is checked. The rule does not read a `types` in the
-`tsconfig` file the target names: with `"types": ["vite/client"]` in the
-tsconfig and `@npm//:vite` in `deps`, the target analyses, generates a config
-whose `files` is empty, and fails in tsgo 7.0.2 with `TS2688` on `vite/client`
-(the 20260311.1 nightly reported `TS2339` on the `import.meta.env` those
-declarations would have typed). Put the entries in `compiler_options`. Gazelle does that where the nearest tsconfig names entries
-and a label stages every file among them, rebasing a file entry onto each
-target below and naming the file in `types_srcs`; see
-[a declaration the tsconfig names](../gazelle/overview.md#a-declaration-the-tsconfig-names).
+export) resolves and joins the program, but its declarations stay scoped to it;
+a module augmentation inside it needs the module in the program, which the entry
+gives it.
 
 ### Ambient Precedence
 
-A dep's globals are listed ahead of the ones `types` and `@types/*` packages
-supply, so where both declare the same `declare module` pattern the project's
-own wins. `tsc` orders them the same way: a `types` package arrives as a
+The target's own declarations are root files, listed in `include` ahead of what
+`types` brings in, so where both declare the same `declare module` pattern the
+project's own wins. `tsc` orders them the same way: a `types` entry arrives as a
 type-reference directive, which joins the program after the root files. The
 first declaration of a pattern wins, and a narrower pattern does not change
 that: an earlier `declare module "*.svg"` beats a later
@@ -680,63 +442,50 @@ declaration.
 
 ### Which Ambients a Consumer Gets
 
-A `.d.ts` in `srcs` types the target that owns it. `public_globals` also puts
-it in the program of everything that depends on that target.
+A global `.d.ts` in `srcs` types the target that owns it and travels to every
+consumer as a declaration output, and a consumer's program holds what its own
+`include` and `types` name. So a consumer that needs the globals names the file
+in its own tsconfig `types`, with the owning target in `deps`:
 
 ```python
+# workers/proxy/BUILD.bazel
 ts_compile(
     name = "worker_types",
     srcs = ["worker-configuration.d.ts"],
-    public_globals = ["worker-configuration.d.ts"],
+    visibility = ["//workers/proxy:__subpackages__"],
 )
-```
 
-Unnamed is private. A package can hold an ambient it needs for its own
-standalone `tsc -p` that is no part of its public type surface, such as a
-`process` shim in a library with no `@types/node`:
-
-```python
-ts_compile(
-    name = "ui",
-    srcs = glob(["**/*.tsx"]) + ["types/ambient.d.ts"],
+# workers/proxy/test/tsconfig.json: "types": ["../worker-configuration.d.ts"]
+# workers/proxy/test/BUILD.bazel
+ts_test(
+    name = "handler_test",
+    srcs = ["handler.test.ts"],
     tsconfig = "tsconfig.json",
+    deps = ["//workers/proxy:worker_types", "//workers/proxy/src", "@npm//:vitest"],
 )
 ```
 
-Exported, that shim lands in `files` ahead of `@types/node` in every consumer
-that has the real `process`. The duplicate identifier is reported inside a
-`.d.ts`, where `skipLibCheck: true` hides it, and the consumer sees the shim's
-type at every use site.
+A package can hold an ambient it needs for its own standalone `tsc -p` that is
+no part of its public type surface, such as a `process` shim in a library with no
+`@types/node`, and no consumer sees it unless that consumer asks. The unit is
+the file: TypeScript decides module-or-global per file. A `.d.ts` mixing a shim
+for the package's own build with a declaration consumers are meant to have is
+two files.
 
-A consumer that needs a global no `public_globals` names sees the identifier as
-undefined. Three things supply it: a dep of its own (`@types/node` for
-`process`), the owning target's `public_globals`, or a relative `types` entry
-with the file in `types_srcs`, which stages it into this one program and no
-other.
-
-The unit is the file: TypeScript decides module-or-global per file. A `.d.ts`
-mixing a shim for the package's own build with a declaration consumers are
-meant to have is two files.
-
-Every entry must be in `srcs`, and must be global. Naming a `.d.ts` with a
-top-level import or export fails the build: a module has no globals. A `.d.mts`
-or `.d.cts` is accepted wherever a `.d.ts` is.
-
-`vite_types = True` follows the same rule. The shim is a src of the target that
-sets the attribute and of no other, so a consumer using `import.meta.env` sets
-`vite_types = True` itself. `ImportMeta` is in `lib`, so without the shim that
-consumer sees
-`TS2339: Property 'env' does not exist on type 'ImportMeta'`.
+A consumer that uses a global no entry supplies sees the identifier as
+undefined. Two things supply it: a `@types/*` dep of its own (`@types/node` for
+`process`, in `types` or as a direct dep when the tsconfig sets no `types`), or
+the owning target's file named in `types`.
 
 ## Which Tool Emits the Declarations
 
-Oxc always does the JavaScript transform. `declarations` decides which tool
-produces the `.d.ts`.
+Oxc always does the JavaScript transform. `--//ts:declarations` decides which
+tool produces the `.d.ts`, for every target in the build.
 
-### `declarations = "tsgo"` (default)
+### `--//ts:declarations=tsgo` (default)
 
-tsgo emits declarations from the complete type program: the target's sources
-plus every transitive `.d.ts` and npm `package.json`.
+tsgo emits declarations from the complete type program: the target's sources,
+every first-party dep's `.d.ts` and the forest.
 
 - **No source annotations required.** Inferred export types are fine.
 - **Declarations are exactly what `tsc` would emit**, including inferred object
@@ -747,7 +496,7 @@ plus every transitive `.d.ts` and npm `package.json`.
 - **Type-checking is on the critical path.** A consumer waits for its
   dependency's declarations.
 
-### `declarations = "oxc"`
+### `--//ts:declarations=oxc`
 
 Oxc emits declarations syntactically, per file, with no type program. This
 requires [isolated declarations](../getting-started/isolated-declarations.md):
@@ -755,20 +504,7 @@ every export needs an explicit type, and Oxc **errors** when one does not have
 one. Type-checking moves into the `_validation` output group, off the critical
 path, so downstream targets compile while checking runs concurrently.
 
-Use it per package once that package's exports are annotated.
-
-### Turning tsgo Off
-
-`enable_check = False` means different things in the two modes:
-
-| | `enable_check = True` (default) | `enable_check = False` |
-|---|---|---|
-| `declarations = "tsgo"` | tsgo emits `.d.ts` and reports errors | no tsgo and no `.d.ts`, for terminal targets (app entries, dev servers, bundle inputs) whose declarations nothing consumes |
-| `declarations = "oxc"` | Oxc emits `.d.ts`; tsgo validates | Oxc emits `.d.ts`; **nothing type-checks**. Oxc still enforces isolated declarations, so the declarations stay complete; the function bodies go unchecked |
-
-`declarations = "oxc"` with `enable_check = False` is the only configuration
-that runs no tsgo at all. Used broadly, it needs a type-checking gate somewhere
-else in the build.
+Set it in `.bazelrc` once every package's exports are annotated.
 
 ## Cost of Each Mode
 
@@ -783,61 +519,61 @@ medians of three interleaved runs:
 
 | Mode | Rebuild wall | Critical path |
 |------|--------------|---------------|
-| `declarations = "tsgo"` | 6.3s | 4.89s |
-| `declarations = "oxc"` | 3.8s | 2.15s |
-| `declarations = "oxc"`, `enable_check = False` | 2.7s | 1.06s |
+| `--//ts:declarations=tsgo` | 6.3s | 4.89s |
+| `--//ts:declarations=oxc` | 3.8s | 2.15s |
 
-Both modes run tsgo once per target, so the gap is serialisation. Under `"oxc"`
+Both modes run tsgo once per target, so the gap is serialisation. Under `oxc`
 the check is a validation action nothing waits for, and the critical path is
-Oxc's per-file transform; under `"tsgo"` each of the 20 links waits for its
+Oxc's per-file transform; under `tsgo` each of the 20 links waits for its
 dependency's declarations. The gap shrinks on shallower graphs and widens on
 deeper ones.
 
 ## Providers
 
-Fields for all three, and the load path, are in
+Fields for both, and the load path, are in
 [Providers and Toolchains](providers.md).
 
 - **`JsInfo`**: this target's `.js` and `.js.map` files as direct depsets, and
   the closure of both as transitive ones; `ts_binary` reads the transitive `.js`
   set
-- **`TsDeclarationInfo`**: this target's declarations and their closure, the
-  npm packages that closure imports, plus the global-entry files
-  `public_globals` produces; a downstream `ts_compile` type-checks against the
-  closure and writes a `paths` key per package
-- **`TsModuleInfo`**: the `module_name` this target is importable as, plus the
-  directories its declarations land in, propagated transitively so a dependent
-  can build its own `paths` entries
+- **`TsDeclarationInfo`**: this target's declarations and their first-party
+  closure, plus the npm packages that closure imports; a downstream `ts_compile`
+  type-checks against the closure and links the packages into its forest
+- **`OutputGroupInfo(tsconfig=...)`**: the tsconfig this target handed the
+  compiler, on any target with a program
 - **`OutputGroupInfo(_validation=...)`**: the tsgo check stamp, written only
-  under `declarations = "oxc"` with checking on; under the default the
-  declarations are the tsgo action's own outputs.
+  under `--//ts:declarations=oxc`; under the default the declarations are the
+  tsgo action's own outputs.
 - **`OutputGroupInfo(strict_deps=...)`**: the `TsStrictDeps` stamp, on any
-  target with both `deps` and sources. The compile actions take it as an input, so a violation
-  fails a plain `bazel build`; the output group exposes the stamp and the
-  checker on their own.
+  target with both `deps` and sources. The compile actions take it as an input,
+  so a violation fails a plain `bazel build`; the output group exposes the stamp
+  and the checker on their own.
 
 ## Architecture
 
-The oxc-bazel binary processes each `.ts` file through:
+Four actions per target. `TsStrictDeps` runs first, as a Node action over a
+params-file manifest of the target's declared and reachable providers. Its
+scanner is a character walk over the source: a quoted string is a specifier only
+when the tokens before it say so. Gazelle generates deps with the same walk.
+
+`TsConfig` writes `<name>.tsconfig.json` and `<name>.options.json` from
+`tsgo --showConfig` ([above](#where-compiler-options-come-from)). `OxcCompile`
+processes each `.ts` file with the options file's `target`, `jsx` and
+`jsxImportSource`:
 
 1. Parse (oxc_parser)
 2. Semantic analysis (oxc_semantic)
-3. Isolated declarations emit (oxc_isolated_declarations), only under `declarations = "oxc"`
+3. Isolated declarations emit (oxc_isolated_declarations), only under `--//ts:declarations=oxc`
 4. TypeScript/JSX transform (oxc_transformer)
 5. Code generation (oxc_codegen) for `.js` + `.js.map`
 
-`TsStrictDeps` runs before the transform, as a Node action over a params-file
-manifest of the target's declared and reachable providers. Its scanner is a
-character walk over the source: a quoted string is a specifier only when the
-tokens before it say so. Gazelle generates deps with the same walk.
-
-tsgo runs as a separate Bazel action against the generated `tsconfig.json`.
-Under `declarations = "tsgo"` that tsconfig sets `declaration`,
+tsgo runs from the program root, with `--project` on the written tsconfig.
+Under `--//ts:declarations=tsgo` that tsconfig sets `declaration`,
 `emitDeclarationOnly`, `rootDir` and `outDir` so the emitted declarations land
-beside Oxc's `.js` (mnemonic `TsgoDeclare`). Under `declarations = "oxc"` it
-runs with `--noEmit` and writes only a stamp (mnemonic `TsgoCheck`); `rootDir`
-is the exec root there, which every input is under, since tsgo checks the
-program against it even when nothing is emitted (`TS6059`).
+beside Oxc's `.js` (mnemonic `TsgoDeclare`). Under `oxc` it runs with `--noEmit`
+and writes only a stamp (mnemonic `TsgoCheck`); `rootDir` is the exec root
+there, which every input is under, since tsgo checks the program against it
+even when nothing is emitted (`TS6059`).
 
 ## Output Paths
 

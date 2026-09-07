@@ -17,7 +17,10 @@ pnpm add react react-dom --lockfile-only
 
 `--lockfile-only` updates the lockfile without creating a `node_modules/`
 directory. The rules read no `node_modules/` from the source tree; Bazel
-materialises one inside the sandbox for the targets that need it.
+materialises one inside the sandbox for the targets that need it, the forest
+tsgo type-checks against and the tree a test runs on. The editor is the one
+reader of a checkout `node_modules`, so `pnpm install` is its setup
+([IDE Setup](../getting-started/ide-setup.md#npm-packages)).
 
 A `pnpm-lock.yaml` is the only npm input these rules read; there is no npm or
 yarn lockfile path. A pnpm of your own writes the first one. Every edit after
@@ -77,10 +80,11 @@ ts_compile(
   versions also gets a version-suffixed label per version, so one can be pinned.
 - A `workspace:*` link resolves to a target in your own repository. See
   [workspace links](#workspace-links).
-- A generated tsconfig has one `paths` key per package name, so a target that
-  reaches two versions of one name gets the version its own `deps` name. A
-  version reached only through another dependency's closure fills a name no
-  direct dep claims, and never displaces one that does.
+- A target's node_modules forest links one resolution per name at the top
+  level, the one its own `deps` name, so a target that reaches two versions of
+  one name type-checks against the version it declared. A version reached only
+  through another dependency's closure fills a name no direct dep claims, and
+  never displaces one that does.
 
 ## Adding Dependencies
 
@@ -370,92 +374,61 @@ directories inside one repository.
 
 ## Where a Package's Type Declarations Come From
 
-Each package target carries two entry points, the files TypeScript resolves the
-package to, read from its own metadata in the order a resolver reads it. The
-module entry answers a bare import: it is what the `ts_compile` boundary
-type-checks against and what the [IDE tsconfig](../getting-started/ide-setup.md)
-puts in `compilerOptions.paths`. The declaration entry answers a
-`compilerOptions.types` entry or a `/// <reference types>` directive, which
-`resolveTypeReferenceDirective` reads no `.ts` for; it goes in `files`. For most
-of npm the two are one `.d.ts`.
+From the package's own `package.json`, read by tsgo where the package sits in
+the forest: `node_modules/<name>/`. Nothing here reads `exports`, `types`,
+`typings` or `main` for it. tsgo walks the tree as it walks a pnpm install --
+the `exports` map in its own key order with the conditions as written, then
+`typings` and `types`, then `main`, then the root index -- and a
+`compilerOptions.types` entry or a `/// <reference types>` directive resolves
+through the same tree by TypeScript's type-reference rules. So
+`import type { TraceItem } from "@cloudflare/workers-types"` resolves to that
+package's `index.ts`, a module, and `"types": ["@cloudflare/workers-types"]`
+to its `index.d.ts`, a global script, as they do under `tsc`; an `exports`
+subpath (`@cloudflare/vitest-pool-workers/types`) and a one-star pattern
+(`"./*": "./dist/esm/*"`) resolve because tsgo reads the map itself.
 
-1. **`exports`, in the map's own key order.** Node and TypeScript try conditions
-   as they are written, so a package that writes `require` before `import` means
-   that. The walk descends `types`, `typings`, `node`, `import`, `require` and
-   `default`, follows array fallbacks, and understands the conditions-only
-   shorthand (a map with no `.`-prefixed keys is itself the root entry) and a
-   plain string. A leaf naming `.js`, `.mjs` or `.cjs` resolves to the
-   TypeScript beside it, `.ts` and `.tsx` ahead of `.d.ts` for the module entry
-   and `.d.ts` alone for the declaration: `./dist/node/index.js` →
-   `./dist/node/index.d.ts` when no `.ts` sits there. A leaf naming a `.ts` is
-   the module entry itself and no declaration; `@humanfs/types` exports
-   `./src/hfs-types.ts`.
-2. **Top-level `typings`, then `types`,** the order
-   `readPackageJsonTypesFields` reads them in, including the extensionless form
-   (`"typings": "dist/index"` → `dist/index.d.ts`). This is where a package with
-   no `exports` publishes its declarations, and where every `@types/*` package
-   publishes them.
-3. **`main`,** with the same substitution, extensionless form and directory
-   index (`"main": "./dist/index"` → `dist/index.d.ts`). `module` is a bundler
-   field no TypeScript resolution reads.
-4. **The root index:** `index.ts`, `index.tsx`, then `index.d.ts` for the module
-   entry, `index.d.ts` for the declaration. `@cloudflare/workers-types` names
-   nothing and ships `index.ts`, a module, beside `index.d.ts`, a global script:
-   `import type { TraceItem } from "@cloudflare/workers-types"` resolves to the
-   first and `types = ["@cloudflare/workers-types"]` to the second, and one file
-   in both roles is `TS2306` for the import or no globals for the entry.
-
-Every candidate is checked against the extracted package before it is used, so a
-manifest naming a `.d.ts` it does not ship falls through to the next
-candidate. Six `@babel/helper-*` resolutions in this repository's own lockfile
-designate a `lib/index.d.ts` their tarball does not contain.
-
-A `.ts` module entry is staged beside the package's declarations and, sitting
-under `node_modules/<name>/`, is a library file to TypeScript: type-checked,
-never emitted, outside the `rootDir` check.
-
-!!! note "Subpaths"
-    `pkg/*` lists the package root and then the module entry's directory, in the build's
-    tsconfig and the editor's alike. A subpath the `exports` map names gets an
-    exact key; a one-star pattern in the map (`"./*": "./dist/esm/*"`) puts its
-    target ahead of those two, star and suffix kept, so `pkg/server/mcp.js` is
-    `dist/esm/server/mcp.js` and TypeScript finds the declaration beside it. See
-    [Action Inputs](../rules/ts-compile.md#action-inputs).
+A `.ts` module entry sits under `node_modules/<name>/` and is a library file to
+TypeScript: type-checked, never emitted, outside the `rootDir` check. See
+[the node_modules forest](../rules/ts-compile.md#the-node_modules-forest).
 
 ## What a Workspace Member Is Imported As
 
 A `workspace:*` dependency resolves to a `link:` in the lockfile, and the hub
-target for it is where the member's npm name lives. That target reads the
-member's own `package.json` too, and every specifier it declares becomes a
-`paths` entry in each consumer's generated tsconfig:
+writes one `npm_workspace_package` view per workspace member -- every `link:`
+target and every importer whose `package.json` has a `name`, one view per member
+directory -- at `@npm//:<name>`. The view is that member as an npm package: the
+forest and the runtime tree link it at `node_modules/<name>`, holding the
+member's `package.json` as built beside the member's `.js`, `.js.map` and `.d.ts`
+at the paths the manifest names. "As built" is one rewrite, done in the module
+extension that reads the manifest already: every source-file target under
+`main`, `module`, `browser`, `exports` and `imports` names the emitted `.js`, and
+every `types`, `typings` or `exports` `types` condition names the `.d.ts`, key
+order kept, so an `exports` condition map is read in the order it was written.
+A member that sets no `type` is ESM.
 
-| the manifest says | `paths` gets |
+| the member's manifest says | the link's manifest says |
 |---|---|
-| `exports: {".": "./entry.ts"}` | `pkg` → `entry.d.ts` |
-| `exports: {"./button": "./components/controls/button/index.ts"}` | `pkg/button` → `components/controls/button/index.d.ts` |
-| `exports: {"./icons/*": "./icons/components/*.tsx"}` | `pkg/icons/*` → `icons/components/*.d.ts` |
-| `exports: {"./internal/*": null}` | nothing: not exported designates nothing |
-| `exports: {"./theme.css": "./theme.css"}` | nothing: no compiler emits a declaration from it |
-| `main: "./schema.ts"`, no `exports` | `pkg` → `schema.d.ts` |
+| `exports: {".": "./src/index.ts"}` | `exports: {".": "./src/index.js"}` |
+| `exports: {"./wire": "./src/wire/index.ts"}` | `exports: {"./wire": "./src/wire/index.js"}` |
+| `exports: {".": {"types": "./src/index.ts", "default": "./src/index.ts"}}` | `{"types": "./src/index.d.ts", "default": "./src/index.js"}`, in that order |
+| `exports: {"./icons/*": "./icons/components/*.tsx"}` | `exports: {"./icons/*": "./icons/components/*.js"}` |
+| `main: "./schema.ts"`, no `exports` | `main: "./schema.js"` |
+| `exports: {"./theme.css": "./theme.css"}` | unchanged: no source file |
 
-The field order is the one above under
-[Where a package's type declarations come from](#where-a-packages-type-declarations-come-from):
-`exports` first, then `typings`, `types` and `main`. `module` is not read; it is
-a bundler convention no TypeScript resolution mode consults.
+tsc maps a `.js` target to the `.d.ts` beside it and node runs the `.js`, so one
+manifest serves the type check and the run: `import { frame } from
+"@acme/canvas-sdk/wire"` resolves for tsgo to `src/wire/index.d.ts` and for
+vitest to `src/wire/index.js`, both under the link. The link's root is the
+member's directory under `bazel-bin`, where the compiling target's outputs hang
+off, whichever directory holds that target. A member whose directory holds no
+`package.json` with a `name` gets a comment in the hub and no view; two members
+of one name, or one directory linked under two names, fail the extension.
 
-Entries point at the declarations Bazel emits, under the compiling target's
-output directory first and the source tree second, never at the member's
-sources: a `paths` entry naming a `.ts` would put the member's uncompiled files
-in the consumer's program and check them against the consumer's options.
-
-Two fallback entries, `pkg` → `<root>/index.d.ts` and `pkg/*` → `<root>/*`, stay
-behind every declared entry, so a manifest that names a file this build does not
-produce still resolves through them.
-
-!!! note "Conditions outside the resolver set are not followed"
-    The walk descends `types`, `typings`, `node`, `import`, `require` and
-    `default`. A member whose entry sits behind `browser`, `development` or
-    `production` alone designates nothing and keeps the guesses.
+The link holds no data file: a member's CSS and assets travel as `CssInfo` and
+`AssetInfo`, which the view forwards. `ts_test` inlines the tree's workspace
+members for vite (`server.deps.inline`), because a member's emitted `.js` keeps
+its sources' extensionless relative imports, which node's loader rejects and
+vite resolves, and pnpm inlines a linked package for the same reason.
 
 ## Bin Scripts
 
@@ -535,9 +508,8 @@ condition map under it) is walked from `src/` as well. A condition outside
 `*`, are not followed.
 
 That target has to be visible to the hub repository, so
-`visibility = ["//visibility:public"]`. A `ts_compile` gets the npm name
-attached. A member with no declarations, such as a `css_module` or an
-`asset_library`, is forwarded as it is and carries no name.
+`visibility = ["//visibility:public"]`. The view forwards its providers and
+describes it as an npm package named by the lockfile.
 
 !!! warning "A member whose target is not declared gets no hub target"
     If no candidate directory declares a target of the member's name, the hub
@@ -556,19 +528,13 @@ attached. A member with no declarations, such as a `css_module` or an
 
 A workspace member is staged into `node_modules` like any other package, so a
 `ts_test` or `ts_binary` that lists `@npm//:shared` can import it at run time and
-not only type-check against it. Its own npm dependencies come along; a generated
-`package.json` marks it ESM and names no entry point and no `exports`. A
-resolver falls back to `index.js` at the package root, so a member whose entry
-is any other file, and an `exports` subpath whose target is not at that path
-under the root, type-check and do not resolve at run time: vitest reports
-`Failed to resolve entry for package "shared"` and
-`Cannot find package 'shared/wire'`.
-
-!!! note "The IDE tsconfig still reads `module_name`"
-    The checked-in tsconfig is generated by an aspect over your `ts_compile`
-    graph, and it takes a bare specifier from the `module_name` attribute. A
-    member with none builds and resolves in Bazel; its bare import does not
-    resolve in the editor. Set `module_name` for the editor.
+not only type-check against it. Its own npm dependencies come along, and its
+`package.json` is the member's own with source-file targets rewritten to the
+emitted files, so the entry and every `exports` subpath resolve at run time as
+they do for the check; see
+[what a workspace member is imported as](#what-a-workspace-member-is-imported-as).
+In the editor the checkout's `node_modules` holds pnpm's link to the member, and
+the generated tsconfig writes no `paths` key for it.
 
 ## node_modules Targets
 
@@ -610,13 +576,12 @@ extracted `package.json` to generate targets, so nothing can be emitted until
 everything is downloaded.
 
 Inside its repository a package sits under `node_modules/<name>/`, so every path
-the rules write for it -- a `paths` value, an action input, an exec path such as
+the rules write for it -- an action input, an exec path such as
 `external/+npm+npm__zod__4_1_5/node_modules/zod/index.d.ts` -- carries a
-`node_modules` segment. TypeScript classifies a `paths` match by that segment:
-under one the file is a library file, type-checked and never emitted; under none
-it is project source, emit-eligible and checked against `rootDir`. The
-`node_modules` tree and the editor's `.bazel/npm/<name>/` copies are laid out
-from the package root, as before.
+`node_modules` segment. TypeScript classifies a file by that segment: under one
+it is a library file, type-checked and never emitted; under none it is project
+source, emit-eligible and checked against `rootDir`. The `node_modules` tree is
+laid out from the package root.
 
 One measurement, made while both layouts existed: building one vitest test
 target from an empty output base against a 2731-package lockfile went from 392s

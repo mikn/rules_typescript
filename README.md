@@ -158,13 +158,14 @@ git.
 ## IDE Integration
 
 `ts_refresh_tsconfig` writes the workspace-root `tsconfig.json` from Bazel's
-build graph: source roots, path aliases, and one `compilerOptions.paths` entry
-per npm package your targets reach that ships declarations, pointing at the
-copies it installs under `.bazel/npm`. The file is checked in, and
-`test = True` adds a test that fails once it goes stale. An editor, a plain
+build graph: one `compilerOptions.paths` entry per first-party package your
+targets reach, source directory and `bazel-bin` twin. The file is checked in,
+and `test = True` adds a test that fails once it goes stale. An editor, a plain
 `tsc` run and a coding agent's language server resolve Bazel's declarations
-through it with no setup. A tsserver plugin installed alongside it resolves
-live, without a re-run; the plugin needs editor configuration.
+through it with no setup; npm packages resolve through the checkout's
+`node_modules`, so `pnpm install` is the editor's npm setup. A tsserver plugin
+installed alongside it resolves live, without a re-run; the plugin needs editor
+configuration.
 
 ```python
 # BUILD.bazel
@@ -185,7 +186,7 @@ everything it depends on; the default, `deps = []`, writes an empty `paths`. It
 obeys visibility, so a package-private target cannot be listed.
 
 ```bash
-bazel run //:refresh_tsconfig        # writes tsconfig.json, .bazel/npm/, and the plugin
+bazel run //:refresh_tsconfig        # writes tsconfig.json and the plugin
 bazel test //:refresh_tsconfig_test  # fails when the checked-in tsconfig is stale
 ```
 
@@ -200,7 +201,7 @@ there when its targets set `compilerOptions` the root block cannot also be set
 to. The list is declared, not discovered. The rule fails at analysis time when
 the list disagrees with the graph in either direction, so a repository with one
 such package fails the snippet above until the list is filled in. That attribute,
-`extra_exclude`, `npm_dir` and the other editors are in
+`extra_exclude` and the other editors are in
 [IDE Setup](https://mikn.github.io/rules_typescript/getting-started/ide-setup/).
 
 ## Documentation

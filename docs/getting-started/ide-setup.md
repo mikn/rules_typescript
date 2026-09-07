@@ -31,14 +31,12 @@ An aspect walks `deps` from each entry, so listing a target covers everything it
 depends on. Two constraints:
 
 - **`deps = []` is the attribute default, and it reaches nothing.** The result is
-  a `tsconfig.json` with an empty `paths`: no packages, no aliases, no npm
-  entries.
+  a `tsconfig.json` with an empty `paths`: no packages, no aliases.
 - **`deps` obeys visibility**, so a package-private `ts_compile` target cannot be
   listed here. Gazelle writes `visibility = ["//visibility:public"]` on the
   targets it generates, and so does `ts_test` for the `ts_compile` targets it
   generates from `srcs`, `setup_files` and `global_setup`: `//path:_my_test_compile`
-  is listable, and the npm packages only a test declares reach the tsconfig.
-  `visibility` on the `ts_test` narrows them again, and the generated targets
+  is listable. `visibility` on the `ts_test` narrows them again, and the generated targets
   follow it. Hand-written private targets are covered by
   [Complete coverage for the resolution map](#complete-coverage-for-the-resolution-map).
 
@@ -53,7 +51,6 @@ That writes, into the source tree:
 | Path | What it is |
 |---|---|
 | `tsconfig.json` | Compiler options and the `paths` map; checked in |
-| `.bazel/npm/` | The `.d.ts` (and `package.json`) of every npm package the `paths` entries name, plus a `.gitignore` of `*` |
 | `.bazel/tsserver-hook-data.json` | The same graph facts, in the shape the plugin reads |
 | `.bazel/node_modules/@rules_typescript/tsserver-plugin/` | The tsserver plugin, as a package tsserver can load by name |
 | `.bazel/tsserver-hook.js` | A preload variant for a client that resolves through the public `ts.resolveModuleName`; see [What the preload does not reach](#what-the-preload-does-not-reach) |
@@ -63,16 +60,10 @@ That writes, into the source tree:
 The target is a [`refresh_workspace_files`](../rules/ts-codegen.md#checking-the-output-in)
 over those files, so it runs only under `bazel run`.
 
-Two attributes move the first two. `tsconfig` (default `"tsconfig.json"`) is
-where the generated config lands. `npm_dir` (default `".bazel/npm"`) is where the
-npm declarations land; `npm_dir = ""` opts out, dropping the npm `paths` entries
-and their files for a workspace that resolves npm types some other way.
+`tsconfig` (default `"tsconfig.json"`) is where the generated config lands.
 
-Add `.bazel` to `.bazelignore` before the next Gazelle run. `npm_dir` holds each
-package's declarations as ordinary files, and without the entry
-`bazel run //:gazelle` walks them, writes a `ts_compile` per directory under
-`.bazel/npm/`, and `bazel build //...` builds them. This repository's own
-`.bazelignore` starts with that line.
+Add `.bazel` to `.bazelignore`, so Bazel never reads the plugin's files as a
+package. This repository's own `.bazelignore` starts with that line.
 
 !!! warning "It replaces the file at `tsconfig` wholesale"
     A migrating repository already has a root `tsconfig.json`, and the first
@@ -200,19 +191,10 @@ ts_refresh_tsconfig(
 )
 ```
 
-The set is computed by comparing each target's options against the root block.
-Two details affect that comparison:
-
-- **`target` and `jsx_mode` count.** They are rule attributes and not
-  `compiler_options` entries. A target setting either to something other than the
-  root's value (`ES2022`, `react-jsx`) goes on the list.
-- **Values are canonicalised before they are compared.** TypeScript reads
-  `target`, `module`, `moduleResolution`, `jsx`, `moduleDetection` and `newLine`
-  case-insensitively and treats `lib` as a set, so `"Preserve"` and `"preserve"`
-  are not a disagreement and neither is `["esnext", "dom"]` against
-  `["DOM", "ESNext"]`. Folding both sides keeps a package that merely restates a
-  default off the list, and keeps two targets spelling one value differently from
-  reading as a conflict.
+The set is computed from what each target names: the `tsconfig` it compiles
+under, and `allowJs` for a target with JavaScript srcs where the root block does
+not set it. A package whose targets name a tsconfig of their own gets its own
+program; one whose targets name none stays in the root's.
 
 The rule fails when the declared list disagrees with the graph, in either
 direction, and the message names what to add or remove. The list is declared
@@ -220,38 +202,29 @@ because `glob()` does not cross a package boundary, and a leftover entry would g
 on owning its subtree in the editor. Each entry gets its own staleness
 `diff_test`.
 
-Each generated file `extends` the root and the package's own `ts_compile`
-baseline, root first so the baseline wins. Inherited `paths` are not re-resolved,
-so the root's aliases still work from down there; `include` and `exclude` are
-re-resolved against the extending file, so they are written out. A relative
-`types` entry the build resolved to a generated declaration (a
-[`ts_codegen`](../rules/ts-codegen.md) output) is written through
-the `bazel-bin` symlink, since the source tree has no such file. `noEmit`,
-`composite`, `incremental`, `rootDir` and `files` are pinned in the file itself,
-since a baseline inherited whole would emit into your source tree, reject files
-outside one target's `rootDir`, and lose every ambient declaration.
+Each generated file `extends` the root and the tsconfig the package's targets
+name, root first so the package's file wins. Inherited `paths` are not
+re-resolved, so the root's aliases still work from down there; `include` and
+`exclude` are re-resolved against the extending file, so they are written out.
+`noEmit`, `composite`, `incremental`, `rootDir` and `files` are pinned in the
+file itself, since a tsconfig inherited whole would emit into your source tree
+and reject files outside one target's `rootDir`.
 
 A package whose targets set the same option to different values has no
 representation, since one directory cannot hold both answers. That is an error
 naming both targets; move one target into its own package.
 
-**Two different `tsconfig` baselines in one package is the same error.**
-TypeScript applies an `extends` array later-wins, so listing both baselines would
-let one's keys replace the other's for both targets' sources. A package gets at
-most one baseline, from whichever of its targets name one.
+**Two different `tsconfig` files in one package is the same error.** TypeScript
+applies an `extends` array later-wins, so listing both would let one's keys
+replace the other's for both targets' sources. A package gets at most one, from
+whichever of its targets name one.
 
-A target in that package naming no `tsconfig` inherits that baseline in the
-editor, and does not in the build: the rule applies its own baseline options
-(`strict`, `module: Preserve`, `moduleResolution: Bundler`, `skipLibCheck`,
-`esModuleInterop`) in either mode, and with no `tsconfig` above them that is all
-it gets, which is what the root block holds.
-The nested file's own `compilerOptions` restate every option any target in the
-package sets explicitly and beat every `extends`, so a baseline reaches only keys
-no target in the package has an opinion about. In `//vite`, `:plugin_typecheck`
-names `vite.tsconfig.json` and `:tsup_config` names nothing, and the generated
-`vite/tsconfig.json` pins the `module`/`moduleResolution` both targets ask for,
-keeping the baseline's `Node16` answer away from `tsup.config.ts`. Give the odd
-target the same `tsconfig`, or its own package, when that is not close enough.
+A target in that package naming no `tsconfig` inherits that file in the editor,
+and does not in the build: the rule's baseline (`strict`, `module: Preserve`,
+`target: es2022`, `jsx: react-jsx`, `skipLibCheck`, `esModuleInterop`,
+`allowArbitraryExtensions`) is all it gets there, which is what the root block
+holds. Give the odd target the same `tsconfig`, or its own package, when that is
+not close enough.
 
 ### Bare Specifiers for First-Party Packages
 
@@ -263,79 +236,15 @@ imported by its package name gets no key: the checkout's `node_modules` holds
 pnpm's link to the member, which is where the build resolves it too, through the
 hub's view of the member.
 
-### npm Declarations
+### npm Packages
 
-Each npm package is its own lazily-fetched Bazel repository, living only under
-`<output_base>/external/`, which nothing links into the execroot the
-`bazel-<workspace>` symlink points at, so no workspace-relative path reaches it.
-Copying the declarations into `npm_dir` makes a `paths` entry possible, and the
-copies are keyed by package name, so the canonical repository name that changes
-on every version bump never enters the config.
-
-The `paths` value is the module entry the package's own metadata designates, a
-`.d.ts` for most of npm and a `.ts` where the package ships one, copied with the
-declarations. See
-[how that is resolved](../guides/npm.md#where-a-packages-type-declarations-come-from).
-The wildcard entry lists the package root and then that file's directory, in the
-order npm would look: with no `exports` map (most of the registry) `pkg/sub` is
-a plain path under the package root, and a package whose subpaths do sit beside
-its entry is answered by the second substitution. A one-star `exports` pattern
-goes ahead of both, its target spelled as the manifest wrote it, star and suffix
-included, since TypeScript substitutes the matched star into the whole value.
-
-```json
-"vite":    ["./.bazel/npm/vite/dist/node/index.d.ts"],
-"vite/*":  ["./.bazel/npm/vite/*", "./.bazel/npm/vite/dist/node/*"],
-"unenv/*": ["./.bazel/npm/unenv/dist/runtime/*.d.mts", "./.bazel/npm/unenv/*", "./.bazel/npm/unenv/dist/*"],
-"@cloudflare/workers-types": ["./.bazel/npm/@cloudflare/workers-types/index.ts"]
-```
-
-A `@types/*` package is keyed by the name it types, the only specifier anything
-imports it by, and installs under its own name, which the key points into:
-
-```json
-"estree":   ["./.bazel/npm/@types/estree/index.d.ts"],
-"estree/*": ["./.bazel/npm/@types/estree/*"]
-```
-
-Which of the two names wins follows npm, the same way it does in the tsconfig
-`ts_compile` generates: the runtime package answers `x` when it publishes
-declarations of its own, `@types/x` when it publishes none. Where two packages
-in the graph claim one key (a target
-whose closure holds `@types/x` and no `x`, beside a target that has the real
-`x`) the same rule picks, so the aggregate config agrees with each target's own.
-
-That key is the only route a transitively reached `@types/*` package has. The
-other route is `files`, which carries the globals such a package declares
-([Ambient Types in the Editor](#ambient-types-in-the-editor)); `files` is built
-from what each reached target names in its own `deps`, and `from "estree"` is
-usually written in a dependency's `.d.ts`, not in your sources. So
-`@types/estree` behind `rollup` gets a `paths` key and no `files` entry, while a
-`@types/node` you depend on directly gets both, naming one installed copy.
-
-### Packages Only Some Hosts Resolve
-
-`host_only_packages` names npm packages left out of the generated `paths`:
-
-```python
-ts_refresh_tsconfig(
-    name = "refresh_tsconfig",
-    test = True,
-    host_only_packages = ["fsevents"],
-    deps = ["//apps/web"],
-)
-```
-
-An `optionalDependencies` entry whose `os`/`cpu` matches only some hosts, and
-that ships declarations, resolves on those hosts and not on the others. With it
-in, the checked-in file differs per host and the staleness test fails on the
-other one. `fsevents` is darwin-only, and this repository lists it.
-
-The list is workspace-wide: one `paths` map serves every editor program, so the
-package leaves the editor for every target, including one whose build resolves
-it. That is also the answer to the failure a per-target `untyped_packages` raises
-when another target still resolves the package; see
-[Keeping a package out of the program](../rules/ts-compile.md#keeping-a-package-out-of-the-program).
+The generated config names no npm package. TypeScript resolves a bare specifier
+by walking the checkout's `node_modules` from the importing file, as tsgo walks
+the forest a build stages, so `pnpm install` is the editor's npm setup: the tree
+it installs is the lockfile's, which is what the build resolves too. A
+`@types/*` package, an `exports` subpath and a `types` entry naming a package
+resolve the same way. A package your targets declare and the checkout does not
+hold is `TS2307` in the editor until the next `pnpm install`.
 
 ### Staleness Test
 
@@ -382,13 +291,9 @@ disagrees.
 | | Covered by | Reaches package-private targets |
 |---|---|---|
 | `ts_compile` source roots | fragments, and the data file | yes, via fragments |
-| npm `.d.ts` declarations | `.bazel/npm`, installed by `bazel run //:refresh_tsconfig` | **no** |
 
-The npm row is the exception for the same reason `.bazel/npm` exists: a fragment
-can only name the package, since nothing in the external repository has a
-workspace-relative path. Whether that name resolves depends on what
-`bazel run //:refresh_tsconfig` last installed, and that target's `deps` do obey
-visibility.
+npm packages are in neither: TypeScript resolves them through the checkout's
+`node_modules` ([npm Packages](#npm-packages)).
 
 The checked-in `tsconfig.json` does not change either. It stays what
 `refresh_tsconfig` generates from `deps`, which is what a fresh clone, a plain
@@ -407,28 +312,19 @@ The checked-in `tsconfig.json` does not change either. It stays what
 
 ## Ambient Types in the Editor
 
-The editor is more permissive than the build in one place. `ts_compile` names a
-target's direct `@types/*` deps in the tsconfig it gives tsgo, plus what their
-entries name in `/// <reference types=...>` (`@types/bun` forwards to
-`bun-types`, whose entry references `node`), so a global reaches a target
-because that target asked for it, or for a package whose entry references it.
-The editor program has one root `compilerOptions` block for the whole workspace,
-and its `files` array is the union of what every reached target declares: each
-target's own direct `@types/*` deps and what those reference. A file using
-`process` type-checks in the editor as soon as any target in the graph declared
-`@types/node`, and then fails `bazel build` with the strict-deps error naming
-the label to add.
+The editor is more permissive than the build in one place. `ts_compile` writes
+`types` for every program -- the tsconfig's entries, or the direct `@types/*`
+deps' names when it sets none -- so a global reaches a target because that
+target asked for it. The editor's root program has one `compilerOptions` block
+for the whole workspace and no `types` key, so TypeScript includes every
+`@types/*` package under the root `node_modules/@types`. A file using `process`
+type-checks in the editor as soon as `@types/node` is installed, and then fails
+`bazel build` with `TS2304` until the target's tsconfig names `node` in `types`
+or `@types/node` is among its direct deps.
 
-The union is over direct deps and what their entries reference, so a `@types/*`
-package reached only through an import (`from "estree"` in a dependency's own
-`.d.ts`) is named in `files` nowhere, in either config. It still resolves as a
-module, through the `paths` key it takes under the name it types
-([npm Declarations](#npm-declarations)); `files` is what it is not in.
-
-Narrowing the union per target would need a tsconfig per target, and a package
-only gets its own program when its `compilerOptions` genuinely disagree with the
-root ([`nested_tsconfigs`](#nested-tsconfigs)). Narrowing it globally would
-make the editor wrong for every target that does declare the dep.
+Narrowing that per target would need a tsconfig per target, and a package only
+gets its own program when its targets name one
+([`nested_tsconfigs`](#nested-tsconfigs)).
 
 Treat `bazel build` as the authority, and declare ambient packages up front.
 [`# gazelle:ts_ambient_types`](../gazelle/directives.md#declare-ambient-types-once-for-the-whole-repo)
@@ -592,8 +488,9 @@ the worker completes.
 
 1. `.d.ts` in `bazel-bin` — fast, precise (available after `bazel build`)
 2. `.ts` source file — always available, slower for tsserver to process
-3. npm declarations under `npm_dir` — whatever the last
-   `bazel run //:refresh_tsconfig` installed
+
+npm packages are not in the map: TypeScript resolves them itself through the
+checkout's `node_modules`.
 
 ### What a Build Provides
 
@@ -601,11 +498,8 @@ First-party resolution works without `bazel build`, since the source `.ts` files
 are always on disk. A build adds the `.d.ts` files and, with the aspect enabled,
 the fragments naming the packages `deps` could not reach.
 
-npm resolution is bounded by the refresh. The packages that resolve are the ones
-reachable from `deps` when `refresh_tsconfig` last ran, in both the `paths`
-entries and the plugin, so an import pulling in a package none of those targets
-reached is unknown until you re-run the target. The staleness test asks for that
-same re-run.
+npm resolution is bounded by the checkout's `node_modules`: a package the
+lockfile gained resolves in the editor after the next `pnpm install`.
 
 ## Debugging
 
