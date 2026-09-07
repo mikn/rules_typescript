@@ -12,15 +12,12 @@ package(default_visibility = ["//:__pkg__"])
 ts_compile(
     name = "app",
     srcs = ["app.ts"],
-    enable_check = False,
 )
 
-# The dev servers' entry point, and a //:refresh_tsconfig root: its dep on a
-# `module_name` package feeds both the vite config alias and the IDE paths entry.
+# The dev servers' entry point, and a //:refresh_tsconfig root.
 ts_compile(
     name = "dev_app",
     srcs = ["dev_app.ts"],
-    enable_check = False,
     deps = ["//tests/dev_server/lib"],
 )
 

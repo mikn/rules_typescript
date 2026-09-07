@@ -6,15 +6,12 @@ Directives go in `BUILD.bazel` files as comments and control how Gazelle generat
 
 | Directive | Effect |
 |-----------|--------|
-| `# gazelle:ts_declarations oxc` | Emit `declarations = "oxc"` on generated `ts_compile` and `ts_test` rules in this tree: syntactic `.d.ts` emit, so every export needs an explicit type |
-| `# gazelle:ts_declarations tsgo` | Return a subdirectory to the default emitter after a parent set `oxc` |
 | `# gazelle:ts_package_boundary every-dir` | (default) Every directory with `.ts` files becomes a package |
 | `# gazelle:ts_package_boundary tsconfig` | Only directories holding a `tsconfig.json` become packages, so one target covers one TypeScript project |
 | `# gazelle:ts_package_boundary true` | Mark this single directory as a boundary (in `tsconfig` mode, where the covering `tsconfig.json` sits elsewhere) |
 | `# gazelle:ts_ignore` | Suppress TypeScript rule generation for this directory and its children |
 | `# gazelle:ts_ignore false` | Re-enable generation after a parent used `ts_ignore` |
 | `# gazelle:ts_target_name my_lib` | Override the default target name (which is the directory basename) |
-| `# gazelle:ts_path_alias @/ src/` | Map a TypeScript path alias to a workspace-relative directory |
 | `# gazelle:ts_runtime_dep @npm//:happy-dom` | Append a label to every generated `ts_test` deps list |
 | `# gazelle:ts_ambient_types @npm//:types_node` | Append a label to every generated `ts_compile` and `ts_test` deps list |
 | `# gazelle:ts_exclude *.generated.ts` | Exclude files matching this pattern from source targets; a pattern with no path matches that basename at every depth below |
@@ -27,7 +24,7 @@ Directives go in `BUILD.bazel` files as comments and control how Gazelle generat
 | `# gazelle:ts_asset_declaration_type .svg <type>` | What an import of that asset extension resolves to in this tree, written into every `asset_library`'s `declaration_type` |
 | `# gazelle:ts_js_srcs .mjs .cjs` | Admit JavaScript sources of these extensions into the `srcs` Gazelle generates in this tree; named with nothing after it, admit none |
 
-That is the complete set: fifteen directives. Gazelle warns on an unknown
+That is the complete set: thirteen directives. Gazelle warns on an unknown
 `# gazelle:ts_*` comment and continues, so a typo in a directive's name shows up
 in the run output. A value `ts_package_boundary` does not know stops the run
 instead: the modes decide which files each target compiles.
@@ -75,13 +72,12 @@ is replaced unless a `# keep` holds it. `ts_compile.deps` and
 
 | Rule | Attributes Gazelle owns |
 |------|-------------------------|
-| `ts_compile` | `srcs`, `deps`, `visibility`, `path_aliases`, `path_alias_srcs`, `declarations`, `tsconfig` |
-| `ts_test` | `srcs`, `deps`, `tsconfig`, `path_aliases`, `path_alias_srcs` |
+| `ts_compile` | `srcs`, `deps`, `visibility`, `tsconfig` |
+| `ts_test` | `srcs`, `deps`, `tsconfig` |
 | `ts_config` | `src`, `deps`, `visibility` |
 | `ts_lint` | `srcs`, `linter`, `linter_binary`, `config`, `fail_on_warnings` |
 | `asset_library` | `declaration_type`, one entry per extension a `ts_asset_declaration_type` directive names; an extension no directive names is yours |
 | `ts_codegen` | `outs`, `out_dir`, `visibility` |
-| `filegroup(name = "tsconfig_types")` | `srcs`, `visibility` |
 | `filegroup(name = "vitest_config")` | `srcs`, `visibility` |
 
 `ts_config.deps` is the `extends` chain. Gazelle writes it from the one
@@ -92,58 +88,16 @@ for an owned attribute that means the value goes: a hand-written `deps` needs a
 [the compilerOptions baseline](overview.md#the-compileroptions-baseline).
 
 !!! note "Upgrading"
-    `ts_config.deps`, `ts_test.path_aliases`, and `path_alias_srcs` on
-    `ts_compile` and `ts_test` used to be write-once; they are Gazelle's now.
-    On every `ts_config` whose `deps` you wrote by hand, every `ts_test` whose
-    `path_aliases` you did, and every `ts_compile` or `ts_test` whose
-    `path_alias_srcs` you did, put `# keep` on the entry's own line to hold that
-    entry beside what Gazelle computes, or above the attribute to keep the whole
-    value. Without one, `deps` and `path_aliases` are recomputed entry by entry
-    and each dropped entry is named in the log; `path_alias_srcs` is filled in
-    after resolution, and a label dropped there is not reported.
+    `ts_config.deps` used to be write-once; it is Gazelle's now. On every
+    `ts_config` whose `deps` you wrote by hand, put `# keep` on the entry's own
+    line to hold that entry beside what Gazelle computes, or above the
+    attribute to keep the whole value. Without one, `deps` is recomputed entry
+    by entry and each dropped entry is named in the log.
 
-`path_aliases` holds the aliases a target's own imports go through, on the
-`ts_compile` and the `ts_test` alike: the test files are a program of their own,
-and the package target's map reaches nothing they compile. `path_alias_srcs` is
-filled in at resolve time the way `deps` is, and only when no src of the target
-sits under the alias directory: it names the target the aliased import resolved
-to, whose outputs are then the staged files `ts_compile`'s alias guard finds
-under the directory. A target with a src under the directory validates the alias
-on that src and gets no `path_alias_srcs`, since the aliased declarations already
-arrive on the dep edge. See
-[which targets carry an alias](overview.md#which-targets-carry-an-alias).
-
-`ts_compile.public_globals` is absent. Whether a `.d.ts`'s globals are part of
-the package's public type surface is a decision nothing in the source states, so
-no directive writes it and a hand-written value survives every run, `# keep` or
-not.
-
-`types` and `types_srcs` are a third case: generated, and not owned. Gazelle
-writes `types` where the nearest `tsconfig.json` names entries in
-`compilerOptions.types` and a label stages every file among them, and
-`types_srcs` beside it where there is such a file; see
-[a declaration the tsconfig names](overview.md#a-declaration-the-tsconfig-names).
-Neither is mergeable: the value on disk wins, except the one label below that
-Gazelle takes back, and `rule.MergeRules` copies in an attribute the rule does
-not carry at all. **Deleting the lines does not opt out**: they come back on
-the next run. The label Gazelle takes back is a `types_srcs` entry naming the
-`tsconfig_types` filegroup of the rule's own package or of a package above it,
-the only ones Gazelle writes into a rule, spelled `:tsconfig_types` or
-`//pkg:tsconfig_types` as Gazelle spells them, on a `ts_compile` or `ts_test`
-on disk whose kind and name match a rule the run generates in that package; a
-rule by any other name is not read. Where the run does not write that
-filegroup, because the file moved into a `ts_codegen`'s `outs` or is gone, the
-entry is replaced by the labels the run stages the rule's own entries by, or
-dropped when there are none, and the run says so per rule. An entry naming a
-filegroup the run writes stays, on a rule whose own tsconfig names no file too,
-and so does one naming a filegroup a `# keep` holds under that name in its
-package, which the run leaves in place; so does one naming anything else, the
-`tsconfig_types` of a package elsewhere in the tree included. `# keep` on the
-entry or above the attribute holds even one Gazelle wrote. Two things stick.
-`types = []` with `types_srcs = []` keeps both attributes present and asks for
-no ambient types at all, dropping the package entries the tsconfig named along
-with the file. A `# keep` above the whole `ts_compile` keeps whatever you wrote
-and leaves the entries where `extends` puts them, unresolved.
+A tsconfig's `paths` and `types` are the rule's to read, so no attribute
+restates them. What a path-shaped `types` entry asks of Gazelle is the dep on
+the target that stages the file it names, written into `deps` like any other;
+see [a declaration the tsconfig names](overview.md#a-declaration-the-tsconfig-names).
 
 Six kinds are the exception: `ts_pnpm`, `ts_add_package`, `css_library`,
 `css_module`, `asset_library` and `json_library`. Each is written once and left
@@ -173,10 +127,7 @@ write it by hand. Gazelle knows no such kind, so the rule and its load symbol
 come through every run as written, `# keep` or not. See
 [Dev Server](../guides/dev-server.md).
 
-`# keep` works at three granularities: one value, one attribute, one rule. Every
-write path honours all three: the merger's, the entry-by-entry merge
-`path_aliases` needs, since the merger has no case for a dict, and the
-`types_srcs` rewrite above:
+`# keep` works at three granularities: one value, one attribute, one rule:
 
 ```python
 ts_compile(
@@ -185,11 +136,6 @@ ts_compile(
         "main.ts",
         "legacy.js",  # keep
     ],
-    # One alias entry no import implies: a directory a codegen action writes.
-    path_aliases = {
-        "@/": "src/",
-        "@gen/": "src/generated/",  # keep
-    },
     # keep
     tsconfig = "//:tsconfig_build",
 )
@@ -205,9 +151,9 @@ the next run; "# keep" above the attribute hands the whole attribute back to you
 ```
 
 Every dropped value is reported, whether it was a stale label Gazelle wrote
-itself or an edit of yours. `deps` and `path_alias_srcs` are the exception: they
-are filled in after resolution, when the value on disk is no longer in hand, so
-a label you wrote into either goes without a report unless `# keep` holds it.
+itself or an edit of yours. `deps` is the exception: it is filled in after
+resolution, when the value on disk is no longer in hand, so a label you wrote
+into it goes without a report unless `# keep` holds it.
 Gazelle's Go extension drops the same values silently; what survives a run is
 identical either way.
 
@@ -246,7 +192,7 @@ attribute back to it.
 
 ### Existing Codebase Without Explicit Return Types
 
-Nothing to configure. The `ts_compile` default (`declarations = "tsgo"`) emits
+Nothing to configure. The default, `--//ts:declarations=tsgo`, emits
 declarations from the full type program, so inferred export types are fine:
 
 ```python
@@ -259,22 +205,12 @@ gazelle(
 )
 ```
 
-### Opt One Package into Oxc Declaration Emit
+### Oxc Declaration Emit
 
-Once every export in a package carries an explicit type, move it to Oxc's
-syntactic emit to take type-checking off the critical path. See
+Which tool emits the `.d.ts` is the build flag `--//ts:declarations`, one value
+for the whole build and no directive: set `oxc` in `.bazelrc` once every
+export carries an explicit type. See
 [Isolated Declarations](../getting-started/isolated-declarations.md).
-
-```python
-# src/my-package/BUILD.bazel
-
-# gazelle:ts_declarations oxc
-
-# Gazelle regenerates with declarations = "oxc". Oxc fails the build, naming
-# the file and line, for any export it cannot derive a type from.
-```
-
-An unrecognised value keeps the inherited emitter and logs a warning.
 
 ### One Target per TypeScript Project
 
@@ -354,25 +290,13 @@ directive names one package's label. Use the hub directive when the packages are
 the same and the repo differs, and this one when a single package's label is not
 the hub's at all.
 
-### Path Alias for `@/` Imports
+### Path Aliases
 
-```python
-# BUILD.bazel (repo root)
-
-# gazelle:ts_path_alias @/ src/
-```
-
-This maps `import { x } from "@/utils"` to `//src/utils`.
-
-A generated target carries the aliases its own imports match, plus any alias whose
-directory holds its own sources, which is exactly the set `ts_compile` accepts. It
-cannot trip
-[its alias validation](../rules/ts-compile.md#the-two-hard-errors). The directive
-reaches `compilerOptions.paths` in the
-[IDE tsconfig](../getting-started/ide-setup.md) as soon as you declare it, before
-any source imports through it. An alias read back out of a `tsconfig.json` this
-ruleset generated gets no such entry: it is written only on a target whose own
-imports go through it.
+Path aliases are the nearest `tsconfig.json`'s `compilerOptions.paths`, read
+through its `extends` chain; there is no directive. `"@/*": ["./src/*"]` maps
+`import { x } from "@/utils"` to `//src/utils` in `deps`, and the rule reads the
+same map for the type check, so nothing is restated in the BUILD file. See
+[Import Resolution](overview.md#import-resolution).
 
 ### Add Runtime Deps to All Tests
 
@@ -410,8 +334,8 @@ is inherited by that tree only. Labels accumulate down the tree, so a root
 `web/`.
 
 It does not widen what the compiler accepts: the dep still has to exist, and
-`ts_compile` still names only direct `@types/*` deps in the tsconfig's `files`,
-plus what their entries name in `/// <reference types=...>`. See
+the program's `types` is still the tsconfig's list, or the direct `@types/*`
+deps' names when the tsconfig sets none. See
 [ts_compile](../rules/ts-compile.md#types-packages).
 
 ### Suppress Generation for a Directory
@@ -459,11 +383,10 @@ The directive is inherited by subdirectories the way every directive is, but the
 target it names is written in the one directory the directive was written in.
 
 Alongside the `ts_codegen`, Gazelle writes `<name>_compile`: the `ts_compile`
-that takes the codegen label in `srcs`, with `declarations = "oxc"`. That is the
-target an import of a generated module resolves to. `ts_compile.deps` takes
-providers `ts_codegen` does not return, so the generated source reaches a compile
-through `srcs`, and under the default `declarations = "tsgo"` emit one target
-cannot hold both checked-in and generated sources. See
+that takes the codegen label in `srcs`. That is the target an import of a
+generated module resolves to. The generated source reaches a compile through
+`srcs`, and under the default `--//ts:declarations=tsgo` emit one target cannot
+hold both checked-in and generated sources. See
 [Compiling the output](../rules/ts-codegen.md#compiling-the-output).
 
 A declared out that is also checked in is kept out of the package's
@@ -482,8 +405,8 @@ The `dir:` form gets no `<name>_compile`: Bazel declares the directory as one
 artifact, so no file inside it has a label to put in a `ts_compile`'s `srcs`.
 The target itself returns the providers `ts_compile.deps` reads, and Gazelle
 resolves an import of a module under the directory to the `ts_codegen` label,
-by the `out_dir` path a relative or aliased specifier reaches or by the
-target's `module_name`. Nothing compiles the tree, so the generator has to write
+by the `out_dir` path a relative or aliased specifier reaches. Nothing compiles
+the tree, so the generator has to write
 `.js` beside `.d.ts`. See
 [a directory of output](../rules/ts-codegen.md#a-directory-of-output).
 
@@ -571,7 +494,7 @@ The expression is written into the generated `.d.ts` verbatim and nothing checks
 it: a name that does not resolve widens the import to `any` in silence, because
 the declaration is a `.d.ts` and this ruleset compiles with `skipLibCheck`.
 Building with `--//ts:lib_check`, or the consuming target alone with
-`compiler_options = {"skipLibCheck": False}`, surfaces it; the error names the
+`"skipLibCheck": false` in its tsconfig, surfaces it; the error names the
 generated `<asset>.d.ts`, whose header names the target and the attribute. See
 [`asset_library`](../rules/css-and-assets.md#when-an-asset-is-not-a-url).
 
@@ -579,7 +502,7 @@ generated `<asset>.d.ts`, whose header names the target and the attribute. See
 
 `ts_compile` accepts `.js`, `.mjs` and `.cjs` in `srcs`: they are staged into
 the output tree unchanged and added to the type program, and under the default
-`declarations = "tsgo"` each one gets a declaration (`.d.ts` / `.d.mts` /
+`--//ts:declarations=tsgo` each one gets a declaration (`.d.ts` / `.d.mts` /
 `.d.cts`) the way `tsc` emits one. Gazelle does not put them there on its own:
 most `.mjs` in a repository is configuration (`eslint.config.mjs`,
 `postcss.config.mjs`). This directive is the opt-in:
@@ -621,8 +544,8 @@ Admission is about `srcs` and nothing else. What makes a directory a package in
 `tsconfig` mode is still a `tsconfig.json`: an admitted `.mjs` is compiled by the
 target that claims it, and is not a reason for a directory to become one.
 `checkJs` is off, as it is in `ts_compile`: the JSDoc types in an admitted file
-cross the package boundary, and the file's own body is not checked unless
-`compiler_options` says so.
+cross the package boundary, and the file's own body is not checked unless the
+tsconfig says so.
 
 ### Globs Across Package Boundaries
 

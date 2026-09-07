@@ -104,81 +104,6 @@ neither is drift:
   `# keep` is Gazelle's own directive, not a `ts_*` one. Above an attribute it
   means "never touch this value"; above a whole rule, "never touch this rule".
 
-### Which Targets Carry an Alias
-
-A `ts_compile`, the `_doc` compile and the `ts_test` each get `path_aliases` for
-the aliases their own srcs import through. For an alias a `ts_path_alias`
-directive declares, a target also gets the alias whose directory holds one of its
-srcs; that is how a directive-declared alias reaches the IDE tsconfig. The test
-files are a program of their own, so the package target's map reaches nothing
-they compile: an alias a test imports through is on the `ts_test`.
-
-`ts_compile` accepts an alias only when a file the target stages sits under the
-alias directory. A target with a src under it validates the alias on that src,
-and the aliased declarations arrive on the dep edge. A target with none gets
-`path_alias_srcs` naming the target each aliased import resolved to, filled in at
-resolve time the way `deps` is, so that target's outputs (the declarations in
-the bazel-bin mirror of the directory) are staged. The two shapes in one
-package:
-
-```python
-ts_test(
-    name = "web_test",
-    srcs = ["shared/flags.test.ts"],  # under web/shared/: validates the alias
-    path_aliases = {"#shared/": "web/shared/"},
-    deps = [":web", "@npm//:vitest"],
-)
-
-ts_test(
-    name = "tooling_test",
-    srcs = ["plugins/prerender.test.ts"],  # nothing under web/shared/
-    path_alias_srcs = [":web"],
-    path_aliases = {"#shared/": "web/shared/"},
-    deps = [":web", "@npm//:vitest"],
-)
-```
-
-Naming the target where a src already validates the alias would stage every
-output of that target for nothing, so the attribute follows the srcs.
-
-### Fallback Chains in `compilerOptions.paths`
-
-`paths` values are arrays: TypeScript tries each entry in turn. A generated
-`path_aliases` attribute holds one directory per alias. Gazelle discards
-entries under the `bazel-*` convenience symlinks (`ts_compile` fails analysis on
-an alias pointing into the output tree) and entries under a tool-managed
-dot-directory such as `.bazel/npm`, then takes the first of what is left that
-exists on disk. When none exists on disk (an alias whose directory only a codegen
-action produces), the first one is used, silently. That reads the filesystem, so a
-chain listing a codegen-produced directory ahead of a checked-in one can resolve
-differently on a fresh clone than on a built tree. Name one directory per alias
-where that matters.
-
-Two cases log, each on a single line (wrapped here to fit):
-
-```
-gazelle: typescript: paths entry "@acme/ui/*" resolves on disk to 2 directories;
-using "./src/ui/*" and ignoring [./generated/ui/*]. Gazelle emits one directory
-per alias; if imports must resolve through more than one, split the alias or list
-the extra files in path_alias_srcs.
-```
-
-Specifiers that only resolve through the ignored directory get no dep edge, and
-the `tsconfig.json` `ts_compile` generates does not carry it either. Setting
-`module_name` on the target producing them is the third option.
-
-```
-gazelle: typescript: paths entry "@acme/ui/*" has no target Gazelle can use
-([./bazel-bin/ui/*]); no path_alias emitted. An alias under bazel-out/bazel-bin
-points into the output tree: set module_name on the target that produces those
-declarations and import it by that name instead.
-```
-
-Every entry pointed into the output tree, so no alias is emitted. An alias none
-of whose entries is usable is dropped without this line when one of them is a
-tool-managed dot-directory: that is the shape `ts_refresh_tsconfig` writes for
-every npm package, and it is meant to be dropped.
-
 ## Package Boundary Heuristic
 
 By default (**every-dir mode**), every directory that contains `.ts` or `.tsx` source files gets a `ts_compile` target. This matches Go's behaviour where every directory with `.go` files is a package.
@@ -381,11 +306,12 @@ shape. Without a BUILD file there the label above names a target in a package
 Bazel never loads, which fails analysis for the whole workspace.
 
 Naming a tsconfig **adds** its options and never removes the ruleset's own. The
-four the rule supplies (`strict`, `module: Preserve`, `skipLibCheck`,
-`esModuleInterop`) apply with a `tsconfig` too, under it, so running Gazelle
-over a working build does not silently un-set them. `moduleResolution` is left
-for tsgo to derive from whichever `module` wins: a value under a `tsconfig`
-that sets `module` would be the wrong half of a pair. See
+baseline (`strict`, `module: Preserve`, `target: es2022`, `jsx: react-jsx`,
+`skipLibCheck`, `esModuleInterop`, `allowArbitraryExtensions`) applies with a
+`tsconfig` too, under it, so running Gazelle over a working build does not
+silently un-set them. `moduleResolution` is left for tsgo to derive from
+whichever `module` wins: a value under a `tsconfig` that sets `module` would be
+the wrong half of a pair. See
 [where compiler options come from](../rules/ts-compile.md#where-compiler-options-come-from).
 
 Three cases get no attribute instead of a label into a directory Gazelle writes
@@ -396,8 +322,8 @@ package, so a refusal reaches every target there, the `_doc` one included:
 - one a `# gazelle:ts_package_boundary` directive between it and the naming
   package leaves the two disagreeing about: the mode inherited by the second
   says nothing about the first, and a guess either way is a label nothing writes;
-- a directory whose own target is already named `tsconfig` or
-  `tsconfig_types`, the two names the `ts_config` and the filegroup below need.
+- a directory whose own target is already named `tsconfig`, the name the
+  `ts_config` needs.
 
 A tree with no `tsconfig.json` above it keeps the ruleset baseline alone. The
 `tsconfig.json` files `ts_refresh_tsconfig` writes are skipped: they are built
@@ -438,55 +364,14 @@ a hand-picked `tsconfig` on the compile, doc and test targets.
 
 ### A Declaration the `tsconfig` Names
 
-One key does not survive being inherited: a relative `compilerOptions.types`
-entry. The generated per-directory config states its own `files`, `include` and
-`exclude` and takes `compilerOptions` from the project file through `extends`.
-TypeScript resolves `./x.d.ts` against the config the program was invoked with,
-which is the generated one in `bazel-out`. So
-`"types": ["./worker-configuration.d.ts"]`, the form wrangler writes, reaches
-nothing from a directory below: `TS2688` on the entry from tsgo 7.0.2, `TS2304`
-on every global that file declares from the `7.0.0-dev.20260311.1` nightly.
-
-Gazelle rebases the entry onto the three kinds it generates under the tsconfig
-that type-check (the package `ts_compile`, the `_doc` compile and the
-`ts_test`) and names the file by a label. A `ts_dev_server`, a `node_modules`
-or the `ts_config` itself has no type program, and gets neither the entry nor
-the label:
-
-```python
-# workers/proxy/BUILD.bazel
-filegroup(
-    name = "tsconfig_types",
-    srcs = ["worker-configuration.d.ts"],
-    visibility = ["//visibility:public"],
-)
-
-# workers/proxy/src/BUILD.bazel
-ts_compile(
-    name = "src",
-    srcs = ["handler.ts"],
-    tsconfig = "//workers/proxy:tsconfig",
-    types = ["../worker-configuration.d.ts"],
-    types_srcs = ["//workers/proxy:tsconfig_types"],
-    visibility = ["//visibility:public"],
-)
-```
-
-A generated `ts_test` carries the same pair, forwarded to the `ts_compile` it
-makes for the test sources. See
-[`ts_test`'s `types_srcs`](../rules/ts-test.md#a-types-entry-that-names-a-declaration-file).
-
-The label is a `filegroup`, so the file is an action input of exactly the
-targets that name it and of nothing else. It reaches no consumer's program:
-`types_srcs` travels on no dep edge, and nothing here names the file in
-`public_globals`, which is what would put the declaration in every transitive
-consumer. See
-[which ambients a consumer gets](../rules/ts-compile.md#which-ambients-a-consumer-gets).
-
-A file that a [`ts_codegen`](../rules/ts-codegen.md#cloudflare-worker-bindings)
-in the tsconfig's own BUILD file names in `outs` is not in the source tree, so
-no filegroup is written for it: the target is the label. Gazelle reads the
-`outs` list to pair it with the entry.
+A path-shaped `compilerOptions.types` entry, `"./worker-configuration.d.ts"` in
+the form wrangler writes, names a file the program has to stage, and the rule
+reads the entry from the tsconfig itself. What Gazelle writes for it is the dep
+on the target that stages the file: the `ts_codegen` whose `outs` declare it,
+else the target whose `srcs` hold the checked-in declaration, spelled relative
+to the importing package. The chain is read leaf-wins, so a
+`"../worker-configuration.d.ts"` in a test directory's tsconfig reaches the same
+target as the worker's own entry:
 
 ```python
 # workers/proxy/BUILD.bazel -- hand-written; Gazelle leaves it in place
@@ -494,14 +379,7 @@ ts_codegen(
     name = "worker_types",
     srcs = ["wrangler.jsonc"],
     outs = ["worker-configuration.d.ts"],
-    args = [
-        "--config",
-        "wrangler.jsonc",
-        "--out",
-        "{out}",
-        "--srcs",
-        "{srcs}",
-    ],
+    args = ["--config", "wrangler.jsonc", "--out", "{out}", "--srcs", "{srcs}"],
     generator = "@rules_typescript//tools/codegen:wrangler_types",
     node_modules = ":node_modules",
     visibility = ["//workers/proxy:__subpackages__"],
@@ -512,63 +390,16 @@ ts_compile(
     name = "src",
     srcs = ["handler.ts"],
     tsconfig = "//workers/proxy:tsconfig",
-    types = ["../worker-configuration.d.ts"],
-    types_srcs = ["//workers/proxy:worker_types"],
+    deps = ["//workers/proxy:worker_types"],
     visibility = ["//visibility:public"],
 )
 ```
 
-A declaration that moves from the source tree into such a target takes its
-label with it: the next run withdraws the filegroup and the `ts_compile` whose
-only src the file was, and rewrites the `tsconfig_types` entry on every
-`ts_compile` and `ts_test` it generates below to the target, so the deletion
-and the `ts_codegen` land in one commit.
-
-The whole `types` list is written, not just the file entries, and a list with
-no file entry is written too, with no `types_srcs`. `types` is one key and
-`extends` replaces it whole, so a target carrying a subset would drop the
-packages the project asked for. A package entry is resolved from `deps`, which
-the `ts_ambient_types` reading of the same key already supplies; see
+A declaration that moves from the source tree into such a target takes its dep
+with it on the next run. Nothing else is written: no `types`, no filegroup. A
+package entry in the same list is the `ts_ambient_types` reading of the key,
+which supplies the `@types/*` or package dep; see
 [a `types` entry that names a package](../rules/ts-compile.md#a-types-entry-that-names-a-package).
-
-A `../<name>.d.ts` entry names a file in an ancestor directory, the way a test
-directory's tsconfig names the worker's declaration beside the tsconfig it
-extends. The label staging it is the one written beside the tsconfig at the
-directory the entry climbs to, whichever tsconfigs sit between, so that
-tsconfig has to name the file as `./<name>.d.ts` in its own
-`compilerOptions.types`:
-
-```jsonc
-// workers/proxy/test/tsconfig.json
-{
-  "extends": "../tsconfig.json",
-  "compilerOptions": { "types": ["../worker-configuration.d.ts"] }
-}
-```
-
-```python
-# workers/proxy/test/BUILD.bazel
-ts_test(
-    name = "test_test",
-    srcs = ["handler.test.ts"],
-    tsconfig = ":tsconfig",
-    types = ["../worker-configuration.d.ts"],
-    types_srcs = ["//workers/proxy:tsconfig_types"],
-    deps = ["//workers/proxy/src", "@npm//:vitest"],
-)
-```
-
-A directory below the leaf carries the entry rebased again,
-`../../worker-configuration.d.ts`, and the same label.
-
-`compilerOptions.types` is the only key read for this. A declaration named in
-`include` gets nothing: `include` does not survive `extends` into the generated
-config, which states its own, so it makes no claim about the tree below it.
-Three shapes are logged and produce nothing: an entry naming a path below the
-tsconfig's directory or below an ancestor's, which no label there stages; a
-`../` entry the tsconfig at the directory it climbs to does not name, or that
-climbs above the workspace root; and one naming a file that is neither there
-nor named in the `outs` of a `ts_codegen` beside the tsconfig.
 
 ## Automatic Lint Targets
 
@@ -630,7 +461,7 @@ checked-in copy.
 
     | Key | Write instead |
     |---|---|
-    | `"pathAliases": {"@/": "src/"}` | `# gazelle:ts_path_alias @/ src/`, one per entry |
+    | `"pathAliases": {"@/": "src/"}` | `"paths": {"@/*": ["./src/*"]}` in the nearest `tsconfig.json` |
     | `"excludePatterns": ["*.gen.ts"]` | `# gazelle:ts_exclude *.gen.ts`, one per entry |
     | `"excludeDirs": ["coverage"]` | `# gazelle:ts_exclude_dir coverage`, one per entry |
     | `"npmMappingFile": "npm/map.json"` | `# gazelle:ts_npm_mapping npm/map.json` |
@@ -641,11 +472,9 @@ checked-in copy.
     ancestor declared gets the ancestor's directive moved down to the
     directories it is meant for.
 
-Directives take precedence over file-based configuration, and a directory's
-`ts_path_alias` directives merge with whatever aliases reached it: a child adds
-keys and overrides one key at a time. A `tsconfig.json` with `paths` does not
-merge. It replaces the alias map for its directory and everything below, parent
-directives included, and the directives in its own BUILD file then merge on top.
+A `tsconfig.json` with `paths` replaces the alias map for its directory and
+everything below; the map does not merge with an ancestor's, as `extends`
+replaces the key whole.
 
 ### Runtime Deps of Generated Tests
 
@@ -663,9 +492,9 @@ The JSX runtime is not one: a `ts_test` with a `.tsx` source gets its
 Gazelle resolves TypeScript imports to Bazel labels in this order:
 
 1. **Relative imports** (`./foo`, `../bar`): resolved to the `ts_compile` target in that directory
-2. **Path aliases**: from `compilerOptions.paths` in the nearest `tsconfig.json`, the `imports` field of the nearest `package.json`, or a `# gazelle:ts_path_alias` directive
-3. **A first-party `module_name`**: a bare specifier is matched against the `module_name` of the indexed `ts_compile` targets before npm is considered, because the `@npm` hub has no package under that name
-4. **npm packages**: resolved to `@npm//:<label>` using the pnpm lockfile
+2. **Path aliases**: from `compilerOptions.paths` in the nearest `tsconfig.json`, or the `imports` field of the nearest `package.json`
+3. **A workspace member's own name**, from a `ts_compile` inside the member: the local target the member's `exports` designate (below)
+4. **npm packages**, workspace members' `link:` names included: resolved to `@npm//:<label>` using the pnpm lockfile
 5. **Unresolved**: optionally warned with `# gazelle:ts_warn_unresolved true`
 
 A specifier that spells out an extension resolves like one that does not.
@@ -710,13 +539,12 @@ the local target the manifest designates, `//packages/lib/src/wire` for
 `"./wire": "./src/wire/index.ts"`: the hub target for that name is the member's
 own compiling target, and a dep on it from inside the member is a cycle. On a
 `ts_test` it resolves to the hub label, `@npm//:acme_lib`, as it does from any
-other consumer. The test's compile target is never the hub's, and only the hub
-target's `TsModuleInfo` writes the member's name and its declared subpaths into
-the generated `paths`; on the local target alone the import is `TS2307`. The
-hub label passes the lockfile gate below like every other bare specifier, so a
-member no importer links gets no dep. A package nested inside a member, with a
-`package.json` of its own, is not the member and takes the hub label from every
-kind.
+other consumer. The test's compile target is never the hub's, and only the
+hub's view links the member at `node_modules/<name>` with its manifest; on the
+local target alone the import is `TS2307`. The hub label passes the lockfile
+gate below like every other bare specifier, so a member no importer links gets
+no dep. A package nested inside a member, with a `package.json` of its own, is
+not the member and takes the hub label from every kind.
 
 Node built-ins resolve to `@types/node`, with or without the `node:` prefix:
 `import "path"` and `import "node:path"` both take the declarations dep, since
@@ -734,26 +562,23 @@ name whose `@types/<name>` the lockfile lacks takes the package called `<name>`,
 the order tsc tries the two in. A name the lockfile does not answer gets no dep,
 and `# gazelle:ts_warn_unresolved true` lists it. TypeScript reads the
 directive out of the leading comments and nowhere else, so one after a statement
-is a comment here too. The `types` attribute is not written for it: tsc resolves
-the directive through `node_modules/@types`, which the sandbox does not have,
-and the dep is what puts the declarations in the program.
+is a comment here too. The dep is what puts the package in the forest tsgo
+resolves the directive through.
 
 A `.tsx` source imports its JSX runtime without writing the import: under
 `react-jsx` every tag is a call into `<jsxImportSource>/jsx-runtime`, which tsc
-resolves through `node_modules` and the sandbox has none. Every `ts_compile` and
-`ts_test` with a `.tsx` source gets the dep that specifier resolves to, resolved
-as a written bare specifier is. The extension is the whole test: a `.tsx` with
-no tag in it gets the dep as well, since Gazelle reads the srcs list and not the
-file, while tsc makes the import only for a file with a tag. The package is the
-nearest `tsconfig.json`'s `jsxImportSource`, read through its `extends` chain
-with the leaf winning, else `react`: `ts_compile` compiles under its
-`jsx_mode`, `react-jsx` unless the rule sets another, whatever `jsx` the file
-says, and Gazelle reads neither a rule's `jsx_mode` nor its `jsx_import_source`.
-A first-party `module_name` target with a `jsx-runtime.ts` source answers the
-specifier before the hub, a `declare module "react/jsx-runtime"` block in the
-target's own sources answers it as it does a written specifier (below), and a
-name the lockfile does not answer gets no dep, which
-`# gazelle:ts_warn_unresolved true` lists.
+resolves through `node_modules`, the forest built from `deps`. Every
+`ts_compile` and `ts_test` with a `.tsx` source gets the dep that specifier
+resolves to, resolved as a written bare specifier is. The extension is the whole
+test: a `.tsx` with no tag in it gets the dep as well, since Gazelle reads the
+srcs list and not the file, while tsc makes the import only for a file with a
+tag. The package is the nearest `tsconfig.json`'s `jsxImportSource`, read
+through its `extends` chain with the leaf winning, else `react`, the same chain
+`ts_compile` takes its `jsx` and `jsxImportSource` from. A workspace member of
+that name answers the specifier through its hub view, a
+`declare module "react/jsx-runtime"` block in the target's own sources answers
+it as it does a written specifier (below), and a name the lockfile does not
+answer gets no dep, which `# gazelle:ts_warn_unresolved true` lists.
 
 ### The npm Inventory
 

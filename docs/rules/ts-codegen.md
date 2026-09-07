@@ -24,7 +24,6 @@ ts_codegen(
 ts_compile(
     name = "route_tree_ts",
     srcs = [":route_tree"],
-    declarations = "oxc",
 )
 
 ts_compile(
@@ -39,8 +38,8 @@ script and nothing else. A generator that imports npm packages at runtime
 additionally takes `node_modules`; see
 [The environment the generator gets](#the-environment-the-generator-gets).
 
-The generated sources are their own `ts_compile` target, and it does not use the
-default declaration emit; see [Compiling the output](#compiling-the-output).
+The generated sources are their own `ts_compile` target; see
+[Compiling the output](#compiling-the-output).
 
 Gazelle detects Prisma, GraphQL codegen and OpenAPI generators from the files
 in a directory (`schema.prisma`; `.graphql`/`.gql` sources beside a
@@ -60,12 +59,11 @@ takes one out of `srcs`.
 
 ## Compiling the Output
 
-A generated file lives in the output tree, and the default emit
-(`declarations = "tsgo"`, `enable_check = True`) cannot take it from there. Two
-failures:
-
-**Checked-in and generated sources in one target fail at analysis.** One tsgo
-declaration emit has one `rootDir`, and those two sets hang off different roots:
+A generated file lives in the output tree, and one tsgo declaration emit has one
+`rootDir`. A target holding generated sources alone hangs off one root, the
+package's directory in `bazel-bin`, and builds under either emitter. Checked-in
+and generated sources in one target hang off two, and fail at analysis under the
+default emit:
 
 ```
 ts_compile: srcs on @@//src/app:app hang off 2 different roots, and one
@@ -74,27 +72,10 @@ declaration emit has one rootDir:
   src/app
 ```
 
-**Generated sources alone fail inside the tsgo action.** Under that emit
-`outDir` is the package's directory in `bazel-bin`, which is where the generated
-source already is, and TypeScript's implicit `exclude` covers `outDir`, so the
-program comes out empty:
-
-```
-error TS18003: No inputs were found in config file
-'.../route_tree_ts.tsconfig.json'. Specified 'include' paths were
-'["src/routeTree.gen.ts"]' ...
-```
-
-The target holding generated sources picks another emitter:
-
-- `declarations = "oxc"`: oxc emits the `.d.ts` syntactically, per file, with
-  no type program, and downstream targets type-check against the generated
-  code. Every export needs an explicit type.
-- `enable_check = False`: no type program and no `.d.ts`, for generated code
-  whose types nothing downstream consumes. `//tests/codegen` uses it.
-
-`declarations = "oxc"` also lifts the first error, so one target holding both
-sets is expressible: oxc groups its sources by root and runs once per group.
+Put the generated sources in their own target and depend on it, as above.
+`--//ts:declarations=oxc` lifts the error for the whole build: oxc groups its
+sources by root and runs once per group, and the check is a validation action
+that reads any layout.
 
 ## Attributes
 
@@ -106,15 +87,12 @@ sets is expressible: oxc groups its sources by root and runs once per group.
 | `generator` | `label` | required | The executable, built for the exec configuration |
 | `args` | `string_list` | `[]` | The generator's command line, after placeholder substitution |
 | `node_modules` | `label` | `None` | An npm tree for a generator that imports packages at runtime. Name the target `node_modules` if the generator uses ESM |
-| `module_name` | `string` | `""` | The bare specifier the `out_dir` tree is importable as. Requires `out_dir` |
 | `env` | `string_dict` | `{}` | Extra environment for the action |
 
 `outs` and `out_dir` are **mutually exclusive, and exactly one is required**.
 Both being unset and both being set are separate analysis-time errors. Bazel
 requires every output to be declared at analysis time, so a generator whose
 output set depends on its input is only expressible as `out_dir`.
-
-`module_name` requires `out_dir`; see [A directory of output](#a-directory-of-output).
 
 ## A Directory of Output
 
@@ -130,18 +108,21 @@ ts_codegen(
     out_dir = "compiled",
     args = ["--project", "{srcs_dir}", "--outdir", "{out}"],
     generator = ":compile_messages",
-    module_name = "#app/messages",
     node_modules = ":node_modules",
 )
 
 ts_compile(
     name = "app",
     srcs = ["main.ts"],
+    tsconfig = "tsconfig.json",
     deps = [":messages"],
 )
 ```
 
-`main.ts` imports `#app/messages`, and the declarations inside the tree type it.
+`main.ts` imports `#app/messages`, which the tsconfig's `paths` sends into the
+tree (`"#app/messages": ["./compiled/index"]`); the rule writes a bazel-bin twin
+of every `paths` value, so the entry reaches the tree the action wrote, and the
+declarations inside it type the import.
 
 The tree goes in `deps`, never in `srcs`. `srcs` declares one output per input
 file at analysis time, and a directory has no file list until its action has
@@ -150,9 +131,9 @@ generator has to emit compiled output, `.js` beside `.d.ts`; nothing downstream
 compiles the tree. A generator that emits `.ts` sources into a tree has no
 route today.
 
-`module_name` is the only way to import out of the tree by name. Without it the
-tree is still staged for the consumer's type-check, but no `paths` entry points
-at it and the import does not resolve:
+A `paths` entry is the only way to import out of the tree by name. Without one
+the tree is still staged for the consumer's type-check, but nothing points at it
+and the import does not resolve:
 
 ```
 error TS2307: Cannot find module '#app/messages' or its corresponding type
@@ -160,15 +141,14 @@ declarations.
 ```
 
 A relative import into the tree, `./compiled/messages/greeting.js` from a source
-in the same package, needs no `module_name`. The undeclared-import check
-resolves it against the directory, so it still names the label when the tree
-arrives only through another dep.
+in the same package, needs no entry. The undeclared-import check resolves it
+against the directory, so it still names the label when the tree arrives only
+through another dep.
 
 Gazelle writes the `deps` entry for either spelling. An `out_dir` target is
-indexed by the roots its modules sit under: its `module_name`, and the
-workspace-relative `out_dir` path a relative or aliased specifier reaches it by.
-A specifier under one of those roots resolves to the target. The root is
-matched as a prefix, after every indexed source has failed to claim the
+indexed by the workspace-relative `out_dir` path a relative or aliased
+specifier reaches it by; a specifier under that root resolves to the target. The
+root is matched as a prefix, after every indexed source has failed to claim the
 specifier. An `outs` target is indexed under no root: it returns no `JsInfo`,
 so nothing depends on it, and its outputs are importable through the
 `ts_compile` that names it in `srcs`.
@@ -289,11 +269,10 @@ without DOM and no `@cloudflare/workers-types` in `deps`.
 
 The output has no top-level import or export, so what it declares is global. A
 tsconfig names it in `compilerOptions.types` as `./worker-configuration.d.ts`,
-and a target names the label that stages it in
-[`types_srcs`](ts-compile.md#a-types-entry-that-names-a-declaration-file);
-Gazelle writes both onto every target under that tsconfig, reading the file
-name off this target's `outs`. Those targets sit in packages of their own, so
-the `visibility` has to reach them. See
+and the rule rebases the entry to the staged file. Gazelle finds the file among
+this target's `outs` and puts this target, the dep that stages it, in the `deps`
+of every target under that tsconfig. Those targets sit in packages of their own,
+so the `visibility` has to reach them. See
 [a declaration the tsconfig names](../gazelle/overview.md#a-declaration-the-tsconfig-names);
 `//tests/worker_types` is the worked example, and the package's nested editor
 program writes the entry through the `bazel-bin` symlink, so `bazel build` puts

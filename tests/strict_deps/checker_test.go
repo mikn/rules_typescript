@@ -71,12 +71,6 @@ func direct(path string) string { return "direct\t" + path }
 
 func own(path string) string { return "own\t" + path }
 
-func moduleTransitive(name, label string) string {
-	return "module-transitive\t" + name + "\t" + label
-}
-
-func moduleDirect(name string) string { return "module-direct\t" + name }
-
 func npmTransitive(name, label string) string {
 	return "npm-transitive\t" + name + "\t" + label
 }
@@ -136,57 +130,6 @@ func TestASiblingOfADirectoryIsNotInsideIt(t *testing.T) {
 	}
 }
 
-func TestTransitiveModuleNameIsRejected(t *testing.T) {
-	c := newChecker(t)
-	out, ok := c.run(
-		"module_name",
-		"import { hidden } from \"@acme/hidden\";\nexport const id = hidden.id;\n",
-		moduleDirect("@acme/leaf"),
-		moduleTransitive("@acme/leaf", "//pkg:leaf"),
-		moduleTransitive("@acme/hidden", "//pkg:hidden"),
-	)
-	if ok {
-		t.Fatalf("a module only a dep's dep provides was accepted:\n%s", out)
-	}
-	for _, want := range []string{"pkg/module_name.ts:1", "\"@acme/hidden\"", "add \"//pkg:hidden\" to deps"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("the message must name %s:\n%s", want, out)
-		}
-	}
-}
-
-// Node calls a #-prefixed specifier a package-private import; it is the whole
-// name, not a URL fragment on an empty one.
-func TestTransitivePackageImportsNameIsRejected(t *testing.T) {
-	c := newChecker(t)
-	out, ok := c.run(
-		"hash_module",
-		"import { m } from \"#app/messages\";\nexport const id = m;\n",
-		moduleDirect("@acme/leaf"),
-		moduleTransitive("#app/messages", "//pkg:messages"),
-	)
-	if ok {
-		t.Fatalf("a # module only a dep's dep provides was accepted:\n%s", out)
-	}
-	for _, want := range []string{"\"#app/messages\"", "add \"//pkg:messages\" to deps"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("the message must name %s:\n%s", want, out)
-		}
-	}
-}
-
-func TestDirectPackageImportsNameIsAccepted(t *testing.T) {
-	c := newChecker(t)
-	if out, ok := c.run(
-		"hash_direct",
-		"import { m } from \"#app/messages\";\nexport const id = m;\n",
-		moduleDirect("#app/messages"),
-		moduleTransitive("#app/messages", "//pkg:messages"),
-	); !ok {
-		t.Fatalf("a # module a direct dep provides was rejected:\n%s", out)
-	}
-}
-
 // A # after the first character is still a fragment.
 func TestAFragmentIsStrippedFromARelativeSpecifier(t *testing.T) {
 	c := newChecker(t)
@@ -200,30 +143,6 @@ func TestAFragmentIsStrippedFromARelativeSpecifier(t *testing.T) {
 	}
 	if !strings.Contains(out, "add \"//pkg:hidden\" to deps") {
 		t.Errorf("the message must name the label:\n%s", out)
-	}
-}
-
-func TestDirectModuleNameIsAccepted(t *testing.T) {
-	c := newChecker(t)
-	if out, ok := c.run(
-		"direct_module",
-		"import { hidden } from \"@acme/hidden\";\nexport const id = hidden.id;\n",
-		moduleDirect("@acme/hidden"),
-		moduleTransitive("@acme/hidden", "//pkg:hidden"),
-	); !ok {
-		t.Fatalf("a module a direct dep provides was rejected:\n%s", out)
-	}
-}
-
-func TestSubpathOfADirectModuleIsAccepted(t *testing.T) {
-	c := newChecker(t)
-	if out, ok := c.run(
-		"subpath",
-		"import { deep } from \"@acme/hidden/deep\";\nexport const id = deep;\n",
-		moduleDirect("@acme/hidden"),
-		moduleTransitive("@acme/hidden", "//pkg:hidden"),
-	); !ok {
-		t.Fatalf("a subpath of a direct dep's module was rejected:\n%s", out)
 	}
 }
 
@@ -299,22 +218,19 @@ func TestScopedNpmPackageNamesTheHubLabel(t *testing.T) {
 	}
 }
 
-func TestNodeBuiltinsAndAliasesAreAccepted(t *testing.T) {
+func TestNodeBuiltinsAreAccepted(t *testing.T) {
 	c := newChecker(t)
 	source := strings.Join([]string{
 		"import { readFileSync } from \"node:fs\";",
 		"import { join } from \"path\";",
-		"import { leaf } from \"@/leaf\";",
-		"export const all = [readFileSync, join, leaf];",
+		"export const all = [readFileSync, join];",
 	}, "\n")
 	if out, ok := c.run(
 		"builtins",
 		source+"\n",
-		"alias\t@/",
 		npmTransitive("fs", "@npm//:fs"),
-		moduleTransitive("@/leaf", "//pkg:leaf"),
 	); !ok {
-		t.Fatalf("built-ins and a path alias were rejected:\n%s", out)
+		t.Fatalf("built-ins were rejected:\n%s", out)
 	}
 }
 
@@ -326,8 +242,8 @@ func TestUnreachableModuleIsLeftToTheCompiler(t *testing.T) {
 	if out, ok := c.run(
 		"unreachable",
 		"import { nope } from \"@acme/nowhere\";\nexport const id = nope;\n",
-		moduleDirect("@acme/leaf"),
-		moduleTransitive("@acme/leaf", "//pkg:leaf"),
+		npmDirect("@acme/leaf"),
+		npmTransitive("@acme/other", "@npm//:acme_other"),
 	); !ok {
 		t.Fatalf("an unattributable import must not be reported here:\n%s", out)
 	}
@@ -343,8 +259,8 @@ func TestEveryFindingIsReportedAtOnce(t *testing.T) {
 	out, ok := c.run(
 		"multiple",
 		source+"\n",
-		moduleTransitive("@acme/one", "//pkg:one"),
-		moduleTransitive("@acme/two", "//pkg:two"),
+		npmTransitive("@acme/one", "@npm//:acme_one"),
+		npmTransitive("@acme/two", "@npm//:acme_two"),
 	)
 	if ok {
 		t.Fatalf("two undeclared imports were accepted:\n%s", out)
@@ -353,8 +269,8 @@ func TestEveryFindingIsReportedAtOnce(t *testing.T) {
 		"//pkg:target imports modules no direct dep provides:",
 		"pkg/multiple.ts:1",
 		"pkg/multiple.ts:2",
-		"add \"//pkg:one\" to deps",
-		"add \"//pkg:two\" to deps",
+		"add \"@npm//:acme_one\" to deps",
+		"add \"@npm//:acme_two\" to deps",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the message must name %s:\n%s", want, out)

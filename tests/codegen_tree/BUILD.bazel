@@ -20,6 +20,9 @@ package(default_visibility = ["//:__pkg__"])
 # gazelle:exclude *_test.go
 # gazelle:exclude names.txt
 
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.tree.json
+
 sh_binary(
     name = "tree_generator",
     srcs = ["gen_tree.sh"],
@@ -35,13 +38,15 @@ ts_codegen(
         "{out}",
     ],
     generator = ":tree_generator",
-    module_name = "#codegen/tree",
     out_dir = "compiled",
 )
 
+# The tsconfig's `paths` sends `#codegen/tree` to ./compiled; the value's bin-dir
+# twin is where the tree is.
 ts_compile(
     name = "consumer",
     srcs = ["consumer.ts"],
+    tsconfig = "tsconfig.tree.json",
     deps = [":tree"],
 )
 
@@ -72,12 +77,11 @@ tree_reaches_compile_test(
     tree = ":tree",
 )
 
-# One target further out. The tree arrives through :consumer, so dropping :tree
-# from these deps must fail the check naming it -- which is also what pins that
-# a `#` specifier reaches the check rather than being read as a bare fragment.
+# One target further out, importing the tree by the same alias.
 ts_compile(
     name = "downstream",
     srcs = ["downstream.ts"],
+    tsconfig = "tsconfig.tree.json",
     deps = [
         ":consumer",
         ":tree",

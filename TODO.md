@@ -131,16 +131,6 @@ to rediscover them. Each names the file to change.
   the roundtrip test's comparison is scoped to a synthetic 3-package child
   workspace with no Go.
 
-- **A `paths` fallback chain resolves against the filesystem, which makes
-  Gazelle's output depend on tree state.** `pickAliasTarget` in
-  `gazelle/config.go` discards entries under the `bazel-*` symlinks and under a
-  tool-managed dot-directory, then takes the first of the rest that exists on
-  disk. So an alias listing a codegen-produced directory ahead of a checked-in
-  one can generate different BUILD content on a fresh clone than on a built tree.
-  Name one directory per alias where that matters. Two cases log: two real
-  directories (one is ignored), and no usable entry at all (no alias emitted —
-  which used to be `ts_compile`'s analysis-time error and would otherwise have
-  become a silent missing dep edge). The ~74 noise lines per run are gone.
 - **Inside this repository Gazelle emits `load("@rules_typescript//ts:defs.bzl",
   …)`,** the external label, which resolves through the module's self-mapping but
   is not what a maintainer writes by hand — so BUILD files here carry both forms.

@@ -25,7 +25,7 @@ func main() {
 		WorkspaceRel: "tests/integration/gazelle_roundtrip",
 		Lockfile:     "tests/npm/pnpm-lock.yaml",
 	}, func(it *harness.IT) {
-		dirs := []string{"src/lib", "src/app", "src/icons", "src/typed", "src/env", "worker", "worker/src", "worker/test", "worker/test/deep", "generated_worker/src", "aliased", "aliased/shared", "aliased/src", "jsx", "jsx/view", "configured", "configured/test"}
+		dirs := []string{"src/lib", "src/app", "src/icons", "src/typed", "src/env", "worker", "worker/src", "worker/test", "worker/test/deep", "generated_worker/src", "aliased", "aliased/shared", "aliased/src", "jsx", "jsx/runtime", "jsx/view", "configured", "configured/test"}
 
 		// Written here rather than shipped in the workspace: a BUILD file under
 		// a --deleted_packages entry is a package of the OUTER workspace, and
@@ -36,7 +36,6 @@ func main() {
 		it.Write(it.Path("generated_worker/BUILD.bazel"), generatedWorkerPackage)
 		it.Write(it.Path("devserver/BUILD.bazel"), handWrittenDevServerPackage)
 		it.Write(it.Path("packages/shared/BUILD.bazel"), memberPackage)
-		it.Write(it.Path("jsx/runtime/BUILD.bazel"), jsxRuntimePackage)
 		// The harness stages one lockfile, vitest's; wrangler is in tests/workers'.
 		it.Write(it.Path("pnpm-lock.workers.yaml"), it.Read(filepath.Join(it.RulesTSRoot, "tests/workers/pnpm-lock.yaml")))
 
@@ -54,7 +53,6 @@ func main() {
 
 		devServerAfterFirstRun := it.Read(it.Path("devserver/BUILD.bazel"))
 		memberAfterFirstRun := it.Read(it.Path("packages/shared/BUILD.bazel"))
-		runtimeAfterFirstRun := it.Read(it.Path("jsx/runtime/BUILD.bazel"))
 
 		before := testTargets(it)
 		if len(before) == 0 {
@@ -99,21 +97,19 @@ func main() {
 		}
 		it.Pass("test target set unchanged across a delete-and-regenerate: %d", len(after))
 
-		// The member's test is run on its own below, where its runtime failure
-		// is the measurement; here it would fail the whole run.
-		it.MustBazel("test", "--", "//...", "-//packages/shared:shared_test")
-		it.Pass("bazel test //... on Gazelle's own output, the member's test aside")
+		it.MustBazel("test", "//...")
+		it.Pass("bazel test //... on Gazelle's own output")
 
 		for _, rel := range []string{"src/lib/math.js", "src/lib/math.d.ts", "src/app/index.js", "src/app/index.d.ts"} {
 			it.RequireFile(it.Bin(rel), "expected output file not found: %s", rel)
 			it.Pass("output file exists: %s", rel)
 		}
 
-		rootAmbientTypesReachTheTreeBelow(it)
+		declarationEntryResolvesThroughItsOwner(it)
 		referenceTypesBecomeADep(it)
-		jsxRuntimeBecomesADep(it, runtimeAfterFirstRun)
+		jsxRuntimeBecomesADep(it)
 		generatedDeclarationNamesItsGenerator(it)
-		aliasAttrsFollowTheSrcs(it)
+		aliasedImportsAreDeps(it)
 		codegenGlobLoads(it)
 		outDirContentsAreNotSources(it)
 		assetDeclarationTypeApplies(it)
@@ -134,8 +130,8 @@ func main() {
 // map; the boundary directive makes it the one target the hub's `target` names.
 const memberPackage = "# gazelle:ts_package_boundary tsconfig\n"
 
-// Only the hub target's TsModuleInfo writes the member's name into `paths`, so
-// a test importing the member by name needs the hub label beside :shared.
+// Only the hub's view links the member at node_modules/<name>, so a test that
+// imports it by name needs the hub label beside :shared.
 func memberSelfImportTakesTheHubLabel(it *harness.IT, afterFirstRun string) {
 	build := it.Path("packages/shared/BUILD.bazel")
 	if second := it.Read(build); second != afterFirstRun {
@@ -159,10 +155,10 @@ func memberSelfImportTakesTheHubLabel(it *harness.IT, afterFirstRun string) {
 		it.RequireFile(it.Bin(rel),
 			"%s was not written; the `bazel build //...` above did not compile the test program", rel)
 	}
-	it.Pass("the test program resolved `shared` and `shared/wire` through the hub's paths entries")
+	it.Pass("the test program resolved `shared` and `shared/wire` through the hub view's link")
 
 	// The measurement behind writing the hub label: the member's own target
-	// alone has no paths key for its name.
+	// alone puts nothing at node_modules/shared.
 	restore := it.Read(build)
 	it.Replace(build, "        \"@npm//:shared\",\n", "")
 	log, err := it.BazelLog("self_import_without_the_hub", "build", "//packages/shared:_shared_test_compile")
@@ -177,25 +173,25 @@ func memberSelfImportTakesTheHubLabel(it *harness.IT, afterFirstRun string) {
 			it.Fail("without the hub label the compile did not fail on %q", specifier)
 		}
 	}
-	it.Pass("without the hub label `shared` and `shared/wire` are TS2307: the member's own target carries no paths key for its name")
+	it.Pass("without the hub label `shared` and `shared/wire` are TS2307: only the hub's view links the member into the forest")
 
-	// The hub's generated package.json names no entry and no exports, so Vite finds
-	// neither file under the package root; a pass here says to run it under //... again.
+	// The view's package.json is the member's with its exports map rewritten to
+	// the emitted files, so node resolves both specifiers through the link.
 	log, err = it.BazelLog("self_import_at_run_time", "test", "//packages/shared:shared_test")
-	if err == nil {
+	if err != nil {
 		log.Dump()
-		it.Fail("//packages/shared:shared_test passed: the runtime link answers the member's own name, so run it under `bazel test //...` above instead of pinning the failure here")
+		it.Fail("//packages/shared:shared_test failed: %v", err)
 	}
-	for _, want := range []string{
+	for _, stale := range []string{
 		`Failed to resolve entry for package "shared"`,
 		`Cannot find package 'shared/wire'`,
 	} {
-		if !log.Contains(want) {
+		if log.Contains(stale) {
 			log.Dump()
-			it.Fail("//packages/shared:shared_test failed for some other reason than the runtime link: no %q", want)
+			it.Fail("the runtime link still fails to resolve: %q", stale)
 		}
 	}
-	it.Pass("//packages/shared:shared_test type-checks and fails in the resolver on `shared` and `shared/wire`: the runtime link has no exports map")
+	it.Pass("//packages/shared:shared_test type-checks and runs: the runtime link resolves `shared` and `shared/wire` through the member's exports map")
 }
 
 // configured/ keeps its vitest.config.mts beside package.json and its test one
@@ -303,19 +299,17 @@ func declarationMovesToACodegen(it *harness.IT) {
 
 	it.RequireContains(owner, `name = "worker_types"`,
 		"the hand-written ts_codegen did not survive the Gazelle run")
-	it.RequireNotContains(owner, "tsconfig_types",
-		"the filegroup outlived the file it staged")
 	it.RequireNotContains(owner, "ts_compile(",
 		"the ts_compile whose only src was the deleted declaration survived")
-	it.Pass("worker/BUILD.bazel keeps the ts_codegen and loses the filegroup and the ts_compile")
+	it.Pass("worker/BUILD.bazel keeps the ts_codegen and loses the ts_compile")
 
 	for _, dir := range []string{"worker/src", "worker/test", "worker/test/deep"} {
 		build := it.Path(dir, "BUILD.bazel")
-		it.RequireNotContains(build, "tsconfig_types",
-			"//%s still names the withdrawn filegroup", dir)
-		it.RequireContains(build, `types_srcs = ["//worker:worker_types"]`,
-			"//%s does not name the ts_codegen staging the declaration", dir)
-		it.Pass("//%s names the ts_codegen where it named the filegroup", dir)
+		it.RequireNotContains(build, `"//worker"`,
+			"//%s still depends on the withdrawn ts_compile", dir)
+		it.RequireContains(build, `"//worker:worker_types"`,
+			"//%s does not depend on the ts_codegen staging the declaration", dir)
+		it.Pass("//%s depends on the ts_codegen where it depended on the declaration's owner", dir)
 	}
 
 	it.MustBazel("test", "//worker/...")
@@ -386,7 +380,6 @@ ts_codegen(
         "{out}",
     ],
     generator = "//:tree_gen",
-    module_name = "@roundtrip/locales",
     out_dir = "compiled",
 )
 `
@@ -426,16 +419,16 @@ func generatedDeclarationNamesItsGenerator(it *harness.IT) {
 	owner := it.Path("generated_worker/BUILD.bazel")
 	it.RequireContains(owner, `name = "worker_types"`,
 		"the hand-written ts_codegen did not survive the Gazelle run")
-	it.RequireNotContains(owner, "tsconfig_types",
-		"a filegroup was written over a file that is not in the source tree")
-	it.Pass("generated_worker/BUILD.bazel keeps the ts_codegen and gets no filegroup")
+	it.Pass("generated_worker/BUILD.bazel keeps the ts_codegen")
 
 	below := it.Path("generated_worker/src/BUILD.bazel")
-	it.RequireContains(below, `types = ["../worker-configuration.d.ts"]`,
-		"//generated_worker/src names no rebased types entry")
-	it.RequireContains(below, `types_srcs = ["//generated_worker:worker_types"]`,
-		"//generated_worker/src does not name the ts_codegen staging the declaration")
-	it.Pass("//generated_worker/src carries the rebased entry and the ts_codegen's label")
+	it.RequireContains(below, `deps = ["//generated_worker:worker_types"]`,
+		"//generated_worker/src does not depend on the ts_codegen staging the declaration its tsconfig names")
+	it.RequireNotContains(below, "types =",
+		"//generated_worker/src restates the tsconfig's types entry")
+	it.RequireNotContains(below, "types_srcs",
+		"//generated_worker/src names the declaration through an attribute the rule does not have")
+	it.Pass("//generated_worker/src depends on the ts_codegen and restates nothing")
 
 	declaration := it.Bin("generated_worker/worker-configuration.d.ts")
 	it.RequireFile(declaration, "the wrangler types action did not run")
@@ -473,7 +466,7 @@ func outDirContentsAreNotSources(it *harness.IT) {
 
 	it.RequireContains(build, `deps = [":tree"]`,
 		"the import of @roundtrip/locales did not resolve to the out_dir target")
-	it.Pass("the import of :tree's module_name resolves to :tree")
+	it.Pass("the import of @roundtrip/locales resolves through the tsconfig's paths to :tree")
 
 	for _, dir := range []string{"src/locales/compiled", "src/locales/compiled/messages"} {
 		it.RequireNoFile(it.Path(dir, "BUILD.bazel"), "Gazelle made %s a package inside :tree's out_dir", dir)
@@ -637,74 +630,48 @@ func checkedInDeclarationTypesTheJavaScript(it *harness.IT) {
 	it.Pass("compile(\"x\") is TS2345, so compile.d.mts types the import, not tsgo's inference from the .mjs")
 }
 
-// aliased/tsconfig.json maps #shared/* to ./shared/*, and a test file in each
-// of its two subdirectories imports a type through it. The alias a test imports
-// through has to be on the ts_test -- the test files are a program of their own
-// -- and whether path_alias_srcs goes with it follows the srcs: a test with a
-// src under aliased/shared/ validates the alias on that src, and one without
-// fails analysis until the attribute names the target that owns the directory.
-func aliasAttrsFollowTheSrcs(it *harness.IT) {
-	const entry = `"#shared/": "aliased/shared/",`
-	const srcsAttr = `path_alias_srcs = ["//aliased/shared"],`
+// aliased/tsconfig.json maps #shared/* to ./shared/* and a test in each of its two
+// subdirectories imports through it: the BUILD file carries the owner's dep, nothing else.
+func aliasedImportsAreDeps(it *harness.IT) {
+	for _, dir := range []string{"aliased", "aliased/shared", "aliased/src"} {
+		it.RequireNotContains(it.Path(dir, "BUILD.bazel"), "path_alias",
+			"//%s restates the tsconfig's alias through an attribute the rule does not have", dir)
+	}
+	it.Pass("no rule under //aliased carries an alias attribute")
 
 	covered := it.Path("aliased/shared/BUILD.bazel")
-	if n := strings.Count(it.Read(covered), entry); n != 1 {
-		fmt.Fprint(os.Stderr, it.Read(covered))
-		it.Fail("aliased/shared holds a ts_compile importing through no alias and a ts_test importing through #shared/; the alias is on %d rules, want 1", n)
-	}
-	it.RequireNotContains(covered, "path_alias_srcs",
-		"util.test.ts is under aliased/shared/, so the alias validates on the test's own srcs and nothing else needs staging")
-	it.Pass("//aliased/shared:shared_test carries the alias and no path_alias_srcs")
+	it.RequireContains(covered, `":shared"`,
+		"//aliased/shared:shared_test does not depend on the target owning util.ts, which it imports through #shared/ and by relative path alike")
+	it.Pass("//aliased/shared:shared_test depends on :shared")
 
 	uncovered := it.Path("aliased/src/BUILD.bazel")
-	for _, want := range []string{entry, srcsAttr} {
-		if n := strings.Count(it.Read(uncovered), want); n != 2 {
-			fmt.Fprint(os.Stderr, it.Read(uncovered))
-			it.Fail("aliased/src holds a ts_compile and a ts_test, both importing through #shared/ with no src under aliased/shared/; %s is on %d rules, want 2", want, n)
-		}
+	if n := strings.Count(it.Read(uncovered), `"//aliased/shared"`); n != 2 {
+		fmt.Fprint(os.Stderr, it.Read(uncovered))
+		it.Fail("aliased/src holds a ts_compile and a ts_test, both importing through #shared/; //aliased/shared is on %d rules, want 2", n)
 	}
-	it.Pass("both rules in //aliased/src carry the alias and path_alias_srcs naming //aliased/shared")
+	it.Pass("both rules in //aliased/src depend on //aliased/shared through the alias")
 
 	tests := strings.Fields(it.BazelStdout("query", "kind(ts_test, //aliased/...)"))
 	if len(tests) != 2 {
 		it.Fail("expected the two generated ts_tests under //aliased, got %v", tests)
 	}
-	it.MustBazel(append([]string{"test"}, tests...)...)
-	it.Pass("%s run, so both test programs resolved #shared/util", strings.Join(tests, " and "))
+	it.Pass("%s ran under `bazel test //...` above, so both test programs resolved #shared/util", strings.Join(tests, " and "))
 
-	// What path_alias_srcs costs, and why it follows the srcs: it stages every
-	// output of the target it names, the .js included, where the dep edge alone
-	// stages the declarations.
-	stagesUtilJS := func(target string) bool {
-		out := it.BazelStdout("aquery", "--output=text", fmt.Sprintf("mnemonic(\"Tsgo(Declare|Check)\", %s)", target))
-		if !strings.Contains(out, "Mnemonic: Tsgo") {
-			it.Fail("no tsgo action on %s, so the input check below would be vacuous:\n%s", target, out)
-		}
-		return strings.Contains(out, "aliased/shared/util.js")
-	}
-	if stagesUtilJS("//aliased/shared:_shared_test_compile") {
-		it.Fail("the covered test's type-check stages aliased/shared/util.js, which only path_alias_srcs puts there")
-	}
-	it.Pass("the covered test's type-check stages //aliased/shared's declarations and nothing more")
-	if !stagesUtilJS("//aliased/src:_src_test_compile") {
-		it.Fail("the uncovered test's type-check does not stage aliased/shared/util.js, so path_alias_srcs did not reach the action")
-	}
-	it.Pass("the uncovered test's type-check stages every output of //aliased/shared, util.js included")
-
-	// The measurement behind writing path_alias_srcs at all.
+	// The measurement behind writing the dep at all: the alias maps to a file
+	// only the dep edge stages.
 	restore := it.Read(uncovered)
-	it.Replace(uncovered, "    "+srcsAttr+"\n", "")
-	log, err := it.BazelLog("alias_without_srcs", "build", "//aliased/src:src")
+	it.Replace(uncovered, "    deps = [\"//aliased/shared\"],\n", "")
+	log, err := it.BazelLog("alias_without_the_dep", "build", "//aliased/src:src")
 	it.Write(uncovered, restore)
 	if err == nil {
 		log.Dump()
-		it.Fail("//aliased/src:src analysed without path_alias_srcs, so Gazelle need not write it")
+		it.Fail("//aliased/src:src compiled without the dep; the alias alone reaches the file and Gazelle need not write one")
 	}
-	if !log.Contains("where none of this target's inputs live") {
+	if !log.Contains("TS2307") || !log.Contains("'#shared/util'") {
 		log.Dump()
-		it.Fail("//aliased/src:src failed for some other reason than the alias guard")
+		it.Fail("//aliased/src:src failed for some other reason than the unstaged alias target")
 	}
-	it.Pass("without path_alias_srcs the alias fails analysis: nothing //aliased/src stages sits under aliased/shared/")
+	it.Pass("without the dep `#shared/util` is TS2307: the alias maps to a file nothing stages")
 }
 
 // tsc finds env.d.ts's `/// <reference types="node" />` in node_modules/@types; the
@@ -737,26 +704,9 @@ func referenceTypesBecomeADep(it *harness.IT) {
 	it.Pass("without the dep `process` is TS2591: the directive resolves to nothing in the sandbox")
 }
 
-// Gazelle writes no module_name, and `@acme/jsx/jsx-runtime` has to be answered
-// by name; the rule Gazelle generates for the directory merges into this one.
-const jsxRuntimePackage = `load("@rules_typescript//ts:defs.bzl", "ts_compile")
-
-ts_compile(
-    name = "runtime",
-    srcs = ["jsx-runtime.ts"],
-    module_name = "@acme/jsx",
-)
-`
-
-// jsx/tsconfig.json names @acme/jsx as the JSX runtime and view/Icon.tsx imports
-// nothing: the tag's implicit `@acme/jsx/jsx-runtime` import is the whole dep.
-func jsxRuntimeBecomesADep(it *harness.IT, runtimeAfterFirstRun string) {
-	if second := it.Read(it.Path("jsx/runtime/BUILD.bazel")); second != runtimeAfterFirstRun {
-		fmt.Fprintf(os.Stderr, "--- jsx/runtime/BUILD.bazel pass 1 ---\n%s--- pass 2 ---\n%s", runtimeAfterFirstRun, second)
-		it.Fail("the runtime's BUILD file changed between two Gazelle runs")
-	}
-	it.Pass("jsx/runtime/BUILD.bazel is identical across both Gazelle runs")
-
+// jsx/tsconfig.json names @acme/jsx as the JSX runtime and `paths` sends it to
+// runtime/; view/Icon.tsx imports nothing, so the implicit import is the whole dep.
+func jsxRuntimeBecomesADep(it *harness.IT) {
 	build := it.Path("jsx/view/BUILD.bazel")
 	it.RequireContains(build, `deps = ["//jsx/runtime"]`,
 		"//jsx/view does not carry the runtime its tsconfig's jsxImportSource names")
@@ -782,65 +732,38 @@ func jsxRuntimeBecomesADep(it *harness.IT, runtimeAfterFirstRun string) {
 	it.Pass("without the dep the tag is TS2875 on '@acme/jsx/jsx-runtime': the implicit import resolves to nothing in the sandbox")
 }
 
-// worker/tsconfig.json states `types: ["./worker-configuration.d.ts"]`, and
-// worker/src/handler.ts uses two of the declarations that file makes. The
-// generated per-directory config states its own `include`, `files` and
-// `exclude` and inherits only compilerOptions, so the entry arrives written
-// relative to a directory in bazel-out: Gazelle has to rebase it and name a
-// label that stages the file.
-func rootAmbientTypesReachTheTreeBelow(it *harness.IT) {
-	it.RequireContains(it.Path("worker/BUILD.bazel"), `name = "tsconfig_types"`,
-		"the tsconfig's own package supplies no label for the declaration it names")
-	it.Pass("worker/BUILD.bazel carries the filegroup staging worker-configuration.d.ts")
-
-	it.RequireNotContains(it.Path("worker/BUILD.bazel"), "public_globals",
-		"the declaration was published to consumers, which is the propagating shape")
-	it.Pass("nothing publishes the declaration to consumers")
+// worker/tsconfig.json states `types: ["./worker-configuration.d.ts"]` and handler.ts
+// uses its declarations: the BUILD file carries the dep on the target holding the file.
+func declarationEntryResolvesThroughItsOwner(it *harness.IT) {
+	owner := it.Path("worker/BUILD.bazel")
+	it.RequireContains(owner, `srcs = ["worker-configuration.d.ts"]`,
+		"the tsconfig's own package holds no target for the declaration it names")
+	it.Pass("//worker holds worker-configuration.d.ts")
 
 	below := it.Path("worker/src/BUILD.bazel")
-	it.RequireContains(below, `types = ["../worker-configuration.d.ts"]`,
-		"//worker/src names no rebased types entry")
-	it.RequireContains(below, `types_srcs = ["//worker:tsconfig_types"]`,
-		"//worker/src names no label staging the declaration")
-	it.Pass("//worker/src carries the rebased entry and the label that answers it")
+	for _, attr := range []string{"types =", "types_srcs", "tsconfig_types"} {
+		it.RequireNotContains(below, attr,
+			"//worker/src restates the tsconfig's entry as %q", attr)
+	}
+	if n := strings.Count(it.Read(below), `"//worker"`); n != 2 {
+		fmt.Fprint(os.Stderr, it.Read(below))
+		it.Fail("worker/src holds a ts_compile and a ts_test; //worker is on %d rules, want 2", n)
+	}
+	it.Pass("both rules in //worker/src depend on //worker and restate nothing")
 
 	it.RequireFile(it.Bin("worker/src/handler.js"),
 		"//worker/src did not compile, so the declarations never reached its program")
 	it.Pass("//worker/src type-checks against declarations nothing there imports")
 
-	everyKindLoads(it, below)
-	inheritedEntryResolvesToNothing(it, below)
+	declarationWithoutItsOwnerIsNotStaged(it, below)
 	theDeclarationStopsAtTheSubtree(it)
-	parentEntryNamesTheAncestorsLabel(it)
-	packageOnlyListIsWrittenWhole(it)
+	parentEntryResolvesThroughTheOwner(it)
+	packageEntryIsADep(it)
 }
 
-// Writing an attribute is not Bazel accepting it: a ts_test that does not take
-// types_srcs is a load error on the package, which generated text cannot show.
-func everyKindLoads(it *harness.IT, below string) {
-	for _, attr := range []string{`types = ["../worker-configuration.d.ts"]`, `types_srcs = ["//worker:tsconfig_types"]`} {
-		if strings.Count(it.Read(below), attr) != 2 {
-			fmt.Fprint(os.Stderr, it.Read(below))
-			it.Fail("worker/src holds a ts_compile and a ts_test; %s is not on both", attr)
-		}
-	}
-	it.Pass("both rules Gazelle wrote in worker/src carry the pair")
-
-	targets := strings.Fields(it.BazelStdout("query", "kind(ts_test, //worker/src/...)"))
-	if len(targets) != 1 {
-		it.Fail("expected one generated ts_test under //worker/src, got %v -- the load below would be vacuous", targets)
-	}
-	it.Pass("Bazel loaded the package Gazelle wrote both attributes into: %s", targets[0])
-
-	it.MustBazel("test", targets[0])
-	it.Pass("%s runs, so the test files' own program resolved the entry", targets[0])
-}
-
-// The measurement behind writing the entry at all: with the entry only
-// inherited through `extends` -- and the file staged on a dep edge, so it is in
-// the sandbox -- the name resolves against the generated config's own directory
-// and finds nothing.
-func inheritedEntryResolvesToNothing(it *harness.IT, below string) {
+// The measurement behind writing the dep at all: the entry names a file only the
+// dep edge stages, and the rule refuses an entry nothing stages before tsgo runs.
+func declarationWithoutItsOwnerIsNotStaged(it *harness.IT, below string) {
 	restore := it.Read(below)
 	it.Write(below, `load("@rules_typescript//ts:defs.bzl", "ts_compile")
 
@@ -849,50 +772,23 @@ ts_compile(
     srcs = ["handler.ts"],
     tsconfig = "//worker:tsconfig",
     visibility = ["//visibility:public"],
-    deps = ["//worker:worker"],
 )
 `)
-	log, err := it.BazelLog("inherited_types_entry", "build", "//worker/src")
+	log, err := it.BazelLog("types_entry_without_the_owner", "build", "//worker/src")
 	it.Write(below, restore)
 	if err == nil {
 		log.Dump()
-		it.Fail("//worker/src compiled on the inherited entry alone; Gazelle need not write one")
+		it.Fail("//worker/src compiled without the dep; the entry alone reaches the declaration and Gazelle need not write one")
 	}
-	if !log.Matches(`(?i)TS2688.*worker-configuration\.d\.ts|TS2304`) {
+	if !log.Contains("worker/worker-configuration.d.ts, which no input of this action sits at") {
 		log.Dump()
-		it.Fail("//worker/src failed for some other reason than the inherited entry resolving to nothing")
+		it.Fail("//worker/src failed for some other reason than the entry naming a file nothing stages")
 	}
-	it.Pass("the entry inherited through extends resolves to nothing")
-
-	// So types_srcs alone was never the smaller change: the rule guards a
-	// staged file no entry of its own names.
-	it.Write(below, `load("@rules_typescript//ts:defs.bzl", "ts_compile")
-
-ts_compile(
-    name = "src",
-    srcs = ["handler.ts"],
-    tsconfig = "//worker:tsconfig",
-    types_srcs = ["//worker:tsconfig_types"],
-    visibility = ["//visibility:public"],
-)
-`)
-	log, err = it.BazelLog("types_srcs_without_an_entry", "build", "//worker/src")
-	it.Write(below, restore)
-	if err == nil {
-		log.Dump()
-		it.Fail("types_srcs with no entry naming the file built, so Gazelle need write no entry")
-	}
-	if !log.Matches(`which no compilerOptions.types entry names`) {
-		log.Dump()
-		it.Fail("//worker/src failed for some other reason than the unnamed types_srcs")
-	}
-	it.Pass("types_srcs with no entry naming the file is an analysis error")
+	it.Pass("without the dep the entry names a file no input sits at: the dep edge is what stages the declaration")
 }
 
-// The failure the previous shape had: a declaration reaching every transitive
-// consumer. types_srcs stages a file into one program and travels on no edge,
-// so a consumer outside the tsconfig's subtree that deps a target inside it
-// does not get the declarations.
+// A dep edge stages a file and puts nothing in scope: a consumer outside the
+// tsconfig's subtree that deps a target inside it gets no declaration.
 func theDeclarationStopsAtTheSubtree(it *harness.IT) {
 	it.Write(it.Path("outside/ok.ts"), "export const ran = 1;\n")
 	it.Write(it.Path("outside/leaked.ts"), "export const seen = WORKER_BUILD_ID;\n")
@@ -925,52 +821,47 @@ ts_compile(
 	it.Pass("the same dep edge carries no declaration out of the subtree: TS2304")
 }
 
-// worker/test names the worker's declaration as `../` and worker/test/deep as
-// `../../`; the one label staging it is the filegroup beside the worker's tsconfig.
-func parentEntryNamesTheAncestorsLabel(it *harness.IT) {
-	for _, leaf := range []struct{ dir, entry string }{
-		{"worker/test", "../worker-configuration.d.ts"},
-		{"worker/test/deep", "../../worker-configuration.d.ts"},
-	} {
-		build := it.Path(leaf.dir, "BUILD.bazel")
-		it.RequireContains(build, `types = ["`+leaf.entry+`"]`,
-			"//%s names no %s entry", leaf.dir, leaf.entry)
-		it.RequireContains(build, `types_srcs = ["//worker:tsconfig_types"]`,
-			"//%s names no label of the ancestor staging the declaration", leaf.dir)
-		it.RequireNotContains(build, `name = "tsconfig_types"`,
-			"%s got a filegroup over a file it does not hold", leaf.dir)
-		it.Pass("//%s carries the %s entry and the ancestor's label", leaf.dir, leaf.entry)
+// worker/test names the declaration as `../` and worker/test/deep as `../../`;
+// each program's own tsconfig sets the entry, and the dep is the same owner.
+func parentEntryResolvesThroughTheOwner(it *harness.IT) {
+	for _, dir := range []string{"worker/test", "worker/test/deep"} {
+		build := it.Path(dir, "BUILD.bazel")
+		for _, attr := range []string{"types =", "types_srcs", "tsconfig_types"} {
+			it.RequireNotContains(build, attr, "//%s restates the tsconfig's entry as %q", dir, attr)
+		}
+		it.RequireContains(build, `"//worker"`,
+			"//%s does not depend on the target owning the declaration its tsconfig names", dir)
+		it.Pass("//%s depends on //worker and restates nothing", dir)
 	}
 
 	targets := strings.Fields(it.BazelStdout("query", "kind(ts_test, //worker/test/...)"))
 	if len(targets) != 2 {
-		it.Fail("expected one generated ts_test in each of //worker/test and //worker/test/deep, got %v -- the run below would be vacuous", targets)
+		it.Fail("expected one generated ts_test in each of //worker/test and //worker/test/deep, got %v", targets)
 	}
-	it.MustBazel(append([]string{"test"}, targets...)...)
-	it.Pass("%s run, so each test program resolved its entry through //worker:tsconfig_types", strings.Join(targets, " and "))
+	it.Pass("%s ran under `bazel test //...` above, so each test program resolved its entry through //worker", strings.Join(targets, " and "))
 }
 
-// src/app/tsconfig.json names vite/client and no file; the rule puts a package
-// entry's declaration in `files` only when the attribute carries the entry.
-func packageOnlyListIsWrittenWhole(it *harness.IT) {
+// src/app/tsconfig.json names vite/client and no file; the entry resolves through
+// the forest, so what the BUILD file carries is the dep that puts vite in it.
+func packageEntryIsADep(it *harness.IT) {
 	build := it.Path("src/app/BUILD.bazel")
-	it.RequireContains(build, `types = ["vite/client"]`,
-		"//src/app carries no types for a package-only list")
-	it.RequireNotContains(build, "types_srcs",
-		"//src/app got a types_srcs with no file to stage")
-	it.Pass("//src/app carries the package-only list and no types_srcs")
+	it.RequireNotContains(build, "types =",
+		"//src/app restates the tsconfig's package-only types list")
+	it.RequireContains(build, `"@npm//:vite"`,
+		"//src/app does not depend on the package its types entry names")
+	it.Pass("//src/app depends on @npm//:vite for vite/client and restates nothing")
 
 	restore := it.Read(build)
-	it.Replace(build, "    types = [\"vite/client\"],\n", "")
-	log, err := it.BazelLog("package_entry_inherited_only", "build", "//src/app")
+	it.Replace(build, "        \"@npm//:vite\",\n", "")
+	log, err := it.BazelLog("package_entry_without_the_dep", "build", "//src/app")
 	it.Write(build, restore)
 	if err == nil {
 		log.Dump()
-		it.Fail("//src/app compiled with the entry inherited through extends alone; Gazelle need not write it")
+		it.Fail("//src/app compiled without the dep; the entry alone reaches vite/client and Gazelle need not write one")
 	}
 	if !log.Matches(`(?i)TS2688.*vite/client|TS2339`) {
 		log.Dump()
 		it.Fail("//src/app failed for some other reason than vite/client resolving to nothing")
 	}
-	it.Pass("with the entry inherited alone, vite/client resolves to nothing: the attribute is what puts it in the program")
+	it.Pass("without the dep vite/client resolves to nothing in the forest: the dep is what puts it in the program")
 }

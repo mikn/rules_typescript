@@ -10,9 +10,7 @@
   retries a failed relative resolution with `.ts` rewritten to `.js`: oxc
   copies an `allowImportingTsExtensions` specifier into the `.js` it emits
   verbatim and only the `.js` is in the runfiles tree. The hook leaves user
-  source and the emit untouched. The compile attributes (`lib`, `types`,
-  `compiler_options`, `tsconfig`, `path_aliases`, `path_alias_srcs`,
-  `types_srcs`) reach the node:test compile exactly as they reach the vitest
+  source and the emit untouched. `tsconfig` reaches the node:test compile exactly as it reaches the vitest
   one. Every vitest-shaped attribute (`config`, `environment`, `globals`,
   `reporters`, `setup_files`, `global_setup`, `snapshots`, the coverage trio,
   `update_snapshots`, `vitest`) is an analysis error under `"node:test"`, as is

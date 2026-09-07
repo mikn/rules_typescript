@@ -170,15 +170,14 @@ func TestJsxRuntime_ReachesTheTestTarget(t *testing.T) {
 	}
 }
 
-// The roundtrip fixture's shape, and tests/compiler_options/jsx's: the runtime
-// is a first-party module_name target, which the index answers before the hub.
-func TestJsxRuntime_FirstPartyModuleNameAnswersIt(t *testing.T) {
+// The roundtrip fixture's shape: the tsconfig's `paths` sends @acme/jsx/* to a
+// first-party directory, which the index answers before the hub.
+func TestJsxRuntime_FirstPartyRuntimeThroughThePathsAlias(t *testing.T) {
 	root := t.TempDir()
 	writeWorkspace(t, root, map[string]string{
 		"pnpm-lock.yaml":             jsxRuntimeLock,
-		"jsx/tsconfig.json":          `{"compilerOptions":{"jsx":"react-jsx","jsxImportSource":"@acme/jsx"}}` + "\n",
+		"jsx/tsconfig.json":          `{"compilerOptions":{"jsx":"react-jsx","jsxImportSource":"@acme/jsx","paths":{"@acme/jsx/*":["./runtime/*"]}}}` + "\n",
 		"jsx/runtime/jsx-runtime.ts": "export function jsx(type: string): string {\n\treturn type;\n}\n",
-		"jsx/runtime/BUILD.bazel":    "load(\"@rules_typescript//ts:defs.bzl\", \"ts_compile\")\n\nts_compile(\n    name = \"runtime\",\n    srcs = [\"jsx-runtime.ts\"],\n    module_name = \"@acme/jsx\",\n)\n",
 		"jsx/view/Icon.tsx":          importFreeIcon,
 	})
 	captureLog(t, func() { convergeGazelle(t, root) })

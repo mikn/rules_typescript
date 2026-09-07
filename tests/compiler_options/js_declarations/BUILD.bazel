@@ -11,8 +11,11 @@ import resolved to.
 ambient.d.mts has no import or export, and TypeScript exempts declaration files
 from the module-ness the .mts extension forces on a source: it is a script, and
 ESM_FLAVOUR is global. `:types_only` uses it from its own program, `:consumer`
-through public_globals, `:via_types_entry` through a `types` entry naming it.
+by naming it in its tsconfig `types`, the dep edge staging the file.
 """
+
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.consumer.json
 
 load("@rules_go//go:def.bzl", "go_test")
 load("//ts:defs.bzl", "ts_compile")
@@ -32,20 +35,13 @@ ts_compile(
         "legacy.d.cts",
         "typed.ts",
     ],
-    public_globals = ["ambient.d.mts"],
 )
 
 ts_compile(
     name = "consumer",
     srcs = ["consumer.ts"],
+    tsconfig = "tsconfig.consumer.json",
     deps = [":types_only"],
-)
-
-ts_compile(
-    name = "via_types_entry",
-    srcs = ["uses_global.ts"],
-    types = ["./ambient.d.mts"],
-    types_srcs = ["ambient.d.mts"],
 )
 
 ts_compile(
@@ -76,7 +72,6 @@ go_test(
     data = [
         ":consumer",
         ":types_only",
-        ":via_types_entry",
         ":with_runtime",
     ],
     deps = ["//tests/verify"],

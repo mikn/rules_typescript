@@ -6,15 +6,12 @@
 # gazelle:exclude beta/deep
 
 load("@rules_go//go:def.bzl", "go_test")
+load("//tests:flags.bzl", "ts_under_flags")
 load("//ts:defs.bzl", "ts_compile")
 load(
     ":layout_tests.bzl",
     "declared_outputs_test",
-    "include_entry_test",
-    "mixed_src_packages_test",
     "oxc_strip_prefix_test",
-    "paths_value_test",
-    "tsconfig_layout_test",
 )
 
 package(default_visibility = ["//:__pkg__"])
@@ -34,14 +31,20 @@ ts_compile(
         "alpha/three.ts",
         "beta/deep/two.ts",
     ],
-    declaration_map = True,
+)
+
+# Under --//ts:declaration_map, so the maps land at the same depths.
+ts_under_flags(
+    name = "siblings_with_declaration_map",
+    declaration_map = "true",
+    target = ":siblings",
 )
 
 go_test(
     name = "layout_test",
     size = "small",
     srcs = ["layout_test.go"],
-    data = [":siblings"],
+    data = [":siblings_with_declaration_map"],
     deps = ["//tests/verify"],
 )
 
@@ -50,18 +53,7 @@ declared_outputs_test(
     target_under_test = ":siblings",
 )
 
-tsconfig_layout_test(
-    name = "tsconfig_layout_test",
-    target_under_test = ":siblings",
-)
-
 oxc_strip_prefix_test(
     name = "oxc_strip_prefix_test",
     target_under_test = ":siblings",
 )
-
-include_entry_test(name = "include_entry_test")
-
-mixed_src_packages_test(name = "mixed_src_packages_test")
-
-paths_value_test(name = "paths_value_test")

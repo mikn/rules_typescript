@@ -73,12 +73,8 @@ type CodegenPattern struct {
 // codegenSrcsPrefix marks the optional srcs field of a ts_codegen directive.
 const codegenSrcsPrefix = "srcs:"
 
-// codegenCompileName is the ts_compile that makes a pattern's output
-// importable. A target of its own and not the package's: under the default
-// declarations = "tsgo" emit, one declaration emit has one rootDir, so a target
-// mixing checked-in and generated sources fails at analysis. Switching the
-// package to oxc lifts that, at the cost of the emitter its hand-written
-// sources use.
+// codegenCompileName names the ts_compile compiling a pattern's TypeScript outs:
+// a target of its own, since one tsgo declaration emit has one rootDir.
 func codegenCompileName(p CodegenPattern) (string, bool) {
 	for _, out := range p.Outs {
 		if isTypeScriptFile(out) {

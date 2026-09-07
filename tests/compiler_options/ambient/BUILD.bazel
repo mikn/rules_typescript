@@ -4,13 +4,16 @@
 # would turn it into a package and make those labels cross a package boundary.
 # gazelle:exclude typings/my-globals
 
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.ambient.json
+
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//ts:defs.bzl", "ts_compile")
 
 package(default_visibility = ["//:__pkg__"])
 
 # Reaches the action as a dep, so the file is an input but is NOT in `include`.
-# Only typeRoots + types put its globals in scope.
+# Only the tsconfig's typeRoots + types put its globals in scope.
 ts_compile(
     name = "globals_package",
     srcs = ["typings/my-globals/index.d.ts"],
@@ -19,10 +22,7 @@ ts_compile(
 ts_compile(
     name = "app",
     srcs = ["app.ts"],
-    compiler_options = {
-        "typeRoots": ["./typings"],
-        "types": ["my-globals"],
-    },
+    tsconfig = "tsconfig.ambient.json",
     deps = [":globals_package"],
 )
 

@@ -149,12 +149,8 @@ func TestTsConfigTypes_NearestTsConfigWinsWithoutMutatingTheParent(t *testing.T)
 	}
 }
 
-// The rule reads the same shapes out of its `types` attr, in
-// types_entry_package_ref (ts/private/ts_compile.bzl), and fails analysis for
-// every entry it reads as a package that no dep answers. An entry this side
-// writes no dep for and that side reads as a package is a fail() nothing can
-// clear, so the classification is pinned on both sides: this table, and
-// types_entry_package_ref_test in //tests/compiler_options/analysis.
+// Gazelle alone classifies a `types` entry (the rule hands its tsconfig to tsgo);
+// this table pins which shapes name a package it writes a dep for.
 func TestTsConfigTypes_EntryShapesAreClassifiedLikeTheRule(t *testing.T) {
 	for _, tc := range []struct {
 		entry string
@@ -175,33 +171,6 @@ func TestTsConfigTypes_EntryShapesAreClassifiedLikeTheRule(t *testing.T) {
 	} {
 		if got := ambientTypeLabel(tc.entry); got != tc.want {
 			t.Errorf("ambientTypeLabel(%q) = %q, want %q", tc.entry, got, tc.want)
-		}
-	}
-}
-
-// The other half of the same vocabulary: a file entry is one whatever
-// declaration extension it ends in, and each leading `../` is one directory up.
-func TestTsConfigTypes_FileEntryNamesEveryDeclarationExtension(t *testing.T) {
-	for _, tc := range []struct {
-		entry  string
-		hops   int
-		name   string
-		isFile bool
-	}{
-		{"./worker-configuration.d.ts", 0, "worker-configuration.d.ts", true},
-		{"./compile.d.mts", 0, "compile.d.mts", true},
-		{"./shim.d.cts", 0, "shim.d.cts", true},
-		{"../worker-configuration.d.ts", 1, "worker-configuration.d.ts", true},
-		{"../../worker-configuration.d.ts", 2, "worker-configuration.d.ts", true},
-		{"./types/globals.d.mts", 0, "", true},
-		{"../types/globals.d.ts", 1, "", true},
-		{"./typings", 0, "", false},
-		{"../typings", 0, "", false},
-	} {
-		hops, name, isFile := typeEntryFileName(tc.entry)
-		if hops != tc.hops || name != tc.name || isFile != tc.isFile {
-			t.Errorf("typeEntryFileName(%q) = (%d, %q, %v), want (%d, %q, %v)",
-				tc.entry, hops, name, isFile, tc.hops, tc.name, tc.isFile)
 		}
 	}
 }

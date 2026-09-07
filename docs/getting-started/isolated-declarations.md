@@ -1,11 +1,11 @@
 # Isolated Declarations
 
-An opt-in throughput mode, enabled per target with `declarations = "oxc"`. The
-default is `declarations = "tsgo"`.
+An opt-in throughput mode, one value for the whole build:
+`--//ts:declarations=oxc`. The default is `--//ts:declarations=tsgo`.
 
 Earlier versions required the opt-in mode. The tsgo action builds a complete
 type program per target to type-check, and emits the declarations from it;
-`declarations = "oxc"` is the opt-in path for the extra throughput.
+`oxc` is the opt-in path for the extra throughput.
 
 ## What It Means
 
@@ -30,9 +30,8 @@ that shortens the critical path substantially:
 
 | Mode | Rebuild wall | Critical path |
 |------|--------------|---------------|
-| `declarations = "tsgo"` (default) | 6.3s | 4.89s |
-| `declarations = "oxc"` | 3.8s | 2.15s |
-| `declarations = "oxc"`, `enable_check = False` | 2.7s | 1.06s |
+| `--//ts:declarations=tsgo` (default) | 6.3s | 4.89s |
+| `--//ts:declarations=oxc` | 3.8s | 2.15s |
 
 One machine, `tools/bench_declarations.sh 20 50 3`: 1,000 annotated files across
 20 packages in one linear chain, medians of three interleaved runs. Shallower
@@ -42,7 +41,7 @@ your own graph.
 ## The Requirement
 
 ```typescript
-// Rejected under declarations = "oxc" — the return type is inferred
+// Rejected under --//ts:declarations=oxc — the return type is inferred
 export function add(a: number, b: number) {
   return a + b;
 }
@@ -72,8 +71,10 @@ parseDomain.ts(95,51): error TS2339: Property 'idPreview' does not exist on type
 parseDomain.ts(96,41): error TS18046: 'UUID_PATTERN' is of type 'unknown'.
 ```
 
-The mode has no partial version. Either a package's exports are
-annotated and it can use `"oxc"`, or it stays on the default.
+The mode has no partial version. The flag is one value for the build, so either
+every package's exports are annotated and the build uses `oxc`, or it stays on
+the default. A rule that wants one subtree under the other value writes a
+Starlark transition on the flag; `tests/flags.bzl` is the ruleset's own.
 
 ## What the ESLint Rule Covers
 
@@ -94,7 +95,7 @@ annotate by hand; the rule never guesses an object literal's shape.
 
 The rule does NOT flag `export type`, `export interface`, `export enum`,
 re-exports (`export { x } from '...'`), or ambient declarations, so a clean lint
-run does not guarantee a clean `"oxc"` build. Oxc is the authority.
+run does not guarantee a clean `oxc` build. Oxc is the authority.
 
 ### Options
 
@@ -111,8 +112,8 @@ rules: {
 
 ## Migration
 
-Every package starts on `declarations = "tsgo"` and builds. Move a package over
-when its throughput matters.
+Every build starts on `--//ts:declarations=tsgo` and builds. Move over when
+throughput matters and every package's exports are annotated.
 
 **Step 1.** Install the ESLint plugin that reports missing annotations.
 
@@ -150,25 +151,24 @@ export default [
 
 The bundled config, `isolatedDeclarations.configs.recommended`, does the same.
 
-**Step 2.** Pick one package and run the linter on it:
+**Step 2.** Run the linter over the repository:
 
 ```bash
-npx eslint src/my-package/
+npx eslint .
 ```
 
 **Step 3.** Add the missing explicit types. Annotate accurately: a `: any` or an
 over-wide annotation degrades the declaration as much as the widening this mode
 prevents.
 
-**Step 4.** Switch that package over with
-`# gazelle:ts_declarations oxc` in its `BUILD.bazel`, then regenerate and build:
+**Step 4.** Switch the build over in `.bazelrc` and build:
+
+```
+build --@rules_typescript//ts:declarations=oxc
+```
 
 ```bash
-bazel run //:gazelle
-bazel build //src/my-package
+bazel build //...
 ```
 
 If anything was missed, Oxc fails the build and names the file and line.
-
-**Step 5.** Repeat for the next package. Mixed modes across a workspace are
-supported.

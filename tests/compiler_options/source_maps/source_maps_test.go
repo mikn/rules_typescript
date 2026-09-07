@@ -8,7 +8,7 @@ import (
 
 const pkg = "tests/compiler_options/source_maps/"
 
-// declaration_map is what makes go-to-definition from a consumer's editor land
+// --//ts:declaration_map is what makes go-to-definition from a consumer's editor land
 // on mapped.ts instead of the generated mapped.d.ts.
 func TestDeclarationMapPointsAtTheSource(t *testing.T) {
 	tree := verify.New(t)

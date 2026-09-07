@@ -113,28 +113,8 @@ def _bin_entries(pkg_json):
         return {k: v for k, v in raw.items() if type(v) == "string"}
     return {}
 
-_DECLARATION_EXTENSIONS = (".d.ts", ".d.mts", ".d.cts")
-
-_SOURCE_EXTENSIONS = (".ts", ".tsx", ".mts", ".cts")
-
-# One extension table per role: a bare import takes .ts/.tsx ahead of .d.ts and a
-# `types` entry takes declarations alone, as resolveTypeReferenceDirective does.
-_MODULE_ROLE = struct(
-    source = True,
-    beside = {".js": (".ts", ".tsx", ".d.ts"), ".mjs": (".mts", ".d.mts"), ".cjs": (".cts", ".d.cts")},
-    added = (".ts", ".tsx", ".d.ts"),
-)
-
-_DECLARATION_ROLE = struct(
-    source = False,
-    beside = {".js": (".d.ts",), ".mjs": (".d.mts",), ".cjs": (".d.cts",)},
-    added = (".d.ts",),
-)
-
-# Conditions a declaration lookup descends into, matched against the exports
-# map's own key order because that is the order a resolver tries them in. "node"
-# is among them: without it a `{"node": ..., "default": ...}` package answers
-# with the declarations of its browser build.
+# Conditions the exports walk descends into, in the map's own key order because
+# that is the order a resolver tries them in.
 _TYPE_CONDITIONS = ("types", "typings", "node", "import", "require", "default")
 
 _WALK_STEPS = 64
@@ -177,305 +157,6 @@ def _export_targets(root):
         elif kind == "dict":
             pending = [node[key] for key in node.keys() if key in _TYPE_CONDITIONS] + pending
     return targets
-
-def _entry_at(target, has_file, role):
-    """The file one exports target or field value names for `role`, if the package ships it.
-
-    A target with a TypeScript extension is taken as written; one naming a .js,
-    .mjs or .cjs resolves to what `role` allows beside it, in TypeScript's order.
-    """
-    path = target.removeprefix("./")
-    if not path or "*" in path:
-        return ""
-    for extension in _DECLARATION_EXTENSIONS:
-        if path.endswith(extension):
-            return path if has_file(path) else ""
-    for extension in _SOURCE_EXTENSIONS:
-        if path.endswith(extension):
-            return path if role.source and has_file(path) else ""
-    for js, substitutes in role.beside.items():
-        if path.endswith(js):
-            stem = path[:-len(js)]
-            for substitute in substitutes:
-                if has_file(stem + substitute):
-                    return stem + substitute
-            return ""
-    return ""
-
-def _declaration_at(target, has_file):
-    return _entry_at(target, has_file, _DECLARATION_ROLE)
-
-def _field_entry(value, has_file, role):
-    """The file a `typings`, `types` or `main` field names for `role`, extensionless form included.
-
-    TypeScript adds the role's extensions to a field value that has none and then
-    reads it as a directory; an exports target gets neither.
-    """
-    named = _entry_at(value, has_file, role)
-    if named:
-        return named
-    path = value.removeprefix("./").removesuffix("/")
-    if not path:
-        return ""
-    for suffix in ("", "/index"):
-        for extension in role.added:
-            if has_file(path + suffix + extension):
-                return path + suffix + extension
-    return ""
-
-def _entry(pkg_json, has_file, role):
-    """The file a package's own metadata designates for `role`, or "".
-
-    The order is TypeScript's, for a bare specifier and a `types` entry alike.
-    `exports` first, in the key order the map itself is written in: a package
-    that ships one has declared there which files it means to be entered through,
-    conditions and all. Then `typings` and `types`, in that order because
-    readPackageJsonTypesFields reads them in it, then `main`, then the root
-    index, which is where the resolution of a manifest naming nothing ends.
-
-    The exports map is authoritative about what it designates and silent about
-    the rest, and this reads it that way rather than treating the silence as an
-    answer. Every candidate is checked against the extracted package, because a
-    manifest that names a file it does not ship would otherwise become a target
-    with a missing source.
-
-    Args:
-        pkg_json: The package's decoded package.json.
-        has_file: Predicate on a package-relative path.
-        role: Which extensions answer: _MODULE_ROLE or _DECLARATION_ROLE.
-    """
-    for target in _export_targets(_root_export(pkg_json.get("exports"))):
-        designated = _entry_at(target, has_file, role)
-        if designated:
-            return designated
-    for field in ("typings", "types", "main"):
-        value = pkg_json.get(field)
-        if type(value) == "string" and value:
-            named = _field_entry(value, has_file, role)
-            if named:
-                return named
-    for extension in role.added:
-        if has_file("index" + extension):
-            return "index" + extension
-    return ""
-
-def _exports_types(pkg_json, has_file):
-    """The declaration a `compilerOptions.types` entry or reference directive resolves the package to, or ""."""
-    return _entry(pkg_json, has_file, _DECLARATION_ROLE)
-
-def _module_entry(pkg_json, has_file):
-    """The file a bare import of the package resolves to, or "".
-
-    @cloudflare/workers-types names nothing and ships index.ts, a module, beside
-    index.d.ts, a global script: the first answers the import, the second `types`.
-    """
-    return _entry(pkg_json, has_file, _MODULE_ROLE)
-
-def _exports_subpath_types(pkg_json, has_file):
-    """The declaration each non-root `exports` subpath designates, keyed by subpath.
-
-    The root entry is `_exports_types`' business; this is every other subpath,
-    which is where a package puts declarations that are not its entry point.
-    Ambient module declarations in particular: a package cannot put
-    `declare module "cloudflare:test"` in its entry point without forcing it on
-    every importer, so it ships a subpath nothing imports and the consumer names
-    that subpath instead.
-
-    tsconfig `types` cannot reach one of those under Bazel. TypeScript resolves a
-    `types` entry by walking node_modules for the package and reading its
-    manifest, and this ruleset has no node_modules to walk -- npm packages reach
-    the compiler through `paths`, which `types` does not consult. So the subpath
-    is resolved here, where the manifest is, and the file it names is put in the
-    consumer's `files`.
-
-    A subpath with a star designates a pattern rather than a file, and is
-    `_exports_subpath_patterns`' business.
-    """
-    exports = pkg_json.get("exports")
-    if type(exports) != "dict":
-        return {}
-    out = {}
-    for key in exports.keys():
-        if not key.startswith("./") or "*" in key:
-            continue
-        for target in _export_targets(exports[key]):
-            designated = _declaration_at(target, has_file)
-            if designated:
-                out[key] = designated
-                break
-    return out
-
-def _pattern_target(target, has_file):
-    """The package-relative pattern one starred subpath's target designates, or "".
-
-    A target with a star is checked at the directory before it, the most a
-    pattern can be checked at. One without is the file every match of the key
-    resolves to -- unenv's `./mock/proxy-cjs/*` is its `lib/mock.d.cts` -- and is
-    checked as an exact subpath's target is. Two stars fit no `paths` pattern.
-    """
-    path = target.removeprefix("./")
-    stars = path.count("*")
-    if not path or stars > 1:
-        return ""
-    if stars == 0:
-        return _declaration_at(target, has_file)
-    directory = path[:path.find("*")].rpartition("/")[0]
-    return path if not directory or has_file(directory) else ""
-
-def _exports_subpath_patterns(pkg_json, has_file):
-    """The pattern each one-star `exports` subpath maps to, keyed by subpath.
-
-    `"./*": {"import": "./dist/esm/*"}` says where every subpath the map does not
-    name outright lives, and tsconfig `paths` can say the same: TypeScript
-    substitutes the matched star into the whole value, so the target travels with
-    its prefix and suffix intact (`./utils/*` -> `dist/types/utils/*.d.ts`) and
-    the declaration beside a `.js` is TypeScript's own to find. The first
-    condition `_export_targets` reaches whose target fits one star wins, in the
-    map's own order. A key with two stars matches no `paths` pattern and gets no
-    entry.
-    """
-    exports = pkg_json.get("exports")
-    if type(exports) != "dict":
-        return {}
-    out = {}
-    for key in exports.keys():
-        if not key.startswith("./") or key.count("*") != 1:
-            continue
-        for target in _export_targets(exports[key]):
-            pattern = _pattern_target(target, has_file)
-            if pattern:
-                out[key] = pattern
-                break
-    return out
-
-def _directive_value(line, attribute):
-    for quote in ('"', "'"):
-        marker = " " + attribute + "=" + quote
-        start = line.find(marker)
-        if start < 0:
-            continue
-        start += len(marker)
-        end = line.find(quote, start)
-        if end > start:
-            return line[start:end]
-    return ""
-
-def _triple_slash_directives(content):
-    """`(attribute, value)` for each `/// <reference ...>` in a file's header.
-
-    TypeScript reads a directive only above the first statement, so the scan
-    stops at the first line that is neither blank, a comment nor a directive.
-    Only `types` and `path` are reported: `lib` names a file of the compiler's
-    own and `no-default-lib` names none.
-    """
-    out = []
-    in_block = False
-    for line in content.split("\n"):
-        stripped = line.strip()
-        if in_block:
-            end = stripped.find("*/")
-            if end < 0:
-                continue
-            in_block = False
-            if stripped[end + 2:].strip():
-                break
-            continue
-        if not stripped:
-            continue
-        if stripped.startswith("///"):
-            if stripped[3:].lstrip().startswith("<reference"):
-                for attribute in ("types", "path"):
-                    value = _directive_value(stripped, attribute)
-                    if value:
-                        out.append((attribute, value))
-            continue
-        if stripped.startswith("//"):
-            continue
-        if stripped.startswith("/*"):
-            end = stripped.find("*/", 2)
-            if end < 0:
-                in_block = True
-            elif stripped[end + 2:].strip():
-                break
-            continue
-        break
-    return out
-
-def _sibling_path(path, relative):
-    """`relative`, written in `path`'s directory, as a package-relative path; "" above the root."""
-    parts = []
-    for part in path.split("/")[:-1] + relative.split("/"):
-        if part in ("", "."):
-            continue
-        if part != "..":
-            parts.append(part)
-        elif parts:
-            parts.pop()
-        else:
-            return ""
-    return "/".join(parts)
-
-# A worklist bound Starlark's for-loop needs, not a size any package approaches.
-_MAX_REFERENCED_FILES = 4096
-
-def _referenced_types(read, entry):
-    """The packages `entry`'s `/// <reference types=...>` directives name, sorted.
-
-    A `path` directive pulls a sibling into the program along with `entry`, so
-    the walk follows those within the package and reads each sibling's header
-    too. `read` returns a package-relative file's text, or None for no such file.
-    """
-    names = {}
-    seen = {entry: True}
-    pending = [entry]
-    for _ in range(_MAX_REFERENCED_FILES):
-        if not pending:
-            return sorted(names.keys())
-        path = pending.pop()
-        content = read(path)
-        if content == None:
-            continue
-        for attribute, value in _triple_slash_directives(content):
-            if attribute == "types":
-                names[value] = True
-                continue
-            sibling = _sibling_path(path, value)
-            if sibling and sibling not in seen:
-                seen[sibling] = True
-                pending.append(sibling)
-    fail("npm_import: more than {} declarations reachable through /// <reference path> from {}".format(
-        _MAX_REFERENCED_FILES,
-        entry,
-    ))
-
-def _type_references(read, declarations):
-    """Each of `declarations` whose header names a package, mapped to the names.
-
-    TypeScript resolves `/// <reference types="x" />` through `typeRoots` and a
-    node_modules walk from the referencing file, never through `paths`, and a
-    consumer's sandbox has neither. So the names are read here, where the file
-    is, and the consumer resolves each against this package's deps -- the same
-    route as `subpath_types`, for the same reason.
-    """
-    out = {}
-    for path in declarations:
-        names = _referenced_types(read, path)
-        if names:
-            out[path] = names
-    return out
-
-def _rctx_has_file(rctx, package_root):
-    def has_file(path):
-        return rctx.path(package_root + "/" + path).exists
-
-    return has_file
-
-def _rctx_read(rctx, package_root):
-    def read(path):
-        p = rctx.path(package_root + "/" + path)
-        return rctx.read(p) if p.exists and not p.is_dir else None
-
-    return read
 
 def _primary_bin_name(package, bins):
     """The bin a bare `bazel run @npm//:<pkg>_bin` should mean.
@@ -540,7 +221,7 @@ def _package_relative_label(package_root, path):
     """The label of a file inside the package, relative to the generated BUILD file."""
     return ":" + package_root + "/" + path
 
-def _package_stanza(attrs, target_name, package_name, deps_expr, declaration_entry, module_entry, subpath_declarations, subpath_patterns, type_references):
+def _package_stanza(attrs, target_name, package_name, deps_expr):
     """The ts_npm_package call for one name this package is imported under."""
     package_root = _package_root(attrs.package)
     stanza = [
@@ -559,30 +240,6 @@ def _package_stanza(attrs, target_name, package_name, deps_expr, declaration_ent
         stanza.append("    deps = {},".format(deps_expr))
     if attrs.types_dep:
         stanza.append('    types_dep = "{}",'.format(attrs.types_dep))
-    if attrs.is_types_package:
-        stanza.append("    is_types_package = True,")
-    if declaration_entry:
-        stanza.append('    exports_types = "{}",'.format(_package_relative_label(package_root, declaration_entry)))
-    if module_entry:
-        stanza.append('    module_entry = "{}",'.format(_package_relative_label(package_root, module_entry)))
-    if subpath_declarations:
-        stanza.append("    subpath_types = {")
-        for subpath in sorted(subpath_declarations.keys()):
-            stanza.append('        "{}": "{}",'.format(subpath, subpath_declarations[subpath]))
-        stanza.append("    },")
-    if subpath_patterns:
-        stanza.append("    subpath_patterns = {")
-        for subpath in sorted(subpath_patterns.keys()):
-            stanza.append('        "{}": "{}",'.format(subpath, subpath_patterns[subpath]))
-        stanza.append("    },")
-    if type_references:
-        stanza.append("    type_references = {")
-        for path in sorted(type_references.keys()):
-            stanza.append('        "{}": [{}],'.format(
-                path,
-                ", ".join(['"{}"'.format(name) for name in type_references[path]]),
-            ))
-        stanza.append("    },")
     stanza.append(")\n")
     return "\n".join(stanza)
 
@@ -681,33 +338,13 @@ def _npm_import_impl(rctx):
     lines.append('package(default_visibility = ["//visibility:public"])\n')
     lines.append('exports_files(["{}/package.json"])\n'.format(package_root))
 
-    has_file = _rctx_has_file(rctx, package_root)
-    declaration_entry = _exports_types(pkg_json, has_file)
-    module_entry = _module_entry(pkg_json, has_file)
-    subpath_declarations = _exports_subpath_types(pkg_json, has_file)
-    subpath_patterns = _exports_subpath_patterns(pkg_json, has_file)
-    type_references = _type_references(
-        _rctx_read(rctx, package_root),
-        ([declaration_entry] if declaration_entry else []) + sorted(subpath_declarations.values()),
-    )
-
     deps_expr = _label_list_expr(
         rctx.attr.package,
         rctx.attr.platforms,
         rctx.attr.deps,
         rctx.attr.platform_deps,
     )
-    lines.append(_package_stanza(
-        rctx.attr,
-        "pkg",
-        rctx.attr.package,
-        deps_expr,
-        declaration_entry,
-        module_entry,
-        subpath_declarations,
-        subpath_patterns,
-        type_references,
-    ))
+    lines.append(_package_stanza(rctx.attr, "pkg", rctx.attr.package, deps_expr))
 
     # An npm alias (`h3-v2: npm:h3@2.0.1`) is the same files installed under a
     # second name. package_name is what the node_modules tree builder writes on
@@ -715,17 +352,7 @@ def _npm_import_impl(rctx):
     # `import "h3-v2"` looks, and pointing a Bazel alias at :pkg would produce
     # node_modules/h3 instead.
     for target_name, alias_package in rctx.attr.aliases.items():
-        lines.append(_package_stanza(
-            rctx.attr,
-            target_name,
-            alias_package,
-            deps_expr,
-            declaration_entry,
-            module_entry,
-            subpath_declarations,
-            subpath_patterns,
-            type_references,
-        ))
+        lines.append(_package_stanza(rctx.attr, target_name, alias_package, deps_expr))
 
     # Native binaries a bin script resolves at runtime live in sibling
     # repositories, so they are declared as targets rather than located by
@@ -790,7 +417,6 @@ npm_import = repository_rule(
                   "time rather than in the extension.",
         ),
         "types_dep": attr.string(doc = "Apparent label of the @types/* package for this one."),
-        "is_types_package": attr.bool(default = False),
         "optional_dep_packages": attr.string_list(
             doc = "Apparent labels of sibling npm_import repos holding native binaries " +
                   "this package's bin scripts resolve at runtime on every platform.",
@@ -837,7 +463,7 @@ def _alias_block(alias_names, aliases):
 
 _LINK_LOAD = 'load("@rules_typescript//npm/private:workspace_package.bzl", "npm_workspace_package")'
 
-# ─── pnpm `link:` members: which Bazel package builds one ────────────────────
+# ─── Workspace members: which Bazel package builds one ───────────────────────
 
 _TARGET_NAME_DIRECTIVE = "# gazelle:ts_target_name"
 
@@ -999,9 +625,8 @@ def _repo_root(rctx):
     return root
 
 def _member_targets(rctx):
-    """Label per member path named by any `link:` in this lockfile, None if absent."""
-    links = list(rctx.attr.links.values()) + list(rctx.attr.importer_links.values())
-    if not links:
+    """Label per member directory of this lockfile, None where no target declares one."""
+    if not rctx.attr.members:
         return {}
     root = _repo_root(rctx)
 
@@ -1009,8 +634,8 @@ def _member_targets(rctx):
         return _build_file_text(rctx, root, dir_path)
 
     targets = {}
-    for link in links:
-        _, _, member = link.partition("|")
+    for entry in rctx.attr.members.values():
+        _, _, member = entry.partition("|")
         if member not in targets:
             entries = _member_entries(rctx, root.get_child(*member.split("/")))
             targets[member] = _link_target_label(member, entries, build_text)
@@ -1026,32 +651,39 @@ def _unresolved_link_note(package_name, member):
         "",
     ]
 
-def _link_block(links, targets, module_paths):
-    """One target per pnpm `link:` dependency, carrying the name it is imported by.
+def _unresolved_manifest_note(package_name, member):
+    return [
+        "# NO MANIFEST for '{}'. {}/package.json is missing or".format(package_name, member),
+        "# has no name, and the manifest is what the member's view carries: give the",
+        "# member a package.json with a name.",
+        "",
+    ]
+
+def _link_block(members, targets, manifests):
+    """One view per workspace member, carrying the name it is imported by.
 
     Not an alias: Bazel resolves an alias before any rule implementation runs, so
-    the member would arrive at a consumer with no record of the npm name at all --
-    which is why a workspace member used to have to restate it as `module_name`.
-
-    What the member's own package.json says its specifiers resolve to travels with
-    it, because that is written in a file nothing downstream can read.
+    the member would arrive at a consumer with no record of the npm name at all.
+    The member's package.json travels as text, rewritten to the emitted files,
+    because a manifest is written during analysis and nothing reads a file there.
     """
     lines = []
-    for label_name in sorted(links):
-        package_name, _, member = links[label_name].partition("|")
+    for label_name in sorted(members):
+        package_name, _, member = members[label_name].partition("|")
         target = targets.get(member)
         if not target:
             lines.extend(_unresolved_link_note(package_name, member))
             continue
+        manifest = manifests.get(label_name)
+        if not manifest:
+            lines.extend(_unresolved_manifest_note(package_name, member))
+            continue
         lines.append("npm_workspace_package(")
         lines.append('    name = "{}",'.format(label_name))
         lines.append('    package_name = "{}",'.format(package_name))
+        lines.append('    member_dir = "{}",'.format(member))
         lines.append('    target = "{}",'.format(target))
-        declared = module_paths.get(label_name)
-        if declared:
-            member_dir, _, text = declared.partition("|")
-            lines.append('    member_dir = "{}",'.format(member_dir))
-            lines.append("    module_paths = {},".format(json.encode(text)))
+        lines.append("    manifest_json = {},".format(json.encode(manifest)))
         lines.append(")")
         lines.append("")
     return lines
@@ -1059,30 +691,26 @@ def _link_block(links, targets, module_paths):
 _HUB_HEADER = [
     "# Generated by npm_hub. Do not edit.",
     "#",
-    "# Aliases, plus one target per workspace link: this repository downloads",
+    "# Aliases, plus one view per workspace member: this repository downloads",
     "# nothing, so it stays cheap to regenerate when the lockfile changes, and",
     "# referencing one alias fetches only that package's own repository.",
     'package(default_visibility = ["//visibility:public"])',
     "",
 ]
 
-def _hub_lines(links, note = None):
-    """The header, carrying the load a `link:` target needs and nothing else."""
+def _hub_lines(members, note = None):
+    """The header, carrying the load a member's view needs and nothing else."""
     lines = list(_HUB_HEADER)
     if note:
         lines.insert(1, "# {}".format(note))
-    return ([_LINK_LOAD, ""] + lines) if links else lines
+    return ([_LINK_LOAD, ""] + lines) if members else lines
 
 def _npm_hub_impl(rctx):
     targets = _member_targets(rctx)
-    module_paths_by_importer = {}
-    for key, declared in rctx.attr.link_module_paths.items():
-        path, _, label_name = key.rpartition("|")
-        module_paths_by_importer.setdefault(path, {})[label_name] = declared
 
-    lines = _hub_lines(rctx.attr.links)
+    lines = _hub_lines(rctx.attr.members)
     lines.extend(_alias_block(rctx.attr.aliases.keys(), rctx.attr.aliases))
-    lines.extend(_link_block(rctx.attr.links, targets, module_paths_by_importer.get("", {})))
+    lines.extend(_link_block(rctx.attr.members, targets, rctx.attr.member_manifests))
     if rctx.attr.broken_cycle_edges:
         lines.append("# Circular npm dependency edges removed for an acyclic target graph.")
         lines.append("# These packages rely on Node's CJS cycle tolerance at runtime.")
@@ -1090,26 +718,16 @@ def _npm_hub_impl(rctx):
             lines.append("#   CYCLE BROKEN: {}".format(edge))
     rctx.file("BUILD.bazel", "\n".join(lines) + "\n")
 
-    # One package per workspace member, so `@npm//path/to/member:react` is the
-    # snapshot THAT member resolved react to. The root package above is the
-    # whole-lockfile namespace and has to pick one snapshot per name; a member's
-    # own package does not, which is the only place per-importer resolution can
-    # live given that a Bazel package has one namespace.
+    # One package per workspace member: `@npm//path/to/member:react` is that
+    # member's resolution; the root has one namespace and one snapshot per name.
     by_importer = {}
-    links_by_importer = {}
     for key, target in rctx.attr.importer_aliases.items():
         path, _, alias_name = key.rpartition("|")
         by_importer.setdefault(path, {})[alias_name] = target
-    for key, entry in rctx.attr.importer_links.items():
-        path, _, label_name = key.rpartition("|")
-        by_importer.setdefault(path, {})
-        links_by_importer.setdefault(path, {})[label_name] = entry
 
     for path, aliases in by_importer.items():
-        links = links_by_importer.get(path, {})
-        sub = _hub_lines(links, "Resolution as declared by the workspace member at {}.".format(path))
+        sub = _hub_lines({}, "Resolution as declared by the workspace member at {}.".format(path))
         sub.extend(_alias_block(aliases.keys(), aliases))
-        sub.extend(_link_block(links, targets, module_paths_by_importer.get(path, {})))
         rctx.file("{}/BUILD.bazel".format(path), "\n".join(sub) + "\n")
 
 npm_hub = repository_rule(
@@ -1125,66 +743,40 @@ npm_hub = repository_rule(
                   "because a repository rule attribute cannot nest dicts; '|' cannot " +
                   "occur in either a package path or a label name.",
         ),
-        "links": attr.string_dict(
+        "members": attr.string_dict(
             doc = "Label name -> '<npm package name>|<path of the workspace member>' " +
-                  "for each pnpm `link:` dependency. A path rather than a label: which " +
-                  "directory of a member holds its target is decided by Gazelle " +
-                  "directives in BUILD files, so it is looked up here at fetch time. The " +
-                  "package name travels with it because it cannot be recovered from the " +
-                  "label name: 'types_react' is the label of '@types/react' and of " +
-                  "'types_react'.",
+                  "for each workspace member: every `link:` target and every named " +
+                  "importer. A path rather than a label: which directory of a member " +
+                  "holds its target is decided by Gazelle directives in BUILD files, so " +
+                  "it is looked up here at fetch time. The package name travels with it " +
+                  "because it cannot be recovered from the label name: 'types_react' is " +
+                  "the label of '@types/react' and of 'types_react'.",
         ),
-        "importer_links": attr.string_dict(
-            doc = "'<importer path>|<label name>' -> the same '<package name>|<member " +
-                  "path>' pair, for the `link:` dependencies one workspace member " +
-                  "declared.",
+        "member_manifests": attr.string_dict(
+            doc = "Label name -> the member's package.json as text, with every " +
+                  "source-file target rewritten to the emitted file. A member missing " +
+                  "here has no package.json with a name and gets a comment, no view.",
         ),
         "pnpm_lock": attr.label(
             allow_single_file = True,
             doc = "The lockfile this hub was translated from, for the repository root " +
-                  "the `link:` member paths are resolved against.",
-        ),
-        "link_module_paths": attr.string_dict(
-            doc = "'<importer path>|<label name>' -> '<member directory>|<specifier " +
-                  "to declarations JSON>', for every `link:` above whose member says " +
-                  "how it is entered. The root importer's path is empty, and the " +
-                  "FIRST '|' is the separator -- a directory cannot contain one, " +
-                  "while the JSON that follows is a member's own strings and could. " +
-                  "That is also why this is its own attribute instead of a third " +
-                  "field on `links`, whose split is safe only because neither a " +
-                  "package name nor a label can contain a '|' anywhere.",
+                  "the member paths are resolved against.",
         ),
         "broken_cycle_edges": attr.string_list(
             doc = "Human-readable record of edges the extension removed.",
         ),
     },
-    doc = "Alias-only hub giving npm packages stable @npm//:<name> labels, plus one " +
-          "package per workspace member holding that member's own resolution.",
+    doc = "Alias-only hub giving npm packages stable @npm//:<name> labels, one view " +
+          "per workspace member, plus one package per importer holding that " +
+          "importer's own resolution.",
 )
 
-# The `exports` shape, without the tarball: a workspace member's manifest has the
-# same conditions and the same key order, and only what a designated target MEANS
-# differs -- a member names a source Bazel has yet to compile, a tarball names a
-# file it already ships. member_paths.bzl reads the shape with these and answers
-# the rest itself, so one manifest cannot be read two ways.
-root_export = _root_export
-export_targets = _export_targets
-
-# Exported for the tests that pin the credential rules, the declaration a package
-# designates, which target a `link:` member resolves to, and the BUILD text all
-# of it is written into; the paths above are the only production callers.
+# Exported for the tests that pin the credential rules and the `link:` member
+# resolution; the paths above are the only production callers.
 link_candidate_dirs = _link_candidate_dirs
 manifest_entries = _manifest_entries
 link_target_label = _link_target_label
 link_block = _link_block
 target_name_in = _target_name_in
-exports_types = _exports_types
-module_entry = _module_entry
-exports_subpath_types = _exports_subpath_types
-exports_subpath_patterns = _exports_subpath_patterns
-triple_slash_directives = _triple_slash_directives
-referenced_types = _referenced_types
-type_references = _type_references
-package_stanza = _package_stanza
 npmrc_auth = _npmrc_auth
 npmrc_auth_fields = _npmrc_auth_fields

@@ -76,9 +76,8 @@ func reportManagedAttrDrops(args language.GenerateArgs, gen []*rule.Rule) {
 	}
 }
 
-// The shapes a merge reconciles value by value: the two rule.MergeRules knows,
-// plus the string dict pathAliasMap.Merge reconciles entry by entry. Anything
-// else is replaced or dropped from.
+// The shapes a merge reconciles value by value: the two rule.MergeRules knows, plus the
+// string dict declarationTypeMap.Merge reconciles entry by entry; anything else is replaced.
 func isLiteralAttrValue(e bzl.Expr) bool {
 	switch v := e.(type) {
 	case nil:
@@ -99,7 +98,7 @@ func isLiteralAttrValue(e bzl.Expr) bool {
 }
 
 // isStringDict reports a dict whose every key and value is a plain string,
-// which is the whole of what pathAliasMap.Merge reads.
+// which is the whole of what declarationTypeMap.Merge reads.
 func isStringDict(d *bzl.DictExpr) bool {
 	for _, kv := range d.List {
 		if _, ok := kv.Key.(*bzl.StringExpr); !ok {
@@ -127,9 +126,6 @@ func reportUnmergeableExpr(path string, r *rule.Rule, attr string, expr bzl.Expr
 
 // Mirrors rule.MergeRules, which is what actually removes them.
 func droppedAttrValues(args language.GenerateArgs, have, want *rule.Rule, attr string) []string {
-	if d, isDict := have.Attr(attr).(*bzl.DictExpr); isDict {
-		return droppedDictKeys(args, d, want.Attr(attr))
-	}
 	if s := have.AttrString(attr); s != "" {
 		if want.AttrString(attr) == s || !derivableValue(args, s) {
 			return nil
@@ -150,37 +146,6 @@ func droppedAttrValues(args language.GenerateArgs, have, want *rule.Rule, attr s
 			continue
 		}
 		dropped = append(dropped, s.Value)
-	}
-	return dropped
-}
-
-// Mirrors pathAliasMap.Merge: an entry the recomputed map does not carry and no
-// "# keep" holds is gone. The keys are what the user reads the map by, so the
-// keys are what the report names. An entry whose directory has been deleted was
-// dropped because the tree changed, and its value is repo-relative rather than
-// package-relative -- which is why derivableValue cannot answer for it.
-func droppedDictKeys(args language.GenerateArgs, have *bzl.DictExpr, want bzl.Expr) []string {
-	carried := map[string]struct{}{}
-	if w, isDict := want.(*bzl.DictExpr); isDict {
-		for _, kv := range w.List {
-			if k, ok := kv.Key.(*bzl.StringExpr); ok {
-				carried[k.Value] = struct{}{}
-			}
-		}
-	}
-	var dropped []string
-	for _, kv := range have.List {
-		k, isString := kv.Key.(*bzl.StringExpr)
-		if !isString || rule.ShouldKeep(kv) {
-			continue
-		}
-		if _, held := carried[k.Value]; held {
-			continue
-		}
-		if dir, ok := kv.Value.(*bzl.StringExpr); ok && !pathExists(args.Config.RepoRoot, dir.Value) {
-			continue
-		}
-		dropped = append(dropped, k.Value)
 	}
 	return dropped
 }
@@ -227,104 +192,6 @@ func reportDroppedValues(args language.GenerateArgs, r *rule.Rule, attr string, 
 		r.Kind(), r.Name(), args.File.Path, attr, strings.Join(quoted, ", "))
 }
 
-// ---- path_aliases, the one dict Gazelle owns -------------------------------
-
-// rule.attrValue states the contract: "If the attribute is mergeable the value
-// must implement the Merger interface." A map[string]string does not, and
-// rule.MergeRules has no case for a dict at all -- extractPlatformStringsExprs
-// matches neither a list nor a select() and returns an empty result with no
-// error, so the pre-resolve merge deletes the attribute and the post-resolve
-// pass writes the generated dict back whole. That round trip is why an entry
-// carrying "# keep" does not survive, and why keep.go warned about Gazelle's own
-// output on every run after the first.
-type pathAliasMap map[string]string
-
-var (
-	_ rule.BzlExprValue = pathAliasMap(nil)
-	_ rule.Merger       = pathAliasMap(nil)
-)
-
-func (m pathAliasMap) BzlExpr() bzl.Expr {
-	prefixes := make([]string, 0, len(m))
-	for prefix := range m {
-		prefixes = append(prefixes, prefix)
-	}
-	sort.Strings(prefixes)
-	entries := make([]*bzl.KeyValueExpr, 0, len(prefixes))
-	for _, prefix := range prefixes {
-		entries = append(entries, &bzl.KeyValueExpr{
-			Key:   &bzl.StringExpr{Value: prefix},
-			Value: &bzl.StringExpr{Value: m[prefix]},
-		})
-	}
-	return &bzl.DictExpr{List: entries, ForceMultiLine: true}
-}
-
-// Merge is entry by entry, as rule.MergeList is element by element: a
-// recomputed entry wins, an entry carrying "# keep" survives with its comment,
-// and an entry the tree no longer accounts for goes. A nil result is how a
-// merger asks rule.MergeRules to delete the attribute, which is what an alias
-// map recomputed down to nothing has to do.
-func (m pathAliasMap) Merge(other bzl.Expr) bzl.Expr {
-	merged := m.BzlExpr().(*bzl.DictExpr)
-	if dict, isDict := other.(*bzl.DictExpr); isDict {
-		for _, kv := range dict.List {
-			key, isString := kv.Key.(*bzl.StringExpr)
-			if !isString || !rule.ShouldKeep(kv) {
-				continue
-			}
-			if _, recomputed := m[key.Value]; recomputed {
-				continue
-			}
-			merged.List = append(merged.List, kv)
-		}
-	}
-	if len(merged.List) == 0 {
-		return nil
-	}
-	return merged
-}
-
-// setPathAliases hands the merger a value it can reconcile. The empty map never
-// goes on the generated rule: rule.MergeRules re-adds, in its post-resolve pass,
-// every attribute the generated rule carries that the merged file does not, an
-// empty dict included. So a map recomputed down to nothing is applied to the
-// rule on disk here.
-func setPathAliases(args language.GenerateArgs, gen *rule.Rule, used map[string]string) {
-	if len(used) > 0 {
-		gen.SetAttr("path_aliases", pathAliasMap(used))
-		return
-	}
-	have := matchingRule(args, gen)
-	if have == nil || have.ShouldKeep() || attrKept(have, "path_aliases") {
-		return
-	}
-	// reportManagedAttrDrops names a shape no merge reconciles, so this one
-	// leaves it alone rather than saying the same thing twice.
-	if expr := have.Attr("path_aliases"); expr == nil || !isLiteralAttrValue(expr) {
-		return
-	}
-	reportDroppedValues(args, have, "path_aliases",
-		droppedAttrValues(args, have, gen, "path_aliases"))
-	if merged := pathAliasMap(nil).Merge(have.Attr("path_aliases")); merged != nil {
-		have.SetAttr("path_aliases", merged)
-		return
-	}
-	have.DelAttr("path_aliases")
-}
-
-func matchingRule(args language.GenerateArgs, gen *rule.Rule) *rule.Rule {
-	if args.File == nil {
-		return nil
-	}
-	for _, r := range args.File.Rules {
-		if r.Kind() == gen.Kind() && r.Name() == gen.Name() {
-			return r
-		}
-	}
-	return nil
-}
-
 func listElements(e bzl.Expr) []bzl.Expr {
 	list, ok := e.(*bzl.ListExpr)
 	if !ok {
@@ -335,15 +202,8 @@ func listElements(e bzl.Expr) []bzl.Expr {
 
 // ---- declaration_type, the dict a directive owns ---------------------------
 
-// A string dict like pathAliasMap, and reconciled the same way, but left out of
-// Kinds() -- rule.MergeRules deletes a mergeable attribute the generated rule
-// does not carry, and a tree with no ts_asset_declaration_type directive carries
-// none, so declaring it mergeable would delete the hand-written declaration_type
-// of every repo that adopted the attribute before the directive existed.
-//
-// An entry whose value is empty is one a directive named and left blank: the
-// map owns the extension and declares nothing for it, which is how a nested
-// directive returns a subtree to asset_library's string default.
+// Left out of Kinds(): rule.MergeRules deletes a mergeable attribute the generated rule
+// lacks, and a tree with no ts_asset_declaration_type directive would lose hand-written ones.
 type declarationTypeMap map[string]string
 
 var (
@@ -358,6 +218,7 @@ func (m declarationTypeMap) BzlExpr() bzl.Expr {
 func (m declarationTypeMap) entries() []*bzl.KeyValueExpr {
 	exts := make([]string, 0, len(m))
 	for ext, typeExpr := range m {
+		// An empty value is an extension a directive named and left blank: owned, declaring nothing.
 		if typeExpr != "" {
 			exts = append(exts, ext)
 		}
@@ -373,10 +234,8 @@ func (m declarationTypeMap) entries() []*bzl.KeyValueExpr {
 	return out
 }
 
-// Merge is entry by entry, as pathAliasMap.Merge is, over a narrower claim: the
-// directives name the extensions Gazelle owns, and an extension no directive
-// named is carried across untouched however it got there. Within what it owns
-// the directive wins, and a "# keep" on the entry is what hands one back.
+// Entry by entry over a narrow claim: the directives own the extensions they name, an
+// unnamed extension is carried across untouched, and a "# keep" hands an owned one back.
 func (m declarationTypeMap) Merge(other bzl.Expr) bzl.Expr {
 	held := map[string]bool{}
 	var carried []*bzl.KeyValueExpr

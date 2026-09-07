@@ -1,45 +1,15 @@
-/**
- * tsserver_diag_test.mjs — what tools/tsserver-hook.js does to a language
- * service that resolves through ts.resolveModuleName.
- *
- * Run by tests/lsp/test_tsserver_diagnostics.sh, which supplies typescript and
- * zod from the lockfile and pre-populates the hook's cache:
- *   TSSERVER_HOOK_PRELOAD_MAP='{"zod":"<abs>/zod/index.d.ts"}' \
- *   TSSERVER_HOOK_NO_WORKER=1 \
- *   node --require <hook.js> tsserver_diag_test.mjs <zod.d.ts>
- *
- * The claim under test is the one an editor cares about: with the hook loaded,
- * `import { z } from "zod"` type-checks against zod's REAL declarations even
- * though nothing on the module search path leads to them. Three assertions,
- * every one of which fails if the hook stops working:
- *
- *   baseline  the same language service WITHOUT the hook's resolver reports
- *             TS2307 for "zod" -- without this the other two prove nothing,
- *             because ambient resolution would satisfy them on its own.
- *   resolved  with the hook's resolver, the good file has zero diagnostics AND
- *             a bogus member access on `z` is rejected. A stub, an `any`, or a
- *             widened import would pass the first half and fail the second.
- *   direct    ts.resolveModuleName("zod", ...) returns the exact .d.ts path.
- *
- * Why ts.createLanguageService and not the standalone tsserver.js process:
- * because that process is not what this file's subject serves. tsserver.js does
- * reach `./typescript.js` through require, but its language service resolves
- * through its LanguageServiceHost, so replacing the module's resolveModuleName
- * changes nothing it does -- which is what tools/tsserver-plugin.js and
- * :test_tsserver_plugin exist for. The hook's own consumers are tools that call
- * ts.resolveModuleName themselves, and a host that delegates to it, as the
- * `resolved` block below does, is that surface.
- */
+// A language service resolving through the export ts.resolveModuleName, with
+// tsserver-hook.js loaded. tsserver's host bypasses it: the plugin's test.
 
 import { createRequire } from 'module';
 import { existsSync, readFileSync, statSync } from 'fs';
 
 const require = createRequire(import.meta.url);
 
-const [, , zodDts] = process.argv;
+const [, , libDts] = process.argv;
 
-if (!zodDts) {
-  process.stderr.write('FATAL: usage: tsserver_diag_test.mjs <zod.d.ts>\n');
+if (!libDts) {
+  process.stderr.write('FATAL: usage: tsserver_diag_test.mjs <lib.d.ts>\n');
   process.exit(1);
 }
 
@@ -74,18 +44,19 @@ if (ts._bazelPatched === true) {
   process.exit(1);
 }
 
-if (!existsSync(zodDts)) {
-  process.stderr.write(`FATAL: zod declarations not on disk: ${zodDts}\n`);
+if (!existsSync(libDts)) {
+  process.stderr.write(`FATAL: declarations not on disk: ${libDts}\n`);
   process.exit(1);
 }
 
+const PKG = 'src/lib';
 const GOOD = '/virtual/good.ts';
 const BAD = '/virtual/bad.ts';
-const BOGUS_MEMBER = 'definitelyNotAZodMethod';
+const BOGUS_MEMBER = 'definitelyNotAMethod';
 
 const virtualFiles = {
-  [GOOD]: 'import { z } from "zod";\nexport const s = z.string();\n',
-  [BAD]: `import { z } from "zod";\nexport const s = z.${BOGUS_MEMBER}();\n`,
+  [GOOD]: `import * as lib from "${PKG}";\nexport const s: number = lib.add(1, 2);\n`,
+  [BAD]: `import * as lib from "${PKG}";\nexport const s = lib.${BOGUS_MEMBER}();\n`,
 };
 
 function createHost(resolveModuleNames) {
@@ -146,16 +117,16 @@ function diagnostics(host, fileName) {
 
 const describe = (list) => JSON.stringify(list);
 
-// ── baseline: no hook resolver, zod is unreachable ───────────────────────────
+// ── baseline: no hook resolver, the package is unreachable ───────────────────
 {
   const baseline = diagnostics(createHost(undefined), GOOD);
-  const missingZod = baseline.filter((d) => d.code === 2307 && d.message.includes("'zod'"));
-  if (missingZod.length > 0) {
-    pass('baseline: standard resolution cannot find "zod"');
+  const missing = baseline.filter((d) => d.code === 2307 && d.message.includes(`'${PKG}'`));
+  if (missing.length > 0) {
+    pass(`baseline: standard resolution cannot find "${PKG}"`);
   } else {
     fail(
-      'baseline: standard resolution cannot find "zod"',
-      'no TS2307 for zod, so "zod" is reachable without the hook and the ' +
+      `baseline: standard resolution cannot find "${PKG}"`,
+      `no TS2307 for ${PKG}, so it is reachable without the hook and the ` +
         `assertions below would prove nothing. diagnostics: ${describe(baseline)}`
     );
   }
@@ -183,19 +154,19 @@ const describe = (list) => JSON.stringify(list);
 
   const good = diagnostics(host, GOOD);
   if (good.length === 0) {
-    pass('hook resolver: `import { z } from "zod"` type-checks clean');
+    pass(`hook resolver: \`import * as lib from "${PKG}"\` type-checks clean`);
   } else {
-    fail('hook resolver: `import { z } from "zod"` type-checks clean', describe(good));
+    fail(`hook resolver: \`import * as lib from "${PKG}"\` type-checks clean`, describe(good));
   }
 
   const bad = diagnostics(host, BAD);
   if (bad.some((d) => d.message.includes(BOGUS_MEMBER))) {
-    pass(`hook resolver: z.${BOGUS_MEMBER}() is rejected (real declarations loaded)`);
+    pass(`hook resolver: lib.${BOGUS_MEMBER}() is rejected (the map's declarations loaded)`);
   } else {
     fail(
-      `hook resolver: z.${BOGUS_MEMBER}() is rejected`,
-      'a nonexistent member on `z` produced no error, so zod resolved to ' +
-        `something untyped rather than its own declarations. diagnostics: ${describe(bad)}`
+      `hook resolver: lib.${BOGUS_MEMBER}() is rejected`,
+      'a nonexistent member on `lib` produced no error, so the package resolved to ' +
+        `something untyped rather than the declarations the map names. diagnostics: ${describe(bad)}`
     );
   }
 }
@@ -203,7 +174,7 @@ const describe = (list) => JSON.stringify(list);
 // ── the patched resolver returns the exact path it was given ─────────────────
 {
   const result = ts.resolveModuleName(
-    'zod',
+    PKG,
     GOOD,
     { moduleResolution: ts.ModuleResolutionKind.Bundler },
     {
@@ -212,10 +183,10 @@ const describe = (list) => JSON.stringify(list);
     }
   );
   const resolved = result.resolvedModule && result.resolvedModule.resolvedFileName;
-  if (resolved === zodDts) {
-    pass(`ts.resolveModuleName("zod") -> ${resolved}`);
+  if (resolved === libDts) {
+    pass(`ts.resolveModuleName("${PKG}") -> ${resolved}`);
   } else {
-    fail('ts.resolveModuleName("zod")', `got ${JSON.stringify(resolved)}, want ${zodDts}`);
+    fail(`ts.resolveModuleName("${PKG}")`, `got ${JSON.stringify(resolved)}, want ${libDts}`);
   }
 }
 

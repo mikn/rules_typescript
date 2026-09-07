@@ -149,8 +149,7 @@ func TestLoadTsConfigPaths_ExtendsCycleTerminates(t *testing.T) {
 	}
 }
 
-// A base outside the repository has no label to name it, and a "../" prefix in
-// path_aliases is worse than no alias at all.
+// A base outside the repository has no label to name it, so its aliases resolve nothing.
 func TestLoadTsConfigPaths_ExtendsOutsideTheRepoIsDropped(t *testing.T) {
 	root := t.TempDir()
 	writeTsConfig(t, filepath.Join(root, "shared/tsconfig.json"), `{

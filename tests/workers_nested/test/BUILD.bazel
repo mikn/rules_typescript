@@ -19,11 +19,7 @@ ts_test(
     ],
     config = "//tests/workers_nested:vitest_config",
     coverage_provider = "istanbul",
-    lib = [
-        "esnext",
-        "webworker",
-    ],
-    types = ["@cloudflare/vitest-pool-workers/types"],
+    tsconfig = "//tests/workers_nested:worker_tsconfig",
     wrangler_config = "//tests/workers_nested:wrangler.jsonc",
     deps = [
         "//tests/workers_nested:worker",

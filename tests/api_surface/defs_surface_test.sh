@@ -26,7 +26,6 @@ CssModuleInfo
 JsInfo
 TsDeclarationInfo
 TsLintInfo
-TsModuleInfo
 asset_library
 css_library
 css_module

@@ -4,7 +4,6 @@ load("@gazelle//:def.bzl", "gazelle")
 load("@rules_typescript//ts:defs.bzl", "ts_add_package", "ts_pnpm", "ts_refresh_tsconfig")
 
 # gazelle:ts_package_boundary every-dir
-# gazelle:ts_path_alias @/ src/
 
 gazelle(
     name = "gazelle",
@@ -20,8 +19,14 @@ ts_add_package(
 
 ts_refresh_tsconfig(
     name = "refresh_tsconfig",
-    # `deps` is what the aspect walks: without it there are no packages, no
-    # aliases and no npm entries to write, which is what the runner asserts on.
+    # Both packages name src/tsconfig.json, so each gets an editor program of
+    # its own that extends it.
+    nested_tsconfigs = [
+        "src/components/tsconfig.json",
+        "src/models/tsconfig.json",
+    ],
+    # `deps` is what the aspect walks: without it there are no packages to
+    # write, which is what the runner asserts on.
     deps = [
         "//src/components",
         "//src/models",

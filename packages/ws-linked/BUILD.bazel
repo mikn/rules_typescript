@@ -1,10 +1,10 @@
-"""A pnpm workspace member with no `module_name` of its own.
+"""A pnpm workspace member imported by the name its package.json declares.
 
-//tests/npm:ws_linked_consumer imports it as `ws-linked`, which is the name
-tests/npm/pnpm-lock-features.yaml links to this package and nothing here
-restates. The name reaches the compiler from the hub target the link produces,
-so removing it from the lockfile -- or turning that target back into an alias --
-breaks the consumer rather than this package.
+//tests/npm:ws_linked_consumer imports it as `ws-linked`, the name
+tests/npm/pnpm-lock-features.yaml links to this package. The name reaches the
+compiler from the hub target the link produces, which carries package.json as
+built, so removing the link from the lockfile -- or turning that target back
+into an alias -- breaks the consumer rather than this package.
 """
 
 load("@rules_typescript//ts:defs.bzl", "ts_compile")

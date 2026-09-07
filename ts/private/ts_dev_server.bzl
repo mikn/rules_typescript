@@ -47,11 +47,6 @@ This rule generates:
        that package's own `exports` map declares.
      - Imports the `vite_config` file from a copy in bazel-bin rather than from
        the source tree; see the attr doc for what such a config may import.
-     - Emits one `resolve.alias` entry per first-party `module_name` in the
-       graph, pointing at that package's SOURCE, so that `@scope/pkg` and a
-       relative import of the same file are one module in Vite's graph rather
-       than two copies of it.  The mapping is the TsModuleInfo one ts_compile
-       already writes into tsconfig `paths` -- not a second source of truth.
      - Exports `bazelConfigInputs`, the inputs it was generated from (below).
      - Optionally uses the vite-plugin-bazel plugin (when the `plugin` attr is
        set) for resolution and HMR support.
@@ -140,7 +135,6 @@ Usage:
 load("//tools/launcher:launcher.bzl", "LAUNCHER_ATTRS", "declare_launcher", "rlocation_path")
 load("//ts/private:providers.bzl", "AssetInfo", "BundlerInfo", "CssInfo", "CssModuleInfo", "DevServerInfo", "JsInfo")
 load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "get_js_runtime")
-load("//ts/private:ts_compile.bzl", "TsModuleInfo")
 load("//ts/private:vite_config.bzl", "LOAD_USER_CONFIG_JS", "VITE_CONFIG_EXTENSIONS", "VITE_CONFIG_SRCS_DOC", "stage_vite_config")
 
 # ─── Config generation ─────────────────────────────────────────────────────────
@@ -189,7 +183,6 @@ def _generate_dev_config(
         node_modules_rl,
         plugin_rl,
         react_refresh,
-        modules,
         runtime_rl,
         server_input_js,
         css_module_plugin_rl,
@@ -213,8 +206,6 @@ def _generate_dev_config(
             vite_plugin_bazel.mjs, or empty string if not set.
         react_refresh: bool, whether to import and use @vitejs/plugin-react
             for React Fast Refresh (HMR that preserves component state).
-        modules: list of struct(module_name, source_root) for every first-party
-            package in the graph that declared a module_name.
         runtime_rl: Runfiles-tree-relative path of the toolchain node binary,
             so the config can watch the one it is running under.
         server_input_js: The JavaScript, from _server_config_input_js, that adds
@@ -272,34 +263,6 @@ def _generate_dev_config(
     )
 
     config_content += (
-        "// Every first-party package in this graph that declared a module_name,\n" +
-        "// as TsModuleInfo reports it: the mapping ts_compile writes into tsconfig\n" +
-        "// `paths`, so the editor and the dev server agree what `@scope/pkg` means.\n" +
-        "const firstPartyModules = " + json.encode([
-            {"name": m.module_name, "dir": m.source_root}
-            for m in modules
-        ]) + ";\n" +
-        "\n" +
-        "// In dev the alias points at SOURCE, which is what takes Bazel out of the\n" +
-        "// inner loop for a package imported by its bare specifier. A package whose\n" +
-        "// source is not checked in is generated, and resolves under bazel-bin.\n" +
-        "const firstPartyAliases = [];\n" +
-        "for (const mod of firstPartyModules) {\n" +
-        "  const dirs = [path.join(workspaceRoot, mod.dir), path.join(bazelBin, mod.dir)];\n" +
-        "  const entry = dirs\n" +
-        "    .flatMap((dir) => ['index.ts', 'index.tsx'].map((f) => path.join(dir, f)))\n" +
-        "    .find((candidate) => fs.existsSync(candidate));\n" +
-        "  // Exact match first, and as a RegExp: a string `find` also matches every\n" +
-        "  // subpath under it, which would rewrite `@scope/pkg/button` to\n" +
-        "  // `<pkg>/index.ts/button`.\n" +
-        "  if (entry) {\n" +
-        "    const escaped = mod.name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n" +
-        "    firstPartyAliases.push({ find: new RegExp('^' + escaped + '$'), replacement: entry });\n" +
-        "  }\n" +
-        "  const dir = dirs.find((candidate) => fs.existsSync(candidate));\n" +
-        "  if (dir) firstPartyAliases.push({ find: mod.name, replacement: dir });\n" +
-        "}\n" +
-        "\n" +
         "// The inputs this config was generated from. A rebuild that changes one of\n" +
         "// them leaves the running server configured for a graph that no longer\n" +
         "// exists; a rebuild that only rewrote ts_codegen output leaves it correct,\n" +
@@ -507,14 +470,10 @@ def _generate_dev_config(
         "    },\n" +
         "  },\n" +
         "\n" +
-        "  resolve: {\n" +
-        "    // A first-party module_name resolves to source; a bare npm specifier is\n" +
-        "    // left to the resolver's own walk up from the importer, which the\n" +
-        "    // launcher's <workspace>/node_modules link puts the Bazel tree on. There\n" +
-        "    // is no resolve.modules: that is a webpack option, and Vite ignores it.\n" +
-        "    alias: firstPartyAliases,\n" +
-        "  },\n" +
-        "\n" +
+        "  // A bare specifier is left to the resolver's own walk up from the importer,\n" +
+        "  // which the launcher's <workspace>/node_modules link puts the Bazel tree on;\n" +
+        "  // a workspace member is in that tree through the hub's view of it. There is\n" +
+        "  // no resolve.modules: that is a webpack option, and Vite ignores it.\n" +
         "  plugins,\n" +
         "\n"
     )
@@ -676,17 +635,6 @@ def _ts_dev_server_impl(ctx):
     user_config = staged_config.entry
     user_config_rl = rlocation_path(ctx, user_config) if user_config else ""
 
-    # ── First-party module_name mapping ────────────────────────────────────────
-    # Materialised because the config file is a list of them; the same depset
-    # ts_compile walks to write tsconfig `paths`.
-    modules = []
-    if TsModuleInfo in entry_point:
-        modules = [
-            m
-            for m in entry_point[TsModuleInfo].transitive_modules.to_list()
-            if m.module_name
-        ]
-
     # ── Generate the vite.config.mjs ───────────────────────────────────────────
     react_refresh = ctx.attr.react_refresh
     server_binary_rl = ""
@@ -697,7 +645,6 @@ def _ts_dev_server_impl(ctx):
         node_modules_rl,
         plugin_rl,
         react_refresh,
-        modules,
         rlocation_path(ctx, runtime_binary),
         _server_config_input_js(server_info, server_binary_rl),
         rlocation_path(ctx, ctx.file._css_module_plugin),
@@ -905,13 +852,9 @@ in `bazel build`, and no longer blocks the browser update.
 
 `ibazel run //app:dev` is still worth using for what Bazel does own: a
 `ts_codegen` rebuild reaches the browser as HMR, and a rebuild that changed the
-server's own configuration -- BUILD deps, a `module_name`, the entry point, the
-npm tree -- restarts Vite instead of leaving it serving a graph that no longer
+server's own configuration -- BUILD deps, the entry point, the npm tree --
+restarts Vite instead of leaving it serving a graph that no longer
 exists. A rebuild that changed neither does nothing, which is the point.
-
-Each first-party `module_name` in the graph becomes a `resolve.alias` entry
-pointing at that package's source, so `import "@scope/pkg"` and a relative
-import of the same file are one module in Vite's graph.
 
 The node_modules attr must point to a node_modules() rule that includes `vite`
 and all packages imported by the application.

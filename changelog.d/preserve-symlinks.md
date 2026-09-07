@@ -9,5 +9,5 @@
   that named none of it, and the target failed on a `TS2339` in a file it never
   declared. Read at the staged path the import resolves to nothing, and
   `skipLibCheck` drops the `TS2307` inside the `.d.ts` as it does for any
-  declaration whose imports are not in the program. `preserveSymlinks` joins
-  the keys `compiler_options` rejects.
+  declaration whose imports are not in the program. `preserveSymlinks` is one of
+  the keys the action tsconfig writes over the user's.

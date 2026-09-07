@@ -8,7 +8,7 @@
 
   | Key | Write instead |
   |---|---|
-  | `"pathAliases": {"@/": "src/"}` | `# gazelle:ts_path_alias @/ src/`, one per entry |
+  | `"pathAliases": {"@/": "src/"}` | `"paths": {"@/*": ["./src/*"]}` in the nearest `tsconfig.json`, which the resolver reads |
   | `"excludePatterns": ["*.gen.ts"]` | `# gazelle:ts_exclude *.gen.ts`, one per entry |
   | `"excludeDirs": ["coverage"]` | `# gazelle:ts_exclude_dir coverage`, one per entry (new) |
   | `"npmMappingFile": "npm/map.json"` | `# gazelle:ts_npm_mapping npm/map.json` (new) |

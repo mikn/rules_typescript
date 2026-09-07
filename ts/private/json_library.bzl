@@ -1,7 +1,7 @@
 """json_library rule — reads a JSON file at build time and generates a typed .d.ts.
 
 The file is read as JSONC -- comments and trailing commas -- through the same
-//gazelle/jsonc stripper Gazelle decodes tsconfig.json with, so the rule and the
+//ts/tools/jsonc stripper Gazelle decodes tsconfig.json with, so the rule and the
 BUILD generator cannot disagree about what a file says.
 
 Unlike asset_library which emits `declare const data: unknown`, json_library
@@ -200,12 +200,10 @@ def _json_library_impl(ctx):
     # Build transitive depsets from any json_library deps.
     transitive_dts_sets = []
     npm_closure_sets = []
-    global_entry_sets = []
     for dep in ctx.attr.deps:
         if TsDeclarationInfo in dep:
             transitive_dts_sets.append(dep[TsDeclarationInfo].transitive_declaration_files)
             npm_closure_sets.append(dep[TsDeclarationInfo].transitive_npm_packages)
-            global_entry_sets.append(dep[TsDeclarationInfo].transitive_global_entry_files)
 
     direct_dts = depset(dts_outputs)
     transitive_dts = depset(dts_outputs, transitive = transitive_dts_sets, order = "postorder")
@@ -216,8 +214,6 @@ def _json_library_impl(ctx):
             declaration_files = direct_dts,
             transitive_declaration_files = transitive_dts,
             transitive_npm_packages = depset(transitive = npm_closure_sets, order = "postorder"),
-            global_entry_files = depset(),
-            transitive_global_entry_files = depset(transitive = global_entry_sets, order = "postorder"),
         ),
     ]
 
@@ -234,7 +230,7 @@ json_library = rule(
             providers = [[TsDeclarationInfo]],
         ),
         "_jsonc_strip": attr.label(
-            default = Label("//gazelle/jsonc/strip"),
+            default = Label("//ts/tools/jsonc/strip"),
             executable = True,
             cfg = "exec",
         ),

@@ -13,6 +13,9 @@ load("//ts:defs.bzl", "ts_test")
 # would add a second target for the same source.
 # gazelle:exclude *_test.go
 
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.vitest.json
+
 ts_test(
     name = "attrs_test",
     srcs = [
@@ -33,6 +36,7 @@ ts_test(
         "setup.ts",
         "globals.d.ts",
     ],
+    tsconfig = "tsconfig.vitest.json",  # keep
     deps = ["@npm//:vitest"],  # keep
 )
 
@@ -49,3 +53,6 @@ go_test(
     data = [":attrs_test_config"],
     deps = ["//tests/verify"],
 )
+
+# The generated editor program for this package; see //:refresh_tsconfig.
+exports_files(["tsconfig.json"])

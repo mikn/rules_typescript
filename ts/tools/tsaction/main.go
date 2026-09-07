@@ -1,13 +1,5 @@
-// Command tsaction implements the rules_typescript build actions that a plain
-// ctx.actions.run cannot express, so that none of them needs a shell on the
-// exec platform.
-//
-//	tsaction stamp -stamp=FILE -- TOOL [ARG...]
-//	tsaction stage -out=DIR SRC DEST [SRC DEST...]
-//	tsaction tar -out=FILE -dir=DIR [-prefix=P]
-//
-// Any argument of the form @FILE is a Bazel params file in "multiline" format
-// and is replaced by one argument per line.
+// Command tsaction implements the build actions a plain ctx.actions.run cannot
+// express, so none of them needs a shell on the exec platform.
 package main
 
 import (
@@ -33,7 +25,12 @@ const execrootToken = "{{EXECROOT}}"
 const usage = `usage:
   tsaction stamp -stamp=FILE -- TOOL [ARG...]
   tsaction stage -out=DIR SRC DEST [SRC DEST...]
-  tsaction tar -out=FILE -dir=DIR [-prefix=P]`
+  tsaction tar -out=FILE -dir=DIR [-prefix=P]
+  tsaction tsconfig -tsgo=BIN [-tsconfig=FILE] -baseline=FILE -out=FILE -options=FILE
+      -bin_dir=DIR [-types_dep=NAME]... [-emit -out_dir=DIR -root_dir=DIR]
+      [-declaration_map] [-isolated_declarations] [-lib_check] SRC...
+  tsaction tsgo -root=DIR -node_modules=DIR [-stamp=FILE] -- TSGO [ARG...]
+  tsaction oxc -options=FILE -- OXC [ARG...]`
 
 func main() {
 	if len(os.Args) < 2 {
@@ -50,10 +47,20 @@ func main() {
 		err = stage(args)
 	case "tar":
 		err = writeTar(args)
+	case "tsconfig":
+		err = writeTsconfig(args)
+	case "tsgo":
+		err = runTsgo(args)
+	case "oxc":
+		err = runOxc(args)
 	default:
 		err = fmt.Errorf("unknown subcommand %q\n%s", os.Args[1], usage)
 	}
 	if err != nil {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && exit.ExitCode() > 0 {
+			os.Exit(exit.ExitCode())
+		}
 		fatal(err)
 	}
 }
@@ -106,17 +113,27 @@ func stamp(args []string) error {
 		cmdline[i] = strings.ReplaceAll(arg, execrootToken, execroot)
 	}
 
+	if err := runTool(cmdline); err != nil {
+		return err
+	}
+	return os.WriteFile(*out, nil, 0o644)
+}
+
+// runTool runs cmdline on the action's stdout and stderr; the tool's own exit
+// status comes back wrapped, for main to relay.
+func runTool(cmdline []string) error {
+	return runToolIn("", cmdline)
+}
+
+func runToolIn(dir string, cmdline []string) error {
 	cmd := exec.Command(cmdline[0], cmdline[1:]...)
+	cmd.Dir = dir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		var exit *exec.ExitError
-		if errors.As(err, &exit) && exit.ExitCode() > 0 {
-			os.Exit(exit.ExitCode())
-		}
 		return fmt.Errorf("%s: %w", cmdline[0], err)
 	}
-	return os.WriteFile(*out, nil, 0o644)
+	return nil
 }
 
 func stage(args []string) error {

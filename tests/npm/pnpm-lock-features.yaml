@@ -66,9 +66,8 @@ importers:
       styles-alias:
         specifier: 'catalog:'
         version: ansi-styles@6.2.3(ansi-regex@6.2.2)
-      # A workspace member whose own target declares no module_name: the name
-      # `ws-linked` exists nowhere but here, so an import of it resolves only if
-      # the hub target the link produces carries it.
+      # A workspace member: the name `ws-linked` exists only in the lockfile, and
+      # an import of it is answered by the hub's npm_workspace_package view.
       ws-linked:
         specifier: workspace:*
         version: link:packages/ws-linked

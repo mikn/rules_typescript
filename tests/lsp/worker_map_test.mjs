@@ -1,24 +1,5 @@
-/**
- * worker_map_test.mjs — the tsserver-hook worker's resolution map, hermetically.
- *
- *   node worker_map_test.mjs <tsserver-hook-worker.js>
- *
- * The worker reads what `bazel run //:refresh_tsconfig` wrote from the build
- * graph -- .bazel/tsserver-hook-data.json and the npm declarations installed
- * beside it -- so a fixture workspace is the whole of its input, and there is no
- * `bazel` left to stub out.
- *
- * All the halves of the map are checked here, including the parts that are
- * left OUT: an npm package the data names but nothing installed, a ts_compile
- * package with no entry point, a declared module_name whose package has no entry
- * point either, a nested workspace's directives, and a "~" alias prefix that the
- * worker's character screen rejects even though gazelle accepts it. A @types/*
- * package is here too, because it is the one entry whose map key and installed
- * directory are different names.
- *
- * //tests/lsp:test_resolution_map runs the same worker over this repo's own
- * generated data rather than a fixture.
- */
+// The tsserver-hook worker's resolution map, hermetically: the worker reads
+// only what `bazel run //:refresh_tsconfig` wrote, so a fixture is its input.
 
 import { Worker } from 'node:worker_threads';
 import fs from 'node:fs';
@@ -43,17 +24,6 @@ const write = (rel, contents) => {
 // ── The fixture workspace ────────────────────────────────────────────────────
 
 write('MODULE.bazel', 'module(name = "fixture")\n');
-write(
-  'BUILD.bazel',
-  [
-    '# gazelle:ts_path_alias @/ src/',
-    // The worker screens alias prefixes against [A-Za-z0-9@/_.*-], so a "~"
-    // prefix -- which gazelle itself accepts and writes into tsconfig paths --
-    // is dropped here.
-    '# gazelle:ts_path_alias ~lib/ packages/lib/src/',
-    '',
-  ].join('\n')
-);
 
 // An internal package whose entry point exists only in source.
 const libIndex = write('src/lib/index.ts', 'export const a = 1;\n');
@@ -63,65 +33,12 @@ write('src/app/index.ts', 'export const b = 2;\n');
 const appDts = write('bazel-bin/src/app/index.d.ts', 'export declare const b: number;\n');
 // An internal package with no index file at all: nothing to resolve to.
 write('src/empty/helpers.ts', 'export const c = 3;\n');
-// The directory the alias in the generated data points at.
-write('packages/ui/src/index.ts', 'export const ui = 1;\n');
 
-// A nested workspace. Its directives belong to that workspace, so the walk must
-// stop at the boundary rather than adopting them.
-write('vendor/child/MODULE.bazel', 'module(name = "child")\n');
-write('vendor/child/BUILD.bazel', '# gazelle:ts_path_alias @child/ vendor/child/src/\n');
-
-// ── The installed npm declarations, and the graph data that names them ───────
-
-// A package whose own exports["."].types the aspect knew: the data names the
-// .d.ts itself.
-write('.bazel/npm/zod/package.json', JSON.stringify({ name: 'zod', types: './index.d.ts' }));
-const zodDts = write('.bazel/npm/zod/index.d.ts', 'export declare const z: unknown;\n');
-
-// A package the aspect could only name by directory: the package.json installed
-// with it is what says which .d.ts is the entry point.
-write(
-  '.bazel/npm/hublib/package.json',
-  JSON.stringify({ name: 'hublib', types: './dist/index.d.ts' })
-);
-const hubDts = write('.bazel/npm/hublib/dist/index.d.ts', 'export declare const h: number;\n');
-
-// Installed, but with no declarations to point at.
-write('.bazel/npm/binary-only/package.json', JSON.stringify({ name: 'binary-only' }));
-
-// A @types/* package: installed under its own name, and the map keys it under
-// the name it types. `dir` is what separates the two, and without it the worker
-// looks for `.bazel/npm/estree` -- which nothing installs.
-write(
-  '.bazel/npm/@types/estree/package.json',
-  JSON.stringify({ name: '@types/estree', types: 'index.d.ts' })
-);
-const estreeDts = write(
-  '.bazel/npm/@types/estree/index.d.ts',
-  'export declare interface Program { body: unknown[] }\n'
-);
+// ── The graph data ───────────────────────────────────────────────────────────
 
 write(
   '.bazel/tsserver-hook-data.json',
-  JSON.stringify({
-    npmDir: '.bazel/npm',
-    npmPackages: [
-      { name: 'zod', entry: 'index.d.ts', isFile: true },
-      { name: 'hublib', entry: '', isFile: false },
-      { name: 'binary-only', entry: '', isFile: false },
-      { name: 'never-installed', entry: '', isFile: false },
-      { name: 'estree', dir: '@types/estree', entry: 'index.d.ts', isFile: true },
-    ],
-    packages: ['src/lib', 'src/app', 'src/empty'],
-    // The bare specifiers targets declared with `module_name`, each naming the
-    // package it resolves to -- the same directories as `packages`, under the
-    // name an import writes.
-    modules: [
-      { name: '@acme/widget', package: 'src/lib' },
-      { name: '@acme/nothing', package: 'src/empty' },
-    ],
-    aliases: [{ prefix: '@ui', dir: 'packages/ui/src' }],
-  })
+  JSON.stringify({ packages: ['src/lib', 'src/app', 'src/empty'] })
 );
 
 // ── Run the worker and check the map it sends ───────────────────────────────
@@ -180,31 +97,10 @@ worker.once('message', (msg) => {
   const map = msg.data;
   process.stdout.write(`INFO: map = ${JSON.stringify(map, null, 2)}\n`);
 
-  // npm, in both forms the aspect can name an entry point.
-  expectEntry(map, 'zod', zodDts);
-  expectEntry(map, 'hublib', hubDts);
-  expectAbsent(map, 'binary-only', 'the package ships no declarations');
-  expectAbsent(map, 'never-installed', 'nothing was installed under npmDir');
-
-  // The name a @types/* package types, resolved to the package installed under
-  // its own name.
-  expectEntry(map, 'estree', estreeDts);
-  expectAbsent(map, '@types/estree', 'no import writes the package\'s own name');
-
   // Internal ts_compile packages, keyed by package path.
   expectEntry(map, 'src/lib', libIndex);
   expectEntry(map, 'src/app', appDts);
   expectAbsent(map, 'src/empty', 'no index.ts/index.d.ts to resolve to');
-
-  // A module_name: the bare specifier resolving to the package that declared it.
-  expectEntry(map, '@acme/widget', libIndex);
-  expectAbsent(map, '@acme/nothing', 'the package it names has no index to resolve to');
-
-  // Path aliases: one from the generated data, one from a BUILD directive.
-  expectEntry(map, '__alias__@ui/', path.join(root, 'packages/ui/src'));
-  expectEntry(map, '__alias__@/', path.join(root, 'src'));
-  expectAbsent(map, '__alias__@child/', 'the walk stops at a nested workspace boundary');
-  expectAbsent(map, '__alias__~lib/', 'a "~" prefix fails the worker\'s character screen');
 
   worker.terminate().then(() => {
     if (failures > 0) {

@@ -1,0 +1,30 @@
+"""ts_test with a file-shaped `types` entry, as ts_compile takes one.
+
+The entry resolves against the files the type-check action stages, and the
+only program the test files are ever in is the ts_compile this macro
+generates -- so the dep that stages the declaration has to reach it.
+"""
+
+# An ambient .d.ts counts as a source, so every-dir would write a ts_compile
+# over it; being named by a `types` entry rather than in srcs is the fixture.
+# gazelle:exclude staged
+
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.ambient.json
+
+load("//ts:defs.bzl", "ts_compile", "ts_test")
+
+ts_compile(
+    name = "staged_ambient",
+    srcs = ["staged/ambient.d.ts"],
+)
+
+ts_test(
+    name = "staged_types_test",
+    srcs = ["ambient.test.ts"],
+    tsconfig = "tsconfig.ambient.json",
+    deps = [
+        ":staged_ambient",
+        "@npm//:vitest",  # keep
+    ],
+)

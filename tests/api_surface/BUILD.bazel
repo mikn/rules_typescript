@@ -8,3 +8,12 @@ sh_test(
     srcs = ["defs_surface_test.sh"],
     data = ["//ts:defs.bzl"],
 )
+
+# ts_compile's public attributes, as an exact list: srcs, deps, tsconfig. Every
+# compiler option is the tsconfig's and every emit knob a build flag.
+sh_test(
+    name = "ts_compile_attrs_test",
+    size = "small",
+    srcs = ["ts_compile_attrs_test.sh"],
+    data = ["//ts/private:ts_compile.bzl"],
+)

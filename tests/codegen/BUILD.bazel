@@ -5,17 +5,24 @@ Tests:
                             produces the declared output file with expected content.
   2. codegen_compile_test — verifies that ts_compile can consume ts_codegen output
                             as srcs (end-to-end: generate then compile).
+  3. globals_test         — a `.d.ts` out is a dep: the consumer's tsconfig names
+                            it in `types` and the entry resolves to the bin-dir file.
 """
 
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_go//go:def.bzl", "go_test")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("//ts:defs.bzl", "ts_codegen", "ts_compile")
+load(":codegen_tests.bzl", "outs_codegen_providers_test")
 
 package(default_visibility = ["//:__pkg__"])
 
 # The go_test targets are hand-named after the sh_tests they replaced, so the
 # Go language would add a second target for the same source.
 # gazelle:exclude *_test.go
+
+# A compilerOptions baseline, not data: it is named by the tsconfig attr.
+# gazelle:exclude tsconfig.globals.json
 
 # ── Generator binary ──────────────────────────────────────────────────────────
 # A simple shell script generator that writes a TypeScript file with an
@@ -56,13 +63,11 @@ go_test(
 ts_compile(
     name = "generated_compile",
     srcs = [":generated_ts"],
-    enable_check = False,  # generated files may lack explicit return types
 )
 
 ts_compile(
     name = "consumer_compile",
     srcs = ["consumer.ts"],
-    enable_check = False,
     deps = [":generated_compile"],
 )
 
@@ -70,4 +75,39 @@ ts_compile(
     name = "codegen",
     srcs = ["input.ts"],
     visibility = ["//visibility:public"],
+)
+
+# ── A declaration out, consumed as a dep ──────────────────────────────────────
+# The `wrangler types` shape: `types` names it and the codegen dep stages it.
+sh_binary(
+    name = "globals_generator",
+    srcs = ["generate_globals.sh"],
+)
+
+ts_codegen(
+    name = "generated_globals",
+    srcs = ["input.ts"],
+    outs = ["generated-globals.d.ts"],
+    args = [
+        "--out",
+        "{out}",
+    ],
+    generator = ":globals_generator",
+)
+
+outs_codegen_providers_test(
+    name = "outs_codegen_providers_test",
+    target_under_test = ":generated_globals",
+)
+
+ts_compile(
+    name = "uses_globals",
+    srcs = ["uses_globals.ts"],
+    tsconfig = "tsconfig.globals.json",
+    deps = [":generated_globals"],
+)
+
+build_test(
+    name = "globals_test",
+    targets = [":uses_globals"],
 )

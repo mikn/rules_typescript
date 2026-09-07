@@ -6,7 +6,7 @@
   `@types/*` mapping fixed in this release and, before it, an unresolvable
   `asset_library` `declaration_type`; both were found by hand-editing
   `compiler_options` on one target. The flag applies the same thing over
-  whatever `compiler_options` or a named `tsconfig` say:
+  whatever the target's `tsconfig` says:
 
   ```bash
   bazel build //... --//ts:lib_check

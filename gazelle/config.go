@@ -13,9 +13,11 @@ import (
 	"sync"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
+	"github.com/bazelbuild/bazel-gazelle/label"
 	"github.com/bazelbuild/bazel-gazelle/rule"
 
-	"github.com/mikn/rules_typescript/gazelle/jsonc"
+	"github.com/mikn/rules_typescript/ts/tools/jsonc"
+	"github.com/mikn/rules_typescript/ts/tools/tsconfig"
 )
 
 // ---- directive keys --------------------------------------------------------
@@ -42,22 +44,6 @@ const (
 	// Default: false (unresolved imports are silently skipped).
 	//   # gazelle:ts_warn_unresolved true
 	directiveWarnUnresolved = "ts_warn_unresolved"
-
-	// directiveDeclarations selects the .d.ts emitter on generated ts_compile
-	// rules. Accepted values: "tsgo" / "oxc". Default: "tsgo", which is the rule
-	// default, so no attribute is emitted. Set to "oxc" once every export in the
-	// tree carries an explicit type, to take type-checking off the critical path.
-	//   # gazelle:ts_declarations oxc
-	directiveDeclarations = "ts_declarations"
-
-	// directivePathAlias adds a TypeScript path alias mapping. The value is
-	// "<alias> <dir>" where alias is the path alias prefix (e.g. "@/") and dir
-	// is the workspace-relative directory (e.g. "src/"). Multiple directives
-	// may appear in a single BUILD file; each one adds to (not replaces) the
-	// mapping inherited from the parent directory.
-	//   # gazelle:ts_path_alias @/ src/
-	//   # gazelle:ts_path_alias @components/ src/components/
-	directivePathAlias = "ts_path_alias"
 
 	// directiveRuntimeDep appends a Bazel label to the runtimeDepsTest list,
 	// i.e. to every generated ts_test deps list in the directory tree. Use this
@@ -227,15 +213,9 @@ type tsConfig struct {
 	// basename). Empty means use the default.
 	targetName string
 
-	// pathAliases maps a TypeScript path alias prefix (e.g. "@/") to a
-	// workspace-relative directory path (e.g. "src/"). Can be populated from
-	// tsconfig.json or # gazelle:ts_path_alias directives. Directives take
-	// priority over the file-based source.
+	// pathAliases maps an alias prefix ("@/") to a repo-relative directory ("src/"),
+	// from the nearest tsconfig's compilerOptions.paths and the nearest package.json's imports.
 	pathAliases map[string]string
-
-	// aliasesFromDirectives records that pathAliases was declared rather than
-	// read back out of a tsconfig this ruleset generated. Inherited downward.
-	aliasesFromDirectives bool
 
 	// importsAliases are the pathAliases entries the nearest package.json
 	// "imports" map contributed, so a nearer one can replace them: Node
@@ -343,33 +323,12 @@ type tsConfig struct {
 	// as its extends chain leaves it; "" when no config in the chain names one.
 	tsconfigJsxImportSource string
 
-	// tsconfigTypes is that same key unread, tsconfigTypesDir the directory
-	// its entries are written relative to, tsconfigTypeFiles the ones naming
-	// a declaration file that directory holds, and tsconfigTypeGenerators the
-	// ones naming a file a ts_codegen there declares in outs, keyed by file
-	// name with the target's name as the value. Empty unless every file-shaped
-	// entry is one or the other.
-	tsconfigTypes          []string
-	tsconfigTypesDir       string
-	tsconfigTypeFiles      []string
-	tsconfigTypeGenerators map[string]string
+	// tsconfigTypesFiles is each file a path-shaped `types` entry of the nearest
+	// tsconfig's chain names, repo-relative; Resolve finds the target staging it.
+	tsconfigTypesFiles []string
 
-	// tsconfigTypeAncestors is the labels staging the entries that name a file
-	// in an ancestor directory, `../worker-configuration.d.ts` from a test dir.
-	tsconfigTypeAncestors []string
-
-	// tsconfigTypesStaged is the label each tsconfig at or above this directory
-	// stages a declaration file by, keyed by directory and then file name.
-	tsconfigTypesStaged map[string]map[string]string
-
-	// tsconfigTypesKept is each directory at or above this one whose BUILD file
-	// holds a "# keep" filegroup by the reserved tsconfig_types name.
-	tsconfigTypesKept map[string]bool
-
-	// declarations is the .d.ts emitter for generated ts_compile rules:
-	// "tsgo" (default, no attribute emitted) or "oxc". Set via
-	// # gazelle:ts_declarations.
-	declarations string
+	// codegenOuts is the ts_codegen declaring each out, by the out's repo-relative path.
+	codegenOuts map[string]label.Label
 
 	// assetDeclarationType maps an asset extension (leading dot) to the
 	// TypeScript type expression asset_library.declaration_type carries for it
@@ -424,7 +383,6 @@ func getConfig(c *config.Config) *tsConfig {
 func defaultTsConfig() *tsConfig {
 	return &tsConfig{
 		packageBoundaryMode: boundaryEveryDir,
-		declarations:        "tsgo",
 		npmHub:              defaultNpmHub,
 		programs:            newProgramStore(),
 	}
@@ -434,21 +392,8 @@ func defaultTsConfig() *tsConfig {
 // inherit from their parent.
 func (tc *tsConfig) clone() *tsConfig {
 	cp := *tc
-	// npmPackages, npmLockNames, workspaceMembers, importsAliases and
-	// importsNpm are read-only after construction; sharing via pointer is safe.
-	//
-	// pathAliases can be extended or replaced by per-directory directives, so
-	// we must deep-copy it to ensure that a child's mutation (merge or replace)
-	// does not corrupt the parent's map.
-	if tc.pathAliases != nil {
-		cp.pathAliases = make(map[string]string, len(tc.pathAliases))
-		for k, v := range tc.pathAliases {
-			cp.pathAliases[k] = v
-		}
-	}
-	// Slices that can be extended by per-directory directives (excludePatterns,
-	// runtimeDepsTest) must be copied so that a child's append does not mutate
-	// the parent's slice backing array.
+	// Copied: the slices a child appends to and the maps it writes into, so the
+	// parent keeps its own. Everything else is replaced whole or meant to be shared.
 	if len(tc.excludePatterns) > 0 {
 		cp.excludePatterns = make([]excludeRule, len(tc.excludePatterns))
 		copy(cp.excludePatterns, tc.excludePatterns)
@@ -457,38 +402,10 @@ func (tc *tsConfig) clone() *tsConfig {
 		cp.ambientTypes = make([]string, len(tc.ambientTypes))
 		copy(cp.ambientTypes, tc.ambientTypes)
 	}
-	if len(tc.tsconfigAmbientTypes) > 0 {
-		cp.tsconfigAmbientTypes = make([]string, len(tc.tsconfigAmbientTypes))
-		copy(cp.tsconfigAmbientTypes, tc.tsconfigAmbientTypes)
-	}
-	if len(tc.tsconfigTypes) > 0 {
-		cp.tsconfigTypes = make([]string, len(tc.tsconfigTypes))
-		copy(cp.tsconfigTypes, tc.tsconfigTypes)
-	}
-	if len(tc.tsconfigTypeFiles) > 0 {
-		cp.tsconfigTypeFiles = make([]string, len(tc.tsconfigTypeFiles))
-		copy(cp.tsconfigTypeFiles, tc.tsconfigTypeFiles)
-	}
-	if len(tc.tsconfigTypeGenerators) > 0 {
-		cp.tsconfigTypeGenerators = make(map[string]string, len(tc.tsconfigTypeGenerators))
-		for name, target := range tc.tsconfigTypeGenerators {
-			cp.tsconfigTypeGenerators[name] = target
-		}
-	}
-	if len(tc.tsconfigTypeAncestors) > 0 {
-		cp.tsconfigTypeAncestors = make([]string, len(tc.tsconfigTypeAncestors))
-		copy(cp.tsconfigTypeAncestors, tc.tsconfigTypeAncestors)
-	}
-	if len(tc.tsconfigTypesStaged) > 0 {
-		cp.tsconfigTypesStaged = make(map[string]map[string]string, len(tc.tsconfigTypesStaged))
-		for dir, staged := range tc.tsconfigTypesStaged {
-			cp.tsconfigTypesStaged[dir] = staged
-		}
-	}
-	if len(tc.tsconfigTypesKept) > 0 {
-		cp.tsconfigTypesKept = make(map[string]bool, len(tc.tsconfigTypesKept))
-		for dir, kept := range tc.tsconfigTypesKept {
-			cp.tsconfigTypesKept[dir] = kept
+	if len(tc.codegenOuts) > 0 {
+		cp.codegenOuts = make(map[string]label.Label, len(tc.codegenOuts))
+		for out, codegen := range tc.codegenOuts {
+			cp.codegenOuts[out] = codegen
 		}
 	}
 	if len(tc.runtimeDepsTest) > 0 {
@@ -703,221 +620,44 @@ func nearestHandWrittenTsConfig(repoRoot, dir string) string {
 	}
 }
 
-// ---- tsconfig.json reading -------------------------------------------------
-
-type tsConfigJSON struct {
-	Extends         tsConfigExtends `json:"extends"`
-	Include         *[]string       `json:"include"`
-	Files           *[]string       `json:"files"`
-	CompilerOptions struct {
-		BaseURL string              `json:"baseUrl"`
-		Paths   map[string][]string `json:"paths"`
-		// A pointer because "types": [] and no "types" key at all mean
-		// opposite things to tsc: none, versus every @types package in scope.
-		Types           *[]string `json:"types"`
-		JsxImportSource string    `json:"jsxImportSource"`
-	} `json:"compilerOptions"`
-}
-
-// tsConfigExtends is the list of configs a tsconfig inherits from, written as
-// one specifier or, since TypeScript 5.0, an array of them.
-type tsConfigExtends []string
-
-func (e *tsConfigExtends) UnmarshalJSON(data []byte) error {
-	var single string
-	if err := json.Unmarshal(data, &single); err == nil {
-		*e = tsConfigExtends{single}
-		return nil
-	}
-	var many []string
-	if err := json.Unmarshal(data, &many); err != nil {
-		return err
-	}
-	*e = many
-	return nil
-}
-
-// An extends chain flattened leaf-wins; a compilerOption keeps its writer's
-// directory because a relative value resolves against that file, not the leaf.
-type resolvedTsConfig struct {
-	baseURL         string
-	baseURLDir      string
-	paths           map[string][]string
-	pathsDir        string
-	jsxImportSource string
-	inputs          bool
-}
-
-// resolveTsConfigChain reads a tsconfig and, depth first, the configs it
-// extends, and returns what a leaf-wins merge leaves standing. tsc replaces an
-// inherited compilerOptions key wholesale instead of merging it key by key, so
-// paths always arrives from exactly one file in the chain.
-func resolveTsConfigChain(tsConfigPath string, ancestors map[string]bool) *resolvedTsConfig {
-	tsConfigPath = filepath.Clean(tsConfigPath)
-	// Only an ancestor repeat is a cycle. A config reached twice down two
-	// branches is read twice, because merge order decides which one wins.
-	if ancestors[tsConfigPath] {
-		return nil
-	}
-	ancestors[tsConfigPath] = true
-	defer delete(ancestors, tsConfigPath)
-
-	data, err := os.ReadFile(tsConfigPath)
-	if err != nil {
-		return nil
-	}
-	var tsc tsConfigJSON
-	if err := jsonc.Unmarshal(data, &tsc); err != nil {
-		log.Printf("typescript: failed to parse %s: %v", tsConfigPath, err)
-		return nil
-	}
-
-	dir := filepath.Dir(tsConfigPath)
-	resolved := &resolvedTsConfig{}
-	for _, spec := range tsc.Extends {
-		basePath, ok := resolveExtendsSpecifier(dir, spec)
-		if !ok {
-			continue
-		}
-		if base := resolveTsConfigChain(basePath, ancestors); base != nil {
-			resolved.override(base)
-		}
-	}
-	resolved.override(&resolvedTsConfig{
-		baseURL:         tsc.CompilerOptions.BaseURL,
-		baseURLDir:      dir,
-		paths:           tsc.CompilerOptions.Paths,
-		pathsDir:        dir,
-		jsxImportSource: tsc.CompilerOptions.JsxImportSource,
-		inputs:          tsc.Include != nil || tsc.Files != nil,
-	})
-	return resolved
-}
-
-func (r *resolvedTsConfig) override(other *resolvedTsConfig) {
-	if other.baseURL != "" {
-		r.baseURL, r.baseURLDir = other.baseURL, other.baseURLDir
-	}
-	if other.paths != nil {
-		r.paths, r.pathsDir = other.paths, other.pathsDir
-	}
-	if other.jsxImportSource != "" {
-		r.jsxImportSource = other.jsxImportSource
-	}
-	if other.inputs {
-		r.inputs = true
-	}
-}
-
-// resolveExtendsSpecifier turns an extends value into a path on disk. A bare or
-// scoped specifier resolves through node_modules, which a Bazel checkout does
-// not have, so it is reported and skipped.
-func resolveExtendsSpecifier(dir, spec string) (string, bool) {
-	if spec == "" {
-		return "", false
-	}
-	relative := strings.HasPrefix(spec, "./") || strings.HasPrefix(spec, "../")
-	if !relative && !filepath.IsAbs(spec) {
-		warnNodeModulesExtends(dir, spec)
-		return "", false
-	}
-	if !strings.HasSuffix(spec, ".json") {
-		spec += ".json"
-	}
-	if !relative {
-		return spec, true
-	}
-	return filepath.Join(dir, filepath.FromSlash(spec)), true
-}
-
-var nodeModulesExtendsWarned sync.Map
-
-func warnNodeModulesExtends(dir, spec string) {
-	if _, warned := nodeModulesExtendsWarned.LoadOrStore(spec, true); warned {
-		return
-	}
-	log.Printf("typescript: the tsconfig in %s extends %q, which resolves through node_modules; "+
-		"Gazelle reads only configs on disk and skips it. Any paths or baseUrl that config "+
-		"contributes are missing from the generated targets: inline them, or extend a "+
-		"checked-in config instead.", dir, spec)
-}
-
-// loadTsConfigPaths reads compilerOptions.paths and compilerOptions.baseUrl
-// from a tsconfig.json file and the chain of configs it extends. The baseUrl
-// (if present) is used to resolve the target directories in the paths entries.
-// Returns nil when the file does not exist or the chain has no paths.
-//
-// The paths format in tsconfig is:
-//
-//	"@/*": ["src/*"]
-//	"@components/*": ["src/components/*"]
-//
-// We convert each path pattern to the simpler prefix→dir form used by tsConfig.pathAliases:
-//   - Strip trailing "/*" from both the alias key and the chosen target value.
-//   - Reduce the fallback array to one target with pickAliasTarget.
-//   - Prepend baseUrl to the target directory when baseUrl is non-empty.
-//   - Prepend pkgRel, the tsconfig's own directory relative to the repo root.
-//
-// That last step is what makes the result a Bazel path. A tsconfig's `paths`
-// are written relative to the tsconfig; the aliases feed label construction,
-// which is relative to the repo root. Those coincide only when the tsconfig is
-// at the repo root -- not the case for a workspace member such as `web/`,
-// where "./shared/*" means web/shared, and a label of //shared names nothing.
-//
-// Examples (baseUrl = ""):
-//
-//	"@/*": ["src/*"]          → "@/" → "src/"
-//	"@components/*": ["src/components/*"] → "@components/" → "src/components/"
-//	"@lib": ["src/lib"]       → "@lib" → "src/lib"
-//
-// Examples (baseUrl = "src"):
-//
-//	"@/*": ["./*"]            → "@/" → "src/"
-//	"utils": ["utils/index"]  → "utils" → "src/utils/index"
+// loadTsConfigPaths reads the chain's compilerOptions.paths into prefix -> repo-relative
+// directory: each entry's first target (tsc's order), rebased through baseUrl and pkgRel.
 func loadTsConfigPaths(tsConfigPath, pkgRel string) map[string]string {
-	resolved := resolveTsConfigChain(tsConfigPath, map[string]bool{})
-	if resolved == nil || len(resolved.paths) == 0 {
+	resolved, err := tsconfig.Resolve(tsConfigPath)
+	if err != nil || len(resolved.Paths) == 0 {
 		return nil
 	}
 
-	baseURL := strings.TrimSuffix(resolved.baseURL, "/")
+	baseURL := strings.TrimSuffix(resolved.BaseURL, "/")
 
 	// Targets hang off the directory of the config that wrote the value they
 	// are relative to, which stops being the leaf as soon as extends is used.
-	originDir := resolved.pathsDir
+	originDir := resolved.PathsDir
 	if baseURL != "" {
-		originDir = resolved.baseURLDir
+		originDir = resolved.BaseURLDir
 	}
 	originRel := repoRelDir(pkgRel, filepath.Dir(tsConfigPath), originDir)
 	if strings.HasPrefix(originRel, "../") {
 		log.Printf("typescript: %s inherits paths from %s, outside the repository; "+
-			"no label can name that directory, so no path_alias is emitted.", tsConfigPath, originDir)
+			"no label can name that directory, so no import resolves through them.", tsConfigPath, originDir)
 		return nil
-	}
-
-	baseDir := originDir
-	if baseURL != "" && !filepath.IsAbs(baseURL) {
-		baseDir = filepath.Join(baseDir, filepath.FromSlash(baseURL))
 	}
 
 	// Two patterns can normalise to the same alias key, so iteration order
 	// decides which entry survives, and which order the log lines come out in.
-	patterns := make([]string, 0, len(resolved.paths))
-	for aliasPattern := range resolved.paths {
+	patterns := make([]string, 0, len(resolved.Paths))
+	for aliasPattern := range resolved.Paths {
 		patterns = append(patterns, aliasPattern)
 	}
 	sort.Strings(patterns)
 
-	aliases := make(map[string]string, len(resolved.paths))
+	aliases := make(map[string]string, len(resolved.Paths))
 	for _, aliasPattern := range patterns {
-		targets := resolved.paths[aliasPattern]
+		targets := resolved.Paths[aliasPattern]
 		if len(targets) == 0 {
 			continue
 		}
-		target := pickAliasTarget(baseDir, aliasPattern, targets)
-		if target == "" {
-			continue
-		}
+		target := targets[0]
 
 		// Strip trailing "/*" wildcard from both sides.
 		aliasKey := strings.TrimSuffix(aliasPattern, "/*")
@@ -931,12 +671,8 @@ func loadTsConfigPaths(tsConfigPath, pkgRel string) map[string]string {
 			targetDir = path.Join(baseURL, targetDir)
 		}
 
-		// An identity mapping is not an alias. ts_refresh_tsconfig emits two
-		// paths entries per first-party package: the wildcard form maps the
-		// package path to itself, and the bare form maps it to its own entry
-		// point. Echoing either into every generated target's path_aliases
-		// churns every BUILD file and tells Gazelle nothing it cannot read
-		// off the package path.
+		// An identity mapping (the editor tsconfig's first-party entries) tells the
+		// resolver nothing the package path does not.
 		normKey := strings.TrimSuffix(aliasKey, "/")
 		normDir := strings.TrimSuffix(targetDir, "/")
 		if normKey == normDir || normKey == strings.TrimSuffix(normDir, "/index") {
@@ -1097,111 +833,6 @@ func repoRelDir(pkgRel, leafDir, dir string) string {
 	return path.Join(pkgRel, filepath.ToSlash(rel))
 }
 
-// pickAliasTarget reduces a compilerOptions.paths fallback array to the single
-// directory Gazelle resolves the alias against, or "" to drop the alias. It
-// prefers the first entry that exists on disk, and falls back to the first
-// usable entry when none do -- an alias may legitimately point at a directory
-// that only a codegen action produces.
-func pickAliasTarget(baseDir, aliasPattern string, targets []string) string {
-	usable := make([]string, 0, len(targets))
-	for _, target := range targets {
-		if aliasTargetIsUsable(target) {
-			usable = append(usable, target)
-		}
-	}
-	if len(usable) == 0 {
-		// A tool-managed dot-directory is meant to be dropped, and every npm
-		// declaration ts_refresh_tsconfig writes takes that path. An alias left
-		// with only output-tree entries is the one worth a word: dropping it
-		// silently replaces ts_compile's analysis error with a missing dep edge.
-		if !anyToolManaged(targets) {
-			log.Printf("typescript: paths entry %q has no target Gazelle can use (%v); no path_alias emitted. "+
-				"An alias under bazel-out/bazel-bin points into the output tree: set module_name on the "+
-				"target that produces those declarations and import it by that name instead.",
-				aliasPattern, targets)
-		}
-		return ""
-	}
-
-	onDisk := make([]string, 0, len(usable))
-	for _, target := range usable {
-		if aliasTargetExists(baseDir, target) {
-			onDisk = append(onDisk, target)
-		}
-	}
-	switch len(onDisk) {
-	case 0:
-		return usable[0]
-	case 1:
-		return onDisk[0]
-	default:
-		log.Printf("typescript: paths entry %q resolves on disk to %d directories; using %q and ignoring %v. "+
-			"Gazelle emits one directory per alias; if imports must resolve through more than one, "+
-			"split the alias or list the extra files in path_alias_srcs.",
-			aliasPattern, len(onDisk), onDisk[0], onDisk[1:])
-		return onDisk[0]
-	}
-}
-
-// aliasTargetIsUsable rejects the two shapes that can never become a legal
-// path_aliases value.
-func aliasTargetIsUsable(target string) bool {
-	head, _, _ := strings.Cut(aliasTargetPath(target), "/")
-
-	// bazel-out, bazel-bin, bazel-testlogs and bazel-<workspace> are the
-	// convenience symlinks; ts_compile fails analysis on an alias under them.
-	if strings.HasPrefix(head, "bazel-") {
-		return false
-	}
-
-	// A named dot-directory is tool-managed, never a Bazel package:
-	// ts_refresh_tsconfig installs npm declarations under npm_dir
-	// (.bazel/npm by default), one paths entry per package, and treating
-	// those as aliases resolved `import 'zod'` to //.bazel/npm/zod/index.d
-	// instead of @npm//:zod. A bare "." is the baseUrl root, not a dot-dir.
-	return len(head) <= 1 || head[0] != '.' || head == ".."
-}
-
-func anyToolManaged(targets []string) bool {
-	for _, target := range targets {
-		head, _, _ := strings.Cut(aliasTargetPath(target), "/")
-		if len(head) > 1 && head[0] == '.' && head != ".." {
-			return true
-		}
-	}
-	return false
-}
-
-func aliasTargetExists(baseDir, target string) bool {
-	rel := aliasTargetPath(target)
-	if rel == "" {
-		rel = "."
-	}
-	full := filepath.FromSlash(rel)
-	if !filepath.IsAbs(full) {
-		full = filepath.Join(baseDir, full)
-	}
-	if _, err := os.Stat(full); err == nil {
-		return true
-	}
-	if strings.HasSuffix(target, "/*") {
-		return false
-	}
-	for _, ext := range []string{".ts", ".tsx", ".d.ts", ".js"} {
-		if _, err := os.Stat(full + ext); err == nil {
-			return true
-		}
-		if _, err := os.Stat(filepath.Join(full, "index"+ext)); err == nil {
-			return true
-		}
-	}
-	return false
-}
-
-func aliasTargetPath(target string) string {
-	return strings.TrimPrefix(strings.TrimSuffix(target, "/*"), "./")
-}
-
 // loadNpmMappingFile reads a JSON file that maps npm package names to Bazel
 // label strings. The file is expected to have the shape:
 //
@@ -1294,35 +925,20 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 		}
 	}
 
-	// Always check for a tsconfig.json in the current directory. When found,
-	// read compilerOptions.paths and compilerOptions.baseUrl and use them as
-	// the path alias mapping. This is the lower-priority source: the
-	// ts_path_alias directives applied below override it.
+	// The nearest tsconfig.json's paths are the alias map below it.
 	tsConfigCandidate := filepath.Join(currentDir, "tsconfig.json")
 	if tsConfigAliases := loadTsConfigPaths(tsConfigCandidate, rel); tsConfigAliases != nil {
 		tc.pathAliases = tsConfigAliases
 		tc.importsAliases = nil
 	}
+	tc.recordCodegenOuts(rel, f)
 	if _, err := os.Stat(tsConfigCandidate); err == nil {
 		// The nearest tsconfig replaces the inherited answer rather than adding
 		// to it: tsc gives a file one project, not the union of the projects
 		// above it.
 		tc.tsconfigAmbientTypes = loadTsConfigAmbientTypes(tsConfigCandidate)
 		tc.tsconfigJsxImportSource = loadTsConfigJsxImportSource(tsConfigCandidate)
-		tc.tsconfigTypes, tc.tsconfigTypeFiles, tc.tsconfigTypeGenerators, tc.tsconfigTypeAncestors = loadTsConfigTypeFiles(tsConfigCandidate, rel, f, tc.tsconfigTypesStaged)
-		tc.tsconfigTypesDir = rel
-		if staged := stagedTypeLabels(rel, tc.tsconfigTypeFiles, tc.tsconfigTypeGenerators); len(staged) > 0 {
-			if tc.tsconfigTypesStaged == nil {
-				tc.tsconfigTypesStaged = make(map[string]map[string]string)
-			}
-			tc.tsconfigTypesStaged[rel] = staged
-		}
-	}
-	if keptRule(f, "filegroup", tsConfigTypesTargetName) {
-		if tc.tsconfigTypesKept == nil {
-			tc.tsconfigTypesKept = make(map[string]bool)
-		}
-		tc.tsconfigTypesKept[rel] = true
+		tc.tsconfigTypesFiles = typesEntryFiles(tsConfigCandidate, rel)
 	}
 
 	// The compilerOptions baseline, resolved the way tsserver resolves one:
@@ -1372,18 +988,10 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 		}
 	}
 
-	// Reset per-directory flags that should not propagate past a directory.
-	// packageBoundary (the explicit opt-in for a single directory) and
-	// targetName are directory-scoped. packageBoundaryMode, ignore,
-	// declarations, and the list fields are inherited downward.
+	// packageBoundary and targetName are directory-scoped; every other field is
+	// inherited downward.
 	tc.packageBoundary = false
 	tc.targetName = ""
-
-	// directivePathAliasSet tracks whether any ts_path_alias directive was
-	// seen in this directory's build file. If so, we start with a fresh map
-	// (directives replace inherited aliases for clarity) and then populate it
-	// from the directives. This flag is local to this invocation.
-	var directiveAliases map[string]string
 
 	// Apply directives from the build file.
 	if f != nil {
@@ -1414,40 +1022,6 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 				tc.targetName = d.Value
 			case directiveWarnUnresolved:
 				tc.warnUnresolved = d.Value == "true"
-			case directiveDeclarations:
-				if d.Value == "oxc" || d.Value == "tsgo" {
-					tc.declarations = d.Value
-				} else {
-					log.Printf("gazelle: ts_declarations: expected \"tsgo\" or \"oxc\", got %q; keeping %q", d.Value, tc.declarations)
-				}
-			case directivePathAlias:
-				// # gazelle:ts_path_alias <alias> <dir>
-				// On first encounter in this BUILD file, seed the directive map
-				// from the inherited aliases so that children can add new keys
-				// or override existing ones without losing the parent's aliases.
-				// Directives still take priority over tsconfig.json because we
-				// always write into directiveAliases and merge it back after
-				// the loop.
-				if directiveAliases == nil {
-					// Seed from inherited aliases so a child can add new keys.
-					directiveAliases = make(map[string]string, len(tc.pathAliases))
-					for k, v := range tc.pathAliases {
-						directiveAliases[k] = v
-					}
-				}
-				parts := strings.SplitN(strings.TrimSpace(d.Value), " ", 2)
-				if len(parts) == 2 {
-					alias := strings.TrimSpace(parts[0])
-					dir := strings.TrimSpace(parts[1])
-					if alias != "" && dir != "" {
-						directiveAliases[alias] = dir
-						tc.aliasesFromDirectives = true
-					} else {
-						log.Printf("typescript: invalid ts_path_alias value %q (want \"<alias> <dir>\")", d.Value)
-					}
-				} else {
-					log.Printf("typescript: invalid ts_path_alias value %q (want \"<alias> <dir>\")", d.Value)
-				}
 			case directiveRuntimeDep:
 				lbl := strings.TrimSpace(d.Value)
 				if lbl != "" {
@@ -1502,12 +1076,6 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 		for _, cp := range detectCodegen(rel, detectorInputs(currentDir, f), tc) {
 			tc.addCodegenOutDir(rel, cp.OutDir)
 		}
-	}
-
-	// If any ts_path_alias directives were present, they replace the
-	// path aliases tsconfig.json gave.
-	if directiveAliases != nil {
-		tc.pathAliases = directiveAliases
 	}
 
 	c.Exts[languageName] = tc
@@ -1668,20 +1236,16 @@ func trailingSlash(p string) string {
 // With no `types` key tsc includes every @types package in scope, which under
 // pnpm's isolated node_modules is exactly the ones the package.json declares.
 func loadTsConfigAmbientTypes(tsConfigPath string) []string {
-	data, err := os.ReadFile(tsConfigPath)
+	resolved, err := tsconfig.Resolve(tsConfigPath)
 	if err != nil {
 		return nil
 	}
-	var tsc tsConfigJSON
-	if err := jsonc.Unmarshal(data, &tsc); err != nil {
-		return nil
-	}
-	if tsc.CompilerOptions.Types == nil {
+	if resolved.Types == nil {
 		return declaredTypesPackages(filepath.Join(filepath.Dir(tsConfigPath), "package.json"))
 	}
 	var labels []string
 	seen := make(map[string]struct{})
-	for _, entry := range *tsc.CompilerOptions.Types {
+	for _, entry := range *resolved.Types {
 		lbl := ambientTypeLabel(entry)
 		if lbl == "" {
 			continue
@@ -1693,123 +1257,6 @@ func loadTsConfigAmbientTypes(tsConfigPath string) []string {
 		labels = append(labels, lbl)
 	}
 	return labels
-}
-
-// loadTsConfigTypeFiles reads compilerOptions.types whole, with the label that
-// stages each file entry; staged is what the tsconfigs above rel stage.
-func loadTsConfigTypeFiles(tsConfigPath, rel string, f *rule.File, staged map[string]map[string]string) (entries, files []string, generators map[string]string, ancestors []string) {
-	data, err := os.ReadFile(tsConfigPath)
-	if err != nil {
-		return nil, nil, nil, nil
-	}
-	var tsc tsConfigJSON
-	if err := jsonc.Unmarshal(data, &tsc); err != nil {
-		return nil, nil, nil, nil
-	}
-	if tsc.CompilerOptions.Types == nil {
-		return nil, nil, nil, nil
-	}
-	dir := filepath.Dir(tsConfigPath)
-	generated := codegenDeclarationOutputs(f)
-	seen := make(map[string]struct{})
-	for _, entry := range *tsc.CompilerOptions.Types {
-		hops, name, isFile := typeEntryFileName(entry)
-		if !isFile {
-			continue
-		}
-		if name == "" {
-			log.Printf("typescript: the tsconfig in %s names %q in compilerOptions.types, and "+
-				"a label stages a file of its own directory alone, so a path into a directory "+
-				"below resolves to nothing. Move the file next to the tsconfig, or write types "+
-				"and types_srcs by hand with a \"# keep\".",
-				orRepoRoot(rel), strings.TrimSpace(entry))
-			return nil, nil, nil, nil
-		}
-		if hops > 0 {
-			owner, inTree := ancestorDir(rel, hops)
-			if !inTree {
-				log.Printf("typescript: the tsconfig in %s names %q in compilerOptions.types, a "+
-					"path above the workspace root, so nothing stages the file. Fix the entry or "+
-					"drop it.", orRepoRoot(rel), strings.TrimSpace(entry))
-				return nil, nil, nil, nil
-			}
-			lbl := staged[owner][name]
-			if lbl == "" {
-				log.Printf("typescript: the tsconfig in %s names %q in compilerOptions.types, and "+
-					"nothing in %s stages that file for it: a tsconfig there has to name \"./%s\" "+
-					"in its own compilerOptions.types. Name the file there, or write types and "+
-					"types_srcs by hand with a \"# keep\".",
-					orRepoRoot(rel), strings.TrimSpace(entry), orRepoRoot(owner), name)
-				return nil, nil, nil, nil
-			}
-			if _, dup := seen[lbl]; !dup {
-				seen[lbl] = struct{}{}
-				ancestors = append(ancestors, lbl)
-			}
-			continue
-		}
-		if _, dup := seen[name]; dup {
-			continue
-		}
-		seen[name] = struct{}{}
-		if target, ok := generated[name]; ok {
-			if generators == nil {
-				generators = make(map[string]string)
-			}
-			generators[name] = target
-			continue
-		}
-		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
-			log.Printf("typescript: the tsconfig in %s names %q in compilerOptions.types and "+
-				"no such file is there, so the entry resolves to nothing wherever it is "+
-				"written. Fix the entry or drop it.", orRepoRoot(rel), strings.TrimSpace(entry))
-			return nil, nil, nil, nil
-		}
-		files = append(files, name)
-	}
-	sort.Strings(files)
-	sort.Strings(ancestors)
-	for _, entry := range *tsc.CompilerOptions.Types {
-		entries = append(entries, strings.TrimSpace(entry))
-	}
-	return entries, files, generators, ancestors
-}
-
-// ancestorDir is the directory hops levels above rel; false above the root.
-func ancestorDir(rel string, hops int) (string, bool) {
-	for ; hops > 0; hops-- {
-		if rel == "" {
-			return "", false
-		}
-		if rel = path.Dir(rel); rel == "." {
-			rel = ""
-		}
-	}
-	return rel, true
-}
-
-// stagedTypeLabels is the label staging each file the tsconfig in rel names.
-func stagedTypeLabels(rel string, files []string, generators map[string]string) map[string]string {
-	staged := make(map[string]string, len(files)+len(generators))
-	for _, name := range files {
-		staged[name] = "//" + rel + ":" + tsConfigTypesTargetName
-	}
-	for name, target := range generators {
-		staged[name] = "//" + rel + ":" + target
-	}
-	return staged
-}
-
-func keptRule(f *rule.File, kind, name string) bool {
-	if f == nil {
-		return false
-	}
-	for _, r := range f.Rules {
-		if r.Kind() == kind && r.Name() == name {
-			return r.ShouldKeep()
-		}
-	}
-	return false
 }
 
 // codegenDeclarationOutputs maps each .d.ts a ts_codegen in f declares in outs to
@@ -1836,25 +1283,42 @@ func codegenDeclarationOutputs(f *rule.File) map[string]string {
 	return out
 }
 
-// typeEntryFileName splits a file-shaped `types` entry into the `..` hops above
-// the tsconfig's directory and the file's name there, "" for a path below one.
-func typeEntryFileName(entry string) (hops int, name string, isFile bool) {
-	entry = strings.TrimSpace(entry)
-	if !strings.HasPrefix(entry, "./") && !strings.HasPrefix(entry, "../") {
-		return 0, "", false
+// recordCodegenOuts indexes the outs of every ts_codegen in f by repo-relative path.
+func (tc *tsConfig) recordCodegenOuts(rel string, f *rule.File) {
+	if f == nil {
+		return
 	}
-	if !isDeclarationFile(entry) {
-		return 0, "", false
+	for _, r := range f.Rules {
+		if r.Kind() != "ts_codegen" {
+			continue
+		}
+		for _, out := range r.AttrStrings("outs") {
+			if tc.codegenOuts == nil {
+				tc.codegenOuts = make(map[string]label.Label)
+			}
+			tc.codegenOuts[path.Join(rel, out)] = label.New("", rel, r.Name())
+		}
 	}
-	name = strings.TrimPrefix(entry, "./")
-	for strings.HasPrefix(name, "../") {
-		hops++
-		name = strings.TrimPrefix(name, "../")
+}
+
+// The files the chain's path-shaped `types` entries name, repo-relative: tsc
+// resolves an inherited entry against the program's directory, not its setter's.
+func typesEntryFiles(tsConfigPath, rel string) []string {
+	resolved, err := tsconfig.Resolve(tsConfigPath)
+	if err != nil || resolved.Types == nil {
+		return nil
 	}
-	if strings.Contains(name, "/") {
-		return hops, "", true
+	var files []string
+	for _, entry := range *resolved.Types {
+		entry = strings.TrimSpace(entry)
+		if !strings.HasPrefix(entry, "./") && !strings.HasPrefix(entry, "../") {
+			continue
+		}
+		if file := path.Join(rel, entry); !slices.Contains(files, file) {
+			files = append(files, file)
+		}
 	}
-	return hops, name, true
+	return files
 }
 
 // ambientTypePackage is the package one compilerOptions.types entry names, ""

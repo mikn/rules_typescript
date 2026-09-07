@@ -1,7 +1,7 @@
 # Providers and Toolchains
 
 The contract a rule outside this ruleset writes against: the providers the
-rules return, and the toolchains they resolve. Eight providers load from
+rules return, and the toolchains they resolve. Seven providers load from
 `@rules_typescript//ts:defs.bzl`; the toolchain contract loads from
 `@rules_typescript//ts/toolchain:defs.bzl`.
 
@@ -15,15 +15,13 @@ load(
     "JsInfo",
     "TsDeclarationInfo",
     "TsLintInfo",
-    "TsModuleInfo",
 )
 ```
 
 | Provider | Returned by |
 |---|---|
-| `JsInfo` | `ts_compile`, `ts_codegen` (`out_dir`), `ts_binary`, the `@npm` package targets |
-| `TsDeclarationInfo` | `ts_compile`, `ts_codegen` (`out_dir`), `css_library`, `css_module`, `asset_library`, `json_library`, the `@npm` package targets |
-| `TsModuleInfo` | `ts_compile`, `ts_codegen` (`out_dir`) |
+| `JsInfo` | `ts_compile`, `ts_codegen`, `ts_binary`, the `@npm` package targets |
+| `TsDeclarationInfo` | `ts_compile`, `ts_codegen`, `css_library`, `css_module`, `asset_library`, `json_library`, the `@npm` package targets |
 | `CssInfo` | `css_library`; `ts_compile` with empty direct fields, so a consumer reads its transitive ones |
 | `CssModuleInfo` | `css_module`; `ts_compile` with empty direct fields |
 | `AssetInfo` | `asset_library`; `ts_compile` with empty direct fields |
@@ -46,43 +44,24 @@ consumer that wants everything reachable reads the transitive field.
 | `transitive_js_files` | `depset of File` | Every `.js` from this target and its deps |
 | `transitive_js_map_files` | `depset of File` | Every `.js.map` from this target and its deps |
 
-`ts_binary` with a `bundler` returns the bundle as the one member of all four. `ts_codegen` with
-`out_dir` returns the directory as the one member; nothing downstream compiles
-the tree, so what it holds is already compiled output.
+`ts_binary` with a `bundler` returns the bundle as the one member of all four.
+`ts_codegen` with `out_dir` returns the directory as the one member; nothing
+downstream compiles the tree, so what it holds is already compiled output. An
+`outs` codegen returns its `.js` outs here and its `.d.ts` outs in
+`TsDeclarationInfo`, so `deps = [":worker_types"]` is legal and a consumer's
+tsconfig `types` can name the generated declaration.
 
 ## TsDeclarationInfo
 
 | Field | Type | Description |
 |---|---|---|
-| `declaration_files` | `depset of File` | The declarations this target produces, plus the ambient ones it passes through from `srcs` |
-| `transitive_declaration_files` | `depset of File` | Every declaration from this target and its deps |
-| `transitive_npm_packages` | `depset of NpmPackageInfo` | The npm packages whose declarations are in `transitive_declaration_files`. A dep's emitted `.d.ts` imports the packages the dep declared and resolves them in the consumer's program, so the consumer writes a `paths` key for each. An npm package target names its `transitive_deps`; the package itself arrives through its `NpmPackageInfo` |
-| `global_entry_files` | `depset of File` | A generated `.d.ts` referencing the srcs `public_globals` names, for a consumer to list in its tsconfig `files`. A target naming none provides no entry |
-| `transitive_global_entry_files` | `depset of File` | The closure of `global_entry_files`. A global is global to the whole program, so the closure travels, not the direct set |
+| `declaration_files` | `depset of File` | The declarations this target produces, plus the ambient ones it passes through from `srcs`. A global one is in scope in a consumer only when the consumer's tsconfig `types` names it |
+| `transitive_declaration_files` | `depset of File` | Every declaration from this target and its first-party deps. An npm package's declarations reach a consumer through the node_modules forest its tsgo action stages, not through this depset |
+| `transitive_npm_packages` | `depset of NpmPackageInfo` | The npm packages a consumer links into its forest for this target's declarations. A dep's emitted `.d.ts` imports the packages the dep declared and resolves them in the consumer's program by walking that forest. An npm package target names its `transitive_deps`; the package itself arrives through its `NpmPackageInfo` |
 
-`global_entry_files` is a file of references and not the declarations
-themselves: Starlark cannot read a source to tell a global `.d.ts` from a module
-one, so an action decides, and the provider names its answer at analysis time.
-See [Which ambients a consumer gets](ts-compile.md#which-ambients-a-consumer-gets).
-
-## TsModuleInfo
-
-The bare specifier a target is importable as, and where its declarations land.
-Only the producing target knows where its `.d.ts` files land under the current
-configuration, so the name travels with the target and a consumer writes its
-own `paths` entry from it.
-
-| Field | Type | Description |
-|---|---|---|
-| `module_name` | `string` | The bare specifier, or `""` when the target declared none |
-| `label` | `string` | The target's label, as a dep list writes it |
-| `declaration_root` | `string` | Exec-root-relative directory the generated `.d.ts` files land in |
-| `source_root` | `string` | Exec-root-relative package directory, where a `.d.ts` passed straight through stays |
-| `declared_paths` | `tuple of struct(specifier, declarations)` | What the module's own `package.json` says its specifiers resolve to: `specifier` is the part after the module name (`""`, `"/button"`, `"/tokens/*"`), `declarations` the module-root-relative declaration paths, in resolution order. Empty on a target that declared its name with `module_name` |
-| `transitive_modules` | `depset of struct` | This target's modules and its deps', each with the five fields above |
-
-`ts_dev_server` reads the same provider to write one `resolve.alias` entry per
-first-party `module_name`.
+A global `.d.ts` travels as a declaration output and nothing more: the consumer
+names it in its own tsconfig `types` to bring its globals into scope. See
+[Which ambients a consumer gets](ts-compile.md#which-ambients-a-consumer-gets).
 
 ## CssInfo
 
@@ -125,13 +104,36 @@ The two invocation modes and the recipe for a bundler of your own are in
 |---|---|---|
 | `stamp` | `File` | The validation stamp, written only on a clean lint run |
 
+## NpmPackageInfo
+
+`NpmPackageInfo` is not exported from `@rules_typescript//ts:defs.bzl`. It loads
+from `@rules_typescript//ts/private:providers.bzl`, and everything under
+`ts/private/` is [volatile](../compatibility.md#volatile). Every `@npm` package
+target returns it, and so does a workspace member's hub view
+`npm_workspace_package`; the `node_modules` builder lays a tree out from it, the
+runtime tree's and the type-check forest's alike.
+
+| Field | Type | Description |
+|---|---|---|
+| `package_name` | `string` | The npm name, `react` or `@types/react`; what the tree links the package as |
+| `package_version` | `string` | The version; `0.0.0` on a workspace member, which pnpm resolves by path |
+| `peer_id` | `string` | A filesystem-safe token naming the peer set this resolution was made against, empty for a package pnpm resolved only one way. Two snapshots can share `name@version` and differ only here |
+| `package_dir` | `File or None` | The `package.json` at the root of the extracted package. `None` on a workspace member, whose view writes the manifest it links |
+| `package_root` | `string` | Exec-root-relative directory the files in `all_files` hang off: where `package_dir` sits for an extracted tarball, the member's directory under `bazel-bin` for a workspace member |
+| `all_files` | `depset of File` | Every file of the package (`package.json`, `.js`, `.d.ts`, other assets): what a `node_modules` tree holds for it |
+| `js_files` | `depset of File` | The JavaScript files in the package |
+| `direct_deps` | `list of NpmPackageInfo` | The packages this one depends on directly, each under the name this package imports it by; what places two versions of one name in a tree |
+| `transitive_deps` | `depset of NpmPackageInfo` | Every npm package reachable from this one, the paired `@types/*` package included |
+| `transitive_package_dirs` | `depset of File` | The `package.json` of this package and of every transitive dep |
+
+The package's `exports`, `types` and `main` are nowhere in it: tsgo and node
+read the manifest in the tree, as they do over an install.
+
 ## DevServerInfo
 
-`DevServerInfo` is not exported from `@rules_typescript//ts:defs.bzl`. It loads
-from `@rules_typescript//ts/private:providers.bzl`, and everything under
-`ts/private/` is [volatile](../compatibility.md#volatile). The shipped
-implementation, `//vite:dev_server`, returns it; `ts_dev_server(server = ...)`
-takes any target that does.
+`DevServerInfo` is not exported either; it loads from the same private file.
+The shipped implementation, `//vite:dev_server`, returns it;
+`ts_dev_server(server = ...)` takes any target that does.
 
 | Field | Type | Vite | Description |
 |---|---|---|---|

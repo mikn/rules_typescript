@@ -36,17 +36,7 @@ cannot iterate) or when you need a tree the deps do not describe.
 | `timeout` | `string` | `None` | Bazel test timeout |
 | `tags` | `string_list` | `[]` | Bazel tags |
 | `visibility` | `string_list` | `None` | Visibility of the test and of the generated `ts_compile` targets; see [Generated targets](#generated-targets) |
-| `target` | `string` | `"es2022"` | ECMAScript target for the internal `ts_compile` |
-| `jsx_mode` | `string` | `"react-jsx"` | JSX mode for the internal `ts_compile` |
-| `declarations` | `string` | `"tsgo"` | Declaration emitter for the internal `ts_compile`, `"tsgo"` or `"oxc"` |
-| `lib` | `string_list` | `None` | `lib` set for the internal `ts_compile`. A worker test needs it: `webworker` is in no set `target` implies |
-| `types` | `string_list` | `None` | Ambient type packages for the internal `ts_compile`; see [Ambient type packages](#ambient-type-packages) |
-| `compiler_options` | `dict` | `None` | Anything else for the internal `ts_compile` |
-| `tsconfig` | `label` | `None` | The `compilerOptions` baseline for the internal `ts_compile`; the three above override it |
-| `path_aliases` | `string_dict` | `None` | Source-level alias prefixes for the internal `ts_compile`; see [Path aliases](#path-aliases) |
-| `path_alias_srcs` | `label_list` | `None` | The files an alias resolves to, when they are not in the test's own `srcs`; see [Path aliases](#path-aliases) |
-| `types_srcs` | `label_list` | `None` | The files a relative `types` entry resolves to; see [A `types` entry that names a declaration file](#a-types-entry-that-names-a-declaration-file) |
-| `untyped_packages` | `string_list` | `None` | npm packages the generated `ts_compile` targets' type programs leave out; see [Keeping a package out of the program](#keeping-a-package-out-of-the-program) |
+| `tsconfig` | `label` | `None` | The tsconfig every generated `ts_compile` compiles under: the package's own `tsconfig.json`, or a `ts_config` target. Every compiler option the tests check under is its; see [The test's tsconfig](#the-tests-tsconfig) |
 | `runner` | `string` | `"vitest"` | Which runner runs the compiled tests, `"vitest"` or `"node:test"`; see [The node:test runner](#the-nodetest-runner). Every attribute below this row except `data` is vitest's, and an analysis error under `"node:test"` |
 | `environment` | `string` | `""` | `test.environment`: `node`, `jsdom`, `happy-dom`, `edge-runtime`, or any custom vitest environment package. The package must be in `deps` |
 | `coverage` | `bool` | `False` | Also instrument during plain `bazel test`. `bazel coverage` works on every vitest target regardless |
@@ -55,7 +45,7 @@ cannot iterate) or when you need a tree the deps do not describe.
 | `setup_files` | `label_list` | `[]` | `test.setupFiles`. `.ts`/`.tsx` entries are compiled with the same `deps` as the tests |
 | `global_setup` | `label_list` | `[]` | `test.globalSetup`; compiled like `setup_files` |
 | `data` | `label_list` | `[]` | Extra runfiles: fixtures, and files a `config` or setup entry imports |
-| `globals` | `bool` | `False` | `test.globals`: global `describe`/`it`/`expect`, and the `types` entry that declares them; see [Globals](#globals) |
+| `globals` | `bool` | `False` | `test.globals`: global `describe`/`it`/`expect` at run time; the tsconfig names `vitest/globals` in `types`. See [Globals](#globals) |
 | `reporters` | `string_list` | `[]` | `test.reporters`, e.g. `["default", "junit"]` |
 | `coverage_thresholds` | `string_dict` | `{}` | `test.coverage.thresholds`, e.g. `{"lines": "80", "perFile": "true"}`. Values that look numeric or boolean are emitted as such |
 | `coverage_provider` | `string` | `""` | `test.coverage.provider`: `"v8"` (vitest's default) or `"istanbul"`; see [Coverage](#coverage) |
@@ -69,37 +59,67 @@ entries in `setup_files` and one for those in `global_setup`, plus, on the
 vitest runner, a `<name>.update_snapshots` executable.
 The `ts_compile` targets take the test's `visibility`, defaulting to
 `//visibility:public` when the test declares none, so an IDE tsconfig written by
-`ts_refresh_tsconfig` can name them.
+`ts_refresh_tsconfig` can name them. A `manual` tag on the test reaches every
+generated target, so a wildcard that skips the test analyses none of them; every
+other tag stays on the test.
 
-## Ambient Type Packages
+## The Test's tsconfig
 
-A `types` entry may name an `exports` subpath, as in
-`@cloudflare/vitest-pool-workers/types`. Nothing imports an ambient module a
-package ships behind such a subpath, and there is no `node_modules` for a
-tsconfig `types` entry to resolve through, so the subpath is resolved from the
-manifest and the file put in the program's `files`.
+`tsconfig` is forwarded to every `ts_compile` the macro generates, the one over
+`srcs` and the ones over the TypeScript entries of `setup_files` and
+`global_setup`, and it carries every compiler option the tests check under, as
+it does on [`ts_compile`](ts-compile.md#where-compiler-options-come-from). The
+test files are a program of their own, so a `lib`, a `types` entry or a `paths`
+alias the package's sources need is in the test program only when the test's
+tsconfig has it too; Gazelle names the package's own `tsconfig.json` on the test
+as on the compile.
+
+Three entries are the ones a test usually needs:
+
+- **`lib`.** A worker test needs `["esnext", "webworker"]`; `webworker` is in
+  no set `target` implies.
+- **A `types` entry naming a package or a subpath**, such as
+  `@cloudflare/vitest-pool-workers/types` for a pool's `cloudflare:test`
+  module, or `vitest/globals`. tsgo resolves it through the forest built from
+  the test's `deps`, so the package is listed there; see
+  [a `types` entry that names a package](ts-compile.md#a-types-entry-that-names-a-package).
+- **A `types` entry naming a declaration file**, `../worker-configuration.d.ts`
+  for the declaration a wrangler project keeps beside its worker. The target
+  whose `srcs` hold the file, or whose `outs` write it, is in `deps`, and
+  tsaction rebases the entry to the staged file; see
+  [a `types` entry that names a declaration file](ts-compile.md#a-types-entry-that-names-a-declaration-file).
+
+```jsonc
+// workers/proxy/test/tsconfig.json
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": { "types": ["../worker-configuration.d.ts"] }
+}
+```
+
+```starlark
+ts_test(
+    name = "handler_test",
+    srcs = ["handler.test.ts"],
+    tsconfig = "tsconfig.json",
+    deps = ["//workers/proxy:worker_types", "//workers/proxy/src", "@npm//:vitest"],
+)
+```
+
+A `paths` alias is type-checking only. oxc leaves an import specifier alone, so
+a compiled test still names the alias at runtime, where vitest resolves it as a
+package and fails with `Cannot find package`. A type-only import is erased and
+unaffected. A value import through an alias needs the module reachable at
+runtime: depend on the target that produces it.
 
 ## Globals
 
 `globals = True` sets `test.globals`: vitest installs `describe`, `it`, `expect`
 and the rest as globals, and a test file imports nothing. vitest publishes their
-declarations behind its `vitest/globals` subpath, and the attribute adds that
-entry to the internal `ts_compile`'s `types` as well. Without the entry the
-test runs and does not compile: `TS2593` on `describe`, `TS2304` on `expect`.
-
-The entry is resolved from the target's own `deps`, so `globals = True` needs
-vitest listed there, and says so at analysis time when it is not:
-
-```
-ts_compile: compilerOptions.types entry "vitest/globals" on
-@@//path:_my_test_compile resolves to nothing.
-```
-
-The runner finds vitest in the `node_modules` tree, which the `node_modules`
-attr can supply on its own; the guard resolves the entry from `deps`. A
-`globals = True` test that supplies vitest only through that attr has to list
-it in `deps` as well. The injected entry is folded in last, after anything the
-target wrote.
+declarations behind its `vitest/globals` subpath, and the test's tsconfig names
+that entry in `types`; the attribute is the runtime half alone. Without the
+entry the test runs and does not compile: `TS2593` on `describe`, `TS2304` on
+`expect`. The entry resolves through the forest, so vitest is in `deps`.
 
 Under Gazelle the dep needs `# keep`: nothing in a `globals = True` test imports
 vitest, and `deps` is a managed attribute, so a run rewrites the list without
@@ -109,108 +129,11 @@ the entry. `globals = True` itself survives; no directive writes it:
 ts_test(
     name = "math_test",
     srcs = ["math.test.ts"],
+    tsconfig = "tsconfig.json",   # "types": ["vitest/globals"]
     globals = True,
     deps = ["@npm//:vitest"],  # keep
 )
 ```
-
-## Path Aliases
-
-`path_aliases` and `path_alias_srcs` are forwarded to the generated
-`ts_compile`, with the meaning they have there. A package whose `ts_compile`
-needs an alias needs it on the test too: the test files are a program of their
-own, and `paths` is a key the `tsconfig` layer cannot contribute.
-
-`ts_compile` accepts an alias only when a file it stages sits under the alias
-directory; otherwise the alias is an analysis error. A test with a src under
-that directory validates the alias on that src, and the aliased declarations
-arrive on the dep edge. A test with none needs `path_alias_srcs` naming what the
-alias resolves to: a `ts_compile` target, whose declarations land in the
-bazel-bin mirror of the directory, or the files themselves, which join the
-test's type program and are checked again there. Where the aliased target can
-carry a `module_name`, depending on it is cheaper.
-
-```starlark
-ts_test(
-    name = "app_test",
-    srcs = ["app.test.ts"],
-    path_aliases = {"@shared/": "packages/app/shared/"},
-    path_alias_srcs = ["//packages/app/shared"],
-    deps = [":app", "//packages/app/shared", "@npm//:vitest"],
-)
-```
-
-Gazelle writes both. `path_aliases` carries the aliases the test files import
-through; `path_alias_srcs` is written only when no src of the test sits under
-the alias directory, and names the target the aliased import resolved to. Both
-attributes are Gazelle's, so a value it did not derive survives the next run
-only with a `# keep` on its line; see
-[attributes Gazelle owns](../gazelle/directives.md#attributes-gazelle-owns).
-
-An alias is type-checking only. oxc leaves an import specifier alone, so a
-compiled test still names the alias at runtime, where vitest resolves it as a
-package and fails with `Cannot find package`. A type-only import is erased and
-unaffected. A value import through an alias needs the module reachable at
-runtime: depend on the target that produces it.
-
-## A `types` Entry That Names a Declaration File
-
-An entry starting `./` or `../` names a file, not a package, and resolves
-against the source files the type-check action stages. The test files are the
-only `srcs` the generated `ts_compile` has, so a declaration file in another
-package (the `worker-configuration.d.ts` a wrangler project keeps beside its
-worker) has to be staged by something else. A dep whose own `srcs` hold it
-does: a `.d.ts` in `srcs` is passed through and sits at the path the entry
-names. `types_srcs` stages it without the dep edge, so the test does not also
-consume that target's declarations:
-
-```starlark
-ts_test(
-    name = "handler_test",
-    srcs = ["handler.test.ts"],
-    types = ["../worker-configuration.d.ts"],
-    types_srcs = ["//worker:worker_types"],
-    deps = [":src", "@npm//:vitest"],
-)
-```
-
-Both attributes carry the meaning they carry on
-[`ts_compile`](ts-compile.md#a-types-entry-that-names-a-declaration-file): an
-entry no staged file sits at is an analysis error, and a `types_srcs` file no
-entry names is one too. A declaration a `deps` entry already stages needs no
-label here.
-
-## Keeping a Package Out of the Program
-
-`untyped_packages` is forwarded to every `ts_compile` the macro generates, the
-one over `srcs` and the ones over the TypeScript entries of `setup_files` and
-`global_setup`, with the meaning it has on
-[`ts_compile`](ts-compile.md#keeping-a-package-out-of-the-program): a named
-package gets no `paths` key and no `files` entry in that compile's tsconfig,
-stays in `deps`, and no JavaScript moves.
-
-The test files are a program of their own, and its `paths` map covers the npm
-closure of every dep. A global-script package one first-party dep reaches
-through its own npm closure leaks into the test program exactly as into a
-library's, once a declaration file in the program imports it, and merges its
-declarations ahead of anything the test's `types` entries put there: a worker
-test whose `types` names the wrangler-generated `worker-configuration.d.ts`
-sees `@cloudflare/workers-types`' `Headers` and `Cloudflare.Env` instead when
-some dep of the worker depends on that package.
-
-```starlark
-ts_test(
-    name = "handler_test",
-    srcs = glob(["*.test.ts"]),
-    types = ["../worker-configuration.d.ts"],
-    types_srcs = ["//worker:worker_types"],
-    untyped_packages = ["@cloudflare/workers-types"],
-    deps = [":src", "@npm//:vitest"],
-)
-```
-
-The two refusals hold as on `ts_compile`: an entry naming no package in the
-test's closure, and a package named in both `untyped_packages` and `types`.
 
 ## The Generated vitest Config
 
@@ -368,8 +291,7 @@ ts_test(
     srcs = ["worker.test.ts"],
     config = "//workers/proxy:vitest_config",
     coverage_provider = "istanbul",
-    lib = ["esnext", "webworker"],
-    types = ["@cloudflare/vitest-pool-workers/types"],
+    tsconfig = "tsconfig.json",   # lib esnext + webworker; types @cloudflare/vitest-pool-workers/types
     wrangler_config = "//workers/proxy:wrangler.jsonc",
     deps = [
         "//workers/proxy:worker",
@@ -513,11 +435,9 @@ ts_test(
 )
 ```
 
-The compile attributes carry over unchanged: `lib`, `types`,
-`compiler_options`, `tsconfig`, `path_aliases`, `path_alias_srcs`,
-`types_srcs` and `untyped_packages` mean on a node:test target what they mean
+`tsconfig` carries over unchanged and means on a node:test target what it means
 above. An alias is type-checking only on either runner; see
-[Path aliases](#path-aliases).
+[The test's tsconfig](#the-tests-tsconfig).
 
 node:test takes no config file; it is configured by CLI flags and by the test
 file itself. Every vitest attribute is an analysis error under it, naming the

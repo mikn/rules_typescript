@@ -2,34 +2,28 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
+	"path"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/mikn/rules_typescript/tests/integration/harness"
 )
 
 type tsconfig struct {
+	Extends         []string `json:"extends"`
 	CompilerOptions struct {
 		Paths map[string][]string `json:"paths"`
 	} `json:"compilerOptions"`
 }
 
-func pathsEntry(it *harness.IT, paths map[string][]string, key string) []string {
-	entries, ok := paths[key]
-	if !ok || len(entries) == 0 {
-		keys := []string{}
-		for name := range paths {
-			keys = append(keys, name)
-		}
-		sort.Strings(keys)
-		fmt.Fprintf(os.Stderr, "available paths keys: %v\n", keys)
-		it.Fail("%q not found in compilerOptions.paths (or empty)", key)
+func readTsconfig(it *harness.IT, path string) tsconfig {
+	it.RequireFile(path, "%s was not generated", path)
+	parsed := tsconfig{}
+	if err := json.Unmarshal([]byte(it.Read(path)), &parsed); err != nil {
+		it.Fail("%s is not valid JSON: %v", path, err)
 	}
-	return entries
+	return parsed
 }
 
 func main() {
@@ -46,49 +40,54 @@ func main() {
 			it.Pass("%s/BUILD.bazel generated", dir)
 		}
 
+		// src/tsconfig.json maps @/* to ./* and button.ts imports @/models/user
+		// through it; the BUILD file carries the dep the alias resolves to.
+		components := it.Path("src/components/BUILD.bazel")
+		it.RequireContains(components, `tsconfig = "//src:tsconfig"`,
+			"//src/components does not name the tsconfig that sets the alias")
+		it.RequireContains(components, `deps = ["//src/models"]`,
+			"//src/components does not depend on the target the alias resolves to")
+		it.RequireNotContains(components, "path_alias",
+			"//src/components restates the alias through an attribute the rule does not have")
+		it.Pass("//src/components names src/tsconfig.json and depends on //src/models through @/models/user")
+
 		// refresh_tsconfig reads the @npm BUILD.bazel out of the output base, and
 		// //... is what forces the repo rule to write it. @npm//... would drag in
 		// the workspace alias for a packages/shared this workspace does not have.
 		it.MustBazel("build", "//...")
-		it.Pass("bazel build //...")
+		it.Pass("bazel build //...: the aliased import resolves through the tsconfig's paths and the dep")
 
 		it.MustBazel("run", "//:refresh_tsconfig")
 		it.Pass("bazel run //:refresh_tsconfig")
 
-		generated := it.Path("tsconfig.json")
-		it.RequireFile(generated, "refresh_tsconfig did not generate tsconfig.json")
+		root := readTsconfig(it, it.Path("tsconfig.json"))
 		it.Pass("tsconfig.json generated")
 
-		parsed := tsconfig{}
-		if err := json.Unmarshal([]byte(it.Read(generated)), &parsed); err != nil {
-			it.Fail("tsconfig.json is not valid JSON: %v", err)
-		}
-		paths := parsed.CompilerOptions.Paths
-
-		zod := pathsEntry(it, paths, "zod")[0]
-		fmt.Printf("INFO: zod path entry = %q\n", zod)
-		if !strings.HasSuffix(zod, ".d.ts") {
-			it.Fail("'zod' path does not end in .d.ts: %q", zod)
-		}
-		resolved := zod
-		if !filepath.IsAbs(resolved) {
-			resolved = filepath.Join(filepath.Dir(generated), resolved)
-		}
-		it.RequireFile(resolved, "'zod' path does not exist on disk: %q", resolved)
-		it.Pass("tsconfig.json has 'zod' in paths pointing at a real .d.ts file")
-
-		alias := pathsEntry(it, paths, "@/*")
-		fmt.Printf("INFO: @/* path entries = %q\n", alias)
-		found := false
-		for _, entry := range alias {
-			if strings.Contains(entry, "src/*") {
-				found = true
+		// An npm package resolves through the checkout's node_modules, as under
+		// tsc; a key here would send the editor somewhere the build does not look.
+		for key := range root.CompilerOptions.Paths {
+			if key == "zod" || strings.HasPrefix(key, "zod/") {
+				it.Fail("tsconfig.json names the npm package zod in paths: %q", key)
 			}
 		}
-		if !found {
-			it.Fail("'@/*' paths do not contain 'src/*': %q", alias)
+		it.Pass("tsconfig.json has no paths key for the npm package zod")
+
+		// A package whose targets name a tsconfig gets an editor program of its
+		// own extending it, so the alias reaches the editor from the file that sets it.
+		for _, pkg := range []string{"src/components", "src/models"} {
+			nested := readTsconfig(it, it.Path(pkg, "tsconfig.json"))
+			extended := []string{}
+			for _, entry := range nested.Extends {
+				extended = append(extended, path.Clean(path.Join(pkg, entry)))
+			}
+			if !slices.Contains(extended, "src/tsconfig.json") {
+				it.Fail("%s/tsconfig.json extends %q, want src/tsconfig.json among them: the alias is set there", pkg, nested.Extends)
+			}
+			if len(nested.CompilerOptions.Paths) != 0 {
+				it.Fail("%s/tsconfig.json restates paths %v; the editor inherits them through extends", pkg, nested.CompilerOptions.Paths)
+			}
+			it.Pass("%s/tsconfig.json extends src/tsconfig.json and restates no paths", pkg)
 		}
-		it.Pass("tsconfig.json has '@/*' in paths mapping to src/*")
 
 		// ts_pnpm's contract is a pnpm that runs from the workspace root with no
 		// pnpm on the host. `--version` needs neither network nor package.json.

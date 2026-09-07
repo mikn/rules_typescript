@@ -13,11 +13,11 @@ covers the migration questions.
 
 ## Key Ideas
 
-- **Oxc compiles** — Rust-based TypeScript/JSX transformer. `.js` + `.js.map` per file, and `.d.ts` too under `declarations = "oxc"`.
+- **Oxc compiles** — Rust-based TypeScript/JSX transformer. `.js` + `.js.map` per file, and `.d.ts` too under `--//ts:declarations=oxc`.
 - **tsgo type-checks** — Go port of TypeScript, and it emits the declarations too, so unmodified TypeScript compiles: no export annotations required, and the `.d.ts` are what `tsc` would produce. Type errors fail `bazel build`.
 - **The dev server is swappable** — `ts_dev_server(server = ...)` takes any target providing `DevServerInfo`. Vite is the default. What a server does not read is declared in its provider, so a target depending on a field its server ignores fails at analysis time naming both.
-- **Isolated declarations** — annotate a package's exports and set `declarations = "oxc"`, and Oxc emits its `.d.ts` syntactically, which moves type-checking off the critical path and shortens a deep dependency chain substantially. Opt-in, per package — see [Cost of each mode](https://mikn.github.io/rules_typescript/rules/ts-compile/#cost-of-each-mode).
-- **Gazelle generates BUILD files** — infers targets from the directory tree, resolves imports to labels, generates lint targets, and takes fifteen `# gazelle:ts_*` directives. It regenerates the attributes it owns on every run and names every value it drops, so a value it cannot derive needs `# keep` — see [Attributes Gazelle owns](https://mikn.github.io/rules_typescript/gazelle/directives/#attributes-gazelle-owns).
+- **Isolated declarations** — annotate the exports and build under `--//ts:declarations=oxc`, and Oxc emits the `.d.ts` syntactically, which moves type-checking off the critical path and shortens a deep dependency chain substantially. Opt-in, per build — see [Cost of each mode](https://mikn.github.io/rules_typescript/rules/ts-compile/#cost-of-each-mode).
+- **Gazelle generates BUILD files** — infers targets from the directory tree, resolves imports to labels, generates lint targets, and takes thirteen `# gazelle:ts_*` directives. It regenerates the attributes it owns on every run and names every value it drops, so a value it cannot derive needs `# keep` — see [Attributes Gazelle owns](https://mikn.github.io/rules_typescript/gazelle/directives/#attributes-gazelle-owns).
 - **CSS modules** — `css_module` runs postcss-modules once, generates the `.d.ts` and the scoped-name map from that result, and hands the map to Vite. `styles.button` type-checks against the keys the stylesheet exports, and the class name in a test is the one in the bundle — see [CSS and assets](https://mikn.github.io/rules_typescript/rules/css-and-assets/).
 - **Direct dependencies** — a source may import only what a direct dep provides. A declaration arriving through another dep's own deps does not satisfy an import: the build fails naming the file, the specifier and the label to add, and `bazel run //:gazelle` writes it.
 - **How npm packages are fetched** — one Bazel repository per package, fetched on demand, behind a `@npm` alias hub, so a target fetches only its own dependency closure. A generated `node_modules` tree holds every resolution that closure made — name, version and peer set — flat where a name resolved once, keyed by resolution where it did not.
@@ -158,13 +158,14 @@ git.
 ## IDE Integration
 
 `ts_refresh_tsconfig` writes the workspace-root `tsconfig.json` from Bazel's
-build graph: source roots, path aliases, and one `compilerOptions.paths` entry
-per npm package your targets reach that ships declarations, pointing at the
-copies it installs under `.bazel/npm`. The file is checked in, and
-`test = True` adds a test that fails once it goes stale. An editor, a plain
+build graph: one `compilerOptions.paths` entry per first-party package your
+targets reach, source directory and `bazel-bin` twin. The file is checked in,
+and `test = True` adds a test that fails once it goes stale. An editor, a plain
 `tsc` run and a coding agent's language server resolve Bazel's declarations
-through it with no setup. A tsserver plugin installed alongside it resolves
-live, without a re-run; the plugin needs editor configuration.
+through it with no setup; npm packages resolve through the checkout's
+`node_modules`, so `pnpm install` is the editor's npm setup. A tsserver plugin
+installed alongside it resolves live, without a re-run; the plugin needs editor
+configuration.
 
 ```python
 # BUILD.bazel
@@ -185,7 +186,7 @@ everything it depends on; the default, `deps = []`, writes an empty `paths`. It
 obeys visibility, so a package-private target cannot be listed.
 
 ```bash
-bazel run //:refresh_tsconfig        # writes tsconfig.json, .bazel/npm/, and the plugin
+bazel run //:refresh_tsconfig        # writes tsconfig.json and the plugin
 bazel test //:refresh_tsconfig_test  # fails when the checked-in tsconfig is stale
 ```
 
@@ -200,7 +201,7 @@ there when its targets set `compilerOptions` the root block cannot also be set
 to. The list is declared, not discovered. The rule fails at analysis time when
 the list disagrees with the graph in either direction, so a repository with one
 such package fails the snippet above until the list is filled in. That attribute,
-`extra_exclude`, `npm_dir` and the other editors are in
+`extra_exclude` and the other editors are in
 [IDE Setup](https://mikn.github.io/rules_typescript/getting-started/ide-setup/).
 
 ## Documentation

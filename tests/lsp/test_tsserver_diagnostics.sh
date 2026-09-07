@@ -5,10 +5,11 @@
 #
 # The subject is a TypeScript language service running under the hook, so every
 # assertion is in tsserver_diag_test.mjs and this file is the shim that gives it
-# a hermetic environment: node from the registered JS runtime toolchain, and
-# typescript and zod from the lockfile through @npm, laid out as a node_modules
-# tree in the runfiles. Nothing is read from the host and nothing is skipped --
-# an absent prerequisite fails the test rather than turning it into a no-op.
+# a hermetic environment: node from the registered JS runtime toolchain,
+# typescript from the lockfile through @npm laid out as a node_modules tree in
+# the runfiles, and the .d.ts a build would leave in bazel-bin for a first-party
+# package. Nothing is read from the host and nothing is skipped -- an absent
+# prerequisite fails the test rather than turning it into a no-op.
 
 # --- begin runfiles.bash initialization v3 ---
 # Copy-pasted from the Bazel Bash runfiles library v3.
@@ -35,7 +36,6 @@ runfile() {
 
 NODE="$(runfile ts/toolchain/node_resolved/node)"
 HOOK_JS="$(runfile tools/tsserver-hook.js)"
-DTS_ENTRY_MJS="$(runfile tests/lsp/dts_entry.mjs)"
 DIAG_TEST_MJS="$(runfile tests/lsp/tsserver_diag_test.mjs)"
 NODE_MODULES="$(runfile tests/lsp/lsp_node_modules)"
 [[ -d "${NODE_MODULES}" ]] || fail "not a node_modules tree: ${NODE_MODULES}"
@@ -47,13 +47,17 @@ echo "INFO: node $("${NODE}" --version)"
 [[ -f "${NODE_MODULES}/typescript/package.json" ]] || \
   fail "typescript is not in ${NODE_MODULES} -- is @npm//:typescript still a dep of //tests/lsp:lsp_node_modules?"
 
-PRELOAD_MAP="$("${NODE}" "${DTS_ENTRY_MJS}" "${NODE_MODULES}" zod)"
-echo "INFO: preload_map = ${PRELOAD_MAP}"
+# What the worker puts in the cache for a first-party package: its key is the
+# package path and its value the .d.ts a build wrote into bazel-bin.
+LIB_DTS="${TEST_TMPDIR:?TEST_TMPDIR is unset}/ws/bazel-bin/src/lib/index.d.ts"
+mkdir -p "$(dirname "${LIB_DTS}")"
+echo 'export declare function add(a: number, b: number): number;' > "${LIB_DTS}"
 
-ZOD_DTS="$(M="${PRELOAD_MAP}" "${NODE}" --eval \
-  'process.stdout.write(JSON.parse(process.env.M).zod)')"
+PRELOAD_MAP="$(L="${LIB_DTS}" "${NODE}" --eval \
+  'process.stdout.write(JSON.stringify({ "src/lib": process.env.L }))')"
+echo "INFO: preload_map = ${PRELOAD_MAP}"
 
 NODE_PATH="${NODE_MODULES}" \
 TSSERVER_HOOK_PRELOAD_MAP="${PRELOAD_MAP}" \
 TSSERVER_HOOK_NO_WORKER=1 \
-  "${NODE}" --require "${HOOK_JS}" "${DIAG_TEST_MJS}" "${ZOD_DTS}"
+  "${NODE}" --require "${HOOK_JS}" "${DIAG_TEST_MJS}" "${LIB_DTS}"

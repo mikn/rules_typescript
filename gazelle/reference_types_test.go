@@ -211,9 +211,9 @@ func TestReferenceTypes_NoLockfileTakesTheTypesLabel(t *testing.T) {
 	}
 }
 
-// The tsconfig's list is written whole and stays what the tsconfig says; the
-// directive adds a dep beside the list's own.
-func TestReferenceTypes_TsconfigTypesListIsNotRewritten(t *testing.T) {
+// The tsconfig's `types` list is the tsconfig's alone; its package entry and the
+// directive's name are each a dep.
+func TestReferenceTypes_TsconfigTypesListStaysInTheTsconfig(t *testing.T) {
 	root := t.TempDir()
 	writeWorkspace(t, root, map[string]string{
 		"pnpm-lock.yaml":    referenceTypesLock,
@@ -223,12 +223,8 @@ func TestReferenceTypes_TsconfigTypesListIsNotRewritten(t *testing.T) {
 	})
 	captureLog(t, func() { convergeGazelle(t, root) })
 
-	build := generated(t, root, "src", "BUILD.bazel")
-	if !strings.Contains(build, `types = ["vite/client"]`) {
-		t.Errorf("the tsconfig's types list is not written as the tsconfig states it:\n%s", build)
-	}
-	if strings.Contains(build, "google.maps\"]") {
-		t.Errorf("the directive's name joined the types attribute:\n%s", build)
+	if build := generated(t, root, "src", "BUILD.bazel"); strings.Contains(build, "types =") {
+		t.Errorf("the tsconfig's types list was written into the BUILD file:\n%s", build)
 	}
 	got := depsOf(t, root, "src", "ts_compile", "src")
 	for _, want := range []string{"@npm//:vite", "@npm//:types_google.maps"} {

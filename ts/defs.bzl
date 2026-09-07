@@ -18,7 +18,7 @@ load("//ts/private:pnpm.bzl", _ts_add_package = "ts_add_package", _ts_pnpm = "ts
 load("//ts/private:providers.bzl", _AssetInfo = "AssetInfo", _BundlerInfo = "BundlerInfo", _CssInfo = "CssInfo", _CssModuleInfo = "CssModuleInfo", _JsInfo = "JsInfo", _TsDeclarationInfo = "TsDeclarationInfo")
 load("//ts/private:ts_binary.bzl", _ts_binary = "ts_binary")
 load("//ts/private:ts_codegen.bzl", _ts_codegen = "ts_codegen")
-load("//ts/private:ts_compile.bzl", _TsModuleInfo = "TsModuleInfo", _fail_on_mixed_src_packages = "fail_on_mixed_src_packages", _ts_compile_rule = "ts_compile")
+load("//ts/private:ts_compile.bzl", _ts_compile = "ts_compile")
 load("//ts/private:ts_config.bzl", _ts_config = "ts_config")
 load("//ts/private:ts_dev_server.bzl", _ts_dev_server = "ts_dev_server")
 load("//ts/private:ts_lint.bzl", _TsLintInfo = "TsLintInfo", _ts_lint = "ts_lint")
@@ -32,7 +32,6 @@ CssInfo = _CssInfo
 CssModuleInfo = _CssModuleInfo
 JsInfo = _JsInfo
 TsDeclarationInfo = _TsDeclarationInfo
-TsModuleInfo = _TsModuleInfo
 TsLintInfo = _TsLintInfo
 
 # CSS / asset / JSON support.
@@ -40,6 +39,10 @@ asset_library = _asset_library
 css_library = _css_library
 css_module = _css_module
 json_library = _json_library
+
+# The compile rule: srcs, deps, tsconfig. Every compiler option is the
+# tsconfig's; the emit knobs are the flags in //ts:BUILD.bazel.
+ts_compile = _ts_compile
 
 # Standalone rules for advanced use cases.
 ts_codegen = _ts_codegen
@@ -63,183 +66,3 @@ ts_refresh_tsconfig = _ts_refresh_tsconfig
 # Copies build outputs into the source tree under `bazel run`. Pair it with
 # diff_test for a generated file that has to be checked in.
 refresh_workspace_files = _refresh_workspace_files
-
-def ts_compile(
-        name,
-        srcs,
-        deps = None,
-        target = "es2022",
-        jsx_mode = "react-jsx",
-        jsx_import_source = None,
-        lib = None,
-        types = None,
-        compiler_options = None,
-        tsconfig = None,
-        declarations = "tsgo",
-        enable_check = True,
-        source_map = True,
-        declaration_map = False,
-        tsgo_args = None,
-        path_aliases = None,
-        path_alias_srcs = None,
-        types_srcs = None,
-        vite_types = False,
-        **kwargs):
-    """Compiles TypeScript with oxc-bazel and emits declarations with tsgo.
-
-    oxc always does the JavaScript transform. The `declarations` attribute
-    decides who emits the .d.ts, and that choice is the one real trade-off in
-    this rule:
-
-    | declarations | annotations needed | type errors        | checking        |
-    |--------------|--------------------|--------------------|-----------------|
-    | "tsgo"       | none               | fail the build     | critical path   |
-    | "oxc"        | on every export    | fail _validation   | concurrent      |
-
-    Default "tsgo" works on unmodified TypeScript. Move a package to "oxc" once
-    every export carries an explicit type, to take type-checking off the
-    critical path.
-
-    ### Where compiler options come from
-
-    Lowest precedence first:
-
-    1. The baseline (strict, module Preserve, skipLibCheck, esModuleInterop,
-       plus moduleResolution Bundler without a `tsconfig`) -- with a `tsconfig`
-       it is a file that config extends FIRST, so it reaches only the keys the
-       file never mentions. moduleResolution is left to tsgo to derive from
-       whichever `module` wins, because TypeScript rejects a pair it did not
-       derive itself.
-    2. `tsconfig` -- the project's own tsconfig.json, and whatever it extends,
-       so tsgo checks the code under the same options `tsc` does.
-    3. `target` and `jsx_mode`, then `jsx_import_source`, `lib`, `types`, then
-       `compiler_options`, which wins among these.
-    4. The options Bazel owns: paths, include, outDir / rootDir / rootDirs,
-       baseUrl and the emit shape. Setting one of those in `compiler_options`
-       is an error that names the attribute to use instead.
-
-    `target` and `jsx_mode` are always injected, because oxc transforms with
-    them and the two compilers have to agree; a `target` or `jsx` in the
-    tsconfig file is superseded.
-
-    Args:
-        name:                  Target name.
-        srcs:                  TypeScript source files (.ts, .tsx).
-        deps:                  Dependency targets providing TsDeclarationInfo + JsInfo.
-        target:                ECMAScript target version (default "es2022").
-        jsx_mode:              JSX transform mode (default "react-jsx").
-        jsx_import_source:     compilerOptions.jsxImportSource, e.g. "solid-js"
-                               or "preact".
-        lib:                   compilerOptions.lib, e.g. ["es2022", "webworker"].
-                               Replaces the whole set `target` implies, which is
-                               how DOM gets dropped from a worker build.
-        types:                 compilerOptions.types -- which ambient type
-                               packages load. [] loads none, the only way to stop
-                               unrelated npm packages in the dep graph from
-                               reaching the global scope. Relative entries
-                               resolve against this target's package.
-                               An entry naming a package is resolved from `deps`,
-                               since there is no node_modules for TypeScript to
-                               walk, and one starting `./` or `../` is resolved
-                               against the source files this action stages -- its
-                               srcs, its deps' passed-through .d.ts, and
-                               `types_srcs` -- since that is what a path resolves
-                               against. An entry neither answers is an analysis
-                               error naming the dep or file to add; the
-                               compiler's own TS2688 names none. A target that
-                               sets typeRoots is exempt for the package shape --
-                               what sits under one is the compiler's to find --
-                               and not for a relative entry, which never goes
-                               through one.
-                               Only this attribute is read: a `types` in the
-                               `tsconfig` file is a layer the rule cannot read,
-                               so nothing resolves those entries and nothing
-                               guards them -- a package named only there reaches
-                               the compiler unresolved, and tsgo 7.0.2 reports
-                               TS2688 for it, naming no dep.
-        compiler_options:      Any other compilerOptions, as a dict, e.g.
-                               {"allowImportingTsExtensions": True}. Passed
-                               through verbatim; relative paths in them resolve
-                               against the generated tsconfig, so path-valued
-                               options belong in `tsconfig` instead (`types` and
-                               `typeRoots` being the two exceptions).
-        tsconfig:              Label of the project's tsconfig.json, or of a
-                               ts_config target when that file extends others.
-        declarations:          "tsgo" (default) or "oxc" -- see the table above.
-        enable_check:          Whether to run tsgo type-checking. Only meaningful
-                               with declarations = "oxc"; under "tsgo" the
-                               compiler emits and checks in one pass.
-        source_map:            Emit a .js.map next to every .js (default True).
-        declaration_map:       Emit a .d.ts.map next to every declaration, so
-                               go-to-definition across a package boundary lands
-                               on the .ts source. Needs the tsgo emit.
-        tsgo_args:             Extra tsgo flags, restricted to the ones that only
-                               report on the program (e.g. ["--traceResolution"]).
-        path_aliases:          Optional dict mapping path alias prefixes to workspace-relative
-                               source directory paths (e.g. {"@/": "src/"}). Injected into the
-                               tsgo tsconfig so aliases like `import "@/components"` resolve
-                               during type-checking. For a bare specifier that has to resolve
-                               to another target's generated declarations, set module_name on
-                               that target instead.
-        path_alias_srcs:       Labels whose files a path_aliases entry resolves to,
-                               when they are not in srcs. They become inputs to the
-                               type-check action.
-        types_srcs:            Labels whose files a relative `types` entry resolves
-                               to, when neither srcs nor a dep stages them. They
-                               become inputs to the type-check action, which is what
-                               makes the entry resolve; tsgo parses them as part of
-                               this program, so a syntax error in one fails this
-                               target, while what one declares goes unchecked under
-                               the baseline's skipLibCheck.
-        vite_types:            When True, automatically prepends the Vite client-side ambient
-                               type shim (@rules_typescript//ts:vite_env.d.ts) to srcs. This
-                               provides types for import.meta.env, import.meta.hot, and asset
-                               URL imports (*.svg, *.png, etc.) without requiring vite as a
-                               compile-time dependency. Default False.
-        **kwargs:              Additional args forwarded to the rule (e.g. module_name,
-                               public_globals, visibility, tags).
-    """
-    if deps == None:
-        deps = []
-
-    _fail_on_mixed_src_packages("ts_compile", name, srcs, declarations, enable_check)
-
-    if path_aliases != None:
-        kwargs["path_aliases"] = path_aliases
-    if path_alias_srcs != None:
-        kwargs["path_alias_srcs"] = path_alias_srcs
-    if types_srcs != None:
-        kwargs["types_srcs"] = types_srcs
-    if tsgo_args != None:
-        kwargs["tsgo_args"] = tsgo_args
-
-    # target and jsx_mode stay rule attrs (oxc needs them too), so the rule
-    # injects them; everything else reaches the tsconfig through this dict.
-    compiler_opts = {}
-    if jsx_import_source != None:
-        compiler_opts["jsxImportSource"] = jsx_import_source
-    if lib != None:
-        compiler_opts["lib"] = lib
-    if types != None:
-        compiler_opts["types"] = types
-    for key, value in (compiler_options or {}).items():
-        compiler_opts[key] = value
-
-    effective_srcs = srcs
-    if vite_types:
-        effective_srcs = ["@rules_typescript//ts:vite_env.d.ts"] + list(srcs)
-
-    _ts_compile_rule(
-        name = name,
-        srcs = effective_srcs,
-        deps = deps,
-        target = target,
-        jsx_mode = jsx_mode,
-        tsconfig = tsconfig,
-        compiler_options_json = json.encode(compiler_opts),
-        declarations = declarations,
-        enable_check = enable_check,
-        source_map = source_map,
-        declaration_map = declaration_map,
-        **kwargs
-    )

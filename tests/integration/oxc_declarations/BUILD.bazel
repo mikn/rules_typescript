@@ -1,13 +1,13 @@
 """Root BUILD file for the oxc_declarations integration test workspace.
 
-# gazelle:ts_declarations oxc puts the whole tree on oxc's syntactic emit,
-# which requires an explicit type on every export.
+.bazelrc puts the whole tree on oxc's syntactic emit
+(--@rules_typescript//ts:declarations=oxc), which requires an explicit type on
+every export.
 """
 
 load("@gazelle//:def.bzl", "gazelle")
 
 # gazelle:ts_package_boundary every-dir
-# gazelle:ts_declarations oxc
 
 gazelle(
     name = "gazelle",

@@ -498,3 +498,21 @@ func splitLabel(lbl string) (pkg, name string) {
 	}
 	return body, path.Base(body)
 }
+
+func generated(t *testing.T, root string, parts ...string) string {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join(append([]string{root}, parts...)...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(body)
+}
+
+func ruleNamed(rules []*rule.Rule, kind, name string) *rule.Rule {
+	for _, r := range rules {
+		if r.Kind() == kind && r.Name() == name {
+			return r
+		}
+	}
+	return nil
+}

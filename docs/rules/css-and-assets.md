@@ -190,8 +190,8 @@ asset.
 The expression is not checked. The generated file is a `.d.ts` and the ruleset
 compiles with `skipLibCheck`, so a name that does not resolve widens the import
 to `any` and every use of it type-checks. `--//ts:lib_check` turns `skipLibCheck`
-off for the whole build; `compiler_options = {"skipLibCheck": False}` turns it
-off on one target. Either surfaces the error:
+off for the whole build; `"skipLibCheck": false` in the target's tsconfig turns
+it off on one target. Either surfaces the error:
 
 ```
 bazel-out/k8-fastbuild/bin/web/assets/logo.svg.d.ts(4,22): error TS2304: Cannot find name 'Fc'.
@@ -203,9 +203,9 @@ the type, so the error leads back to the BUILD file.
 A `declare module "*.svg"` in the project does not apply. TypeScript prefers
 the concrete `logo.svg.d.ts` this rule writes beside the asset over a wildcard
 pattern, so the generated declaration wins. `declaration_type` is the way to
-change it. An alias reaches the same declaration: `path_aliases` names a source
-directory, and the rule maps the prefix onto that directory and its `bazel-bin`
-mirror, where the generated declaration lands. Only a declaration the target
+change it. An alias reaches the same declaration: a tsconfig `paths` value names
+a source directory, and the rule rewrites it to that directory and its
+`bazel-bin` twin, where the generated declaration lands. Only a declaration the target
 depends on is in the sandbox, so the dep decides what an aliased import resolves
 to.
 

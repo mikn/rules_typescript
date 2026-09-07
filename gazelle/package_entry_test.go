@@ -93,9 +93,9 @@ func TestResolvePathAlias_DirectoryUsesPackageJSONEntry(t *testing.T) {
 	c := repoWith(t, map[string]string{
 		"packages/lib/package.json": `{"main": "./src/entry.ts"}`,
 	})
-	c.Exts[languageName] = makeConfig("", []rule.Directive{
-		directive("ts_path_alias", "~pkg/ packages/"),
-	})
+	tc := makeConfig("", nil)
+	tc.pathAliases = map[string]string{"~pkg/": "packages/"}
+	c.Exts[languageName] = tc
 	ix := buildIndex(t, c,
 		indexedRule{kind: "ts_compile", name: "src", pkg: "packages/lib/src", srcs: []string{"entry.ts"}},
 	)

@@ -1,10 +1,9 @@
 """A worker typed against the worker-configuration.d.ts Bazel generates.
 
-The layout is the one Gazelle writes under a tsconfig that names the file: the
-project tsconfig here, the sources one package down, and the declaration a
-`types` entry rebased onto the target below with `types_srcs` naming the label
-that stages it -- the ts_codegen running `wrangler types`, since the file exists
-nowhere in the source tree.
+The layout is the one a tsconfig that names the file gives: the project
+tsconfig here, the sources one package down, and the declaration a `types`
+entry the target below resolves to a dep's output -- the ts_codegen running
+`wrangler types`, since the file exists nowhere in the source tree.
 """
 
 load("@rules_go//go:def.bzl", "go_test")

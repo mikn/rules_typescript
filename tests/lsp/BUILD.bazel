@@ -1,36 +1,33 @@
 """Tests for the tsserver resolution plugin and hook (//tools:tsserver-plugin.js,
-//tools:tsserver-hook.js).
+//tools:tsserver-hook.js), and for the tsconfig an editor reads.
 
-  :test_resolution_map          the worker over what //:refresh_tsconfig really
-                                generates for this repo, staged into a scratch
-                                workspace by its own copier. Only the npm half
-                                of the map is visible from there.
-  :test_worker_map              the same worker against a fixture workspace: npm
-                                (both forms of entry point), internal ts_compile
-                                packages, and path aliases, including what must
-                                stay OUT of the map.
-  :test_fragment_map            the same worker again, over the fragment bytes a
-                                real build wrote for a package-private target:
-                                the .bazelrc-optional half of the map.
-  :module_paths_test            what the generated tsconfig says about a
-                                `module_name` and about extra_exclude.
-  :member_paths_test            and what it says about a pnpm workspace member,
-                                whose specifiers its own package.json declares.
+  :test_worker_map              the worker against a fixture workspace: internal
+                                ts_compile packages, including what must stay
+                                OUT of the map.
+  :test_fragment_map            the same worker, over the fragment bytes a real
+                                build wrote for a package-private target: the
+                                .bazelrc-optional half of the map.
+  :editor_paths_test            that the generated tsconfig's `paths` hold
+                                first-party packages and nothing an npm dep
+                                brings: the checkout's node_modules answers npm.
+  :member_paths_test            that the generated tsconfig says nothing about a
+                                pnpm workspace member, which the checkout's
+                                node_modules links.
   :fragments_reach_private_test  that those bytes exist at all, for a target no
                                 rule in this package may name.
   :test_resolve_integration     the monkey-patch itself -- ts.resolveModuleName
-                                returns lockfile .d.ts paths and follows
-                                ts_path_alias prefixes.
+                                answers a first-party package out of the map and
+                                falls through for everything else.
   :test_tsserver_diagnostics    a TypeScript language service with the hook
-                                active type-checks `import from "zod"` against
-                                zod's real declarations.
+                                active type-checks an import of a first-party
+                                package against the .d.ts the map names.
   :test_tsserver_plugin         gold test: a real tsserver process, driven over
                                 its own protocol, with the plugin refresh_tsconfig
                                 installs. The only test here whose subject is
                                 what an editor actually runs.
 
-The last three get node from the JS runtime toolchain and typescript/zod/vitest
-from the lockfile via :lsp_node_modules, so they need nothing from the host.
+The last three get node from the JS runtime toolchain and typescript from the
+lockfile via :lsp_node_modules, so they need nothing from the host.
 """
 
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
@@ -40,12 +37,8 @@ load("//ts/private:tsconfig_aspect.bzl", "ide_tsconfig")
 load(":fragment_tests.bzl", "fragment_files", "fragments_reach_private_test")
 load(
     ":ide_tsconfig_tests.bzl",
-    "ambient_types_test",
+    "editor_paths_test",
     "member_paths_test",
-    "module_paths_test",
-    "no_ambient_types_test",
-    "npm_json_installed_test",
-    "transitive_types_pairing_test",
 )
 
 package(default_visibility = ["//:__pkg__"])
@@ -56,33 +49,9 @@ package(default_visibility = ["//:__pkg__"])
 node_modules(
     name = "lsp_node_modules",
     testonly = True,
-    deps = [
-        "@npm//:typescript",
-        "@npm//:vitest",
-        "@npm//:zod",
-    ],
+    deps = ["@npm//:typescript"],
 )
 
-sh_test(
-    name = "test_resolution_map",
-    size = "small",
-    srcs = ["test_resolution_map.sh"],
-    data = [
-        "resolution_map_test.mjs",
-        # The run target, for its manifest and the files it installs: staging
-        # them here is what makes the npm entry points under test the real ones.
-        "//:refresh_tsconfig",
-        "//tools:tsserver-hook.js",
-        "//tools:tsserver-hook-resolver.js",
-        "//tools:tsserver-hook-worker.js",
-        "//ts/toolchain:node_resolved",
-    ],
-    deps = ["@bazel_tools//tools/bash/runfiles"],
-)
-
-# The same worker against a fixture workspace, where the internal-package and
-# path-alias halves of the map are checked too -- neither survives the staging
-# :test_resolution_map does, which is why that one sees only the npm half.
 sh_test(
     name = "test_worker_map",
     size = "small",
@@ -127,7 +96,6 @@ sh_test(
     size = "small",
     srcs = ["test_resolve_integration.sh"],
     data = [
-        "dts_entry.mjs",
         "resolve_test.mjs",
         ":lsp_node_modules",
         "//tools:tsserver-hook.js",
@@ -142,7 +110,6 @@ sh_test(
     size = "small",
     srcs = ["test_tsserver_diagnostics.sh"],
     data = [
-        "dts_entry.mjs",
         "tsserver_diag_test.mjs",
         ":lsp_node_modules",
         "//tools:tsserver-hook.js",
@@ -169,68 +136,31 @@ sh_test(
     deps = ["@bazel_tools//tools/bash/runfiles"],
 )
 
-# ── Ambient @types/* declarations in the generated tsconfig ───────────────────
-# The two fixtures differ only in the @types/node dep, so the pair is what
-# attributes the `files` entry to that dep rather than to anything else the
-# aspect walks. Analysed, not built: the tsconfig is written at analysis time.
+# ── What the generated tsconfig says about npm ────────────────────────────────
+# An npm dep, an @types/* dep, and a root config naming neither; analysed only.
 ts_compile(
-    name = "ambient_fixture",
-    srcs = ["ambient_fixture.ts"],
+    name = "npm_fixture",
+    srcs = ["npm_fixture.ts"],
     tags = ["manual"],
-    deps = ["@npm//:types_node"],
-)
-
-ts_compile(
-    name = "plain_fixture",
-    srcs = ["plain_fixture.ts"],
-    tags = ["manual"],
+    deps = [
+        "@npm//:types_node",
+        "@npm//:zod",
+    ],
 )
 
 ide_tsconfig(
-    name = "ambient_ide_tsconfig",
+    name = "npm_fixture_ide_tsconfig",
     tags = ["manual"],
-    deps = [":ambient_fixture"],
+    deps = [":npm_fixture"],
 )
 
-ide_tsconfig(
-    name = "plain_ide_tsconfig",
-    tags = ["manual"],
-    deps = [":plain_fixture"],
-)
-
-ambient_types_test(
-    name = "ambient_types_test",
-    target_under_test = ":ambient_ide_tsconfig",
-)
-
-no_ambient_types_test(
-    name = "no_ambient_types_test",
-    target_under_test = ":plain_ide_tsconfig",
-)
-
-# ── module_name and extra_exclude ─────────────────────────────────────────────
-# The two things the graph knows that no package path does: the bare specifier a
-# target declares, and the trees that are not in the graph at all.
-ide_tsconfig(
-    name = "module_ide_tsconfig",
-    extra_exclude = ["**/vendor"],
-    tags = ["manual"],
-    deps = ["//tests/lsp/module_fixture:widget"],
-)
-
-module_paths_test(
-    name = "module_paths_test",
-    target_under_test = ":module_ide_tsconfig",
+editor_paths_test(
+    name = "editor_paths_test",
+    target_under_test = ":npm_fixture_ide_tsconfig",
 )
 
 # ── The same question for a pnpm workspace member ─────────────────────────────
-# A member's bare specifier and its subpaths are declared in its own
-# package.json, and //packages/pulse is the member whose manifest is the whole
-# fixture. The editor map guessed `<root>/index` and `<root>/*` for both, which
-# resolves `pulse` by luck and `pulse/button` not at all -- while the tsconfig
-# ts_compile generates for the same member reads the manifest
-# (//tests/compiler_options/analysis:module_exports_paths_test). Two answers for
-# one import is the divergence a generated editor config exists to end.
+# Both resolvers read the manifest; the editor map has no //packages/pulse key.
 ide_tsconfig(
     name = "member_ide_tsconfig",
     tags = ["manual"],
@@ -240,35 +170,4 @@ ide_tsconfig(
 member_paths_test(
     name = "member_paths_test",
     target_under_test = ":member_ide_tsconfig",
-)
-
-# ── The @types/* pairing behind a transitive edge ─────────────────────────────
-# vitest -> @vitest/expect -> chai, where chai ships no declarations at all and
-# @types/chai holds them. Reading the pairing from the direct deps alone loses
-# chai from `paths` entirely, while the tsconfig ts_compile generates for the
-# same target still resolves it -- the divergence this pins.
-ts_compile(
-    name = "transitive_types_fixture",
-    srcs = ["transitive_types_fixture.ts"],
-    tags = ["manual"],
-    deps = ["@npm//:vitest"],
-)
-
-ide_tsconfig(
-    name = "transitive_types_ide_tsconfig",
-    tags = ["manual"],
-    deps = [":transitive_types_fixture"],
-)
-
-transitive_types_pairing_test(
-    name = "transitive_types_pairing_test",
-    target_under_test = ":transitive_types_ide_tsconfig",
-)
-
-# The same closure, for the .json half: `entities` is the one package in
-# //tests/npm's lockfile shipping both declarations and a non-manifest .json,
-# and vitest reaches it.
-npm_json_installed_test(
-    name = "npm_json_installed_test",
-    target_under_test = ":transitive_types_ide_tsconfig",
 )

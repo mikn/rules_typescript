@@ -1,9 +1,32 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
-load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
-
-# gazelle:ts_exclude vite_env.d.ts
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag")
 
 package(default_visibility = ["//visibility:public"])
+
+# Who emits the .d.ts: tsgo from the full program (the check on the critical
+# path), or oxc syntactically (every export annotated; the check is concurrent).
+string_flag(
+    name = "declarations",
+    build_setting_default = "tsgo",
+    values = [
+        "tsgo",
+        "oxc",
+    ],
+)
+
+# A .js.map beside every .js oxc writes; off for a build whose bundler makes
+# its own.
+bool_flag(
+    name = "source_map",
+    build_setting_default = True,
+)
+
+# A .d.ts.map beside every declaration tsgo emits, so go-to-definition across a
+# package boundary lands on the .ts source.
+bool_flag(
+    name = "declaration_map",
+    build_setting_default = False,
+)
 
 # `bazel build //... --//ts:lib_check` type-checks every .d.ts in every program,
 # including the ones npm shipped. The baseline sets skipLibCheck, which is what
@@ -13,11 +36,6 @@ bool_flag(
     name = "lib_check",
     build_setting_default = False,
 )
-
-# Ambient type shim for Vite client-side globals (import.meta.env, asset URLs).
-# Users can add this to their ts_compile srcs, or set vite_types = True on
-# ts_compile which auto-includes it.
-exports_files(["vite_env.d.ts"])
 
 # //tests/api_surface:defs_surface_test reads the exported names out of it.
 exports_files(["defs.bzl"])

@@ -8,8 +8,9 @@ package.  It wraps a downloaded npm package directory and exposes:
 
 Key behaviour:
   - @types/* packages are paired with their untyped counterparts: when
-    npm_translate_lock creates a `react` target it also attaches the
-    declarations from `@types/react` if present.
+    npm_translate_lock creates a `react` target it also attaches `@types/react`
+    if present, and the pair travels in the closure so a node_modules forest
+    links the two side by side, where TypeScript looks for them.
   - The `package_dir` field points at the root of the extracted package.
   - Transitive deps are expressed as NpmPackageInfo.transitive_deps.
 """
@@ -26,46 +27,6 @@ def _is_js(f):
     """Returns True for .js/.mjs/.cjs files (excludes .d.ts which has extension 'ts')."""
     return f.extension in ("js", "mjs", "cjs") and not _is_dts(f)
 
-def declares_only_types(basenames):
-    """Whether a package ships declarations and no runtime JavaScript.
-
-    `is_types_package` is decided from the package name, which catches
-    everything under `@types/` and nothing else. A package can be types-only
-    under any name -- @cloudflare/workers-types is one, and so is most vendor
-    typing -- and for those the globals it exists to declare never join the
-    program: `types` cannot name them (no node_modules to walk) and importing
-    them fails, because ambient declarations export nothing.
-
-    What actually distinguishes such a package is its contents, which is what
-    this reads. A package with any runtime module in it is a normal dependency
-    whose declarations describe its exports, not ambient globals to be loaded.
-
-    Args:
-        basenames: Every file the package ships, as basenames.
-    """
-    has_dts = False
-    for name in basenames:
-        if name.endswith(".d.ts") or name.endswith(".d.mts") or name.endswith(".d.cts"):
-            has_dts = True
-        elif name.endswith(".js") or name.endswith(".mjs") or name.endswith(".cjs"):
-            return False
-    return has_dts
-
-def _ambient_entry(package_root, dts_files, exports_types):
-    """The .d.ts whose ambient declarations stand for the whole types package.
-
-    tsconfig `typeRoots` cannot name it: TypeScript reads a typeRoot as a
-    directory whose *children* are the type packages, and one-repo-per-package
-    gives every package its own repo root with no such shared parent. So the
-    entry point is named directly instead, in the consumer's `files`.
-    """
-    if exports_types:
-        return exports_types
-    for f in dts_files:
-        if f.dirname == package_root and f.basename == "index.d.ts":
-            return f
-    return None
-
 # ─── Rule implementation ───────────────────────────────────────────────────────
 
 def _ts_npm_package_impl(ctx):
@@ -76,32 +37,21 @@ def _ts_npm_package_impl(ctx):
 
     js_files = [f for f in all_files if _is_js(f)]
     dts_files = [f for f in all_files if _is_dts(f)]
-    json_files = [f for f in all_files if f.extension == "json"]
-
-    # A .ts module entry rides with the declarations: the compile action stages
-    # nothing else of the package, and a `paths` value it cannot open is TS2307.
-    module_entry = ctx.file.module_entry or ctx.file.exports_types
-    staged_dts = dts_files + ([module_entry] if module_entry and not _is_dts(module_entry) else [])
 
     # Also collect declarations from an explicitly linked @types dep.
     # Do NOT call .to_list() — use depset transitive to avoid materialization.
     types_dts_direct = depset()
-    types_package_dir = None
-    if ctx.attr.types_dep:
-        types_info = ctx.attr.types_dep
-        if NpmPackageInfo in types_info:
-            types_package_dir = types_info[NpmPackageInfo].package_dir
-        if TsDeclarationInfo in types_info:
-            # Pull the direct declaration_files (not full transitive) of the
-            # @types package as the direct contribution of this npm target.
-            types_dts_direct = types_info[TsDeclarationInfo].declaration_files
+    if ctx.attr.types_dep and TsDeclarationInfo in ctx.attr.types_dep:
+        # Pull the direct declaration_files (not full transitive) of the
+        # @types package as the direct contribution of this npm target.
+        types_dts_direct = ctx.attr.types_dep[TsDeclarationInfo].declaration_files
 
     # Collect transitive data from npm dep targets.
     transitive_js_sets = [depset(js_files)]
 
     # Start the dts transitive set with this package's own files plus the
     # types dep's full transitive declarations (without materializing them).
-    transitive_dts_sets = [depset(staged_dts), types_dts_direct]
+    transitive_dts_sets = [depset(dts_files), types_dts_direct]
     if ctx.attr.types_dep and TsDeclarationInfo in ctx.attr.types_dep:
         transitive_dts_sets.append(ctx.attr.types_dep[TsDeclarationInfo].transitive_declaration_files)
 
@@ -123,33 +73,13 @@ def _ts_npm_package_impl(ctx):
 
     # Direct declaration files = this package's own .d.ts + the types dep's
     # direct declarations (not the full transitive closure).
-    direct_decls = depset(staged_dts, transitive = [types_dts_direct])
+    direct_decls = depset(dts_files, transitive = [types_dts_direct])
 
-    # The declaration files the manifest designated behind a subpath, resolved
-    # against what the package actually shipped. Matching on the package-relative
-    # suffix is what the two have in common: the dict is written at repo-rule
-    # time from the manifest, and these Files carry a repo-prefixed exec path.
-    package_root = package_dir.dirname
-    subpath_types = {}
-    for subpath, rel in ctx.attr.subpath_types.items():
-        want = package_root + "/" + rel
-        for f in dts_files:
-            if f.path == want:
-                subpath_types[subpath] = f
-                break
-
-    type_references = {
-        package_root + "/" + rel: names
-        for rel, names in ctx.attr.type_references.items()
-    }
-
-    ambient_types_file = None
-    if ctx.attr.is_types_package or declares_only_types([f.basename for f in all_files]):
-        ambient_types_file = _ambient_entry(
-            package_dir.dirname,
-            dts_files,
-            ctx.file.exports_types,
-        )
+    # The paired @types/* package travels in the closure so a forest links it
+    # beside this package, where TypeScript looks for `@types/<name>`.
+    if ctx.attr.types_dep and NpmPackageInfo in ctx.attr.types_dep:
+        types_npm = ctx.attr.types_dep[NpmPackageInfo]
+        transitive_npm_dep_sets.append(depset([types_npm], transitive = [types_npm.transitive_deps]))
 
     transitive_npm_deps = depset(
         direct_npm_dep_infos,
@@ -174,8 +104,6 @@ def _ts_npm_package_impl(ctx):
                 order = "postorder",
             ),
             transitive_npm_packages = transitive_npm_deps,
-            global_entry_files = depset(),
-            transitive_global_entry_files = depset(),
         ),
         NpmPackageInfo(
             package_name = ctx.attr.package_name,
@@ -185,21 +113,12 @@ def _ts_npm_package_impl(ctx):
             package_root = package_dir.dirname,
             all_files = depset(all_files),
             js_files = depset(js_files),
-            json_files = depset(json_files),
-            declaration_files = direct_decls,
             direct_deps = direct_npm_dep_infos,
             transitive_deps = transitive_npm_deps,
             transitive_package_dirs = depset(
                 transitive = transitive_pkg_dir_sets,
                 order = "postorder",
             ),
-            exports_types_file = ctx.file.exports_types,
-            module_entry_file = module_entry,
-            subpath_types = subpath_types,
-            subpath_patterns = ctx.attr.subpath_patterns,
-            type_references = type_references,
-            ambient_types_file = ambient_types_file,
-            types_package_dir = types_package_dir,
         ),
     ]
 
@@ -240,53 +159,6 @@ ts_npm_package = rule(
             doc = "The @types/* package that provides declarations for this package (if separate).",
             providers = [[TsDeclarationInfo]],
         ),
-        "is_types_package": attr.bool(
-            doc = "True if this package is a @types/* declaration package.",
-            default = False,
-        ),
-        "subpath_types": attr.string_dict(
-            doc = "Each non-root `exports` subpath that designates a declaration, " +
-                  "mapped to that declaration's package-relative path. A consumer " +
-                  "naming one in `compiler_options[\"types\"]` gets the file in its " +
-                  "tsconfig `files`: tsconfig `types` resolves through node_modules, " +
-                  "and npm packages reach the compiler through `paths`. A subpath " +
-                  "this map leaves unnamed is looked for among the package's own " +
-                  "declarations instead.",
-        ),
-        "subpath_patterns": attr.string_dict(
-            doc = "Each one-star `exports` subpath, mapped to the package-relative " +
-                  "pattern the first condition to fit one star names, star and " +
-                  "suffix kept (`\"./*\": \"dist/esm/*\"`), or to the one file every " +
-                  "match resolves to when that target has no star. A consumer writes " +
-                  "it as the first value of the `paths` key for the subpath, ahead of " +
-                  "the wildcard's layout guesses: `paths` substitutes into the whole " +
-                  "value and never consults `exports`. Written by npm_import.",
-        ),
-        "type_references": attr.string_list_dict(
-            doc = "Each declaration the manifest designates -- the entry and the " +
-                  "`exports` subpaths -- keyed by package-relative path, mapped to the " +
-                  "packages its `/// <reference types=...>` directives name, the " +
-                  "`/// <reference path=...>` siblings it pulls in included. TypeScript " +
-                  "resolves the directive through node_modules, which a consumer's " +
-                  "sandbox has none of, so the consumer resolves each name against this " +
-                  "package's deps and lists the answer beside the file in its tsconfig " +
-                  "`files`. Written by npm_import from the files themselves.",
-        ),
-        "exports_types": attr.label(
-            doc = "The declaration a `compilerOptions.types` entry or a `/// <reference " +
-                  "types>` directive resolves the package to: the `exports` root, " +
-                  "`typings`, `types`, `main`, then `index.d.ts`, declarations only, as " +
-                  "resolveTypeReferenceDirective reads them. Written by npm_import.",
-            allow_single_file = True,
-        ),
-        "module_entry": attr.label(
-            doc = "The file a bare import of the package resolves to: the same walk with " +
-                  "`.ts` and `.tsx` taken ahead of the `.d.ts` beside a `.js` target and " +
-                  "`index.ts`, `index.tsx` ahead of `index.d.ts`. A `.ts` here is staged " +
-                  "with the declarations, since the compile action reads nothing else of " +
-                  "the package. Written by npm_import; unset, `exports_types` answers.",
-            allow_single_file = True,
-        ),
     },
     doc = """Wraps a downloaded npm package as a Bazel target.
 
@@ -295,7 +167,7 @@ ts_compile targets can depend on npm packages using the same dep mechanism
 as first-party TypeScript targets.
 
 @types/* packages paired via types_dep contribute their .d.ts files to the
-TsDeclarationInfo of the runtime package.
+TsDeclarationInfo of the runtime package and travel in its closure.
 
 Example (generated by npm_translate_lock):
     ts_npm_package(

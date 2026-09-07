@@ -1,0 +1,9 @@
+"""A workspace member: its package.json names it, and the lockfile links it."""
+
+load("//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "lib",
+    srcs = ["index.ts"],
+    visibility = ["//visibility:public"],
+)

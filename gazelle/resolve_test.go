@@ -20,22 +20,18 @@ import (
 // indexedRule is one rule to put in the RuleIndex: a kind, a target name, the
 // Bazel package it lives in, and its srcs.
 type indexedRule struct {
-	kind       string
-	name       string
-	pkg        string
-	srcs       []string
-	moduleName string
-	outDir     string
-	outs       []string
+	kind   string
+	name   string
+	pkg    string
+	srcs   []string
+	outDir string
+	outs   []string
 }
 
 func newRule(ir indexedRule) (*rule.Rule, *rule.File) {
 	r := rule.NewRule(ir.kind, ir.name)
 	if ir.srcs != nil {
 		r.SetAttr("srcs", ir.srcs)
-	}
-	if ir.moduleName != "" {
-		r.SetAttr("module_name", ir.moduleName)
 	}
 	if ir.outDir != "" {
 		r.SetAttr("out_dir", ir.outDir)
@@ -107,26 +103,6 @@ func TestImportsForRule_TsCompile(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("importsForRule(ts_compile) = %v, want %v", got, want)
-	}
-}
-
-func TestImportsForRule_ModuleNameIsIndexed(t *testing.T) {
-	c := emptyConfig()
-	r, f := newRule(indexedRule{
-		kind: "ts_compile", name: "lib", pkg: "packages/lib",
-		srcs: []string{"index.ts", "helpers.ts"}, moduleName: "@acme/lib",
-	})
-
-	got := specStrings(importsForRule(c, r, f))
-	want := []string{
-		"packages/lib/index",
-		"packages/lib",
-		"packages/lib/helpers",
-		"@acme/lib",
-		"@acme/lib/helpers",
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("importsForRule(module_name) = %v, want %v", got, want)
 	}
 }
 
@@ -419,11 +395,16 @@ func TestModuleIndexKeys_DropsTheSpelledOutExtension(t *testing.T) {
 // ---- path aliases ----------------------------------------------------------
 
 func aliasConfig() *config.Config {
+	return configWithAliases(map[string]string{"@/": "src/", "~ui/": "packages/ui/src/"})
+}
+
+// configWithAliases is a root config whose alias map is the given one, the
+// shape loadTsConfigPaths leaves behind for the resolver.
+func configWithAliases(aliases map[string]string) *config.Config {
 	c := emptyConfig()
-	c.Exts[languageName] = makeConfig("", []rule.Directive{
-		directive("ts_path_alias", "@/ src/"),
-		directive("ts_path_alias", "~ui/ packages/ui/src/"),
-	})
+	tc := makeConfig("", nil)
+	tc.pathAliases = aliases
+	c.Exts[languageName] = tc
 	return c
 }
 
@@ -762,10 +743,7 @@ func TestResolveImport_BareSpecifiers(t *testing.T) {
 	c.Exts[languageName] = makeConfig("", nil)
 	tc := getConfig(c)
 	ix := buildIndex(t, c,
-		indexedRule{
-			kind: "ts_compile", name: "lib", pkg: "packages/lib",
-			srcs: []string{"index.ts"}, moduleName: "@acme/lib",
-		},
+		indexedRule{kind: "ts_compile", name: "lib", pkg: "packages/lib", srcs: []string{"index.ts"}},
 	)
 	from := label.New("", "app", "app")
 
@@ -774,9 +752,9 @@ func TestResolveImport_BareSpecifiers(t *testing.T) {
 		imp  string
 		want string
 	}{
-		// A workspace link's package name is a first-party target, not a
-		// package in the hub.
-		{"module_name of a first-party target", "@acme/lib", "//packages/lib"},
+		// A bare name no alias and no lockfile member covers is the hub's,
+		// whatever first-party target happens to be indexed.
+		{"a bare name is not a first-party target", "@acme/lib", "@npm//:acme_lib"},
 		// Node builtins are not packages under either spelling.
 		{"bare builtin", "path", ""},
 		{"bare builtin sub-path", "fs/promises", ""},
@@ -964,10 +942,7 @@ func TestLabelForUnindexed_UnclassifiedExtensionFabricatesNothing(t *testing.T) 
 // -- used to become a cross-package label, and "no such package" fails analysis
 // for every target in the build where a dropped dep leaves one TS2307.
 func TestResolveImports_MissingDirectoryFabricatesNothing(t *testing.T) {
-	c := emptyConfig()
-	c.Exts[languageName] = makeConfig("", []rule.Directive{
-		directive("ts_path_alias", "#shared/ web/shared/"),
-	})
+	c := configWithAliases(map[string]string{"#shared/": "web/shared/"})
 	repoWithDirs(t, c, "web/src", "web/shared")
 	ix := buildIndex(t, c)
 	from := label.New("", "web", "web")
@@ -1434,15 +1409,12 @@ func TestImportsForRule_CodegenOutDirIsIndexed(t *testing.T) {
 	r, f := newRule(indexedRule{
 		kind: "ts_codegen", name: "paraglide_messages", pkg: "web",
 		srcs: []string{"i18n/settings.json"}, outDir: "shared/i18n/compiled",
-		moduleName: "#shared/i18n/compiled",
 	})
 
 	got := specStrings(importsForRule(c, r, f))
 	want := []string{
 		"web/shared/i18n/compiled",
 		"ts_codegen_tree:web/shared/i18n/compiled",
-		"#shared/i18n/compiled",
-		"ts_codegen_tree:#shared/i18n/compiled",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("importsForRule(ts_codegen) = %v, want %v", got, want)
@@ -1457,24 +1429,19 @@ func TestImportsForRule_CodegenOutsIsNotImportable(t *testing.T) {
 	})
 
 	if got := importsForRule(c, r, f); got != nil {
-		t.Errorf("importsForRule(outs ts_codegen) = %v, want nil: it returns no JsInfo, so no dep on it resolves", got)
+		t.Errorf("importsForRule(outs ts_codegen) = %v, want nil: its outs are the companion ts_compile's modules, so no import resolves to the codegen", got)
 	}
 }
 
-// The measured monorepo shape: an out_dir ts_codegen in the same package as the
-// targets importing its modules, reached by a tsconfig path alias, by the
-// module_name itself, and by a relative specifier rebased onto the package.
+// The measured monorepo shape: an out_dir ts_codegen beside the targets that
+// import its modules, by a path alias and by a relative specifier.
 func TestResolveImport_CodegenTreeSubpath(t *testing.T) {
-	c := emptyConfig()
-	c.Exts[languageName] = makeConfig("", []rule.Directive{
-		directive("ts_path_alias", "#shared/ web/shared/"),
-	})
+	c := configWithAliases(map[string]string{"#shared/": "web/shared/"})
 	tc := getConfig(c)
 	ix := buildIndex(t, c,
 		indexedRule{
 			kind: "ts_codegen", name: "paraglide_messages", pkg: "web",
 			srcs: []string{"i18n/settings.json"}, outDir: "shared/i18n/compiled",
-			moduleName: "#shared/i18n/compiled",
 		},
 		indexedRule{kind: "ts_compile", name: "lib", pkg: "src/lib", srcs: []string{"index.ts"}},
 	)
@@ -1495,31 +1462,6 @@ func TestResolveImport_CodegenTreeSubpath(t *testing.T) {
 	} {
 		if got := resolveImport(c, ix, tc, "ts_compile", nil, tt.imp, from); got != tt.want {
 			t.Errorf("%s: resolveImport(%q) = %q, want %q", tt.name, tt.imp, got, tt.want)
-		}
-	}
-}
-
-// A module_name that no path alias covers takes the bare-specifier ladder, and
-// has to reach the tree before the npm hub claims the name.
-func TestResolveImport_CodegenModuleNameBeatsTheNpmHub(t *testing.T) {
-	c := emptyConfig()
-	c.Exts[languageName] = makeConfig("", nil)
-	tc := getConfig(c)
-	ix := buildIndex(t, c, indexedRule{
-		kind: "ts_codegen", name: "prisma_client", pkg: "packages/db",
-		srcs: []string{"schema.prisma"}, outDir: "generated/client",
-		moduleName: "@acme/db-client",
-	})
-	from := label.New("", "src/app", "app")
-
-	for imp, want := range map[string]string{
-		"@acme/db-client":            "//packages/db:prisma_client",
-		"@acme/db-client/models":     "//packages/db:prisma_client",
-		"@acme/db-client/a/b/c":      "//packages/db:prisma_client",
-		"@acme/db-client-extensions": "@npm//:acme_db-client-extensions",
-	} {
-		if got := resolveImport(c, ix, tc, "ts_compile", nil, imp, from); got != want {
-			t.Errorf("resolveImport(%q) = %q, want %q", imp, got, want)
 		}
 	}
 }

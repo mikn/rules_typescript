@@ -3,8 +3,6 @@
   "compilerOptions": {
     "composite": false,
     "incremental": false,
-    "module": "preserve",
-    "moduleResolution": "bundler",
     "noEmit": true,
     "rootDir": "."
   },
@@ -13,16 +11,11 @@
     "../tsconfig.json",
     "./vite.tsconfig.json"
   ],
-  "files": [
-    "../.bazel/npm/@cloudflare/vitest-pool-workers/types/cloudflare-test.d.ts",
-    "../.bazel/npm/@types/node/index.d.ts",
-    "../.bazel/npm/vitest/globals.d.ts"
-  ],
+  "files": [],
   "include": [
     "src/index.ts",
     "src/plugin.ts",
     "src/resolver.ts",
-    "src/watcher.ts",
-    "tsup.config.ts"
+    "src/watcher.ts"
   ]
 }

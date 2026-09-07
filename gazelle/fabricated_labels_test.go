@@ -44,9 +44,9 @@ func TestResolveImports_EveryDepNamesSomethingLoadable(t *testing.T) {
 	writeFile(t, filepath.Join(root, "web/tools/.internal/BUILD.bazel"), "")
 
 	c := &config.Config{RepoRoot: root, Exts: make(map[string]interface{})}
-	c.Exts[languageName] = makeConfig("", []rule.Directive{
-		directive("ts_path_alias", "@/ web/shared/"),
-	})
+	tc := makeConfig("", nil)
+	tc.pathAliases = map[string]string{"@/": "web/shared/"}
+	c.Exts[languageName] = tc
 	ix := buildIndex(t, c,
 		indexedRule{kind: "ts_compile", name: "lib", pkg: "web/shared/lib", srcs: []string{"index.ts"}},
 	)
@@ -112,8 +112,7 @@ func assertLoadable(t *testing.T, c *config.Config, ambient []string, imp, dep s
 	pkg, ok := strings.CutPrefix(dep, "//")
 	if !ok {
 		// An external repository has no oracle here, bar one: a specifier the
-		// target's own sources declare is installed nowhere, so no hub declares
-		// a target for it. //tests/ambient_npm_types is the end-to-end claim.
+		// target's own sources declare is installed nowhere, so no hub target has it.
 		if declaredAmbiently(ambient, imp) {
 			t.Errorf("%s: dep %q, but the target's own sources declare the module", imp, dep)
 		}
