@@ -890,23 +890,6 @@ func npmHubLabel(tc *tsConfig, pkgName string) string {
 	return hub + "//:" + npmPackageToLabelName(pkgName)
 }
 
-// npmPackageToLabelName converts an npm package name to a Bazel label name
-// component, matching the logic in rules_typescript's npm_translate_lock.bzl.
-//
-// Examples:
-//
-//	"vitest"          → "vitest"
-//	"@types/react"    → "types_react"
-//	"@tanstack/router" → "tanstack_router"
-func npmPackageToLabelName(pkgName string) string {
-	name := pkgName
-	if strings.HasPrefix(name, "@") {
-		name = name[1:] // drop the leading "@"
-	}
-	name = strings.ReplaceAll(name, "/", "_")
-	return name
-}
-
 // barePackageName extracts the npm package name from an import specifier,
 // handling scoped packages correctly.
 //

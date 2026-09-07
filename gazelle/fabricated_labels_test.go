@@ -12,21 +12,8 @@ import (
 	"github.com/bazelbuild/bazel-gazelle/rule"
 )
 
-// Seven defects so far are one defect, in two directions: Gazelle wrote a dep
-// naming something that cannot exist -- Bazel answers `no such package` /
-// `no such target` during ANALYSIS, failing every target in the build -- or a
-// guard against that dropped a dep that named something real.
-//
-// The guards live apart because the specifiers reach the label by different
-// routes. The invariant does not: whatever route a dep came by, it must name
-// something -- and a specifier whose package is real must still produce one.
-// This test is that invariant, run over a corpus holding every shape that has
-// broken so far, with the exact deps each one owes.
-//
-// The npm half of the corpus is checked for a loadable label only. The
-// inventory would be the oracle for whether the hub declares a name, and it
-// under-claims -- selfImportLock's own `zod` is missing from it -- so a
-// membership assertion here would encode the parser's gaps as the contract.
+// Every dep Gazelle writes must name a loadable label -- `no such target` at
+// analysis fails the whole build -- and a real package must still get one.
 func TestResolveImports_EveryDepNamesSomethingLoadable(t *testing.T) {
 	root := t.TempDir()
 	for _, dir := range []string{

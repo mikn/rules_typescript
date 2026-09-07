@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -33,33 +34,13 @@ func loadNpmInventory(repoRoot string) (inventory map[string]string, lockNames m
 		return nil, nil, nil
 	}
 	lines := strings.Split(string(data), "\n")
-	return inventory, parsePnpmLockNames(lines), parsePnpmImporterDirs(lines)
-}
-
-// parsePnpmImporterDirs returns the workspace-relative directories the
-// `importers:` section lists, which is the pnpm workspace's own membership --
-// the one place that tells a member's package name from an installed one.
-// The root importer is spelled "." and answers as "".
-func parsePnpmImporterDirs(lines []string) map[string]bool {
-	body, ok := pnpmSection(lines, "importers")
-	if !ok {
-		return nil
-	}
-	dirs := make(map[string]bool)
-	for _, raw := range body {
-		indent, stripped, ok := pnpmContentLine(raw)
-		if !ok || indent != 2 || !strings.HasSuffix(stripped, ":") {
-			continue
-		}
-		dir := strings.Trim(strings.TrimSuffix(stripped, ":"), "'\"")
-		if dir == "." {
-			dir = ""
-		}
-		if dir == "" || !strings.HasPrefix(dir, "..") {
-			dirs[dir] = true
+	if importers := parsePnpmImporters(lines); importers != nil {
+		members = make(map[string]bool, len(importers))
+		for dir := range importers {
+			members[dir] = true
 		}
 	}
-	return dirs
+	return inventory, parsePnpmLockNames(lines), members
 }
 
 // pnpmSupportedLockfileMajors are the lockfile format majors this reader
@@ -101,7 +82,7 @@ func parsePnpmLockInventory(content string) (map[string]string, error) {
 
 	packages := parsePnpmPackages(lines)
 	snapshots, haveSnapshots := parsePnpmSnapshotPackageIDs(lines)
-	links, aliases := parsePnpmImporterNames(lines)
+	links, aliases := pnpmLinksAndAliases(parsePnpmImporters(lines))
 
 	inventory := make(map[string]string, len(packages)+len(links)+len(aliases))
 	declared := func(id string) bool {
@@ -205,7 +186,7 @@ func parsePnpmLockNames(lines []string) map[string]bool {
 			}
 		}
 	}
-	links, aliases := parsePnpmImporterNames(lines)
+	links, aliases := pnpmLinksAndAliases(parsePnpmImporters(lines))
 	for _, name := range links {
 		names[name] = true
 	}
@@ -255,53 +236,60 @@ func parsePnpmSnapshotPackageIDs(lines []string) (map[string]bool, bool) {
 	return ids, true
 }
 
-// parsePnpmImporterNames reads the `importers:` section for the two dependency
-// forms whose hub label no `packages:` entry accounts for: a workspace `link:`,
-// which claims the label outright, and an npm alias, which imports a package
-// under a name that is not the package's own.
-func parsePnpmImporterNames(lines []string) (links []string, aliases map[string]string) {
+// parsePnpmImporters reads the `importers:` section: per importer directory
+// ("" is the root), the names it declares and the members it links.
+func parsePnpmImporters(lines []string) map[string]*pnpmImporter {
 	body, ok := pnpmSection(lines, "importers")
 	if !ok {
-		return nil, nil
+		return nil
 	}
-	aliases = make(map[string]string)
+	importers := map[string]*pnpmImporter{}
+	var current *pnpmImporter
+	dir, section, depName := "", "", ""
 	record := func(name, value string) {
 		value = strings.Trim(strings.TrimSpace(value), "'\"")
 		if name == "" || value == "" || strings.HasPrefix(value, "file:") {
 			return
 		}
-		if strings.HasPrefix(value, "link:") {
-			links = append(links, name)
+		if target, isLink := strings.CutPrefix(value, "link:"); isLink {
+			// A link: is written relative to the importer that declares it.
+			to := path.Clean(path.Join(dir, target))
+			if to != "." && !strings.HasPrefix(to, "..") {
+				current.links[name] = to
+			}
 			return
 		}
-		if target := pnpmAliasTarget(value); target != "" {
-			aliases[name] = target
-		}
+		current.deps[name] = value
 	}
-
-	section, depName := "", ""
 	for _, raw := range body {
 		indent, stripped, ok := pnpmContentLine(raw)
 		if !ok {
 			continue
 		}
-		if indent == 2 {
+		switch {
+		case indent == 2:
+			key := pnpmMappingKey(stripped)
+			if key == "" {
+				continue
+			}
+			dir = strings.Trim(key, "'\"")
+			if dir == "." {
+				dir = ""
+			}
+			current = &pnpmImporter{
+				deps: map[string]string{}, links: map[string]string{},
+			}
+			importers[dir] = current
 			section, depName = "", ""
-			continue
-		}
-		if indent == 4 && strings.HasSuffix(stripped, ":") && !strings.Contains(stripped[:len(stripped)-1], ":") {
+		case current == nil:
+		case indent == 4 && strings.HasSuffix(stripped, ":") &&
+			!strings.Contains(stripped[:len(stripped)-1], ":"):
 			section, depName = strings.TrimSuffix(stripped, ":"), ""
-			continue
-		}
-		switch section {
-		case "dependencies", "devDependencies", "optionalDependencies":
-		default:
-			continue
-		}
-
-		if indent == 6 {
+		case section != "dependencies" && section != "devDependencies" &&
+			section != "optionalDependencies":
+		case indent == 6:
 			depName = ""
-			// v6 inline form:
+			// v6 puts the whole entry on the dep's line:
 			//   shared: {specifier: workspace:*, version: link:packages/shared}
 			if name, rest, found := strings.Cut(stripped, ":"); found && strings.Contains(rest, "{") {
 				if _, after, ok := strings.Cut(rest, "version:"); ok {
@@ -309,17 +297,30 @@ func parsePnpmImporterNames(lines []string) (links []string, aliases map[string]
 					value, _, _ = strings.Cut(value, ",")
 					record(strings.Trim(strings.TrimSpace(name), "'\""), value)
 				}
-				continue
-			}
-			// v9 form: the dep name alone, specifier/version indented below it.
-			if strings.HasSuffix(stripped, ":") {
+			} else if strings.HasSuffix(stripped, ":") {
 				depName = strings.Trim(strings.TrimSuffix(stripped, ":"), "'\"")
 			}
-			continue
-		}
-		if indent == 8 && depName != "" {
+		case indent == 8 && depName != "":
 			if key, value, found := strings.Cut(stripped, ":"); found && strings.TrimSpace(key) == "version" {
 				record(depName, value)
+			}
+		}
+	}
+	return importers
+}
+
+// pnpmLinksAndAliases folds the importers into the two name sets the
+// inventory reads: the link: names, and each npm alias with its target.
+func pnpmLinksAndAliases(importers map[string]*pnpmImporter,
+) (links []string, aliases map[string]string) {
+	aliases = make(map[string]string)
+	for _, imp := range importers {
+		for name := range imp.links {
+			links = append(links, name)
+		}
+		for name, version := range imp.deps {
+			if target := pnpmAliasTarget(version); target != "" {
+				aliases[name] = target
 			}
 		}
 	}
