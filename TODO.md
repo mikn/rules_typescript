@@ -5,8 +5,8 @@
 **"TypeScript on Bazel should feel like Go on Bazel."**
 
 Today we have: compilation (oxc), type-checking and declaration emit (tsgo), npm
-deps (pnpm lockfile), Gazelle, vitest testing, a dev server with HMR, and
-CSS/asset rules. See the readiness table below per area.
+deps (pnpm lockfile), Gazelle, vitest testing and a dev server with HMR. See
+the readiness table below per area.
 
 What is still thin:
 
@@ -27,12 +27,12 @@ What is still thin:
 | Type-checking (tsgo) | Production-ready; imports must be satisfied by a direct dep, checked per target |
 | npm deps (pnpm → Bazel) | Production-ready; one repo per package, patches verified at extension time |
 | node_modules trees | Every *resolution* placed — name, version and peer set (primary flat, the rest under `.pnpm/<name>@<version>[_<peer set>]/`, with a relative link per disagreeing edge) |
-| Gazelle BUILD generation | Production-ready (JS/TS, CSS, assets, path aliases from tsconfig.json); alias resolution is deterministic, extension-spelling specifiers resolve, and one scanner is shared with the strict-deps check. CI pins four properties of a run over the `gazelle_roundtrip` workspace (the output builds; generating twice from scratch is byte-identical; the test-target set is unchanged; `bazel test //...` passes on the output) and, on this tree, that every test source file is claimed by a test target (`tools/ci/check_test_sources.sh`). A run on this tree is not a no-op: `bazel run //gazelle -- -mode=diff` exits 1 with a diff that is mostly `asset_library` rules over the repository's own Markdown; the BUILD files here are hand-written, and nothing pins them to Gazelle's output |
+| Gazelle BUILD generation | Production-ready (JS/TS, path aliases from tsconfig.json); alias resolution is deterministic, extension-spelling specifiers resolve, and one scanner is shared with the strict-deps check. CI pins four properties of a run over the `gazelle_roundtrip` workspace (the output builds; generating twice from scratch is byte-identical; the test-target set is unchanged; `bazel test //...` passes on the output) and, on this tree, that every test source file is claimed by a test target (`tools/ci/check_test_sources.sh`). A run on this tree is not a no-op: `bazel run //gazelle -- -mode=diff` exits 1; the BUILD files here are hand-written, and nothing pins them to Gazelle's output |
 | Testing (vitest) | Solid (DOM run for real, coverage, custom config, snapshots read *and* written, watch mode, debugging). Gap: `coverage_thresholds` enforcement is unproven |
 | Bundling | `ts_binary` takes any `BundlerInfo` bundler, in the CLI mode or the generated-Vite-config mode; the ruleset ships no implementation, so nothing in this tree exercises the bundle action |
 | Dev server + HMR | Pluggable: `ts_dev_server(server = ...)` takes a `DevServerInfo`, Vite by default. Serves first-party source with Bazel out of the inner loop; resolves bare npm specifiers through the `node_modules` tree via the `bazel:npm-resolve` plugin; codegen rebuilds and config-aware restarts under ibazel; does not typecheck |
 | IDE integration | Generated tsconfig + tsserver hook; `module_name` and `extra_exclude` supported. A package whose targets disagree with the root `compilerOptions` gets its own generated tsconfig, declared in `nested_tsconfigs` and staleness-tested; the root excludes those files individually so unclaimed ones stay in its program. Zero tsc errors across the root and all nine nested programs |
-| CSS / assets | css_library, css_module, asset_library, json_library rules; CSS module mock in ts_test. The first three copy a source src into bazel-bin (a generated one is already there), which is what makes a relative import resolve for a bundler and what a bundle's input depset collects. The `.module.css` `.d.ts` key set is compared against postcss-modules' real export map rather than asserted. Tailwind v4 works through `vite_config` under the dev server |
+| CSS / assets | A `.css`, an image or a `.json` is a src of the `ts_compile` that imports it, staged beside the compiled `.js` and typed by the tsconfig (`vite/client`, a `declare module`, `resolveJsonModule`); a `*.module.css` is Vite's own CSS modules in the bundle, the dev server and vitest. Tailwind v4 works through `vite_config` under the dev server |
 | CI/CD | Docs: remote caching (BuildBuddy/EngFlow), RBE, GitLab CI, non-determinism — documented, not exercised by this repo's CI |
 
 ### Known gaps, with the mechanism
@@ -40,18 +40,6 @@ What is still thin:
 Small enough not to need a sub-project, specific enough that nobody should have
 to rediscover them. Each names the file to change.
 
-- **`json_library` is a type-only dep: a bundler cannot resolve the `.json`.**
-  `css_library`, `css_module` and `asset_library` each copy a source src into
-  bazel-bin and carry it in `AssetInfo`, which is how the relative import
-  resolves for a bundler and how the bundle action collects it
-  (`bundle_action.bzl` builds `non_js_inputs` from `CssInfo`, `CssModuleInfo`
-  and `AssetInfo` only). `ts/private/json_library.bzl` does neither: it emits a
-  `.d.ts` and puts the untouched source in `DefaultInfo`. A bundle over
-  `import data from "./data.json"` fails with rolldown's
-  `[UNRESOLVED_IMPORT] Could not resolve './data.json'`. Typing works; runtime
-  does not. Fixing it means copying into bazel-bin and providing `AssetInfo` --
-  and deciding which bytes get copied, since a bundler's JSON plugin is a strict
-  `JSON.parse` and the source may be JSONC.
 - **`ts/private/tsconfig_aspect.bzl` pairs `@types/*` for direct deps only.**
   `ts_compile` reads the pairing for every package it names in `paths`, which is
   what makes an untyped package reached transitively (vitest → @vitest/expect →
@@ -153,15 +141,6 @@ to rediscover them. Each names the file to change.
   directions: a target missing its threshold exits non-zero naming it, one
   meeting it exits zero, and the two compiled tests are byte-identical so the
   exit statuses can only be about the threshold.
-- **Real CSS module compilation is still not wired, and it is not a sweep item.**
-  `css_module` generates its `.d.ts` by parsing selectors, and nothing compiles
-  the CSS or produces the scoped names -- so the names the types promise and the
-  names a bundler emits remain two independent derivations. They are now
-  *compared*: the fixture dumps postcss-modules' real export map through
-  `css.modules.getJSON` and the test diffs the key sets, which is what caught the
-  `:global`/`:local` combinator form (no parentheses) declaring class names
-  postcss-modules does not export. Closing the gap properly means owning the
-  compilation, which is a project rather than an afternoon.
 - **Gazelle keeps emitting the external `@rules_typescript//` load label inside
   this repository.** A per-run "generating for self" flag was tried and reverted:
   `Loads()` has no directory context, so one flag decides for the whole walk --
@@ -284,16 +263,8 @@ invocation modes, so a bundler is a rule returning the provider.
 **Goal:** `import "./Button.css"` works in compilation, bundling, and dev server. Assets (images, fonts, SVGs) are handled correctly.
 
 ### 3.1 CSS Imports in Compilation
-- [x] Define `CssInfo` provider (css_files depset, transitive_css_files depset)
-- [ ] Modify `ts_compile` to accept `.css` files in srcs (pass through, not compiled)
-- [x] Create `css_library` rule that provides `CssInfo`
-- [x] Emit `.css` files alongside `.js` in output tree (transitive_css_files in DefaultInfo)
+- [x] `ts_compile` accepts every file in `srcs`; a `.css`, an image or a `.json` is staged beside the `.js` and carried in `JsInfo.transitive_data_files`
 - [ ] Strip CSS import statements from compiled `.js` — the bundler (Vite) handles this at bundle time; for library targets without a bundler, oxc leaves CSS imports in the .js output which may cause runtime errors if executed directly in Node.js without a bundler
-
-### 3.2 CSS Modules
-- [x] Support `import styles from "./Button.module.css"` pattern
-- [x] Generate `.d.ts` for CSS modules (mapping class names to strings via regex extraction)
-- [ ] Wire CSS module compilation into the build pipeline (PostCSS? Lightning CSS?)
 
 ### 3.3 Tailwind CSS
 - [ ] Support `@tailwind` directives
@@ -301,19 +272,9 @@ invocation modes, so a bundler is a rule returning the provider.
 - [ ] Content scanning for purging unused styles
 
 ### 3.4 Asset Handling
-- [x] Define `AssetInfo` provider
-- [x] Support `import logo from "./logo.svg"` (generates ambient .d.ts returning string)
 - [ ] Asset hashing for cache busting in production bundles
 - [ ] Asset manifest generation
 - [ ] Copy assets to bundle output directory
-
-### 3.5 Gazelle — CSS & Asset Recognition
-- [x] Teach Gazelle to extract CSS imports from `.ts`/`.tsx` files
-- [x] Generate `css_library` targets for `.css` files
-- [x] Handle CSS module imports separately from plain CSS (css_module targets)
-- [x] Generate `asset_library` targets for image/font/SVG/JSON asset files
-- [x] Resolve `import styles from "./Button.module.css"` to css_module dep
-- [x] Resolve `import logo from "./logo.svg"` to asset_library dep
 
 ---
 
@@ -417,11 +378,6 @@ this is a design question, not a checklist.
 ## Sub-Project 7: Gazelle Improvements
 
 **Goal:** Gazelle handles real-world TypeScript patterns including CSS, dynamic imports and path aliases.
-
-### 7.1 CSS Import Recognition
-- [ ] Extract CSS imports from `.ts`/`.tsx` files
-- [ ] Generate appropriate targets (css_library or filegroup)
-- [ ] Handle CSS modules differently from plain CSS imports
 
 ### 7.2 Dynamic Import Handling
 - [x] Detect `import("./page")` dynamic imports
@@ -623,21 +579,6 @@ instantiated it. Publishing is out of scope until one does.
 ### 13.2 Invisible node_modules Naming
 - [x] `node_modules()` rule uses `ctx.label.name` as output directory name, enabling multiple targets per package
 
-### 13.3 JSON Imports Return Typed Data
-- [x] Create `json_library` rule (separate from `asset_library`) that generates a proper `.d.ts` with the JSON structure
-- [x] The `.d.ts` is: `declare const data: { readonly key: string; readonly nested: { ... } }; export default data;`
-- [x] Parse the JSON file at build time using a Node.js script run via the JS runtime toolchain
-- [x] Gazelle: distinguish `.json` data imports from asset imports (`json_library` for `.json`, `asset_library` for images/fonts)
-- [x] Update `asset_library` to NOT handle `.json` files (handled by `json_library` instead)
-- [x] Test: `import config from "./config.json"` gives typed access to properties (//tests/json:json_output_test)
-
-### 13.4 CSS Module Imports in Node Tests
-- [x] Vitest needs a CSS module mock/transform so `import styles from "./Button.module.css"` works at test runtime
-- [x] Auto-generate a vitest config stub when `ts_test` has CSS module deps (detects `CssModuleInfo` in deps)
-- [x] The stub installs a Vite plugin that mocks `.module.css` imports: returns a `Proxy` that yields the property name as the class name string
-- [x] `deps` attr on the runner rule relaxed to accept any labels (no provider constraint), CSS module deps detected at analysis time
-- [x] Test: component test that imports CSS modules passes without manual config (//tests/css_module_test:button_test)
-
 ### 13.7 vite/client Types Automatically Available
 - [x] Created `ts/vite_env.d.ts` standalone shim (no vite npm dep needed) with:
   - `ImportMetaEnv` interface (MODE, BASE_URL, PROD, DEV, SSR, [key: string])
@@ -694,8 +635,8 @@ Sub-projects that unlock real application support:
 
 **What works today:**
 - Pure TypeScript library monorepo with npm deps, vitest tests, hermetic builds. Good for backend services, shared libraries, CLI tools.
-- CSS and asset support: css_library, css_module, asset_library, and json_library rules with Gazelle integration. json_library generates fully-typed .d.ts declarations by parsing JSON at build time. CSS modules are mocked in Node.js tests automatically when ts_test detects CssModuleInfo deps.
-- Gazelle: generates ts_compile, ts_test, ts_lint, css_library, css_module, and asset_library targets from TypeScript source files. Reads path aliases from tsconfig.json compilerOptions.paths/baseUrl.
+- CSS and asset support: a `.css`, an image or a `.json` is a src of the `ts_compile` that imports it, typed by the tsconfig and staged beside the compiled `.js`.
+- Gazelle: generates ts_compile, ts_test and ts_lint targets from TypeScript source files. Reads path aliases from tsconfig.json compilerOptions.paths/baseUrl.
 - Dev server: ts_dev_server serves first-party source through Vite with Bazel out of the inner loop; bazel-bin supplies codegen output, assets and the npm tree. Under ibazel one Vite process lives across rebuilds and restarts only when the config's own inputs change. It does not typecheck, which is native Vite parity but makes the editor load-bearing. bundler attr accepts BundlerInfo for custom dev server implementations. react_refresh = True wires @vitejs/plugin-react for React Fast Refresh.
 - CI/CD: documented remote caching (BuildBuddy/EngFlow/self-hosted), remote execution, GitLab CI template, and known sources of non-determinism. Documented, not exercised: this repository's own CI configures no remote or disk cache.
 

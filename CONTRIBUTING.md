@@ -382,7 +382,7 @@ extension written in Go.
 | `gazelle/resolve.go` | Import resolution: maps import specifiers to Bazel labels |
 | `gazelle/imports.go` | Import extraction from TypeScript sources |
 | `ts/tools/tsconfig/` | The `tsconfig.json` reader -- one file, or its `extends` chain flattened leaf-wins -- shared with the build actions |
-| `ts/tools/jsonc/` | JSONC parser, so a commented `tsconfig.json` still yields its `paths`; `json_library` strips through `//ts/tools/jsonc/strip` |
+| `ts/tools/jsonc/` | JSONC parser, so a commented `tsconfig.json` still yields its `paths` |
 | `gazelle/codegen.go` | Auto-detected codegen targets |
 
 **AGENTS.md** is the architectural reference for contributors: package boundary

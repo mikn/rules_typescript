@@ -91,7 +91,7 @@ own `__require` shim then picks up.""",
     },
     doc = """Bundles TypeScript into a single ESM file with esbuild.
 
-Used inside this ruleset to build vite-plugin-bazel and css_module's
-postcss-modules compiler.  It is not part of the public rule surface.
+Used inside this ruleset to build vite-plugin-bazel. It is not part of the
+public rule surface.
 """,
 )

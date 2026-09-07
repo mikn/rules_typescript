@@ -120,22 +120,6 @@ func TestImportsForRule_TsTestIsIndexed(t *testing.T) {
 	}
 }
 
-func TestImportsForRule_AssetKindsUseWorkspaceRelativeSrcs(t *testing.T) {
-	c := emptyConfig()
-	for _, kind := range []string{"css_library", "css_module", "asset_library", "json_library"} {
-		r, f := newRule(indexedRule{
-			kind: kind, name: "styles", pkg: "src/components",
-			srcs: []string{"Button.module.css", "theme.css"},
-		})
-		got := specStrings(importsForRule(c, r, f))
-		// The extension is kept: TypeScript imports these by their real filename.
-		want := []string{"src/components/Button.module.css", "src/components/theme.css"}
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("importsForRule(%s) = %v, want %v", kind, got, want)
-		}
-	}
-}
-
 func TestImportsForRule_UnknownKindIsNotImportable(t *testing.T) {
 	c := emptyConfig()
 	for _, kind := range []string{"genrule", "ts_lint", "filegroup"} {
@@ -280,7 +264,6 @@ func TestResolveRelative(t *testing.T) {
 	ix := buildIndex(t, c,
 		indexedRule{kind: "ts_compile", name: "lib", pkg: "src/lib", srcs: []string{"index.ts", "math.ts"}},
 		indexedRule{kind: "ts_compile", name: "app", pkg: "src/app", srcs: []string{"index.ts", "main.ts"}},
-		indexedRule{kind: "css_module", name: "styles", pkg: "src/app", srcs: []string{"Button.module.css"}},
 		// A target whose name is not its directory basename: only an index hit
 		// can produce this label, so a row wanting it cannot be satisfied by
 		// the constructed-label fallback.
@@ -296,9 +279,6 @@ func TestResolveRelative(t *testing.T) {
 		{"file in sibling package", "../lib/math", "//src/lib"},
 		{"directory with index.ts", "../lib", "//src/lib"},
 		{"same package is not a dep", "./main", ""},
-		// A hit inside the importing package is emitted as a package-relative
-		// label, which is what Bazel wants in that BUILD file.
-		{"css module by filename", "./Button.module.css", ":styles"},
 		{"unindexed directory falls back to a constructed label", "../generated/api", "//src/generated/api"},
 		// The extension a specifier spells out is not part of any index key:
 		// importsForRule drops it from every source it indexes. These are the
@@ -345,17 +325,17 @@ func TestLabelForUnindexed(t *testing.T) {
 	}
 	from := label.New("", "src/app", "app")
 	for rel, want := range map[string]string{
-		"src/lib/math.ts":           "//src/lib",
-		"src/lib/math.js":           "//src/lib",
-		"src/lib/data.json":         "//src/lib",
-		"src/lib/Button.module.css": "//src/lib",
-		"src/lib/logo.svg":          "//src/lib",
-		"src/lib/index.ts":          "//src/lib",
-		"src/lib/index":             "//src/lib",
-		"src/lib":                   "//src/lib",
-		// A dotted last segment reads as a file: a directory really named that
-		// way loses one dep, where fabricating cost the whole build.
-		"src/lib.v2": "",
+		"src/lib/math.ts":  "//src/lib",
+		"src/lib/math.js":  "//src/lib",
+		"src/lib/index.ts": "//src/lib",
+		"src/lib/index":    "//src/lib",
+		"src/lib":          "//src/lib",
+		// A dotted last segment reads as a file (a directory so named loses one
+		// dep, where fabricating cost the build); an uncompiled file gets none.
+		"src/lib.v2":                "",
+		"src/lib/data.json":         "",
+		"src/lib/Button.module.css": "",
+		"src/lib/logo.svg":          "",
 		// Nothing outside the workspace, and nothing for the importer's own
 		// package: a label on that would be a cycle.
 		"index.ts":     "",
@@ -853,8 +833,8 @@ func TestResolveImports_AmbientTypesReachEveryCheckedKind(t *testing.T) {
 	}
 
 	// A kind tsgo does not type-check gets nothing: an ambient declaration
-	// cannot reach a filegroup or a css_module.
-	for _, kind := range []string{"filegroup", "css_module", "ts_lint"} {
+	// cannot reach a filegroup or a ts_lint.
+	for _, kind := range []string{"filegroup", "ts_lint"} {
 		c := newConfig()
 		ix := buildIndex(t, c)
 		r := rule.NewRule(kind, "thing")
@@ -889,20 +869,19 @@ func TestImportsForRule_DirectoryImportNamesTheIndexFilesOwnDirectory(t *testing
 	}
 }
 
-// A bundler query suffix selects how a file is loaded, not what is loaded:
-// `./config.json?raw` is the same file as `./config.json`. Carried into the
-// label it names a package that cannot exist, and Bazel fails the build at
-// analysis rather than dropping the one dep.
+// A bundler query suffix selects how a file is loaded, not what: `lib?worker`
+// is `lib`; carried into the label it names a package that cannot exist.
 func TestResolveImports_BundlerQuerySuffixNamesTheSameFile(t *testing.T) {
 	c := emptyConfig()
 	c.Exts[languageName] = makeConfig("", nil)
 
 	ix := buildIndex(t, c,
-		indexedRule{kind: "json_library", name: "_config_json", pkg: "worker", srcs: []string{"config.json"}},
 		indexedRule{kind: "ts_compile", name: "lib", pkg: "worker/lib", srcs: []string{"index.ts"}},
 	)
 
-	for _, imp := range []string{"../config.json?raw", "../config.json?url", "../lib?worker"} {
+	for _, imp := range []string{
+		"../lib?worker", "../lib/index?raw", "../lib/index.js?url",
+	} {
 		r := rule.NewRule("ts_compile", "app")
 		resolveImports(c, ix, r, []string{imp}, label.New("", "worker/src", "src"))
 		got := r.AttrStrings("deps")
@@ -1142,14 +1121,16 @@ func TestResolveRelative_IndexedDotDirectoryStillResolves(t *testing.T) {
 	c.Exts[languageName] = makeConfig("", nil)
 	repoWithDirs(t, c, "p/.config", "p/src")
 	ix := buildIndex(t, c,
-		indexedRule{kind: "json_library", name: "data_json", pkg: "p/.config", srcs: []string{"data.json"}},
-		indexedRule{kind: "ts_compile", name: ".config", pkg: "p/.config", srcs: []string{"index.ts"}},
+		indexedRule{
+			kind: "ts_compile", name: ".config", pkg: "p/.config",
+			srcs: []string{"index.ts", "load.ts"},
+		},
 	)
 	from := label.New("", "p/src", "src")
 
 	for imp, want := range map[string]string{
-		"../.config/data.json": "//p/.config:data_json",
-		"../.config":           "//p/.config",
+		"../.config/load": "//p/.config",
+		"../.config":      "//p/.config",
 	} {
 		if got := resolveRelative(c, ix, imp, from); got != want {
 			t.Errorf("resolveRelative(%q) = %q, want %q", imp, got, want)
@@ -1222,64 +1203,6 @@ func TestResolveImports_UnclassifiedExtensionWarnsInsteadOfFabricating(t *testin
 	}
 	if !strings.Contains(logged.String(), "../lib/notes.rst") {
 		t.Errorf("no warning for the unresolved import:\n%s", logged.String())
-	}
-}
-
-// A text asset beside a source has to be both generated and resolvable: the
-// two halves only contain the failure together.
-func TestResolveRelative_TextAssetBesideASource(t *testing.T) {
-	res, c := runGenerateWithConfig(t, "widget", map[string]string{
-		"SKILL.md":       "# skill\n",
-		"wrangler.jsonc": "{ /* comment */ }\n",
-		"widget.ts":      "export const w = 1;\n",
-	})
-
-	lang := &tsLang{}
-	ix := resolve.NewRuleIndex(func(*rule.Rule, string) resolve.Resolver { return lang })
-	for _, r := range res.Gen {
-		ix.AddRule(c, r, rule.EmptyFile("BUILD.bazel", "widget"))
-	}
-	ix.Finish()
-
-	from := label.New("", "widget", "widget")
-	for imp, want := range map[string]string{
-		"./SKILL.md":       ":SKILL_md",
-		"./wrangler.jsonc": ":wrangler_jsonc",
-	} {
-		if got := resolveRelative(c, ix, imp, from); got != want {
-			t.Errorf("resolveRelative(%q) = %q, want %q", imp, got, want)
-		}
-	}
-}
-
-// Dropping the query and classifying the extension are separate halves of the
-// same failure, and only together do they carry `./SKILL.md?raw`: the strip
-// runs before any branch, so the fallback sees a `.md` the index now claims.
-func TestResolveImports_QueriedTextAssetResolvesToItsAssetLibrary(t *testing.T) {
-	res, c := runGenerateWithConfig(t, "widget", map[string]string{
-		"SKILL.md":       "# skill\n",
-		"wrangler.jsonc": "{ /* comment */ }\n",
-		"widget.ts":      "export const w = 1;\n",
-	})
-
-	lang := &tsLang{}
-	ix := resolve.NewRuleIndex(func(*rule.Rule, string) resolve.Resolver { return lang })
-	for _, r := range res.Gen {
-		ix.AddRule(c, r, rule.EmptyFile("BUILD.bazel", "widget"))
-	}
-	ix.Finish()
-
-	from := label.New("", "widget", "widget")
-	for imp, want := range map[string][]string{
-		"./SKILL.md?raw":       {":SKILL_md"},
-		"./wrangler.jsonc?raw": {":wrangler_jsonc"},
-		"./SKILL.md?url":       {":SKILL_md"},
-	} {
-		r := rule.NewRule("ts_compile", "widget")
-		resolveImports(c, ix, r, []string{imp}, from)
-		if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
-			t.Errorf("resolveImports(%q) deps = %v, want %v", imp, got, want)
-		}
 	}
 }
 
@@ -1550,7 +1473,7 @@ func BenchmarkLabelForUnindexed(b *testing.B) {
 		}
 		b.Run(bb.name, func(b *testing.B) {
 			for range b.N {
-				if got := labelForUnindexed(root, deep+"/emitted.css", from); got == "" {
+				if got := labelForUnindexed(root, deep+"/emitted.ts", from); got == "" {
 					b.Fatalf("no label for %s", deep)
 				}
 			}

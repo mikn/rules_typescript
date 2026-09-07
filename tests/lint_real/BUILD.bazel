@@ -1,5 +1,5 @@
 load("@rules_go//go:def.bzl", "go_test")
-load("@rules_typescript//ts:defs.bzl", "json_library", "ts_compile")
+load("@rules_typescript//ts:defs.bzl", "ts_compile")
 load("//ts:defs.bzl", "ts_lint")
 
 # The go_test targets are hand-named after the sh_tests they replaced, so the
@@ -50,12 +50,6 @@ go_test(
     srcs = ["real_lint_test.go"],
     data = [":clean_lint_stamp"],
     deps = ["//tests/verify"],
-)
-
-json_library(
-    name = "oxlint_json",
-    srcs = ["oxlint.json"],
-    visibility = ["//visibility:public"],
 )
 
 ts_compile(

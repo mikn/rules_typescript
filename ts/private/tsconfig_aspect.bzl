@@ -370,7 +370,6 @@ def _ide_tsconfig_impl(ctx):
             "sourceMap": True,
             "skipLibCheck": True,
             "esModuleInterop": True,
-            "allowArbitraryExtensions": True,
             "rootDirs": [".", bin_dir],
             "paths": paths,
             "noEmit": True,

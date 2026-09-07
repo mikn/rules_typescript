@@ -68,13 +68,10 @@ ts_binary(
 ```
 
 The entry point has to produce exactly one `.js`: a `ts_compile` with a single
-source file. A `.css`, a `*.module.css` and an imported asset reach the bundler
-through the entry point's `CssInfo`, `CssModuleInfo` and `AssetInfo`, the
-providers [`css_library`, `css_module` and
-`asset_library`](../rules/css-and-assets.md) populate, and a data src in a
-`ts_compile`'s `srcs` through its `JsInfo.transitive_data_files`, so every
-non-JS file the graph imports is in the sandbox beside the compiled `.js` that
-imports it.
+source file. A `.css`, a `*.module.css`, an image or any other data src in a
+`ts_compile`'s `srcs` reaches the bundler through its
+`JsInfo.transitive_data_files`, so every non-JS file the graph imports is in the
+sandbox beside the compiled `.js` that imports it.
 
 ### BundlerInfo Invocation Modes
 
@@ -125,9 +122,9 @@ produce it. The declared outputs, inside `<name>_bundle/`:
 | `cjs` | `<bundle_name>.cjs.js` |
 | `iife` | `<bundle_name>.iife.js` |
 
-plus `<that>.map` under `sourcemap = True`, and `<bundle_name>.css`. The
-generated config installs the ruleset's CSS-modules plugin, so the class names
-in the bundle are the ones the `css_module` `.d.ts` declares.
+plus `<that>.map` under `sourcemap = True`, and `<bundle_name>.css`, the
+stylesheet lib mode extracts; a `*.module.css` is scoped by Vite's own CSS
+modules.
 
 ### BundlerInfo Fields
 

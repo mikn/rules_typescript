@@ -21,10 +21,9 @@ Directives go in `BUILD.bazel` files as comments and control how Gazelle generat
 | `# gazelle:ts_codegen <name> <generator> <outs> [srcs:<csv>] [args…]` | Register a `ts_codegen` target in this directory; a `srcs:` entry may be a `glob()` call |
 | `# gazelle:ts_npm_hub npm_eslint` | Resolve bare specifiers in this tree into that npm hub repo, not the default `@npm` |
 | `# gazelle:ts_npm_mapping npm/mapping.json` | Overlay a workspace-root-relative JSON file of npm name → Bazel label onto the lockfile inventory, per key |
-| `# gazelle:ts_asset_declaration_type .svg <type>` | What an import of that asset extension resolves to in this tree, written into every `asset_library`'s `declaration_type` |
 | `# gazelle:ts_js_srcs .mjs .cjs` | Admit JavaScript sources of these extensions into the `srcs` Gazelle generates in this tree; named with nothing after it, admit none |
 
-That is the complete set: thirteen directives. Gazelle warns on an unknown
+That is the complete set: twelve directives. Gazelle warns on an unknown
 `# gazelle:ts_*` comment and continues, so a typo in a directive's name shows up
 in the run output. A value `ts_package_boundary` does not know stops the run
 instead: the modes decide which files each target compiles.
@@ -40,8 +39,7 @@ instead: the modes decide which files each target compiles.
     [One target per TypeScript project](#one-target-per-typescript-project).
 
     `gazelle_ts.json` is gone too; nothing reads it. Each key becomes a
-    directive, and a file left behind lands in a generated `json_library`. The
-    key-to-directive table is under
+    directive. The key-to-directive table is under
     [Configuration](overview.md#configuration).
 
 ## `# keep`
@@ -76,7 +74,6 @@ is replaced unless a `# keep` holds it. `ts_compile.deps` and
 | `ts_test` | `srcs`, `deps`, `tsconfig` |
 | `ts_config` | `src`, `deps`, `visibility` |
 | `ts_lint` | `srcs`, `linter`, `linter_binary`, `config`, `fail_on_warnings` |
-| `asset_library` | `declaration_type`, one entry per extension a `ts_asset_declaration_type` directive names; an extension no directive names is yours |
 | `ts_codegen` | `outs`, `out_dir`, `visibility` |
 | `filegroup(name = "vitest_config")` | `srcs`, `visibility` |
 
@@ -99,23 +96,13 @@ restates them. What a path-shaped `types` entry asks of Gazelle is the dep on
 the target that stages the file it names, written into `deps` like any other;
 see [a declaration the tsconfig names](overview.md#a-declaration-the-tsconfig-names).
 
-Six kinds are the exception: `ts_pnpm`, `ts_add_package`, `css_library`,
-`css_module`, `asset_library` and `json_library`. Each is written once and left
-alone while it holds its claim: Gazelle emits no candidate for it, so the merger
-never runs on it, and its attributes are yours from the second run on, `# keep`
-or not; `asset_library.declaration_type` is written into the existing rule, as
-the table says. The first two claim a name and are written when no rule of that
-name exists. A data-file rule claims a file. Gazelle writes one when the file is
-in no plain `srcs` of a `ts_compile`, `ts_test`, `css_library`, `css_module`,
-`asset_library` or `json_library` in the package; the `srcs` it recomputes on
-the `ts_compile` and `ts_test` targets it writes itself do not count, and
-neither does a `filegroup` naming the file. Later runs read the rule's own
-`srcs` as the claim, so a `glob()` there claims nothing: the rule gets a
-candidate on every run, `visibility` widens back, and the merger logs the
-`glob()` it cannot merge. When the file is deleted, the next run removes the
-rule, as it removes a `ts_compile` whose plain `srcs` name only files that are
-gone, with the `ts_lint` beside it; `# keep` above the rule holds it, and above
-the `ts_compile` holds the `ts_lint` too. A `srcs` holding a label or a
+Two kinds are the exception: `ts_pnpm` and `ts_add_package`. Each claims a name
+and is written when no rule of that name exists, then left alone: Gazelle emits
+no candidate for it, so the merger never runs on it, and its attributes are
+yours from the second run on, `# keep` or not. A `ts_compile` whose plain `srcs`
+name only files that are gone is removed by the next run, with the `ts_lint`
+beside it; `# keep` above the rule holds it, and above the `ts_compile` holds
+the `ts_lint` too. A `srcs` holding a label or a
 `glob()` is not judged for either kind. A file a rule in the package generates
 counts as present for both, except a declaration a `ts_codegen` in the package
 writes, which counts as gone for the package `ts_compile`: that target's label
@@ -430,74 +417,6 @@ TanStack Router is excluded: its route tree is written by the Start Vite plugin
 during the build, so a second copy in `bazel-bin` would drift from the one the
 build used.
 
-### Declare What an Asset Extension Imports As
-
-`asset_library` writes a `<asset>.<ext>.d.ts` beside every asset it covers, and
-by default it says `string`: the URL a bundler hands back when it does not
-transform the file. A project running svgr gets a component from `*.svg`
-instead, and a `declare module "*.svg"` of its own does not fix it: TypeScript
-prefers the concrete declaration beside the asset over any pattern. The
-attribute that says so is `asset_library.declaration_type`, and this directive
-fills it in:
-
-```python
-# BUILD.bazel
-
-# gazelle:ts_asset_declaration_type .svg import("react").FC<import("react").SVGProps<SVGSVGElement>>
-```
-
-Every `asset_library` in this directory and below whose `srcs` hold a `.svg`
-carries that type from the next run on, the ones Gazelle writes and the ones it
-has already written. Gazelle writes one target per asset file, so a repo of any
-size has too many of them to edit by hand.
-
-Only the first space separates the extension from the expression, unlike
-`ts_codegen` above, so an expression with spaces in it needs no quoting:
-
-```python
-# gazelle:ts_asset_declaration_type .md { default: string; toc: string[] }
-```
-
-One directive per extension; a target takes an entry only for the extensions its
-own `srcs` have. A subdirectory overrides what it inherited by naming the
-extension again, and returns the subtree to the `string` default by naming the
-extension with nothing after it:
-
-```python
-# packages/legacy/BUILD.bazel
-
-# These are imported as URLs; the svgr transform does not run here.
-# gazelle:ts_asset_declaration_type .svg
-```
-
-The bare form is not "stop managing it": Gazelle removes the entry from the
-targets in that subtree, including one an inherited directive wrote on an
-earlier run. To hold a value against the directive, `# keep` it, on the entry,
-the attribute, or the rule:
-
-```python
-asset_library(
-    name = "sprite_svg",
-    srcs = ["sprite.svg"],
-    declaration_type = {
-        # keep
-        ".svg": "string",
-    },
-)
-```
-
-An extension no directive in scope names is not Gazelle's at all, so a repo that
-hand-wrote `declaration_type` before adopting the directive keeps every entry it
-wrote until a directive names that extension.
-
-The expression is written into the generated `.d.ts` verbatim and nothing checks
-it: a name that does not resolve widens the import to `any` in silence, because
-the declaration is a `.d.ts` and this ruleset compiles with `skipLibCheck`.
-Building with `--//ts:lib_check`, or the consuming target alone with
-`"skipLibCheck": false` in its tsconfig, surfaces it; the error names the
-generated `<asset>.d.ts`, whose header names the target and the attribute. See
-[`asset_library`](../rules/css-and-assets.md#when-an-asset-is-not-a-url).
-
 ### Admit a `.mjs` or `.cjs` into `srcs`
 
 `ts_compile` accepts `.js`, `.mjs` and `.cjs` in `srcs`: they are staged into
@@ -552,16 +471,14 @@ tsconfig says so.
 `glob()` is evaluated in the package holding the rule and does not descend into
 a subpackage, and Bazel refuses to load a package whose glob matched nothing
 (`allow_empty` is `False`). So a pattern reaching into a subdirectory only works
-while that subdirectory has no BUILD file of its own. A directory of message
-catalogues is the kind of directory Gazelle would otherwise put one in, a
-`json_library` per file.
+while that subdirectory has no BUILD file of its own.
 
-Gazelle leaves such a directory alone: the files an ancestor's `ts_codegen` glob
-collects are that rule's inputs, so they get no targets of their own and the
-directory stays part of the package above it. This holds only while the glob
-collects everything Gazelle would write a target for there. One file it does not
-(a stray `.ts`, a `README.md`) still needs a target, that target makes the
-directory a package again, and the ancestor's glob goes empty. Gazelle logs which
+A directory of message catalogues gets none: the files an ancestor's
+`ts_codegen` glob collects are that rule's inputs, so they get no targets of
+their own and the directory stays part of the package above it. This holds only
+while the glob collects everything Gazelle would write a target for there. A
+`.ts` it does not collect still needs a target, that target makes the directory
+a package again, and the ancestor's glob goes empty. Gazelle logs which
 files those are. The fixes are to move them out, or to put the tree under
 `# gazelle:ts_package_boundary tsconfig`, where a subdirectory holding no
 `tsconfig.json` of its own is not a package to begin with.

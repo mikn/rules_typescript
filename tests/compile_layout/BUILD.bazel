@@ -14,6 +14,7 @@ load(
     ":layout_tests.bzl",
     "data_srcs_test",
     "declared_outputs_test",
+    "dep_json_inputs_test",
     "oxc_strip_prefix_test",
     "transitive_data_test",
 )
@@ -92,5 +93,10 @@ data_srcs_test(
 
 transitive_data_test(
     name = "transitive_data_test",
+    target_under_test = ":uses_gamma",
+)
+
+dep_json_inputs_test(
+    name = "dep_json_inputs_test",
     target_under_test = ":uses_gamma",
 )

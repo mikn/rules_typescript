@@ -1,6 +1,6 @@
 load("@rules_go//go:def.bzl", "go_test")
 load("@rules_typescript//npm:defs.bzl", "node_modules")
-load("@rules_typescript//ts:defs.bzl", "css_module", "ts_compile", "ts_dev_server")
+load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_dev_server")
 
 package(default_visibility = ["//:__pkg__"])
 
@@ -19,15 +19,6 @@ ts_compile(
     name = "dev_app",
     srcs = ["dev_app.ts"],
     deps = ["//tests/dev_server/lib"],
-)
-
-# A stylesheet the dev-server lanes serve, and the export map css_module wrote
-# for it. Not in any dev server's graph: :css_module_test copies the stylesheet
-# into the throwaway workspace it serves, which is what a source tree looks like
-# to a running server, and compares what comes back against this map.
-css_module(
-    name = "panel_module_css",
-    srcs = ["panel.module.css"],
 )
 
 # One tree for every dev server here, and it has to be named "node_modules":
@@ -184,29 +175,6 @@ go_test(
         ":dev_with_optimize_deps",
         "//ts/toolchain:node_resolved",
     ],
-    tags = ["requires-network"],
-    deps = [
-        "//tests/hmrsocket",
-        "//tests/verify",
-    ],
-)
-
-# A .module.css through a running server: the class names it serves have to be
-# the ones the .d.ts was generated from, or the dev loop and the build disagree
-# about every one of them.
-go_test(
-    name = "dev_css_module_test",
-    size = "medium",
-    srcs = [
-        "css_module_test.go",
-        "devserver_harness_test.go",
-        "launcher_config_test.go",
-    ],
-    data = [
-        ":dev",
-        ":panel_module_css",
-    ],
-    env = {"DEV_TARGET": "dev"},
     tags = ["requires-network"],
     deps = [
         "//tests/hmrsocket",

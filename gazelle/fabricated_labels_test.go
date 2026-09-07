@@ -61,9 +61,11 @@ func TestResolveImports_EveryDepNamesSomethingLoadable(t *testing.T) {
 		imp  string
 		want []string
 	}{
-		// The query is dropped and the JSON's package is real, so this one is a
-		// dep -- the loadability-only version of this test never checked that.
-		{"./shared/lib/config.json?raw", []string{"//web/shared/lib"}},
+		// The query is dropped and the module's package is real, so this one is
+		// a dep -- the loadability-only version of this test never checked that.
+		{"./shared/lib/index.js?raw", []string{"//web/shared/lib"}},
+		// No rule compiles a .json, so no dep.
+		{"./shared/lib/config.json?raw", nil},
 		{"./shared/lib/notes.rst", nil},                          // unclassified extension
 		{"./shared/i18n/compiled/messages", nil},                 // directory not on disk
 		{"./shared/public/.well-known/assetlinks.json?raw", nil}, // dot-directory, no BUILD file

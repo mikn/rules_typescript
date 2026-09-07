@@ -31,10 +31,11 @@ member whose directory holds no package.json with a name gets the same
 treatment: the view carries that manifest, so there is nothing to write.
 
 What the view carries, pinned on @npm//:shared: the member's package.json with
-every source-file target under `exports` rewritten to the emitted file, and the
-member's .js and .d.ts at the paths that manifest names. tsc maps a `.js` target
-to the `.d.ts` beside it and node runs the `.js`, so one manifest serves
-//tests/npm:workspace_consumer's check and :workspace_runtime_test's run.
+every source-file target under `exports` rewritten to the emitted file, the
+member's .js and .d.ts at the paths that manifest names, and its data srcs at
+their package-relative paths, where the .js reaches them at run time. tsc maps a
+`.js` target to the `.d.ts` beside it and node runs the `.js`, so one manifest
+serves //tests/npm:workspace_consumer's check and :workspace_runtime_test's run.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
@@ -361,6 +362,7 @@ def _member_view_impl(ctx):
         env,
         [
             "package.json",
+            "src/banner.json",
             "src/index.d.ts",
             "src/index.js",
             "src/index.js.map",
@@ -372,7 +374,9 @@ def _member_view_impl(ctx):
             f.path[len(root):] if f.path.startswith(root) else f.basename
             for f in info.all_files.to_list()
         ]),
-        "the link holds the manifest and the member's .js and .d.ts at the paths the manifest names",
+        "the link holds the manifest, the member's .js and .d.ts at the " +
+        "paths the manifest names, and its data srcs at their " +
+        "package-relative paths",
     )
     return analysistest.end(env)
 

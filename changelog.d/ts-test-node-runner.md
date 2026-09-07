@@ -13,7 +13,7 @@
   source and the emit untouched. `tsconfig` reaches the node:test compile exactly as it reaches the vitest
   one. Every vitest-shaped attribute (`config`, `environment`, `globals`,
   `reporters`, `setup_files`, `global_setup`, `snapshots`, the coverage trio,
-  `update_snapshots`, `vitest`) is an analysis error under `"node:test"`, as is
-  a dep providing `CssModuleInfo`, and `bazel coverage` on such a target fails
+  `update_snapshots`, `vitest`) is an analysis error under `"node:test"`, and
+  `bazel coverage` on such a target fails
   instead of handing Bazel an empty report. No `<name>.update_snapshots` target
   is generated for it.

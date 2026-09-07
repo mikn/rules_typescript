@@ -113,21 +113,17 @@ register_toolchains(
 
 # ─── npm dependencies ────────────────────────────────────────────────────────
 
-# @npm's name is the consumer's to claim: the extension gives the root module's
-# translate_lock priority for any hub name, so a target here naming @npm resolves
-# into the consumer's lockfile, not this fixture. Non-dev only because //vite's
-# and //ts/private/css's typecheck targets still name it in this module's mapping.
+# @npm is the consumer's to claim (the root module's translate_lock wins the
+# name); non-dev because //vite's typecheck target names it in this module.
 npm = use_extension("//npm:extensions.bzl", "npm")
 npm.pnpm(version = "10.32.1")
 npm.translate_lock(pnpm_lock = "//tests/npm:pnpm-lock.yaml")
 
-# postcss-modules, which css_module's compile action runs to derive both the
-# scoped-name map and the .d.ts from it, plus the esbuild that bundles //vite's
-# plugin. Non-dev because both of those bundles are consumer API, so a dev-only
-# usage would hide them from every consumer of the rules.
+# The esbuild that bundles //vite's plugin. Non-dev because that bundle is
+# consumer API, so a dev-only usage would hide it from every consumer.
 npm.translate_lock(
-    name = "npm_css",
-    pnpm_lock = "//ts/private/css:pnpm-lock.yaml",
+    name = "npm_esbuild",
+    pnpm_lock = "//vite/esbuild:pnpm-lock.yaml",
 )
 
 # A second hub for the pnpm features that need their own fixture: the main
@@ -172,7 +168,7 @@ npm_dev.translate_lock(
     pnpm_lock = "//tests/npm:pnpm-lock-features.yaml",
 )
 
-use_repo(npm, "npm", "npm_css", "pnpm")
+use_repo(npm, "npm", "npm_esbuild", "pnpm")
 
 use_repo(npm_dev, "npm_eslint", "npm_features", "npm_tailwind", "npm_workers")
 

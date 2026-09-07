@@ -91,76 +91,6 @@ func assertRule(t *testing.T, byName map[string]string, name, kind string) {
 	}
 }
 
-// TestGenerate_CSSAndTSWithSameStem covers the observed crash: a directory
-// input/ holding both input.css and input.tsx produced css_library(name="input")
-// alongside ts_compile(name="input").
-func TestGenerate_CSSAndTSWithSameStem(t *testing.T) {
-	res := runGenerate(t, "input", map[string]string{
-		"input.css": ".input {}\n",
-		"input.tsx": "export const Input = () => null;\n",
-	})
-
-	byName := generatedNames(t, res)
-	assertRule(t, byName, "input", "ts_compile")
-	assertRule(t, byName, "input_css", "css_library")
-}
-
-// TestGenerate_SameStemAcrossAssetKinds pins the other collisions the old
-// stem-only scheme allowed: logo.svg vs logo.json, and a CSS module whose stem
-// matches a plain CSS file.
-func TestGenerate_SameStemAcrossAssetKinds(t *testing.T) {
-	res := runGenerate(t, "logo", map[string]string{
-		"logo.svg":        "<svg/>\n",
-		"logo.json":       "{}\n",
-		"logo.css":        ".logo {}\n",
-		"logo.module.css": ".logo {}\n",
-		"logo.tsx":        "export const Logo = () => null;\n",
-	})
-
-	byName := generatedNames(t, res)
-	assertRule(t, byName, "logo", "ts_compile")
-	assertRule(t, byName, "logo_svg", "asset_library")
-	assertRule(t, byName, "logo_json", "json_library")
-	assertRule(t, byName, "logo_css", "css_library")
-	assertRule(t, byName, "logo_module_css", "css_module")
-}
-
-// TestGenerate_TestTargetNameNotTakenByAsset guards the ts_test and ts_lint
-// names too: a directory app/ with app_test.css must not claim "app_test".
-func TestGenerate_TestTargetNameNotTakenByAsset(t *testing.T) {
-	res := runGenerate(t, "app", map[string]string{
-		"app.ts":        "export const a = 1;\n",
-		"app.test.ts":   "export const t = 1;\n",
-		"app_test.css":  ".a {}\n",
-		"app_lint.json": "{}\n",
-	})
-
-	byName := generatedNames(t, res)
-	assertRule(t, byName, "app", "ts_compile")
-	assertRule(t, byName, "app_test", "ts_test")
-	assertRule(t, byName, "app_test_css", "css_library")
-	assertRule(t, byName, "app_lint_json", "json_library")
-}
-
-func TestAssetTargetNames_NumericSuffixOnRemainingTie(t *testing.T) {
-	reserved := map[string]struct{}{"dir": {}}
-	got := assetTargetNames(reserved, []string{"a.b.css", "a_b.css"})
-	if got["a.b.css"] == got["a_b.css"] {
-		t.Fatalf("names collided: %v", got)
-	}
-	if got["a.b.css"] != "a_b_css" || got["a_b.css"] != "a_b_css_2" {
-		t.Errorf("assetTargetNames: got %v", got)
-	}
-}
-
-func TestAssetTargetNames_AvoidsReservedTSNames(t *testing.T) {
-	reserved := reservedTSTargetNames(&tsConfig{targetName: "logo_svg"}, "logo")
-	got := assetTargetNames(reserved, []string{"logo.svg"})
-	if got["logo.svg"] == "logo_svg" {
-		t.Errorf("asset name collided with ts_compile target name: %v", got)
-	}
-}
-
 func TestGenerate_RuleNamesUnchangedForPlainTSPackage(t *testing.T) {
 	res := runGenerate(t, "src/lib", map[string]string{
 		"index.ts":      "export const a = 1;\n",
@@ -234,14 +164,8 @@ ts_compile(
     name = "hand_written",
     srcs = ["Button.tsx"],
 )
-
-css_library(
-    name = "hand_written_css",
-    srcs = ["styles.css"],
-)
 `, map[string]string{
 		"Button.tsx": "export const Button = () => null;\n",
-		"styles.css": ".b {}\n",
 	})
 
 	byName := generatedNames(t, res)
@@ -632,26 +556,6 @@ func TestGenerate_AugmentationCountsAsAmbient(t *testing.T) {
 	}
 }
 
-// TestGenerate_TextAndJSONCFilesGetAssetTargets covers imports of files the
-// bundler hands over as text: a skill document, a templated script staged as
-// .txt, and a wrangler config in JSON-with-comments.
-func TestGenerate_TextAndJSONCFilesGetAssetTargets(t *testing.T) {
-	res := runGenerate(t, "widget", map[string]string{
-		"SKILL.md":              "# skill\n",
-		"notes.txt":             "hello\n",
-		"project-widget.js.txt": "console.log(1);\n",
-		"wrangler.jsonc":        "{ /* comment */ }\n",
-		"widget.ts":             "export const w = 1;\n",
-	})
-
-	byName := generatedNames(t, res)
-	assertRule(t, byName, "widget", "ts_compile")
-	assertRule(t, byName, "SKILL_md", "asset_library")
-	assertRule(t, byName, "notes_txt", "asset_library")
-	assertRule(t, byName, "project-widget_js_txt", "asset_library")
-	assertRule(t, byName, "wrangler_jsonc", "asset_library")
-}
-
 // ---- ts_js_srcs ------------------------------------------------------------
 
 // genSrcsOfKind is every srcs entry of every generated rule of one kind, so a
@@ -970,103 +874,6 @@ func withdraws(res language.GenerateResult, kind, name string) bool {
 		}
 	}
 	return false
-}
-
-// A data-file rule is read back on later runs as a claim on its file, so the run
-// after the file is deleted regenerated nothing over it and the rule stayed.
-func TestGenerate_DataFileRuleWhoseFileIsGoneIsWithdrawn(t *testing.T) {
-	res := runGenerateWithBuild(t, "web", `
-asset_library(
-    name = "compiled_README_md",
-    srcs = ["compiled/README.md"],
-    visibility = ["//visibility:public"],
-)
-
-json_library(
-    name = "tokens_json",
-    srcs = ["tokens.json"],
-    visibility = ["//visibility:public"],
-)
-`, map[string]string{
-		"app.ts":      "export const x = 1;\n",
-		"tokens.json": "{}\n",
-	})
-
-	if !withdraws(res, "asset_library", "compiled_README_md") {
-		t.Errorf("asset_library compiled_README_md names a file that is gone and is not withdrawn; Empty = %v", emptyRuleNames(res))
-	}
-	if withdraws(res, "json_library", "tokens_json") {
-		t.Errorf("json_library tokens_json names a file still on disk and is withdrawn; Empty = %v", emptyRuleNames(res))
-	}
-}
-
-// The directory the file left behind may hold nothing else, which is the path
-// that returned before any existing rule was read.
-func TestGenerate_DataFileRuleInAnEmptiedDirectoryIsWithdrawn(t *testing.T) {
-	res := runGenerateWithBuild(t, "icons", `
-asset_library(
-    name = "logo_svg",
-    srcs = ["logo.svg"],
-    visibility = ["//visibility:public"],
-)
-`, map[string]string{})
-
-	if !withdraws(res, "asset_library", "logo_svg") {
-		t.Errorf("asset_library logo_svg is alone in a directory holding no file and is not withdrawn; Empty = %v", emptyRuleNames(res))
-	}
-}
-
-// A label, a glob() and a file another rule in the package generates are all
-// present as far as the run can tell, and a rule naming one stays.
-func TestGenerate_DataFileRuleItCannotJudgeIsLeftAlone(t *testing.T) {
-	repoRoot := t.TempDir()
-	dir := filepath.Join(repoRoot, "web")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	f, err := rule.LoadData(filepath.Join(dir, "BUILD.bazel"), "web", []byte(`
-asset_library(
-    name = "generated_svg",
-    srcs = ["generated.svg"],
-)
-
-asset_library(
-    name = "from_label",
-    srcs = [":some_target"],
-)
-
-asset_library(
-    name = "globbed",
-    srcs = glob(["*.png"]),
-)
-
-css_library(
-    name = "gone_css",
-    srcs = ["gone.css"],
-)
-`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	c := &config.Config{RepoRoot: repoRoot, Exts: make(map[string]interface{})}
-	configureTsConfig(c, "", nil)
-	configureTsConfig(c, "web", f)
-	res := generateRules(language.GenerateArgs{
-		Config:   c,
-		Dir:      dir,
-		Rel:      "web",
-		File:     f,
-		GenFiles: []string{"generated.svg"},
-	})
-
-	for _, kept := range []string{"generated_svg", "from_label", "globbed"} {
-		if withdraws(res, "asset_library", kept) {
-			t.Errorf("asset_library %s is withdrawn over a srcs this run cannot judge; Empty = %v", kept, emptyRuleNames(res))
-		}
-	}
-	if !withdraws(res, "css_library", "gone_css") {
-		t.Errorf("css_library gone_css names a file that is gone and is not withdrawn; Empty = %v", emptyRuleNames(res))
-	}
 }
 
 // A directory with no source is no boundary, so nothing regenerated over the

@@ -60,10 +60,8 @@ func TestExcludeDir_RepeatsInOneBuildFile(t *testing.T) {
 	}
 }
 
-// One basename is all the traversal ever compares against, so a value carrying
-// a path, a glob, or a second name excludes nothing. The list shape is the one
-// worth pinning: ts_js_srcs and ts_asset_declaration_type take several values,
-// so an author has every reason to expect this one does too.
+// One basename is all the traversal compares against, so a path, a glob or a
+// second name excludes nothing; ts_js_srcs takes several values, this does not.
 func TestExcludeDir_AValueThatCannotMatchIsRefusedOutLoud(t *testing.T) {
 	for _, value := range []string{"web/coverage", "cover*", "coverage storybook-static", ""} {
 		files := map[string]string{

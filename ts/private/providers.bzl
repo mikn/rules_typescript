@@ -1,9 +1,9 @@
 """Provider definitions for rules_typescript.
 
 A `direct` field carries only what the target itself produces. A rule that just
-forwards a dep's files -- ts_compile relative to CSS or assets, say -- leaves the
-direct field empty and puts the closure in the transitive one; a consumer that
-wants everything reachable reads the transitive field.
+forwards a dep's files -- ts_compile relative to a dep's data files, say --
+leaves the direct field empty and puts the closure in the transitive one; a
+consumer that wants everything reachable reads the transitive field.
 """
 
 JsInfo = provider(
@@ -56,38 +56,6 @@ NpmPackageInfo = provider(
         "direct_deps": "list of NpmPackageInfo: the packages this one depends on directly, each under the name this package imports it by. The flattened transitive closure cannot answer which version an individual package resolved to, which is what a node_modules tree needs to place two versions of one name.",
         "transitive_deps": "depset of NpmPackageInfo: Transitive npm dependencies.",
         "transitive_package_dirs": "depset of File: package.json files for this package and all transitive deps.",
-    },
-)
-
-CssInfo = provider(
-    doc = "Provider for CSS file outputs.",
-    fields = {
-        "css_files": "depset of File: .css files this target itself produces; empty on a target that only forwards them.",
-        "transitive_css_files": "depset of File: Transitive closure of all .css files.",
-    },
-)
-
-CssModuleInfo = provider(
-    doc = "Provider for CSS Module outputs (.module.css files with typed class names).",
-    fields = {
-        "css_files": "depset of File: .module.css files this target itself produces; empty on a target that only forwards them.",
-        "transitive_css_files": "depset of File: Transitive closure of all .module.css files.",
-        "exports_files": "depset of File: <source>.exports.json, the scoped-name map postcss-modules produced for each direct src. Its keys are what the .d.ts declares and its values are the class names the bundler must emit.",
-        "transitive_exports_files": "depset of File: Transitive closure of all .exports.json maps.",
-    },
-)
-
-AssetInfo = provider(
-    doc = """Provider for static asset files (images, SVGs, fonts, JSON).
-
-asset_library targets propagate asset files through the dependency graph so
-that bundlers (e.g. Vite) can include them in the output bundle. Each asset
-file also gets a generated ambient .d.ts declaration so that TypeScript accepts
-'import logo from \"./logo.svg\"' without type errors.
-""",
-    fields = {
-        "asset_files": "depset of File: asset files this target itself produces; empty on a target that only forwards them.",
-        "transitive_asset_files": "depset of File: Transitive closure of all asset files.",
     },
 )
 

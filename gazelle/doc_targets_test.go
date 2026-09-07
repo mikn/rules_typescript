@@ -74,7 +74,6 @@ func TestDocFilesRolledUpFromASubdirectory(t *testing.T) {
 		"pkg/widget/checkbox.tsx":         "export const Checkbox = () => null;\n",
 		"pkg/widget/checkbox.doc.tsx":     "export * from \"./checkbox\";\n",
 		"pkg/widget/checkbox.stories.tsx": "export * from \"./checkbox\";\n",
-		"pkg/widget/checkbox.css":         ".checkbox { color: red }\n",
 	}, []rule.Directive{directive(directivePackageBoundary, boundaryTsConfig)}, "pkg")
 
 	claims := map[string][]string{}
@@ -94,11 +93,6 @@ func TestDocFilesRolledUpFromASubdirectory(t *testing.T) {
 	if got := claims["widget/checkbox.tsx"]; len(got) != 1 || got[0] != "pkg" {
 		t.Errorf("widget/checkbox.tsx is claimed by %v, want [pkg]: the split moves "+
 			"the doc files out of the package target and nothing else", got)
-	}
-	if len(claims["widget/checkbox.css"]) != 1 {
-		t.Errorf("widget/checkbox.css is claimed by %v, want exactly one target: the "+
-			"doc split must leave the rest of the roll-up alone",
-			claims["widget/checkbox.css"])
 	}
 }
 

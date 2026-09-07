@@ -143,15 +143,15 @@ that layers four sources, lowest precedence first:
 
 | Layer | Contents | Workspace projects |
 |-------|----------|---|
-| 1. Bazel | `root` (the `config`'s package; the test's own with an inline dict or none), `cacheDir` under `TEST_TMPDIR`, `resolve.preserveSymlinks`, `test.coverage.allowExternal`, the CSS-module plugin when a dep carries a `*.module.css`, and under a `config` whose `plugins` hold `@cloudflare/vitest-pool-workers` `preserveSymlinks: false` and the runfiles-imports plugin | yes |
+| 1. Bazel | `root` (the `config`'s package; the test's own with an inline dict or none), `cacheDir` under `TEST_TMPDIR`, `resolve.preserveSymlinks`, `test.coverage.allowExternal`, and under a `config` whose `plugins` hold `@cloudflare/vitest-pool-workers` `preserveSymlinks: false` and the runfiles-imports plugin | yes |
 | 2. user | the `config` attr: a config file or an inline dict | it supplies the projects |
 | 3. attributes | `environment`, `setup_files`, `global_setup`, `globals`, `reporters`, `coverage_thresholds`, `coverage_provider` | yes |
 | 4. snapshots | `test.resolveSnapshotPath`, and in update mode `test.dir`, `test.include` and `cacheDir` | no, root only |
 
 Objects merge key by key; arrays concatenate base-first, matching vite's own
-`mergeConfig`. A user `plugins` list therefore never displaces the CSS-module
-plugin, and a user `setupFiles` list never displaces `setup_files`: the
-attribute's entries run after the config's. Scalars from a later layer win, so
+`mergeConfig`. A user `setupFiles` list therefore never displaces
+`setup_files`: the attribute's entries run after the config's. Scalars from a
+later layer win, so
 `environment` overrides an environment set inside `config`. Once the layers have
 merged, a `setupFiles` or `globalSetup` entry naming a TypeScript source is
 rewritten to its compiled sibling; see [Setup Files](#setup-files).
@@ -319,11 +319,10 @@ the action.
 
 A runfiles file at the copy's path wins over it silently, with the unpatched
 `main`. The file in `data` as well is an analysis error, `is staged through
-wrangler_config; do not list it in data too.`, and the `asset_library` Gazelle
-writes over the file is dropped from the runfiles when it is among the `deps`,
-as is a `ts_compile` dep's data src at that path. Every other `AssetInfo` file
-and data src of the deps is in the runfiles, which is what a
-wrangler `rules` module the worker imports needs. `//tests/workers_nested` is the
+wrangler_config; do not list it in data too.`, and a `ts_compile` dep's data
+src at that path is dropped from the runfiles. Every other data src of the deps
+is in the runfiles, which is what a wrangler `rules` module the worker imports
+needs. `//tests/workers_nested` is the
 example; `//tests/workers`, with the config beside the tests and
 `main: "src/index.js"` in `data`, is the same-package one.
 
@@ -332,7 +331,7 @@ What else a wrangler config names, and where each comes from under `ts_test`:
 | Key | Source |
 |---|---|
 | `main`, `env.<name>.main` | the compiled entry, through the patched copy |
-| `rules` modules (`**/*.txt`, `**/*.md`, ...) | an `asset_library` dep of the worker's `ts_compile` |
+| `rules` modules (`**/*.txt`, `**/*.md`, ...) | a src of the worker's `ts_compile` |
 | `assets.directory` | its contents in `data`, at the same path relative to the config |
 | `.dev.vars`, `.dev.vars.<env>` | read beside the config; in `data` when a test needs one |
 | `compatibility_date`, `compatibility_flags`, `vars`, `kv_namespaces`, `r2_buckets`, `services`, `durable_objects`, `migrations` | inline values; miniflare emulates the bindings and nothing is staged |
@@ -454,10 +453,8 @@ The rejected set is `config`, `coverage`, `coverage_provider`,
 `coverage_thresholds`, `environment`, `global_setup`, `globals`, `reporters`,
 `setup_files`, `snapshots`, `update_snapshots` and `vitest`. node:test has no
 globals mode: nothing installs `describe` or `expect`, so `globals` is
-rejected, and the `vitest/globals` `types` entry is not added. A dep providing
-`CssModuleInfo` is rejected too: only the vitest runner installs the transform
-that answers a `*.module.css` import. No `<name>.update_snapshots` target is
-generated.
+rejected, and the `vitest/globals` `types` entry is not added. No
+`<name>.update_snapshots` target is generated.
 
 `--test_filter` reaches node as `--test-name-pattern` (a regular expression
 over test names), sharding works as above, and the exit status is the test

@@ -155,10 +155,6 @@ func convergeCases() []convergeCase {
 				{kind: "add_file_to_existing_target", write: map[string]string{"src/lib/format.ts": "export const format = 1;\n"}},
 				{kind: "delete_route", remove: []string{"src/routes/home.ts"}},
 				{kind: "delete_doc", remove: []string{"src/lib/helper.doc.ts"}},
-				// A data-file rule is read back as a claim on its file, so the
-				// run after the deletion has nothing to regenerate over it.
-				{kind: "delete_json_beside_sources", remove: []string{"src/lib/tokens.json"}},
-				{kind: "delete_only_asset_in_dir", remove: []string{"src/icons/logo.svg"}},
 				// A directory with no source is no boundary, so the run after the
 				// last one left has nothing to regenerate over its ts_compile.
 				{kind: "delete_only_sources_in_dir", remove: []string{"src/routes/index.ts", "src/routes/home.ts"}},

@@ -3,8 +3,6 @@
 # gazelle:exclude nodenext.tsconfig.json
 # gazelle:exclude ts_extensions.tsconfig.json
 
-load("@rules_typescript//ts:defs.bzl", "json_library")
-
 """The tsconfig baseline, its extends chain, and the precedence order."""
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
@@ -103,12 +101,6 @@ ts_compile(
 build_test(
     name = "ts_extensions_test",
     targets = [":ts_extensions"],
-)
-
-json_library(
-    name = "tsconfig_base_json",
-    srcs = ["tsconfig.base.json"],
-    visibility = ["//visibility:public"],
 )
 
 # The generated editor program for this package; see //:refresh_tsconfig.

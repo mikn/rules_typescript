@@ -13,7 +13,6 @@ analyse it and stop on the very failure being asserted.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
-load("//ts:defs.bzl", "CssInfo")
 
 def _written_file_action(env, suffix):
     for action in analysistest.target_actions(env):
@@ -53,38 +52,6 @@ def _oxc_command_line_impl(ctx):
 
 oxc_command_line_test = analysistest.make(_oxc_command_line_impl)
 
-def _forwarded_files_impl(ctx):
-    env = analysistest.begin(ctx)
-    target = analysistest.target_under_test(env)
-
-    # DefaultInfo is this target's own outputs. A dep's .css reaches a consumer
-    # through CssInfo, which is the provider that says what it is.
-    default_files = [f.basename for f in target[DefaultInfo].files.to_list()]
-    asserts.equals(
-        env,
-        [],
-        [name for name in default_files if name.endswith(".css")],
-        "DefaultInfo carries a dep's CSS: " + str(default_files),
-    )
-    asserts.true(
-        env,
-        "styled.js" in default_files,
-        "DefaultInfo is missing this target's own output: " + str(default_files),
-    )
-
-    # ts_compile produces no CSS, so its direct set is empty and the closure
-    # travels in the transitive one.
-    asserts.equals(env, [], target[CssInfo].css_files.to_list(), "CssInfo.css_files")
-    asserts.equals(
-        env,
-        ["styles.css"],
-        [f.basename for f in target[CssInfo].transitive_css_files.to_list()],
-        "CssInfo.transitive_css_files",
-    )
-    return analysistest.end(env)
-
-forwarded_files_test = analysistest.make(_forwarded_files_impl)
-
 # Restated, not imported: a change to _BASELINE_OPTIONS has to be made here too.
 _BASELINE_KEYS = {
     "strict": True,
@@ -93,7 +60,6 @@ _BASELINE_KEYS = {
     "jsx": "react-jsx",
     "skipLibCheck": True,
     "esModuleInterop": True,
-    "allowArbitraryExtensions": True,
 }
 
 def _baseline_file_impl(ctx):

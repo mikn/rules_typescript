@@ -7,10 +7,6 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 # the Go language would generate a go_test embedding the runner.
 # gazelle:exclude *_test.go
 
-# The checked-in tsgo listing under testdata/ is the parser's fixture, which the
-# TypeScript language would otherwise write an asset_library for.
-# gazelle:exclude testdata
-
 go_library(
     name = "typescript",
     srcs = [
@@ -54,7 +50,6 @@ go_test(
     srcs = [
         "ambient_modules_test.go",
         "ambient_types_test.go",
-        "asset_declaration_type_test.go",
         "boundary_tsconfig_test.go",
         "codegen_test.go",
         "converge_cases_test.go",
@@ -82,7 +77,6 @@ go_test(
         "reference_types_scan_test.go",
         "reference_types_test.go",
         "resolve_test.go",
-        "rollup_assets_test.go",
         "tsconfig_baseline_test.go",
         "tsconfig_extends_test.go",
         "unknown_bare_name_test.go",

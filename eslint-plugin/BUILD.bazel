@@ -1,5 +1,3 @@
-load("@rules_typescript//ts:defs.bzl", "json_library")
-
 # The @typescript-eslint packages every source here imports live in their own
 # hub, not the default one: //tests/npm's lockfile is a curated fixture and
 # eslint's closure has no business in it.
@@ -21,9 +19,3 @@ load("@rules_typescript//ts:defs.bzl", "json_library")
 # resolution, which Gazelle cannot infer.
 # gazelle:ts_exclude tsup.config.ts
 # gazelle:ts_exclude vitest.config.ts
-
-json_library(
-    name = "package-lock_json",
-    srcs = ["package-lock.json"],
-    visibility = ["//visibility:public"],
-)

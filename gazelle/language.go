@@ -92,8 +92,6 @@ func (l *tsLang) KnownDirectives() []string {
 		directiveNpmHub,
 		// Overlay a hand-written npm name -> label mapping on the inventory.
 		directiveNpmMapping,
-		// Declare what an asset extension's import resolves to in this tree.
-		directiveAssetDeclarationType,
 		// Admit JavaScript sources of the named extensions into generated srcs.
 		directiveJSSrcs,
 	}
@@ -108,7 +106,6 @@ func (l *tsLang) Configure(c *config.Config, rel string, f *rule.File) {
 // tsDefsSymbols are the rule kinds this extension loads from //ts:defs.bzl.
 // Loads and ApparentLoads must name the same set, so they read one list.
 var tsDefsSymbols = []string{
-	"asset_library", "css_library", "css_module", "json_library",
 	"ts_add_package", "ts_codegen", "ts_compile", "ts_config",
 	"ts_lint", "ts_pnpm", "ts_test",
 }
@@ -153,54 +150,6 @@ func (l *tsLang) ApparentLoads(moduleToApparentName func(string) string) []rule.
 // determine which attributes are mergeable.
 func (l *tsLang) Kinds() map[string]rule.KindInfo {
 	return map[string]rule.KindInfo{
-		"asset_library": {
-			MatchAny:   false,
-			MatchAttrs: []string{"name"},
-			NonEmptyAttrs: map[string]bool{
-				"srcs": true,
-			},
-			MergeableAttrs: map[string]bool{
-				"srcs":       true,
-				"deps":       true,
-				"visibility": true,
-			},
-		},
-		"css_library": {
-			MatchAny:   false,
-			MatchAttrs: []string{"name"},
-			NonEmptyAttrs: map[string]bool{
-				"srcs": true,
-			},
-			MergeableAttrs: map[string]bool{
-				"srcs":       true,
-				"deps":       true,
-				"visibility": true,
-			},
-		},
-		"css_module": {
-			MatchAny:   false,
-			MatchAttrs: []string{"name"},
-			NonEmptyAttrs: map[string]bool{
-				"srcs": true,
-			},
-			MergeableAttrs: map[string]bool{
-				"srcs":       true,
-				"deps":       true,
-				"visibility": true,
-			},
-		},
-		"json_library": {
-			MatchAny:   false,
-			MatchAttrs: []string{"name"},
-			NonEmptyAttrs: map[string]bool{
-				"srcs": true,
-			},
-			MergeableAttrs: map[string]bool{
-				"srcs":       true,
-				"deps":       true,
-				"visibility": true,
-			},
-		},
 		"ts_compile": {
 			MatchAny:   false,
 			MatchAttrs: []string{"name"},

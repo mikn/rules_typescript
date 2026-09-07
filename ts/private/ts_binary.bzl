@@ -24,7 +24,7 @@ Launcher behaviour (//tools/launcher, driven by the generated JSON config):
 """
 
 load("//tools/launcher:launcher.bzl", "LAUNCHER_ATTRS", "declare_launcher", "rlocation_path")
-load("//ts/private:bundle_action.bzl", "BUNDLE_ACTION_ATTRS", "create_bundle_action")
+load("//ts/private:bundle_action.bzl", "create_bundle_action")
 load("//ts/private:providers.bzl", "BundlerInfo", "JsInfo")
 load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "get_js_runtime")
 
@@ -246,7 +246,7 @@ ts_binary = rule(
     toolchains = [
         config_common.toolchain_type(JS_RUNTIME_TOOLCHAIN_TYPE, mandatory = False),
     ],
-    attrs = LAUNCHER_ATTRS | BUNDLE_ACTION_ATTRS | {
+    attrs = LAUNCHER_ATTRS | {
         "entry_point": attr.label(
             doc = "The ts_compile target whose output is the binary entry point, or a single .js/.mjs/.cjs source file to run as-is.",
             allow_files = True,

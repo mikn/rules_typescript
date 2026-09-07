@@ -211,20 +211,17 @@ func TestBoundaryTsConfig_RolledUpAmbientDeclarationReachesTheTest(t *testing.T)
 	}
 }
 
-// The roll-up and a ts_codegen's outs both decide what a target's srcs contain,
-// and a file claimed by both is a source and an output of one package -- which
-// Bazel rejects outright. The out stays checked in until the day it does not,
-// so the claim has to reach every kind the walk collects, not the TypeScript
-// ones alone.
+// A file the roll-up collects and a ts_codegen declares would be a source and
+// an output of one package, which Bazel rejects; the claim reaches the roll-up.
 func TestBoundaryTsConfig_RolledUpCodegenOutIsNotAlsoASrc(t *testing.T) {
 	res := generateTreeWithBuild(t, map[string]string{
 		"worker/tsconfig.json":      `{"include": ["src/**/*.ts"]}`,
 		"worker/src/schema.graphql": "type Query { a: Int }\n",
 		"worker/src/schema.gen.ts":  "export type S = number;\n",
-		"worker/src/schema.json":    `{"a": 1}`,
 		"worker/src/worker.ts":      "export const w = 1;\n",
 	}, []rule.Directive{directive(directivePackageBoundary, "tsconfig")}, "worker",
-		"# gazelle:ts_codegen schema_gen //tools:schemagen src/schema.gen.ts,src/schema.json srcs:src/schema.graphql --out {out}\n")
+		"# gazelle:ts_codegen schema_gen //tools:schemagen src/schema.gen.ts "+
+			"srcs:src/schema.graphql --out {out}\n")
 
 	compile := generatedRule(res, "worker")
 	if compile == nil {
@@ -232,14 +229,6 @@ func TestBoundaryTsConfig_RolledUpCodegenOutIsNotAlsoASrc(t *testing.T) {
 	}
 	if got := compile.AttrStrings("srcs"); slices.Contains(got, "src/schema.gen.ts") {
 		t.Errorf("ts_compile srcs = %v: the declared out is also a source", got)
-	}
-	for _, r := range res.Gen {
-		if r.Kind() != "json_library" {
-			continue
-		}
-		if got := r.AttrStrings("srcs"); slices.Contains(got, "src/schema.json") {
-			t.Errorf("json_library %s srcs = %v: the declared out is also a source", r.Name(), got)
-		}
 	}
 }
 
@@ -275,11 +264,11 @@ var boundaryRolledUpDirWorkspace = map[string]string{
 	"packages/plugin/package.json":  `{"name":"@acme/plugin"}` + "\n",
 	"packages/plugin/tsconfig.json": `{"include":["src/**/*","scripts/**/*"]}` + "\n",
 	"packages/plugin/src/main.ts": "import \"./widgets\";\n" +
-		"import \"../tools/generated.css\";\n" +
+		"import \"../tools/generated.js\";\n" +
 		"export const main = 1;\n",
 	"packages/plugin/src/widgets/widget.ts": "export const widget = 1;\n",
-	// The bundler emits the stylesheet, so the specifier names a file no rule
-	// here provides -- which is what leaves the label to be constructed.
+	// A generator emits the module, so the specifier names a file no rule here
+	// provides -- which is what leaves the label to be constructed.
 	"packages/plugin/scripts/preview.ts":  "import \"./preview.css\";\nexport const preview = 1;\n",
 	"packages/plugin/tools/tsconfig.json": `{"include":["*.ts"]}` + "\n",
 	"packages/plugin/tools/build.ts":      "export const build = 1;\n",
@@ -327,7 +316,7 @@ var boundaryMixedModeWorkspace = map[string]string{
 	"packages/BUILD.bazel":          "# gazelle:ts_package_boundary tsconfig\n",
 	"packages/plugin/package.json":  `{"name":"@acme/plugin"}` + "\n",
 	"packages/plugin/tsconfig.json": `{"include":["src/**/*"]}` + "\n",
-	"packages/plugin/src/main.ts": "import \"../../../web/sub/emitted.css\";\n" +
+	"packages/plugin/src/main.ts": "import \"../../../web/sub/emitted.js\";\n" +
 		"export const main = 1;\n",
 	"web/BUILD.bazel":  "# gazelle:ts_package_boundary every-dir\n",
 	"web/sub/thing.ts": "export const thing = 1;\n",

@@ -19,9 +19,6 @@ var atNamedSrcWorkspace = map[string]string{
 	"tsconfig.json":               `{"compilerOptions":{"strict":true}}` + "\n",
 	"src/routes/index.tsx":        "export const index = 1;\n",
 	"src/routes/@{$username}.tsx": "export const user = 1;\n",
-	"src/routes/@logo.svg":        "<svg/>\n",
-	"src/routes/@data.json":       `{"a":1}` + "\n",
-	"src/routes/@sheet.css":       ".a{color:red}\n",
 	"src/routes/@case.test.tsx":   "export const t = 1;\n",
 }
 
@@ -65,9 +62,6 @@ func TestAtNamedSrcIsAValidLabel(t *testing.T) {
 
 	for _, want := range []string{
 		"src/routes/@{$username}.tsx",
-		"src/routes/@logo.svg",
-		"src/routes/@data.json",
-		"src/routes/@sheet.css",
 		"src/routes/@case.test.tsx",
 	} {
 		if !declared[want] {

@@ -235,11 +235,10 @@ func TestIsNodeBuiltin(t *testing.T) {
 	}
 }
 
-// ---- CSS import tests -------------------------------------------------------
+// ---- Non-TypeScript specifiers ---------------------------------------------
 
 func TestExtractImports_CSSImports(t *testing.T) {
-	// CSS side-effect imports should be extracted just like TypeScript imports.
-	// Gazelle needs them to generate css_library deps.
+	// A specifier naming a stylesheet is extracted like any other.
 	src := `
 import "./button.css";
 import styles from "./theme.css";
@@ -250,120 +249,8 @@ import { foo } from "./utils";
 	assertStringSliceEqual(t, "CSS imports", got, want)
 }
 
-func TestIsCSSFile(t *testing.T) {
-	cases := []struct {
-		name string
-		want bool
-	}{
-		{"button.css", true},
-		{"theme.css", true},
-		{"Button.module.css", true}, // module.css is still a .css file
-		{"styles.CSS", false},       // case-sensitive
-		{"button.ts", false},
-		{"index.tsx", false},
-		{"cssHelper.ts", false},
-	}
-	for _, tc := range cases {
-		got := isCSSFile(tc.name)
-		if got != tc.want {
-			t.Errorf("isCSSFile(%q): got %v, want %v", tc.name, got, tc.want)
-		}
-	}
-}
-
-func TestIsCSSModuleFile(t *testing.T) {
-	cases := []struct {
-		name string
-		want bool
-	}{
-		{"Button.module.css", true},
-		{"theme.module.css", true},
-		{"button.css", false}, // plain CSS, not a module
-		{"button.ts", false},
-		{"Button.MODULE.css", false}, // case-sensitive
-	}
-	for _, tc := range cases {
-		got := isCSSModuleFile(tc.name)
-		if got != tc.want {
-			t.Errorf("isCSSModuleFile(%q): got %v, want %v", tc.name, got, tc.want)
-		}
-	}
-}
-
-func TestIsAssetFile(t *testing.T) {
-	cases := []struct {
-		name string
-		want bool
-	}{
-		{"logo.svg", true},
-		{"hero.png", true},
-		{"photo.jpg", true},
-		{"photo.jpeg", true},
-		{"animation.gif", true},
-		{"image.webp", true},
-		{"font.woff", true},
-		{"font.woff2", true},
-		{"font.ttf", true},
-		{"font.eot", true},
-		{"SKILL.md", true},
-		{"notes.txt", true},
-		{"project-widget.js.txt", true},
-		{"wrangler.jsonc", true},
-		// JSON files are handled by json_library, NOT asset_library.
-		{"data.json", false},
-		{"config.json", false},
-		// Case-insensitive:
-		{"logo.SVG", true},
-		{"photo.PNG", true},
-		// Not assets:
-		{"styles.css", false},
-		{"Button.module.css", false},
-		{"component.ts", false},
-		{"index.tsx", false},
-		{"package.json.lock", false}, // .lock extension, not .json
-		// Text-ish extensions the ruleset still does not classify: an import of
-		// one resolves to nothing rather than to a target.
-		{"SKILL.mdx", false},
-		{"notes.rst", false},
-	}
-	for _, tc := range cases {
-		got := isAssetFile(tc.name)
-		if got != tc.want {
-			t.Errorf("isAssetFile(%q): got %v, want %v", tc.name, got, tc.want)
-		}
-	}
-}
-
-func TestIsJSONFile(t *testing.T) {
-	cases := []struct {
-		name string
-		want bool
-	}{
-		{"config.json", true},
-		{"data.json", true},
-		{"schema.json", true},
-		// Case-insensitive extension:
-		{"DATA.JSON", true},
-		// Not JSON:
-		{"logo.svg", false},
-		{"hero.png", false},
-		{"styles.css", false},
-		{"component.ts", false},
-		// Well-known config JSON files are excluded from generation (tested
-		// separately in generateRules), but isJSONFile itself returns true for them.
-		{"package.json", true},
-	}
-	for _, tc := range cases {
-		got := isJSONFile(tc.name)
-		if got != tc.want {
-			t.Errorf("isJSONFile(%q): got %v, want %v", tc.name, got, tc.want)
-		}
-	}
-}
-
 func TestExtractImports_CSSModuleImports(t *testing.T) {
-	// CSS Module imports use a default import syntax.
-	// Gazelle must extract them for dep resolution against css_module targets.
+	// A default import of a stylesheet is extracted like any other.
 	src := `
 import styles from "./Button.module.css";
 import themeStyles from "./theme.module.css";
@@ -376,7 +263,7 @@ import { foo } from "./utils";
 }
 
 func TestExtractImports_AssetImports(t *testing.T) {
-	// Asset imports (SVGs, images, fonts) should be extracted for resolution.
+	// A specifier naming an image is extracted like any other.
 	src := `
 import logo from "./logo.svg";
 import heroImage from "./hero.png";

@@ -112,7 +112,7 @@ func main() {
 		aliasedImportsAreDeps(it)
 		codegenGlobLoads(it)
 		outDirContentsAreNotSources(it)
-		assetDeclarationTypeApplies(it)
+		assetImportTypesThroughItsDeclaration(it)
 		anchoredExcludeHitsOnePath(it)
 		jsSrcsAreCompiledAndDeclared(it)
 		checkedInDeclarationTypesTheJavaScript(it)
@@ -531,29 +531,19 @@ func anchoredExcludeHitsOnePath(it *harness.IT) {
 	it.Pass("src/app/lib.config.ts compiles; src/lib's namesake is out of the build")
 }
 
-// The converge tests assert generated BUILD text, and a type expression can
-// reach the BUILD file intact and still not be the type the import gets. The
-// negative probe is the half that says so: an unresolvable expression widens the
-// import to `any` under skipLibCheck, and `any` compiles either way.
-func assetDeclarationTypeApplies(it *harness.IT) {
-	const declared = `".svg": "{ readonly viewBox: string }"`
+// The ambient assets.d.ts beside the asset types the import, and only a compile
+// that has to fail says so: an unresolvable type widens to `any` and compiles.
+func assetImportTypesThroughItsDeclaration(it *harness.IT) {
+	it.RequireContains(it.Path("src/icons/BUILD.bazel"), `"assets.d.ts"`,
+		"the ambient declaration beside logo.svg is not in src/icons's srcs")
+	it.Pass("src/icons/BUILD.bazel carries assets.d.ts")
 
-	it.RequireContains(it.Path("src/icons/BUILD.bazel"), declared,
-		"the ts_asset_declaration_type directive did not reach src/icons/BUILD.bazel")
-	it.Pass("the directive reached the generated asset_library, spaces intact")
-
-	it.RequireContains(it.Bin("src/icons/logo.svg.d.ts"),
-		"declare const asset: { readonly viewBox: string };",
-		"the generated declaration does not carry the directive's type")
-	it.Pass("logo.svg.d.ts declares the directive's type")
-
-	// //src/icons compiled above, and it reads logo.viewBox: TS2339 on the
-	// string default. What is left is proving the type is enforced rather than
-	// widened, which only a compile that has to fail can say.
+	// //src/icons compiled above, reading logo.viewBox: TS2339 on a string.
 	consumer := it.Path("src/icons/index.ts")
 	restore := it.Read(consumer)
 	it.Write(consumer, "import logo from \"./logo.svg\";\n\nexport const url: string = logo;\n")
-	log, err := it.BazelLog("asset_declaration_type_is_not_a_string", "build", "//src/icons")
+	log, err := it.BazelLog("asset_declaration_is_not_a_string",
+		"build", "//src/icons")
 	it.Write(consumer, restore)
 	if err == nil {
 		log.Dump()

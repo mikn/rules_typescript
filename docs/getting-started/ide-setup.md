@@ -221,10 +221,9 @@ whichever of its targets name one.
 
 A target in that package naming no `tsconfig` inherits that file in the editor,
 and does not in the build: the rule's baseline (`strict`, `module: Preserve`,
-`target: es2022`, `jsx: react-jsx`, `skipLibCheck`, `esModuleInterop`,
-`allowArbitraryExtensions`) is all it gets there, which is what the root block
-holds. Give the odd target the same `tsconfig`, or its own package, when that is
-not close enough.
+`target: es2022`, `jsx: react-jsx`, `skipLibCheck`, `esModuleInterop`) is all
+it gets there, which is what the root block holds. Give the odd target the same
+`tsconfig`, or its own package, when that is not close enough.
 
 ### Bare Specifiers for First-Party Packages
 

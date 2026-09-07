@@ -15,4 +15,3 @@ vitest_attr_test = _fails_with(
     'runner "node:test" reads none of environment, globals, wrangler_config.',
     "configures vitest, which this target does not run",
 )
-css_module_test = _fails_with('runner "node:test" cannot load a CSS module')

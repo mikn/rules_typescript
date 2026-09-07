@@ -1,6 +1,6 @@
 load("@rules_go//go:def.bzl", "go_test")
 load("//npm:defs.bzl", "node_modules")
-load("//ts:defs.bzl", "css_library", "ts_compile", "ts_dev_server")
+load("//ts:defs.bzl", "ts_compile", "ts_dev_server")
 
 package(default_visibility = ["//:__pkg__"])
 
@@ -18,15 +18,13 @@ exports_files([
 # below (the same split as //vite:tsup_config).
 # gazelle:ts_exclude tailwind_config.ts
 
-css_library(
-    name = "styles_css",
-    srcs = ["styles.css"],
-)
-
 ts_compile(
     name = "entry",
-    srcs = ["entry.ts"],
-    deps = [":styles_css"],
+    srcs = [
+        "css.d.ts",
+        "entry.ts",
+        "styles.css",
+    ],
 )
 
 # @tailwindcss/vite reaches tailwindcss and @tailwindcss/oxide by bare specifier

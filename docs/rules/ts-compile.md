@@ -24,7 +24,7 @@ flags in `.bazelrc`. Every compiler option is the tsconfig's.
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `srcs` | `label_list` | required | The package's files: TypeScript is compiled, JavaScript and declarations join the program, every other file is staged as data. See [Sources](#sources) |
-| `deps` | `label_list` | `[]` | `ts_compile`, `ts_codegen`, `ts_npm_package`, `css_library`, `css_module`, `asset_library` or `json_library` targets, and a workspace member's hub view `@npm//:<name>` |
+| `deps` | `label_list` | `[]` | `ts_compile`, `ts_codegen` or `ts_npm_package` targets, and a workspace member's hub view `@npm//:<name>` |
 | `tsconfig` | `label` | `None` | The project's own `tsconfig.json`, or a [`ts_config`](#ts_config) target: where every compiler option comes from. See [Where compiler options come from](#where-compiler-options-come-from) |
 
 Those are the three. The emit knobs are build flags, one value for the whole
@@ -67,9 +67,9 @@ relative path at run time -- `import data from "./data.json"`,
 consumer gets the closure as `JsInfo.transitive_data_files`; `ts_test` stages it
 in the runfiles beside the `.js`, `ts_binary` in its runfiles and its bundle,
 `ts_dev_server` in its runfiles. A data file is never a tsgo input, with one
-class of exception: a `.json` is. An import of it resolves to the file and is
-typed from its contents under `resolveJsonModule`, which bundler resolution
-implies, and tsc reads the nearest `package.json` of every source for the
+class of exception: a `.json` is, this target's and its deps' alike. An import
+of it resolves to the file and is typed from its contents under
+`resolveJsonModule`, which bundler resolution implies, and tsc reads the nearest `package.json` of every source for the
 module's format and for the package's own name, so a package that imports
 itself by name (`import "@scope/pkg/wire"` from inside `pkg`) resolves through
 the manifest in `srcs`. At run time that name resolves through the hub's view of
@@ -110,16 +110,13 @@ effective options, and writes the keys Bazel owns over both. Lowest precedence
 first:
 
 1. **The ruleset baseline**: `strict`, `module: "Preserve"`, `target: "es2022"`,
-   `jsx: "react-jsx"`, `skipLibCheck`, `esModuleInterop`,
-   `allowArbitraryExtensions`. Without a `tsconfig` they are the program's whole
-   options; with one they reach only the keys the file and its own `extends`
-   chain never mention.
+   `jsx: "react-jsx"`, `skipLibCheck`, `esModuleInterop`. Without a `tsconfig`
+   they are the program's whole options; with one they reach only the keys the
+   file and its own `extends` chain never mention.
 
    `moduleResolution` is asserted nowhere: TypeScript couples it to `module`, and
    tsgo derives the resolver from whichever `module` wins, `Bundler` for all of
-   them but `Node16`/`NodeNext`. The `.d.ts` files `css_module`, `css_library`,
-   `asset_library` and `json_library` generate need `allowArbitraryExtensions`;
-   a tsconfig that turns it off loses those imports.
+   them but `Node16`/`NodeNext`.
 2. **`tsconfig`**: the project's own `tsconfig.json`, and whatever it extends.
    Referenced where it lives, never copied, so relative paths inside it resolve
    against the directory they were written for. Everything it says wins over
@@ -311,9 +308,8 @@ through its hub view, `@npm//:<name>`, and resolves through the forest like any
 npm package; its `exports` map, rewritten to the emitted files, decides what
 `@acme/ui` and `@acme/ui/button` are. Any other first-party target is reached
 through the tsconfig's `paths`: the rule rewrites each value to the source
-directory and its `bazel-bin` twin, so a dep's declarations, a `json_library`'s
-`.d.ts` and a `ts_codegen` `out_dir` tree resolve through the alias the tsconfig
-already has.
+directory and its `bazel-bin` twin, so a dep's declarations and a `ts_codegen`
+`out_dir` tree resolve through the alias the tsconfig already has.
 
 ```jsonc
 // apps/web/tsconfig.json

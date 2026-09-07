@@ -50,5 +50,5 @@
   arguments (config, entry, output directory, stylesheet); `ts_dev_server`
   keeps `server`, defaulting to Vite, and `bundler`. `MODULE.bazel` declares
   neither the `oj_crates` hub nor the nightly Rust host tools, and the
-  integration lane runs two CI legs (`npm`, `core`) over 13 nested-Bazel
+  integration lane runs two CI legs (`npm`, `core`) over 12 nested-Bazel
   tests.

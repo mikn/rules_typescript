@@ -183,3 +183,25 @@ def _transitive_data_impl(ctx):
     return analysistest.end(env)
 
 transitive_data_test = analysistest.make(_transitive_data_impl)
+
+def _dep_json_inputs_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    # An import of a dep's .json is typed from the file, so it is an input of
+    # the consumer's program beside the dep's declarations; other data is not.
+    tsgo = _action(env, "TsgoDeclare") or _action(env, "TsgoCheck")
+    asserts.true(env, tsgo != None, "ts_compile runs no tsgo action")
+    if tsgo != None:
+        asserts.equals(
+            env,
+            ["gamma/data.json", "gamma/index.d.ts", "gamma/package.json"],
+            sorted([
+                _package_relative(f)
+                for f in tsgo.inputs.to_list()
+                if not f.is_directory and "/gamma/" in f.path
+            ]),
+            "the consumer's tsgo inputs under the dep's gamma/",
+        )
+    return analysistest.end(env)
+
+dep_json_inputs_test = analysistest.make(_dep_json_inputs_impl)

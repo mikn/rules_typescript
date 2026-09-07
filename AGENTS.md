@@ -92,7 +92,7 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 - `ts/tools/tsaction/` — the Go runner behind the actions: `tsconfig` writes the action config from `tsgo --showConfig`, `oxc` relays the options to oxc, `tsgo` lays out the program root and runs tsgo from it
 - `ts/tools/tsconfig/`, `ts/tools/jsonc/` — the tsconfig `extends` chain reader and the JSONC parser, shared by tsaction and Gazelle
 - `ts/private/node_modules.bzl` — the `node_modules` tree builder; `ts_compile`'s forest and `ts_test`'s runtime tree
-- `ts/private/providers.bzl` — JsInfo, TsDeclarationInfo, TsConfigInfo, NpmPackageInfo, CssInfo, CssModuleInfo, AssetInfo, DevServerInfo, BundlerInfo
+- `ts/private/providers.bzl` — JsInfo, TsDeclarationInfo, TsConfigInfo, NpmPackageInfo, DevServerInfo, BundlerInfo
 - `npm/private/npm_translate_lock.bzl` — pnpm lockfile reader (parsing only; no repository rule)
 - `npm/extensions.bzl` — the `npm` module extension (translate_lock, pnpm tags)
 - `npm/lazy.bzl` — whole-graph analysis + one `npm_import` per package + the alias hub
@@ -186,7 +186,6 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 | `ts_codegen <name> <generator> <outs> [srcs:<csv>] [args]` | Custom codegen rule |
 | `ts_npm_hub <repo>` | The npm hub bare specifiers in this tree resolve into |
 | `ts_npm_mapping <path.json>` | Overlay a hand-written npm name → label mapping on the lockfile inventory |
-| `ts_asset_declaration_type <ext> <type>` | The type an asset extension's import resolves to in this tree |
 | `ts_js_srcs .mjs .cjs` | Admit JavaScript sources of those extensions into generated `srcs` |
 
 ## Provider Contract
@@ -200,13 +199,10 @@ actions, so a violation fails the build and not only `--output_groups`.
 Every `ts_npm_package` provides: `JsInfo` + `TsDeclarationInfo` +
 `NpmPackageInfo` (whose `direct_deps` carries the per-dependent resolution the
 `node_modules` links are built from).
-`css_library`/`css_module`/`asset_library`/`json_library` provide `TsDeclarationInfo` (for .d.ts stubs).
-`css_module` additionally provides `CssModuleInfo`, whose `exports_files` carry
-the `<source>.exports.json` its compile action wrote, the map the `.d.ts` keys
-came from; anything that needs the runtime values reads that file. `ts_binary`'s
-bundle action, `ts_dev_server` and `ts_test` install
-`//ts/private/css:css_module_vite_plugin`, which hands that map to the bundler;
-a fourth consumer installs it too, or Vite scopes the stylesheet again.
+A data src of a `ts_compile` -- a `.css`, an image, a `.json` -- travels in
+`JsInfo.transitive_data_files`, which `ts_test`, `ts_binary` and
+`ts_dev_server` stage beside the `.js`; a `*.module.css` is Vite's own CSS
+modules wherever Vite runs it.
 
 ## npm Internals
 
@@ -309,8 +305,8 @@ carries most of it: `tests/vitest/**`, `tests/dev_server/**`, `vite/tests/**`
 (vite-plugin-bazel's own tests), and the `lsp` and `npm_deps` integration
 workspaces, which copy that lockfile verbatim. `@npm_features` (`tests/npm/pnpm-lock-features.yaml`, declared
 `dev_dependency`) is the pnpm patch/alias/peer-variant fixture and resolves
-neither tool; `@npm_css` (`ts/private/css/pnpm-lock.yaml`) holds the ruleset's own
-build-action packages and resolves neither either. The per-hub table is in
+neither tool; `@npm_esbuild` (`vite/esbuild/pnpm-lock.yaml`) holds the esbuild
+that bundles `vite-plugin-bazel` and resolves neither either. The per-hub table is in
 COMPATIBILITY.md § Vite and vitest:
 
 ```bash
@@ -387,5 +383,5 @@ puts the working directory in the user's source tree.
   and it feeds `//vite:vite_plugin_bazel`, which `ts_dev_server` takes through
   its `plugin` attr. `plugin` has no default, and no workspace here
   set it, so nothing had reached the label and no build had failed. The `@npm`
-  labels still in `//vite` and `//ts/private/css` are unreached, not sanctioned. Two trees pin the rule, `//vite:esbuild_node_modules` and
-  `//ts/private/css:node_modules`, declared in `tests/npm/BUILD.bazel`.
+  labels still in `//vite` are unreached, not sanctioned. One tree pins the
+  rule, `//vite:esbuild_node_modules`, declared in `tests/npm/BUILD.bazel`.

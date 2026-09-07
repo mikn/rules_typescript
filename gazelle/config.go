@@ -124,19 +124,6 @@ const (
 	// ancestor mapped.
 	directiveNpmMapping = "ts_npm_mapping"
 
-	// directiveAssetDeclarationType hands Gazelle one entry of the
-	// declaration_type dict on every asset_library in this tree, generated or
-	// already written, so an svgr-style project declares the type once rather
-	// than on each of the one-target-per-asset-file rules.
-	//
-	//	# gazelle:ts_asset_declaration_type .svg import("react").FC<import("react").SVGProps<SVGSVGElement>>
-	//
-	// Only the first space separates: everything after the extension is the
-	// type expression verbatim, so `{ default: string }` needs no quoting.
-	// The extension alone declares that this tree resolves it to nothing in
-	// particular, and Gazelle removes the entry.
-	directiveAssetDeclarationType = "ts_asset_declaration_type"
-
 	// directiveJSSrcs admits JavaScript sources into the srcs of the targets
 	// generated in this tree. The value is the set of extensions to admit:
 	//
@@ -330,13 +317,6 @@ type tsConfig struct {
 	// codegenOuts is the ts_codegen declaring each out, by the out's repo-relative path.
 	codegenOuts map[string]label.Label
 
-	// assetDeclarationType maps an asset extension (leading dot) to the
-	// TypeScript type expression asset_library.declaration_type carries for it
-	// in this tree. A key present with an empty value is the extension a
-	// directive named and left blank: still Gazelle's, declaring nothing.
-	// Set via # gazelle:ts_asset_declaration_type.
-	assetDeclarationType map[string]string
-
 	// jsSrcExts are the extensions a ts_js_srcs directive admits into the srcs
 	// of the targets generated in this tree, lowercased and dot-led. Empty --
 	// the default -- leaves srcs at .ts and .tsx.
@@ -415,14 +395,6 @@ func (tc *tsConfig) clone() *tsConfig {
 	if len(tc.excludeDirs) > 0 {
 		cp.excludeDirs = make([]string, len(tc.excludeDirs))
 		copy(cp.excludeDirs, tc.excludeDirs)
-	}
-	// A child directive adds, overrides or clears one extension, so the map has
-	// to be the child's own before configureTsConfig writes into it.
-	if tc.assetDeclarationType != nil {
-		cp.assetDeclarationType = make(map[string]string, len(tc.assetDeclarationType))
-		for k, v := range tc.assetDeclarationType {
-			cp.assetDeclarationType[k] = v
-		}
 	}
 	// customCodegens is inherited but not mutated after construction (each
 	// directory's directive appends a new entry to the child copy).
@@ -1041,15 +1013,6 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 					tc.npmPackages = overlayNpmMapping(tc.npmPackages,
 						loadNpmMappingFile(filepath.Join(c.RepoRoot, mappingRel)))
 				}
-			case directiveAssetDeclarationType:
-				ext, typeExpr, ok := parseAssetDeclarationTypeDirective(d.Value)
-				if !ok {
-					break
-				}
-				if tc.assetDeclarationType == nil {
-					tc.assetDeclarationType = map[string]string{}
-				}
-				tc.assetDeclarationType[ext] = typeExpr
 			case directiveJSSrcs:
 				if exts, ok := parseJSSrcsDirective(d.Value); ok {
 					tc.jsSrcExts = exts
@@ -1382,26 +1345,6 @@ func declaredTypesPackages(packageJSONPath string) []string {
 		labels = append(labels, npmLabel(name))
 	}
 	return labels
-}
-
-// ---- directive parser: ts_asset_declaration_type ---------------------------
-
-// parseAssetDeclarationTypeDirective splits the value into its extension and
-// its type expression. Only the first space is a separator, so `{ default: FC }`
-// arrives as one expression rather than three fields.
-func parseAssetDeclarationTypeDirective(value string) (ext, typeExpr string, ok bool) {
-	ext, typeExpr, _ = strings.Cut(strings.TrimSpace(value), " ")
-	ext = strings.ToLower(ext)
-	typeExpr = strings.TrimSpace(typeExpr)
-	if !slices.Contains(assetExtensions, ext) {
-		log.Printf("typescript: invalid %s extension %q\n"+
-			"  format: # gazelle:%s <ext> <type expression>\n"+
-			"  write the leading dot, and pick one of: %s",
-			directiveAssetDeclarationType, ext, directiveAssetDeclarationType,
-			strings.Join(assetExtensions, ", "))
-		return "", "", false
-	}
-	return ext, typeExpr, true
 }
 
 // ---- directive parser: ts_js_srcs ------------------------------------------

@@ -574,18 +574,10 @@ conflicting_direct_peers_test(
     target_under_test = ":conflicting_direct_peers",
 )
 
-# Both bundles are consumer API -- //vite's through ts_dev_server's `plugin`
-# attr, the css one as a private attr default on ts_test/ts_binary/ts_dev_server.
+# The bundle is consumer API, through ts_dev_server's `plugin` attr.
 hub_provenance_test(
     name = "vite_plugin_hub_test",
     size = "small",
-    hub = "npm_css",
+    hub = "npm_esbuild",
     target_under_test = "//vite:esbuild_node_modules",
-)
-
-hub_provenance_test(
-    name = "css_compiler_hub_test",
-    size = "small",
-    hub = "npm_css",
-    target_under_test = "//ts/private/css:node_modules",
 )

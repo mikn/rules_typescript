@@ -424,11 +424,14 @@ off, whichever directory holds that target. A member whose directory holds no
 `package.json` with a `name` gets a comment in the hub and no view; two members
 of one name, or one directory linked under two names, fail the extension.
 
-The link holds no data file: a member's CSS and assets travel as `CssInfo` and
-`AssetInfo`, which the view forwards. `ts_test` inlines the tree's workspace
-members for vite (`server.deps.inline`), because a member's emitted `.js` keeps
-its sources' extensionless relative imports, which node's loader rejects and
-vite resolves, and pnpm inlines a linked package for the same reason.
+The link holds the member's data srcs too, at their package-relative paths
+beside the `.js` that reads them: a member whose module imports `./banner.json`
+answers `import { tagline } from "shared"` from the link alone. The view
+forwards `JsInfo`, so the closure's `transitive_data_files` reach a consumer as
+any dep's do. `ts_test` inlines the tree's workspace members for vite
+(`server.deps.inline`), because a member's emitted `.js` keeps its sources'
+extensionless relative imports, which node's loader rejects and vite resolves,
+and pnpm inlines a linked package for the same reason.
 
 ## Bin Scripts
 

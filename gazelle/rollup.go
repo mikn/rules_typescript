@@ -18,11 +18,7 @@ type rolledUpFiles struct {
 	docs  []string
 	// ambient names the srcs entries that declare globals. Nothing imports one,
 	// so every target that needs it needs it in its own srcs.
-	ambient    []string
-	css        []string
-	cssModules []string
-	assets     []string
-	json       []string
+	ambient []string
 	// excluded names the TypeScript sources a ts_exclude pattern took out of
 	// the subtree, each with the pattern that took it. Nothing downstream reads
 	// it; it is what the run reports, since a file dropped here is a file
@@ -30,17 +26,8 @@ type rolledUpFiles struct {
 	excluded []excludedSrc
 }
 
-// rolledUp is everything under dir that belongs to dir's own target, TypeScript
-// and otherwise: in tsconfig mode a directory holding no tsconfig.json is not a
-// package, so its files belong to the project above it. Giving them their own
-// target instead is what turns an ordinary shape -- a barrel re-exporting
-// ./rules, and ./rules importing ../utils -- into a dependency cycle between
-// two Bazel packages, when at file granularity there is no cycle at all. A
-// stylesheet beside a rolled-up source is imported by it, so leaving it behind
-// gives that import nothing to resolve to.
-//
-// The walk stops at a descendant that is a package in its own right, which
-// dirIsItsOwnPackage decides, and at a directory in skip (a ts_codegen out_dir).
+// rolledUp is every TypeScript file under dir that belongs to dir's own target
+// in tsconfig mode; the walk stops at a package of its own and at skip.
 func rolledUp(dir string, excludes excludeSet, jsSrcExts []string, skip []string) rolledUpFiles {
 	var out rolledUpFiles
 	stops := func(subRel string) bool {
@@ -69,31 +56,20 @@ func rolledUp(dir string, excludes excludeSet, jsSrcExts []string, skip []string
 				}
 				continue
 			}
-			switch {
-			case isCompileSrcFile(name, jsSrcExts):
-				if isFrameworkGeneratedFile(name) {
-					continue
-				}
-				if isTestFile(name) {
-					out.tests = append(out.tests, joined)
-					continue
-				}
-				if isDocFile(name) {
-					out.docs = append(out.docs, joined)
-					continue
-				}
-				out.srcs = append(out.srcs, joined)
-				if isAmbientDeclaration(filepath.Join(dir, rel), name) {
-					out.ambient = append(out.ambient, joined)
-				}
-			case isCSSModuleFile(name):
-				out.cssModules = append(out.cssModules, joined)
-			case isCSSFile(name):
-				out.css = append(out.css, joined)
-			case isJSONFile(name):
-				out.json = append(out.json, joined)
-			case isAssetFile(name):
-				out.assets = append(out.assets, joined)
+			if !isCompileSrcFile(name, jsSrcExts) || isFrameworkGeneratedFile(name) {
+				continue
+			}
+			if isTestFile(name) {
+				out.tests = append(out.tests, joined)
+				continue
+			}
+			if isDocFile(name) {
+				out.docs = append(out.docs, joined)
+				continue
+			}
+			out.srcs = append(out.srcs, joined)
+			if isAmbientDeclaration(filepath.Join(dir, rel), name) {
+				out.ambient = append(out.ambient, joined)
 			}
 		}
 		for _, sub := range subdirs {
@@ -122,7 +98,7 @@ func rolledUp(dir string, excludes excludeSet, jsSrcExts []string, skip []string
 		}
 		walk(sub)
 	}
-	for _, g := range [][]string{out.srcs, out.tests, out.docs, out.ambient, out.css, out.cssModules, out.assets, out.json} {
+	for _, g := range [][]string{out.srcs, out.tests, out.docs, out.ambient} {
 		sort.Strings(g)
 	}
 	return out

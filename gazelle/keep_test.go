@@ -434,15 +434,6 @@ func TestManagedAttrCasesCoverGeneratedAttrs(t *testing.T) {
 		covered[nc.kind+"."+nc.attr] = struct{}{}
 	}
 
-	// A data-file rule's plain srcs list is a claim no candidate is emitted
-	// over: the merger has nothing to ask about.
-	exempt := map[string]string{}
-	for kind := range dataFileKinds {
-		for _, attr := range []string{"srcs", "deps", "visibility"} {
-			exempt[kind+"."+attr] = "created only when absent"
-		}
-	}
-
 	kinds := (&tsLang{}).Kinds()
 	var missing []string
 	seen := map[string]struct{}{}
@@ -464,9 +455,6 @@ func TestManagedAttrCasesCoverGeneratedAttrs(t *testing.T) {
 					}
 					pair := r.Kind() + "." + attr
 					if _, ok := covered[pair]; ok {
-						continue
-					}
-					if _, ok := exempt[pair]; ok {
 						continue
 					}
 					if _, ok := seen[pair]; ok {

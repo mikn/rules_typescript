@@ -10,8 +10,9 @@ This rule is that alias with the name attached. It forwards the member's
 providers unchanged and describes the member as an npm package, so that the
 type-check forest and the runtime tree link it at `node_modules/<name>`: the
 member's package.json as built beside the member's `.js` and `.d.ts`, at the
-paths the manifest names. tsc maps a `.js` target to the `.d.ts` beside it and
-node runs the `.js`, so one manifest serves both.
+paths the manifest names, and its data srcs at their package-relative paths,
+where the `.js` reaches them. tsc maps a `.js` target to the `.d.ts` beside it
+and node runs the `.js`, so one manifest serves both.
 
 Two fields of NpmPackageInfo that assume an extracted tarball say otherwise:
 
@@ -23,9 +24,14 @@ Two fields of NpmPackageInfo that assume an extracted tarball say otherwise:
                in that subdirectory, and its manifest names `src/index.js`.
 """
 
-load("//ts/private:providers.bzl", "AssetInfo", "CssInfo", "CssModuleInfo", "JsInfo", "NpmPackageInfo", "TsDeclarationInfo")
+load(
+    "//ts/private:providers.bzl",
+    "JsInfo",
+    "NpmPackageInfo",
+    "TsDeclarationInfo",
+)
 
-_FORWARDED = [JsInfo, TsDeclarationInfo, CssInfo, CssModuleInfo, AssetInfo]
+_FORWARDED = [JsInfo, TsDeclarationInfo]
 
 # A `link:` records no version -- pnpm resolves a member by path. The tree needs
 # one only to tell two resolutions of a name apart, and a member has exactly one.
@@ -76,7 +82,9 @@ def _npm_package_info(ctx, member):
     npm = member[_WorkspaceNpmDeps] if _WorkspaceNpmDeps in member else None
     direct_deps = npm.direct if npm else []
     declarations = member[TsDeclarationInfo].declaration_files if TsDeclarationInfo in member else depset()
-    file_sets = ([js.js_files, js.js_map_files] if js else []) + [declarations]
+    file_sets = [declarations]
+    if js:
+        file_sets += [js.js_files, js.js_map_files, js.data_files]
 
     return NpmPackageInfo(
         package_name = ctx.attr.package_name,

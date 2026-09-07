@@ -266,17 +266,6 @@ through such a label is not reported.
 | `ts_test` | `<ts_compile name>_test` |
 | `ts_compile` (docs and stories) | `<ts_compile name>_doc` |
 | `ts_lint` | `<ts_compile name>_lint` |
-| `css_library`, `css_module`, `asset_library`, `json_library` | the source filename with `.` replaced by `_` |
-
-Non-TypeScript libraries keep the extension in the name: `button.css` →
-`button_css`, `logo.svg` → `logo_svg`, `config.json` → `config_json`,
-`Button.module.css` → `Button_module_css`. That keeps the directory-named
-`ts_compile` target free (a `components/` directory holding `components.css`
-would otherwise generate two targets named `components`) and keeps files that
-share a stem apart (`logo.svg` and `logo.json`). A tie that survives both gets a
-numeric suffix on the later name (`_2`). A plain `srcs` list on one of these
-rules is read back as a claim on its file, so the rule is written once; the run
-after the file is deleted removes it.
 
 Gazelle does not write or touch `ts_dev_server`; write it by hand beside the
 `ts_compile` it serves. Gazelle knows no such kind, so the rule and its load
@@ -316,7 +305,7 @@ Bazel never loads, which fails analysis for the whole workspace.
 
 Naming a tsconfig **adds** its options and never removes the ruleset's own. The
 baseline (`strict`, `module: Preserve`, `target: es2022`, `jsx: react-jsx`,
-`skipLibCheck`, `esModuleInterop`, `allowArbitraryExtensions`) applies with a
+`skipLibCheck`, `esModuleInterop`) applies with a
 `tsconfig` too, under it, so running Gazelle over a working build does not
 silently un-set them. `moduleResolution` is left for tsgo to derive from
 whichever `module` wins: a value under a `tsconfig` that sets `module` would be
@@ -463,9 +452,8 @@ only configs on disk. Inline the options such a config carries, or extend a
 checked-in copy.
 
 !!! note "Upgrading"
-    `gazelle_ts.json` is gone. Nothing reads the file, so one left in a
-    workspace is an ordinary JSON file and lands in a generated `json_library`;
-    delete it once its keys have moved. Each key becomes a directive in a
+    `gazelle_ts.json` is gone. Nothing reads the file; delete it once its keys
+    have moved. Each key becomes a directive in a
     `BUILD.bazel`, the root's or any ancestor of the directories it governs:
 
     | Key | Write instead |

@@ -23,7 +23,6 @@ ts_test(
     wrangler_config = "//tests/workers_nested:wrangler.jsonc",
     deps = [
         "//tests/workers_nested:worker",
-        "//tests/workers_nested:wrangler_jsonc",
         "@npm_workers//:cloudflare_vitest-pool-workers",
         "@npm_workers//:vitest",
         "@npm_workers//:vitest_coverage-istanbul",

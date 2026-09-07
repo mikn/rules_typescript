@@ -19,17 +19,10 @@ want="${TEST_TMPDIR}/want"
 got="${TEST_TMPDIR}/got"
 
 cat > "${want}" <<'NAMES'
-AssetInfo
 BundlerInfo
-CssInfo
-CssModuleInfo
 JsInfo
 TsDeclarationInfo
 TsLintInfo
-asset_library
-css_library
-css_module
-json_library
 refresh_workspace_files
 ts_add_package
 ts_binary

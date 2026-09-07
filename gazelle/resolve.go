@@ -24,22 +24,8 @@ import (
 // TypeScript code would use to reach this target:
 //   - The package-relative path of each src file (without extension).
 //   - The package-relative directory path (for index.ts based imports).
-//
-// For css_library, css_module, and asset_library rules we emit one ImportSpec
-// per src using the workspace-relative path (e.g. "src/Button.module.css") so
-// that TypeScript files that import these paths can be resolved to the correct
-// target.
 func importsForRule(_ *config.Config, r *rule.Rule, f *rule.File) []resolve.ImportSpec {
-	switch r.Kind() {
-	case "css_library", "css_module", "asset_library", "json_library":
-		pkg := f.Pkg
-		var specs []resolve.ImportSpec
-		for _, src := range r.AttrStrings("srcs") {
-			imp := path.Join(pkg, src)
-			specs = append(specs, resolve.ImportSpec{Lang: languageName, Imp: imp})
-		}
-		return specs
-	case "ts_codegen":
+	if r.Kind() == "ts_codegen" {
 		return codegenTreeSpecs(r, f.Pkg)
 	}
 
@@ -667,8 +653,7 @@ func namesAFile(rel string) bool {
 	if base == "index" {
 		return true
 	}
-	return dropTsExtension(base) != base ||
-		isCSSFile(base) || isJSONFile(base) || isAssetFile(base)
+	return dropTsExtension(base) != base
 }
 
 // ---- path alias resolution -------------------------------------------------

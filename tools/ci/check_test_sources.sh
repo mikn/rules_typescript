@@ -40,12 +40,10 @@ MANUAL_ONLY=$(
 # from the test lockfile, so the targets are built but cannot be run.
 tests/vitest/environment/edge.test.ts
 tests/vitest/environment/jsdom.test.ts
-# Analysis-only fixtures. Their ts_test targets are asserted to FAIL at
-# analysis -- one sets vitest attrs under runner = "node:test", the other gives
-# such a target a CSS-module dep -- so a target that ran would report a red test
-# for the intended outcome.
+# Analysis-only fixture. Its ts_test target is asserted to FAIL at analysis --
+# it sets vitest attrs under runner = "node:test" -- so a target that ran would
+# report a red test for the intended outcome.
 tests/node_test/analysis/attrs.test.ts
-tests/node_test/analysis/css.test.ts
 # Analysis-only fixture, asserted to FAIL at analysis: the wrangler config it
 # stages through `wrangler_config` is in its `data` too.
 tests/workers_nested/test/data_shadow.test.ts

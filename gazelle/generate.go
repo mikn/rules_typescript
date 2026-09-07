@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/bazelbuild/bazel-gazelle/language"
@@ -55,43 +54,6 @@ func isDeclarationFile(name string) bool {
 func isCompileSrcFile(name string, jsSrcExts []string) bool {
 	return isTypeScriptFile(name) || isDeclarationFile(name) ||
 		slices.Contains(jsSrcExts, strings.ToLower(path.Ext(name)))
-}
-
-// isCSSFile returns true for .css source files (including .module.css).
-func isCSSFile(name string) bool {
-	return strings.HasSuffix(name, ".css")
-}
-
-// isCSSModuleFile returns true for CSS Module files (*.module.css).
-// These are handled by the css_module rule rather than css_library.
-func isCSSModuleFile(name string) bool {
-	return strings.HasSuffix(name, ".module.css")
-}
-
-// isAssetFile returns true for static asset files that should be handled by
-// asset_library (images, SVGs, fonts, text). NOTE: .json files are NOT included
-// here; they are handled by json_library (see isJSONFile).
-//
-// .jsonc is an asset and not JSON here: no bundler parses that extension as
-// JSON, so the import yields a URL rather than a value.
-func isAssetFile(name string) bool {
-	return slices.Contains(assetExtensions, strings.ToLower(path.Ext(name)))
-}
-
-// Hand-mirrored from _ASSET_EXTENSIONS in ts/private/asset_library.bzl, which
-// Starlark cannot export to Go. Nothing pins the two lists together: a
-// ts_asset_declaration_type directive naming an extension only this list is
-// missing is refused, and asset_library would have taken it.
-var assetExtensions = []string{
-	".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp",
-	".woff", ".woff2", ".ttf", ".eot",
-	".md", ".txt", ".jsonc",
-}
-
-// isJSONFile returns true for .json files that should be handled by
-// json_library (generates a fully-typed .d.ts, not `unknown`).
-func isJSONFile(name string) bool {
-	return strings.ToLower(path.Ext(name)) == ".json"
 }
 
 // isAmbientDeclaration returns true for a declaration file that declares
@@ -197,54 +159,24 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		return codegenOutDirResult(args, root)
 	}
 
-	// Ahead of every return below: a directory holding nothing but assets an
-	// existing asset_library already claims classifies no source at all and
-	// returns early, and those are exactly the rules the directive is for.
-	applyAssetDeclarationType(args, tc)
-
-	// Collect TypeScript, CSS, and asset source files from the regular files list.
+	// Collect the TypeScript source files from the regular files list.
 	var (
-		srcFiles       []string      // non-test, non-generated .ts/.tsx files
-		testFiles      []string      // *.test.ts, *.spec.ts, etc.
-		docFiles       []string      // *.doc.tsx, *.stories.tsx, etc.
-		cssFiles       []string      // plain .css source files (side-effect imports)
-		cssModuleFiles []string      // *.module.css files (default import → typed styles)
-		assetFiles     []string      // image/font/svg asset files (NOT json)
-		jsonFiles      []string      // .json data files → json_library (typed .d.ts)
-		dropped        []excludedSrc // .ts/.tsx a ts_exclude directive dropped, plus the rolled-up ones, for the diagnostic
-		ambientFiles   []string      // .d.ts declaring globals, which only srcs membership carries
-		hasIndex       bool
+		srcFiles     []string      // non-test, non-generated .ts/.tsx files
+		testFiles    []string      // *.test.ts, *.spec.ts, etc.
+		docFiles     []string      // *.doc.tsx, *.stories.tsx, etc.
+		dropped      []excludedSrc // what ts_exclude dropped, for the diagnostic
+		ambientFiles []string      // .d.ts declaring globals: only srcs carries them
+		hasIndex     bool
 	)
 
 	ownExcludes := tc.excludesIn(args.Rel)
 
 	for _, f := range args.RegularFiles {
-		// Skip well-known config files before the JSON check so that Bazel/npm
-		// config files are never classified as json_library sources.
-		if f == "package.json" || f == "tsconfig.json" {
+		if !isCompileSrcFile(f, tc.jsSrcExts) {
 			continue
 		}
 		if _, ok := srcLabel(f); !ok {
 			reportUnlabelableFile(args, f)
-			continue
-		}
-		if isJSONFile(f) {
-			jsonFiles = append(jsonFiles, f)
-			continue
-		}
-		if isAssetFile(f) {
-			assetFiles = append(assetFiles, f)
-			continue
-		}
-		if isCSSFile(f) {
-			if isCSSModuleFile(f) {
-				cssModuleFiles = append(cssModuleFiles, f)
-			} else {
-				cssFiles = append(cssFiles, f)
-			}
-			continue
-		}
-		if !isCompileSrcFile(f, tc.jsSrcExts) {
 			continue
 		}
 		if isFrameworkGeneratedFile(f) {
@@ -283,10 +215,6 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		testFiles = dropClaimed(testFiles, claimed)
 		docFiles = dropClaimed(docFiles, claimed)
 		ambientFiles = dropClaimed(ambientFiles, claimed)
-		cssFiles = dropClaimed(cssFiles, claimed)
-		cssModuleFiles = dropClaimed(cssModuleFiles, claimed)
-		assetFiles = dropClaimed(assetFiles, claimed)
-		jsonFiles = dropClaimed(jsonFiles, claimed)
 		hasIndex = false
 		for _, f := range srcFiles {
 			if isIndexFile(f) {
@@ -296,8 +224,7 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	}
 
 	if globbed := codegenGlobClaims(args.Rel, args.RegularFiles, tc); len(globbed) > 0 {
-		targeted := concatFiles(srcFiles, testFiles, docFiles, ambientFiles,
-			cssFiles, cssModuleFiles, assetFiles, jsonFiles)
+		targeted := concatFiles(srcFiles, testFiles, docFiles, ambientFiles)
 		kept := dropClaimed(targeted, globbed)
 		switch {
 		case len(kept) > 0:
@@ -354,27 +281,18 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		}
 		rolled := rolledUp(args.Dir, ownExcludes, tc.jsSrcExts, codegenOutDirsBelow(args.Rel, tc, codegenPatterns))
 		dropped = append(dropped, rolled.excluded...)
-		// Every kind, not only the TypeScript ones: a declared out that is also
-		// checked in below the boundary would otherwise be a source and an
-		// output of the same package, whatever kind of file it is.
+		// A declared out that is also checked in below the boundary would
+		// otherwise be a source and an output of the same package.
 		if claimed := claimedSrcs(args, tc, codegenPatterns); len(claimed) > 0 {
 			rolled.srcs = dropClaimed(rolled.srcs, claimed)
 			rolled.tests = dropClaimed(rolled.tests, claimed)
 			rolled.docs = dropClaimed(rolled.docs, claimed)
 			rolled.ambient = dropClaimed(rolled.ambient, claimed)
-			rolled.css = dropClaimed(rolled.css, claimed)
-			rolled.cssModules = dropClaimed(rolled.cssModules, claimed)
-			rolled.assets = dropClaimed(rolled.assets, claimed)
-			rolled.json = dropClaimed(rolled.json, claimed)
 		}
 		srcFiles = append(srcFiles, rolled.srcs...)
 		testFiles = append(testFiles, rolled.tests...)
 		docFiles = append(docFiles, rolled.docs...)
 		ambientFiles = append(ambientFiles, rolled.ambient...)
-		cssFiles = append(cssFiles, rolled.css...)
-		cssModuleFiles = append(cssModuleFiles, rolled.cssModules...)
-		assetFiles = append(assetFiles, rolled.assets...)
-		jsonFiles = append(jsonFiles, rolled.json...)
 		sort.Strings(srcFiles)
 		sort.Strings(testFiles)
 		sort.Strings(docFiles)
@@ -415,101 +333,26 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	if vitestConfigRule == nil && ruleExists(args, "filegroup", vitestConfigTargetName) {
 		withdrawn = append(withdrawn, rule.NewRule("filegroup", vitestConfigTargetName))
 	}
-	staleDataFiles := staleDataFileRules(args)
 	// In every-dir mode the package target's last source leaves a directory that
 	// is no boundary, so nothing regenerates over the rule to withdraw it.
 	staleCompile := stalePackageCompile(args, tc)
 
-	totalNonTS := len(cssFiles) + len(cssModuleFiles) + len(assetFiles) + len(jsonFiles)
 	if !isBoundary && len(srcFiles) == 0 && len(testFiles) == 0 && len(docFiles) == 0 &&
-		totalNonTS == 0 && len(codegenPatterns) == 0 && tsConfigRule == nil && vitestConfigRule == nil {
-		// No TypeScript, CSS, asset, or JSON files and not a boundary: nothing to do.
-		// A declared generator is a target of its own, though: a package whose
-		// sources are all generated holds nothing else.
-		return language.GenerateResult{Empty: append(append(withdrawn, staleDataFiles...), staleCompile...)}
+		len(codegenPatterns) == 0 && tsConfigRule == nil && vitestConfigRule == nil {
+		// No TypeScript and not a boundary: nothing to do. A declared generator
+		// is a target of its own, so a package of generated sources still has one.
+		return language.GenerateResult{Empty: append(withdrawn, staleCompile...)}
 	}
 
 	var gen []*rule.Rule
 	var empty []*rule.Rule
 	var imports []any
 
-	// Assigned up front so the names cannot collide with each other or with
-	// the TypeScript targets below.
-	reserved := reservedTSTargetNames(tc, args.Rel)
-	if tsConfigRule != nil {
-		reserved[tsConfigRule.Name()] = struct{}{}
-	}
-	if vitestConfigRule != nil {
-		reserved[vitestConfigTargetName] = struct{}{}
-	}
-	for _, name := range codegenTargetNames(codegenPatterns) {
-		reserved[name] = struct{}{}
-	}
-	libNames := assetTargetNames(reserved, cssFiles, cssModuleFiles, assetFiles, jsonFiles)
-
 	// Resolved once, and only where a target would carry it: a refusal is worth
 	// one log line per package that wanted the baseline, not one per directory.
 	tsConfigAttr := ""
 	if (isBoundary && len(srcFiles) > 0) || len(testFiles) > 0 || len(docFiles) > 0 {
 		tsConfigAttr = tsConfigLabel(args, tc)
-	}
-
-	// ---- css_library targets -----------------------------------------------
-	// Generate one css_library rule per plain .css file (side-effect imports).
-
-	sort.Strings(cssFiles)
-	for _, f := range cssFiles {
-		r := rule.NewRule("css_library", libNames[f])
-		r.SetAttr("srcs", srcLabels([]string{f}))
-		r.SetAttr("visibility", []string{"//visibility:public"})
-		gen = append(gen, r)
-		// css_library targets are indexed by their workspace-relative CSS path
-		// so that resolveImports can look them up when a .ts file imports a
-		// .css file side-effect style (import "./foo.css").
-		imports = append(imports, []string{})
-	}
-
-	// ---- css_module targets ------------------------------------------------
-	// Generate one css_module rule per *.module.css file (default imports).
-
-	sort.Strings(cssModuleFiles)
-	for _, f := range cssModuleFiles {
-		r := rule.NewRule("css_module", libNames[f])
-		r.SetAttr("srcs", srcLabels([]string{f}))
-		r.SetAttr("visibility", []string{"//visibility:public"})
-		gen = append(gen, r)
-		// css_module targets are indexed by their workspace-relative CSS path
-		// so that resolveImports can resolve default imports from .module.css.
-		imports = append(imports, []string{})
-	}
-
-	// ---- asset_library targets ---------------------------------------------
-	// Generate one asset_library rule per image/font/SVG file.
-
-	sort.Strings(assetFiles)
-	for _, f := range assetFiles {
-		r := rule.NewRule("asset_library", libNames[f])
-		r.SetAttr("srcs", srcLabels([]string{f}))
-		r.SetAttr("visibility", []string{"//visibility:public"})
-		setAssetDeclarationType(r, declarationTypeFor(tc, []string{f}))
-		gen = append(gen, r)
-		// asset_library targets are indexed by their workspace-relative asset
-		// path for import resolution.
-		imports = append(imports, []string{})
-	}
-
-	// ---- json_library targets ----------------------------------------------
-	// Generate one json_library rule per .json file (typed declarations).
-
-	sort.Strings(jsonFiles)
-	for _, f := range jsonFiles {
-		r := rule.NewRule("json_library", libNames[f])
-		r.SetAttr("srcs", srcLabels([]string{f}))
-		r.SetAttr("visibility", []string{"//visibility:public"})
-		gen = append(gen, r)
-		// json_library targets are indexed by their workspace-relative JSON
-		// path for import resolution.
-		imports = append(imports, []string{})
 	}
 
 	// ---- primary ts_compile target -----------------------------------------
@@ -772,7 +615,6 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 		imports = append(imports, []string{})
 	}
 	empty = append(empty, withdrawn...)
-	empty = append(empty, staleDataFiles...)
 
 	result := language.GenerateResult{
 		Gen:     gen,
@@ -907,12 +749,8 @@ var detectorCodegenNames = map[string]bool{
 
 // compilingKinds declare a per-source output for every src they list.
 var compilingKinds = map[string]bool{
-	"ts_compile":    true,
-	"ts_test":       true,
-	"css_library":   true,
-	"css_module":    true,
-	"asset_library": true,
-	"json_library":  true,
+	"ts_compile": true,
+	"ts_test":    true,
 }
 
 // claimedSrcs returns the file names Gazelle must keep out of the targets it
@@ -1295,39 +1133,6 @@ func reservedTSTargetNames(tc *tsConfig, rel string) map[string]struct{} {
 	return reserved
 }
 
-// assetTargetNames names every css/asset/json source file in a package. Keeping
-// the extension ("logo.svg" → "logo_svg") is what stops these targets colliding
-// with the directory-named ts_compile target and with each other; a numeric
-// suffix breaks any tie that survives that.
-func assetTargetNames(reserved map[string]struct{}, groups ...[]string) map[string]string {
-	var all []string
-	for _, g := range groups {
-		all = append(all, g...)
-	}
-	sort.Strings(all)
-
-	names := make(map[string]string, len(all))
-	used := make(map[string]struct{}, len(reserved)+len(all))
-	for n := range reserved {
-		used[n] = struct{}{}
-	}
-	for _, f := range all {
-		// A rolled-up file arrives as a path, and two directories can hold the
-		// same basename.
-		base := strings.ReplaceAll(strings.ReplaceAll(f, "/", "_"), ".", "_")
-		name := base
-		for i := 2; ; i++ {
-			if _, taken := used[name]; !taken {
-				break
-			}
-			name = base + "_" + strconv.Itoa(i)
-		}
-		used[name] = struct{}{}
-		names[f] = name
-	}
-	return names
-}
-
 // uniqueImports deduplicates and returns sorted import specifiers. The sorted
 // order makes generated BUILD files deterministic.
 func uniqueImports(imps []string) []string {
@@ -1511,32 +1316,6 @@ func codegenOutDirsBelow(rel string, tc *tsConfig, patterns []CodegenPattern) []
 	return dirs
 }
 
-// dataFileKinds are the generated rules carrying one non-TypeScript file each.
-var dataFileKinds = map[string]bool{
-	"css_library":   true,
-	"css_module":    true,
-	"asset_library": true,
-	"json_library":  true,
-}
-
-// staleDataFileRules stubs every data-file rule whose srcs name only files that
-// are gone: claimedSrcs reads the rule as a claim, so nothing regenerates over it.
-func staleDataFileRules(args language.GenerateArgs) []*rule.Rule {
-	if args.File == nil {
-		return nil
-	}
-	present := func(src string) bool {
-		return slices.Contains(args.GenFiles, src) || onDisk(args.Dir, src)
-	}
-	var stale []*rule.Rule
-	for _, r := range args.File.Rules {
-		if dataFileKinds[r.Kind()] && srcsGone(r, present) {
-			stale = append(stale, rule.NewRule(r.Kind(), r.Name()))
-		}
-	}
-	return stale
-}
-
 // stalePackageCompile stubs the package target whose plain srcs name only files that
 // are gone; a declaration a ts_codegen here writes is staged by its label, never listed.
 func stalePackageCompile(args language.GenerateArgs, tc *tsConfig) []*rule.Rule {
@@ -1596,11 +1375,6 @@ func codegenOutDirResult(args language.GenerateArgs, root string) language.Gener
 	res := emptyResult(args)
 	if args.File == nil {
 		return res
-	}
-	for _, r := range args.File.Rules {
-		if dataFileKinds[r.Kind()] {
-			res.Empty = append(res.Empty, rule.NewRule(r.Kind(), r.Name()))
-		}
 	}
 	log.Printf("typescript: %s is inside %s, the out_dir of a ts_codegen, so everything in it is "+
 		"that target's output and nothing here is a source. Gazelle withdraws the targets it "+

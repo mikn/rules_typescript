@@ -1,8 +1,0 @@
-{
-  "compilerOptions": {
-    "paths": {
-      "#assets/*": ["./*"]
-    },
-    "types": ["./svgr.d.ts"]
-  }
-}

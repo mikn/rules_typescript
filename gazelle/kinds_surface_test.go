@@ -11,11 +11,7 @@ import (
 
 // wantKinds is every kind this extension writes or withdraws.
 var wantKinds = []string{
-	"asset_library",
-	"css_library",
-	"css_module",
 	"filegroup",
-	"json_library",
 	"node_modules",
 	"ts_add_package",
 	"ts_codegen",

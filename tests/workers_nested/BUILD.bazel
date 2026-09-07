@@ -1,4 +1,4 @@
-load("//ts:defs.bzl", "asset_library", "ts_compile", "ts_config")
+load("//ts:defs.bzl", "ts_compile", "ts_config")
 
 # The monorepo shape: package.json, the vitest config and the wrangler config at
 # the worker root, the tests in test/ as a package of their own.
@@ -31,29 +31,16 @@ filegroup(
     visibility = ["//visibility:public"],
 )
 
-# A wrangler `rules` module the worker imports; this dep is what puts it in a
-# test's runfiles.
-asset_library(
-    name = "greeting_txt",
-    srcs = ["src/greeting.txt"],
-)
-
-# What Gazelle writes beside a wrangler.jsonc. A test importing the config has
-# it in deps, where its copy of the file would shadow the one wrangler_config stages.
-asset_library(
-    name = "wrangler_jsonc",
-    srcs = ["wrangler.jsonc"],
-    visibility = ["//visibility:public"],
-)
-
-# A bare import from the compiled worker: its realpath in bazel-out has no
-# node_modules above it, so the import is resolved from the root instead.
+# The compiled worker's bare import resolves from the root: no node_modules sits
+# above its realpath. Its data srcs reach a test's runfiles, wrangler.jsonc too.
 ts_compile(
     name = "worker",
-    srcs = ["src/index.ts"],
-    tsconfig = ":worker_tsconfig",
-    deps = [
-        ":greeting_txt",
-        "@npm_workers//:zod",
+    srcs = [
+        "src/greeting.txt",
+        "src/index.ts",
+        "src/text.d.ts",
+        "wrangler.jsonc",
     ],
+    tsconfig = ":worker_tsconfig",
+    deps = ["@npm_workers//:zod"],
 )

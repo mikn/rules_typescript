@@ -732,28 +732,27 @@ func TestGenerate_PackageWithOnlyGeneratedSources(t *testing.T) {
 	}
 }
 
-// The claim has to hold wherever the file turns up. In tsconfig mode a
-// subdirectory is not a package, so its files are rolled into this one -- and a
-// rolled-up file a ts_codegen declares would otherwise reach a css_library and
-// be a source and an output of the same package.
+// A rolled-up file a ts_codegen declares would otherwise reach the ts_compile
+// and be a source and an output of the same package.
 func TestGenerate_RolledUpCodegenOutIsNotAlsoASrc(t *testing.T) {
 	res := runGenerateWithBuild(t, "api", `
 # gazelle:ts_package_boundary tsconfig
-# gazelle:ts_codegen theme_gen //tools:themegen sub/theme.css srcs:tokens.json --out {out}
+# gazelle:ts_codegen theme_gen //tools:gen sub/theme.ts srcs:tokens.json
 `, map[string]string{
 		"tsconfig.json": `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
 		"index.ts":      "export const a = 1;\n",
 		"tokens.json":   "{}\n",
-		"sub/theme.css": ".a {}\n",
+		"sub/theme.ts":  "export const a = 1;\n",
 	})
 
 	for _, r := range res.Gen {
-		if r.Kind() != "css_library" {
+		if r.Kind() != "ts_compile" {
 			continue
 		}
 		for _, src := range r.AttrStrings("srcs") {
-			if src == "sub/theme.css" {
-				t.Errorf("css_library %q compiles sub/theme.css, which ts_codegen theme_gen declares as an out", r.Name())
+			if src == "sub/theme.ts" {
+				t.Errorf("ts_compile %q compiles sub/theme.ts, which ts_codegen "+
+					"theme_gen declares as an out", r.Name())
 			}
 		}
 	}
@@ -847,10 +846,8 @@ func TestConverge_CodegenDirectiveWritesAGlobAsStarlark(t *testing.T) {
 	}
 }
 
-// Writing the glob correctly is not enough for //web to load: a json_library
-// per catalogue makes messages/ a package, glob() does not descend into one,
-// and Bazel rejects a package whose glob matched nothing. The catalogues are
-// the ancestor rule's inputs, so they get no targets of their own.
+// A BUILD file in messages/ would make it a package glob() does not descend
+// into, and //web's glob would match nothing, which Bazel rejects.
 func TestConverge_ACodegenGlobLeavesItsSubdirectoryUnpackaged(t *testing.T) {
 	repoRoot := convergeTree(t, map[string]string{
 		"BUILD.bazel":          "",
@@ -1063,7 +1060,8 @@ func TestConverge_APackageLeftUnderAnOutDirIsEmptied(t *testing.T) {
 			"web/BUILD.bazel": outDirCodegenRule,
 			"web/names.txt":   "hello\n",
 			"web/app.ts":      "export const x = 1;\n",
-			"web/compiled/BUILD.bazel": `load("@rules_typescript//ts:defs.bzl", "asset_library", "ts_compile")
+			"web/compiled/BUILD.bazel": `
+load("@rules_typescript//ts:defs.bzl", "ts_compile")
 
 ts_compile(
     name = "compiled",
@@ -1074,12 +1072,6 @@ ts_compile(
 ts_compile(
     name = "compiled_doc",
     srcs = ["index.doc.ts"],
-    visibility = ["//visibility:public"],
-)
-
-asset_library(
-    name = "README_md",
-    srcs = ["README.md"],
     visibility = ["//visibility:public"],
 )
 `,
@@ -1093,10 +1085,9 @@ asset_library(
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, kept := range []string{"ts_compile(", "asset_library("} {
-		if strings.Contains(string(data), kept) {
-			t.Errorf("web/compiled/BUILD.bazel still holds a %s over the generator's output:\n%s", kept, data)
-		}
+	if strings.Contains(string(data), "ts_compile(") {
+		t.Errorf("web/compiled/BUILD.bazel still holds a ts_compile over the "+
+			"generator's output:\n%s", data)
 	}
 	if !strings.Contains(logged, "web/compiled") {
 		t.Errorf("the run did not name web/compiled as a package inside an out_dir; logged %q", logged)

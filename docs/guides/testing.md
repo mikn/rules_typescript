@@ -173,25 +173,11 @@ That writes out the merged config the runner passed to vitest.
 
 ## CSS Modules
 
-A `*.module.css` anywhere in the dep closure adds a plugin to the Bazel layer
-that answers the import with the export map `css_module` wrote beside the
-stylesheet, so a test sees the class name a bundler emits:
-
-```ts
-import styles from "./Button.module.css";
-expect(styles.primary).toMatch(/^_primary_[0-9a-f]{8}$/);
-```
-
-An assertion on a rendered `class` attribute reads the same map:
-
-```ts
-render(host);
-expect(host.querySelector("button")?.getAttribute("class")).toBe(styles.button);
-```
-
-A `*.module.css` with no `css_module` target behind it has no map and no
-`.d.ts`; the import falls back to a proxy returning the property name, so it
-loads and the test runs.
+A `*.module.css` in a `ts_compile`'s `srcs` is staged beside the compiled `.js`,
+and vitest loads it as it does outside Bazel: not processed by default, so the
+import answers each property with its own name, or scoped by Vite's CSS modules
+under a `css` key in the config. The import is typed by the tsconfig --
+`vite/client` in `types`, or a `declare module "*.module.css"` in `srcs`.
 
 ## Coverage
 
@@ -343,8 +329,8 @@ file's `main` is `src/index.ts`, the deploy entry, which the runfiles do not
 hold; `wrangler_config` stages a copy whose `main` and `env.test.main` are
 `src/index.js`, the compiled worker, at the file's own path, and that is the
 config the pool reads. A `rules` module the worker imports
-(`import greeting from "./greeting.txt"`) is an `asset_library` dep of the
-`ts_compile`, which puts it in the runfiles.
+(`import greeting from "./greeting.txt"`) is a src of the `ts_compile`, which
+puts it in the runfiles.
 [A Workers pool](../rules/ts-test.md#a-workers-pool) lists what else a config
 can name. `//tests/workers` is the same-package shape: the config beside the
 tests, `main: "src/index.js"`, and the file in `data`.
