@@ -97,9 +97,12 @@ func TestImportsForRule_TsCompile(t *testing.T) {
 	// index.ts additionally makes the package directory itself importable.
 	want := []string{
 		"src/components/index",
+		"src/components/index.ts",
 		"src/components",
 		"src/components/Button",
+		"src/components/Button.tsx",
 		"src/components/helpers",
+		"src/components/helpers.ts",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("importsForRule(ts_compile) = %v, want %v", got, want)
@@ -114,7 +117,7 @@ func TestImportsForRule_TsTestIsIndexed(t *testing.T) {
 	})
 
 	got := specStrings(importsForRule(c, r, f))
-	want := []string{"src/lib/math.test"}
+	want := []string{"src/lib/math.test", "src/lib/math.test.ts"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("importsForRule(ts_test) = %v, want %v", got, want)
 	}
@@ -1478,5 +1481,402 @@ func BenchmarkLabelForUnindexed(b *testing.B) {
 				}
 			}
 		})
+	}
+}
+
+// ---- the listing as the resolver -------------------------------------------
+
+const (
+	storeJsxRuntime = store + "@types/react/19.0.0/aaa/node_modules/" +
+		"@types/react/jsx-runtime.d.ts"
+	storeTypesNode = store + "@types/node/22.20.1/bbb/node_modules/" +
+		"@types/node/index.d.ts"
+	storeTypescript = store + "@/typescript/5.9.2/kkk/node_modules/" +
+		"typescript/lib/typescript.d.ts"
+	storeVite = store + "@/vite/8.2.2/ccc/node_modules/vite/dist/node/" +
+		"index.d.ts"
+)
+
+func viaLine(spec, from, packageID string) string {
+	line := `   Imported via "` + spec + `" from file '` + from + `'`
+	if packageID != "" {
+		line += ` with packageId '` + packageID + `'`
+	}
+	return line + "\n"
+}
+
+func includeLine(pkg string) string {
+	return "   Matched by include pattern 'src/**/*' in '" + pkg +
+		"/tsconfig.json'\n"
+}
+
+// web's program: npm edges under every reason form, a member by name and by
+// path, a self edge, two unowned JSON files and the toolchain's lib.
+var webListing = storeZod + "\n" +
+	viaLine("zod", "web/src/a.ts", "zod/index.d.ts@3.24.2") +
+	storeMarked + "\n" +
+	viaLine("marked", "web/src/a.ts", "marked/lib/marked.d.ts@15.0.12") +
+	storeViteClient + "\n" +
+	"   Type library referenced via 'vite/client' from file " +
+	"'web/src/vite-env.d.ts' with packageId 'vite/client.d.ts@8.2.2'\n" +
+	storeJsxRuntime + "\n" +
+	"   Imported via \"react/jsx-runtime\" from file 'web/src/App.tsx' with " +
+	"packageId '@types/react/jsx-runtime.d.ts@19.0.0' to import 'jsx' and " +
+	"'jsxs' factory functions\n" +
+	storeTypescript + "\n" +
+	viaLine("typescript", "web/src/a.test.ts",
+		"typescript/lib/typescript.d.ts@5.9.2") +
+	storeTypesNode + "\n" +
+	"   Entry point of type library 'node' specified in compilerOptions with " +
+	"packageId '@types/node/index.d.ts@22.20.1'\n" +
+	libES5 + "\n" +
+	"   Default library for target 'ES2022'\n" +
+	"packages/ui/src/index.ts\n" +
+	viaLine("@acme/ui", "web/src/a.ts", "@acme/ui-src/src/index.ts@0.0.0") +
+	"packages/ui/src/util.ts\n" +
+	viaLine("../../packages/ui/src/util", "web/src/a.ts", "") +
+	"go/fixtures/x.json\n" +
+	viaLine("../../go/fixtures/x.json", "web/src/a.ts", "") +
+	"packages/figma/manifest.json\n" +
+	viaLine("../../packages/figma/manifest.json", "web/src/a.ts", "") +
+	"web/src/a.ts\n" + includeLine("web") +
+	viaLine("./a", "web/src/a.test.ts", "") +
+	"web/src/b.ts\n" + includeLine("web") +
+	viaLine("./b", "web/src/a.ts", "") +
+	"web/src/App.tsx\n" + includeLine("web") +
+	"web/src/vite-env.d.ts\n" + includeLine("web") +
+	"web/src/a.test.ts\n" + includeLine("web")
+
+// packages/lib's program: the member's own name through an exports subpath,
+// from a library file and from a test file (the canvas-sdk shape).
+var libListing = "packages/lib/src/index.ts\n" + includeLine("packages/lib") +
+	"packages/lib/src/wire/index.ts\n" + includeLine("packages/lib") +
+	viaLine("@acme/lib/wire", "packages/lib/src/index.ts",
+		"@acme/lib/src/wire/index.ts@0.0.0") +
+	viaLine("@acme/lib/wire", "packages/lib/src/x.test.ts",
+		"@acme/lib/src/wire/index.ts@0.0.0") +
+	"packages/lib/src/x.test.ts\n" + includeLine("packages/lib")
+
+var edgeListings = map[string]string{
+	"web":          webListing,
+	"packages/lib": libListing,
+	"packages/ui": listingOf("packages/ui", "packages/ui/src/index.ts",
+		"packages/ui/src/util.ts"),
+	"packages/figma": listingOf("packages/figma", "packages/figma/src/code.ts"),
+}
+
+// edgeRepo is a run from the root over npmRepo's workspace -- its lockfile and
+// manifests, an install, web/package.json's dependencies -- with the listings.
+func edgeRepo(t *testing.T, listings map[string]string,
+) (*config.Config, *tsConfig) {
+	t.Helper()
+	root, _ := npmRepo(t)
+	writeFile(t, filepath.Join(root, "web/package.json"), `{"name": "web-app",
+	  "dependencies": {"marked": "^15.0.0"},
+	  "devDependencies": {"@types/react": "^19.0.0", "typescript": "5.9.2"}}`)
+	writeFile(t, filepath.Join(root, "node_modules/.modules.yaml"),
+		"layoutVersion: 5\n")
+	c := &config.Config{RepoRoot: root, Exts: make(map[string]interface{})}
+	(&resolve.Configurer{}).RegisterFlags(nil, "", c)
+	configureTsConfig(c, "", nil)
+	tc := getConfig(c)
+	tc.programs.visit("", nil)
+	for dir, text := range listings {
+		p := programOf(t, dir, text)
+		for _, f := range p.files {
+			if !firstParty(f) {
+				continue
+			}
+			for d := parentDir(f); d != ""; d = parentDir(d) {
+				tc.programs.visit(d, nil)
+			}
+		}
+		tc.programs.record(p)
+	}
+	return c, tc
+}
+
+// The rules a run over edgeListings writes, as the index sees them.
+var edgeRules = []indexedRule{
+	{kind: "ts_compile", name: "web", pkg: "web",
+		srcs: []string{"src/App.tsx", "src/a.ts", "src/b.ts", "src/vite-env.d.ts"}},
+	{kind: "ts_test", name: "web_test", pkg: "web",
+		srcs: []string{"src/a.test.ts", "src/vite-env.d.ts"}},
+	{kind: "ts_compile", name: "ui", pkg: "packages/ui",
+		srcs: []string{"src/index.ts", "src/util.ts"}},
+	{kind: "ts_compile", name: "lib", pkg: "packages/lib",
+		srcs: []string{"src/index.ts", "src/wire/index.ts"}},
+	{kind: "ts_test", name: "lib_test", pkg: "packages/lib",
+		srcs: []string{"src/x.test.ts"}},
+	{kind: "ts_compile", name: "figma", pkg: "packages/figma",
+		srcs: []string{"src/code.ts"}},
+}
+
+func resolveEdgesOf(t *testing.T, c *config.Config, ix *resolve.RuleIndex,
+	kind, pkg, name string, imps *ruleImports) (*rule.Rule, string) {
+	t.Helper()
+	r := rule.NewRule(kind, name)
+	from := label.New("", pkg, name)
+	logged := captureLog(t, func() { resolveEdges(c, ix, r, imps, from) })
+	return r, logged
+}
+
+// One label per edge target, by where it sits and who owns it; the test file's
+// edge is not the ts_compile's, and no types attribute is written.
+func TestResolveEdges_CompileDepsFromTheListing(t *testing.T) {
+	c, tc := edgeRepo(t, edgeListings)
+	ix := buildIndex(t, c, edgeRules...)
+	s := tc.programs
+
+	imps := s.compileImports("web", s.srcs("web", tc))
+	for _, e := range imps.edges {
+		if e.from == "web/src/a.test.ts" {
+			t.Errorf("compileImports carries the test file's edge %+v", e)
+		}
+	}
+	r, logged := resolveEdgesOf(t, c, ix, "ts_compile", "web", "web", imps)
+	want := []string{
+		"//packages/ui",
+		"@npm//:acme_ui",
+		"@npm//:types_node",
+		"@npm//:vite",
+		"@npm//:zod",
+		"@npm//web:marked",
+		"@npm//web:react",
+	}
+	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+		t.Errorf("deps = %q, want %q", got, want)
+	}
+	if r.Attr("types") != nil {
+		t.Errorf("types = %v, want none: the tsconfig owns it", r.Attr("types"))
+	}
+	for _, want := range []string{
+		"web/src/a.ts imports go/fixtures/x.json: no package owns it: " +
+			"no tsconfig.json above it lists a file; no dep",
+		"web/src/a.ts imports packages/figma/manifest.json: no package " +
+			"owns it: packages/figma/tsconfig.json, the nearest, does not " +
+			"list it; no dep",
+	} {
+		if !strings.Contains(logged, want) {
+			t.Errorf("log lacks %q:\n%s", want, logged)
+		}
+	}
+	if n := strings.Count(logged, "\n"); n != 2 {
+		t.Errorf("%d log lines, want the two unowned reports:\n%s", n, logged)
+	}
+}
+
+// A src the holding package's program does not list -- a regular file under
+// it, by the walk -- is that rule's dep: the index answers before ownership.
+func TestResolveEdges_DepOnAnUnlistedSrc(t *testing.T) {
+	c, tc := edgeRepo(t, edgeListings)
+	rules := append([]indexedRule{}, edgeRules...)
+	for i, ir := range rules {
+		if ir.pkg == "packages/figma" {
+			rules[i].srcs = []string{"manifest.json", "src/code.ts"}
+		}
+	}
+	ix := buildIndex(t, c, rules...)
+	s := tc.programs
+	r, logged := resolveEdgesOf(t, c, ix, "ts_compile", "web", "web",
+		s.compileImports("web", s.srcs("web", tc)))
+	want := []string{
+		"//packages/figma",
+		"//packages/ui",
+		"@npm//:acme_ui",
+		"@npm//:types_node",
+		"@npm//:vite",
+		"@npm//:zod",
+		"@npm//web:marked",
+		"@npm//web:react",
+	}
+	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+		t.Errorf("deps = %q, want %q", got, want)
+	}
+	if strings.Contains(logged, "manifest.json") ||
+		strings.Count(logged, "\n") != 1 {
+		t.Errorf("log, want x.json's report alone:\n%s", logged)
+	}
+	// A file a rule of the importing package holds is nothing, whichever rule.
+	r, logged = resolveEdgesOf(t, c, ix, "ts_compile", "web", "web",
+		&ruleImports{edges: []edge{
+			importEdge("web/src/b.ts", "./a.test", "web/src/a.test.ts")}})
+	if r.Attr("deps") != nil || logged != "" {
+		t.Errorf("deps = %v, log %q; want none", r.Attr("deps"), logged)
+	}
+}
+
+// ts_test.deps: the ts_compile, every owned file's edges, the vitest config's
+// and the manifest union in D7 spelling, with no label said twice.
+func TestResolveEdges_TestDepsCarryTheRuntime(t *testing.T) {
+	c, tc := edgeRepo(t, edgeListings)
+	ix := buildIndex(t, c, edgeRules...)
+	s := tc.programs
+	const cfg = "web/vitest.config.mts"
+	s.vitestEdges = map[string][]edge{cfg: {importEdge(cfg, "vite", storeVite)}}
+
+	set := s.srcs("web", tc)
+	imps := s.testImports(c.RepoRoot, tc.lock, "web", ":web", cfg, set)
+	if imps.config != cfg {
+		t.Errorf("config = %q, want %q", imps.config, cfg)
+	}
+	if !s.vitestConfigs[cfg] {
+		t.Errorf("%s is not registered for the combined run", cfg)
+	}
+	r, logged := resolveEdgesOf(t, c, ix, "ts_test", "web", "web_test", imps)
+	want := []string{
+		"//packages/ui",
+		":web",
+		"@npm//:acme_ui",
+		"@npm//:types_node",
+		"@npm//:typescript",
+		"@npm//:vite",
+		"@npm//:zod",
+		"@npm//web:marked",
+		"@npm//web:react",
+		"@npm//web:types_react",
+	}
+	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+		t.Errorf("deps = %q, want %q", got, want)
+	}
+	if n := strings.Count(logged, "\n"); n != 2 {
+		t.Errorf("%d log lines, want the two unowned reports:\n%s", n, logged)
+	}
+}
+
+// A self-import through an exports subpath: the own view from a ts_test, whose
+// runtime resolves the name through node_modules; nothing from the ts_compile.
+func TestResolveEdges_MemberSelfImport(t *testing.T) {
+	c, tc := edgeRepo(t, edgeListings)
+	ix := buildIndex(t, c, edgeRules...)
+	s := tc.programs
+	set := s.srcs("packages/lib", tc)
+
+	r, logged := resolveEdgesOf(t, c, ix, "ts_compile", "packages/lib", "lib",
+		s.compileImports("packages/lib", set))
+	if r.Attr("deps") != nil || logged != "" {
+		t.Errorf("ts_compile deps = %v, log %q; want none", r.Attr("deps"), logged)
+	}
+	r, _ = resolveEdgesOf(t, c, ix, "ts_test", "packages/lib", "lib_test",
+		s.testImports(c.RepoRoot, tc.lock, "packages/lib", ":lib", "", set))
+	want := []string{":lib", "@npm//:acme_lib"}
+	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+		t.Errorf("ts_test deps = %q, want %q", got, want)
+	}
+}
+
+// A file under a declared out_dir is that codegen's, whatever the program
+// listed; a types entry naming an absent codegen out is a dep on it (D9).
+func TestResolveEdges_CodegenOutputs(t *testing.T) {
+	const gen = "worker/gen/types.d.ts"
+	c, tc := edgeRepo(t, map[string]string{
+		"worker": listingOf("worker", "worker/src/index.ts") + gen + "\n" +
+			viaLine("../gen/types", "worker/src/index.ts", ""),
+		"worker2": listingOf("worker2", "worker2/src/index.ts"),
+	})
+	writeFile(t, filepath.Join(c.RepoRoot, "worker2/tsconfig.json"),
+		`{"compilerOptions": {"types": ["./worker-configuration.d.ts"]}}`)
+	ix := buildIndex(t, c,
+		indexedRule{kind: "ts_codegen", name: "tree", pkg: "worker", outDir: "gen"},
+		indexedRule{kind: "ts_compile", name: "worker", pkg: "worker",
+			srcs: []string{"src/index.ts"}},
+		indexedRule{kind: "ts_compile", name: "worker2", pkg: "worker2",
+			srcs: []string{"src/index.ts"}},
+	)
+	s := tc.programs
+
+	f, err := rule.LoadData("BUILD.bazel", "worker",
+		[]byte(`ts_codegen(name = "tree", out_dir = "gen")`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	configureTsConfig(c, "worker", f)
+	set := s.srcs("worker", getConfig(c))
+	if len(set.declaration) != 0 {
+		t.Errorf("srcs(worker) = %+v: the out_dir's file is no src", set)
+	}
+	r, logged := resolveEdgesOf(t, c, ix, "ts_compile", "worker", "worker",
+		s.compileImports("worker", set))
+	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, []string{":tree"}) {
+		t.Errorf("worker deps = %q, log %q; want [:tree]", got, logged)
+	}
+
+	c.Exts[languageName] = tc
+	f, err = rule.LoadData("BUILD.bazel", "worker2",
+		[]byte(`ts_codegen(name = "wt", outs = ["worker-configuration.d.ts"])`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	configureTsConfig(c, "worker2", f)
+	r, logged = resolveEdgesOf(t, c, ix, "ts_compile", "worker2", "worker2",
+		s.compileImports("worker2", s.srcs("worker2", getConfig(c))))
+	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, []string{":wt"}) {
+		t.Errorf("worker2 deps = %q, log %q; want [:wt]", got, logged)
+	}
+}
+
+// Core # gazelle:resolve names the label for a file no rule indexes; the
+// override is read before ownership, so the report goes too.
+func TestResolveEdges_OverrideIsTheEscapeHatch(t *testing.T) {
+	c, tc := edgeRepo(t, edgeListings)
+	ix := buildIndex(t, c, edgeRules...)
+	f, err := rule.LoadData("BUILD.bazel", "", []byte(
+		"# gazelle:resolve typescript go/fixtures/x.json //go/fixtures:json\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	(&resolve.Configurer{}).Configure(c, "", f)
+	s := tc.programs
+
+	r, logged := resolveEdgesOf(t, c, ix, "ts_compile", "web", "web",
+		s.compileImports("web", s.srcs("web", tc)))
+	if deps := r.AttrStrings("deps"); !hasLabel(deps, "//go/fixtures:json") {
+		t.Errorf("deps = %q, want //go/fixtures:json among them", deps)
+	}
+	if strings.Contains(logged, "go/fixtures/x.json") {
+		t.Errorf("the overridden file was still reported:\n%s", logged)
+	}
+}
+
+// Without a lockfile there is no hub: an npm edge gets no label, said once.
+func TestResolveEdges_NoLockfileNoNpmLabel(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "package.json"), `{"name": "w"}`)
+	c := &config.Config{RepoRoot: root, Exts: make(map[string]interface{})}
+	(&resolve.Configurer{}).RegisterFlags(nil, "", c)
+	configureTsConfig(c, "", nil)
+	tc := getConfig(c)
+	s := tc.programs
+	s.visit("", nil)
+	s.visit("app", nil)
+	s.record(programOf(t, "app", listingOf("app", "app/a.ts", "app/b.ts")+
+		storeZod+"\n"+viaLine("zod", "app/a.ts", "")+viaLine("zod", "app/b.ts", "")))
+	ix := buildIndex(t, c, indexedRule{kind: "ts_compile", name: "app",
+		pkg: "app", srcs: []string{"a.ts", "b.ts"}})
+
+	r, logged := resolveEdgesOf(t, c, ix, "ts_compile", "app", "app",
+		s.compileImports("app", s.srcs("app", tc)))
+	if r.Attr("deps") != nil {
+		t.Errorf("deps = %v, want none", r.Attr("deps"))
+	}
+	if n := strings.Count(logged, pnpmLockfileName); n != 1 {
+		t.Errorf("the missing lockfile was said %d times, want once:\n%s", n, logged)
+	}
+}
+
+// The exact repository path of every src is what an edge target is looked up
+// by; the module-form keys beside it are the specifier ladder's.
+func TestImportsForRule_IndexesTheExactPath(t *testing.T) {
+	r, f := newRule(indexedRule{kind: "ts_compile", name: "w", pkg: "w",
+		srcs: []string{"src/a.ts", "src/types.d.ts", "data.json", "m.d.mts"}})
+	got := specStrings(importsForRule(nil, r, f))
+	for _, want := range []string{"w/src/a.ts", "w/src/types.d.ts",
+		"w/data.json", "w/m.d.mts"} {
+		if !contains(got, want) {
+			t.Errorf("specs %q lack the exact path %q", got, want)
+		}
+	}
+	if n := strings.Count(strings.Join(got, "\n")+"\n", "w/data.json\n"); n != 1 {
+		t.Errorf("w/data.json indexed %d times, want once", n)
 	}
 }

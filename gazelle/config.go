@@ -2,7 +2,9 @@ package typescript
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"path"
@@ -336,6 +338,9 @@ type tsConfig struct {
 
 	// programs is the run's tsgo listings, one store every directory shares.
 	programs *programStore
+
+	// lock is pnpm-lock.yaml as npm.go reads it, once per run; nil without one.
+	lock *npmLock
 }
 
 // addCodegenOutDir records one out_dir root; a directive, the detector and the
@@ -874,6 +879,12 @@ func configureTsConfig(c *config.Config, rel string, f *rule.File) {
 			tc.npmPackages = inventory
 			tc.npmLockNames = lockNames
 			tc.workspaceMembers = members
+		}
+		switch l, err := loadNpmLock(c.RepoRoot); {
+		case err == nil:
+			tc.lock = l
+		case !errors.Is(err, fs.ErrNotExist):
+			log.Fatalf("typescript: %s: %v", pnpmLockfileName, err)
 		}
 	}
 

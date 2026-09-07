@@ -39,16 +39,19 @@ bazel run //:gazelle
 
 Each run lists every hand-written `tsconfig.json` it meets through tsgo, from
 the repository root: `tsgo -p <dir>/tsconfig.json --noEmit --listFilesOnly
---explainFiles --pretty false`; a root `tsconfig.json` whose extends chain sets
+--explainFiles --pretty false`, plus `--traceResolution` for an island, a
+package whose nearest `package.json` is no importer in `pnpm-lock.yaml`, so
+pnpm installed nothing for it; a root `tsconfig.json` whose extends chain sets
 neither `include` nor `files` is skipped, since tsgo would enumerate the whole
 repository. The binary is the toolchain's, carried in
 `gazelle_typescript`'s runfiles, so the program Gazelle reads is the one the
 build type-checks; `-ts_tsgo=<path>` names another one. A run says nothing
-about the listings, tsgo's diagnostics included; `-ts_verbose` prints which
-binary ran, one line per `tsconfig.json` with what it listed or why it was not,
-tsgo's diagnostics for it, how many of them are packages, and the
-`.ts`/`.tsx`/`.mts`/`.cts` files no program lists, per directory and in total:
-`bazel run //:gazelle -- -ts_verbose`.
+about the listings, tsgo's diagnostics included, except the specifiers an
+island's program could not resolve, one line per such `tsconfig.json`;
+`-ts_verbose` prints which binary ran, one line per `tsconfig.json` with what
+it listed or why it was not, tsgo's diagnostics for it, how many of them are
+packages, and the `.ts`/`.tsx`/`.mts`/`.cts` files no program lists, per
+directory and in total: `bazel run //:gazelle -- -ts_verbose`.
 
 A directory is a package when its `tsconfig.json` lists a first-party file: a
 path inside the repository and not under `node_modules`. A file belongs to the

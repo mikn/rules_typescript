@@ -31,6 +31,7 @@ type program struct {
 	types       []typeEntry
 	implicit    []typeEntry
 	diagnostics []string
+	unresolved  []string
 	refused     string
 }
 
@@ -66,14 +67,21 @@ type programStore struct {
 	packages map[string]map[string]bool
 	visited  map[string][]string
 	walked   map[string]bool
+	// The vitest configs the generated tests name, listed together at the
+	// first ask; vitestEdges is nil until then.
+	vitestConfigs  map[string]bool
+	vitestEdges    map[string][]edge
+	installChecked bool
+	noLockSaid     bool
 }
 
 func newProgramStore() *programStore {
 	return &programStore{
-		programs: map[string]*program{},
-		packages: map[string]map[string]bool{},
-		visited:  map[string][]string{},
-		walked:   map[string]bool{},
+		programs:      map[string]*program{},
+		packages:      map[string]map[string]bool{},
+		visited:       map[string][]string{},
+		walked:        map[string]bool{},
+		vitestConfigs: map[string]bool{},
 	}
 }
 
@@ -155,7 +163,8 @@ func listTsConfigProgram(args language.GenerateArgs, tc *tsConfig) {
 	if err != nil {
 		log.Fatalf("typescript: %s: %v", cfg, err)
 	}
-	p, err := listProgram(args.Config.RepoRoot, args.Rel, tsgo)
+	isle := islandManifest(args.Config.RepoRoot, args.Rel, tc.lock)
+	p, err := listProgram(args.Config.RepoRoot, args.Rel, tsgo, isle != nil)
 	if err != nil {
 		log.Fatalf("typescript: %v", err)
 	}
@@ -163,6 +172,12 @@ func listTsConfigProgram(args language.GenerateArgs, tc *tsConfig) {
 	if p.refused != "" {
 		store.say("%s: not listed: %s", cfg, p.refused)
 		return
+	}
+	if isle != nil && len(p.unresolved) > 0 {
+		log.Printf("typescript: %s: %s is no importer in %s, so pnpm installs "+
+			"nothing for it; tsgo could not resolve: %s", cfg,
+			path.Join(isle.dir, "package.json"), pnpmLockfileName,
+			strings.Join(p.unresolved, ", "))
 	}
 	// tsgo's diagnostics stay on the program and print under -ts_verbose only: a
 	// types entry naming a generated file draws one on every run over a clean checkout.
@@ -215,26 +230,130 @@ func plural(n int, many string, one ...string) string {
 	return many
 }
 
-// tsgo exits non-zero on any diagnostic and still lists what it could, so the
-// listing is kept whatever the exit; TS18003 alone is a program with no inputs.
-func listProgram(repoRoot, rel, tsgo string) (*program, error) {
+// An island: a package whose nearest package.json is no lockfile importer, so
+// pnpm installed nothing for it; a bare import there resolves by accident.
+func islandManifest(repoRoot, rel string, lock *npmLock) *manifest {
+	if lock == nil {
+		return nil
+	}
+	m := nearestManifest(repoRoot, rel)
+	if m != nil && lock.importers[m.dir] == nil {
+		return m
+	}
+	return nil
+}
+
+func listProgram(repoRoot, rel, tsgo string, trace bool) (*program, error) {
 	cfg := path.Join(rel, "tsconfig.json")
 	// --pretty false: a FORCE_COLOR in the environment would otherwise colour the diagnostics.
-	cmd := exec.Command(tsgo, "-p", cfg, "--noEmit", "--listFilesOnly", "--explainFiles", "--pretty", "false")
+	args := []string{"-p", cfg, "--noEmit", "--listFilesOnly", "--explainFiles",
+		"--pretty", "false"}
+	if trace {
+		args = append(args, "--traceResolution")
+	}
+	p, err := runListing(repoRoot, tsgo, cfg, args)
+	if err != nil {
+		return nil, err
+	}
+	p.dir = rel
+	return p, nil
+}
+
+// A vitest config's listing: no tsconfig.json is its program (--ignoreConfig,
+// else TS5112), a .mjs is a root (--allowJs), and the runner's resolution.
+var vitestConfigFlags = []string{"--noEmit", "--listFilesOnly",
+	"--explainFiles", "--ignoreConfig", "--allowJs", "--module", "esnext",
+	"--moduleResolution", "bundler", "--skipLibCheck", "--pretty", "false"}
+
+func listVitestConfigs(repoRoot, tsgo string, configs []string,
+) (*program, error) {
+	args := append(slices.Clone(vitestConfigFlags), configs...)
+	return runListing(repoRoot, tsgo, "vitest configs", args)
+}
+
+func (s *programStore) vitestConfig(cfg string) { s.vitestConfigs[cfg] = true }
+
+// configEdges is what cfg imports, from one run over every registered config at
+// the first ask: the runner imports the config, so its imports are the test's.
+func (s *programStore) configEdges(repoRoot, cfg string) []edge {
+	if s.vitestEdges == nil {
+		s.vitestEdges = map[string][]edge{}
+		if configs := slices.Sorted(maps.Keys(s.vitestConfigs)); len(configs) > 0 {
+			tsgo, err := s.binary()
+			if err != nil {
+				log.Fatalf("typescript: vitest configs: %v", err)
+			}
+			p, err := listVitestConfigs(repoRoot, tsgo, configs)
+			if err != nil {
+				log.Fatalf("typescript: %v", err)
+			}
+			for _, e := range p.edges {
+				if s.vitestConfigs[e.from] {
+					s.vitestEdges[e.from] = append(s.vitestEdges[e.from], e)
+				}
+			}
+		}
+	}
+	return s.vitestEdges[cfg]
+}
+
+// installMissing says why the listing cannot be trusted: a root lockfile with
+// no node_modules from pnpm; tsgo prints no line for an unresolved import.
+func installMissing(repoRoot string) string {
+	if _, err := os.Stat(filepath.Join(repoRoot, pnpmLockfileName)); err != nil {
+		return ""
+	}
+	marker := filepath.Join(repoRoot, "node_modules", ".modules.yaml")
+	if _, err := os.Stat(marker); err == nil {
+		return ""
+	}
+	return pnpmLockfileName + " is at the root and node_modules/.modules.yaml " +
+		"is not: tsgo lists no edge into a package that is not installed, so " +
+		"run pnpm install and rerun"
+}
+
+func (s *programStore) requireInstall(repoRoot string) {
+	if s.installChecked {
+		return
+	}
+	s.installChecked = true
+	if why := installMissing(repoRoot); why != "" {
+		log.Fatalf("typescript: %s", why)
+	}
+}
+
+func (p *program) typeEdges() []edge {
+	cfg := tsconfigIn(p.dir)
+	var out []edge
+	for _, entries := range [][]typeEntry{p.types, p.implicit} {
+		for _, te := range entries {
+			out = append(out, edge{kind: edgeTypeReference, from: cfg,
+				to: te.file, specifier: te.entry})
+		}
+	}
+	return out
+}
+
+// tsgo exits non-zero on any diagnostic and still lists what it could, so the
+// listing is kept whatever the exit; TS18003 alone is a program with no inputs.
+func runListing(repoRoot, tsgo, subject string, args []string,
+) (*program, error) {
+	cmd := exec.Command(tsgo, args...)
 	cmd.Dir = repoRoot
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	runErr := cmd.Run()
 	p, err := parseListing(stdout.String())
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", cfg, err)
+		return nil, fmt.Errorf("%s: %w", subject, err)
 	}
-	p.dir = rel
 	switch {
 	case runErr == nil:
 		return p, nil
 	case len(p.diagnostics) == 0:
-		return nil, fmt.Errorf("%s: tsgo %s failed (%v) with no diagnostic:\n%s%s", cfg, strings.Join(cmd.Args[1:], " "), runErr, stdout.String(), stderr.String())
+		return nil, fmt.Errorf("%s: tsgo %s failed (%v) with no diagnostic:\n%s%s",
+			subject, strings.Join(args, " "), runErr, stdout.String(),
+			stderr.String())
 	case len(p.files) > 0, noInputs(p):
 		return p, nil
 	}
@@ -255,14 +374,33 @@ func noInputs(p *program) bool {
 // diagnostic's continuation lines are indented two.
 var diagnosticLine = regexp.MustCompile(`^(?:\S.*\(\d+,\d+\): )?error TS\d+: `)
 
+// A --traceResolution block runs from its Resolving line to the line saying how
+// it went, all before the listing; its prose sits at column 0 like a path.
+const traceOpens = "======== Resolving "
+
+var notResolved = regexp.MustCompile(
+	`^======== (?:Module name|Type reference directive) '(.*)' was not ` +
+		`resolved\. ========$`)
+
 func parseListing(text string) (*program, error) {
 	p := &program{}
 	var file string
-	inDiagnostic := false
+	inDiagnostic, inTrace := false, false
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimRight(line, "\r")
 		switch {
 		case line == "":
+		case inTrace:
+			if !strings.HasPrefix(line, "========") {
+				continue
+			}
+			inTrace = false
+			m := notResolved.FindStringSubmatch(line)
+			if m != nil && !slices.Contains(p.unresolved, m[1]) {
+				p.unresolved = append(p.unresolved, m[1])
+			}
+		case strings.HasPrefix(line, traceOpens):
+			inTrace = true
 		case inDiagnostic && strings.HasPrefix(line, "  "):
 			p.diagnostics[len(p.diagnostics)-1] += "\n" + line
 		case strings.HasPrefix(line, "   "):

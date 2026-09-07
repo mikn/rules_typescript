@@ -10,6 +10,12 @@ exports_files([
     "pnpm-lock.yaml",
 ])
 
+# The combined vitest-config listing in //gazelle:typescript_test runs over it.
+exports_files(
+    ["vitest.workers.config.mjs"],
+    visibility = ["//gazelle:__pkg__"],
+)
+
 # The targets below have srcs in src/; a BUILD file there would turn it into a
 # package and make those labels cross a package boundary.
 # gazelle:exclude src

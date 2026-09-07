@@ -67,6 +67,12 @@ load(
 )
 load("//tests/integration:tags.bzl", "nested_bazel_tags")
 
+# The combined vitest-config listing in //gazelle:typescript_test runs over it.
+exports_files(
+    ["gazelle_roundtrip/configured/vitest.config.mts"],
+    visibility = ["//gazelle:__pkg__"],
+)
+
 # ── new_project ───────────────────────────────────────────────────────────────
 # Full new-project journey: write sources → gazelle → build.
 # TypeScript files have explicit return types (isolatedDeclarations = true).

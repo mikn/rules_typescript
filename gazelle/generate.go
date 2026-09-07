@@ -1547,3 +1547,54 @@ func ancestorVitestConfig(args language.GenerateArgs, tc *tsConfig) (string, str
 	}
 	return rel, name
 }
+
+// ruleImports is what GenerateRules hands Resolve for one rule: the edges of
+// the files it compiles, its vitest config and the deps no edge names.
+type ruleImports struct {
+	edges  []edge
+	config string
+	deps   []string
+}
+
+// ownedEdges is the edges of pkg's program from the given files, and the
+// program's type entries, which are the tsconfig's.
+func (s *programStore) ownedEdges(pkg string, files ...[]string) []edge {
+	from := map[string]bool{}
+	for _, list := range files {
+		for _, f := range list {
+			from[f] = true
+		}
+	}
+	p := s.programs[pkg]
+	var out []edge
+	for _, e := range p.edges {
+		if from[e.from] {
+			out = append(out, e)
+		}
+	}
+	return append(out, p.typeEdges()...)
+}
+
+func (s *programStore) compileImports(pkg string, set srcSet) *ruleImports {
+	return &ruleImports{edges: s.ownedEdges(pkg, set.library, set.declaration)}
+}
+
+// A ts_test's runtime is its deps, so the manifest union joins the edges.
+func (s *programStore) testImports(repoRoot string, lock *npmLock,
+	pkg, compile, cfg string, set srcSet) *ruleImports {
+	imps := &ruleImports{
+		edges:  s.ownedEdges(pkg, set.library, set.declaration, set.test),
+		config: cfg,
+	}
+	if compile != "" {
+		imps.deps = append(imps.deps, compile)
+	}
+	if lock != nil {
+		m := nearestManifest(repoRoot, pkg)
+		imps.deps = append(imps.deps, lock.manifestLabels(m)...)
+	}
+	if cfg != "" {
+		s.vitestConfig(cfg)
+	}
+	return imps
+}

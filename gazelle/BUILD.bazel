@@ -84,7 +84,11 @@ go_test(
         "tsconfig_baseline_test.go",
         "tsconfig_extends_test.go",
     ],
-    data = glob(["testdata/**"]) + ["//tests/npm:pnpm-lock.yaml"],
+    data = glob(["testdata/**"]) + [
+        "//tests/integration:gazelle_roundtrip/configured/vitest.config.mts",
+        "//tests/npm:pnpm-lock.yaml",
+        "//tests/workers:vitest.workers.config.mjs",
+    ],
     embed = [":typescript"],
     deps = [
         "@com_github_bazelbuild_buildtools//build",
