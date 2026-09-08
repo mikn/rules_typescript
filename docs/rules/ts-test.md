@@ -678,7 +678,7 @@ sources: a module that only some dep's own deps provide fails the build with the
 label to add. See
 [Deps have to be direct](ts-compile.md#deps-have-to-be-direct).
 
-A `ts_compile` dep brings its npm closure into the auto-generated tree: its
+A `ts_compile` dep brings its npm closure into the forest: its
 compiled JS value-imports the packages it declared, and `TsDeclarationInfo`
 carries that closure (`transitive_npm_packages`) beside the declarations, so a
 test in one package runs production code from another without repeating its npm

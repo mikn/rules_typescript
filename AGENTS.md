@@ -155,8 +155,9 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
   whose `tsconfig.json` lists a first-party file, its program is that listing,
   and its deps come from the listing's edges, the lockfile and the nearest
   `package.json`
-- `ts_test` auto-generates node_modules from the npm deps in `deps` and each
-  `ts_compile` dep's npm closure (`TsDeclarationInfo.transitive_npm_packages`)
+- A `ts_test` runs in the forest its `deps` build: the npm deps in `deps` and
+  each `ts_compile` dep's npm closure
+  (`TsDeclarationInfo.transitive_npm_packages`)
 - Register new rules in `Kinds()` + `Loads()`
 - `bazel run //gazelle -- -mode=diff` on a clean tree must print nothing. A
   fixture that differs only in Gazelle's own rendering (a one-element list

@@ -3,11 +3,10 @@
 Creates a hermetic `node_modules` directory in the Bazel sandbox holding exactly
 the packages named and their transitive dependencies.
 
-Every `ts_compile` builds one from `deps` as the forest its tsgo action walks,
-and every `ts_test` builds one as its runtime tree (see [ts_test](ts-test.md));
-both go through this rule's builder. A hand-written one covers a program or
-tool that needs packages on disk at runtime, and a `ts_test` whose tree is not
-the one its `deps` describe.
+Every `ts_compile` and `ts_test` builds one from `deps` as the forest its tsgo
+action walks, and a test's is the tree its tests run in (see
+[ts_test](ts-test.md)); both go through this rule's builder. A hand-written one
+covers a program or tool that needs packages on disk at runtime.
 
 ## Usage
 
@@ -122,10 +121,10 @@ The transitive case both messages point at is the one
 `ts_compile` builds `<name>/node_modules` from its npm deps, their closures, the
 paired `@types/*` packages and every first-party dep's npm closure, and tsgo
 walks it from a program root that mirrors the exec root; see
-[the node_modules forest](ts-compile.md#the-node_modules-forest). `ts_test`
-builds its runtime tree from the same closure through this same builder, so a
-test runs against the layout its compile was checked against, with nothing to
-declare. See [ts_test](ts-test.md).
+[the node_modules forest](ts-compile.md#the-node_modules-forest). A `ts_test`
+builds the same forest and runs its tests in it: the tree the compile was
+checked against is the runtime tree, with nothing to declare. See
+[ts_test](ts-test.md).
 
 ## npm_bin
 
