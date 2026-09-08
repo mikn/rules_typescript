@@ -46,29 +46,33 @@ func (o oxcOptions) flags() []string {
 	return out
 }
 
-func showConfig(tsgo, project string) (*effectiveOptions, error) {
+// showConfig is the chain's merged options and its root files in tsc's order,
+// relative to project's directory.
+func showConfig(tsgo, project string) (*effectiveOptions, []string, error) {
 	cmd := exec.Command(tsgo, "--showConfig", "-p", project)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("%s --showConfig -p %s: %w\n%s%s", tsgo, project, err, out, stderr.Bytes())
+		return nil, nil, fmt.Errorf("%s --showConfig -p %s: %w\n%s%s",
+			tsgo, project, err, out, stderr.Bytes())
 	}
-	options, err := decodeShowConfig(out)
+	options, roots, err := decodeShowConfig(out)
 	if err != nil {
-		return nil, fmt.Errorf("%s --showConfig -p %s %w", tsgo, project, err)
+		return nil, nil, fmt.Errorf("%s --showConfig -p %s %w", tsgo, project, err)
 	}
-	return options, nil
+	return options, roots, nil
 }
 
-func decodeShowConfig(out []byte) (*effectiveOptions, error) {
+func decodeShowConfig(out []byte) (*effectiveOptions, []string, error) {
 	var config struct {
 		CompilerOptions effectiveOptions `json:"compilerOptions"`
+		Files           []string         `json:"files"`
 	}
 	if err := json.Unmarshal(out, &config); err != nil {
-		return nil, fmt.Errorf("printed no config (%v):\n%s", err, out)
+		return nil, nil, fmt.Errorf("printed no config (%v):\n%s", err, out)
 	}
-	return &config.CompilerOptions, nil
+	return &config.CompilerOptions, config.Files, nil
 }
 
 // actionConfig is what the rule knows about one tsgo action and the user's
@@ -127,16 +131,25 @@ func writeTsconfig(args []string) error {
 		}
 	}
 
+	var chain *tsconfig.Resolved
+	if a.project != "" {
+		var err error
+		if chain, err = tsconfig.Resolve(a.project); err != nil {
+			return err
+		}
+	}
+
 	// showConfig reads a file, and the options this program runs under are the
-	// merged chain's: the config is written with its extends alone first.
+	// merged chain's; `files: []` keeps tsc off the bin dir when none is named.
 	dir := path.Dir(a.out)
-	if err := writeJSON(a.out, struct {
-		Extends []string `json:"extends"`
-		Files   []string `json:"files"`
-	}{a.extends(dir), []string{}}); err != nil {
+	first := map[string]any{"extends": a.extends(dir)}
+	if chain == nil || !chain.Inputs {
+		first["files"] = []string{}
+	}
+	if err := writeJSON(a.out, first); err != nil {
 		return err
 	}
-	config, options, err := a.resolve(dir)
+	config, options, err := a.resolve(dir, chain)
 	if err != nil {
 		return errors.Join(err, os.Remove(a.out))
 	}
@@ -146,18 +159,13 @@ func writeTsconfig(args []string) error {
 	return writeJSON(a.options, options)
 }
 
-func (a *actionConfig) resolve(dir string) (*tsconfigFile, oxcOptions, error) {
-	effective, err := showConfig(a.tsgo, a.out)
+func (a *actionConfig) resolve(dir string, chain *tsconfig.Resolved,
+) (*tsconfigFile, oxcOptions, error) {
+	effective, roots, err := showConfig(a.tsgo, a.out)
 	if err != nil {
 		return nil, oxcOptions{}, err
 	}
-	var chain *tsconfig.Resolved
-	if a.project != "" {
-		if chain, err = tsconfig.Resolve(a.project); err != nil {
-			return nil, oxcOptions{}, err
-		}
-	}
-	config, err := a.build(effective, chain, dir)
+	config, err := a.build(effective, roots, chain, dir)
 	if err != nil {
 		return nil, oxcOptions{}, err
 	}
@@ -176,7 +184,8 @@ func (a *actionConfig) extends(dir string) []string {
 	return out
 }
 
-func (a *actionConfig) build(effective *effectiveOptions, chain *tsconfig.Resolved, dir string) (*tsconfigFile, error) {
+func (a *actionConfig) build(effective *effectiveOptions, roots []string,
+	chain *tsconfig.Resolved, dir string) (*tsconfigFile, error) {
 	types, err := a.types(effective, dir)
 	if err != nil {
 		return nil, err
@@ -217,18 +226,41 @@ func (a *actionConfig) build(effective *effectiveOptions, chain *tsconfig.Resolv
 		opts["skipLibCheck"] = false
 	}
 
-	include := make([]string, 0, len(a.srcs))
-	for _, src := range a.srcs {
-		include = append(include, fileRelative(dir, src))
-	}
+	files, include := a.roots(roots, dir)
 	return &tsconfigFile{
 		Extends:         a.extends(dir),
 		CompilerOptions: opts,
 		Include:         include,
-		Files:           []string{},
+		Files:           files,
 		Exclude:         []string{},
 		References:      []string{},
 	}, nil
+}
+
+// roots splits the srcs into the root files, in the order showConfig printed
+// them, and the rest: the first declaration of an ambient pattern wins.
+func (a *actionConfig) roots(printed []string, dir string,
+) (files, include []string) {
+	rel := make([]string, len(a.srcs))
+	index := make(map[string]int, len(a.srcs))
+	for i, src := range a.srcs {
+		rel[i] = fileRelative(dir, src)
+		index[path.Clean(rel[i])] = i
+	}
+	files, include = []string{}, []string{}
+	isRoot := make([]bool, len(a.srcs))
+	for _, p := range printed {
+		if i, ok := index[path.Clean(p)]; ok && !isRoot[i] {
+			isRoot[i] = true
+			files = append(files, rel[i])
+		}
+	}
+	for i, r := range rel {
+		if !isRoot[i] {
+			include = append(include, r)
+		}
+	}
+	return files, include
 }
 
 // A JavaScript src is in `include`; without allowJs tsgo reports TS6504 on it.

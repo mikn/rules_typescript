@@ -1,17 +1,14 @@
 # Providers and Toolchains
 
 The contract a rule outside this ruleset writes against: the providers the
-rules return, and the toolchains they resolve. Seven providers load from
+rules return, and the toolchains they resolve. Four providers load from
 `@rules_typescript//ts:defs.bzl`; the toolchain contract loads from
 `@rules_typescript//ts/toolchain:defs.bzl`.
 
 ```python
 load(
     "@rules_typescript//ts:defs.bzl",
-    "AssetInfo",
     "BundlerInfo",
-    "CssInfo",
-    "CssModuleInfo",
     "JsInfo",
     "TsDeclarationInfo",
     "TsLintInfo",
@@ -21,10 +18,7 @@ load(
 | Provider | Returned by |
 |---|---|
 | `JsInfo` | `ts_compile`, `ts_codegen`, `ts_binary`, the `@npm` package targets |
-| `TsDeclarationInfo` | `ts_compile`, `ts_codegen`, `css_library`, `css_module`, `asset_library`, `json_library`, the `@npm` package targets |
-| `CssInfo` | `css_library`; `ts_compile` with empty direct fields, so a consumer reads its transitive ones |
-| `CssModuleInfo` | `css_module`; `ts_compile` with empty direct fields |
-| `AssetInfo` | `asset_library`; `ts_compile` with empty direct fields |
+| `TsDeclarationInfo` | `ts_compile`, `ts_codegen`, the `@npm` package targets |
 | `BundlerInfo` | any rule that [brings its own bundler](../guides/bundling.md#custom-bundler-bundlerinfo-interface); the ruleset ships none |
 | `TsLintInfo` | `ts_lint` |
 
@@ -32,8 +26,9 @@ load(
 
 A direct field carries only what the target itself produces. A rule that
 forwards a dep's files leaves the direct field empty and puts the closure in the
-transitive one; `ts_compile` does that for the CSS and assets its deps carry. A
-consumer that wants everything reachable reads the transitive field.
+transitive one; `ts_compile` does that for its deps' data files, which reach
+`JsInfo.transitive_data_files` and never `data_files`. A consumer that wants
+everything reachable reads the transitive field.
 
 ## JsInfo
 
@@ -43,8 +38,11 @@ consumer that wants everything reachable reads the transitive field.
 | `js_map_files` | `depset of File` | The `.js.map` files this target produces |
 | `transitive_js_files` | `depset of File` | Every `.js` from this target and its deps |
 | `transitive_js_map_files` | `depset of File` | Every `.js.map` from this target and its deps |
+| `data_files` | `depset of File` | The srcs that are neither TypeScript, JavaScript nor declarations, staged at their package-relative paths beside the compiled `.js` |
+| `transitive_data_files` | `depset of File` | The data files of this target and its deps: what a compiled module reaches beside itself at run time or in a bundle |
 
-`ts_binary` with a `bundler` returns the bundle as the one member of all four.
+`ts_binary` with a `bundler` returns the bundle as the one member of both `.js`
+fields, and the entry's data closure.
 `ts_codegen` with `out_dir` returns the directory as the one member; nothing
 downstream compiles the tree, so what it holds is already compiled output. An
 `outs` codegen returns its `.js` outs here and its `.d.ts` outs in
@@ -62,29 +60,6 @@ tsconfig `types` can name the generated declaration.
 A global `.d.ts` travels as a declaration output and nothing more: the consumer
 names it in its own tsconfig `types` to bring its globals into scope. See
 [Which ambients a consumer gets](ts-compile.md#which-ambients-a-consumer-gets).
-
-## CssInfo
-
-| Field | Type | Description |
-|---|---|---|
-| `css_files` | `depset of File` | The `.css` files this target itself produces; empty on a target that only forwards them |
-| `transitive_css_files` | `depset of File` | Every `.css` reachable from this target |
-
-## CssModuleInfo
-
-| Field | Type | Description |
-|---|---|---|
-| `css_files` | `depset of File` | The `.module.css` files this target itself produces; empty on a target that only forwards them |
-| `transitive_css_files` | `depset of File` | Every `.module.css` reachable from this target |
-| `exports_files` | `depset of File` | One `<source>.exports.json` per direct src: the scoped-name map postcss-modules produced. Its keys are what the `.d.ts` declares and its values the class names the bundler emits |
-| `transitive_exports_files` | `depset of File` | Every `.exports.json` reachable from this target |
-
-## AssetInfo
-
-| Field | Type | Description |
-|---|---|---|
-| `asset_files` | `depset of File` | The asset files this target itself produces; empty on a target that only forwards them |
-| `transitive_asset_files` | `depset of File` | Every asset reachable from this target |
 
 ## BundlerInfo
 

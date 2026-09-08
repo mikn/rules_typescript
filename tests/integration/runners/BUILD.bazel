@@ -14,7 +14,6 @@ is already the price of the older child-workspace layout.
 # the subdirs, whose BUILD files would break the srcs above.
 # gazelle:ignore
 # gazelle:exclude codegen
-# gazelle:exclude css_assets
 # gazelle:exclude dev_server
 # gazelle:exclude existing_project
 # gazelle:exclude gazelle_roundtrip
@@ -30,7 +29,6 @@ load("@rules_go//go:def.bzl", "go_binary")
 
 _RUNNERS = [
     "codegen",
-    "css_assets",
     "dev_server",
     "existing_project",
     "gazelle_roundtrip",

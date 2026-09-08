@@ -47,7 +47,8 @@ export const runfilesImports = (root, workspaceDir) => ({
     if (!staged || !existsSync(staged)) {
       this.error(
         `rules_typescript: "${id}" resolved to ${real}, a build output this test's runfiles do not hold; ` +
-          'a dep or data entry has to stage it (an asset_library dep of the ts_compile for a wrangler rules module).',
+          'a dep or data entry has to stage it (a wrangler rules module is a ' +
+          'src of the ts_compile that imports it).',
       );
     }
     return resolved;

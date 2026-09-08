@@ -77,7 +77,7 @@ fields, with the values the shipped Vite server returns for each, are in
 | first-party `.ts` | Bazel compiles it; the bundler reads `bazel-bin` | served as source, transformed by the server in memory |
 | `ts_codegen` output | from `bazel-bin` | from `bazel-bin` |
 | npm packages | the `node_modules` tree | the `node_modules` tree, linked in at the workspace root |
-| assets, passthrough `.d.ts` | from `bazel-bin` | from `bazel-bin` |
+| assets, data srcs, passthrough `.d.ts` | from `bazel-bin` | from `bazel-bin` |
 
 Generated code is recognised by the absence of a checked-in source file.
 
@@ -128,22 +128,10 @@ from the editor and `bazel build`, and do not block the browser update. See
 
 ## CSS Modules
 
-A `*.module.css` served by the dev server carries the same class
-names `css_module` generated its `.d.ts` from. The dev server installs the
-CSS-modules plugin unconditionally, with no attribute and no `vite_config`, so
-`styles.button` in a served module is the string the `.d.ts` declares and the
-string a `ts_test` asserts on.
-
-Serving a source tree, there is no `<file>.exports.json` beside the stylesheet, so
-the name is recomputed; it is a pure function of the same bytes and lands on the
-same answer. See
-[css_module](../rules/css-and-assets.md#what-the-declarations-promise).
-
-A plugin in a `vite_config` that sets `css.modules.generateScopedName` or
-`css.modules = false` fails naming the `css_module` attribute to use instead. A
-`css` key in the config itself fails earlier,
-as a key the generated config does not read. A framework plugin that resolves
-the config once per environment does not trip the check.
+A `*.module.css` served by the dev server is scoped by Vite's own CSS modules
+with Vite's defaults, as under `vite dev`. A `vite_config` reaches the dev
+server through `plugins` alone, so a `css` key in one fails the config load
+naming it, as [any other key does](#vite_config-what-it-may-import).
 
 ## vite-plugin-bazel
 

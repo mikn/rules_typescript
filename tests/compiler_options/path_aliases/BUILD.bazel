@@ -1,4 +1,4 @@
-"""A tsconfig `paths` alias, and the two trees its values reach."""
+"""A tsconfig `paths` alias reaching a module and a JSON src."""
 
 # The target below has srcs in these directories; a BUILD file in any of them
 # would turn it into a package and make those labels cross a package boundary.
@@ -9,27 +9,20 @@
 # gazelle:exclude tsconfig.aliases.json
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
-load("//ts:defs.bzl", "json_library", "ts_compile")
+load("//ts:defs.bzl", "ts_compile")
 
 package(default_visibility = ["//:__pkg__"])
 
-# data.json is not staged: its declaration is, and it is generated into
-# bazel-bin rather than beside the source the alias points at.
-json_library(
-    name = "data",
-    srcs = ["shared/data.json"],
-)
-
-# One alias reaches both trees: value.ts from the source tree and the generated
-# data.json.d.ts from bazel-bin; `title` is a string only if that one resolved.
+# One alias reaches value.ts and data.json, typed from its contents under the
+# resolveJsonModule bundler resolution implies; `title` is a string only then.
 ts_compile(
     name = "app",
     srcs = [
         "app/main.ts",
+        "shared/data.json",
         "shared/value.ts",
     ],
     tsconfig = "tsconfig.aliases.json",
-    deps = [":data"],
 )
 
 build_test(

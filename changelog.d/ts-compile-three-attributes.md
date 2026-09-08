@@ -22,9 +22,8 @@
   `target`, `jsx`, `jsxImportSource`, `lib`, `types`, `paths`, `checkJs`,
   `typeRoots`, ...) and name the file in `tsconfig`. A `paths` value is read
   from the directory of the file that sets it and resolves to the source tree
-  and to its bazel-bin twin, so a dep's declarations, a `json_library`'s
-  `.d.ts` and a `ts_codegen` `out_dir` tree are reached through the alias the
-  tsconfig already has. A global a consumer needs is named in the consumer's
+  and to its bazel-bin twin, so a dep's declarations and a `ts_codegen`
+  `out_dir` tree are reached through the alias the tsconfig already has. A global a consumer needs is named in the consumer's
   `types` (`"./worker-configuration.d.ts"`, `"../src/env.d.ts"`) with the
   owning target in `deps`; a bare specifier naming a workspace member resolves
   through the hub's view of it, `@npm//:<name>`. A package that leaked a global

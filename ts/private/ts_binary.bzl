@@ -24,7 +24,7 @@ Launcher behaviour (//tools/launcher, driven by the generated JSON config):
 """
 
 load("//tools/launcher:launcher.bzl", "LAUNCHER_ATTRS", "declare_launcher", "rlocation_path")
-load("//ts/private:bundle_action.bzl", "BUNDLE_ACTION_ATTRS", "create_bundle_action")
+load("//ts/private:bundle_action.bzl", "create_bundle_action")
 load("//ts/private:providers.bzl", "BundlerInfo", "JsInfo")
 load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "get_js_runtime")
 
@@ -46,11 +46,19 @@ def _js_file_entry_js_info(ctx, data_files):
     label = ctx.attr.entry_point.label
     entry = files[0] if len(files) == 1 else None
     if entry and _has_extension(entry, _JS_ENTRY_EXTENSIONS):
+        modules = [
+            f
+            for f in data_files
+            if _has_extension(f, _JS_ENTRY_EXTENSIONS)
+        ]
+        data = depset([f for f in data_files if f not in modules])
         return JsInfo(
             js_files = depset([entry]),
             js_map_files = depset([]),
-            transitive_js_files = depset([entry] + data_files),
+            transitive_js_files = depset([entry] + modules),
             transitive_js_map_files = depset([]),
+            data_files = data,
+            transitive_data_files = data,
         )
     if entry and _has_extension(entry, _TS_ENTRY_EXTENSIONS):
         fail(
@@ -96,7 +104,11 @@ def _ts_binary_impl(ctx):
 
         runtime_depset = depset(
             ([runtime_binary] if runtime_binary else []),
-            transitive = [entry_js_info.transitive_js_files, entry_js_info.transitive_js_map_files],
+            transitive = [
+                entry_js_info.transitive_js_files,
+                entry_js_info.transitive_js_map_files,
+                entry_js_info.transitive_data_files,
+            ],
         )
     else:
         # ── No bundler: run the entry point .js directly ───────────────────────
@@ -147,7 +159,11 @@ def _ts_binary_impl(ctx):
 
         runtime_depset = depset(
             ([runtime_binary] if runtime_binary else []),
-            transitive = [entry_js_info.transitive_js_files, entry_js_info.transitive_js_map_files],
+            transitive = [
+                entry_js_info.transitive_js_files,
+                entry_js_info.transitive_js_map_files,
+                entry_js_info.transitive_data_files,
+            ],
         )
 
     # ── Launcher config ────────────────────────────────────────────────────────
@@ -190,6 +206,8 @@ def _ts_binary_impl(ctx):
             js_map_files = depset([]),
             transitive_js_files = depset([bundle_out]),
             transitive_js_map_files = depset([]),
+            data_files = depset([]),
+            transitive_data_files = entry_js_info.transitive_data_files,
         )
         output_group = OutputGroupInfo(
             bundle = depset([bundle_out]),
@@ -202,6 +220,8 @@ def _ts_binary_impl(ctx):
             js_map_files = entry_js_info.js_map_files,
             transitive_js_files = entry_js_info.transitive_js_files,
             transitive_js_map_files = entry_js_info.transitive_js_map_files,
+            data_files = entry_js_info.data_files,
+            transitive_data_files = entry_js_info.transitive_data_files,
         )
         output_group = OutputGroupInfo(
             js_tree = entry_js_info.transitive_js_files,
@@ -226,7 +246,7 @@ ts_binary = rule(
     toolchains = [
         config_common.toolchain_type(JS_RUNTIME_TOOLCHAIN_TYPE, mandatory = False),
     ],
-    attrs = LAUNCHER_ATTRS | BUNDLE_ACTION_ATTRS | {
+    attrs = LAUNCHER_ATTRS | {
         "entry_point": attr.label(
             doc = "The ts_compile target whose output is the binary entry point, or a single .js/.mjs/.cjs source file to run as-is.",
             allow_files = True,

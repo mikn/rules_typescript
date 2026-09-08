@@ -77,22 +77,19 @@ no test runs a generated config against a second major:
 
 | Hub | Lockfile | Vite | vitest | Coverage |
 |---|---|---|---|---|
-| `@npm` | `tests/npm/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` (the whole `tests/vitest` suite), `ts_dev_server` (six servers started and interrogated over HTTP), `vite-plugin-bazel`'s own tests, and the `lsp` and `npm_deps` integration workspaces |
+| `@npm` | `tests/npm/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` (the whole `tests/vitest` suite), `ts_dev_server` (six servers started and interrogated over HTTP), and `vite-plugin-bazel`'s own tests |
 | `@npm_tailwind` | `tests/tailwind/pnpm-lock.yaml` | 8.2.2 | — | Tailwind v4 through `vite_config`, under the dev server |
 | `@npm_workers` | `tests/workers/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` with the Workers pool (vitest inside workerd), and the `wrangler types` generator `//tools/codegen:wrangler_types` under `ts_codegen` (`tests/worker_types`) |
 | `@npm_eslint` | `tests/eslint/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | the ESLint plugin's own `ts_test` target, against `@typescript-eslint`'s rule tester |
 | `@npm_features` | `tests/npm/pnpm-lock-features.yaml` | — | — | pnpm's patched dependencies, npm aliases, peer-dependency variants, per-importer resolution; resolves neither tool |
-| `@npm_css` | `ts/private/css/pnpm-lock.yaml` | — | — | the packages the ruleset's own build actions run: postcss 8.5.26 and postcss-modules 9.0.1 for `css_module`'s compiler, and the esbuild that bundles `vite-plugin-bazel`. The one hub that is not a fixture; both bundles ship to consumers as API |
+| `@npm_esbuild` | `vite/esbuild/pnpm-lock.yaml` | — | — | the esbuild that bundles `vite-plugin-bazel`. The one hub that is not a fixture; the bundle ships to consumers as API |
 
-The `examples/` modules are separate Bazel modules with their own lockfiles,
-outside the table above. `examples/app` and `examples/react-app` resolve Vite
-8.2.2 and vitest 4.1.11; `examples/basic` has no npm dependencies.
-
-`@npm_css` is a compatibility surface of its own. `css_module` derives the class
-names and the `.d.ts` with its own postcss-modules; the bundler reproduces them
-with the CSS-modules implementation built into your Vite. The naming function is
-handed to Vite, so only a divergence in what counts as a local name can split
-the two, and the plugin then errors with both sides named.
+The `examples/` modules and the integration workspaces under `tests/integration/`
+are separate Bazel modules with their own lockfiles, outside the table above.
+`examples/app`, `examples/react-app`, `tests/integration/gazelle_roundtrip` and
+`tests/integration/npm_deps` resolve Vite 8.2.2 and vitest 4.1.11;
+`tests/integration/lsp` resolves neither tool, and `examples/basic` has no npm
+dependencies.
 
 To re-derive the table from the repository:
 
@@ -141,32 +138,31 @@ move.
 Breaks get a changelog entry with the required edit.
 
 - `ts_compile`, `ts_test`, `ts_binary`, `ts_config`,
-  `node_modules`, `ts_refresh_tsconfig`, `refresh_workspace_files`,
-  `css_library`, `css_module`, `asset_library` and `json_library` rules and
+  `node_modules`, `ts_refresh_tsconfig` and `refresh_workspace_files` rules and
   their documented attributes
-- `ts_pnpm` and `ts_add_package`, which Gazelle writes into every root
-  `BUILD.bazel` beside a lockfile
-- `JsInfo`, `TsDeclarationInfo`, `BundlerInfo`, `CssInfo`,
-  `CssModuleInfo`, `AssetInfo`, `TsLintInfo` providers
+- The `ts_pnpm` and `ts_add_package` macros, written by hand into the root
+  `BUILD.bazel` beside a lockfile; Gazelle writes neither
+- `JsInfo`, `TsDeclarationInfo`, `BundlerInfo`, `TsLintInfo` providers
 - The `npm` module extension (`npm.translate_lock`, `npm.pnpm`) and the `@npm`
   label surface (`@npm//:zod`, `@npm//:types_react`, `@npm//:vitest_bin`)
 - The `ts` module extension (`ts.tsgo`)
 - `//ts/toolchain:all` as the registration target, and the four toolchain types
   it registers (`oxc_toolchain_type`, `tsgo_toolchain_type`, `js_runtime_type`,
   `js_tool_type`)
-- Gazelle `ts_compile` / `ts_test` generation and all `# gazelle:ts_*`
-  directives
+- Gazelle `ts_compile`, `ts_test` and `ts_config` generation. The extension
+  declares no directive of its own; `# keep`, `# gazelle:exclude` and
+  `# gazelle:resolve` are core Gazelle's
 
 ### Volatile
 
 May change in any commit, without a changelog entry.
 
-- `ts_dev_server`, `ts_codegen`, `ts_lint` rules
+- `ts_dev_server`, `ts_codegen`, `ts_lint` rules, and the `ts_lint` targets
+  Gazelle writes beside a `ts_compile`
 - The `ts_codegen` generators under `//tools/codegen` (`tanstack_routes`,
   `wrangler_types`)
 - `npm_bin` as a rule loaded by hand; the generated `@npm//:<pkg>_bin` labels
   are load-bearing above
 - `DevServerInfo` and its implementation, `//vite:dev_server`
 - The Vite plugin (`vite/src/`)
-- Gazelle codegen auto-detection
 - Anything under `ts/private/` or `npm/private/`

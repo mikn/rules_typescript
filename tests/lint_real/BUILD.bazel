@@ -1,13 +1,10 @@
 load("@rules_go//go:def.bzl", "go_test")
-load("@rules_typescript//ts:defs.bzl", "json_library", "ts_compile")
+load("@rules_typescript//ts:defs.bzl", "ts_compile")
 load("//ts:defs.bzl", "ts_lint")
 
 # The go_test targets are hand-named after the sh_tests they replaced, so the
 # Go language would add a second target for the same source.
 # gazelle:exclude *_test.go
-
-# violations.ts exists to fail the linter, so no generated target may lint it.
-# gazelle:ts_exclude violations.ts
 
 # ── oxlint config ─────────────────────────────────────────────────────────────
 # The oxlint.json enables the no-var rule so that violations.ts fails.
@@ -50,12 +47,6 @@ go_test(
     srcs = ["real_lint_test.go"],
     data = [":clean_lint_stamp"],
     deps = ["//tests/verify"],
-)
-
-json_library(
-    name = "oxlint_json",
-    srcs = ["oxlint.json"],
-    visibility = ["//visibility:public"],
 )
 
 ts_compile(

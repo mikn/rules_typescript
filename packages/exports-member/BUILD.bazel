@@ -1,0 +1,10 @@
+"""A workspace member that designates its entry point only in `exports` -- no
+`main`, no `module` -- as a package written for a modern resolver does."""
+
+load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "exports-member",
+    srcs = ["src/index.ts"],
+    visibility = ["//visibility:public"],
+)

@@ -27,10 +27,8 @@ mean 'npm'?)]' could not be resolved: No repository visible as '@pnpm' from
 main repository and referenced by '//:pnpm'
 ```
 
-Gazelle writes `ts_pnpm(name = "pnpm")` and `ts_add_package(name =
-"add_package")` into your root `BUILD.bazel` as soon as a root `pnpm-lock.yaml`
-exists, whether or not you use the hermetic-pnpm workflow, and both name
-`@pnpm`. Take the repo:
+The root `BUILD.bazel` holds a `ts_pnpm(name = "pnpm")` or a
+`ts_add_package`, and both name `@pnpm`. Take the repo:
 
 ```python
 npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
@@ -38,8 +36,8 @@ npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
 use_repo(npm, "npm", "pnpm")
 ```
 
-`npm.pnpm(version = …)` is optional; a default version is used. Nothing runs
-those two targets on your behalf. See [npm Dependencies § Setup](npm.md#setup).
+`npm.pnpm(version = …)` is optional; a default version is used. See
+[npm Dependencies § Setup](npm.md#setup).
 
 ## No repository visible as '@npm'
 
@@ -54,10 +52,6 @@ Gazelle resolved a bare import to an `@npm//:…` label and `use_repo` does not
 take `"npm"`. One npm dependency is enough to need the extension: the three
 lines above. A label naming a second hub (`@npm_tools//:…`) means that hub is
 missing from `use_repo`; see [more than one hub](npm.md#more-than-one-hub).
-
-A project with a root `pnpm-lock.yaml` and no extension at all sees the
-`@pnpm` failure above first, referenced by `//:add_package`: analysis stops at
-the root BUILD's `ts_add_package` before any `@npm` label is reached.
 
 ## No test targets were found, yet testing was requested
 
@@ -204,11 +198,11 @@ the message names, or run Gazelle:
 bazel run //:gazelle
 ```
 
-The check and Gazelle share one specifier scanner, so a Gazelle run that leaves
-a reported failure unfixed is a bug. Two things are outside the check:
-`/// <reference types="x" />`, which is not an import (Gazelle writes the dep
-it names), and an import nothing in the closure provides, which TypeScript
-reports as `TS2307`.
+Gazelle writes `deps` from tsgo's own listing of the program, so a Gazelle run
+that leaves a reported failure unfixed is a bug. Two things are outside the
+check: `/// <reference types="x" />`, which is not an import (it is an edge of
+the listing, so Gazelle writes the dep), and an import nothing in the closure
+provides, which TypeScript reports as `TS2307`.
 
 ## Option 'baseUrl' has been removed
 
@@ -274,17 +268,18 @@ ts_compile(
 )
 ```
 
-Gazelle writes that dep from the directive
-([Import Resolution](../gazelle/overview.md#import-resolution)): `@types/<name>`
-for a bare name, the package itself for a scoped or subpath name. A whole tree
-that needs a package names it in
-[`# gazelle:ts_ambient_types`](../gazelle/directives.md#declare-ambient-types-once-for-the-whole-repo).
+Gazelle writes that dep from the listing: the directive is an edge from
+`vite-env.d.ts` to the package's file, resolved by tsgo, and the package it
+landed in is the label
+([Import Resolution](../gazelle/overview.md#import-resolution)). A whole tree
+that needs a package names it in the `types` of the tsconfig its packages
+extend, which is an edge of every program in the tree.
 
 That is the directive in a file of your own: Gazelle writes the dep it names
-and rewrites nothing else, and neither the specifier scanner nor the
-strict-deps checker reads it. One in an npm package's declaration entry
-(`@types/bun/index.d.ts` is `/// <reference types="bun-types" />`) is followed
-by the rule; see [`@types/*` packages](../rules/ts-compile.md#types-packages).
+and rewrites nothing else, and the strict-deps checker does not read it. One
+in an npm package's declaration entry (`@types/bun/index.d.ts` is
+`/// <reference types="bun-types" />`) is followed by the rule; see
+[`@types/*` packages](../rules/ts-compile.md#types-packages).
 
 ## ts_test: vitest not found
 
@@ -355,30 +350,22 @@ quickstart writes requests the group explicitly:
 build --output_groups=+_validation
 ```
 
-## ts_package_boundary index-only was removed
-
-```
-gazelle: typescript: /path/to/src/BUILD.bazel: ts_package_boundary index-only was
-removed; the modes are "every-dir" and "tsconfig"
-```
-
-A BUILD file carries `# gazelle:ts_package_boundary index-only`, the mode that
-made a directory a package only when it held an `index.ts` or `index.tsx`. The
-run stops. Move the tree to `# gazelle:ts_package_boundary tsconfig`, put a
-`tsconfig.json` in each directory that is to be a package, and
-`# gazelle:ts_package_boundary true` in any that has to be one without holding
-the file. See
-[One target per TypeScript project](../gazelle/directives.md#one-target-per-typescript-project).
-
 ## Gazelle Generating Wrong Deps
 
-If Gazelle generates incorrect `deps` for an import:
+`deps` is what tsgo resolved when it listed the package's `tsconfig.json`, so
+a wrong dep is a wrong resolution or a wrong label for the right file:
 
-1. Check that the import specifier matches an npm package name in the lockfile.
-2. For path aliases, check `compilerOptions.paths` in the nearest
-   `tsconfig.json` (Gazelle reads it directly, as JSONC).
-3. Use `# gazelle:ts_ignore` to suppress generation for a directory and write
-   its BUILD file manually.
+1. Run `bazel run //:gazelle -- -ts_verbose` and read the program's line: the
+   files listed, tsgo's diagnostics, and the imports it could not resolve.
+2. A missing npm dep is an import the checkout's `node_modules` does not
+   answer (`pnpm install`), or a name the root `pnpm-lock.yaml` never mentions;
+   the run names the importer and the specifier it refused.
+3. A missing first-party dep is a file no package owns: the nearest
+   `tsconfig.json` above it does not list it, or its directory is under a
+   `# gazelle:exclude`; the run names the file and the programs that reached
+   it. Put it in a program, or name its label with `# gazelle:resolve`.
+4. `# keep` above a rule, or on a `deps` entry, holds what you wrote
+   ([`# keep`](../gazelle/directives.md#keep)).
 
 ## ts_dev_server: has no node_modules attr
 

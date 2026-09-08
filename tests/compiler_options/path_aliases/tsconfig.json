@@ -14,6 +14,7 @@
   "files": [],
   "include": [
     "app/main.ts",
+    "shared/data.json",
     "shared/value.ts"
   ]
 }

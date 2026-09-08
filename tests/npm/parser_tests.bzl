@@ -84,6 +84,9 @@ importers:
         specifier: 4.18.1
         version: 4.18.1
 
+  # An importer with no dependencies: pnpm writes it inline.
+  packages/leaf: {}
+
   packages/nested:
     dependencies:
       up-one:
@@ -418,6 +421,27 @@ def _importer_links_are_importer_relative_test(ctx):
     return unittest.end(env)
 
 importer_links_are_importer_relative_test = unittest.make(_importer_links_are_importer_relative_test)
+
+def _inline_importer_test(ctx):
+    env = unittest.begin(ctx)
+    importers = parse_importers(_LOCKFILE)["importers"]
+
+    # `packages/leaf: {}` is how pnpm writes an importer that declares nothing;
+    # the indented comment above it, colon and all, is not an importer.
+    asserts.equals(
+        env,
+        {"deps": {}, "links": {}},
+        importers.get("packages/leaf"),
+    )
+    asserts.equals(
+        env,
+        [".", "packages/leaf", "packages/nested"],
+        sorted(importers.keys()),
+    )
+
+    return unittest.end(env)
+
+inline_importer_test = unittest.make(_inline_importer_test)
 
 # A pnpm lockfile has no registry field, so this file is the only thing that says
 # where a package comes from. It also holds the credentials, which is why the two
@@ -799,6 +823,7 @@ def parser_test_suite(name):
         peer_tokens_separate_peer_sets_test,
         importers_resolve_per_importer_test,
         importer_links_are_importer_relative_test,
+        inline_importer_test,
         npmrc_registries_test,
         npmrc_registry_picks_the_url_test,
         npmrc_auth_test,

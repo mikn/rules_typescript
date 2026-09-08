@@ -598,7 +598,7 @@ def _parse_importers(content):
             break
 
         raw_line = lines[idx].rstrip()
-        if not raw_line or raw_line.startswith("#"):
+        if not raw_line or raw_line.strip().startswith("#"):
             continue
 
         indent = _indent_level(raw_line)
@@ -608,9 +608,16 @@ def _parse_importers(content):
             state["done"] = True
             continue
 
-        # Importer entry: a path like "." or "packages/shared".
-        if indent == 2 and stripped.endswith(":"):
-            state["current_importer"] = stripped[:-1].strip().strip("'\"")
+        # Importer entry: a path like "." or "packages/shared". `dir: {}` is an
+        # importer that declares nothing, and a workspace member all the same.
+        if indent == 2:
+            if stripped.endswith(":"):
+                importer = stripped[:-1]
+            elif ":" in stripped:
+                importer = stripped.partition(":")[0]
+            else:
+                continue
+            state["current_importer"] = importer.strip().strip("'\"")
             _importer_entry(result, state["current_importer"])
             state["current_section"] = None
             state["current_dep_name"] = None

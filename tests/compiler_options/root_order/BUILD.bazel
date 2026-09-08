@@ -1,0 +1,30 @@
+"""include order: the first declaration of an ambient pattern wins, so the
+roots keep the tsconfig's order, not the sorted srcs'."""
+
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.root_order.json
+
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "ts_compile")
+
+package(default_visibility = ["//:__pkg__"])
+
+# svgr.d.ts sorts after src/, so in srcs order src/env.d.ts's `*.svg` would win
+# and app.ts's call would be TS2349.
+ts_compile(
+    name = "app",
+    srcs = [
+        "src/app.ts",
+        "src/env.d.ts",
+        "svgr.d.ts",
+    ],
+    tsconfig = "tsconfig.root_order.json",
+)
+
+build_test(
+    name = "root_order_test",
+    targets = [":app"],
+)
+
+# The generated editor program for this package; see //:refresh_tsconfig.
+exports_files(["tsconfig.json"])

@@ -234,35 +234,10 @@ ts_compile(
     deps = ["@npm_features//:ws-linked"],
 )
 
-# ── The link target the hub cannot derive ────────────────────────────────────
-#
-# Three members whose Bazel targets are in different places, and in no case the
-# one the member's own manifest implies:
-#
-#   //packages/boundary-member:lib   `ts_package_boundary tsconfig` rolls src/ up
-#                                    into the member's own directory and
-#                                    `ts_target_name` renames the target, so
-#                                    packages/boundary-member/src is not a
-#                                    package at all
-#   //packages/leaf-member/src:src   the per-directory default leaves the target
-#                                    beside the sources, so packages/leaf-member
-#                                    is not a package at all
-#   //packages/exports-member/src:src
-#                                    the same, for a member that names its entry
-#                                    point only in `exports` -- no `main`, no
-#                                    `module`, which is how a package written for
-#                                    a modern resolver declares one
-#
-# All three are Gazelle decisions, taken from BUILD files that need not exist
-# when the hub is generated. Deriving a label from the entry point gets two of
-# the three wrong, reading only `main` leaves the third with no candidate but its
-# own root, and a hub label naming a target Bazel cannot resolve fails analysis
-# for every consumer of the hub, not only for the member -- which is why these
-# are `build_test`ed rather than left to whatever happens to depend on them.
-#
-# The fourth member of the set, `no-target-member`, is the one with no target
-# anywhere: it cannot appear here, because the hub declares no target for it at
-# all. //tests/npm:workspace_link_tests pins what the hub writes in its place.
+# ── The link target ──────────────────────────────────────────────────────────
+
+# Three members, each built as //packages/<member>:<member>, the one place the
+# package model puts a member's target and the BUILD file the hub reads for it.
 build_test(
     name = "workspace_link_target_test",
     targets = [
@@ -574,18 +549,10 @@ conflicting_direct_peers_test(
     target_under_test = ":conflicting_direct_peers",
 )
 
-# Both bundles are consumer API -- //vite's through ts_dev_server's `plugin`
-# attr, the css one as a private attr default on ts_test/ts_binary/ts_dev_server.
+# The bundle is consumer API, through ts_dev_server's `plugin` attr.
 hub_provenance_test(
     name = "vite_plugin_hub_test",
     size = "small",
-    hub = "npm_css",
+    hub = "npm_esbuild",
     target_under_test = "//vite:esbuild_node_modules",
-)
-
-hub_provenance_test(
-    name = "css_compiler_hub_test",
-    size = "small",
-    hub = "npm_css",
-    target_under_test = "//ts/private/css:node_modules",
 )

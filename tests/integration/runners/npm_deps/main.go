@@ -10,8 +10,10 @@ func main() {
 	harness.Run(harness.Config{
 		Name:         "npm_deps",
 		WorkspaceRel: "tests/integration/npm_deps",
-		Lockfile:     "tests/npm/pnpm-lock.yaml",
 	}, func(it *harness.IT) {
+		it.Install()
+		it.Pass("pnpm install")
+
 		it.MustBazel("run", "//:gazelle")
 		it.Pass("bazel run //:gazelle")
 

@@ -41,21 +41,15 @@ additionally takes `node_modules`; see
 The generated sources are their own `ts_compile` target; see
 [Compiling the output](#compiling-the-output).
 
-Gazelle detects Prisma, GraphQL codegen and OpenAPI generators from the files
-in a directory (`schema.prisma`; `.graphql`/`.gql` sources beside a
-`codegen.ts`/`.yml`/`.yaml`/`.json`; an `openapi.*` or `swagger.*` spec) when
-the lockfile has the tool, and writes the target. The `# gazelle:ts_codegen`
-directive registers a generator it does not recognise; see
-[Register a codegen target](../gazelle/directives.md#register-a-codegen-target).
-It writes the `ts_compile` that consumes the output too, named
-`<name>_compile`, and resolves imports of the generated module to it. A
-checked-in file a `ts_codegen` declares as an out is kept out of the package's
-`srcs`, and so is everything under a declared `out_dir`: the tree is the
-target's output whether or not a local run of the generator left a copy on
-disk. A checked-in `*.gen.ts` no rule declares is an ordinary source.
-`routeTree.gen.ts` is the exception: the Start Vite plugin writes it.
-[`# gazelle:ts_exclude`](../gazelle/directives.md#exclude-generated-files)
-takes one out of `srcs`.
+A `ts_codegen` is hand-written. Gazelle reads every one in the BUILD files it
+walks and never writes or rewrites one: a `ts_codegen` in a package's BUILD
+file is a dep of every target Gazelle writes there, a file its `outs` declare
+resolves to it wherever a program reaches the file, and everything under a
+declared `out_dir` is the target's output whether or not a local run of the
+generator left a copy on disk, so nothing under it is a source and an import
+into the tree resolves to the target. A checked-in `*.gen.ts` no rule declares
+is an ordinary source, listed by its program like any other; one the program's
+`exclude` names is not.
 
 ## Compiling the Output
 
@@ -191,9 +185,8 @@ diff_test(
 `bazel run //src/routes:update_route_tree` writes the file and prints
 `wrote src/routes/routeTree.gen.ts`. The declared out carries a name of its
 own, since an output named after a source file in the same package is a Bazel
-error; the copy takes the checked-in name. The checked-in file stays in the
-`ts_compile`'s `srcs` with a `# keep`, and `# keep` on `outs` holds the entry
-Gazelle did not write.
+error; the copy takes the checked-in name, and the program lists it as a
+source like any other.
 
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|

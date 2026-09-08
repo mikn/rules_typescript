@@ -27,11 +27,15 @@ def _wrangler_config_runfiles_impl(ctx):
     asserts.true(env, "tests/workers_nested/test/_worker_test_wrangler.jsonc" in files, "the copy at its own path: " + str(files))
 
     # A runfiles file at the symlink's path wins over it silently, so the
-    # asset_library dep's copy of the source is kept out.
+    # worker's staged copy of its wrangler.jsonc src is kept out.
     asserts.false(env, _SOURCE in files, "the dep's copy of the source is out of the runfiles")
 
     # A wrangler `rules` module the compiled worker imports.
-    asserts.true(env, "tests/workers_nested/src/greeting.txt" in files, "a dep's AssetInfo files are in the runfiles: " + str(files))
+    asserts.true(
+        env,
+        "tests/workers_nested/src/greeting.txt" in files,
+        "a dep's data srcs are in the runfiles: " + str(files),
+    )
     return analysistest.end(env)
 
 wrangler_config_runfiles_test = analysistest.make(_wrangler_config_runfiles_impl)

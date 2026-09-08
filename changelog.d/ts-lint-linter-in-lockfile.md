@@ -9,13 +9,5 @@
   linter binary now takes the same test a bare specifier does: a name the
   lockfile never mentions gets no hub label. Gazelle writes no `ts_lint` for the
   directories that config covers, withdraws one an earlier run wrote, and says
-  so once per config file, naming the config, the package, and the label.
-
-  The `linter_binary` also follows the tree's `# gazelle:ts_npm_hub`, the way
-  a bare import's dep does: `@npm_eslint//:eslint_bin` under
-  `# gazelle:ts_npm_hub npm_eslint`, where it used to name `@npm` regardless.
-  The `ts_codegen` generator and
-  tsconfig `types` labels do not follow it yet and still name `@npm`.
-  A tree under its own hub resolves against a lockfile this reader never saw,
-  so nothing there is refused, and a workspace with no root lockfile keeps
-  every `ts_lint` it had.
+  so once per config file, naming the config, the package, and the label. A
+  workspace with no root lockfile keeps every `ts_lint` it had.

@@ -1,4 +1,0 @@
-.card {
-  composes: accent from "./theme.module.css";
-  padding: 4px;
-}

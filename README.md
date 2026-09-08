@@ -2,7 +2,7 @@
 
 An opinionated Bazel ruleset for TypeScript, optimised for the **Oxc + Vite** toolchain. For a stack of TypeScript and Vite, it replaces `tsc` and the dev server with a single hermetic build. For `tsc` compatibility or non-Vite toolchains, see [aspect-build/rules_ts](https://github.com/aspect-build/rules_ts).
 
-Rust and Go do the work: [Oxc](https://oxc.rs/) compiles, [tsgo](https://github.com/microsoft/typescript-go) type-checks. The dev server runs one generated [Vite](https://vite.dev/) config. [Gazelle](https://github.com/bazelbuild/bazel-gazelle) writes the BUILD files. Write `.ts`, run Gazelle, `bazel build //...`. No `node_modules/`. No system Node. Just Bazelisk.
+Rust and Go do the work: [Oxc](https://oxc.rs/) compiles, [tsgo](https://github.com/microsoft/typescript-go) type-checks. The dev server runs one generated [Vite](https://vite.dev/) config. [Gazelle](https://github.com/bazelbuild/bazel-gazelle) writes the BUILD files. Write `.ts`, run Gazelle, `bazel build //...`. The build reads no `node_modules/`. No system Node. Just Bazelisk.
 
 Coming from an existing TypeScript repository: [Install](#install) is the short
 path, and the
@@ -17,11 +17,10 @@ covers the migration questions.
 - **tsgo type-checks** — Go port of TypeScript, and it emits the declarations too, so unmodified TypeScript compiles: no export annotations required, and the `.d.ts` are what `tsc` would produce. Type errors fail `bazel build`.
 - **The dev server is swappable** — `ts_dev_server(server = ...)` takes any target providing `DevServerInfo`. Vite is the default. What a server does not read is declared in its provider, so a target depending on a field its server ignores fails at analysis time naming both.
 - **Isolated declarations** — annotate the exports and build under `--//ts:declarations=oxc`, and Oxc emits the `.d.ts` syntactically, which moves type-checking off the critical path and shortens a deep dependency chain substantially. Opt-in, per build — see [Cost of each mode](https://mikn.github.io/rules_typescript/rules/ts-compile/#cost-of-each-mode).
-- **Gazelle generates BUILD files** — infers targets from the directory tree, resolves imports to labels, generates lint targets, and takes thirteen `# gazelle:ts_*` directives. It regenerates the attributes it owns on every run and names every value it drops, so a value it cannot derive needs `# keep` — see [Attributes Gazelle owns](https://mikn.github.io/rules_typescript/gazelle/directives/#attributes-gazelle-owns).
-- **CSS modules** — `css_module` runs postcss-modules once, generates the `.d.ts` and the scoped-name map from that result, and hands the map to Vite. `styles.button` type-checks against the keys the stylesheet exports, and the class name in a test is the one in the bundle — see [CSS and assets](https://mikn.github.io/rules_typescript/rules/css-and-assets/).
+- **Gazelle generates BUILD files** — one package per `tsconfig.json`, its sources and deps read off tsgo's own listing of the program, lint targets beside them, and no directive of its own. It regenerates the attributes it owns on every run and names every value it drops, so a value it cannot derive needs `# keep` — see [Attributes Gazelle owns](https://mikn.github.io/rules_typescript/gazelle/directives/#attributes-gazelle-owns).
 - **Direct dependencies** — a source may import only what a direct dep provides. A declaration arriving through another dep's own deps does not satisfy an import: the build fails naming the file, the specifier and the label to add, and `bazel run //:gazelle` writes it.
 - **How npm packages are fetched** — one Bazel repository per package, fetched on demand, behind a `@npm` alias hub, so a target fetches only its own dependency closure. A generated `node_modules` tree holds every resolution that closure made — name, version and peer set — flat where a name resolved once, keyed by resolution where it did not.
-- **Zero prerequisites** — only Bazelisk needed; Node.js, Go, Rust and [pnpm](https://mikn.github.io/rules_typescript/guides/npm/#hermetic-pnpm) are all fetched hermetically. `pnpm-lock.yaml` is the one npm input; npm and yarn lockfiles are not read. pnpm edits the lockfile; a build never needs it.
+- **Zero prerequisites** — only Bazelisk needed; Node.js, Go, Rust and [pnpm](https://mikn.github.io/rules_typescript/guides/npm/#hermetic-pnpm) are all fetched hermetically. `pnpm-lock.yaml` is the one npm input; npm and yarn lockfiles are not read. pnpm edits the lockfile and installs the checkout Gazelle lists; a build never needs it.
 
 ## Requirements
 
@@ -108,10 +107,13 @@ Point at `gazelle_typescript`, not `gazelle_ts`. `gazelle_ts` also carries the G
 and proto languages, for this repository's own `.go` sources, and in a polyglot
 repo it rewrites Go BUILD files too.
 
-**Step 5.** Write TypeScript. Export annotations are optional: tsgo emits the
-declarations from the full type program, so an inferred return type is fine:
+**Step 5.** Write TypeScript, with a `tsconfig.json` in the directory that is
+to be a package: Gazelle writes one `ts_compile` per `tsconfig.json`, over what
+the program lists. Export annotations are optional: tsgo emits the declarations
+from the full type program, so an inferred return type is fine:
 
 ```typescript
+// src/lib/math.ts, beside src/lib/tsconfig.json
 export function add(a: number, b: number) {
   return a + b;
 }
@@ -135,16 +137,15 @@ npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
 use_repo(npm, "npm", "pnpm")
 ```
 
-Take `"pnpm"` even if you never run pnpm through Bazel: Gazelle writes `ts_pnpm`
-and `ts_add_package` targets into your root `BUILD.bazel` as soon as a lockfile
-exists, and without that repo `bazel build //...` aborts with
-`No repository visible as '@pnpm' from main repository`.
+`"pnpm"` is the hermetic pnpm behind the `ts_pnpm` and `ts_add_package` targets
+you write into your root `BUILD.bazel`
+([Hermetic pnpm](https://mikn.github.io/rules_typescript/guides/npm/#hermetic-pnpm)).
 
 Then, per package:
 
 ```bash
-pnpm add zod --lockfile-only   # updates pnpm-lock.yaml, no node_modules created
-bazel run //:gazelle           # picks up new package, updates BUILD files
+bazel run //:pnpm -- add zod   # updates pnpm-lock.yaml and installs it
+bazel run //:gazelle           # lists each tsconfig.json with tsgo, writes deps
 bazel build //...              # fetches just that package's closure, builds
 ```
 
@@ -213,8 +214,8 @@ such package fails the snippet above until the list is filled in. That attribute
 - **[Testing with vitest](https://mikn.github.io/rules_typescript/guides/testing/)** — `ts_test`, snapshots, sharding, watch mode with ibazel; `runner = "node:test"` for tests written against node's own runner
 - **[Bundling](https://mikn.github.io/rules_typescript/guides/bundling/)** — `ts_binary` with any `BundlerInfo`-compatible bundler
 - **[Dev Server](https://mikn.github.io/rules_typescript/guides/dev-server/)** — a pluggable dev server with ibazel HMR: Vite by default, any `DevServerInfo` rule through `server`
-- **[Monorepo Layout](https://mikn.github.io/rules_typescript/guides/monorepo/)** — package boundaries, cross-package `.d.ts` caching
-- **[Gazelle Reference](https://mikn.github.io/rules_typescript/gazelle/overview/)** — directives, auto-detected lint and codegen targets
+- **[Monorepo Layout](https://mikn.github.io/rules_typescript/guides/monorepo/)** — one package per `tsconfig.json`, cross-package `.d.ts` caching
+- **[Gazelle Reference](https://mikn.github.io/rules_typescript/gazelle/overview/)** — what a run reads and writes, lint targets, `# keep`
 - **[Rules Reference](https://mikn.github.io/rules_typescript/rules/ts-compile/)** — all attributes, providers, and outputs
 - **[Migration from rules_ts](https://mikn.github.io/rules_typescript/getting-started/migration/)** — differences from aspect-build/rules_ts
 - **[Troubleshooting](https://mikn.github.io/rules_typescript/guides/troubleshooting/)** — the error messages, by message text

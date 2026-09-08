@@ -22,12 +22,11 @@
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_go//go:def.bzl", "go_test")
-load("//ts:defs.bzl", "css_library", "ts_compile")
+load("//ts:defs.bzl", "ts_compile")
 load(
     ":analysis_tests.bzl",
     "baseline_file_test",
     "declaration_map_without_tsgo_test",
-    "forwarded_files_test",
     "jsx_source_test",
     "mixed_source_roots_test",
     "oxc_command_line_test",
@@ -132,22 +131,6 @@ ts_compile(
 build_test(
     name = "exported_subpaths_build_test",
     targets = [":exported_subpaths"],
-)
-
-css_library(
-    name = "styles",
-    srcs = ["styles.css"],
-)
-
-ts_compile(
-    name = "with_css",
-    srcs = ["styled.ts"],
-    deps = [":styles"],
-)
-
-forwarded_files_test(
-    name = "forwarded_files_test",
-    target_under_test = ":with_css",
 )
 
 # ── compilerOptions.types ────────────────────────────────────────────────────

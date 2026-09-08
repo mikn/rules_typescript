@@ -35,8 +35,9 @@ No `node_modules` target is needed. `ts_test` builds a per-target
 `node_modules` tree from every dep that provides `NpmPackageInfo`, their
 transitive npm deps, and the npm closure of every `ts_compile` dep, so the
 production code under test runs against the packages it declared. `deps` lists
-what the tests import and the npm imports of the package's production sources;
-`bazel run //:gazelle` writes that list.
+what the tests import, the npm imports of the package's production sources,
+the vitest config's imports and the nearest `package.json`'s dependencies;
+`bazel run //:gazelle` writes that list from tsgo's listing of the package.
 
 Test sources are checked for undeclared imports like any other `ts_compile`
 sources, so an import that only some dep's own deps provide fails the build with
@@ -138,8 +139,9 @@ directory above holding a `package.json`, or the repository root, as the label
 `//pkg:vitest_config` of a public `filegroup` Gazelle writes over the file in
 that package. Vite's root is the config's package either way, so a relative
 path in such a config resolves against the directory it sits in, as it does
-under plain `vitest`; `//tests/config_at_root` is the example. See
-[the package boundary heuristic](../gazelle/overview.md#package-boundary-heuristic).
+under plain `vitest`; `//tests/config_at_root` is the example. Every import of
+the config is a dep of the test. See
+[what Gazelle writes](../gazelle/overview.md#what-gazelle-writes).
 
 ### Other Attributes
 
@@ -173,25 +175,13 @@ That writes out the merged config the runner passed to vitest.
 
 ## CSS Modules
 
-A `*.module.css` anywhere in the dep closure adds a plugin to the Bazel layer
-that answers the import with the export map `css_module` wrote beside the
-stylesheet, so a test sees the class name a bundler emits:
-
-```ts
-import styles from "./Button.module.css";
-expect(styles.primary).toMatch(/^_primary_[0-9a-f]{8}$/);
-```
-
-An assertion on a rendered `class` attribute reads the same map:
-
-```ts
-render(host);
-expect(host.querySelector("button")?.getAttribute("class")).toBe(styles.button);
-```
-
-A `*.module.css` with no `css_module` target behind it has no map and no
-`.d.ts`; the import falls back to a proxy returning the property name, so it
-loads and the test runs.
+A `*.module.css` in a `ts_compile`'s `srcs` is staged beside the compiled `.js`,
+and vitest loads it as it does outside Bazel: the stylesheet is replaced by a
+proxy whose properties are the class names `css.modules.classNameStrategy`
+shapes, `_<name>_<hash>` under the default `stable` and the bare name under
+`non-scoped`; Vite's CSS modules run on the file only under a `css` key in the
+config. The Bazel layer sets no `css` key. The import is typed by the tsconfig
+-- `vite/client` in `types`, or a `declare module "*.module.css"` in `srcs`.
 
 ## Coverage
 
@@ -343,8 +333,8 @@ file's `main` is `src/index.ts`, the deploy entry, which the runfiles do not
 hold; `wrangler_config` stages a copy whose `main` and `env.test.main` are
 `src/index.js`, the compiled worker, at the file's own path, and that is the
 config the pool reads. A `rules` module the worker imports
-(`import greeting from "./greeting.txt"`) is an `asset_library` dep of the
-`ts_compile`, which puts it in the runfiles.
+(`import greeting from "./greeting.txt"`) is a src of the `ts_compile`, which
+puts it in the runfiles.
 [A Workers pool](../rules/ts-test.md#a-workers-pool) lists what else a config
 can name. `//tests/workers` is the same-package shape: the config beside the
 tests, `main: "src/index.js"`, and the file in `data`.

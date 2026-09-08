@@ -1,5 +1,0 @@
-/* Same stem as the directory: the generated css_library target must not
-   collide with the directory-named ts_compile target. */
-.components {
-  display: flex;
-}

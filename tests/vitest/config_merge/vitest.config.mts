@@ -1,5 +1,5 @@
 // A user-supplied vitest config. ts_test merges it into the config it
-// generates, so the plugin below coexists with the Bazel-owned CSS-module mock.
+// generates, so the plugin below coexists with the Bazel-owned layer.
 //
 // The bare `zod` import is here so that a config's own npm dependency is
 // exercised at all: a config is loaded before any test runs, from a staged copy,

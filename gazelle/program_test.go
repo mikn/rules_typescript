@@ -274,7 +274,7 @@ func TestProgram_ArgvPinsPrettyFalse(t *testing.T) {
 	if err := os.WriteFile(bin, []byte(fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %q\n", argv)), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := listProgram(root, "pkg", bin); err != nil {
+	if _, err := listProgram(root, "pkg", bin, false); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(argv)
@@ -292,7 +292,8 @@ func TestProgram_ArgvPinsPrettyFalse(t *testing.T) {
 func TestProgram_ExitCodePolicy(t *testing.T) {
 	root := t.TempDir()
 
-	p, err := listProgram(root, "pkg", fakeTsgo(t, root, "tsgo-no-inputs", noInputsOutput+"\n", 2))
+	p, err := listProgram(root, "pkg",
+		fakeTsgo(t, root, "tsgo-no-inputs", noInputsOutput+"\n", 2), false)
 	if err != nil {
 		t.Fatalf("an exit 2 explained by TS18003 failed the listing: %v", err)
 	}
@@ -300,7 +301,8 @@ func TestProgram_ExitCodePolicy(t *testing.T) {
 		t.Errorf("program = %+v, want pkg with no roots and no refusal", p)
 	}
 
-	if _, err := listProgram(root, "pkg", fakeTsgo(t, root, "tsgo-silent", "", 1)); err == nil {
+	if _, err := listProgram(root, "pkg",
+		fakeTsgo(t, root, "tsgo-silent", "", 1), false); err == nil {
 		t.Error("an exit 1 with no diagnostic did not fail the listing")
 	} else if !strings.Contains(err.Error(), "pkg/tsconfig.json") {
 		t.Errorf("the error does not name the tsconfig:\n%v", err)
@@ -310,7 +312,8 @@ func TestProgram_ExitCodePolicy(t *testing.T) {
 		"  Use '\"paths\": {\"*\": [\"./*\"]}' instead.\n" +
 		"pkg/src/a.ts\n" +
 		"   Matched by include pattern 'src/**/*.ts' in 'pkg/tsconfig.json'\n"
-	p, err = listProgram(root, "pkg", fakeTsgo(t, root, "tsgo-baseurl", removedOption, 2))
+	p, err = listProgram(root, "pkg",
+		fakeTsgo(t, root, "tsgo-baseurl", removedOption, 2), false)
 	if err != nil {
 		t.Fatalf("an exit 2 explained by TS5102 failed the run: %v", err)
 	}
@@ -326,7 +329,8 @@ func TestProgram_ExitCodePolicy(t *testing.T) {
 		"   Matched by include pattern 'src/**/*.ts' in 'pkg/tsconfig.json'\n" +
 		"pkg/src/broken.ts\n" +
 		"   Matched by include pattern 'src/**/*.ts' in 'pkg/tsconfig.json'\n"
-	p, err = listProgram(root, "pkg", fakeTsgo(t, root, "tsgo-syntax", syntaxError, 2))
+	p, err = listProgram(root, "pkg",
+		fakeTsgo(t, root, "tsgo-syntax", syntaxError, 2), false)
 	if err != nil {
 		t.Fatalf("an exit 2 explained by a syntax error failed the run: %v", err)
 	}
@@ -335,7 +339,8 @@ func TestProgram_ExitCodePolicy(t *testing.T) {
 	}
 
 	unreadable := noInputsOutput + "\npkg/tsconfig.json(2,1): error TS1005: ']' expected.\n"
-	p, err = listProgram(root, "pkg", fakeTsgo(t, root, "tsgo-unreadable", unreadable, 2))
+	p, err = listProgram(root, "pkg",
+		fakeTsgo(t, root, "tsgo-unreadable", unreadable, 2), false)
 	if err != nil {
 		t.Fatalf("an exit 2 with nothing listed failed the run instead of refusing the program: %v", err)
 	}
@@ -425,7 +430,6 @@ func TestProgram_InputsOverTheExtendsChain(t *testing.T) {
 func generateDir(t *testing.T, c *config.Config, root, rel string) string {
 	t.Helper()
 	cc := c.Clone()
-	configureTsConfig(cc, rel, nil)
 	dir := filepath.Join(root, rel)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -440,6 +444,7 @@ func generateDir(t *testing.T, c *config.Config, root, rel string) string {
 		}
 	}
 	return captureLog(t, func() {
+		configureTsConfig(cc, rel, nil)
 		generateRules(language.GenerateArgs{Config: cc, Dir: dir, Rel: rel, RegularFiles: files, Subdirs: subdirs})
 	})
 }
@@ -574,6 +579,8 @@ func TestProgram_FilesInNoProgramAreReported(t *testing.T) {
 	}
 
 	want := []string{
+		"typescript: 2 tsconfig.json: 1 package, 1 refused, " +
+			"0 listing no first-party file",
 		"typescript: .: 1 file in no program",
 		"typescript: pkg/scripts: 1 file in no program",
 		"typescript: stray: 2 files in no program",
@@ -582,5 +589,203 @@ func TestProgram_FilesInNoProgramAreReported(t *testing.T) {
 	done := captureLog(t, l.DoneGeneratingRules)
 	if got := strings.Split(strings.TrimSpace(done), "\n"); !slices.Equal(got, want) {
 		t.Errorf("DoneGeneratingRules said:\n%s\nwant:\n%s", done, strings.Join(want, "\n"))
+	}
+}
+
+// ---- the combined vitest run, the island trace, the install ---------------
+
+// --traceResolution prints its blocks before the listing; every line of one is
+// skipped and the names tsgo could not resolve are kept.
+func TestProgram_TraceBlocksAreNotFiles(t *testing.T) {
+	text := strings.Join([]string{
+		"======== Resolving module 'nope' from '/w/island/a.ts'. ========",
+		"Explicitly specified module resolution kind: 'Bundler'.",
+		"File '/w/node_modules/nope.ts' does not exist.",
+		"======== Module name 'nope' was not resolved. ========",
+		"======== Resolving module 'foo' from '/w/island/a.ts'. ========",
+		"Found 'package.json' at '/w/node_modules/foo/package.json'.",
+		"======== Module name 'foo' was successfully resolved to " +
+			"'/w/node_modules/foo/index.d.ts' with Package ID " +
+			"'foo/index.d.ts@1.0.0'. ========",
+		"======== Resolving type reference directive 'gone', containing file " +
+			"'/w/island/__inferred type names__.ts', root directory " +
+			"'/w/island/node_modules/@types'. ========",
+		"Resolving with primary search path '/w/island/node_modules/@types'.",
+		"======== Type reference directive 'gone' was not resolved. ========",
+		"node_modules/foo/index.d.ts",
+		"   Imported via \"foo\" from file 'island/a.ts' with packageId " +
+			"'foo/index.d.ts@1.0.0'",
+		"island/a.ts",
+		"   Matched by include pattern '*.ts' in 'island/tsconfig.json'",
+	}, "\n") + "\n"
+	p, err := parseListing(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"node_modules/foo/index.d.ts", "island/a.ts"}
+	if !slices.Equal(p.files, want) {
+		t.Errorf("files = %q, want %q", p.files, want)
+	}
+	if want := []string{"nope", "gone"}; !slices.Equal(p.unresolved, want) {
+		t.Errorf("unresolved = %q, want %q", p.unresolved, want)
+	}
+	if len(p.edges) != 1 || len(p.roots) != 1 {
+		t.Errorf("edges %+v roots %q, want one of each", p.edges, p.roots)
+	}
+}
+
+// An island's run traces resolution and says what tsgo could not resolve; a
+// package under the root's manifest, a lockfile importer, is no island.
+func TestProgram_IslandSaysItsUnresolvedSpecifiers(t *testing.T) {
+	root := t.TempDir()
+	tsconfig := `{"compilerOptions":{"lib":["es2022"],"types":[]},` +
+		`"include":["*.ts"]}` + "\n"
+	islandSrc := "import { nope } from \"nope\";\nexport const i = nope;\n"
+	pkgSrc := "import { other } from \"other\";\nexport const p = other;\n"
+	writeWorkspace(t, root, map[string]string{
+		"package.json":         `{"name":"w"}` + "\n",
+		pnpmLockfileName:       "lockfileVersion: '9.0'\n\nimporters:\n\n  .: {}\n",
+		"island/package.json":  `{"name":"island"}` + "\n",
+		"island/tsconfig.json": tsconfig,
+		"island/a.ts":          islandSrc,
+		"pkg/tsconfig.json":    tsconfig,
+		"pkg/a.ts":             pkgSrc,
+	})
+	c := &config.Config{RepoRoot: root, Exts: make(map[string]interface{})}
+	configureTsConfig(c, "", nil)
+	if _, err := getConfig(c).programs.binary(); err != nil {
+		t.Skipf("no tsgo binary: %v", err)
+	}
+	var logged string
+	for _, rel := range []string{"island", "pkg"} {
+		logged += generateDir(t, c, root, rel)
+	}
+	want := "typescript: island/tsconfig.json: island/package.json is no " +
+		"importer in pnpm-lock.yaml, so pnpm installs nothing for it; tsgo " +
+		"could not resolve: nope"
+	if !strings.Contains(logged, want) {
+		t.Errorf("log lacks %q:\n%s", want, logged)
+	}
+	if strings.Contains(logged, "other") {
+		t.Errorf("pkg, under the root's manifest, was traced:\n%s", logged)
+	}
+}
+
+// A stand-in tsgo writing its argv, one per line, to a file beside it.
+func argvTsgo(t *testing.T, root string) (bin, argv string) {
+	t.Helper()
+	argv = filepath.Join(root, "argv")
+	bin = filepath.Join(root, "tsgo")
+	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %q\n", argv)
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return bin, argv
+}
+
+func TestProgram_IslandRunArgv(t *testing.T) {
+	root := t.TempDir()
+	bin, argv := argvTsgo(t, root)
+	if _, err := listProgram(root, "pkg", bin, true); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(argv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "-p\npkg/tsconfig.json\n--noEmit\n--listFilesOnly\n" +
+		"--explainFiles\n--pretty\nfalse\n--traceResolution\n"
+	if string(got) != want {
+		t.Errorf("tsgo argv:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// The combined run's flags: --ignoreConfig, or tsgo refuses with TS5112 when
+// the root holds a tsconfig.json; --allowJs, or a .mjs config is TS6504.
+func TestProgram_CombinedVitestRunArgv(t *testing.T) {
+	root := t.TempDir()
+	bin, argv := argvTsgo(t, root)
+	configs := []string{"a/vitest.config.mts", "b/vitest.workers.config.mjs"}
+	if _, err := listVitestConfigs(root, bin, configs); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(argv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "--noEmit\n--listFilesOnly\n--explainFiles\n--ignoreConfig\n" +
+		"--allowJs\n--module\nesnext\n--moduleResolution\nbundler\n" +
+		"--skipLibCheck\n--pretty\nfalse\na/vitest.config.mts\n" +
+		"b/vitest.workers.config.mjs\n"
+	if string(got) != want {
+		t.Errorf("tsgo argv:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// One run over every registered config at the first ask, edges by from-file,
+// over the ruleset's own two: a plugin object with no import, a .mjs with one.
+func TestProgram_CombinedVitestRunEdgesPerConfig(t *testing.T) {
+	root := t.TempDir()
+	const (
+		configured = "tests/integration/gazelle_roundtrip/configured/" +
+			"vitest.config.mts"
+		workers = "tests/workers/vitest.workers.config.mjs"
+		pool    = "node_modules/@cloudflare/vitest-pool-workers/index.d.ts"
+	)
+	files := map[string]string{
+		"package.json": `{"name":"w","type":"module"}` + "\n",
+		"tsconfig.json": `{"compilerOptions":{"types":[]},` +
+			`"include":["nothing/**/*"]}` + "\n",
+		"node_modules/@cloudflare/vitest-pool-workers/package.json": `{"name":` +
+			`"@cloudflare/vitest-pool-workers","version":"0.18.4",` +
+			`"types":"index.d.ts"}` + "\n",
+		pool: "export declare function cloudflareTest(o: unknown): unknown;\n",
+	}
+	for _, cfg := range []string{configured, workers} {
+		data, err := os.ReadFile("../" + cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files[cfg] = string(data)
+	}
+	writeWorkspace(t, root, files)
+	s := newProgramStore()
+	if _, err := s.binary(); err != nil {
+		t.Skipf("no tsgo binary: %v", err)
+	}
+	s.vitestConfig(configured)
+	s.vitestConfig(workers)
+
+	want := []edge{{kind: edgeImport, from: workers, to: pool,
+		specifier: "@cloudflare/vitest-pool-workers"}}
+	if got := s.configEdges(root, workers); !slices.Equal(got, want) {
+		t.Errorf("edges of %s = %+v, want %+v", workers, got, want)
+	}
+	if got := s.configEdges(root, configured); len(got) != 0 {
+		t.Errorf("edges of %s = %+v, want none: it imports nothing", configured, got)
+	}
+	if got := s.configEdges(root, "tests/other/vitest.config.ts"); got != nil {
+		t.Errorf("an unregistered config has edges %+v", got)
+	}
+}
+
+// The listing prints no line for a specifier a missing install left unresolved,
+// so a lockfile without its node_modules refuses; no lockfile has no install.
+func TestProgram_InstallMissing(t *testing.T) {
+	root := t.TempDir()
+	if got := installMissing(root); got != "" {
+		t.Errorf("no lockfile: %q, want nothing to say", got)
+	}
+	writeFile(t, filepath.Join(root, pnpmLockfileName), "lockfileVersion: '9.0'\n")
+	got := installMissing(root)
+	for _, want := range []string{"node_modules/.modules.yaml", "pnpm install"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("installMissing = %q, want %q in it", got, want)
+		}
+	}
+	writeFile(t, filepath.Join(root, "node_modules/.modules.yaml"),
+		"layoutVersion: 5\n")
+	if got := installMissing(root); got != "" {
+		t.Errorf("installed: %q, want nothing to say", got)
 	}
 }

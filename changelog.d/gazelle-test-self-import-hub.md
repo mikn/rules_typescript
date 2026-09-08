@@ -10,5 +10,5 @@
   'shared/wire'`. From a `ts_test`, whose compile target is never the hub's, the
   member's name now resolves as any other bare specifier does, to
   `@npm//:<member>` through the lockfile gate, and the hub's view links the
-  member with its `exports` map at `node_modules/<member>`. A `ts_compile`
-  inside the member keeps the local target.
+  member with its `exports` map at `node_modules/<member>`. From the member's
+  own `ts_compile` the file is its own, and the import is no dep.

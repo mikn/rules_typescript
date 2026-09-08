@@ -9,7 +9,6 @@ package typescript
 import (
 	"log"
 	"os"
-	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -76,8 +75,8 @@ func reportManagedAttrDrops(args language.GenerateArgs, gen []*rule.Rule) {
 	}
 }
 
-// The shapes a merge reconciles value by value: the two rule.MergeRules knows, plus the
-// string dict declarationTypeMap.Merge reconciles entry by entry; anything else is replaced.
+// The shapes a merge reconciles value by value, the two rule.MergeRules
+// knows; anything else is replaced.
 func isLiteralAttrValue(e bzl.Expr) bool {
 	switch v := e.(type) {
 	case nil:
@@ -91,24 +90,8 @@ func isLiteralAttrValue(e bzl.Expr) bool {
 			}
 		}
 		return true
-	case *bzl.DictExpr:
-		return isStringDict(v)
 	}
 	return false
-}
-
-// isStringDict reports a dict whose every key and value is a plain string,
-// which is the whole of what declarationTypeMap.Merge reads.
-func isStringDict(d *bzl.DictExpr) bool {
-	for _, kv := range d.List {
-		if _, ok := kv.Key.(*bzl.StringExpr); !ok {
-			return false
-		}
-		if _, ok := kv.Value.(*bzl.StringExpr); !ok {
-			return false
-		}
-	}
-	return true
 }
 
 // Which of the two the merger picks depends on the shape, and reproducing that
@@ -200,140 +183,6 @@ func listElements(e bzl.Expr) []bzl.Expr {
 	return list.List
 }
 
-// ---- declaration_type, the dict a directive owns ---------------------------
-
-// Left out of Kinds(): rule.MergeRules deletes a mergeable attribute the generated rule
-// lacks, and a tree with no ts_asset_declaration_type directive would lose hand-written ones.
-type declarationTypeMap map[string]string
-
-var (
-	_ rule.BzlExprValue = declarationTypeMap(nil)
-	_ rule.Merger       = declarationTypeMap(nil)
-)
-
-func (m declarationTypeMap) BzlExpr() bzl.Expr {
-	return &bzl.DictExpr{List: m.entries(), ForceMultiLine: true}
-}
-
-func (m declarationTypeMap) entries() []*bzl.KeyValueExpr {
-	exts := make([]string, 0, len(m))
-	for ext, typeExpr := range m {
-		// An empty value is an extension a directive named and left blank: owned, declaring nothing.
-		if typeExpr != "" {
-			exts = append(exts, ext)
-		}
-	}
-	sort.Strings(exts)
-	out := make([]*bzl.KeyValueExpr, 0, len(exts))
-	for _, ext := range exts {
-		out = append(out, &bzl.KeyValueExpr{
-			Key:   &bzl.StringExpr{Value: ext},
-			Value: &bzl.StringExpr{Value: m[ext]},
-		})
-	}
-	return out
-}
-
-// Entry by entry over a narrow claim: the directives own the extensions they name, an
-// unnamed extension is carried across untouched, and a "# keep" hands an owned one back.
-func (m declarationTypeMap) Merge(other bzl.Expr) bzl.Expr {
-	held := map[string]bool{}
-	var carried []*bzl.KeyValueExpr
-	if dict, isDict := other.(*bzl.DictExpr); isDict {
-		for _, kv := range dict.List {
-			key, isString := kv.Key.(*bzl.StringExpr)
-			if !isString {
-				continue
-			}
-			_, owned := m[key.Value]
-			if owned && !rule.ShouldKeep(kv) {
-				continue
-			}
-			held[key.Value] = owned
-			carried = append(carried, kv)
-		}
-	}
-	merged := &bzl.DictExpr{ForceMultiLine: true}
-	for _, kv := range m.entries() {
-		if !held[kv.Key.(*bzl.StringExpr).Value] {
-			merged.List = append(merged.List, kv)
-		}
-	}
-	merged.List = append(merged.List, carried...)
-	sort.SliceStable(merged.List, func(i, j int) bool {
-		return dictKey(merged.List[i]) < dictKey(merged.List[j])
-	})
-	if len(merged.List) == 0 {
-		return nil
-	}
-	return merged
-}
-
-func dictKey(kv *bzl.KeyValueExpr) string {
-	if key, isString := kv.Key.(*bzl.StringExpr); isString {
-		return key.Value
-	}
-	return ""
-}
-
-// declarationTypeFor narrows the directives in force to the extensions srcs
-// actually has. One asset_library holds one asset file, so a tree declaring
-// .svg and .png writes one entry per target rather than both on each.
-func declarationTypeFor(tc *tsConfig, srcs []string) declarationTypeMap {
-	if len(tc.assetDeclarationType) == 0 {
-		return nil
-	}
-	out := declarationTypeMap{}
-	for _, src := range srcs {
-		ext := strings.ToLower(path.Ext(src))
-		if typeExpr, owned := tc.assetDeclarationType[ext]; owned {
-			out[ext] = typeExpr
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-// setAssetDeclarationType decorates a rule the generator is writing for the
-// first time. A rule already in the BUILD file never reaches here: its srcs are
-// claimed, so the generator emits nothing for that asset at all --
-// applyAssetDeclarationType is what reaches those.
-func setAssetDeclarationType(gen *rule.Rule, want declarationTypeMap) {
-	if len(want.entries()) > 0 {
-		gen.SetAttr("declaration_type", want)
-	}
-}
-
-// applyAssetDeclarationType reconciles the asset_library rules the BUILD file
-// already holds, which is every one of them after the run that wrote it.
-func applyAssetDeclarationType(args language.GenerateArgs, tc *tsConfig) {
-	if args.File == nil || len(tc.assetDeclarationType) == 0 {
-		return
-	}
-	for _, have := range args.File.Rules {
-		if have.Kind() != "asset_library" || have.ShouldKeep() {
-			continue
-		}
-		want := declarationTypeFor(tc, have.AttrStrings("srcs"))
-		if len(want) == 0 || attrKept(have, "declaration_type") {
-			continue
-		}
-		existing := have.Attr("declaration_type")
-		if existing != nil && !isLiteralAttrValue(existing) {
-			reportUnmergeableExpr(args.File.Path, have, "declaration_type", existing)
-			continue
-		}
-		merged := want.Merge(existing)
-		if merged == nil {
-			have.DelAttr("declaration_type")
-			continue
-		}
-		have.SetAttr("declaration_type", merged)
-	}
-}
-
 // attrKept reports a "# keep" on the attribute, which the merger checks itself
 // but the direct write path has to ask about.
 func attrKept(r *rule.Rule, key string) bool {
@@ -348,52 +197,4 @@ func attrKept(r *rule.Rule, key string) bool {
 		}
 	}
 	return false
-}
-
-// These carry what a candidate's counterpart in the BUILD file holds against
-// the merger, so the cycle check can read the rule Bazel will load rather than
-// the one Gazelle computed. Presence is the signal: a held-but-empty list is
-// not what an absent attribute means.
-const (
-	keptDepsAttr = "_ts_kept_deps"
-	keptSrcsAttr = "_ts_kept_srcs"
-)
-
-// markKeptAttrs records, for every candidate whose counterpart holds srcs or
-// deps of its own, what that held list names. The two questions per attribute
-// are rule.MergeRules' own gates, in the order it asks them -- it returns on a
-// kept rule and skips a kept assignment -- and past either one the value
-// Gazelle computed reaches no BUILD file, while the one the author wrote is
-// what Bazel loads.
-// authorHolds reports whether what Gazelle computes for this attribute will
-// fail to reach the BUILD file. One question, three ways to answer yes: a
-// `# keep` on the rule, a `# keep` on the attribute, and an existing expression
-// `mergeAttrValues` cannot reconcile -- which `rule.MergeRules` logs and then
-// leaves untouched, exactly as a keep does. Asking only about the keeps let the
-// cycle report claim a dependency the emitted file does not carry, on a rule
-// reportUnmergeableExpr had already warned about in the same run.
-func authorHolds(r *rule.Rule, key string) bool {
-	if r.ShouldKeep() || attrKept(r, key) {
-		return true
-	}
-	return !isLiteralAttrValue(r.Attr(key))
-}
-
-func markKeptAttrs(args language.GenerateArgs, gen []*rule.Rule) {
-	if args.File == nil {
-		return
-	}
-	for _, want := range gen {
-		for _, have := range args.File.Rules {
-			if have.Kind() != want.Kind() || have.Name() != want.Name() {
-				continue
-			}
-			if authorHolds(have, "srcs") {
-				want.SetPrivateAttr(keptSrcsAttr, have.AttrStrings("srcs"))
-			}
-			if authorHolds(have, "deps") {
-				want.SetPrivateAttr(keptDepsAttr, have.AttrStrings("deps"))
-			}
-		}
-	}
 }

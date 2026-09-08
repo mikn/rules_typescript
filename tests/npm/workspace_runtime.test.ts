@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { greet } from "shared";
+import { greet, tagline } from "shared";
 import { frame } from "shared/wire";
 
 describe("a workspace link", () => {
@@ -13,5 +13,9 @@ describe("a workspace link", () => {
 
   it("brings the member's own npm dependencies with it", () => {
     expect(() => greet("")).toThrow();
+  });
+
+  it("reaches a data file beside the member's module", () => {
+    expect(tagline).toBe("hello from shared");
   });
 });

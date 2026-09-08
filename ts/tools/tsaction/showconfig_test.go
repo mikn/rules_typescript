@@ -11,8 +11,8 @@ import (
 	"testing"
 )
 
-// The testdata captures were printed with `tsgo --showConfig -p` (tsgo 7.0.2):
-// a base elsewhere sets paths, target and jsx; a leaf sets types, or nothing.
+// Captures of `tsgo --showConfig -p` (7.0.2), files relative to the written
+// config; a base elsewhere sets paths, target and jsx, a leaf types or nothing.
 const baseConfig = `{
   // A comment: tsconfig.json is JSONC.
   "compilerOptions": {
@@ -33,6 +33,12 @@ const chainLeaf = `{
     "lib": ["es2022"]
   },
   "include": ["src"]
+}
+`
+
+const filesLeaf = `{
+  "extends": "../base/tsconfig.base.json",
+  "files": ["src/a.ts", "globals.d.ts"]
 }
 `
 
@@ -164,9 +170,14 @@ func mustWriteTsconfig(t *testing.T, args []string) {
 // tsgo prints the merged compilerOptions with every enum as its lowercase
 // name, so target and jsx reach oxc as the strings tsgo printed.
 func TestDecodeShowConfig_EnumsAreNames(t *testing.T) {
-	got, err := decodeShowConfig([]byte(readTestdata(t, "showconfig-chain.json")))
+	capture := readTestdata(t, "showconfig-chain.json")
+	got, roots, err := decodeShowConfig([]byte(capture))
 	if err != nil {
 		t.Fatal(err)
+	}
+	wantRoots := []string{"../../../../pkg/src/a.ts"}
+	if !reflect.DeepEqual(roots, wantRoots) {
+		t.Errorf("roots = %q, want %q", roots, wantRoots)
 	}
 	want := &effectiveOptions{
 		Target:          "es2017",
@@ -178,7 +189,8 @@ func TestDecodeShowConfig_EnumsAreNames(t *testing.T) {
 		t.Errorf("decodeShowConfig = %+v, want %+v", got, want)
 	}
 
-	noTypes, err := decodeShowConfig([]byte(readTestdata(t, "showconfig-no-types.json")))
+	capture = readTestdata(t, "showconfig-no-types.json")
+	noTypes, _, err := decodeShowConfig([]byte(capture))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +204,8 @@ func TestDecodeShowConfig_EnumsAreNames(t *testing.T) {
 }
 
 func TestDecodeShowConfig_DiagnosticsAreNotAConfig(t *testing.T) {
-	_, err := decodeShowConfig([]byte("error TS5023: Unknown compiler option 'x'.\n"))
+	diagnostic := "error TS5023: Unknown compiler option 'x'.\n"
+	_, _, err := decodeShowConfig([]byte(diagnostic))
 	if err == nil || !strings.Contains(err.Error(), "TS5023") {
 		t.Errorf("decodeShowConfig(diagnostic) = %v, want an error quoting the diagnostic", err)
 	}
@@ -226,13 +239,51 @@ func TestTsconfigStep_WritesTheForestShapedConfig(t *testing.T) {
     "rootDirs": ["../../../..", ".."],
     "types": ["../../../../pkg/globals.d.ts", "./generated.d.ts", "node", "@cloudflare/workers-types"]
   },
-  "include": ["../../../../pkg/src/a.ts", "../../../../pkg/globals.d.ts"],
-  "files": [],
+  "include": ["../../../../pkg/globals.d.ts"],
+  "files": ["../../../../pkg/src/a.ts"],
   "exclude": [],
   "references": []
 }`)
 	assertJSON(t, "pkg.options.json", readJSON(t, binDir+"/pkg/pkg.options.json"),
 		`{"target": "es2017", "jsx": "react-jsx", "jsxImportSource": "preact"}`)
+}
+
+// tsc's root order is the tsconfig's include order, which showConfig prints
+// as files; the first declaration of an ambient pattern wins, so it is kept.
+func TestTsconfigStep_RootsKeepTheTsconfigsOrder(t *testing.T) {
+	e := newExecroot(t, chainLeaf, readTestdata(t, "showconfig-roots.json"))
+
+	mustWriteTsconfig(t, append(e.tsconfigArgs(), "pkg/data.json"))
+	config := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")
+	assertJSON(t, "files", config["files"],
+		`["../../../../pkg/globals.d.ts", "../../../../pkg/src/a.ts"]`)
+	assertJSON(t, "include", config["include"], `["../../../../pkg/data.json"]`)
+}
+
+// The first pass hands --showConfig the chain alone; `files: []` is set only
+// when no file in it names inputs, so a chain's own `files` list is read.
+func TestTsconfigStep_FirstPassKeepsTheChainsInputs(t *testing.T) {
+	extends := `"extends": ` +
+		`["./pkg.tsconfig_baseline.json", "../../../../pkg/tsconfig.json"]`
+	for name, tc := range map[string]struct{ leaf, want string }{
+		"files":   {filesLeaf, "{" + extends + "}"},
+		"include": {chainLeaf, "{" + extends + "}"},
+		"none":    {noTypesLeaf, "{" + extends + `, "files": []}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newExecroot(t, tc.leaf, readTestdata(t, "showconfig-roots.json"))
+			root, err := os.Getwd()
+			if err != nil {
+				t.Fatal(err)
+			}
+			firstPass := filepath.Join(root, "first-pass.json")
+			e.tsgo, e.argv = fakeTool(t, root, "tsgo",
+				"cp \"$3\" "+firstPass+"\ncat "+filepath.Join(root, "showconfig.json")+"\n")
+
+			mustWriteTsconfig(t, e.tsconfigArgs())
+			assertJSON(t, "first pass", readJSON(t, firstPass), tc.want)
+		})
+	}
 }
 
 // A chain that sets no types would let tsgo include every package under

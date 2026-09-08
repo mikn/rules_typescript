@@ -26,7 +26,7 @@ cannot iterate) or when you need a tree the deps do not describe.
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `srcs` | `label_list` | required | `.ts`/`.tsx` test files |
-| `deps` | `label_list` | `[]` | `ts_compile` and `@npm//` targets the tests import |
+| `deps` | `label_list` | `[]` | `ts_compile` and `@npm//` targets the tests import. A `ts_compile` dep's data srcs are in the runfiles beside its `.js` |
 | `node_modules` | `label` | auto | Explicit `node_modules` target; skips auto-generation entirely |
 | `npm_workspace_name` | `string` | `"npm"` | Informational only; the auto tree is built by detecting `NpmPackageInfo`, not by matching label strings |
 | `vitest` | `label` | `None` | Explicit vitest binary label (found in `node_modules` when absent) |
@@ -143,15 +143,15 @@ that layers four sources, lowest precedence first:
 
 | Layer | Contents | Workspace projects |
 |-------|----------|---|
-| 1. Bazel | `root` (the `config`'s package; the test's own with an inline dict or none), `cacheDir` under `TEST_TMPDIR`, `resolve.preserveSymlinks`, `test.coverage.allowExternal`, the CSS-module plugin when a dep carries a `*.module.css`, and under a `config` whose `plugins` hold `@cloudflare/vitest-pool-workers` `preserveSymlinks: false` and the runfiles-imports plugin | yes |
+| 1. Bazel | `root` (the `config`'s package; the test's own with an inline dict or none), `cacheDir` under `TEST_TMPDIR`, `resolve.preserveSymlinks`, `test.coverage.allowExternal`, the plugin serving a `setupFiles` entry from its staged path, and under a `config` whose `plugins` hold `@cloudflare/vitest-pool-workers` `preserveSymlinks: false` and the runfiles-imports plugin | yes |
 | 2. user | the `config` attr: a config file or an inline dict | it supplies the projects |
 | 3. attributes | `environment`, `setup_files`, `global_setup`, `globals`, `reporters`, `coverage_thresholds`, `coverage_provider` | yes |
 | 4. snapshots | `test.resolveSnapshotPath`, and in update mode `test.dir`, `test.include` and `cacheDir` | no, root only |
 
 Objects merge key by key; arrays concatenate base-first, matching vite's own
-`mergeConfig`. A user `plugins` list therefore never displaces the CSS-module
-plugin, and a user `setupFiles` list never displaces `setup_files`: the
-attribute's entries run after the config's. Scalars from a later layer win, so
+`mergeConfig`. A user `setupFiles` list therefore never displaces
+`setup_files`: the attribute's entries run after the config's. Scalars from a
+later layer win, so
 `environment` overrides an environment set inside `config`. Once the layers have
 merged, a `setupFiles` or `globalSetup` entry naming a TypeScript source is
 rewritten to its compiled sibling; see [Setup Files](#setup-files).
@@ -275,6 +275,16 @@ over the source has to be in `deps`, and nothing imports a setup file, so
 Gazelle writes no such dep: the entry is `# keep`. `//tests/setup_files_compiled`
 is the example, with the config at the package root and beside the tests.
 
+vitest then resolves each `setupFiles` entry through Node's resolver, which
+follows the runfiles link to the compiled file in `bazel-out`. The `node`
+environment loads that realpath as it stands. A DOM environment (`jsdom`,
+`happy-dom`: Vite's `client` environment) loads setup files through Vite, which
+serves the root and refuses a path outside it: `Cannot find module
+'/@fs/<bazel-out path>/vitest.setup.js'`. Layer 1 carries a plugin that answers
+that request with the staged path, so a setup file loads the way a test file
+does, its imports resolved from the runfiles tree.
+`//tests/setup_files_compiled/dom` is the example.
+
 ### A Workers Pool
 
 A `config` whose `plugins` hold `@cloudflare/vitest-pool-workers` runs the tests
@@ -319,10 +329,10 @@ the action.
 
 A runfiles file at the copy's path wins over it silently, with the unpatched
 `main`. The file in `data` as well is an analysis error, `is staged through
-wrangler_config; do not list it in data too.`, and the `asset_library` Gazelle
-writes over the file is dropped from the runfiles when it is among the `deps`.
-Every other `AssetInfo` file of the deps is in the runfiles, which is what a
-wrangler `rules` module the worker imports needs. `//tests/workers_nested` is the
+wrangler_config; do not list it in data too.`, and a `ts_compile` dep's data
+src at that path is dropped from the runfiles. Every other data src of the deps
+is in the runfiles, which is what a wrangler `rules` module the worker imports
+needs. `//tests/workers_nested` is the
 example; `//tests/workers`, with the config beside the tests and
 `main: "src/index.js"` in `data`, is the same-package one.
 
@@ -331,7 +341,7 @@ What else a wrangler config names, and where each comes from under `ts_test`:
 | Key | Source |
 |---|---|
 | `main`, `env.<name>.main` | the compiled entry, through the patched copy |
-| `rules` modules (`**/*.txt`, `**/*.md`, ...) | an `asset_library` dep of the worker's `ts_compile` |
+| `rules` modules (`**/*.txt`, `**/*.md`, ...) | a src of the worker's `ts_compile` |
 | `assets.directory` | its contents in `data`, at the same path relative to the config |
 | `.dev.vars`, `.dev.vars.<env>` | read beside the config; in `data` when a test needs one |
 | `compatibility_date`, `compatibility_flags`, `vars`, `kv_namespaces`, `r2_buckets`, `services`, `durable_objects`, `migrations` | inline values; miniflare emulates the bindings and nothing is staged |
@@ -453,10 +463,8 @@ The rejected set is `config`, `coverage`, `coverage_provider`,
 `coverage_thresholds`, `environment`, `global_setup`, `globals`, `reporters`,
 `setup_files`, `snapshots`, `update_snapshots` and `vitest`. node:test has no
 globals mode: nothing installs `describe` or `expect`, so `globals` is
-rejected, and the `vitest/globals` `types` entry is not added. A dep providing
-`CssModuleInfo` is rejected too: only the vitest runner installs the transform
-that answers a `*.module.css` import. No `<name>.update_snapshots` target is
-generated.
+rejected, and the `vitest/globals` `types` entry is not added. No
+`<name>.update_snapshots` target is generated.
 
 `--test_filter` reaches node as `--test-name-pattern` (a regular expression
 over test names), sharding works as above, and the exit status is the test
@@ -557,8 +565,10 @@ carries that closure (`transitive_npm_packages`) beside the declarations, so a
 test in one package runs production code from another without repeating its npm
 deps. `deps` lists what the test files import; where the closure resolves a name
 more than one way, the test's own dep is the resolution that sits flat.
-`bazel run //:gazelle` writes the list, collecting imports from the test files
-and the production sources in the package.
+`bazel run //:gazelle` writes the list from tsgo's listing of the package:
+the edges of the test files, the production sources and the declarations, the
+vitest config's imports, and the nearest `package.json`'s `dependencies` and
+`devDependencies`.
 
 The tree keys each resolution apart by name, version and peer set wherever one
 name resolved more than once; see [the layout](node-modules.md#the-layout).

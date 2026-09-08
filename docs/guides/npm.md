@@ -38,10 +38,10 @@ npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
 use_repo(npm, "npm", "pnpm")
 ```
 
-`"npm"` is the alias hub your labels spell. `"pnpm"` is required too: the next
-`bazel run //:gazelle` writes `ts_pnpm` and `ts_add_package` targets into your
-root `BUILD.bazel` as soon as a `pnpm-lock.yaml` exists, and both name `@pnpm`.
-Without the repo, `bazel build //...` stops before it builds anything:
+`"npm"` is the alias hub your labels spell. `"pnpm"` is the hermetic pnpm the
+`ts_pnpm` and `ts_add_package` targets in your root `BUILD.bazel` run; write
+them by hand, and take the repo when you do, or `bazel build //...` stops
+before it builds anything:
 
 ```
 ERROR: no such package '@@[unknown repo 'pnpm' requested from @@ (did you mean
@@ -50,7 +50,9 @@ mean 'npm'?)]' could not be resolved: No repository visible as '@pnpm' from
 main repository and referenced by '//:pnpm'
 ```
 
-Nothing runs those two targets on your behalf. See
+Gazelle lists each `tsconfig.json` with tsgo over the checkout, which resolves
+a bare specifier through `node_modules/`, so the checkout is installed once
+(`bazel run //:pnpm -- install`) before the first run. See
 [Hermetic pnpm](#hermetic-pnpm).
 
 **Step 3.** Reference packages in BUILD files:
@@ -89,21 +91,22 @@ ts_compile(
 ## Adding Dependencies
 
 ```bash
-pnpm add zod --lockfile-only   # updates pnpm-lock.yaml only — no node_modules
-bazel run //:gazelle           # Gazelle sees the new import, adds @npm//:zod
+bazel run //:pnpm -- add zod   # updates pnpm-lock.yaml and installs it
+bazel run //:gazelle           # tsgo lists the import; Gazelle adds @npm//:zod
 bazel build //...              # Bazel fetches just that package's closure
 ```
 
-`pnpm` is needed only to edit the lockfile. It is not needed at build time, test
-time, or on CI.
+`pnpm` edits the lockfile and installs the checkout Gazelle lists. It is not
+needed at build time, test time, or on CI.
 
 ## Hermetic pnpm
 
 The extension downloads a standalone pnpm binary whether or not one is asked
-for, so lockfile edits need no system install. Gazelle writes the two macros:
+for, so lockfile edits need no system install. Write the two macros into the
+root `BUILD.bazel`:
 
 ```python
-# BUILD.bazel — what `bazel run //:gazelle` writes beside a root pnpm-lock.yaml
+# BUILD.bazel
 load("@rules_typescript//ts:defs.bzl", "ts_add_package", "ts_pnpm")
 
 ts_pnpm(name = "pnpm")
@@ -211,12 +214,10 @@ One root lockfile is the default
 
 Three things follow from a second hub:
 
-- **Gazelle has to be told**, per package, which hub that tree's imports come
-  from: `# gazelle:ts_npm_hub npm_tools`. Otherwise generated deps name `@npm`,
-  which for those packages is a label that does not exist. `deps` and a
-  `ts_lint`'s `linter_binary` follow the directive; the `ts_codegen` generator
-  and the tsconfig `types` labels do not yet, and still name `@npm`. See
-  [More than one npm hub](../gazelle/directives.md#more-than-one-npm-hub).
+- **Gazelle writes `@npm` alone.** Every npm label it writes names the hub of
+  the root `pnpm-lock.yaml` it reads, and a `ts_lint`'s `linter_binary` names
+  `@npm//:<linter>_bin`. A package whose imports come from another hub writes
+  its `deps` by hand under `# keep`.
 - **One `ts_add_package` target per hub.** pnpm rewrites whichever lockfile it
   resolves against, so the hub belongs in the command a person types:
 
@@ -424,11 +425,18 @@ off, whichever directory holds that target. A member whose directory holds no
 `package.json` with a `name` gets a comment in the hub and no view; two members
 of one name, or one directory linked under two names, fail the extension.
 
-The link holds no data file: a member's CSS and assets travel as `CssInfo` and
-`AssetInfo`, which the view forwards. `ts_test` inlines the tree's workspace
-members for vite (`server.deps.inline`), because a member's emitted `.js` keeps
-its sources' extensionless relative imports, which node's loader rejects and
-vite resolves, and pnpm inlines a linked package for the same reason.
+The link holds the member's data srcs too, at their package-relative paths
+beside the `.js` that reads them: a member whose module imports `./banner.json`
+answers `import { tagline } from "shared"` from the link alone. The member's
+own `package.json` is the one data src the link leaves out: the manifest as
+built stands in its place, in the link and at the member's own path in a
+`ts_test`'s runfiles, where a test inside the member resolves the member's name
+through the nearest manifest and would otherwise reach the source targets. The
+view forwards `JsInfo`, so the closure's `transitive_data_files` reach a
+consumer as any dep's do. `ts_test` inlines the tree's workspace members for vite
+(`server.deps.inline`), because a member's emitted `.js` keeps its sources'
+extensionless relative imports, which node's loader rejects and vite resolves,
+and pnpm inlines a linked package for the same reason.
 
 ## Bin Scripts
 
@@ -486,45 +494,25 @@ deps = ["@npm//:shared"]     # → //packages/shared:shared, importable as "shar
 itself. It is a generated rule and not an `alias`: Bazel resolves an alias before
 any rule implementation runs, so `ts_compile` would see no record of the name.
 
-The target a `link:` entry points at is looked up, not derived. A member is a
-directory, and which directory inside it holds the target that compiles it is a
-Gazelle decision: the default boundary mode gives every directory holding sources
-its own package, `# gazelle:ts_package_boundary tsconfig` rolls the subtree up
-into the directory holding `tsconfig.json`, and `# gazelle:ts_target_name`
-renames the result. The hub walks from the directories the member's own
-manifest designates an entry point in up to the member's root, and takes the
-innermost one that declares a target of that name:
-
-```text
-link:packages/shared, main: src/index.ts
-  packages/shared/src/BUILD.bazel declares :src     →  //packages/shared/src:src
-  only packages/shared/BUILD.bazel declares :shared →  //packages/shared:shared
-```
-
-The entry points come from `main`, `module` and `exports["."]`, so a member that
-declares only an exports map (`{".": "./src/index.ts"}`, or a
-condition map under it) is walked from `src/` as well. A condition outside
-`types`/`typings`/`node`/`import`/`require`/`default`, and a target holding a
-`*`, are not followed.
-
-That target has to be visible to the hub repository, so
-`visibility = ["//visibility:public"]`. The view forwards its providers and
-describes it as an npm package named by the lockfile.
+The target a `link:` entry points at is `//<member>:<basename>`, the
+`ts_compile` Gazelle writes for the member's own `tsconfig.json`
+(`//packages/shared:shared` for `link:packages/shared`), and the hub reads the
+member's BUILD file to see that it declares one. That target has to be visible
+to the hub repository, so `visibility = ["//visibility:public"]`. The view
+forwards its providers and describes it as an npm package named by the
+lockfile.
 
 !!! warning "A member whose target is not declared gets no hub target"
-    If no candidate directory declares a target of the member's name, the hub
-    declares nothing for that name and writes a comment saying so where the
+    If the member's BUILD file declares no target of the member's basename, the
+    hub declares nothing for that name and writes a comment saying so where the
     label would have been. `@npm//:<member>` then fails as an undeclared target
-    for whatever asks for it. That covers a member with no `BUILD.bazel` and one
-    whose `BUILD.bazel` declares something else (a lone `ts_config`, say).
-    Neither gets a label: a label naming a target Bazel cannot resolve fails
-    analysis for everything that reaches the hub, not just for the member. Run
-    Gazelle, or write the member's target by hand.
-
-    The lookup covers the member's own subtree only. A boundary that rolls a
-    member up into a directory above it (a `tsconfig.json` at `packages/`, not
-    at `packages/shared/`) leaves the member with no target of its own, and the
-    hub reports it the same way.
+    for whatever asks for it. That covers a member with no `BUILD.bazel`, one
+    whose `BUILD.bazel` declares something else (a lone `ts_config`, say), and
+    a member whose program is a `tsconfig.json` above it (at `packages/`, not
+    at `packages/shared/`), which gives it no target of its own. A label naming
+    a target Bazel cannot resolve fails analysis for everything that reaches
+    the hub, not just for the member. Give the member its `tsconfig.json` and
+    run Gazelle, or write the target by hand.
 
 A workspace member is staged into `node_modules` like any other package, so a
 `ts_test` or `ts_binary` that lists `@npm//:shared` can import it at run time and

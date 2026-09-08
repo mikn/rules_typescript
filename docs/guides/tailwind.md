@@ -64,5 +64,6 @@ unstyled.
 Tailwind lives in `//tests/tailwind`'s own translated lockfile: twelve
 platform-gated `oxide` packages would otherwise be resolved into a curated
 fixture lockfile by a `pnpm add` that fixture cannot survive. A second hub costs
-a Gazelle directive per package and its own `ts_add_package` target. See
-[More than one hub](npm.md#more-than-one-hub).
+its own `ts_add_package` target and hand-written `deps` under `# keep`, since
+Gazelle writes `@npm` alone. The stylesheet is a src of the `ts_compile` that
+imports it. See [More than one hub](npm.md#more-than-one-hub).

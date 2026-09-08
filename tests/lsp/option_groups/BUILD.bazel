@@ -14,10 +14,6 @@ Nothing outside this package depends on any of it, which keeps the package out o
 //:refresh_tsconfig's `deps` and out of its `nested_tsconfigs` list.
 """
 
-# The fixtures declare the tsconfigs that are the point of the test, and a
-# generated target would declare none of them.
-# gazelle:ts_ignore
-
 # ts_compile baselines, not data: they are named by the tsconfig attr.
 # gazelle:exclude one.tsconfig.json
 # gazelle:exclude two.tsconfig.json

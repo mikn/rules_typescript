@@ -3,7 +3,7 @@
 Starts a dev server for a TypeScript application. The server transforms
 first-party source in memory, so Bazel is out of the edit-to-browser loop;
 `bazel-bin` supplies what it cannot produce itself (`ts_codegen` output, the
-npm tree, assets, passthrough `.d.ts`).
+npm tree, assets, data srcs, passthrough `.d.ts`).
 
 Vite is the default implementation; `server` names any other rule returning
 `DevServerInfo`, which reads the same generated Vite config. See

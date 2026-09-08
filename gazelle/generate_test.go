@@ -2,6 +2,7 @@ package typescript
 
 import (
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -14,65 +15,114 @@ import (
 	"github.com/bazelbuild/bazel-gazelle/rule"
 )
 
-// runGenerate writes files into <tmp>/<rel> and runs the rule generator over
-// that directory, the way Gazelle does when it walks a repository.
-func runGenerate(t *testing.T, rel string, files map[string]string) language.GenerateResult {
+// Under Bazel the toolchain's tsgo is in the runfiles; a plain go test sets
+// TSGO or skips what lists programs.
+func requireTsgo(t *testing.T) {
 	t.Helper()
-	res, _ := runGenerateWithConfig(t, rel, files)
-	return res
+	if _, err := newProgramStore().binary(); err != nil {
+		t.Skipf("no tsgo binary: %v", err)
+	}
 }
 
-// runGenerateWithConfig is runGenerate plus the config the generator ran under,
-// for tests that go on to index the generated rules and resolve against them.
-func runGenerateWithConfig(t *testing.T, rel string, files map[string]string) (language.GenerateResult, *config.Config) {
+// writeTree writes a repository-relative tree under a fresh repo root.
+func writeTree(t *testing.T, tree map[string]string) string {
 	t.Helper()
+	root := t.TempDir()
+	writeWorkspace(t, root, tree)
+	return root
+}
 
-	repoRoot := t.TempDir()
-	dir := filepath.Join(repoRoot, rel)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	var names []string
-	for name, content := range files {
-		full := filepath.Join(dir, name)
-		// A trailing slash declares a directory the generator has to see on
-		// disk without putting a file in RegularFiles.
-		if strings.HasSuffix(name, "/") {
-			if err := os.MkdirAll(full, 0o755); err != nil {
-				t.Fatal(err)
+// One walk's GenerateRules over every directory of root, in Gazelle's order:
+// configured top-down, generated bottom-up. Nothing is merged or resolved.
+type generatedTree struct {
+	results map[string]language.GenerateResult
+	logged  string
+}
+
+func generateAll(t *testing.T, root string,
+	opts ...func(*config.Config)) generatedTree {
+	t.Helper()
+	requireTsgo(t)
+	out := generatedTree{results: map[string]language.GenerateResult{}}
+	var walk func(parent *config.Config, rel string)
+	walk = func(parent *config.Config, rel string) {
+		dir := filepath.Join(root, filepath.FromSlash(rel))
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var subdirs, regular []string
+		var f *rule.File
+		for _, e := range entries {
+			name := e.Name()
+			switch {
+			case strings.HasPrefix(name, "."), strings.HasPrefix(name, "bazel-"):
+			case e.IsDir():
+				subdirs = append(subdirs, name)
+			case name == "BUILD.bazel":
+				loaded, err := rule.LoadFile(filepath.Join(dir, name), rel)
+				if err != nil {
+					t.Fatal(err)
+				}
+				f = loaded
+			default:
+				regular = append(regular, name)
 			}
-			continue
 		}
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-			t.Fatal(err)
+		c := parent.Clone()
+		configureTsConfig(c, rel, f)
+		for _, sub := range subdirs {
+			walk(c, path.Join(rel, sub))
 		}
-		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		names = append(names, name)
+		out.results[rel] = generateRules(language.GenerateArgs{
+			Config: c, Dir: dir, Rel: rel, File: f, Subdirs: subdirs,
+			RegularFiles: regular,
+		})
 	}
-	sort.Strings(names)
-
-	c := &config.Config{RepoRoot: repoRoot, Exts: make(map[string]interface{})}
-	configureTsConfig(c, "", nil)
-	configureTsConfig(c, rel, nil)
-
-	return generateRules(language.GenerateArgs{
-		Config:       c,
-		Dir:          dir,
-		Rel:          rel,
-		RegularFiles: names,
-	}), c
+	c := &config.Config{RepoRoot: root, Exts: map[string]any{}}
+	for _, opt := range opts {
+		opt(c)
+	}
+	out.logged = captureLog(t, func() { walk(c, "") })
+	return out
 }
 
-// generatedNames maps rule name → kind for every generated rule, failing the
-// test when two rules share a name (Bazel rejects such a package outright).
-func generatedNames(t *testing.T, res language.GenerateResult) map[string]string {
+// verbose is -ts_verbose: the run's store says what it lists and leaves out.
+func verbose(c *config.Config) {
+	tc := defaultTsConfig()
+	tc.programs.verbose = true
+	c.Exts[languageName] = tc
+}
+
+func generatedRule(res language.GenerateResult, name string) *rule.Rule {
+	for _, r := range res.Gen {
+		if r.Name() == name {
+			return r
+		}
+	}
+	return nil
+}
+
+// mustRule is the generated rule of that kind and name.
+func mustRule(t *testing.T, res language.GenerateResult, kind, name string,
+) *rule.Rule {
+	t.Helper()
+	r := generatedRule(res, name)
+	if r == nil || r.Kind() != kind {
+		t.Fatalf("no %s %s; generated %v", kind, name, generatedNames(t, res))
+	}
+	return r
+}
+
+// generatedNames maps rule name to kind for every generated rule, failing on a
+// name two rules share.
+func generatedNames(t *testing.T, res language.GenerateResult,
+) map[string]string {
 	t.Helper()
 	byName := make(map[string]string, len(res.Gen))
 	for _, r := range res.Gen {
 		if kind, dup := byName[r.Name()]; dup {
-			t.Errorf("duplicate target name %q: %s conflicts with existing %s", r.Name(), r.Kind(), kind)
+			t.Errorf("duplicate target name %q: %s and %s", r.Name(), r.Kind(), kind)
 		}
 		byName[r.Name()] = r.Kind()
 	}
@@ -91,876 +141,11 @@ func assertRule(t *testing.T, byName map[string]string, name, kind string) {
 	}
 }
 
-// TestGenerate_CSSAndTSWithSameStem covers the observed crash: a directory
-// input/ holding both input.css and input.tsx produced css_library(name="input")
-// alongside ts_compile(name="input").
-func TestGenerate_CSSAndTSWithSameStem(t *testing.T) {
-	res := runGenerate(t, "input", map[string]string{
-		"input.css": ".input {}\n",
-		"input.tsx": "export const Input = () => null;\n",
-	})
-
-	byName := generatedNames(t, res)
-	assertRule(t, byName, "input", "ts_compile")
-	assertRule(t, byName, "input_css", "css_library")
-}
-
-// TestGenerate_SameStemAcrossAssetKinds pins the other collisions the old
-// stem-only scheme allowed: logo.svg vs logo.json, and a CSS module whose stem
-// matches a plain CSS file.
-func TestGenerate_SameStemAcrossAssetKinds(t *testing.T) {
-	res := runGenerate(t, "logo", map[string]string{
-		"logo.svg":        "<svg/>\n",
-		"logo.json":       "{}\n",
-		"logo.css":        ".logo {}\n",
-		"logo.module.css": ".logo {}\n",
-		"logo.tsx":        "export const Logo = () => null;\n",
-	})
-
-	byName := generatedNames(t, res)
-	assertRule(t, byName, "logo", "ts_compile")
-	assertRule(t, byName, "logo_svg", "asset_library")
-	assertRule(t, byName, "logo_json", "json_library")
-	assertRule(t, byName, "logo_css", "css_library")
-	assertRule(t, byName, "logo_module_css", "css_module")
-}
-
-// TestGenerate_TestTargetNameNotTakenByAsset guards the ts_test and ts_lint
-// names too: a directory app/ with app_test.css must not claim "app_test".
-func TestGenerate_TestTargetNameNotTakenByAsset(t *testing.T) {
-	res := runGenerate(t, "app", map[string]string{
-		"app.ts":        "export const a = 1;\n",
-		"app.test.ts":   "export const t = 1;\n",
-		"app_test.css":  ".a {}\n",
-		"app_lint.json": "{}\n",
-	})
-
-	byName := generatedNames(t, res)
-	assertRule(t, byName, "app", "ts_compile")
-	assertRule(t, byName, "app_test", "ts_test")
-	assertRule(t, byName, "app_test_css", "css_library")
-	assertRule(t, byName, "app_lint_json", "json_library")
-}
-
-func TestAssetTargetNames_NumericSuffixOnRemainingTie(t *testing.T) {
-	reserved := map[string]struct{}{"dir": {}}
-	got := assetTargetNames(reserved, []string{"a.b.css", "a_b.css"})
-	if got["a.b.css"] == got["a_b.css"] {
-		t.Fatalf("names collided: %v", got)
-	}
-	if got["a.b.css"] != "a_b_css" || got["a_b.css"] != "a_b_css_2" {
-		t.Errorf("assetTargetNames: got %v", got)
-	}
-}
-
-func TestAssetTargetNames_AvoidsReservedTSNames(t *testing.T) {
-	reserved := reservedTSTargetNames(&tsConfig{targetName: "logo_svg"}, "logo")
-	got := assetTargetNames(reserved, []string{"logo.svg"})
-	if got["logo.svg"] == "logo_svg" {
-		t.Errorf("asset name collided with ts_compile target name: %v", got)
-	}
-}
-
-func TestGenerate_RuleNamesUnchangedForPlainTSPackage(t *testing.T) {
-	res := runGenerate(t, "src/lib", map[string]string{
-		"index.ts":      "export const a = 1;\n",
-		"index.test.ts": "export const t = 1;\n",
-	})
-
-	byName := generatedNames(t, res)
-	assertRule(t, byName, "lib", "ts_compile")
-	assertRule(t, byName, "lib_test", "ts_test")
-}
-
-// runGenerateWithBuild is runGenerate with a BUILD file in the directory, so
-// that both its directives and its existing rules reach the generator. A name
-// carrying a slash is written into a subdirectory, which Gazelle walks
-// separately and so leaves out of RegularFiles.
-func runGenerateWithBuild(t *testing.T, rel, build string, files map[string]string) language.GenerateResult {
+func wantStrings(t *testing.T, what string, got, want []string) {
 	t.Helper()
-
-	repoRoot := t.TempDir()
-	dir := filepath.Join(repoRoot, rel)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("%s = %v, want %v", what, got, want)
 	}
-	var names []string
-	for name, content := range files {
-		full := filepath.Join(dir, name)
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(name, "/") {
-			names = append(names, name)
-		}
-	}
-	sort.Strings(names)
-
-	f, err := rule.LoadData(filepath.Join(dir, "BUILD.bazel"), rel, []byte(build))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	c := &config.Config{RepoRoot: repoRoot, Exts: make(map[string]interface{})}
-	configureTsConfig(c, "", nil)
-	configureTsConfig(c, rel, f)
-
-	return generateRules(language.GenerateArgs{
-		Config:       c,
-		Dir:          dir,
-		Rel:          rel,
-		File:         f,
-		RegularFiles: names,
-	})
-}
-
-func generatedRule(res language.GenerateResult, name string) *rule.Rule {
-	for _, r := range res.Gen {
-		if r.Name() == name {
-			return r
-		}
-	}
-	return nil
-}
-
-// Two ts_compile targets over one source declare the same .js and .d.ts, which
-// Bazel rejects as conflicting actions rather than as a duplicate.
-func TestGenerate_LeavesWhatAnExistingTargetAlreadyCompiles(t *testing.T) {
-	res := runGenerateWithBuild(t, "widget", `
-ts_compile(
-    name = "hand_written",
-    srcs = ["Button.tsx"],
-)
-
-css_library(
-    name = "hand_written_css",
-    srcs = ["styles.css"],
-)
-`, map[string]string{
-		"Button.tsx": "export const Button = () => null;\n",
-		"styles.css": ".b {}\n",
-	})
-
-	byName := generatedNames(t, res)
-	if _, ok := byName["widget"]; ok {
-		t.Errorf("generated a ts_compile over a claimed src; generated %v", byName)
-	}
-	if len(byName) != 0 {
-		t.Errorf("every src is claimed, so nothing should be generated; got %v", byName)
-	}
-}
-
-// A ts_test's setup_files are compiled by the macro and Gazelle never writes
-// that attribute, so they stay claimed even on the ts_test Gazelle owns.
-func TestGenerate_LeavesTheSetupFilesOfItsOwnTsTest(t *testing.T) {
-	res := runGenerateWithBuild(t, "attrs", `
-ts_test(
-    name = "attrs_test",
-    srcs = ["attrs.test.ts"],
-    setup_files = ["setup.ts"],
-)
-`, map[string]string{
-		"attrs.test.ts": "export const t = 1;\n",
-		"setup.ts":      "export const s = 1;\n",
-	})
-
-	byName := generatedNames(t, res)
-	if _, ok := byName["attrs"]; ok {
-		t.Errorf("generated a ts_compile over a setup_files src; generated %v", byName)
-	}
-	assertRule(t, byName, "attrs_test", "ts_test")
-}
-
-// `outs` is mergeable, so an empty stub strips it from whatever it matches. Only
-// the names the built-in detectors write are Gazelle's to clean up.
-func TestGenerate_KeepsAHandWrittenTsCodegen(t *testing.T) {
-	res := runGenerateWithBuild(t, "codegen", `
-ts_codegen(
-    name = "generated_ts",
-    srcs = ["input.ts"],
-    outs = ["generated.ts"],
-    generator = ":test_generator",
-)
-
-ts_codegen(
-    name = "route_tree",
-    srcs = ["input.ts"],
-    outs = ["routeTree.gen.ts"],
-    generator = "@npm//:tsr_bin",
-)
-`, map[string]string{
-		"input.ts": "export const a = 1;\n",
-	})
-
-	var emptied []string
-	for _, r := range res.Empty {
-		if r.Kind() == "ts_codegen" {
-			emptied = append(emptied, r.Name())
-		}
-	}
-	sort.Strings(emptied)
-	if len(emptied) != 1 || emptied[0] != "route_tree" {
-		t.Errorf("ts_codegen cleanup stubs = %v, want [route_tree]", emptied)
-	}
-}
-
-// The macro has no default hub, so a generated :add_package with no pnpm_lock
-// is a BUILD file that does not load.
-func TestGenerate_AddPackageNamesTheRootLockfile(t *testing.T) {
-	res := runGenerate(t, "", map[string]string{
-		"pnpm-lock.yaml": "lockfileVersion: '9.0'\n",
-		"index.ts":       "export const x = 1\n",
-	})
-
-	var addPackage *rule.Rule
-	for _, r := range res.Gen {
-		if r.Kind() == "ts_add_package" {
-			addPackage = r
-		}
-	}
-	if addPackage == nil {
-		t.Fatalf("no ts_add_package generated beside a root pnpm-lock.yaml; got %v", generatedNames(t, res))
-	}
-	if got := addPackage.AttrString("pnpm_lock"); got != "//:pnpm-lock.yaml" {
-		t.Errorf("pnpm_lock = %q, want %q", got, "//:pnpm-lock.yaml")
-	}
-}
-
-// A vitest config beside the tests is not decoration: it names the pool, the
-// environment and the deps to inline. Dropped, the tests run in plain Node --
-// a worker's `defineWorkersConfig` pool becomes no pool at all, and a
-// dependency that only resolves through Vite fails at import time.
-func TestGenerate_VitestConfigBesideTestsReachesTheTestTarget(t *testing.T) {
-	for _, name := range []string{"vitest.config.mts", "vitest.config.ts", "vitest.config.mjs"} {
-		t.Run(name, func(t *testing.T) {
-			res := runGenerate(t, "pkg", map[string]string{
-				"index.ts":      "export const x = 1;\n",
-				"index.test.ts": "import { x } from './index';\n",
-				name:            "import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config';\nexport default defineWorkersConfig({});\n",
-			})
-			var test *rule.Rule
-			for _, r := range res.Gen {
-				if r.Kind() == "ts_test" {
-					test = r
-				}
-			}
-			if test == nil {
-				t.Fatalf("no ts_test generated: %v", generatedNames(t, res))
-			}
-			if got := test.AttrString("config"); got != name {
-				t.Errorf("ts_test config = %q, want %q", got, name)
-			}
-			// The config is a module the runner imports; what it imports is a dep
-			// of the test like any other.
-			found := false
-			for _, imp := range res.Imports[indexOfRule(res, test)].([]string) {
-				if imp == "@cloudflare/vitest-pool-workers/config" {
-					found = true
-				}
-			}
-			if !found {
-				t.Errorf("the config's own imports never reached the test target")
-			}
-		})
-	}
-}
-
-// No config, no attribute: an empty string would name a file that is not there.
-func TestGenerate_NoVitestConfigLeavesTheAttributeUnset(t *testing.T) {
-	res := runGenerate(t, "pkg", map[string]string{
-		"index.ts":      "export const x = 1;\n",
-		"index.test.ts": "import { x } from './index';\n",
-	})
-	for _, r := range res.Gen {
-		if r.Kind() == "ts_test" && r.Attr("config") != nil {
-			t.Errorf("ts_test config = %q, want unset", r.AttrString("config"))
-		}
-	}
-}
-
-// writeTree writes a repository-relative tree under a fresh repo root, for a
-// package whose generation reads directories above it.
-func writeTree(t *testing.T, tree map[string]string) string {
-	t.Helper()
-	repoRoot := t.TempDir()
-	for name, content := range tree {
-		writeFile(t, filepath.Join(repoRoot, filepath.FromSlash(name)), content)
-	}
-	return repoRoot
-}
-
-// generateAt runs the generator over the directory already on disk at rel.
-func generateAt(t *testing.T, repoRoot, rel string) language.GenerateResult {
-	t.Helper()
-	dir := filepath.Join(repoRoot, filepath.FromSlash(rel))
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var names []string
-	for _, e := range entries {
-		if !e.IsDir() {
-			names = append(names, e.Name())
-		}
-	}
-	c := &config.Config{RepoRoot: repoRoot, Exts: make(map[string]interface{})}
-	configureTsConfig(c, "", nil)
-	if rel != "" {
-		configureTsConfig(c, rel, nil)
-	}
-	return generateRules(language.GenerateArgs{
-		Config:       c,
-		Dir:          dir,
-		Rel:          rel,
-		RegularFiles: names,
-	})
-}
-
-func testImports(t *testing.T, res language.GenerateResult, r *rule.Rule) []string {
-	t.Helper()
-	imports, ok := res.Imports[indexOfRule(res, r)].([]string)
-	if !ok {
-		t.Fatalf("no imports recorded for %s", r.Name())
-	}
-	return imports
-}
-
-// Plain `vitest` runs from the package root and reads the config there, while the
-// tests sit a package down: the config reaches them as a label the root writes.
-func TestGenerate_VitestConfigAtThePackageRootReachesATestBelow(t *testing.T) {
-	for _, name := range []string{"vitest.config.ts", "vitest.config.mts"} {
-		t.Run(name, func(t *testing.T) {
-			repoRoot := writeTree(t, map[string]string{
-				"pkg/package.json":       "{}\n",
-				"pkg/" + name:            "import { defineConfig } from 'vitest/config';\nexport default defineConfig({ test: { server: { deps: { inline: [/some-pkg/] } } } });\n",
-				"pkg/src/index.ts":       "export const x = 1;\n",
-				"pkg/test/index.test.ts": "import { x } from '../src/index';\n",
-			})
-
-			res := generateAt(t, repoRoot, "pkg/test")
-			test := generatedRule(res, "test_test")
-			if test == nil {
-				t.Fatalf("no ts_test generated: %v", generatedNames(t, res))
-			}
-			if got := test.AttrString("config"); got != "//pkg:vitest_config" {
-				t.Errorf("ts_test config = %q, want %q", got, "//pkg:vitest_config")
-			}
-			if !slices.Contains(testImports(t, res, test), "vitest/config") {
-				t.Errorf("the config's own imports never reached the test target")
-			}
-
-			owner := generateAt(t, repoRoot, "pkg")
-			fg := generatedRule(owner, "vitest_config")
-			if fg == nil || fg.Kind() != "filegroup" {
-				t.Fatalf("no filegroup named vitest_config in pkg; got %v", generatedNames(t, owner))
-			}
-			if got := fg.AttrStrings("srcs"); !reflect.DeepEqual(got, []string{name}) {
-				t.Errorf("filegroup srcs = %v, want %v", got, []string{name})
-			}
-			if got := fg.AttrStrings("visibility"); !reflect.DeepEqual(got, []string{"//visibility:public"}) {
-				t.Errorf("filegroup visibility = %v, want public", got)
-			}
-		})
-	}
-}
-
-// With no package.json anywhere the walk ends at the repository root, whose
-// label has no package part.
-func TestGenerate_VitestConfigAtTheRepoRootIsTheRootLabel(t *testing.T) {
-	repoRoot := writeTree(t, map[string]string{
-		"vitest.config.ts":       "export default { test: { globals: true } };\n",
-		"pkg/test/index.test.ts": "export const t = 1;\n",
-	})
-
-	res := generateAt(t, repoRoot, "pkg/test")
-	test := generatedRule(res, "test_test")
-	if test == nil {
-		t.Fatalf("no ts_test generated: %v", generatedNames(t, res))
-	}
-	if got := test.AttrString("config"); got != "//:vitest_config" {
-		t.Errorf("ts_test config = %q, want %q", got, "//:vitest_config")
-	}
-	owner := generateAt(t, repoRoot, "")
-	if fg := generatedRule(owner, "vitest_config"); fg == nil || fg.Kind() != "filegroup" {
-		t.Errorf("no filegroup named vitest_config at the root; got %v", generatedNames(t, owner))
-	}
-}
-
-// A config beside the tests is the one `vitest` run there reads; the root's
-// imports are not this test's deps.
-func TestGenerate_VitestConfigBesideTheTestsBeatsThePackageRoots(t *testing.T) {
-	repoRoot := writeTree(t, map[string]string{
-		"pkg/package.json":           "{}\n",
-		"pkg/vitest.config.ts":       "import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config';\nexport default defineWorkersConfig({});\n",
-		"pkg/test/vitest.config.mts": "export default { test: { globals: true } };\n",
-		"pkg/test/index.test.ts":     "export const t = 1;\n",
-	})
-
-	res := generateAt(t, repoRoot, "pkg/test")
-	test := generatedRule(res, "test_test")
-	if test == nil {
-		t.Fatalf("no ts_test generated: %v", generatedNames(t, res))
-	}
-	if got := test.AttrString("config"); got != "vitest.config.mts" {
-		t.Errorf("ts_test config = %q, want %q", got, "vitest.config.mts")
-	}
-	if slices.Contains(testImports(t, res, test), "@cloudflare/vitest-pool-workers/config") {
-		t.Errorf("the package root's config imports reached a test that runs under its own config")
-	}
-}
-
-// A package.json in the test's own directory makes it the directory plain
-// `vitest` runs from, and there is no config there to read.
-func TestGenerate_APackageJsonInTheTestDirEndsTheWalk(t *testing.T) {
-	repoRoot := writeTree(t, map[string]string{
-		"pkg/package.json":       "{}\n",
-		"pkg/vitest.config.ts":   "export default { test: { globals: true } };\n",
-		"pkg/test/package.json":  "{}\n",
-		"pkg/test/index.test.ts": "export const t = 1;\n",
-	})
-
-	res := generateAt(t, repoRoot, "pkg/test")
-	test := generatedRule(res, "test_test")
-	if test == nil {
-		t.Fatalf("no ts_test generated: %v", generatedNames(t, res))
-	}
-	if test.Attr("config") != nil {
-		t.Errorf("ts_test config = %q, want unset", test.AttrString("config"))
-	}
-}
-
-// A config in a directory with no package.json is one `vitest` run from the
-// package root never reads, so neither side names it.
-func TestGenerate_VitestConfigOffThePackageRootIsNotExported(t *testing.T) {
-	repoRoot := writeTree(t, map[string]string{
-		"pkg/package.json":           "{}\n",
-		"pkg/src/vitest.config.ts":   "export default { test: { globals: true } };\n",
-		"pkg/src/unit/index.test.ts": "export const t = 1;\n",
-	})
-
-	res := generateAt(t, repoRoot, "pkg/src/unit")
-	test := generatedRule(res, "unit_test")
-	if test == nil {
-		t.Fatalf("no ts_test generated: %v", generatedNames(t, res))
-	}
-	if test.Attr("config") != nil {
-		t.Errorf("ts_test config = %q, want unset", test.AttrString("config"))
-	}
-	if fg := generatedRule(generateAt(t, repoRoot, "pkg/src"), "vitest_config"); fg != nil {
-		t.Errorf("pkg/src exports a vitest config plain `vitest` would not read")
-	}
-}
-
-// The config moved or went, and the directory may hold nothing else for a
-// later run to notice the filegroup by.
-func TestGenerate_WithdrawsTheVitestConfigFilegroupWithTheFile(t *testing.T) {
-	build := "filegroup(\n    name = \"vitest_config\",\n    srcs = [\"vitest.config.ts\"],\n    visibility = [\"//visibility:public\"],\n)\n"
-	res := runGenerateWithBuild(t, "pkg", build, map[string]string{"package.json": "{}\n"})
-	for _, r := range res.Empty {
-		if r.Kind() == "filegroup" && r.Name() == "vitest_config" {
-			return
-		}
-	}
-	t.Errorf("the filegroup outlived its file; Empty = %v", emptyNames(res))
-}
-
-func emptyNames(res language.GenerateResult) []string {
-	var names []string
-	for _, r := range res.Empty {
-		names = append(names, r.Kind()+" "+r.Name())
-	}
-	return names
-}
-
-func indexOfRule(res language.GenerateResult, want *rule.Rule) int {
-	for i, r := range res.Gen {
-		if r == want {
-			return i
-		}
-	}
-	return -1
-}
-
-// An ambient .d.ts declares globals nothing imports, so only membership in a
-// target's srcs puts it in that target's program.
-func TestGenerate_AmbientDeclarationReachesTheTest(t *testing.T) {
-	res := runGenerate(t, "worker", map[string]string{
-		"worker-configuration.d.ts": "interface Env {\n\tKV: string;\n}\n",
-		"types.d.ts":                "export interface Config {\n\tname: string;\n}\n",
-		"worker.ts":                 "export const handler = (env: Env) => env.KV;\n",
-		"worker.test.ts":            "import { handler } from \"./worker\";\nexport const t = handler;\n",
-	})
-
-	compile := generatedRule(res, "worker")
-	if compile == nil {
-		t.Fatalf("no ts_compile named worker; got %v", generatedNames(t, res))
-	}
-	wantCompile := []string{"types.d.ts", "worker-configuration.d.ts", "worker.ts"}
-	if got := compile.AttrStrings("srcs"); !reflect.DeepEqual(got, wantCompile) {
-		t.Errorf("ts_compile srcs = %v, want %v", got, wantCompile)
-	}
-
-	test := generatedRule(res, "worker_test")
-	if test == nil {
-		t.Fatalf("no ts_test named worker_test; got %v", generatedNames(t, res))
-	}
-	wantTest := []string{"worker-configuration.d.ts", "worker.test.ts"}
-	if got := test.AttrStrings("srcs"); !reflect.DeepEqual(got, wantTest) {
-		t.Errorf("ts_test srcs = %v, want %v", got, wantTest)
-	}
-}
-
-// A module augmentation exports only inside the `declare module` block, so the
-// file itself is still ambient.
-func TestGenerate_AugmentationCountsAsAmbient(t *testing.T) {
-	res := runGenerate(t, "aug", map[string]string{
-		"augment.d.ts": "declare module \"vitest\" {\n\texport const marker: number;\n}\n",
-		"aug.ts":       "export const a = 1;\n",
-		"aug.test.ts":  "export const t = 1;\n",
-	})
-
-	test := generatedRule(res, "aug_test")
-	if test == nil {
-		t.Fatalf("no ts_test named aug_test; got %v", generatedNames(t, res))
-	}
-	want := []string{"aug.test.ts", "augment.d.ts"}
-	if got := test.AttrStrings("srcs"); !reflect.DeepEqual(got, want) {
-		t.Errorf("ts_test srcs = %v, want %v", got, want)
-	}
-}
-
-// TestGenerate_TextAndJSONCFilesGetAssetTargets covers imports of files the
-// bundler hands over as text: a skill document, a templated script staged as
-// .txt, and a wrangler config in JSON-with-comments.
-func TestGenerate_TextAndJSONCFilesGetAssetTargets(t *testing.T) {
-	res := runGenerate(t, "widget", map[string]string{
-		"SKILL.md":              "# skill\n",
-		"notes.txt":             "hello\n",
-		"project-widget.js.txt": "console.log(1);\n",
-		"wrangler.jsonc":        "{ /* comment */ }\n",
-		"widget.ts":             "export const w = 1;\n",
-	})
-
-	byName := generatedNames(t, res)
-	assertRule(t, byName, "widget", "ts_compile")
-	assertRule(t, byName, "SKILL_md", "asset_library")
-	assertRule(t, byName, "notes_txt", "asset_library")
-	assertRule(t, byName, "project-widget_js_txt", "asset_library")
-	assertRule(t, byName, "wrangler_jsonc", "asset_library")
-}
-
-// ---- ts_js_srcs ------------------------------------------------------------
-
-// genSrcsOfKind is every srcs entry of every generated rule of one kind, so a
-// case can say what the program holds rather than which rule holds it.
-func genSrcsOfKind(res language.GenerateResult, kind string) []string {
-	var out []string
-	for _, r := range res.Gen {
-		if r.Kind() == kind {
-			out = append(out, r.AttrStrings("srcs")...)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-// jsSrcsSameDir is the shape the directive exists for: a checked-in .mjs beside
-// the TypeScript that imports it. Without the directive it is in no generated
-// target at all, and the import of it fails the type check as an unresolved
-// module.
-var jsSrcsSameDir = map[string]string{
-	"pkg/entry.ts":      "import { helper } from './helper.mjs';\nexport const e = helper;\n",
-	"pkg/entry.test.ts": "import { helper } from './helper.mjs';\nexport const t = helper;\n",
-	"pkg/helper.mjs":    "export const helper = () => 1;\n",
-	"pkg/shim.cjs":      "module.exports = { shim: 1 };\n",
-	"pkg/legacy.js":     "module.exports = 1;\n",
-	"pkg/util.test.mjs": "export const t = 1;\n",
-}
-
-// jsSrcsRolledUp is the same shape one directory further down, where tsconfig
-// mode rolls the subdirectory into the package above rather than giving it a
-// target of its own.
-var jsSrcsRolledUp = map[string]string{
-	"pkg/tsconfig.json":      `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
-	"pkg/index.ts":           "export * from './lib/helper.mjs';\n",
-	"pkg/lib/helper.mjs":     "export const helper = () => 1;\n",
-	"pkg/lib/helper.test.ts": "import { helper } from './helper.mjs';\nexport const t = helper;\n",
-	"pkg/lib/legacy.js":      "module.exports = 1;\n",
-}
-
-func TestGenerate_JSSrcsDirective(t *testing.T) {
-	const rollUp = "# gazelle:ts_package_boundary tsconfig\n"
-
-	for _, tt := range []struct {
-		name     string
-		tree     map[string]string
-		builds   map[string]string
-		kind     string
-		contains []string
-		omits    []string
-	}{
-		{
-			name:     "no directive leaves the JavaScript in no target",
-			tree:     jsSrcsSameDir,
-			kind:     "ts_compile",
-			contains: []string{"entry.ts"},
-			omits:    []string{"helper.mjs", "shim.cjs", "legacy.js", "util.test.mjs"},
-		},
-		{
-			name:     "the directive admits the extensions it names",
-			tree:     jsSrcsSameDir,
-			builds:   map[string]string{"pkg/BUILD.bazel": "# gazelle:ts_js_srcs .mjs .cjs\n"},
-			kind:     "ts_compile",
-			contains: []string{"entry.ts", "helper.mjs", "shim.cjs"},
-			omits:    []string{"legacy.js"},
-		},
-		{
-			name:     "an extension the directive does not name stays out",
-			tree:     jsSrcsSameDir,
-			builds:   map[string]string{"pkg/BUILD.bazel": "# gazelle:ts_js_srcs .cjs\n"},
-			kind:     "ts_compile",
-			contains: []string{"entry.ts", "shim.cjs"},
-			omits:    []string{"helper.mjs", "legacy.js"},
-		},
-		{
-			name:     "the set inherits from an ancestor build file",
-			tree:     jsSrcsSameDir,
-			builds:   map[string]string{"BUILD.bazel": "# gazelle:ts_js_srcs .mjs\n"},
-			kind:     "ts_compile",
-			contains: []string{"entry.ts", "helper.mjs"},
-			omits:    []string{"shim.cjs", "legacy.js"},
-		},
-		{
-			name: "named with nothing after it, a subtree opts back out",
-			tree: jsSrcsSameDir,
-			builds: map[string]string{
-				"BUILD.bazel":     "# gazelle:ts_js_srcs .mjs .cjs\n",
-				"pkg/BUILD.bazel": "# gazelle:ts_js_srcs\n",
-			},
-			kind:     "ts_compile",
-			contains: []string{"entry.ts"},
-			omits:    []string{"helper.mjs", "shim.cjs"},
-		},
-		{
-			name:     "an admitted .test.mjs is a test, not a library source",
-			tree:     jsSrcsSameDir,
-			builds:   map[string]string{"pkg/BUILD.bazel": "# gazelle:ts_js_srcs .mjs\n"},
-			kind:     "ts_test",
-			contains: []string{"entry.test.ts", "util.test.mjs"},
-			omits:    []string{"helper.mjs"},
-		},
-		{
-			name:     "a rolled-up subdirectory's JavaScript needs the directive too",
-			tree:     jsSrcsRolledUp,
-			builds:   map[string]string{"pkg/BUILD.bazel": rollUp},
-			kind:     "ts_compile",
-			contains: []string{"index.ts"},
-			omits:    []string{"lib/helper.mjs", "lib/legacy.js"},
-		},
-		{
-			name:     "the directive reaches the rollup walk",
-			tree:     jsSrcsRolledUp,
-			builds:   map[string]string{"pkg/BUILD.bazel": rollUp + "# gazelle:ts_js_srcs .mjs\n"},
-			kind:     "ts_compile",
-			contains: []string{"index.ts", "lib/helper.mjs"},
-			omits:    []string{"lib/legacy.js"},
-		},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			files := make(map[string]string, len(tt.tree)+len(tt.builds))
-			for name, content := range tt.tree {
-				files[name] = content
-			}
-			for name, content := range tt.builds {
-				files[name] = content
-			}
-
-			srcs := genSrcsOfKind(generateUnder(t, files, "pkg"), tt.kind)
-			for _, want := range tt.contains {
-				if !hasSrc(srcs, want) {
-					t.Errorf("%s srcs = %v, want it to hold %q", tt.kind, srcs, want)
-				}
-			}
-			for _, unwanted := range tt.omits {
-				if hasSrc(srcs, unwanted) {
-					t.Errorf("%s srcs = %v, want it not to hold %q", tt.kind, srcs, unwanted)
-				}
-			}
-		})
-	}
-}
-
-// An extension outside the closed set leaves the inherited set in force, rather
-// than the directive silently emptying it.
-func TestGenerate_JSSrcsRefusesAnExtensionOutsideTheSet(t *testing.T) {
-	var tc *tsConfig
-	logged := captureLog(t, func() {
-		tc = makeChildConfig(
-			[]rule.Directive{directive(directiveJSSrcs, ".mjs")},
-			"pkg",
-			[]rule.Directive{directive(directiveJSSrcs, ".mjs .js")},
-		)
-	})
-
-	if !reflect.DeepEqual(tc.jsSrcExts, []string{".mjs"}) {
-		t.Errorf("jsSrcExts = %v, want the inherited [.mjs]", tc.jsSrcExts)
-	}
-	if !strings.Contains(logged, "ts_js_srcs") || !strings.Contains(logged, ".js") {
-		t.Errorf("the refusal did not name the directive and the extension:\n%s", logged)
-	}
-}
-
-// The shape this directive exists for, through a whole run rather than one
-// generateRules call: admission is half the fix, and the dep edge the test
-// target needs comes from the resolver reading the admitted file's own srcs
-// entry.
-func TestGenerate_JSSrcsResolveASiblingImport(t *testing.T) {
-	root, _ := convergeWorkspace(t, map[string]string{
-		"BUILD.bazel":            "# gazelle:ts_js_srcs .mjs\n",
-		"scripts/lib/helper.mjs": "export const helper = () => 1;\n",
-		"scripts/lib/helper.test.ts": "import { helper } from './helper.mjs';\n" +
-			"export const t = helper;\n",
-	})
-
-	if srcs := srcsOfKind(t, root, "scripts/lib", "ts_compile"); !hasSrc(srcs, "helper.mjs") {
-		t.Fatalf("ts_compile srcs = %v, want it to hold helper.mjs", srcs)
-	}
-
-	var deps []string
-	for _, r := range loadRules(t, root, "scripts/lib") {
-		if r.Kind() == "ts_test" {
-			deps = append(deps, r.AttrStrings("deps")...)
-		}
-	}
-	if !hasSrc(deps, ":lib") {
-		t.Errorf("ts_test deps = %v, want the sibling ts_compile that compiles helper.mjs", deps)
-	}
-}
-
-// ---- .d.mts / .d.cts -------------------------------------------------------
-
-// declarationFlavours is the pairing tsc resolves by name: an untyped .mjs
-// beside the .d.mts that declares it, imported as "./compile.mjs". A declaration
-// is a declaration whatever its extension, so it is a source the way a .d.ts is,
-// with no directive -- the JavaScript still waits on ts_js_srcs.
-var declarationFlavours = map[string]string{
-	"pkg/entry.ts":        "export const e = 1;\n",
-	"pkg/compile.mjs":     "export function compile(v) { return `${v}`; }\n",
-	"pkg/compile.d.mts":   "export declare function compile(v: number): string;\n",
-	"pkg/shim.cjs":        "module.exports = { shim: 1 };\n",
-	"pkg/shim.d.cts":      "export declare const shim: number;\n",
-	"pkg/globals.d.mts":   "declare const BUILD_ID: string;\n",
-	"pkg/compile.test.ts": "import { compile } from './compile.mjs';\nexport const t = compile(1);\n",
-}
-
-var declarationFlavoursRolledUp = map[string]string{
-	"pkg/tsconfig.json":     `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
-	"pkg/index.ts":          "export * from './lib/compile.mjs';\n",
-	"pkg/lib/compile.mjs":   "export function compile(v) { return `${v}`; }\n",
-	"pkg/lib/compile.d.mts": "export declare function compile(v: number): string;\n",
-}
-
-func TestGenerate_DeclarationFlavoursAreSourcesLikeADTs(t *testing.T) {
-	for _, tt := range []struct {
-		name     string
-		tree     map[string]string
-		builds   map[string]string
-		kind     string
-		contains []string
-		omits    []string
-	}{
-		{
-			name:     "a module-scoped declaration joins the package target; its JavaScript does not",
-			tree:     declarationFlavours,
-			kind:     "ts_compile",
-			contains: []string{"entry.ts", "compile.d.mts", "shim.d.cts", "globals.d.mts"},
-			omits:    []string{"compile.mjs", "shim.cjs"},
-		},
-		{
-			name:     "an ambient one joins the test target too; a module-scoped one stays out",
-			tree:     declarationFlavours,
-			kind:     "ts_test",
-			contains: []string{"compile.test.ts", "globals.d.mts"},
-			omits:    []string{"compile.d.mts", "shim.d.cts"},
-		},
-		{
-			name:     "ts_js_srcs admits the JavaScript beside a declaration already admitted",
-			tree:     declarationFlavours,
-			builds:   map[string]string{"pkg/BUILD.bazel": "# gazelle:ts_js_srcs .mjs .cjs\n"},
-			kind:     "ts_compile",
-			contains: []string{"compile.d.mts", "compile.mjs", "shim.d.cts", "shim.cjs"},
-		},
-		{
-			name:     "the rollup walk classifies one the same way",
-			tree:     declarationFlavoursRolledUp,
-			builds:   map[string]string{"pkg/BUILD.bazel": "# gazelle:ts_package_boundary tsconfig\n"},
-			kind:     "ts_compile",
-			contains: []string{"index.ts", "lib/compile.d.mts"},
-			omits:    []string{"lib/compile.mjs"},
-		},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			files := make(map[string]string, len(tt.tree)+len(tt.builds))
-			for name, content := range tt.tree {
-				files[name] = content
-			}
-			for name, content := range tt.builds {
-				files[name] = content
-			}
-
-			srcs := genSrcsOfKind(generateUnder(t, files, "pkg"), tt.kind)
-			for _, want := range tt.contains {
-				if !hasSrc(srcs, want) {
-					t.Errorf("%s srcs = %v, want it to hold %q", tt.kind, srcs, want)
-				}
-			}
-			for _, unwanted := range tt.omits {
-				if hasSrc(srcs, unwanted) {
-					t.Errorf("%s srcs = %v, want it not to hold %q", tt.kind, srcs, unwanted)
-				}
-			}
-		})
-	}
-}
-
-// The dep edge the monorepo test needed: compile.d.mts is in the package target
-// and "./compile.mjs" is what the test imports, so the target holding the
-// declaration answers for the JavaScript module it declares -- the one key that
-// specifier produces, since only a .js suffix is ever dropped from one.
-func TestGenerate_DeclarationAnswersForTheJavaScriptItDeclares(t *testing.T) {
-	root, _ := convergeWorkspace(t, map[string]string{
-		"scripts/lib/compile.mjs":   "export function compile(v) { return `${v}`; }\n",
-		"scripts/lib/compile.d.mts": "export declare function compile(v: number): string;\n",
-		"scripts/lib/compile.test.ts": "import { compile } from './compile.mjs';\n" +
-			"export const t = compile(1);\n",
-	})
-
-	srcs := srcsOfKind(t, root, "scripts/lib", "ts_compile")
-	if !hasSrc(srcs, "compile.d.mts") || hasSrc(srcs, "compile.mjs") {
-		t.Fatalf("ts_compile srcs = %v, want compile.d.mts and no compile.mjs", srcs)
-	}
-
-	var deps []string
-	for _, r := range loadRules(t, root, "scripts/lib") {
-		if r.Kind() == "ts_test" {
-			deps = append(deps, r.AttrStrings("deps")...)
-		}
-	}
-	if !hasSrc(deps, ":lib") {
-		t.Errorf("ts_test deps = %v, want the sibling ts_compile holding compile.d.mts", deps)
-	}
-}
-
-// emptyRuleNames lists the rules a result withdraws, as kind(name).
-func emptyRuleNames(res language.GenerateResult) []string {
-	var names []string
-	for _, r := range res.Empty {
-		names = append(names, r.Kind()+"("+r.Name()+")")
-	}
-	return names
 }
 
 func withdraws(res language.GenerateResult, kind, name string) bool {
@@ -972,137 +157,302 @@ func withdraws(res language.GenerateResult, kind, name string) bool {
 	return false
 }
 
-// A data-file rule is read back on later runs as a claim on its file, so the run
-// after the file is deleted regenerated nothing over it and the rule stayed.
-func TestGenerate_DataFileRuleWhoseFileIsGoneIsWithdrawn(t *testing.T) {
-	res := runGenerateWithBuild(t, "web", `
-asset_library(
-    name = "compiled_README_md",
-    srcs = ["compiled/README.md"],
-    visibility = ["//visibility:public"],
-)
-
-json_library(
-    name = "tokens_json",
-    srcs = ["tokens.json"],
-    visibility = ["//visibility:public"],
-)
-`, map[string]string{
-		"app.ts":      "export const x = 1;\n",
-		"tokens.json": "{}\n",
-	})
-
-	if !withdraws(res, "asset_library", "compiled_README_md") {
-		t.Errorf("asset_library compiled_README_md names a file that is gone and is not withdrawn; Empty = %v", emptyRuleNames(res))
-	}
-	if withdraws(res, "json_library", "tokens_json") {
-		t.Errorf("json_library tokens_json names a file still on disk and is withdrawn; Empty = %v", emptyRuleNames(res))
-	}
+func hasSrc(srcs []string, want string) bool {
+	return slices.Contains(srcs, want)
 }
 
-// The directory the file left behind may hold nothing else, which is the path
-// that returned before any existing rule was read.
-func TestGenerate_DataFileRuleInAnEmptiedDirectoryIsWithdrawn(t *testing.T) {
-	res := runGenerateWithBuild(t, "icons", `
-asset_library(
-    name = "logo_svg",
-    srcs = ["logo.svg"],
-    visibility = ["//visibility:public"],
-)
-`, map[string]string{})
-
-	if !withdraws(res, "asset_library", "logo_svg") {
-		t.Errorf("asset_library logo_svg is alone in a directory holding no file and is not withdrawn; Empty = %v", emptyRuleNames(res))
+// onDiskRule is the rule of that kind and name in pkg's BUILD file after a run.
+func onDiskRule(t *testing.T, root, pkg, kind, name string) *rule.Rule {
+	t.Helper()
+	r := ruleNamed(loadRules(t, root, pkg), kind, name)
+	if r == nil {
+		t.Fatalf("no %s(%s) in //%s:\n%s", kind, name, pkg,
+			buildFileText(t, root, pkg))
 	}
+	return r
 }
 
-// A label, a glob() and a file another rule in the package generates are all
-// present as far as the run can tell, and a rule naming one stays.
-func TestGenerate_DataFileRuleItCannotJudgeIsLeftAlone(t *testing.T) {
-	repoRoot := t.TempDir()
-	dir := filepath.Join(repoRoot, "web")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	f, err := rule.LoadData(filepath.Join(dir, "BUILD.bazel"), "web", []byte(`
-asset_library(
-    name = "generated_svg",
-    srcs = ["generated.svg"],
-)
-
-asset_library(
-    name = "from_label",
-    srcs = [":some_target"],
-)
-
-asset_library(
-    name = "globbed",
-    srcs = glob(["*.png"]),
-)
-
-css_library(
-    name = "gone_css",
-    srcs = ["gone.css"],
-)
-`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	c := &config.Config{RepoRoot: repoRoot, Exts: make(map[string]interface{})}
-	configureTsConfig(c, "", nil)
-	configureTsConfig(c, "web", f)
-	res := generateRules(language.GenerateArgs{
-		Config:   c,
-		Dir:      dir,
-		Rel:      "web",
-		File:     f,
-		GenFiles: []string{"generated.svg"},
-	})
-
-	for _, kept := range []string{"generated_svg", "from_label", "globbed"} {
-		if withdraws(res, "asset_library", kept) {
-			t.Errorf("asset_library %s is withdrawn over a srcs this run cannot judge; Empty = %v", kept, emptyRuleNames(res))
-		}
-	}
-	if !withdraws(res, "css_library", "gone_css") {
-		t.Errorf("css_library gone_css names a file that is gone and is not withdrawn; Empty = %v", emptyRuleNames(res))
-	}
+func converge(t *testing.T, tree map[string]string) (root, logged string) {
+	t.Helper()
+	requireTsgo(t)
+	root = writeTree(t, tree)
+	logged = captureLog(t, func() { convergeGazelle(t, root) })
+	return root, logged
 }
 
-// A directory with no source is no boundary, so nothing regenerated over the
-// target; its src is a ts_codegen's out now, which the package target never lists.
-func TestGenerate_CompileWhoseEverySrcIsGoneIsWithdrawn(t *testing.T) {
-	repoRoot := t.TempDir()
-	dir := filepath.Join(repoRoot, "worker")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for name, body := range map[string]string{
-		"tsconfig.json":  `{"compilerOptions":{"strict":true}}` + "\n",
-		"wrangler.jsonc": `{"name":"w"}` + "\n",
-	} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	f, err := rule.LoadData(filepath.Join(dir, "BUILD.bazel"), "worker", []byte(`
+const (
+	rootManifest = `{"name":"w"}` + "\n"
+	includeAll   = `{"include":["**/*"]}` + "\n"
+	includeTs    = `{"compilerOptions":{"lib":["es2022"]},"include":["*.ts"]}` +
+		"\n"
+	includeSrc = `{"compilerOptions":{"lib":["es2022"]},` +
+		`"include":["src/**/*"]}` + "\n"
+	loadDefs = `load("@rules_typescript//ts:defs.bzl", `
+)
+
+// ---- the package ------------------------------------------------------------
+
+// A directory below a package is not one: its files are the package's, and a
+// BUILD file an earlier run left there is emptied and named, once.
+func TestGenerate_ADirectoryBelowAPackageIsNotAPackage(t *testing.T) {
+	g := generateAll(t, writeTree(t, map[string]string{
+		"package.json":      rootManifest,
+		"pkg/tsconfig.json": includeAll,
+		"pkg/src/a.ts":      "export const a = 1;\n",
+		"pkg/src/a.test.ts": "export const t = 1;\n",
+		"pkg/src/BUILD.bazel": loadDefs + `"ts_compile", "ts_test")
+
 ts_compile(
-    name = "worker",
-    srcs = ["worker-configuration.d.ts"],
-    tsconfig = ":tsconfig",
-    visibility = ["//visibility:public"],
+    name = "src",
+    srcs = ["a.ts"],
 )
 
-ts_lint(
-    name = "worker_lint",
-    srcs = ["worker-configuration.d.ts"],
-    linter = "oxlint",
+ts_test(
+    name = "src_test",
+    srcs = ["a.test.ts"],
+)
+`,
+	}))
+
+	below := g.results["pkg/src"]
+	if len(below.Gen) != 0 {
+		t.Errorf("pkg/src generated %v; it holds no tsconfig.json",
+			generatedNames(t, below))
+	}
+	got := kindsOf(below.Empty)
+	sort.Strings(got)
+	wantStrings(t, "pkg/src withdraws", got, []string{
+		"filegroup(vitest_config)", "ts_compile(src)", "ts_config(tsconfig)",
+		"ts_lint(src_lint)", "ts_test(src_test)"})
+	if n := strings.Count(g.logged, "pkg/src/BUILD.bazel"); n != 1 {
+		t.Errorf("the BUILD file to delete was named %d times, want once:\n%s",
+			n, g.logged)
+	}
+
+	pkg := g.results["pkg"]
+	compile := mustRule(t, pkg, "ts_compile", "pkg")
+	wantStrings(t, "ts_compile srcs", compile.AttrStrings("srcs"),
+		[]string{"src/a.ts"})
+	test := mustRule(t, pkg, "ts_test", "pkg_test")
+	wantStrings(t, "ts_test srcs", test.AttrStrings("srcs"),
+		[]string{"src/a.test.ts"})
+	for _, r := range []*rule.Rule{compile, test} {
+		if got := r.AttrString("tsconfig"); got != ":tsconfig" {
+			t.Errorf("%s tsconfig = %q, want :tsconfig", r.Kind(), got)
+		}
+	}
+}
+
+// srcs are the program's files wherever they sit plus the tree's other regular
+// files; a deeper package's, an out_dir's and the program's exclusions are not.
+func TestGenerate_SrcsAreTheProgramAndTheTreesOtherFiles(t *testing.T) {
+	g := generateAll(t, writeTree(t, map[string]string{
+		"package.json": rootManifest,
+		"pkg/BUILD.bazel": loadDefs + `"ts_codegen")
+
+ts_codegen(
+    name = "tree",
+    srcs = ["names.txt"],
+    generator = "//:gen",
+    out_dir = "compiled",
+)
+`,
+		"pkg/tsconfig.json": `{"compilerOptions":{"resolveJsonModule":true,` +
+			`"module":"esnext","moduleResolution":"bundler","lib":["es2022"]},` +
+			`"include":["src/**/*"],"exclude":["src/skip.ts"]}` + "\n",
+		"pkg/package.json": `{"name":"pkg"}` + "\n",
+		"pkg/README.md":    "# pkg\n",
+		"pkg/names.txt":    "a\n",
+		"pkg/legacy.js":    "module.exports = 1;\n",
+		"pkg/src/a.ts": "import d from \"./data.json\";\n" +
+			"export const a = d;\n",
+		"pkg/src/skip.ts":           "export const skipped = 1;\n",
+		"pkg/src/data.json":         `{"k":1}` + "\n",
+		"pkg/src/deep/b.ts":         "export const b = 1;\n",
+		"pkg/src/deep/fixture.snap": "snap\n",
+		"pkg/assets/logo.svg":       "<svg/>\n",
+		"pkg/tools/gen.ts":          "export const g = 1;\n",
+		"pkg/compiled/index.ts":     "export const generated = 1;\n",
+		"pkg/compiled/README.md":    "# generated\n",
+		"pkg/sub/tsconfig.json":     includeTs,
+		"pkg/sub/c.ts":              "export const c = 1;\n",
+		"pkg/sub/notes.md":          "notes\n",
+	}))
+
+	compile := mustRule(t, g.results["pkg"], "ts_compile", "pkg")
+	wantStrings(t, "ts_compile pkg srcs", compile.AttrStrings("srcs"), []string{
+		"README.md", "assets/logo.svg", "names.txt", "package.json",
+		"src/a.ts", "src/data.json", "src/deep/b.ts", "src/deep/fixture.snap"})
+	sub := mustRule(t, g.results["pkg/sub"], "ts_compile", "sub")
+	wantStrings(t, "ts_compile sub srcs", sub.AttrStrings("srcs"),
+		[]string{"c.ts", "notes.md"})
+	for _, rel := range []string{"pkg/compiled", "pkg/tools", "pkg/src"} {
+		if res := g.results[rel]; len(res.Gen) != 0 {
+			t.Errorf("%s generated %v, want nothing", rel, generatedNames(t, res))
+		}
+	}
+}
+
+// A program with no inputs is no package: its directory's files belong to the
+// package above, and a ts_config an earlier run wrote there is withdrawn.
+func TestGenerate_AProgramWithNoInputsIsNoPackage(t *testing.T) {
+	g := generateAll(t, writeTree(t, map[string]string{
+		"package.json":              rootManifest,
+		"site/tsconfig.json":        `{"include":["script/**/*","src/**/*"]}` + "\n",
+		"site/src/a.ts":             "export const a = 1;\n",
+		"site/script/b.ts":          "export const b = 1;\n",
+		"site/script/tsconfig.json": `{"include":["nothing/**/*"]}` + "\n",
+		"site/script/BUILD.bazel": loadDefs + `"ts_compile", "ts_config")
+
+ts_compile(
+    name = "script",
+    srcs = ["b.ts"],
+    tsconfig = ":tsconfig",
 )
 
 ts_config(
     name = "tsconfig",
     src = "tsconfig.json",
 )
+`,
+	}))
+
+	script := g.results["site/script"]
+	if len(script.Gen) != 0 {
+		t.Errorf("site/script generated %v; TS18003 names no file",
+			generatedNames(t, script))
+	}
+	for _, want := range [][2]string{
+		{"ts_compile", "script"}, {"ts_config", "tsconfig"},
+	} {
+		if !withdraws(script, want[0], want[1]) {
+			t.Errorf("site/script does not withdraw %s(%s); Empty = %v",
+				want[0], want[1], kindsOf(script.Empty))
+		}
+	}
+	site := mustRule(t, g.results["site"], "ts_compile", "site")
+	wantStrings(t, "ts_compile site srcs", site.AttrStrings("srcs"),
+		[]string{"script/b.ts", "script/tsconfig.json", "src/a.ts"})
+}
+
+// Target names are the directory's; the repository root's is root.
+func TestGenerate_TargetNamesAreTheDirectorys(t *testing.T) {
+	g := generateAll(t, writeTree(t, map[string]string{
+		"package.json":      rootManifest,
+		"tsconfig.json":     `{"include":["src/**/*"]}` + "\n",
+		"src/a.ts":          "export const a = 1;\n",
+		"src/a.test.ts":     "export const t = 1;\n",
+		"a/b/tsconfig.json": includeTs,
+		"a/b/x.ts":          "export const x = 1;\n",
+		"a/b/x.test.ts":     "export const t = 1;\n",
+	}))
+	root := generatedNames(t, g.results[""])
+	assertRule(t, root, "root", "ts_compile")
+	assertRule(t, root, "root_test", "ts_test")
+	assertRule(t, root, tsConfigTargetName, "ts_config")
+	deep := generatedNames(t, g.results["a/b"])
+	assertRule(t, deep, "b", "ts_compile")
+	assertRule(t, deep, "b_test", "ts_test")
+}
+
+// A package whose every owned file is a declaration compiles nothing: no
+// target, and -ts_verbose says so.
+func TestGenerate_ADeclarationOnlyPackageWritesNoTarget(t *testing.T) {
+	g := generateAll(t, writeTree(t, map[string]string{
+		"package.json":        rootManifest,
+		"types/tsconfig.json": `{"include":["*.d.ts"]}` + "\n",
+		"types/globals.d.ts":  "declare const BUILD_ID: string;\n",
+	}), verbose)
+	got := generatedNames(t, g.results["types"])
+	if len(got) != 1 || got[tsConfigTargetName] != "ts_config" {
+		t.Errorf("types generated %v, want its ts_config alone", got)
+	}
+	if !strings.Contains(g.logged, "types/tsconfig.json") {
+		t.Errorf("the target-less program was not named:\n%s", g.logged)
+	}
+}
+
+// tsc drops x.mjs from a program that holds x.d.mts and reads the declaration
+// in its place, so the JavaScript a declaration stands for is a src beside it.
+func TestGenerate_ADeclarationsJavaScriptTwinIsASrc(t *testing.T) {
+	g := generateAll(t, writeTree(t, map[string]string{
+		"package.json":      rootManifest,
+		"lib/tsconfig.json": includeAll,
+		"lib/compile.d.mts": "export declare function compile(v: number): string;\n",
+		"lib/compile.mjs":   "export function compile(v) {\n  return `${v}`;\n}\n",
+		"lib/compile.test.ts": "import { compile } from \"./compile.mjs\";\n" +
+			"export const s = compile(1);\n",
+		"lib/index.ts":  "export { compile } from \"./compile.mjs\";\n",
+		"lib/legacy.js": "module.exports = 1;\n",
+	}))
+
+	compile := mustRule(t, g.results["lib"], "ts_compile", "lib")
+	wantStrings(t, "ts_compile srcs", compile.AttrStrings("srcs"),
+		[]string{"compile.d.mts", "compile.mjs", "index.ts"})
+	test := mustRule(t, g.results["lib"], "ts_test", "lib_test")
+	wantStrings(t, "ts_test srcs", test.AttrStrings("srcs"),
+		[]string{"compile.d.mts", "compile.test.ts"})
+}
+
+// ---- the worker shape -------------------------------------------------------
+
+var workerTree = map[string]string{
+	"package.json": rootManifest,
+	"worker/tsconfig.json": `{"compilerOptions":{"lib":["es2022"],` +
+		`"types":["./worker-configuration.d.ts"]},` +
+		`"include":["src/**/*","worker-configuration.d.ts"]}` + "\n",
+	"worker/worker-configuration.d.ts": "interface Env {\n\tKV: string;\n}\n",
+	"worker/wrangler.jsonc":            `{"name":"w"}` + "\n",
+	"worker/src/index.ts": "export const handler = (env: Env) => " +
+		"env.KV;\n",
+	"worker/test/tsconfig.json": `{"extends":"../tsconfig.json",` +
+		`"compilerOptions":{"types":["../worker-configuration.d.ts"]},` +
+		`"include":["**/*.ts"]}` + "\n",
+	"worker/test/env.d.ts": "declare const TEST_ENV: string;\n",
+	"worker/test/index.spec.ts": "import { handler } from \"../src/index\";\n" +
+		"export const t = handler;\nexport const e = TEST_ENV;\n",
+}
+
+// The test program owns env.d.ts and index.spec.ts: one ts_test, no ts_compile
+// over the declaration alone, deps from the listing and no types attribute.
+func TestGenerate_WorkerTestPackageWritesTsTestOnly(t *testing.T) {
+	root, _ := converge(t, workerTree)
+
+	rules := loadRules(t, root, "worker/test")
+	if r := ruleNamed(rules, "ts_compile", "test"); r != nil {
+		t.Errorf("worker/test writes a ts_compile over env.d.ts alone:\n%s",
+			buildFileText(t, root, "worker/test"))
+	}
+	test := onDiskRule(t, root, "worker/test", "ts_test", "test_test")
+	wantStrings(t, "ts_test srcs", test.AttrStrings("srcs"),
+		[]string{"env.d.ts", "index.spec.ts"})
+	wantStrings(t, "ts_test deps", test.AttrStrings("deps"),
+		[]string{"//worker"})
+	if test.Attr("types") != nil {
+		t.Errorf("ts_test carries types = %v; the tsconfig owns it",
+			test.Attr("types"))
+	}
+	wantStrings(t, "worker/test ts_config deps",
+		tsConfigDeps(t, root, "worker/test"), []string{"//worker:tsconfig"})
+
+	compile := onDiskRule(t, root, "worker", "ts_compile", "worker")
+	wantStrings(t, "ts_compile worker srcs", compile.AttrStrings("srcs"),
+		[]string{"src/index.ts", "worker-configuration.d.ts", "wrangler.jsonc"})
+	assertNoDanglingLabels(t, root)
+	if crossing := crossesPackageBoundary(t, root); len(crossing) > 0 {
+		t.Errorf("srcs cross a package boundary:\n%s",
+			strings.Join(crossing, "\n"))
+	}
+}
+
+// A ts_codegen in the package's BUILD file is a dep of every target there.
+func TestGenerate_ACodegenInThePackageIsEveryTargetsDep(t *testing.T) {
+	root, _ := converge(t, map[string]string{
+		"package.json": rootManifest,
+		"BUILD.bazel": "filegroup(\n    name = \"gen\",\n" +
+			"    srcs = [\"gen.sh\"],\n)\n",
+		"gen.sh": "#!/bin/sh\n",
+		"worker/BUILD.bazel": loadDefs + `"ts_codegen")
 
 ts_codegen(
     name = "worker_types",
@@ -1110,175 +460,309 @@ ts_codegen(
     outs = ["worker-configuration.d.ts"],
     generator = "//:gen",
 )
-`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	c := &config.Config{RepoRoot: repoRoot, Exts: make(map[string]interface{})}
-	configureTsConfig(c, "", nil)
-	configureTsConfig(c, "worker", f)
-	res := generateRules(language.GenerateArgs{
-		Config:       c,
-		Dir:          dir,
-		Rel:          "worker",
-		File:         f,
-		RegularFiles: []string{"tsconfig.json", "wrangler.jsonc"},
-		GenFiles:     []string{"worker-configuration.d.ts"},
+`,
+		"worker/wrangler.jsonc": `{"name":"w"}` + "\n",
+		"worker/tsconfig.json": `{"compilerOptions":{"lib":["es2022"],` +
+			`"types":["./worker-configuration.d.ts"]},` +
+			`"include":["src/**/*"]}` + "\n",
+		"worker/src/index.ts": "export const handler = (env: Env) => " +
+			"env.KV;\n",
+		"worker/src/index.test.ts": "export const t = 1;\n",
 	})
-
-	if !withdraws(res, "ts_compile", "worker") {
-		t.Errorf("ts_compile worker names only a source that is gone and is not withdrawn; Empty = %v", emptyRuleNames(res))
-	}
-	if !withdraws(res, "ts_lint", "worker_lint") {
-		t.Errorf("ts_lint worker_lint lints a target that is withdrawn and is not withdrawn with it; Empty = %v", emptyRuleNames(res))
-	}
+	compile := onDiskRule(t, root, "worker", "ts_compile", "worker")
+	wantStrings(t, "ts_compile worker deps", compile.AttrStrings("deps"),
+		[]string{":worker_types"})
+	test := onDiskRule(t, root, "worker", "ts_test", "worker_test")
+	wantStrings(t, "ts_test worker_test deps", test.AttrStrings("deps"),
+		[]string{":worker", ":worker_types"})
+	assertNoDanglingLabels(t, root)
 }
 
-// The directory the source left behind may hold nothing else, which is the path
-// that returned before any existing rule was read.
-func TestGenerate_CompileInAnEmptiedDirectoryIsWithdrawn(t *testing.T) {
-	res := runGenerateWithBuild(t, "routes", `
-ts_compile(
-    name = "routes",
-    srcs = ["index.ts"],
-    visibility = ["//visibility:public"],
+// A BUILD file an earlier run left inside an out_dir is emptied and named.
+func TestGenerate_APackageLeftUnderAnOutDirIsEmptied(t *testing.T) {
+	g := generateAll(t, writeTree(t, map[string]string{
+		"package.json": rootManifest,
+		"web/BUILD.bazel": loadDefs + `"ts_codegen")
+
+ts_codegen(
+    name = "messages",
+    srcs = ["names.txt"],
+    generator = "//:gen",
+    out_dir = "compiled",
 )
-`, map[string]string{})
+`,
+		"web/names.txt":     "hello\n",
+		"web/tsconfig.json": includeTs,
+		"web/app.ts":        "export const x = 1;\n",
+		"web/compiled/BUILD.bazel": loadDefs + `"ts_compile")
 
-	if !withdraws(res, "ts_compile", "routes") {
-		t.Errorf("ts_compile routes is alone in a directory holding no file and is not withdrawn; Empty = %v", emptyRuleNames(res))
+ts_compile(
+    name = "compiled",
+    srcs = ["index.ts"],
+)
+`,
+		"web/compiled/index.ts": "export const generated = 1;\n",
+	}))
+	res := g.results["web/compiled"]
+	if len(res.Gen) != 0 || !withdraws(res, "ts_compile", "compiled") {
+		t.Errorf("web/compiled: generated %v, Empty %v; want the withdrawal",
+			generatedNames(t, res), kindsOf(res.Empty))
+	}
+	if !strings.Contains(g.logged, "web/compiled") {
+		t.Errorf("web/compiled was not named as a package in an out_dir:\n%s",
+			g.logged)
+	}
+	web := mustRule(t, g.results["web"], "ts_compile", "web")
+	if srcs := web.AttrStrings("srcs"); hasSrc(srcs, "compiled/index.ts") {
+		t.Errorf("web's srcs %v hold a file under the out_dir", srcs)
 	}
 }
 
-// A src still on disk, a label and a glob() are all present as far as the run
-// can tell, and a package target naming one stays.
-func TestGenerate_CompileItCannotJudgeIsLeftAlone(t *testing.T) {
-	cases := []struct {
-		rel   string
-		build string
-		files map[string]string
-	}{
-		{"scripts", `ts_compile(name = "scripts", srcs = ["run.js"])`, map[string]string{"run.js": "export const run = 1;\n"}},
-		{"mixed", `ts_compile(name = "mixed", srcs = ["gone.ts", "here.js"])`, map[string]string{"here.js": "export const here = 1;\n"}},
-		{"labelled", `ts_compile(name = "labelled", srcs = [":generated"])`, map[string]string{}},
-		{"globbed", `ts_compile(name = "globbed", srcs = glob(["*.ts"]))`, map[string]string{}},
+// ---- ts_config --------------------------------------------------------------
+
+// A ts_config is written for every package and for a tsconfig.json a program's
+// chain extends; one nothing extends and no program lists gets nothing.
+func TestGenerate_TsConfigForTheRootAProgramExtends(t *testing.T) {
+	g := generateAll(t, writeTree(t, map[string]string{
+		"package.json":  rootManifest,
+		"tsconfig.json": `{"compilerOptions":{"strict":true}}` + "\n",
+		"scripts/tsconfig.json": `{"extends":"../tsconfig.json",` +
+			`"include":["*.ts"]}` + "\n",
+		"scripts/run.ts":       "export const run = 1;\n",
+		"unused/tsconfig.json": `{"compilerOptions":{"strict":true}}` + "\n",
+		"unused/README.md":     "nothing here\n",
+		"unused/BUILD.bazel": loadDefs + `"ts_config")
+
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+)
+`,
+	}))
+
+	rootRes := g.results[""]
+	cfg := mustRule(t, rootRes, "ts_config", tsConfigTargetName)
+	if got := cfg.AttrString("src"); got != "tsconfig.json" {
+		t.Errorf("root ts_config src = %q, want tsconfig.json", got)
 	}
-	for _, tc := range cases {
-		res := runGenerateWithBuild(t, tc.rel, tc.build+"\n", tc.files)
-		if withdraws(res, "ts_compile", tc.rel) {
-			t.Errorf("ts_compile %s is withdrawn over a srcs this run cannot judge; Empty = %v", tc.rel, emptyRuleNames(res))
+	if cfg.Attr("deps") != nil {
+		t.Errorf("root ts_config deps = %v, want none", cfg.Attr("deps"))
+	}
+	if r := generatedRule(rootRes, "root"); r != nil {
+		t.Errorf("the root writes a %s: its tsconfig.json is no program", r.Kind())
+	}
+
+	scripts := mustRule(t, g.results["scripts"], "ts_config", tsConfigTargetName)
+	wantStrings(t, "scripts ts_config deps", scripts.AttrStrings("deps"),
+		[]string{"//:tsconfig"})
+
+	unused := g.results["unused"]
+	if len(unused.Gen) != 0 {
+		t.Errorf("unused generated %v; nothing extends its tsconfig.json",
+			generatedNames(t, unused))
+	}
+	if !withdraws(unused, "ts_config", tsConfigTargetName) {
+		t.Errorf("unused keeps its stale ts_config; Empty = %v",
+			kindsOf(unused.Empty))
+	}
+}
+
+// Every base of an extends array is a dep; a base that is no tsconfig.json has
+// no ts_config to name, so the run says so and writes nothing for it.
+func TestGenerate_TsConfigDepsAreTheChainsBases(t *testing.T) {
+	g := generateAll(t, writeTree(t, map[string]string{
+		"package.json":           rootManifest,
+		"base/tsconfig.json":     `{"compilerOptions":{"lib":["es2022"]}}` + "\n",
+		"base/README.md":         "a base\n",
+		"strict/tsconfig.json":   `{"compilerOptions":{"strict":true}}` + "\n",
+		"strict/README.md":       "a base\n",
+		"app/tsconfig.base.json": `{"compilerOptions":{"noEmit":true}}` + "\n",
+		"app/tsconfig.json": `{"extends":["../base/tsconfig.json",` +
+			`"../strict/tsconfig.json","./tsconfig.base.json"],` +
+			`"include":["*.ts"]}` + "\n",
+		"app/a.ts": "export const a = 1;\n",
+	}))
+	cfg := mustRule(t, g.results["app"], "ts_config", tsConfigTargetName)
+	wantStrings(t, "app ts_config deps", cfg.AttrStrings("deps"),
+		[]string{"//base:tsconfig", "//strict:tsconfig"})
+	for _, base := range []string{"base", "strict"} {
+		if generatedRule(g.results[base], tsConfigTargetName) == nil {
+			t.Errorf("%s writes no ts_config; app's chain extends it", base)
 		}
 	}
-}
-
-// A generated .ts is present the way it is for a data-file rule; only a
-// declaration a ts_codegen in the package writes is one no plain srcs lists.
-func TestGenerate_CompileOverAGeneratedSourceIsLeftAlone(t *testing.T) {
-	repoRoot := t.TempDir()
-	dir := filepath.Join(repoRoot, "gen")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	f, err := rule.LoadData(filepath.Join(dir, "BUILD.bazel"), "gen", []byte(`
-genrule(
-    name = "make",
-    outs = ["gen.ts"],
-    cmd = "echo 'export const g = 1;' > $@",
-)
-
-ts_compile(
-    name = "gen",
-    srcs = ["gen.ts"],
-    visibility = ["//visibility:public"],
-)
-`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	c := &config.Config{RepoRoot: repoRoot, Exts: make(map[string]interface{})}
-	configureTsConfig(c, "", nil)
-	configureTsConfig(c, "gen", f)
-	res := generateRules(language.GenerateArgs{
-		Config:   c,
-		Dir:      dir,
-		Rel:      "gen",
-		File:     f,
-		GenFiles: []string{"gen.ts"},
-	})
-
-	if withdraws(res, "ts_compile", "gen") {
-		t.Errorf("ts_compile gen is withdrawn over a src a genrule in the package writes; Empty = %v", emptyRuleNames(res))
+	if !strings.Contains(g.logged, "tsconfig.base.json") {
+		t.Errorf("the base with no ts_config was not named:\n%s", g.logged)
 	}
 }
 
-// The merger holds a kept rule against its stub, and left the ts_lint's stub to
-// take the lint alone; neither path withdraws half of what a "# keep" holds.
-func TestGenerate_KeptCompileIsNotWithdrawnOnEitherPath(t *testing.T) {
-	const build = `# keep
-ts_compile(
-    name = "routes",
-    srcs = ["index.ts"],
-    visibility = ["//visibility:public"],
-)
+// ---- deps -------------------------------------------------------------------
 
-ts_lint(
-    name = "routes_lint",
-    srcs = ["index.ts"],
-    linter = "oxlint",
-)
+const zodLock = `lockfileVersion: '9.0'
+
+importers:
+
+  .:
+    dependencies:
+      zod:
+        specifier: ^3.24.2
+        version: 3.24.2
+
+packages:
+
+  zod@3.24.2:
+    resolution: {integrity: sha512-aaa}
+
+snapshots:
+
+  zod@3.24.2: {}
 `
-	// A tsconfig.json makes a boundary in tsconfig mode only; every-dir mode
-	// reaches the non-boundary branch with the same files.
-	for _, path := range []struct {
-		name, directive string
-	}{
-		{"tsconfig-boundary", "# gazelle:ts_package_boundary tsconfig\n"},
-		{"every-dir", ""},
-	} {
-		res := runGenerateWithBuild(t, "routes", path.directive+build,
-			map[string]string{"tsconfig.json": `{"compilerOptions":{"strict":true}}` + "\n"})
-		for _, kind := range []string{"ts_compile", "ts_lint"} {
-			name := "routes"
-			if kind == "ts_lint" {
-				name += "_lint"
-			}
-			if withdraws(res, kind, name) {
-				t.Errorf("%s: %s %s is withdrawn under a # keep on the ts_compile; Empty = %v", path.name, kind, name, emptyRuleNames(res))
-			}
-		}
+
+// The listing is the one source of deps: a specifier the lexer would read but
+// tsgo did not resolve -- the package is not installed -- yields no label.
+func TestGenerate_DepsComeFromTheListingAlone(t *testing.T) {
+	root, _ := converge(t, map[string]string{
+		"package.json": `{"name":"w","dependencies":{"zod":"3.24.2"}}` +
+			"\n",
+		pnpmLockfileName:             zodLock,
+		"node_modules/.modules.yaml": "layoutVersion: 5\n",
+		"pkg/tsconfig.json":          includeTs,
+		"pkg/a.ts": "import { z } from \"zod\";\n" +
+			"export const s = z;\n",
+	})
+	r := onDiskRule(t, root, "pkg", "ts_compile", "pkg")
+	if deps := r.AttrStrings("deps"); len(deps) != 0 {
+		t.Errorf("deps = %v, want none: no listing names zod", deps)
 	}
 }
 
-// Through the merger: the sources go, the "# keep" holds the package target, and
-// the ts_lint Gazelle wrote beside it stays as it did before either was judged.
-func TestGenerate_KeptCompileHoldsItsLint(t *testing.T) {
-	root := t.TempDir()
-	writeWorkspace(t, root, map[string]string{
-		pnpmLockfileName:      oxlintOnlyLock,
-		"oxlint.json":         "{}\n",
-		"package.json":        `{"name":"w"}` + "\n",
-		"src/routes/index.ts": "export const index = 1;\n",
+// ---- the vitest config ------------------------------------------------------
+
+// The config beside the tests is the test's, and what it imports is a dep.
+func TestGenerate_VitestConfigBesideTheTestsIsTheTests(t *testing.T) {
+	root, _ := converge(t, map[string]string{
+		"package.json":            rootManifest,
+		"shared/tsconfig.json":    includeTs,
+		"shared/vitest.shared.ts": "export const shared = true;\n",
+		"pkg/tsconfig.json":       includeSrc,
+		"pkg/src/a.ts":            "export const a = 1;\n",
+		"pkg/src/a.test.ts": "import { a } from \"./a\";\n" +
+			"export const t = a;\n",
+		"pkg/vitest.config.mts": "import { shared } from " +
+			"\"../shared/vitest.shared\";\n" +
+			"export default { test: { globals: shared } };\n",
 	})
-	convergeGazelle(t, root)
-	if ruleNamed(loadRules(t, root, "src/routes"), "ts_lint", "routes_lint") == nil {
-		t.Fatalf("no ts_lint beside the ts_compile, so this test says nothing:\n%s", generated(t, root, "src", "routes", "BUILD.bazel"))
+	test := onDiskRule(t, root, "pkg", "ts_test", "pkg_test")
+	if got := test.AttrString("config"); got != "vitest.config.mts" {
+		t.Errorf("config = %q, want vitest.config.mts", got)
 	}
+	wantStrings(t, "ts_test deps", test.AttrStrings("deps"),
+		[]string{":pkg", "//shared"})
+	assertNoDanglingLabels(t, root)
+}
 
-	build := filepath.Join(root, "src", "routes", "BUILD.bazel")
-	held := strings.Replace(generated(t, root, "src", "routes", "BUILD.bazel"), "ts_compile(\n", "# keep\nts_compile(\n", 1)
-	if err := os.WriteFile(build, []byte(held), 0o644); err != nil {
-		t.Fatal(err)
+// Plain vitest reads the config beside the nearest package.json; a test a
+// package down names it by label, and that package writes the filegroup.
+func TestGenerate_VitestConfigAtThePackageRootReachesATestBelow(t *testing.T) {
+	g := generateAll(t, writeTree(t, map[string]string{
+		"package.json":              rootManifest,
+		"worker/package.json":       `{"name":"worker"}` + "\n",
+		"worker/vitest.config.mts":  "export default { test: { globals: true } };\n",
+		"worker/tsconfig.json":      `{"include":["src/**/*"]}` + "\n",
+		"worker/src/index.ts":       "export const w = 1;\n",
+		"worker/test/tsconfig.json": includeTs,
+		"worker/test/index.test.ts": "export const t = 1;\n",
+	}))
+	test := mustRule(t, g.results["worker/test"], "ts_test", "test_test")
+	if got := test.AttrString("config"); got != "//worker:vitest_config" {
+		t.Errorf("config = %q, want //worker:vitest_config", got)
 	}
-	if err := os.Remove(filepath.Join(root, "src", "routes", "index.ts")); err != nil {
-		t.Fatal(err)
-	}
-	convergeGazelle(t, root)
+	fg := mustRule(t, g.results["worker"], "filegroup", vitestConfigTargetName)
+	wantStrings(t, "filegroup srcs", fg.AttrStrings("srcs"),
+		[]string{"vitest.config.mts"})
+	wantStrings(t, "filegroup visibility", fg.AttrStrings("visibility"),
+		[]string{"//visibility:public"})
+}
 
-	rules := loadRules(t, root, "src/routes")
-	if ruleNamed(rules, "ts_compile", "routes") == nil {
-		t.Errorf("the # keep did not hold the ts_compile:\n%s", generated(t, root, "src", "routes", "BUILD.bazel"))
+// A config beside a package.json in a directory that is no package is a label
+// nothing writes: the test gets no config and the run says which file.
+func TestGenerate_VitestConfigInANonPackageIsSaid(t *testing.T) {
+	g := generateAll(t, writeTree(t, map[string]string{
+		"package.json":           rootManifest,
+		"app/package.json":       `{"name":"app"}` + "\n",
+		"app/vitest.config.mts":  "export default { test: { globals: true } };\n",
+		"app/test/tsconfig.json": includeTs,
+		"app/test/a.test.ts":     "export const t = 1;\n",
+	}))
+	test := mustRule(t, g.results["app/test"], "ts_test", "test_test")
+	if test.Attr("config") != nil {
+		t.Errorf("config = %q, want unset: app is no package",
+			test.AttrString("config"))
 	}
-	if ruleNamed(rules, "ts_lint", "routes_lint") == nil {
-		t.Errorf("the ts_lint beside the kept ts_compile was withdrawn:\n%s", generated(t, root, "src", "routes", "BUILD.bazel"))
+	if !strings.Contains(g.logged, "app/vitest.config.mts") {
+		t.Errorf("the unreachable config was not named:\n%s", g.logged)
 	}
+	if generatedRule(g.results["app"], vitestConfigTargetName) != nil {
+		t.Errorf("app writes a filegroup in a directory that is no package")
+	}
+}
+
+// The repository root always has a BUILD file, so its config is its label.
+func TestGenerate_VitestConfigAtTheRepoRootIsTheRootLabel(t *testing.T) {
+	g := generateAll(t, writeTree(t, map[string]string{
+		"package.json":           rootManifest,
+		"vitest.config.ts":       "export default { test: { globals: true } };\n",
+		"pkg/test/tsconfig.json": includeTs,
+		"pkg/test/index.test.ts": "export const t = 1;\n",
+	}))
+	test := mustRule(t, g.results["pkg/test"], "ts_test", "test_test")
+	if got := test.AttrString("config"); got != "//:vitest_config" {
+		t.Errorf("config = %q, want //:vitest_config", got)
+	}
+	mustRule(t, g.results[""], "filegroup", vitestConfigTargetName)
+}
+
+// The config went; the filegroup goes with it.
+func TestGenerate_WithdrawsTheVitestConfigFilegroupWithTheFile(t *testing.T) {
+	g := generateAll(t, writeTree(t, map[string]string{
+		"package.json":      rootManifest,
+		"pkg/package.json":  `{"name":"pkg"}` + "\n",
+		"pkg/tsconfig.json": includeTs,
+		"pkg/a.ts":          "export const a = 1;\n",
+		"pkg/BUILD.bazel": `filegroup(
+    name = "vitest_config",
+    srcs = ["vitest.config.ts"],
+    visibility = ["//visibility:public"],
+)
+`,
+	}))
+	if !withdraws(g.results["pkg"], "filegroup", vitestConfigTargetName) {
+		t.Errorf("the filegroup outlived its file; Empty = %v",
+			kindsOf(g.results["pkg"].Empty))
+	}
+}
+
+// ---- the .d.mts / .d.cts flavours ------------------------------------------
+
+// A declaration is a declaration whatever its extension: it rides in every
+// target, and the JavaScript it stands for is a src beside it, listed or not.
+func TestGenerate_DeclarationFlavoursRideInEveryTarget(t *testing.T) {
+	g := generateAll(t, writeTree(t, map[string]string{
+		"package.json": rootManifest,
+		"pkg/tsconfig.json": `{"compilerOptions":{"lib":["es2022"]},` +
+			`"include":["*.ts","*.mts"]}` + "\n",
+		"pkg/entry.ts":    "export const e = 1;\n",
+		"pkg/compile.mjs": "export function compile(v) { return `${v}`; }\n",
+		"pkg/compile.d.mts": "export declare function compile(v: number): " +
+			"string;\n",
+		"pkg/globals.d.mts": "declare const BUILD_ID: string;\n",
+		"pkg/compile.test.ts": "import { compile } from \"./compile.mjs\";\n" +
+			"export const t = compile(1);\n",
+	}))
+	res := g.results["pkg"]
+	compile := mustRule(t, res, "ts_compile", "pkg")
+	wantStrings(t, "ts_compile srcs", compile.AttrStrings("srcs"),
+		[]string{"compile.d.mts", "compile.mjs", "entry.ts", "globals.d.mts"})
+	test := mustRule(t, res, "ts_test", "pkg_test")
+	wantStrings(t, "ts_test srcs", test.AttrStrings("srcs"),
+		[]string{"compile.d.mts", "compile.test.ts", "globals.d.mts"})
 }

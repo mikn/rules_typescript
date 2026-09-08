@@ -207,6 +207,8 @@ def _ts_codegen_impl(ctx):
             js_map_files = depset(),
             transitive_js_files = js,
             transitive_js_map_files = depset(),
+            data_files = depset(),
+            transitive_data_files = depset(),
         ),
         TsDeclarationInfo(
             declaration_files = declarations,

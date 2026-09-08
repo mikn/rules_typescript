@@ -19,11 +19,6 @@ the @types auto-inclusion off, as under tsc.
 cannot resolve out of this layout -- so it fails if the default ever moves.
 """
 
-# A BUILD file under either would make it a package: shared/ holds the alias
-# target, staged/ an ambient .d.ts that every-dir would otherwise compile.
-# gazelle:exclude shared
-# gazelle:exclude staged
-
 # Compiler options, not data: named by the tsconfig attr.
 # gazelle:exclude tsconfig.compile.json
 # gazelle:exclude tsconfig.ts_extensions.json

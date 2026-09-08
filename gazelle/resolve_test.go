@@ -1,9 +1,6 @@
 package typescript
 
 import (
-	"bytes"
-	"log"
-	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -61,15 +58,14 @@ func emptyConfig() *config.Config {
 }
 
 // repoWithDirs roots c at a real tree holding dirs, for the rows whose expected
-// dep is a constructed label rather than an index hit.
-func repoWithDirs(t *testing.T, c *config.Config, dirs ...string) {
-	t.Helper()
-	c.RepoRoot = t.TempDir()
-	for _, dir := range dirs {
-		if err := os.MkdirAll(filepath.Join(c.RepoRoot, filepath.FromSlash(dir)), 0o755); err != nil {
-			t.Fatal(err)
+
+func hasLabel(labels []string, want string) bool {
+	for _, l := range labels {
+		if l == want {
+			return true
 		}
 	}
+	return false
 }
 
 func specStrings(specs []resolve.ImportSpec) []string {
@@ -86,20 +82,20 @@ func specStrings(specs []resolve.ImportSpec) []string {
 
 // ---- importsForRule --------------------------------------------------------
 
+// Every src by its repository path, the key an edge target is looked up by.
 func TestImportsForRule_TsCompile(t *testing.T) {
 	c := emptyConfig()
 	r, f := newRule(indexedRule{
 		kind: "ts_compile", name: "components", pkg: "src/components",
-		srcs: []string{"index.ts", "Button.tsx", "helpers.ts"},
+		srcs: []string{"index.ts", "Button.tsx", "helpers.ts", "logo.svg"},
 	})
 
 	got := specStrings(importsForRule(c, r, f))
-	// index.ts additionally makes the package directory itself importable.
 	want := []string{
-		"src/components/index",
-		"src/components",
-		"src/components/Button",
-		"src/components/helpers",
+		"src/components/index.ts",
+		"src/components/Button.tsx",
+		"src/components/helpers.ts",
+		"src/components/logo.svg",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("importsForRule(ts_compile) = %v, want %v", got, want)
@@ -114,25 +110,26 @@ func TestImportsForRule_TsTestIsIndexed(t *testing.T) {
 	})
 
 	got := specStrings(importsForRule(c, r, f))
-	want := []string{"src/lib/math.test"}
+	want := []string{"src/lib/math.test.ts"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("importsForRule(ts_test) = %v, want %v", got, want)
 	}
 }
 
-func TestImportsForRule_AssetKindsUseWorkspaceRelativeSrcs(t *testing.T) {
+// A ":" pins a file whose name opens a label (labels.go); a ":" naming a rule
+// in the same file is that rule, and a label into another package is no file.
+func TestImportsForRule_LabelsInSrcsAreNotFiles(t *testing.T) {
 	c := emptyConfig()
-	for _, kind := range []string{"css_library", "css_module", "asset_library", "json_library"} {
-		r, f := newRule(indexedRule{
-			kind: kind, name: "styles", pkg: "src/components",
-			srcs: []string{"Button.module.css", "theme.css"},
-		})
-		got := specStrings(importsForRule(c, r, f))
-		// The extension is kept: TypeScript imports these by their real filename.
-		want := []string{"src/components/Button.module.css", "src/components/theme.css"}
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("importsForRule(%s) = %v, want %v", kind, got, want)
-		}
+	r, f := newRule(indexedRule{
+		kind: "ts_compile", name: "routes", pkg: "web/routes",
+		srcs: []string{":@{$username}.tsx", ":gen", "//other:thing", "@npm//:x"},
+	})
+	f.Rules = append(f.Rules, rule.NewRule("ts_codegen", "gen"))
+
+	got := specStrings(importsForRule(c, r, f))
+	want := []string{"web/routes/@{$username}.tsx"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("importsForRule = %v, want %v", got, want)
 	}
 }
 
@@ -143,1261 +140,8 @@ func TestImportsForRule_UnknownKindIsNotImportable(t *testing.T) {
 			kind: kind, name: "thing", pkg: "src/app", srcs: []string{"index.ts"},
 		})
 		if got := importsForRule(c, r, f); got != nil {
-			t.Errorf("importsForRule(%s) = %v, want nil (kind must not be indexed)", kind, got)
-		}
-	}
-}
-
-// ---- resolveImports (the deps attribute) -----------------------------------
-
-func TestResolveImports_SetsSortedDedupedDeps(t *testing.T) {
-	c := emptyConfig()
-	tc := makeConfig("", nil)
-	c.Exts[languageName] = tc
-
-	ix := buildIndex(t, c,
-		indexedRule{kind: "ts_compile", name: "lib", pkg: "src/lib", srcs: []string{"index.ts"}},
-		indexedRule{kind: "ts_compile", name: "util", pkg: "src/util", srcs: []string{"index.ts"}},
-	)
-
-	r := rule.NewRule("ts_compile", "app")
-	from := label.New("", "src/app", "app")
-	// "zod" twice: the second must not produce a duplicate dep.
-	imports := []string{"../lib", "zod", "../util", "zod"}
-	resolveImports(c, ix, r, imports, from)
-
-	got := r.AttrStrings("deps")
-	want := []string{"//src/lib", "//src/util", "@npm//:zod"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("deps = %v, want %v", got, want)
-	}
-}
-
-func TestResolveImports_NoImportsLeavesDepsUnset(t *testing.T) {
-	c := emptyConfig()
-	c.Exts[languageName] = makeConfig("", nil)
-	ix := buildIndex(t, c)
-	from := label.New("", "src/app", "app")
-
-	for name, imports := range map[string]any{
-		"nil":          nil,
-		"empty slice":  []string{},
-		"wrong type":   map[string]string{"a": "b"},
-		"only builtin": []string{"node:fs"},
-	} {
-		r := rule.NewRule("ts_compile", "app")
-		resolveImports(c, ix, r, imports, from)
-		if r.Attr("deps") != nil {
-			t.Errorf("%s imports: deps attribute was set to %v, want unset", name, r.AttrStrings("deps"))
-		}
-	}
-}
-
-func TestResolveImports_TsTestGetsRuntimeDeps(t *testing.T) {
-	c := emptyConfig()
-	tc := makeConfig("", []rule.Directive{
-		directive("ts_runtime_dep", "@npm//:happy-dom"),
-		directive("ts_runtime_dep", "@npm//:vitest_coverage-v8"),
-	})
-	c.Exts[languageName] = tc
-	ix := buildIndex(t, c)
-	from := label.New("", "src/lib", "math_test")
-
-	tsTest := rule.NewRule("ts_test", "math_test")
-	resolveImports(c, ix, tsTest, []string{"zod"}, from)
-	got := tsTest.AttrStrings("deps")
-	want := []string{"@npm//:happy-dom", "@npm//:vitest_coverage-v8", "@npm//:zod"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("ts_test deps = %v, want %v", got, want)
-	}
-
-	// The same runtime deps must NOT be added to a non-test rule.
-	tsCompile := rule.NewRule("ts_compile", "math")
-	resolveImports(c, ix, tsCompile, []string{"zod"}, from)
-	if got, want := tsCompile.AttrStrings("deps"), []string{"@npm//:zod"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("ts_compile deps = %v, want %v", got, want)
-	}
-}
-
-// A builtin's sub-path resolves to no label by design, so a warning about it
-// sends the reader after a dep that cannot exist.
-func TestResolveImports_WarnUnresolvedSkipsBuiltinSubPaths(t *testing.T) {
-	c := emptyConfig()
-	c.Exts[languageName] = makeConfig("", []rule.Directive{
-		directive("ts_warn_unresolved", "true"),
-	})
-	ix := buildIndex(t, c)
-	from := label.New("", "src/app", "app")
-
-	var logged bytes.Buffer
-	flags := log.Flags()
-	log.SetOutput(&logged)
-	log.SetFlags(0)
-	t.Cleanup(func() {
-		log.SetOutput(os.Stderr)
-		log.SetFlags(flags)
-	})
-
-	r := rule.NewRule("ts_compile", "app")
-	resolveImports(c, ix, r, []string{
-		"fs/promises", "timers/promises", "stream/web", "util/types", "virtual:routes",
-	}, from)
-
-	for _, imp := range []string{"fs/promises", "timers/promises", "stream/web", "util/types"} {
-		if strings.Contains(logged.String(), imp) {
-			t.Errorf("warned about the builtin %q:\n%s", imp, logged.String())
-		}
-	}
-	if !strings.Contains(logged.String(), "virtual:routes") {
-		t.Errorf("no warning for an import nothing resolves:\n%s", logged.String())
-	}
-}
-
-// ---- relative imports ------------------------------------------------------
-
-func TestIsRelativeImport(t *testing.T) {
-	for imp, want := range map[string]bool{
-		"./utils":     true,
-		"../lib":      true,
-		"../../a/b":   true,
-		"zod":         false,
-		"@scope/pkg":  false,
-		"@/utils":     false,
-		"/abs/path":   false,
-		"node:fs":     false,
-		".hidden/pkg": false,
-	} {
-		if got := isRelativeImport(imp); got != want {
-			t.Errorf("isRelativeImport(%q) = %v, want %v", imp, got, want)
-		}
-	}
-}
-
-func TestResolveRelative(t *testing.T) {
-	c := emptyConfig()
-	c.Exts[languageName] = makeConfig("", nil)
-	repoWithDirs(t, c, "src/generated/api")
-	ix := buildIndex(t, c,
-		indexedRule{kind: "ts_compile", name: "lib", pkg: "src/lib", srcs: []string{"index.ts", "math.ts"}},
-		indexedRule{kind: "ts_compile", name: "app", pkg: "src/app", srcs: []string{"index.ts", "main.ts"}},
-		indexedRule{kind: "css_module", name: "styles", pkg: "src/app", srcs: []string{"Button.module.css"}},
-		// A target whose name is not its directory basename: only an index hit
-		// can produce this label, so a row wanting it cannot be satisfied by
-		// the constructed-label fallback.
-		indexedRule{kind: "ts_compile", name: "core", pkg: "src/lib", srcs: []string{"helper.ts"}},
-	)
-	from := label.New("", "src/app", "app")
-
-	for _, tt := range []struct {
-		name string
-		imp  string
-		want string
-	}{
-		{"file in sibling package", "../lib/math", "//src/lib"},
-		{"directory with index.ts", "../lib", "//src/lib"},
-		{"same package is not a dep", "./main", ""},
-		// A hit inside the importing package is emitted as a package-relative
-		// label, which is what Bazel wants in that BUILD file.
-		{"css module by filename", "./Button.module.css", ":styles"},
-		{"unindexed directory falls back to a constructed label", "../generated/api", "//src/generated/api"},
-		// The extension a specifier spells out is not part of any index key:
-		// importsForRule drops it from every source it indexes. These are the
-		// two ways TypeScript lets one be spelled out.
-		{"nodenext .js specifier for a .ts source", "../lib/helper.js", "//src/lib:core"},
-		{"allowImportingTsExtensions specifier", "../lib/helper.ts", "//src/lib:core"},
-		{"nodenext .js specifier inside the package", "./main.js", ""},
-	} {
-		if got := resolveRelative(c, ix, tt.imp, from); got != tt.want {
-			t.Errorf("%s: resolveRelative(%q) = %q, want %q", tt.name, tt.imp, got, tt.want)
-		}
-	}
-}
-
-// A specifier reaching a target whose srcs live in a subdirectory of its own
-// package -- the layout `# gazelle:exclude` protects -- resolves to that target
-// and not to a package label for the subdirectory, which is not a package.
-func TestResolveRelative_SrcsInSubdirectoryOfThePackage(t *testing.T) {
-	c := emptyConfig()
-	c.Exts[languageName] = makeConfig("", nil)
-	ix := buildIndex(t, c,
-		indexedRule{kind: "ts_compile", name: "everything", pkg: "pkg", srcs: []string{"nested/leaf.ts", "util.js", "root.ts"}},
-	)
-	from := label.New("", "consumer", "consumer")
-
-	for imp, want := range map[string]string{
-		"../pkg/nested/leaf.js": "//pkg:everything",
-		"../pkg/nested/leaf":    "//pkg:everything",
-		"../pkg/util.js":        "//pkg:everything",
-	} {
-		if got := resolveRelative(c, ix, imp, from); got != want {
-			t.Errorf("resolveRelative(%q) = %q, want %q", imp, got, want)
-		}
-	}
-}
-
-func TestLabelForUnindexed(t *testing.T) {
-	// The package is the module's directory. For a path naming a file that is
-	// the parent -- naming the file itself would be a package that cannot
-	// exist -- and for a directory import it is the path itself.
-	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "src", "lib"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	from := label.New("", "src/app", "app")
-	for rel, want := range map[string]string{
-		"src/lib/math.ts":           "//src/lib",
-		"src/lib/math.js":           "//src/lib",
-		"src/lib/data.json":         "//src/lib",
-		"src/lib/Button.module.css": "//src/lib",
-		"src/lib/logo.svg":          "//src/lib",
-		"src/lib/index.ts":          "//src/lib",
-		"src/lib/index":             "//src/lib",
-		"src/lib":                   "//src/lib",
-		// A dotted last segment reads as a file: a directory really named that
-		// way loses one dep, where fabricating cost the whole build.
-		"src/lib.v2": "",
-		// Nothing outside the workspace, and nothing for the importer's own
-		// package: a label on that would be a cycle.
-		"index.ts":     "",
-		"src/app/x.ts": "",
-		"src/app":      "",
-		"..":           "",
-		"":             "",
-		// A directory that does not exist is "no such package" all the same.
-		"src/absent":         "",
-		"src/absent/math.ts": "",
-	} {
-		if got := labelForUnindexed(root, rel, from); got != want {
-			t.Errorf("labelForUnindexed(%q) = %q, want %q", rel, got, want)
-		}
-	}
-}
-
-func TestModuleIndexKeys_DropsTheSpelledOutExtension(t *testing.T) {
-	keys := moduleIndexKeys(t.TempDir(), "src/lib/math.js", []string{".ts"})
-	want := []string{
-		"src/lib/math.js",
-		"src/lib/math",
-		"src/lib/math.ts",
-		"src/lib/math/index.ts",
-		"src/lib/math/index.tsx",
-	}
-	if len(keys) != len(want) {
-		t.Fatalf("moduleIndexKeys = %q, want %q", keys, want)
-	}
-	for i := range want {
-		if keys[i] != want[i] {
-			t.Errorf("moduleIndexKeys[%d] = %q, want %q", i, keys[i], want[i])
-		}
-	}
-}
-
-// ---- path aliases ----------------------------------------------------------
-
-func aliasConfig() *config.Config {
-	return configWithAliases(map[string]string{"@/": "src/", "~ui/": "packages/ui/src/"})
-}
-
-// configWithAliases is a root config whose alias map is the given one, the
-// shape loadTsConfigPaths leaves behind for the resolver.
-func configWithAliases(aliases map[string]string) *config.Config {
-	c := emptyConfig()
-	tc := makeConfig("", nil)
-	tc.pathAliases = aliases
-	c.Exts[languageName] = tc
-	return c
-}
-
-func TestIsPathAlias(t *testing.T) {
-	tc := getConfig(aliasConfig())
-	for imp, want := range map[string]bool{
-		"@/lib/math":     true,
-		"~ui/Button":     true,
-		"@types/node":    false,
-		"@tanstack/form": false,
-		"./relative":     false,
-		"zod":            false,
-	} {
-		if got := isPathAlias(tc, imp); got != want {
-			t.Errorf("isPathAlias(%q) = %v, want %v", imp, got, want)
-		}
-	}
-}
-
-func TestResolvePathAlias(t *testing.T) {
-	c := aliasConfig()
-	tc := getConfig(c)
-	repoWithDirs(t, c, "src/generated/api")
-	ix := buildIndex(t, c,
-		indexedRule{kind: "ts_compile", name: "lib", pkg: "src/lib", srcs: []string{"index.ts", "math.ts"}},
-		// A barrel package: its index.ts is what makes "src/utils" itself an
-		// import target, which is what the sub-path fallback below looks for.
-		indexedRule{kind: "ts_compile", name: "utils", pkg: "src/utils", srcs: []string{"index.ts"}},
-		indexedRule{kind: "ts_compile", name: "ui", pkg: "packages/ui/src", srcs: []string{"index.ts"}},
-		indexedRule{kind: "ts_compile", name: "core", pkg: "src/lib", srcs: []string{"helper.ts"}},
-	)
-	from := label.New("", "src/app", "app")
-
-	for _, tt := range []struct {
-		name string
-		imp  string
-		want string
-	}{
-		{"alias to a file", "@/lib/math", "//src/lib"},
-		{"alias to a barrel directory", "@/lib", "//src/lib"},
-		{"second alias with a different prefix", "~ui/", "//packages/ui/src:ui"},
-		{"sub-path compiled into the parent package", "@/utils/helpers", "//src/utils"},
-		{"unindexed alias target falls back to a label", "@/generated/api", "//src/generated/api"},
-		// An alias specifier can spell the extension out for the same reasons a
-		// relative one can.
-		{"alias with a nodenext .js extension", "@/lib/helper.js", "//src/lib:core"},
-		{"alias with a .ts extension", "@/lib/helper.ts", "//src/lib:core"},
-		{"unindexed alias file falls back to its directory", "@/generated/api.ts", "//src/generated"},
-	} {
-		if got := resolvePathAlias(c, ix, tc, tt.imp, from); got != tt.want {
-			t.Errorf("%s: resolvePathAlias(%q) = %q, want %q", tt.name, tt.imp, got, tt.want)
-		}
-	}
-
-	if got := resolvePathAlias(c, ix, tc, "zod", from); got != "" {
-		t.Errorf("resolvePathAlias on a non-alias import = %q, want \"\"", got)
-	}
-}
-
-func TestResolveImport_DispatchesOnSpecifierShape(t *testing.T) {
-	c := aliasConfig()
-	tc := getConfig(c)
-	ix := buildIndex(t, c,
-		indexedRule{kind: "ts_compile", name: "lib", pkg: "src/lib", srcs: []string{"index.ts"}},
-	)
-	from := label.New("", "src/app", "app")
-
-	for imp, want := range map[string]string{
-		"../lib":     "//src/lib",
-		"@/lib":      "//src/lib",
-		"zod":        "@npm//:zod",
-		"node:fs":    "",
-		"@types/pkg": "@npm//:types_pkg",
-	} {
-		if got := resolveImport(c, ix, tc, "ts_compile", nil, imp, from); got != want {
-			t.Errorf("resolveImport(%q) = %q, want %q", imp, got, want)
-		}
-	}
-}
-
-// ---- npm labels ------------------------------------------------------------
-
-func TestResolveNpmPackage(t *testing.T) {
-	tc := makeConfig("", nil)
-	for imp, want := range map[string]string{
-		"zod":                      "@npm//:zod",
-		"vitest":                   "@npm//:vitest",
-		"react/jsx-runtime":        "@npm//:react",
-		"@types/react":             "@npm//:types_react",
-		"@tanstack/router":         "@npm//:tanstack_router",
-		"@tanstack/router/history": "@npm//:tanstack_router",
-		"node:fs":                  "",
-		"./relative":               "",
-		"/absolute":                "",
-		"@vitejs/plugin-react-swc": "@npm//:vitejs_plugin-react-swc",
-		"lodash.debounce":          "@npm//:lodash.debounce",
-		"@scope/pkg/deep/sub/path": "@npm//:scope_pkg",
-		"unscoped/deep/sub/path":   "@npm//:unscoped",
-	} {
-		if got := resolveNpmPackage(tc, imp); got != want {
-			t.Errorf("resolveNpmPackage(%q) = %q, want %q", imp, got, want)
-		}
-	}
-}
-
-func TestResolveNpmPackage_ExplicitMappingWins(t *testing.T) {
-	tc := makeConfig("", nil)
-	tc.npmPackages = map[string]string{
-		"react":            "@npm_features//:react",
-		"@tanstack/router": "//third_party/tanstack:router",
-	}
-
-	for imp, want := range map[string]string{
-		"react":                    "@npm_features//:react",
-		"react/jsx-runtime":        "@npm_features//:react",
-		"@tanstack/router/history": "//third_party/tanstack:router",
-		"zod":                      "@npm//:zod",
-	} {
-		if got := resolveNpmPackage(tc, imp); got != want {
-			t.Errorf("resolveNpmPackage(%q) = %q, want %q", imp, got, want)
-		}
-	}
-}
-
-func TestNpmPackageToLabelName(t *testing.T) {
-	for pkg, want := range map[string]string{
-		"vitest":           "vitest",
-		"@types/react":     "types_react",
-		"@tanstack/router": "tanstack_router",
-		"@scope/a-b.c":     "scope_a-b.c",
-		"lodash.debounce":  "lodash.debounce",
-	} {
-		if got := npmPackageToLabelName(pkg); got != want {
-			t.Errorf("npmPackageToLabelName(%q) = %q, want %q", pkg, got, want)
-		}
-	}
-}
-
-func TestBarePackageName(t *testing.T) {
-	for imp, want := range map[string]string{
-		"react":                    "react",
-		"react/jsx-runtime":        "react",
-		"@tanstack/router":         "@tanstack/router",
-		"@tanstack/router/history": "@tanstack/router",
-		"@scope":                   "@scope",
-		"a/b/c":                    "a",
-	} {
-		if got := barePackageName(imp); got != want {
-			t.Errorf("barePackageName(%q) = %q, want %q", imp, got, want)
-		}
-	}
-}
-
-// ---- extensions ------------------------------------------------------------
-// isNodeBuiltin is covered by TestIsNodeBuiltin in imports_test.go.
-
-func TestDropTsExtension(t *testing.T) {
-	for name, want := range map[string]string{
-		"math.ts":           "math",
-		"Button.tsx":        "Button",
-		"legacy.js":         "legacy",
-		"styles.module.css": "styles.module.css",
-		"config.json":       "config.json",
-		"no-extension":      "no-extension",
-		"a.ts.backup":       "a.ts.backup",
-	} {
-		if got := dropTsExtension(name); got != want {
-			t.Errorf("dropTsExtension(%q) = %q, want %q", name, got, want)
-		}
-	}
-}
-
-// ---- path alias precedence -------------------------------------------------
-
-// aliasPermutations returns every insertion order of the given entries as a
-// distinct map, so that a test cannot pass by luck of one map layout.
-func aliasPermutations(entries [][2]string) []map[string]string {
-	if len(entries) == 0 {
-		return []map[string]string{{}}
-	}
-	var out []map[string]string
-	for i := range entries {
-		rest := make([][2]string, 0, len(entries)-1)
-		rest = append(rest, entries[:i]...)
-		rest = append(rest, entries[i+1:]...)
-		for _, tail := range aliasPermutations(rest) {
-			m := map[string]string{entries[i][0]: entries[i][1]}
-			for k, v := range tail {
-				m[k] = v
-			}
-			out = append(out, m)
-		}
-	}
-	return out
-}
-
-// overlappingAliases is an alias set in which several keys match the same
-// specifier: the shape a tsconfig produces when it declares both "@shared" and
-// "@shared/*".
-var overlappingAliases = [][2]string{
-	{"@", "src/root"},
-	{"@/", "src/"},
-	{"@shared", "src/shared/index"},
-	{"@shared/", "src/shared/"},
-	{"@shared/deep/", "src/shared/deep/"},
-}
-
-func TestMatchPathAlias_LongestKeyWinsUnderEveryMapOrder(t *testing.T) {
-	perms := aliasPermutations(overlappingAliases)
-	if len(perms) != 120 {
-		t.Fatalf("expected 120 permutations of 5 entries, got %d", len(perms))
-	}
-
-	for _, tt := range []struct {
-		name       string
-		imp        string
-		wantOK     bool
-		wantPrefix string
-		wantDir    string
-		wantRest   string
-	}{
-		{"wildcard key beats the shorter whole-module key", "@shared/value", true, "@shared/", "src/shared/", "value"},
-		{"the whole-module key matches the bare specifier", "@shared", true, "@shared", "src/shared/index", ""},
-		{"deepest wildcard key wins", "@shared/deep/leaf", true, "@shared/deep/", "src/shared/deep/", "leaf"},
-		{"a key only matches at a segment boundary", "@sharedX/value", false, "", "", ""},
-		{"single-character key still matches its own subtree", "@/lib/math", true, "@/", "src/", "lib/math"},
-		{"bare key matches itself exactly", "@", true, "@", "src/root", ""},
-		{"a bare specifier is not an alias", "react", false, "", "", ""},
-	} {
-		for i, aliases := range perms {
-			tc := &tsConfig{pathAliases: aliases}
-			got, ok := matchPathAlias(tc, tt.imp)
-			if ok != tt.wantOK {
-				t.Fatalf("%s (perm %d): matchPathAlias(%q) ok = %v, want %v", tt.name, i, tt.imp, ok, tt.wantOK)
-			}
-			if !tt.wantOK {
-				continue
-			}
-			if got.prefix != tt.wantPrefix || got.dir != tt.wantDir || got.rest != tt.wantRest {
-				t.Fatalf("%s (perm %d): matchPathAlias(%q) = {prefix:%q dir:%q rest:%q}, want {prefix:%q dir:%q rest:%q}",
-					tt.name, i, tt.imp, got.prefix, got.dir, got.rest, tt.wantPrefix, tt.wantDir, tt.wantRest)
-			}
-		}
-	}
-}
-
-func TestAliasRest(t *testing.T) {
-	for _, tt := range []struct {
-		prefix, imp, wantRest string
-		wantOK                bool
-	}{
-		{"@/", "@/lib", "lib", true},
-		{"@/", "@/", "", true},
-		{"@/", "@x", "", false},
-		{"@shared", "@shared", "", true},
-		{"@shared", "@shared/value", "value", true},
-		{"@shared", "@shared/deep/leaf", "deep/leaf", true},
-		{"@shared", "@sharedX", "", false},
-		{"@shared", "@share", "", false},
-		{"packages/shared", "packages/shared-ui/x", "", false},
-	} {
-		gotRest, gotOK := aliasRest(tt.prefix, tt.imp)
-		if gotOK != tt.wantOK || gotRest != tt.wantRest {
-			t.Errorf("aliasRest(%q, %q) = (%q, %v), want (%q, %v)",
-				tt.prefix, tt.imp, gotRest, gotOK, tt.wantRest, tt.wantOK)
-		}
-	}
-}
-
-// TestResolvePathAlias_OverlappingKeysResolveToOneLabel pins the generated dep
-// for a specifier that several alias keys match. Before longest-key precedence
-// this returned either //src/shared or //src/shared/index/value depending on
-// map iteration order, and a hard strict-deps error turns the wrong one into a
-// failing build.
-func TestResolvePathAlias_OverlappingKeysResolveToOneLabel(t *testing.T) {
-	c := emptyConfig()
-	repoWithDirs(t, c, "src/shared")
-	// No index.ts: a barrel would make both candidate expansions converge on
-	// the same label and hide the defect.
-	ix := buildIndex(t, c,
-		indexedRule{kind: "ts_compile", name: "shared", pkg: "src/shared", srcs: []string{"value.ts"}},
-	)
-	from := label.New("", "src/app", "app")
-
-	for _, tt := range []struct {
-		imp  string
-		want string
-	}{
-		{"@shared/value", "//src/shared"},
-		{"@shared", "//src/shared"},
-		{"@sharedX/value", ""},
-	} {
-		for i, aliases := range aliasPermutations(overlappingAliases) {
-			tc := &tsConfig{pathAliases: aliases, packageBoundaryMode: boundaryEveryDir}
-			if got := resolvePathAlias(c, ix, tc, tt.imp, from); got != tt.want {
-				t.Fatalf("perm %d: resolvePathAlias(%q) = %q, want %q", i, tt.imp, got, tt.want)
-			}
-		}
-	}
-}
-
-func TestIsPathAlias_UsesTheSameMatcherAsResolution(t *testing.T) {
-	tc := &tsConfig{pathAliases: map[string]string{
-		"@shared":  "src/shared/index",
-		"@shared/": "src/shared/",
-	}}
-	for imp, want := range map[string]bool{
-		"@shared":        true,
-		"@shared/value":  true,
-		"@sharedX":       false,
-		"@sharedX/value": false,
-		"react":          false,
-	} {
-		if got := isPathAlias(tc, imp); got != want {
-			t.Errorf("isPathAlias(%q) = %v, want %v", imp, got, want)
-		}
-	}
-}
-
-func TestNpmLabelForImport_RejectsSchemeSpecifiers(t *testing.T) {
-	tc := &tsConfig{}
-	for _, imp := range []string{"virtual:answer", "virtual:routes/generated", "data:text/javascript,0"} {
-		if got := resolveNpmPackage(tc, imp); got != "" {
-			t.Errorf("resolveNpmPackage(%q) = %q, want \"\" (a target name cannot contain ':')", imp, got)
-		}
-	}
-	if got := resolveNpmPackage(tc, "zod"); got != "@npm//:zod" {
-		t.Errorf("resolveNpmPackage(\"zod\") = %q, want @npm//:zod", got)
-	}
-}
-
-// ---- bare specifiers -------------------------------------------------------
-
-func TestResolveImport_BareSpecifiers(t *testing.T) {
-	c := emptyConfig()
-	c.Exts[languageName] = makeConfig("", nil)
-	tc := getConfig(c)
-	ix := buildIndex(t, c,
-		indexedRule{kind: "ts_compile", name: "lib", pkg: "packages/lib", srcs: []string{"index.ts"}},
-	)
-	from := label.New("", "app", "app")
-
-	for _, tt := range []struct {
-		name string
-		imp  string
-		want string
-	}{
-		// A bare name no alias and no lockfile member covers is the hub's,
-		// whatever first-party target happens to be indexed.
-		{"a bare name is not a first-party target", "@acme/lib", "@npm//:acme_lib"},
-		// Node builtins are not packages under either spelling.
-		{"bare builtin", "path", ""},
-		{"bare builtin sub-path", "fs/promises", ""},
-		{"prefixed builtin", "node:path", ""},
-		// The legacy names builtinModules still reports are builtins too, so
-		// neither gets a hub label.
-		{"legacy bare builtin", "sys", ""},
-		{"legacy underscore builtin", "_stream_readable", ""},
-		// Everything else still gets the hub label.
-		{"npm package", "zod", "@npm//:zod"},
-		{"scoped npm package", "@tanstack/router", "@npm//:tanstack_router"},
-	} {
-		if got := resolveImport(c, ix, tc, "ts_compile", nil, tt.imp, from); got != tt.want {
-			t.Errorf("%s: resolveImport(%q) = %q, want %q", tt.name, tt.imp, got, tt.want)
-		}
-	}
-}
-
-// A workspace with more than one npm hub is the normal case, not an exotic one:
-// a curated fixture lockfile beside a real one, or a tool's dependencies kept
-// out of an app's closure. The hub is a property of the package doing the
-// importing, so it comes from a directive rather than from the repo.
-func TestResolveNpmPackage_HubFromDirective(t *testing.T) {
-	tc := makeConfig("", nil)
-	tc.npmHub = "@npm_eslint"
-	for imp, want := range map[string]string{
-		"eslint":                    "@npm_eslint//:eslint",
-		"@typescript-eslint/utils":  "@npm_eslint//:typescript-eslint_utils",
-		"@typescript-eslint/parser": "@npm_eslint//:typescript-eslint_parser",
-		// Still not packages, whichever hub is named.
-		"node:fs":    "",
-		"./relative": "",
-	} {
-		if got := resolveNpmPackage(tc, imp); got != want {
-			t.Errorf("resolveNpmPackage(%q) = %q, want %q", imp, got, want)
-		}
-	}
-
-	// An unset hub is the default, not "//:eslint" -- which would resolve to a
-	// target in the importing repo rather than failing.
-	tc.npmHub = ""
-	if got := resolveNpmPackage(tc, "eslint"); got != "@npm//:eslint" {
-		t.Errorf("an empty hub gave %q, want the @npm default", got)
-	}
-}
-
-// Both spellings reach a BUILD file, so both have to mean the same hub.
-func TestNormalizeNpmHub(t *testing.T) {
-	for value, want := range map[string]string{
-		"npm_eslint":     "@npm_eslint",
-		"@npm_eslint":    "@npm_eslint",
-		"@npm_eslint//":  "@npm_eslint",
-		"  npm_eslint  ": "@npm_eslint",
-		"":               "@npm",
-	} {
-		if got := normalizeNpmHub(value); got != want {
-			t.Errorf("normalizeNpmHub(%q) = %q, want %q", value, got, want)
-		}
-	}
-}
-
-// TestResolveImports_AmbientTypesReachEveryCheckedKind: an ambient declaration
-// has no import, so the dep cannot come from the import list -- including for a
-// file whose only use of the package is a global and which imports nothing at
-// all. That is the case the directive exists for, and the one the resolver's
-// empty-imports guard used to return before.
-func TestResolveImports_AmbientTypesReachEveryCheckedKind(t *testing.T) {
-	newConfig := func() *config.Config {
-		c := emptyConfig()
-		c.Exts[languageName] = makeConfig("", []rule.Directive{
-			directive("ts_ambient_types", "@npm//:types_node"),
-		})
-		return c
-	}
-	from := label.New("", "src/app", "app")
-
-	for _, tt := range []struct {
-		kind    string
-		imports any
-		want    []string
-	}{
-		{"ts_compile", []string{"zod"}, []string{"@npm//:types_node", "@npm//:zod"}},
-		{"ts_compile", nil, []string{"@npm//:types_node"}},
-		{"ts_compile", []string{}, []string{"@npm//:types_node"}},
-		{"ts_compile", []string{"node:fs"}, []string{"@npm//:types_node"}},
-		{"ts_test", []string{"zod"}, []string{"@npm//:types_node", "@npm//:zod"}},
-		{"ts_test", nil, []string{"@npm//:types_node"}},
-	} {
-		c := newConfig()
-		ix := buildIndex(t, c)
-		r := rule.NewRule(tt.kind, "app")
-		resolveImports(c, ix, r, tt.imports, from)
-		if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, tt.want) {
-			t.Errorf("%s with imports %v: deps = %v, want %v", tt.kind, tt.imports, got, tt.want)
-		}
-	}
-
-	// A kind tsgo does not type-check gets nothing: an ambient declaration
-	// cannot reach a filegroup or a css_module.
-	for _, kind := range []string{"filegroup", "css_module", "ts_lint"} {
-		c := newConfig()
-		ix := buildIndex(t, c)
-		r := rule.NewRule(kind, "thing")
-		resolveImports(c, ix, r, nil, from)
-		if r.Attr("deps") != nil {
-			t.Errorf("%s: deps = %v, want unset", kind, r.AttrStrings("deps"))
-		}
-	}
-}
-
-// A directory import names the directory the index file is in, which is only
-// the target's own package when the file sits directly in it. A rolled-up
-// src/index.ts belongs to the package above, and indexing the directory import
-// under that package makes `../src` resolve to a package that does not exist.
-func TestImportsForRule_DirectoryImportNamesTheIndexFilesOwnDirectory(t *testing.T) {
-	r, f := newRule(indexedRule{
-		kind: "ts_compile", name: "worker", pkg: "workers/w",
-		srcs: []string{"src/index.ts", "src/handlers/index.ts", "index.ts"},
-	})
-
-	got := specStrings(importsForRule(nil, r, f))
-	for _, want := range []string{"workers/w/src", "workers/w/src/handlers", "workers/w"} {
-		found := false
-		for _, g := range got {
-			if g == want {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("specs %v: missing the directory import %q", got, want)
-		}
-	}
-}
-
-// A bundler query suffix selects how a file is loaded, not what is loaded:
-// `./config.json?raw` is the same file as `./config.json`. Carried into the
-// label it names a package that cannot exist, and Bazel fails the build at
-// analysis rather than dropping the one dep.
-func TestResolveImports_BundlerQuerySuffixNamesTheSameFile(t *testing.T) {
-	c := emptyConfig()
-	c.Exts[languageName] = makeConfig("", nil)
-
-	ix := buildIndex(t, c,
-		indexedRule{kind: "json_library", name: "_config_json", pkg: "worker", srcs: []string{"config.json"}},
-		indexedRule{kind: "ts_compile", name: "lib", pkg: "worker/lib", srcs: []string{"index.ts"}},
-	)
-
-	for _, imp := range []string{"../config.json?raw", "../config.json?url", "../lib?worker"} {
-		r := rule.NewRule("ts_compile", "app")
-		resolveImports(c, ix, r, []string{imp}, label.New("", "worker/src", "src"))
-		got := r.AttrStrings("deps")
-		if len(got) != 1 {
-			t.Errorf("%s: deps = %v, want one entry", imp, got)
-			continue
-		}
-		if strings.Contains(got[0], "?") {
-			t.Errorf("%s: deps = %v, the query suffix reached the label", imp, got)
-		}
-	}
-}
-
-// An extension the ruleset does not classify cannot be turned into a package:
-// //pkg/SKILL.mdx is a directory Bazel will not find, and it fails the whole
-// build rather than the one target missing a dep.
-func TestLabelForUnindexed_UnclassifiedExtensionFabricatesNothing(t *testing.T) {
-	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "src", "lib"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	from := label.New("", "src/app", "app")
-	for _, rel := range []string{
-		"src/lib/SKILL.mdx",
-		"src/lib/notes.rst",
-		"src/lib/schema.graphql",
-		"src/lib/widget.js.bin",
-	} {
-		if got := labelForUnindexed(root, rel, from); got != "" {
-			t.Errorf("labelForUnindexed(%q) = %q, want %q", rel, got, "")
-		}
-	}
-}
-
-// A specifier that maps inside the workspace but names a directory nobody
-// created -- a "#" import of a codegen output that has not been generated, say
-// -- used to become a cross-package label, and "no such package" fails analysis
-// for every target in the build where a dropped dep leaves one TS2307.
-func TestResolveImports_MissingDirectoryFabricatesNothing(t *testing.T) {
-	c := configWithAliases(map[string]string{"#shared/": "web/shared/"})
-	repoWithDirs(t, c, "web/src", "web/shared")
-	ix := buildIndex(t, c)
-	from := label.New("", "web", "web")
-
-	for _, imp := range []string{
-		"#shared/i18n/compiled/messages",
-		"#shared/i18n/compiled/messages.ts",
-		"./shared/i18n/compiled/messages",
-	} {
-		r := rule.NewRule("ts_compile", "web")
-		resolveImports(c, ix, r, []string{imp}, from)
-		if got := r.AttrStrings("deps"); len(got) != 0 {
-			t.Errorf("%s: deps = %v, want none", imp, got)
-		}
-	}
-}
-
-// skipRolledUpDir skips a dot-directory, node_modules, dist and bazel-out, so
-// under tsconfig mode nothing claims their files and no BUILD file is written in
-// them. A label naming one is the resolver contradicting the generator, and
-// Bazel answers it with `no such package` during analysis.
-//
-// Every directory below is on disk, so the neighbouring existence guard cannot
-// be what answers these.
-func TestLabelForUnindexed_DirectoryTheGeneratorSkipsFabricatesNothing(t *testing.T) {
-	root := t.TempDir()
-	for _, dir := range []string{
-		"web/shared/public/.well-known", "web/.generated/api", "web/dist",
-		"web/node_modules/acme", "bazel-out/gen",
-	} {
-		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(dir)), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	from := label.New("", "web/src", "src")
-	for _, rel := range []string{
-		"web/shared/public/.well-known/assetlinks.json",
-		"web/shared/public/.well-known",
-		"web/.generated/api/index.ts",
-		"web/dist/bundle.js",
-		"web/node_modules/acme/index.ts",
-		"bazel-out/gen/thing.ts",
-	} {
-		if got := labelForUnindexed(root, rel, from); got != "" {
-			t.Errorf("labelForUnindexed(%q) = %q, want %q", rel, got, "")
-		}
-	}
-}
-
-// #90 read the generator's walk as if it answered "is this a package", and it
-// does not: `.github/scripts` in the Lovable monorepo holds a hand-written
-// BUILD.bazel declaring eight targets, and the dep on it was dropped. What the
-// generator would write there says nothing about a package somebody wrote.
-func TestLabelForUnindexed_ACheckedInBuildFileMakesItAPackage(t *testing.T) {
-	root := t.TempDir()
-	for dir, buildFile := range map[string]string{
-		".github/scripts":       "BUILD.bazel",
-		"web/dist/staged":       "BUILD",
-		"web/node_modules/tool": "BUILD.bazel",
-		"web/.no-build/sub":     "",
-	} {
-		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(dir)), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if buildFile == "" {
-			continue
-		}
-		writeFile(t, filepath.Join(root, filepath.FromSlash(dir), buildFile), "")
-	}
-	from := label.New("", "infra/buildkite/governance", "governance")
-	for rel, want := range map[string]string{
-		// The monorepo case: a plain require() of a .js file the package's own
-		// srcs do not list, so no indexed rule answers and this is the fallback.
-		".github/scripts/request-author-team-reviewers.js": "//.github/scripts",
-		".github/scripts":          "//.github/scripts",
-		"web/dist/staged/index.ts": "//web/dist/staged",
-		"web/node_modules/tool":    "//web/node_modules/tool",
-		// No BUILD file, so the generator's refusal to walk it still stands.
-		"web/.no-build/sub": "",
-	} {
-		if got := labelForUnindexed(root, rel, from); got != want {
-			t.Errorf("labelForUnindexed(%q) = %q, want %q", rel, got, want)
-		}
-	}
-}
-
-// The whole resolution, not just the label helper: a dot-directory package
-// nothing indexes still reaches deps.
-func TestResolveImports_CheckedInDotDirectoryPackageIsStillADep(t *testing.T) {
-	c := emptyConfig()
-	c.Exts[languageName] = makeConfig("", nil)
-	repoWithDirs(t, c, "infra/buildkite/governance")
-	writeFile(t, filepath.Join(c.RepoRoot, ".github", "scripts", "BUILD.bazel"), "")
-	ix := buildIndex(t, c)
-
-	r := rule.NewRule("ts_compile", "governance")
-	resolveImports(c, ix, r, []string{"../../../.github/scripts/request-author-team-reviewers.js"},
-		label.New("", "infra/buildkite/governance", "governance"))
-
-	want := []string{"//.github/scripts"}
-	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
-		t.Errorf("deps = %v, want %v", got, want)
-	}
-}
-
-// path.Ext takes everything after the final dot, so a dot-name has no other
-// dot and reads as one long extension. Every dot-directory looked like a file
-// to the unclassified-extension guard, which runs before any package check.
-func TestNameExtension(t *testing.T) {
-	for rel, want := range map[string]string{
-		"tools/.internal":     "",
-		".well-known":         "",
-		"tools/.internal.old": ".old",
-		"p/x.wasm":            ".wasm",
-		"p/plain":             "",
-	} {
-		if got := nameExtension(rel); got != want {
-			t.Errorf("nameExtension(%q) = %q, want %q", rel, got, want)
-		}
-	}
-}
-
-// A dot-name directory carrying a checked-in BUILD file is #97's case one guard
-// earlier: the unclassified-extension branch dropped it before the package
-// checks ran, so a real package got no dep.
-func TestLabelForUnindexed_ADotNameDirectoryIsNotAFileExtension(t *testing.T) {
-	root := t.TempDir()
-	for dir, buildFile := range map[string]string{
-		"p/tools/.internal":             "BUILD.bazel",
-		"p/tools/.internal.old":         "BUILD.bazel",
-		"p/assets/theme.dark":           "BUILD.bazel",
-		"web/shared/public/.well-known": "",
-	} {
-		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(dir)), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if buildFile == "" {
-			continue
-		}
-		writeFile(t, filepath.Join(root, filepath.FromSlash(dir), buildFile), "")
-	}
-	writeFile(t, filepath.Join(root, "p", "shader.wasm"), "")
-	writeFile(t, filepath.Join(root, "p", "tools", ".eslintrc"), "")
-
-	from := label.New("", "p/src", "src")
-	for rel, want := range map[string]string{
-		"p/tools/.internal": "//p/tools/.internal",
-		// No BUILD file: the generator's refusal to walk it is what answers now
-		// that the extension guard no longer does.
-		"web/shared/public/.well-known": "",
-		// A dot inside the name is still an extension, and an unclassified one
-		// still names a file: unchanged, BUILD file or not.
-		"p/tools/.internal.old": "",
-		"p/assets/theme.dark":   "",
-		"p/shader.wasm":         "",
-		// A dot-name that really is a file: the extension guard was answering
-		// this one, and #86's directory stat answers it now.
-		"p/tools/.eslintrc": "",
-		"p/missing.wasm":    "",
-	} {
-		if got := labelForUnindexed(root, rel, from); got != want {
-			t.Errorf("labelForUnindexed(%q) = %q, want %q", rel, got, want)
-		}
-	}
-}
-
-// The whole resolution, not just the label helper: the bare directory import of
-// a dot-name package, beside an identically shaped plain-name control that has
-// always resolved.
-func TestResolveImports_DotNameDirectoryPackageIsStillADep(t *testing.T) {
-	c := emptyConfig()
-	c.Exts[languageName] = makeConfig("", nil)
-	repoWithDirs(t, c, "p/src")
-	for _, dir := range []string{"p/tools/.internal", "p/tools/plain"} {
-		if err := os.MkdirAll(filepath.Join(c.RepoRoot, filepath.FromSlash(dir)), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		writeFile(t, filepath.Join(c.RepoRoot, filepath.FromSlash(dir), "BUILD.bazel"), "")
-	}
-	ix := buildIndex(t, c)
-
-	r := rule.NewRule("ts_compile", "src")
-	resolveImports(c, ix, r, []string{"../tools/.internal", "../tools/plain"},
-		label.New("", "p/src", "src"))
-
-	want := []string{"//p/tools/.internal", "//p/tools/plain"}
-	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
-		t.Errorf("deps = %v, want %v", got, want)
-	}
-}
-
-// The guard is a fallback, not a ban: every-dir mode does make a package of a
-// dot-directory, and an indexed rule there answers before anything is
-// fabricated.
-func TestResolveRelative_IndexedDotDirectoryStillResolves(t *testing.T) {
-	c := emptyConfig()
-	c.Exts[languageName] = makeConfig("", nil)
-	repoWithDirs(t, c, "p/.config", "p/src")
-	ix := buildIndex(t, c,
-		indexedRule{kind: "json_library", name: "data_json", pkg: "p/.config", srcs: []string{"data.json"}},
-		indexedRule{kind: "ts_compile", name: ".config", pkg: "p/.config", srcs: []string{"index.ts"}},
-	)
-	from := label.New("", "p/src", "src")
-
-	for imp, want := range map[string]string{
-		"../.config/data.json": "//p/.config:data_json",
-		"../.config":           "//p/.config",
-	} {
-		if got := resolveRelative(c, ix, imp, from); got != want {
-			t.Errorf("resolveRelative(%q) = %q, want %q", imp, got, want)
-		}
-	}
-}
-
-// The monorepo shape: a `?raw` import of an asset in a dot-directory below a
-// tsconfig package boundary. `//web/shared/public/.well-known` fails analysis
-// for every target in the build; no dep leaves the compile one TS2307. The
-// directory is on disk, so only this guard can answer.
-func TestResolveImports_DotDirectoryAssetFabricatesNothing(t *testing.T) {
-	c := emptyConfig()
-	c.Exts[languageName] = makeConfig("", nil)
-	repoWithDirs(t, c, "web/shared/public/.well-known")
-	ix := buildIndex(t, c)
-	from := label.New("", "web", "web")
-
-	for _, imp := range []string{
-		"./shared/public/.well-known/assetlinks.json?raw",
-		"./shared/public/.well-known/apple-app-site-association?raw",
-	} {
-		r := rule.NewRule("ts_compile", "web")
-		resolveImports(c, ix, r, []string{imp}, from)
-		if got := r.AttrStrings("deps"); len(got) != 0 {
-			t.Errorf("%s: deps = %v, want none", imp, got)
-		}
-	}
-}
-
-// An npm specifier carries them too: `virtual:x` is excluded elsewhere for the
-// same reason, but `?worker` is a plain package with a loader hint on it.
-func TestResolveImports_QuerySuffixOnNpmPackage(t *testing.T) {
-	c := emptyConfig()
-	c.Exts[languageName] = makeConfig("", nil)
-	ix := buildIndex(t, c)
-
-	r := rule.NewRule("ts_compile", "app")
-	resolveImports(c, ix, r, []string{"comlink?worker"}, label.New("", "src", "src"))
-
-	got := r.AttrStrings("deps")
-	want := []string{"@npm//:comlink"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("deps = %v, want %v", got, want)
-	}
-}
-
-func TestResolveImports_UnclassifiedExtensionWarnsInsteadOfFabricating(t *testing.T) {
-	c := emptyConfig()
-	c.Exts[languageName] = makeConfig("", []rule.Directive{
-		directive("ts_warn_unresolved", "true"),
-	})
-	ix := buildIndex(t, c)
-	from := label.New("", "src/app", "app")
-
-	var logged bytes.Buffer
-	flags := log.Flags()
-	log.SetOutput(&logged)
-	log.SetFlags(0)
-	t.Cleanup(func() {
-		log.SetOutput(os.Stderr)
-		log.SetFlags(flags)
-	})
-
-	r := rule.NewRule("ts_compile", "app")
-	resolveImports(c, ix, r, []string{"../lib/notes.rst"}, from)
-
-	if r.Attr("deps") != nil {
-		t.Errorf("deps = %v, want unset", r.AttrStrings("deps"))
-	}
-	if !strings.Contains(logged.String(), "../lib/notes.rst") {
-		t.Errorf("no warning for the unresolved import:\n%s", logged.String())
-	}
-}
-
-// A text asset beside a source has to be both generated and resolvable: the
-// two halves only contain the failure together.
-func TestResolveRelative_TextAssetBesideASource(t *testing.T) {
-	res, c := runGenerateWithConfig(t, "widget", map[string]string{
-		"SKILL.md":       "# skill\n",
-		"wrangler.jsonc": "{ /* comment */ }\n",
-		"widget.ts":      "export const w = 1;\n",
-	})
-
-	lang := &tsLang{}
-	ix := resolve.NewRuleIndex(func(*rule.Rule, string) resolve.Resolver { return lang })
-	for _, r := range res.Gen {
-		ix.AddRule(c, r, rule.EmptyFile("BUILD.bazel", "widget"))
-	}
-	ix.Finish()
-
-	from := label.New("", "widget", "widget")
-	for imp, want := range map[string]string{
-		"./SKILL.md":       ":SKILL_md",
-		"./wrangler.jsonc": ":wrangler_jsonc",
-	} {
-		if got := resolveRelative(c, ix, imp, from); got != want {
-			t.Errorf("resolveRelative(%q) = %q, want %q", imp, got, want)
-		}
-	}
-}
-
-// Dropping the query and classifying the extension are separate halves of the
-// same failure, and only together do they carry `./SKILL.md?raw`: the strip
-// runs before any branch, so the fallback sees a `.md` the index now claims.
-func TestResolveImports_QueriedTextAssetResolvesToItsAssetLibrary(t *testing.T) {
-	res, c := runGenerateWithConfig(t, "widget", map[string]string{
-		"SKILL.md":       "# skill\n",
-		"wrangler.jsonc": "{ /* comment */ }\n",
-		"widget.ts":      "export const w = 1;\n",
-	})
-
-	lang := &tsLang{}
-	ix := resolve.NewRuleIndex(func(*rule.Rule, string) resolve.Resolver { return lang })
-	for _, r := range res.Gen {
-		ix.AddRule(c, r, rule.EmptyFile("BUILD.bazel", "widget"))
-	}
-	ix.Finish()
-
-	from := label.New("", "widget", "widget")
-	for imp, want := range map[string][]string{
-		"./SKILL.md?raw":       {":SKILL_md"},
-		"./wrangler.jsonc?raw": {":wrangler_jsonc"},
-		"./SKILL.md?url":       {":SKILL_md"},
-	} {
-		r := rule.NewRule("ts_compile", "widget")
-		resolveImports(c, ix, r, []string{imp}, from)
-		if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
-			t.Errorf("resolveImports(%q) deps = %v, want %v", imp, got, want)
-		}
-	}
-}
-
-// A `node:` import is invisible to the runtime dep graph but not to the type
-// checker: without @types/node tsgo reports TS2591 for every `process`, and
-// TS2304/TS2552 for the names that follow.
-func TestResolveNpmPackage_NodeBuiltinTakesTheTypes(t *testing.T) {
-	tc := makeConfig("", nil)
-	tc.npmPackages = map[string]string{
-		"@types/node": "@npm//:types_node",
-		"react":       "@npm//:react",
-	}
-
-	for imp, want := range map[string]string{
-		"node:fs":          "@npm//:types_node",
-		"node:path":        "@npm//:types_node",
-		"node:fs/promises": "@npm//:types_node",
-		"node:sqlite":      "@npm//:types_node",
-		"fs":               "@npm//:types_node",
-		"path":             "@npm//:types_node",
-		"react":            "@npm//:react",
-	} {
-		if got := resolveNpmPackage(tc, imp); got != want {
-			t.Errorf("resolveNpmPackage(%q) = %q, want %q", imp, got, want)
-		}
-	}
-}
-
-// The inventory entry supplies the label, exactly as it does for every other
-// npm dep: the existence gate means the entry is always there, so a ts_npm_hub
-// directive never gets to rewrite it.
-func TestResolveNpmPackage_NodeBuiltinTakesTheInventoryLabel(t *testing.T) {
-	tc := makeConfig("", nil)
-	tc.npmHub = "@npm_tools"
-	tc.npmPackages = map[string]string{"@types/node": "@npm//:types_node"}
-
-	if got := resolveNpmPackage(tc, "node:fs"); got != "@npm//:types_node" {
-		t.Errorf("resolveNpmPackage(\"node:fs\") = %q, want the inventory's @types/node label", got)
-	}
-}
-
-// A dep on a target no hub declares fails analysis, which is strictly worse
-// than the type error it would have fixed.
-func TestResolveNpmPackage_NodeBuiltinWithoutTypesNode(t *testing.T) {
-	withoutTypes := makeConfig("", nil)
-	withoutTypes.npmPackages = map[string]string{"react": "@npm//:react"}
-
-	noInventory := makeConfig("", nil)
-
-	for name, tc := range map[string]*tsConfig{
-		"lockfile without @types/node": withoutTypes,
-		"no lockfile at all":           noInventory,
-	} {
-		for _, imp := range []string{"node:fs", "fs", "node:path"} {
-			if got := resolveNpmPackage(tc, imp); got != "" {
-				t.Errorf("%s: resolveNpmPackage(%q) = %q, want no dep", name, imp, got)
-			}
-		}
-	}
-}
-
-// A repo that installed the browserify shim of a built-in name means the
-// package, not Node's module.
-func TestResolveNpmPackage_InstalledShimBeatsTheBuiltin(t *testing.T) {
-	tc := makeConfig("", nil)
-	tc.npmPackages = map[string]string{
-		"@types/node": "@npm//:types_node",
-		"path":        "@npm//:path",
-	}
-
-	if got := resolveNpmPackage(tc, "path"); got != "@npm//:path" {
-		t.Errorf("resolveNpmPackage(%q) = %q, want the installed package", "path", got)
-	}
-	if got := resolveNpmPackage(tc, "node:path"); got != "@npm//:types_node" {
-		t.Errorf("resolveNpmPackage(%q) = %q, want @types/node", "node:path", got)
-	}
-}
-
-// The declarations reach the rule from the import alone: a package that never
-// touches a Node global has no ambient types to declare, so the directive the
-// sibling case relies on is not what carries this.
-func TestResolveImports_NodeBuiltinDepWithoutAnAmbientDirective(t *testing.T) {
-	c := emptyConfig()
-	tc := makeConfig("", nil)
-	tc.npmPackages = map[string]string{
-		"@types/node": "@npm//:types_node",
-		"zod":         "@npm//:zod",
-	}
-	c.Exts[languageName] = tc
-
-	ix := buildIndex(t, c)
-	r := rule.NewRule("ts_compile", "app")
-	resolveImports(c, ix, r, []string{"node:fs", "node:path", "zod"}, label.New("", "src/app", "app"))
-
-	want := []string{"@npm//:types_node", "@npm//:zod"}
-	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
-		t.Errorf("deps = %v, want %v", got, want)
-	}
-}
-
-// The strip runs ahead of resolution, so a built-in carrying a loader hint is
-// still a built-in: `fs?raw` is not a package named "fs?raw", and the
-// declarations dep survives either spelling with or without the suffix.
-func TestResolveImports_NodeBuiltinWithABundlerQuerySuffix(t *testing.T) {
-	c := emptyConfig()
-	tc := makeConfig("", nil)
-	tc.npmPackages = map[string]string{"@types/node": "@npm//:types_node"}
-	c.Exts[languageName] = tc
-
-	ix := buildIndex(t, c)
-	want := []string{"@npm//:types_node"}
-
-	for _, imp := range []string{"node:fs?raw", "fs?raw", "node:fs", "fs"} {
-		r := rule.NewRule("ts_compile", "app")
-		resolveImports(c, ix, r, []string{imp}, label.New("", "src", "src"))
-
-		if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
-			t.Errorf("%s: deps = %v, want %v", imp, got, want)
+			t.Errorf("importsForRule(%s) = %v, want nil (kind must not be indexed)",
+				kind, got)
 		}
 	}
 }
@@ -1433,44 +177,10 @@ func TestImportsForRule_CodegenOutsIsNotImportable(t *testing.T) {
 	}
 }
 
-// The measured monorepo shape: an out_dir ts_codegen beside the targets that
-// import its modules, by a path alias and by a relative specifier.
-func TestResolveImport_CodegenTreeSubpath(t *testing.T) {
-	c := configWithAliases(map[string]string{"#shared/": "web/shared/"})
-	tc := getConfig(c)
-	ix := buildIndex(t, c,
-		indexedRule{
-			kind: "ts_codegen", name: "paraglide_messages", pkg: "web",
-			srcs: []string{"i18n/settings.json"}, outDir: "shared/i18n/compiled",
-		},
-		indexedRule{kind: "ts_compile", name: "lib", pkg: "src/lib", srcs: []string{"index.ts"}},
-	)
-	from := label.New("", "web", "web_test")
-
-	for _, tt := range []struct {
-		name string
-		imp  string
-		want string
-	}{
-		{"path alias into the tree", "#shared/i18n/compiled/messages", ":paraglide_messages"},
-		{"path alias naming the tree root", "#shared/i18n/compiled", ":paraglide_messages"},
-		{"relative specifier into the tree", "./shared/i18n/compiled/runtime", ":paraglide_messages"},
-		{"a bare specifier no tree claims is still npm", "@acme/generated/client", "@npm//:acme_generated"},
-		{"an indexed source still wins", "../src/lib", "//src/lib"},
-		{"a sibling of the tree is not the tree", "#shared/i18n/messages", ""},
-		{"an npm package is still an npm package", "zod", "@npm//:zod"},
-	} {
-		if got := resolveImport(c, ix, tc, "ts_compile", nil, tt.imp, from); got != tt.want {
-			t.Errorf("%s: resolveImport(%q) = %q, want %q", tt.name, tt.imp, got, tt.want)
-		}
-	}
-}
-
 // Deepest root wins, so a tree generated inside another tree's directory
 // answers for its own subtree instead of the outer one swallowing it.
 func TestResolveCodegenTree_NearestRootWins(t *testing.T) {
 	c := emptyConfig()
-	c.Exts[languageName] = makeConfig("", nil)
 	ix := buildIndex(t, c,
 		indexedRule{
 			kind: "ts_codegen", name: "outer", pkg: "web",
@@ -1498,7 +208,6 @@ func TestResolveCodegenTree_NearestRootWins(t *testing.T) {
 // specifier's parent names can never be reached by prefix.
 func TestResolveCodegenTree_OnlyReachesCodegenTrees(t *testing.T) {
 	c := emptyConfig()
-	c.Exts[languageName] = makeConfig("", nil)
 	ix := buildIndex(t, c, indexedRule{
 		kind: "ts_compile", name: "utils", pkg: "src/utils", srcs: []string{"index.ts"},
 	})
@@ -1512,7 +221,6 @@ func TestResolveCodegenTree_OnlyReachesCodegenTrees(t *testing.T) {
 // A relative specifier that escapes the workspace root must not walk past it.
 func TestResolveCodegenTree_StopsAtTheRoot(t *testing.T) {
 	c := emptyConfig()
-	c.Exts[languageName] = makeConfig("", nil)
 	ix := buildIndex(t, c)
 	from := label.New("", "src/app", "app")
 
@@ -1523,37 +231,399 @@ func TestResolveCodegenTree_StopsAtTheRoot(t *testing.T) {
 	}
 }
 
-// The mode at the target directory costs one BUILD-file read per ancestor, paid
-// per unindexed import; a checked-in BUILD file short-circuits before the walk.
-func BenchmarkLabelForUnindexed(b *testing.B) {
-	root := b.TempDir()
-	deep := "a/b/c/d/e/f"
-	if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(deep)), 0o755); err != nil {
-		b.Fatal(err)
+// ---- the listing as the resolver -------------------------------------------
+
+const (
+	storeJsxRuntime = store + "@types/react/19.0.0/aaa/node_modules/" +
+		"@types/react/jsx-runtime.d.ts"
+	storeTypesNode = store + "@types/node/22.20.1/bbb/node_modules/" +
+		"@types/node/index.d.ts"
+	storeTypescript = store + "@/typescript/5.9.2/kkk/node_modules/" +
+		"typescript/lib/typescript.d.ts"
+	storeVite = store + "@/vite/8.2.2/ccc/node_modules/vite/dist/node/" +
+		"index.d.ts"
+)
+
+func viaLine(spec, from, packageID string) string {
+	line := `   Imported via "` + spec + `" from file '` + from + `'`
+	if packageID != "" {
+		line += ` with packageId '` + packageID + `'`
 	}
-	if err := os.WriteFile(filepath.Join(root, "BUILD.bazel"),
-		[]byte("# gazelle:ts_package_boundary every-dir\n"), 0o644); err != nil {
-		b.Fatal(err)
-	}
-	from := label.New("", "importer", "importer")
-	for _, bb := range []struct {
-		name  string
-		build string
-	}{
-		{"walks_to_the_root", ""},
-		{"stops_at_a_checked_in_build_file", filepath.Join(root, filepath.FromSlash(deep), "BUILD.bazel")},
-	} {
-		if bb.build != "" {
-			if err := os.WriteFile(bb.build, nil, 0o644); err != nil {
-				b.Fatal(err)
+	return line + "\n"
+}
+
+func includeLine(pkg string) string {
+	return "   Matched by include pattern 'src/**/*' in '" + pkg +
+		"/tsconfig.json'\n"
+}
+
+// web's program: npm edges under every reason form, a member by name and by
+// path, a self edge, two unowned JSON files and the toolchain's lib.
+var webListing = storeZod + "\n" +
+	viaLine("zod", "web/src/a.ts", "zod/index.d.ts@3.24.2") +
+	storeMarked + "\n" +
+	viaLine("marked", "web/src/a.ts", "marked/lib/marked.d.ts@15.0.12") +
+	storeViteClient + "\n" +
+	"   Type library referenced via 'vite/client' from file " +
+	"'web/src/vite-env.d.ts' with packageId 'vite/client.d.ts@8.2.2'\n" +
+	storeJsxRuntime + "\n" +
+	"   Imported via \"react/jsx-runtime\" from file 'web/src/App.tsx' with " +
+	"packageId '@types/react/jsx-runtime.d.ts@19.0.0' to import 'jsx' and " +
+	"'jsxs' factory functions\n" +
+	storeTypescript + "\n" +
+	viaLine("typescript", "web/src/a.test.ts",
+		"typescript/lib/typescript.d.ts@5.9.2") +
+	storeTypesNode + "\n" +
+	"   Entry point of type library 'node' specified in compilerOptions with " +
+	"packageId '@types/node/index.d.ts@22.20.1'\n" +
+	libES5 + "\n" +
+	"   Default library for target 'ES2022'\n" +
+	"packages/ui/src/index.ts\n" +
+	viaLine("@acme/ui", "web/src/a.ts", "@acme/ui-src/src/index.ts@0.0.0") +
+	"packages/ui/src/util.ts\n" +
+	viaLine("../../packages/ui/src/util", "web/src/a.ts", "") +
+	"go/fixtures/x.json\n" +
+	viaLine("../../go/fixtures/x.json", "web/src/a.ts", "") +
+	"packages/figma/manifest.json\n" +
+	viaLine("../../packages/figma/manifest.json", "web/src/a.ts", "") +
+	"web/src/a.ts\n" + includeLine("web") +
+	viaLine("./a", "web/src/a.test.ts", "") +
+	"web/src/b.ts\n" + includeLine("web") +
+	viaLine("./b", "web/src/a.ts", "") +
+	"web/src/App.tsx\n" + includeLine("web") +
+	"web/src/vite-env.d.ts\n" + includeLine("web") +
+	"web/src/a.test.ts\n" + includeLine("web")
+
+// packages/lib's program: the member's own name through an exports subpath,
+// from a library file and from a test file (the canvas-sdk shape).
+var libListing = "packages/lib/src/index.ts\n" + includeLine("packages/lib") +
+	"packages/lib/src/wire/index.ts\n" + includeLine("packages/lib") +
+	viaLine("@acme/lib/wire", "packages/lib/src/index.ts",
+		"@acme/lib/src/wire/index.ts@0.0.0") +
+	viaLine("@acme/lib/wire", "packages/lib/src/x.test.ts",
+		"@acme/lib/src/wire/index.ts@0.0.0") +
+	"packages/lib/src/x.test.ts\n" + includeLine("packages/lib")
+
+var edgeListings = map[string]string{
+	"web":          webListing,
+	"packages/lib": libListing,
+	"packages/ui": listingOf("packages/ui", "packages/ui/src/index.ts",
+		"packages/ui/src/util.ts"),
+	"packages/figma": listingOf("packages/figma", "packages/figma/src/code.ts"),
+}
+
+// edgeRepo is a run from the root over npmRepo's workspace -- its lockfile and
+// manifests, an install, web/package.json's dependencies -- with the listings.
+func edgeRepo(t *testing.T, listings map[string]string,
+) (*config.Config, *tsConfig) {
+	t.Helper()
+	root, _ := npmRepo(t)
+	writeFile(t, filepath.Join(root, "web/package.json"), `{"name": "web-app",
+	  "dependencies": {"marked": "^15.0.0"},
+	  "devDependencies": {"@types/react": "^19.0.0", "typescript": "5.9.2"}}`)
+	writeFile(t, filepath.Join(root, "node_modules/.modules.yaml"),
+		"layoutVersion: 5\n")
+	c := &config.Config{RepoRoot: root, Exts: make(map[string]interface{})}
+	(&resolve.Configurer{}).RegisterFlags(nil, "", c)
+	configureTsConfig(c, "", nil)
+	tc := getConfig(c)
+	tc.programs.visit("", nil)
+	for dir, text := range listings {
+		p := programOf(t, dir, text)
+		for _, f := range p.files {
+			if !firstParty(f) {
+				continue
+			}
+			for d := parentDir(f); d != ""; d = parentDir(d) {
+				tc.programs.visit(d, nil)
 			}
 		}
-		b.Run(bb.name, func(b *testing.B) {
-			for range b.N {
-				if got := labelForUnindexed(root, deep+"/emitted.css", from); got == "" {
-					b.Fatalf("no label for %s", deep)
-				}
-			}
-		})
+		tc.programs.record(p)
+	}
+	return c, tc
+}
+
+// The rules a run over edgeListings writes, as the index sees them.
+var edgeRules = []indexedRule{
+	{kind: "ts_compile", name: "web", pkg: "web",
+		srcs: []string{"src/App.tsx", "src/a.ts", "src/b.ts", "src/vite-env.d.ts"}},
+	{kind: "ts_test", name: "web_test", pkg: "web",
+		srcs: []string{"src/a.test.ts", "src/vite-env.d.ts"}},
+	{kind: "ts_compile", name: "ui", pkg: "packages/ui",
+		srcs: []string{"src/index.ts", "src/util.ts"}},
+	{kind: "ts_compile", name: "lib", pkg: "packages/lib",
+		srcs: []string{"src/index.ts", "src/wire/index.ts"}},
+	{kind: "ts_test", name: "lib_test", pkg: "packages/lib",
+		srcs: []string{"src/x.test.ts"}},
+	{kind: "ts_compile", name: "figma", pkg: "packages/figma",
+		srcs: []string{"src/code.ts"}},
+}
+
+func resolveEdgesOf(t *testing.T, c *config.Config, ix *resolve.RuleIndex,
+	kind, pkg, name string, imps *ruleImports) (*rule.Rule, string) {
+	t.Helper()
+	r := rule.NewRule(kind, name)
+	from := label.New("", pkg, name)
+	logged := captureLog(t, func() { resolveEdges(c, ix, r, imps, from) })
+	return r, logged
+}
+
+// One label per edge target, by where it sits and who owns it; the test file's
+// edge is not the ts_compile's, and no types attribute is written.
+func TestResolveEdges_CompileDepsFromTheListing(t *testing.T) {
+	c, tc := edgeRepo(t, edgeListings)
+	ix := buildIndex(t, c, edgeRules...)
+	s := tc.programs
+
+	imps := s.compileImports("web", s.srcs("web", tc))
+	for _, e := range imps.edges {
+		if e.from == "web/src/a.test.ts" {
+			t.Errorf("compileImports carries the test file's edge %+v", e)
+		}
+	}
+	r, logged := resolveEdgesOf(t, c, ix, "ts_compile", "web", "web", imps)
+	want := []string{
+		"//packages/ui",
+		"@npm//:acme_ui",
+		"@npm//:types_node",
+		"@npm//:vite",
+		"@npm//:zod",
+		"@npm//web:marked",
+		"@npm//web:react",
+	}
+	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+		t.Errorf("deps = %q, want %q", got, want)
+	}
+	if r.Attr("types") != nil {
+		t.Errorf("types = %v, want none: the tsconfig owns it", r.Attr("types"))
+	}
+	for _, want := range []string{
+		"web/src/a.ts imports go/fixtures/x.json: no package owns it: " +
+			"no tsconfig.json above it lists a file; no dep",
+		"web/src/a.ts imports packages/figma/manifest.json: no package " +
+			"owns it: packages/figma/tsconfig.json, the nearest, does not " +
+			"list it; no dep",
+	} {
+		if !strings.Contains(logged, want) {
+			t.Errorf("log lacks %q:\n%s", want, logged)
+		}
+	}
+	if n := strings.Count(logged, "\n"); n != 2 {
+		t.Errorf("%d log lines, want the two unowned reports:\n%s", n, logged)
+	}
+}
+
+// A src the holding package's program does not list -- a regular file under
+// it, by the walk -- is that rule's dep: the index answers before ownership.
+func TestResolveEdges_DepOnAnUnlistedSrc(t *testing.T) {
+	c, tc := edgeRepo(t, edgeListings)
+	rules := append([]indexedRule{}, edgeRules...)
+	for i, ir := range rules {
+		if ir.pkg == "packages/figma" {
+			rules[i].srcs = []string{"manifest.json", "src/code.ts"}
+		}
+	}
+	ix := buildIndex(t, c, rules...)
+	s := tc.programs
+	r, logged := resolveEdgesOf(t, c, ix, "ts_compile", "web", "web",
+		s.compileImports("web", s.srcs("web", tc)))
+	want := []string{
+		"//packages/figma",
+		"//packages/ui",
+		"@npm//:acme_ui",
+		"@npm//:types_node",
+		"@npm//:vite",
+		"@npm//:zod",
+		"@npm//web:marked",
+		"@npm//web:react",
+	}
+	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+		t.Errorf("deps = %q, want %q", got, want)
+	}
+	if strings.Contains(logged, "manifest.json") ||
+		strings.Count(logged, "\n") != 1 {
+		t.Errorf("log, want x.json's report alone:\n%s", logged)
+	}
+	// A file a rule of the importing package holds is nothing, whichever rule.
+	r, logged = resolveEdgesOf(t, c, ix, "ts_compile", "web", "web",
+		&ruleImports{edges: []edge{
+			importEdge("web/src/b.ts", "./a.test", "web/src/a.test.ts")}})
+	if r.Attr("deps") != nil || logged != "" {
+		t.Errorf("deps = %v, log %q; want none", r.Attr("deps"), logged)
+	}
+}
+
+// ts_test.deps: the ts_compile, every owned file's edges, the vitest config's
+// and the manifest union in D7 spelling, with no label said twice.
+func TestResolveEdges_TestDepsCarryTheRuntime(t *testing.T) {
+	c, tc := edgeRepo(t, edgeListings)
+	ix := buildIndex(t, c, edgeRules...)
+	s := tc.programs
+	const cfg = "web/vitest.config.mts"
+	s.vitestEdges = map[string][]edge{cfg: {importEdge(cfg, "vite", storeVite)}}
+
+	set := s.srcs("web", tc)
+	imps := s.testImports(c.RepoRoot, tc.lock, "web", ":web", cfg, set)
+	if imps.config != cfg {
+		t.Errorf("config = %q, want %q", imps.config, cfg)
+	}
+	if !s.vitestConfigs[cfg] {
+		t.Errorf("%s is not registered for the combined run", cfg)
+	}
+	r, logged := resolveEdgesOf(t, c, ix, "ts_test", "web", "web_test", imps)
+	want := []string{
+		"//packages/ui",
+		":web",
+		"@npm//:acme_ui",
+		"@npm//:types_node",
+		"@npm//:typescript",
+		"@npm//:vite",
+		"@npm//:zod",
+		"@npm//web:marked",
+		"@npm//web:react",
+		"@npm//web:types_react",
+	}
+	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+		t.Errorf("deps = %q, want %q", got, want)
+	}
+	if n := strings.Count(logged, "\n"); n != 2 {
+		t.Errorf("%d log lines, want the two unowned reports:\n%s", n, logged)
+	}
+}
+
+// A self-import through an exports subpath: the own view from a ts_test, whose
+// runtime resolves the name through node_modules; nothing from the ts_compile.
+func TestResolveEdges_MemberSelfImport(t *testing.T) {
+	c, tc := edgeRepo(t, edgeListings)
+	ix := buildIndex(t, c, edgeRules...)
+	s := tc.programs
+	set := s.srcs("packages/lib", tc)
+
+	r, logged := resolveEdgesOf(t, c, ix, "ts_compile", "packages/lib", "lib",
+		s.compileImports("packages/lib", set))
+	if r.Attr("deps") != nil || logged != "" {
+		t.Errorf("ts_compile deps = %v, log %q; want none", r.Attr("deps"), logged)
+	}
+	r, _ = resolveEdgesOf(t, c, ix, "ts_test", "packages/lib", "lib_test",
+		s.testImports(c.RepoRoot, tc.lock, "packages/lib", ":lib", "", set))
+	want := []string{":lib", "@npm//:acme_lib"}
+	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+		t.Errorf("ts_test deps = %q, want %q", got, want)
+	}
+}
+
+// A file under a declared out_dir is that codegen's, whatever the program
+// listed; a types entry naming an absent codegen out is a dep on it (D9).
+func TestResolveEdges_CodegenOutputs(t *testing.T) {
+	const gen = "worker/gen/types.d.ts"
+	c, tc := edgeRepo(t, map[string]string{
+		"worker": listingOf("worker", "worker/src/index.ts") + gen + "\n" +
+			viaLine("../gen/types", "worker/src/index.ts", ""),
+		"worker2": listingOf("worker2", "worker2/src/index.ts"),
+	})
+	writeFile(t, filepath.Join(c.RepoRoot, "worker2/tsconfig.json"),
+		`{"compilerOptions": {"types": ["./worker-configuration.d.ts"]}}`)
+	ix := buildIndex(t, c,
+		indexedRule{kind: "ts_codegen", name: "tree", pkg: "worker", outDir: "gen"},
+		indexedRule{kind: "ts_compile", name: "worker", pkg: "worker",
+			srcs: []string{"src/index.ts"}},
+		indexedRule{kind: "ts_compile", name: "worker2", pkg: "worker2",
+			srcs: []string{"src/index.ts"}},
+	)
+	s := tc.programs
+
+	f, err := rule.LoadData("BUILD.bazel", "worker",
+		[]byte(`ts_codegen(name = "tree", out_dir = "gen")`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	configureTsConfig(c, "worker", f)
+	set := s.srcs("worker", getConfig(c))
+	if len(set.declaration) != 0 {
+		t.Errorf("srcs(worker) = %+v: the out_dir's file is no src", set)
+	}
+	r, logged := resolveEdgesOf(t, c, ix, "ts_compile", "worker", "worker",
+		s.compileImports("worker", set))
+	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, []string{":tree"}) {
+		t.Errorf("worker deps = %q, log %q; want [:tree]", got, logged)
+	}
+
+	c.Exts[languageName] = tc
+	f, err = rule.LoadData("BUILD.bazel", "worker2",
+		[]byte(`ts_codegen(name = "wt", outs = ["worker-configuration.d.ts"])`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	configureTsConfig(c, "worker2", f)
+	r, logged = resolveEdgesOf(t, c, ix, "ts_compile", "worker2", "worker2",
+		s.compileImports("worker2", s.srcs("worker2", getConfig(c))))
+	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, []string{":wt"}) {
+		t.Errorf("worker2 deps = %q, log %q; want [:wt]", got, logged)
+	}
+}
+
+// Core # gazelle:resolve names the label for a file no rule indexes; the
+// override is read before ownership, so the report goes too.
+func TestResolveEdges_OverrideIsTheEscapeHatch(t *testing.T) {
+	c, tc := edgeRepo(t, edgeListings)
+	ix := buildIndex(t, c, edgeRules...)
+	f, err := rule.LoadData("BUILD.bazel", "", []byte(
+		"# gazelle:resolve typescript go/fixtures/x.json //go/fixtures:json\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	(&resolve.Configurer{}).Configure(c, "", f)
+	s := tc.programs
+
+	r, logged := resolveEdgesOf(t, c, ix, "ts_compile", "web", "web",
+		s.compileImports("web", s.srcs("web", tc)))
+	if deps := r.AttrStrings("deps"); !hasLabel(deps, "//go/fixtures:json") {
+		t.Errorf("deps = %q, want //go/fixtures:json among them", deps)
+	}
+	if strings.Contains(logged, "go/fixtures/x.json") {
+		t.Errorf("the overridden file was still reported:\n%s", logged)
+	}
+}
+
+// Without a lockfile there is no hub: an npm edge gets no label, said once.
+func TestResolveEdges_NoLockfileNoNpmLabel(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "package.json"), `{"name": "w"}`)
+	c := &config.Config{RepoRoot: root, Exts: make(map[string]interface{})}
+	(&resolve.Configurer{}).RegisterFlags(nil, "", c)
+	configureTsConfig(c, "", nil)
+	tc := getConfig(c)
+	s := tc.programs
+	s.visit("", nil)
+	s.visit("app", nil)
+	s.record(programOf(t, "app", listingOf("app", "app/a.ts", "app/b.ts")+
+		storeZod+"\n"+viaLine("zod", "app/a.ts", "")+viaLine("zod", "app/b.ts", "")))
+	ix := buildIndex(t, c, indexedRule{kind: "ts_compile", name: "app",
+		pkg: "app", srcs: []string{"a.ts", "b.ts"}})
+
+	r, logged := resolveEdgesOf(t, c, ix, "ts_compile", "app", "app",
+		s.compileImports("app", s.srcs("app", tc)))
+	if r.Attr("deps") != nil {
+		t.Errorf("deps = %v, want none", r.Attr("deps"))
+	}
+	if n := strings.Count(logged, pnpmLockfileName); n != 1 {
+		t.Errorf("the missing lockfile was said %d times, want once:\n%s", n, logged)
+	}
+}
+
+// The exact repository path of every src is what an edge target is looked up
+// by; the module-form keys beside it are the specifier ladder's.
+func TestImportsForRule_IndexesTheExactPath(t *testing.T) {
+	r, f := newRule(indexedRule{kind: "ts_compile", name: "w", pkg: "w",
+		srcs: []string{"src/a.ts", "src/types.d.ts", "data.json", "m.d.mts"}})
+	got := specStrings(importsForRule(nil, r, f))
+	for _, want := range []string{"w/src/a.ts", "w/src/types.d.ts",
+		"w/data.json", "w/m.d.mts"} {
+		if !contains(got, want) {
+			t.Errorf("specs %q lack the exact path %q", got, want)
+		}
+	}
+	if n := strings.Count(strings.Join(got, "\n")+"\n", "w/data.json\n"); n != 1 {
+		t.Errorf("w/data.json indexed %d times, want once", n)
 	}
 }

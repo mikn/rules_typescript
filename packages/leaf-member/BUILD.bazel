@@ -1,0 +1,10 @@
+"""A workspace member entered through `main`, with no tsconfig.json of its own:
+the compiling target is hand-written where the package model puts it."""
+
+load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "leaf-member",
+    srcs = ["src/index.ts"],
+    visibility = ["//visibility:public"],
+)

@@ -11,24 +11,20 @@ import (
 
 // wantKinds is every kind this extension writes or withdraws.
 var wantKinds = []string{
-	"asset_library",
-	"css_library",
-	"css_module",
 	"filegroup",
-	"json_library",
-	"node_modules",
-	"ts_add_package",
 	"ts_codegen",
 	"ts_compile",
 	"ts_config",
 	"ts_lint",
-	"ts_pnpm",
 	"ts_test",
 }
 
 // A goneKind back in Kinds() or a load would have Gazelle write a rule it must
-// not: five that no .bzl defines, and ts_dev_server, which is written by hand.
-var goneKinds = []string{"next_build", "next_dev_server", "sveltekit_build", "ts_bundle", "ts_dev_server", "vite_bundler"}
+// not: five that no .bzl defines, and the four that are written by hand.
+var goneKinds = []string{
+	"next_build", "next_dev_server", "sveltekit_build", "ts_bundle",
+	"vite_bundler", "node_modules", "ts_add_package", "ts_dev_server", "ts_pnpm",
+}
 
 func TestKinds_ExactSurface(t *testing.T) {
 	kinds := (&tsLang{}).Kinds()

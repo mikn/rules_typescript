@@ -70,11 +70,11 @@ bazelisk and repository caches in all of them, the external cache in all but
      inside `<outer output base>/execroot/_main/_tmp`, which the outer Bazel
      clears in full on each `bazel test`. A killed run leaves nothing that
      outlives the next invocation, and two checkouts running one test cannot
-     share a directory. `/mnt/rules_ts_it` holds only the repository, disk and
-     bazelisk caches; the job's `df -h /mnt /`, before and after, records
-     whether the tens of GB of output bases changed volume
+     share a directory. `/mnt/rules_ts_it` holds only the repository, disk,
+     bazelisk and pnpm caches; the job's `df -h /mnt /`, before and after,
+     records whether the tens of GB of output bases changed volume
    - `/mnt/rules_ts_it` is a bare `mkdir -p` on a fresh runner, and the cache
-     step below restores only the three cache subdirectories, never the per-test
+     step below restores only the four cache subdirectories, never the per-test
      output bases, so every nested output base starts empty on every run. A
      retained output base saves a local developer a measured ~13.5s per test
      and saves CI nothing
@@ -82,11 +82,29 @@ bazelisk and repository caches in all of them, the external cache in all but
      `common --disk_cache=<shared>` to every staged workspace's `.bazelrc`
      (`prepare()` in `tests/integration/harness/harness.go`). Without it each
      workspace fetches the whole BCR registry for itself, and the resulting
-     lookup failures read as flaky tests
+     lookup failures read as flaky tests. A workspace that carries a lockfile
+     is installed by the runner (`Install()`) with the workspace's `ts_pnpm`,
+     its store under `/mnt/rules_ts_it/pnpm`, before Gazelle lists it
+   - The harness's persistent root is `RULES_TS_IT_SCRATCH` when set (CI's
+     `/mnt/rules_ts_it`), else `$XDG_CACHE_HOME/rules_typescript_it`, else
+     `~/.cache/rules_typescript_it`, else `os.TempDir()`, last because `$TMPDIR`
+     can be a tmpfs; never `TEST_TMPDIR`, which the outer Bazel clears on each
+     `bazel test`, so a cache placed there would be re-fetched every run. It
+     holds the repository, disk, bazelisk and pnpm caches. `BAZELISK_HOME`,
+     unless inherited, points into it: bazelisk defaults it to `$PWD`, the
+     per-run workspace, so left unset every test fetched Bazel from
+     `releases.bazel.build` (~1.2GB a suite; a runner whose DNS timed out is
+     what surfaced it, since Bazel echoes a test's stdout only when the test
+     fails). A runner invoked by hand has no `TEST_TMPDIR`; its run root is then
+     keyed by the checkout's hash and the test's name under that root rather
+     than a fresh `os.MkdirTemp` name per process, so a killed run's multi-GB
+     output base is overwritten by that test's next run instead of leaking
+     under a name nothing finds again
    - `/mnt` is recreated every run, so an `actions/cache@v6` step restores
-     `/mnt/rules_ts_it/repository_cache`, `/mnt/rules_ts_it/disk_cache` and
-     `/mnt/rules_ts_it/bazelisk` under the key `nested-bazel-<runner.os>-<hash of
-     MODULE.bazel, tests/npm/pnpm-lock.yaml, oxc_cli/Cargo.lock, .bazelversion>`,
+     `/mnt/rules_ts_it/repository_cache`, `/mnt/rules_ts_it/disk_cache`,
+     `/mnt/rules_ts_it/bazelisk` and `/mnt/rules_ts_it/pnpm` under the key
+     `nested-bazel-<runner.os>-<hash of MODULE.bazel, tests/npm/pnpm-lock.yaml,
+     tests/integration/**/pnpm-lock.yaml, oxc_cli/Cargo.lock, .bazelversion>`,
      with `nested-bazel-<runner.os>-` as the restore-key prefix. One key serves
      both legs; only the first leg to finish saves it. Cold, the concurrent
      servers all miss the shared cache at once and fetch the same artifacts, a

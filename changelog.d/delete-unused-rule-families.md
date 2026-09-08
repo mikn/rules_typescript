@@ -12,9 +12,8 @@
   `asset_library`, 1,355 `json_library`, 255 `ts_compile` and 78 `ts_test`
   calls; a rule nothing instantiates has no consumer whose breakage would fire
   a test, and every one of these carried its own wrapper, docs page, example
-  workspace or nested-Bazel integration test. `ts/defs.bzl` exports 23 names
-  where it exported 36, and Gazelle knows 14 kinds where it knew 19. A
-  workspace loading one of the deleted names gets a load error naming it; the
+  workspace or nested-Bazel integration test. A workspace loading one of the
+  deleted names gets a load error naming it; the
   edit is to delete the target, since nothing left in the tree returns what it
   took -- except for `ts_worker_types`, whose replacement is the `ts_codegen`
   it expanded to, with the generator still shipped as
@@ -50,5 +49,5 @@
   arguments (config, entry, output directory, stylesheet); `ts_dev_server`
   keeps `server`, defaulting to Vite, and `bundler`. `MODULE.bazel` declares
   neither the `oj_crates` hub nor the nightly Rust host tools, and the
-  integration lane runs two CI legs (`npm`, `core`) over 13 nested-Bazel
+  integration lane runs two CI legs (`npm`, `core`) over 12 nested-Bazel
   tests.

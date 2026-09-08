@@ -35,10 +35,15 @@ snapshots:
   oxlint@1.0.0: {}
 `
 
+// Every lint fixture is a package: one program over the directory's sources.
+const lintTsConfig = `{"compilerOptions":{"lib":["es2022"]},` +
+	`"include":["*.ts"]}` + "\n"
+
 // lintWorkspace is a workspace whose root holds lock (none when empty), with
 // the root directory configured so the lockfile has been read.
 func lintWorkspace(t *testing.T, lock string) *config.Config {
 	t.Helper()
+	requireTsgo(t)
 	root := t.TempDir()
 	if lock != "" {
 		writeFile(t, filepath.Join(root, pnpmLockfileName), lock)
@@ -101,6 +106,7 @@ func TestGenerate_NoLintTargetForALinterTheLockfileLacks(t *testing.T) {
 	var res language.GenerateResult
 	logged := captureLog(t, func() {
 		res = generateLintDir(t, c, "pkg", map[string]string{
+			"tsconfig.json":     lintTsConfig,
 			"index.ts":          "export const a = 1;\n",
 			"eslint.config.mjs": "export default [];\n",
 		}, "")
@@ -127,11 +133,13 @@ func TestGenerate_LinterRefusalIsSaidOnce(t *testing.T) {
 	var outer, inner language.GenerateResult
 	logged := captureLog(t, func() {
 		outer = generateLintDir(t, c, "pkg", map[string]string{
+			"tsconfig.json":     lintTsConfig,
 			"index.ts":          "export const a = 1;\n",
 			"eslint.config.mjs": "export default [];\n",
 		}, "")
 		inner = generateLintDir(t, c, "pkg/sub", map[string]string{
-			"index.ts": "export const b = 2;\n",
+			"tsconfig.json": lintTsConfig,
+			"index.ts":      "export const b = 2;\n",
 		}, "")
 	})
 
@@ -149,6 +157,7 @@ func TestGenerate_StaleLintTargetForAMissingLinterIsWithdrawn(t *testing.T) {
 	c := lintWorkspace(t, oxlintOnlyLock)
 
 	res := generateLintDir(t, c, "pkg", map[string]string{
+		"tsconfig.json":     lintTsConfig,
 		"index.ts":          "export const a = 1;\n",
 		"eslint.config.mjs": "export default [];\n",
 	}, `load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_lint")
@@ -189,8 +198,9 @@ func TestGenerate_LintTargetForTheLinterTheLockfileHas(t *testing.T) {
 	var res language.GenerateResult
 	logged := captureLog(t, func() {
 		res = generateLintDir(t, c, "pkg", map[string]string{
-			"index.ts":    "export const a = 1;\n",
-			"oxlint.json": "{}\n",
+			"tsconfig.json": lintTsConfig,
+			"index.ts":      "export const a = 1;\n",
+			"oxlint.json":   "{}\n",
 		}, "")
 	})
 
@@ -212,37 +222,13 @@ func TestGenerate_LintTargetForTheLinterTheLockfileHas(t *testing.T) {
 	}
 }
 
-// A ts_npm_hub tree resolves against a lockfile this reader never saw, so it is
-// not refused, and its binary names that hub, as its bare imports' deps do.
-func TestGenerate_LintBinaryFollowsTheTreesHub(t *testing.T) {
-	c := lintWorkspace(t, oxlintOnlyLock)
-
-	var res language.GenerateResult
-	logged := captureLog(t, func() {
-		res = generateLintDir(t, c, "pkg", map[string]string{
-			"index.ts":          "export const a = 1;\n",
-			"eslint.config.mjs": "export default [];\n",
-		}, "# gazelle:ts_npm_hub npm_eslint\n")
-	})
-
-	lr := lintRule(res)
-	if lr == nil {
-		t.Fatalf("no ts_lint generated under a ts_npm_hub directive; its lockfile was never read:\n%s", logged)
-	}
-	if got := lr.AttrString("linter_binary"); got != "@npm_eslint//:eslint_bin" {
-		t.Errorf("linter_binary = %q, want the tree's hub, @npm_eslint//:eslint_bin", got)
-	}
-	if logged != "" {
-		t.Errorf("a refusal was printed for a hub whose lockfile was never read:\n%s", logged)
-	}
-}
-
 // No lockfile is no information, not an empty workspace: the config alone still
 // gets its ts_lint, as it did before this gate existed.
 func TestGenerate_NoLockfileRefusesNoLint(t *testing.T) {
 	c := lintWorkspace(t, "")
 
 	res := generateLintDir(t, c, "pkg", map[string]string{
+		"tsconfig.json":     lintTsConfig,
 		"index.ts":          "export const a = 1;\n",
 		"eslint.config.mjs": "export default [];\n",
 	}, "")

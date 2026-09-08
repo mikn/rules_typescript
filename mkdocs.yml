@@ -68,7 +68,6 @@ nav:
     - ts_dev_server: rules/ts-dev-server.md
     - ts_lint: rules/ts-lint.md
     - ts_codegen: rules/ts-codegen.md
-    - CSS and assets: rules/css-and-assets.md
     - node_modules: rules/node-modules.md
     - Providers and toolchains: rules/providers.md
   - Compatibility: compatibility.md

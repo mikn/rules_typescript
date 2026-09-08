@@ -16,8 +16,8 @@
   and that walk is where `@cloudflare/vitest-pool-workers/types`, an
   `exports`-only subpath, resolves. oxc transforms with the `target`, `jsx` and
   `jsxImportSource` the same file yields; the baseline now carries
-  `target: es2022`, `jsx: react-jsx` and `allowArbitraryExtensions`, the values
-  the rule used to inject over the file.
+  `target: es2022` and `jsx: react-jsx`, the values the rule used to inject
+  over the file.
 - **A workspace member's view carries the member's package.json as built.**
   `npm_hub` writes one `npm_workspace_package` per workspace member -- every
   `link:` target and every importer whose package.json has a name, one view per

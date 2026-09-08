@@ -22,5 +22,6 @@ func TestEveryAttributeReachesTheGeneratedConfig(t *testing.T) {
 		`const workersPoolLayer = undefined;`,
 		`merge(merge(bazelLayer, user), attrLayer)`,
 		`withCompiledSetup(merge(merge(merge(bazelLayer, user), attrLayer), snapshotLayer))`,
+		`const merged = setupFilesInRoot(withCompiledSetup(`,
 	)
 }

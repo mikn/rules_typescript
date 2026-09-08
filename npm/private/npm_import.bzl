@@ -113,51 +113,6 @@ def _bin_entries(pkg_json):
         return {k: v for k, v in raw.items() if type(v) == "string"}
     return {}
 
-# Conditions the exports walk descends into, in the map's own key order because
-# that is the order a resolver tries them in.
-_TYPE_CONDITIONS = ("types", "typings", "node", "import", "require", "default")
-
-_WALK_STEPS = 64
-
-def _root_export(exports):
-    """The `exports` subtree describing the package's own entry point, or None.
-
-    A map with no subpath keys IS that subtree -- npm's shorthand for a package
-    that exports nothing but itself.
-    """
-    if type(exports) == "string":
-        return exports
-    if type(exports) != "dict":
-        return None
-    if "." in exports:
-        return exports["."]
-    for key in exports.keys():
-        if key.startswith("."):
-            return None
-    return exports
-
-def _export_targets(root):
-    """Every file exports["."] can designate, in the order a resolver tries them.
-
-    Iterative because Starlark has no recursion. Children go to the front, so a
-    condition's whole subtree is tried before the next condition is looked at,
-    which is the order a resolver descends in.
-    """
-    pending = [root]
-    targets = []
-    for _ in range(_WALK_STEPS):
-        if not pending:
-            break
-        node = pending.pop(0)
-        kind = type(node)
-        if kind == "string":
-            targets.append(node)
-        elif kind == "list":
-            pending = list(node) + pending
-        elif kind == "dict":
-            pending = [node[key] for key in node.keys() if key in _TYPE_CONDITIONS] + pending
-    return targets
-
 def _primary_bin_name(package, bins):
     """The bin a bare `bazel run @npm//:<pkg>_bin` should mean.
 
@@ -463,60 +418,7 @@ def _alias_block(alias_names, aliases):
 
 _LINK_LOAD = 'load("@rules_typescript//npm/private:workspace_package.bzl", "npm_workspace_package")'
 
-# ─── Workspace members: which Bazel package builds one ───────────────────────
-
-_TARGET_NAME_DIRECTIVE = "# gazelle:ts_target_name"
-
-def _negated_depth(dir_path):
-    return -len(dir_path.split("/"))
-
-def _link_candidate_dirs(member, entries):
-    """The directories that could hold a member's target, innermost first.
-
-    A member is a directory; what has to be depended on is the target that
-    compiles it, and which directory holds that target is not the member's to
-    say. `ts_package_boundary` decides it -- the default gives every directory
-    holding sources its own package, `tsconfig` rolls the subtree up into the
-    directory holding tsconfig.json -- so `packages/foo` with
-    `main: src/index.ts` builds from `packages/foo/src:src` under one mode and
-    from `packages/foo:foo` under another.
-
-    Both modes are declared in BUILD files, which is why this returns candidates
-    rather than an answer: the caller looks them up, innermost first, and the one
-    that declares the target wins.
-
-    A manifest can designate several entry points -- a `main` and an `exports`
-    map that disagree, or one `exports` condition per output format -- so every
-    directory any of them sits in is a candidate. The order is by depth over all
-    of them together rather than one chain at a time: taken chain by chain, the
-    member root would come ahead of a deeper directory named by a later entry
-    point, and the root is the candidate that must be tried last.
-
-    Args:
-        member: The member's path from the repo root, e.g. "packages/foo".
-        entries: The entry points the member designates, in resolver order.
-    """
-    dirs = [member]
-    for entry in entries:
-        current = member
-        for part in entry.strip("./").split("/")[:-1]:
-            if not part:
-                continue
-            current = current + "/" + part
-            if current not in dirs:
-                dirs.append(current)
-    return sorted(dirs, key = _negated_depth)
-
-def _target_name_in(build_text, dir_path):
-    """The name the ts_compile in a directory carries: its own, or the directive's."""
-    for line in build_text.split("\n"):
-        line = line.strip()
-        if not line.startswith(_TARGET_NAME_DIRECTIVE):
-            continue
-        value = line[len(_TARGET_NAME_DIRECTIVE):].strip()
-        if value:
-            return value
-    return dir_path.split("/")[-1]
+# ─── Workspace members: the target that builds one ───────────────────────────
 
 def _names_a_target(build_text, target):
     return (
@@ -538,46 +440,6 @@ def _read_if_present(rctx, path):
     rctx.watch(path)
     return None
 
-def _manifest_entries(pkg_json):
-    """Every entry point a workspace member's manifest designates, resolver order.
-
-    `main` and `module`, then what `exports["."]` names. A package that ships an
-    exports map and no `main` designates its entry point there and nowhere else,
-    and reading only `main` leaves such a member with its own root as the sole
-    candidate -- which is the directory a `tsconfig` boundary would have rolled
-    it up into and not the one the default boundary puts its target in.
-
-    The exports map is read by `_root_export` and `_export_targets`, the same two
-    readers the published-package path uses: a plain string, `{".": ...}`, the
-    subpath-free condition shorthand, nested condition maps keyed by
-    types/typings/node/import/require/default, and fallback arrays. A condition
-    outside that set (`browser`, `development`) is not followed, and a target
-    holding a `*` is dropped -- it designates a pattern, whose directory is a
-    pattern too.
-
-    Args:
-        pkg_json: The member's decoded package.json.
-    """
-    entries = []
-    for field in ("main", "module"):
-        value = pkg_json.get(field)
-        if type(value) == "string" and value:
-            entries.append(value)
-    for target in _export_targets(_root_export(pkg_json.get("exports"))):
-        if target and "*" not in target and target not in entries:
-            entries.append(target)
-    return entries
-
-def _member_entries(rctx, member_dir):
-    """`_manifest_entries` of a member's package.json, or [] when it has none."""
-    content = _read_if_present(rctx, member_dir.get_child("package.json"))
-    if content == None:
-        return []
-    decoded = json.decode(content)
-    if type(decoded) != "dict":
-        return []
-    return _manifest_entries(decoded)
-
 def _build_file_text(rctx, root, dir_path):
     for name in ("BUILD.bazel", "BUILD"):
         text = _read_if_present(rctx, root.get_child(*(dir_path.split("/") + [name])))
@@ -585,30 +447,25 @@ def _build_file_text(rctx, root, dir_path):
             return text
     return None
 
-def _link_target_label(member, entries, build_text):
+def _link_target_label(member, build_text):
     """The label of the target that builds a workspace member, or None.
 
-    A label only for a candidate directory that DECLARES the target. Nothing
-    weaker earns one: a BUILD file that does not declare it is the statement that
-    the target is not there, and the label would name a target Bazel cannot
-    resolve -- which is far worse than a missing one, because it fails analysis
-    for everything that reaches the hub while a missing target fails only what
-    asks for the member. The hub declares no target for that name at all
-    instead.
+    A member's compiling target is `//<member>:<basename>`, and only a BUILD
+    file there that DECLARES it earns the label: one naming a target Bazel
+    cannot resolve fails analysis for everything that reaches the hub, while a
+    missing target fails only what asks for the member.
 
     Args:
         member: The member's path from the repo root, e.g. "packages/foo".
-        entries: The entry points its manifest designates, in resolver order.
-        build_text: Function from a candidate directory to the text of the BUILD
-            file in it, or None when that directory holds none.
+        build_text: Function from a directory to the text of the BUILD file in
+            it, or None when that directory holds none.
     """
-    for dir_path in _link_candidate_dirs(member, entries):
-        text = build_text(dir_path)
-        if text == None:
-            continue
-        target = _target_name_in(text, dir_path)
-        if _names_a_target(text, target):
-            return "@@//{}:{}".format(dir_path, target)
+    text = build_text(member)
+    if text == None:
+        return None
+    target = member.split("/")[-1]
+    if _names_a_target(text, target):
+        return "@@//{}:{}".format(member, target)
     return None
 
 def _repo_root(rctx):
@@ -637,15 +494,15 @@ def _member_targets(rctx):
     for entry in rctx.attr.members.values():
         _, _, member = entry.partition("|")
         if member not in targets:
-            entries = _member_entries(rctx, root.get_child(*member.split("/")))
-            targets[member] = _link_target_label(member, entries, build_text)
+            targets[member] = _link_target_label(member, build_text)
     return targets
 
 def _unresolved_link_note(package_name, member):
     return [
-        "# NO TARGET for '{}'. No BUILD file under".format(package_name),
-        "# {} declares one, so nothing here can name the".format(member),
-        "# target that builds the member: run Gazelle over that directory. A label",
+        "# NO TARGET for '{}'. No BUILD file in".format(package_name),
+        "# {} declares a target of that name, so nothing".format(member),
+        "# here can name the target that builds the member: run Gazelle over",
+        "# that directory. A label",
         "# written anyway would name a target Bazel cannot resolve, which fails analysis",
         "# for every consumer of this hub rather than for this name alone.",
         "",
@@ -746,9 +603,10 @@ npm_hub = repository_rule(
         "members": attr.string_dict(
             doc = "Label name -> '<npm package name>|<path of the workspace member>' " +
                   "for each workspace member: every `link:` target and every named " +
-                  "importer. A path rather than a label: which directory of a member " +
-                  "holds its target is decided by Gazelle directives in BUILD files, so " +
-                  "it is looked up here at fetch time. The package name travels with it " +
+                  "importer. A path rather than a label: the member's target " +
+                  "is //<path>:<basename> when a BUILD file there declares " +
+                  "it, read at fetch time since Gazelle may not have written " +
+                  "it yet. The package name travels with it " +
                   "because it cannot be recovered from the label name: 'types_react' is " +
                   "the label of '@types/react' and of 'types_react'.",
         ),
@@ -773,10 +631,7 @@ npm_hub = repository_rule(
 
 # Exported for the tests that pin the credential rules and the `link:` member
 # resolution; the paths above are the only production callers.
-link_candidate_dirs = _link_candidate_dirs
-manifest_entries = _manifest_entries
 link_target_label = _link_target_label
 link_block = _link_block
-target_name_in = _target_name_in
 npmrc_auth = _npmrc_auth
 npmrc_auth_fields = _npmrc_auth_fields

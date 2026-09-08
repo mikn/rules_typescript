@@ -74,6 +74,16 @@ func (r *registry) saw(line string) bool {
 	return false
 }
 
+// The scoped import's hub label: what the fetch through .npmrc has to answer.
+const consumerPackage = `load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "consumer",
+    srcs = ["greeting.ts"],
+    deps = ["@npm//:acme_greeter"],
+)
+`
+
 func writeTarball(it *harness.IT, path string, files map[string]string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		it.Fail("cannot create %s: %v", filepath.Dir(path), err)
@@ -187,14 +197,9 @@ snapshots:
 `, integrity))
 		it.Pass(".npmrc and pnpm-lock.yaml written")
 
-		it.MustBazel("run", "//:gazelle")
-		build := it.Path("src/consumer/BUILD.bazel")
-		it.RequireFile(build, "Gazelle did not generate src/consumer/BUILD.bazel")
-		if !it.Contains(build, "@npm//:acme_greeter") {
-			it.Dump(build)
-			it.Fail("src/consumer/BUILD.bazel does not reference @npm//:acme_greeter")
-		}
-		it.Pass("Gazelle resolved the scoped import to @npm//:acme_greeter")
+		// Written here: a BUILD file under workspace/ would make the directory
+		// a package of the outer workspace and glob_workspace_files would stop.
+		it.Write(it.Path("src/consumer/BUILD.bazel"), consumerPackage)
 
 		wrong, err := it.BazelLog("wrong_token.log", "build", "--repo_env=ACME_TOKEN=wrong-token", "//...")
 		if err == nil {

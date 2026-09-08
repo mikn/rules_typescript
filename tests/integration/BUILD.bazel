@@ -30,8 +30,8 @@ apiece is what bounds how many nested Bazel servers share one machine. Roughly
 three minutes each. Which CI leg runs a test is its shard tag; tags.bzl holds
 both.
 
-  bazel test //tests/integration/...                 the whole suite, 13 tests
-  bazel test //tests/integration:integration_tests   the 9 in this package
+  bazel test //tests/integration/...                 the whole suite, 12 tests
+  bazel test //tests/integration:integration_tests   the 8 in this package
   bazel test //tests/integration:new_project_test    one of them
   bazel test --config=ci-integration-npm \
     //tests/integration/...                          one CI leg's subset
@@ -41,7 +41,7 @@ The three nested-Bazel tests outside this package --
 //tests/integration/npm_integrity, //tests/integration/npmrc_registry and
 //tests/integration/tsgo_lockfile -- are not in :integration_tests and cannot
 be: no such package exports its test. `//tests/integration/...`, which is what
-CI runs, is the pattern that covers all 13: those 12 and
+CI runs, is the pattern that covers all 12: those 11 and
 //tests/integration/harness:harness_test, the harness's own go_test.
 """
 
@@ -49,7 +49,6 @@ CI runs, is the pattern that covers all 13: those 12 and
 # not generate BUILD files inside them. `harness/` and `runners/` are absent
 # from this list on purpose -- they are first-party Go it should keep managing.
 # gazelle:exclude codegen
-# gazelle:exclude css_assets
 # gazelle:exclude dev_server
 # gazelle:exclude existing_project
 # gazelle:exclude gazelle_roundtrip
@@ -67,6 +66,12 @@ load(
     "integration_test_utils",
 )
 load("//tests/integration:tags.bzl", "nested_bazel_tags")
+
+# The combined vitest-config listing in //gazelle:typescript_test runs over it.
+exports_files(
+    ["gazelle_roundtrip/configured/vitest.config.mts"],
+    visibility = ["//gazelle:__pkg__"],
+)
 
 # ── new_project ───────────────────────────────────────────────────────────────
 # Full new-project journey: write sources → gazelle → build.
@@ -88,10 +93,7 @@ bazel_integration_test(
 )
 
 # ── npm_deps ──────────────────────────────────────────────────────────────────
-# npm dependency resolution: zod imported and type-checked, vitest used.
-# pnpm-lock.yaml is sourced from tests/npm/ at runtime by the runner
-# (not included in workspace_files — the lockfile is not part of the
-# static child workspace because it needs to come from the parent checkout).
+# zod type-checked and vitest run over the workspace's own installed lockfile.
 
 bazel_integration_test(
     name = "npm_deps_test",
@@ -136,22 +138,6 @@ bazel_integration_test(
     workspace_path = "oxc_declarations",
 )
 
-# ── css_assets ────────────────────────────────────────────────────────────────
-# Tests: CSS modules, SVG assets, and JSON imports all work via Gazelle.
-# Gazelle generates css_module, asset_library, and json_library targets.
-
-bazel_integration_test(
-    name = "css_assets_test",
-    timeout = "long",
-    bazel_binaries = bazel_binaries,
-    bazel_version = bazel_binaries.versions.current,
-    data = ["//:MODULE.bazel"],
-    tags = nested_bazel_tags(),
-    test_runner = "//tests/integration/runners:css_assets_runner",
-    workspace_files = integration_test_utils.glob_workspace_files("css_assets"),
-    workspace_path = "css_assets",
-)
-
 # ── dev_server ────────────────────────────────────────────────────────────────
 # Tests: ts_dev_server builds correctly (runner script + vite.config.mjs exist).
 # Does not run the actual dev server (no network access needed).
@@ -186,7 +172,7 @@ bazel_integration_test(
 )
 
 # ── gazelle_roundtrip ─────────────────────────────────────────────────────────
-# Two Gazelle passes diffed, then build and test; the runner stages lockfiles.
+# Two Gazelle passes diffed, then build and test, over an installed workspace.
 
 bazel_integration_test(
     name = "gazelle_roundtrip_test",
@@ -201,7 +187,7 @@ bazel_integration_test(
 )
 
 # ── lsp ───────────────────────────────────────────────────────────────────────
-# refresh_tsconfig: npm packages get no paths entry; nested tsconfig.json files.
+# refresh_tsconfig: no paths entry for npm; a package's own tsconfig.json stays.
 
 bazel_integration_test(
     name = "lsp_test",
@@ -221,7 +207,6 @@ test_suite(
     name = "integration_tests",
     tests = [
         ":codegen_test",
-        ":css_assets_test",
         ":dev_server_test",
         ":existing_project_test",
         ":gazelle_roundtrip_test",

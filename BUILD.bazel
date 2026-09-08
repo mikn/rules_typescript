@@ -8,6 +8,18 @@ exports_files([
     "LICENSE",
 ])
 
+# The pages //gazelle:typescript_test sweeps for retired directives.
+filegroup(
+    name = "docs_pages",
+    srcs = [
+        "AGENTS.md",
+        "COMPATIBILITY.md",
+        "CONTRIBUTING.md",
+        "README.md",
+    ] + glob(["docs/**/*.md"]),
+    visibility = ["//gazelle:__pkg__"],
+)
+
 # Roots only; the aspect walks deps. The analysis guard fixtures fail by design,
 # and //tests/workers:experimental_types would give every file Workers globals.
 ts_refresh_tsconfig(
@@ -27,6 +39,7 @@ ts_refresh_tsconfig(
         "tests/compiler_options/js_sources/tsconfig.json",
         "tests/compiler_options/jsx/tsconfig.json",
         "tests/compiler_options/path_aliases/tsconfig.json",
+        "tests/compiler_options/root_order/tsconfig.json",
         "tests/compiler_options/worker/tsconfig.json",
         "tests/vitest/attrs/tsconfig.json",
         "tests/worker_types/src/tsconfig.json",
@@ -41,7 +54,6 @@ ts_refresh_tsconfig(
         "//eslint-plugin/src:_src_test_compile",
         "//packages/nested-shared",
         "//packages/shared",
-        "//tests/assets:header_lib",
         "//tests/bundle:app",
         "//tests/codegen:consumer_compile",
         "//tests/compile_layout:siblings",
@@ -50,7 +62,6 @@ ts_refresh_tsconfig(
         "//tests/compiler_options/ambient:app",
         "//tests/compiler_options/analysis:everything",
         "//tests/compiler_options/analysis:from_exec_root",
-        "//tests/compiler_options/analysis:with_css",
         "//tests/compiler_options/baseline:loose",
         "//tests/compiler_options/baseline:loose_check_only",
         "//tests/compiler_options/js_sources:app",
@@ -58,17 +69,13 @@ ts_refresh_tsconfig(
         "//tests/compiler_options/jsx:view",
         "//tests/compiler_options/member/consumer:app",
         "//tests/compiler_options/path_aliases:app",
+        "//tests/compiler_options/root_order:app",
         "//tests/compiler_options/source_maps:mapped",
         "//tests/compiler_options/source_maps:unmapped",
         "//tests/compiler_options/subtree:tree",
         "//tests/compiler_options/worker",
-        "//tests/css:button_lib",
-        "//tests/css_module:button_lib",
-        "//tests/css_module_test:_button_test_compile",
-        "//tests/css_module_test:button",
         "//tests/dev_server:app",
         "//tests/dev_server:dev_app",
-        "//tests/json:app_lib",
         "//tests/multi/app",
         "//tests/npm:app",
         "//tests/npm:nested_workspace_consumer",
@@ -105,7 +112,6 @@ ts_refresh_tsconfig(
         "//tests/vitest/attrs:_attrs_test_setup",
         "//tests/vitest/config_dict:_define_test_compile",
         "//tests/vitest/config_merge:_merge_test_compile",
-        "//tests/vitest/config_merge:styles",
         "//tests/vitest/coverage:_math_coverage_test_compile",
         "//tests/vitest/data:_fixture_test_compile",
         "//tests/vitest/environment:_edge_test_compile",
@@ -116,10 +122,6 @@ ts_refresh_tsconfig(
         "//tests/vitest/setup_files:_media_test_setup",
         "//tests/vitest/setup_files:media",
         "//tests/vitest/workspace:_project_test_compile",
-        "//tests/vitest/workspace:styles",
-        # The css_module compiler and its Vite plugin: TypeScript that no
-        # ts_compile in a test tree reaches, so the IDE needs it named here.
-        "//ts/private/css:compiler_typecheck",
         "//vite:plugin_typecheck",
         "//vite:tsup_config",
     ],
@@ -163,9 +165,9 @@ ts_add_package(
     pnpm_lock = "//tests/workers:pnpm-lock.yaml",
 )
 
-# The one hub that is not a fixture: css_module's compiler runs from it, so it
-# ships to consumers.
+# The one hub that is not a fixture: the esbuild that bundles //vite's plugin
+# runs from it, so it ships to consumers.
 ts_add_package(
-    name = "add_package_css",
-    pnpm_lock = "//ts/private/css:pnpm-lock.yaml",
+    name = "add_package_esbuild",
+    pnpm_lock = "//vite/esbuild:pnpm-lock.yaml",
 )

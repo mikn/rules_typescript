@@ -1,7 +1,5 @@
-// Gazelle writes the deps; the check rejects the imports they do not cover.
-// A specifier only one of them recognises is either drift Gazelle cannot fix
-// (the check demands a dep Gazelle never generates) or drift the build never
-// notices, so the two recognisers are pinned against one expectation here.
+// The check rejects the imports the deps do not cover, so what it recognises
+// as an import, and what it leaves alone, is pinned here form by form.
 package strict_deps_test
 
 import (
@@ -9,8 +7,6 @@ import (
 	"sort"
 	"strings"
 	"testing"
-
-	typescript "github.com/mikn/rules_typescript/gazelle"
 )
 
 var scannerCases = []struct {
@@ -106,14 +102,11 @@ var scannerCases = []struct {
 
 var reFinding = regexp.MustCompile(`imports "([^"]+)"`)
 
-func TestGazelleAndTheCheckerRecogniseTheSameImports(t *testing.T) {
+func TestTheCheckerRecognisesEveryImportForm(t *testing.T) {
 	c := newChecker(t)
 
 	for _, tc := range scannerCases {
 		t.Run(tc.name, func(t *testing.T) {
-			fromGazelle := specifiers(typescript.ScanImports(tc.source))
-			assertSameSet(t, "gazelle", fromGazelle, tc.want)
-
 			// Every candidate is declared transitively available, so the
 			// checker reports exactly the specifiers it recognised.
 			var manifest []string
@@ -131,14 +124,6 @@ func TestGazelleAndTheCheckerRecogniseTheSameImports(t *testing.T) {
 			assertSameSet(t, "the checker", fromChecker, tc.want)
 		})
 	}
-}
-
-func specifiers(imports []typescript.Import) []string {
-	var out []string
-	for _, imp := range imports {
-		out = append(out, imp.Specifier)
-	}
-	return out
 }
 
 func assertSameSet(t *testing.T, who string, got, want []string) {

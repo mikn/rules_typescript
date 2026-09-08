@@ -20,6 +20,6 @@
         "moduleDetection": "force"
     },
     "files": [
-        "./src/b.ts"
+        "../../../../pkg/src/b.ts"
     ]
 }

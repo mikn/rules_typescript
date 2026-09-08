@@ -6,8 +6,8 @@ macro generates names its outputs after the source, and one package cannot
 declare the same output twice.
 """
 
-load("//ts:defs.bzl", "css_module", "ts_test")
-load(":analysis_tests.bzl", "css_module_test", "vitest_attr_test")
+load("//ts:defs.bzl", "ts_test")
+load(":analysis_tests.bzl", "vitest_attr_test")
 
 ts_test(
     name = "vitest_attrs",
@@ -23,25 +23,4 @@ ts_test(
 vitest_attr_test(
     name = "vitest_attr_test",
     target_under_test = ":vitest_attrs",
-)
-
-css_module(
-    name = "styles",
-    srcs = ["styles.module.css"],
-)
-
-ts_test(
-    name = "css_module_dep",
-    srcs = ["css.test.ts"],
-    runner = "node:test",
-    tags = ["manual"],
-    deps = [
-        ":styles",
-        "@npm//:types_node",
-    ],
-)
-
-css_module_test(
-    name = "css_module_test",
-    target_under_test = ":css_module_dep",
 )

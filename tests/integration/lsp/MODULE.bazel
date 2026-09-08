@@ -2,9 +2,8 @@
 
 Verifies that `bazel run //:refresh_tsconfig` generates a root tsconfig.json
 that names no npm package in paths (e.g. "zod": the checkout's node_modules
-answers those), and a nested tsconfig.json per package whose targets name
-src/tsconfig.json, extending it, so the editor program inherits the `paths`
-alias the build resolved through.
+answers those), leaves src/tsconfig.json -- the package's program and the
+editor's -- as written, and keeps its files out of the root program.
 
 The {RULES_TS_ROOT} placeholder is substituted at test runtime by test_runner.sh
 with the absolute path to the rules_typescript checkout.

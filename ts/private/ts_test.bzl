@@ -26,8 +26,8 @@ Who controls the test environment (vitest runner):
   The user does, through `config` (a vitest config file or an inline dict) and
   through the environment attributes (setup_files, global_setup, environment,
   globals, reporters, coverage_thresholds, data).  rules_typescript keeps only
-  what Bazel must own — the CSS-module plugin for CssModuleInfo deps, npm
-  resolution inside the runfiles tree, and the coverage output paths — and
+  what Bazel must own — npm resolution inside the runfiles tree and the
+  coverage output paths — and
   MERGES the user's config on top of it instead of being replaced by it.  The
   layering and its precedence are described under "Vitest config generation"
   below; the config that actually ran is available as the `vitest_config`
@@ -83,7 +83,12 @@ Snapshot testing:
 
 load("//tools/launcher:launcher.bzl", "LAUNCHER_ATTRS", "declare_launcher", "rlocation_path")
 load("//ts/private:node_modules.bzl", "build_node_modules_action", "collect_npm_packages")
-load("//ts/private:providers.bzl", "AssetInfo", "CssModuleInfo", "JsInfo", "NpmPackageInfo", "TsDeclarationInfo")
+load(
+    "//ts/private:providers.bzl",
+    "JsInfo",
+    "NpmPackageInfo",
+    "TsDeclarationInfo",
+)
 load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "JS_TOOL_TOOLCHAIN_TYPE", "get_js_runtime", "get_js_tool")
 load("//ts/private:ts_compile.bzl", "ts_compile")
 
@@ -150,29 +155,7 @@ _ts_auto_node_modules = rule(
 )
 
 # ─── Vitest config generation ────────────────────────────────────────────────
-#
-# ts_test always generates ONE vitest config and passes it with --config, so
-# vitest never auto-discovers a stray config from the runfiles tree.  That
-# generated file is an *entry* config that layers three sources, lowest
-# precedence first:
-#
-#   1. the Bazel layer   — machinery rules_typescript owns (the CSS-module
-#                          plugin when a dep provides CssModuleInfo)
-#   2. the user layer    — the `config` attr: either a vitest config file
-#                          (.ts/.mts/.js/.mjs) or an inline dict
-#   3. the attribute layer — `environment`, `setup_files`, `global_setup`,
-#                          `globals`, `reporters`, `coverage_thresholds`
-#   4. the snapshot layer  — where .snap files are read from and written to.
-#                          Merged at the root only: vitest rejects
-#                          `resolveSnapshotPath` in a project entry.
-#
-# Objects are merged key by key; arrays are concatenated (base first), which
-# matches vite's own mergeConfig, so a user `plugins` list never displaces the
-# CSS-module plugin and a user `setupFiles` list never displaces `setup_files`.
-# Scalars from a later layer win.
-#
-# Bazel's coverage output wiring stays on the vitest command line, where it
-# outranks every layer: `bazel coverage` must write lcov where Bazel expects it.
+# Layers, lowest precedence first: Bazel, `config`, attributes, snapshots.
 
 _SNAPSHOT_HELPERS = """\
 const snapshotBase = (testPath) => {
@@ -241,6 +224,29 @@ const withCompiledSetup = (config) => {
     else if (typeof test[key] === 'string') test[key] = rewrite(test[key]);
   }
   return { ...config, test };
+};
+
+// vitest realpaths each setupFiles entry into bazel-out; a DOM environment
+// then asks Vite for a file outside the root it serves: give the staged path.
+const setupFilesInRoot = (config) => {
+  const root = resolve(config.root ?? '.');
+  const staged = new Map();
+  for (const entry of [config.test?.setupFiles].flat()) {
+    if (typeof entry !== 'string') continue;
+    const path = resolve(root, entry);
+    try {
+      const real = realpathSync(path);
+      if (real !== path) staged.set(real, path);
+    } catch {}
+  }
+  if (staged.size === 0) return config;
+  const plugin = {
+    name: 'rules_typescript:setup-files-in-root',
+    enforce: 'pre',
+    resolveId: (id) =>
+      staged.get(id.startsWith('/@fs/') ? id.slice(4) : id) ?? null,
+  };
+  return { ...config, plugins: [...(config.plugins ?? []), plugin] };
 };
 """
 
@@ -334,7 +340,6 @@ def _member_pattern(package_name):
 
 def _vitest_config_content(
         config_rf,
-        css_module_plugin_rf,
         user_config_rf,
         user_config_json,
         environment,
@@ -363,16 +368,10 @@ def _vitest_config_content(
         ("basename, dirname, join, resolve, sep" if snapshot_bases else "dirname, resolve") +
         " } from 'node:path';",
         "import { fileURLToPath } from 'node:url';",
-        "import { " +
-        ("existsSync, readFileSync" if snapshot_bases else "existsSync") +
-        " } from 'node:fs';",
+        "import { existsSync, " +
+        ("readFileSync, " if snapshot_bases else "") +
+        "realpathSync } from 'node:fs';",
     ]
-    if css_module_plugin_rf:
-        # The plugin that answers a *.module.css import with the export map
-        # css_module wrote, so a test reads the class name the browser gets.
-        lines.append("import {{ cssModulesTestPlugin }} from '{}';".format(
-            _relative_import(config_rf, css_module_plugin_rf),
-        ))
     if workers_pool_rf:
         lines.append("import {{ workersPoolLayer }} from '{}';".format(
             _relative_import(config_rf, workers_pool_rf),
@@ -394,8 +393,6 @@ def _vitest_config_content(
             "const SNAPSHOT_BASES = {};".format(_js(snapshot_bases)),
             _SNAPSHOT_HELPERS,
         ]
-
-    base_plugins = ["cssModulesTestPlugin()"] if css_module_plugin_rf else []
 
     lines += [
         # Every path vitest is handed is a runfiles symlink; resolving them to
@@ -421,7 +418,7 @@ def _vitest_config_content(
         # which is the runfiles tree.
         "  ...(process.env.TEST_TMPDIR ? { cacheDir: resolve(process.env.TEST_TMPDIR, '.vite') } : {}),",
         "  resolve: { preserveSymlinks: true },",
-        "  plugins: [{}],".format(", ".join(base_plugins)),
+        "  plugins: [],",
         # A workspace member's .js keeps its sources' extensionless relative
         # imports, which vite resolves and node's loader rejects: vite runs it.
         "  test: {{ coverage: {{ allowExternal: true }}, server: {{ deps: {{ inline: [{}] }} }} }},".format(
@@ -488,7 +485,7 @@ def _vitest_config_content(
         lines.append("  const user = {};")
     lines += [
         "  if (typeof workersPoolLayer === 'function') bazelLayer = workersPoolLayer(bazelLayer, user, resolve(process.env.TS_TEST_PACKAGE_DIR, {}));".format(_js(workspace_rel)),
-        "  const merged = withCompiledSetup(merge(merge(merge(bazelLayer, user), attrLayer), snapshotLayer));",
+        "  const merged = setupFilesInRoot(withCompiledSetup(merge(merge(merge(bazelLayer, user), attrLayer), snapshotLayer)));",
         "  // Every project gets its own Vite server, so the Bazel layer and the",
         "  // attribute layer have to be applied to each project too.",
         "  const projects = merged.test && merged.test.projects;",
@@ -496,7 +493,7 @@ def _vitest_config_content(
         "    merged.test = {",
         "      ...merged.test,",
         "      projects: projects.map((p) =>",
-        "        isPlainObject(p) ? withCompiledSetup(merge(merge(bazelLayer, p), attrLayer)) : p,",
+        "        isPlainObject(p) ? setupFilesInRoot(withCompiledSetup(merge(merge(bazelLayer, p), attrLayer))) : p,",
         "      ),",
         "    };",
         "  }",
@@ -533,18 +530,32 @@ _RUNNERS = [RUNNER_VITEST, RUNNER_NODE_TEST]
 
 # ─── Internal test runner rule ─────────────────────────────────────────────────
 
+# A test inside a member resolves the member's name through the nearest
+# package.json, so the manifest as built stands at the member's own path.
+def _member_manifests(ctx, members):
+    out = {}
+    for info in members:
+        member_dir = info.package_root.removeprefix(ctx.bin_dir.path + "/")
+        for f in info.all_files.to_list():
+            if f.basename == "package.json" and not f.is_source:
+                out[member_dir + "/package.json"] = f
+    return out
+
+def _without(files, paths):
+    if not paths:
+        return files
+    return depset([f for f in files.to_list() if f.short_path not in paths])
+
 def _ts_test_runner_impl(ctx):
     # Collect transitive .js files from all deps.
     transitive_js_sets = []
+    transitive_data_sets = []
     for dep in ctx.attr.deps:
         if JsInfo in dep:
             transitive_js_sets.append(dep[JsInfo].transitive_js_files)
+            transitive_data_sets.append(dep[JsInfo].transitive_data_files)
 
     transitive_js = depset(transitive = transitive_js_sets, order = "postorder")
-
-    # A wrangler `rules` module (Text, Data) the compiled JS imports is in the
-    # sandbox only when named here.
-    transitive_asset_sets = [dep[AssetInfo].transitive_asset_files for dep in ctx.attr.deps if AssetInfo in dep]
 
     # The test .js files come from the compiled test target.
     test_js_files = ctx.files.compiled_tests
@@ -566,26 +577,17 @@ def _ts_test_runner_impl(ctx):
         ],
         order = "postorder",
     )
-    inline_members = sorted({
-        info.package_name: True
+    members = [
+        info
         for info in collect_npm_packages(npm_direct + npm_closure.to_list())
         if info.package_dir == None
-    }.keys())
-
-    # A *.module.css anywhere in the closure means something under test imports
-    # one, which Node cannot load; the generated config answers it.  ts_compile
-    # always advertises CssModuleInfo, so the depset has to be the test — the
-    # provider's presence alone would install the plugin everywhere.
-    needs_css_module_plugin = False
-    css_module_sets = []
-    for dep in ctx.attr.deps:
-        if CssModuleInfo not in dep:
-            continue
-        info = dep[CssModuleInfo]
-        css_module_sets.append(info.transitive_css_files)
-        css_module_sets.append(info.transitive_exports_files)
-        if not needs_css_module_plugin and info.transitive_css_files.to_list():
-            needs_css_module_plugin = True
+    ]
+    inline_members = sorted({m.package_name: True for m in members}.keys())
+    member_manifests = _member_manifests(ctx, members)
+    runtime_data_sets = [_without(
+        depset(transitive = transitive_data_sets),
+        member_manifests,
+    )]
 
     # Resolve vitest binary.
     # When set via the `vitest` attr, the label points to an npm_bin wrapper
@@ -620,12 +622,14 @@ def _ts_test_runner_impl(ctx):
     if ctx.attr.runner == RUNNER_NODE_TEST:
         return _node_test_providers(
             ctx,
-            transitive_js = transitive_js,
+            runtime_files = depset(
+                transitive = [transitive_js] + runtime_data_sets,
+            ),
             test_files_list = test_files_list,
             node_modules_files = node_modules_files,
             runtime_binary = runtime_binary,
             runtime_args = runtime_args,
-            needs_css_module_plugin = needs_css_module_plugin,
+            symlinks = member_manifests,
         )
 
     # ── Vitest config ─────────────────────────────────────────────────────────
@@ -669,23 +673,8 @@ def _ts_test_runner_impl(ctx):
             substitutions = {},
         )
 
-    # A copy beside the generated config, for the reason above: vitest resolves
-    # the config's imports against the real file in bin, and the path arithmetic
-    # from there to another package's output tree is not the path arithmetic from
-    # the runfiles tree. Two outputs of this target in one directory is.
-    css_module_plugin = None
-    if needs_css_module_plugin:
-        css_module_plugin = ctx.actions.declare_file(
-            "_{}_css_modules.mjs".format(ctx.label.name),
-        )
-        ctx.actions.expand_template(
-            template = ctx.file._css_module_plugin,
-            output = css_module_plugin,
-            substitutions = {},
-        )
-
-    # The pool's half of the Bazel layer, a copy beside the generated config for
-    # the same reason as the CSS-module plugin.
+    # The pool's half of the Bazel layer, copied beside the generated config:
+    # vitest resolves the config's imports from its real path in bin.
     workers_pool = None
     if ctx.file.config:
         workers_pool = ctx.actions.declare_file(
@@ -704,13 +693,13 @@ def _ts_test_runner_impl(ctx):
         src = ctx.file.wrangler_config
 
         # A runfiles file at a symlink's path wins over it silently, and the
-        # unpatched `main` with it: the source's copy in data or in an asset dep.
+        # unpatched `main` with it: the source's copy in data or through a dep.
         for f in ctx.files.data:
             if f.short_path == src.short_path:
                 fail("ts_test {}: {} is staged through wrangler_config; do not list it in data too.".format(ctx.label, src.short_path))
-        transitive_asset_sets = [depset([
+        runtime_data_sets = [depset([
             f
-            for f in depset(transitive = transitive_asset_sets).to_list()
+            for f in depset(transitive = runtime_data_sets).to_list()
             if f.short_path != src.short_path
         ])]
 
@@ -749,7 +738,6 @@ def _ts_test_runner_impl(ctx):
         output = vitest_config,
         content = _vitest_config_content(
             config_rf = rlocation_path(ctx, vitest_config),
-            css_module_plugin_rf = rlocation_path(ctx, css_module_plugin) if css_module_plugin else None,
             user_config_rf = rlocation_path(ctx, user_config) if user_config else None,
             user_config_json = ctx.attr.config_json,
             environment = ctx.attr.environment,
@@ -833,21 +821,23 @@ def _ts_test_runner_impl(ctx):
         runfiles_files.append(runtime_binary)
     if user_config:
         runfiles_files.append(user_config)
-    if css_module_plugin:
-        runfiles_files.append(css_module_plugin)
     if workers_pool:
         runfiles_files.append(workers_pool)
     if wrangler_patched:
         runfiles_files.append(wrangler_patched)
 
+    symlinks = dict(member_manifests)
+    if wrangler_patched:
+        symlinks[ctx.file.wrangler_config.short_path] = wrangler_patched
     runfiles = ctx.runfiles(
         files = runfiles_files,
-        # The stylesheets and the assets as well as the .js: the plugin above
-        # answers a *.module.css import out of the export map beside it, and each
-        # is in the sandbox only because it is named here.
-        transitive_files = depset(transitive = [transitive_js] + css_module_sets + transitive_asset_sets),
+        # The data srcs as well as the .js: each is in the sandbox only because
+        # it is named here.
+        transitive_files = depset(
+            transitive = [transitive_js] + runtime_data_sets,
+        ),
         root_symlinks = launcher.root_symlinks,
-        symlinks = {ctx.file.wrangler_config.short_path: wrangler_patched} if wrangler_patched else {},
+        symlinks = symlinks,
     )
     for target in ctx.attr.data + ctx.attr.setup_files + ctx.attr.global_setup:
         runfiles = runfiles.merge(target[DefaultInfo].default_runfiles)
@@ -878,12 +868,12 @@ def _ts_test_runner_impl(ctx):
 
 def _node_test_providers(
         ctx,
-        transitive_js,
+        runtime_files,
         test_files_list,
         node_modules_files,
         runtime_binary,
         runtime_args,
-        needs_css_module_plugin):
+        symlinks):
     """Providers for a runner = "node:test" target: no generated config at all."""
     set_attrs = [
         attr_name
@@ -911,14 +901,6 @@ def _node_test_providers(
             ctx.label,
             RUNNER_NODE_TEST,
             ", ".join(set_attrs),
-        ))
-
-    if needs_css_module_plugin:
-        fail(('ts_test: runner "{}" cannot load a CSS module, and a dep of {} ' +
-              "provides one. Only the vitest runner installs the transform that " +
-              "answers a *.module.css import; drop `runner` to use it.").format(
-            RUNNER_NODE_TEST,
-            ctx.label,
         ))
 
     node_test_cfg = {
@@ -952,8 +934,9 @@ def _node_test_providers(
 
     runfiles = ctx.runfiles(
         files = runfiles_files,
-        transitive_files = transitive_js,
+        transitive_files = runtime_files,
         root_symlinks = launcher.root_symlinks,
+        symlinks = symlinks,
     )
     for target in ctx.attr.data:
         runfiles = runfiles.merge(target[DefaultInfo].default_runfiles)
@@ -1008,17 +991,13 @@ _RUNNER_ATTRS = {
     ),
     "deps": attr.label_list(
         aspects = [_instrumented_files_aspect],
-        doc = "ts_compile and other targets whose .js files may be available at test runtime. " +
-              "Deps that do not provide JsInfo (e.g. css_module, asset_library) contribute " +
-              "no .js; an asset_library dep's files are in the runfiles.",
+        doc = "ts_compile and other targets whose .js files may be available " +
+              "at test runtime; a dep's data srcs are in the runfiles beside " +
+              "its .js.",
     ),
     "node_modules": attr.label(
         doc = "A node_modules target providing the runtime npm dependency tree.",
         allow_files = True,
-    ),
-    "_css_module_plugin": attr.label(
-        default = Label("//ts/private/css:css_module_vite_plugin"),
-        allow_single_file = True,
     ),
     "_workers_pool": attr.label(
         default = Label("//ts/private:vitest_workers_pool.mjs"),
@@ -1078,7 +1057,8 @@ _RUNNER_ATTRS = {
     "config": attr.label(
         doc = "A vitest config file (.ts/.mts/.js/.mjs).  It is MERGED into the " +
               "generated config rather than replacing it, so the Bazel-owned " +
-              "machinery (CSS-module plugin, module resolution) survives.  A " +
+              "layer (root, cacheDir, preserveSymlinks, " +
+              "coverage.allowExternal, the Workers-pool half) survives.  A " +
               "config that default-exports an array is read as a list of " +
               "vitest projects (test.projects).  Files it imports relatively " +
               "must be listed in `data`.",
@@ -1295,11 +1275,10 @@ def ts_test(
                            vitest-shaped attr (`config`, `environment`,
                            `globals`, `reporters`, `setup_files`,
                            `global_setup`, `snapshots`, the coverage trio and
-                           `vitest`) is an analysis error under it, a
-                           CssModuleInfo dep is too, and `bazel coverage` is
-                           unsupported. `--test_filter` reaches it as node's
-                           --test-name-pattern; sharding works as it does for
-                           vitest.
+                           `vitest`) is an analysis error under it, and
+                           `bazel coverage` is unsupported. `--test_filter`
+                           reaches it as node's --test-name-pattern; sharding
+                           works as it does for vitest.
         environment:       Vitest test environment: 'node', 'happy-dom', or 'jsdom'.
                            Requires the corresponding package in node_modules.
         coverage:          When True, also enables coverage during `bazel test`

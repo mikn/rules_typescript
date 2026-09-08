@@ -125,10 +125,16 @@ def _option_group(target, ctx):
     elif getattr(ctx.rule.file, "tsconfig", None):
         extends = ctx.rule.file.tsconfig.short_path
 
-    if not options and not extends:
+    package = target.label.package
+
+    # The tsconfig.json in the target's own directory is already the program
+    # tsserver reads for its files; the root only leaves them out.
+    own = extends == (package + "/" if package else "") + "tsconfig.json"
+    if own:
+        options, extends = {}, ""
+    if not options and not extends and not own:
         return []
 
-    package = target.label.package
     include = [
         f.short_path[len(package) + 1:] if package else f.short_path
         for f in sources
@@ -145,6 +151,7 @@ def _option_group(target, ctx):
         options_json = json.encode(options),
         extends = extends,
         include = tuple(sorted(include)),
+        own = own,
     )]
 
 def _tsconfig_aspect_impl(target, ctx):
@@ -228,7 +235,8 @@ _ONE_ANSWER_PER_DIRECTORY = (
 )
 
 def _nested_configs(sources, root_options):
-    """One editor program per package whose options the root block cannot carry.
+    """One editor program per package the root block cannot carry; none for a
+    package whose targets check under its own tsconfig.json, tsserver's nearest.
 
     tsserver picks the nearest tsconfig.json walking up from a file, so a package
     whose targets check under a tsconfig of their own needs a file there that
@@ -246,12 +254,15 @@ def _nested_configs(sources, root_options):
     root_options = _canonical_options(root_options)
 
     groups = {}
+    own = {}
     for entry in sources.option_groups.to_list():
         group = groups.setdefault(entry.package, struct(
             options = {},
             extends = {},
             include = {},
         ))
+        if entry.own:
+            own[entry.package] = True
         group.options.update(json.decode(entry.options_json))
         if entry.extends:
             for baseline, owner in group.extends.items():
@@ -274,6 +285,15 @@ def _nested_configs(sources, root_options):
     out = []
     for package in sorted(groups):
         group = groups[package]
+        if package in own:
+            out.append(struct(
+                package = package,
+                own = True,
+                options = {},
+                extends = [],
+                include = sorted(group.include),
+            ))
+            continue
         options = group.options
         if not group.extends:
             options = {
@@ -285,6 +305,7 @@ def _nested_configs(sources, root_options):
             continue
         out.append(struct(
             package = package,
+            own = False,
             options = options,
             extends = sorted(group.extends),
             include = sorted(group.include),
@@ -370,7 +391,6 @@ def _ide_tsconfig_impl(ctx):
             "sourceMap": True,
             "skipLibCheck": True,
             "esModuleInterop": True,
-            "allowArbitraryExtensions": True,
             "rootDirs": [".", bin_dir],
             "paths": paths,
             "noEmit": True,
@@ -402,6 +422,8 @@ def _ide_tsconfig_impl(ctx):
             "{}/{}".format(group.package, path)
             for path in group.include
         ]
+        if group.own:
+            continue
         nested_out = ctx.actions.declare_file("{}.nested.{}.json".format(
             ctx.label.name,
             group.package.replace("/", "_"),

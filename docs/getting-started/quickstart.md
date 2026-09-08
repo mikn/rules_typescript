@@ -156,8 +156,15 @@ gazelle(
 )
 ```
 
-**Step 5.** Write your TypeScript files. Explicit return types are optional;
-tsgo emits the declarations from the full type program:
+**Step 5.** Write your TypeScript files, with a `tsconfig.json` in each
+directory that is to be a package: Gazelle writes one `ts_compile` per
+`tsconfig.json`, over what the program lists. Explicit return types are
+optional; tsgo emits the declarations from the full type program:
+
+```json
+// src/lib/tsconfig.json
+{ "compilerOptions": { "module": "preserve", "strict": true } }
+```
 
 ```typescript
 // src/lib/math.ts
@@ -212,10 +219,10 @@ npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
 use_repo(npm, "npm", "pnpm")
 ```
 
-`"pnpm"` is not optional: Gazelle writes `ts_pnpm` and `ts_add_package`
-targets naming `@pnpm` into your root `BUILD.bazel` as soon as a
-`pnpm-lock.yaml` exists. Leave it out and `bazel build //...` aborts with
-`No repository visible as '@pnpm' from main repository`. See
+`"pnpm"` is the hermetic pnpm the `ts_pnpm` and `ts_add_package` targets in
+your root `BUILD.bazel` run; write them by hand, and the checkout is installed
+with `bazel run //:pnpm -- install` before Gazelle lists it, since tsgo resolves
+a bare specifier through `node_modules/`. See
 [npm Dependencies](../guides/npm.md#setup).
 
 Write the test beside the source, re-run Gazelle, and test:
@@ -260,12 +267,9 @@ gazelle(
 Explicit return types stay optional: the `ts_compile` default emits
 declarations with tsgo, which infers them.
 
-**Step 3.** Wire up your `pnpm-lock.yaml` before the first build. Gazelle writes
-`ts_pnpm` and `ts_add_package` targets into the root `BUILD.bazel` beside a root
-lockfile, and resolves every bare import to an `@npm//:…` label, so analysis
-fails until both repositories exist. With no extension declared, the root
-BUILD's targets fail first:
-`No repository visible as '@pnpm' from main repository and referenced by '//:add_package'`.
+**Step 3.** Wire up your `pnpm-lock.yaml` before the first build. Gazelle
+resolves every bare import to an `@npm//…` label, so analysis fails until the
+hub exists:
 
 ```python
 # MODULE.bazel
@@ -274,15 +278,18 @@ npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
 use_repo(npm, "npm", "pnpm")
 ```
 
-Both names are needed: `@npm` is the alias hub your `deps` labels spell, and
-`@pnpm` backs the `ts_pnpm` and `ts_add_package` targets Gazelle writes into
-your root `BUILD.bazel`. See [npm Dependencies](../guides/npm.md) for private
-registries and patched dependencies.
+`@npm` is the alias hub your `deps` labels spell; `@pnpm` backs the `ts_pnpm`
+and `ts_add_package` targets you write into your root `BUILD.bazel`
+([Hermetic pnpm](../guides/npm.md#hermetic-pnpm)). See
+[npm Dependencies](../guides/npm.md) for private registries and patched
+dependencies.
 
-`pnpm install` is never needed: the lockfile is the only npm input.
+The lockfile is the build's one npm input. Gazelle's listing is tsgo over the
+checkout, which resolves a bare specifier through `node_modules/`, so a
+checkout runs `pnpm install` once; a root lockfile with no install is refused
+before the first listing.
 
-A `node_modules/` that exists anyway, for an editor or a script, is a directory
-Bazel walks. pnpm links a `workspace:` dependency into it
+Bazel walks that `node_modules/`. pnpm links a `workspace:` dependency into it
 (`workers/file-viewer/node_modules/@lovable.dev/pulse -> ../../../../packages/ui`),
 and `bazel build //...` follows the link, so every package under the linked
 member is loaded a second time under `node_modules/`. `.bazelignore` takes no
@@ -324,21 +331,23 @@ Delete it. `paths` here is Bazel's and resolves against no `baseUrl`; see
     Your `paths` stay in your `tsconfig.json`, and both readers take them from
     there. The rule rewrites each value to its source and `bazel-bin` twins, so
     an aliased import reaches a dep's declarations where the build left them.
-    Gazelle maps the import through the same entry to the target that owns the
-    directory and writes that target into `deps`; no attribute repeats the
-    alias. `"@lib/*": ["src/lib/*"]` imported from `src/app/`:
+    tsgo resolves the alias when it lists the program, and Gazelle maps the
+    file it landed on to the package that owns it and writes that package into
+    `deps`; no attribute repeats the alias. `"@lib/*": ["../lib/*"]` in
+    `src/app/tsconfig.json`:
 
     ```python
     # src/app/BUILD.bazel
     ts_compile(
         name = "app",
         srcs = ["main.ts"],   # import { add } from "@lib/math";
+        tsconfig = ":tsconfig",
+        visibility = ["//visibility:public"],
         deps = ["//src/lib"],
     )
     ```
 
-    Of a fallback array Gazelle reads the first entry, the one `tsc` tries
-    first. A bare specifier naming another package of the workspace is not an
+    A bare specifier naming another package of the workspace is not an
     alias; see
     [importing another target by bare specifier](../rules/ts-compile.md#importing-another-target-by-bare-specifier).
 
@@ -363,8 +372,10 @@ It writes ten files: `.bazelversion` (`9.2.0`), `.bazelrc`, `MODULE.bazel`, a
 root `BUILD.bazel` holding the Gazelle target, `src/BUILD.bazel`,
 `src/lib/math.ts`, `src/lib/index.ts`, `src/lib/BUILD.bazel`, `src/app/main.ts`
 and `src/app/BUILD.bazel`. `src/lib` and `src/app` each hold a hand-written
-`ts_compile` each, `//src/lib` and `//src/app`; the `math.ts` carries explicit
-return types. The next `bazel run //:gazelle` keeps both targets.
+`ts_compile`, `//src/lib` and `//src/app`, and no `tsconfig.json`; the
+`math.ts` carries explicit return types. Neither directory is a package, so
+`bazel run //:gazelle` withdraws both rules unless `# keep` sits above them;
+a `tsconfig.json` in each makes them Gazelle's.
 
 `--rules-path` adds a `local_path_override` naming the checkout; it has to be
 absolute, because `bazel run` starts the tool inside its runfiles tree, not in
