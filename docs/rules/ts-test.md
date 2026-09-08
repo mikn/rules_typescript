@@ -84,9 +84,11 @@ reads across a package boundary is a `data` entry.
 `//tests/vitest/reads_own_source` is the example.
 
 The compiled program is what runs. A `setupFiles` entry naming a source runs the
-compiled sibling a dep staged beside it ([Setup Files](#setup-files)); under the
-node:test runner a relative `.ts` specifier loads the `.js` beside it
-([Relative `.ts` Specifiers](#relative-ts-specifiers)).
+compiled sibling staged beside it ([Setup Files](#setup-files)), and a relative
+`.ts` specifier the emit keeps resolves to its compiled sibling
+([Relative `.ts` Specifiers](#relative-ts-specifiers)); under the node:test
+runner the module loads at its `bazel-out` realpath, where the source is not
+([The node:test Runner](#the-nodetest-runner)).
 
 ## The Test's tsconfig
 
@@ -316,22 +318,25 @@ does, its imports resolved from the runfiles tree.
 
 `import { x } from "./util.ts"` is legal TypeScript under
 `allowImportingTsExtensions`, and the emit keeps the specifier as written, so
-the compiled test imports `./util.ts` while the runfiles hold `util.js`. Left
-so, the run fails with
+the compiled test imports `./util.ts`. The runfiles hold `util.js` and, for a
+source of the test's package, `util.ts` beside it
+([Files at Run Time](#files-at-run-time)); resolved as written, a same-package
+import runs the source under vite's transform, and an import of another
+package's file fails with
 
 ```
 Error: Cannot find module './util.ts' imported from .../util.test.js
 ```
 
 Layer 1 carries a plugin that resolves a relative specifier ending in `.ts`,
-`.tsx`, `.mts` or `.cts` whose file is absent while the compiled sibling beside
-it exists (`.js`, `.mjs` or `.cjs`; `.jsx` for a `.tsx` under `jsx: preserve`)
-to that sibling, from the importing file's directory -- the rule a
-`setupFiles` entry is rewritten by, applied to every import. A
-specifier whose file exists resolves as written, and the source and the emit
-are untouched: no `rewriteRelativeImportExtensions`, no edit to the `import`.
-`//tests/vitest/relative_ts` is the example: the test imports `./lib.ts`, and
-lib `./deep/util.ts`.
+`.tsx`, `.mts` or `.cts` to the compiled sibling beside it (`.js`, `.mjs` or
+`.cjs`; `.jsx` for a `.tsx` under `jsx: preserve`) whenever that sibling exists,
+from the importing file's directory, whether or not the source is there -- the
+rule a `setupFiles` entry is rewritten by, applied to every import. A specifier
+with no compiled sibling resolves as written, and the source and the emit are
+untouched: no `rewriteRelativeImportExtensions`, no edit to the `import`.
+`//tests/vitest/relative_ts` is the example: the test imports `./lib.ts`, lib
+`./deep/util.ts`, and both assert the `.js` ran.
 
 ### A Workers Pool
 

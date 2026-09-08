@@ -212,15 +212,14 @@ const merge = (a, b) => {
 """
 
 _SETUP_HELPERS = """\
-// A config's setup entries and a compiled module's imports name sources the
-// runfiles never hold; what a dep stages at that path is the compiled sibling.
+// A setup entry or an import names a source; the program vitest runs is the
+// compiled one (docs/rules/ts-test.md § Files at Run Time).
 const COMPILED_EXT = {
   '.ts': ['.js'], '.tsx': ['.js', '.jsx'], '.mts': ['.mjs'], '.cts': ['.cjs'],
 };
 const compiledSibling = (dir, spec) => {
   const m = typeof spec === 'string' ? /\\.[cm]?tsx?$/.exec(spec) : null;
   if (!m || !(m[0] in COMPILED_EXT)) return spec;
-  if (existsSync(resolve(dir, spec))) return spec;
   const sibling = COMPILED_EXT[m[0]]
     .map((ext) => spec.slice(0, -m[0].length) + ext)
     .find((candidate) => existsSync(resolve(dir, candidate)));
