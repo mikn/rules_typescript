@@ -1,5 +1,54 @@
+load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_config", "ts_test")
+
 # A stale pnpm install from before this tree was built by Bazel. It is
 # gitignored, so it is invisible in a clean checkout and its BUILD files are
 # noise here -- Gazelle has already generated a go_library inside it once.
 # gazelle:exclude node_modules
 # gazelle:exclude dist
+
+# @npm_eslint is a hub of the plugin's own lockfile, not the one Gazelle
+# writes labels for, so both deps lists are held by hand.
+ts_compile(
+    name = "eslint-plugin",
+    srcs = [
+        "LICENSE",
+        "README.md",
+        "docs/rules/require-explicit-types.md",
+        "package.json",
+        "package-lock.json",
+        "src/index.ts",
+        "src/rules/require-explicit-types.ts",
+        "src/utils.ts",
+    ],
+    tsconfig = ":tsconfig",
+    visibility = ["//visibility:public"],
+    # keep
+    deps = ["@npm_eslint//:typescript-eslint_utils"],
+)
+
+ts_test(
+    name = "eslint-plugin_test",
+    srcs = ["src/rules/__tests__/require-explicit-types.test.ts"],
+    config = "vitest.config.ts",
+    tsconfig = ":tsconfig",
+    # keep
+    deps = [
+        ":eslint-plugin",
+        "@npm_eslint//:typescript-eslint_parser",
+        "@npm_eslint//:typescript-eslint_rule-tester",
+        "@npm_eslint//:typescript-eslint_utils",
+        "@npm_eslint//:vitest",
+    ],
+)
+
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "vitest_config",
+    srcs = ["vitest.config.ts"],
+    visibility = ["//visibility:public"],
+)

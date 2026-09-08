@@ -4,6 +4,7 @@ package(default_visibility = ["//visibility:public"])
 
 exports_files(["package.json"])
 
+# keep
 filegroup(
     name = "vitest_config",
     srcs = ["vitest.config.mjs"],

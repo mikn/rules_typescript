@@ -132,8 +132,11 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 				"tsconfig": true,
 				"config":   true,
 			},
+			// Written at Resolve, from the config's edges: the pool's attributes.
 			ResolveAttrs: map[string]bool{
-				"deps": true,
+				"deps":              true,
+				"wrangler_config":   true,
+				"coverage_provider": true,
 			},
 		},
 		// ts_config makes a package's hand-written tsconfig.json a label the
@@ -172,7 +175,8 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 			MatchAny:   false,
 			MatchAttrs: []string{"name"},
 		},
-		// filegroup stages a vitest config for the packages below it.
+		// filegroup makes a vitest config, or the wrangler config it names, a
+		// label for the packages below it.
 		"filegroup": {
 			MatchAny:   false,
 			MatchAttrs: []string{"name"},

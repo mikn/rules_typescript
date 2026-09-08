@@ -118,26 +118,27 @@ is nothing.
 ### Where a Program Is Not
 
 A directory that is not a package gets `Empty` for every kind Gazelle writes --
-`ts_compile`, `ts_test`, `ts_lint`, `ts_config` and `filegroup(vitest_config)`
-under the names it would use -- so a rule an earlier run left there is
-withdrawn, and the run names the BUILD file to delete when one of them was in
-it: Gazelle cannot delete the file, and an empty BUILD file keeps the directory
-a Bazel package. Two rules are written there all the same: a `ts_config` over a
-`tsconfig.json` a program's `extends` chain names (the root's shared base), and
-at the repository root a `filegroup(vitest_config)` over a config the tests
-below name. A directory inside a `ts_codegen`'s `out_dir` is that target's
-output: nothing under it is a source, and a BUILD file there is emptied and
-named the same way.
+`ts_compile`, `ts_test`, `ts_lint`, `ts_config`, `filegroup(vitest_config)` and
+`filegroup(wrangler_config)` under the names it would use -- so a rule an
+earlier run left there is withdrawn, and the run names the BUILD file to delete
+when one of them was in it: Gazelle cannot delete the file, and an empty BUILD
+file keeps the directory a Bazel package. Two things are written there all the
+same: a `ts_config` over a `tsconfig.json` a program's `extends` chain names
+(the root's shared base), and at the repository root the filegroups over a
+config the tests below name and over the wrangler config it names. A directory
+inside a `ts_codegen`'s `out_dir` is that target's output: nothing under it is
+a source, and a BUILD file there is emptied and named the same way.
 
 ## What Gazelle Writes
 
 | Rule | Name | Attributes Gazelle owns |
 |------|------|-------------------------|
 | `ts_compile` | the directory's basename, `root` at the repository root | `srcs`, `deps`, `tsconfig`, `visibility` |
-| `ts_test` | `<basename>_test` | `srcs`, `deps`, `tsconfig`, `config` |
+| `ts_test` | `<basename>_test` | `srcs`, `deps`, `tsconfig`, `config`, `wrangler_config`, `coverage_provider` |
 | `ts_config` | `tsconfig` | `src`, `deps`, `visibility` |
 | `ts_lint` | `<basename>_lint` | `srcs`, `linter`, `linter_binary`, `config`, `fail_on_warnings` |
 | `filegroup` | `vitest_config` | `srcs`, `visibility` |
+| `filegroup` | `wrangler_config` | `srcs`, `visibility` |
 
 Per package: a `ts_compile` when the program has a library file, holding the
 library files, every owned declaration and the data files; a `ts_test` when it
@@ -204,6 +205,26 @@ that only resolves through Vite (`test.server.deps.inline`) fails at import
 time. Every import of the config, bare or relative, is a dep of the test: the
 config is listed by tsgo from its own directory, as vitest loads it.
 
+### A Workers-Pool Config
+
+A config that imports `@cloudflare/vitest-pool-workers` runs its tests inside
+workerd, and the pool reads the wrangler config `wrangler.configPath` names --
+that key alone; a `wrangler.jsonc` beside a config naming none is nothing to
+it. Gazelle reads the one string literal in the config matching
+`wrangler[\w.-]*\.(jsonc|json|toml)` and makes the file a label in the
+config's package: `filegroup(name = "wrangler_config")` beside `vitest_config`,
+withdrawn when the literal or the file goes. A config naming two files, or a
+file outside its package, is said and gets none. The `ts_test` whose config's
+edges name the pool gets `wrangler_config` -- the filegroup's label from a
+package below, the file's name from the config's own -- and, when the lockfile
+declares `@vitest/coverage-istanbul`, `coverage_provider = "istanbul"` with
+that package in `deps` in the importer's spelling; the pool refuses v8
+coverage, and without the package the run says so and writes neither. The
+filegroup follows the literal and is written when the package generates; the
+attributes follow the pool's edge and are written with `deps`, from the
+combined listing. A config that names a wrangler config and installs no pool
+gets the filegroup and no test names it.
+
 ## The tsconfig and Its ts_config
 
 Every target compiles under the package's own `tsconfig.json`: its `lib`,
@@ -252,7 +273,11 @@ that is not in the checkout is listed by no program, so Gazelle reads the entry
 from the chain itself, resolved against the package's directory as tsc
 resolves it, and writes the codegen into `deps`. Nothing else is written: no
 `types`, no filegroup. The checked-in copy of a declared out goes: a file that
-is both a src and an output of its package is a conflict Bazel rejects.
+is both a src and an output of its package is a conflict Bazel rejects. The
+codegen is named for what it writes, never for its directory: the directory's
+name is the package's `ts_compile`, and a hand-written rule of another kind
+holding that name keeps the merger from writing the compile. The run names
+such a rule; rename it.
 
 ```python
 # workers/proxy/BUILD.bazel -- the ts_codegen is hand-written; Gazelle leaves it
@@ -428,12 +453,17 @@ change nothing. Check without writing anything:
 bazel run //:gazelle -- -mode=diff
 ```
 
-Two things commonly keep that diff non-empty on a hand-written BUILD file, and
-neither is drift:
+Three things commonly keep that diff non-empty on a hand-written BUILD file,
+and none is drift:
 
 - **Gazelle's own rendering.** It writes a one-element list inline
   (`deps = ["//pkg"]`) and names a generated file by its producing label where
   you wrote the filename. Reformat the file to match.
+- **A hand-written rule under a name Gazelle would use.** In a directory that
+  is no package, every rule Gazelle would write is withdrawn under the names it
+  would use -- `<dirbase>`, `<dirbase>_test`, `<dirbase>_lint`, `tsconfig`,
+  `vitest_config`, `wrangler_config` -- so a rule of yours under one of them is
+  proposed for deletion on every run. `# keep` above the rule holds it.
 - **A hand-narrowed attribute it merges.** `visibility` is a merged attribute
   and generated rules carry `//visibility:public`, so a target restricted to
   `["//myapp:__subpackages__"]` comes back public on every run. Pin it with

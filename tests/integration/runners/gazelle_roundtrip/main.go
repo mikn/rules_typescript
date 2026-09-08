@@ -55,7 +55,7 @@ var generated = []string{
 	"worker", "worker/test", "worker/test/deep",
 	"aliased", "aliased/src", "jsx", "jsx/runtime",
 	"configured", "configured/test", "packages/shared",
-	"member", "dotdot", "dotdot/inner",
+	"member", "dotdot", "dotdot/inner", "pooled", "pooled/test",
 }
 
 // BUILD files a run merges into rather than writes, the root's among them.
@@ -183,6 +183,7 @@ func main() {
 		parentDirectoryImportIsADep(it)
 		packageRootVitestConfigReachesTheTestBelow(it)
 		configBesideTheTestsIsNamed(it)
+		workersPoolConfigReachesTheTest(it)
 		importerScopedLabelsResolve(it)
 		pairedTypesReachTheProgramThroughTheForest(it)
 		// Last: it rewrites the tree the checks above read.
@@ -364,6 +365,47 @@ func configBesideTheTestsIsNamed(it *harness.IT) {
 	}
 	it.Pass("//worker/test:test_test names vitest.config.mts as its config " +
 		"and compiles it in no target")
+}
+
+// pooled/vitest.config.mts installs the Workers pool and names its wrangler
+// config: the worker makes the file a label, the test names it, workerd runs.
+func workersPoolConfigReachesTheTest(it *harness.IT) {
+	requireLabels(it, "srcs", "//pooled:wrangler_config",
+		[]string{"//pooled:wrangler.jsonc"})
+	requireLabels(it, "wrangler_config", "//pooled/test:test_test",
+		[]string{"//pooled:wrangler_config"})
+	it.Pass("//pooled/test:test_test names //pooled:wrangler_config, the " +
+		"filegroup over the file the config's configPath names")
+
+	below := it.Path("pooled/test/BUILD.bazel")
+	it.RequireContains(below, `coverage_provider = "istanbul"`,
+		"the pooled test got no coverage_provider; the pool refuses v8")
+	requireLabels(it, "deps", "//pooled/test:test_test", []string{
+		"//pooled:pooled", "@npm//pooled:cloudflare_vitest-pool-workers",
+		"@npm//pooled:cloudflare_workers-types", "@npm//pooled:vitest",
+		"@npm//pooled:vitest_coverage-istanbul"})
+	it.Pass("coverage_provider is istanbul and @vitest/coverage-istanbul is a " +
+		"dep in the importer's spelling")
+
+	// `bazel test //...` above ran it in workerd; the measurement behind the
+	// attribute: without it the pool boots the source `main`.
+	const attr = "    wrangler_config = \"//pooled:wrangler_config\",\n"
+	restore := it.Read(below)
+	it.Replace(below, attr, "")
+	log, err := it.BazelLog("pooled_without_wrangler_config", "test",
+		"//pooled/test:test_test")
+	it.Write(below, restore)
+	if err == nil {
+		log.Dump()
+		it.Fail("//pooled/test:test_test passed without wrangler_config; " +
+			"Gazelle need not write it")
+	}
+	if !log.Contains("src/index.ts") {
+		log.Dump()
+		it.Fail("without wrangler_config the test did not fail on the source main")
+	}
+	it.Pass("without wrangler_config the pool boots src/index.ts, which the " +
+		"runfiles do not hold: the patched copy reached the test through the label")
 }
 
 // configured/package.json declares vitest and is a lockfile importer, so its

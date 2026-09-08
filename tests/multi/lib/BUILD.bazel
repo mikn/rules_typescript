@@ -1,5 +1,6 @@
 load("//ts:defs.bzl", "ts_compile")
 
+# keep
 ts_compile(
     name = "lib",
     srcs = ["math.ts"],

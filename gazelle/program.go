@@ -73,22 +73,24 @@ type programStore struct {
 	extended map[string]bool
 	// The vitest configs the generated tests name, listed together at the
 	// first ask; vitestEdges is nil until then.
-	vitestConfigs  map[string]bool
-	vitestEdges    map[string][]edge
-	installChecked bool
-	noLockSaid     bool
+	vitestConfigs   map[string]bool
+	vitestEdges     map[string][]edge
+	wranglerConfigs map[string]string
+	installChecked  bool
+	noLockSaid      bool
 }
 
 func newProgramStore() *programStore {
 	return &programStore{
-		programs:      map[string]*program{},
-		packages:      map[string]map[string]bool{},
-		visited:       map[string][]string{},
-		files:         map[string][]string{},
-		walked:        map[string]bool{},
-		bases:         map[string][]string{},
-		extended:      map[string]bool{},
-		vitestConfigs: map[string]bool{},
+		programs:        map[string]*program{},
+		packages:        map[string]map[string]bool{},
+		visited:         map[string][]string{},
+		files:           map[string][]string{},
+		walked:          map[string]bool{},
+		bases:           map[string][]string{},
+		extended:        map[string]bool{},
+		vitestConfigs:   map[string]bool{},
+		wranglerConfigs: map[string]string{},
 	}
 }
 

@@ -6,6 +6,7 @@ load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_test")
 
 # @npm//:shared is the hub's view of this target. zod is imported at run time so
 # //tests/npm:workspace_runtime_test fails unless the member's closure travels.
+# keep
 ts_compile(
     name = "shared",
     srcs = [
@@ -21,6 +22,7 @@ ts_compile(
 
 # The member's own test imports the member by name and by subpath, as
 # @lovable/canvas-sdk's does: the hub label beside the compiling target.
+# keep
 ts_test(
     name = "shared_test",
     size = "small",

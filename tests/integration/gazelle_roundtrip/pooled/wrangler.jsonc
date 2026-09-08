@@ -1,0 +1,7 @@
+{
+  // `main` names the source, as a deploy entry does; the test reads a copy
+  // naming the compiled entry, staged at this file's path.
+  "name": "roundtrip-pooled-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-01-01"
+}

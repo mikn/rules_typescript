@@ -1,19 +1,17 @@
 """A worker typed against the worker-configuration.d.ts Bazel generates.
 
-The layout is the one a tsconfig that names the file gives: the project
-tsconfig here, the sources one package down, and the declaration a `types`
-entry the target below resolves to a dep's output -- the ts_codegen running
-`wrangler types`, since the file exists nowhere in the source tree.
+The project tsconfig names the declaration in `types`, and the file exists
+nowhere in the source tree, so the entry resolves to a dep's output: the
+ts_codegen running `wrangler types`, named for what it writes because the
+directory's name is the ts_compile's.
 """
 
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_go//go:def.bzl", "go_test")
 load("//npm:defs.bzl", "node_modules")
-load("//ts:defs.bzl", "ts_codegen", "ts_config")
+load("//ts:defs.bzl", "ts_codegen", "ts_compile", "ts_config")
 
-package(default_visibility = [
-    "//:__pkg__",
-    "//tests/worker_types:__subpackages__",
-])
+package(default_visibility = ["//:__pkg__"])
 
 node_modules(
     name = "node_modules",
@@ -21,10 +19,10 @@ node_modules(
 )
 
 ts_codegen(
-    name = "worker_types",
+    name = "env_types",
     srcs = [
+        "src/index.ts",
         "wrangler.jsonc",
-        "//tests/worker_types/src:index.ts",
     ],
     outs = ["worker-configuration.d.ts"],
     args = [
@@ -43,10 +41,10 @@ ts_codegen(
 # The same config plus a `build` whose command fails. `wrangler types` runs
 # build.command before it resolves `main`; the test pins that the action does not.
 ts_codegen(
-    name = "worker_types_build",
+    name = "env_types_build",
     srcs = [
+        "src/index.ts",
         "wrangler.build.jsonc",
-        "//tests/worker_types/src:index.ts",
     ],
     outs = ["worker-configuration.build.d.ts"],
     args = [
@@ -62,9 +60,31 @@ ts_codegen(
     node_modules = ":node_modules",
 )
 
+ts_compile(
+    name = "worker_types",
+    srcs = [
+        "src/index.ts",
+        "worker_types_test.go",
+        "wrangler.build.jsonc",
+        "wrangler.jsonc",
+    ],
+    tsconfig = ":tsconfig",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":env_types",
+        ":env_types_build",
+    ],
+)
+
 ts_config(
     name = "tsconfig",
     src = "tsconfig.json",
+    visibility = ["//visibility:public"],
+)
+
+build_test(
+    name = "worker_types_builds_test",
+    targets = [":worker_types"],
 )
 
 # The Env half is read out of the config, and the runtime half is what the
@@ -74,8 +94,8 @@ go_test(
     size = "small",
     srcs = ["worker_types_test.go"],
     data = [
-        ":worker_types",
-        ":worker_types_build",
+        ":env_types",
+        ":env_types_build",
     ],
     deps = ["//tests/verify"],
 )

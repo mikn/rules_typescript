@@ -627,3 +627,205 @@ func TestImportsForRule_IndexesTheExactPath(t *testing.T) {
 		t.Errorf("w/data.json indexed %d times, want once", n)
 	}
 }
+
+// ---- the Workers pool -------------------------------------------------------
+
+// worker/ exports a pool config naming ./wrangler.jsonc and declares the pool;
+// worker/test is a package of its own; lock says where istanbul is declared.
+func poolRepo(t *testing.T, lock string) (*config.Config, *tsConfig) {
+	t.Helper()
+	root := t.TempDir()
+	writeWorkspace(t, root, map[string]string{
+		pnpmLockfileName:             lock,
+		"node_modules/.modules.yaml": "layoutVersion: 5\n",
+		"package.json":               rootManifest,
+		"worker/package.json": `{"name":"worker","devDependencies":` +
+			`{"@cloudflare/vitest-pool-workers":"0.18.4","vitest":"4.1.11"}}` +
+			"\n",
+		"worker/vitest.config.mts": poolConfig("./wrangler.jsonc"),
+		"worker/wrangler.jsonc":    `{"main":"src/index.ts"}` + "\n",
+	})
+	c := &config.Config{RepoRoot: root, Exts: make(map[string]interface{})}
+	(&resolve.Configurer{}).RegisterFlags(nil, "", c)
+	configureTsConfig(c, "", nil)
+	tc := getConfig(c)
+	for _, dir := range []string{"", "worker", "worker/src", "worker/test"} {
+		tc.programs.visit(dir, nil)
+	}
+	tc.programs.record(programOf(t, "worker",
+		listingOf("worker", "worker/src/index.ts")))
+	tc.programs.record(programOf(t, "worker/test", "worker/src/index.ts\n"+
+		viaLine("../src/index", "worker/test/a.test.ts", "")+
+		"worker/test/a.test.ts\n"+includeLine("worker/test")))
+	return c, tc
+}
+
+const poolRepoLock = `lockfileVersion: '9.0'
+
+importers:
+
+  .:
+    devDependencies:
+      '@vitest/coverage-istanbul':
+        specifier: 4.1.11
+        version: 4.1.11
+
+  worker:
+    devDependencies:
+      '@cloudflare/vitest-pool-workers':
+        specifier: 0.18.4
+        version: 0.18.4
+      vitest:
+        specifier: 4.1.11
+        version: 4.1.11
+
+packages:
+
+  '@cloudflare/vitest-pool-workers@0.18.4':
+    resolution: {integrity: sha512-aaa}
+
+  '@vitest/coverage-istanbul@4.1.11':
+    resolution: {integrity: sha512-bbb}
+
+  vitest@4.1.11:
+    resolution: {integrity: sha512-ccc}
+
+snapshots:
+
+  '@cloudflare/vitest-pool-workers@0.18.4': {}
+
+  '@vitest/coverage-istanbul@4.1.11': {}
+
+  vitest@4.1.11: {}
+`
+
+const poolRepoLockNoIstanbul = `lockfileVersion: '9.0'
+
+importers:
+
+  .: {}
+
+  worker:
+    devDependencies:
+      '@cloudflare/vitest-pool-workers':
+        specifier: 0.18.4
+        version: 0.18.4
+      vitest:
+        specifier: 4.1.11
+        version: 4.1.11
+
+packages:
+
+  '@cloudflare/vitest-pool-workers@0.18.4':
+    resolution: {integrity: sha512-aaa}
+
+  vitest@4.1.11:
+    resolution: {integrity: sha512-ccc}
+
+snapshots:
+
+  '@cloudflare/vitest-pool-workers@0.18.4': {}
+
+  vitest@4.1.11: {}
+`
+
+const poolCfg = "worker/vitest.config.mts"
+
+var poolEdge = importEdge(poolCfg, "@cloudflare/vitest-pool-workers",
+	store+"@cloudflare/vitest-pool-workers/0.18.4/iii/node_modules/"+
+		"@cloudflare/vitest-pool-workers/dist/index.d.ts")
+
+var poolRules = []indexedRule{
+	{kind: "ts_compile", name: "worker", pkg: "worker",
+		srcs: []string{"src/index.ts"}},
+	{kind: "ts_test", name: "test_test", pkg: "worker/test",
+		srcs: []string{"a.test.ts"}},
+}
+
+// The pooled test's rule, resolved with the given config edges.
+func resolvePooledTest(t *testing.T, c *config.Config, tc *tsConfig,
+	edges []edge) (*rule.Rule, string) {
+	t.Helper()
+	ix := buildIndex(t, c, poolRules...)
+	s := tc.programs
+	s.vitestEdges = map[string][]edge{poolCfg: edges}
+	imps := s.testImports(c.RepoRoot, tc.lock, "worker/test", "", poolCfg,
+		s.srcs("worker/test", tc))
+	return resolveEdgesOf(t, c, ix, "ts_test", "worker/test", "test_test", imps)
+}
+
+// The config's edge names the pool: the test names the filegroup over the
+// wrangler config, runs istanbul coverage, and carries istanbul in D7 spelling.
+func TestResolveEdges_WorkersPoolWritesTheTestsAttributes(t *testing.T) {
+	c, tc := poolRepo(t, poolRepoLock)
+	r, logged := resolvePooledTest(t, c, tc, []edge{poolEdge})
+	if got := r.AttrString("wrangler_config"); got != "//worker:wrangler_config" {
+		t.Errorf("wrangler_config = %q, want //worker:wrangler_config", got)
+	}
+	if got := r.AttrString("coverage_provider"); got != "istanbul" {
+		t.Errorf("coverage_provider = %q, want istanbul", got)
+	}
+	want := []string{"//worker", "@npm//:vitest_coverage-istanbul",
+		"@npm//worker:cloudflare_vitest-pool-workers", "@npm//worker:vitest"}
+	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+		t.Errorf("deps = %q, want %q", got, want)
+	}
+	if logged != "" {
+		t.Errorf("log, want nothing:\n%s", logged)
+	}
+}
+
+// No pool edge: none of it, whatever the config names in a literal.
+func TestResolveEdges_NoPoolEdgeWritesNoPoolAttributes(t *testing.T) {
+	c, tc := poolRepo(t, poolRepoLock)
+	r, _ := resolvePooledTest(t, c, tc, nil)
+	for _, attr := range []string{"wrangler_config", "coverage_provider"} {
+		if r.Attr(attr) != nil {
+			t.Errorf("%s = %q, want unset: the config runs no pool", attr,
+				r.AttrString(attr))
+		}
+	}
+	want := []string{"//worker", "@npm//worker:cloudflare_vitest-pool-workers",
+		"@npm//worker:vitest"}
+	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+		t.Errorf("deps = %q, want %q", got, want)
+	}
+}
+
+// The pool with istanbul in no lockfile: wrangler_config comes, the provider
+// and its dep stay off, and one line names the package to declare.
+func TestResolveEdges_PoolWithoutIstanbulIsSaid(t *testing.T) {
+	c, tc := poolRepo(t, poolRepoLockNoIstanbul)
+	r, logged := resolvePooledTest(t, c, tc, []edge{poolEdge})
+	if got := r.AttrString("wrangler_config"); got != "//worker:wrangler_config" {
+		t.Errorf("wrangler_config = %q, want //worker:wrangler_config", got)
+	}
+	if r.Attr("coverage_provider") != nil {
+		t.Errorf("coverage_provider = %q, want unset: istanbul is in no lockfile",
+			r.AttrString("coverage_provider"))
+	}
+	want := []string{"//worker", "@npm//worker:cloudflare_vitest-pool-workers",
+		"@npm//worker:vitest"}
+	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+		t.Errorf("deps = %q, want %q", got, want)
+	}
+	if !strings.Contains(logged, "@vitest/coverage-istanbul") ||
+		strings.Count(logged, "\n") != 1 {
+		t.Errorf("log, want one line naming @vitest/coverage-istanbul:\n%s", logged)
+	}
+}
+
+// The config beside the tests: the wrangler config by its name in the test's
+// own package, as `config` is.
+func TestResolveEdges_SamePackagePoolNamesTheFile(t *testing.T) {
+	c, tc := poolRepo(t, poolRepoLock)
+	ix := buildIndex(t, c, poolRules...)
+	s := tc.programs
+	s.vitestEdges = map[string][]edge{poolCfg: {poolEdge}}
+	imps := s.testImports(c.RepoRoot, tc.lock, "worker", ":worker", poolCfg,
+		s.srcs("worker", tc))
+	r, _ := resolveEdgesOf(t, c, ix, "ts_test", "worker", "worker_test", imps)
+	if got := r.AttrString("wrangler_config"); got != "wrangler.jsonc" {
+		t.Errorf("wrangler_config = %q, want wrangler.jsonc", got)
+	}
+}

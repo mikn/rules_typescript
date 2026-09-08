@@ -222,8 +222,9 @@ ts_test(
 	got := kindsOf(below.Empty)
 	sort.Strings(got)
 	wantStrings(t, "pkg/src withdraws", got, []string{
-		"filegroup(vitest_config)", "ts_compile(src)", "ts_config(tsconfig)",
-		"ts_lint(src_lint)", "ts_test(src_test)"})
+		"filegroup(vitest_config)", "filegroup(wrangler_config)",
+		"ts_compile(src)", "ts_config(tsconfig)", "ts_lint(src_lint)",
+		"ts_test(src_test)"})
 	if n := strings.Count(g.logged, "pkg/src/BUILD.bazel"); n != 1 {
 		t.Errorf("the BUILD file to delete was named %d times, want once:\n%s",
 			n, g.logged)
@@ -240,6 +241,30 @@ ts_test(
 		if got := r.AttrString("tsconfig"); got != ":tsconfig" {
 			t.Errorf("%s tsconfig = %q, want :tsconfig", r.Kind(), got)
 		}
+	}
+}
+
+// A rule under # keep in a directory that is no package is the merger's to
+// leave, so the run does not say it is withdrawn.
+func TestGenerate_AKeptRuleInANonPackageIsNotSaidWithdrawn(t *testing.T) {
+	g := generateAll(t, writeTree(t, map[string]string{
+		"package.json": rootManifest,
+		"fixture/a.ts": "export const a = 1;\n",
+		"fixture/BUILD.bazel": loadDefs + `"ts_compile")
+
+# keep
+ts_compile(
+    name = "fixture",
+    srcs = ["a.ts"],
+)
+`,
+	}))
+	if !withdraws(g.results["fixture"], "ts_compile", "fixture") {
+		t.Errorf("fixture does not withdraw its ts_compile; Empty = %v",
+			kindsOf(g.results["fixture"].Empty))
+	}
+	if strings.Contains(g.logged, "fixture/BUILD.bazel") {
+		t.Errorf("the kept rule was said to be withdrawn:\n%s", g.logged)
 	}
 }
 
@@ -476,6 +501,35 @@ ts_codegen(
 	wantStrings(t, "ts_test worker_test deps", test.AttrStrings("deps"),
 		[]string{":worker", ":worker_types"})
 	assertNoDanglingLabels(t, root)
+}
+
+// The ts_compile takes the directory's name; a hand-written rule of another
+// kind holding it keeps the merger from writing the compile; the run says so.
+func TestGenerate_AGeneratedNameAHandWrittenRuleHoldsIsSaid(t *testing.T) {
+	g := generateAll(t, writeTree(t, map[string]string{
+		"package.json": rootManifest,
+		"worker/BUILD.bazel": loadDefs + `"ts_codegen")
+
+ts_codegen(
+    name = "worker",
+    srcs = ["wrangler.jsonc"],
+    outs = ["worker-configuration.d.ts"],
+    generator = "//:gen",
+)
+`,
+		"worker/wrangler.jsonc": `{"name":"w"}` + "\n",
+		"worker/tsconfig.json": `{"compilerOptions":{"lib":["es2022"],` +
+			`"types":["./worker-configuration.d.ts"]},` +
+			`"include":["src/**/*"]}` + "\n",
+		"worker/src/index.ts": "export const handler = (env: Env) => " +
+			"env.KV;\n",
+	}))
+	mustRule(t, g.results["worker"], "ts_compile", "worker")
+	for _, want := range []string{"ts_codegen(worker)", "ts_compile"} {
+		if !strings.Contains(g.logged, want) {
+			t.Errorf("the taken name was not said with %q:\n%s", want, g.logged)
+		}
+	}
 }
 
 // A BUILD file an earlier run left inside an out_dir is emptied and named.
@@ -740,6 +794,159 @@ func TestGenerate_WithdrawsTheVitestConfigFilegroupWithTheFile(t *testing.T) {
 			kindsOf(g.results["pkg"].Empty))
 	}
 }
+
+// ---- the Workers pool -------------------------------------------------------
+
+// A pool config as a worker writes it, naming its wrangler config through
+// `wrangler.configPath`.
+func poolConfig(configPath string) string {
+	return "import { cloudflareTest } from " +
+		"\"@cloudflare/vitest-pool-workers\";\n" +
+		"export default { plugins: [cloudflareTest({ wrangler: { configPath: " +
+		"\"" + configPath + "\" } })] };\n"
+}
+
+// The wrangler config a package-root vitest config names in a string literal
+// is a label beside vitest_config, the file's name as configPath spells it.
+func TestGenerate_WranglerConfigTheConfigNamesIsAFilegroup(t *testing.T) {
+	g := generateAll(t, writeTree(t, map[string]string{
+		"package.json":               rootManifest,
+		"worker/package.json":        `{"name":"worker"}` + "\n",
+		"worker/vitest.config.mts":   poolConfig("./wrangler.test.jsonc"),
+		"worker/wrangler.test.jsonc": `{"main":"src/index.ts"}` + "\n",
+		"worker/tsconfig.json":       includeSrc,
+		"worker/src/index.ts":        "export const w = 1;\n",
+		"worker/test/tsconfig.json":  includeTs,
+		"worker/test/index.test.ts":  "export const t = 1;\n",
+	}))
+	fg := mustRule(t, g.results["worker"], "filegroup", "wrangler_config")
+	wantStrings(t, "filegroup srcs", fg.AttrStrings("srcs"),
+		[]string{"wrangler.test.jsonc"})
+	wantStrings(t, "filegroup visibility", fg.AttrStrings("visibility"),
+		[]string{"//visibility:public"})
+	mustRule(t, g.results["worker"], "filegroup", vitestConfigTargetName)
+}
+
+// The pool reads a wrangler config through configPath alone, so a config naming
+// none gets no filegroup, whatever sits beside it; a stale one is withdrawn.
+func TestGenerate_AConfigNamingNoWranglerConfigWritesNoFilegroup(t *testing.T) {
+	g := generateAll(t, writeTree(t, map[string]string{
+		"package.json":        rootManifest,
+		"worker/package.json": `{"name":"worker"}` + "\n",
+		"worker/vitest.config.mts": "import { cloudflareTest } from " +
+			"\"@cloudflare/vitest-pool-workers\";\n" +
+			"export default { plugins: [cloudflareTest({ miniflare: {} })] };\n",
+		"worker/wrangler.jsonc":     `{"main":"src/index.ts"}` + "\n",
+		"worker/tsconfig.json":      includeSrc,
+		"worker/src/index.ts":       "export const w = 1;\n",
+		"worker/test/tsconfig.json": includeTs,
+		"worker/test/index.test.ts": "export const t = 1;\n",
+		"worker/BUILD.bazel": `filegroup(
+    name = "wrangler_config",
+    srcs = ["wrangler.jsonc"],
+    visibility = ["//visibility:public"],
+)
+`,
+	}))
+	if !withdraws(g.results["worker"], "filegroup", "wrangler_config") {
+		t.Errorf("a filegroup for a file no configPath names; Gen = %v, Empty = %v",
+			generatedNames(t, g.results["worker"]),
+			kindsOf(g.results["worker"].Empty))
+	}
+}
+
+// The file the literal names went: the filegroup goes with it, and the run
+// says which file the config still names.
+func TestGenerate_WithdrawsTheWranglerConfigFilegroupWithTheFile(t *testing.T) {
+	g := generateAll(t, writeTree(t, map[string]string{
+		"package.json":             rootManifest,
+		"worker/package.json":      `{"name":"worker"}` + "\n",
+		"worker/vitest.config.mts": poolConfig("./wrangler.jsonc"),
+		"worker/tsconfig.json":     includeSrc,
+		"worker/src/index.ts":      "export const w = 1;\n",
+		"worker/BUILD.bazel": `filegroup(
+    name = "wrangler_config",
+    srcs = ["wrangler.jsonc"],
+    visibility = ["//visibility:public"],
+)
+`,
+	}))
+	if !withdraws(g.results["worker"], "filegroup", "wrangler_config") {
+		t.Errorf("the filegroup outlived its file; Empty = %v",
+			kindsOf(g.results["worker"].Empty))
+	}
+	if !strings.Contains(g.logged, "worker/wrangler.jsonc") {
+		t.Errorf("the missing file was not named:\n%s", g.logged)
+	}
+}
+
+// The pooled shape end to end: the config's edge names the pool, so the test
+// names the filegroup, runs istanbul coverage and carries its package.
+func TestGenerate_APooledTestNamesTheWranglerConfigAndIstanbul(t *testing.T) {
+	root, _ := converge(t, map[string]string{
+		"package.json":               rootManifest,
+		pnpmLockfileName:             poolLock,
+		"node_modules/.modules.yaml": "layoutVersion: 5\n",
+		"node_modules/@cloudflare/vitest-pool-workers/package.json": `{"name":` +
+			`"@cloudflare/vitest-pool-workers","version":"0.18.4",` +
+			`"types":"index.d.ts"}` + "\n",
+		"node_modules/@cloudflare/vitest-pool-workers/index.d.ts": "export " +
+			"declare function cloudflareTest(o: unknown): unknown;\n",
+		"worker/package.json": `{"name":"worker","devDependencies":` +
+			`{"@cloudflare/vitest-pool-workers":"0.18.4"}}` + "\n",
+		"worker/vitest.config.mts":  poolConfig("./wrangler.jsonc"),
+		"worker/wrangler.jsonc":     `{"main":"src/index.ts"}` + "\n",
+		"worker/tsconfig.json":      includeSrc,
+		"worker/src/index.ts":       "export const w = 1;\n",
+		"worker/test/tsconfig.json": includeTs,
+		"worker/test/index.test.ts": "import { w } from \"../src/index\";\n" +
+			"export const t = w;\n",
+	})
+	test := onDiskRule(t, root, "worker/test", "ts_test", "test_test")
+	if got := test.AttrString("wrangler_config"); got != "//worker:"+
+		wranglerConfigTargetName {
+		t.Errorf("wrangler_config = %q, want //worker:wrangler_config", got)
+	}
+	if got := test.AttrString("coverage_provider"); got != "istanbul" {
+		t.Errorf("coverage_provider = %q, want istanbul", got)
+	}
+	wantStrings(t, "ts_test deps", test.AttrStrings("deps"), []string{
+		"//worker", "@npm//:vitest_coverage-istanbul",
+		"@npm//worker:cloudflare_vitest-pool-workers"})
+	fg := onDiskRule(t, root, "worker", "filegroup", "wrangler_config")
+	wantStrings(t, "filegroup srcs", fg.AttrStrings("srcs"),
+		[]string{"wrangler.jsonc"})
+	assertNoDanglingLabels(t, root)
+}
+
+// worker declares the pool; istanbul is in the lockfile and in no manifest,
+// so its label is the root's.
+const poolLock = `lockfileVersion: '9.0'
+
+importers:
+
+  .: {}
+
+  worker:
+    devDependencies:
+      '@cloudflare/vitest-pool-workers':
+        specifier: 0.18.4
+        version: 0.18.4
+
+packages:
+
+  '@cloudflare/vitest-pool-workers@0.18.4':
+    resolution: {integrity: sha512-aaa}
+
+  '@vitest/coverage-istanbul@4.1.11':
+    resolution: {integrity: sha512-bbb}
+
+snapshots:
+
+  '@cloudflare/vitest-pool-workers@0.18.4': {}
+
+  '@vitest/coverage-istanbul@4.1.11': {}
+`
 
 // ---- the .d.mts / .d.cts flavours ------------------------------------------
 

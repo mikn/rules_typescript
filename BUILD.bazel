@@ -42,16 +42,15 @@ ts_refresh_tsconfig(
         "tests/compiler_options/root_order/tsconfig.json",
         "tests/compiler_options/worker/tsconfig.json",
         "tests/vitest/attrs/tsconfig.json",
-        "tests/worker_types/src/tsconfig.json",
         "tests/workers/tsconfig.json",
         "vite/tsconfig.json",
     ],
     test = True,
     deps = [
-        "//eslint-plugin/src",
+        "//eslint-plugin",
         # The generated per-test compile target: without it the IDE has no
         # program covering a test file, and its imports resolve to nothing.
-        "//eslint-plugin/src:_src_test_compile",
+        "//eslint-plugin:_eslint-plugin_test_compile",
         "//packages/nested-shared",
         "//packages/shared",
         "//tests/bundle:app",
@@ -99,7 +98,7 @@ ts_refresh_tsconfig(
         "//tests/compiler_options/es_target:legacy",
         "//tests/npm:ws_linked_consumer",
         "//tests/tailwind:entry",
-        "//tests/worker_types/src",
+        "//tests/worker_types",
         "//tests/workers:worker",
         "//tests/workers:_worker_test_compile",
         "//tests/tailwind:tailwind_config",

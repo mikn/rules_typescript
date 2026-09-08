@@ -97,7 +97,12 @@ func resolveEdges(c *config.Config, ix *resolve.RuleIndex, r *rule.Rule,
 	}
 	edges := imps.edges
 	if imps.config != "" {
-		edges = append(edges, tc.programs.configEdges(c.RepoRoot, imps.config)...)
+		configEdges := tc.programs.configEdges(c.RepoRoot, imps.config)
+		edges = append(edges, configEdges...)
+		dep := workersPoolAttrs(c, tc, r, imps.config, configEdges, from)
+		if dep != "" {
+			deps[dep] = true
+		}
 	}
 	reported := map[string]bool{}
 	for _, e := range edges {

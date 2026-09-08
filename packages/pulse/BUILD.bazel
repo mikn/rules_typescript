@@ -22,6 +22,7 @@ output directory at the same depth its source sits at here.
 
 load("@rules_typescript//ts:defs.bzl", "ts_compile")
 
+# keep
 ts_compile(
     name = "pulse",
     srcs = [

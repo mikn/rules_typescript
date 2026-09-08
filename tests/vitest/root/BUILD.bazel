@@ -2,6 +2,7 @@
 
 load("//ts:defs.bzl", "ts_test")
 
+# keep
 ts_test(
     name = "root_test",
     srcs = ["root.test.ts"],

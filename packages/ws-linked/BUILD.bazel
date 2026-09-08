@@ -9,6 +9,7 @@ into an alias -- breaks the consumer rather than this package.
 
 load("@rules_typescript//ts:defs.bzl", "ts_compile")
 
+# keep
 ts_compile(
     name = "ws-linked",
     srcs = ["index.ts"],
