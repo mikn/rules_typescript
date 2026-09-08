@@ -420,10 +420,9 @@ would be, a member's name as its view and every other name through the gate.
 So a test carries the packages the config and the manifest name and no source
 imports (`vitest`, a pool package, `jsdom`), and none of them needs a `# keep`.
 
-`runner` is the owner's attribute. tsgo's listing records no edge for an import
-of an ambient module -- `node:test` resolves to no file -- so nothing Gazelle
-reads says which runner a test file was written for; Gazelle never writes
-`runner`, and a hand-written value survives every run without `# keep`.
+`runner` and `data` are the owner's attributes: Gazelle writes neither, and a
+hand-written value survives every run without `# keep`
+([Runners](../rules/ts-test.md#runners)).
 
 ### The Lockfile Gate
 
@@ -446,15 +445,12 @@ the forest, where the importer's own code expects its own.
 
 ## Verifying a Run
 
-Taking Gazelle's output wholesale is the intended workflow.
-`//tests/integration:gazelle_roundtrip_test` pins four properties in CI against
-a real nested workspace: the output builds, generating it twice from scratch
-produces byte-identical BUILD files, `bazel test //...` passes on that output,
-and the set of test targets is unchanged across a delete-and-regenerate. It
-runs on every pull request and on every push to `main`.
-
-Check the test-target set on your own repository too. A run that deletes a test
-still builds and is still idempotent:
+`//tests/integration:gazelle_roundtrip_test` pins four properties against a
+nested workspace: the output builds, generating it twice from scratch produces
+byte-identical BUILD files, `bazel test //...` passes on that output, and the
+set of test targets is unchanged across a delete-and-regenerate. A run that
+deletes a test still builds and is still idempotent, so check the test-target
+set on your own repository:
 
 ```bash
 bazel query 'tests(//...)' | sort > before
@@ -462,10 +458,9 @@ bazel run //:gazelle
 bazel query 'tests(//...)' | sort | diff before -
 ```
 
-Seven hand-written `go_test` targets once disappeared this way, through
-Gazelle's Go language and not the TypeScript extension. Go turns
-`# gazelle:exclude *_test.go` into a deletion stub named `<dirbase>_test`, and a
-hand-written `go_test` of that name goes with it.
+Gazelle's Go language, in `gazelle_ts`, turns `# gazelle:exclude *_test.go`
+into a deletion stub named `<dirbase>_test`, and a hand-written `go_test` of
+that name goes with it.
 
 ### Getting the Clean-Tree Diff to Empty
 

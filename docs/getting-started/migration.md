@@ -191,9 +191,10 @@ them. Consumer labels are unchanged: `@npm//:react`, `@npm//:types_react`,
 default, needs no annotations; `--//ts:declarations=oxc` emits every `.d.ts`
 from the annotated source alone, taking type-checking off the critical path.
 
-**`node_modules` is automatic.** `ts_test` builds its `node_modules` tree from
-deps; a manual `node_modules` target is needed only to override a specific case.
-The layout is its own, not pnpm's virtual store. A name's primary resolution sits
+**`node_modules` is built from `deps`.** `ts_compile` type-checks against a
+`node_modules` forest built from its deps, and `ts_test` runs in the same tree;
+a hand-written `node_modules` target serves a `ts_dev_server` or `ts_codegen`
+that needs packages on disk. The layout is its own, not pnpm's virtual store. A name's primary resolution sits
 flat at the top level. Every other resolution of that name (another version, or
 the same version resolved against different peers) gets its own store directory
 plus a link from the dependent that resolved to it, which is the part of pnpm's

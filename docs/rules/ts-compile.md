@@ -180,8 +180,7 @@ every other mode, and leaves the JSX in it for the bundler; a `.ts` is `foo.js`
 under every mode. The rule names its outputs at analysis, before any action has
 read the tsconfig, so the one compiler option that names an output is declared
 on the tsconfig's [`ts_config`](#ts_config), `jsx = "preserve"`. `ts_compile`
-and every `ts_compile` a `ts_test` generates read it through `TsConfigInfo`;
-Gazelle writes it from the `extends` chain the way it writes `deps`; and the
+and `ts_test` read it through `TsConfigInfo`; Gazelle writes it from the `extends` chain the way it writes `deps`; and the
 `TsConfig` action, which runs `--showConfig` over the chain, fails a target
 with a `.tsx` src when the declaration and the file disagree:
 
@@ -652,7 +651,7 @@ declares the outputs, calls them in this order and builds the providers.
 `TsStrictDeps` runs first, as a Node action over a
 params-file manifest of the target's declared and reachable providers. Its
 scanner is a character walk over the source: a quoted string is a specifier only
-when the tokens before it say so. Gazelle generates deps with the same walk.
+when the tokens before it say so.
 
 `TsConfig` writes `<name>.tsconfig.json` and `<name>.options.json` from
 `tsgo --showConfig` ([above](#where-compiler-options-come-from)). `OxcCompile`

@@ -573,7 +573,7 @@ func TestPlanVitestStagesAPrivateRootWithoutARunfilesDirectory(t *testing.T) {
 // Vitest finds a bare specifier by walking up from the test's runfiles path,
 // and nothing on that walk is named node_modules before the runfiles root.
 func TestPlanVitestLinksTheNpmTreeAtTheRunfilesRoot(t *testing.T) {
-	const tree = "_main/tests/app/_app_test_node_modules/node_modules"
+	const tree = "_main/tests/app/app_test/node_modules"
 	_, real := fakeRunfiles(t, map[string]string{
 		"_main/tests/app/_app_vitest.config.mjs": "export default {}",
 		"_main/tests/app/app_test_files.txt":     "_main/tests/app/a.test.js",

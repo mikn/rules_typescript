@@ -215,6 +215,20 @@ The script is read-only: a loading-phase query and `git ls-files`. It is the
 first step of the `test` job in CI. `git ls-files` cannot see an unstaged new
 file, so a local run reports green on a test not yet `git add`ed.
 
+### Retired Names
+
+```bash
+tools/ci/check_retired_names.sh
+```
+
+A rule attribute, Gazelle kind, provider, directive, export or file path this
+ruleset has retired is named in `changelog.d/` and nowhere else. The script
+greps every tracked file outside `changelog.d/`, `CHANGELOG.md` and the two
+history documents for the names it carries, in identifier form, and fails on a
+hit. A file that asserts a retired name is absent or inert is listed in
+`ALLOWED` inside the script with the reason; the list is exact in both
+directions. It is the third step of the `test` job.
+
 ### Integration Tests
 
 Integration tests spin up an isolated Bazel workspace each to verify end-to-end
@@ -260,6 +274,7 @@ bazel test //...
 | Gazelle | `bazel test //gazelle/...` | Gazelle extension unit tests |
 | E2E | `cd e2e/basic && bazel build //...` | Real consumer workspace |
 | Test-source coverage | `tools/ci/check_test_sources.sh` | Every tracked test source is claimed by a target that runs |
+| Retired names | `tools/ci/check_retired_names.sh` | No tracked prose or code outside the changelog names a retired attribute, kind, provider, directive, export or path |
 
 ---
 

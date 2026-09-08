@@ -47,7 +47,7 @@
   `ts_binary` keeps its `bundler` attr and `BundlerInfo`
   in both invocation modes, the generated-config one now passing four
   arguments (config, entry, output directory, stylesheet); `ts_dev_server`
-  keeps `server`, defaulting to Vite, and `bundler`. `MODULE.bazel` declares
+  keeps `server`, defaulting to Vite. `MODULE.bazel` declares
   neither the `oj_crates` hub nor the nightly Rust host tools, and the
   integration lane runs two CI legs (`npm`, `core`) over 12 nested-Bazel
   tests.

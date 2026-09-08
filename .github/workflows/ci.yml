@@ -48,8 +48,14 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: tools/ci/check_integration_shards.sh
 
-      # Both gates keep their place in front of the suite -- the reason above
-      # holds -- but a step defaults to `if: success()`, so either of them going
+      # A retired name a page or a comment still uses is a sentence the code
+      # falsified; changelog.d is where a retirement is recorded.
+      - name: No prose or code names a retired attribute, kind or provider
+        if: matrix.os == 'ubuntu-latest'
+        run: tools/ci/check_retired_names.sh
+
+      # The gates keep their place in front of the suite -- the reason above
+      # holds -- but a step defaults to `if: success()`, so one of them going
       # red used to skip everything below on ubuntu while fail-fast cancelled
       # macOS, and `bazel test //...` ran nowhere. That is how #74 to #77 merged
       # onto a red main with the suite effectively switched off. These two run

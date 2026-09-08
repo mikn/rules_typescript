@@ -178,6 +178,9 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
   (`shareRepositoryCache` in `tests/integration/harness/harness.go`); do not add a
   workspace that bypasses `prepare()`.
 - Use `sh_test` for output verification, `go_test` for Gazelle logic, vitest for runtime behavior
+- `tools/ci/check_retired_names.sh`: a retired attribute, kind, provider,
+  directive, export or path is named in `changelog.d/` and nowhere else. A file
+  asserting the absence goes in its `ALLOWED` list with why
 
 **npm:**
 - pnpm is hermetic (`bazel run //:pnpm`). No system pnpm needed.
