@@ -120,8 +120,10 @@ Every other src is staged at its package-relative path, unchanged.
 The tsconfig the actions read is written by `tsaction tsconfig`, one `TsConfig`
 action per target. It `extends` two files, the ruleset's baseline and then the
 target's `tsconfig`, runs `tsgo --showConfig` over that chain to read the
-effective options, and writes the keys Bazel owns over both. Lowest precedence
-first:
+effective options, and writes the keys Bazel owns over both. The pass that runs
+`--showConfig` sets `files: []` only when no file in the chain names `include`
+or `files`, so tsc neither walks the output directory nor loses the chain's own
+`files` list. Lowest precedence first:
 
 1. **The ruleset baseline**: `strict`, `module: "Preserve"`, `target: "es2022"`,
    `jsx: "react-jsx"`, `skipLibCheck`, `esModuleInterop`. Without a `tsconfig`

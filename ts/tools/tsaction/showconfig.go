@@ -131,16 +131,25 @@ func writeTsconfig(args []string) error {
 		}
 	}
 
+	var chain *tsconfig.Resolved
+	if a.project != "" {
+		var err error
+		if chain, err = tsconfig.Resolve(a.project); err != nil {
+			return err
+		}
+	}
+
 	// showConfig reads a file, and the options this program runs under are the
-	// merged chain's: the config is written with its extends alone first.
+	// merged chain's; `files: []` keeps tsc off the bin dir when none is named.
 	dir := path.Dir(a.out)
-	if err := writeJSON(a.out, struct {
-		Extends []string `json:"extends"`
-		Files   []string `json:"files"`
-	}{a.extends(dir), []string{}}); err != nil {
+	first := map[string]any{"extends": a.extends(dir)}
+	if chain == nil || !chain.Inputs {
+		first["files"] = []string{}
+	}
+	if err := writeJSON(a.out, first); err != nil {
 		return err
 	}
-	config, options, err := a.resolve(dir)
+	config, options, err := a.resolve(dir, chain)
 	if err != nil {
 		return errors.Join(err, os.Remove(a.out))
 	}
@@ -150,16 +159,11 @@ func writeTsconfig(args []string) error {
 	return writeJSON(a.options, options)
 }
 
-func (a *actionConfig) resolve(dir string) (*tsconfigFile, oxcOptions, error) {
+func (a *actionConfig) resolve(dir string, chain *tsconfig.Resolved,
+) (*tsconfigFile, oxcOptions, error) {
 	effective, roots, err := showConfig(a.tsgo, a.out)
 	if err != nil {
 		return nil, oxcOptions{}, err
-	}
-	var chain *tsconfig.Resolved
-	if a.project != "" {
-		if chain, err = tsconfig.Resolve(a.project); err != nil {
-			return nil, oxcOptions{}, err
-		}
 	}
 	config, err := a.build(effective, roots, chain, dir)
 	if err != nil {

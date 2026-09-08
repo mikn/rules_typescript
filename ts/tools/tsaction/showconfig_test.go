@@ -36,6 +36,12 @@ const chainLeaf = `{
 }
 `
 
+const filesLeaf = `{
+  "extends": "../base/tsconfig.base.json",
+  "files": ["src/a.ts", "globals.d.ts"]
+}
+`
+
 const noTypesLeaf = `{
   "extends": "../base/tsconfig.base.json",
   "compilerOptions": { "target": "esnext", "jsx": "preserve", "module": "nodenext" }
@@ -252,6 +258,32 @@ func TestTsconfigStep_RootsKeepTheTsconfigsOrder(t *testing.T) {
 	assertJSON(t, "files", config["files"],
 		`["../../../../pkg/globals.d.ts", "../../../../pkg/src/a.ts"]`)
 	assertJSON(t, "include", config["include"], `["../../../../pkg/data.json"]`)
+}
+
+// The first pass hands --showConfig the chain alone; `files: []` is set only
+// when no file in it names inputs, so a chain's own `files` list is read.
+func TestTsconfigStep_FirstPassKeepsTheChainsInputs(t *testing.T) {
+	extends := `"extends": ` +
+		`["./pkg.tsconfig_baseline.json", "../../../../pkg/tsconfig.json"]`
+	for name, tc := range map[string]struct{ leaf, want string }{
+		"files":   {filesLeaf, "{" + extends + "}"},
+		"include": {chainLeaf, "{" + extends + "}"},
+		"none":    {noTypesLeaf, "{" + extends + `, "files": []}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newExecroot(t, tc.leaf, readTestdata(t, "showconfig-roots.json"))
+			root, err := os.Getwd()
+			if err != nil {
+				t.Fatal(err)
+			}
+			firstPass := filepath.Join(root, "first-pass.json")
+			e.tsgo, e.argv = fakeTool(t, root, "tsgo",
+				"cp \"$3\" "+firstPass+"\ncat "+filepath.Join(root, "showconfig.json")+"\n")
+
+			mustWriteTsconfig(t, e.tsconfigArgs())
+			assertJSON(t, "first pass", readJSON(t, firstPass), tc.want)
+		})
+	}
 }
 
 // A chain that sets no types would let tsgo include every package under
