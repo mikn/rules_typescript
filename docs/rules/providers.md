@@ -62,6 +62,18 @@ A global `.d.ts` travels as a declaration output and nothing more: the consumer
 names it in its own tsconfig `types` to bring its globals into scope. See
 [Which ambients a consumer gets](ts-compile.md#which-ambients-a-consumer-gets).
 
+## TsTestRunnerInfo
+
+| Field | Type | Description |
+|---|---|---|
+| `packages` | `list of string` | The npm packages the runner needs in the test's `node_modules` tree, `vitest` for the vitest runner; `ts_test` fails at analysis naming the one no dep provides |
+| `hook` | `File` | The one module the runner loads into node before the tests: the node:test runner's resolver, the vitest runner's reads recorder |
+| `launch` | `function` | The runner's half of one test's analysis: given the test's `ctx` and the struct `ts_test` builds from the compile, it returns the launcher config's mode and section, the env, and the runfiles the runner adds |
+
+A runner is a target, the way a toolchain is: `//ts/runners:vitest` and
+`//ts/runners:node_test` are the two shipped, and a rule in another ruleset
+returning this provider is a third. See [Runners](ts-test.md#runners).
+
 ## BundlerInfo
 
 | Field | Type | Description |

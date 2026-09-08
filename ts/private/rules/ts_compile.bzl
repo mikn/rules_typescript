@@ -31,8 +31,9 @@ not block downstream compilation.
 The rule has three attributes: srcs, deps and tsconfig. Every compiler option is
 the tsconfig's; the emit knobs are the build flags //ts:declarations (tsgo|oxc),
 //ts:source_map, //ts:declaration_map and //ts:lib_check. Each action is a
-function under ts/private/actions/; this file declares the outputs, calls them
-in order and builds the providers.
+function under ts/private/actions/; compile_program declares the outputs, calls
+them in order and builds the providers, for ts_compile and for the ts_test rule
+over the same attributes.
 """
 
 load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
@@ -78,6 +79,17 @@ _JS_DECLARATION_EXTENSION = {
 }
 
 _DECLARATION_SUFFIXES = (".d.ts", ".d.mts", ".d.cts")
+
+_INSTRUMENTED_EXTENSIONS = [
+    "ts",
+    "tsx",
+    "mts",
+    "cts",
+    "js",
+    "jsx",
+    "mjs",
+    "cjs",
+]
 
 def _is_dts_source(f):
     """Returns True if the file is a declaration file."""
@@ -170,7 +182,13 @@ def _classify_srcs(ctx):
             data_srcs.append(f)
     return compile_srcs, js_srcs, passthrough_dts, data_srcs
 
-def _ts_compile_impl(ctx):
+def compile_program(ctx):
+    """Registers the actions over ctx's srcs, deps and tsconfig.
+
+    The body of ts_compile and of ts_test: one attrs dict, one set of action
+    functions. Returns struct(outputs, js, forest, packages, transitive_js,
+    transitive_data, js_info, declaration_info, instrumented, output_groups).
+    """
     oxc = get_oxc_toolchain(ctx)
     pkg = ctx.label.package
 
@@ -428,6 +446,7 @@ def _ts_compile_impl(ctx):
             gate = strict_deps_inputs,
         )
 
+    forest = None
     validation_outputs = []
     if program_srcs:
         forest = forest_action(ctx, packages)
@@ -477,35 +496,30 @@ def _ts_compile_impl(ctx):
         order = "postorder",
     )
 
-    providers = [
-        # This target's own outputs. A dep's files reach a consumer through the
-        # provider that describes them, not through this one.
-        DefaultInfo(files = depset(all_outputs + passthrough_dts)),
-        JsInfo(
-            js_files = direct_js,
-            js_map_files = direct_js_map,
-            transitive_js_files = transitive_js,
-            transitive_js_map_files = transitive_js_map,
-            data_files = depset(data_staged, order = "postorder"),
-            transitive_data_files = transitive_data,
-            source_files = depset(
-                compile_srcs + passthrough_dts,
-                order = "postorder",
-            ),
+    js_info = JsInfo(
+        js_files = direct_js,
+        js_map_files = direct_js_map,
+        transitive_js_files = transitive_js,
+        transitive_js_map_files = transitive_js_map,
+        data_files = depset(data_staged, order = "postorder"),
+        transitive_data_files = transitive_data,
+        source_files = depset(
+            compile_srcs + passthrough_dts,
+            order = "postorder",
         ),
-        TsDeclarationInfo(
-            declaration_files = direct_dts,
-            transitive_declaration_files = transitive_dts,
-            transitive_npm_packages = depset(
-                direct_npm_infos,
-                transitive = [
-                    info.transitive_deps
-                    for info in direct_npm_infos
-                ] + dep_npm_package_sets,
-                order = "postorder",
-            ),
+    )
+    declaration_info = TsDeclarationInfo(
+        declaration_files = direct_dts,
+        transitive_declaration_files = transitive_dts,
+        transitive_npm_packages = depset(
+            direct_npm_infos,
+            transitive = [
+                info.transitive_deps
+                for info in direct_npm_infos
+            ] + dep_npm_package_sets,
+            order = "postorder",
         ),
-    ]
+    )
 
     output_groups = {}
 
@@ -522,9 +536,41 @@ def _ts_compile_impl(ctx):
             strict_deps.stamp,
             strict_deps.checker,
         ])
-    if output_groups:
-        providers.append(OutputGroupInfo(**output_groups))
 
+    return struct(
+        outputs = all_outputs + passthrough_dts,
+        js = js_outputs + js_passthrough,
+        forest = forest,
+        packages = packages,
+        transitive_js = transitive_js,
+        transitive_data = transitive_data,
+        js_info = js_info,
+        declaration_info = declaration_info,
+        # The runner reports on the compiled .js; a baseline naming the .ts
+        # would be a second name for the same code, with no lines at all.
+        instrumented = coverage_common.instrumented_files_info(
+            ctx,
+            source_attributes = ["srcs"],
+            dependency_attributes = ["deps"],
+            extensions = _INSTRUMENTED_EXTENSIONS,
+            baseline_coverage_files = [],
+        ),
+        output_groups = output_groups,
+    )
+
+def _ts_compile_impl(ctx):
+    program = compile_program(ctx)
+
+    # This target's own outputs. A dep's files reach a consumer through the
+    # provider that describes them, not through this one.
+    providers = [
+        DefaultInfo(files = depset(program.outputs)),
+        program.js_info,
+        program.declaration_info,
+        program.instrumented,
+    ]
+    if program.output_groups:
+        providers.append(OutputGroupInfo(**program.output_groups))
     return providers
 
 TS_COMPILE_ATTRS = {
@@ -614,14 +660,16 @@ for all of them but Node16/NodeNext.""",
     "_lib_check": attr.label(default = Label("//ts:lib_check")),
 }
 
+TS_COMPILE_TOOLCHAINS = [
+    OXC_TOOLCHAIN_TYPE,
+    config_common.toolchain_type(TSGO_TOOLCHAIN_TYPE, mandatory = False),
+    config_common.toolchain_type(JS_TOOL_TOOLCHAIN_TYPE, mandatory = False),
+]
+
 ts_compile = rule(
     implementation = _ts_compile_impl,
     attrs = TS_COMPILE_ATTRS,
-    toolchains = [
-        OXC_TOOLCHAIN_TYPE,
-        config_common.toolchain_type(TSGO_TOOLCHAIN_TYPE, mandatory = False),
-        config_common.toolchain_type(JS_TOOL_TOOLCHAIN_TYPE, mandatory = False),
-    ],
+    toolchains = TS_COMPILE_TOOLCHAINS,
     doc = """Compiles TypeScript with oxc and checks it with tsgo.
 
 Produces one .js (+ .js.map under --//ts:source_map, the default) and one .d.ts

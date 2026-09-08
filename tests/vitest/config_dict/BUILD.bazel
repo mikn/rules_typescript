@@ -9,5 +9,6 @@ ts_test(
         "define.test.ts",
     ],
     config = {"define": {"__RULES_TS_ANSWER__": "42"}},
+    visibility = ["//:__pkg__"],
     deps = ["@npm//:vitest"],
 )

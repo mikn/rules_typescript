@@ -2,7 +2,8 @@
 
 The report itself is only reachable from a `bazel coverage` run, so what a
 checked-in test can pin is the selection Bazel hands the runner: the same flag,
-two values, one dep on either side of it.
+two values, one dep on either side of it. The test's own files are a test
+target's, which Bazel leaves out under --noinstrument_test_targets.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
@@ -16,7 +17,6 @@ def _selects_both_packages_impl(ctx):
     asserts.equals(
         env,
         [
-            "tests/vitest/coverage/math.test.ts",
             "tests/vitest/coverage/same_package.ts",
             "tests/vitest/math.ts",
         ],
@@ -28,10 +28,7 @@ def _selects_one_package_impl(ctx):
     env = analysistest.begin(ctx)
     asserts.equals(
         env,
-        [
-            "tests/vitest/coverage/math.test.ts",
-            "tests/vitest/coverage/same_package.ts",
-        ],
+        ["tests/vitest/coverage/same_package.ts"],
         _instrumented_files(env),
     )
     return analysistest.end(env)

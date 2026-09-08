@@ -36,6 +36,7 @@ ts_test(
     srcs = ["edge.test.ts"],
     environment = "edge-runtime",
     tags = ["manual"],
+    visibility = ["//:__pkg__"],
     deps = ["@npm//:vitest"],
 )
 
@@ -44,6 +45,7 @@ ts_test(
     srcs = ["jsdom.test.ts"],
     environment = "jsdom",
     tags = ["manual"],
+    visibility = ["//:__pkg__"],
     deps = ["@npm//:vitest"],
 )
 

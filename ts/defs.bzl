@@ -2,7 +2,7 @@
 
 Users should load rules from this file:
     load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_test", "ts_binary")
-    load("@rules_typescript//ts:defs.bzl", "BundlerInfo")
+    load("@rules_typescript//ts:defs.bzl", "BundlerInfo", "TsTestRunnerInfo")
     load("@rules_typescript//ts:defs.bzl", "ts_lint", "TsLintInfo")
     load("@rules_typescript//ts:defs.bzl", "ts_pnpm", "ts_add_package", "ts_refresh_tsconfig")
     load("@rules_typescript//ts:defs.bzl", "ts_codegen", "refresh_workspace_files")
@@ -14,6 +14,7 @@ load(
     _BundlerInfo = "BundlerInfo",
     _JsInfo = "JsInfo",
     _TsDeclarationInfo = "TsDeclarationInfo",
+    _TsTestRunnerInfo = "TsTestRunnerInfo",
 )
 load("//ts/private:ts_binary.bzl", _ts_binary = "ts_binary")
 load("//ts/private:ts_codegen.bzl", _ts_codegen = "ts_codegen")
@@ -22,13 +23,14 @@ load("//ts/private:ts_dev_server.bzl", _ts_dev_server = "ts_dev_server")
 load("//ts/private:ts_lint.bzl", _TsLintInfo = "TsLintInfo", _ts_lint = "ts_lint")
 load("//ts/private:tsconfig_aspect.bzl", _refresh_workspace_files = "refresh_workspace_files", _ts_refresh_tsconfig = "ts_refresh_tsconfig")
 load("//ts/private/rules:ts_compile.bzl", _ts_compile = "ts_compile")
-load("//ts/private/rules:ts_test.bzl", _ts_test = "ts_test")
+load("//ts/private/rules:ts_test.bzl", _ts_test = "ts_test_macro")
 
 # Providers — exported for use in custom rules that extend this ruleset.
 BundlerInfo = _BundlerInfo
 JsInfo = _JsInfo
 TsDeclarationInfo = _TsDeclarationInfo
 TsLintInfo = _TsLintInfo
+TsTestRunnerInfo = _TsTestRunnerInfo
 
 # The compile rule: srcs, deps, tsconfig. Every compiler option is the
 # tsconfig's; the emit knobs are the flags in //ts:BUILD.bazel.

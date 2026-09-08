@@ -30,6 +30,7 @@ ts_test(
     name = "math_coverage_test",
     srcs = ["math.test.ts"],
     coverage = True,
+    visibility = ["//:__pkg__"],
     deps = [
         ":same_package",
         "//tests/vitest:math",

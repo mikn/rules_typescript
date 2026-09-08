@@ -4,8 +4,9 @@
 sandbox, under vitest by default. The full attribute table is in the
 [ts_test reference](../rules/ts-test.md).
 
-Tests written against node's own runner take `runner = "node:test"`; the rest of
-this page is the vitest runner. See
+Tests written against node's own runner take
+`runner = "@rules_typescript//ts/runners:node_test"`; the rest of this page is
+the vitest runner. See
 [The node:test runner](../rules/ts-test.md#the-nodetest-runner).
 
 ## Setup
@@ -31,10 +32,10 @@ ts_test(
 bazel test //path/to:math_test
 ```
 
-No `node_modules` target is needed. `ts_test` builds a per-target
-`node_modules` tree from every dep that provides `NpmPackageInfo`, their
-transitive npm deps, and the npm closure of every `ts_compile` dep, so the
-production code under test runs against the packages it declared. `deps` lists
+The `node_modules` tree the tests run in is the forest tsgo checked them
+against: every dep that provides `NpmPackageInfo`, their transitive npm deps,
+and the npm closure of every `ts_compile` dep, so the production code under
+test runs against the packages it declared. `deps` lists
 what the tests import, the npm imports of the package's production sources,
 the vitest config's imports and the nearest `package.json`'s dependencies;
 `bazel run //:gazelle` writes that list from tsgo's listing of the package.
@@ -48,25 +49,6 @@ The tree places every resolution the closure made, keyed apart wherever one name
 resolved more than once, so deps that disagree about a package version or peer
 set each get what they resolved. See
 [the layout](../rules/node-modules.md#the-layout).
-
-Pass `node_modules` explicitly when `deps` is a `select()` (a macro cannot
-iterate one) or when the tree you need is not the one the deps describe:
-
-```python
-load("@rules_typescript//npm:defs.bzl", "node_modules")
-
-node_modules(
-    name = "node_modules",
-    deps = ["@npm//:vitest", "@npm//:happy-dom"],
-)
-
-ts_test(
-    name = "math_test",
-    srcs = ["math.test.ts"],
-    deps = [":math", "@npm//:vitest"],
-    node_modules = ":node_modules",
-)
-```
 
 ## Controlling the Test Environment
 
@@ -192,7 +174,7 @@ bazel coverage //path/to:math_test
 
 Works on every vitest `ts_test` when `@vitest/coverage-v8` is in the
 `node_modules` tree. `coverage = True` additionally instruments plain
-`bazel test` runs. A `runner = "node:test"` target reports no coverage, and
+`bazel test` runs. A target on the node:test runner reports no coverage, and
 `bazel coverage` on one fails saying so.
 
 `coverage_thresholds` reaches `test.coverage.thresholds` in the generated
@@ -391,14 +373,8 @@ ts_test(
 )
 ```
 
-Writing: run the updater that every vitest `ts_test` declares next to itself.
-
-```bash
-bazel run //path/to:widget_test.update_snapshots
-```
-
-It writes into the checkout. Commit the result. No `--sandbox_writable_path` and
-no second hand-written target are involved.
+Writing: vitest's own `vitest -u`, run in the package as outside Bazel, writes
+the file where the test reads it. Commit the result.
 
 `ts_test` runs vitest in read-only snapshot mode, so a snapshot the test cannot
 read is a failure. In vitest's default mode an unlisted snapshot would be

@@ -34,6 +34,35 @@ TsDeclarationInfo = provider(
     },
 )
 
+TsTestRunnerInfo = provider(
+    doc = """A test runner: the target ts_test hands its compiled tests to.
+
+//ts/runners:vitest and //ts/runners:node_test are the two shipped; a rule in
+another ruleset returning this provider is a third. ts_test compiles the tests
+and builds the forest they run in, and the runner's `launch` turns them into
+the launcher's config and the runfiles of one test.
+""",
+    fields = {
+        "packages": "list of string: the npm packages the runner needs in " +
+                    "the test's node_modules tree, `vitest` for the vitest " +
+                    "runner; ts_test fails at analysis naming the one no dep " +
+                    "provides.",
+        "hook": "File: the one module the runner loads into node before the " +
+                "tests -- the node:test runner's resolver, the vitest " +
+                "runner's reads recorder.",
+        "launch": "function(ctx, test) -> struct: the runner's half of one " +
+                  "test's analysis. `test` is the struct ts_test builds from " +
+                  "the compile (entry_points, test_files_list, " +
+                  "node_modules_files, transitive_js, runtime_data_sets, " +
+                  "package_sources, inline_members, runner); the result " +
+                  "carries `mode` and `section` (the launcher config's mode " +
+                  "and that mode's section), `env`, `files`, `symlinks` and " +
+                  "`transitive_files` for the runfiles, `output_groups`, and " +
+                  "`runfiles_of`, the targets whose default runfiles join " +
+                  "the test's.",
+    },
+)
+
 TsConfigInfo = provider(
     doc = """A tsconfig.json, the files it extends and its jsx when preserve.
 

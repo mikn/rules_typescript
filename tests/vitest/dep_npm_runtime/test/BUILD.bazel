@@ -16,6 +16,5 @@ ts_test(
 runtime_tree_is_the_forest_test(
     name = "runtime_tree_is_the_forest_test",
     size = "small",
-    compile = ":_test_test_compile",
-    runtime = ":_test_test_node_modules",
+    test = ":test_test",
 )

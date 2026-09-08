@@ -226,11 +226,7 @@ def _relative_import(from_path, to_path):
     joined = "/".join(parts)
     return joined if joined.startswith("..") else "./" + joined
 
-def _snapshot_layer(
-        snapshot_bases,
-        snapshot_root,
-        test_include,
-        update_snapshots):
+def _snapshot_layer(snapshot_bases, snapshot_root):
     """The root-only layer that redirects vitest's .snap paths.
 
     `resolveSnapshotPath` is one of vitest's non-project options, so this layer
@@ -238,27 +234,6 @@ def _snapshot_layer(
     """
     if not snapshot_bases:
         return "const snapshotLayer = {};"
-    if update_snapshots:
-        return "\n".join([
-            "const SOURCE_ROOT = process.env.BUILD_WORKSPACE_DIRECTORY;",
-            "const snapshotLayer = {",
-            # vite derives cacheDir from the root, and `bazel run` puts the root
-            # in the user's source tree, where a .vite/ has no business being.
-            "  cacheDir: abs('.vitest-cache'),",
-            "  test: {",
-            # `bazel run` starts at the workspace root, which vitest would glob;
-            # naming the compiled files keeps the runfiles trees out of the run.
-            "    dir: abs('.'),",
-            "    include: {},".format(_js(test_include)),
-            "    resolveSnapshotPath: (testPath, ext) => {",
-            "      const base = snapshotBase(testPath);",
-            "      if (base === null || !SOURCE_ROOT) " +
-            "return vitestDefaultSnapshotPath(testPath, ext);",
-            "      return resolve(SOURCE_ROOT, base + ext);",
-            "    },",
-            "  },",
-            "};",
-        ])
     return "\n".join([
         "const snapshotLayer = {",
         "  test: {",
@@ -295,9 +270,7 @@ def _vitest_config_content(
         coverage_provider,
         snapshot_bases = {},
         snapshot_root = "",
-        test_include = [],
         run_include = [],
-        update_snapshots = False,
         workers_pool_rf = None,
         tsconfig_paths_rf = None,
         root_rel = ".",
@@ -433,12 +406,7 @@ def _vitest_config_content(
     else:
         lines.append("const attrLayer = {};")
 
-    lines.append(_snapshot_layer(
-        snapshot_bases,
-        snapshot_root,
-        test_include,
-        update_snapshots,
-    ))
+    lines.append(_snapshot_layer(snapshot_bases, snapshot_root))
     lines += [
         "",
         "export default async (env) => {",
@@ -617,10 +585,6 @@ def vitest_config_action(
             coverage_provider = ctx.attr.coverage_provider,
             snapshot_bases = _snapshot_bases(ctx.files.srcs, test_entry_points),
             snapshot_root = ctx.workspace_name,
-            test_include = [
-                _relative_import(config_rf, rf).removeprefix("./")
-                for rf in [rlocation_path(ctx, f) for f in test_entry_points]
-            ],
             run_include = [
                 _relative_import(
                     root_marker,
@@ -629,7 +593,6 @@ def vitest_config_action(
                 for f in test_entry_points
                 if _is_test_file(f)
             ],
-            update_snapshots = ctx.attr.update_snapshots,
             workers_pool_rf = pool_rf,
             tsconfig_paths_rf = paths_rf,
             root_rel = root_rel,

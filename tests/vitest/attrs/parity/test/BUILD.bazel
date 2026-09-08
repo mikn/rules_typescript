@@ -1,0 +1,10 @@
+load("//ts:defs.bzl", "ts_test")
+
+# The other half of //tests/vitest/attrs:compile_parity_test: ts_test over the
+# srcs, deps and tsconfig ../compile compiles.
+ts_test(
+    name = "parity_test",
+    srcs = ["parity.test.ts"],
+    visibility = ["//tests/vitest/attrs:__pkg__"],
+    deps = ["@npm//:vitest"],
+)

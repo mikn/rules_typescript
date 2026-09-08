@@ -23,6 +23,7 @@ BundlerInfo
 JsInfo
 TsDeclarationInfo
 TsLintInfo
+TsTestRunnerInfo
 refresh_workspace_files
 ts_add_package
 ts_binary

@@ -17,8 +17,9 @@ func planNodeTest(
 	// an empty lcov would read as a clean run.
 	if out := os.Getenv("COVERAGE_OUTPUT_FILE"); out != "" {
 		return nil, fmt.Errorf(
-			"ts_test: runner \"%s\" does not report coverage. Run `bazel coverage` "+
-				"against vitest targets, or `bazel test` against this one.", RunnerNodeTest)
+			"ts_test: the node:test runner does not report coverage. " +
+				"Run `bazel coverage` against vitest targets, or `bazel test` " +
+				"against this one.")
 	}
 
 	if _, err := installNodeModules(r, plan, n.NodeModules); err != nil {

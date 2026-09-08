@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -122,7 +123,7 @@ func TestPlanVitestReadsInstallsTheHookBelowTheRunner(t *testing.T) {
 	ws := t.TempDir()
 	t.Setenv("BUILD_WORKSPACE_DIRECTORY", ws)
 	t.Setenv("NODE_OPTIONS", "--inspect")
-	plan, err := MakePlan(readsConfig(), r, nil)
+	plan, err := MakePlan(readsConfig(), r, []string{ReadsFlag})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,8 +183,42 @@ func TestReadsReportPrintsTheRecordedFiles(t *testing.T) {
 func TestPlanVitestReadsNeedsBazelRun(t *testing.T) {
 	r, _ := readsFixture(t)
 	t.Setenv("BUILD_WORKSPACE_DIRECTORY", "")
-	_, err := MakePlan(readsConfig(), r, nil)
+	_, err := MakePlan(readsConfig(), r, []string{ReadsFlag})
 	if err == nil || !strings.Contains(err.Error(), "bazel run") {
 		t.Errorf("err = %v, want one naming `bazel run`", err)
+	}
+}
+
+// The hook is in every vitest test's config; only the flag installs it.
+func TestPlanVitestLeavesTheReadsHookOutWithoutTheFlag(t *testing.T) {
+	r, real := readsFixture(t)
+	t.Setenv("NODE_OPTIONS", "")
+	plan, err := MakePlan(readsConfig(), r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hook := real["_main/ts/private/reads_hook.cjs"]
+	options := plan.EnvOverrides["NODE_OPTIONS"]
+	if strings.Contains(options, hook) {
+		t.Errorf("NODE_OPTIONS = %q, want no hook without %s", options,
+			ReadsFlag)
+	}
+}
+
+// The launcher consumes --reads; every other argument is vitest's.
+func TestPlanVitestHandsTheOtherArgumentsToVitest(t *testing.T) {
+	r, _ := readsFixture(t)
+	t.Setenv("BUILD_WORKSPACE_DIRECTORY", t.TempDir())
+	args := []string{ReadsFlag, "--reporter=dot"}
+	plan, err := MakePlan(readsConfig(), r, args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer plan.Cleanup()
+	if slices.Contains(plan.Argv, ReadsFlag) {
+		t.Errorf("argv = %q, want %s consumed", plan.Argv, ReadsFlag)
+	}
+	if !slices.Contains(plan.Argv, "--reporter=dot") {
+		t.Errorf("argv = %q, want --reporter=dot handed to vitest", plan.Argv)
 	}
 }

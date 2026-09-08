@@ -6,5 +6,6 @@ ts_test(
     name = "injected_test",
     srcs = ["injected.test.ts"],
     global_setup = ["setup_once.ts"],
+    visibility = ["//:__pkg__"],
     deps = ["@npm//:vitest"],
 )

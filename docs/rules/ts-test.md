@@ -15,30 +15,29 @@ ts_test(
 )
 ```
 
-`node_modules` is optional: when it is unset and `deps` is a plain list,
-`ts_test` builds a per-target `node_modules` tree from every dep that provides
-`NpmPackageInfo`, their transitive npm deps, and the npm closure of every
-`ts_compile` dep. Pass it explicitly when `deps` is a `select()` (which a macro
-cannot iterate) or when you need a tree the deps do not describe.
+`ts_test` is a rule over `ts_compile`'s attributes: `srcs`, `deps` and
+`tsconfig` mean what they mean there, the same actions compile the test files,
+and the `node_modules` forest tsgo checked them against -- every dep providing
+`NpmPackageInfo`, their transitive npm deps and the npm closure of every
+`ts_compile` dep -- is the tree the tests run in. `runner` names the target
+that runs the compiled files; see [Runners](#runners).
 
 ## Attributes
 
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `srcs` | `label_list` | required | `.ts`/`.tsx` test files; in the runfiles at their source paths, see [Files at Run Time](#files-at-run-time) |
+| `srcs` | `label_list` | required | The test files, as `ts_compile`'s `srcs`; the TypeScript ones are in the runfiles at their source paths too, see [Files at Run Time](#files-at-run-time) |
 | `deps` | `label_list` | `[]` | `ts_compile` and `@npm//` targets the tests import. A `ts_compile` dep's data srcs are in the runfiles beside its `.js`, and a dep in the test's package has its TypeScript srcs there too |
-| `node_modules` | `label` | auto | Explicit `node_modules` target; skips auto-generation entirely |
-| `npm_workspace_name` | `string` | `"npm"` | Informational only; the auto tree is built by detecting `NpmPackageInfo`, not by matching label strings |
 | `vitest` | `label` | `None` | Explicit vitest binary label (found in `node_modules` when absent) |
 | `runtime` | `label` | `None` | Per-target JS runtime binary override |
 | `env` | `string_dict` | `{}` | Extra environment variables for the runner |
-| `args` | `string_list` | `[]` | The runner's command-line flags: node's under `"node:test"`, vitest's under `"vitest"`; `bazel test --test_arg` appends to them. See [The node:test runner](#the-nodetest-runner) |
+| `args` | `string_list` | `[]` | The runner's command-line flags: node's under the node:test runner, vitest's under the vitest runner; `bazel test --test_arg` appends to them. See [The node:test runner](#the-nodetest-runner) |
 | `size` | `string` | `"medium"` | Bazel test size |
 | `timeout` | `string` | `None` | Bazel test timeout |
 | `tags` | `string_list` | `[]` | Bazel tags |
-| `visibility` | `string_list` | `None` | Visibility of the test and of the generated `ts_compile` targets; see [Generated targets](#generated-targets) |
-| `tsconfig` | `label` | `None` | The tsconfig every generated `ts_compile` compiles under: the package's own `tsconfig.json`, or a `ts_config` target. Every compiler option the tests check under is its, and under vitest its `paths` resolve at run time; see [The test's tsconfig](#the-tests-tsconfig) |
-| `runner` | `string` | `"vitest"` | Which runner runs the compiled tests, `"vitest"` or `"node:test"`; see [The node:test runner](#the-nodetest-runner). Every attribute below this row except `data` is vitest's, and an analysis error under `"node:test"` |
+| `visibility` | `string_list` | `None` | Visibility of the test and of the `ts_compile` targets over `setup_files` and `global_setup`; see [Generated targets](#generated-targets) |
+| `tsconfig` | `label` | `None` | The test program's tsconfig, as on `ts_compile`: the package's own `tsconfig.json`, or a `ts_config` target. Every compiler option the tests check under is its, and under vitest its `paths` resolve at run time; see [The test's tsconfig](#the-tests-tsconfig) |
+| `runner` | `label` | `//ts/runners:vitest` | The target that runs the compiled tests: `//ts/runners:vitest`, `//ts/runners:node_test` or any target providing `TsTestRunnerInfo`; see [Runners](#runners). Every attribute below this row except `data` is the vitest runner's, and an analysis error under the node:test runner |
 | `environment` | `string` | `""` | `test.environment`: `node`, `jsdom`, `happy-dom`, `edge-runtime`, or any custom vitest environment package. The package must be in `deps` |
 | `coverage` | `bool` | `False` | Also instrument during plain `bazel test`. `bazel coverage` works on every vitest target regardless |
 | `config` | `label` or `dict` | `None` | A vitest config file (`.ts`/`.mts`/`.cts`/`.js`/`.mjs`/`.cjs`) or an inline dict, **merged** into the generated config; see [A config file](#a-config-file) |
@@ -52,20 +51,16 @@ cannot iterate) or when you need a tree the deps do not describe.
 | `coverage_thresholds` | `string_dict` | `{}` | `test.coverage.thresholds`, e.g. `{"lines": "80", "perFile": "true"}`. Values that look numeric or boolean are emitted as such |
 | `coverage_provider` | `string` | `""` | `test.coverage.provider`: `"v8"` (vitest's default) or `"istanbul"`; see [Coverage](#coverage) |
 | `snapshots` | `label_list` | `[]` | Checked-in `.snap` files, normally `glob(["__snapshots__/*.snap"])`; see [Snapshots](#snapshots) |
-| `update_snapshots` | `bool` | `False` | Makes **this** target the executable updater; see [Snapshots](#snapshots) |
 
 ## Generated Targets
 
-The macro generates a `ts_compile` target for `srcs`, one for the TypeScript
-entries in `setup_files` and one for those in `global_setup`, plus, on the
-vitest runner, two executables: `<name>.update_snapshots`
-([Snapshots](#snapshots)) and `<name>.reads`
-([Finding What a Test Reads](#finding-what-a-test-reads)).
-The `ts_compile` targets take the test's `visibility`, defaulting to
+The test target compiles `srcs` itself. The macro generates a `ts_compile`
+for the TypeScript entries in `setup_files` and one for those in
+`global_setup`; both take the test's `visibility`, defaulting to
 `//visibility:public` when the test declares none, so an IDE tsconfig written by
-`ts_refresh_tsconfig` can name them. A `manual` tag on the test reaches every
-generated target, so a wildcard that skips the test analyses none of them; every
-other tag stays on the test.
+`ts_refresh_tsconfig` can name them. A `manual` tag on the test reaches both,
+so a wildcard that skips the test analyses neither; every other tag stays on
+the test.
 
 ## Files at Run Time
 
@@ -100,10 +95,10 @@ node:test the hook resolves it from the tree the launcher names in `NODE_PATH`
 
 ## The Test's tsconfig
 
-`tsconfig` is forwarded to every `ts_compile` the macro generates, the one over
-`srcs` and the ones over the TypeScript entries of `setup_files` and
-`global_setup`, and it carries every compiler option the tests check under, as
-it does on [`ts_compile`](ts-compile.md#where-compiler-options-come-from). The
+`tsconfig` is the test program's, as on
+[`ts_compile`](ts-compile.md#where-compiler-options-come-from), and is forwarded
+to the `ts_compile` targets over the TypeScript entries of `setup_files` and
+`global_setup`; it carries every compiler option the tests check under. The
 test files are a program of their own, so a `lib`, a `types` entry or a `paths`
 alias the package's sources need is in the test program only when the test's
 tsconfig has it too; Gazelle names the package's own `tsconfig.json` on the test
@@ -475,11 +470,11 @@ What else a wrangler config names, and where each comes from under `ts_test`:
 
 A test that opens a file the runfiles do not hold fails in the sandbox with
 `ENOENT`, and nothing in the build says which file: a run-time read is in no
-program listing, so Gazelle writes no `data` entry for it. Every vitest
-`ts_test` declares a companion that says:
+program listing, so Gazelle writes no `data` entry for it. The vitest runner
+says, under `bazel run`:
 
 ```bash
-bazel run //path/to:my_test.reads
+bazel run //path/to:my_test -- --reads
 ```
 
 It runs the same compiled tests unsandboxed, from the runfiles tree `bazel
@@ -527,15 +522,15 @@ ts_test(
 
 `//tests/vitest/reads_report` is the example: `reads_report_test` makes the
 read undeclared and is `manual`, so `bazel test` never runs the failure, and
-its `.reads` prints the two lines above; `reads_declared_test` lists them,
-passes under `bazel test`, and its `.reads` prints nothing.
+run with `--reads` it prints the two lines above; `reads_declared_test` lists
+them, passes under `bazel test`, and run with `--reads` prints nothing.
 
 ## Coverage
 
 `bazel coverage //path/to:my_test` works on any `ts_test` on the vitest runner
 with no attribute set; `@vitest/coverage-v8` must be in `node_modules`.
-`coverage = True` additionally instruments plain `bazel test` runs. A
-`runner = "node:test"` target reports no coverage and says so.
+`coverage = True` additionally instruments plain `bazel test` runs. A target on
+the node:test runner reports no coverage and says so.
 
 `coverage_thresholds` is enforced only when coverage runs, and a run that misses
 one fails: vitest exits non-zero with
@@ -560,9 +555,10 @@ bazel coverage //tests/vitest/coverage:math_coverage_test --combined_report=lcov
 # adds SF:tests/vitest/math.js
 ```
 
-Every target under test carries its own `InstrumentedFilesInfo`: the libraries
-in `deps`, and the `ts_compile` the macro builds the test sources with. The
-filter is applied per target. None declares baseline coverage files: a
+Every `ts_compile` carries its own `InstrumentedFilesInfo`, so the filter is
+applied per target. The test's own files are a test target's, which Bazel
+leaves out of the report unless `--instrument_test_targets` is set. None
+declares baseline coverage files: a
 baseline would name the `.ts` a target declared, and the runner reports on the
 `.js` compiled from it, so the record would be a second name for the same code
 carrying no lines at all.
@@ -614,18 +610,35 @@ bazel test //path/to:math_test
 sharding support, so without that flag a sharded run fails before any test
 starts.
 
+## Runners
+
+A runner is a target providing `TsTestRunnerInfo`
+([providers](providers.md#tstestrunnerinfo)), the way a toolchain is: `ts_test`
+compiles the tests and builds the forest, and the runner's `launch` turns them
+into the launcher's config and the runfiles of one test. Two ship,
+`//ts/runners:vitest`, the default, and `//ts/runners:node_test`
+(`@rules_typescript//ts/runners:node_test` from a consumer); a third is a rule
+in its own ruleset returning the provider. A runner names the npm packages it
+needs in the tree -- `vitest` for the vitest runner -- and a test whose `deps`
+provide none fails at analysis naming it.
+
+`runner` is the owner's attribute. tsgo's listing records no edge for an import
+of an ambient module -- `node:test` resolves to no file -- so nothing Gazelle
+reads says which runner a test file was written for; Gazelle never writes
+`runner`, and a hand-written value survives every run without `# keep`.
+
 ## The node:test Runner
 
 A test written against [`node:test`][node-test] registers with node's runner,
 not with vitest's collector, so vitest reports `0 test` for the file and fails
-it as an empty suite. `runner = "node:test"` runs such a file under
-`node --test` instead:
+it as an empty suite. `runner = "//ts/runners:node_test"` runs such a file
+under `node --test` instead:
 
 ```python
 ts_test(
     name = "scripts_test",
     srcs = ["cloudflare-account-token.test.ts"],
-    runner = "node:test",
+    runner = "@rules_typescript//ts/runners:node_test",
     deps = [":scripts", "@npm//:types_node"],
 )
 ```
@@ -637,9 +650,9 @@ nothing reads the chain's `paths`. Under vitest an alias resolves at run time;
 see [The test's tsconfig](#the-tests-tsconfig).
 
 The package's code runs at its runfiles paths, as under vitest: the launcher
-passes `--preserve-symlinks-main`, and a `node:module` resolve hook it loads
-(`ts/private/node_test_hook.mjs`) resolves every specifier from a file outside
-the node_modules tree:
+passes `--preserve-symlinks-main`, and the runner target's `node:module`
+resolve hook (`ts/private/node_test_hook.mjs`) resolves every specifier from a
+file outside the node_modules tree:
 
 - A relative specifier resolves, at the importer's runfiles path, to the file
   the compiled tree holds for it: `./util.ts`, `.tsx`, `.mts` or `.cts` to the
@@ -665,17 +678,17 @@ script does (`//tests/node_test:module_mocks_test`). Every vitest attribute is
 an analysis error under it, naming the ones set:
 
 ```
-ts_test @@//scripts:scripts_test: runner "node:test" reads none of environment,
-globals. Every one of them configures vitest, which this target does not run.
-Drop them, or drop `runner` to run the test under vitest.
+ts_test @@//scripts:scripts_test: the node:test runner reads none of
+environment, globals. Every one of them configures vitest, which this target
+does not run. Drop them, or drop `runner` to run the test under vitest.
 ```
 
 The rejected set is `config`, `coverage`, `coverage_provider`,
 `coverage_thresholds`, `environment`, `global_setup`, `globals`, `reporters`,
-`setup_files`, `snapshots`, `update_snapshots` and `vitest`. node:test has no
-globals mode: nothing installs `describe` or `expect`, so `globals` is
-rejected, and the `vitest/globals` `types` entry is not added. No
-`<name>.update_snapshots` target is generated.
+`setup_files`, `snapshots` and `vitest`. node:test has no globals mode: nothing
+installs `describe` or `expect`, so `globals` is rejected, and the
+`vitest/globals` `types` entry is not added. The runner takes no argument
+under `bazel run`.
 
 `--test_filter` reaches node as `--test-name-pattern` (a regular expression
 over test names), sharding works as above, and the exit status is the test
@@ -711,21 +724,8 @@ Without it the test cannot read the snapshot and fails. `ts_test` runs vitest in
 read-only snapshot mode (`CI=true`), so no `bazel test` writes a `.snap`.
 `env = {"CI": "false"}` opts out.
 
-Every vitest `ts_test` declares an executable that writes them:
-
-```bash
-bazel run //path/to:widget_test.update_snapshots
-```
-
-It reuses the test's own compiled sources and writes under
-`BUILD_WORKSPACE_DIRECTORY`, into the checkout next to the `.ts` file. Commit
-the result. `--sandbox_writable_path` is not involved.
-
-`update_snapshots = True` on a `ts_test` makes that target the updater and not a
-test, for an updater that stands alone. It compiles `srcs` itself, so it cannot
-share a package with a `ts_test` over the same files: two `ts_compile` targets
-would declare the same `.js` outputs. The generated `<name>.update_snapshots`
-shares the test's compile target.
+Writing one is vitest's own `vitest -u`, run in the package as outside Bazel:
+it writes the file where the read above resolves it. Commit the result.
 
 ## Debugging
 

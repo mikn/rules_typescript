@@ -105,11 +105,12 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 - `ts/private/ts_config.bzl` — the public `ts_config` rule (a hand-written tsconfig.json and its `extends` chain)
 - `platforms/platforms.bzl` — the one platform table (`PLATFORMS`) everything loads
 - `ts/toolchain/BUILD.bazel` — toolchain types and instances; `//ts/toolchain:all`
-- `ts/private/rules/ts_test.bzl` — test macro: vitest by default,
-  `runner = "node:test"` for node's own runner (auto node_modules);
-  `ts/private/actions/vitest.bzl` — the generated vitest config;
-  `ts/private/actions/workers_pool.bzl` — the Workers pool's half of the
-  test environment, the one file that names wrangler
+- `ts/private/rules/ts_test.bzl` — the `ts_test` rule over `TS_COMPILE_ATTRS`
+  and the test attributes; `ts/private/rules/runners.bzl` — the two runner
+  targets under `//ts/runners`, `vitest` and `node_test`, each providing
+  `TsTestRunnerInfo`; `ts/private/actions/vitest.bzl` — the generated vitest
+  config; `ts/private/actions/workers_pool.bzl` — the Workers pool's half of
+  the test environment, the one file that names wrangler
 - `ts/private/bundle_action.bzl` — the bundle action behind `ts_binary`'s `bundler` attr
 - `ts/private/ts_dev_server.bzl` — dev server with HMR
 - `ts/private/ts_codegen.bzl` — general code generation
@@ -190,7 +191,9 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 ## Provider Contract
 
 Every `ts_compile` target provides: `JsInfo` + `TsDeclarationInfo` +
-`OutputGroupInfo(_validation)`. `_validation` is only populated under
+`InstrumentedFilesInfo` + `OutputGroupInfo(_validation)`; a `ts_test` runs the
+same actions over its srcs and provides the last two. `_validation` is only
+populated under
 `--//ts:declarations=oxc`; under the default the declarations are the proof.
 A `ts_compile` with any `deps` additionally exposes the strict-deps stamp: in
 `OutputGroupInfo(strict_deps = ...)` always, and as an input to the compile
@@ -332,11 +335,7 @@ form emits `test.projects` (vitest 4 throws on `test.workspace`).
 `<package>/__snapshots__/<source>.snap`, where a plain `vitest` keeps it, reads
 those files from runfiles via the `snapshots` attr, and runs vitest in read-only
 snapshot mode (`CI=true`), so no `bazel test` can write a `.snap` and pass on
-what it wrote. Every vitest `ts_test` also declares `<name>.update_snapshots`, which
-reuses the test's own `ts_compile` (a second `ts_compile` over the same srcs would
-declare the same `.js` outputs) and writes under `BUILD_WORKSPACE_DIRECTORY`.
-Update mode pins `test.dir`, `test.include` and `cacheDir`, because `bazel run`
-puts the working directory in the user's source tree.
+what it wrote. Writing one is vitest's own `vitest -u` in the package.
 
 ## Anti-Patterns
 

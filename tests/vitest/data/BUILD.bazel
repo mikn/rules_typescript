@@ -7,6 +7,7 @@ ts_test(
     name = "fixture_test",
     srcs = ["fixture.test.ts"],
     data = ["fixture.txt"],
+    visibility = ["//:__pkg__"],
     deps = [
         "@npm//:types_node",
         "@npm//:vitest",

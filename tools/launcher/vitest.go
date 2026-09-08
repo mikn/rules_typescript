@@ -6,22 +6,35 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
+
+// ReadsFlag is the launcher's own argument: under `bazel run <test> -- --reads`
+// the run reports the workspace files the tests read; the rest are vitest's.
+const ReadsFlag = "--reads"
+
+func splitReadsFlag(args []string) (bool, []string) {
+	rest := slices.DeleteFunc(slices.Clone(args), func(a string) bool {
+		return a == ReadsFlag
+	})
+	return len(rest) < len(args), rest
+}
 
 func planVitest(
 	cfg *Config, r *Resolver, plan *Plan, args []string,
 ) (*Plan, error) {
 	v := cfg.Vitest
+	readsRequested, args := splitReadsFlag(args)
 	var reads *readsRun
-	if v.ReadsHook != "" {
+	if readsRequested {
 		var err error
 		if r, reads, err = startReads(cfg.Label, r); err != nil {
 			return nil, err
 		}
 	}
-	plan.Dir = testWorkingDir(r, v.UpdateSnapshots)
+	plan.Dir = r.Dir()
 
 	nodeModules, err := installNodeModules(r, plan, v.NodeModules)
 	if err != nil {
@@ -72,9 +85,6 @@ func planVitest(
 	}
 
 	flags := []string{"run", "--config", configFile}
-	if v.UpdateSnapshots {
-		flags = append(flags, "--update")
-	}
 	flags = append(flags, coverageFlags(v.Coverage)...)
 	flags = append(flags, args...)
 
@@ -106,17 +116,6 @@ func planVitest(
 		plan.PostRun = chainPostRun(plan.PostRun, reads.report(os.Stdout))
 	}
 	return plan, nil
-}
-
-// testWorkingDir puts snapshot updates in the source tree so vitest writes
-// .snap files back; everything else runs at the runfiles root, if there is one.
-func testWorkingDir(r *Resolver, updateSnapshots bool) string {
-	if updateSnapshots {
-		if ws := os.Getenv("BUILD_WORKSPACE_DIRECTORY"); ws != "" {
-			return ws
-		}
-	}
-	return r.Dir()
 }
 
 // stageTestRoot gives a manifest-only run a root of its own: symlinks to just

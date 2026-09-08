@@ -28,14 +28,22 @@ bzl_library(
 )
 
 bzl_library(
+    name = "runners",
+    srcs = ["runners.bzl"],
+    deps = [
+        "//ts/private:providers",
+        "//ts/private/actions:vitest",
+        "//ts/private/actions:workers_pool",
+    ],
+)
+
+bzl_library(
     name = "ts_test",
     srcs = ["ts_test.bzl"],
     deps = [
         ":ts_compile",
-        "//ts/private:node_modules",
         "//ts/private:providers",
         "//ts/private:runtime",
-        "//ts/private/actions:vitest",
         "//ts/private/actions:workers_pool",
     ],
 )

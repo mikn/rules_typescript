@@ -420,6 +420,11 @@ would be, a member's name as its view and every other name through the gate.
 So a test carries the packages the config and the manifest name and no source
 imports (`vitest`, a pool package, `jsdom`), and none of them needs a `# keep`.
 
+`runner` is the owner's attribute. tsgo's listing records no edge for an import
+of an ambient module -- `node:test` resolves to no file -- so nothing Gazelle
+reads says which runner a test file was written for; Gazelle never writes
+`runner`, and a hand-written value survives every run without `# keep`.
+
 ### The Lockfile Gate
 
 Every npm label passes through the root `pnpm-lock.yaml`. A name the lockfile

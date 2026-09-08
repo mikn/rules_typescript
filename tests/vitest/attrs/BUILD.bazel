@@ -3,11 +3,13 @@
 config_layers_test is the checked-in proof that each attribute reaches the
 vitest config and that the layers stack in the documented order; `attrs_test`
 itself proves the `globals` and `setup_files` halves end to end.
+compile_parity_test proves the test compiles its srcs with ts_compile's actions.
 """
 
 load("@rules_go//go:def.bzl", "go_test")
 load("//tests/vitest:vitest_config.bzl", "vitest_config")
 load("//ts:defs.bzl", "ts_test")
+load(":parity_tests.bzl", "compile_parity_test")
 
 # The go_test is hand-named after the sh_test it replaced, so the Go language
 # would add a second target for the same source.
@@ -37,6 +39,7 @@ ts_test(
         "globals.d.ts",
     ],
     tsconfig = "tsconfig.vitest.json",
+    visibility = ["//:__pkg__"],
     deps = ["@npm//:vitest"],
 )
 
@@ -44,6 +47,13 @@ vitest_config(
     name = "attrs_test_config",
     testonly = True,
     test = ":attrs_test",
+)
+
+compile_parity_test(
+    name = "compile_parity_test",
+    size = "small",
+    compile = "//tests/vitest/attrs/parity/compile:parity_compile",
+    test = "//tests/vitest/attrs/parity/test:parity_test",
 )
 
 go_test(
