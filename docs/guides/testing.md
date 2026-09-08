@@ -249,7 +249,11 @@ filegroup(
     visibility = ["//visibility:public"],
 )
 
-exports_files(["wrangler.jsonc"])
+filegroup(
+    name = "wrangler_config",
+    srcs = ["wrangler.jsonc"],
+    visibility = ["//visibility:public"],
+)
 ```
 
 ```python
@@ -261,7 +265,7 @@ ts_test(
     config = "//workers/proxy:vitest_config",
     coverage_provider = "istanbul",
     tsconfig = "//workers/proxy:worker_tsconfig",
-    wrangler_config = "//workers/proxy:wrangler.jsonc",
+    wrangler_config = "//workers/proxy:wrangler_config",
     deps = [
         "//workers/proxy:worker",
         "@npm_workers//:cloudflare_vitest-pool-workers",
@@ -270,6 +274,11 @@ ts_test(
     ],
 )
 ```
+
+Gazelle writes the two filegroups from the config -- `vitest_config` over the
+file, `wrangler_config` over the file its `configPath` names -- and the test's
+`config`, `wrangler_config`, `coverage_provider` and `deps` from the config's
+imports ([a Workers-pool config](../gazelle/overview.md#a-workers-pool-config)).
 
 ```typescript
 /// <reference types="@cloudflare/vitest-pool-workers/types" />

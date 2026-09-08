@@ -36,10 +36,11 @@ is replaced unless a `# keep` holds it:
 | Rule | Attributes Gazelle owns |
 |------|-------------------------|
 | `ts_compile` | `srcs`, `deps`, `tsconfig`, `visibility` |
-| `ts_test` | `srcs`, `deps`, `tsconfig`, `config` |
+| `ts_test` | `srcs`, `deps`, `tsconfig`, `config`, `wrangler_config`, `coverage_provider` |
 | `ts_config` | `src`, `deps`, `visibility` |
 | `ts_lint` | `srcs`, `linter`, `linter_binary`, `config`, `fail_on_warnings` |
 | `filegroup(name = "vitest_config")` | `srcs`, `visibility` |
+| `filegroup(name = "wrangler_config")` | `srcs`, `visibility` |
 
 `ts_config.deps` is the `extends` chain, a dep on the `ts_config` of every
 `tsconfig.json` the file extends by a relative path. A base of another name

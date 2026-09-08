@@ -22,6 +22,7 @@ go_library(
         "program.go",
         "resolve.go",
         "tsconfig.go",
+        "workers_pool.go",
     ],
     data = ["//ts/toolchain:tsgo_resolved"],
     importpath = "github.com/mikn/rules_typescript/gazelle",
@@ -59,6 +60,7 @@ go_test(
         "program_test.go",
         "resolve_test.go",
         "tsconfig_extends_test.go",
+        "workers_pool_test.go",
     ],
     data = glob(["testdata/**"]) + [
         "//:docs_pages",

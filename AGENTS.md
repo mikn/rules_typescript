@@ -117,6 +117,8 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
   importer-scoped label, the member view; the nearest `package.json`
 - `gazelle/generate.go`, `gazelle/resolve.go` — the package's rules; `deps`
   from the listing's edges
+- `gazelle/workers_pool.go` — the Workers pool's half: the wrangler config's
+  `filegroup`, the pooled test's `wrangler_config` and `coverage_provider`
 - `gazelle/config.go`, `gazelle/keep.go` — the root-once lockfile load, the
   `ts_codegen` bookkeeping, linter detection; the managed-attribute reports
 - `oxc_cli/src/main.rs` — Rust CLI (parse → isolated_declarations → transform → codegen)

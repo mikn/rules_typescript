@@ -47,6 +47,7 @@ func ownedRuleNames(rel string) []*rule.Rule {
 		rule.NewRule("ts_lint", name+"_lint"),
 		rule.NewRule("ts_config", tsConfigTargetName),
 		rule.NewRule("filegroup", vitestConfigTargetName),
+		rule.NewRule("filegroup", wranglerConfigTargetName),
 	}
 }
 
@@ -55,21 +56,28 @@ func emptyResult(args language.GenerateArgs) language.GenerateResult {
 }
 
 // No program: every rule Gazelle would write is withdrawn and a BUILD file
-// holding one named; an extended tsconfig.json and the root's config stay.
+// holding one named; an extended tsconfig.json and the root's configs stay.
 func nonPackageRules(args language.GenerateArgs, tc *tsConfig,
 ) language.GenerateResult {
 	var res language.GenerateResult
 	var held []string
+	rootConfig := ""
+	if args.Rel == "" {
+		rootConfig = exportedVitestConfig(args.Dir, "")
+	}
 	for _, r := range ownedRuleNames(args.Rel) {
 		switch {
 		case r.Kind() == "ts_config" && tc.programs.extended[args.Rel] &&
 			handWrittenTsConfigIn(args.Dir, args.Config.RepoRoot) != "":
 			res.Gen = append(res.Gen, tsConfigRule(args, tc))
 			res.Imports = append(res.Imports, nil)
-		case r.Kind() == "filegroup" && args.Rel == "" &&
-			exportedVitestConfig(args.Dir, "") != "":
-			res.Gen = append(res.Gen, vitestConfigRule(args))
-			res.Imports = append(res.Imports, nil)
+		case r.Kind() == "filegroup" && rootConfig != "":
+			if fg := configFilegroup(args, tc, rootConfig, r.Name()); fg != nil {
+				res.Gen = append(res.Gen, fg)
+				res.Imports = append(res.Imports, nil)
+				continue
+			}
+			fallthrough
 		default:
 			res.Empty = append(res.Empty, r)
 			if have := existingRule(args, r.Kind(), r.Name()); have != nil &&
@@ -157,10 +165,17 @@ func packageRules(args language.GenerateArgs, tc *tsConfig,
 	}
 
 	add(tsConfigRule(args, tc), nil)
-	if exportedVitestConfig(args.Dir, pkg) != "" {
-		add(vitestConfigRule(args), nil)
-	} else {
-		withdraw("filegroup", vitestConfigTargetName)
+	cfgName := exportedVitestConfig(args.Dir, pkg)
+	for _, fg := range []string{vitestConfigTargetName, wranglerConfigTargetName} {
+		var r *rule.Rule
+		if cfgName != "" {
+			r = configFilegroup(args, tc, cfgName, fg)
+		}
+		if r != nil {
+			add(r, nil)
+		} else {
+			withdraw("filegroup", fg)
+		}
 	}
 	reportTakenNames(args, res.Gen)
 	reportManagedAttrDrops(args, res.Gen)
@@ -420,6 +435,16 @@ func vitestConfigRule(args language.GenerateArgs) *rule.Rule {
 	r.SetAttr("srcs", srcLabels([]string{name}))
 	r.SetAttr("visibility", []string{"//visibility:public"})
 	return r
+}
+
+// configFilegroup is the filegroup of that name an exported vitest config puts
+// in its directory: over the config, or over the wrangler config it names.
+func configFilegroup(args language.GenerateArgs, tc *tsConfig, cfgName,
+	name string) *rule.Rule {
+	if name == vitestConfigTargetName {
+		return vitestConfigRule(args)
+	}
+	return wranglerConfigRule(args, tc, path.Join(args.Rel, cfgName))
 }
 
 // vitestConfigFor is a ts_test's config attribute and the file's repository
