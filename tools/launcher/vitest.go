@@ -10,7 +10,9 @@ import (
 	"strings"
 )
 
-func planVitest(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, error) {
+func planVitest(
+	cfg *Config, r *Resolver, plan *Plan, args []string,
+) (*Plan, error) {
 	v := cfg.Vitest
 	var reads *readsRun
 	if v.ReadsHook != "" {

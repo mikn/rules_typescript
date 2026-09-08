@@ -6,8 +6,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/bazelbuild/rules_go/go/runfiles"
 )
 
 func nodeTestFixture(t *testing.T) (*Resolver, map[string]string) {
@@ -191,40 +189,18 @@ func TestPlanNodeTestRefusesACoverageRun(t *testing.T) {
 	}
 }
 
-// A bare specifier resolves only through the node_modules link at the runfiles
-// root, which is what ESM's upward walk reaches; NODE_PATH answers CJS only.
-func TestPlanNodeTestExposesTheNpmTreeToEsmResolution(t *testing.T) {
-	_, real := nodeTestFixture(t)
-	const rlocation = "_main/tests/app/_app_test_node_modules/node_modules"
-	tree := real[rlocation]
-	r, root := withRunfilesDir(t, tree, rlocation)
+// The resolve hook reads NODE_PATH for the tree a bare specifier resolves from.
+func TestPlanNodeTestNamesTheNpmTreeOnNodePath(t *testing.T) {
+	r, real := nodeTestFixture(t)
 	plan, err := MakePlan(nodeTestConfig(), r, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(plan.EnvOverrides["NODE_PATH"], tree) {
-		t.Errorf("NODE_PATH = %q, want it to start with %q", plan.EnvOverrides["NODE_PATH"], tree)
+	tree := real["_main/tests/app/_app_test_node_modules/node_modules"]
+	nodePath := plan.EnvOverrides["NODE_PATH"]
+	if strings.Split(nodePath, string(os.PathListSeparator))[0] != tree {
+		t.Errorf("NODE_PATH = %q, want it to start with %q", nodePath, tree)
 	}
-	got, err := os.Readlink(filepath.Join(root, "node_modules"))
-	if err != nil {
-		t.Fatalf("no node_modules link at the runfiles root: %v", err)
-	}
-	if got != tree {
-		t.Errorf("link -> %q, want the npm tree %q", got, tree)
-	}
-}
-
-// withRunfilesDir rebuilds the resolver with RUNFILES_DIR at the fixture's tree
-// root: fakeRunfiles clears it, and a resolver reads it once, at construction.
-func withRunfilesDir(t *testing.T, real, rlocation string) (*Resolver, string) {
-	t.Helper()
-	root := strings.TrimSuffix(filepath.ToSlash(real), "/"+rlocation)
-	t.Setenv("RUNFILES_DIR", root)
-	r, err := newResolver(runfiles.ManifestFile(os.Getenv("RUNFILES_MANIFEST_FILE")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return r, root
 }
 
 func TestParseConfigRejectsANodeTestSectionWithoutAFileList(t *testing.T) {

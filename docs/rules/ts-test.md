@@ -91,6 +91,12 @@ compiled sibling staged beside it ([Setup Files](#setup-files)), and a relative
 ([Relative `.ts` Specifiers](#relative-ts-specifiers); under node:test, the
 runner's hook: [The node:test Runner](#the-nodetest-runner)).
 
+A bare specifier reaches the test's node_modules tree by the runner's own
+route. Under vitest the resolver walks up from the test's runfiles path and
+meets the `node_modules` link the launcher puts at the runfiles root. Under
+node:test the hook resolves it from the tree the launcher names in `NODE_PATH`
+([The node:test Runner](#the-nodetest-runner)).
+
 ## The Test's tsconfig
 
 `tsconfig` is forwarded to every `ts_compile` the macro generates, the one over
@@ -210,7 +216,8 @@ config beside the tests, `//tests/workers_nested` the one with the config at the
 package root.
 
 Two things sit outside the layering and outrank it: npm resolution into the
-runfiles tree (`NODE_PATH`, set by the launcher) and coverage output paths
+runfiles tree (the launcher's `node_modules` link at the runfiles root,
+[Files at Run Time](#files-at-run-time)) and coverage output paths
 (vitest CLI flags, so `bazel coverage` writes lcov where Bazel expects it).
 
 To see what the launcher resolved (the node binary, the vitest entry, the
