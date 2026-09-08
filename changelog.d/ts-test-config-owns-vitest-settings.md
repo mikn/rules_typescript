@@ -14,10 +14,10 @@
   `ts_test` is the rule: the macro that compiled `setup_files` and
   `global_setup` is gone with the `_<name>_setup` and `_<name>_global_setup`
   targets. A `.snap` is a src of the test, as every other file under the
-  package is; `bazel coverage` needs no opt-in, and `coverage.enabled` in the
-  file is what instruments a plain `bazel test`. vitest is the one in the
-  test's `node_modules` tree, which the runner requires in `deps`; the JS
-  runtime is the toolchain's.
+  package is; `bazel coverage` needs no opt-in, and a plain `bazel test`
+  passes vitest no coverage flags. vitest is the one in the test's
+  `node_modules` tree, which the runner requires in `deps`; the JS runtime is
+  the toolchain's.
 
   Migration: move each setting into the package's vitest config and name the
   file in `config`; list the `.snap` files in `srcs`, or let Gazelle; drop

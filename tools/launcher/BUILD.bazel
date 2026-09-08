@@ -1,5 +1,11 @@
 load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 
+# //tests/api_surface:ts_test_attrs_test reads LAUNCHER_ATTRS out of it.
+exports_files(
+    ["launcher.bzl"],
+    visibility = ["//tests/api_surface:__pkg__"],
+)
+
 go_library(
     name = "launcher",
     srcs = [

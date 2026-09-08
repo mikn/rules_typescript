@@ -104,17 +104,19 @@ to rediscover them. Each names the file to change.
   `files: ["dist", "README.md"]` ships neither a licence nor a README (there is
   no `eslint-plugin/README.md`). Pick one licence, add the matching text, and put
   it in `files` before publishing.
-- **The Gazelle test-set property is now a CI step, with one gap.**
+- **The Gazelle test-set property is now a CI step.**
   `tools/ci/check_test_sources.sh` asserts every tracked test source on disk is
-  named in some test target's `srcs`, in one loading-phase query (~1.5s, folded
-  into the existing `test` job). It is anchored to something Gazelle does not
+  named in some test target's `srcs`, in two loading-phase queries (folded into
+  the existing `test` job). It is anchored to something Gazelle does not
   write, which is why a run that *deletes* a test target cannot satisfy it — the
   failure mode that lost seven `go_test` targets in an earlier round. Verified
   red by deleting a `go_test` and a `ts_test` block, then restored.
-  The gap: `tests(//...)` counts `manual`-tagged targets, so the check proves a
-  file is *claimed*, not that `bazel test //...` executes it — a regression that
-  merely tags a test `manual` stays green. Tightening it would go red today on
-  `//tests/vitest/environment:{edge,jsdom}_test`, which are deliberately manual.
+  A `manual` tag is checked too: a file whose every claiming target is `manual`
+  must be in the script's `MANUAL_ONLY` allowlist with a reason, and the list is
+  exact in both directions; today's three are
+  `tests/node_test/analysis/attrs.test.ts`,
+  `tests/workers_nested/test/data_shadow.test.ts` and
+  `tests/vitest/reads_report/reads_report.test.ts`.
   Two properties are still hand-verified: `bazel test` on what Gazelle wrote, and
   the roundtrip test's comparison is scoped to a synthetic 3-package child
   workspace with no Go.
@@ -285,16 +287,13 @@ this is a design question, not a checklist.
 **Goal:** vitest tests work reliably with DOM testing, coverage, snapshots, and custom config.
 
 ### 5.0 ts_test Ergonomics (DONE)
-- [x] Auto-generate node_modules tree from @npm// deps in ts_test macro
-- [x] No more explicit node_modules target or node_modules attr required
+- [x] The rule builds the node_modules forest from the @npm// deps; there is no node_modules target or attribute
 - [x] Gazelle no longer generates node_modules rules; emits empty stubs to delete stale ones
-- [x] Backwards compatible: explicit node_modules attr still accepted
 - [x] `# gazelle:ts_runtime_dep`: Gazelle appends listed labels to every ts_test deps list — eliminates manual happy-dom, react, @vitest/coverage-v8 additions
 
 ### 5.1 DOM Testing
 - [x] Verify @testing-library/react works with vitest in Bazel sandbox
-- [x] Verify a happy-dom or jsdom environment works. happy-dom is in the test lockfile and //tests/vitest/environment:dom_test RUNS under it, paired with :node_test asserting there is no `document`, so a defaulted `environment` fails one of them. Needed `resolve.preserveSymlinks`: a DOM environment realpaths module ids, which walks runfiles symlinks out of the sandbox. jsdom and edge-runtime stay analysis-only (`build_test`), which is enough to pin that the attr is not a fixed list
-- [x] Add `environment` attr to `ts_test` (node/happy-dom/jsdom)
+- [x] `test.environment` is the config file's, as under plain `vitest`: //tests/setup_files_compiled/dom runs under happy-dom, and //tests/vitest/attrs sets `node` and `globals` and runs on what the file set. Bazel's layer sets `resolve.preserveSymlinks`: a DOM environment realpaths module ids, which would walk runfiles symlinks out of the sandbox. happy-dom is in the test lockfile; jsdom and edge-runtime are not, and nothing pins them
 - [x] Create example with @testing-library component tests
 
 ### 5.2 Coverage

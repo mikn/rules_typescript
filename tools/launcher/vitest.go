@@ -208,8 +208,6 @@ func shardFiles(r *Resolver, listPath string) ([]testFile, error) {
 	return out, scanner.Err()
 }
 
-// Bazel sets COVERAGE_OUTPUT_FILE under `bazel coverage`, so a vitest ts_test
-// needs no opt-in; plain `bazel test` runs with the config's coverage settings.
 func coverageFlags() []string {
 	out := os.Getenv("COVERAGE_OUTPUT_FILE")
 	if out == "" {

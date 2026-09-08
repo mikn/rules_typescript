@@ -153,6 +153,7 @@ func vitestConfig() *Config {
 
 func TestPlanVitestRunsEveryTestFileByDefault(t *testing.T) {
 	r, real := vitestFixture(t)
+	t.Setenv("COVERAGE_OUTPUT_FILE", "")
 	plan, err := MakePlan(vitestConfig(), r, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -169,6 +170,9 @@ func TestPlanVitestRunsEveryTestFileByDefault(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Errorf("argv %q is missing %q", joined, want)
 		}
+	}
+	if strings.Contains(joined, "--coverage") {
+		t.Errorf("argv %q has coverage flags on a plain run", joined)
 	}
 	if plan.UseExec {
 		t.Error("the test runner has to outlive vitest to post-process coverage")
