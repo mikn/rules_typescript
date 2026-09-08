@@ -17,12 +17,12 @@ load(
 )
 load("//ts/private:ts_binary.bzl", _ts_binary = "ts_binary")
 load("//ts/private:ts_codegen.bzl", _ts_codegen = "ts_codegen")
-load("//ts/private:ts_compile.bzl", _ts_compile = "ts_compile")
 load("//ts/private:ts_config.bzl", _ts_config = "ts_config")
 load("//ts/private:ts_dev_server.bzl", _ts_dev_server = "ts_dev_server")
 load("//ts/private:ts_lint.bzl", _TsLintInfo = "TsLintInfo", _ts_lint = "ts_lint")
-load("//ts/private:ts_test.bzl", _ts_test = "ts_test")
 load("//ts/private:tsconfig_aspect.bzl", _refresh_workspace_files = "refresh_workspace_files", _ts_refresh_tsconfig = "ts_refresh_tsconfig")
+load("//ts/private/rules:ts_compile.bzl", _ts_compile = "ts_compile")
+load("//ts/private/rules:ts_test.bzl", _ts_test = "ts_test")
 
 # Providers — exported for use in custom rules that extend this ruleset.
 BundlerInfo = _BundlerInfo

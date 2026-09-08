@@ -444,6 +444,12 @@ the config re-resolves it. Comments and every other key survive; the formatting
 is wrangler's. A config naming no `main`, or a `.toml` holding `#` comments,
 fails the action.
 
+The pool's half of the rule -- `wrangler_config`, the copy of the layer beside
+the generated config, `WranglerTestConfig`, and the runfiles and symlink both
+add -- is `ts/private/actions/workers_pool.bzl`, the one file that names
+wrangler; `ts_test` reaches it through the one struct it returns, so the file
+moves to a Workers ruleset as it is.
+
 A runfiles file at the copy's path wins over it silently, with the unpatched
 `main`. The file in `data` as well is an analysis error, `is staged through
 wrangler_config; do not list it in data too.`, and a `ts_compile` dep's data
@@ -556,7 +562,10 @@ bazel coverage //tests/vitest/coverage:math_coverage_test --combined_report=lcov
 
 Every target under test carries its own `InstrumentedFilesInfo`: the libraries
 in `deps`, and the `ts_compile` the macro builds the test sources with. The
-filter is applied per target.
+filter is applied per target. None declares baseline coverage files: a
+baseline would name the `.ts` a target declared, and the runner reports on the
+`.js` compiled from it, so the record would be a second name for the same code
+carrying no lines at all.
 
 ### Choosing a Provider
 

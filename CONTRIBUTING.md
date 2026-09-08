@@ -120,7 +120,9 @@ Key conventions (see also AGENTS.md):
 - `depset(order = "postorder")` for transitive file sets
 - `args.add_all()` for file lists; never materialize depsets at analysis time
 - Private attrs prefixed with `_`
-- Public rules exposed from `defs.bzl`; raw implementations in `ts/private/`
+- Public rules exposed from `defs.bzl`; raw implementations in `ts/private/`:
+  the rule declarations in `ts/private/rules/`, one action per file in
+  `ts/private/actions/` (rules_go's `go/private/{rules,actions}` layout)
 
 ### Go (Gazelle Extension)
 

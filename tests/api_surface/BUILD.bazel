@@ -15,5 +15,5 @@ sh_test(
     name = "ts_compile_attrs_test",
     size = "small",
     srcs = ["ts_compile_attrs_test.sh"],
-    data = ["//ts/private:ts_compile.bzl"],
+    data = ["//ts/private/rules:ts_compile.bzl"],
 )

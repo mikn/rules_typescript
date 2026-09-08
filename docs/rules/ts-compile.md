@@ -646,7 +646,11 @@ Fields for both, and the load path, are in
 
 ## Architecture
 
-Four actions per target. `TsStrictDeps` runs first, as a Node action over a
+Four actions per target, each a function in `ts/private/actions/` --
+`strict_deps.bzl`, `tsconfig.bzl`, `oxc.bzl`, `tsgo.bzl`, with the forest the
+last one reads in `forest.bzl`; the rule in `ts/private/rules/ts_compile.bzl`
+declares the outputs, calls them in this order and builds the providers.
+`TsStrictDeps` runs first, as a Node action over a
 params-file manifest of the target's declared and reachable providers. Its
 scanner is a character walk over the source: a quoted string is a specifier only
 when the tokens before it say so. Gazelle generates deps with the same walk.

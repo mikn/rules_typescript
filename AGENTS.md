@@ -86,7 +86,10 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 
 **Key files:**
 - `ts/defs.bzl` — public API (all rules, providers, macros)
-- `ts/private/ts_compile.bzl` — core compilation rule
+- `ts/private/rules/ts_compile.bzl` — the `ts_compile` rule and
+  `TS_COMPILE_ATTRS`; `ts/private/actions/` — one action per file (`tsconfig`,
+  `oxc`, `tsgo`, `forest`, `strict_deps`), the functions the rule calls in that
+  order
 - `ts/tools/tsaction/` — the Go runner behind the actions: `tsconfig` writes the action config from `tsgo --showConfig`, `oxc` relays the options to oxc, `tsgo` lays out the program root and runs tsgo from it
 - `ts/tools/tsconfig/`, `ts/tools/jsonc/` — the tsconfig `extends` chain reader and the JSONC parser, shared by tsaction and Gazelle
 - `ts/private/node_modules.bzl` — the `node_modules` tree builder; `ts_compile`'s forest and `ts_test`'s runtime tree
@@ -102,7 +105,11 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 - `ts/private/ts_config.bzl` — the public `ts_config` rule (a hand-written tsconfig.json and its `extends` chain)
 - `platforms/platforms.bzl` — the one platform table (`PLATFORMS`) everything loads
 - `ts/toolchain/BUILD.bazel` — toolchain types and instances; `//ts/toolchain:all`
-- `ts/private/ts_test.bzl` — test macro: vitest by default, `runner = "node:test"` for node's own runner (auto node_modules)
+- `ts/private/rules/ts_test.bzl` — test macro: vitest by default,
+  `runner = "node:test"` for node's own runner (auto node_modules);
+  `ts/private/actions/vitest.bzl` — the generated vitest config;
+  `ts/private/actions/workers_pool.bzl` — the Workers pool's half of the
+  test environment, the one file that names wrangler
 - `ts/private/bundle_action.bzl` — the bundle action behind `ts_binary`'s `bundler` attr
 - `ts/private/ts_dev_server.bzl` — dev server with HMR
 - `ts/private/ts_codegen.bzl` — general code generation

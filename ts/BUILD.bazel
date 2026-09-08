@@ -48,11 +48,11 @@ bzl_library(
         "//ts/private:providers",
         "//ts/private:ts_binary",
         "//ts/private:ts_codegen",
-        "//ts/private:ts_compile",
         "//ts/private:ts_config",
         "//ts/private:ts_dev_server",
         "//ts/private:ts_lint",
-        "//ts/private:ts_test",
+        "//ts/private/rules:ts_compile",
+        "//ts/private/rules:ts_test",
     ],
 )
 

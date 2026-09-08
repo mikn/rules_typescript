@@ -1,0 +1,49 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+
+package(default_visibility = [
+    "//npm:__subpackages__",
+    "//ts:__subpackages__",
+    "//vite:__subpackages__",
+])
+
+bzl_library(
+    name = "forest",
+    srcs = ["forest.bzl"],
+    deps = ["//ts/private:node_modules"],
+)
+
+bzl_library(
+    name = "oxc",
+    srcs = ["oxc.bzl"],
+)
+
+bzl_library(
+    name = "strict_deps",
+    srcs = ["strict_deps.bzl"],
+    deps = ["//ts/private:runtime"],
+)
+
+bzl_library(
+    name = "tsconfig",
+    srcs = ["tsconfig.bzl"],
+)
+
+bzl_library(
+    name = "tsgo",
+    srcs = ["tsgo.bzl"],
+)
+
+bzl_library(
+    name = "vitest",
+    srcs = ["vitest.bzl"],
+    deps = [
+        "//ts/private:providers",
+        "//ts/private:vite_config",
+    ],
+)
+
+bzl_library(
+    name = "workers_pool",
+    srcs = ["workers_pool.bzl"],
+    deps = ["//ts/private:runtime"],
+)
