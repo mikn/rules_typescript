@@ -168,17 +168,17 @@ local run reports green on a test that has no target yet.
 A retired attribute, kind, provider, directive, export or file path that a page
 or a comment still names is a sentence the code falsified.
 `check_retired_names.sh` carries the list and greps every tracked file for it in
-identifier form: whole words, a `# gazelle:` directive with a `ts_` name, the
-macro's `_<name>_test_compile` and `_<name>_test_node_modules` targets, the two
-rule files' pre-split paths and the lint rule's file under `ts/private/`, the
-lint rule's docs page. Out of scope:
+identifier form: whole words (`WORDS`), the `ts_` directive prefix after the
+`# gazelle:` marker, and the spellings a whole word misses (`PATTERNS`): a
+deleted file's path, a target name Gazelle or the test macro wrote, a retired
+output or target suffix. Out of scope:
 `changelog.d/` and `CHANGELOG.md`, where a retirement is recorded with the edit
 it requires; `TODO.md` and `rules-ts-v2-project-plan.md`, the project's
 history; the rows of `docs/gazelle/directives.md`'s table mapping each retired
 directive to its replacement. Two names are left off the list because they are
 live under another meaning, `module_name` (bzlmod's `git_override` keyword) and
-`jsx_import_source` (an oxc_cli option field); four attribute names that are
-also fixture directories under `tests/` match only outside a path.
+`jsx_import_source` (an oxc_cli option field); a name that is also a path
+under `tests/` (`PATH_CLASHING`) matches only outside a path.
 
 A file that asserts a retired name is absent or inert -- `kinds_surface_test.go`
 pins the kinds Gazelle no longer writes -- is listed in `ALLOWED` inside the

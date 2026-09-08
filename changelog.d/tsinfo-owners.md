@@ -1,4 +1,4 @@
-### Added — providers
+### Added
 
 - **`TsInfo.owners`.** A depset of `struct(label, files)`, one record per
   first-party target in the closure, this one first: the label a `deps` list

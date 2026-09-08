@@ -36,6 +36,7 @@ PATTERNS=(
   'strict_deps\.bzl'
   '\.strictdeps'
   'rules/ts-lint\.md'
+  '<(name|dirbase)>_lint'
   '\.update_snapshots'
   '<(name|test)>\.reads'
   '_[a-z_]+_test_(compile|node_modules)'

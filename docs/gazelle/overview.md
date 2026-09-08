@@ -357,6 +357,12 @@ label:
 - **The toolchain's own libs** (`lib.dom.d.ts` and its kin, under `../`) are
   nothing.
 
+The tsgo action checks every edge against `deps` from the same listing
+([Deps Have to Be Direct](../rules/ts-compile.md#deps-have-to-be-direct)), so
+a build over what Gazelle wrote has no undeclared import to report;
+`//tests/integration:gazelle_roundtrip_test` builds Gazelle's output and pins
+it.
+
 Core Gazelle's `# gazelle:resolve typescript <repository path> <label>` names
 the label for a first-party file and wins over every first-party case above; a
 file under `node_modules` is the gate's alone
@@ -431,9 +437,9 @@ and none is drift:
   you wrote the filename. Reformat the file to match.
 - **A hand-written rule under a name Gazelle would use.** In a directory that
   is no package, every rule Gazelle would write is withdrawn under the names it
-  would use -- `<dirbase>`, `<dirbase>_test`, `<dirbase>_lint`, `tsconfig`,
-  `vitest_config`, `wrangler_config` -- so a rule of yours under one of them is
-  proposed for deletion on every run. `# keep` above the rule holds it.
+  would use -- `<dirbase>`, `<dirbase>_test`, `tsconfig`, `vitest_config`,
+  `wrangler_config` -- so a rule of yours under one of them is proposed for
+  deletion on every run. `# keep` above the rule holds it.
 - **A hand-narrowed attribute it merges.** `visibility` is a merged attribute
   and generated rules carry `//visibility:public`, so a target restricted to
   `["//myapp:__subpackages__"]` comes back public on every run. Pin it with

@@ -1,4 +1,4 @@
-### Changed — ts_compile
+### Changed
 
 - **The strict-deps check reads tsgo's own listing.** The one tsgo action a
   target runs -- `TsgoDeclare`, or `TsgoCheck` under

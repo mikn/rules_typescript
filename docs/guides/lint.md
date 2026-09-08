@@ -27,8 +27,8 @@ so its package exports it: `exports_files(["oxlint.json"])`.
 The call writes the `@lint_config` repository, whose one target the label flag
 `@rules_typescript//ts:lint` names. Every `ts_compile` and `ts_test` reads the
 flag and, when it names a binary, runs one `TsLint` action over the target's
-TypeScript, JavaScript and declaration srcs -- the files its type program holds
--- and writes `<name>.tslint` when the linter exits 0. The stamp is in the
+TypeScript, JavaScript and declaration srcs, never a data src, and writes
+`<name>.tslint` when the linter exits 0. The stamp is in the
 `_validation` output group, the position of tsgo's own check:
 
 - it runs during `bazel build`, without being asked for;
