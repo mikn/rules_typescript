@@ -6,6 +6,7 @@ load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 go_library(
     name = "tsaction_lib",
     srcs = [
+        "check.go",
         "main.go",
         "paths.go",
         "showconfig.go",
@@ -13,7 +14,10 @@ go_library(
     ],
     importpath = "github.com/mikn/rules_typescript/ts/tools/tsaction",
     visibility = ["//visibility:private"],
-    deps = ["//ts/tools/tsconfig"],
+    deps = [
+        "//ts/tools/explainfiles",
+        "//ts/tools/tsconfig",
+    ],
 )
 
 go_binary(
@@ -26,6 +30,7 @@ go_test(
     name = "tsaction_test",
     size = "small",
     srcs = [
+        "check_test.go",
         "paths_test.go",
         "showconfig_test.go",
         "tsgo_test.go",

@@ -5,13 +5,15 @@ file, so a relative specifier crosses a target boundary the way a bare one
 crosses a package boundary. Every target below declares what it imports, so the
 whole package builds; the cases that must FAIL cannot be build targets, so
 checker_test.go drives the checker directly over hand-written manifests, and
-scanner_test.go pins which quoted names it reads as imports.
+scanner_test.go pins which quoted names it reads as imports. The tsgo action's
+check of the listed edges against the ownership manifest is pinned here at
+analysis and fails a real build in //tests/integration:new_project_test.
 """
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_go//go:def.bzl", "go_test")
 load("//ts:defs.bzl", "ts_compile")
-load(":strict_deps_tests.bzl", "resolution_surface_test")
+load(":strict_deps_tests.bzl", "resolution_surface_test", "tsgo_check_test")
 
 package(default_visibility = ["//:__pkg__"])
 
@@ -65,11 +67,21 @@ ts_compile(
     deps = [":leaf"],
 )
 
-# Node built-ins, with and without the node: prefix, are nobody's dep.
+# Node built-ins, with and without the node: prefix, resolve into the declared
+# @types/node.
 ts_compile(
     name = "builtins",
     srcs = ["builtins.ts"],
     deps = ["@npm//:types_node"],
+)
+
+# An import inside the target resolves to its own src.
+ts_compile(
+    name = "inside",
+    srcs = [
+        "inside.ts",
+        "inside_part.ts",
+    ],
 )
 
 # `acme-bridge` is installed nowhere: the .d.ts beside the source IS the module, so
@@ -85,6 +97,41 @@ ts_compile(
 build_test(
     name = "ambient_module_test",
     targets = [":ambient_module"],
+)
+
+# Every edge of these resolves to an own src, a direct dep's file or a direct
+# forest package: the check passes and the targets build.
+build_test(
+    name = "declared_deps_test",
+    targets = [
+        ":builtins",
+        ":declared",
+        ":inside",
+        ":relative",
+    ],
+)
+
+# middle.ts reaches hidden.d.ts only through :leaf; the manifest says so, and
+# the tsgo action reads it beside the edges tsgo lists.
+tsgo_check_test(
+    name = "tsgo_check_test",
+    size = "small",
+    lines = [
+        "label\t//tests/strict_deps:middle",
+        "own\ttests/strict_deps/middle.ts",
+        "direct\t//tests/strict_deps:leaf",
+    ],
+    target_under_test = ":middle",
+)
+
+tsgo_check_test(
+    name = "tsgo_check_npm_test",
+    size = "small",
+    lines = [
+        "npm-direct\t@types/node",
+        "npm\tundici-types\t@npm//:undici-types",
+    ],
+    target_under_test = ":builtins",
 )
 
 resolution_surface_test(

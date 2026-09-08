@@ -4,6 +4,7 @@ Checked here, not by thinning the forest: a transitive package missing from
 one node_modules widens a declared dep's .d.ts types to `any`, with no error.
 """
 
+load("//ts/private:providers.bzl", "label_text")
 load("//ts/private:runtime.bzl", "get_js_tool")
 
 # Embedded rather than a checked-in .mjs so that the manifest format and its one
@@ -319,29 +320,6 @@ lines.push(
 process.stderr.write(lines.join("\\n") + "\\n");
 process.exit(1);
 """
-
-def label_text(label):
-    """The label as a deps list writes it, the main repo's @@ dropped."""
-    text = str(label)
-    return text[2:] if text.startswith("@@//") else text
-
-def npm_hub_entry(npm_info):
-    """The hub label a deps list writes for an npm package in the closure.
-
-    The closure carries NpmPackageInfo, not labels: a transitive package was
-    never named in any deps list here. Its own repository is
-    `<hub>__<package>__<version>...`, so the hub the extension created -- which
-    is what a deps list names -- is recoverable from the file it provides.
-    """
-    name = npm_info.package_name
-    label_name = name[1:].replace("/", "_") if name.startswith("@") else name
-    hub = "npm"
-    owner = npm_info.package_dir.owner if npm_info.package_dir else None
-    if owner and owner.repo_name:
-        candidate = owner.repo_name.split("__")[0].split("+")[-1]
-        if candidate:
-            hub = candidate
-    return struct(name = name, label = "@{}//:{}".format(hub, label_name))
 
 # A directory travels as its own path, expansion off: a dep's tree is not among
 # the check's inputs (its own srcs), and Bazel fails an expansion of it.

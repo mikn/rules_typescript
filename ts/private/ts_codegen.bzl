@@ -202,7 +202,7 @@ def _ts_codegen_impl(ctx):
         declarations = depset([f for f in outs if f.basename.endswith(_DECLARATION_SUFFIXES)])
     return [
         DefaultInfo(files = files),
-        ts_info(js = js, declarations = declarations),
+        ts_info(js = js, declarations = declarations, label = ctx.label),
     ]
 
 # ─── Rule declaration ──────────────────────────────────────────────────────────

@@ -249,37 +249,45 @@ and is not judged.
 
 ## Deps Have to Be Direct
 
-A source may import only what a **direct** dep provides. Every `ts_compile`
-target that has both sources and `deps` runs a `TsStrictDeps` action, which
-reads those sources and fails on any specifier that resolves only because it
-arrives through another dep's own deps:
+A source may import only what a **direct** dep provides. The one tsgo action a
+target runs -- `TsgoDeclare`, or `TsgoCheck` under `--//ts:declarations=oxc`
+-- runs with `--explainFiles`, and tsaction reads the listing it prints, every
+file in the program with the edge that brought it in, against an ownership
+manifest the rule writes beside it: the target's own srcs, each first-party
+target in the closure with the files it stages (`TsInfo.owners`), and the
+forest's packages split into the ones `deps` declare and the ones another
+package's closure carries. An edge from one of the target's own files into a
+file whose owner is not in `deps` fails the action, naming the label:
 
 ```
-ERROR: .../src/app/BUILD.bazel:3:11: TsStrictDeps //src/app:app failed: (Exit 1)
-//src/app:app imports modules no direct dep provides:
-
-  src/app/main.ts:1  imports "./hidden"
-                     add "//src/app:hidden" to deps
-  src/app/main.ts:2  imports "zod"
-                     add "@npm//:zod" to deps
-
-Each of those resolves today only because it reaches this target through
-another dep's own deps, and stops resolving the moment that dep drops it.
-Re-run gazelle to regenerate deps, or add the labels above by hand.
+ERROR: .../src/app/BUILD.bazel:3:11: TsgoDeclare //src/app:app failed: (Exit 1)
+tsaction: //src/app:app imports files no direct dep provides:
+  src/app/main.ts imports "./hidden"
+    resolved to bazel-out/k8-fastbuild/bin/src/app/hidden.d.ts
+    add //src/app:hidden to deps
+  src/app/main.ts imports "zod"
+    resolved to node_modules/zod/index.d.ts
+    add @npm//:zod to deps
+Each reaches this target only through another dep's own deps. Run Gazelle,
+which writes deps from these edges, or add the labels above by hand.
 ```
 
-`bazel run //:gazelle` writes those labels. There is no flag and no opt-out.
+`bazel run //:gazelle` writes those labels from the same listing. There is no
+flag and no opt-out.
 
-**What is checked:** relative imports, and bare specifiers that name an npm
-package the closure carries. **What is exempt:** Node builtins and `node:`
-specifiers, and a specifier no package in the closure answers, a tsconfig
-`paths` alias included: an alias resolves to files this target already stages,
-and an import nothing provides has no label to suggest, so TypeScript reports it
-as `TS2307`.
+**What is checked:** every `Imported via`, `Referenced via` and `Type library
+referenced via` edge whose importer is one of the target's own files -- a
+type-only import, a `paths` alias, an `import()` type, a `/// <reference
+path>`, a `/// <reference types>` and the JSX runtime import tsgo adds to every
+`.tsx` alike, since tsgo resolved each one and says which file it landed in. A
+file under `node_modules/` belongs to the package the segments after the last
+`node_modules/` name; a direct package's `@types/<name>` twin, which the forest
+links for it, counts as declared. An edge into the target's own srcs passes.
 
-`/// <reference types="x" />` is not checked: it is not an import. The dep it
-names is Gazelle's to write
-([Import Resolution](../gazelle/overview.md#import-resolution)).
+**What is exempt:** an edge from a dep's own file, which is that dep's to
+declare; a tsconfig `types` entry, which is an entry rather than an edge; the
+toolchain's `lib.*.d.ts`; and a specifier tsgo could not resolve, which has no
+file to own and is `TS2307`.
 
 ### The node_modules Forest
 

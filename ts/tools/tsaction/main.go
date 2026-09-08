@@ -31,7 +31,8 @@ const usage = `usage:
       [-emit -out_dir=DIR -root_dir=DIR] [-declaration_map]
       [-isolated_declarations] [-lib_check] SRC...
   tsaction paths -tsconfig=FILE -package=PKG [-bin_dir=DIR] -out=FILE
-  tsaction tsgo -root=DIR -node_modules=DIR [-stamp=FILE] -- TSGO [ARG...]
+  tsaction tsgo -root=DIR -node_modules=DIR [-check=FILE] [-stamp=FILE]
+      -- TSGO [ARG...]
   tsaction oxc -options=FILE -- OXC [ARG...]`
 
 func main() {
@@ -126,13 +127,13 @@ func stamp(args []string) error {
 // runTool runs cmdline on the action's stdout and stderr; the tool's own exit
 // status comes back wrapped, for main to relay.
 func runTool(cmdline []string) error {
-	return runToolIn("", cmdline)
+	return runToolIn("", os.Stdout, cmdline)
 }
 
-func runToolIn(dir string, cmdline []string) error {
+func runToolIn(dir string, stdout io.Writer, cmdline []string) error {
 	cmd := exec.Command(cmdline[0], cmdline[1:]...)
 	cmd.Dir = dir
-	cmd.Stdout = os.Stdout
+	cmd.Stdout = stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%s: %w", cmdline[0], err)

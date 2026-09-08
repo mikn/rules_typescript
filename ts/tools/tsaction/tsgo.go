@@ -4,10 +4,15 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/mikn/rules_typescript/ts/tools/explainfiles"
 )
 
 // runTsgo lays the program root out, runs the command from it and removes it:
@@ -16,6 +21,8 @@ func runTsgo(args []string) error {
 	flags := flag.NewFlagSet("tsgo", flag.ExitOnError)
 	root := flags.String("root", "", "the program root to lay out, under the target's output directory")
 	forest := flags.String("node_modules", "", "the node_modules tree the program root holds")
+	check := flags.String("check", "",
+		"the ownership manifest the --explainFiles listing is checked against")
 	stamp := flags.String("stamp", "", "file to create when tsgo exits 0")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -23,6 +30,13 @@ func runTsgo(args []string) error {
 	cmdline := flags.Args()
 	if *root == "" || *forest == "" || len(cmdline) == 0 {
 		return errors.New("tsgo needs -root=DIR, -node_modules=DIR and a command after --")
+	}
+	var own *ownership
+	if *check != "" {
+		var err error
+		if own, err = readOwnership(*check); err != nil {
+			return err
+		}
 	}
 	if err := layOutProgramRoot(*root, *forest); err != nil {
 		return err
@@ -33,13 +47,46 @@ func runTsgo(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := runToolIn(*root, append([]string{tool}, cmdline[1:]...)); err != nil {
+	cmdline = append([]string{tool}, cmdline[1:]...)
+	if own == nil {
+		err = runToolIn(*root, os.Stdout, cmdline)
+	} else {
+		err = checkedRun(*root, cmdline, own)
+	}
+	if err != nil {
 		return err
 	}
 	if *stamp == "" {
 		return nil
 	}
 	return os.WriteFile(*stamp, nil, 0o644)
+}
+
+// checkedRun keeps the listing off the action's output: a failing tsgo relays
+// its diagnostics alone, and a passing one has its edges checked.
+func checkedRun(dir string, cmdline []string, own *ownership) error {
+	var out bytes.Buffer
+	runErr := runToolIn(dir, &out, cmdline)
+	listing, parseErr := explainfiles.Parse(out.String())
+	if runErr != nil {
+		if parseErr != nil {
+			os.Stdout.Write(out.Bytes())
+		} else if len(listing.Diagnostics) > 0 {
+			fmt.Println(strings.Join(listing.Diagnostics, "\n"))
+		}
+		return runErr
+	}
+	if parseErr != nil {
+		return parseErr
+	}
+	findings, err := own.check(listing)
+	if err != nil {
+		return err
+	}
+	if len(findings) > 0 {
+		return &undeclaredDeps{own.report(findings)}
+	}
+	return nil
 }
 
 // layOutProgramRoot links the exec root's top-level entries into root, and the

@@ -43,6 +43,7 @@ load(
     "NpmPackageInfo",
     "TsConfigInfo",
     "TsInfo",
+    "label_text",
 )
 load("//ts/private:runtime.bzl", "JS_TOOL_TOOLCHAIN_TYPE")
 load(
@@ -54,17 +55,18 @@ load(
 load("//ts/private/actions:forest.bzl", "forest_action", "forest_packages")
 load("//ts/private/actions:lint.bzl", "LintConfigInfo", "lint_action")
 load("//ts/private/actions:oxc.bzl", "oxc_compile_action")
-load(
-    "//ts/private/actions:strict_deps.bzl",
-    "npm_hub_entry",
-    "strict_deps_check",
-)
+load("//ts/private/actions:strict_deps.bzl", "strict_deps_check")
 load(
     "//ts/private/actions:tsconfig.bzl",
     "tsconfig_action",
     "write_baseline_tsconfig",
 )
-load("//ts/private/actions:tsgo.bzl", "tsgo_action")
+load(
+    "//ts/private/actions:tsgo.bzl",
+    "npm_hub_entry",
+    "ownership_manifest",
+    "tsgo_action",
+)
 
 _TS_EXTENSIONS = ["ts", "tsx"]
 
@@ -207,6 +209,8 @@ def compile_program(ctx):
 
     direct_npm_infos = []
     direct_npm_names = {}
+    direct_labels = []
+    owner_sets = []
 
     # A dep linked in the forest reaches the program and the runtime there; a
     # copy of its files at their exec paths would duplicate every module.
@@ -225,8 +229,23 @@ def compile_program(ctx):
         direct_provided_sets.append(info.declarations)
         direct_provided_sets.append(info.js)
         direct_provided_sets.append(info.data)
+        direct_labels.append(label_text(dep.label))
+        owner_sets.append(info.owners)
 
     packages = forest_packages(direct_npm_infos, dep_npm_package_sets)
+
+    # The forest links a direct package's @types twin for it (ts_npm_package's
+    # types_dep), so an edge into the twin is declared by the package.
+    forest_names = {info.package_name: True for info in packages}
+    npm_declared = dict(direct_npm_names)
+    for name in direct_npm_names:
+        if not name.startswith("@") and "@types/" + name in forest_names:
+            npm_declared["@types/" + name] = True
+    npm_reachable = []
+    for info in packages:
+        if info.package_name not in npm_declared:
+            npm_declared[info.package_name] = False
+            npm_reachable.append(npm_hub_entry(info))
 
     # One entry per name for the undeclared-import check, direct deps first. A
     # workspace member has no package_dir: npm_direct answers for its view.
@@ -360,6 +379,14 @@ def compile_program(ctx):
         js_passthrough + data_staged
     )
 
+    owners = depset(
+        [struct(
+            label = label_text(ctx.label),
+            files = depset(dts_outputs + passthrough_dts + data_staged),
+        )],
+        transitive = owner_sets,
+    )
+
     program_srcs = compile_srcs + js_srcs
     check_srcs = compile_srcs + js_srcs + passthrough_dts
 
@@ -452,6 +479,18 @@ def compile_program(ctx):
         forest = forest_action(ctx, packages)
         strict_deps_gated = True
         emit_outputs = dts_outputs + dts_map_outputs if tsgo_emits_dts else []
+        ownership = ownership_manifest(
+            ctx,
+            own = check_srcs + json_srcs,
+            direct = direct_labels,
+            owners = owners,
+            npm_declared = sorted([
+                name
+                for name in npm_declared
+                if npm_declared[name]
+            ]),
+            npm_reachable = npm_reachable,
+        )
         stamp = tsgo_action(
             ctx,
             tsgo = tsgo,
@@ -461,6 +500,7 @@ def compile_program(ctx):
             chain = tsconfig_chain,
             gate = strict_deps_inputs,
             dep_dts = dep_dts_depset,
+            ownership = ownership,
             emit_outputs = emit_outputs,
         )
         if stamp:
@@ -515,6 +555,7 @@ def compile_program(ctx):
             transitive = dep_npm_package_sets,
             order = "postorder",
         ),
+        owners = owners,
     )
 
     output_groups = {}

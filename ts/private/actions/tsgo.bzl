@@ -1,8 +1,60 @@
 """The tsgo action: TsgoDeclare emits the declarations, TsgoCheck a stamp.
 
 tsaction runs tsgo from a program root that mirrors the exec root with the
-forest at its node_modules, so every bare specifier resolves as over pnpm.
+forest at its node_modules, so every bare specifier resolves as over pnpm, and
+checks the --explainFiles listing against the ownership manifest written here:
+an edge from one of the target's files into a file a label outside deps owns
+fails the action naming that label (docs/rules/ts-compile.md § Deps Have to
+Be Direct).
 """
+
+load("//ts/private:providers.bzl", "label_text")
+
+def npm_hub_entry(npm_info):
+    """The hub label a deps list writes for an npm package in the closure.
+
+    The closure carries NpmPackageInfo, not labels: a transitive package was
+    never named in any deps list here. Its own repository is
+    `<hub>__<package>__<version>...`, so the hub the extension created -- which
+    is what a deps list names -- is recoverable from the file it provides.
+    """
+    name = npm_info.package_name
+    label_name = name[1:].replace("/", "_") if name.startswith("@") else name
+    hub = "npm"
+    owner = npm_info.package_dir.owner if npm_info.package_dir else None
+    if owner and owner.repo_name:
+        candidate = owner.repo_name.split("__")[0].split("+")[-1]
+        if candidate:
+            hub = candidate
+    return struct(name = name, label = "@{}//:{}".format(hub, label_name))
+
+def ownership_manifest(ctx, own, direct, owners, npm_declared, npm_reachable):
+    """Writes <name>.ownership: what an edge may resolve to, by owner.
+
+    `own` are the target's tsgo inputs, `direct` its first-party dep labels,
+    `owners` the closure's TsInfo.owners records, `npm_declared` the forest
+    package names deps cover and `npm_reachable` struct(name, label) for the
+    rest. Returns the file.
+    """
+    manifest = ctx.actions.declare_file("{}.ownership".format(ctx.label.name))
+    lines = ctx.actions.args()
+    lines.set_param_file_format("multiline")
+    lines.add("label\t" + label_text(ctx.label))
+    lines.add_all(own, format_each = "own\t%s")
+    lines.add_all(direct, format_each = "direct\t%s")
+    for record in owners.to_list():
+        lines.add_all(
+            record.files,
+            format_each = "file\t{}\t%s".format(record.label),
+            expand_directories = False,
+        )
+    lines.add_all(npm_declared, format_each = "npm-direct\t%s")
+    lines.add_all([
+        "npm\t{}\t{}".format(package.name, package.label)
+        for package in npm_reachable
+    ])
+    ctx.actions.write(output = manifest, content = lines)
+    return manifest
 
 def tsgo_action(
         ctx,
@@ -13,13 +65,15 @@ def tsgo_action(
         chain,
         gate,
         dep_dts,
+        ownership,
         emit_outputs):
     """Registers the one tsgo run a target makes.
 
     With `emit_outputs` it is TsgoDeclare and they are its outputs, so a type
     error fails the build and no stale declaration survives; without, it is
     TsgoCheck under --noEmit, and the stamp returned is its output, for the
-    _validation group.
+    _validation group. `ownership` is the manifest the listing is checked
+    against.
     """
     stamp = None
     if not emit_outputs:
@@ -29,6 +83,7 @@ def tsgo_action(
         "-root={}/{}.program".format(tsconfig.dirname, ctx.label.name),
     )
     run_args.add("-node_modules=" + forest.path)
+    run_args.add(ownership, format = "-check=%s")
     if stamp:
         run_args.add(stamp, format = "-stamp=%s")
     run_args.add("--")
@@ -36,10 +91,13 @@ def tsgo_action(
     run_args.add("--project", tsconfig)
     if stamp:
         run_args.add("--noEmit")
+    run_args.add("--explainFiles")
+    run_args.add("--pretty", "false")
     mnemonic = "TsgoCheck" if stamp else "TsgoDeclare"
     ctx.actions.run(
         inputs = depset(
-            srcs + [tsconfig, forest, tsgo.tsgo_binary] + chain + gate,
+            srcs + [tsconfig, forest, ownership, tsgo.tsgo_binary] + chain +
+            gate,
             transitive = [dep_dts],
         ),
         outputs = [stamp] if stamp else emit_outputs,

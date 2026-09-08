@@ -46,12 +46,14 @@ reads the transitive field.
 | `transitive_declarations` | `depset of File` | Every declaration from this target and its first-party deps. An npm package's declarations reach a consumer through the node_modules forest its tsgo action stages, not through this depset |
 | `transitive_data` | `depset of File` | The data files of this target and its first-party deps: what a compiled module reaches beside itself at run time or in a bundle |
 | `npm_packages` | `depset of NpmPackageInfo` | The npm packages a consumer links into its forest and runtime tree for this target's deps. A dep's emitted `.d.ts` imports the packages the dep declared and resolves them in the consumer's program by walking that forest. A package itself arrives through its `NpmPackageInfo` |
+| `owners` | `depset of struct(label, files)` | One record per first-party target in the closure, this one first: `label`, the string a `deps` list writes for it, and `files`, the declarations and data it stages. The tsgo action reads the closure's records to name the target a listed file belongs to ([Deps have to be direct](ts-compile.md#deps-have-to-be-direct)) |
 
 A dep linked in the forest -- an `@npm` package, a member's hub view -- reaches
 the consumer's program and runtime there: `ts_compile` reads `npm_packages`
 off it and none of its file fields, so an npm package's `TsInfo` stages
-nothing by path. A first-party dep's files are staged at their exec paths and
-its `declarations`, `js` and `data` are what an import may resolve to
+nothing by path and its `owners` is empty. A first-party dep's files are staged
+at their exec paths, its `declarations`, `js` and `data` are what an import may
+resolve to, and its `owners` record is what names it when an import does
 ([Deps have to be direct](ts-compile.md#deps-have-to-be-direct)).
 
 `ts_binary` with a `bundler` returns the bundle as the one member of both `.js`

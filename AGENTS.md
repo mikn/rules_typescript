@@ -70,7 +70,9 @@ ts_compile → TsStrictDeps action (.strictdeps stamp; gates the compile)
            → TsgoDeclare action (.d.ts; the default)
              or TsgoCheck validation action (.tscheck stamp in _validation; under oxc)
            both run from a program root mirroring the exec root with the
-           target's node_modules forest at node_modules
+           target's node_modules forest at node_modules, with --explainFiles,
+           and fail an edge from a src into a file a label outside deps owns
+           (the <name>.ownership manifest names the owner)
            → TsLint validation action (.tslint stamp in _validation) when the
              root module's ts.lint() names a linter
 
@@ -93,7 +95,7 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
   `oxc`, `tsgo`, `forest`, `strict_deps`, `lint`), the functions the rule calls
   in that order; `lint.bzl` also holds `lint_config` and the repository rule
   `ts.lint()` writes
-- `ts/tools/tsaction/` — the Go runner behind the actions: `tsconfig` writes the action config from `tsgo --showConfig`, `oxc` relays the options to oxc, `tsgo` lays out the program root and runs tsgo from it
+- `ts/tools/tsaction/` — the Go runner behind the actions: `tsconfig` writes the action config from `tsgo --showConfig`, `oxc` relays the options to oxc, `tsgo` lays out the program root, runs tsgo from it and checks the listing's edges against the ownership manifest
 - `ts/tools/explainfiles/`, `ts/tools/tsconfig/`, `ts/tools/jsonc/` — the
   `--explainFiles` grammar, the tsconfig `extends` chain reader and the JSONC
   parser, shared by tsaction and Gazelle

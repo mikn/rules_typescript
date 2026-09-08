@@ -79,3 +79,58 @@ resolution_surface_test = analysistest.make(
         ),
     },
 )
+
+def _tsgo_check_impl(ctx):
+    env = analysistest.begin(ctx)
+    name = analysistest.target_under_test(env).label.name
+    tsgo = [
+        a
+        for a in analysistest.target_actions(env)
+        if a.mnemonic in ("TsgoDeclare", "TsgoCheck")
+    ]
+    asserts.equals(env, 1, len(tsgo), "one tsgo action")
+    if len(tsgo) != 1:
+        return analysistest.end(env)
+    argv = tsgo[0].argv
+    asserts.true(env, "--explainFiles" in argv, "tsgo lists the edges")
+    asserts.true(
+        env,
+        "--pretty" in argv and argv[argv.index("--pretty") + 1] == "false",
+        "the listing is plain text",
+    )
+    manifest = [
+        f
+        for f in tsgo[0].inputs.to_list()
+        if f.basename == name + ".ownership"
+    ]
+    asserts.equals(env, 1, len(manifest), "the ownership manifest is an input")
+    if manifest:
+        asserts.true(
+            env,
+            "-check=" + manifest[0].path in argv,
+            "tsaction reads the manifest: " + str(argv),
+        )
+        writers = [
+            a
+            for a in analysistest.target_actions(env)
+            if manifest[0] in a.outputs.to_list()
+        ]
+        asserts.equals(env, 1, len(writers), "one action writes the manifest")
+        if writers and ctx.attr.lines:
+            content = writers[0].content
+            for line in ctx.attr.lines:
+                asserts.true(
+                    env,
+                    content != None and line in content.split("\n"),
+                    "the manifest carries %r:\n%s" % (line, content),
+                )
+    return analysistest.end(env)
+
+tsgo_check_test = analysistest.make(
+    _tsgo_check_impl,
+    attrs = {
+        "lines": attr.string_list(
+            doc = "Lines the ownership manifest holds, tab-separated fields.",
+        ),
+    },
+)

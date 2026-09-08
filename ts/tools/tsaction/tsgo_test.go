@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -100,5 +101,87 @@ func TestTsgoStep_ExitCodeIsTheToolsAndNoStamp(t *testing.T) {
 	}
 	if _, err := os.Stat(programRoot); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the program root outlived the action: stat = %v", err)
+	}
+}
+
+// With -check, the listing tsgo prints is read against the manifest and never
+// reaches the action's stdout; an undeclared edge is the step's failure.
+func TestTsgoStep_ChecksTheListingAgainstTheManifest(t *testing.T) {
+	listing := "bazel-out/k8-fastbuild/bin/pkg/hidden.d.ts\n" +
+		"   Imported via \"./hidden\" from file 'pkg/a.ts'\n" +
+		"pkg/a.ts\n   Root file specified for compilation\n"
+	root, _ := newTsgoExecroot(t, "cat "+binDir+"/pkg/listing.txt\n")
+	writeFile(t, filepath.Join(root, binDir, "pkg/listing.txt"), listing)
+	manifest := binDir + "/pkg/app.ownership"
+	stamp := binDir + "/pkg/app.tscheck"
+	run := func() error {
+		return runTsgo([]string{"-root=" + programRoot, "-node_modules=" + forestDir,
+			"-check=" + manifest, "-stamp=" + stamp, "--", "external/tsgo/tsc"})
+	}
+
+	writeFile(t, filepath.Join(root, manifest),
+		"label\t//pkg:app\nown\tpkg/a.ts\ndirect\t//pkg:lib\n"+
+			"file\t//pkg:hidden\t"+binDir+"/pkg/hidden.d.ts\n")
+	err := run()
+	if err == nil || !strings.Contains(err.Error(), "add //pkg:hidden to deps") {
+		t.Errorf("runTsgo = %v, want the undeclared edge naming //pkg:hidden", err)
+	}
+	if _, err := os.Stat(stamp); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a stamp was written for a failing check: stat = %v", err)
+	}
+
+	writeFile(t, filepath.Join(root, manifest),
+		"label\t//pkg:app\nown\tpkg/a.ts\ndirect\t//pkg:hidden\n"+
+			"file\t//pkg:hidden\t"+binDir+"/pkg/hidden.d.ts\n")
+	if err := run(); err != nil {
+		t.Errorf("runTsgo with the dep declared: %v", err)
+	}
+	if _, err := os.Stat(stamp); err != nil {
+		t.Errorf("no stamp after a passing check: %v", err)
+	}
+}
+
+// tsgo's own failure is relayed with its diagnostics and without the listing.
+func TestTsgoStep_AFailingTsgoRelaysItsDiagnostics(t *testing.T) {
+	root, _ := newTsgoExecroot(t, "cat "+binDir+"/pkg/listing.txt\nexit 2\n")
+	writeFile(t, filepath.Join(root, binDir, "pkg/listing.txt"),
+		"pkg/a.ts\n   Root file specified for compilation\n"+
+			"pkg/a.ts(1,8): error TS2307: Cannot find module './gone'.\n")
+	manifest := binDir + "/pkg/app.ownership"
+	writeFile(t, filepath.Join(root, manifest),
+		"label\t//pkg:app\nown\tpkg/a.ts\n")
+	stdout := captureStdout(t)
+
+	err := runTsgo([]string{"-root=" + programRoot, "-node_modules=" + forestDir,
+		"-check=" + manifest, "--", "external/tsgo/tsc"})
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 2 {
+		t.Errorf("runTsgo = %v, want tsgo's exit status 2", err)
+	}
+	out := stdout()
+	if !strings.Contains(out, "error TS2307") {
+		t.Errorf("the diagnostic is not relayed:\n%s", out)
+	}
+	if strings.Contains(out, "Root file specified") {
+		t.Errorf("the listing reached stdout:\n%s", out)
+	}
+}
+
+func captureStdout(t *testing.T) func() string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := os.Stdout
+	os.Stdout = w
+	return func() string {
+		os.Stdout = saved
+		w.Close()
+		data, err := io.ReadAll(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
 	}
 }
