@@ -451,3 +451,47 @@ ts_config(
 )
 `
 }
+
+// tsConfigJsx is the jsx of the ts_config target in pkg, "" when unset; the
+// rule is required to be there, as for tsConfigDeps.
+func tsConfigJsx(t *testing.T, root, pkg string) string {
+	t.Helper()
+	for _, r := range loadRules(t, root, pkg) {
+		if r.Kind() == "ts_config" && r.Name() == tsConfigTargetName {
+			return r.AttrString("jsx")
+		}
+	}
+	t.Fatalf("generation wrote no ts_config(%s) in %s", tsConfigTargetName, pkg)
+	return ""
+}
+
+// jsx: preserve names a .tsx's emit, and the rule reads it off the ts_config:
+// the chain's effective value is written, inherited through extends, no other.
+func TestTsConfigJsx_PreserveIsDeclaredFromTheChain(t *testing.T) {
+	requireTsgo(t)
+	root := t.TempDir()
+	writeWorkspace(t, root, map[string]string{
+		"package.json":             `{"name":"w"}` + "\n",
+		"solid/tsconfig.json":      `{"compilerOptions":{"jsx":"preserve"}}` + "\n",
+		"solid/view.tsx":           "export const v = 1;\n",
+		"solid/test/tsconfig.json": `{"extends":"../tsconfig.json"}` + "\n",
+		"solid/test/view.test.tsx": "export const t = 1;\n",
+		"react/tsconfig.json":      `{"compilerOptions":{"jsx":"react-jsx"}}` + "\n",
+		"react/view.tsx":           "export const r = 1;\n",
+	})
+	captureLog(t, func() { convergeGazelle(t, root) })
+
+	want := map[string]string{
+		"solid": "preserve", "solid/test": "preserve", "react": "",
+	}
+	for pass := 1; pass <= 2; pass++ {
+		for pkg, jsx := range want {
+			if got := tsConfigJsx(t, root, pkg); got != jsx {
+				t.Errorf("pass %d: ts_config(%s).jsx in %s = %q, want %q",
+					pass, tsConfigTargetName, pkg, got, jsx)
+			}
+		}
+		captureLog(t, func() { convergeGazelle(t, root) })
+	}
+	assertNoDanglingLabels(t, root)
+}

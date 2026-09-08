@@ -2,6 +2,7 @@ package typescript
 
 import (
 	"log"
+	"strings"
 
 	"github.com/mikn/rules_typescript/ts/tools/tsconfig"
 )
@@ -15,4 +16,11 @@ func programNamesInputs(tsConfigPath string) (inputs, ok bool) {
 		return false, false
 	}
 	return resolved.Inputs, true
+}
+
+// Whether the chain's effective jsx is preserve, the one value that names a
+// .tsx's emit; tsc reads the value case-insensitively.
+func programPreservesJsx(tsConfigPath string) bool {
+	resolved, err := tsconfig.Resolve(tsConfigPath)
+	return err == nil && strings.EqualFold(resolved.Jsx, "preserve")
 }

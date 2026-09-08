@@ -208,13 +208,17 @@ const merge = (a, b) => {
 _SETUP_HELPERS = """\
 // A config's setup entries and a compiled module's imports name sources the
 // runfiles never hold; what a dep stages at that path is the compiled sibling.
-const COMPILED_EXT = { '.ts': '.js', '.tsx': '.js', '.mts': '.mjs', '.cts': '.cjs' };
+const COMPILED_EXT = {
+  '.ts': ['.js'], '.tsx': ['.js', '.jsx'], '.mts': ['.mjs'], '.cts': ['.cjs'],
+};
 const compiledSibling = (dir, spec) => {
   const m = typeof spec === 'string' ? /\\.[cm]?tsx?$/.exec(spec) : null;
   if (!m || !(m[0] in COMPILED_EXT)) return spec;
   if (existsSync(resolve(dir, spec))) return spec;
-  const sibling = spec.slice(0, -m[0].length) + COMPILED_EXT[m[0]];
-  return existsSync(resolve(dir, sibling)) ? sibling : spec;
+  const sibling = COMPILED_EXT[m[0]]
+    .map((ext) => spec.slice(0, -m[0].length) + ext)
+    .find((candidate) => existsSync(resolve(dir, candidate)));
+  return sibling ?? spec;
 };
 const compiledImports = {
   name: 'rules_typescript:compiled-imports',
@@ -515,19 +519,27 @@ def _vitest_config_content(
     ]
     return "\n".join(lines)
 
-def _snapshot_bases(srcs):
-    """Maps each compiled test .js to the .snap path its .ts source implies.
+def _snapshot_bases(srcs, compiled):
+    """Maps each compiled test file to the .snap path its .ts source implies.
 
     Keyed by the compiled path so the generated config can match the file
     vitest reports, whatever prefix the runfiles layout gives it.
     """
+    compiled_by_stem = {}
+    for f in compiled:
+        compiled_by_stem[f.short_path[:-(len(f.extension) + 1)]] = f.short_path
     bases = {}
     for src in srcs:
         if src.extension not in ("ts", "tsx", "mts", "cts"):
             continue
         stem = src.short_path[:-(len(src.extension) + 1)]
+        if stem not in compiled_by_stem:
+            continue
         parent = stem[:stem.rfind("/")] if "/" in stem else ""
-        bases[stem + ".js"] = "{}/__snapshots__/{}".format(parent, src.basename)
+        bases[compiled_by_stem[stem]] = "{}/__snapshots__/{}".format(
+            parent,
+            src.basename,
+        )
     return bases
 
 # ─── Test runners ─────────────────────────────────────────────────────────────
@@ -574,7 +586,11 @@ def _ts_test_runner_impl(ctx):
 
     # DefaultInfo also carries the .d.ts and .js.map beside every module; vitest
     # takes this list as the files to run.
-    test_entry_points = [f for f in test_js_files if f.extension in ("js", "mjs", "cjs")]
+    test_entry_points = [
+        f
+        for f in test_js_files
+        if f.extension in ("js", "jsx", "mjs", "cjs")
+    ]
 
     # Collect the node_modules directory.
     node_modules_files = ctx.files.node_modules
@@ -744,8 +760,17 @@ def _ts_test_runner_impl(ctx):
         config_dir = ctx.file.config.short_path.rpartition("/")[0]
         root_rel = _relative_dir(ctx.label.package, config_dir)
 
-    setup_js = [f for f in ctx.files.setup_files if f.extension in ("js", "mjs", "cjs")]
-    global_setup_js = [f for f in ctx.files.global_setup if f.extension in ("js", "mjs", "cjs")]
+    compiled_extensions = ("js", "jsx", "mjs", "cjs")
+    setup_js = [
+        f
+        for f in ctx.files.setup_files
+        if f.extension in compiled_extensions
+    ]
+    global_setup_js = [
+        f
+        for f in ctx.files.global_setup
+        if f.extension in compiled_extensions
+    ]
     ctx.actions.write(
         output = vitest_config,
         content = _vitest_config_content(
@@ -759,7 +784,7 @@ def _ts_test_runner_impl(ctx):
             reporters = ctx.attr.reporters,
             coverage_thresholds = ctx.attr.coverage_thresholds,
             coverage_provider = ctx.attr.coverage_provider,
-            snapshot_bases = _snapshot_bases(ctx.files.srcs),
+            snapshot_bases = _snapshot_bases(ctx.files.srcs, test_entry_points),
             snapshot_root = ctx.workspace_name,
             test_include = [
                 _relative_import(
@@ -999,7 +1024,7 @@ _RUNNER_ATTRS = {
     "compiled_tests": attr.label_list(
         aspects = [_instrumented_files_aspect],
         doc = "Label of the ts_compile target containing compiled test .js files.",
-        allow_files = [".js"],
+        allow_files = [".js", ".jsx"],
     ),
     "deps": attr.label_list(
         aspects = [_instrumented_files_aspect],

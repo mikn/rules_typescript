@@ -32,14 +32,17 @@ TsDeclarationInfo = provider(
 )
 
 TsConfigInfo = provider(
-    doc = """A tsconfig.json and the files it extends.
+    doc = """A tsconfig.json, the files it extends and its jsx when preserve.
 
-Starlark cannot read the file to follow its `extends` chain, so a ts_config
-target declares the chain and every file in it becomes an action input.
+Starlark cannot read the file, so a ts_config target declares what a rule needs
+from it before any action runs: the `extends` chain, every file of which becomes
+an action input, and the one compiler option that names an output.
 """,
     fields = {
         "tsconfig": "File: The tsconfig.json this target declares.",
         "deps_tsconfigs": "depset of File: Every file `tsconfig` extends, transitively.",
+        "jsx": "string: \"preserve\" when the chain's effective jsx is " +
+               "preserve, so a .tsx emits .jsx as under tsc; \"\" otherwise.",
     },
 )
 

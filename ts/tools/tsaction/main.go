@@ -27,8 +27,9 @@ const usage = `usage:
   tsaction stage -out=DIR SRC DEST [SRC DEST...]
   tsaction tar -out=FILE -dir=DIR [-prefix=P]
   tsaction tsconfig -tsgo=BIN [-tsconfig=FILE] -baseline=FILE -out=FILE -options=FILE
-      -bin_dir=DIR [-types_dep=NAME]... [-emit -out_dir=DIR -root_dir=DIR]
-      [-declaration_map] [-isolated_declarations] [-lib_check] SRC...
+      -bin_dir=DIR [-jsx=preserve] [-types_dep=NAME]...
+      [-emit -out_dir=DIR -root_dir=DIR] [-declaration_map]
+      [-isolated_declarations] [-lib_check] SRC...
   tsaction tsgo -root=DIR -node_modules=DIR [-stamp=FILE] -- TSGO [ARG...]
   tsaction oxc -options=FILE -- OXC [ARG...]`
 

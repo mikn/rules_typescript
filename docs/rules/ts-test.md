@@ -267,8 +267,9 @@ A `test.setupFiles` or `test.globalSetup` entry inside the `config` is resolved
 against the root and loaded as written, and the runfiles hold no TypeScript
 source: what a `deps` entry stages at that path is the compiled sibling. Once
 the layers have merged, an entry ending in `.ts`, `.tsx`, `.mts` or `.cts` whose
-file is absent while the `.js`, `.mjs` or `.cjs` beside it exists is
-rewritten to that sibling, so `setupFiles: ["./test/vitest.setup.ts"]` in a
+file is absent while the compiled sibling beside it exists (`.js`, `.mjs` or
+`.cjs`; `.jsx` for a `.tsx` under `jsx: preserve`) is rewritten to that
+sibling, so `setupFiles: ["./test/vitest.setup.ts"]` in a
 config at the package root runs `test/vitest.setup.js`; left as written, the
 run fails with `Cannot find module '.../test/vitest.setup.ts'`. The `ts_compile`
 over the source has to be in `deps`, and nothing imports a setup file, so
@@ -297,9 +298,10 @@ Error: Cannot find module './util.ts' imported from .../util.test.js
 ```
 
 Layer 1 carries a plugin that resolves a relative specifier ending in `.ts`,
-`.tsx`, `.mts` or `.cts` whose file is absent while the `.js`, `.mjs` or `.cjs`
-beside it exists to that sibling, from the importing file's directory -- the
-rule a `setupFiles` entry is rewritten by, applied to every import. A
+`.tsx`, `.mts` or `.cts` whose file is absent while the compiled sibling beside
+it exists (`.js`, `.mjs` or `.cjs`; `.jsx` for a `.tsx` under `jsx: preserve`)
+to that sibling, from the importing file's directory -- the rule a
+`setupFiles` entry is rewritten by, applied to every import. A
 specifier whose file exists resolves as written, and the source and the emit
 are untouched: no `rewriteRelativeImportExtensions`, no edit to the `import`.
 `//tests/vitest/relative_ts` is the example: the test imports `./lib.ts`, and

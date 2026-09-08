@@ -30,6 +30,7 @@ type CompilerOptions struct {
 	// A pointer because "types": [] and no "types" key at all mean opposite
 	// things to tsc: none, versus every @types package in scope.
 	Types           *[]string `json:"types"`
+	Jsx             string    `json:"jsx"`
 	JsxImportSource string    `json:"jsxImportSource"`
 }
 
@@ -72,6 +73,7 @@ type Resolved struct {
 	Paths           map[string][]string
 	PathsDir        string
 	Types           *[]string
+	Jsx             string
 	JsxImportSource string
 	// Inputs reports whether a file in the chain sets include or files;
 	// without either, tsc enumerates the directory tree.
@@ -118,6 +120,7 @@ func resolve(path string, ancestors map[string]bool) (*Resolved, error) {
 		Paths:           f.CompilerOptions.Paths,
 		PathsDir:        dir,
 		Types:           f.CompilerOptions.Types,
+		Jsx:             f.CompilerOptions.Jsx,
 		JsxImportSource: f.CompilerOptions.JsxImportSource,
 		Inputs:          f.Include != nil || f.Files != nil,
 	})
@@ -133,6 +136,9 @@ func (r *Resolved) override(other *Resolved) {
 	}
 	if other.Types != nil {
 		r.Types = other.Types
+	}
+	if other.Jsx != "" {
+		r.Jsx = other.Jsx
 	}
 	if other.JsxImportSource != "" {
 		r.JsxImportSource = other.JsxImportSource

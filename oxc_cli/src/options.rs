@@ -27,7 +27,7 @@ pub struct CliOptions {
     /// JSX transform mode.
     ///
     /// Accepted values: react-jsx (automatic runtime), react (classic
-    /// runtime), preserve (leave JSX as-is).
+    /// runtime), preserve (JSX left as-is, a .tsx named .jsx as tsc does).
     #[arg(long, default_value = "react-jsx", value_name = "MODE")]
     pub jsx: String,
 

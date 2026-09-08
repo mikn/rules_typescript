@@ -231,8 +231,17 @@ Every target compiles under the package's own `tsconfig.json`: its `lib`,
 `types`, `paths`, `jsx` and strictness. The rule reads every compiler option
 from the tsconfig ([where compiler options come
 from](../rules/ts-compile.md#where-compiler-options-come-from)), so no
-attribute restates one, and the `ts_config` beside the file is what makes it a
-label.
+attribute restates one to the compiler. The `ts_config` beside the file is what
+makes it a label, and it declares what the rule needs from the file before any
+action reads it: `deps`, the `extends` chain, and `jsx = "preserve"` when that
+is the chain's effective `jsx`, the one value that names an output
+([a `.tsx` under `jsx: preserve`](../rules/ts-compile.md#a-tsx-under-jsx-preserve)).
+Both are Gazelle's to recompute on every run.
+
+`ts_config.jsx` is written as `"preserve"` when the chain's effective `jsx` is
+`preserve`, read leaf-wins as tsc reads it and inherited through `extends`, and
+removed otherwise; no other value is written, since no other value names an
+output.
 
 `ts_config.deps` is the `extends` chain. Gazelle reads the package's
 `tsconfig.json` and writes a dep on the `ts_config` of every `tsconfig.json`

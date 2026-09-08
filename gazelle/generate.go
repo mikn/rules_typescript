@@ -306,8 +306,8 @@ func lintRuleFor(args language.GenerateArgs, tc *tsConfig, name string,
 	return r, nil
 }
 
-// tsConfigRule names the directory's tsconfig.json, with the ts_config of every
-// tsconfig.json its extends names as a dep.
+// tsConfigRule names the directory's tsconfig.json, with the ts_config of
+// every tsconfig.json its extends names as a dep, and the chain's jsx preserve.
 func tsConfigRule(args language.GenerateArgs, tc *tsConfig) *rule.Rule {
 	r := rule.NewRule("ts_config", tsConfigTargetName)
 	r.SetAttr("src", "tsconfig.json")
@@ -318,6 +318,11 @@ func tsConfigRule(args language.GenerateArgs, tc *tsConfig) *rule.Rule {
 	if len(deps) > 0 {
 		sort.Strings(deps)
 		r.SetAttr("deps", deps)
+	}
+	own := filepath.Join(args.Config.RepoRoot,
+		filepath.FromSlash(tsconfigIn(args.Rel)))
+	if programPreservesJsx(own) {
+		r.SetAttr("jsx", "preserve")
 	}
 	r.SetAttr("visibility", []string{"//visibility:public"})
 	return r
