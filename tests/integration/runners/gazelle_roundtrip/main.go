@@ -872,7 +872,7 @@ func aliasedImportsAreDeps(it *harness.IT) {
 		withRootManifest("//aliased/src:src", "//aliased:aliased"))
 	it.Pass("both rules in //aliased/src depend on //aliased through the alias")
 
-	tests := strings.Fields(it.BazelStdout("query", "kind(ts_test, //aliased/...)"))
+	tests := strings.Fields(it.BazelStdout("query", "tests(//aliased/...)"))
 	if len(tests) != 2 {
 		it.Fail("expected the two generated ts_tests under //aliased, got %v", tests)
 	}
@@ -1025,7 +1025,7 @@ func parentEntryResolvesThroughTheOwner(it *harness.IT) {
 		it.Pass("//%s depends on //worker and restates nothing", dir)
 	}
 
-	targets := strings.Fields(it.BazelStdout("query", "kind(ts_test, //worker/test/...)"))
+	targets := strings.Fields(it.BazelStdout("query", "tests(//worker/test/...)"))
 	if len(targets) != 2 {
 		it.Fail("expected one generated ts_test in each of //worker/test and //worker/test/deep, got %v", targets)
 	}
