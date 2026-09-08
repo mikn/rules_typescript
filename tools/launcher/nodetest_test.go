@@ -94,6 +94,26 @@ func TestPlanNodeTestKeepsTheEntryAtItsRunfilesPath(t *testing.T) {
 	}
 }
 
+// node reads its flags up to the first file, so the target's args go between
+// the launcher's own flags and --test, where the children inherit them too.
+func TestPlanNodeTestPutsArgsBeforeTheTestFlag(t *testing.T) {
+	r, real := nodeTestFixture(t)
+	args := []string{"--experimental-test-module-mocks"}
+	plan, err := MakePlan(nodeTestConfig(), r, args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flag := slices.Index(plan.Argv, args[0])
+	test := slices.Index(plan.Argv, "--test")
+	hook := slices.Index(plan.Argv, "--import")
+	if flag < 0 || !(hook < flag && flag < test) {
+		t.Errorf("argv = %q, want %q between --import and --test", plan.Argv, args[0])
+	}
+	if slices.Index(plan.Argv, real["_main/tests/app/a.test.js"]) < test {
+		t.Errorf("argv = %q, want the files after --test", plan.Argv)
+	}
+}
+
 func TestPlanNodeTestOmitsTheHookWhenTheConfigHasNone(t *testing.T) {
 	r, _ := nodeTestFixture(t)
 	cfg := nodeTestConfig()

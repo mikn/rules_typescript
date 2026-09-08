@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-func planVitest(cfg *Config, r *Resolver, plan *Plan) (*Plan, error) {
+func planVitest(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, error) {
 	v := cfg.Vitest
 	var reads *readsRun
 	if v.ReadsHook != "" {
@@ -74,6 +74,7 @@ func planVitest(cfg *Config, r *Resolver, plan *Plan) (*Plan, error) {
 		flags = append(flags, "--update")
 	}
 	flags = append(flags, coverageFlags(v.Coverage)...)
+	flags = append(flags, args...)
 
 	vitestBin, viaPath, err := resolveVitest(r, v, nodeModules)
 	if err != nil {

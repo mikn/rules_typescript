@@ -1274,6 +1274,7 @@ def ts_test(
         vitest = None,
         runtime = None,
         env = {},
+        args = [],
         size = "medium",
         timeout = None,
         tags = [],
@@ -1324,6 +1325,10 @@ def ts_test(
         runtime:           Per-target JS runtime binary override (optional). Takes
                            priority over the js_runtime toolchain.
         env:               Extra environment variables for the test runner.
+        args:              The runner's command-line flags: node's under
+                           "node:test" (`--experimental-test-module-mocks`
+                           for `mock.module`), vitest's under "vitest";
+                           `bazel test --test_arg` appends to them.
         size:              Bazel test size (default "medium").
         timeout:           Bazel test timeout.
         tags:              Bazel tags. `manual` also reaches the targets this
@@ -1516,6 +1521,7 @@ def ts_test(
         "snapshots": snapshots,
         "deps": deps,
         "env": env,
+        "args": args,
         "environment": environment,
         "coverage": coverage,
         "coverage_thresholds": coverage_thresholds,

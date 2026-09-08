@@ -173,6 +173,25 @@ func TestPlanVitestRunsEveryTestFileByDefault(t *testing.T) {
 	}
 }
 
+// vitest reads its flags up to the first file, so the target's args go after
+// the launcher's own flags and before the files.
+func TestPlanVitestPutsArgsBeforeTheFiles(t *testing.T) {
+	r, _ := vitestFixture(t)
+	args := []string{"--reporter=dot"}
+	plan, err := MakePlan(vitestConfig(), r, args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer plan.Cleanup()
+	flag := slices.Index(plan.Argv, args[0])
+	config := slices.Index(plan.Argv, "--config")
+	a := filepath.Join(plan.Dir, "_main/tests/app/a.test.js")
+	first := slices.Index(plan.Argv, a)
+	if flag < 0 || !(config < flag && flag < first) {
+		t.Errorf("argv = %q, want %q before the files", plan.Argv, args[0])
+	}
+}
+
 func TestPlanVitestPartitionsShards(t *testing.T) {
 	r, _ := vitestFixture(t)
 	t.Setenv("TEST_TOTAL_SHARDS", "2")

@@ -32,6 +32,7 @@ cannot iterate) or when you need a tree the deps do not describe.
 | `vitest` | `label` | `None` | Explicit vitest binary label (found in `node_modules` when absent) |
 | `runtime` | `label` | `None` | Per-target JS runtime binary override |
 | `env` | `string_dict` | `{}` | Extra environment variables for the runner |
+| `args` | `string_list` | `[]` | The runner's command-line flags: node's under `"node:test"`, vitest's under `"vitest"`; `bazel test --test_arg` appends to them. See [The node:test runner](#the-nodetest-runner) |
 | `size` | `string` | `"medium"` | Bazel test size |
 | `timeout` | `string` | `None` | Bazel test timeout |
 | `tags` | `string_list` | `[]` | Bazel tags |
@@ -582,8 +583,11 @@ Under vitest, [layer 1's plugin](#relative-ts-specifiers) resolves the relative
 `.ts` specifier and the generated config the rest.
 
 node:test takes no config file; it is configured by CLI flags and by the test
-file itself. Every vitest attribute is an analysis error under it, naming the
-ones set:
+file itself. `args` are those flags, placed before `--test` so that the
+children `node --test` spawns inherit them: a suite that calls `mock.module`
+sets `args = ["--experimental-test-module-mocks"]`, as its package's test
+script does (`//tests/node_test:module_mocks_test`). Every vitest attribute is
+an analysis error under it, naming the ones set:
 
 ```
 ts_test @@//scripts:scripts_test: runner "node:test" reads none of environment,
