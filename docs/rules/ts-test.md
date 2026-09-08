@@ -143,7 +143,7 @@ that layers four sources, lowest precedence first:
 
 | Layer | Contents | Workspace projects |
 |-------|----------|---|
-| 1. Bazel | `root` (the `config`'s package; the test's own with an inline dict or none), `cacheDir` under `TEST_TMPDIR`, `resolve.preserveSymlinks`, `test.coverage.allowExternal`, and under a `config` whose `plugins` hold `@cloudflare/vitest-pool-workers` `preserveSymlinks: false` and the runfiles-imports plugin | yes |
+| 1. Bazel | `root` (the `config`'s package; the test's own with an inline dict or none), `cacheDir` under `TEST_TMPDIR`, `resolve.preserveSymlinks`, `test.coverage.allowExternal`, the plugin serving a `setupFiles` entry from its staged path, and under a `config` whose `plugins` hold `@cloudflare/vitest-pool-workers` `preserveSymlinks: false` and the runfiles-imports plugin | yes |
 | 2. user | the `config` attr: a config file or an inline dict | it supplies the projects |
 | 3. attributes | `environment`, `setup_files`, `global_setup`, `globals`, `reporters`, `coverage_thresholds`, `coverage_provider` | yes |
 | 4. snapshots | `test.resolveSnapshotPath`, and in update mode `test.dir`, `test.include` and `cacheDir` | no, root only |
@@ -274,6 +274,16 @@ run fails with `Cannot find module '.../test/vitest.setup.ts'`. The `ts_compile`
 over the source has to be in `deps`, and nothing imports a setup file, so
 Gazelle writes no such dep: the entry is `# keep`. `//tests/setup_files_compiled`
 is the example, with the config at the package root and beside the tests.
+
+vitest then resolves each `setupFiles` entry through Node's resolver, which
+follows the runfiles link to the compiled file in `bazel-out`. The `node`
+environment loads that realpath as it stands. A DOM environment (`jsdom`,
+`happy-dom`: Vite's `client` environment) loads setup files through Vite, which
+serves the root and refuses a path outside it: `Cannot find module
+'/@fs/<bazel-out path>/vitest.setup.js'`. Layer 1 carries a plugin that answers
+that request with the staged path, so a setup file loads the way a test file
+does, its imports resolved from the runfiles tree.
+`//tests/setup_files_compiled/dom` is the example.
 
 ### A Workers Pool
 

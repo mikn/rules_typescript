@@ -225,6 +225,29 @@ const withCompiledSetup = (config) => {
   }
   return { ...config, test };
 };
+
+// vitest realpaths each setupFiles entry into bazel-out; a DOM environment
+// then asks Vite for a file outside the root it serves: give the staged path.
+const setupFilesInRoot = (config) => {
+  const root = resolve(config.root ?? '.');
+  const staged = new Map();
+  for (const entry of [config.test?.setupFiles].flat()) {
+    if (typeof entry !== 'string') continue;
+    const path = resolve(root, entry);
+    try {
+      const real = realpathSync(path);
+      if (real !== path) staged.set(real, path);
+    } catch {}
+  }
+  if (staged.size === 0) return config;
+  const plugin = {
+    name: 'rules_typescript:setup-files-in-root',
+    enforce: 'pre',
+    resolveId: (id) =>
+      staged.get(id.startsWith('/@fs/') ? id.slice(4) : id) ?? null,
+  };
+  return { ...config, plugins: [...(config.plugins ?? []), plugin] };
+};
 """
 
 def _relative_dir(from_dir, to_dir):
@@ -345,9 +368,9 @@ def _vitest_config_content(
         ("basename, dirname, join, resolve, sep" if snapshot_bases else "dirname, resolve") +
         " } from 'node:path';",
         "import { fileURLToPath } from 'node:url';",
-        "import { " +
-        ("existsSync, readFileSync" if snapshot_bases else "existsSync") +
-        " } from 'node:fs';",
+        "import { existsSync, " +
+        ("readFileSync, " if snapshot_bases else "") +
+        "realpathSync } from 'node:fs';",
     ]
     if workers_pool_rf:
         lines.append("import {{ workersPoolLayer }} from '{}';".format(
@@ -462,7 +485,7 @@ def _vitest_config_content(
         lines.append("  const user = {};")
     lines += [
         "  if (typeof workersPoolLayer === 'function') bazelLayer = workersPoolLayer(bazelLayer, user, resolve(process.env.TS_TEST_PACKAGE_DIR, {}));".format(_js(workspace_rel)),
-        "  const merged = withCompiledSetup(merge(merge(merge(bazelLayer, user), attrLayer), snapshotLayer));",
+        "  const merged = setupFilesInRoot(withCompiledSetup(merge(merge(merge(bazelLayer, user), attrLayer), snapshotLayer)));",
         "  // Every project gets its own Vite server, so the Bazel layer and the",
         "  // attribute layer have to be applied to each project too.",
         "  const projects = merged.test && merged.test.projects;",
@@ -470,7 +493,7 @@ def _vitest_config_content(
         "    merged.test = {",
         "      ...merged.test,",
         "      projects: projects.map((p) =>",
-        "        isPlainObject(p) ? withCompiledSetup(merge(merge(bazelLayer, p), attrLayer)) : p,",
+        "        isPlainObject(p) ? setupFilesInRoot(withCompiledSetup(merge(merge(bazelLayer, p), attrLayer))) : p,",
         "      ),",
         "    };",
         "  }",
