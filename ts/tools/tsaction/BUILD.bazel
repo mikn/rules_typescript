@@ -7,6 +7,7 @@ go_library(
     name = "tsaction_lib",
     srcs = [
         "main.go",
+        "paths.go",
         "showconfig.go",
         "tsgo.go",
     ],
@@ -25,6 +26,7 @@ go_test(
     name = "tsaction_test",
     size = "small",
     srcs = [
+        "paths_test.go",
         "showconfig_test.go",
         "tsgo_test.go",
     ],

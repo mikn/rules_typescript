@@ -93,6 +93,7 @@ load(
     "//ts/private:providers.bzl",
     "JsInfo",
     "NpmPackageInfo",
+    "TsConfigInfo",
     "TsDeclarationInfo",
 )
 load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "JS_TOOL_TOOLCHAIN_TYPE", "get_js_runtime", "get_js_tool")
@@ -272,6 +273,56 @@ const setupFilesInRoot = (config) => {
 };
 """
 
+_PATHS_HELPERS = """\
+// tsc took the exact key, else the longest matching prefix, and the first of
+// its values that resolved; the run does the same over the compiled tree.
+const tsconfigPaths = (dir, paths) => {
+  const entries = Object.entries(paths).map(([key, values]) => {
+    const star = key.indexOf('*');
+    const exact = star < 0;
+    return {
+      exact,
+      prefix: exact ? key : key.slice(0, star),
+      suffix: exact ? '' : key.slice(star + 1),
+      values,
+    };
+  });
+  entries.sort((a, b) =>
+    Number(b.exact) - Number(a.exact) || b.prefix.length - a.prefix.length);
+  const match = (id) => {
+    for (const e of entries) {
+      if (e.exact) {
+        if (id === e.prefix) return { e, captured: '' };
+        continue;
+      }
+      const fits = id.length >= e.prefix.length + e.suffix.length;
+      if (fits && id.startsWith(e.prefix) && id.endsWith(e.suffix)) {
+        const end = id.length - e.suffix.length;
+        return { e, captured: id.slice(e.prefix.length, end) };
+      }
+    }
+    return null;
+  };
+  return {
+    name: 'rules_typescript:tsconfig-paths',
+    enforce: 'pre',
+    async resolveId(id, importer, opts) {
+      if (/^[./\\0]/.test(id)) return null;
+      const m = match(id);
+      if (!m) return null;
+      for (const value of m.e.values) {
+        const target = resolve(dir, value.replace('*', m.captured));
+        const resolved = await this.resolve(
+          compiledSibling(dir, target), importer, { ...opts, skipSelf: true },
+        );
+        if (resolved) return resolved;
+      }
+      return null;
+    },
+  };
+};
+"""
+
 def _package_relative_dir(ctx, f):
     """The directory of the package's output `f`, relative to the package."""
     prefix = ctx.label.package + "/" if ctx.label.package else ""
@@ -393,6 +444,7 @@ def _vitest_config_content(
         run_include = [],
         update_snapshots = False,
         workers_pool_rf = None,
+        tsconfig_paths_rf = None,
         root_rel = ".",
         workspace_rel = ".",
         inline_members = []):
@@ -407,9 +459,7 @@ def _vitest_config_content(
         ("basename, dirname, join, resolve, sep" if snapshot_bases else "dirname, resolve") +
         " } from 'node:path';",
         "import { fileURLToPath } from 'node:url';",
-        "import { existsSync, " +
-        ("readFileSync, " if snapshot_bases else "") +
-        "realpathSync } from 'node:fs';",
+        "import { existsSync, readFileSync, realpathSync } from 'node:fs';",
     ]
     if workers_pool_rf:
         lines.append("import {{ workersPoolLayer }} from '{}';".format(
@@ -436,6 +486,23 @@ def _vitest_config_content(
     lines += [
         _CONFIG_MERGE_HELPERS,
         _SETUP_HELPERS,
+        _PATHS_HELPERS,
+    ]
+    if tsconfig_paths_rf:
+        lines += [
+            "const TSCONFIG_PATHS = JSON.parse(readFileSync(",
+            "  resolve(process.env.TS_TEST_PACKAGE_DIR, {}), 'utf8'));".format(
+                _js(_relative_import(config_rf, tsconfig_paths_rf)),
+            ),
+            "const PATHS_DIR = resolve(",
+            "  process.env.TS_TEST_PACKAGE_DIR, TSCONFIG_PATHS.dir);",
+            "const pathsPlugins = Object.keys(TSCONFIG_PATHS.paths).length",
+            "  ? [tsconfigPaths(PATHS_DIR, TSCONFIG_PATHS.paths)]",
+            "  : [];",
+        ]
+    else:
+        lines.append("const pathsPlugins = [];")
+    lines += [
         # Every path vitest is handed is a runfiles symlink; resolving them to
         # their targets walks out of the test sandbox, which the browser-like
         # environments do and the node one does not.
@@ -459,7 +526,7 @@ def _vitest_config_content(
         # which is the runfiles tree.
         "  ...(process.env.TEST_TMPDIR ? { cacheDir: resolve(process.env.TEST_TMPDIR, '.vite') } : {}),",
         "  resolve: { preserveSymlinks: true },",
-        "  plugins: [compiledImports],",
+        "  plugins: [compiledImports, ...pathsPlugins],",
         # A workspace member's .js keeps its sources' extensionless relative
         # imports, which vite resolves and node's loader rejects: vite runs it.
         "  test: {{ coverage: {{ allowExternal: true }}, server: {{ deps: {{ inline: [{}] }} }} }},".format(
@@ -706,6 +773,29 @@ def _ts_test_runner_impl(ctx):
     vitest_config = ctx.actions.declare_file(
         "_{}_vitest.config.mjs".format(ctx.label.name),
     )
+
+    tsconfig_paths = None
+    if ctx.file.tsconfig:
+        tsconfig_paths = ctx.actions.declare_file(
+            "_{}_tsconfig_paths.json".format(ctx.label.name),
+        )
+        chain = [ctx.file.tsconfig]
+        if TsConfigInfo in ctx.attr.tsconfig:
+            chain += ctx.attr.tsconfig[TsConfigInfo].deps_tsconfigs.to_list()
+        ctx.actions.run(
+            inputs = chain,
+            outputs = [tsconfig_paths],
+            executable = ctx.executable._tsaction,
+            arguments = [
+                "paths",
+                "-tsconfig=" + ctx.file.tsconfig.path,
+                "-package=" + ctx.label.package,
+                "-bin_dir=" + ctx.bin_dir.path,
+                "-out=" + tsconfig_paths.path,
+            ],
+            mnemonic = "TsTestPaths",
+            progress_message = "TsTestPaths %{label}",
+        )
     if ctx.file.config and ctx.attr.config_json:
         fail("ts_test: `config` takes either a config file or an inline dict, not both.")
 
@@ -804,6 +894,7 @@ def _ts_test_runner_impl(ctx):
         for f in ctx.files.global_setup
         if f.extension in compiled_extensions
     ]
+    paths_rf = rlocation_path(ctx, tsconfig_paths) if tsconfig_paths else None
     ctx.actions.write(
         output = vitest_config,
         content = _vitest_config_content(
@@ -836,6 +927,7 @@ def _ts_test_runner_impl(ctx):
             ],
             update_snapshots = ctx.attr.update_snapshots,
             workers_pool_rf = rlocation_path(ctx, workers_pool) if workers_pool else None,
+            tsconfig_paths_rf = paths_rf,
             root_rel = root_rel,
             workspace_rel = _relative_dir(ctx.label.package, ""),
             inline_members = inline_members,
@@ -903,6 +995,8 @@ def _ts_test_runner_impl(ctx):
     runfiles_files.extend(staged_config_files)
     if workers_pool:
         runfiles_files.append(workers_pool)
+    if tsconfig_paths:
+        runfiles_files.append(tsconfig_paths)
     if wrangler_patched:
         runfiles_files.append(wrangler_patched)
     if ctx.attr.reads_report:
@@ -1082,6 +1176,17 @@ _RUNNER_ATTRS = {
     "node_modules": attr.label(
         doc = "A node_modules target providing the runtime npm dependency tree.",
         allow_files = True,
+    ),
+    "tsconfig": attr.label(
+        doc = "The tsconfig `compiled_tests` was built under. Its `paths` " +
+              "resolve at run time to the compiled modules they named at " +
+              "compile time (docs/rules/ts-test.md § A paths Alias).",
+        allow_single_file = [".json"],
+    ),
+    "_tsaction": attr.label(
+        default = Label("//ts/tools/tsaction"),
+        executable = True,
+        cfg = "exec",
     ),
     "_workers_pool": attr.label(
         default = Label("//ts/private:vitest_workers_pool.mjs"),
@@ -1400,7 +1505,8 @@ def ts_test(
                            the `lib` a worker test needs, a `types` entry naming
                            a pool's ambient module (`cloudflare:test`) or
                            `vitest/globals`, the `paths` the test files import
-                           through.
+                           through, which the vitest runner resolves at run
+                           time to the compiled modules they named.
         config:            Vitest config, either a label pointing at a config file
                            (.ts/.mts/.js/.mjs) or an inline dict.  It is MERGED
                            into the config rules_typescript generates rather than
@@ -1568,6 +1674,8 @@ def ts_test(
     }
     if node_modules:
         runner_kwargs["node_modules"] = node_modules
+    if tsconfig:
+        runner_kwargs["tsconfig"] = tsconfig
     if vitest:
         runner_kwargs["vitest"] = vitest
     if runtime:

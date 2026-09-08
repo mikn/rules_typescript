@@ -37,7 +37,7 @@ cannot iterate) or when you need a tree the deps do not describe.
 | `timeout` | `string` | `None` | Bazel test timeout |
 | `tags` | `string_list` | `[]` | Bazel tags |
 | `visibility` | `string_list` | `None` | Visibility of the test and of the generated `ts_compile` targets; see [Generated targets](#generated-targets) |
-| `tsconfig` | `label` | `None` | The tsconfig every generated `ts_compile` compiles under: the package's own `tsconfig.json`, or a `ts_config` target. Every compiler option the tests check under is its; see [The test's tsconfig](#the-tests-tsconfig) |
+| `tsconfig` | `label` | `None` | The tsconfig every generated `ts_compile` compiles under: the package's own `tsconfig.json`, or a `ts_config` target. Every compiler option the tests check under is its, and under vitest its `paths` resolve at run time; see [The test's tsconfig](#the-tests-tsconfig) |
 | `runner` | `string` | `"vitest"` | Which runner runs the compiled tests, `"vitest"` or `"node:test"`; see [The node:test runner](#the-nodetest-runner). Every attribute below this row except `data` is vitest's, and an analysis error under `"node:test"` |
 | `environment` | `string` | `""` | `test.environment`: `node`, `jsdom`, `happy-dom`, `edge-runtime`, or any custom vitest environment package. The package must be in `deps` |
 | `coverage` | `bool` | `False` | Also instrument during plain `bazel test`. `bazel coverage` works on every vitest target regardless |
@@ -141,11 +141,14 @@ ts_test(
 )
 ```
 
-A `paths` alias is type-checking only. oxc leaves an import specifier alone, so
-a compiled test still names the alias at runtime, where vitest resolves it as a
-package and fails with `Cannot find package`. A type-only import is erased and
-unaffected. A value import through an alias needs the module reachable at
-runtime: depend on the target that produces it.
+A `paths` alias resolves at run time as it did at compile time. oxc leaves an
+import specifier alone, so a compiled test still names the alias, and the Bazel
+layer of the generated config resolves it to the module the value names in the
+runfiles, the compiled sibling for a `.ts` value ([A `paths`
+Alias](#a-paths-alias)). A value import through an alias into another package
+needs that package's target in `deps`, which is what puts the module in the
+runfiles. Under node:test an alias is type-checking only
+([The node:test Runner](#the-nodetest-runner)).
 
 ## Globals
 
@@ -178,7 +181,7 @@ that layers four sources, lowest precedence first:
 
 | Layer | Contents | Workspace projects |
 |-------|----------|---|
-| 1. Bazel | `root` (the `config`'s package; the test's own with an inline dict or none), `cacheDir` under `TEST_TMPDIR`, `resolve.preserveSymlinks`, `test.coverage.allowExternal`, the plugin resolving a relative `.ts` specifier to its compiled sibling, the plugin serving a `setupFiles` entry from its staged path, and under a `config` whose `plugins` hold `@cloudflare/vitest-pool-workers` `preserveSymlinks: false` and the runfiles-imports plugin | yes |
+| 1. Bazel | `root` (the `config`'s package; the test's own with an inline dict or none), `cacheDir` under `TEST_TMPDIR`, `resolve.preserveSymlinks`, `test.coverage.allowExternal`, the plugin resolving a relative `.ts` specifier to its compiled sibling, the plugin resolving a tsconfig `paths` alias, the plugin serving a `setupFiles` entry from its staged path, and under a `config` whose `plugins` hold `@cloudflare/vitest-pool-workers` `preserveSymlinks: false` and the runfiles-imports plugin | yes |
 | 2. user | the `config` attr: a config file or an inline dict | it supplies the projects |
 | 3. attributes | `test.include`, the compiled test files; `environment`, `setup_files`, `global_setup`, `globals`, `reporters`, `coverage_thresholds`, `coverage_provider` | yes |
 | 4. snapshots | `test.resolveSnapshotPath`, and in update mode `test.dir`, `test.include` and `cacheDir` | no, root only |
@@ -363,6 +366,42 @@ with no compiled sibling resolves as written, and the source and the emit are
 untouched: no `rewriteRelativeImportExtensions`, no edit to the `import`.
 `//tests/vitest/relative_ts` is the example: the test imports `./lib.ts`, lib
 `./deep/util.ts`, and both assert the `.js` ran.
+
+### A `paths` Alias
+
+A compiled test imports `@app/flags` as its source did: oxc leaves the
+specifier alone, and vitest alone would resolve it as a package. At compile
+time tsgo resolved it through the tsconfig's `paths`
+([ts-compile.md](ts-compile.md#importing-another-target-by-bare-specifier));
+at run time layer 1 does the same, over the runfiles.
+
+The `TsTestPaths` action reads the `tsconfig` chain with the reader the
+compile's `TsConfig` action uses and writes its `paths` beside the generated
+config, with the directory of the chain file that set them (a leaf replaces
+the map whole, as under tsc). The plugin matches a specifier the way tsc does:
+the exact key first, then the pattern with the longest prefix; the matched
+key's values in order, each read from that directory, a value naming a `.ts`
+swapped for its compiled sibling before resolving; the first value that
+resolves wins, and one that resolves nothing leaves the specifier to vite. A
+relative, absolute or virtual specifier is never matched.
+
+```jsonc
+// tsconfig.json
+{ "compilerOptions": { "paths": {
+  "@shared/*": ["./shared/*"],
+  "@platform/auth": ["./lib/auth/platform-adapter.ts"]
+} } }
+```
+
+`@shared/flags` resolves to `shared/flags.js` (vite's extension order puts the
+compiled `.js` before the staged `.ts`); `@platform/auth` to
+`lib/auth/platform-adapter.js`, the sibling of the file the value names. A
+value under another package resolves when that package's target is in `deps`,
+which stages its compiled module; the source it names is not in the runfiles
+and is not needed. A `config` that sets `resolve.tsconfigPaths` still finds no
+`tsconfig.json` in the runfiles, and does not need one.
+`//tests/vitest/path_aliases` is the example: a pattern alias, an exact alias
+naming a `.ts`, and an alias into another package, every one a value import.
 
 ### A Workers Pool
 
@@ -583,8 +622,10 @@ ts_test(
 ```
 
 `tsconfig` carries over unchanged and means on a node:test target what it means
-above. An alias is type-checking only on either runner; see
-[The test's tsconfig](#the-tests-tsconfig).
+above, but a `paths` alias is type-checking only under node:test: the resolve
+hook below answers a relative specifier and a bare one from the tree, and
+nothing reads the chain's `paths`. Under vitest an alias resolves at run time;
+see [The test's tsconfig](#the-tests-tsconfig).
 
 The package's code runs at its runfiles paths, as under vitest: the launcher
 passes `--preserve-symlinks-main`, and a `node:module` resolve hook it loads

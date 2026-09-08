@@ -1,4 +1,6 @@
-"""ts_test with a tsconfig `paths` alias, as ts_compile takes one."""
+"""ts_test with tsconfig `paths` aliases, as ts_compile takes them: a value
+import through one runs the module the alias named at compile time, compiled.
+"""
 
 # A BUILD file under shared/ would make it a package, and the alias value a
 # path across a package boundary.
@@ -9,8 +11,6 @@
 
 load("//ts:defs.bzl", "ts_test")
 
-# The test imports a type and not a value: oxc leaves a specifier alone, so a
-# value import would reach vitest, which resolves the alias as a package.
 ts_test(
     name = "alias_test",
     srcs = [
@@ -18,5 +18,8 @@ ts_test(
         "shared/value.ts",
     ],
     tsconfig = "tsconfig.aliases.json",
-    deps = ["@npm//:vitest"],  # keep
+    deps = [
+        "//tests/vitest:math",
+        "@npm//:vitest",
+    ],  # keep
 )

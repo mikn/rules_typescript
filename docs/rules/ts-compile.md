@@ -395,10 +395,11 @@ ts_compile(
 ```
 
 The value is read from the directory of the chain file that sets it, which
-`--showConfig` does not print, so tsaction walks the `extends` chain for it. An
-alias is type-checking only: a value import through one needs the module
-reachable at runtime, which a dep on the producing target gives a `ts_test` or
-`ts_binary`.
+`--showConfig` does not print, so tsaction walks the `extends` chain for it. A
+value import through an alias needs the module at runtime, which a dep on the
+producing target gives a `ts_test` or `ts_binary`; a `ts_test` resolves the
+alias to it as the compile did
+([ts-test.md § A `paths` Alias](ts-test.md#a-paths-alias)).
 
 ### ts_config
 

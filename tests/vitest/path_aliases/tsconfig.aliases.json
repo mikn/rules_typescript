@@ -1,7 +1,9 @@
 {
   "compilerOptions": {
     "paths": {
-      "@shared/*": ["./shared/*"]
+      "@shared/*": ["./shared/*"],
+      "@point": ["./shared/value.ts"],
+      "@math": ["../math.ts"]
     }
   }
 }
