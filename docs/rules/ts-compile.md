@@ -141,12 +141,13 @@ first:
    `noEmit: false`, `noEmitOnError`, `outDir` and `declarationDir`; `allowJs`
    when a src is JavaScript; `isolatedDeclarations` under
    `--//ts:declarations=oxc`; `skipLibCheck: false` under `--//ts:lib_check`.
-   `include` is `srcs`; `files`, `exclude` and `references` are `[]`. Two keys
-   are the tsconfig's values rewritten: `paths`, each value from the directory
-   of the chain file that set it and a `bazel-bin` twin beside it, and `types`,
-   each path-shaped entry rebased to the file the sandbox stages (below). A
-   value the tsconfig sets for one of these keys is overridden by `extends`
-   order, not refused.
+   `files` is the srcs the tsconfig's own `include` and `files` name, in the
+   order `--showConfig` reports them, and `include` the srcs it does not;
+   `exclude` and `references` are `[]`. Two keys are the tsconfig's values
+   rewritten: `paths`, each value from the directory of the chain file that set
+   it and a `bazel-bin` twin beside it, and `types`, each path-shaped entry
+   rebased to the file the sandbox stages (below). A value the tsconfig sets
+   for one of these keys is overridden by `extends` order, not refused.
 
 `--showConfig` is run over the chain, not over the user's file alone, so a
 default the baseline supplies reaches oxc as tsgo sees it: oxc transforms with
@@ -460,13 +461,14 @@ gives it.
 
 ### Ambient Precedence
 
-The target's own declarations are root files, listed in `include` ahead of what
-`types` brings in, so where both declare the same `declare module` pattern the
-project's own wins. `tsc` orders them the same way: a `types` entry arrives as a
-type-reference directive, which joins the program after the root files. The
-first declaration of a pattern wins, and a narrower pattern does not change
-that: an earlier `declare module "*.svg"` beats a later
-`declare module "*.icon.svg"` even for `star.icon.svg`.
+The target's own declarations are root files, in the order the tsconfig's
+`include` gives them and ahead of what `types` brings in, so where two declare
+the same `declare module` pattern the one the tsconfig lists first wins, and
+the project's own beats a `types` entry's. `tsc` orders them the same way: a
+`types` entry arrives as a type-reference directive, which joins the program
+after the root files. The first declaration of a pattern wins, and a narrower
+pattern does not change that: an earlier `declare module "*.svg"` beats a
+later `declare module "*.icon.svg"` even for `star.icon.svg`.
 
 To let a package's ambient win instead, drop the project's competing
 declaration.

@@ -28,7 +28,7 @@
         "useDefineForClassFields": false
     },
     "files": [
-        "./src/a.ts"
+        "../../../../pkg/src/a.ts"
     ],
     "include": [
         "src"

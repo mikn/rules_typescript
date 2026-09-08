@@ -88,6 +88,10 @@
         "./tests/compiler_options/path_aliases/*",
         "./bazel-bin/tests/compiler_options/path_aliases/*"
       ],
+      "tests/compiler_options/root_order/*": [
+        "./tests/compiler_options/root_order/*",
+        "./bazel-bin/tests/compiler_options/root_order/*"
+      ],
       "tests/compiler_options/source_maps/*": [
         "./tests/compiler_options/source_maps/*",
         "./bazel-bin/tests/compiler_options/source_maps/*"
@@ -381,6 +385,7 @@
     "tests/compiler_options/path_aliases/app/main.ts",
     "tests/compiler_options/path_aliases/shared/data.json",
     "tests/compiler_options/path_aliases/shared/value.ts",
+    "tests/compiler_options/root_order/src/app.ts",
     "tests/compiler_options/worker/index.ts",
     "tests/vitest/attrs/attrs.test.ts",
     "tests/vitest/attrs/setup.ts",
