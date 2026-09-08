@@ -9,6 +9,7 @@ ERR_MODULE_NOT_FOUND before a single test runs.
 
 load("//ts:defs.bzl", "ts_compile")
 
+# keep
 ts_compile(
     name = "dep_npm_runtime",
     srcs = ["lib.ts"],

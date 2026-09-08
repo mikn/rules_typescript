@@ -8,12 +8,9 @@
     "moduleResolution": "Bundler",
     "noEmit": true,
     "paths": {
-      "eslint-plugin/src": [
-        "./eslint-plugin/src/index"
-      ],
-      "eslint-plugin/src/*": [
-        "./eslint-plugin/src/*",
-        "./bazel-bin/eslint-plugin/src/*"
+      "eslint-plugin/*": [
+        "./eslint-plugin/*",
+        "./bazel-bin/eslint-plugin/*"
       ],
       "packages/nested-shared": [
         "./packages/nested-shared/index"
@@ -326,12 +323,9 @@
         "./tests/vitest/workspace/*",
         "./bazel-bin/tests/vitest/workspace/*"
       ],
-      "tests/worker_types/src": [
-        "./tests/worker_types/src/index"
-      ],
-      "tests/worker_types/src/*": [
-        "./tests/worker_types/src/*",
-        "./bazel-bin/tests/worker_types/src/*"
+      "tests/worker_types/*": [
+        "./tests/worker_types/*",
+        "./bazel-bin/tests/worker_types/*"
       ],
       "tests/workers/*": [
         "./tests/workers/*",
@@ -367,6 +361,15 @@
     "**/e2e",
     "**/examples",
     "**/tests/integration",
+    "eslint-plugin/LICENSE",
+    "eslint-plugin/README.md",
+    "eslint-plugin/docs/rules/require-explicit-types.md",
+    "eslint-plugin/package-lock.json",
+    "eslint-plugin/package.json",
+    "eslint-plugin/src/index.ts",
+    "eslint-plugin/src/rules/__tests__/require-explicit-types.test.ts",
+    "eslint-plugin/src/rules/require-explicit-types.ts",
+    "eslint-plugin/src/utils.ts",
     "tests/compiler_options/ext_helper.ts",
     "tests/compiler_options/ext_main.ts",
     "tests/compiler_options/webworker.ts",
@@ -390,6 +393,9 @@
     "tests/vitest/attrs/attrs.test.ts",
     "tests/vitest/attrs/setup.ts",
     "tests/worker_types/src/index.ts",
+    "tests/worker_types/worker_types_test.go",
+    "tests/worker_types/wrangler.build.jsonc",
+    "tests/worker_types/wrangler.jsonc",
     "tests/workers/src/index.ts",
     "tests/workers/src/worker.test.ts",
     "vite/src/index.ts",

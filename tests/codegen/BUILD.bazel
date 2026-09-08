@@ -71,12 +71,6 @@ ts_compile(
     deps = [":generated_compile"],
 )
 
-ts_compile(
-    name = "codegen",
-    srcs = ["input.ts"],
-    visibility = ["//visibility:public"],
-)
-
 # ── A declaration out, consumed as a dep ──────────────────────────────────────
 # The `wrangler types` shape: `types` names it and the codegen dep stages it.
 sh_binary(

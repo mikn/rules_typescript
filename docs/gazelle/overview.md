@@ -252,7 +252,11 @@ that is not in the checkout is listed by no program, so Gazelle reads the entry
 from the chain itself, resolved against the package's directory as tsc
 resolves it, and writes the codegen into `deps`. Nothing else is written: no
 `types`, no filegroup. The checked-in copy of a declared out goes: a file that
-is both a src and an output of its package is a conflict Bazel rejects.
+is both a src and an output of its package is a conflict Bazel rejects. The
+codegen is named for what it writes, never for its directory: the directory's
+name is the package's `ts_compile`, and a hand-written rule of another kind
+holding that name keeps the merger from writing the compile. The run names
+such a rule; rename it.
 
 ```python
 # workers/proxy/BUILD.bazel -- the ts_codegen is hand-written; Gazelle leaves it
@@ -428,12 +432,17 @@ change nothing. Check without writing anything:
 bazel run //:gazelle -- -mode=diff
 ```
 
-Two things commonly keep that diff non-empty on a hand-written BUILD file, and
-neither is drift:
+Three things commonly keep that diff non-empty on a hand-written BUILD file,
+and none is drift:
 
 - **Gazelle's own rendering.** It writes a one-element list inline
   (`deps = ["//pkg"]`) and names a generated file by its producing label where
   you wrote the filename. Reformat the file to match.
+- **A hand-written rule under a name Gazelle would use.** In a directory that
+  is no package, every rule Gazelle would write is withdrawn under the names it
+  would use -- `<dirbase>`, `<dirbase>_test`, `tsconfig`, `vitest_config` --
+  so a rule of yours under one of them is proposed for deletion on every run.
+  `# keep` above the rule holds it.
 - **A hand-narrowed attribute it merges.** `visibility` is a merged attribute
   and generated rules carry `//visibility:public`, so a target restricted to
   `["//myapp:__subpackages__"]` comes back public on every run. Pin it with

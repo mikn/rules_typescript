@@ -1,9 +1,11 @@
-"""A member whose BUILD file declares no target named after it: a lone
-ts_config. The hub writes a NO TARGET comment and no label for it."""
+"""A member whose program is declarations alone, so its BUILD file declares no
+target named after it: a lone ts_config. The hub writes a NO TARGET comment and
+no label for it."""
 
 load("@rules_typescript//ts:defs.bzl", "ts_config")
 
 ts_config(
     name = "tsconfig",
     src = "tsconfig.json",
+    visibility = ["//visibility:public"],
 )

@@ -2,6 +2,7 @@ load("@rules_typescript//ts:defs.bzl", "ts_compile")
 
 # Viewed by @npm//:nested-shared; the link: path resolves against its importer
 # (tests/npm/nested), not the root.
+# keep
 ts_compile(
     name = "nested-shared",
     srcs = ["index.ts"],

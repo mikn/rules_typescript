@@ -15,10 +15,11 @@ ts_compile(
     srcs = ["worker-configuration.d.ts"],
 )
 
+# keep
 ts_compile(
     name = "worker",
     srcs = ["index.ts"],
-    tsconfig = "tsconfig.worker.json",  # keep
+    tsconfig = "tsconfig.worker.json",
     visibility = ["//visibility:public"],
     deps = [":worker_configuration"],
 )

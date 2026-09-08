@@ -23,6 +23,7 @@ exports_files([
     "wrangler.jsonc",
 ])
 
+# keep
 filegroup(
     name = "vitest_config",
     srcs = ["vitest.config.mjs"],

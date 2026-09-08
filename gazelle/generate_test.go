@@ -243,6 +243,30 @@ ts_test(
 	}
 }
 
+// A rule under # keep in a directory that is no package is the merger's to
+// leave, so the run does not say it is withdrawn.
+func TestGenerate_AKeptRuleInANonPackageIsNotSaidWithdrawn(t *testing.T) {
+	g := generateAll(t, writeTree(t, map[string]string{
+		"package.json": rootManifest,
+		"fixture/a.ts": "export const a = 1;\n",
+		"fixture/BUILD.bazel": loadDefs + `"ts_compile")
+
+# keep
+ts_compile(
+    name = "fixture",
+    srcs = ["a.ts"],
+)
+`,
+	}))
+	if !withdraws(g.results["fixture"], "ts_compile", "fixture") {
+		t.Errorf("fixture does not withdraw its ts_compile; Empty = %v",
+			kindsOf(g.results["fixture"].Empty))
+	}
+	if strings.Contains(g.logged, "fixture/BUILD.bazel") {
+		t.Errorf("the kept rule was said to be withdrawn:\n%s", g.logged)
+	}
+}
+
 // srcs are the program's files wherever they sit plus the tree's other regular
 // files; a deeper package's, an out_dir's and the program's exclusions are not.
 func TestGenerate_SrcsAreTheProgramAndTheTreesOtherFiles(t *testing.T) {
@@ -476,6 +500,35 @@ ts_codegen(
 	wantStrings(t, "ts_test worker_test deps", test.AttrStrings("deps"),
 		[]string{":worker", ":worker_types"})
 	assertNoDanglingLabels(t, root)
+}
+
+// The ts_compile takes the directory's name; a hand-written rule of another
+// kind holding it keeps the merger from writing the compile; the run says so.
+func TestGenerate_AGeneratedNameAHandWrittenRuleHoldsIsSaid(t *testing.T) {
+	g := generateAll(t, writeTree(t, map[string]string{
+		"package.json": rootManifest,
+		"worker/BUILD.bazel": loadDefs + `"ts_codegen")
+
+ts_codegen(
+    name = "worker",
+    srcs = ["wrangler.jsonc"],
+    outs = ["worker-configuration.d.ts"],
+    generator = "//:gen",
+)
+`,
+		"worker/wrangler.jsonc": `{"name":"w"}` + "\n",
+		"worker/tsconfig.json": `{"compilerOptions":{"lib":["es2022"],` +
+			`"types":["./worker-configuration.d.ts"]},` +
+			`"include":["src/**/*"]}` + "\n",
+		"worker/src/index.ts": "export const handler = (env: Env) => " +
+			"env.KV;\n",
+	}))
+	mustRule(t, g.results["worker"], "ts_compile", "worker")
+	for _, want := range []string{"ts_codegen(worker)", "ts_compile"} {
+		if !strings.Contains(g.logged, want) {
+			t.Errorf("the taken name was not said with %q:\n%s", want, g.logged)
+		}
+	}
 }
 
 // A BUILD file an earlier run left inside an out_dir is emptied and named.

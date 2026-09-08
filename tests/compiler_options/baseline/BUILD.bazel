@@ -11,6 +11,7 @@ load("//ts:defs.bzl", "ts_compile", "ts_config")
 
 package(default_visibility = ["//:__pkg__"])
 
+# keep
 ts_config(
     name = "tsconfig",
     src = "baseline.tsconfig.json",

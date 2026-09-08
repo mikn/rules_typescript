@@ -4,6 +4,7 @@ load("@rules_typescript//ts:defs.bzl", "ts_compile")
 
 package(default_visibility = ["//tests/dev_server:__pkg__"])
 
+# keep
 ts_compile(
     name = "lib",
     srcs = ["index.ts"],

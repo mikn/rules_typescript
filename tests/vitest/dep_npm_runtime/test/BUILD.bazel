@@ -3,6 +3,7 @@
 load("//ts:defs.bzl", "ts_test")
 load(":tree_tests.bzl", "runtime_tree_is_the_forest_test")
 
+# keep
 ts_test(
     name = "test_test",
     srcs = ["lib.test.ts"],

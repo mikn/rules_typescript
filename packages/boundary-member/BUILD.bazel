@@ -1,10 +1,20 @@
 """A workspace member entered through `main: src/index.ts`; the hub's view
 names //packages/boundary-member:boundary-member, the package model's place."""
 
-load("@rules_typescript//ts:defs.bzl", "ts_compile")
+load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_config")
 
 ts_compile(
     name = "boundary-member",
-    srcs = ["src/index.ts"],
+    srcs = [
+        "package.json",
+        "src/index.ts",
+    ],
+    tsconfig = ":tsconfig",
+    visibility = ["//visibility:public"],
+)
+
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
     visibility = ["//visibility:public"],
 )

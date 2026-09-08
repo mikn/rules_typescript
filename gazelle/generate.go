@@ -72,7 +72,8 @@ func nonPackageRules(args language.GenerateArgs, tc *tsConfig,
 			res.Imports = append(res.Imports, nil)
 		default:
 			res.Empty = append(res.Empty, r)
-			if ruleExists(args, r.Kind(), r.Name()) {
+			if have := existingRule(args, r.Kind(), r.Name()); have != nil &&
+				!have.ShouldKeep() {
 				held = append(held, r.Kind()+"("+r.Name()+")")
 			}
 		}
@@ -161,8 +162,28 @@ func packageRules(args language.GenerateArgs, tc *tsConfig,
 	} else {
 		withdraw("filegroup", vitestConfigTargetName)
 	}
+	reportTakenNames(args, res.Gen)
 	reportManagedAttrDrops(args, res.Gen)
 	return res
+}
+
+// The merger drops a generated rule whose name a rule of another kind holds
+// without a word, so the run names the rule to rename.
+func reportTakenNames(args language.GenerateArgs, gen []*rule.Rule) {
+	if args.File == nil {
+		return
+	}
+	for _, want := range gen {
+		for _, have := range args.File.Rules {
+			if have.Name() != want.Name() || have.Kind() == want.Kind() {
+				continue
+			}
+			log.Printf("typescript: %s: %s(%s) holds the name Gazelle writes "+
+				"for the %s of %s, so the %s is not written; rename the %s",
+				args.File.Path, have.Kind(), have.Name(), want.Kind(),
+				orRepoRoot(args.Rel), want.Kind(), have.Kind())
+		}
+	}
 }
 
 // packageSrcs is the given repository paths as the package's srcs: relative to
@@ -285,10 +306,6 @@ func tsConfigRule(args language.GenerateArgs, tc *tsConfig) *rule.Rule {
 	}
 	r.SetAttr("visibility", []string{"//visibility:public"})
 	return r
-}
-
-func ruleExists(args language.GenerateArgs, kind, name string) bool {
-	return existingRule(args, kind, name) != nil
 }
 
 func existingRule(args language.GenerateArgs, kind, name string) *rule.Rule {

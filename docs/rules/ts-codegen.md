@@ -267,9 +267,8 @@ this target's `outs` and puts this target, the dep that stages it, in the `deps`
 of every target under that tsconfig. Those targets sit in packages of their own,
 so the `visibility` has to reach them. See
 [a declaration the tsconfig names](../gazelle/overview.md#a-declaration-the-tsconfig-names);
-`//tests/worker_types` is the worked example, and the package's nested editor
-program writes the entry through the `bazel-bin` symlink, so `bazel build` puts
-the declarations where the editor reads them.
+`//tests/worker_types` is the worked example; its codegen is `env_types`, since
+`worker_types` is the directory's name and so the `ts_compile`'s.
 
 ## Placeholders in `args`
 

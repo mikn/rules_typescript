@@ -1,5 +1,6 @@
 load("//ts:defs.bzl", "ts_compile", "ts_test")
 
+# keep
 ts_compile(
     name = "beside",
     srcs = ["vitest.setup.ts"],
@@ -9,12 +10,13 @@ ts_compile(
 
 # The config beside the tests: the root is this package, the setup file its
 # compiled sibling here.
+# keep
 ts_test(
     name = "beside_test",
     srcs = ["beside.test.ts"],
     config = "vitest.config.mjs",
     deps = [
-        ":beside",  # keep
+        ":beside",
         "@npm//:vitest",
     ],
 )

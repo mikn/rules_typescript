@@ -16,12 +16,12 @@ load("//ts:defs.bzl", "ts_test")
 # Compiler options, not data: named by the tsconfig attr.
 # gazelle:exclude tsconfig.vitest.json
 
+# keep
 ts_test(
     name = "attrs_test",
     srcs = [
         "attrs.test.ts",
-        # Declarations only: nothing imports it, so it is not inferable.
-        "globals.d.ts",  # keep
+        "globals.d.ts",
     ],
     config = {"test": {"testTimeout": 20000}},
     coverage_provider = "v8",
@@ -36,8 +36,8 @@ ts_test(
         "setup.ts",
         "globals.d.ts",
     ],
-    tsconfig = "tsconfig.vitest.json",  # keep
-    deps = ["@npm//:vitest"],  # keep
+    tsconfig = "tsconfig.vitest.json",
+    deps = ["@npm//:vitest"],
 )
 
 vitest_config(
