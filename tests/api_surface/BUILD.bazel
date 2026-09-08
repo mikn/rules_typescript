@@ -9,6 +9,15 @@ sh_test(
     data = ["//ts:defs.bzl"],
 )
 
+# The providers, as an exact list, and the fields of TsInfo: what a consumer's
+# program and runtime stage, and the npm packages its forest links.
+sh_test(
+    name = "providers_surface_test",
+    size = "small",
+    srcs = ["providers_surface_test.sh"],
+    data = ["//ts/private:providers.bzl"],
+)
+
 # ts_compile's public attributes, as an exact list: srcs, deps, tsconfig. Every
 # compiler option is the tsconfig's and every emit knob a build flag.
 sh_test(

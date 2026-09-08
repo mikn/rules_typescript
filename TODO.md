@@ -255,7 +255,7 @@ invocation modes, so a bundler is a rule returning the provider.
 **Goal:** `import "./Button.css"` works in compilation, bundling, and dev server. Assets (images, fonts, SVGs) are handled correctly.
 
 ### 3.1 CSS Imports in Compilation
-- [x] `ts_compile` accepts every file in `srcs`; a `.css`, an image or a `.json` is staged beside the `.js` and carried in `JsInfo.transitive_data_files`
+- [x] `ts_compile` accepts every file in `srcs`; a `.css`, an image or a `.json` is staged beside the `.js` and carried in `TsInfo.transitive_data`
 - [ ] Strip CSS import statements from compiled `.js` — the bundler (Vite) handles this at bundle time; for library targets without a bundler, oxc leaves CSS imports in the .js output which may cause runtime errors if executed directly in Node.js without a bundler
 
 ### 3.3 Tailwind CSS
@@ -353,7 +353,7 @@ this is a design question, not a checklist.
 ### 6.4 Conditional Exports
 - [x] Parse `exports` field in package.json
 - [x] Resolve conditional exports (import/require/types/default) correctly
-- [x] Wire resolved entry points into TsDeclarationInfo
+- [x] Wire resolved entry points into the declaration provider (since replaced: tsgo resolves entries through the forest)
 
 ### 6.5 Integrity & Security
 - [ ] Verify SRI hashes for all downloaded packages (fail if missing, with override)

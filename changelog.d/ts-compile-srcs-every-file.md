@@ -4,7 +4,7 @@
   JavaScript nor a declaration is a data file: staged into the output tree
   unchanged at its package-relative path, so the compiled module beside it
   reaches it by the relative path the source used, and carried to consumers as
-  `JsInfo.data_files` and `JsInfo.transitive_data_files`, which `ts_test` stages
+  `TsInfo.data` and `TsInfo.transitive_data`, which `ts_test` stages
   in the runfiles beside the `.js`, `ts_binary` in its runfiles and its bundle
   and `ts_dev_server` in its runfiles. A `.json` src is also a tsgo input:
   an import of it resolves to the file and is typed from its contents under

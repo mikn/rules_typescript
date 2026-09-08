@@ -20,11 +20,10 @@ got="${TEST_TMPDIR}/got"
 
 cat > "${want}" <<'NAMES'
 BundlerInfo
-JsInfo
-TsDeclarationInfo
+DevServerInfo
+TsInfo
 TsLintInfo
 TsTestRunnerInfo
-refresh_workspace_files
 ts_add_package
 ts_binary
 ts_codegen

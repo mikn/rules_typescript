@@ -39,10 +39,9 @@ over the same attributes.
 load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load(
     "//ts/private:providers.bzl",
-    "JsInfo",
     "NpmPackageInfo",
     "TsConfigInfo",
-    "TsDeclarationInfo",
+    "TsInfo",
 )
 load("//ts/private:runtime.bzl", "JS_TOOL_TOOLCHAIN_TYPE")
 load(
@@ -187,15 +186,13 @@ def compile_program(ctx):
 
     The body of ts_compile and of ts_test: one attrs dict, one set of action
     functions. Returns struct(outputs, js, forest, packages, transitive_js,
-    transitive_data, js_info, declaration_info, instrumented, output_groups).
+    transitive_data, info, instrumented, output_groups).
     """
     oxc = get_oxc_toolchain(ctx)
     pkg = ctx.label.package
 
     compile_srcs, js_srcs, passthrough_dts, data_srcs = _classify_srcs(ctx)
 
-    # An npm dep contributes no declaration files: its files reach tsgo through
-    # the forest; a copy at its own exec path would duplicate the module.
     transitive_dts_sets = []
     dep_npm_package_sets = []
     transitive_js_sets = []
@@ -209,22 +206,23 @@ def compile_program(ctx):
     direct_npm_infos = []
     direct_npm_names = {}
 
+    # A dep linked in the forest reaches the program and the runtime there; a
+    # copy of its files at their exec paths would duplicate every module.
     for dep in ctx.attr.deps:
+        info = dep[TsInfo]
+        dep_npm_package_sets.append(info.npm_packages)
         if NpmPackageInfo in dep:
             npm_info = dep[NpmPackageInfo]
             direct_npm_infos.append(npm_info)
             direct_npm_names[npm_info.package_name] = True
-        elif TsDeclarationInfo in dep:
-            info = dep[TsDeclarationInfo]
-            transitive_dts_sets.append(info.transitive_declaration_files)
-            dep_npm_package_sets.append(info.transitive_npm_packages)
-            direct_provided_sets.append(info.declaration_files)
-        if JsInfo in dep:
-            transitive_js_sets.append(dep[JsInfo].transitive_js_files)
-            transitive_js_map_sets.append(dep[JsInfo].transitive_js_map_files)
-            transitive_data_sets.append(dep[JsInfo].transitive_data_files)
-            direct_provided_sets.append(dep[JsInfo].js_files)
-            direct_provided_sets.append(dep[JsInfo].data_files)
+            continue
+        transitive_dts_sets.append(info.transitive_declarations)
+        transitive_js_sets.append(info.transitive_js)
+        transitive_js_map_sets.append(info.transitive_js_maps)
+        transitive_data_sets.append(info.transitive_data)
+        direct_provided_sets.append(info.declarations)
+        direct_provided_sets.append(info.js)
+        direct_provided_sets.append(info.data)
 
     packages = forest_packages(direct_npm_infos, dep_npm_package_sets)
 
@@ -496,27 +494,19 @@ def compile_program(ctx):
         order = "postorder",
     )
 
-    js_info = JsInfo(
-        js_files = direct_js,
-        js_map_files = direct_js_map,
-        transitive_js_files = transitive_js,
-        transitive_js_map_files = transitive_js_map,
-        data_files = depset(data_staged, order = "postorder"),
-        transitive_data_files = transitive_data,
-        source_files = depset(
-            compile_srcs + passthrough_dts,
-            order = "postorder",
-        ),
-    )
-    declaration_info = TsDeclarationInfo(
-        declaration_files = direct_dts,
-        transitive_declaration_files = transitive_dts,
-        transitive_npm_packages = depset(
+    info = TsInfo(
+        js = direct_js,
+        js_maps = direct_js_map,
+        declarations = direct_dts,
+        data = depset(data_staged, order = "postorder"),
+        sources = depset(compile_srcs + passthrough_dts, order = "postorder"),
+        transitive_js = transitive_js,
+        transitive_js_maps = transitive_js_map,
+        transitive_declarations = transitive_dts,
+        transitive_data = transitive_data,
+        npm_packages = depset(
             direct_npm_infos,
-            transitive = [
-                info.transitive_deps
-                for info in direct_npm_infos
-            ] + dep_npm_package_sets,
+            transitive = dep_npm_package_sets,
             order = "postorder",
         ),
     )
@@ -544,8 +534,7 @@ def compile_program(ctx):
         packages = packages,
         transitive_js = transitive_js,
         transitive_data = transitive_data,
-        js_info = js_info,
-        declaration_info = declaration_info,
+        info = info,
         # The runner reports on the compiled .js; a baseline naming the .ts
         # would be a second name for the same code, with no lines at all.
         instrumented = coverage_common.instrumented_files_info(
@@ -561,12 +550,10 @@ def compile_program(ctx):
 def _ts_compile_impl(ctx):
     program = compile_program(ctx)
 
-    # This target's own outputs. A dep's files reach a consumer through the
-    # provider that describes them, not through this one.
+    # This target's own outputs; a dep's reach a consumer through TsInfo.
     providers = [
         DefaultInfo(files = depset(program.outputs)),
-        program.js_info,
-        program.declaration_info,
+        program.info,
         program.instrumented,
     ]
     if program.output_groups:
@@ -603,7 +590,7 @@ TS_COMPILE_ATTRS = {
 anything else   staged into the output tree unchanged at its package-relative
                 path, so the compiled module beside it reaches it by the same
                 relative path at run time; never a tsgo input. A consumer gets
-                the closure as JsInfo.transitive_data_files. A .mts or .cts is
+                the closure as TsInfo.transitive_data. A .mts or .cts is
                 refused: the rule emits .js and .d.ts from .ts alone.
 
 Paths are kept relative to the target's package, so srcs may span a subtree.
@@ -613,13 +600,13 @@ Paths are kept relative to the target's package, so srcs may span a subtree.
     ),
     "deps": attr.label_list(
         doc = """What this target imports: ts_compile, ts_codegen or
-ts_npm_package targets.
+ts_npm_package targets, each providing TsInfo.
 
 An npm dep reaches tsgo through the node_modules forest, under its package name;
 a first-party dep through its declarations, staged under bazel-bin at the paths
 the tsconfig's `paths` and their bin-dir twins reach, or through a relative
 import; a workspace member through the hub's view of it, `@npm//:<name>`.""",
-        providers = [[TsDeclarationInfo, JsInfo]],
+        providers = [TsInfo],
     ),
     "tsconfig": attr.label(
         doc = """The project's own tsconfig.json: where every compiler option

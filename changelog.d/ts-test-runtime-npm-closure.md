@@ -10,8 +10,7 @@
   red on `web-auth-library`, `@lovable/custom-domain-utils` and
   `@flarelabs-net/workers-observability-utils/metrics`, all three declared by
   `//workers/entri-webhook/src` alone. The tree now follows the closure
-  `TsDeclarationInfo.transitive_npm_packages` already carries for the type-check
-  forest: the
+  `TsInfo.npm_packages` already carries for the type-check forest: the
   test's own npm deps first, then each other dep's closure, one entry per
   resolution, and the test's own dep stays the resolution that sits flat where
   a name resolved more than one way.

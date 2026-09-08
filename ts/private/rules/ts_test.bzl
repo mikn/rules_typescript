@@ -13,7 +13,7 @@ load(
     "declare_launcher",
     "rlocation_path",
 )
-load("//ts/private:providers.bzl", "JsInfo", "TsTestRunnerInfo")
+load("//ts/private:providers.bzl", "TsInfo", "TsTestRunnerInfo")
 load(
     "//ts/private:runtime.bzl",
     "JS_RUNTIME_TOOLCHAIN_TYPE",
@@ -51,9 +51,9 @@ def _same_package(a, b):
 # Another package's files reach a test through `data`.
 def _package_sources(ctx):
     return [
-        dep[JsInfo].source_files
+        dep[TsInfo].sources
         for dep in ctx.attr.deps
-        if JsInfo in dep and _same_package(dep.label, ctx.label)
+        if _same_package(dep.label, ctx.label)
     ]
 
 def _ts_test_impl(ctx):

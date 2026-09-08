@@ -18,7 +18,7 @@ Generated config (BundlerInfo.use_generated_config = True):
   the entry and outDir back from VITE_ENTRY_PATH and VITE_OUT_DIR and rebuilds
   every path from EXEC_ROOT, so the binary sets those three before running
   Vite. A data src reaches the bundler the same way the .js does -- through the
-  entry point's JsInfo.transitive_data_files.
+  entry point's TsInfo.transitive_data.
   Outputs follow Vite's lib-mode names:
     <bundle_name>.es.js     (for format=esm)
     <bundle_name>.cjs.js    (for format=cjs)
@@ -122,33 +122,36 @@ def _generate_vite_config(ctx, bundle_filename, transitive_js_files):
         "});\n"
     )
 
-def create_bundle_action(ctx, entry_js_info, bundle_filename):
+def create_bundle_action(ctx, entry, bundle_filename):
     """Runs ctx.attr.bundler over the entry point's .js graph.
 
     Args:
         ctx: The rule context. Carries entry_point, bundler, format, sourcemap,
              external and define.
-        entry_js_info: JsInfo from the entry_point target.
+        entry: TsInfo from the entry_point target.
         bundle_filename: Filename stem (without .js extension) for the bundle.
 
     Returns:
         struct(bundle_out = File, outputs = list of File): the bundle and every
         declared output beside it.
     """
-    all_js = entry_js_info.transitive_js_files
-    all_js_maps = entry_js_info.transitive_js_map_files
+    all_js = entry.transitive_js
+    all_js_maps = entry.transitive_js_maps
 
     # Every non-JS file the entry graph imports has to be in the sandbox, or
     # Vite resolves a relative import onto a bazel-bin path holding nothing.
-    non_js_inputs = [entry_js_info.transitive_data_files]
+    non_js_inputs = [entry.transitive_data]
 
     bundler_info = ctx.attr.bundler[BundlerInfo]
 
-    entry_js_files = entry_js_info.js_files.to_list()
+    entry_js_files = entry.js.to_list()
     if not entry_js_files:
         fail(
-            "ts_binary: entry_point '{ep}' provides JsInfo but has no direct .js outputs.\n".format(ep = ctx.attr.entry_point.label) +
-            "Ensure the ts_compile target at entry_point has at least one .ts source file in srcs.",
+            ("ts_binary: entry_point '{}' provides TsInfo but has no direct " +
+             ".js outputs.\nEnsure the ts_compile target at entry_point has " +
+             "at least one .ts source file in srcs.").format(
+                ctx.attr.entry_point.label,
+            ),
         )
     if len(entry_js_files) != 1:
         fail(

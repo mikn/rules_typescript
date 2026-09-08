@@ -93,7 +93,7 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 - `ts/tools/tsaction/` — the Go runner behind the actions: `tsconfig` writes the action config from `tsgo --showConfig`, `oxc` relays the options to oxc, `tsgo` lays out the program root and runs tsgo from it
 - `ts/tools/tsconfig/`, `ts/tools/jsonc/` — the tsconfig `extends` chain reader and the JSONC parser, shared by tsaction and Gazelle
 - `ts/private/node_modules.bzl` — the `node_modules` tree builder; `ts_compile`'s forest and `ts_test`'s runtime tree
-- `ts/private/providers.bzl` — JsInfo, TsDeclarationInfo, TsConfigInfo, NpmPackageInfo, DevServerInfo, BundlerInfo
+- `ts/private/providers.bzl` — TsInfo, TsTestRunnerInfo, TsConfigInfo, NpmPackageInfo, DevServerInfo, BundlerInfo
 - `npm/private/npm_translate_lock.bzl` — pnpm lockfile reader (parsing only; no repository rule)
 - `npm/extensions.bzl` — the `npm` module extension (translate_lock, pnpm tags)
 - `npm/lazy.bzl` — whole-graph analysis + one `npm_import` per package + the alias hub
@@ -156,8 +156,7 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
   and its deps come from the listing's edges, the lockfile and the nearest
   `package.json`
 - A `ts_test` runs in the forest its `deps` build: the npm deps in `deps` and
-  each `ts_compile` dep's npm closure
-  (`TsDeclarationInfo.transitive_npm_packages`)
+  each `ts_compile` dep's npm closure (`TsInfo.npm_packages`)
 - Register new rules in `Kinds()` + `Loads()`
 - `bazel run //gazelle -- -mode=diff` on a clean tree must print nothing. A
   fixture that differs only in Gazelle's own rendering (a one-element list
@@ -191,19 +190,19 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 
 ## Provider Contract
 
-Every `ts_compile` target provides: `JsInfo` + `TsDeclarationInfo` +
-`InstrumentedFilesInfo` + `OutputGroupInfo(_validation)`; a `ts_test` runs the
-same actions over its srcs and provides the last two. `_validation` is only
+Every `ts_compile` target provides: `TsInfo` + `InstrumentedFilesInfo` +
+`OutputGroupInfo(_validation)`; a `ts_test` runs the same actions over its
+srcs and provides the last two. `_validation` is only
 populated under
 `--//ts:declarations=oxc`; under the default the declarations are the proof.
 A `ts_compile` with any `deps` additionally exposes the strict-deps stamp: in
 `OutputGroupInfo(strict_deps = ...)` always, and as an input to the compile
 actions, so a violation fails the build and not only `--output_groups`.
-Every `ts_npm_package` provides: `JsInfo` + `TsDeclarationInfo` +
-`NpmPackageInfo` (whose `direct_deps` carries the per-dependent resolution the
-`node_modules` links are built from).
+Every `ts_npm_package` provides: `TsInfo`, naming its closure in
+`npm_packages` and nothing by path, + `NpmPackageInfo` (whose `direct_deps`
+carries the per-dependent resolution the `node_modules` links are built from).
 A data src of a `ts_compile` -- a `.css`, an image, a `.json` -- travels in
-`JsInfo.transitive_data_files`, which `ts_test`, `ts_binary` and
+`TsInfo.transitive_data`, which `ts_test`, `ts_binary` and
 `ts_dev_server` stage beside the `.js`; a `*.module.css` is Vite's own CSS
 modules wherever Vite runs it.
 

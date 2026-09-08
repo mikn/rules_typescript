@@ -679,8 +679,8 @@ label to add. See
 [Deps have to be direct](ts-compile.md#deps-have-to-be-direct).
 
 A `ts_compile` dep brings its npm closure into the forest: its
-compiled JS value-imports the packages it declared, and `TsDeclarationInfo`
-carries that closure (`transitive_npm_packages`) beside the declarations, so a
+compiled JS value-imports the packages it declared, and `TsInfo`
+carries that closure (`npm_packages`) beside the declarations, so a
 test in one package runs production code from another without repeating its npm
 deps. `deps` lists what the test files import; where the closure resolves a name
 more than one way, the test's own dep is the resolution that sits flat.

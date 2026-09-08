@@ -12,11 +12,10 @@
   `public_globals`, `untyped_packages`. `ts_test` loses the same compile-side
   parameters and keeps `tsconfig`; the test's tsconfig names `vitest/globals`
   in `types`.
-  `ts_codegen` loses `module_name`; an `outs` codegen provides `JsInfo` and
-  `TsDeclarationInfo` over its outs, so a generated `.d.ts` is a dep whose
-  consumer names it in `types`. `TsModuleInfo` and
-  `TsDeclarationInfo.global_entry_files` are gone; `ts_dev_server` writes no
-  `resolve.alias` for a first-party package.
+  `ts_codegen` loses `module_name`; an `outs` codegen provides `TsInfo` over
+  its outs, so a generated `.d.ts` is a dep whose consumer names it in `types`.
+  `TsModuleInfo` and the declaration provider's `global_entry_files` are gone;
+  `ts_dev_server` writes no `resolve.alias` for a first-party package.
 
   Migration: move each option into the package's tsconfig (`compilerOptions`
   `target`, `jsx`, `jsxImportSource`, `lib`, `types`, `paths`, `checkJs`,

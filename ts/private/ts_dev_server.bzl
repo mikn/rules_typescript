@@ -133,11 +133,9 @@ Usage:
 """
 
 load("//tools/launcher:launcher.bzl", "LAUNCHER_ATTRS", "declare_launcher", "rlocation_path")
-load("//ts/private:providers.bzl", "BundlerInfo", "DevServerInfo", "JsInfo")
+load("//ts/private:providers.bzl", "DevServerInfo", "TsInfo")
 load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "get_js_runtime")
 load("//ts/private:vite_config.bzl", "LOAD_USER_CONFIG_JS", "VITE_CONFIG_EXTENSIONS", "VITE_CONFIG_SRCS_DOC", "stage_vite_config")
-
-# ─── Config generation ─────────────────────────────────────────────────────────
 
 def _bin_relative(f):
     """The path of a generated file relative to the bazel-bin symlink."""
@@ -486,8 +484,6 @@ def _generate_dev_config(
     )
     return config_file
 
-# ─── Rule implementation ───────────────────────────────────────────────────────
-
 # The config the generator writes sets these, and each is only reached through
 # the attr named beside it. A server that does not read one is only a problem for
 # a target that asked for it, so the check is per-attr rather than per-field.
@@ -554,38 +550,8 @@ def _resolve_server(ctx):
     return server_info
 
 def _ts_dev_server_impl(ctx):
-    entry_point = ctx.attr.entry_point
-    if JsInfo not in entry_point:
-        fail(
-            "ts_dev_server: entry_point '{}' does not provide JsInfo.\n".format(
-                ctx.attr.entry_point.label,
-            ) +
-            "The entry_point attr must be a ts_compile target (or any target that provides JsInfo).\n" +
-            "Did you mean: entry_point = \"//path/to:your_ts_compile_target\"?",
-        )
-
-    entry_js_info = entry_point[JsInfo]
+    entry = ctx.attr.entry_point[TsInfo]
     server_info = _resolve_server(ctx)
-
-    # ── BundlerInfo (optional) ──────────────────────────────────────────────
-    # When a `bundler` attr is provided, its BundlerInfo is collected and the
-    # bundler's runtime_deps are added to the runfiles.  The launcher still runs
-    # the Vite CLI from the node_modules tree, but the bundler's binary reaches
-    # the launcher config as BUNDLER_BINARY so that a non-Vite dev server can be
-    # invoked in the future.
-    bundler_info = None
-    bundler_runtime_files = depset()
-    if ctx.attr.bundler:
-        if BundlerInfo not in ctx.attr.bundler:
-            fail(
-                "ts_dev_server: bundler '{}' does not provide BundlerInfo.\n".format(
-                    ctx.attr.bundler.label,
-                ) +
-                "The bundler attr must be a target that provides BundlerInfo.\n" +
-                "Did you mean to drop the attr? The default Vite dev server needs none.",
-            )
-        bundler_info = ctx.attr.bundler[BundlerInfo]
-        bundler_runtime_files = bundler_info.runtime_deps
 
     js_runtime = get_js_runtime(ctx)
     if not js_runtime:
@@ -599,19 +565,16 @@ def _ts_dev_server_impl(ctx):
     runtime_binary = js_runtime.runtime_binary
     runtime_args = js_runtime.args_prefix
 
-    # ── node_modules ───────────────────────────────────────────────────────────
     node_modules_files = ctx.files.node_modules
     node_modules_rl = ""
     if node_modules_files:
         node_modules_rl = rlocation_path(ctx, node_modules_files[0])
 
-    # ── vite-plugin-bazel (optional) ───────────────────────────────────────────
     plugin_files = ctx.files.plugin
     plugin_rl = ""
     if plugin_files:
         plugin_rl = rlocation_path(ctx, plugin_files[0])
 
-    # ── User-supplied vite_config (optional) ────────────────────────────────────
     # A copy in bin, not the source file: Node resolves the runfiles symlink
     # before that file's own imports, which would then leave the Bazel tree.
     staged_config = stage_vite_config(
@@ -623,7 +586,6 @@ def _ts_dev_server_impl(ctx):
     user_config = staged_config.entry
     user_config_rl = rlocation_path(ctx, user_config) if user_config else ""
 
-    # ── Generate the vite.config.mjs ───────────────────────────────────────────
     react_refresh = ctx.attr.react_refresh
     server_binary_rl = ""
     if server_info.server_binary:
@@ -638,7 +600,6 @@ def _ts_dev_server_impl(ctx):
         user_config_rl,
     )
 
-    # ── Launcher config ────────────────────────────────────────────────────────
     # A server inside the npm tree is a path, not a File: an individual file
     # inside a TreeArtifact has no label at analysis time, so the launcher joins
     # it onto the resolved tree. A native server is a File and needs neither.
@@ -662,10 +623,6 @@ def _ts_dev_server_impl(ctx):
     if user_config:
         dev_server["user_config"] = user_config_rl
 
-    # A non-Vite dev server is invoked from a wrapper that reads BUNDLER_BINARY.
-    if bundler_info:
-        dev_server["bundler_binary"] = rlocation_path(ctx, bundler_info.bundler_binary)
-
     launcher = declare_launcher(ctx, {
         "label": str(ctx.label),
         "mode": "devserver",
@@ -675,32 +632,26 @@ def _ts_dev_server_impl(ctx):
         "dev_server": dev_server,
     })
 
-    # ── Runfiles ───────────────────────────────────────────────────────────────
-    # Data srcs as well as JS: a generated one has no copy in the source tree.
-    non_js_files = [entry_js_info.transitive_data_files]
-
     explicit_runfiles = [config_file, runtime_binary] + launcher.files
     explicit_runfiles.extend(node_modules_files)
     explicit_runfiles.extend(plugin_files)
     explicit_runfiles.extend(staged_config.files)
-    if bundler_info:
-        explicit_runfiles.append(bundler_info.bundler_binary)
 
+    # Data srcs as well as JS: a generated one has no copy in the source tree.
     runfiles = ctx.runfiles(
         files = explicit_runfiles,
         root_symlinks = launcher.root_symlinks,
         transitive_files = depset(
             [runtime_binary],
             transitive = [
-                entry_js_info.transitive_js_files,
-                entry_js_info.transitive_js_map_files,
-                bundler_runtime_files,
+                entry.transitive_js,
+                entry.transitive_js_maps,
+                entry.transitive_data,
                 server_info.runtime_deps,
-            ] + non_js_files,
+            ],
         ),
     )
 
-    # ── Providers ──────────────────────────────────────────────────────────────
     return [
         DefaultInfo(
             executable = launcher.executable,
@@ -708,8 +659,6 @@ def _ts_dev_server_impl(ctx):
             runfiles = runfiles,
         ),
     ]
-
-# ─── Rule declaration ──────────────────────────────────────────────────────────
 
 ts_dev_server = rule(
     implementation = _ts_dev_server_impl,
@@ -719,9 +668,8 @@ ts_dev_server = rule(
     ],
     attrs = LAUNCHER_ATTRS | {
         "entry_point": attr.label(
-            doc = "The ts_compile target that is the application entry point. " +
-                  "Must provide JsInfo.",
-            providers = [JsInfo],
+            doc = "The ts_compile target that is the application entry point.",
+            providers = [TsInfo],
             mandatory = True,
         ),
         "node_modules": attr.label(
@@ -753,14 +701,6 @@ ts_dev_server = rule(
         "open": attr.bool(
             doc = "Whether to open the browser automatically when the dev server starts.",
             default = False,
-        ),
-        "bundler": attr.label(
-            doc = "Optional bundler target providing BundlerInfo. " +
-                  "When set, the bundler's binary and runtime_deps are included in the runfiles " +
-                  "tree so that a custom dev server (non-Vite) can be invoked. " +
-                  "The default Vite-based dev server does not require this attr — Vite is " +
-                  "resolved from the node_modules tree.",
-            providers = [BundlerInfo],
         ),
         "server": attr.label(
             doc = "Which dev server implementation serves this target, as a " +
@@ -907,18 +847,5 @@ Example (with React Fast Refresh — preserves component state across HMR):
         port = 5173,
     )
 
-Example (with explicit bundler wiring via BundlerInfo):
-
-    ts_dev_server(
-        name = "dev",
-        entry_point = ":app",
-        node_modules = ":node_modules",
-        bundler = ":bundler",
-        port = 5173,
-    )
-
-The bundler attr is optional and exists to allow custom dev server implementations.
-When set, the bundler's binary is available in runfiles as $BUNDLER_BINARY.
-The default workflow (Vite from node_modules) does not require the bundler attr.
 """,
 )

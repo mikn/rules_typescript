@@ -8,4 +8,4 @@
   import.meta.url))`) finds it where the checkout has it; another package's
   files reach a test through `data`. The compiled program is what runs: a
   `setupFiles` entry naming a source runs the compiled sibling a dep staged,
-  whether or not the source is beside it. `JsInfo` gains `source_files`.
+  whether or not the source is beside it. `TsInfo.sources` carries them.

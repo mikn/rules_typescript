@@ -13,6 +13,12 @@ exports_files([
     "wrangler_test_config.mjs",
 ])
 
+# //tests/api_surface:providers_surface_test reads the providers out of it.
+exports_files(
+    ["providers.bzl"],
+    visibility = ["//tests/api_surface:__pkg__"],
+)
+
 bzl_library(
     name = "providers",
     srcs = ["providers.bzl"],

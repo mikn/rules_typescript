@@ -70,7 +70,7 @@ ts_binary(
 The entry point has to produce exactly one `.js`: a `ts_compile` with a single
 source file. A `.css`, a `*.module.css`, an image or any other data src in a
 `ts_compile`'s `srcs` reaches the bundler through its
-`JsInfo.transitive_data_files`, so every non-JS file the graph imports is in the
+`TsInfo.transitive_data`, so every non-JS file the graph imports is in the
 sandbox beside the compiled `.js` that imports it.
 
 ### BundlerInfo Invocation Modes
@@ -139,7 +139,7 @@ modules.
 
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `entry_point` | `label` | required | `ts_compile` target providing `JsInfo` |
+| `entry_point` | `label` | required | `ts_compile` target providing `TsInfo` |
 | `bundler` | `label` | `None` | Target providing `BundlerInfo` |
 | `bundle_name` | `string` | rule name | Output file name (without `.js`) |
 | `format` | `string` | `"esm"` | Output format: `esm`, `cjs`, `iife` |

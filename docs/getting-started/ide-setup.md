@@ -55,8 +55,8 @@ That writes, into the source tree:
 | `.bazel/tsserver-hook-resolver.js` | The map builder both front-ends share |
 | `.bazel/tsserver-hook-worker.js` | Its background worker |
 
-The target is a [`refresh_workspace_files`](../rules/ts-codegen.md#checking-the-output-in)
-over those files, so it runs only under `bazel run`.
+The target copies those files into the source tree, so it runs only under
+`bazel run`.
 
 `tsconfig` (default `"tsconfig.json"`) is where the generated config lands.
 

@@ -72,7 +72,7 @@ through a Starlark transition; `tests/flags.bzl` is the ruleset's own.
   same relative path at run time -- `import data from "./data.json"`,
   `import "./styles.css"`, `new URL("./logo.svg", import.meta.url)`, a
   `readFileSync` of a fixture. A consumer gets the closure as
-  `JsInfo.transitive_data_files`; `ts_test` stages it in the runfiles beside
+  `TsInfo.transitive_data`; `ts_test` stages it in the runfiles beside
   the `.js`, `ts_binary` in its runfiles and its bundle, `ts_dev_server` in
   its runfiles. What the import of a data file is typed as is the tsconfig's
   to say: `vite/client` in `types`, or a `declare module "*.svg"` in a
@@ -288,7 +288,7 @@ npm packages reach tsgo the way they reach node: through a `node_modules` tree.
 Every target with a program builds one, the tree artifact `<name>/node_modules`,
 with [`node_modules`](node-modules.md)'s builder over the target's npm deps,
 their closures, the `@types/*` package paired with each, and the npm closure of
-every first-party dep (`TsDeclarationInfo.transitive_npm_packages`): a dep's
+every first-party dep (`TsInfo.npm_packages`): a dep's
 emitted `.d.ts` imports the packages the dep declared, and they resolve in this
 program by the same walk. The tree has one entry per resolution, the target's
 own deps flat, so a name the closure resolves twice is answered for this target
@@ -302,7 +302,7 @@ there. A bare specifier, an `exports` condition, a subpath, a `@types/*` pairing
 and a `types` entry resolve as tsc resolves them over a pnpm install, and a
 declaration tsgo emits names a package the way that package's `exports` allow.
 npm deps contribute no other input: a `ts_compile`'s
-`transitive_declaration_files` holds first-party declarations alone, and a
+`transitive_declarations` holds first-party declarations alone, and a
 package's file sits under `node_modules/<name>/`, the segment TypeScript reads to
 take it for a library file, type-checked and never emitted.
 
@@ -624,16 +624,15 @@ deeper ones.
 
 ## Providers
 
-Fields for both, and the load path, are in
+The fields, and the load path, are in
 [Providers and Toolchains](providers.md).
 
-- **`JsInfo`**: this target's `.js` and `.js.map` files as direct depsets, and
-  the closure of both as transitive ones; `ts_binary` reads the transitive `.js`
-  set. Its data srcs are `data_files`, the closure's `transitive_data_files`:
-  what `ts_test`, `ts_binary` and `ts_dev_server` stage beside the `.js`
-- **`TsDeclarationInfo`**: this target's declarations and their first-party
-  closure, plus the npm packages that closure imports; a downstream `ts_compile`
-  type-checks against the closure and links the packages into its forest
+- **`TsInfo`**: this target's `.js`, `.js.map`, declarations and data srcs as
+  direct depsets and the closure of each over its first-party deps as
+  transitive ones, plus the npm packages that closure imports. `ts_binary` reads
+  the transitive `.js` set; `ts_test`, `ts_binary` and `ts_dev_server` stage
+  `transitive_data` beside the `.js`; a downstream `ts_compile` type-checks
+  against `transitive_declarations` and links `npm_packages` into its forest
 - **`OutputGroupInfo(tsconfig=...)`**: the tsconfig this target handed the
   compiler, on any target with a program
 - **`OutputGroupInfo(_validation=...)`**: the tsgo check stamp, written only

@@ -281,7 +281,7 @@ bazel test //...
    ### Added
 
    - **`ts_binary` takes a plain JavaScript file as its `entry_point`.** The
-     attr is polymorphic: a target providing `JsInfo` behaves exactly as before.
+     attr is polymorphic: a target providing `TsInfo` behaves exactly as before.
    EOF
 
    bazel run //tools/changelog   # prints the section as it will read

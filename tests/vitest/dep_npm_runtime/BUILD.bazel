@@ -2,7 +2,7 @@
 
 lib.ts value-imports zod at module scope, and the test in test/ depends on this
 target without declaring zod. The compiled lib.js is in the test's runfiles
-through JsInfo; the package it imports has to be in the node_modules tree the
+through TsInfo; the package it imports has to be in the node_modules tree the
 test resolves against, or every suite importing the lib fails to load with
 ERR_MODULE_NOT_FOUND before a single test runs.
 """

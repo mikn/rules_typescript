@@ -138,11 +138,11 @@ move.
 Breaks get a changelog entry with the required edit.
 
 - `ts_compile`, `ts_test`, `ts_binary`, `ts_config`,
-  `node_modules`, `ts_refresh_tsconfig` and `refresh_workspace_files` rules and
-  their documented attributes
+  `node_modules` and `ts_refresh_tsconfig` rules and their documented
+  attributes
 - The `ts_pnpm` and `ts_add_package` macros, written by hand into the root
   `BUILD.bazel` beside a lockfile; Gazelle writes neither
-- `JsInfo`, `TsDeclarationInfo`, `BundlerInfo`, `TsLintInfo` providers
+- `TsInfo`, `BundlerInfo`, `TsTestRunnerInfo`, `TsLintInfo` providers
 - The `npm` module extension (`npm.translate_lock`, `npm.pnpm`) and the `@npm`
   label surface (`@npm//:zod`, `@npm//:types_react`, `@npm//:vitest_bin`)
 - The `ts` module extension (`ts.tsgo`)

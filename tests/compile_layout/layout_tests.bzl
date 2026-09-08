@@ -7,7 +7,7 @@ be the package, not the directory of whichever src sorted first.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
-load("//ts:defs.bzl", "JsInfo")
+load("//ts:defs.bzl", "TsInfo")
 
 _PKG = "tests/compile_layout"
 
@@ -115,21 +115,21 @@ def _data_srcs_impl(ctx):
         "every file in DefaultInfo is staged under bazel-bin",
     )
 
-    js = target[JsInfo]
+    info = target[TsInfo]
     asserts.equals(
         env,
         _DATA_SRCS,
-        sorted([_package_relative(f) for f in js.data_files.to_list()]),
-        "JsInfo.data_files",
+        sorted([_package_relative(f) for f in info.data.to_list()]),
+        "TsInfo.data",
     )
     asserts.equals(
         env,
         _DATA_SRCS,
         sorted([
             _package_relative(f)
-            for f in js.transitive_data_files.to_list()
+            for f in info.transitive_data.to_list()
         ]),
-        "JsInfo.transitive_data_files on a target without deps",
+        "TsInfo.transitive_data on a target without deps",
     )
 
     # The JSON srcs are tsgo inputs -- an import resolves to data.json, and the
@@ -164,11 +164,11 @@ data_srcs_test = analysistest.make(_data_srcs_impl)
 
 def _transitive_data_impl(ctx):
     env = analysistest.begin(ctx)
-    js = analysistest.target_under_test(env)[JsInfo]
+    info = analysistest.target_under_test(env)[TsInfo]
     asserts.equals(
         env,
         [],
-        js.data_files.to_list(),
+        info.data.to_list(),
         "a consumer stages no data of its own",
     )
     asserts.equals(
@@ -176,9 +176,9 @@ def _transitive_data_impl(ctx):
         _DATA_SRCS,
         sorted([
             _package_relative(f)
-            for f in js.transitive_data_files.to_list()
+            for f in info.transitive_data.to_list()
         ]),
-        "JsInfo.transitive_data_files carries the dep's data srcs",
+        "TsInfo.transitive_data carries the dep's data srcs",
     )
     return analysistest.end(env)
 

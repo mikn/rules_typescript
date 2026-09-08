@@ -6,8 +6,8 @@ resolves it before any rule implementation runs, so `@npm//:shared` would reach 
 consumer as the aliased target itself and the only record that the member is
 imported as `shared` would be the alias label, which nothing can read.
 
-This rule is that alias with the name attached. It forwards the member's
-providers unchanged and describes the member as an npm package, so that the
+This rule is that alias with the name attached. It forwards the member's TsInfo
+unchanged and describes the member as an npm package, so that the
 type-check forest and the runtime tree link it at `node_modules/<name>`: the
 member's package.json as built beside the member's `.js` and `.d.ts`, at the
 paths the manifest names, and its data srcs at their package-relative paths,
@@ -28,46 +28,35 @@ Two fields of NpmPackageInfo that assume an extracted tarball say otherwise:
 load("//npm/private:member_manifest.bzl", "member_manifest_json")
 load(
     "//ts/private:providers.bzl",
-    "JsInfo",
     "NpmPackageInfo",
     "TsConfigInfo",
-    "TsDeclarationInfo",
+    "TsInfo",
 )
-
-_FORWARDED = [JsInfo, TsDeclarationInfo]
 
 # A `link:` records no version -- pnpm resolves a member by path. The tree needs
 # one only to tell two resolutions of a name apart, and a member has exactly one.
 _WORKSPACE_VERSION = "0.0.0"
 
 _WorkspaceNpmDeps = provider(
-    doc = "The npm packages a workspace member's own dependency graph reaches.",
+    doc = "The npm packages a workspace member depends on directly.",
     fields = {
-        "direct": "list of NpmPackageInfo: the npm packages this target depends on directly.",
-        "closure": "depset of NpmPackageInfo: those, plus every npm package reachable through them.",
+        "direct": "list of NpmPackageInfo: the npm packages this target " +
+                  "depends on directly.",
     },
 )
 
 def _workspace_npm_deps_impl(target, ctx):
-    if NpmPackageInfo in target:
-        return []
-
-    direct = []
-    transitive = []
-    for dep in getattr(ctx.rule.attr, "deps", []):
-        if NpmPackageInfo in dep:
-            direct.append(dep[NpmPackageInfo])
-            transitive.append(dep[NpmPackageInfo].transitive_deps)
-        elif _WorkspaceNpmDeps in dep:
-            transitive.append(dep[_WorkspaceNpmDeps].closure)
-    return [_WorkspaceNpmDeps(direct = direct, closure = depset(direct, transitive = transitive))]
+    return [_WorkspaceNpmDeps(direct = [
+        dep[NpmPackageInfo]
+        for dep in getattr(ctx.rule.attr, "deps", [])
+        if NpmPackageInfo in dep
+    ])]
 
 _workspace_npm_deps = aspect(
     implementation = _workspace_npm_deps_impl,
-    attr_aspects = ["deps"],
-    doc = "Collects the npm packages a workspace member imports. TsDeclarationInfo " +
-          "carries the closure; the direct set, which names the top-level " +
-          "directories of a node_modules tree, travels nowhere else.",
+    doc = "Reads the member's direct npm deps: TsInfo carries the closure, " +
+          "and the direct set, which names the top-level directories of a " +
+          "node_modules tree, travels nowhere else.",
 )
 
 _MemberJsx = provider(
@@ -104,17 +93,13 @@ def _npm_package_info(ctx, member):
     text = member_manifest_json(json.decode(ctx.attr.manifest_json), jsx)
     ctx.actions.write(output = manifest, content = text + "\n")
 
-    js = member[JsInfo] if JsInfo in member else None
-    npm = member[_WorkspaceNpmDeps] if _WorkspaceNpmDeps in member else None
-    direct_deps = npm.direct if npm else []
-    declarations = member[TsDeclarationInfo].declaration_files if TsDeclarationInfo in member else depset()
-    file_sets = [declarations]
-    if js:
-        # The member's own package.json names source targets; the manifest as
-        # built takes its place in the link.
-        own = ctx.attr.member_dir + "/package.json"
-        data = [f for f in js.data_files.to_list() if f.short_path != own]
-        file_sets += [js.js_files, js.js_map_files, depset(data)]
+    info = member[TsInfo]
+    direct_deps = member[_WorkspaceNpmDeps].direct
+
+    # The member's own package.json names source targets; the manifest as
+    # built takes its place in the link.
+    own = ctx.attr.member_dir + "/package.json"
+    data = [f for f in info.data.to_list() if f.short_path != own]
 
     return NpmPackageInfo(
         package_name = ctx.attr.package_name,
@@ -122,10 +107,13 @@ def _npm_package_info(ctx, member):
         peer_id = "",
         package_dir = None,
         package_root = _package_root(ctx, member),
-        all_files = depset([manifest], transitive = file_sets),
-        js_files = js.js_files if js else depset(),
+        all_files = depset(
+            [manifest] + data,
+            transitive = [info.declarations, info.js, info.js_maps],
+        ),
+        js_files = info.js,
         direct_deps = direct_deps,
-        transitive_deps = npm.closure if npm else depset(),
+        transitive_deps = info.npm_packages,
         transitive_package_dirs = depset(
             transitive = [dep.transitive_package_dirs for dep in direct_deps],
         ),
@@ -134,17 +122,14 @@ def _npm_package_info(ctx, member):
 def _npm_workspace_package_impl(ctx):
     member = ctx.attr.target
 
-    providers = [
+    return [
         DefaultInfo(
             files = member[DefaultInfo].files,
             runfiles = member[DefaultInfo].default_runfiles,
         ),
         _npm_package_info(ctx, member),
+        member[TsInfo],
     ]
-    for provider in _FORWARDED:
-        if provider in member:
-            providers.append(member[provider])
-    return providers
 
 npm_workspace_package = rule(
     implementation = _npm_workspace_package_impl,
@@ -161,6 +146,7 @@ npm_workspace_package = rule(
         "target": attr.label(
             mandatory = True,
             aspects = [_workspace_npm_deps, _member_jsx],
+            providers = [TsInfo],
             doc = "The target that compiles the member, as npm_hub finds it.",
         ),
         "manifest_json": attr.string(

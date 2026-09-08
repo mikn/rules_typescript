@@ -6,33 +6,78 @@ leaves the direct field empty and puts the closure in the transitive one; a
 consumer that wants everything reachable reads the transitive field.
 """
 
-JsInfo = provider(
-    doc = "Provider for JavaScript compilation outputs.",
+TsInfo = provider(
+    doc = """What a dep gives a consumer: the files its program and runtime
+stage, and the npm packages its forest links.
+
+ts_compile, ts_codegen and ts_binary return it over their outputs; an npm
+package target returns one naming its closure in `npm_packages` and nothing by
+path, since its files reach a consumer through the node_modules tree; a
+workspace member's hub view forwards the member's.
+""",
     fields = {
-        "js_files": "depset of File: .js files this target produces -- compiled output plus any JavaScript src staged as-is.",
-        "js_map_files": "depset of File: .js.map source map files this target produces.",
-        "transitive_js_files": "depset of File: Transitive closure of all .js files from this target and its deps.",
-        "transitive_js_map_files": "depset of File: Transitive closure of all .js.map files.",
-        "data_files": "depset of File: the srcs that are neither TypeScript, " +
-                      "JavaScript nor declarations, staged into the output " +
-                      "tree at their package-relative paths beside the .js.",
-        "transitive_data_files": "depset of File: the data files of this " +
-                                 "target and its deps, what a compiled " +
-                                 "module reaches beside itself at run time.",
-        "source_files": "depset of File: the TypeScript srcs -- .ts, .tsx " +
-                        "and declarations. A ts_test in the same package " +
-                        "stages them at their source paths.",
+        "js": "depset of File: the .js this target produces -- compiled " +
+              "output and JavaScript srcs staged as-is.",
+        "js_maps": "depset of File: the .js.map beside them.",
+        "declarations": "depset of File: the .d.ts this target produces and " +
+                        "the ones it passes through from srcs. A global one " +
+                        "is in scope in a consumer only when the consumer's " +
+                        "tsconfig `types` names it.",
+        "data": "depset of File: the other srcs, staged at their " +
+                "package-relative paths beside the .js.",
+        "sources": "depset of File: the TypeScript srcs -- .ts, .tsx and " +
+                   "declarations. A ts_test in the same package stages them " +
+                   "at their source paths.",
+        "transitive_js": "depset of File: the .js of this target and its " +
+                         "first-party deps.",
+        "transitive_js_maps": "depset of File: their .js.map.",
+        "transitive_declarations": "depset of File: the .d.ts of this " +
+                                   "target and its first-party deps. An npm " +
+                                   "package's reach a consumer through the " +
+                                   "forest, not through this depset.",
+        "transitive_data": "depset of File: the data files of this target " +
+                           "and its first-party deps, what a compiled module " +
+                           "reaches beside itself at run time.",
+        "npm_packages": "depset of NpmPackageInfo: the packages a consumer " +
+                        "links in its forest and runtime tree for this " +
+                        "target's deps. A package itself arrives through " +
+                        "its NpmPackageInfo.",
     },
 )
 
-TsDeclarationInfo = provider(
-    doc = "Provider for TypeScript declaration outputs (.d.ts files).",
-    fields = {
-        "declaration_files": "depset of File: declaration files this target produces, plus the ambient ones it passes through from srcs; on an npm package, its module entry too when that is a `.ts`. A global one is in scope in a consumer only when the consumer's tsconfig `types` names it.",
-        "transitive_declaration_files": "depset of File: the .d.ts files this target and its non-npm deps produce, transitively. An npm package's declarations reach a consumer through the node_modules forest its tsgo action stages, not through this depset.",
-        "transitive_npm_packages": "depset of NpmPackageInfo: the npm packages a consumer links in its node_modules forest for this target's declarations. A dep's emitted .d.ts imports the packages the dep declared and resolves them in the consumer's program by walking that forest. An npm package target names its transitive_deps; the package itself arrives through its NpmPackageInfo.",
-    },
-)
+_EMPTY = depset()
+
+def _or_direct(transitive, direct):
+    return direct if transitive == None else transitive
+
+def ts_info(
+        js = _EMPTY,
+        js_maps = _EMPTY,
+        declarations = _EMPTY,
+        data = _EMPTY,
+        sources = _EMPTY,
+        transitive_js = None,
+        transitive_js_maps = None,
+        transitive_declarations = None,
+        transitive_data = None,
+        npm_packages = _EMPTY):
+    """A TsInfo for a target without first-party deps: each closure it
+    leaves unsaid is the direct set."""
+    return TsInfo(
+        js = js,
+        js_maps = js_maps,
+        declarations = declarations,
+        data = data,
+        sources = sources,
+        transitive_js = _or_direct(transitive_js, js),
+        transitive_js_maps = _or_direct(transitive_js_maps, js_maps),
+        transitive_declarations = _or_direct(
+            transitive_declarations,
+            declarations,
+        ),
+        transitive_data = _or_direct(transitive_data, data),
+        npm_packages = npm_packages,
+    )
 
 TsTestRunnerInfo = provider(
     doc = """A test runner: the target ts_test hands its compiled tests to.
