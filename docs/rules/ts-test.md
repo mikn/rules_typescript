@@ -77,18 +77,18 @@ finds it where the checkout has it:
 const sdkSource = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
 ```
 
-`import.meta.url` is the runfiles path (`resolve.preserveSymlinks` is on), so
-`./index.ts` beside the compiled test is the same-package `ts_compile`'s
-`src/index.ts`. Another package's sources are not in the tree: a file a test
-reads across a package boundary is a `data` entry.
+`import.meta.url` is the runfiles path on either runner (vitest's
+`resolve.preserveSymlinks`; node's `--preserve-symlinks-main` and the runner's
+resolve hook), so `./index.ts` beside the compiled test is the same-package
+`ts_compile`'s `src/index.ts`. Another package's sources are not in the tree: a
+file a test reads across a package boundary is a `data` entry.
 `//tests/vitest/reads_own_source` is the example.
 
 The compiled program is what runs. A `setupFiles` entry naming a source runs the
 compiled sibling staged beside it ([Setup Files](#setup-files)), and a relative
 `.ts` specifier the emit keeps resolves to its compiled sibling
-([Relative `.ts` Specifiers](#relative-ts-specifiers)); under the node:test
-runner the module loads at its `bazel-out` realpath, where the source is not
-([The node:test Runner](#the-nodetest-runner)).
+([Relative `.ts` Specifiers](#relative-ts-specifiers); under node:test, the
+runner's hook: [The node:test Runner](#the-nodetest-runner)).
 
 ## The Test's tsconfig
 
@@ -558,14 +558,28 @@ ts_test(
 
 `tsconfig` carries over unchanged and means on a node:test target what it means
 above. An alias is type-checking only on either runner; see
-[The test's tsconfig](#the-tests-tsconfig). A relative `.ts` specifier the emit
-keeps resolves under this runner through a `node:module` resolve hook the
-launcher loads (`ts/private/node_test_hook.mjs`), which retries a failed
-relative resolution with `.ts`/`.tsx` rewritten to `.js`: node loads the
-compiled module at its realpath under `bazel-out`, where the source its package
-stages in the runfiles is not, so the compiled sibling is what loads
-(`//tests/node_test:ts_specifier_test` pins it). Under vitest,
-[layer 1's plugin](#relative-ts-specifiers) resolves it.
+[The test's tsconfig](#the-tests-tsconfig).
+
+The package's code runs at its runfiles paths, as under vitest: the launcher
+passes `--preserve-symlinks-main`, and a `node:module` resolve hook it loads
+(`ts/private/node_test_hook.mjs`) resolves every specifier from a file outside
+the node_modules tree:
+
+- A relative specifier resolves, at the importer's runfiles path, to the file
+  the compiled tree holds for it: `./util.ts`, `.tsx`, `.mts` or `.cts` to the
+  compiled sibling (`.js`; `.jsx` for a `.tsx` under `jsx: preserve`; `.mjs`;
+  `.cjs`), whether or not the source is staged beside it; an extensionless
+  `./util` to `util.js` or `util/index.js`, the file bundler resolution named at
+  compile time; any other to the file as written. `//tests/node_test` pins the
+  three: `:ts_specifier_test`, `:extensionless_test`, `:runfiles_layout_test`.
+- A bare specifier resolves from the test's node_modules tree, the directory
+  the launcher puts on `NODE_PATH`, never from a `node_modules` the walk up
+  from `bazel-out` happens to meet (`:bare_import_test`). Code inside the tree
+  resolves as node resolves it, at its realpath, so a link the tree holds for
+  a second resolution of a name works as installed.
+
+Under vitest, [layer 1's plugin](#relative-ts-specifiers) resolves the relative
+`.ts` specifier and the generated config the rest.
 
 node:test takes no config file; it is configured by CLI flags and by the test
 file itself. Every vitest attribute is an analysis error under it, naming the

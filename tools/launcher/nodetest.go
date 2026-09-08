@@ -47,7 +47,9 @@ func planNodeTest(cfg *Config, r *Resolver, plan *Plan) (*Plan, error) {
 		// process and forwards the parent's execArgv to it.
 		argv = append(argv, "--import", hook)
 	}
-	argv = append(argv, "--test")
+	// The entry keeps its runfiles path, so relative reads land where the
+	// checkout has them; node --test forwards execArgv to its children.
+	argv = append(argv, "--preserve-symlinks-main", "--test")
 
 	// --test_filter reaches a test runner as TESTBRIDGE_TEST_ONLY; node:test
 	// takes it as a regular expression over test names.

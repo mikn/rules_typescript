@@ -50,6 +50,7 @@ func TestPlanNodeTestRunsEveryTestFileUnderTheToolchainNode(t *testing.T) {
 	want := []string{
 		real["+node+/bin/node"],
 		"--import", real["_main/ts/private/node_test_hook.mjs"],
+		"--preserve-symlinks-main",
 		"--test",
 		real["_main/tests/app/a.test.js"],
 		real["_main/tests/app/b.test.js"],
@@ -75,6 +76,21 @@ func TestPlanNodeTestPutsTheResolveHookBeforeTheTestFlag(t *testing.T) {
 	test := slices.Index(plan.Argv, "--test")
 	if hook < 0 || test < 0 || hook > test {
 		t.Errorf("argv = %q, want --import before --test", plan.Argv)
+	}
+}
+
+// The entry keeps its runfiles path, so a test's relative reads land where
+// the checkout has them; the flag rides execArgv into node --test's children.
+func TestPlanNodeTestKeepsTheEntryAtItsRunfilesPath(t *testing.T) {
+	r, _ := nodeTestFixture(t)
+	plan, err := MakePlan(nodeTestConfig(), r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flag := slices.Index(plan.Argv, "--preserve-symlinks-main")
+	test := slices.Index(plan.Argv, "--test")
+	if flag < 0 || test < 0 || flag > test {
+		t.Errorf("argv = %q, want --preserve-symlinks-main before --test", plan.Argv)
 	}
 }
 
