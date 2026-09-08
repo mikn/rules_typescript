@@ -14,10 +14,20 @@ import (
 const (
 	programRoot = binDir + "/pkg/app.program"
 	forestDir   = binDir + "/pkg/app/node_modules"
+	manifest    = binDir + "/pkg/app.ownership"
 )
 
-// A fake exec root: a source, a forest under the bin dir and a tool under
-// external/, which is where the sandbox puts the toolchain.
+func tsgoArgs(rest ...string) []string {
+	flags := []string{
+		"-root=" + programRoot,
+		"-node_modules=" + forestDir,
+		"-check=" + manifest,
+	}
+	return append(flags, rest...)
+}
+
+// A fake exec root: a source and the manifest owning it, a forest under the
+// bin dir and a tool under external/, where the sandbox puts the toolchain.
 func newTsgoExecroot(t *testing.T, script string) (root, argv string) {
 	t.Helper()
 	root = t.TempDir()
@@ -28,6 +38,8 @@ func newTsgoExecroot(t *testing.T, script string) (root, argv string) {
 	} {
 		writeFile(t, filepath.Join(root, rel), body)
 	}
+	writeFile(t, filepath.Join(root, manifest),
+		"label\t//pkg:app\nown\tpkg/a.ts\n")
 	if err := os.MkdirAll(filepath.Join(root, "external/tsgo"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -53,8 +65,8 @@ func TestTsgoStep_RunsFromAProgramRoot(t *testing.T) {
 			"test -f pkg/a.ts && echo source-through-link >> \"$0.argv\"\n")
 	stamp := binDir + "/pkg/app.tscheck"
 
-	err := runTsgo([]string{"-root=" + programRoot, "-node_modules=" + forestDir, "-stamp=" + stamp, "--",
-		"external/tsgo/tsc", "--project", binDir + "/pkg/app.tsconfig.json", "--noEmit"})
+	err := runTsgo(tsgoArgs("-stamp="+stamp, "--", "external/tsgo/tsc",
+		"--project", binDir+"/pkg/app.tsconfig.json", "--noEmit"))
 	if err != nil {
 		t.Fatalf("runTsgo: %v", err)
 	}
@@ -91,7 +103,7 @@ func TestTsgoStep_ExitCodeIsTheToolsAndNoStamp(t *testing.T) {
 	newTsgoExecroot(t, "exit 3\n")
 	stamp := binDir + "/pkg/app.tscheck"
 
-	err := runTsgo([]string{"-root=" + programRoot, "-node_modules=" + forestDir, "-stamp=" + stamp, "--", "external/tsgo/tsc"})
+	err := runTsgo(tsgoArgs("-stamp="+stamp, "--", "external/tsgo/tsc"))
 	var exit *exec.ExitError
 	if !errors.As(err, &exit) || exit.ExitCode() != 3 {
 		t.Errorf("runTsgo = %v, want tsgo's exit status 3", err)
@@ -112,17 +124,13 @@ func TestTsgoStep_ChecksTheListingAgainstTheManifest(t *testing.T) {
 		"pkg/a.ts\n   Root file specified for compilation\n"
 	root, _ := newTsgoExecroot(t, "cat "+binDir+"/pkg/listing.txt\n")
 	writeFile(t, filepath.Join(root, binDir, "pkg/listing.txt"), listing)
-	manifest := binDir + "/pkg/app.ownership"
 	stamp := binDir + "/pkg/app.tscheck"
-	run := func() error {
-		return runTsgo([]string{"-root=" + programRoot, "-node_modules=" + forestDir,
-			"-check=" + manifest, "-stamp=" + stamp, "--", "external/tsgo/tsc"})
-	}
+	args := tsgoArgs("-stamp="+stamp, "--", "external/tsgo/tsc")
 
 	writeFile(t, filepath.Join(root, manifest),
 		"label\t//pkg:app\nown\tpkg/a.ts\ndirect\t//pkg:lib\n"+
 			"file\t//pkg:hidden\t"+binDir+"/pkg/hidden.d.ts\n")
-	err := run()
+	err := runTsgo(args)
 	if err == nil || !strings.Contains(err.Error(), "add //pkg:hidden to deps") {
 		t.Errorf("runTsgo = %v, want the undeclared edge naming //pkg:hidden", err)
 	}
@@ -133,7 +141,7 @@ func TestTsgoStep_ChecksTheListingAgainstTheManifest(t *testing.T) {
 	writeFile(t, filepath.Join(root, manifest),
 		"label\t//pkg:app\nown\tpkg/a.ts\ndirect\t//pkg:hidden\n"+
 			"file\t//pkg:hidden\t"+binDir+"/pkg/hidden.d.ts\n")
-	if err := run(); err != nil {
+	if err := runTsgo(args); err != nil {
 		t.Errorf("runTsgo with the dep declared: %v", err)
 	}
 	if _, err := os.Stat(stamp); err != nil {
@@ -147,13 +155,9 @@ func TestTsgoStep_AFailingTsgoRelaysItsDiagnostics(t *testing.T) {
 	writeFile(t, filepath.Join(root, binDir, "pkg/listing.txt"),
 		"pkg/a.ts\n   Root file specified for compilation\n"+
 			"pkg/a.ts(1,8): error TS2307: Cannot find module './gone'.\n")
-	manifest := binDir + "/pkg/app.ownership"
-	writeFile(t, filepath.Join(root, manifest),
-		"label\t//pkg:app\nown\tpkg/a.ts\n")
 	stdout := captureStdout(t)
 
-	err := runTsgo([]string{"-root=" + programRoot, "-node_modules=" + forestDir,
-		"-check=" + manifest, "--", "external/tsgo/tsc"})
+	err := runTsgo(tsgoArgs("--", "external/tsgo/tsc"))
 	var exit *exec.ExitError
 	if !errors.As(err, &exit) || exit.ExitCode() != 2 {
 		t.Errorf("runTsgo = %v, want tsgo's exit status 2", err)
@@ -164,6 +168,35 @@ func TestTsgoStep_AFailingTsgoRelaysItsDiagnostics(t *testing.T) {
 	}
 	if strings.Contains(out, "Root file specified") {
 		t.Errorf("the listing reached stdout:\n%s", out)
+	}
+}
+
+// A failing tsgo that printed no diagnostic -- a usage message, a crash line
+// -- has its whole output relayed; only a parsed listing stays off stdout.
+func TestTsgoStep_AFailingTsgoWithNoDiagnosticRelaysItsOutput(t *testing.T) {
+	newTsgoExecroot(t, "echo 'tsc: unknown option --explainFile'\nexit 1\n")
+	stdout := captureStdout(t)
+
+	err := runTsgo(tsgoArgs("--", "external/tsgo/tsc"))
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 1 {
+		t.Errorf("runTsgo = %v, want tsgo's exit status 1", err)
+	}
+	if out := stdout(); !strings.Contains(out, "unknown option") {
+		t.Errorf("tsgo's output is not relayed:\n%s", out)
+	}
+}
+
+func TestTsgoStep_NeedsTheManifest(t *testing.T) {
+	_, argv := newTsgoExecroot(t, "echo ran\n")
+
+	err := runTsgo([]string{"-root=" + programRoot,
+		"-node_modules=" + forestDir, "--", "external/tsgo/tsc"})
+	if err == nil || !strings.Contains(err.Error(), "-check=FILE") {
+		t.Errorf("runTsgo without -check = %v, want an error", err)
+	}
+	if _, err := os.Stat(argv); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("tsgo ran without a manifest: stat = %v", err)
 	}
 }
 

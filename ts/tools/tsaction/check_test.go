@@ -17,7 +17,8 @@ const middleListing = strictDepsBin + `/hidden.d.ts
 ` + strictDepsBin + `/leaf.d.ts
    Imported via "./leaf" from file 'tests/strict_deps/middle.ts'
 tests/strict_deps/middle.ts
-   Matched by include pattern '../../../../../tests/strict_deps/middle.ts' in '` + strictDepsBin + `/middle.tsconfig.json'
+   Matched by include pattern '../../../../../tests/strict_deps/middle.ts'` +
+	` in '` + strictDepsBin + `/middle.tsconfig.json'
 `
 
 const middleOwnership = `label	//tests/strict_deps:middle
@@ -52,7 +53,8 @@ func runCheck(t *testing.T, manifest, listing string) (out string, ok bool) {
 func TestCheck_TypeImportThroughADepNamesTheOwner(t *testing.T) {
 	out, ok := runCheck(t, middleOwnership, middleListing)
 	if ok {
-		t.Fatal("middle.ts reaches hidden.d.ts through :leaf alone, and the check passed")
+		t.Fatal("middle.ts reaches hidden.d.ts through :leaf alone, " +
+			"and the check passed")
 	}
 	for _, want := range []string{
 		"//tests/strict_deps:middle imports files no direct dep provides:",
@@ -112,18 +114,22 @@ node_modules/@types/node/path.d.ts
 node_modules/@types/node/globals.d.ts
    Referenced via 'globals.d.ts' from file 'node_modules/@types/node/index.d.ts'
 node_modules/undici-types/index.d.ts
-   Imported via "undici-types" from file 'node_modules/@types/node/globals.d.ts' with packageId 'undici-types/index.d.ts@6.21.0'
+   Imported via "undici-types" from file ` +
+		`'node_modules/@types/node/globals.d.ts'` +
+		` with packageId 'undici-types/index.d.ts@6.21.0'
 tests/strict_deps/builtins.ts
    Root file specified for compilation
 `
 	if out, ok := runCheck(t, builtinsOwnership, listing); !ok {
-		t.Errorf("node: and bare builtins into the declared @types/node failed:\n%s", out)
+		t.Errorf("node: and bare builtins into the declared "+
+			"@types/node failed:\n%s", out)
 	}
 }
 
 func TestCheck_NpmEdgeIntoATransitivePackageNamesItsLabel(t *testing.T) {
 	listing := `node_modules/undici-types/index.d.ts
-   Imported via "undici-types" from file 'tests/strict_deps/builtins.ts' with packageId 'undici-types/index.d.ts@6.21.0'
+   Imported via "undici-types" from file 'tests/strict_deps/builtins.ts'` +
+		` with packageId 'undici-types/index.d.ts@6.21.0'
 tests/strict_deps/builtins.ts
    Root file specified for compilation
 `
@@ -144,12 +150,15 @@ own	pkg/app.ts
 npm-direct	zod
 npm	@scope/util	@npm//:scope_util
 `
-	listing := `node_modules/.pnpm/@scope+util@1.0.0/node_modules/@scope/util/index.d.ts
-   Imported via "@scope/util" from file 'pkg/app.ts' with packageId '@scope/util/index.d.ts@1.0.0'
+	store := "node_modules/.pnpm/@scope+util@1.0.0/node_modules/@scope/util"
+	listing := store + `/index.d.ts
+   Imported via "@scope/util" from file 'pkg/app.ts'` +
+		` with packageId '@scope/util/index.d.ts@1.0.0'
 node_modules/zod/node_modules/@scope/util/index.d.ts
    Imported via "@scope/util/index" from file 'pkg/app.ts'
 node_modules/zod/index.d.ts
-   Imported via "zod" from file 'pkg/app.ts' with packageId 'zod/index.d.ts@3.24.2'
+   Imported via "zod" from file 'pkg/app.ts'` +
+		` with packageId 'zod/index.d.ts@3.24.2'
 pkg/app.ts
    Root file specified for compilation
 `
@@ -172,8 +181,9 @@ direct	//tests/strict_deps:leaf
 file	//tests/strict_deps:hidden	` + strictDepsBin + `/hidden.d.ts
 npm	@types/node	@npm//:types_node
 `
+	ref := "../../" + strictDepsBin + "/hidden.d.ts"
 	listing := strictDepsBin + `/hidden.d.ts
-   Referenced via '../../bazel-out/k8-fastbuild/bin/tests/strict_deps/hidden.d.ts' from file 'tests/strict_deps/refs.ts'
+   Referenced via '` + ref + `' from file 'tests/strict_deps/refs.ts'
 node_modules/@types/node/index.d.ts
    Type library referenced via 'node' from file 'tests/strict_deps/refs.ts'
 tests/strict_deps/refs.ts
@@ -184,7 +194,7 @@ tests/strict_deps/refs.ts
 		t.Fatal("reference directives into undeclared labels passed")
 	}
 	for _, want := range []string{
-		"refs.ts references '../../bazel-out/k8-fastbuild/bin/tests/strict_deps/hidden.d.ts'",
+		"refs.ts references '" + ref + "'",
 		"add //tests/strict_deps:hidden to deps",
 		"refs.ts references types 'node'",
 		"add @npm//:types_node to deps",

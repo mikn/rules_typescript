@@ -273,7 +273,11 @@ which writes deps from these edges, or add the labels above by hand.
 ```
 
 `bazel run //:gazelle` writes those labels from the same listing. There is no
-flag and no opt-out.
+flag and no opt-out. The npm label in the message is the hub's root view,
+`@<hub>//:<name>`; Gazelle spells a name the nearest lockfile importer declares
+under that importer, `@npm//web:zod`, the version the importing file's own
+`package.json` resolved
+([The Lockfile Gate](../gazelle/overview.md#the-lockfile-gate)).
 
 **What is checked:** every `Imported via`, `Referenced via` and `Type library
 referenced via` edge whose importer is one of the target's own files -- a

@@ -28,15 +28,13 @@ func runTsgo(args []string) error {
 		return err
 	}
 	cmdline := flags.Args()
-	if *root == "" || *forest == "" || len(cmdline) == 0 {
-		return errors.New("tsgo needs -root=DIR, -node_modules=DIR and a command after --")
+	if *root == "" || *forest == "" || *check == "" || len(cmdline) == 0 {
+		return errors.New("tsgo needs -root=DIR, -node_modules=DIR, " +
+			"-check=FILE and a command after --")
 	}
-	var own *ownership
-	if *check != "" {
-		var err error
-		if own, err = readOwnership(*check); err != nil {
-			return err
-		}
+	own, err := readOwnership(*check)
+	if err != nil {
+		return err
 	}
 	if err := layOutProgramRoot(*root, *forest); err != nil {
 		return err
@@ -48,12 +46,7 @@ func runTsgo(args []string) error {
 		return err
 	}
 	cmdline = append([]string{tool}, cmdline[1:]...)
-	if own == nil {
-		err = runToolIn(*root, os.Stdout, cmdline)
-	} else {
-		err = checkedRun(*root, cmdline, own)
-	}
-	if err != nil {
+	if err := checkedRun(*root, cmdline, own); err != nil {
 		return err
 	}
 	if *stamp == "" {
@@ -62,16 +55,16 @@ func runTsgo(args []string) error {
 	return os.WriteFile(*stamp, nil, 0o644)
 }
 
-// checkedRun keeps the listing off the action's output: a failing tsgo relays
-// its diagnostics alone, and a passing one has its edges checked.
+// checkedRun keeps the listing off stdout: a failing tsgo relays its
+// diagnostics, or all it printed when none parse; a passing one is checked.
 func checkedRun(dir string, cmdline []string, own *ownership) error {
 	var out bytes.Buffer
 	runErr := runToolIn(dir, &out, cmdline)
 	listing, parseErr := explainfiles.Parse(out.String())
 	if runErr != nil {
-		if parseErr != nil {
+		if parseErr != nil || len(listing.Diagnostics) == 0 {
 			os.Stdout.Write(out.Bytes())
-		} else if len(listing.Diagnostics) > 0 {
+		} else {
 			fmt.Println(strings.Join(listing.Diagnostics, "\n"))
 		}
 		return runErr

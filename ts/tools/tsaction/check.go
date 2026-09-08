@@ -36,8 +36,6 @@ func readOwnership(name string) (*ownership, error) {
 	return o, nil
 }
 
-// One tab-separated record per line: label L; own PATH; direct LABEL;
-// file LABEL PATH; npm-direct NAME; npm NAME LABEL.
 func parseOwnership(text string) (*ownership, error) {
 	o := &ownership{
 		own:       map[string]bool{},

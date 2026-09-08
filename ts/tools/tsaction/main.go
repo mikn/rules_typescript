@@ -31,7 +31,7 @@ const usage = `usage:
       [-emit -out_dir=DIR -root_dir=DIR] [-declaration_map]
       [-isolated_declarations] [-lib_check] SRC...
   tsaction paths -tsconfig=FILE -package=PKG [-bin_dir=DIR] -out=FILE
-  tsaction tsgo -root=DIR -node_modules=DIR [-check=FILE] [-stamp=FILE]
+  tsaction tsgo -root=DIR -node_modules=DIR -check=FILE [-stamp=FILE]
       -- TSGO [ARG...]
   tsaction oxc -options=FILE -- OXC [ARG...]`
 
