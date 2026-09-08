@@ -461,9 +461,9 @@ and none is drift:
   you wrote the filename. Reformat the file to match.
 - **A hand-written rule under a name Gazelle would use.** In a directory that
   is no package, every rule Gazelle would write is withdrawn under the names it
-  would use -- `<dirbase>`, `<dirbase>_test`, `tsconfig`, `vitest_config` --
-  so a rule of yours under one of them is proposed for deletion on every run.
-  `# keep` above the rule holds it.
+  would use -- `<dirbase>`, `<dirbase>_test`, `<dirbase>_lint`, `tsconfig`,
+  `vitest_config`, `wrangler_config` -- so a rule of yours under one of them is
+  proposed for deletion on every run. `# keep` above the rule holds it.
 - **A hand-narrowed attribute it merges.** `visibility` is a merged attribute
   and generated rules carry `//visibility:public`, so a target restricted to
   `["//myapp:__subpackages__"]` comes back public on every run. Pin it with
