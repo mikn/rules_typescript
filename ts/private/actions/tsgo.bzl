@@ -63,7 +63,6 @@ def tsgo_action(
         forest,
         srcs,
         chain,
-        gate,
         dep_dts,
         ownership,
         emit_outputs):
@@ -96,8 +95,7 @@ def tsgo_action(
     mnemonic = "TsgoCheck" if stamp else "TsgoDeclare"
     ctx.actions.run(
         inputs = depset(
-            srcs + [tsconfig, forest, ownership, tsgo.tsgo_binary] + chain +
-            gate,
+            srcs + [tsconfig, forest, ownership, tsgo.tsgo_binary] + chain,
             transitive = [dep_dts],
         ),
         outputs = [stamp] if stamp else emit_outputs,

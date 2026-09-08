@@ -63,8 +63,7 @@ Do not skip the review stage.
 ## Architecture
 
 ```
-ts_compile → TsStrictDeps action (.strictdeps stamp; gates the compile)
-           → TsConfig action (<name>.tsconfig.json + <name>.options.json from
+ts_compile → TsConfig action (<name>.tsconfig.json + <name>.options.json from
              `tsgo --showConfig` over the baseline and the target's tsconfig)
            → OxcCompile action (.js + .js.map; + .d.ts under --//ts:declarations=oxc)
            → TsgoDeclare action (.d.ts; the default)
@@ -79,9 +78,8 @@ ts_compile → TsStrictDeps action (.strictdeps stamp; gates the compile)
 .d.ts = compilation boundary. Downstream sees only .d.ts, not .ts source.
 Change implementation without changing .d.ts → no downstream recompilation.
 
-TsStrictDeps reads the target's own sources and fails on any specifier no
-DIRECT dep provides; tests/strict_deps pins the import forms its scanner
-recognises.
+The strict-deps check is the tsgo action's: tests/strict_deps pins the manifest
+it reads, and //tests/integration:new_project_test the failing build.
 
 The rule has three attributes: srcs, deps, tsconfig. Every compiler option is
 the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
@@ -92,7 +90,7 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 - `ts/defs.bzl` — public API (all rules, providers, macros)
 - `ts/private/rules/ts_compile.bzl` — the `ts_compile` rule and
   `TS_COMPILE_ATTRS`; `ts/private/actions/` — one action per file (`tsconfig`,
-  `oxc`, `tsgo`, `forest`, `strict_deps`, `lint`), the functions the rule calls
+  `oxc`, `tsgo`, `forest`, `lint`), the functions the rule calls
   in that order; `lint.bzl` also holds `lint_config` and the repository rule
   `ts.lint()` writes
 - `ts/tools/tsaction/` — the Go runner behind the actions: `tsconfig` writes the action config from `tsgo --showConfig`, `oxc` relays the options to oxc, `tsgo` lays out the program root, runs tsgo from it and checks the listing's edges against the ownership manifest
@@ -208,9 +206,6 @@ Every `ts_compile` target provides: `TsInfo` + `InstrumentedFilesInfo` +
 srcs and provides the last two. `_validation` holds the tsgo check stamp under
 `--//ts:declarations=oxc` (under the default the declarations are the proof)
 and the `TsLint` stamp when the root module's `ts.lint()` names a linter.
-A `ts_compile` with any `deps` additionally exposes the strict-deps stamp: in
-`OutputGroupInfo(strict_deps = ...)` always, and as an input to the compile
-actions, so a violation fails the build and not only `--output_groups`.
 Every `ts_npm_package` provides: `TsInfo`, naming its closure in
 `npm_packages` and nothing by path, + `NpmPackageInfo` (whose `direct_deps`
 carries the per-dependent resolution the `node_modules` links are built from).

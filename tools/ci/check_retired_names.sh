@@ -21,15 +21,20 @@ WORDS=(
   NpmPublishInfo TsLintInfo ts_lint linter_binary
   ts_test_macro _ts_auto_node_modules RUNNER_NODE_TEST RUNNER_VITEST
   _generate_tsconfig
+  TsStrictDeps _STRICT_DEPS_MJS strict_deps_check
 )
 
 # Attribute names that are also fixture directories under tests/: a hit is one
 # with no path character on either side.
-PATH_CLASHING=(compiler_options path_aliases setup_files reads_report)
+PATH_CLASHING=(
+  compiler_options path_aliases setup_files reads_report strict_deps
+)
 
 PATTERNS=(
   'gazelle:ts_[a-z_]+'
   'ts/private/ts_(compile|test|lint)\.bzl'
+  'strict_deps\.bzl'
+  '\.strictdeps'
   'rules/ts-lint\.md'
   '\.update_snapshots'
   '<(name|test)>\.reads'

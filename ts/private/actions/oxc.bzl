@@ -14,11 +14,9 @@ def oxc_compile_action(
         options_file,
         dep_dts,
         source_map,
-        emit_dts,
-        gate):
+        emit_dts):
     """Registers one oxc run over `srcs`, all under `root`, writing `outputs`.
 
-    `gate` holds the strict-deps stamp, an input so that the check runs first;
     `emit_dts` adds the isolated-declarations emit of --//ts:declarations=oxc.
     """
     args = ctx.actions.args()
@@ -33,7 +31,7 @@ def oxc_compile_action(
         args.add("--declaration")
         args.add("--isolated-declarations")
     ctx.actions.run(
-        inputs = depset(srcs + gate + [options_file], transitive = [dep_dts]),
+        inputs = depset(srcs + [options_file], transitive = [dep_dts]),
         outputs = outputs,
         executable = ctx.executable._tsaction,
         tools = [oxc.oxc_binary],

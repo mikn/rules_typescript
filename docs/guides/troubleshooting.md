@@ -276,7 +276,7 @@ that needs a package names it in the `types` of the tsconfig its packages
 extend, which is an edge of every program in the tree.
 
 That is the directive in a file of your own: Gazelle writes the dep it names
-and rewrites nothing else, and the strict-deps checker does not read it. One
+and rewrites nothing else, and the check reads the same edge. One
 in an npm package's declaration entry (`@types/bun/index.d.ts` is
 `/// <reference types="bun-types" />`) is followed by the rule; see
 [`@types/*` packages](../rules/ts-compile.md#types-packages).

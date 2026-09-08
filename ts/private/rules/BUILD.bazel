@@ -27,7 +27,6 @@ bzl_library(
         "//ts/private/actions:forest",
         "//ts/private/actions:lint",
         "//ts/private/actions:oxc",
-        "//ts/private/actions:strict_deps",
         "//ts/private/actions:tsconfig",
         "//ts/private/actions:tsgo",
     ],

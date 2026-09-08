@@ -193,8 +193,8 @@ A tsconfig passed as a plain file declares nothing, so one that sets `preserve`
 fails the same way, for a target with a `.tsx` src, without a `ts_config`;
 a `.ts`-only program has nothing `jsx` names. From the declaration on, the
 emit is tsc's: oxc names the file `.jsx` when it transforms under
-`--jsx preserve`, the strict-deps scanner and every consumer stage a `.jsx` as
-they stage a `.js`, a `ts_test` runs a `.jsx` test file and resolves a `.tsx`
+`--jsx preserve`, every consumer stages a `.jsx` as it stages a `.js`, a
+`ts_test` runs a `.jsx` test file and resolves a `.tsx`
 setup file to it, and the hub's view of a member links a `.jsx` at its
 package-relative path with the member's manifest as built naming it: the view
 reads the declaration off the compiling target's `ts_config` and rewrites a
@@ -287,7 +287,8 @@ links for it, counts as declared. An edge into the target's own srcs passes.
 **What is exempt:** an edge from a dep's own file, which is that dep's to
 declare; a tsconfig `types` entry, which is an entry rather than an edge; the
 toolchain's `lib.*.d.ts`; and a specifier tsgo could not resolve, which has no
-file to own and is `TS2307`.
+file to own and is `TS2307`. A target with no program -- declarations alone in
+`srcs` -- runs no tsgo action, and so has no edges to check.
 
 ### The node_modules Forest
 
@@ -646,23 +647,15 @@ The fields, and the load path, are in
   under `--//ts:declarations=oxc` (under the default the declarations are the
   tsgo action's own outputs), and the `TsLint` stamp when the root module's
   `ts.lint()` names a linter ([Lint](../guides/lint.md)).
-- **`OutputGroupInfo(strict_deps=...)`**: the `TsStrictDeps` stamp, on any
-  target with both `deps` and sources. The compile actions take it as an input,
-  so a violation fails a plain `bazel build`; the output group exposes the stamp
-  and the checker on their own.
 
 ## Architecture
 
-Four actions per target, each a function in `ts/private/actions/` --
-`strict_deps.bzl`, `tsconfig.bzl`, `oxc.bzl`, `tsgo.bzl`, with the forest the
-last one reads in `forest.bzl`, and a fifth, `lint.bzl`'s `TsLint`, when the
-root module's `ts.lint()` names a linter ([Lint](../guides/lint.md)); the rule
-in `ts/private/rules/ts_compile.bzl` declares the outputs, calls them in this
+Three actions per target, each a function in `ts/private/actions/` --
+`tsconfig.bzl`, `oxc.bzl`, `tsgo.bzl`, with the forest the last one reads in
+`forest.bzl`, and a fourth, `lint.bzl`'s `TsLint`, when the root module's
+`ts.lint()` names a linter ([Lint](../guides/lint.md)); the rule in
+`ts/private/rules/ts_compile.bzl` declares the outputs, calls them in this
 order and builds the providers.
-`TsStrictDeps` runs first, as a Node action over a
-params-file manifest of the target's declared and reachable providers. Its
-scanner is a character walk over the source: a quoted string is a specifier only
-when the tokens before it say so.
 
 `TsConfig` writes `<name>.tsconfig.json` and `<name>.options.json` from
 `tsgo --showConfig` ([above](#where-compiler-options-come-from)). `OxcCompile`
@@ -675,7 +668,9 @@ processes each `.ts` file with the options file's `target`, `jsx` and
 4. TypeScript/JSX transform (oxc_transformer)
 5. Code generation (oxc_codegen) for `.js` + `.js.map`
 
-tsgo runs from the program root, with `--project` on the written tsconfig.
+tsgo runs from the program root, with `--project` on the written tsconfig and
+`--explainFiles`; tsaction reads the listing against the ownership manifest
+([Deps Have to Be Direct](#deps-have-to-be-direct)).
 Under `--//ts:declarations=tsgo` that tsconfig sets `declaration`,
 `emitDeclarationOnly`, `rootDir` and `outDir` so the emitted declarations land
 beside Oxc's `.js` (mnemonic `TsgoDeclare`). Under `oxc` it runs with `--noEmit`

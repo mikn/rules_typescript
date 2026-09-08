@@ -88,8 +88,8 @@ An import has to be satisfied by a direct dep. A declaration arriving through
 another dep's own deps does not count, and the error names the label to add.
 `rules_ts` passes the whole transitive closure to `tsc`, so a target can compile
 against a dependency it never declared and break when an unrelated package drops
-one. BUILD files must therefore be accurate; Gazelle generates them from the
-same specifier scanner the check uses.
+one. BUILD files must therefore be accurate; Gazelle writes them from the same
+tsgo listing the check reads.
 
 ### Incremental Boundary
 

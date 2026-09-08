@@ -27,7 +27,7 @@ What is still thin:
 | Type-checking (tsgo) | Production-ready; imports must be satisfied by a direct dep, checked per target |
 | npm deps (pnpm → Bazel) | Production-ready; one repo per package, patches verified at extension time |
 | node_modules trees | Every *resolution* placed — name, version and peer set (primary flat, the rest under `.pnpm/<name>@<version>[_<peer set>]/`, with a relative link per disagreeing edge) |
-| Gazelle BUILD generation | Production-ready (JS/TS, path aliases from tsconfig.json); alias resolution is deterministic, extension-spelling specifiers resolve, and one scanner is shared with the strict-deps check. CI pins four properties of a run over the `gazelle_roundtrip` workspace (the output builds; generating twice from scratch is byte-identical; the test-target set is unchanged; `bazel test //...` passes on the output) and, on this tree, that every test source file is claimed by a test target (`tools/ci/check_test_sources.sh`). A run on this tree is not a no-op: `bazel run //gazelle -- -mode=diff` exits 1; the BUILD files here are hand-written, and nothing pins them to Gazelle's output |
+| Gazelle BUILD generation | Production-ready (JS/TS, path aliases from tsconfig.json); alias resolution is deterministic, extension-spelling specifiers resolve, and deps come from the tsgo listing the strict-deps check reads. CI pins four properties of a run over the `gazelle_roundtrip` workspace (the output builds; generating twice from scratch is byte-identical; the test-target set is unchanged; `bazel test //...` passes on the output) and, on this tree, that every test source file is claimed by a test target (`tools/ci/check_test_sources.sh`). A run on this tree is not a no-op: `bazel run //gazelle -- -mode=diff` exits 1; the BUILD files here are hand-written, and nothing pins them to Gazelle's output |
 | Testing (vitest) | Solid (DOM run for real, coverage, the user's config, snapshots read; written by `vitest -u` in the package, watch mode, debugging) |
 | Bundling | `ts_binary` takes any `BundlerInfo` bundler, in the CLI mode or the generated-Vite-config mode; the ruleset ships no implementation, so nothing in this tree exercises the bundle action |
 | Dev server + HMR | Pluggable: `ts_dev_server(server = ...)` takes a `DevServerInfo`, Vite by default. Serves first-party source with Bazel out of the inner loop; resolves bare npm specifiers through the `node_modules` tree via the `bazel:npm-resolve` plugin; codegen rebuilds and config-aware restarts under ibazel; does not typecheck |
@@ -132,16 +132,6 @@ to rediscover them. Each names the file to change.
   …)`,** the external label, which resolves through the module's self-mapping but
   is not what a maintainer writes by hand — so BUILD files here carry both forms.
   Cosmetic, and it costs a reader a moment every time.
-- **Gazelle's node-builtin list is still hand-written; it is no longer
-  unchecked.** The list omitted 15 names `builtinModules` reports — `sys` and
-  the legacy `_http_*`/`_stream_*`/`_tls_*` modules — so a bare `import "sys"`
-  had Gazelle write `@npm//:sys`, a label no hub declares, while the checker
-  treated it as a builtin. `//tests/strict_deps:checker_test` now compares the
-  list against the toolchain node's own `builtinModules`, so a `node_version`
-  bump that adds a bare builtin fails there and names it. A prefix-only module
-  (`node:sqlite`, `node:test`) was never at risk: `resolveNpmPackage` answers on
-  the prefix before any name is consulted. Two recognisers of one thing; see
-  AGENTS.md.
 - **Gazelle keeps emitting the external `@rules_typescript//` load label inside
   this repository.** A per-run "generating for self" flag was tried and reverted:
   `Loads()` has no directory context, so one flag decides for the whole walk --

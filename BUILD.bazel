@@ -85,7 +85,6 @@ ts_refresh_tsconfig(
         "//tests/strict_deps:builtins",
         "//tests/strict_deps:declared",
         "//tests/strict_deps:relative",
-        "//tests/strict_deps:scanner_forms",
         "//tests/synthetic/pkg_10",
         "//tests/synthetic/pkg_11",
         "//tests/synthetic/pkg_12",

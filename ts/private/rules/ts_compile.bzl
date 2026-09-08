@@ -55,7 +55,6 @@ load(
 load("//ts/private/actions:forest.bzl", "forest_action", "forest_packages")
 load("//ts/private/actions:lint.bzl", "LintConfigInfo", "lint_action")
 load("//ts/private/actions:oxc.bzl", "oxc_compile_action")
-load("//ts/private/actions:strict_deps.bzl", "strict_deps_check")
 load(
     "//ts/private/actions:tsconfig.bzl",
     "tsconfig_action",
@@ -203,10 +202,6 @@ def compile_program(ctx):
     transitive_js_map_sets = []
     transitive_data_sets = []
 
-    # What the direct deps produce themselves, which is the set an import has to
-    # be satisfied from. The transitive sets above stay the action inputs.
-    direct_provided_sets = []
-
     direct_npm_infos = []
     direct_npm_names = {}
     direct_labels = []
@@ -226,9 +221,6 @@ def compile_program(ctx):
         transitive_js_sets.append(info.transitive_js)
         transitive_js_map_sets.append(info.transitive_js_maps)
         transitive_data_sets.append(info.transitive_data)
-        direct_provided_sets.append(info.declarations)
-        direct_provided_sets.append(info.js)
-        direct_provided_sets.append(info.data)
         direct_labels.append(label_text(dep.label))
         owner_sets.append(info.owners)
 
@@ -247,40 +239,10 @@ def compile_program(ctx):
             npm_declared[info.package_name] = False
             npm_reachable.append(npm_hub_entry(info))
 
-    # One entry per name for the undeclared-import check, direct deps first. A
-    # workspace member has no package_dir: npm_direct answers for its view.
-    reachable_by_name = {}
-    for npm_info in packages:
-        name = npm_info.package_name
-        if npm_info.package_dir and name not in reachable_by_name:
-            reachable_by_name[name] = npm_info
-
     dep_dts_depset = depset(
         transitive = transitive_dts_sets,
         order = "postorder",
     )
-
-    # No deps, no closure to arrive through: nothing an import could resolve to
-    # that a direct dep does not provide.
-    scan_srcs = compile_srcs + js_srcs + passthrough_dts
-    strict_deps = None
-    if ctx.attr.deps and scan_srcs:
-        strict_deps = strict_deps_check(
-            ctx = ctx,
-            scan_srcs = scan_srcs,
-            own_files = ctx.files.srcs,
-            direct_provided = depset(transitive = direct_provided_sets),
-            transitive_provided = depset(transitive = (
-                transitive_dts_sets + transitive_js_sets + transitive_data_sets
-            )),
-            npm_direct = sorted(direct_npm_names),
-            npm_reachable = [
-                npm_hub_entry(reachable_by_name[name])
-                for name in sorted(reachable_by_name)
-            ],
-        )
-    strict_deps_inputs = [strict_deps.stamp] if strict_deps else []
-    strict_deps_gated = False
 
     # Starlark cannot read the file to follow its extends chain, so a ts_config
     # target declares it and every file in it is an action input.
@@ -458,7 +420,6 @@ def compile_program(ctx):
         options_file = written.options
 
     for root in sorted(oxc_srcs_by_root.keys()):
-        strict_deps_gated = True
         oxc_compile_action(
             ctx,
             oxc = oxc,
@@ -470,14 +431,12 @@ def compile_program(ctx):
             dep_dts = dep_dts_depset,
             source_map = source_map,
             emit_dts = oxc_emits_dts,
-            gate = strict_deps_inputs,
         )
 
     forest = None
     validation_outputs = []
     if program_srcs:
         forest = forest_action(ctx, packages)
-        strict_deps_gated = True
         emit_outputs = dts_outputs + dts_map_outputs if tsgo_emits_dts else []
         ownership = ownership_manifest(
             ctx,
@@ -498,7 +457,6 @@ def compile_program(ctx):
             forest = forest,
             srcs = check_srcs + json_srcs + dep_json,
             chain = tsconfig_chain,
-            gate = strict_deps_inputs,
             dep_dts = dep_dts_depset,
             ownership = ownership,
             emit_outputs = emit_outputs,
@@ -509,11 +467,6 @@ def compile_program(ctx):
     lint = ctx.attr._lint[LintConfigInfo]
     if lint.binary and check_srcs:
         validation_outputs.append(lint_action(ctx, lint, check_srcs))
-
-    # A target with declarations alone has no compile action to hang the stamp
-    # on, so it goes in the output group Bazel requests for every target.
-    if strict_deps and not strict_deps_gated:
-        validation_outputs.append(strict_deps.stamp)
 
     direct_dts = depset(dts_outputs + passthrough_dts, order = "postorder")
     direct_js = depset(js_outputs + js_passthrough, order = "postorder")
@@ -566,13 +519,6 @@ def compile_program(ctx):
         output_groups["tsconfig"] = depset([tsconfig])
     if validation_outputs:
         output_groups["_validation"] = depset(validation_outputs)
-    if strict_deps:
-        # Requesting this group alone checks every target's deps without
-        # compiling anything, since the check reads only the target's own srcs.
-        output_groups["strict_deps"] = depset([
-            strict_deps.stamp,
-            strict_deps.checker,
-        ])
 
     return struct(
         outputs = all_outputs + passthrough_dts,
