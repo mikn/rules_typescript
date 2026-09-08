@@ -176,10 +176,12 @@ That writes out the merged config the runner passed to vitest.
 ## CSS Modules
 
 A `*.module.css` in a `ts_compile`'s `srcs` is staged beside the compiled `.js`,
-and vitest loads it as it does outside Bazel: not processed by default, so the
-import answers each property with its own name, or scoped by Vite's CSS modules
-under a `css` key in the config. The import is typed by the tsconfig --
-`vite/client` in `types`, or a `declare module "*.module.css"` in `srcs`.
+and vitest loads it as it does outside Bazel: the stylesheet is replaced by a
+proxy whose properties are the class names `css.modules.classNameStrategy`
+shapes, `_<name>_<hash>` under the default `stable` and the bare name under
+`non-scoped`; Vite's CSS modules run on the file only under a `css` key in the
+config. The Bazel layer sets no `css` key. The import is typed by the tsconfig
+-- `vite/client` in `types`, or a `declare module "*.module.css"` in `srcs`.
 
 ## Coverage
 
