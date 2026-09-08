@@ -12,6 +12,8 @@ import (
 
 	"github.com/bazelbuild/bazel-gazelle/language"
 	"github.com/bazelbuild/bazel-gazelle/rule"
+
+	"github.com/mikn/rules_typescript/ts/tools/explainfiles"
 )
 
 // generateRules writes one directory: a package's targets, or the withdrawal
@@ -487,14 +489,15 @@ func vitestConfigFor(args language.GenerateArgs, tc *tsConfig,
 // ruleImports is what GenerateRules hands Resolve for one rule: the edges of
 // the files it compiles, its vitest config and the deps no edge names.
 type ruleImports struct {
-	edges  []edge
+	edges  []explainfiles.Edge
 	config string
 	deps   []string
 }
 
 // ownedEdges is the edges of pkg's program from the given files, and the
 // program's type entries, which are the tsconfig's.
-func (s *programStore) ownedEdges(pkg string, files ...[]string) []edge {
+func (s *programStore) ownedEdges(pkg string, files ...[]string,
+) []explainfiles.Edge {
 	from := map[string]bool{}
 	for _, list := range files {
 		for _, f := range list {
@@ -502,9 +505,9 @@ func (s *programStore) ownedEdges(pkg string, files ...[]string) []edge {
 		}
 	}
 	p := s.programs[pkg]
-	var out []edge
-	for _, e := range p.edges {
-		if from[e.from] {
+	var out []explainfiles.Edge
+	for _, e := range p.Edges {
+		if from[e.From] {
 			out = append(out, e)
 		}
 	}

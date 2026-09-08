@@ -12,6 +12,8 @@ import (
 	"github.com/bazelbuild/bazel-gazelle/label"
 	"github.com/bazelbuild/bazel-gazelle/resolve"
 	"github.com/bazelbuild/bazel-gazelle/rule"
+
+	"github.com/mikn/rules_typescript/ts/tools/explainfiles"
 )
 
 // importsForRule indexes a ts_compile or ts_test by the repository path of
@@ -155,10 +157,10 @@ func configSrcLabels(files []string, cfg string, from label.Label) []string {
 }
 
 func edgeDep(c *config.Config, ix *resolve.RuleIndex, tc *tsConfig, kind string,
-	e edge, from label.Label, reported map[string]bool) string {
+	e explainfiles.Edge, from label.Label, reported map[string]bool) string {
 	s := tc.programs
-	if !firstParty(e.to) {
-		if npmPackageName(e.to) == "" {
+	if !firstParty(e.To) {
+		if npmPackageName(e.To) == "" {
 			return ""
 		}
 		if tc.lock == nil {
@@ -171,26 +173,26 @@ func edgeDep(c *config.Config, ix *resolve.RuleIndex, tc *tsConfig, kind string,
 		}
 		return tc.lock.edgeLabel(e, from.Pkg, kind)
 	}
-	spec := resolve.ImportSpec{Lang: languageName, Imp: e.to}
+	spec := resolve.ImportSpec{Lang: languageName, Imp: e.To}
 	if lbl, ok := resolve.FindRuleWithOverride(c, spec, languageName); ok {
 		return lbl.Rel(from.Repo, from.Pkg).String()
 	}
-	if codegen, ok := tc.codegenOuts[e.to]; ok {
+	if codegen, ok := tc.codegenOuts[e.To]; ok {
 		return codegen.Rel(from.Repo, from.Pkg).String()
 	}
-	if lbl := resolveCodegenTree(ix, e.to, from); lbl != "" {
+	if lbl := resolveCodegenTree(ix, e.To, from); lbl != "" {
 		return lbl
 	}
 	if tc.lock != nil {
-		if lbl, ok := tc.lock.memberView(e.specifier, from.Pkg, kind); ok {
+		if lbl, ok := tc.lock.memberView(e.Specifier, from.Pkg, kind); ok {
 			return lbl
 		}
 	}
 	if lbl, held := ruleHolding(ix, spec, from); held {
 		return lbl
 	}
-	if owner := s.owner(e.to); owner == "" {
-		reportEdge(from, e, s.whyUnowned(e.to), reported)
+	if owner := s.owner(e.To); owner == "" {
+		reportEdge(from, e, s.whyUnowned(e.To), reported)
 	} else {
 		reportEdge(from, e, tsconfigIn(owner)+" lists it and no rule there has it "+
 			"in srcs", reported)
@@ -211,11 +213,12 @@ func ruleHolding(ix *resolve.RuleIndex, spec resolve.ImportSpec,
 	return "", false
 }
 
-func reportEdge(from label.Label, e edge, why string, said map[string]bool) {
-	if said[e.to] {
+func reportEdge(from label.Label, e explainfiles.Edge, why string,
+	said map[string]bool) {
+	if said[e.To] {
 		return
 	}
-	said[e.to] = true
+	said[e.To] = true
 	log.Printf("typescript: %s: %s imports %s: %s; no dep",
-		from, e.from, e.to, why)
+		from, e.From, e.To, why)
 }

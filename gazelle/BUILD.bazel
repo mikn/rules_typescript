@@ -29,6 +29,7 @@ go_library(
     visibility = ["//visibility:public"],
     x_defs = {"tsgoRlocationpath": "$(rlocationpath //ts/toolchain:tsgo_resolved)"},
     deps = [
+        "//ts/tools/explainfiles",
         "//ts/tools/jsonc",
         "//ts/tools/tsconfig",
         "@com_github_bazelbuild_buildtools//build",
@@ -62,11 +63,12 @@ go_test(
         "tsconfig_extends_test.go",
         "workers_pool_test.go",
     ],
-    data = glob(["testdata/**"]) + [
+    data = [
         "//:docs_pages",
         "//tests/integration:gazelle_roundtrip/configured/vitest.config.mts",
         "//tests/npm:pnpm-lock.yaml",
         "//tests/workers:vitest.workers.config.mjs",
+        "//ts/tools/explainfiles:testdata/workers_download_test.listing.txt",
     ],
     embed = [":typescript"],
     deps = [

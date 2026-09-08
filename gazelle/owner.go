@@ -21,7 +21,7 @@ func firstParty(f string) bool {
 func (s *programStore) record(p *program) {
 	s.programs[p.dir] = p
 	files := map[string]bool{}
-	for _, f := range p.files {
+	for _, f := range p.Files {
 		if firstParty(f) {
 			files[f] = true
 		}

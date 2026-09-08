@@ -10,6 +10,8 @@ import (
 	"github.com/bazelbuild/bazel-gazelle/label"
 	"github.com/bazelbuild/bazel-gazelle/resolve"
 	"github.com/bazelbuild/bazel-gazelle/rule"
+
+	"github.com/mikn/rules_typescript/ts/tools/explainfiles"
 )
 
 // ---- helpers ---------------------------------------------------------------
@@ -330,7 +332,7 @@ func edgeRepo(t *testing.T, listings map[string]string,
 	tc.programs.visit("", nil)
 	for dir, text := range listings {
 		p := programOf(t, dir, text)
-		for _, f := range p.files {
+		for _, f := range p.Files {
 			if !firstParty(f) {
 				continue
 			}
@@ -377,7 +379,7 @@ func TestResolveEdges_CompileDepsFromTheListing(t *testing.T) {
 
 	imps := s.compileImports("web", s.srcs("web", tc))
 	for _, e := range imps.edges {
-		if e.from == "web/src/a.test.ts" {
+		if e.From == "web/src/a.test.ts" {
 			t.Errorf("compileImports carries the test file's edge %+v", e)
 		}
 	}
@@ -446,7 +448,7 @@ func TestResolveEdges_DepOnAnUnlistedSrc(t *testing.T) {
 	}
 	// A file a rule of the importing package holds is nothing, whichever rule.
 	r, logged = resolveEdgesOf(t, c, ix, "ts_compile", "web", "web",
-		&ruleImports{edges: []edge{
+		&ruleImports{edges: []explainfiles.Edge{
 			importEdge("web/src/b.ts", "./a.test", "web/src/a.test.ts")}})
 	if r.Attr("deps") != nil || logged != "" {
 		t.Errorf("deps = %v, log %q; want none", r.Attr("deps"), logged)
@@ -460,7 +462,8 @@ func TestResolveEdges_TestDepsCarryTheRuntime(t *testing.T) {
 	ix := buildIndex(t, c, edgeRules...)
 	s := tc.programs
 	const cfg = "web/vitest.config.mts"
-	s.vitestEdges = map[string][]edge{cfg: {importEdge(cfg, "vite", storeVite)}}
+	s.vitestEdges = map[string][]explainfiles.Edge{
+		cfg: {importEdge(cfg, "vite", storeVite)}}
 
 	set := s.srcs("web", tc)
 	imps := s.testImports(c.RepoRoot, tc.lock, "web", ":web", cfg, set)
@@ -507,7 +510,7 @@ func TestResolveEdges_ConfigSrcsAreTheConfigsModules(t *testing.T) {
 		meta    = "web/plugins/meta.json"
 		outside = "shared/vitest.base.ts"
 	)
-	s.vitestEdges = map[string][]edge{
+	s.vitestEdges = map[string][]explainfiles.Edge{
 		cfg: {
 			importEdge(cfg, "./plugins/define", plugin),
 			importEdge(cfg, "../shared/vitest.base", outside),
@@ -799,11 +802,11 @@ var poolRules = []indexedRule{
 
 // The pooled test's rule, resolved with the given config edges.
 func resolvePooledTest(t *testing.T, c *config.Config, tc *tsConfig,
-	edges []edge) (*rule.Rule, string) {
+	edges []explainfiles.Edge) (*rule.Rule, string) {
 	t.Helper()
 	ix := buildIndex(t, c, poolRules...)
 	s := tc.programs
-	s.vitestEdges = map[string][]edge{poolCfg: edges}
+	s.vitestEdges = map[string][]explainfiles.Edge{poolCfg: edges}
 	imps := s.testImports(c.RepoRoot, tc.lock, "worker/test", "", poolCfg,
 		s.srcs("worker/test", tc))
 	return resolveEdgesOf(t, c, ix, "ts_test", "worker/test", "test_test", imps)
@@ -813,7 +816,7 @@ func resolvePooledTest(t *testing.T, c *config.Config, tc *tsConfig,
 // wrangler config, runs istanbul coverage, and carries istanbul in D7 spelling.
 func TestResolveEdges_WorkersPoolWritesTheTestsAttributes(t *testing.T) {
 	c, tc := poolRepo(t, poolRepoLock)
-	r, logged := resolvePooledTest(t, c, tc, []edge{poolEdge})
+	r, logged := resolvePooledTest(t, c, tc, []explainfiles.Edge{poolEdge})
 	if got := r.AttrString("wrangler_config"); got != "//worker:wrangler_config" {
 		t.Errorf("wrangler_config = %q, want //worker:wrangler_config", got)
 	}
@@ -851,7 +854,7 @@ func TestResolveEdges_NoPoolEdgeWritesNoPoolAttributes(t *testing.T) {
 // and its dep stay off, and one line names the package to declare.
 func TestResolveEdges_PoolWithoutIstanbulIsSaid(t *testing.T) {
 	c, tc := poolRepo(t, poolRepoLockNoIstanbul)
-	r, logged := resolvePooledTest(t, c, tc, []edge{poolEdge})
+	r, logged := resolvePooledTest(t, c, tc, []explainfiles.Edge{poolEdge})
 	if got := r.AttrString("wrangler_config"); got != "//worker:wrangler_config" {
 		t.Errorf("wrangler_config = %q, want //worker:wrangler_config", got)
 	}
@@ -876,7 +879,7 @@ func TestResolveEdges_SamePackagePoolNamesTheFile(t *testing.T) {
 	c, tc := poolRepo(t, poolRepoLock)
 	ix := buildIndex(t, c, poolRules...)
 	s := tc.programs
-	s.vitestEdges = map[string][]edge{poolCfg: {poolEdge}}
+	s.vitestEdges = map[string][]explainfiles.Edge{poolCfg: {poolEdge}}
 	imps := s.testImports(c.RepoRoot, tc.lock, "worker", ":worker", poolCfg,
 		s.srcs("worker", tc))
 	r, _ := resolveEdgesOf(t, c, ix, "ts_test", "worker", "worker_test", imps)

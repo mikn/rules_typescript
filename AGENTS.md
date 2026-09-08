@@ -91,7 +91,9 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
   `oxc`, `tsgo`, `forest`, `strict_deps`), the functions the rule calls in that
   order
 - `ts/tools/tsaction/` — the Go runner behind the actions: `tsconfig` writes the action config from `tsgo --showConfig`, `oxc` relays the options to oxc, `tsgo` lays out the program root and runs tsgo from it
-- `ts/tools/tsconfig/`, `ts/tools/jsonc/` — the tsconfig `extends` chain reader and the JSONC parser, shared by tsaction and Gazelle
+- `ts/tools/explainfiles/`, `ts/tools/tsconfig/`, `ts/tools/jsonc/` — the
+  `--explainFiles` grammar, the tsconfig `extends` chain reader and the JSONC
+  parser, shared by tsaction and Gazelle
 - `ts/private/node_modules.bzl` — the `node_modules` tree builder; `ts_compile`'s forest and `ts_test`'s runtime tree
 - `ts/private/providers.bzl` — TsInfo, TsTestRunnerInfo, TsConfigInfo, NpmPackageInfo, DevServerInfo, BundlerInfo
 - `npm/private/npm_translate_lock.bzl` — pnpm lockfile reader (parsing only; no repository rule)
@@ -120,7 +122,7 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
   `ts_dev_server` and `npm_bin` run through; `--dump-config` prints the
   resolved per-target JSON config
 - `gazelle/program.go`, `gazelle/owner.go` — the tsgo listing per
-  `tsconfig.json` and its `--explainFiles` grammar; the packages and `owner(f)`
+  `tsconfig.json`; the packages and `owner(f)`
 - `gazelle/npm.go`, `gazelle/manifest.go` — the lockfile gate, the
   importer-scoped label, the member view; the nearest `package.json`
 - `gazelle/generate.go`, `gazelle/resolve.go` — the package's rules; `deps`

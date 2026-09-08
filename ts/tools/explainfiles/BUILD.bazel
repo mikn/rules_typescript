@@ -1,0 +1,23 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+# gazelle:prefix github.com/mikn/rules_typescript/ts/tools/explainfiles
+
+exports_files(
+    ["testdata/workers_download_test.listing.txt"],
+    visibility = ["//gazelle:__pkg__"],
+)
+
+go_library(
+    name = "explainfiles",
+    srcs = ["explainfiles.go"],
+    importpath = "github.com/mikn/rules_typescript/ts/tools/explainfiles",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "explainfiles_test",
+    size = "small",
+    srcs = ["explainfiles_test.go"],
+    data = glob(["testdata/**"]),
+    embed = [":explainfiles"],
+)

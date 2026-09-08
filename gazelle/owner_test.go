@@ -1,10 +1,18 @@
 package typescript
 
 import (
+	"os"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/mikn/rules_typescript/ts/tools/explainfiles"
 )
+
+// The Lovable monorepo's workers/download/test program, listed from its root
+// with --explainFiles; the parser's own tests read the same file.
+const sampleListing = "../ts/tools/explainfiles/testdata/" +
+	"workers_download_test.listing.txt"
 
 // A store as a full run from the repository root leaves it: every directory
 // in dirs walked, every listing parsed and recorded under its directory.
@@ -23,12 +31,11 @@ func storeOf(t *testing.T, dirs []string, listings map[string]string,
 
 func programOf(t *testing.T, dir, text string) *program {
 	t.Helper()
-	p, err := parseListing(text)
+	l, err := explainfiles.Parse(text)
 	if err != nil {
 		t.Fatalf("%s: %v", dir, err)
 	}
-	p.dir = dir
-	return p
+	return &program{Listing: *l, dir: dir}
 }
 
 // A listing whose every file matched the include pattern of dir's tsconfig.
@@ -71,9 +78,11 @@ func TestOwner_FirstParty(t *testing.T) {
 func TestOwner_SampleListingIsATestOnlyPackage(t *testing.T) {
 	s := storeOf(t, []string{"", "workers", "workers/download",
 		"workers/download/src", sampleDir}, nil)
-	sample := parseSampleListing(t)
-	sample.dir = sampleDir
-	s.record(sample)
+	data, err := os.ReadFile(sampleListing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.record(programOf(t, sampleDir, string(data)))
 
 	if got := s.packageDirs(); !slices.Equal(got, []string{sampleDir}) {
 		t.Errorf("packages = %q, want [%s]", got, sampleDir)
