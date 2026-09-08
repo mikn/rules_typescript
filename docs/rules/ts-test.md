@@ -143,7 +143,7 @@ that layers four sources, lowest precedence first:
 
 | Layer | Contents | Workspace projects |
 |-------|----------|---|
-| 1. Bazel | `root` (the `config`'s package; the test's own with an inline dict or none), `cacheDir` under `TEST_TMPDIR`, `resolve.preserveSymlinks`, `test.coverage.allowExternal`, the plugin serving a `setupFiles` entry from its staged path, and under a `config` whose `plugins` hold `@cloudflare/vitest-pool-workers` `preserveSymlinks: false` and the runfiles-imports plugin | yes |
+| 1. Bazel | `root` (the `config`'s package; the test's own with an inline dict or none), `cacheDir` under `TEST_TMPDIR`, `resolve.preserveSymlinks`, `test.coverage.allowExternal`, the plugin resolving a relative `.ts` specifier to its compiled sibling, the plugin serving a `setupFiles` entry from its staged path, and under a `config` whose `plugins` hold `@cloudflare/vitest-pool-workers` `preserveSymlinks: false` and the runfiles-imports plugin | yes |
 | 2. user | the `config` attr: a config file or an inline dict | it supplies the projects |
 | 3. attributes | `environment`, `setup_files`, `global_setup`, `globals`, `reporters`, `coverage_thresholds`, `coverage_provider` | yes |
 | 4. snapshots | `test.resolveSnapshotPath`, and in update mode `test.dir`, `test.include` and `cacheDir` | no, root only |
@@ -284,6 +284,26 @@ serves the root and refuses a path outside it: `Cannot find module
 that request with the staged path, so a setup file loads the way a test file
 does, its imports resolved from the runfiles tree.
 `//tests/setup_files_compiled/dom` is the example.
+
+### Relative `.ts` Specifiers
+
+`import { x } from "./util.ts"` is legal TypeScript under
+`allowImportingTsExtensions`, and the emit keeps the specifier as written, so
+the compiled test imports `./util.ts` while the runfiles hold `util.js`. Left
+so, the run fails with
+
+```
+Error: Cannot find module './util.ts' imported from .../util.test.js
+```
+
+Layer 1 carries a plugin that resolves a relative specifier ending in `.ts`,
+`.tsx`, `.mts` or `.cts` whose file is absent while the `.js`, `.mjs` or `.cjs`
+beside it exists to that sibling, from the importing file's directory -- the
+rule a `setupFiles` entry is rewritten by, applied to every import. A
+specifier whose file exists resolves as written, and the source and the emit
+are untouched: no `rewriteRelativeImportExtensions`, no edit to the `import`.
+`//tests/vitest/relative_ts` is the example: the test imports `./lib.ts`, and
+lib `./deep/util.ts`.
 
 ### A Workers Pool
 
@@ -470,22 +490,6 @@ rejected, and the `vitest/globals` `types` entry is not added. No
 over test names), sharding works as above, and the exit status is the test
 result. Nothing writes a JUnit XML on either runner; Bazel synthesises
 `test.xml` from the log.
-
-### Relative `.ts` Specifiers
-
-`import { x } from "./util.ts"` is legal TypeScript under
-`allowImportingTsExtensions`, and oxc copies that specifier into the `.js`
-verbatim. Only `util.js` is in the runfiles tree, so the runtime fails with
-
-```
-Error [ERR_MODULE_NOT_FOUND]: Cannot find module '.../util.ts'
-```
-
-The node:test runner installs an ESM resolver hook that retries a failed
-relative resolution with `.ts`/`.tsx` rewritten to `.js`. It runs only after a
-failed resolution, so a specifier node can resolve keeps resolving as before.
-The source and the emit are unchanged: no `rewriteRelativeImportExtensions`
-flag, and no edit to the `import`.
 
 [node-test]: https://nodejs.org/api/test.html
 

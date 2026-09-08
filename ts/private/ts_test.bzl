@@ -206,18 +206,30 @@ const merge = (a, b) => {
 """
 
 _SETUP_HELPERS = """\
-// A config names its setup files as sources, which the runfiles never hold;
-// what a dep stages at that path is the compiled sibling.
+// A config's setup entries and a compiled module's imports name sources the
+// runfiles never hold; what a dep stages at that path is the compiled sibling.
 const COMPILED_EXT = { '.ts': '.js', '.tsx': '.js', '.mts': '.mjs', '.cts': '.cjs' };
-const compiledSetupEntry = (root) => (entry) => {
-  const m = typeof entry === 'string' ? /\\.[cm]?tsx?$/.exec(entry) : null;
-  if (!m || !(m[0] in COMPILED_EXT) || existsSync(resolve(root, entry))) return entry;
-  const sibling = entry.slice(0, -m[0].length) + COMPILED_EXT[m[0]];
-  return existsSync(resolve(root, sibling)) ? sibling : entry;
+const compiledSibling = (dir, spec) => {
+  const m = typeof spec === 'string' ? /\\.[cm]?tsx?$/.exec(spec) : null;
+  if (!m || !(m[0] in COMPILED_EXT)) return spec;
+  if (existsSync(resolve(dir, spec))) return spec;
+  const sibling = spec.slice(0, -m[0].length) + COMPILED_EXT[m[0]];
+  return existsSync(resolve(dir, sibling)) ? sibling : spec;
+};
+const compiledImports = {
+  name: 'rules_typescript:compiled-imports',
+  enforce: 'pre',
+  resolveId(id, importer, opts) {
+    if (!importer || !/^\\.\\.?\\//.test(id)) return null;
+    const sibling = compiledSibling(dirname(importer), id);
+    if (sibling === id) return null;
+    return this.resolve(sibling, importer, { ...opts, skipSelf: true });
+  },
 };
 const withCompiledSetup = (config) => {
   if (!isPlainObject(config.test)) return config;
-  const rewrite = compiledSetupEntry(resolve(config.root ?? '.'));
+  const root = resolve(config.root ?? '.');
+  const rewrite = (entry) => compiledSibling(root, entry);
   const test = { ...config.test };
   for (const key of ['setupFiles', 'globalSetup']) {
     if (Array.isArray(test[key])) test[key] = test[key].map(rewrite);
@@ -395,6 +407,8 @@ def _vitest_config_content(
         ]
 
     lines += [
+        _CONFIG_MERGE_HELPERS,
+        _SETUP_HELPERS,
         # Every path vitest is handed is a runfiles symlink; resolving them to
         # their targets walks out of the test sandbox, which the browser-like
         # environments do and the node one does not.
@@ -418,7 +432,7 @@ def _vitest_config_content(
         # which is the runfiles tree.
         "  ...(process.env.TEST_TMPDIR ? { cacheDir: resolve(process.env.TEST_TMPDIR, '.vite') } : {}),",
         "  resolve: { preserveSymlinks: true },",
-        "  plugins: [],",
+        "  plugins: [compiledImports],",
         # A workspace member's .js keeps its sources' extensionless relative
         # imports, which vite resolves and node's loader rejects: vite runs it.
         "  test: {{ coverage: {{ allowExternal: true }}, server: {{ deps: {{ inline: [{}] }} }} }},".format(
@@ -467,8 +481,6 @@ def _vitest_config_content(
     lines.append(_snapshot_layer(snapshot_bases, snapshot_root, test_include, update_snapshots))
     lines += [
         "",
-        _CONFIG_MERGE_HELPERS,
-        _SETUP_HELPERS,
         "export default async (env) => {",
     ]
     if user_config_rf or user_config_json:

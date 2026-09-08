@@ -315,6 +315,10 @@
         "./tests/vitest/global_setup/*",
         "./bazel-bin/tests/vitest/global_setup/*"
       ],
+      "tests/vitest/relative_ts/*": [
+        "./tests/vitest/relative_ts/*",
+        "./bazel-bin/tests/vitest/relative_ts/*"
+      ],
       "tests/vitest/setup_files/*": [
         "./tests/vitest/setup_files/*",
         "./bazel-bin/tests/vitest/setup_files/*"
@@ -392,6 +396,9 @@
     "tests/compiler_options/worker/index.ts",
     "tests/vitest/attrs/attrs.test.ts",
     "tests/vitest/attrs/setup.ts",
+    "tests/vitest/relative_ts/deep/util.ts",
+    "tests/vitest/relative_ts/lib.ts",
+    "tests/vitest/relative_ts/relative_ts.test.ts",
     "tests/worker_types/src/index.ts",
     "tests/worker_types/worker_types_test.go",
     "tests/worker_types/wrangler.build.jsonc",

@@ -1,0 +1,33 @@
+"""A relative `.ts` specifier the compiled `.js` keeps runs against the
+sibling the runfiles hold: the test imports `./lib.ts`, lib `./deep/util.ts`.
+"""
+
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.ts_extensions.json
+
+load("//ts:defs.bzl", "ts_compile", "ts_test")
+
+package(default_visibility = ["//:__pkg__"])
+
+ts_compile(
+    name = "lib",
+    srcs = [
+        "deep/util.ts",
+        "lib.ts",
+    ],
+    tsconfig = "tsconfig.ts_extensions.json",
+)
+
+# keep
+ts_test(
+    name = "relative_ts_test",
+    srcs = ["relative_ts.test.ts"],
+    tsconfig = "tsconfig.ts_extensions.json",
+    deps = [
+        ":lib",
+        "@npm//:vitest",
+    ],
+)
+
+# The generated editor program for this package; see //:refresh_tsconfig.
+exports_files(["tsconfig.json"])
