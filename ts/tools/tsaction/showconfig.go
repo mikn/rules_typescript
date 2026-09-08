@@ -80,6 +80,7 @@ func decodeShowConfig(out []byte) (*effectiveOptions, []string, error) {
 type actionConfig struct {
 	tsgo, project, baseline, out, options string
 	binDir                                string
+	jsx                                   string
 	typesDeps                             stringList
 	srcs                                  []string
 	emit                                  bool
@@ -112,6 +113,8 @@ func writeTsconfig(args []string) error {
 	flags.StringVar(&a.out, "out", "", "the tsconfig to write")
 	flags.StringVar(&a.options, "options", "", "the oxc options file to write")
 	flags.StringVar(&a.binDir, "bin_dir", "", "the output tree's root")
+	flags.StringVar(&a.jsx, "jsx", "",
+		"the ts_config's jsx: \"preserve\" names a .tsx's emit .jsx")
 	flags.Var(&a.typesDeps, "types_dep", "a direct @types dep's name, written to types when the user's chain sets none (repeatable)")
 	flags.BoolVar(&a.emit, "emit", false, "tsgo emits this target's declarations")
 	flags.StringVar(&a.outDir, "out_dir", "", "where the declarations land, with -emit")
@@ -165,6 +168,9 @@ func (a *actionConfig) resolve(dir string, chain *tsconfig.Resolved,
 	if err != nil {
 		return nil, oxcOptions{}, err
 	}
+	if err := a.checkJsx(effective.Jsx); err != nil {
+		return nil, oxcOptions{}, err
+	}
 	config, err := a.build(effective, roots, chain, dir)
 	if err != nil {
 		return nil, oxcOptions{}, err
@@ -174,6 +180,26 @@ func (a *actionConfig) resolve(dir string, chain *tsconfig.Resolved,
 		Jsx:             effective.Jsx,
 		JsxImportSource: effective.JsxImportSource,
 	}, nil
+}
+
+// The rule named a .tsx's emit from the ts_config before any action read the
+// file; the two answers agree, or the edit that makes them agree is named.
+func (a *actionConfig) checkJsx(effective string) error {
+	if !a.hasTsxSrc() {
+		return nil
+	}
+	declared := a.jsx == "preserve"
+	preserve := strings.EqualFold(effective, "preserve")
+	switch {
+	case preserve && !declared:
+		return fmt.Errorf("%s: jsx is \"preserve\", so a .tsx emits .jsx, and the "+
+			"rule declared .js: declare it on the tsconfig's ts_config, "+
+			"jsx = \"preserve\"", a.project)
+	case declared && !preserve:
+		return fmt.Errorf("%s: jsx is %q, so a .tsx emits .js, and the ts_config "+
+			"declares jsx = \"preserve\": drop the attribute", a.project, effective)
+	}
+	return nil
 }
 
 func (a *actionConfig) extends(dir string) []string {
@@ -261,6 +287,15 @@ func (a *actionConfig) roots(printed []string, dir string,
 		}
 	}
 	return files, include
+}
+
+func (a *actionConfig) hasTsxSrc() bool {
+	for _, src := range a.srcs {
+		if path.Ext(src) == ".tsx" {
+			return true
+		}
+	}
+	return false
 }
 
 // A JavaScript src is in `include`; without allowJs tsgo reports TS6504 on it.

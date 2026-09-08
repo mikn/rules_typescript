@@ -335,3 +335,24 @@ func TestResolveExtends(t *testing.T) {
 		}
 	}
 }
+
+func TestResolve_JsxLeafWins(t *testing.T) {
+	repo := t.TempDir()
+	write(t, filepath.Join(repo, "base.json"),
+		`{"compilerOptions": {"jsx": "preserve"}}`)
+	write(t, filepath.Join(repo, "inherits.json"), `{"extends": "./base.json"}`)
+	write(t, filepath.Join(repo, "overrides.json"),
+		`{"extends": "./base.json", "compilerOptions": {"jsx": "react-jsx"}}`)
+	write(t, filepath.Join(repo, "unset.json"),
+		`{"compilerOptions": {"strict": true}}`)
+
+	for name, want := range map[string]string{
+		"inherits.json":  "preserve",
+		"overrides.json": "react-jsx",
+		"unset.json":     "",
+	} {
+		if got := mustResolve(t, filepath.Join(repo, name)).Jsx; got != want {
+			t.Errorf("%s: Jsx = %q, want %q", name, got, want)
+		}
+	}
+}

@@ -55,10 +55,6 @@ a whole-graph decision that one package cannot make about itself:
 """
 
 load(
-    "//npm/private:member_manifest.bzl",
-    "member_manifest_json",
-)
-load(
     "//npm/private:npm_import.bzl",
     "npm_hub",
     "npm_import",
@@ -251,12 +247,18 @@ def _member_entry(name, path):
     return "{name}|{path}".format(name = name, path = path)
 
 def _member_manifest(module_ctx, workspace_root, path):
-    """The member's decoded package.json, or None when the directory holds none."""
+    """The member's named package.json as text and decoded, or None."""
     manifest = workspace_root.get_child(*(path.split("/") + ["package.json"]))
     if not manifest.exists:
         return None
-    decoded = json.decode(module_ctx.read(manifest))
-    return decoded if type(decoded) == "dict" else None
+    text = module_ctx.read(manifest)
+    decoded = json.decode(text)
+    if type(decoded) != "dict":
+        return None
+    name = decoded.get("name")
+    if type(name) != "string" or not name:
+        return None
+    return struct(text = text, decoded = decoded)
 
 def platforms_of_package(pkg):
     """The PLATFORMS keys a published tarball is built for.
@@ -664,8 +666,10 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
     member_dirs = {}
     for path in sorted(candidates):
         manifest = _member_manifest(module_ctx, workspace_root, path)
-        name = candidates[path] or (manifest.get("name") if manifest else None)
-        if type(name) != "string" or not name:
+        name = candidates[path]
+        if not name and manifest:
+            name = manifest.decoded["name"]
+        if not name:
             continue
         label = package_name_to_label(name)
         if label in member_dirs:
@@ -679,9 +683,8 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
             )
         member_dirs[label] = path
         members[label] = _member_entry(name, path)
-        text = member_manifest_json(manifest)
-        if text:
-            member_manifests[label] = text
+        if manifest:
+            member_manifests[label] = manifest.text
 
         # The member IS what that name means; two targets of one name would not load.
         aliases.pop(label, None)

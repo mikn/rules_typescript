@@ -46,13 +46,17 @@ through a Starlark transition; `tests/flags.bzl` is the ruleset's own.
 
 - **TypeScript**, `.ts` and `.tsx`: compiled by oxc to `.js` and `.js.map`,
   type-checked by tsgo, and declared as `.d.ts` by whichever emitter
-  `--//ts:declarations` names. A `.mts` or `.cts` is refused: the rule emits
-  `.js` and `.d.ts` from `.ts` alone, and has no output shape for one.
+  `--//ts:declarations` names. A `.tsx` under `jsx: "preserve"` is compiled to
+  `.jsx` and `.jsx.map`, the names tsc gives it, with its JSX left for the
+  bundler ([below](#a-tsx-under-jsx-preserve)). A `.mts` or `.cts` is refused:
+  the rule emits `.js` and `.d.ts` from `.ts` alone, and has no output shape
+  for one.
 - **JavaScript**, `.js`, `.mjs` and `.cjs`: staged into the output tree
   unchanged and in the type program. The rule sets `allowJs` for it, so its
   JSDoc types reach consumers; `checkJs` in the tsconfig has its own body
-  checked. A `.jsx` is rejected at analysis time, because oxc has no output
-  extension for one; the message says to rename it `.tsx`.
+  checked. A `.jsx` is rejected at analysis time: JavaScript is staged
+  unchanged, and tsc would transform the JSX in one under every `jsx` mode but
+  `preserve`; the message says to rename it `.tsx`.
 - **Declarations**, `.d.ts`, `.d.mts` and `.d.cts`: in the type program and
   passed through to consumers unchanged, global when the file has no top-level
   import or export. A `.d.mts` or `.d.cts` is the declaration of the `.mjs` or
@@ -113,7 +117,9 @@ For each source file `foo.ts`:
 | `foo.js.map` | Source map, under `--//ts:source_map` |
 | `foo.d.ts` | Declaration file, the compilation boundary |
 
-Every other src is staged at its package-relative path, unchanged.
+For a `foo.tsx` under `jsx: "preserve"` the first two are `foo.jsx` and
+`foo.jsx.map`, as tsc names them ([below](#a-tsx-under-jsx-preserve)). Every
+other src is staged at its package-relative path, unchanged.
 
 ## Where Compiler Options Come From
 
@@ -167,6 +173,48 @@ and `skipLibCheck` drops the `TS2307`.
 Read the tsconfig a target handed the compiler with
 `bazel build //pkg:lib --output_groups=tsconfig`.
 
+### A `.tsx` Under `jsx: preserve`
+
+tsc names a `.tsx`'s emit `foo.jsx` under `jsx: "preserve"` and `foo.js` under
+every other mode, and leaves the JSX in it for the bundler; a `.ts` is `foo.js`
+under every mode. The rule names its outputs at analysis, before any action has
+read the tsconfig, so the one compiler option that names an output is declared
+on the tsconfig's [`ts_config`](#ts_config), `jsx = "preserve"`. `ts_compile`
+and every `ts_compile` a `ts_test` generates read it through `TsConfigInfo`;
+Gazelle writes it from the `extends` chain the way it writes `deps`; and the
+`TsConfig` action, which runs `--showConfig` over the chain, fails a target
+with a `.tsx` src when the declaration and the file disagree:
+
+```
+tsaction: pkg/tsconfig.json: jsx is "preserve", so a .tsx emits .jsx, and the
+rule declared .js: declare it on the tsconfig's ts_config, jsx = "preserve"
+```
+
+A tsconfig passed as a plain file declares nothing, so one that sets `preserve`
+fails the same way, for a target with a `.tsx` src, without a `ts_config`;
+a `.ts`-only program has nothing `jsx` names. From the declaration on, the
+emit is tsc's: oxc names the file `.jsx` when it transforms under
+`--jsx preserve`, the strict-deps scanner and every consumer stage a `.jsx` as
+they stage a `.js`, a `ts_test` runs a `.jsx` test file and resolves a `.tsx`
+setup file to it, and the hub's view of a member links a `.jsx` at its
+package-relative path with the member's manifest as built naming it: the view
+reads the declaration off the compiling target's `ts_config` and rewrites a
+`.tsx` target to the `.jsx`. Vite transforms a `.jsx` module and refuses JSX in
+a `.js` (`Failed to parse source for import analysis ... If you are using JSX,
+make sure to name the file with the .jsx or .tsx extension`), which is what a
+`.tsx` compiled to `.js` under `preserve` met. `//tests/jsx_preserve` is the
+example: a `.tsx` test file, a `ts_compile` consumer, and a runtime the vitest
+config aliases the way `node_modules` would hold a published one;
+`//tests/jsx_preserve/member` is a workspace member under it whose `exports` is
+`./view.tsx`, imported by name through the view.
+
+The alternative was an emit declared as one directory whose contents tsaction
+names after reading the tsconfig. Rejected: a directory's children cannot be
+named at analysis, and every consumer names them -- `import "./foo"` resolving
+to `bazel-bin/.../foo.js`, the runfiles a `ts_test` stages by path, the member
+view's manifest targets, a `ts_binary`'s entry, the `paths` bin-dir twins -- so
+the whole per-file output model would have moved into trees for one extension.
+
 ### What Fails Before tsgo Runs
 
 Analysis rejects a `.jsx` src, a directory in `srcs` (a `ts_codegen` `out_dir`
@@ -175,7 +223,9 @@ tree belongs in `deps`), a `.mts` or `.cts` src,
 sources and no tsgo toolchain. One more is the root check below. `tsaction`
 fails the `TsConfig` action on a path-shaped `types` entry no input sits at
 ([a `types` entry that names a declaration file](#a-types-entry-that-names-a-declaration-file)),
-naming the entry, the tsconfig and the path it looked for.
+naming the entry, the tsconfig and the path it looked for, and on a `jsx`
+declaration the chain's effective `jsx` contradicts
+([above](#a-tsx-under-jsx-preserve)), naming the edit.
 
 ### One Root per Declaration Emit
 
@@ -258,8 +308,9 @@ take it for a library file, type-checked and never emitted.
 
 A workspace member is one of those packages. Its hub view `@npm//:<name>` links
 the member's `package.json` as built -- every source-file target under `main`,
-`module`, `browser`, `exports` and `imports` rewritten to the emitted `.js`,
-`types` to the `.d.ts` -- beside the member's `.js` and `.d.ts` at the paths the
+`module`, `browser`, `exports` and `imports` rewritten to the emitted `.js` (the
+`.jsx` for a `.tsx` under `jsx: preserve`), `types` to the `.d.ts` -- beside the
+member's `.js` and `.d.ts` at the paths the
 manifest names, so the bare name and each `exports` subpath resolve for tsgo and
 for node through one manifest. See
 [what a workspace member is imported as](../guides/npm.md#what-a-workspace-member-is-imported-as).
@@ -351,9 +402,11 @@ reachable at runtime, which a dep on the producing target gives a `ts_test` or
 
 ### ts_config
 
-Starlark cannot read a file to follow its `extends` chain, so a tsconfig that
-extends another file has to declare the chain. Every file in it becomes an input
-to the type-check action:
+Starlark cannot read a file, so a `ts_config` declares what a rule needs from
+the tsconfig before any action runs: the `extends` chain, every file of which
+becomes an input to the type-check action, and `jsx = "preserve"` when that is
+the chain's effective `jsx`, the one compiler option that names an output
+([above](#a-tsx-under-jsx-preserve)):
 
 ```python
 load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_config")
@@ -362,16 +415,20 @@ ts_config(
     name = "tsconfig",
     src = "tsconfig.json",
     deps = ["//:tsconfig.base.json"],
+    jsx = "preserve",
 )
 
 ts_compile(
     name = "lib",
-    srcs = ["index.ts"],
+    srcs = ["index.tsx"],
     tsconfig = ":tsconfig",
 )
 ```
 
-A tsconfig that extends nothing goes straight into `ts_compile`:
+Gazelle writes both from the chain
+([the tsconfig and its ts_config](../gazelle/overview.md#the-tsconfig-and-its-ts_config)).
+A tsconfig that extends nothing and does not set `preserve` goes straight into
+`ts_compile`:
 
 ```python
 ts_compile(

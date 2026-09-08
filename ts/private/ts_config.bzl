@@ -1,4 +1,4 @@
-"""ts_config: a hand-written tsconfig.json and the files it extends."""
+"""ts_config: a hand-written tsconfig.json, the files it extends and its jsx."""
 
 load("//ts/private:providers.bzl", "TsConfigInfo")
 
@@ -19,6 +19,7 @@ def _ts_config_impl(ctx):
         TsConfigInfo(
             tsconfig = ctx.file.src,
             deps_tsconfigs = depset(chain, transitive = chain_sets),
+            jsx = ctx.attr.jsx,
         ),
     ]
 
@@ -34,13 +35,25 @@ ts_config = rule(
             doc = "Every file `src` extends, transitively: .json files or other ts_config targets.",
             allow_files = [".json"],
         ),
-    },
-    doc = """Declares a hand-written tsconfig.json and the files it extends.
+        "jsx": attr.string(
+            doc = """`"preserve"` when the chain's effective `jsx` is that.
 
-Starlark cannot read the file to follow its `extends` chain, so the chain is
-declared here and every file in it becomes an input to the type-check action.
-Pass the result to ts_compile's `tsconfig` attr. A tsconfig that extends nothing
-can be passed to ts_compile directly, without this rule.
+tsc names a `.tsx`'s emit `.jsx` under `preserve` and `.js` under every other
+mode, and a rule declares its outputs before any action can read the file, so
+the one value that names an output is declared here. Gazelle writes it from the
+`extends` chain; the `TsConfig` action fails a target with a `.tsx` src when
+the declaration and the file disagree, naming the edit.""",
+            values = ["", "preserve"],
+        ),
+    },
+    doc = """Declares a tsconfig.json: the files it extends, and its jsx.
+
+Starlark cannot read the file, so what a rule needs from it before any action
+runs is declared here: the `extends` chain, every file of which becomes an
+input to the type-check action, and `jsx = "preserve"` when that is the chain's
+effective value, since it names a `.tsx`'s emit. Pass the result to
+ts_compile's `tsconfig` attr. A tsconfig that extends nothing and does not set
+`jsx: "preserve"` can be passed to ts_compile directly, without this rule.
 
 Example:
     ts_config(

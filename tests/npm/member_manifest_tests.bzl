@@ -2,10 +2,11 @@
 
 The hub's view of a member links the member's own manifest into node_modules,
 with every source-file target rewritten to the file ts_compile emits from it:
-`main`, `module`, `browser`, `exports` and `imports` name the `.js`, `types`,
-`typings` and a `types` condition under `exports` name the `.d.ts`. tsc maps a
-`.js` target to the `.d.ts` beside it and node runs the `.js`, so one manifest
-serves the check and the runtime.
+`main`, `module`, `browser`, `exports` and `imports` name the `.js`, or the
+`.jsx` for a `.tsx` under `jsx: preserve`; `types`, `typings` and a `types`
+condition under `exports` name the `.d.ts`. tsc maps a `.js` or `.jsx` target
+to the `.d.ts` beside it and node runs the `.js`, so one manifest serves the
+check and the runtime.
 
 The text keeps the manifest's key order. An `exports` condition map is read in
 the order it is written, and Bazel's json.encode sorts keys -- `default` would
@@ -95,21 +96,35 @@ _CASES = [
         expected = '{"name":"m","version":"0.0.0","sideEffects":false,"engines":{"node":22},"type":"module"}',
     ),
     struct(
-        shape = "no name: not a member, and nothing to carry",
-        manifest = {"version": "0.0.0", "main": "./index.ts"},
-        expected = None,
-    ),
-    struct(
-        shape = "not a manifest at all",
-        manifest = ["./index.ts"],
-        expected = None,
+        shape = "under jsx: preserve a .tsx target names the .jsx, a .ts the " +
+                ".js and types the .d.ts, in every role and through a wildcard",
+        jsx = "preserve",
+        manifest = {
+            "name": "preserve-view",
+            "browser": "./browser.tsx",
+            "exports": {
+                ".": "./view.tsx",
+                "./icons/*": "./icons/components/*.tsx",
+                "./util": {"types": "./util.tsx", "default": "./util.ts"},
+            },
+        },
+        expected = '{"name":"preserve-view","browser":"./browser.jsx",' +
+                   '"exports":{".":"./view.jsx",' +
+                   '"./icons/*":"./icons/components/*.jsx",' +
+                   '"./util":{"types":"./util.d.ts","default":"./util.js"}},' +
+                   '"type":"module"}',
     ),
 ]
 
 def _member_manifest_json_test(ctx):
     env = unittest.begin(ctx)
     for case in _CASES:
-        asserts.equals(env, case.expected, member_manifest_json(case.manifest), case.shape)
+        asserts.equals(
+            env,
+            case.expected,
+            member_manifest_json(case.manifest, getattr(case, "jsx", "")),
+            case.shape,
+        )
     return unittest.end(env)
 
 member_manifest_json_test = unittest.make(_member_manifest_json_test)

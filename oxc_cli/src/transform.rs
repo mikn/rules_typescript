@@ -234,7 +234,8 @@ fn compute_output_paths(input_path: &Path, opts: &CliOptions) -> miette::Result<
         .ok_or_else(|| miette!("Input path has no file name: {}", input_path.display()))?
         .to_string_lossy();
 
-    let stem = if file_name.ends_with(".tsx") {
+    let is_tsx = file_name.ends_with(".tsx");
+    let stem = if is_tsx {
         &file_name[..file_name.len() - 4]
     } else if file_name.ends_with(".ts") {
         &file_name[..file_name.len() - 3]
@@ -248,9 +249,15 @@ fn compute_output_paths(input_path: &Path, opts: &CliOptions) -> miette::Result<
     let parent = relative.parent().unwrap_or(Path::new(""));
     let base_dir = opts.out_dir.join(parent);
 
-    let js_path = base_dir.join(format!("{stem}.js"));
+    // tsc's naming: a .tsx whose JSX is preserved keeps the x.
+    let js_extension = if is_tsx && opts.jsx == "preserve" {
+        "jsx"
+    } else {
+        "js"
+    };
+    let js_path = base_dir.join(format!("{stem}.{js_extension}"));
     let js_map_path = if opts.source_map {
-        Some(base_dir.join(format!("{stem}.js.map")))
+        Some(base_dir.join(format!("{stem}.{js_extension}.map")))
     } else {
         None
     };

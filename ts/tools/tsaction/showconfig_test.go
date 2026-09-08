@@ -292,13 +292,15 @@ func TestTsconfigStep_NoTypesWritesTheDirectTypesDeps(t *testing.T) {
 	capture := readTestdata(t, "showconfig-no-types.json")
 	e := newExecroot(t, noTypesLeaf, capture)
 
-	mustWriteTsconfig(t, e.tsconfigArgs("-types_dep=node", "-types_dep=react"))
+	mustWriteTsconfig(t, e.tsconfigArgs(
+		"-jsx=preserve", "-types_dep=node", "-types_dep=react",
+	))
 	config := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")
 	assertJSON(t, "types", config["compilerOptions"].(map[string]any)["types"], `["node", "react"]`)
 	assertJSON(t, "pkg.options.json", readJSON(t, binDir+"/pkg/pkg.options.json"),
 		`{"target": "esnext", "jsx": "preserve", "jsxImportSource": "preact"}`)
 
-	mustWriteTsconfig(t, e.tsconfigArgs())
+	mustWriteTsconfig(t, e.tsconfigArgs("-jsx=preserve"))
 	config = readJSON(t, binDir+"/pkg/pkg.tsconfig.json")
 	assertJSON(t, "types with no @types dep", config["compilerOptions"].(map[string]any)["types"], `[]`)
 }
@@ -332,12 +334,12 @@ func TestTsconfigStep_JavaScriptSrcSetsAllowJs(t *testing.T) {
 	e := newExecroot(t, noTypesLeaf, readTestdata(t, "showconfig-no-types.json"))
 	writeFile(t, "pkg/src/b.js", "export const b = 1;\n")
 
-	mustWriteTsconfig(t, e.tsconfigArgs())
+	mustWriteTsconfig(t, e.tsconfigArgs("-jsx=preserve"))
 	if got := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")["compilerOptions"].(map[string]any)["allowJs"]; got != nil {
 		t.Errorf("allowJs = %v with no JavaScript src, want unset", got)
 	}
 
-	mustWriteTsconfig(t, append(e.tsconfigArgs(), "pkg/src/b.js"))
+	mustWriteTsconfig(t, append(e.tsconfigArgs("-jsx=preserve"), "pkg/src/b.js"))
 	if got := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")["compilerOptions"].(map[string]any)["allowJs"]; got != true {
 		t.Errorf("allowJs = %v with a JavaScript src, want true", got)
 	}
@@ -347,7 +349,8 @@ func TestTsconfigStep_EmitShape(t *testing.T) {
 	e := newExecroot(t, noTypesLeaf, readTestdata(t, "showconfig-no-types.json"))
 
 	mustWriteTsconfig(t, e.tsconfigArgs(
-		"-emit", "-out_dir="+binDir+"/pkg", "-root_dir=pkg", "-isolated_declarations", "-lib_check",
+		"-jsx=preserve", "-emit", "-out_dir="+binDir+"/pkg", "-root_dir=pkg",
+		"-isolated_declarations", "-lib_check",
 	))
 	opts := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")["compilerOptions"].(map[string]any)
 	for key, want := range map[string]any{
@@ -454,5 +457,42 @@ func TestRelativePath(t *testing.T) {
 		if got := explicitlyRelative(in); got != want {
 			t.Errorf("explicitlyRelative(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// The rule names a .tsx's emit before any action reads the tsconfig, from the
+// ts_config's declaration; the step holds the two to one answer.
+func TestTsconfigStep_JsxPreserveNeedsTheDeclaration(t *testing.T) {
+	e := newExecroot(t, noTypesLeaf, readTestdata(t, "showconfig-no-types.json"))
+
+	// Nothing in a .ts-only program is named by jsx: a plain file passes.
+	mustWriteTsconfig(t, e.tsconfigArgs())
+
+	writeFile(t, "pkg/src/view.tsx", "export const v = 1;\n")
+	err := writeTsconfig(append(e.tsconfigArgs(), "pkg/src/view.tsx"))
+	if err == nil || !strings.Contains(err.Error(), `jsx = "preserve"`) ||
+		!strings.Contains(err.Error(), "pkg/tsconfig.json") {
+		t.Fatalf("writeTsconfig = %v, want the declaration named against "+
+			"pkg/tsconfig.json", err)
+	}
+	if _, statErr := os.Stat(binDir + "/pkg/pkg.tsconfig.json"); statErr == nil {
+		t.Error("a config was written although the declaration is missing")
+	}
+
+	mustWriteTsconfig(t,
+		append(e.tsconfigArgs("-jsx=preserve"), "pkg/src/view.tsx"))
+	assertJSON(t, "pkg.options.json", readJSON(t, binDir+"/pkg/pkg.options.json"),
+		`{"target": "esnext", "jsx": "preserve", "jsxImportSource": "preact"}`)
+}
+
+func TestTsconfigStep_JsxDeclaredPreserveUnderAnotherModeFails(t *testing.T) {
+	e := newExecroot(t, chainLeaf, readTestdata(t, "showconfig-chain.json"))
+	writeFile(t, "pkg/src/view.tsx", "export const v = 1;\n")
+
+	err := writeTsconfig(
+		append(e.tsconfigArgs("-jsx=preserve"), "pkg/src/view.tsx"))
+	if err == nil || !strings.Contains(err.Error(), `"react-jsx"`) ||
+		!strings.Contains(err.Error(), "drop the attribute") {
+		t.Errorf("writeTsconfig = %v, want the effective jsx and the edit", err)
 	}
 }

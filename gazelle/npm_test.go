@@ -491,6 +491,7 @@ func TestEdgeLabel_CuloriPairing(t *testing.T) {
 		"shared": "packages/shared", "pulse": "packages/pulse",
 		"@acme/ui":      "tests/compiler_options/member/lib",
 		"nested-shared": "packages/nested-shared",
+		"preserve-view": "tests/jsx_preserve/member",
 	}; !reflect.DeepEqual(l.members, want) {
 		t.Errorf("members = %v, want %v", l.members, want)
 	}

@@ -139,10 +139,8 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 				"coverage_provider": true,
 			},
 		},
-		// ts_config makes a package's hand-written tsconfig.json a label the
-		// targets in its subpackages can name. `deps` is the extends chain
-		// Gazelle reads out of the tsconfig, so it is Gazelle's to recompute and
-		// a hand-written value needs a "# keep" to survive the next run.
+		// ts_config makes a package's tsconfig.json a label. deps and jsx are
+		// read out of the file, so both are Gazelle's; a hand value needs # keep.
 		"ts_config": {
 			MatchAny:   false,
 			MatchAttrs: []string{"name"},
@@ -152,6 +150,7 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 			MergeableAttrs: map[string]bool{
 				"src":        true,
 				"deps":       true,
+				"jsx":        true,
 				"visibility": true,
 			},
 		},

@@ -100,4 +100,4 @@ declaration_map_without_tsgo_test = _fails_with(
     },
 )
 mixed_source_roots_test = _fails_with("different roots, and one declaration emit has one rootDir")
-jsx_source_test = _fails_with("which oxc has no output extension for")
+jsx_source_test = _fails_with("every jsx mode but preserve")

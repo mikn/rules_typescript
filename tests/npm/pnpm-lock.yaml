@@ -66,6 +66,11 @@ importers:
       '@acme/ui':
         specifier: workspace:*
         version: link:tests/compiler_options/member/lib
+      # A member under jsx: preserve whose manifest exports a .tsx: the view's
+      # manifest as built names the .jsx the member emits.
+      preserve-view:
+        specifier: workspace:*
+        version: link:tests/jsx_preserve/member
     devDependencies:
       '@types/node':
         specifier: 22.20.1

@@ -1,7 +1,8 @@
 """Core TypeScript compilation rule using oxc-bazel.
 
 ts_compile transforms .ts/.tsx source files into .js + .js.map + .d.ts outputs
-using the oxc-bazel CLI as a Bazel action.
+using the oxc-bazel CLI as a Bazel action. A .tsx under jsx: preserve emits
+.jsx, the name tsc gives it, with its JSX left for the bundler.
 
 JavaScript sources (.js/.mjs/.cjs) are accepted too. They need no transform, so
 they are materialised in the output tree unchanged and joined into the type
@@ -572,9 +573,14 @@ def _classify_srcs(ctx):
             js_srcs.append(f)
         elif f.extension == "jsx":
             fail(
-                "ts_compile: '{}' on {} is a .jsx file, which oxc has no ".format(f.short_path, ctx.label) +
-                "output extension for.\nRename it to .tsx -- TypeScript accepts the " +
-                "JavaScript in it unchanged -- or drop the JSX and call it .js.",
+                "ts_compile: '{}' on {} is a .jsx file. ".format(
+                    f.short_path,
+                    ctx.label,
+                ) +
+                "JavaScript is staged unchanged, and tsc would transform the " +
+                "JSX in one under every jsx mode but preserve.\nRename it to " +
+                ".tsx -- TypeScript accepts the JavaScript in it unchanged " +
+                "-- or drop the JSX and call it .js.",
             )
         elif f.extension in _UNSHAPED_TS_EXTENSIONS:
             fail(
@@ -670,10 +676,13 @@ def _ts_compile_impl(ctx):
     # target declares it and every file in it is an action input.
     baseline_file = _write_baseline_tsconfig(ctx)
     tsconfig_chain = [baseline_file]
+    declared_jsx = ""
     if ctx.file.tsconfig:
         tsconfig_chain.append(ctx.file.tsconfig)
         if TsConfigInfo in ctx.attr.tsconfig:
             tsconfig_chain += ctx.attr.tsconfig[TsConfigInfo].deps_tsconfigs.to_list()
+            declared_jsx = ctx.attr.tsconfig[TsConfigInfo].jsx
+    tsx_extension = ".jsx" if declared_jsx == "preserve" else ".js"
 
     # Who emits the .d.ts decides what each action is on the hook for.
     #   "oxc":  oxc emits declarations syntactically, which REQUIRES isolated
@@ -719,11 +728,12 @@ def _ts_compile_impl(ctx):
         group_outs = oxc_outs_by_root.setdefault(root, [])
         oxc_srcs_by_root.setdefault(root, []).append(src)
 
-        js_out = ctx.actions.declare_file(stem + ".js")
+        js_extension = tsx_extension if src.extension == "tsx" else ".js"
+        js_out = ctx.actions.declare_file(stem + js_extension)
         js_outputs.append(js_out)
         group_outs.append(js_out)
         if source_map:
-            js_map_out = ctx.actions.declare_file(stem + ".js.map")
+            js_map_out = ctx.actions.declare_file(stem + js_extension + ".map")
             js_map_outputs.append(js_map_out)
             group_outs.append(js_map_out)
         dts_out = ctx.actions.declare_file(stem + ".d.ts")
@@ -829,6 +839,8 @@ def _ts_compile_impl(ctx):
         config_args.add(tsconfig, format = "-out=%s")
         config_args.add(options_file, format = "-options=%s")
         config_args.add(ctx.bin_dir.path, format = "-bin_dir=%s")
+        if declared_jsx:
+            config_args.add(declared_jsx, format = "-jsx=%s")
         config_args.add_all(
             sorted([name[len("@types/"):] for name in direct_npm_names if name.startswith("@types/")]),
             format_each = "-types_dep=%s",
@@ -1005,7 +1017,9 @@ ts_compile = rule(
         "srcs": attr.label_list(
             doc = """The package's files.
 
-.ts / .tsx      compiled by oxc; one .js (+ .js.map, + .d.ts) output each.
+.ts / .tsx      compiled by oxc; one .js (+ .js.map, + .d.ts) output each. A
+                .tsx under jsx: preserve emits .jsx (+ .jsx.map), the name tsc
+                gives it, when the tsconfig's ts_config declares that value.
 .js / .mjs/.cjs staged into the output tree unchanged and added to the type
                 program. allowJs is set for them, so JSDoc types cross the
                 package boundary; set checkJs in the tsconfig to have them
@@ -1050,10 +1064,12 @@ import; a workspace member through the hub's view of it, `@npm//:<name>`.""",
         "tsconfig": attr.label(
             doc = """The project's own tsconfig.json: where every compiler option comes from.
 
-Either a .json file or a ts_config target (which additionally declares the
-files the tsconfig `extends`). The file is referenced where it lives, not
-copied, so relative paths inside it keep resolving against the directory they
-were written for.
+Either a .json file or a ts_config target, which additionally declares the
+files the tsconfig `extends` and, with `jsx = "preserve"`, that a .tsx emits
+.jsx; the rule names its outputs before any action reads the file, and the
+TsConfig action fails a target with a .tsx src when the declaration and the
+file disagree. The file is referenced where it lives, not copied, so relative
+paths inside it keep resolving against the directory they were written for.
 
 The action's tsconfig extends the ruleset's baseline (strict, module Preserve,
 target es2022, jsx react-jsx, skipLibCheck, esModuleInterop) and then this
@@ -1090,9 +1106,10 @@ for all of them but Node16/NodeNext.""",
     doc = """Compiles TypeScript with oxc and checks it with tsgo.
 
 Produces one .js (+ .js.map under --//ts:source_map, the default) and one .d.ts
-per .ts/.tsx input, and stages every other src -- JavaScript, JSON, anything
--- into the output tree as-is. Output paths stay relative to the target's
-package, so srcs may span a subtree.
+per .ts/.tsx input -- .jsx and .jsx.map for a .tsx under jsx: preserve, as tsc
+names them -- and stages every other src -- JavaScript, JSON, anything -- into
+the output tree as-is. Output paths stay relative to the target's package, so
+srcs may span a subtree.
 
 The .d.ts outputs are the compilation boundary: downstream ts_compile targets
 only depend on the .d.ts files, enabling fine-grained Bazel caching.

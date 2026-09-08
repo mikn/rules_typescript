@@ -1,0 +1,46 @@
+"""A workspace member under jsx: preserve whose manifest exports a `.tsx`.
+
+`@npm//:preserve-view` is the hub's view of `:member`; the link's manifest
+names `view.jsx`, the file the member emits, and the test reaches it by name.
+The test's npm deps are kept by hand: this tree has no root lockfile for the
+gate to spell them through.
+"""
+
+load("//ts:defs.bzl", "ts_compile", "ts_config", "ts_test")
+
+ts_compile(
+    name = "member",
+    srcs = [
+        "jsx-runtime.ts",
+        "package.json",
+        "view.tsx",
+    ],
+    tsconfig = ":tsconfig",
+    visibility = ["//visibility:public"],
+)
+
+# keep
+ts_test(
+    name = "member_test",
+    srcs = ["view.test.ts"],
+    config = "vitest.config.mjs",
+    tsconfig = ":tsconfig",
+    deps = [
+        ":member",
+        "@npm//:preserve-view",
+        "@npm//:vitest",
+    ],
+)
+
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+    jsx = "preserve",
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "vitest_config",
+    srcs = ["vitest.config.mjs"],
+    visibility = ["//visibility:public"],
+)
