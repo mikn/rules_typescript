@@ -291,10 +291,6 @@
         "./tests/vitest/attrs/*",
         "./bazel-bin/tests/vitest/attrs/*"
       ],
-      "tests/vitest/config_dict/*": [
-        "./tests/vitest/config_dict/*",
-        "./bazel-bin/tests/vitest/config_dict/*"
-      ],
       "tests/vitest/config_merge/*": [
         "./tests/vitest/config_merge/*",
         "./bazel-bin/tests/vitest/config_merge/*"
@@ -307,21 +303,9 @@
         "./tests/vitest/data/*",
         "./bazel-bin/tests/vitest/data/*"
       ],
-      "tests/vitest/environment/*": [
-        "./tests/vitest/environment/*",
-        "./bazel-bin/tests/vitest/environment/*"
-      ],
-      "tests/vitest/global_setup/*": [
-        "./tests/vitest/global_setup/*",
-        "./bazel-bin/tests/vitest/global_setup/*"
-      ],
       "tests/vitest/relative_ts/*": [
         "./tests/vitest/relative_ts/*",
         "./bazel-bin/tests/vitest/relative_ts/*"
-      ],
-      "tests/vitest/setup_files/*": [
-        "./tests/vitest/setup_files/*",
-        "./bazel-bin/tests/vitest/setup_files/*"
       ],
       "tests/vitest/workspace/*": [
         "./tests/vitest/workspace/*",
@@ -395,7 +379,6 @@
     "tests/compiler_options/root_order/src/app.ts",
     "tests/compiler_options/worker/index.ts",
     "tests/vitest/attrs/attrs.test.ts",
-    "tests/vitest/attrs/setup.ts",
     "tests/vitest/relative_ts/deep/util.ts",
     "tests/vitest/relative_ts/lib.ts",
     "tests/vitest/relative_ts/relative_ts.test.ts",

@@ -228,21 +228,6 @@ func TestPlanVitestExitsCleanlyOnAnEmptyShard(t *testing.T) {
 	}
 }
 
-func TestPlanVitestSkipsTheRuntimeForAnNpmBinWrapper(t *testing.T) {
-	r, real := vitestFixture(t)
-	cfg := vitestConfig()
-	cfg.Vitest.Vitest = "_main/tests/app/node_modules/vitest/vitest.mjs"
-	cfg.Vitest.VitestIsNpmBin = true
-	plan, err := MakePlan(cfg, r, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer plan.Cleanup()
-	if plan.Argv[0] == real["+node+/bin/node"] {
-		t.Errorf("an npm_bin wrapper resolves its own node; argv = %q", plan.Argv)
-	}
-}
-
 func TestPlanVitestAddsCoverageFlagsUnderBazelCoverage(t *testing.T) {
 	r, _ := vitestFixture(t)
 	out := filepath.Join(t.TempDir(), "coverage", "out.dat")
@@ -289,27 +274,6 @@ func TestPlanVitestWritesEmptyCoverageWhenVitestProducedNone(t *testing.T) {
 	}
 	if _, err := os.Stat(out); err != nil {
 		t.Errorf("bazel coverage requires the output file to exist: %v", err)
-	}
-}
-
-func TestPlanVitestEnablesCoverageFromTheAttrOnAPlainTestRun(t *testing.T) {
-	r, _ := vitestFixture(t)
-	tmp := t.TempDir()
-	t.Setenv("TEST_TMPDIR", tmp)
-	t.Setenv("COVERAGE_OUTPUT_FILE", "")
-	cfg := vitestConfig()
-	cfg.Vitest.Coverage = true
-	plan, err := MakePlan(cfg, r, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer plan.Cleanup()
-	joined := strings.Join(plan.Argv, " ")
-	if !strings.Contains(joined, "--coverage.enabled true") {
-		t.Errorf("coverage = True has to enable coverage under `bazel test`; argv = %q", joined)
-	}
-	if !strings.Contains(joined, "--coverage.reportsDirectory "+filepath.Join(tmp, "coverage")) {
-		t.Errorf("a report written into the runfiles tree would be a write to a test input; argv = %q", joined)
 	}
 }
 

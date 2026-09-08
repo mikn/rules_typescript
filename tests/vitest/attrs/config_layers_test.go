@@ -6,22 +6,22 @@ import (
 	"github.com/mikn/rules_typescript/tests/verify"
 )
 
-// reporters and coverage thresholds have no observable effect from inside a
-// passing test, so the generated config itself is what gets pinned here.
-func TestEveryAttributeReachesTheGeneratedConfig(t *testing.T) {
+// The provider has no observable effect from inside a passing test, so the
+// generated config itself is what gets pinned here, with the layer order.
+func TestTheGeneratedConfigLayersBazelUserProviderAndSnapshots(t *testing.T) {
 	tree := verify.New(t)
 
-	tree.File("tests/vitest/attrs/_attrs_test_vitest.config.mjs").Contains(
-		`environment: "node"`,
-		`setupFiles: [abs("./setup.js")]`,
-		`globals: true`,
-		`reporters: ["default"]`,
-		`coverage: { provider: "v8", thresholds: { "lines": 0, "perFile": true } }`,
-		`{"test":{"testTimeout":20000}}`,
+	config := tree.File("tests/vitest/attrs/_attrs_test_vitest.config.mjs")
+	config.Contains(
+		`import { workersPoolLayer } from './_attrs_test_workers_pool.mjs';`,
+		`from './attrs_test/vitest.config.mts';`,
 		`root: resolve(process.env.TS_TEST_PACKAGE_DIR, "."),`,
-		`const workersPoolLayer = undefined;`,
-		`merge(merge(bazelLayer, user), attrLayer)`,
-		`withCompiledSetup(merge(merge(merge(bazelLayer, user), attrLayer), snapshotLayer))`,
+		`const providerLayer = { test: { coverage: { provider: "v8" } } };`,
+		`merge(merge(merge(bazelLayer, user), providerLayer), snapshotLayer)`,
 		`const merged = setupFilesInRoot(withCompiledSetup(`,
+		`withCompiledSetup(merge(bazelLayer, p))) : p,`,
+	)
+	config.Excludes(
+		"attrLayer", "environment:", "setupFiles: [abs(", "globals: true",
 	)
 }

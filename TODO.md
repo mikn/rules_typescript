@@ -28,7 +28,7 @@ What is still thin:
 | npm deps (pnpm → Bazel) | Production-ready; one repo per package, patches verified at extension time |
 | node_modules trees | Every *resolution* placed — name, version and peer set (primary flat, the rest under `.pnpm/<name>@<version>[_<peer set>]/`, with a relative link per disagreeing edge) |
 | Gazelle BUILD generation | Production-ready (JS/TS, path aliases from tsconfig.json); alias resolution is deterministic, extension-spelling specifiers resolve, and one scanner is shared with the strict-deps check. CI pins four properties of a run over the `gazelle_roundtrip` workspace (the output builds; generating twice from scratch is byte-identical; the test-target set is unchanged; `bazel test //...` passes on the output) and, on this tree, that every test source file is claimed by a test target (`tools/ci/check_test_sources.sh`). A run on this tree is not a no-op: `bazel run //gazelle -- -mode=diff` exits 1; the BUILD files here are hand-written, and nothing pins them to Gazelle's output |
-| Testing (vitest) | Solid (DOM run for real, coverage, custom config, snapshots read *and* written, watch mode, debugging). Gap: `coverage_thresholds` enforcement is unproven |
+| Testing (vitest) | Solid (DOM run for real, coverage, the user's config, snapshots read; written by `vitest -u` in the package, watch mode, debugging) |
 | Bundling | `ts_binary` takes any `BundlerInfo` bundler, in the CLI mode or the generated-Vite-config mode; the ruleset ships no implementation, so nothing in this tree exercises the bundle action |
 | Dev server + HMR | Pluggable: `ts_dev_server(server = ...)` takes a `DevServerInfo`, Vite by default. Serves first-party source with Bazel out of the inner loop; resolves bare npm specifiers through the `node_modules` tree via the `bazel:npm-resolve` plugin; codegen rebuilds and config-aware restarts under ibazel; does not typecheck |
 | IDE integration | Generated tsconfig + tsserver hook; `module_name` and `extra_exclude` supported. A package whose targets disagree with the root `compilerOptions` gets its own generated tsconfig, declared in `nested_tsconfigs` and staleness-tested; the root excludes those files individually so unclaimed ones stay in its program. Zero tsc errors across the root and all nine nested programs |
@@ -133,14 +133,6 @@ to rediscover them. Each names the file to change.
   (`node:sqlite`, `node:test`) was never at risk: `resolveNpmPackage` answers on
   the prefix before any name is consulted. Two recognisers of one thing; see
   AGENTS.md.
-- **`coverage = True` never instrumented anything.** `tools/launcher/vitest.go`
-  gated it on `COVERAGE_ENABLED == "true"` -- an env var nothing sets, and Bazel
-  has none. So a `coverage_thresholds` on such a target was silently never
-  checked, which is what "enforcement is unproven" turned out to mean. The attr
-  alone now enables coverage, and `//tests/vitest/thresholds` pins both
-  directions: a target missing its threshold exits non-zero naming it, one
-  meeting it exits zero, and the two compiled tests are byte-identical so the
-  exit statuses can only be about the threshold.
 - **Gazelle keeps emitting the external `@rules_typescript//` load label inside
   this repository.** A per-run "generating for self" flag was tried and reverted:
   `Loads()` has no directory context, so one flag decides for the whole walk --
@@ -313,14 +305,14 @@ this is a design question, not a checklist.
 - [ ] Support `--instrumentation_filter` for selective coverage (InstrumentedFilesInfo traversal not yet wired)
 
 ### 5.3 Snapshot Testing
-- [x] Solve the read-only sandbox for snapshot writes. `test.resolveSnapshotPath` points at `<package>/__snapshots__/<source>.snap`; the `snapshots` attr puts the files in runfiles, so a stale or missing one FAILS instead of being rewritten in the sandbox; `CI=true` keeps `bazel test` read-only; and every `ts_test` declares `<name>.update_snapshots`, which reuses the test's own ts_compile and writes under `BUILD_WORKSPACE_DIRECTORY`. `--sandbox_writable_path` is no longer involved.
+- [x] Solve the read-only sandbox for snapshot writes. `test.resolveSnapshotPath` points at `<package>/__snapshots__/<source>.snap`; the `.snap` is a src, so a stale or missing one FAILS instead of being rewritten in the sandbox; `CI=true` keeps `bazel test` read-only; writing is `vitest -u` in the package. `--sandbox_writable_path` is no longer involved.
 - [x] Document the snapshot workflow in a Bazel context (docs/rules/ts-test.md, docs/guides/testing.md)
-- [x] Test that can fail: //tests/vitest/snapshot, whose checked-in `.snap` was proven to fail the test when edited and when dropped from `snapshots`
+- [x] Test that can fail: //tests/vitest/snapshot reads its checked-in `.snap` from `srcs`
 
 ### 5.4 Custom vitest Configuration
 - [x] Add `config` attr to `ts_test` (label to vitest.config.ts)
-- [x] Support custom reporters, setup files, global setup
-- [x] Support an array-form `config` for monorepo configurations. It becomes `test.projects` -- the name vitest 3.2 renamed `test.workspace` to and vitest 4 removed the old spelling of -- and each project gets the Bazel and attribute layers
+- [x] Reporters, setup files, global setup: the `config` file's, as under plain `vitest`
+- [x] Support an array-form `config` for monorepo configurations. It becomes `test.projects` -- the name vitest 3.2 renamed `test.workspace` to and vitest 4 removed the old spelling of -- and each project gets the Bazel layer
 
 ### 5.5 Watch Mode
 - [x] Document `ibazel test //path:test` as the watch mode workflow (README.md)
@@ -589,7 +581,6 @@ instantiated it. Publishing is out of scope until one does.
 - [x] Exported via `exports_files(["vite_env.d.ts"])` in `ts/BUILD.bazel`
 
 ### 13.8 Coverage with bazel coverage
-- [x] Declare coverage output directory in `ts_test` when `coverage = True`
 - [x] Configure vitest to write lcov report to a known path (via `COVERAGE_OUTPUT_FILE` env var set by `bazel coverage`)
 - [x] Wire `_lcov_merger` tool for `bazel coverage --combined_report=lcov` (via `_lcov_merger` attr + `fragments = ["coverage"]`)
 - [x] The coverage output is collected as a test output and available in `bazel-testlogs`

@@ -14,8 +14,7 @@
   or `index.js` of an extensionless one, the file as written otherwise -- and a
   bare specifier from the test's own node_modules tree. The hook leaves user
   source and the emit untouched. `tsconfig` reaches the node:test compile
-  exactly as it reaches the vitest one. Every vitest-shaped attribute
-  (`config`, `environment`, `globals`, `reporters`, `setup_files`,
-  `global_setup`, `snapshots`, the coverage trio, `vitest`) is an analysis
+  exactly as it reaches the vitest one. Every vitest attribute (`config`,
+  `config_srcs`, `coverage_provider`, `wrangler_config`) is an analysis
   error under the node:test runner, and `bazel coverage` on such a target
   fails instead of handing Bazel an empty report.

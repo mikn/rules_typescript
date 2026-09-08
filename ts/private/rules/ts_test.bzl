@@ -3,9 +3,8 @@
 The rule takes TS_COMPILE_ATTRS and the test attributes; compile_program
 registers the actions a ts_compile over the same srcs would, and the forest it
 builds is the tree the tests run in. `runner` names the target providing
-TsTestRunnerInfo whose `launch` writes the launcher config. The macro compiles
-the TypeScript entries of `setup_files` and `global_setup` before declaring the
-rule. docs/rules/ts-test.md is the reference.
+TsTestRunnerInfo whose `launch` writes the launcher config.
+docs/rules/ts-test.md is the reference.
 """
 
 load(
@@ -26,7 +25,6 @@ load(
     "TS_COMPILE_ATTRS",
     "TS_COMPILE_TOOLCHAINS",
     "compile_program",
-    "ts_compile",
 )
 
 _ENTRY_EXTENSIONS = ["js", "jsx", "mjs", "cjs"]
@@ -89,13 +87,10 @@ def _ts_test_impl(ctx):
 
     runtime_binary = None
     runtime_args = []
-    if ctx.file.runtime:
-        runtime_binary = ctx.file.runtime
-    else:
-        js_runtime = get_js_runtime(ctx)
-        if js_runtime:
-            runtime_binary = js_runtime.runtime_binary
-            runtime_args = js_runtime.args_prefix
+    js_runtime = get_js_runtime(ctx)
+    if js_runtime:
+        runtime_binary = js_runtime.runtime_binary
+        runtime_args = js_runtime.args_prefix
 
     # The workspace members in the tree: the packages with no extracted
     # manifest.
@@ -146,7 +141,7 @@ def _ts_test_impl(ctx):
         root_symlinks = launcher.root_symlinks,
         symlinks = dict(member_manifests) | launched.symlinks,
     )
-    for target in ctx.attr.data + launched.runfiles_of:
+    for target in ctx.attr.data:
         runfiles = runfiles.merge(target[DefaultInfo].default_runfiles)
 
     providers = [
@@ -169,49 +164,16 @@ _TEST_ATTRS = {
         default = Label("//ts/runners:vitest"),
         providers = [TsTestRunnerInfo],
     ),
-    "vitest": attr.label(
-        doc = "Explicit label for the vitest binary.",
-        allow_single_file = True,
-        executable = True,
-        cfg = "exec",
-    ),
-    "runtime": attr.label(
-        doc = "Per-target override for the JS runtime binary (e.g. a custom " +
-              "Node wrapper). When set, takes priority over the js_runtime " +
-              "toolchain.",
-        allow_single_file = True,
-        executable = True,
-        cfg = "exec",
-    ),
     "env": attr.string_dict(
         doc = "Additional environment variables for the test.",
     ),
-    "environment": attr.string(
-        doc = "Vitest test environment, e.g. 'node', 'jsdom', 'happy-dom', " +
-              "'edge-runtime', or the name of a custom vitest environment " +
-              "package.  Any value vitest accepts is allowed; the matching " +
-              "package (jsdom, happy-dom, ...) must be in the target's " +
-              "deps.  Emitted as test.environment in the generated config, " +
-              "where it overrides an environment set by the `config` attr.",
-        default = "",
-    ),
-    "coverage": attr.bool(
-        doc = "When True, also enables vitest coverage instrumentation " +
-              "during normal `bazel test` runs (in addition to `bazel " +
-              "coverage`).  Coverage during `bazel coverage` is always " +
-              "enabled regardless of this attr — `bazel coverage " +
-              "//path:test` works on every vitest ts_test target without " +
-              "any opt-in.  Requires the @vitest/coverage-* package " +
-              "matching `coverage_provider` to be present in node_modules.",
-        default = False,
-    ),
     "config": attr.label(
-        doc = "A vitest config file (.ts/.mts/.js/.mjs).  It is MERGED into " +
-              "the generated config rather than replacing it, so the " +
-              "Bazel-owned layer (root, cacheDir, preserveSymlinks, " +
-              "coverage.allowExternal, the Workers-pool half) survives.  A " +
+        doc = "The vitest config file (.ts/.mts/.cts/.js/.mjs/.cjs), merged " +
+              "over the Bazel layer (root, cacheDir, preserveSymlinks, " +
+              "coverage.allowExternal, the Workers-pool half), so every " +
+              "vitest setting is the file's, as under plain vitest. A " +
               "config that default-exports an array is read as a list of " +
-              "vitest projects (test.projects).  The modules it imports " +
+              "vitest projects (test.projects). The modules it imports " +
               "relatively are `config_srcs`.",
         allow_single_file = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"],
     ),
@@ -222,52 +184,10 @@ _TEST_ATTRS = {
               "outside that package is an analysis error.",
         allow_files = True,
     ),
-    "config_json": attr.string(
-        doc = "Inline vitest config as a JSON object, occupying the same " +
-              "precedence layer as the `config` file.  Set through the " +
-              "ts_test macro by passing a dict to `config`.",
-        default = "",
-    ),
-    "setup_files": attr.label_list(
-        doc = "Files run before each test file (vitest test.setupFiles).  " +
-              "TypeScript sources are compiled by the ts_test macro; the " +
-              "rule itself takes the compiled .js.  Appended after any " +
-              "setupFiles from the `config` attr.",
-        allow_files = True,
-    ),
-    "global_setup": attr.label_list(
-        doc = "Files run once for the whole test run (vitest " +
-              "test.globalSetup).  TypeScript sources are compiled by the " +
-              "ts_test macro.",
-        allow_files = True,
-    ),
     "data": attr.label_list(
-        doc = "Extra runfiles for the test: fixtures, files a `setup_files` " +
-              "entry imports, anything read at runtime.",
+        doc = "Extra runfiles for the test: fixtures, anything read at run " +
+              "time.",
         allow_files = True,
-    ),
-    "snapshots": attr.label_list(
-        doc = "Checked-in vitest snapshot files (__snapshots__/*.snap). " +
-              "Listing them makes them readable inside the test sandbox, " +
-              "which is what turns a stale snapshot into a failure.",
-        allow_files = [".snap"],
-    ),
-    "globals": attr.bool(
-        doc = "Enables vitest's global describe/it/expect (test.globals). " +
-              "The matching `types` entry is the tsconfig's; this attr is " +
-              "only the runtime one.",
-        default = False,
-    ),
-    "reporters": attr.string_list(
-        doc = "Vitest reporters (test.reporters), e.g. " +
-              "[\"default\", \"junit\"].",
-    ),
-    "coverage_thresholds": attr.string_dict(
-        doc = "Coverage thresholds (test.coverage.thresholds), e.g. " +
-              "{\"lines\": \"80\", \"perFile\": \"true\"}.  Values that " +
-              "look like numbers or booleans are emitted as such.  Only " +
-              "enforced when coverage runs: `bazel coverage`, or `bazel " +
-              "test` with coverage = True.",
     ),
     "coverage_provider": attr.string(
         doc = "Vitest coverage provider (test.coverage.provider): \"v8\" " +
@@ -308,87 +228,7 @@ ts_test = rule(
 
 srcs, deps and tsconfig are ts_compile's, and the node_modules forest tsgo
 checked the tests against is the tree they run in. `runner` names the target
-that runs the compiled files, //ts/runners:vitest by default; the remaining
-attributes are the vitest runner's.
+that runs the compiled files, //ts/runners:vitest by default; `config`, `data`,
+`coverage_provider` and `wrangler_config` are the vitest runner's.
 """,
 )
-
-def _compile_setup_sources(name, sources, deps, tsconfig, visibility, tags):
-    """Compiles the .ts/.tsx entries of `sources`, passing the rest through."""
-    ts_sources = [s for s in sources if s.endswith(".ts") or s.endswith(".tsx")]
-    if not ts_sources:
-        return sources
-    ts_compile(
-        name = name,
-        srcs = ts_sources,
-        deps = deps,
-        tsconfig = tsconfig,
-        visibility = visibility,
-        tags = tags,
-    )
-    return [":" + name] + [s for s in sources if s not in ts_sources]
-
-def ts_test_macro(
-        name,
-        srcs,
-        deps = [],
-        tsconfig = None,
-        config = None,
-        setup_files = [],
-        global_setup = [],
-        tags = [],
-        visibility = None,
-        **kwargs):
-    """Declares a ts_test over `srcs`, its setup entries compiled.
-
-    Args:
-        name: the test's name.
-        srcs: the test files, as ts_compile's srcs.
-        deps: what the tests import, as ts_compile's deps.
-        tsconfig: the test program's tsconfig, as ts_compile's; the setup
-            compiles take it too.
-        config: a vitest config file's label, or an inline dict.
-        setup_files: vitest's setupFiles; a .ts/.tsx entry is compiled with
-            `deps` and `tsconfig`, the rest pass through.
-        global_setup: vitest's globalSetup, compiled like setup_files.
-        tags: the test's tags; `manual` reaches the setup compiles too.
-        visibility: the test's, and the setup compiles' -- public when
-            unset, so an IDE tsconfig can name them.
-        **kwargs: every other attribute of the rule.
-    """
-    compile_visibility = visibility if visibility else ["//visibility:public"]
-
-    # `manual` reaches the setup compiles: a wildcard that skips the test must
-    # not analyse them.
-    wildcard_tags = ["manual"] if "manual" in tags else []
-
-    if type(config) == "dict":
-        kwargs["config_json"] = json.encode(config)
-    elif config:
-        kwargs["config"] = config
-
-    ts_test(
-        name = name,
-        srcs = srcs,
-        deps = deps,
-        tsconfig = tsconfig,
-        setup_files = _compile_setup_sources(
-            name = "_{}_setup".format(name),
-            sources = setup_files,
-            deps = deps,
-            tsconfig = tsconfig,
-            visibility = compile_visibility,
-            tags = wildcard_tags,
-        ),
-        global_setup = _compile_setup_sources(
-            name = "_{}_global_setup".format(name),
-            sources = global_setup,
-            deps = deps,
-            tsconfig = tsconfig,
-            visibility = compile_visibility,
-            tags = wildcard_tags,
-        ),
-        tags = tags,
-        visibility = visibility,
-        **kwargs
-    )

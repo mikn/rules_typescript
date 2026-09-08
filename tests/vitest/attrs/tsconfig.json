@@ -13,7 +13,6 @@
   ],
   "files": [],
   "include": [
-    "attrs.test.ts",
-    "setup.ts"
+    "attrs.test.ts"
   ]
 }

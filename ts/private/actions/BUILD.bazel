@@ -6,6 +6,12 @@ package(default_visibility = [
     "//vite:__subpackages__",
 ])
 
+# //tests/api_surface:ts_test_attrs_test reads WORKERS_POOL_ATTRS out of it.
+exports_files(
+    ["workers_pool.bzl"],
+    visibility = ["//tests/api_surface:__pkg__"],
+)
+
 bzl_library(
     name = "forest",
     srcs = ["forest.bzl"],

@@ -17,3 +17,16 @@ sh_test(
     srcs = ["ts_compile_attrs_test.sh"],
     data = ["//ts/private/rules:ts_compile.bzl"],
 )
+
+# ts_test's public attributes, as an exact list: ts_compile's three, runner,
+# env and the vitest runner's five. Every other vitest setting is the file's.
+sh_test(
+    name = "ts_test_attrs_test",
+    size = "small",
+    srcs = ["ts_test_attrs_test.sh"],
+    data = [
+        "//ts/private/actions:workers_pool.bzl",
+        "//ts/private/rules:ts_compile.bzl",
+        "//ts/private/rules:ts_test.bzl",
+    ],
+)

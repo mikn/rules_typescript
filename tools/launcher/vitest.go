@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -85,25 +84,18 @@ func planVitest(
 	}
 
 	flags := []string{"run", "--config", configFile}
-	flags = append(flags, coverageFlags(v.Coverage)...)
+	flags = append(flags, coverageFlags()...)
 	flags = append(flags, args...)
 
-	vitestBin, viaPath, err := resolveVitest(r, v, nodeModules)
+	vitestBin, err := resolveVitest(v, nodeModules)
 	if err != nil {
 		return nil, err
 	}
-
-	argv := []string{}
-	switch {
-	case viaPath || v.VitestIsNpmBin:
-		argv = append(argv, vitestBin)
-	default:
-		runtime, err := runtimeCommand(cfg, r)
-		if err != nil {
-			return nil, err
-		}
-		argv = append(runtime, vitestBin)
+	runtime, err := runtimeCommand(cfg, r)
+	if err != nil {
+		return nil, err
 	}
+	argv := append(runtime, vitestBin)
 	plan.Argv = append(append(argv, flags...), files...)
 	plan.UseExec = false
 	plan.PostRun = writeCoverage(cfg.Workspace, plan.Dir)
@@ -139,28 +131,18 @@ func stageTestRoot(files []testFile) (root string, staged []string, err error) {
 	return root, staged, nil
 }
 
-func resolveVitest(r *Resolver, v *VitestConfig, nodeModules string) (path string, viaPath bool, err error) {
-	if v.Vitest != "" {
-		p, err := r.Path(v.Vitest)
-		if err != nil {
-			return "", false, err
-		}
-		if fileExists(p) {
-			return p, false, nil
-		}
-	}
+// resolveVitest finds vitest's bin entry inside the test's node_modules tree,
+// the one place it can come from: the runner requires the package in deps.
+func resolveVitest(v *VitestConfig, nodeModules string) (string, error) {
 	if v.VitestInTree != "" && nodeModules != "" {
 		p := filepath.Join(nodeModules, filepath.FromSlash(v.VitestInTree))
 		if fileExists(p) {
-			return p, false, nil
+			return p, nil
 		}
 	}
-	if p, lookErr := exec.LookPath("vitest"); lookErr == nil {
-		return p, true, nil
-	}
-	return "", false, fmt.Errorf(
-		"ts_test: vitest not found. Set the vitest attr or add @npm//:vitest to the " +
-			"deps of the node_modules() target this test uses.")
+	return "", fmt.Errorf(
+		"ts_test: vitest is not in the node_modules tree at %q; "+
+			"add @npm//:vitest to deps", nodeModules)
 }
 
 func fileExists(p string) bool {
@@ -226,26 +208,20 @@ func shardFiles(r *Resolver, listPath string) ([]testFile, error) {
 	return out, scanner.Err()
 }
 
-// COVERAGE_OUTPUT_FILE wins over the attr, so `bazel coverage` needs no opt-in
-// on a vitest ts_test; the attr alone reports to TEST_TMPDIR, off the runfiles.
-func coverageFlags(coverageAttr bool) []string {
-	if out := os.Getenv("COVERAGE_OUTPUT_FILE"); out != "" {
-		dir := filepath.Dir(out)
-		_ = os.MkdirAll(dir, 0o755)
-		return []string{
-			"--coverage.enabled", "true",
-			"--coverage.reporter", "lcov",
-			"--coverage.reportsDirectory", dir,
-		}
-	}
-	if !coverageAttr {
+// Bazel sets COVERAGE_OUTPUT_FILE under `bazel coverage`, so a vitest ts_test
+// needs no opt-in; plain `bazel test` runs with the config's coverage settings.
+func coverageFlags() []string {
+	out := os.Getenv("COVERAGE_OUTPUT_FILE")
+	if out == "" {
 		return nil
 	}
-	flags := []string{"--coverage.enabled", "true"}
-	if tmp := os.Getenv("TEST_TMPDIR"); tmp != "" {
-		flags = append(flags, "--coverage.reportsDirectory", filepath.Join(tmp, "coverage"))
+	dir := filepath.Dir(out)
+	_ = os.MkdirAll(dir, 0o755)
+	return []string{
+		"--coverage.enabled", "true",
+		"--coverage.reporter", "lcov",
+		"--coverage.reportsDirectory", dir,
 	}
-	return flags
 }
 
 func writeCoverage(workspace, runDir string) func(int) error {

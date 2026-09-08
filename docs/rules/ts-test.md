@@ -26,41 +26,21 @@ that runs the compiled files; see [Runners](#runners).
 
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `srcs` | `label_list` | required | The test files, as `ts_compile`'s `srcs`; the TypeScript ones are in the runfiles at their source paths too, see [Files at Run Time](#files-at-run-time) |
+| `srcs` | `label_list` | required | The test files, as `ts_compile`'s `srcs`, with every other file of the package -- a `.snap`, a fixture; the TypeScript ones are in the runfiles at their source paths too, see [Files at Run Time](#files-at-run-time) |
 | `deps` | `label_list` | `[]` | `ts_compile` and `@npm//` targets the tests import. A `ts_compile` dep's data srcs are in the runfiles beside its `.js`, and a dep in the test's package has its TypeScript srcs there too |
-| `vitest` | `label` | `None` | Explicit vitest binary label (found in `node_modules` when absent) |
-| `runtime` | `label` | `None` | Per-target JS runtime binary override |
+| `tsconfig` | `label` | `None` | The test program's tsconfig, as on `ts_compile`: the package's own `tsconfig.json`, or a `ts_config` target. Every compiler option the tests check under is its, and under vitest its `paths` resolve at run time; see [The test's tsconfig](#the-tests-tsconfig) |
 | `env` | `string_dict` | `{}` | Extra environment variables for the runner |
 | `args` | `string_list` | `[]` | The runner's command-line flags: node's under the node:test runner, vitest's under the vitest runner; `bazel test --test_arg` appends to them. See [The node:test runner](#the-nodetest-runner) |
 | `size` | `string` | `"medium"` | Bazel test size |
 | `timeout` | `string` | `None` | Bazel test timeout |
 | `tags` | `string_list` | `[]` | Bazel tags |
-| `visibility` | `string_list` | `None` | Visibility of the test and of the `ts_compile` targets over `setup_files` and `global_setup`; see [Generated targets](#generated-targets) |
-| `tsconfig` | `label` | `None` | The test program's tsconfig, as on `ts_compile`: the package's own `tsconfig.json`, or a `ts_config` target. Every compiler option the tests check under is its, and under vitest its `paths` resolve at run time; see [The test's tsconfig](#the-tests-tsconfig) |
+| `visibility` | `string_list` | `None` | Visibility of the test |
 | `runner` | `label` | `//ts/runners:vitest` | The target that runs the compiled tests: `//ts/runners:vitest`, `//ts/runners:node_test` or any target providing `TsTestRunnerInfo`; see [Runners](#runners). Every attribute below this row except `data` is the vitest runner's, and an analysis error under the node:test runner |
-| `environment` | `string` | `""` | `test.environment`: `node`, `jsdom`, `happy-dom`, `edge-runtime`, or any custom vitest environment package. The package must be in `deps` |
-| `coverage` | `bool` | `False` | Also instrument during plain `bazel test`. `bazel coverage` works on every vitest target regardless |
-| `config` | `label` or `dict` | `None` | A vitest config file (`.ts`/`.mts`/`.cts`/`.js`/`.mjs`/`.cjs`) or an inline dict, **merged** into the generated config; see [A config file](#a-config-file) |
+| `config` | `label` | `None` | The vitest config file (`.ts`/`.mts`/`.cts`/`.js`/`.mjs`/`.cjs`), **merged** over the generated config's Bazel layer. Every vitest setting is the file's, as under plain `vitest`; see [A config file](#a-config-file) |
 | `config_srcs` | `label_list` | `[]` | The modules `config` imports relatively, and theirs, staged with the config's copy at their paths relative to the config's package. Gazelle writes it from the config's listing. A file outside that package is an analysis-time error; see [A config file](#a-config-file) |
+| `data` | `label_list` | `[]` | Extra runfiles: fixtures, anything the tests read at run time |
 | `wrangler_config` | `label` | `None` | The wrangler config a Workers-pool `config` names through `wrangler.configPath`. A copy whose `main` names the compiled entry is staged at the file's own runfiles path; the file is not also in `data`. See [A Workers pool](#a-workers-pool) |
-| `setup_files` | `label_list` | `[]` | `test.setupFiles`. `.ts`/`.tsx` entries are compiled with the same `deps` as the tests |
-| `global_setup` | `label_list` | `[]` | `test.globalSetup`; compiled like `setup_files` |
-| `data` | `label_list` | `[]` | Extra runfiles: fixtures, and files a setup entry imports |
-| `globals` | `bool` | `False` | `test.globals`: global `describe`/`it`/`expect` at run time; the tsconfig names `vitest/globals` in `types`. See [Globals](#globals) |
-| `reporters` | `string_list` | `[]` | `test.reporters`, e.g. `["default", "junit"]` |
-| `coverage_thresholds` | `string_dict` | `{}` | `test.coverage.thresholds`, e.g. `{"lines": "80", "perFile": "true"}`. Values that look numeric or boolean are emitted as such |
 | `coverage_provider` | `string` | `""` | `test.coverage.provider`: `"v8"` (vitest's default) or `"istanbul"`; see [Coverage](#coverage) |
-| `snapshots` | `label_list` | `[]` | Checked-in `.snap` files, normally `glob(["__snapshots__/*.snap"])`; see [Snapshots](#snapshots) |
-
-## Generated Targets
-
-The test target compiles `srcs` itself. The macro generates a `ts_compile`
-for the TypeScript entries in `setup_files` and one for those in
-`global_setup`; both take the test's `visibility`, defaulting to
-`//visibility:public` when the test declares none, so an IDE tsconfig written by
-`ts_refresh_tsconfig` can name them. A `manual` tag on the test reaches both,
-so a wildcard that skips the test analyses neither; every other tag stays on
-the test.
 
 ## Files at Run Time
 
@@ -96,10 +76,9 @@ node:test the hook resolves it from the tree the launcher names in `NODE_PATH`
 ## The Test's tsconfig
 
 `tsconfig` is the test program's, as on
-[`ts_compile`](ts-compile.md#where-compiler-options-come-from), and is forwarded
-to the `ts_compile` targets over the TypeScript entries of `setup_files` and
-`global_setup`; it carries every compiler option the tests check under. The
-test files are a program of their own, so a `lib`, a `types` entry or a `paths`
+[`ts_compile`](ts-compile.md#where-compiler-options-come-from); it carries
+every compiler option the tests check under. The test files are a program of
+their own, so a `lib`, a `types` entry or a `paths`
 alias the package's sources need is in the test program only when the test's
 tsconfig has it too; Gazelle names the package's own `tsconfig.json` on the test
 as on the compile.
@@ -145,60 +124,41 @@ needs that package's target in `deps`, which is what puts the module in the
 runfiles. Under node:test an alias is type-checking only
 ([The node:test Runner](#the-nodetest-runner)).
 
-## Globals
-
-`globals = True` sets `test.globals`: vitest installs `describe`, `it`, `expect`
-and the rest as globals, and a test file imports nothing. vitest publishes their
-declarations behind its `vitest/globals` subpath, and the test's tsconfig names
-that entry in `types`; the attribute is the runtime half alone. Without the
-entry the test runs and does not compile: `TS2593` on `describe`, `TS2304` on
-`expect`. The entry resolves through the forest, so vitest is in `deps`.
-
-Under Gazelle the dep needs `# keep`: nothing in a `globals = True` test imports
-vitest, and `deps` is a managed attribute, so a run rewrites the list without
-the entry. `globals = True` itself survives; no directive writes it:
-
-```python
-ts_test(
-    name = "math_test",
-    srcs = ["math.test.ts"],
-    tsconfig = "tsconfig.json",   # "types": ["vitest/globals"]
-    globals = True,
-    deps = ["@npm//:vitest"],  # keep
-)
-```
-
 ## The Generated vitest Config
 
 A config is always generated and always passed with `--config`, so vitest never
 auto-discovers a stray config out of the runfiles tree. It is an entry config
-that layers four sources, lowest precedence first:
+that layers four sources, lowest precedence first; every vitest setting the
+table does not name -- `test.environment`, `test.globals`, `test.setupFiles`,
+`test.globalSetup`, `test.reporters`, `test.coverage.thresholds` -- is the
+`config` file's, as under plain `vitest`:
 
 | Layer | Contents | Workspace projects |
 |-------|----------|---|
-| 1. Bazel | `root` (the `config`'s package; the test's own with an inline dict or none), `cacheDir` under `TEST_TMPDIR`, `resolve.preserveSymlinks`, `test.coverage.allowExternal`, the plugin resolving a relative `.ts` specifier to its compiled sibling, the plugin resolving a tsconfig `paths` alias, the plugin serving a `setupFiles` entry from its staged path, and under a `config` whose `plugins` hold `@cloudflare/vitest-pool-workers` `preserveSymlinks: false` and the runfiles-imports plugin | yes |
-| 2. user | the `config` attr: a config file or an inline dict | it supplies the projects |
-| 3. attributes | `test.include`, the compiled test files; `environment`, `setup_files`, `global_setup`, `globals`, `reporters`, `coverage_thresholds`, `coverage_provider` | yes |
-| 4. snapshots | `test.resolveSnapshotPath`, and in update mode `test.dir`, `test.include` and `cacheDir` | no, root only |
+| 1. Bazel | `root` (the `config`'s package; the test's own with none), `cacheDir` under `TEST_TMPDIR`, `resolve.preserveSymlinks`, `test.coverage.allowExternal`, `test.include` naming the compiled test files, the plugin resolving a relative `.ts` specifier to its compiled sibling, the plugin resolving a tsconfig `paths` alias, the plugin serving a `setupFiles` entry from its staged path, and under a `config` whose `plugins` hold `@cloudflare/vitest-pool-workers` `preserveSymlinks: false` and the runfiles-imports plugin | yes |
+| 2. user | the `config` file | it supplies the projects |
+| 3. provider | `test.coverage.provider` from `coverage_provider` | no, root only |
+| 4. snapshots | `test.resolveSnapshotPath` | no, root only |
 
 Objects merge key by key; arrays concatenate base-first, matching vite's own
-`mergeConfig`. A user `setupFiles` list therefore never displaces
-`setup_files`: the attribute's entries run after the config's. Scalars from a
-later layer win, so
-`environment` overrides an environment set inside `config`. Once the layers have
-merged, a `setupFiles` or `globalSetup` entry naming a TypeScript source is
-rewritten to its compiled sibling; see [Setup Files](#setup-files).
+`mergeConfig`, so a `plugins` list in the config joins layer 1's rather than
+displacing it. Scalars from a later layer win: a `resolve.preserveSymlinks` the
+config sets wins over layer 1's default, and `coverage_provider` over a
+provider the config names. Once the layers have merged, a `setupFiles` or
+`globalSetup` entry naming a TypeScript source is rewritten to its compiled
+sibling; see [Setup Files](#setup-files).
 
-Layer 4 is root-only because `resolveSnapshotPath` is one of vitest's
-non-project options: it is applied once, to the root config, and never merged
-into a project.
+Layers 3 and 4 are root-only because coverage and `resolveSnapshotPath` are
+vitest's non-project options: each is applied once, to the root config, and
+never merged into a project.
 
-Layer 3's `include` is the compiled test files, relative to the root: under
+Layer 1's `include` is the compiled test files, relative to the root: under
 Bazel the run is the rule's `srcs`. A config's `include` is written for the
 sources (`**/*.test.{ts,tsx}`), which the compiled `.js` the launcher names
-never match, and the run would stop with `No test files found`; the config's
-globs stay in the merged array and select nothing the launcher did not name.
-`//tests/vitest/config_include` is the example.
+never match, and the run would stop with `No test files found`; arrays
+concatenate, so the config's globs stay in the merged array and select
+nothing the launcher did not name. `//tests/vitest/config_include` is the
+example.
 
 `preserveSymlinks` in layer 1 is a default. A DOM environment resolves every
 module id to its realpath, which for a runfiles symlink walks out of the test
@@ -253,13 +213,13 @@ ts_test(
 
 The file may default-export an object, a function of `env`, or a promise of
 either. An array is read as a list of vitest projects and becomes
-`test.projects`; each project in it receives the Bazel layer and the attribute
-layer too, because every project gets its own Vite server.
+`test.projects`; each project in it receives the Bazel layer too, because every
+project gets its own Vite server.
 
 Vite's root is the config's package, so a relative path in the config names the
 directory the file sits in, as under plain `vitest`, whether the test is in that
-package or one below it; with an inline dict or no config it is the test's
-package. The config file itself is a copy beside the `node_modules` tree, where
+package or one below it; with no config it is the test's package. The config
+file itself is a copy beside the `node_modules` tree, where
 its bare imports resolve, so a path relative to the config file is a different
 path. `TS_TEST_PACKAGE_DIR` holds the test's package directory, which the root
 is resolved from, for a path that has to be absolute.
@@ -280,42 +240,15 @@ config from an ancestor package names its modules as that package's files,
     vitest 4 removed the old name and throws on it. The
     generated config emits `test.projects`, so a `config` that default-exports
     an array needs vitest 3.2 or later. Every other `config` shape (object,
-    function, promise, inline dict) uses no version-sensitive key.
-
-### An Inline Dict
-
-```python
-ts_test(
-    name = "math_test",
-    srcs = ["math.test.ts"],
-    deps = [":math", "@npm//:vitest"],
-    config = {"test": {"testTimeout": 30000, "retry": 2}},
-)
-```
-
-The dict occupies the same layer as a config file; pass one or the other.
+    function, promise) uses no version-sensitive key.
 
 ### Setup Files
 
-```python
-ts_test(
-    name = "component_test",
-    srcs = ["Button.test.tsx"],
-    deps = [":button", "@npm//:react", "@npm//:happy-dom", "@npm//:vitest"],
-    environment = "happy-dom",
-    setup_files = ["setupTests.ts"],
-)
-```
-
-`setup_files` entries run before every test file, which is where DOM polyfills
-(`matchMedia`, `ResizeObserver`, `PointerEvent`) belong. They run in the order
-listed: TypeScript entries first, compiled by the macro with the same `deps` as
-the tests, then `.js`/`.mjs`/`.cjs` entries, which are passed through. All of
-them run after any `setupFiles` the `config` attr contributes.
-`global_setup` is `test.globalSetup`, which runs once around the whole run.
-
-A `test.setupFiles` or `test.globalSetup` entry inside the `config` is resolved
-against the root, and the program vitest runs is the compiled one. Once the
+`test.setupFiles` in the `config` names the files that run before every test
+file, which is where DOM polyfills (`matchMedia`, `ResizeObserver`,
+`PointerEvent`) belong; `test.globalSetup` runs once around the whole run. An
+entry is resolved against the root, and the program vitest runs is the compiled
+one. Once the
 layers have merged, an entry ending in `.ts`, `.tsx`, `.mts` or `.cts` whose
 compiled sibling is in the runfiles (`.js`, `.mjs` or `.cjs`; `.jsx` for a
 `.tsx` under `jsx: preserve`) is rewritten to that sibling, so
@@ -501,7 +434,7 @@ reads from there, and the marker it stopped at is in the report beside the
 files it then opened: both go in `data`, or under `bazel test` the walk still
 finds nothing. A path the test never reaches (an `ENOENT` in this run too) is
 not in it, and what the vitest process itself opens -- a `config`, a
-`global_setup` -- is not recorded: its walk up from the root for a workspace
+`globalSetup` entry -- is not recorded: its walk up from the root for a workspace
 marker is vite's, not a test's.
 
 `data` is the owner's attribute: Gazelle writes nothing into it and leaves what
@@ -528,15 +461,8 @@ them, passes under `bazel test`, and run with `--reads` prints nothing.
 ## Coverage
 
 `bazel coverage //path/to:my_test` works on any `ts_test` on the vitest runner
-with no attribute set; `@vitest/coverage-v8` must be in `node_modules`.
-`coverage = True` additionally instruments plain `bazel test` runs. A target on
-the node:test runner reports no coverage and says so.
-
-`coverage_thresholds` is enforced only when coverage runs, and a run that misses
-one fails: vitest exits non-zero with
-`ERROR: Coverage for lines (50%) does not meet global threshold (90%)` after the
-assertions themselves have passed. `//tests/vitest/thresholds` pins both
-directions.
+with no attribute set; `@vitest/coverage-v8` must be in `node_modules`. A target
+on the node:test runner reports no coverage and says so.
 
 ### Which Files Are Reported
 
@@ -678,17 +604,13 @@ script does (`//tests/node_test:module_mocks_test`). Every vitest attribute is
 an analysis error under it, naming the ones set:
 
 ```
-ts_test @@//scripts:scripts_test: the node:test runner reads none of
-environment, globals. Every one of them configures vitest, which this target
-does not run. Drop them, or drop `runner` to run the test under vitest.
+ts_test @@//scripts:scripts_test: the node:test runner reads none of config,
+coverage_provider. Every one of them configures vitest, which this target does
+not run. Drop them, or drop `runner` to run the test under vitest.
 ```
 
-The rejected set is `config`, `coverage`, `coverage_provider`,
-`coverage_thresholds`, `environment`, `global_setup`, `globals`, `reporters`,
-`setup_files`, `snapshots` and `vitest`. node:test has no globals mode: nothing
-installs `describe` or `expect`, so `globals` is rejected, and the
-`vitest/globals` `types` entry is not added. The runner takes no argument
-under `bazel run`.
+The rejected set is `config`, `coverage_provider` and `wrangler_config`. The
+runner takes no argument under `bazel run`.
 
 `--test_filter` reaches node as `--test-name-pattern` (a regular expression
 over test names), sharding works as above, and the exit status is the test
@@ -707,22 +629,24 @@ the `.ts` source implies:
 <package>/__snapshots__/<source file name>.snap
 ```
 
-the path a plain `vitest` run uses.
-
-The `snapshots` attr puts the files in the sandbox:
+the path a plain `vitest` run uses. The `.snap` is a src of the test, as every
+other file under the package is ([`srcs`](ts-compile.md#sources)), which is what
+puts it in the sandbox; Gazelle lists it with the package's files:
 
 ```python
 ts_test(
     name = "widget_test",
-    srcs = ["widget.test.ts"],
-    snapshots = glob(["__snapshots__/*.snap"]),
+    srcs = [
+        "__snapshots__/widget.test.ts.snap",
+        "widget.test.ts",
+    ],
     deps = [":widget", "@npm//:vitest"],
 )
 ```
 
-Without it the test cannot read the snapshot and fails. `ts_test` runs vitest in
-read-only snapshot mode (`CI=true`), so no `bazel test` writes a `.snap`.
-`env = {"CI": "false"}` opts out.
+A snapshot the test cannot read is a failure. `ts_test` runs vitest in read-only
+snapshot mode (`CI=true`), so no `bazel test` writes a `.snap`; `env = {"CI":
+"false"}` opts out.
 
 Writing one is vitest's own `vitest -u`, run in the package as outside Bazel:
 it writes the file where the read above resolves it. Commit the result.

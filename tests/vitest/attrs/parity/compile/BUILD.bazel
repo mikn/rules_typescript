@@ -4,7 +4,7 @@ load("//ts:defs.bzl", "ts_compile")
 # tsconfig as ../test, compiled by ts_compile.
 ts_compile(
     name = "parity_compile",
-    srcs = ["parity.test.ts"],
+    srcs = ["parity.ts"],
     visibility = ["//tests/vitest/attrs:__pkg__"],
     deps = ["@npm//:vitest"],
 )

@@ -504,10 +504,10 @@ parsed as a label.
 `ts_test` runs vitest in read-only snapshot mode, so a mismatch is a failure and
 a snapshot the sandbox cannot read counts as absent. Two causes:
 
-- The `.snap` is not in `snapshots`, so it never reached the runfiles tree. Add
-  `snapshots = glob(["__snapshots__/*.snap"])`.
-- The snapshot is stale. Regenerate it:
-  `bazel run //path/to:my_test.update_snapshots`, then commit.
+- The `.snap` is not in `srcs`, so it never reached the runfiles tree. List it
+  with the package's other files, as Gazelle does.
+- The snapshot is stale. Regenerate it with `vitest -u` in the package, then
+  commit.
 
 Full workflow: [Snapshots](testing.md#snapshots).
 

@@ -1,1 +1,0 @@
-globalThis.__rulesTsAttrsSetup = "ran";

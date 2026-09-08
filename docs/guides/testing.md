@@ -53,8 +53,8 @@ set each get what they resolved. See
 ## Controlling the Test Environment
 
 A vitest config is always generated and always passed with `--config`, so vitest
-never picks up a stray config from the runfiles tree. Everything you set merges
-into it; see
+never picks up a stray config from the runfiles tree. The `config` file merges
+into it, and every vitest setting is the file's; see
 [the generated vitest config](../rules/ts-test.md#the-generated-vitest-config)
 for the precedence rules.
 
@@ -64,6 +64,7 @@ for the precedence rules.
 ts_test(
     name = "component_test",
     srcs = ["Button.test.tsx"],
+    config = "vitest.config.ts",
     deps = [
         ":button",
         "@npm//:react",
@@ -71,19 +72,30 @@ ts_test(
         "@npm//:testing-library_react",
         "@npm//:vitest",
     ],
-    environment = "happy-dom",
-    setup_files = ["setupTests.ts"],
 )
 ```
 
-`environment` takes any value vitest accepts (`node`, `jsdom`, `happy-dom`,
+```ts
+// vitest.config.ts
+export default {
+  test: {
+    environment: "happy-dom",
+    setupFiles: ["./setupTests.ts"],
+  },
+};
+```
+
+`test.environment` takes any value vitest accepts (`node`, `jsdom`, `happy-dom`,
 `edge-runtime`, or a custom environment package) and the matching package has to
-be in `deps`. Scoped npm names take their label form: `@testing-library/react`
-is `@npm//:testing-library_react`. `setup_files` entries run before every test
-file, which is where `matchMedia`, `ResizeObserver` and `PointerEvent` belong;
-TypeScript entries are compiled with the same `deps` as the tests.
-`global_setup` is the same mechanism for `test.globalSetup`, which runs once
-around the whole run.
+be in `deps`; Gazelle writes it from the config's imports and the nearest
+`package.json`. Scoped npm names take their label form: `@testing-library/react`
+is `@npm//:testing-library_react`. `test.setupFiles` entries run before every
+test file, which is where `matchMedia`, `ResizeObserver` and `PointerEvent`
+belong; an entry naming a TypeScript source runs its compiled sibling, so the
+`ts_compile` whose `srcs` hold `setupTests.ts` is in `deps` -- under Gazelle the
+package's own compile, which is there already. `test.globalSetup` is the same
+mechanism for a file that runs once around the whole run. See
+[Setup Files](../rules/ts-test.md#setup-files).
 
 A DOM environment needs no sandbox flags. The generated config sets
 `resolve.preserveSymlinks`, without which vitest's web transform resolves every
@@ -104,17 +116,11 @@ ts_test(
 
 The modules the config imports relatively are `config_srcs`, staged beside the
 config's copy; Gazelle writes them from the config's listing. A config that
-default-exports an array is read as a list of
-vitest projects, and each project in it gets the Bazel and attribute layers too.
-That array becomes `test.projects`, which needs vitest 3.2 or later; see
+default-exports an array is read as a list of vitest projects, and each project
+in it gets the Bazel layer too. That array becomes `test.projects`, which needs
+vitest 3.2 or later; see
 [A config file](../rules/ts-test.md#a-config-file). Every other `config` shape
 runs on any vitest 3 or 4.
-
-`config` also takes a dict:
-
-```python
-config = {"test": {"testTimeout": 30000, "retry": 2}},
-```
 
 Gazelle writes `config` from the file plain `vitest` would read: a
 `vitest.config.*` beside the tests by name, else the one in the nearest
@@ -125,36 +131,6 @@ path in such a config resolves against the directory it sits in, as it does
 under plain `vitest`; `//tests/config_at_root` is the example. Every import of
 the config is a dep of the test. See
 [what Gazelle writes](../gazelle/overview.md#what-gazelle-writes).
-
-### Other Attributes
-
-```python
-ts_test(
-    name = "math_test",
-    srcs = ["math.test.ts"],
-    tsconfig = "tsconfig.json",   # "types": ["vitest/globals"]
-    globals = True,               # global describe/it/expect
-    reporters = ["default", "junit"],
-    coverage_thresholds = {"lines": "80"},
-    deps = [
-        ":math",
-        "@npm//:vitest",  # keep
-    ],
-)
-```
-
-`globals = True` is the runtime half; the compiler sees `describe`, `it` and
-`expect` through the `vitest/globals` entry in the test's tsconfig, resolved
-through the forest, so vitest stays in `deps`, under `# keep` because nothing in
-the test imports it. See [Globals](../rules/ts-test.md#globals).
-
-### The Merged Config
-
-```bash
-bazel build //path/to:math_test --output_groups=vitest_config
-```
-
-That writes out the merged config the runner passed to vitest.
 
 ## CSS Modules
 
@@ -173,17 +149,8 @@ bazel coverage //path/to:math_test
 ```
 
 Works on every vitest `ts_test` when `@vitest/coverage-v8` is in the
-`node_modules` tree. `coverage = True` additionally instruments plain
-`bazel test` runs. A target on the node:test runner reports no coverage, and
+`node_modules` tree. A target on the node:test runner reports no coverage, and
 `bazel coverage` on one fails saying so.
-
-`coverage_thresholds` reaches `test.coverage.thresholds` in the generated
-config and applies only when coverage runs. A run that misses a threshold fails,
-after the assertions themselves have passed:
-
-```
-ERROR: Coverage for lines (50%) does not meet global threshold (90%)
-```
 
 Which files are reported is `--instrumentation_filter`'s answer; Bazel derives a
 default from the targets on the command line, so a library in another package is
@@ -361,14 +328,17 @@ starts.
 keeps them: `<package>/__snapshots__/<source>.snap`, beside the `.ts` and not in
 `bazel-out`.
 
-Reading them takes the `snapshots` attr, which is what puts the files inside the
-sandbox.
+The `.snap` is a src of the test, as every other file under the package is,
+which is what puts it inside the sandbox; Gazelle lists it with the package's
+files.
 
 ```python
 ts_test(
     name = "widget_test",
-    srcs = ["widget.test.ts"],
-    snapshots = glob(["__snapshots__/*.snap"]),
+    srcs = [
+        "__snapshots__/widget.test.ts.snap",
+        "widget.test.ts",
+    ],
     deps = [":widget", "@npm//:vitest"],
 )
 ```

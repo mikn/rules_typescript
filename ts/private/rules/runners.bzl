@@ -36,15 +36,8 @@ def _vitest_launch(ctx, test):
     section = {
         "config_file": rlocation_path(ctx, written.config),
         "test_files_list": rlocation_path(ctx, test.test_files_list),
-        "coverage": ctx.attr.coverage,
         "reads_hook": rlocation_path(ctx, test.runner.hook),
     }
-    if ctx.file.vitest:
-        section["vitest"] = rlocation_path(ctx, ctx.file.vitest)
-
-        # An npm_bin wrapper resolves its own Node; prefixing the runtime again
-        # would run a launcher under a launcher.
-        section["vitest_is_npm_bin"] = True
     if test.node_modules_files:
         section["node_modules"] = rlocation_path(
             ctx,
@@ -61,14 +54,11 @@ def _vitest_launch(ctx, test):
     env.setdefault("CI", "true")
 
     files = (
-        [written.config, test.runner.hook] + ctx.files.setup_files +
-        ctx.files.global_setup + ctx.files.snapshots + pool.files +
+        [written.config, test.runner.hook] + pool.files +
         written.user_config_files
     )
     if tsconfig_paths:
         files.append(tsconfig_paths)
-    if ctx.file.vitest:
-        files.append(ctx.file.vitest)
     return struct(
         mode = "vitest",
         section = section,
@@ -82,10 +72,6 @@ def _vitest_launch(ctx, test):
         # The config vitest ran with, for debugging and for the tests that pin
         # the layering.
         output_groups = {"vitest_config": depset([written.config])},
-        # An npm_bin vitest is itself launcher-driven, so its own config has to
-        # be staged in this test's runfiles, not just its executable.
-        runfiles_of = ctx.attr.setup_files + ctx.attr.global_setup +
-                      ([ctx.attr.vitest] if ctx.attr.vitest else []),
     )
 
 # node:test is configured by CLI flags and the test file alone, so the runner
@@ -94,18 +80,9 @@ def _node_test_launch(ctx, test):
     set_attrs = [
         name
         for name, value in [
-            ("config", ctx.attr.config or ctx.attr.config_json),
+            ("config", ctx.attr.config),
             ("config_srcs", ctx.attr.config_srcs),
-            ("coverage", ctx.attr.coverage),
             ("coverage_provider", ctx.attr.coverage_provider),
-            ("coverage_thresholds", ctx.attr.coverage_thresholds),
-            ("environment", ctx.attr.environment),
-            ("global_setup", ctx.attr.global_setup),
-            ("globals", ctx.attr.globals),
-            ("reporters", ctx.attr.reporters),
-            ("setup_files", ctx.attr.setup_files),
-            ("snapshots", ctx.attr.snapshots),
-            ("vitest", ctx.attr.vitest),
             ("wrangler_config", ctx.attr.wrangler_config),
         ]
         if value
@@ -136,7 +113,6 @@ def _node_test_launch(ctx, test):
             test.package_sources
         )),
         output_groups = {},
-        runfiles_of = [],
     )
 
 def _vitest_runner_impl(ctx):

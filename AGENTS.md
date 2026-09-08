@@ -333,7 +333,7 @@ form emits `test.projects` (vitest 4 throws on `test.workspace`).
 
 `ts_test` redirects `test.resolveSnapshotPath` to
 `<package>/__snapshots__/<source>.snap`, where a plain `vitest` keeps it, reads
-those files from runfiles via the `snapshots` attr, and runs vitest in read-only
+those files from the runfiles as srcs of the test, and runs vitest in read-only
 snapshot mode (`CI=true`), so no `bazel test` can write a `.snap` and pass on
 what it wrote. Writing one is vitest's own `vitest -u` in the package.
 

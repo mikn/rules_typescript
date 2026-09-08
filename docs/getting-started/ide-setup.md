@@ -34,9 +34,7 @@ depends on. Two constraints:
   a `tsconfig.json` with an empty `paths`: no packages, no aliases.
 - **`deps` obeys visibility**, so a package-private `ts_compile` target cannot be
   listed here. Gazelle writes `visibility = ["//visibility:public"]` on the
-  targets it generates, and so does `ts_test` for the `ts_compile` targets it
-  generates from `setup_files` and `global_setup`. A `ts_test` carries its own
-  program and is listed itself, under its own `visibility`; the targets over
+  targets it generates. A `ts_test` carries its own program and is listed itself, under its own `visibility`; the targets over
   this list are testonly for it. Hand-written private targets are covered by
   [Complete coverage for the resolution map](#complete-coverage-for-the-resolution-map).
 

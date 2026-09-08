@@ -10,8 +10,8 @@
   `source_map`, `declaration_map`, `tsgo_args`, `path_aliases`,
   `path_alias_srcs`, `types_srcs`, `vite_types`, `module_name`,
   `public_globals`, `untyped_packages`. `ts_test` loses the same compile-side
-  parameters and keeps `tsconfig`; `globals = True` no longer adds
-  `vitest/globals` to the program, the test's tsconfig names it in `types`.
+  parameters and keeps `tsconfig`; the test's tsconfig names `vitest/globals`
+  in `types`.
   `ts_codegen` loses `module_name`; an `outs` codegen provides `JsInfo` and
   `TsDeclarationInfo` over its outs, so a generated `.d.ts` is a dep whose
   consumer names it in `types`. `TsModuleInfo` and

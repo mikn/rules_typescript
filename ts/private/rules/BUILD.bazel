@@ -6,9 +6,12 @@ package(default_visibility = [
     "//vite:__subpackages__",
 ])
 
-# //tests/api_surface:ts_compile_attrs_test reads TS_COMPILE_ATTRS out of it.
+# //tests/api_surface reads TS_COMPILE_ATTRS and _TEST_ATTRS out of them.
 exports_files(
-    ["ts_compile.bzl"],
+    [
+        "ts_compile.bzl",
+        "ts_test.bzl",
+    ],
     visibility = ["//tests/api_surface:__pkg__"],
 )
 
