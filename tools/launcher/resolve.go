@@ -27,6 +27,16 @@ func newResolver(opts ...runfiles.Option) (*Resolver, error) {
 	return &Resolver{rf: rf, dir: runfilesDir()}, nil
 }
 
+// directoryResolver resolves through the runfiles tree at dir, whatever the
+// environment names.
+func directoryResolver(dir string) (*Resolver, error) {
+	rf, err := runfiles.New(runfiles.Directory(dir))
+	if err != nil {
+		return nil, fmt.Errorf("ts_launcher: %w", err)
+	}
+	return &Resolver{rf: rf, dir: dir}, nil
+}
+
 // runfilesDir returns the absolute runfiles directory, or "" when the layout is
 // manifest-only. Callers must treat "" as "no tree to write into".
 func runfilesDir() string {

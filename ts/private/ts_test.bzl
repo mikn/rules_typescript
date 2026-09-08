@@ -5,7 +5,7 @@ NOTE — Windows compatibility:
   The node_modules tree action (_ts_auto_node_modules) runs via a cross-platform
   Node.js script and works on all platforms including Windows.
 
-  However, the test runner itself (_ts_test_runner_impl / _ts_snapshot_updater)
+  However, the test runner itself (_ts_test_runner_impl and its two rules)
   generates a bash script and is therefore NOT compatible with Windows.  Running
   `bazel test` or `bazel run` with ts_test targets on Windows requires a bash
   environment (e.g. Git Bash, WSL) or a future replacement of the runner script
@@ -79,6 +79,12 @@ Snapshot testing:
   files under BUILD_WORKSPACE_DIRECTORY.  It shares the test's ts_compile
   target; a second ts_test over the same srcs would collide with it on the
   compiled .js outputs.
+
+Run-time reads:
+  Every vitest ts_test also declares `bazel run //path:my_test.reads`, which
+  runs the same compiled tests unsandboxed under an fs hook and prints the
+  workspace files they opened outside the runfiles as the labels a `data`
+  entry would take; docs/rules/ts-test.md § Finding What a Test Reads.
 """
 
 load("//tools/launcher:launcher.bzl", "LAUNCHER_ATTRS", "declare_launcher", "rlocation_path")
@@ -835,6 +841,8 @@ def _ts_test_runner_impl(ctx):
         # The canonical bin entry from vitest's package.json#bin, reached inside
         # the node_modules tree artifact.
         vitest_cfg["vitest_in_tree"] = "vitest/vitest.mjs"
+    if ctx.attr.reads_report:
+        vitest_cfg["reads_hook"] = rlocation_path(ctx, ctx.file._reads_hook)
 
     # A sandboxed test must fail on a stale or missing .snap, never write one,
     # and vitest only stops writing when it believes it is running in CI.
@@ -876,6 +884,8 @@ def _ts_test_runner_impl(ctx):
         runfiles_files.append(workers_pool)
     if wrangler_patched:
         runfiles_files.append(wrangler_patched)
+    if ctx.attr.reads_report:
+        runfiles_files.append(ctx.file._reads_hook)
 
     symlinks = dict(member_manifests)
     if wrangler_patched:
@@ -1064,6 +1074,10 @@ _RUNNER_ATTRS = {
         default = Label("//ts/private:node_test_hook.mjs"),
         allow_single_file = True,
     ),
+    "_reads_hook": attr.label(
+        default = Label("//ts/private:reads_hook.cjs"),
+        allow_single_file = True,
+    ),
     "runner": attr.string(
         doc = "Which test runner runs the compiled tests: \"vitest\" (default) " +
               "or \"node:test\", node's own runner, for tests written against " +
@@ -1190,6 +1204,12 @@ _RUNNER_ATTRS = {
               "Used by the update_snapshots variant of ts_test.",
         default = False,
     ),
+    "reads_report": attr.bool(
+        doc = "Internal: when True this runner preloads the fs hook and " +
+              "prints the workspace files the tests read outside the " +
+              "runfiles. Used by the .reads variant of ts_test.",
+        default = False,
+    ),
 }
 
 _ts_test_runner_test = rule(
@@ -1217,9 +1237,7 @@ _ts_test_runner_test = rule(
     doc = "Internal test runner rule; use ts_test macro instead.",
 )
 
-# Executable (non-test) variant used when update_snapshots = True.
-# `bazel run //path:update_snapshots` writes snapshot files back to the source tree.
-_ts_snapshot_updater = rule(
+_ts_test_runner_binary = rule(
     implementation = _ts_test_runner_impl,
     executable = True,
     attrs = _RUNNER_ATTRS | LAUNCHER_ATTRS,
@@ -1227,7 +1245,8 @@ _ts_snapshot_updater = rule(
         config_common.toolchain_type(JS_RUNTIME_TOOLCHAIN_TYPE, mandatory = False),
         config_common.toolchain_type(JS_TOOL_TOOLCHAIN_TYPE, mandatory = False),
     ],
-    doc = "Internal snapshot-updater rule; use ts_test(update_snapshots=True) macro instead.",
+    doc = "Internal executable runner: a test's `.update_snapshots` and " +
+          "`.reads` companions, and a ts_test(update_snapshots = True).",
 )
 
 def _compile_setup_sources(name, sources, deps, tsconfig, visibility, tags):
@@ -1527,16 +1546,23 @@ def ts_test(
     if update_snapshots:
         # Produce an executable target (not a test) so `bazel run` works.
         # size/timeout are test-only attrs; omit them for the executable rule.
-        _ts_snapshot_updater(**(runner_kwargs | {"tags": wildcard_tags}))
+        _ts_test_runner_binary(**(runner_kwargs | {"tags": wildcard_tags}))
         return
 
-    # The updater shares the test's compile (a second ts_compile over the same
-    # srcs declares the same .js outputs); node:test rejects update_snapshots.
+    # The companions share the test's compile (a second ts_compile over the
+    # same srcs declares the same .js outputs); node:test has neither.
     if runner == RUNNER_VITEST:
-        _ts_snapshot_updater(
+        _ts_test_runner_binary(
             **(runner_kwargs | {
                 "name": "{}.update_snapshots".format(name),
                 "update_snapshots": True,
+                "tags": wildcard_tags,
+            })
+        )
+        _ts_test_runner_binary(
+            **(runner_kwargs | {
+                "name": "{}.reads".format(name),
+                "reads_report": True,
                 "tags": wildcard_tags,
             })
         )

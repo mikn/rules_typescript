@@ -11,6 +11,7 @@ go_library(
         "node.go",
         "nodetest.go",
         "plan.go",
+        "reads.go",
         "resolve.go",
         "run.go",
         "vitest.go",
@@ -32,6 +33,7 @@ go_test(
         "config_test.go",
         "nodetest_test.go",
         "plan_test.go",
+        "reads_test.go",
         "resolve_test.go",
     ],
     # keep: this package's library is `launcher`, not the `launcher_lib` the Go

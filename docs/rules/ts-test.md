@@ -56,7 +56,9 @@ cannot iterate) or when you need a tree the deps do not describe.
 
 The macro generates a `ts_compile` target for `srcs`, one for the TypeScript
 entries in `setup_files` and one for those in `global_setup`, plus, on the
-vitest runner, a `<name>.update_snapshots` executable.
+vitest runner, two executables: `<name>.update_snapshots`
+([Snapshots](#snapshots)) and `<name>.reads`
+([Finding What a Test Reads](#finding-what-a-test-reads)).
 The `ts_compile` targets take the test's `visibility`, defaulting to
 `//visibility:public` when the test declares none, so an IDE tsconfig written by
 `ts_refresh_tsconfig` can name them. A `manual` tag on the test reaches every
@@ -392,6 +394,65 @@ What else a wrangler config names, and where each comes from under `ts_test`:
 | `compatibility_date`, `compatibility_flags`, `vars`, `kv_namespaces`, `r2_buckets`, `services`, `durable_objects`, `migrations` | inline values; miniflare emulates the bindings and nothing is staged |
 | `durable_objects[].script_name` naming another worker | `miniflare.workers` in the config, as under plain `vitest` |
 | `tsconfig`, `alias`, `define`, `no_bundle`, `build` | esbuild and deploy keys; the pool runs none of them |
+
+## Finding What a Test Reads
+
+A test that opens a file the runfiles do not hold fails in the sandbox with
+`ENOENT`, and nothing in the build says which file: a run-time read is in no
+program listing, so Gazelle writes no `data` entry for it. Every vitest
+`ts_test` declares a companion that says:
+
+```bash
+bazel run //path/to:my_test.reads
+```
+
+It runs the same compiled tests unsandboxed, from the runfiles tree `bazel
+test` runs them in, under a Node `--require` hook that records every path the
+test processes open, stat or read. Once vitest has exited it prints, on
+stdout, every regular file under the workspace that the run reached outside
+the runfiles tree -- once, sorted, as the workspace-relative path and the
+label a `data` entry would take, with the nearest `BUILD` file naming the
+package:
+
+```
+MODULE.bazel	//:MODULE.bazel
+tests/vitest/reads_report/fixtures/outside.txt	//tests/vitest/reads_report/fixtures:outside.txt
+```
+
+vitest's own output goes to stderr, so stdout is the report alone; a test
+reading nothing outside its runfiles prints nothing. The exit status is the
+test's.
+
+The report is the test processes' reads, wherever they came from. A test that
+walks up from its own directory to a `MODULE.bazel` or a `package.json` leaves
+the runfiles tree, finds the workspace's file through the execution root and
+reads from there, and the marker it stopped at is in the report beside the
+files it then opened: both go in `data`, or under `bazel test` the walk still
+finds nothing. A path the test never reaches (an `ENOENT` in this run too) is
+not in it, and what the vitest process itself opens -- a `config`, a
+`global_setup` -- is not recorded: its walk up from the root for a workspace
+marker is vite's, not a test's.
+
+`data` is the owner's attribute: Gazelle writes nothing into it and leaves what
+is written, so the labels go in as they are, with an `exports_files` in the
+package that holds a file another package's test reads:
+
+```python
+ts_test(
+    name = "reads_declared_test",
+    srcs = ["reads_declared.test.ts"],
+    data = [
+        "//:MODULE.bazel",
+        "//tests/vitest/reads_report/fixtures:outside.txt",
+    ],
+    deps = [":workspace_root", "@npm//:types_node", "@npm//:vitest"],
+)
+```
+
+`//tests/vitest/reads_report` is the example: `reads_report_test` makes the
+read undeclared and is `manual`, so `bazel test` never runs the failure, and
+its `.reads` prints the two lines above; `reads_declared_test` lists them,
+passes under `bazel test`, and its `.reads` prints nothing.
 
 ## Coverage
 
