@@ -15,20 +15,20 @@ var wantKinds = []string{
 	"ts_codegen",
 	"ts_compile",
 	"ts_config",
-	"ts_lint",
 	"ts_test",
 }
 
 // wantSymbols is the load line: every kind but filegroup, which is native.
 var wantSymbols = []string{
-	"ts_codegen", "ts_compile", "ts_config", "ts_lint", "ts_test",
+	"ts_codegen", "ts_compile", "ts_config", "ts_test",
 }
 
 // A goneKind back in Kinds() or a load would have Gazelle write a rule it must
-// not: five that no .bzl defines, and the four that are written by hand.
+// not: six that no .bzl defines, and the four that are written by hand.
 var goneKinds = []string{
 	"next_build", "next_dev_server", "sveltekit_build", "ts_bundle",
-	"vite_bundler", "node_modules", "ts_add_package", "ts_dev_server", "ts_pnpm",
+	"vite_bundler", "ts_lint",
+	"node_modules", "ts_add_package", "ts_dev_server", "ts_pnpm",
 }
 
 func TestKinds_ExactSurface(t *testing.T) {

@@ -170,7 +170,8 @@ or a comment still names is a sentence the code falsified.
 `check_retired_names.sh` carries the list and greps every tracked file for it in
 identifier form: whole words, a `# gazelle:` directive with a `ts_` name, the
 macro's `_<name>_test_compile` and `_<name>_test_node_modules` targets, the two
-rule files' pre-split paths under `ts/private/`. Out of scope:
+rule files' pre-split paths and the lint rule's file under `ts/private/`, the
+lint rule's docs page. Out of scope:
 `changelog.d/` and `CHANGELOG.md`, where a retirement is recorded with the edit
 it requires; `TODO.md` and `rules-ts-v2-project-plan.md`, the project's
 history; the rows of `docs/gazelle/directives.md`'s table mapping each retired

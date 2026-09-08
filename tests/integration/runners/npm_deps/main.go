@@ -37,12 +37,13 @@ func main() {
 
 		// The positive case (oxlint passing on clean sources) is //tests/lint_real.
 		// This is the other half, which needs a Bazel that is allowed to fail.
-		lint, err := it.BazelLog("violations_lint.log", "build", "//:violations_lint")
+		lint, err := it.BazelLog("violations.log", "build", "//:violations")
 		if err == nil {
 			lint.Dump()
-			it.Fail("//:violations_lint built successfully; a real oxlint violation must fail the build")
+			it.Fail("//:violations built; the linter ts.lint() names must fail " +
+				"it on `var`")
 		}
-		it.Pass("//:violations_lint failed to build, as a lint violation must")
+		it.Pass("//:violations failed to build, as a lint violation must")
 
 		if !strings.Contains(strings.ToLower(lint.Text), "no-var") {
 			lint.Dump()

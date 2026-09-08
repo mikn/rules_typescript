@@ -137,7 +137,7 @@ func TestImportsForRule_LabelsInSrcsAreNotFiles(t *testing.T) {
 
 func TestImportsForRule_UnknownKindIsNotImportable(t *testing.T) {
 	c := emptyConfig()
-	for _, kind := range []string{"genrule", "ts_lint", "filegroup"} {
+	for _, kind := range []string{"genrule", "sh_binary", "filegroup"} {
 		r, f := newRule(indexedRule{
 			kind: kind, name: "thing", pkg: "src/app", srcs: []string{"index.ts"},
 		})

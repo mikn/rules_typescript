@@ -129,6 +129,14 @@ func generatedNames(t *testing.T, res language.GenerateResult,
 	return byName
 }
 
+func kindsOf(rules []*rule.Rule) []string {
+	var out []string
+	for _, r := range rules {
+		out = append(out, r.Kind()+"("+r.Name()+")")
+	}
+	return out
+}
+
 func assertRule(t *testing.T, byName map[string]string, name, kind string) {
 	t.Helper()
 	got, ok := byName[name]
@@ -223,8 +231,7 @@ ts_test(
 	sort.Strings(got)
 	wantStrings(t, "pkg/src withdraws", got, []string{
 		"filegroup(vitest_config)", "filegroup(wrangler_config)",
-		"ts_compile(src)", "ts_config(tsconfig)", "ts_lint(src_lint)",
-		"ts_test(src_test)"})
+		"ts_compile(src)", "ts_config(tsconfig)", "ts_test(src_test)"})
 	if n := strings.Count(g.logged, "pkg/src/BUILD.bazel"); n != 1 {
 		t.Errorf("the BUILD file to delete was named %d times, want once:\n%s",
 			n, g.logged)

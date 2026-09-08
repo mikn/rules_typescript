@@ -54,7 +54,6 @@ go_test(
         "keep_test.go",
         "kinds_surface_test.go",
         "labels_test.go",
-        "lint_binary_lockfile_test.go",
         "manifest_test.go",
         "npm_test.go",
         "owner_test.go",

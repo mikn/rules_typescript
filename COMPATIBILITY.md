@@ -142,10 +142,11 @@ Breaks get a changelog entry with the required edit.
   attributes
 - The `ts_pnpm` and `ts_add_package` macros, written by hand into the root
   `BUILD.bazel` beside a lockfile; Gazelle writes neither
-- `TsInfo`, `BundlerInfo`, `TsTestRunnerInfo`, `TsLintInfo` providers
+- `TsInfo`, `BundlerInfo`, `TsTestRunnerInfo` providers
 - The `npm` module extension (`npm.translate_lock`, `npm.pnpm`) and the `@npm`
   label surface (`@npm//:zod`, `@npm//:types_react`, `@npm//:vitest_bin`)
-- The `ts` module extension (`ts.tsgo`)
+- The `ts` module extension (`ts.tsgo`, `ts.lint`) and the `//ts:lint` label
+  flag it sets
 - `//ts/toolchain:all` as the registration target, and the four toolchain types
   it registers (`oxc_toolchain_type`, `tsgo_toolchain_type`, `js_runtime_type`,
   `js_tool_type`)
@@ -157,8 +158,7 @@ Breaks get a changelog entry with the required edit.
 
 May change in any commit, without a changelog entry.
 
-- `ts_dev_server`, `ts_codegen`, `ts_lint` rules, and the `ts_lint` targets
-  Gazelle writes beside a `ts_compile`
+- `ts_dev_server` and `ts_codegen` rules
 - The `ts_codegen` generators under `//tools/codegen` (`tanstack_routes`,
   `wrangler_types`)
 - `npm_bin` as a rule loaded by hand; the generated `@npm//:<pkg>_bin` labels

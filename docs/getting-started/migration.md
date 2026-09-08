@@ -117,8 +117,7 @@ toolchains. `rules_ts` needs neither.
 ### Gazelle
 
 Open-source BUILD file generation: one package per `tsconfig.json`, its deps
-from tsgo's own listing of the program, lint targets beside it, and no
-directive of its own. `rules_ts` relies on the proprietary Aspect CLI.
+from tsgo's own listing of the program, and no directive of its own. `rules_ts` relies on the proprietary Aspect CLI.
 
 ### System Prerequisites
 

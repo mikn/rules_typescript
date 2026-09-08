@@ -413,7 +413,7 @@ extension written in Go.
 | `gazelle/generate.go` | One package's rules from the owner map; `Empty` where no program is |
 | `gazelle/resolve.go` | `deps` from the listing's edges: one label per edge target |
 | `gazelle/workers_pool.go` | The Workers pool's half: the wrangler config a vitest config names as a `filegroup`, and a pooled `ts_test`'s `wrangler_config`, `coverage_provider` and istanbul dep |
-| `gazelle/config.go` | The root-once lockfile load, the `ts_codegen` bookkeeping, linter detection |
+| `gazelle/config.go` | The root-once lockfile load, the `ts_codegen` bookkeeping |
 | `gazelle/keep.go` | The managed-attribute reports: what a run drops and what it cannot merge |
 | `gazelle/pnpm_lock.go` | The lockfile's names, importers, links and aliases |
 | `ts/tools/explainfiles/` | The `--explainFiles` grammar: one listing's files, roots, edges and `types` entries -- shared with the build actions |

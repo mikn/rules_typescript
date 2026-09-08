@@ -119,7 +119,7 @@ is nothing.
 ### Where a Program Is Not
 
 A directory that is not a package gets `Empty` for every kind Gazelle writes --
-`ts_compile`, `ts_test`, `ts_lint`, `ts_config`, `filegroup(vitest_config)` and
+`ts_compile`, `ts_test`, `ts_config`, `filegroup(vitest_config)` and
 `filegroup(wrangler_config)` under the names it would use -- so a rule an
 earlier run left there is withdrawn, and the run names the BUILD file to delete
 when one of them was in it: Gazelle cannot delete the file, and an empty BUILD
@@ -137,7 +137,6 @@ a source, and a BUILD file there is emptied and named the same way.
 | `ts_compile` | the directory's basename, `root` at the repository root | `srcs`, `deps`, `tsconfig`, `visibility` |
 | `ts_test` | `<basename>_test` | `srcs`, `deps`, `tsconfig`, `config`, `config_srcs`, `wrangler_config`, `coverage_provider` |
 | `ts_config` | `tsconfig` | `src`, `deps`, `visibility` |
-| `ts_lint` | `<basename>_lint` | `srcs`, `linter`, `linter_binary`, `config`, `fail_on_warnings` |
 | `filegroup` | `vitest_config` | `srcs`, `visibility` |
 | `filegroup` | `wrangler_config` | `srcs`, `visibility` |
 
@@ -145,9 +144,8 @@ Per package: a `ts_compile` when the program has a library file, holding the
 library files, every owned declaration and the data files; a `ts_test` when it
 has a test file, holding the test files and every owned declaration, and the
 data files when no `ts_compile` is written; `tsconfig = ":tsconfig"` on both,
-naming the `ts_config` over the package's own `tsconfig.json`; a `ts_lint`
-beside the `ts_compile` while a linter config is in force
-([below](#automatic-lint-targets)). A `ts_codegen` declared in the package's
+naming the `ts_config` over the package's own `tsconfig.json`. A `ts_codegen`
+declared in the package's
 BUILD file is a dep of every target there; Gazelle recognises the kind and
 never writes one. A program listing only declaration files writes neither
 target and says so under `-ts_verbose`. `ts_dev_server` is outside all of
@@ -318,52 +316,6 @@ ts_compile(
     visibility = ["//visibility:public"],
     deps = [":worker_types"],
 )
-```
-
-## Automatic Lint Targets
-
-When a linter config file is present in the package or any ancestor, and
-`pnpm-lock.yaml` has the linter it is for, Gazelle writes a `ts_lint` beside
-the package's `ts_compile`, named `<basename>_lint`, over the same TypeScript
-sources. `linter_binary` is the hub's bin alias for the linter package,
-`@npm//:oxlint_bin` or `@npm//:eslint_bin`.
-
-Detected config files:
-
-- **oxlint**: `oxlint.json`, `.oxlintrc.json`, `.oxlintrc`
-- **eslint**: `eslint.config.mjs`, `eslint.config.js`, `eslint.config.cjs`,
-  `.eslintrc.js`, `.eslintrc.cjs`, `.eslintrc.yaml`, `.eslintrc.yml`,
-  `.eslintrc.json`, `.eslintrc`
-
-oxlint configs are detected before ESLint configs. The closest config file wins.
-
-A config on disk whose linter the lockfile never mentions gets no `ts_lint`:
-the `eslint.config.js` of a nested `package-lock.json` island, or one left
-behind by a package that was never installed. Its binary would be a target the
-hub does not declare, and Bazel answers `no such target` by failing analysis
-for every target in the package, not the lint alone. Gazelle says so once per
-config file, naming the config, the package and the label, and withdraws a
-`ts_lint` an earlier run wrote for it. The fix is to add the linter to the
-workspace's dependencies or to delete the config. A workspace with no root
-lockfile is not refused.
-
-```python
-ts_lint(
-    name = "core_lint",
-    srcs = [
-        "src/index.ts",
-        "src/parse.ts",
-    ],
-    config = "//:oxlint.json",
-    linter = "oxlint",
-    linter_binary = "@npm//:oxlint_bin",
-)
-```
-
-To run linting:
-
-```bash
-bazel build //... --output_groups=+_validation
 ```
 
 ## Import Resolution

@@ -454,9 +454,8 @@ this is a design question, not a checklist.
 - [ ] Consider progress messages in actions ("Compiling 5 TypeScript files...")
 
 ### 9.4 Linting Integration
-- [x] Create `ts_lint` rule wrapping eslint or oxlint
-- [x] Wire as a validation action (like type-checking)
-- [x] Gazelle generates `ts_lint` targets alongside `ts_compile` when an oxlint.json or .eslintrc.* config is detected
+- [x] `ts.lint(binary, config, fail_on_warnings)` in the root MODULE.bazel names the linter once
+- [x] Every `ts_compile` and `ts_test` runs it as a validation action (like type-checking)
 
 ---
 
@@ -633,7 +632,7 @@ Sub-projects that unlock real application support:
 **What works today:**
 - Pure TypeScript library monorepo with npm deps, vitest tests, hermetic builds. Good for backend services, shared libraries, CLI tools.
 - CSS and asset support: a `.css`, an image or a `.json` is a src of the `ts_compile` that imports it, typed by the tsconfig and staged beside the compiled `.js`.
-- Gazelle: generates ts_compile, ts_test and ts_lint targets from TypeScript source files. Reads path aliases from tsconfig.json compilerOptions.paths/baseUrl.
+- Gazelle: generates ts_compile and ts_test targets from TypeScript source files. Reads path aliases from tsconfig.json compilerOptions.paths/baseUrl.
 - Dev server: ts_dev_server serves first-party source through Vite with Bazel out of the inner loop; bazel-bin supplies codegen output, assets and the npm tree. Under ibazel one Vite process lives across rebuilds and restarts only when the config's own inputs change. It does not typecheck, which is native Vite parity but makes the editor load-bearing. bundler attr accepts BundlerInfo for custom dev server implementations. react_refresh = True wires @vitejs/plugin-react for React Fast Refresh.
 - CI/CD: documented remote caching (BuildBuddy/EngFlow/self-hosted), remote execution, GitLab CI template, and known sources of non-determinism. Documented, not exercised: this repository's own CI configures no remote or disk cache.
 

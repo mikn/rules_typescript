@@ -46,7 +46,6 @@ func ownedRuleNames(rel string) []*rule.Rule {
 	return []*rule.Rule{
 		rule.NewRule("ts_compile", name),
 		rule.NewRule("ts_test", testTargetName(name)),
-		rule.NewRule("ts_lint", name+"_lint"),
 		rule.NewRule("ts_config", tsConfigTargetName),
 		rule.NewRule("filegroup", vitestConfigTargetName),
 		rule.NewRule("filegroup", wranglerConfigTargetName),
@@ -119,7 +118,6 @@ func packageRules(args language.GenerateArgs, tc *tsConfig,
 
 	compile := len(set.library) > 0
 	if compile {
-		program := packageSrcs(args, set.library, set.declaration)
 		r := rule.NewRule("ts_compile", name)
 		r.SetAttr("srcs", packageSrcs(args, set.library, set.declaration, data))
 		r.SetAttr("tsconfig", tsConfigAttr)
@@ -127,14 +125,8 @@ func packageRules(args language.GenerateArgs, tc *tsConfig,
 		imps := s.compileImports(pkg, set)
 		imps.deps = append(imps.deps, codegens...)
 		add(r, imps)
-		if lint, gone := lintRuleFor(args, tc, name, program); lint != nil {
-			add(lint, nil)
-		} else {
-			res.Empty = append(res.Empty, gone)
-		}
 	} else {
 		withdraw("ts_compile", name)
-		withdraw("ts_lint", name+"_lint")
 	}
 
 	if len(set.test) > 0 {
@@ -286,26 +278,6 @@ func codegenLabels(f *rule.File) []string {
 		}
 	}
 	return out
-}
-
-// The ts_lint beside a ts_compile while a linter config is in force and the
-// lockfile declares the linter; otherwise the withdrawal of one a run wrote.
-func lintRuleFor(args language.GenerateArgs, tc *tsConfig, name string,
-	srcs []string) (*rule.Rule, *rule.Rule) {
-	gone := rule.NewRule("ts_lint", name+"_lint")
-	if tc.linterConfig == "" || tc.linterType == "" {
-		return nil, gone
-	}
-	if tc.lock != nil && !tc.lock.names[tc.linterType] {
-		reportLinterNotInLockfile(args.Config.RepoRoot, tc)
-		return nil, gone
-	}
-	r := rule.NewRule("ts_lint", name+"_lint")
-	r.SetAttr("srcs", srcs)
-	r.SetAttr("linter", tc.linterType)
-	r.SetAttr("linter_binary", linterBinaryLabel(tc))
-	r.SetAttr("config", linterConfigLabel(tc.linterConfig))
-	return r, nil
 }
 
 // tsConfigRule names the directory's tsconfig.json, with the ts_config of

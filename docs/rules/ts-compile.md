@@ -635,8 +635,9 @@ The fields, and the load path, are in
 - **`OutputGroupInfo(tsconfig=...)`**: the tsconfig this target handed the
   compiler, on any target with a program
 - **`OutputGroupInfo(_validation=...)`**: the tsgo check stamp, written only
-  under `--//ts:declarations=oxc`; under the default the declarations are the
-  tsgo action's own outputs.
+  under `--//ts:declarations=oxc` (under the default the declarations are the
+  tsgo action's own outputs), and the `TsLint` stamp when the root module's
+  `ts.lint()` names a linter ([Lint](../guides/lint.md)).
 - **`OutputGroupInfo(strict_deps=...)`**: the `TsStrictDeps` stamp, on any
   target with both `deps` and sources. The compile actions take it as an input,
   so a violation fails a plain `bazel build`; the output group exposes the stamp
@@ -646,8 +647,10 @@ The fields, and the load path, are in
 
 Four actions per target, each a function in `ts/private/actions/` --
 `strict_deps.bzl`, `tsconfig.bzl`, `oxc.bzl`, `tsgo.bzl`, with the forest the
-last one reads in `forest.bzl`; the rule in `ts/private/rules/ts_compile.bzl`
-declares the outputs, calls them in this order and builds the providers.
+last one reads in `forest.bzl`, and a fifth, `lint.bzl`'s `TsLint`, when the
+root module's `ts.lint()` names a linter ([Lint](../guides/lint.md)); the rule
+in `ts/private/rules/ts_compile.bzl` declares the outputs, calls them in this
+order and builds the providers.
 `TsStrictDeps` runs first, as a Node action over a
 params-file manifest of the target's declared and reachable providers. Its
 scanner is a character walk over the source: a quoted string is a specifier only

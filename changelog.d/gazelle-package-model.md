@@ -6,9 +6,9 @@
   it, and every other regular file under the package's tree is a data src.
   Gazelle writes `ts_compile(srcs, deps, tsconfig, visibility)`,
   `ts_test(srcs, deps, tsconfig, config)` and `ts_config(src, deps,
-  visibility)` per package, `ts_lint` beside the compile while a linter config
-  is in force, and `Empty` for every kind under the names it would use in a
-  directory that is not a package, naming the BUILD file to delete. Every dep
+  visibility)` per package, and `Empty` for every kind under the names it
+  would use in a directory that is not a package, naming the BUILD file to
+  delete. Every dep
   is one edge of the listing mapped to a label: a `node_modules` file to its
   npm package through the lockfile, spelled `@npm//<importer>:<name>` when the
   nearest lockfile importer above the importing file declares the name and

@@ -1,7 +1,7 @@
 # Providers and Toolchains
 
 The contract a rule outside this ruleset writes against: the providers the
-rules return, and the toolchains they resolve. Five providers load from
+rules return, and the toolchains they resolve. Four providers load from
 `@rules_typescript//ts:defs.bzl`; the toolchain contract loads from
 `@rules_typescript//ts/toolchain:defs.bzl`.
 
@@ -11,7 +11,6 @@ load(
     "BundlerInfo",
     "DevServerInfo",
     "TsInfo",
-    "TsLintInfo",
     "TsTestRunnerInfo",
 )
 ```
@@ -22,7 +21,6 @@ load(
 | `TsTestRunnerInfo` | `//ts/runners:vitest`, `//ts/runners:node_test`, a runner of your own |
 | `BundlerInfo` | any rule that [brings its own bundler](../guides/bundling.md#custom-bundler-bundlerinfo-interface); the ruleset ships none |
 | `DevServerInfo` | `//vite:dev_server`, a [server of your own](../guides/dev-server.md#bringing-your-own-server) |
-| `TsLintInfo` | `ts_lint` |
 
 ## TsInfo
 
@@ -91,12 +89,6 @@ returning this provider is a third. See [Runners](ts-test.md#runners).
 
 The two invocation modes and the recipe for a bundler of your own are in
 [Bundling](../guides/bundling.md#custom-bundler-bundlerinfo-interface).
-
-## TsLintInfo
-
-| Field | Type | Description |
-|---|---|---|
-| `stamp` | `File` | The validation stamp, written only on a clean lint run |
 
 ## NpmPackageInfo
 

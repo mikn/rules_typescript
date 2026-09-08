@@ -1,79 +1,43 @@
-load("@bazel_skylib//rules:build_test.bzl", "build_test")
-load("@rules_go//go:def.bzl", "go_test")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
-load("//ts:defs.bzl", "ts_lint")
+load("//ts:defs.bzl", "ts_compile", "ts_test")
+load("//ts/private/actions:lint.bzl", "lint_config")
+load(":lint_tests.bzl", "lint_test_suite")
 
-# The go_test targets are hand-named after the sh_tests they replaced, so the
-# Go language would add a second target for the same source.
-# gazelle:exclude *_test.go
-
-# ── Fake linter binary ─────────────────────────────────────────────────────────
-# A shell script that accepts the same CLI flags as oxlint/eslint but always
-# succeeds.  Used to test the ts_lint rule plumbing without requiring a real
-# linter npm package.
+# The analysis tests read the command line; nothing runs the stub.
 sh_binary(
     name = "fake_linter",
     srcs = ["fake_linter.sh"],
 )
 
-# ── ts_lint target — clean sources ─────────────────────────────────────────────
-# Linting clean.ts with the fake linter should succeed, producing a stamp.
-ts_lint(
-    name = "clean_lint",
-    srcs = ["clean.ts"],
-    linter_binary = ":fake_linter",
-)
-
-# Expose the _validation output group so the smoke test can assert the stamp
-# file exists after a successful lint run.
-filegroup(
-    name = "clean_lint_stamp",
-    srcs = [":clean_lint"],
-    output_group = "_validation",
-)
-
-# ── fail_on_warnings uses each linter's own flag ───────────────────────────────
-# Each stub accepts only its own linter's spelling, so these targets build only
-# when ts_lint passes the flag that matches the `linter` attr.
-sh_binary(
-    name = "fake_oxlint",
-    srcs = ["fake_oxlint.sh"],
-)
-
-sh_binary(
-    name = "fake_eslint",
-    srcs = ["fake_eslint.sh"],
-)
-
-ts_lint(
-    name = "oxlint_warnings_lint",
-    srcs = ["clean.ts"],
+lint_config(
+    name = "strict",
+    binary = ":fake_linter",
+    config = "lint.json",
     fail_on_warnings = True,
-    linter = "oxlint",
-    linter_binary = ":fake_oxlint",
 )
 
-ts_lint(
-    name = "eslint_warnings_lint",
-    srcs = ["clean.ts"],
-    fail_on_warnings = True,
-    linter = "eslint",
-    linter_binary = ":fake_eslint",
+lint_config(
+    name = "loose",
+    binary = ":fake_linter",
 )
 
-build_test(
-    name = "warning_flags_test",
-    targets = [
-        ":eslint_warnings_lint",
-        ":oxlint_warnings_lint",
+lint_config(name = "none")
+
+ts_compile(
+    name = "clean",
+    srcs = [
+        "clean.ts",
+        "types.d.ts",
     ],
 )
 
-# ── Smoke test ─────────────────────────────────────────────────────────────────
-go_test(
-    name = "lint_smoke_test",
-    size = "small",
-    srcs = ["lint_smoke_test.go"],
-    data = [":clean_lint_stamp"],
-    deps = ["//tests/verify"],
+ts_test(
+    name = "clean_test",
+    srcs = ["clean.test.ts"],
+    deps = [
+        ":clean",
+        "@npm//:vitest",
+    ],
 )
+
+lint_test_suite(name = "lint_tests")

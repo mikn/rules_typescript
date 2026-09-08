@@ -58,6 +58,7 @@ nav:
     - Tailwind v4: guides/tailwind.md
     - Monorepo Layout: guides/monorepo.md
     - Troubleshooting: guides/troubleshooting.md
+    - Lint: guides/lint.md
   - Gazelle:
     - Overview: gazelle/overview.md
     - Directives Reference: gazelle/directives.md
@@ -66,7 +67,6 @@ nav:
     - ts_test: rules/ts-test.md
     - ts_binary: rules/ts-binary.md
     - ts_dev_server: rules/ts-dev-server.md
-    - ts_lint: rules/ts-lint.md
     - ts_codegen: rules/ts-codegen.md
     - node_modules: rules/node-modules.md
     - Providers and toolchains: rules/providers.md

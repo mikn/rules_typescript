@@ -84,8 +84,8 @@ def _npm_bin_impl(ctx):
         "runtime_args": runtime_args,
         "node": {
             "entry": rlocation_path(ctx, entry_script_file),
-            # The tools that run this bin script (ts_lint) pass absolute paths
-            # and expect the runfiles root as the working directory.
+            # The TsLint action passes absolute paths and expects the runfiles
+            # root as the working directory.
             "chdir_runfiles": True,
             "optional_deps": optional_deps,
         },

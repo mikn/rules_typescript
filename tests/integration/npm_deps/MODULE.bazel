@@ -23,3 +23,9 @@ register_toolchains("@rules_typescript//ts/toolchain:all")
 npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
 npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
 use_repo(npm, "npm", "pnpm")
+
+ts = use_extension("@rules_typescript//ts:extensions.bzl", "ts")
+ts.lint(
+    binary = "@npm//:oxlint_bin",
+    config = "//:oxlint.json",
+)

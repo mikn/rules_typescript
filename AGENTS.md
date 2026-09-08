@@ -71,6 +71,8 @@ ts_compile → TsStrictDeps action (.strictdeps stamp; gates the compile)
              or TsgoCheck validation action (.tscheck stamp in _validation; under oxc)
            both run from a program root mirroring the exec root with the
            target's node_modules forest at node_modules
+           → TsLint validation action (.tslint stamp in _validation) when the
+             root module's ts.lint() names a linter
 
 .d.ts = compilation boundary. Downstream sees only .d.ts, not .ts source.
 Change implementation without changing .d.ts → no downstream recompilation.
@@ -88,8 +90,9 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 - `ts/defs.bzl` — public API (all rules, providers, macros)
 - `ts/private/rules/ts_compile.bzl` — the `ts_compile` rule and
   `TS_COMPILE_ATTRS`; `ts/private/actions/` — one action per file (`tsconfig`,
-  `oxc`, `tsgo`, `forest`, `strict_deps`), the functions the rule calls in that
-  order
+  `oxc`, `tsgo`, `forest`, `strict_deps`, `lint`), the functions the rule calls
+  in that order; `lint.bzl` also holds `lint_config` and the repository rule
+  `ts.lint()` writes
 - `ts/tools/tsaction/` — the Go runner behind the actions: `tsconfig` writes the action config from `tsgo --showConfig`, `oxc` relays the options to oxc, `tsgo` lays out the program root and runs tsgo from it
 - `ts/tools/explainfiles/`, `ts/tools/tsconfig/`, `ts/tools/jsonc/` — the
   `--explainFiles` grammar, the tsconfig `extends` chain reader and the JSONC
@@ -130,7 +133,7 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 - `gazelle/workers_pool.go` — the Workers pool's half: the wrangler config's
   `filegroup`, the pooled test's `wrangler_config` and `coverage_provider`
 - `gazelle/config.go`, `gazelle/keep.go` — the root-once lockfile load, the
-  `ts_codegen` bookkeeping, linter detection; the managed-attribute reports
+  `ts_codegen` bookkeeping; the managed-attribute reports
 - `oxc_cli/src/main.rs` — Rust CLI (parse → isolated_declarations → transform → codegen)
 
 ## Rules
@@ -200,9 +203,9 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 
 Every `ts_compile` target provides: `TsInfo` + `InstrumentedFilesInfo` +
 `OutputGroupInfo(_validation)`; a `ts_test` runs the same actions over its
-srcs and provides the last two. `_validation` is only
-populated under
-`--//ts:declarations=oxc`; under the default the declarations are the proof.
+srcs and provides the last two. `_validation` holds the tsgo check stamp under
+`--//ts:declarations=oxc` (under the default the declarations are the proof)
+and the `TsLint` stamp when the root module's `ts.lint()` names a linter.
 A `ts_compile` with any `deps` additionally exposes the strict-deps stamp: in
 `OutputGroupInfo(strict_deps = ...)` always, and as an input to the compile
 actions, so a violation fails the build and not only `--output_groups`.

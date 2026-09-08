@@ -19,6 +19,11 @@ bzl_library(
 )
 
 bzl_library(
+    name = "lint",
+    srcs = ["lint.bzl"],
+)
+
+bzl_library(
     name = "oxc",
     srcs = ["oxc.bzl"],
 )

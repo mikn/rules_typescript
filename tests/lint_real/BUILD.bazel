@@ -1,45 +1,33 @@
 load("@rules_go//go:def.bzl", "go_test")
-load("//ts:defs.bzl", "ts_lint")
+load("//ts:defs.bzl", "ts_compile")
 
 # The go_test targets are hand-named after the sh_tests they replaced, so the
 # Go language would add a second target for the same source.
 # gazelle:exclude *_test.go
 
-# ── oxlint config ─────────────────────────────────────────────────────────────
-# The oxlint.json enables the no-var rule so that violations.ts fails.
+# MODULE.bazel's ts.lint() names it: every ts_compile and ts_test in this
+# repository lints under its no-var rule.
+exports_files(["oxlint.json"])
 
-# ── Clean target ──────────────────────────────────────────────────────────────
-# clean.ts has no violations; lint should succeed and produce a stamp file.
-ts_lint(
-    name = "clean_lint",
+ts_compile(
+    name = "clean",
     srcs = ["clean.ts"],
-    config = ":oxlint.json",
-    linter_binary = "@npm//:oxlint_bin",
 )
 
-# Expose the _validation stamp so the smoke test can declare it as a data dep.
 filegroup(
     name = "clean_lint_stamp",
-    srcs = [":clean_lint"],
+    srcs = [":clean"],
     output_group = "_validation",
 )
 
-# ── Violation target ───────────────────────────────────────────────────────────
-# violations.ts uses 'var', which oxlint.json's no-var rejects, so building this
-# target fails. NOTHING BUILDS IT: asserting that a build fails needs a Bazel
-# that can be allowed to fail, which is the nested one in //tests/integration.
-# It is a fixture waiting for that test, not coverage.
-ts_lint(
-    name = "violations_lint",
+# `var` fails the no-var rule; the nested Bazel of //tests/integration:
+# npm_deps_test asserts the failing build over the same fixture.
+ts_compile(
+    name = "violations",
     srcs = ["violations.ts"],
-    config = ":oxlint.json",
-    linter_binary = "@npm//:oxlint_bin",
     tags = ["manual"],
 )
 
-# ── Integration test ──────────────────────────────────────────────────────────
-# The stamp is only written when the linter exits 0, so its presence is the
-# assertion that a real oxlint ran and passed on clean.ts.
 go_test(
     name = "real_lint_test",
     size = "small",

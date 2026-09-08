@@ -26,7 +26,8 @@ is an output, so tsaction runs it from a program root that mirrors the exec
 root with the forest at its node_modules, and every import resolves as it does
 over a pnpm install. Under --//ts:declarations=oxc the check is a validation
 action in the _validation output group: it runs during `bazel build` and does
-not block downstream compilation.
+not block downstream compilation. The linter the root module's ts.lint() names
+runs over the same sources as a second validation action, TsLint.
 
 The rule has three attributes: srcs, deps and tsconfig. Every compiler option is
 the tsconfig's; the emit knobs are the build flags //ts:declarations (tsgo|oxc),
@@ -51,6 +52,7 @@ load(
     "get_oxc_toolchain",
 )
 load("//ts/private/actions:forest.bzl", "forest_action", "forest_packages")
+load("//ts/private/actions:lint.bzl", "LintConfigInfo", "lint_action")
 load("//ts/private/actions:oxc.bzl", "oxc_compile_action")
 load(
     "//ts/private/actions:strict_deps.bzl",
@@ -464,6 +466,10 @@ def compile_program(ctx):
         if stamp:
             validation_outputs.append(stamp)
 
+    lint = ctx.attr._lint[LintConfigInfo]
+    if lint.binary and check_srcs:
+        validation_outputs.append(lint_action(ctx, lint, check_srcs))
+
     # A target with declarations alone has no compile action to hang the stamp
     # on, so it goes in the output group Bazel requests for every target.
     if strict_deps and not strict_deps_gated:
@@ -640,6 +646,10 @@ for all of them but Node16/NodeNext.""",
         default = Label("//ts/tools/tsaction"),
         executable = True,
         cfg = "exec",
+    ),
+    "_lint": attr.label(
+        default = Label("//ts:lint"),
+        providers = [LintConfigInfo],
     ),
     "_declarations": attr.label(default = Label("//ts:declarations")),
     "_source_map": attr.label(default = Label("//ts:source_map")),
