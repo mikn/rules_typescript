@@ -365,14 +365,14 @@ directory. In a repository that is the source, `src/index.ts`, and the worker
 under test is the compiled one. A build action, `WranglerTestConfig`, copies
 the file and patches `main` and every `env.<name>.main` to the compiled entry
 with wrangler's `experimental_patchConfig` (`.ts` and `.tsx` to `.js`, `.mts`
-to `.mjs`, `.cts` to `.cjs`; a `.js` is left as written). wrangler is the one in the test's
-`node_modules` tree, resolved from the pool package, so the copy is patched by
-the reader that parses it. The copy is staged at the source's runfiles path,
-which is what `configPath` names, and under its own name beside the generated
-config, which is what admits its realpath when a `?raw` import of the config
-re-resolves it. Comments and every other key survive; the formatting is
-wrangler's. A config naming no `main`, or a `.toml` holding `#` comments, fails
-the action.
+to `.mjs`, `.cts` to `.cjs`; a `.js` is left as written). wrangler is the one
+in the test's `node_modules` tree, resolved from the pool package, so the copy
+is patched by the reader that parses it. The copy is staged at the source's
+runfiles path, which is what `configPath` names, and under its own name beside
+the generated config, which is what admits its realpath when a `?raw` import of
+the config re-resolves it. Comments and every other key survive; the formatting
+is wrangler's. A config naming no `main`, or a `.toml` holding `#` comments,
+fails the action.
 
 A runfiles file at the copy's path wins over it silently, with the unpatched
 `main`. The file in `data` as well is an analysis error, `is staged through
