@@ -97,6 +97,7 @@ load(
 )
 load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "JS_TOOL_TOOLCHAIN_TYPE", "get_js_runtime", "get_js_tool")
 load("//ts/private:ts_compile.bzl", "ts_compile")
+load("//ts/private:vite_config.bzl", "stage_vite_config")
 
 # ─── Internal auto node_modules rule ──────────────────────────────────────────
 #
@@ -270,6 +271,17 @@ const setupFilesInRoot = (config) => {
   return { ...config, plugins: [...(config.plugins ?? []), plugin] };
 };
 """
+
+def _package_relative_dir(ctx, f):
+    """The directory of the package's output `f`, relative to the package."""
+    prefix = ctx.label.package + "/" if ctx.label.package else ""
+    if not f.short_path.startswith(prefix):
+        fail(("ts_test {}: the node_modules tree {} is not in the test's " +
+              "package, where the config is staged beside it.").format(
+            ctx.label,
+            f.short_path,
+        ))
+    return f.short_path[len(prefix):].rpartition("/")[0]
 
 def _relative_dir(from_dir, to_dir):
     """Relative path from one workspace directory to another, "." when equal."""
@@ -687,37 +699,26 @@ def _ts_test_runner_impl(ctx):
     if ctx.file.config and ctx.attr.config_json:
         fail("ts_test: `config` takes either a config file or an inline dict, not both.")
 
-    # The generated config imports the user's config relatively, and esbuild
-    # resolves that against the real file — bazel-bin, not the runfiles tree — so
-    # the user's config has to exist there too.  rules_ts copies tsconfig.json
-    # into bin for the same reason.
-    #
-    # Staged BESIDE the node_modules tree, not in the package directory: Vite
-    # leaves a bare import in a config file external, so Node resolves it by
-    # walking up from where that file sits, and the tree is one level deeper than
-    # the package (`<nm_target>/node_modules`, so two tests in one package do not
-    # collide). From the package directory that walk never reaches it, and a
-    # config importing the pool it installs -- which is what a Workers config is
-    # -- fails to load. As its sibling, the first directory the walk looks in is
-    # the tree itself.
+    # The config's copy and the package modules it imports go beside the runtime
+    # tree, the one directory whose realpath resolves both: vite_config.bzl.
     user_config = None
+    staged_config_files = []
+    if ctx.attr.config_srcs and not ctx.file.config:
+        fail(("ts_test {}: config_srcs names the modules `config` imports; " +
+              "there is no `config`.").format(ctx.label))
     if ctx.file.config:
-        config_basename = "_{}_vitest.user.config.{}".format(
-            ctx.label.name,
-            ctx.file.config.extension,
+        if not node_modules_files:
+            fail(("ts_test {}: a `config` resolves its imports beside the " +
+                  "node_modules tree, and this test has none; a dep on the " +
+                  "vitest package brings it.").format(ctx.label))
+        staged_config = stage_vite_config(
+            ctx,
+            ctx.file.config,
+            ctx.files.config_srcs,
+            _package_relative_dir(ctx, node_modules_files[0]),
         )
-        if node_modules_files:
-            user_config = ctx.actions.declare_file(
-                config_basename,
-                sibling = node_modules_files[0],
-            )
-        else:
-            user_config = ctx.actions.declare_file(config_basename)
-        ctx.actions.expand_template(
-            template = ctx.file.config,
-            output = user_config,
-            substitutions = {},
-        )
+        user_config = staged_config.entry
+        staged_config_files = staged_config.files
 
     # The pool's half of the Bazel layer, copied beside the generated config:
     # vitest resolves the config's imports from its real path in bin.
@@ -877,8 +878,7 @@ def _ts_test_runner_impl(ctx):
         runfiles_files.append(vitest_bin)
     if runtime_binary:
         runfiles_files.append(runtime_binary)
-    if user_config:
-        runfiles_files.append(user_config)
+    runfiles_files.extend(staged_config_files)
     if workers_pool:
         runfiles_files.append(workers_pool)
     if wrangler_patched:
@@ -1126,9 +1126,16 @@ _RUNNER_ATTRS = {
               "layer (root, cacheDir, preserveSymlinks, " +
               "coverage.allowExternal, the Workers-pool half) survives.  A " +
               "config that default-exports an array is read as a list of " +
-              "vitest projects (test.projects).  Files it imports relatively " +
-              "must be listed in `data`.",
+              "vitest projects (test.projects).  The modules it imports " +
+              "relatively are `config_srcs`.",
         allow_single_file = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"],
+    ),
+    "config_srcs": attr.label_list(
+        doc = "The modules `config` imports relatively, and theirs: staged " +
+              "with the config's copy at their paths relative to the " +
+              "config's package, so its imports resolve there.  A file " +
+              "outside that package is an analysis error.",
+        allow_files = True,
     ),
     "config_json": attr.string(
         doc = "Inline vitest config as a JSON object, occupying the same " +
@@ -1156,8 +1163,8 @@ _RUNNER_ATTRS = {
         allow_files = True,
     ),
     "data": attr.label_list(
-        doc = "Extra runfiles for the test: fixtures, files imported by a " +
-              "`config` or `setup_files` entry, anything read at runtime.",
+        doc = "Extra runfiles for the test: fixtures, files a `setup_files` " +
+              "entry imports, anything read at runtime.",
         allow_files = True,
     ),
     "srcs": attr.label_list(
@@ -1284,6 +1291,7 @@ def ts_test(
         environment = "",
         coverage = False,
         config = None,
+        config_srcs = [],
         wrangler_config = None,
         setup_files = [],
         global_setup = [],
@@ -1379,7 +1387,9 @@ def ts_test(
                            default-exports an array is read as a list of vitest
                            projects (test.projects), and each project in it
                            receives the Bazel layer and the attribute layer too.
-                           Files the config imports relatively belong in `data`.
+        config_srcs:       The modules `config` imports relatively, and theirs,
+                           staged with the config's copy at their paths relative
+                           to the config's package.
         wrangler_config:   The wrangler config a Workers-pool `config` names
                            through `wrangler.configPath`. A copy whose `main`
                            (and every `env.<name>.main`) names the compiled
@@ -1393,7 +1403,7 @@ def ts_test(
         global_setup:      Files run once around the whole test run
                            (test.globalSetup); compiled like setup_files.
         data:              Extra runfiles: fixtures the tests read, and files that
-                           `config` or `setup_files` entries import.
+                           `setup_files` entries import.
         globals:           Enables vitest's global describe/it/expect
                            (test.globals). The type program sees them through a
                            `types` entry naming "vitest/globals" in `tsconfig`,
@@ -1526,6 +1536,7 @@ def ts_test(
         "coverage": coverage,
         "coverage_thresholds": coverage_thresholds,
         "coverage_provider": coverage_provider,
+        "config_srcs": config_srcs,
         "data": data,
         "global_setup": global_setup_labels,
         "globals": globals,

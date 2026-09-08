@@ -769,6 +769,60 @@ func TestProgram_CombinedVitestRunEdgesPerConfig(t *testing.T) {
 	}
 }
 
+// A config's edges are its closure's: the config imports its plugin module,
+// the module a bare package and a JSON sibling; the first-party ones are srcs.
+func TestProgram_ConfigEdgesAndSrcsAreTheClosure(t *testing.T) {
+	root := t.TempDir()
+	const (
+		cfg    = "pkg/vitest.config.mts"
+		plugin = "pkg/plugins/define.ts"
+		meta   = "pkg/plugins/meta.json"
+		pool   = "node_modules/@cloudflare/vitest-pool-workers/index.d.ts"
+	)
+	writeWorkspace(t, root, map[string]string{
+		"package.json": `{"name":"w","type":"module"}` + "\n",
+		"tsconfig.json": `{"compilerOptions":{"types":[]},` +
+			`"include":["nothing/**/*"]}` + "\n",
+		"node_modules/@cloudflare/vitest-pool-workers/package.json": `{"name":` +
+			`"@cloudflare/vitest-pool-workers","version":"0.18.4",` +
+			`"types":"index.d.ts"}` + "\n",
+		pool: "export declare function cloudflareTest(o: unknown): unknown;\n",
+		cfg: "import { define } from \"./plugins/define\";\n" +
+			"export default { plugins: [define()] };\n",
+		plugin: "import { cloudflareTest } from " +
+			"\"@cloudflare/vitest-pool-workers\";\n" +
+			"import meta from \"./meta.json\";\n" +
+			"export const define = () => ({ name: meta.name, cloudflareTest });\n",
+		meta: `{"name":"define"}` + "\n",
+	})
+	s := newProgramStore()
+	if _, err := s.binary(); err != nil {
+		t.Skipf("no tsgo binary: %v", err)
+	}
+	s.vitestConfig(cfg)
+
+	want := []edge{
+		{kind: edgeImport, from: cfg, to: plugin, specifier: "./plugins/define"},
+		{kind: edgeImport, from: plugin, to: meta, specifier: "./meta.json"},
+		{kind: edgeImport, from: plugin, to: pool,
+			specifier: "@cloudflare/vitest-pool-workers"},
+	}
+	byTarget := func(a, b edge) int { return strings.Compare(a.to, b.to) }
+	got := s.configEdges(root, cfg)
+	slices.SortFunc(got, byTarget)
+	slices.SortFunc(want, byTarget)
+	if !slices.Equal(got, want) {
+		t.Errorf("edges of %s = %+v, want %+v", cfg, got, want)
+	}
+	srcs := []string{plugin, meta}
+	if got := s.configSrcs(root, cfg); !slices.Equal(got, srcs) {
+		t.Errorf("srcs of %s = %v, want %v", cfg, got, srcs)
+	}
+	if got := s.configSrcs(root, "tests/other/vitest.config.ts"); got != nil {
+		t.Errorf("an unregistered config has srcs %v", got)
+	}
+}
+
 // The listing prints no line for a specifier a missing install left unresolved,
 // so a lockfile without its node_modules refuses; no lockfile has no install.
 func TestProgram_InstallMissing(t *testing.T) {

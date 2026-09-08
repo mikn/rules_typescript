@@ -171,6 +171,12 @@ func convergeCases() []convergeCase {
 					"src/lib/fixture.snap": "snap\n",
 				}},
 				{kind: "add_file_to_existing_target", write: map[string]string{"src/lib/format.ts": "export const format = 1;\n"}},
+				// The config imports a module of its package: config_srcs.
+				{kind: "config_imports_a_module", write: map[string]string{
+					"src/vitest.config.ts": "import { p } from \"./plugins/p\";\n" +
+						"export default { plugins: [p()], test: { globals: true } };\n",
+					"src/plugins/p.ts": "export const p = () => ({ name: \"p\" });\n",
+				}},
 				{kind: "delete_route", remove: []string{"src/routes/home.ts"}},
 				{kind: "delete_data_file", remove: []string{"src/lib/tokens.json"}},
 				{kind: "delete_only_sources_in_dir", remove: []string{"src/routes/index.ts", "src/routes/home.ts"}},

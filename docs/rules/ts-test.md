@@ -42,10 +42,11 @@ cannot iterate) or when you need a tree the deps do not describe.
 | `environment` | `string` | `""` | `test.environment`: `node`, `jsdom`, `happy-dom`, `edge-runtime`, or any custom vitest environment package. The package must be in `deps` |
 | `coverage` | `bool` | `False` | Also instrument during plain `bazel test`. `bazel coverage` works on every vitest target regardless |
 | `config` | `label` or `dict` | `None` | A vitest config file (`.ts`/`.mts`/`.cts`/`.js`/`.mjs`/`.cjs`) or an inline dict, **merged** into the generated config; see [A config file](#a-config-file) |
+| `config_srcs` | `label_list` | `[]` | The modules `config` imports relatively, and theirs, staged with the config's copy at their paths relative to the config's package. Gazelle writes it from the config's listing. A file outside that package is an analysis-time error; see [A config file](#a-config-file) |
 | `wrangler_config` | `label` | `None` | The wrangler config a Workers-pool `config` names through `wrangler.configPath`. A copy whose `main` names the compiled entry is staged at the file's own runfiles path; the file is not also in `data`. See [A Workers pool](#a-workers-pool) |
 | `setup_files` | `label_list` | `[]` | `test.setupFiles`. `.ts`/`.tsx` entries are compiled with the same `deps` as the tests |
 | `global_setup` | `label_list` | `[]` | `test.globalSetup`; compiled like `setup_files` |
-| `data` | `label_list` | `[]` | Extra runfiles: fixtures, and files a `config` or setup entry imports |
+| `data` | `label_list` | `[]` | Extra runfiles: fixtures, and files a setup entry imports |
 | `globals` | `bool` | `False` | `test.globals`: global `describe`/`it`/`expect` at run time; the tsconfig names `vitest/globals` in `types`. See [Globals](#globals) |
 | `reporters` | `string_list` | `[]` | `test.reporters`, e.g. `["default", "junit"]` |
 | `coverage_thresholds` | `string_dict` | `{}` | `test.coverage.thresholds`, e.g. `{"lines": "80", "perFile": "true"}`. Values that look numeric or boolean are emitted as such |
@@ -248,16 +249,26 @@ ts_test(
 The file may default-export an object, a function of `env`, or a promise of
 either. An array is read as a list of vitest projects and becomes
 `test.projects`; each project in it receives the Bazel layer and the attribute
-layer too, because every project gets its own Vite server. Anything the config
-imports relatively must be in `data`; it is not a build input otherwise.
+layer too, because every project gets its own Vite server.
 
 Vite's root is the config's package, so a relative path in the config names the
 directory the file sits in, as under plain `vitest`, whether the test is in that
 package or one below it; with an inline dict or no config it is the test's
-package. The config file itself is staged beside the `node_modules` tree, where
+package. The config file itself is a copy beside the `node_modules` tree, where
 its bare imports resolve, so a path relative to the config file is a different
 path. `TS_TEST_PACKAGE_DIR` holds the test's package directory, which the root
 is resolved from, for a path that has to be absolute.
+
+Vite bundles the config from that copy's realpath, so a module the config
+imports relatively has to be a copy beside it too: `config_srcs` names the
+modules the config imports and the ones they import, first-party files of the
+config's package, and each is staged at its path relative to that package
+(`./plugins/foo` in the copy is `plugins/foo.ts` beside it, and a bare import in
+`plugins/foo.ts` walks up to the same tree). Gazelle writes the attribute from
+the config's listing ([What Gazelle Writes](../gazelle/overview.md#what-gazelle-writes)). A
+module outside the config's package is an analysis-time error naming it; a
+config from an ancestor package names its modules as that package's files,
+`//<package>:<file>`. `//tests/vitest/config_srcs` is the example.
 
 !!! warning "The array form needs vitest 3.2 or later"
     `test.projects` is the name `test.workspace` was renamed to in vitest 3.2;

@@ -1,0 +1,18 @@
+"""A user vitest config imports its package's modules. The config's copy sits
+beside the runtime `node_modules` tree, where its bare imports resolve, and
+`config_srcs` stages the modules it imports beside it, at their paths relative
+to the package, so `./plugins/define` and its own imports resolve there too."""
+
+load("//ts:defs.bzl", "ts_test")
+
+# keep
+ts_test(
+    name = "config_srcs_test",
+    srcs = ["config_srcs.test.ts"],
+    config = "vitest.config.mts",
+    config_srcs = [
+        "plugins/define.ts",
+        "plugins/meta.json",
+    ],
+    deps = ["@npm//:vitest"],
+)

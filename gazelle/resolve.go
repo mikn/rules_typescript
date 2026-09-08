@@ -99,6 +99,11 @@ func resolveEdges(c *config.Config, ix *resolve.RuleIndex, r *rule.Rule,
 	if imps.config != "" {
 		configEdges := tc.programs.configEdges(c.RepoRoot, imps.config)
 		edges = append(edges, configEdges...)
+		srcs := configSrcLabels(tc.programs.configSrcs(c.RepoRoot, imps.config),
+			imps.config, from)
+		if len(srcs) > 0 {
+			r.SetAttr("config_srcs", srcs)
+		}
 		dep := workersPoolAttrs(c, tc, r, imps.config, configEdges, from)
 		if dep != "" {
 			deps[dep] = true
@@ -120,6 +125,33 @@ func resolveEdges(c *config.Config, ix *resolve.RuleIndex, r *rule.Rule,
 	if len(deps) > 0 {
 		r.SetAttr("deps", slices.Sorted(maps.Keys(deps)))
 	}
+}
+
+// configSrcLabels spells the modules cfg reaches from the test's package: by
+// path when the config is its own, else as the config's package's files.
+func configSrcLabels(files []string, cfg string, from label.Label) []string {
+	dir := parentDir(cfg)
+	var out []string
+	for _, f := range files {
+		rel, under := strings.CutPrefix(f, dir+"/")
+		if dir == "" {
+			rel, under = f, true
+		}
+		if !under {
+			log.Printf("typescript: %s: %s imports %s, outside the config's package "+
+				"%s; a config's modules are staged from its package alone, so no "+
+				"config_srcs entry", from, cfg, f, orRepoRoot(dir))
+			continue
+		}
+		if dir == from.Pkg {
+			if lbl, ok := srcLabel(rel); ok {
+				out = append(out, lbl)
+			}
+			continue
+		}
+		out = append(out, "//"+dir+":"+rel)
+	}
+	return out
 }
 
 func edgeDep(c *config.Config, ix *resolve.RuleIndex, tc *tsConfig, kind string,

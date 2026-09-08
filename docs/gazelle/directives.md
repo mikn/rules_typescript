@@ -36,7 +36,7 @@ is replaced unless a `# keep` holds it:
 | Rule | Attributes Gazelle owns |
 |------|-------------------------|
 | `ts_compile` | `srcs`, `deps`, `tsconfig`, `visibility` |
-| `ts_test` | `srcs`, `deps`, `tsconfig`, `config`, `wrangler_config`, `coverage_provider` |
+| `ts_test` | `srcs`, `deps`, `tsconfig`, `config`, `config_srcs`, `wrangler_config`, `coverage_provider` |
 | `ts_config` | `src`, `deps`, `visibility` |
 | `ts_lint` | `srcs`, `linter`, `linter_binary`, `config`, `fail_on_warnings` |
 | `filegroup(name = "vitest_config")` | `srcs`, `visibility` |

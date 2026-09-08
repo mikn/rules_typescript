@@ -489,6 +489,61 @@ func TestResolveEdges_TestDepsCarryTheRuntime(t *testing.T) {
 	if n := strings.Count(logged, "\n"); n != 2 {
 		t.Errorf("%d log lines, want the two unowned reports:\n%s", n, logged)
 	}
+	if r.Attr("config_srcs") != nil {
+		t.Errorf("config_srcs = %q, want unset: the config imports no module "+
+			"of its own", r.AttrStrings("config_srcs"))
+	}
+}
+
+// ts_test.config_srcs: the modules the config's closure reaches, spelled from
+// the test's package; one outside the config's package is said and gets none.
+func TestResolveEdges_ConfigSrcsAreTheConfigsModules(t *testing.T) {
+	c, tc := edgeRepo(t, edgeListings)
+	ix := buildIndex(t, c, edgeRules...)
+	s := tc.programs
+	const (
+		cfg     = "web/vitest.config.mts"
+		plugin  = "web/plugins/define.ts"
+		meta    = "web/plugins/meta.json"
+		outside = "shared/vitest.base.ts"
+	)
+	s.vitestEdges = map[string][]edge{
+		cfg: {
+			importEdge(cfg, "./plugins/define", plugin),
+			importEdge(cfg, "../shared/vitest.base", outside),
+		},
+		plugin: {
+			importEdge(plugin, "./meta.json", meta),
+			importEdge(plugin, "zod", storeZod),
+		},
+		outside: {importEdge(outside, "vite", storeVite)},
+	}
+	set := s.srcs("web", tc)
+	imps := s.testImports(c.RepoRoot, tc.lock, "web", ":web", cfg, set)
+	r, logged := resolveEdgesOf(t, c, ix, "ts_test", "web", "web_test", imps)
+	want := []string{"plugins/define.ts", "plugins/meta.json"}
+	if got := r.AttrStrings("config_srcs"); !reflect.DeepEqual(got, want) {
+		t.Errorf("config_srcs = %q, want %q", got, want)
+	}
+	for _, dep := range []string{"@npm//:zod", "@npm//:vite"} {
+		if !hasLabel(r.AttrStrings("deps"), dep) {
+			t.Errorf("deps %q lack %s, the closure's npm edge",
+				r.AttrStrings("deps"), dep)
+		}
+	}
+	if !strings.Contains(logged, outside) ||
+		!strings.Contains(logged, "config_srcs") {
+		t.Errorf("log, want %s said as outside the config's package:\n%s",
+			outside, logged)
+	}
+
+	// The same config from a test in a package below: the config's package's.
+	r, _ = resolveEdgesOf(t, c, ix, "ts_test", "web/test", "test_test",
+		&ruleImports{config: cfg})
+	want = []string{"//web:plugins/define.ts", "//web:plugins/meta.json"}
+	if got := r.AttrStrings("config_srcs"); !reflect.DeepEqual(got, want) {
+		t.Errorf("config_srcs from web/test = %q, want %q", got, want)
+	}
 }
 
 // A self-import through an exports subpath: the own view from a ts_test, whose

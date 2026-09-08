@@ -60,7 +60,8 @@ Five things, and no directive of its own.
    `ts_test` its `dependencies` and `devDependencies`.
 4. **The vitest configs** the generated tests name, listed together in one
    tsgo run when the first `deps` is written: the runner imports the config,
-   so its imports are the test's.
+   so its imports, and those of the first-party modules they reach, are the
+   test's.
 5. **The hand-written `ts_codegen` rules** in the BUILD files walked: their
    `outs`, and every `out_dir`, which is that target's output whatever a local
    run of the generator left on disk.
@@ -134,7 +135,7 @@ a source, and a BUILD file there is emptied and named the same way.
 | Rule | Name | Attributes Gazelle owns |
 |------|------|-------------------------|
 | `ts_compile` | the directory's basename, `root` at the repository root | `srcs`, `deps`, `tsconfig`, `visibility` |
-| `ts_test` | `<basename>_test` | `srcs`, `deps`, `tsconfig`, `config`, `wrangler_config`, `coverage_provider` |
+| `ts_test` | `<basename>_test` | `srcs`, `deps`, `tsconfig`, `config`, `config_srcs`, `wrangler_config`, `coverage_provider` |
 | `ts_config` | `tsconfig` | `src`, `deps`, `visibility` |
 | `ts_lint` | `<basename>_lint` | `srcs`, `linter`, `linter_binary`, `config`, `fail_on_warnings` |
 | `filegroup` | `vitest_config` | `srcs`, `visibility` |
@@ -203,7 +204,14 @@ so and the test gets no `config`. Without the config the tests run in plain
 Node, so a worker's `defineWorkersConfig` pool becomes no pool and a dependency
 that only resolves through Vite (`test.server.deps.inline`) fails at import
 time. Every import of the config, bare or relative, is a dep of the test: the
-config is listed by tsgo from its own directory, as vitest loads it.
+config is listed by tsgo from its own directory, as vitest loads it, and the
+listing is followed through every first-party module it reaches. Those modules
+are the test's `config_srcs`, spelled from the test's package -- a path under
+it, or `//<package>:<file>` for a config an ancestor package exports -- so the
+rule stages them beside the config's copy, where its relative imports resolve
+([A config file](../rules/ts-test.md#a-config-file)). A module outside the
+config's package is said and gets no entry: the copy's siblings are that
+package's files alone.
 
 ### A Workers-Pool Config
 
@@ -405,7 +413,8 @@ file under `node_modules` is the gate's alone
 A `ts_test`'s `deps` is the union of `:<basename>`, the package's `ts_compile`
 when there is one; the edges of every file the package owns -- the test files,
 the library files and the declarations, since the test runs the package's code
-and needs its npm closure; the edges of its vitest config; and the nearest
+and needs its npm closure; the edges of its vitest config and of the modules
+the config reaches; and the nearest
 `package.json`'s `dependencies` and `devDependencies`, each spelled as an edge
 would be, a member's name as its view and every other name through the gate.
 So a test carries the packages the config and the manifest name and no source

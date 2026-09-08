@@ -120,8 +120,9 @@ ts_test(
 )
 ```
 
-Anything the config imports relatively belongs in `data`; it is not a build
-input otherwise. A config that default-exports an array is read as a list of
+The modules the config imports relatively are `config_srcs`, staged beside the
+config's copy; Gazelle writes them from the config's listing. A config that
+default-exports an array is read as a list of
 vitest projects, and each project in it gets the Bazel and attribute layers too.
 That array becomes `test.projects`, which needs vitest 3.2 or later; see
 [A config file](../rules/ts-test.md#a-config-file). Every other `config` shape
