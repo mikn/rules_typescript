@@ -269,7 +269,8 @@ func memberSelfImportTakesTheHubLabel(it *harness.IT) {
 	// alone puts nothing at node_modules/shared.
 	restore := it.Read(build)
 	it.Replace(build, "        \"@npm//:shared\",\n", "")
-	log, err := it.BazelLog("self_import_without_the_hub", "build", "//packages/shared:_shared_test_compile")
+	log, err := it.BazelLog("self_import_without_the_hub", "build",
+		"//packages/shared:shared_test")
 	it.Write(build, restore)
 	if err == nil {
 		log.Dump()
@@ -837,15 +838,18 @@ func checkedInDeclarationTypesTheJavaScript(it *harness.IT) {
 	test := it.Path("src/typed/compile.test.ts")
 	restore := it.Read(test)
 	it.Write(test, "import { compile } from \"./compile.mjs\";\n\nexport const s: string = compile(\"x\");\n")
-	log, err := it.BazelLog("checked_in_declaration_is_in_force", "build", "//src/typed:_typed_test_compile")
+	log, err := it.BazelLog("checked_in_declaration_is_in_force", "build",
+		"//src/typed:typed_test")
 	it.Write(test, restore)
 	if err == nil {
 		log.Dump()
-		it.Fail("//src/typed:_typed_test_compile compiled compile(\"x\"); the checked-in .d.mts is not the type in force")
+		it.Fail("//src/typed:typed_test compiled compile(\"x\"); the " +
+			"checked-in .d.mts is not the type in force")
 	}
 	if !log.Contains("TS2345") {
 		log.Dump()
-		it.Fail("//src/typed:_typed_test_compile failed for some other reason than the argument")
+		it.Fail("//src/typed:typed_test failed for some other reason " +
+			"than the argument")
 	}
 	it.Pass("compile(\"x\") is TS2345, so compile.d.mts types the import, not tsgo's inference from the .mjs")
 }
@@ -1037,7 +1041,7 @@ func parentEntryResolvesThroughTheOwner(it *harness.IT) {
 	restore := it.Read(below)
 	it.Replace(below, "        \"//worker\",\n", "")
 	log, err := it.BazelLog("types_entry_without_the_owner", "build",
-		"//worker/test:_test_test_compile")
+		"//worker/test:test_test")
 	it.Write(below, restore)
 	if err == nil {
 		log.Dump()

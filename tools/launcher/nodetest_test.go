@@ -16,12 +16,12 @@ func nodeTestFixture(t *testing.T) (*Resolver, map[string]string) {
 			"_main/tests/app/b.test.js",
 			"_main/tests/app/c.test.js",
 		}, "\n"),
-		"_main/tests/app/a.test.js":                           "x",
-		"_main/tests/app/b.test.js":                           "x",
-		"_main/tests/app/c.test.js":                           "x",
-		"_main/tests/app/_app_test_node_modules/node_modules": dirMarker,
-		"_main/ts/private/node_test_hook.mjs":                 "export {}",
-		"+node+/bin/node":                                     "#!/bin/sh\n",
+		"_main/tests/app/a.test.js":             "x",
+		"_main/tests/app/b.test.js":             "x",
+		"_main/tests/app/c.test.js":             "x",
+		"_main/tests/app/app_test/node_modules": dirMarker,
+		"_main/ts/private/node_test_hook.mjs":   "export {}",
+		"+node+/bin/node":                       "#!/bin/sh\n",
 	})
 }
 
@@ -33,7 +33,7 @@ func nodeTestConfig() *Config {
 		Runtime:   "+node+/bin/node",
 		NodeTest: &NodeTestConfig{
 			TestFilesList: "_main/tests/app/app_test_files.txt",
-			NodeModules:   "_main/tests/app/_app_test_node_modules/node_modules",
+			NodeModules:   "_main/tests/app/app_test/node_modules",
 			ResolveHook:   "_main/ts/private/node_test_hook.mjs",
 		},
 	}
@@ -196,7 +196,7 @@ func TestPlanNodeTestNamesTheNpmTreeOnNodePath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tree := real["_main/tests/app/_app_test_node_modules/node_modules"]
+	tree := real["_main/tests/app/app_test/node_modules"]
 	nodePath := plan.EnvOverrides["NODE_PATH"]
 	if strings.Split(nodePath, string(os.PathListSeparator))[0] != tree {
 		t.Errorf("NODE_PATH = %q, want it to start with %q", nodePath, tree)

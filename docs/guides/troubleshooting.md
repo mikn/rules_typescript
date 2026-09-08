@@ -45,7 +45,7 @@ use_repo(npm, "npm", "pnpm")
 ERROR: no such package '@@[unknown repo 'npm' requested from @@]//': The
 repository '@@[unknown repo 'npm' requested from @@]' could not be resolved:
 No repository visible as '@npm' from main repository and referenced by
-'//src/lib:_lib_test_node_modules'
+'//src/lib:lib_test'
 ```
 
 Gazelle resolved a bare import to an `@npm//:…` label and `use_repo` does not

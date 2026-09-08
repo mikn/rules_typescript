@@ -1,8 +1,8 @@
 """ts_test with a file-shaped `types` entry, as ts_compile takes one.
 
 The entry resolves against the files the type-check action stages, and the
-only program the test files are ever in is the ts_compile this macro
-generates -- so the dep that stages the declaration has to reach it.
+only program the test files are ever in is the test's own compile -- so the
+dep that stages the declaration has to reach it.
 """
 
 # Compiler options, not data: named by the tsconfig attr.
