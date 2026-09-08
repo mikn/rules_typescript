@@ -180,7 +180,7 @@ that layers four sources, lowest precedence first:
 |-------|----------|---|
 | 1. Bazel | `root` (the `config`'s package; the test's own with an inline dict or none), `cacheDir` under `TEST_TMPDIR`, `resolve.preserveSymlinks`, `test.coverage.allowExternal`, the plugin resolving a relative `.ts` specifier to its compiled sibling, the plugin serving a `setupFiles` entry from its staged path, and under a `config` whose `plugins` hold `@cloudflare/vitest-pool-workers` `preserveSymlinks: false` and the runfiles-imports plugin | yes |
 | 2. user | the `config` attr: a config file or an inline dict | it supplies the projects |
-| 3. attributes | `environment`, `setup_files`, `global_setup`, `globals`, `reporters`, `coverage_thresholds`, `coverage_provider` | yes |
+| 3. attributes | `test.include`, the compiled test files; `environment`, `setup_files`, `global_setup`, `globals`, `reporters`, `coverage_thresholds`, `coverage_provider` | yes |
 | 4. snapshots | `test.resolveSnapshotPath`, and in update mode `test.dir`, `test.include` and `cacheDir` | no, root only |
 
 Objects merge key by key; arrays concatenate base-first, matching vite's own
@@ -194,6 +194,13 @@ rewritten to its compiled sibling; see [Setup Files](#setup-files).
 Layer 4 is root-only because `resolveSnapshotPath` is one of vitest's
 non-project options: it is applied once, to the root config, and never merged
 into a project.
+
+Layer 3's `include` is the compiled test files, relative to the root: under
+Bazel the run is the rule's `srcs`. A config's `include` is written for the
+sources (`**/*.test.{ts,tsx}`), which the compiled `.js` the launcher names
+never match, and the run would stop with `No test files found`; the config's
+globs stay in the merged array and select nothing the launcher did not name.
+`//tests/vitest/config_include` is the example.
 
 `preserveSymlinks` in layer 1 is a default. A DOM environment resolves every
 module id to its realpath, which for a runfiles symlink walks out of the test

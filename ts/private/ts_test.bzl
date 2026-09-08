@@ -283,6 +283,11 @@ def _package_relative_dir(ctx, f):
         ))
     return f.short_path[len(prefix):].rpartition("/")[0]
 
+def _is_test_file(f):
+    """A compiled `<stem>.{test,spec}.<ext>`: vitest's default include."""
+    parts = f.basename.split(".")
+    return len(parts) >= 3 and parts[-2] in ("test", "spec")
+
 def _relative_dir(from_dir, to_dir):
     """Relative path from one workspace directory to another, "." when equal."""
     a = [p for p in from_dir.split("/") if p]
@@ -385,6 +390,7 @@ def _vitest_config_content(
         snapshot_bases = {},
         snapshot_root = "",
         test_include = [],
+        run_include = [],
         update_snapshots = False,
         workers_pool_rf = None,
         root_rel = ".",
@@ -465,7 +471,11 @@ def _vitest_config_content(
     if user_config_json:
         lines.append("const userConfigExport = {};".format(user_config_json))
 
+    # The run is the rule's srcs: a config's include, written for the sources,
+    # matches no compiled .js, and vitest would stop with "No test files found".
     test_overrides = []
+    if run_include:
+        test_overrides.append("  include: {},".format(_js(run_include)))
     if environment:
         test_overrides.append("  environment: {},".format(_js(environment)))
     if setup_files_rf:
@@ -775,9 +785,13 @@ def _ts_test_runner_impl(ctx):
 
     # A `config` from an ancestor package roots vite there.
     root_rel = "."
+    root_dir = ctx.label.package
     if ctx.file.config:
-        config_dir = ctx.file.config.short_path.rpartition("/")[0]
-        root_rel = _relative_dir(ctx.label.package, config_dir)
+        root_dir = ctx.file.config.short_path.rpartition("/")[0]
+        root_rel = _relative_dir(ctx.label.package, root_dir)
+    root_marker = "/".join(
+        [p for p in [ctx.workspace_name, root_dir, "_"] if p],
+    )
 
     compiled_extensions = ("js", "jsx", "mjs", "cjs")
     setup_js = [
@@ -811,6 +825,14 @@ def _ts_test_runner_impl(ctx):
                     rlocation_path(ctx, f),
                 ).removeprefix("./")
                 for f in test_entry_points
+            ],
+            run_include = [
+                _relative_import(
+                    root_marker,
+                    rlocation_path(ctx, f),
+                ).removeprefix("./")
+                for f in test_entry_points
+                if _is_test_file(f)
             ],
             update_snapshots = ctx.attr.update_snapshots,
             workers_pool_rf = rlocation_path(ctx, workers_pool) if workers_pool else None,
