@@ -1,10 +1,7 @@
 package typescript
 
-// Gazelle owns the attributes it declares mergeable and recomputes them on
-// every run. It replaces a shape its merger cannot reconcile value by value --
-// a variable, a concatenation, a select() -- the same way Gazelle-for-Go does.
-// Nothing here changes that; what it adds is saying so, since Go's merger does
-// it in silence. docs/gazelle/directives.md.
+// What the merger does to a hand value is docs/gazelle/directives.md's; this
+// file only says so, since the merger does it in silence.
 
 import (
 	"log"
@@ -20,9 +17,8 @@ import (
 	bzl "github.com/bazelbuild/buildtools/build"
 )
 
-// Derived from Kinds() rather than listed: MergeableAttrs is already the
-// declaration of what Gazelle recomputes, and a second list of the same thing
-// is a list that goes stale when a rule kind gains an attribute.
+// Read off Kinds(): a second list of what Gazelle recomputes would go stale
+// when a kind gains an attribute.
 func managedAttrs(kind string) (mergeable, resolved []string) {
 	info, ok := (&tsLang{}).Kinds()[kind]
 	if !ok {

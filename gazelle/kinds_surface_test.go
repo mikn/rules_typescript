@@ -19,6 +19,11 @@ var wantKinds = []string{
 	"ts_test",
 }
 
+// wantSymbols is the load line: every kind but filegroup, which is native.
+var wantSymbols = []string{
+	"ts_codegen", "ts_compile", "ts_config", "ts_lint", "ts_test",
+}
+
 // A goneKind back in Kinds() or a load would have Gazelle write a rule it must
 // not: five that no .bzl defines, and the four that are written by hand.
 var goneKinds = []string{
@@ -43,33 +48,30 @@ func TestKinds_ExactSurface(t *testing.T) {
 	}
 }
 
-func TestLoads_NameEveryKindAndNothingGone(t *testing.T) {
+// The one load, its symbols exactly wantSymbols in that order: a symbol
+// Kinds() lacks or a gone kind fails here, and so does a map-ordered list.
+func TestLoads_OneDefsLoadNamingEveryKind(t *testing.T) {
 	lang := &tsLang{}
-	kinds := lang.Kinds()
 	for name, loads := range map[string][]rule.LoadInfo{
 		"Loads":         lang.Loads(),
 		"ApparentLoads": lang.ApparentLoads(func(string) string { return "" }),
 	} {
-		loaded := map[string]bool{}
-		for _, li := range loads {
-			if strings.HasSuffix(li.Name, "//vite:bundler.bzl") {
-				t.Errorf("%s still loads %s", name, li.Name)
-			}
-			for _, symbol := range li.Symbols {
-				loaded[symbol] = true
-				if slices.Contains(goneKinds, symbol) {
-					t.Errorf("%s still loads %q from %s", name, symbol, li.Name)
-				}
-				if _, ok := kinds[symbol]; !ok {
-					t.Errorf("%s loads %q, which Kinds() does not know", name, symbol)
-				}
-			}
+		if len(loads) != 1 {
+			t.Errorf("%s = %d loads, want the one over //ts:defs.bzl", name, len(loads))
+			continue
 		}
-		for kind := range kinds {
-			// filegroup is native; nothing loads it.
-			if kind != "filegroup" && !loaded[kind] {
-				t.Errorf("%s has no load for kind %q", name, kind)
-			}
+		li := loads[0]
+		if li.Name != "@rules_typescript//ts:defs.bzl" {
+			t.Errorf("%s loads %s", name, li.Name)
 		}
+		if !slices.Equal(li.Symbols, wantSymbols) {
+			t.Errorf("%s symbols = %v\nwant %v", name, li.Symbols, wantSymbols)
+		}
+	}
+	apparent := lang.ApparentLoads(func(module string) string {
+		return strings.ReplaceAll(module, "rules_typescript", "rules_ts~")
+	})
+	if got := apparent[0].Name; got != "@rules_ts~//ts:defs.bzl" {
+		t.Errorf("ApparentLoads under an apparent name loads %s", got)
 	}
 }
