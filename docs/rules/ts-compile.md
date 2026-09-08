@@ -191,18 +191,22 @@ rule declared .js: declare it on the tsconfig's ts_config, jsx = "preserve"
 ```
 
 A tsconfig passed as a plain file declares nothing, so one that sets `preserve`
-fails the same way, for a target with a `.tsx` src, until it has a `ts_config`;
+fails the same way, for a target with a `.tsx` src, without a `ts_config`;
 a `.ts`-only program has nothing `jsx` names. From the declaration on, the
 emit is tsc's: oxc names the file `.jsx` when it transforms under
 `--jsx preserve`, the strict-deps scanner and every consumer stage a `.jsx` as
 they stage a `.js`, a `ts_test` runs a `.jsx` test file and resolves a `.tsx`
 setup file to it, and the hub's view of a member links a `.jsx` at its
-package-relative path. Vite transforms a `.jsx` module and refuses JSX in a
-`.js` (`Failed to parse source for import analysis ... If you are using JSX,
+package-relative path with the member's manifest as built naming it: the view
+reads the declaration off the compiling target's `ts_config` and rewrites a
+`.tsx` target to the `.jsx`. Vite transforms a `.jsx` module and refuses JSX in
+a `.js` (`Failed to parse source for import analysis ... If you are using JSX,
 make sure to name the file with the .jsx or .tsx extension`), which is what a
 `.tsx` compiled to `.js` under `preserve` met. `//tests/jsx_preserve` is the
 example: a `.tsx` test file, a `ts_compile` consumer, and a runtime the vitest
-config aliases the way `node_modules` would hold a published one.
+config aliases the way `node_modules` would hold a published one;
+`//tests/jsx_preserve/member` is a workspace member under it whose `exports` is
+`./view.tsx`, imported by name through the view.
 
 The alternative was an emit declared as one directory whose contents tsaction
 names after reading the tsconfig. Rejected: a directory's children cannot be
@@ -304,8 +308,9 @@ take it for a library file, type-checked and never emitted.
 
 A workspace member is one of those packages. Its hub view `@npm//:<name>` links
 the member's `package.json` as built -- every source-file target under `main`,
-`module`, `browser`, `exports` and `imports` rewritten to the emitted `.js`,
-`types` to the `.d.ts` -- beside the member's `.js` and `.d.ts` at the paths the
+`module`, `browser`, `exports` and `imports` rewritten to the emitted `.js` (the
+`.jsx` for a `.tsx` under `jsx: preserve`), `types` to the `.d.ts` -- beside the
+member's `.js` and `.d.ts` at the paths the
 manifest names, so the bare name and each `exports` subpath resolve for tsgo and
 for node through one manifest. See
 [what a workspace member is imported as](../guides/npm.md#what-a-workspace-member-is-imported-as).

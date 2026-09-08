@@ -469,7 +469,10 @@ ts_test(
 
 `tsconfig` carries over unchanged and means on a node:test target what it means
 above. An alias is type-checking only on either runner; see
-[The test's tsconfig](#the-tests-tsconfig).
+[The test's tsconfig](#the-tests-tsconfig). A relative `.ts` specifier the emit
+keeps resolves under this runner through a `node:module` resolve hook the
+launcher loads (`ts/private/node_test_hook.mjs`); under vitest,
+[layer 1's plugin](#relative-ts-specifiers) does.
 
 node:test takes no config file; it is configured by CLI flags and by the test
 file itself. Every vitest attribute is an analysis error under it, naming the

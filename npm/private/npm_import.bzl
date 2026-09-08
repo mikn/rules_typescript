@@ -521,8 +521,9 @@ def _link_block(members, targets, manifests):
 
     Not an alias: Bazel resolves an alias before any rule implementation runs, so
     the member would arrive at a consumer with no record of the npm name at all.
-    The member's package.json travels as text, rewritten to the emitted files,
-    because a manifest is written during analysis and nothing reads a file there.
+    The member's package.json travels as text because nothing reads a file
+    during analysis; the view rewrites its source-file targets to the emitted
+    files, whose names the compiling target decides.
     """
     lines = []
     for label_name in sorted(members):
@@ -611,9 +612,10 @@ npm_hub = repository_rule(
                   "the label of '@types/react' and of 'types_react'.",
         ),
         "member_manifests": attr.string_dict(
-            doc = "Label name -> the member's package.json as text, with every " +
-                  "source-file target rewritten to the emitted file. A member missing " +
-                  "here has no package.json with a name and gets a comment, no view.",
+            doc = "Label name -> the member's package.json as text; the view " +
+                  "rewrites every source-file target to the emitted file. A " +
+                  "member missing here has no package.json with a name and " +
+                  "gets a comment, no view.",
         ),
         "pnpm_lock": attr.label(
             allow_single_file = True,

@@ -400,12 +400,14 @@ target and every importer whose `package.json` has a `name`, one view per member
 directory -- at `@npm//:<name>`. The view is that member as an npm package: the
 forest and the runtime tree link it at `node_modules/<name>`, holding the
 member's `package.json` as built beside the member's `.js`, `.js.map` and `.d.ts`
-at the paths the manifest names. "As built" is one rewrite, done in the module
-extension that reads the manifest already: every source-file target under
-`main`, `module`, `browser`, `exports` and `imports` names the emitted `.js`, and
-every `types`, `typings` or `exports` `types` condition names the `.d.ts`, key
-order kept, so an `exports` condition map is read in the order it was written.
-A member that sets no `type` is ESM.
+at the paths the manifest names. "As built" is one rewrite, done by the view at
+analysis, where the compiling target's declared `jsx` is known: every
+source-file target under `main`, `module`, `browser`, `exports` and `imports`
+names the emitted file -- the `.js`, or the `.jsx` for a `.tsx` under
+`jsx: "preserve"` ([a `.tsx` under `jsx: preserve`](../rules/ts-compile.md#a-tsx-under-jsx-preserve))
+-- and every `types`, `typings` or `exports` `types` condition names the
+`.d.ts`, key order kept, so an `exports` condition map is read in the order it
+was written. A member that sets no `type` is ESM.
 
 | the member's manifest says | the link's manifest says |
 |---|---|
@@ -413,11 +415,13 @@ A member that sets no `type` is ESM.
 | `exports: {"./wire": "./src/wire/index.ts"}` | `exports: {"./wire": "./src/wire/index.js"}` |
 | `exports: {".": {"types": "./src/index.ts", "default": "./src/index.ts"}}` | `{"types": "./src/index.d.ts", "default": "./src/index.js"}`, in that order |
 | `exports: {"./icons/*": "./icons/components/*.tsx"}` | `exports: {"./icons/*": "./icons/components/*.js"}` |
+| the same, the member's `ts_config` declaring `jsx = "preserve"` | `exports: {"./icons/*": "./icons/components/*.jsx"}` |
 | `main: "./schema.ts"`, no `exports` | `main: "./schema.js"` |
 | `exports: {"./theme.css": "./theme.css"}` | unchanged: no source file |
 
-tsc maps a `.js` target to the `.d.ts` beside it and node runs the `.js`, so one
-manifest serves the type check and the run: `import { frame } from
+tsc maps a `.js` or `.jsx` target to the `.d.ts` beside it, node runs the `.js`
+and vite transforms the `.jsx`, so one manifest serves the type check and the
+run: `import { frame } from
 "@acme/canvas-sdk/wire"` resolves for tsgo to `src/wire/index.d.ts` and for
 vitest to `src/wire/index.js`, both under the link. The link's root is the
 member's directory under `bazel-bin`, where the compiling target's outputs hang

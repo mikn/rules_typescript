@@ -10,7 +10,7 @@ runs both through vitest, whose transform takes a `.jsx` and refuses JSX in a
 
 load("@rules_go//go:def.bzl", "go_test")
 load("//ts:defs.bzl", "ts_compile", "ts_config", "ts_test")
-load(":jsx_preserve_tests.bzl", "declared_outputs_test")
+load(":jsx_preserve_tests.bzl", "declared_outputs_test", "member_view_test")
 
 package(default_visibility = ["//:__pkg__"])
 
@@ -64,6 +64,12 @@ ts_test(
 declared_outputs_test(
     name = "declared_outputs_test",
     target_under_test = ":view",
+)
+
+# The hub's view of member/: its manifest as built names view.jsx.
+member_view_test(
+    name = "member_view_test",
+    target_under_test = "@npm//:preserve-view",
 )
 
 go_test(
