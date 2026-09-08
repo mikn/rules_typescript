@@ -25,8 +25,8 @@ cannot iterate) or when you need a tree the deps do not describe.
 
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `srcs` | `label_list` | required | `.ts`/`.tsx` test files |
-| `deps` | `label_list` | `[]` | `ts_compile` and `@npm//` targets the tests import. A `ts_compile` dep's data srcs are in the runfiles beside its `.js` |
+| `srcs` | `label_list` | required | `.ts`/`.tsx` test files; in the runfiles at their source paths, see [Files at Run Time](#files-at-run-time) |
+| `deps` | `label_list` | `[]` | `ts_compile` and `@npm//` targets the tests import. A `ts_compile` dep's data srcs are in the runfiles beside its `.js`, and a dep in the test's package has its TypeScript srcs there too |
 | `node_modules` | `label` | auto | Explicit `node_modules` target; skips auto-generation entirely |
 | `npm_workspace_name` | `string` | `"npm"` | Informational only; the auto tree is built by detecting `NpmPackageInfo`, not by matching label strings |
 | `vitest` | `label` | `None` | Explicit vitest binary label (found in `node_modules` when absent) |
@@ -62,6 +62,29 @@ The `ts_compile` targets take the test's `visibility`, defaulting to
 `ts_refresh_tsconfig` can name them. A `manual` tag on the test reaches every
 generated target, so a wildcard that skips the test analyses none of them; every
 other tag stays on the test.
+
+## Files at Run Time
+
+A test's runfiles hold, at their source paths, the compiled program -- its own
+`.js` and every dep's -- the data srcs of every dep, and the TypeScript sources
+of its own package: its `srcs` and the srcs of every dep in the same Bazel
+package, `.ts`, `.tsx` and declarations. A test that reads its package's tree
+finds it where the checkout has it:
+
+```ts
+const sdkSource = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+```
+
+`import.meta.url` is the runfiles path (`resolve.preserveSymlinks` is on), so
+`./index.ts` beside the compiled test is the same-package `ts_compile`'s
+`src/index.ts`. Another package's sources are not in the tree: a file a test
+reads across a package boundary is a `data` entry.
+`//tests/vitest/reads_own_source` is the example.
+
+The compiled program is what runs. A `setupFiles` entry naming a source runs the
+compiled sibling a dep staged beside it ([Setup Files](#setup-files)); under the
+node:test runner a relative `.ts` specifier loads the `.js` beside it
+([Relative `.ts` Specifiers](#relative-ts-specifiers)).
 
 ## The Test's tsconfig
 
@@ -264,17 +287,18 @@ them run after any `setupFiles` the `config` attr contributes.
 `global_setup` is `test.globalSetup`, which runs once around the whole run.
 
 A `test.setupFiles` or `test.globalSetup` entry inside the `config` is resolved
-against the root and loaded as written, and the runfiles hold no TypeScript
-source: what a `deps` entry stages at that path is the compiled sibling. Once
-the layers have merged, an entry ending in `.ts`, `.tsx`, `.mts` or `.cts` whose
-file is absent while the compiled sibling beside it exists (`.js`, `.mjs` or
-`.cjs`; `.jsx` for a `.tsx` under `jsx: preserve`) is rewritten to that
-sibling, so `setupFiles: ["./test/vitest.setup.ts"]` in a
-config at the package root runs `test/vitest.setup.js`; left as written, the
-run fails with `Cannot find module '.../test/vitest.setup.ts'`. The `ts_compile`
-over the source has to be in `deps`, and nothing imports a setup file, so
-Gazelle writes no such dep: the entry is `# keep`. `//tests/setup_files_compiled`
-is the example, with the config at the package root and beside the tests.
+against the root, and the program vitest runs is the compiled one. Once the
+layers have merged, an entry ending in `.ts`, `.tsx`, `.mts` or `.cts` whose
+compiled sibling is in the runfiles (`.js`, `.mjs` or `.cjs`; `.jsx` for a
+`.tsx` under `jsx: preserve`) is rewritten to that sibling, so
+`setupFiles: ["./test/vitest.setup.ts"]` in a config at the package root runs
+`test/vitest.setup.js` whether or not the source is beside it. An entry with no
+compiled sibling staged is left as written and fails to load: `Cannot find
+module '.../test/vitest.setup.ts'`. The `ts_compile` over the source has to be
+in `deps`, and nothing imports a setup file, so Gazelle writes no such dep: the
+entry is `# keep`. `//tests/setup_files_compiled` is the example, with the
+config at the package root and beside the tests; its tests assert the compiled
+sibling ran.
 
 vitest then resolves each `setupFiles` entry through Node's resolver, which
 follows the runfiles link to the compiled file in `bazel-out`. The `node`
@@ -335,12 +359,11 @@ ts_test(
 ```
 
 The pool boots the file `main` names, resolved against the config file's
-directory. In a repository that is the source, `src/index.ts`, and the runfiles
-do not hold it: `Cannot find module '.../src/index.ts' imported from
-cloudflare:test-...`. A build action, `WranglerTestConfig`, copies the file and
-patches `main` and every `env.<name>.main` to the compiled entry with wrangler's
-`experimental_patchConfig` (`.ts` and `.tsx` to `.js`, `.mts` to `.mjs`, `.cts`
-to `.cjs`; a `.js` is left as written). wrangler is the one in the test's
+directory. In a repository that is the source, `src/index.ts`, and the worker
+under test is the compiled one. A build action, `WranglerTestConfig`, copies
+the file and patches `main` and every `env.<name>.main` to the compiled entry
+with wrangler's `experimental_patchConfig` (`.ts` and `.tsx` to `.js`, `.mts`
+to `.mjs`, `.cts` to `.cjs`; a `.js` is left as written). wrangler is the one in the test's
 `node_modules` tree, resolved from the pool package, so the copy is patched by
 the reader that parses it. The copy is staged at the source's runfiles path,
 which is what `configPath` names, and under its own name beside the generated
@@ -471,8 +494,12 @@ ts_test(
 above. An alias is type-checking only on either runner; see
 [The test's tsconfig](#the-tests-tsconfig). A relative `.ts` specifier the emit
 keeps resolves under this runner through a `node:module` resolve hook the
-launcher loads (`ts/private/node_test_hook.mjs`); under vitest,
-[layer 1's plugin](#relative-ts-specifiers) does.
+launcher loads (`ts/private/node_test_hook.mjs`), which retries a failed
+relative resolution with `.ts`/`.tsx` rewritten to `.js`: node loads the
+compiled module at its realpath under `bazel-out`, where the source its package
+stages in the runfiles is not, so the compiled sibling is what loads
+(`//tests/node_test:ts_specifier_test` pins it). Under vitest,
+[layer 1's plugin](#relative-ts-specifiers) resolves it.
 
 node:test takes no config file; it is configured by CLI flags and by the test
 file itself. Every vitest attribute is an analysis error under it, naming the

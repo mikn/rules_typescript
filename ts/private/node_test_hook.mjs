@@ -7,8 +7,8 @@ if (typeof module.registerHooks !== "function") {
   );
 }
 
-// oxc emits a relative `./x.ts` specifier verbatim and only the .js is in
-// runfiles. A fallback, so a specifier Node resolves keeps resolving as before.
+// oxc emits a relative `./x.ts` specifier verbatim; the module runs at its
+// bazel-out realpath, where only the .js is. A specifier node resolves stands.
 module.registerHooks({
   resolve(specifier, context, next) {
     try {

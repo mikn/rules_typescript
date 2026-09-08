@@ -338,8 +338,8 @@ build output the runfiles do not hold; see
 
 `configPath` is relative to the config file, and `ts_test` roots Vite at the
 config's package, so it names the file it names under plain `vitest`. That
-file's `main` is `src/index.ts`, the deploy entry, which the runfiles do not
-hold; `wrangler_config` stages a copy whose `main` and `env.test.main` are
+file's `main` is `src/index.ts`, the deploy entry; `wrangler_config` stages a
+copy whose `main` and `env.test.main` are
 `src/index.js`, the compiled worker, at the file's own path, and that is the
 config the pool reads. A `rules` module the worker imports
 (`import greeting from "./greeting.txt"`) is a src of the `ts_compile`, which

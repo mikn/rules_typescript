@@ -5,9 +5,9 @@ nothing vitest collects -- under the default runner the same file collects zero
 tests -- so it passes only because `runner` reached the launcher.
 
 :ts_specifier_test pins the other half of running node:test as written: oxc
-copies the `./counter.ts` specifier into the .js it emits verbatim, and only
-counter.js is in the runfiles tree, so the file loads only through the resolver
-hook the runner installs.
+copies the `./counter.ts` specifier into the .js it emits verbatim, and the
+resolver hook the runner installs loads counter.js, the compiled sibling, not
+the counter.ts source staged beside it.
 
 :compile_attrs_test pins that the tsconfig reaches a node:test compile as it
 reaches a vitest one: a type-only import through its `paths` resolves only if

@@ -40,6 +40,7 @@ everything reachable reads the transitive field.
 | `transitive_js_map_files` | `depset of File` | Every `.js.map` from this target and its deps |
 | `data_files` | `depset of File` | The srcs that are neither TypeScript, JavaScript nor declarations, staged at their package-relative paths beside the compiled `.js` |
 | `transitive_data_files` | `depset of File` | The data files of this target and its deps: what a compiled module reaches beside itself at run time or in a bundle |
+| `source_files` | `depset of File` | The TypeScript srcs, `.ts`, `.tsx` and declarations; a `ts_test` in the same package stages them in its runfiles at their source paths |
 
 `ts_binary` with a `bundler` returns the bundle as the one member of both `.js`
 fields, and the entry's data closure.

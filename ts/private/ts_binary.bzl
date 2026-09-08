@@ -59,6 +59,7 @@ def _js_file_entry_js_info(ctx, data_files):
             transitive_js_map_files = depset([]),
             data_files = data,
             transitive_data_files = data,
+            source_files = depset([]),
         )
     if entry and _has_extension(entry, _TS_ENTRY_EXTENSIONS):
         fail(
@@ -208,6 +209,7 @@ def _ts_binary_impl(ctx):
             transitive_js_map_files = depset([]),
             data_files = depset([]),
             transitive_data_files = entry_js_info.transitive_data_files,
+            source_files = depset([]),
         )
         output_group = OutputGroupInfo(
             bundle = depset([bundle_out]),
@@ -222,6 +224,7 @@ def _ts_binary_impl(ctx):
             transitive_js_map_files = entry_js_info.transitive_js_map_files,
             data_files = entry_js_info.data_files,
             transitive_data_files = entry_js_info.transitive_data_files,
+            source_files = depset([]),
         )
         output_group = OutputGroupInfo(
             js_tree = entry_js_info.transitive_js_files,

@@ -1,5 +1,6 @@
 import { beforeEach } from "vitest";
 
 beforeEach(() => {
-  (globalThis as { __compiledSetupBeside?: boolean }).__compiledSetupBeside = true;
+  (globalThis as { __compiledSetupBeside?: string }).__compiledSetupBeside =
+    import.meta.url;
 });

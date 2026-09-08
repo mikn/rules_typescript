@@ -570,6 +570,17 @@ def _without(files, paths):
         return files
     return depset([f for f in files.to_list() if f.short_path not in paths])
 
+def _same_package(a, b):
+    return a.package == b.package and a.repo_name == b.repo_name
+
+# Another package's files reach a test through `data`.
+def _package_sources(ctx):
+    return [
+        dep[JsInfo].source_files
+        for dep in ctx.attr.deps
+        if JsInfo in dep and _same_package(dep.label, ctx.label)
+    ]
+
 def _ts_test_runner_impl(ctx):
     # Collect transitive .js files from all deps.
     transitive_js_sets = []
@@ -616,6 +627,7 @@ def _ts_test_runner_impl(ctx):
         depset(transitive = transitive_data_sets),
         member_manifests,
     )]
+    package_sources = _package_sources(ctx)
 
     # Resolve vitest binary.
     # When set via the `vitest` attr, the label points to an npm_bin wrapper
@@ -651,7 +663,8 @@ def _ts_test_runner_impl(ctx):
         return _node_test_providers(
             ctx,
             runtime_files = depset(
-                transitive = [transitive_js] + runtime_data_sets,
+                transitive = [transitive_js] + runtime_data_sets +
+                             package_sources,
             ),
             test_files_list = test_files_list,
             node_modules_files = node_modules_files,
@@ -846,6 +859,7 @@ def _ts_test_runner_impl(ctx):
     runfiles_files = (
         [test_files_list, vitest_config] + launcher.files +
         test_js_files +
+        ctx.files.srcs +
         node_modules_files +
         ctx.files.setup_files +
         ctx.files.global_setup +
@@ -868,10 +882,10 @@ def _ts_test_runner_impl(ctx):
         symlinks[ctx.file.wrangler_config.short_path] = wrangler_patched
     runfiles = ctx.runfiles(
         files = runfiles_files,
-        # The data srcs as well as the .js: each is in the sandbox only because
-        # it is named here.
+        # The .js, the data srcs and the package's sources: each is in the
+        # sandbox only because it is named here.
         transitive_files = depset(
-            transitive = [transitive_js] + runtime_data_sets,
+            transitive = [transitive_js] + runtime_data_sets + package_sources,
         ),
         root_symlinks = launcher.root_symlinks,
         symlinks = symlinks,
@@ -963,6 +977,7 @@ def _node_test_providers(
     runfiles_files = (
         [test_files_list, ctx.file._node_test_hook] + launcher.files +
         ctx.files.compiled_tests +
+        ctx.files.srcs +
         node_modules_files +
         ctx.files.data
     )
@@ -1030,7 +1045,8 @@ _RUNNER_ATTRS = {
         aspects = [_instrumented_files_aspect],
         doc = "ts_compile and other targets whose .js files may be available " +
               "at test runtime; a dep's data srcs are in the runfiles beside " +
-              "its .js.",
+              "its .js, and a dep in the test's package has its TypeScript " +
+              "srcs there too, at their source paths.",
     ),
     "node_modules": attr.label(
         doc = "A node_modules target providing the runtime npm dependency tree.",
@@ -1132,9 +1148,9 @@ _RUNNER_ATTRS = {
         allow_files = True,
     ),
     "srcs": attr.label_list(
-        doc = "The .ts/.tsx test sources `compiled_tests` was built from. The " +
-              "runner only reads their paths, to map each compiled test file " +
-              "back to the snapshot file its source implies.",
+        doc = "The TypeScript test sources `compiled_tests` was built from, " +
+              "staged in the runfiles at their source paths; each compiled " +
+              "test file maps back to the snapshot file its source implies.",
         allow_files = [".ts", ".tsx", ".mts", ".cts"],
     ),
     "snapshots": attr.label_list(

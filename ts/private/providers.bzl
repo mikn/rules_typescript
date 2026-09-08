@@ -19,6 +19,9 @@ JsInfo = provider(
         "transitive_data_files": "depset of File: the data files of this " +
                                  "target and its deps, what a compiled " +
                                  "module reaches beside itself at run time.",
+        "source_files": "depset of File: the TypeScript srcs -- .ts, .tsx " +
+                        "and declarations. A ts_test in the same package " +
+                        "stages them at their source paths.",
     },
 )
 
