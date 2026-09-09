@@ -12,12 +12,12 @@ SCRATCH="$2"
 LOGS="$3"
 RUNS="${4:-3}"
 BAZEL="${BAZEL:-bazelisk}"
-TSGO="--//ts:declarations=tsgo"
+TSGO="--@rules_typescript//ts:declarations=tsgo"
 TYPECHECK=.github/scripts/typecheck.sh
 WEB_EDIT=web/shared/lib/markdown/markedRenderer.ts
 LEAF=workers/download
 LEAF_EDIT=$LEAF/src/index.ts
-EDIT_LINE='export {};'
+EDIT_LINE=';'
 
 CF_WORKERS='web-proxy proxy-worker2 browser-worker entri-webhook
 project-redirect-worker o11y-tail-worker dwl-logs-tail-worker
@@ -124,8 +124,7 @@ checkout_cell() {
 
 bazel_cell() {
   local name="$1" run="$2" note="$3" ob="$4" dc="$5" verb="$6"; shift 6
-  local -a flags=("$TSGO")
-  [ -n "$dc" ] && flags+=("--disk_cache=$dc")
+  local -a flags=("$TSGO" "--disk_cache=$dc")
   [ -n "${LOCAL_TEST_JOBS:-}" ] &&
     flags+=("--local_test_jobs=$LOCAL_TEST_JOBS")
   run_cell "$name" "$run" "$note" "$CHECKOUT" \
@@ -189,34 +188,37 @@ shutdown_ob() {
 }
 
 cold_and_warm_rows() {
-  local n="$1" ob="$SCRATCH/ob-run$n-cold" dc="$SCRATCH/dc-run$n" note
+  local n="$1" note
+  local cob="$SCRATCH/ob-run$n-check" cdc="$SCRATCH/dc-run$n-check"
+  local tob="$SCRATCH/ob-run$n-test" tdc="$SCRATCH/dc-run$n-test"
   all_complete "$n" "$COLD $WARM" && return
   rm_logs "$n" "$COLD $WARM"
-  shutdown_ob "$ob"; rm -rf "$dc"; mkdir -p "$dc"
+  shutdown_ob "$cob"; shutdown_ob "$tob"
+  rm -rf "$cdc" "$tdc"; mkdir -p "$cdc" "$tdc"
   restore_all
   clear_checkout_caches
   note="cold: fresh output base, empty disk cache"
   checkout_cell cold-check-checkout "$n" "$note; vitest caches removed" no \
     "$(typecheck_script)"
-  bazel_cell cold-check-bazel "$n" "$note" "$ob" "$dc" build //...
+  bazel_cell cold-check-bazel "$n" "$note" "$cob" "$cdc" build //...
   checkout_cell cold-test-checkout "$n" "$note" ci "$(tests_script)"
-  bazel_cell cold-test-bazel "$n" "$note" "$ob" "$dc" test //...
-  note="warm: the cold row's output base, no disk cache"
+  bazel_cell cold-test-bazel "$n" "$note" "$tob" "$tdc" test //...
+  note="warm: the cold row's output base and disk cache, nothing changed"
   checkout_cell warm-check-checkout "$n" "$note" no "$(typecheck_script)"
-  bazel_cell warm-check-bazel "$n" "$note" "$ob" "" build //...
+  bazel_cell warm-check-bazel "$n" "$note" "$cob" "$cdc" build //...
   checkout_cell warm-test-checkout "$n" "$note" ci "$(tests_script)"
-  bazel_cell warm-test-bazel "$n" "$note" "$ob" "" test //...
-  note="warm, $EDIT_LINE appended to $WEB_EDIT"
+  bazel_cell warm-test-bazel "$n" "$note" "$tob" "$tdc" test //...
+  note="warm, '$EDIT_LINE' appended to $WEB_EDIT"
   edit "$WEB_EDIT"
   checkout_cell edit-web-check-checkout "$n" "$note" no "$(web_check_script)"
-  bazel_cell edit-web-check-bazel "$n" "$note" "$ob" "" build //web/...
+  bazel_cell edit-web-check-bazel "$n" "$note" "$cob" "$cdc" build //web/...
   checkout_cell edit-web-test-checkout "$n" "$note" ci "$(web_tests_script)"
-  bazel_cell edit-web-test-bazel "$n" "$note" "$ob" "" test //web/...
+  bazel_cell edit-web-test-bazel "$n" "$note" "$tob" "$tdc" test //web/...
   restore "$WEB_EDIT"
-  note="warm, $EDIT_LINE appended to $LEAF_EDIT"
+  note="warm, '$EDIT_LINE' appended to $LEAF_EDIT"
   edit "$LEAF_EDIT"
   checkout_cell edit-leaf-checkout "$n" "$note" ci "$(leaf_script)"
-  bazel_cell edit-leaf-bazel "$n" "$note" "$ob" "" test "//$LEAF/..."
+  bazel_cell edit-leaf-bazel "$n" "$note" "$tob" "$tdc" test "//$LEAF/..."
   restore "$LEAF_EDIT"
 }
 
@@ -225,9 +227,9 @@ cached_row() {
   local note="remote-cache-shaped: fresh output base, the cold row's disk cache"
   all_complete "$n" "$CACHED" && return
   rm_logs "$n" "$CACHED"
-  shutdown_ob "$ob"
-  bazel_cell cached-check-bazel "$n" "$note" "$ob" "$dc" build //...
-  bazel_cell cached-test-bazel "$n" "$note" "$ob" "$dc" test //...
+  shutdown_ob "$ob-check"; shutdown_ob "$ob-test"
+  bazel_cell cached-check-bazel "$n" "$note" "$ob-check" "$dc-check" build //...
+  bazel_cell cached-test-bazel "$n" "$note" "$ob-test" "$dc-test" test //...
 }
 
 median() { sort -n | awk '{a[NR]=$1} END{print a[int((NR+1)/2)]}'; }
@@ -271,9 +273,10 @@ for n in $(seq 1 "$RUNS"); do
   all_complete "$n" "$COLD $WARM $CACHED" && continue
   cold_and_warm_rows "$n"
   cached_row "$n"
-  shutdown_ob "$SCRATCH/ob-run$n-cold"
-  shutdown_ob "$SCRATCH/ob-run$n-cached"
-  rm -rf "$SCRATCH/dc-run$n"
+  for d in check test cached-check cached-test; do
+    shutdown_ob "$SCRATCH/ob-run$n-$d"
+  done
+  rm -rf "$SCRATCH/dc-run$n-check" "$SCRATCH/dc-run$n-test"
 done
 shutdown_ob "$SCRATCH/ob-version"
 summary
