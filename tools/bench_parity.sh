@@ -66,6 +66,9 @@ rm_logs() {
   local n="$1" c
   for c in $2; do rm -f "$LOGS/$c/run$n.log"; done
 }
+lane_caches() {
+  [ -d "$SCRATCH/dc-run$1-check" ] && [ -d "$SCRATCH/dc-run$1-test" ]
+}
 override_sha() {
   local path
   path="$(sed -n '/module_name = "rules_typescript"/,/)/p' \
@@ -124,7 +127,7 @@ checkout_cell() {
 
 bazel_cell() {
   local name="$1" run="$2" note="$3" ob="$4" dc="$5" verb="$6"; shift 6
-  local -a flags=("$TSGO" "--disk_cache=$dc")
+  local -a flags=("$TSGO" "--disk_cache=$dc" --norun_validations)
   [ -n "${LOCAL_TEST_JOBS:-}" ] &&
     flags+=("--local_test_jobs=$LOCAL_TEST_JOBS")
   run_cell "$name" "$run" "$note" "$CHECKOUT" \
@@ -271,6 +274,7 @@ echo "# $(now) load $(load) runs=$RUNS" \
   "local_test_jobs=${LOCAL_TEST_JOBS:-default}"
 for n in $(seq 1 "$RUNS"); do
   all_complete "$n" "$COLD $WARM $CACHED" && continue
+  lane_caches "$n" || rm_logs "$n" "$COLD $WARM"
   cold_and_warm_rows "$n"
   cached_row "$n"
   for d in check test cached-check cached-test; do
