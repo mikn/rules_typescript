@@ -40,3 +40,16 @@ sh_test(
         "//ts/private/rules:ts_test.bzl",
     ],
 )
+
+# The runner seam as one set: the members `launch`'s doc names, both runners
+# return and the core reads. A doc alone can name a member nothing produces.
+sh_test(
+    name = "runner_seam_test",
+    size = "small",
+    srcs = ["runner_seam_test.sh"],
+    data = [
+        "//ts/private:providers.bzl",
+        "//ts/private/rules:runners.bzl",
+        "//ts/private/rules:ts_test.bzl",
+    ],
+)

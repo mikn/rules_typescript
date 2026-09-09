@@ -6,9 +6,11 @@ package(default_visibility = [
     "//vite:__subpackages__",
 ])
 
-# //tests/api_surface reads TS_COMPILE_ATTRS and _TEST_ATTRS out of them.
+# //tests/api_surface reads TS_COMPILE_ATTRS, _TEST_ATTRS and the runner seam
+# out of them.
 exports_files(
     [
+        "runners.bzl",
         "ts_compile.bzl",
         "ts_test.bzl",
     ],

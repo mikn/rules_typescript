@@ -102,9 +102,7 @@ the launcher's config and the runfiles of one test.
                   "package_sources, inline_members, runner); the result " +
                   "carries `mode` and `section` (the launcher config's mode " +
                   "and that mode's section), `env`, `files`, `symlinks` and " +
-                  "`transitive_files` for the runfiles, `output_groups`, and " +
-                  "`runfiles_of`, the targets whose default runfiles join " +
-                  "the test's.",
+                  "`transitive_files` for the runfiles, and `output_groups`.",
     },
 )
 
