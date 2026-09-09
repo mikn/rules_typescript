@@ -1,7 +1,7 @@
-"""A user vitest config imports its package's modules. The config's copy sits
-beside the runtime `node_modules` tree, where its bare imports resolve, and
-`config_srcs` stages the modules it imports beside it, at their paths relative
-to the package, so `./plugins/define` and its own imports resolve there too."""
+"""A user vitest config imports its package's modules. The config and its
+`config_srcs` are regular files at their package paths in the runfiles, so
+`./plugins/define` resolves beside the config, its JSON sibling beside it, and
+a bare import in either walks up to the runfiles tree's `node_modules`."""
 
 load("//ts:defs.bzl", "ts_test")
 

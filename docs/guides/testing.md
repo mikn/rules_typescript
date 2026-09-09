@@ -90,11 +90,12 @@ package's own compile, which is there already. `test.globalSetup` is the same
 mechanism for a file that runs once around the whole run
 ([Setup Files](../rules/ts-test.md#setup-files)).
 
-The modules the config imports relatively are `config_srcs`, staged beside the
-config's copy; Gazelle writes them from the config's listing. A config that
-default-exports an array is read as a list of vitest projects, each of which
-gets the Bazel layer too; the array becomes `test.projects`, which needs vitest
-3.2 or later ([A Config File](../rules/ts-test.md#a-config-file)).
+The modules the config imports relatively are `config_srcs`, each written at
+its own path in the runfiles beside the config; Gazelle writes them from the
+config's listing. A config that default-exports an array is read as a list of
+vitest projects, each of which gets the Bazel layer too; the array becomes
+`test.projects`, which needs vitest 3.2 or later
+([A Config File](../rules/ts-test.md#a-config-file)).
 
 Gazelle writes `config` from the file plain `vitest` would read: a
 `vitest.config.*` beside the tests by name, else the one in the nearest

@@ -305,8 +305,7 @@ func (s *programStore) configEdges(repoRoot, cfg string) []explainfiles.Edge {
 	return out
 }
 
-// configSrcs is the first-party modules cfg reaches, sorted: what a test stages
-// beside the config's copy.
+// configSrcs is the first-party modules cfg reaches, sorted.
 func (s *programStore) configSrcs(repoRoot, cfg string) []string {
 	closure := s.configClosure(repoRoot, cfg)
 	if len(closure) < 2 {
