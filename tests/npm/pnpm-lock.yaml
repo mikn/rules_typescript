@@ -71,6 +71,14 @@ importers:
       preserve-view:
         specifier: workspace:*
         version: link:tests/jsx_preserve/member
+      # A member reached by a `.ts` subpath from another member's own file:
+      # subpath-member has no `exports` map, as an application package has.
+      by-name-member:
+        specifier: workspace:*
+        version: link:packages/by-name-member
+      subpath-member:
+        specifier: workspace:*
+        version: link:packages/subpath-member
     devDependencies:
       '@types/node':
         specifier: 22.20.1
@@ -84,6 +92,12 @@ importers:
       zod:
         specifier: ^3.0.0
         version: 3.24.2
+
+  packages/by-name-member:
+    dependencies:
+      subpath-member:
+        specifier: workspace:*
+        version: link:../subpath-member
 
   # Non-root importer with an importer-relative workspace link: pnpm writes
   # link: targets relative to the importer, so this one resolves to

@@ -64,22 +64,27 @@ _SETUP_HELPERS = """\
 const COMPILED_EXT = {
   '.ts': ['.js'], '.tsx': ['.js', '.jsx'], '.mts': ['.mjs'], '.cts': ['.cjs'],
 };
-const compiledSibling = (dir, spec) => {
+const compiledForms = (spec) => {
   const m = typeof spec === 'string' ? /\\.[cm]?tsx?$/.exec(spec) : null;
-  if (!m || !(m[0] in COMPILED_EXT)) return spec;
-  const sibling = COMPILED_EXT[m[0]]
-    .map((ext) => spec.slice(0, -m[0].length) + ext)
-    .find((candidate) => existsSync(resolve(dir, candidate)));
-  return sibling ?? spec;
+  if (!m || !(m[0] in COMPILED_EXT)) return [];
+  return COMPILED_EXT[m[0]].map((ext) => spec.slice(0, -m[0].length) + ext);
 };
+const compiledSibling = (dir, spec) =>
+  compiledForms(spec).find((c) => existsSync(resolve(dir, c))) ?? spec;
+// Relative or bare: a `.ts` subpath into a workspace member names a source
+// the member's view holds as its compiled file.
 const compiledImports = {
   name: 'rules_typescript:compiled-imports',
   enforce: 'pre',
-  resolveId(id, importer, opts) {
-    if (!importer || !/^\\.\\.?\\//.test(id)) return null;
-    const sibling = compiledSibling(dirname(importer), id);
-    if (sibling === id) return null;
-    return this.resolve(sibling, importer, { ...opts, skipSelf: true });
+  async resolveId(id, importer, opts) {
+    if (!importer || /^[/\\0]/.test(id)) return null;
+    for (const form of compiledForms(id)) {
+      const resolved = await this.resolve(
+        form, importer, { ...opts, skipSelf: true },
+      );
+      if (resolved) return resolved;
+    }
+    return null;
   },
 };
 const withCompiledSetup = (config) => {

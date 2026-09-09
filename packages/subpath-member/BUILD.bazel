@@ -1,0 +1,16 @@
+"""A workspace member with no `exports` map, the shape of an application
+package: another member's file reaches src/value.ts by the `.ts` subpath
+`subpath-member/src/value.ts`, which the view answers with the emitted files.
+"""
+
+load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+# keep
+ts_compile(
+    name = "subpath-member",
+    srcs = [
+        "package.json",
+        "src/value.ts",
+    ],
+    visibility = ["//visibility:public"],
+)

@@ -185,6 +185,29 @@ member_view_test(
     target_under_test = "@npm//:shared",
 )
 
+# by-name-member's file imports `subpath-member/src/value.ts`: a member named
+# by another member's own code, the file by a `.ts` subpath, on both runners.
+ts_test(
+    name = "by_name_member_test",
+    size = "small",
+    srcs = ["by_name_member.test.ts"],
+    deps = [
+        "@npm//:by-name-member",
+        "@npm//:vitest",
+    ],
+)
+
+ts_test(
+    name = "by_name_member_node_test",
+    size = "small",
+    srcs = ["by_name_member_node.test.ts"],
+    runner = "//ts/runners:node_test",
+    deps = [
+        "@npm//:by-name-member",
+        "@npm//:types_node",
+    ],
+)
+
 # Test that npm_bin targets are generated and executable.
 # nanoid_bin is a simple bin with no npm dependencies, making it ideal for testing.
 go_test(

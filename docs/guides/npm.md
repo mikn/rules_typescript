@@ -441,6 +441,23 @@ the tree, as it reaches any npm package's. `ts_test` inlines the tree's workspac
 extensionless relative imports, which node's loader rejects and vite resolves,
 and pnpm inlines a linked package for the same reason.
 
+The view holds the member's own files and nothing outside them, so a member's
+file names another package by its package name. A relative path that leaves
+the member (`../../../../web/shared/lib/proto/x.ts` from
+`packages/app-mcp/src/generated/`) resolves under pnpm alone, where
+`node_modules/<name>` is a symlink and node resolves the importer to its real
+path first. Here the view is the member's files at `node_modules/<name>`, read
+at that path by tsgo and by both runners (`preserveSymlinks`, which a sandbox's
+staged inputs require), so the path lands beside the other packages, where the
+file is not: the run fails with `Cannot find module`, and tsgo reports `TS2307`
+in the member's `.d.ts` under `--//ts:lib_check` and, without it, widens every
+name the file re-exported to `any`. A `.ts` subpath into a member with no
+`exports` map (`web/shared/lib/proto/x.ts`, the shape an application package
+is imported by) resolves as the member's emitted files do: tsgo maps the `.ts`
+to the `.d.ts` beside it, and the runners map it to the `.js`
+([`.ts` Specifiers](../rules/ts-test.md#ts-specifiers)).
+`//packages/by-name-member` is the example.
+
 ## Bin Scripts
 
 Packages with a `bin` entry in their `package.json` get a `_bin` label:

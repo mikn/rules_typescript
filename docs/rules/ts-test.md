@@ -75,9 +75,10 @@ bare import walks up to the `node_modules` link at the runfiles root.
 
 The compiled program is what runs. A `setupFiles` entry naming a source runs
 the compiled sibling staged beside it ([Setup Files](#setup-files)), and a
-relative `.ts` specifier the emit keeps resolves to its compiled sibling
-([Relative `.ts` Specifiers](#relative-ts-specifiers); under node:test, the
-runner's hook: [The node:test Runner](#the-nodetest-runner)).
+`.ts` specifier the emit keeps -- relative, or a subpath into a workspace
+member -- resolves to the compiled file ([`.ts` Specifiers](#ts-specifiers);
+under node:test, the runner's hook:
+[The node:test Runner](#the-nodetest-runner)).
 
 A bare specifier reaches the test's node_modules tree by the runner's own
 route. Under vitest the resolver walks up from the test's runfiles path and
@@ -275,7 +276,7 @@ Vite, which serves the root and refuses a path outside it: `Cannot find module
 that request with the staged path. `//tests/setup_files_compiled/dom` is the
 example.
 
-### Relative `.ts` Specifiers
+### `.ts` Specifiers
 
 `import { x } from "./util.ts"` is legal TypeScript under
 `allowImportingTsExtensions`, and the emit keeps the specifier as written.
@@ -286,12 +287,18 @@ transform, and an import of another package's file fails:
 Error: Cannot find module './util.ts' imported from .../util.test.js
 ```
 
-Layer 1 carries a plugin that resolves a relative specifier ending in `.ts`,
-`.tsx`, `.mts` or `.cts` to the compiled sibling beside it (`.js`, `.mjs` or
-`.cjs`; `.jsx` for a `.tsx` under `jsx: preserve`) whenever that sibling exists,
-from the importing file's directory -- the rule a `setupFiles` entry is
-rewritten by. A specifier with no compiled sibling resolves as written; the
-source and the emit are untouched. `//tests/vitest/relative_ts` is the example.
+Layer 1 carries a plugin that resolves a specifier ending in `.ts`, `.tsx`,
+`.mts` or `.cts` to the compiled file the runfiles hold for it (`.js`, `.mjs`
+or `.cjs`; `.jsx` for a `.tsx` under `jsx: preserve`) whenever that file
+resolves from the importing file: a relative specifier to the sibling beside
+it -- the rule a `setupFiles` entry is rewritten by -- and a bare one, a
+subpath into a workspace member (`subpath-member/src/value.ts` from a member
+that declares it), to the file under the member's view in the tree ([What a
+Workspace Member Is Imported
+As](../guides/npm.md#what-a-workspace-member-is-imported-as)). A specifier
+with no compiled file resolves as written; the source and the emit are
+untouched. `//tests/vitest/relative_ts` and
+`//tests/npm:by_name_member_test` are the examples.
 
 ### A `paths` Alias
 
@@ -569,12 +576,15 @@ file outside the node_modules tree:
   three: `:ts_specifier_test`, `:extensionless_test`, `:runfiles_layout_test`.
 - A bare specifier resolves from the test's node_modules tree, the directory
   the launcher puts on `NODE_PATH`, never from a `node_modules` the walk up
-  from `bazel-out` happens to meet (`:bare_import_test`). Code inside the tree
-  resolves as node resolves it, at its realpath, so a link the tree holds for
-  a second resolution of a name works as installed.
+  from `bazel-out` happens to meet (`:bare_import_test`); one ending in `.ts`,
+  `.tsx`, `.mts` or `.cts` -- a subpath into a workspace member -- to the
+  compiled file the tree holds for it (`//tests/npm:by_name_member_node_test`).
+  Code inside the tree resolves as node resolves it, at its realpath, a `.ts`
+  specifier to its compiled form, so a link the tree holds for a second
+  resolution of a name works as installed.
 
-Under vitest, [layer 1's plugin](#relative-ts-specifiers) resolves the relative
-`.ts` specifier and the generated config the rest.
+Under vitest, [layer 1's plugin](#ts-specifiers) resolves the `.ts` specifier
+and the generated config the rest.
 
 node:test takes no config file; it is configured by CLI flags and by the test
 file itself. `args` are those flags, placed before `--test` so that the
