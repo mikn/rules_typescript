@@ -127,21 +127,26 @@ proc_jiffies() {
   [ -n "$1" ] && [ -r "/proc/$1/stat" ] || { echo 0; return; }
   cut -d')' -f2 "/proc/$1/stat" | awk '{print $12+$13+$14+$15}'
 }
-system_jiffies() {
+system_snapshot() {
   cat /proc/[0-9]*/stat 2> /dev/null | awk -v names="$SYSTEM_PROCS" '
     BEGIN{n=split(names, a, " "); for (i=1;i<=n;i++) sp[substr(a[i],1,15)]=1}
     {match($0, /\(.*\)/); comm=substr($0, RSTART+1, RLENGTH-2);
      split(substr($0, RSTART+RLENGTH+1), f, " "); c=f[12]+f[13]+f[14]+f[15];
-     if ($1 == 2 || f[2] == 2) k+=c; else if (comm in sp) s+=c}
-    END{print k+0, s+0}'
+     if ($1 == 2 || f[2] == 2) print $1, c, "k"; else if (comm in sp)
+       print $1, c, "s"}' > "$1"
+}
+system_delta() {
+  awk 'NR==FNR{b[$1]=$2; next} {d=$2-($1 in b ? b[$1] : 0); if (d<0) d=0;
+    if ($3 == "k") k+=d; else s+=d} END{print k+0, s+0}' "$1" "$2"
 }
 server_pid() { [ -n "$1" ] && cat "$1/server/server.pid.txt" 2>/dev/null; }
 other_cores_now() {
-  local a b ka kb ga gb
-  read -r ka ga <<< "$(system_jiffies)"; a=$(busy_jiffies)
+  local a b k g
+  system_snapshot "$SCRATCH/cpu.gate0"; a=$(busy_jiffies)
   sleep 3
-  b=$(busy_jiffies); read -r kb gb <<< "$(system_jiffies)"
-  awk -v a="$((b - a - kb + ka - gb + ga))" -v t="$TCK" \
+  b=$(busy_jiffies); system_snapshot "$SCRATCH/cpu.gate1"
+  read -r k g <<< "$(system_delta "$SCRATCH/cpu.gate0" "$SCRATCH/cpu.gate1")"
+  awk -v a="$((b - a - k - g))" -v t="$TCK" \
     'BEGIN{if (a<0) a=0; printf "%.2f", a/t/3}'
 }
 over() { awk -v c="$1" -v m="$OTHER_CORES" 'BEGIN{exit !(c >= m)}'; }
@@ -169,7 +174,7 @@ excluded_row() {
 run_cell() {
   local name="$1" run="$2" note="$3" cwd="$4" ob="$5"; shift 5
   local log="$LOGS/$name/run$run.log" quiet t0 t1 rc wall cpu cores
-  local b0 b1 k0 k1 g0 g1 o0 o1 p0 p1 s0 s1
+  local b0 b1 k g o0 o1 p0 p1 s0 s1
   mkdir -p "$LOGS/$name"
   quiet="$(wait_quiet)"
   {
@@ -180,19 +185,20 @@ run_cell() {
       "$quiet"
   } > "$log"
   p0="$(server_pid "$ob")"; s0="$(proc_jiffies "$p0")"
-  o0="$(proc_jiffies $$)"; read -r k0 g0 <<< "$(system_jiffies)"
+  o0="$(proc_jiffies $$)"; system_snapshot "$SCRATCH/cpu.start"
   b0="$(busy_jiffies)"
   t0=$(date +%s.%N)
   (cd "$cwd" && "$@") >> "$log" 2>&1
   rc=$?
   t1=$(date +%s.%N)
-  b1="$(busy_jiffies)"; read -r k1 g1 <<< "$(system_jiffies)"
+  b1="$(busy_jiffies)"; system_snapshot "$SCRATCH/cpu.end"
   o1="$(proc_jiffies $$)"; p1="$(server_pid "$ob")"; s1="$(proc_jiffies "$p1")"
   [ "$p1" = "$p0" ] || s0=0
+  read -r k g <<< "$(system_delta "$SCRATCH/cpu.start" "$SCRATCH/cpu.end")"
   wall="$(awk -v a="$t0" -v b="$t1" 'BEGIN{printf "%.1f", b-a}')"
-  cpu="$(awk -v b="$((b1 - b0))" -v k="$((k1 - k0))" -v g="$((g1 - g0))" \
+  cpu="$(awk -v b="$((b1 - b0))" -v k="$k" -v g="$g" \
     -v o="$((o1 - o0 + s1 - s0))" -v t="$TCK" -v a="$t0" -v z="$t1" 'BEGIN{
-    if (k<0) k=0; if (g<0) g=0; x=(b-o-k-g)/t; if (x<0) x=0; w=z-a;
+    x=(b-o-k-g)/t; if (x<0) x=0; w=z-a;
     printf "total=%.1f ours=%.1f kernel=%.1f system_procs=%.1f", b/t, o/t,
       k/t, g/t;
     printf " others=%.1f others_cores=%.2f", x, (w>0 ? x/w : 0)}')"
