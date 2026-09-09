@@ -108,6 +108,16 @@ land on the `.ts` source. It requires the tsgo declaration emit; under
 `--//ts:declarations=oxc` it is an analysis error naming both flags, since oxc
 emits no map.
 
+A `.js.map` has one shape from either emitter: `sources` names the src by its
+exec-root-relative path -- `tests/smoke/hello.ts`, the path Bazel and a
+coverage report use -- and `sourcesContent` carries the text, so a consumer
+resolves nothing against the map's directory. oxc writes that form. tsgo
+writes its maps into `TsEmit`'s scratch `outDir`, `sources` relative to the
+map as tsc computes them and `sourcesContent` from `--inlineSources`, and the
+move into place resolves each `sources` entry to the exec-root path
+([The Module Format](#the-module-format)).
+`//tests/compiler_options/source_maps` pins both emitters' maps.
+
 ## Outputs
 
 For each source file `foo.ts`:
@@ -115,7 +125,7 @@ For each source file `foo.ts`:
 | Output | Description |
 |--------|-------------|
 | `foo.js` | Compiled JavaScript ([The Module Format](#the-module-format)) |
-| `foo.js.map` | Source map, under `--//ts:source_map` |
+| `foo.js.map` | Source map, under `--//ts:source_map` ([Source and Declaration Maps](#source-and-declaration-maps)) |
 | `foo.d.ts` | Declaration file, the compilation boundary |
 
 For a `foo.tsx` under `jsx: "preserve"` the first two are `foo.jsx` and
@@ -227,9 +237,17 @@ transform keeps the module syntax it reads, which is the emit of every ES kind
 Every other kind -- `commonjs`, the `node*` kinds, `amd`, `umd`, `system` --
 is tsgo's: `TsEmit` runs `tsgo --noCheck` from the program root the check
 runs in and moves each src's `.js`, `.js.map` and, under
-`--//ts:declarations=oxc`, `.d.ts` into place. `--noCheck` emits from the
-parsed program with tsc's import elision and reports no type error; the type
-check stays the tsgo action's, in either mode.
+`--//ts:declarations=oxc`, `.d.ts` into place, the map's `sources` resolved
+to exec-root paths on the way
+([Source and Declaration Maps](#source-and-declaration-maps)). `--noCheck`
+emits from the parsed program with tsc's import elision and reports no type
+error; the type check stays the tsgo action's, in either mode.
+
+The emit's inputs are the check's for every program -- the srcs, the forest,
+the tsconfig chain, the deps' declarations -- since which tool emits is
+decided when the action runs, so an oxc emit waits for the forest and re-runs
+when it changes. A CommonJS-shaped program builds the tsgo program twice: once
+for the emit under `--noCheck`, once for the check.
 
 A CommonJS program's compiled code has `require`, `exports`, `__dirname` and
 `__filename`, and a named import from a CommonJS dependency is that
@@ -664,7 +682,8 @@ medians of three interleaved runs:
 | `--//ts:declarations=tsgo` | 6.3s | 4.89s |
 | `--//ts:declarations=oxc` | 3.8s | 2.15s |
 
-Both modes run tsgo once per target, so the gap is serialisation. Under `oxc`
+The benchmark's programs are ES modules, so tsgo runs once per target in
+both modes and the gap is serialisation. Under `oxc`
 the check is a validation action nothing waits for, and the critical path is
 Oxc's per-file transform; under `tsgo` each of the 20 links waits for its
 dependency's declarations. The gap shrinks on shallower graphs and widens on
@@ -711,7 +730,7 @@ file's `target`, `jsx` and `jsxImportSource`:
 
 For a CommonJS-shaped program it runs `tsgo --noCheck` from the program root
 below, with the emit shape on the command line, and moves the outputs into
-place.
+place, each map's `sources` resolved to exec-root paths.
 
 tsgo runs from the program root, with `--project` on the written tsconfig and
 `--explainFiles`; tsaction reads the listing against the ownership manifest

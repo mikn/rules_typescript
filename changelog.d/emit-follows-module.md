@@ -10,5 +10,7 @@
   program root the check runs in; oxc emits the ES kinds and `preserve` as
   before. Under the node:test runner a `require` of a bare specifier is node's
   own resolution through `NODE_PATH`; the hook's tree lookup serves `import`.
-  `//tests/node_test/cjs` pins the format at run time. The action tsconfig no
-  longer sets `declarationDir`, which equalled `outDir`.
+  `//tests/node_test/cjs` pins the format at run time. Its `.js.map` has the
+  shape oxc's has -- `sources` the src's exec-root path, `sourcesContent` the
+  text -- resolved from the scratch `outDir` tsgo wrote into. The action
+  tsconfig no longer sets `declarationDir`, which equalled `outDir`.

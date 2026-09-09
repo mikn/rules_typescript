@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -31,15 +32,25 @@ func newEmitRoot(t *testing.T, module string) *emitRoot {
 	for rel, body := range files {
 		writeFile(t, filepath.Join(root, rel), body)
 	}
-	// The fake tsgo writes what tsc would into its --outDir, so the step's
-	// moves have files to move.
+	// The fake tsgo writes what tsc would into its --outDir: the maps' sources
+	// are relative to the map's directory, seven below the exec root here.
 	tsgoScript := `out=""; prev=""
 for a in "$@"; do
   if [ "$prev" = "--outDir" ]; then out="$a"; fi; prev="$a"
 done
 mkdir -p "$out/src"
-for f in src/a.js src/a.js.map src/a.d.ts src/view.jsx src/view.jsx.map \
-    src/view.d.ts; do echo "$f" > "$out/$f"; done
+for f in src/a.js src/a.d.ts src/view.jsx src/view.d.ts; do
+  echo "$f" > "$out/$f"
+done
+up=../../../../../../..
+cat > "$out/src/a.js.map" <<EOF
+{"version":3,"file":"a.js","sourceRoot":"","names":[],"mappings":";;;AAAa",
+"sources":["$up/pkg/src/a.ts"],"sourcesContent":["export const a = 1;\\n"]}
+EOF
+cat > "$out/src/view.jsx.map" <<EOF
+{"version":3,"file":"view.jsx","sourceRoot":"","names":[],"mappings":";;;AAAa",
+"sources":["$up/pkg/src/view.tsx"],"sourcesContent":["export const v = 1;\\n"]}
+EOF
 `
 	e := &emitRoot{}
 	e.oxc, e.oxcArgv = fakeTool(t, root, "oxc-bazel", "")
@@ -98,6 +109,7 @@ func TestEmitStep_CommonJSGoesToTsgo(t *testing.T) {
 		"--project", binDir + "/pkg/pkg.tsconfig.json", "--noCheck",
 		"--noEmit", "false", "--emitDeclarationOnly", "false",
 		"--declaration", "true", "--declarationMap", "false", "--sourceMap", "true",
+		"--inlineSources", "true",
 		"--outDir", binDir + "/pkg/pkg.emit/out", "--rootDir", "pkg",
 	}
 	if got := recordedArgs(t, e.tsgoArgv); !reflect.DeepEqual(got, want) {
@@ -109,6 +121,14 @@ func TestEmitStep_CommonJSGoesToTsgo(t *testing.T) {
 	} {
 		if _, err := os.Stat(filepath.Join(binDir, "pkg", out)); err != nil {
 			t.Errorf("%s was not moved into the output directory: %v", out, err)
+		}
+	}
+	for m, want := range map[string]string{
+		"src/a.js.map": "pkg/src/a.ts", "src/view.jsx.map": "pkg/src/view.tsx",
+	} {
+		got := mapSources(t, filepath.Join(binDir, "pkg", m))
+		if !reflect.DeepEqual(got, []string{want}) {
+			t.Errorf("%s names sources %q, want %q", m, got, want)
 		}
 	}
 	_, err = os.Stat(filepath.Join(binDir, "pkg", "pkg.emit"))
@@ -149,6 +169,22 @@ func TestEmitStep_CommonJSNeedsOneRoot(t *testing.T) {
 			t.Errorf("error %q does not say %q", err, want)
 		}
 	}
+}
+
+// mapSources reads a moved map's sources, the exec-root paths of its srcs.
+func mapSources(t *testing.T, name string) []string {
+	t.Helper()
+	data, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m struct {
+		Sources []string `json:"sources"`
+	}
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("%s: %v\n%s", name, err, data)
+	}
+	return m.Sources
 }
 
 func TestEmitStep_ExitCodeIsTheTools(t *testing.T) {

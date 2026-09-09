@@ -2,7 +2,7 @@
 
 An opinionated Bazel ruleset for TypeScript, optimised for the **Oxc + Vite** toolchain. For a stack of TypeScript and Vite, it replaces `tsc` and the dev server with a single hermetic build. For `tsc` compatibility or non-Vite toolchains, see [aspect-build/rules_ts](https://github.com/aspect-build/rules_ts).
 
-Rust and Go do the work: [Oxc](https://oxc.rs/) compiles, [tsgo](https://github.com/microsoft/typescript-go) type-checks. The dev server runs one generated [Vite](https://vite.dev/) config. [Gazelle](https://github.com/bazelbuild/bazel-gazelle) writes the BUILD files. Write `.ts`, run Gazelle, `bazel build //...`. The build reads no `node_modules/`. No system Node. Just Bazelisk.
+Rust and Go do the work: [Oxc](https://oxc.rs/) compiles an ES-module program and [tsgo](https://github.com/microsoft/typescript-go) a CommonJS-shaped one; tsgo type-checks. The dev server runs one generated [Vite](https://vite.dev/) config. [Gazelle](https://github.com/bazelbuild/bazel-gazelle) writes the BUILD files. Write `.ts`, run Gazelle, `bazel build //...`. The build reads no `node_modules/`. No system Node. Just Bazelisk.
 
 Coming from an existing TypeScript repository: [Install](#install) is the short
 path, and the
@@ -13,7 +13,7 @@ covers the migration questions.
 
 ## Key Ideas
 
-- **Oxc compiles** — Rust-based TypeScript/JSX transformer. `.js` + `.js.map` per file, and `.d.ts` too under `--//ts:declarations=oxc`.
+- **Oxc compiles an ES-module program** — Rust-based TypeScript/JSX transformer: `.js` + `.js.map` per file, and `.d.ts` too under `--//ts:declarations=oxc`. A program whose `module` is CommonJS-shaped is tsgo's emit — see [The Module Format](https://mikn.github.io/rules_typescript/rules/ts-compile/#the-module-format).
 - **tsgo type-checks** — Go port of TypeScript, and it emits the declarations too, so unmodified TypeScript compiles: no export annotations required, and the `.d.ts` are what `tsc` would produce. Type errors fail `bazel build`.
 - **The dev server is swappable** — `ts_dev_server(server = ...)` takes any target providing `DevServerInfo`. Vite is the default. What a server does not read is declared in its provider, so a target depending on a field its server ignores fails at analysis time naming both.
 - **Isolated declarations** — annotate the exports and build under `--//ts:declarations=oxc`, and Oxc emits the `.d.ts` syntactically, which moves type-checking off the critical path and shortens a deep dependency chain substantially. Opt-in, per build — see [Cost of each mode](https://mikn.github.io/rules_typescript/rules/ts-compile/#cost-of-each-mode).

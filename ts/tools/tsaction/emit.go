@@ -170,6 +170,7 @@ func (e *emitConfig) tsgoEmit(groups map[string][]string, o oxcOptions) error {
 		"--declaration", fmt.Sprint(e.declarations),
 		"--declarationMap", "false",
 		"--sourceMap", fmt.Sprint(e.sourceMap),
+		"--inlineSources", fmt.Sprint(e.sourceMap),
 		"--outDir", scratchOut, "--rootDir", rootDirFlag(root),
 	}
 	if err := runToolIn(programRoot, os.Stdout, cmdline); err != nil {
@@ -177,8 +178,12 @@ func (e *emitConfig) tsgoEmit(groups map[string][]string, o oxcOptions) error {
 	}
 	for _, src := range groups[root] {
 		for _, out := range e.outputsOf(src, root, o) {
-			from := filepath.Join(scratchOut, out)
-			if err := moveFile(from, filepath.Join(e.outDir, out)); err != nil {
+			from, to := filepath.Join(scratchOut, out), filepath.Join(e.outDir, out)
+			move := moveFile
+			if strings.HasSuffix(out, ".map") {
+				move = moveMap
+			}
+			if err := move(from, to); err != nil {
 				return err
 			}
 		}
@@ -224,4 +229,38 @@ func moveFile(from, to string) error {
 		return fmt.Errorf("tsgo emitted no %s: %w", filepath.Base(to), err)
 	}
 	return nil
+}
+
+type sourceMap struct {
+	Version        int      `json:"version"`
+	File           string   `json:"file"`
+	SourceRoot     string   `json:"sourceRoot"`
+	Sources        []string `json:"sources"`
+	Names          []string `json:"names"`
+	Mappings       string   `json:"mappings"`
+	SourcesContent []string `json:"sourcesContent"`
+}
+
+// moveMap resolves the sources tsc wrote relative to the map's scratch
+// directory into exec-root paths, the form oxc's maps have.
+func moveMap(from, to string) error {
+	data, err := os.ReadFile(from)
+	if err != nil {
+		return fmt.Errorf("tsgo emitted no %s: %w", filepath.Base(to), err)
+	}
+	var m sourceMap
+	if err := json.Unmarshal(data, &m); err != nil {
+		return fmt.Errorf("%s: %w", from, err)
+	}
+	for i, src := range m.Sources {
+		m.Sources[i] = filepath.ToSlash(filepath.Join(filepath.Dir(from), src))
+	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(to, out, 0o644)
 }

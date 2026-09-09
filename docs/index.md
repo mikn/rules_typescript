@@ -2,7 +2,7 @@
 
 An opinionated Bazel ruleset for TypeScript, optimised for the **Oxc + Vite** toolchain. For a stack of TypeScript and Vite, it replaces `tsc` and the dev server with a single hermetic build. For `tsc` compatibility or non-Vite toolchains, see [aspect-build/rules_ts](https://github.com/aspect-build/rules_ts) ([comparison](getting-started/migration.md)).
 
-Rust and Go do the work: [Oxc](https://oxc.rs/) compiles, [tsgo](https://github.com/microsoft/typescript-go) type-checks. The dev server runs one generated [Vite](https://vite.dev/) config. [Gazelle](https://github.com/bazelbuild/bazel-gazelle) writes the BUILD files. Write `.ts`, run Gazelle, `bazel build //...`. The build reads no `node_modules/`. No system Node. Just Bazelisk.
+Rust and Go do the work: [Oxc](https://oxc.rs/) compiles an ES-module program and [tsgo](https://github.com/microsoft/typescript-go) a CommonJS-shaped one; tsgo type-checks. The dev server runs one generated [Vite](https://vite.dev/) config. [Gazelle](https://github.com/bazelbuild/bazel-gazelle) writes the BUILD files. Write `.ts`, run Gazelle, `bazel build //...`. The build reads no `node_modules/`. No system Node. Just Bazelisk.
 
 Coming from an existing TypeScript monorepo, the
 [Quick Start](getting-started/quickstart.md) is the whole path: four root files,
@@ -11,7 +11,7 @@ then `bazel run //:gazelle`. [Install](#install) and
 
 ## Key Ideas
 
-- **Oxc compiles** — Rust-based TypeScript/JSX transformer. `.js` + `.js.map` per file, and `.d.ts` too under `--//ts:declarations=oxc`.
+- **Oxc compiles an ES-module program** — Rust-based TypeScript/JSX transformer: `.js` + `.js.map` per file, and `.d.ts` too under `--//ts:declarations=oxc`. A program whose `module` is CommonJS-shaped is tsgo's emit — see [The Module Format](rules/ts-compile.md#the-module-format).
 - **tsgo emits declarations and type-checks** — Go port of TypeScript, and the default emitter. Unmodified TypeScript compiles: no export annotations required, and the `.d.ts` are what `tsc` would produce. tsgo runs as a build action, not a separate `tsc --noEmit` job, so type errors fail `bazel build`; the declarations are real outputs, and a package type-checks against what its dependency emits.
 - **The dev server is swappable** — `ts_dev_server(server = ...)` takes any target providing `DevServerInfo`. Vite is the default. Each server declares the config fields it does not read, so a target depending on one fails at analysis time naming the field and the server. `ts_dev_server` hands the source tree to the server; HMR is the server's, not a rebuild. See [Bringing your own server](guides/dev-server.md#bringing-your-own-server).
 - **Isolated declarations** — annotate the exports, build under `--//ts:declarations=oxc`, and Oxc emits the `.d.ts` syntactically. Type-checking leaves the critical path, which shortens a deep dependency chain substantially. Opt-in, per build. See [Cost of each mode](rules/ts-compile.md#cost-of-each-mode).

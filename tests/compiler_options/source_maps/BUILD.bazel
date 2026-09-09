@@ -1,4 +1,8 @@
-""" //ts:source_map and //ts:declaration_map: which maps Bazel declares."""
+""" //ts:source_map and //ts:declaration_map: which maps Bazel declares, and the
+one shape a .js.map has from either emitter."""
+
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.commonjs.json
 
 load("@rules_go//go:def.bzl", "go_test")
 load("//tests:flags.bzl", "ts_under_flags")
@@ -14,6 +18,13 @@ ts_compile(
 ts_compile(
     name = "unmapped",
     srcs = ["unmapped.ts"],
+)
+
+# tsgo's emit, moved from TsEmit's scratch outDir; oxc writes mapped.js.map.
+ts_compile(
+    name = "commonjs",
+    srcs = ["commonjs.ts"],
+    tsconfig = "tsconfig.commonjs.json",
 )
 
 # --//ts:declaration_map is what makes go-to-definition from a consumer's editor
@@ -36,6 +47,7 @@ go_test(
     size = "small",
     srcs = ["source_maps_test.go"],
     data = [
+        ":commonjs",
         ":mapped_with_declaration_map",
         ":unmapped_without_source_map",
     ],

@@ -8,11 +8,12 @@
 # What is actually being compared, per target:
 #   "tsgo": TsEmit (js) + TsgoDeclare (d.ts + diagnostics)
 #   "oxc" : TsEmit (js + d.ts) + TsgoCheck (diagnostics, _validation group)
-# tsgo runs once per target either way, so total work should land near parity and
-# the interesting number is the critical path: under "oxc" a consumer can compile
-# against oxc's syntactic .d.ts while checking runs concurrently, whereas under
-# "tsgo" it waits for the declarations. The generated chain is linear and deep so
-# that difference has somewhere to show up.
+# The generated programs are ES modules, so tsgo runs once per target either
+# way: total work should land near parity and the interesting number is the
+# critical path: under "oxc" a consumer can compile against oxc's syntactic
+# .d.ts while checking runs concurrently, whereas under "tsgo" it waits for the
+# declarations. The generated chain is linear and deep so that difference has
+# somewhere to show up.
 #
 # Usage: tools/bench_declarations.sh [PACKAGES] [FILES_PER_PACKAGE] [ITERATIONS]
 set -euo pipefail
