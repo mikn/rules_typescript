@@ -298,9 +298,12 @@ trap restore_all EXIT
 trap 'exit 143' TERM INT
 
 shutdown_ob() {
+  local -a subtrees
   [ -d "$1" ] || return 0
   (cd "$CHECKOUT" && "$BAZEL" "--output_base=$1" shutdown) > /dev/null 2>&1
-  chmod -R u+w "$1" 2> /dev/null
+  find "$1" -type d ! -perm -u+w -exec chmod u+w {} +
+  mapfile -d '' subtrees < <(find "$1" -mindepth 1 -maxdepth 3 -print0)
+  printf '%s\0' "${subtrees[@]}" | xargs -0 -r -P 8 -n 32 rm -rf
   rm -rf "$1"
 }
 
