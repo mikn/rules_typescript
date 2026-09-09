@@ -160,11 +160,11 @@ wait_quiet() {
   printf 'other work %s cores over 3 s; waited %ss for under %s' \
     "$c" "$(( $(date +%s) - t0 ))" "$OTHER_CORES"
 }
-test_universe() {
+excluded_negatives() {
   local l
-  echo '//...'
   for l in $EXCL_LABELS; do echo "-$l"; done
 }
+test_universe() { echo '//...'; excluded_negatives; }
 excluded_row() {
   local r
   for r in $EXCL_ROWS; do [ "$r" = "$1" ] && return 0; done
@@ -358,21 +358,31 @@ test_lane() {
   bazel_cell excluded-build "$n" "$note" "$TOB" "$TDC" build $EXCL_LABELS
 }
 
-lane_ob() { [ "$1" = check ] && echo "$COB" || echo "$TOB"; }
-lane_dc() { [ "$1" = check ] && echo "$CDC" || echo "$TDC"; }
+cache_list() { find "$CDC" "$TDC" -type f | sort; }
+cache_forget() {
+  cache_list | comm -13 "$SCRATCH/cache-before" - | tr '\n' '\0' |
+    xargs -0 -r rm -f
+}
 unedit() {
   local file="$1" pattern="$2" n="$3" lane
+  local note="$file restored; the lane back at the tree before the edit"
   shift 3
   restore "$file"
   for lane in "$@"; do
-    bazel_cell "maintenance/unedit-$lane" "$n-$ATTEMPT" \
-      "$file restored; the $lane lane back at the tree before the edit" \
-      "$(lane_ob "$lane")" "$(lane_dc "$lane")" build "$pattern" || true
+    if [ "$lane" = check ]; then
+      bazel_cell maintenance/unedit-check "$n-$ATTEMPT" "$note" "$COB" "$CDC" \
+        build "$pattern" || true
+    else
+      bazel_cell maintenance/unedit-test "$n-$ATTEMPT" "$note" "$TOB" "$TDC" \
+        test "$pattern" $(excluded_negatives) || true
+    fi
   done
+  cache_forget
 }
 
 web_edit() {
   local n="$1" note="warm, '$EDIT_LINE' appended to $WEB_EDIT"
+  [ "$ATTEMPT" -eq 1 ] && cache_list > "$SCRATCH/cache-before"
   [ "$ATTEMPT" -gt 1 ] && unedit "$WEB_EDIT" //web/... "$n" check test
   edit "$WEB_EDIT"
   checkout_cell edit-web-check-checkout "$n" "$note" no \
@@ -386,6 +396,7 @@ web_edit() {
 
 leaf_edit() {
   local n="$1" note="warm, '$EDIT_LINE' appended to $LEAF_EDIT"
+  [ "$ATTEMPT" -eq 1 ] && cache_list > "$SCRATCH/cache-before"
   [ "$ATTEMPT" -gt 1 ] && unedit "$LEAF_EDIT" "//$LEAF/..." "$n" test
   edit "$LEAF_EDIT"
   checkout_cell edit-leaf-checkout "$n" "$note" ci "$(leaf_script)" ||
