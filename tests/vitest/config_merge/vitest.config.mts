@@ -1,8 +1,7 @@
 // A user-supplied vitest config. ts_test merges it into the config it
 // generates, so the plugin below coexists with the Bazel-owned layer.
 
-// The bare `zod` import exercises a config's own npm dependency: nothing else
-// in the suite imports a package from a config.
+// The bare `zod` import exercises a config's own npm dependency.
 import { z } from "zod";
 
 const answer = z.number().parse(42);

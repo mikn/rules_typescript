@@ -65,13 +65,14 @@ package boundary is a `data` entry.
 vitest runs from the `config`'s package in the runfiles, the test's own with no
 config -- the directory `pnpm run test` runs from -- so `process.cwd()` names it
 and `join(process.cwd(), "fixtures/x.txt")` reads the package's file. The
-config vitest is handed, the `config` file and its `config_srcs` are regular
-files there, written by the launcher before the run: a runfiles entry is a
-symlink, and Vite bundles a config from its realpath, so through the symlink
-`__dirname` and the walk up for a bare import would start in `bazel-out`.
-`__dirname`, `import.meta.dirname` and `__filename` in the config and in a
-`config_srcs` module are the package's paths, as under plain `vitest`, and a
-bare import walks up to the `node_modules` link at the runfiles root.
+`config` file and its `config_srcs` are regular files at their own paths in the
+runfiles, and the generated config vitest is handed is in the test's package,
+all written by the launcher before the run: a runfiles entry is a symlink, and
+Vite bundles a config from its realpath, so through the symlink `__dirname`
+and the walk up for a bare import would start in `bazel-out`. `__dirname`,
+`import.meta.dirname` and `__filename` in the config and in a `config_srcs`
+module are the package's paths, as under plain `vitest`, and a bare import
+walks up to the `node_modules` link at the runfiles root.
 `//tests/vitest/cwd_and_dirname` is the example.
 
 The compiled program is what runs. A `setupFiles` entry naming a source runs
