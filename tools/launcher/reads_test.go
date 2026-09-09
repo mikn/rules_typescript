@@ -94,7 +94,7 @@ func readsFixture(t *testing.T) (*Resolver, map[string]string) {
 	t.Helper()
 	list := "_main/tests/app/a.test.js\n"
 	_, real := fakeRunfiles(t, map[string]string{
-		"_main/tests/app/_app_vitest.config.mjs":         "x",
+		"_main/tests/app/_app.vitest/config.mjs":         "x",
 		"_main/tests/app/app_test_files.txt":             list,
 		"_main/tests/app/a.test.js":                      "x",
 		"_main/tests/app/node_modules":                   dirMarker,
@@ -145,8 +145,8 @@ func TestPlanVitestReadsInstallsTheHookBelowTheRunner(t *testing.T) {
 	if !plan.Supervise.StdoutToStderr {
 		t.Error("vitest's stdout has to leave stdout to the report")
 	}
-	if plan.Dir != r.Dir() {
-		t.Errorf("dir = %q, want the runfiles tree %q", plan.Dir, r.Dir())
+	if want := filepath.Join(r.Dir(), "_main/tests/app"); plan.Dir != want {
+		t.Errorf("dir = %q, want the config's package %q", plan.Dir, want)
 	}
 	if plan.PostRun == nil {
 		t.Fatal("no PostRun: nothing would print the report")

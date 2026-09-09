@@ -1,9 +1,9 @@
 """The Workers pool: vitest's tests inside workerd.
 
 The pool's half of a ts_test's environment, in one file: its attributes, the
-config layer copied beside the generated config, the WranglerTestConfig
-action and the runfiles and symlinks both add. ts_test reaches it through the
-struct workers_pool_environment returns, and no other file names wrangler.
+config layer the generated config imports, the WranglerTestConfig action and
+the runfiles and symlinks both add. ts_test reaches it through the struct
+workers_pool_environment returns, and no other file names wrangler.
 """
 
 load("//ts/private:runtime.bzl", "get_js_tool")
@@ -37,18 +37,8 @@ def workers_pool_environment(ctx, node_modules_files, runtime_data_sets):
     files = []
     symlinks = {}
 
-    # The pool's half of the Bazel layer, copied beside the generated config:
-    # vitest resolves the config's imports from its real path in bin.
-    layer = None
-    if ctx.file.config:
-        layer = ctx.actions.declare_file(
-            "_{}_workers_pool.mjs".format(ctx.label.name),
-        )
-        ctx.actions.expand_template(
-            template = ctx.file._workers_pool,
-            output = layer,
-            substitutions = {},
-        )
+    layer = ctx.file._workers_pool if ctx.file.config else None
+    if layer:
         files.append(layer)
 
     # The pool boots the file `main` names, the source; a copy naming the

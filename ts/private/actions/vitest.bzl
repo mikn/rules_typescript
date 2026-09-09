@@ -7,7 +7,6 @@ vitest Config.
 
 load("//tools/launcher:launcher.bzl", "rlocation_path")
 load("//ts/private:providers.bzl", "TsConfigInfo")
-load("//ts/private:vite_config.bzl", "stage_vite_config")
 
 _SNAPSHOT_HELPERS = """\
 const snapshotBase = (testPath) => {
@@ -169,17 +168,6 @@ const tsconfigPaths = (dir, paths) => {
 };
 """
 
-def _package_relative_dir(ctx, f):
-    """The directory of the package's output `f`, relative to the package."""
-    prefix = ctx.label.package + "/" if ctx.label.package else ""
-    if not f.short_path.startswith(prefix):
-        fail(("ts_test {}: the node_modules tree {} is not in the test's " +
-              "package, where the config is staged beside it.").format(
-            ctx.label,
-            f.short_path,
-        ))
-    return f.short_path[len(prefix):].rpartition("/")[0]
-
 def _is_test_file(f):
     """A compiled `<stem>.{test,spec}.<ext>`: vitest's default include."""
     parts = f.basename.split(".")
@@ -305,11 +293,10 @@ def _vitest_config_content(
     if tsconfig_paths_rf:
         lines += [
             "const TSCONFIG_PATHS = JSON.parse(readFileSync(",
-            "  resolve(process.env.TS_TEST_PACKAGE_DIR, {}), 'utf8'));".format(
+            "  resolve(HERE, {}), 'utf8'));".format(
                 _js(_relative_import(config_rf, tsconfig_paths_rf)),
             ),
-            "const PATHS_DIR = resolve(",
-            "  process.env.TS_TEST_PACKAGE_DIR, TSCONFIG_PATHS.dir);",
+            "const PATHS_DIR = resolve(HERE, TSCONFIG_PATHS.dir);",
             "const pathsPlugins = Object.keys(TSCONFIG_PATHS.paths).length",
             "  ? [tsconfigPaths(PATHS_DIR, TSCONFIG_PATHS.paths)]",
             "  : [];",
@@ -326,13 +313,8 @@ def _vitest_config_content(
 
         # A file under test is a build output, so its realpath lies outside the
         # vite root -- which the coverage default drops before instrumenting.
-
-        # root is the config's package, via TS_TEST_PACKAGE_DIR: import.meta.url
-        # is the bazel-out realpath, which no runfiles path is under.
         "let bazelLayer = {",
-        "  root: resolve(process.env.TS_TEST_PACKAGE_DIR, {}),".format(
-            _js(root_rel),
-        ),
+        "  root: resolve(HERE, {}),".format(_js(root_rel)),
         # Vite's cache and the pool's deps optimizer write under the root
         # otherwise, which is the runfiles tree.
         "  ...(process.env.TEST_TMPDIR ? " +
@@ -378,8 +360,7 @@ def _vitest_config_content(
         lines.append("  const user = {};")
     lines += [
         "  if (typeof workersPoolLayer === 'function') bazelLayer = " +
-        "workersPoolLayer(bazelLayer, user, " +
-        "resolve(process.env.TS_TEST_PACKAGE_DIR, {}));".format(
+        "workersPoolLayer(bazelLayer, user, resolve(HERE, {}));".format(
             _js(workspace_rel),
         ),
         "  const merged = setupFilesInRoot(withCompiledSetup(merge(" +
@@ -435,7 +416,7 @@ def tsconfig_paths_action(ctx):
     if not ctx.file.tsconfig:
         return None
     tsconfig_paths = ctx.actions.declare_file(
-        "_{}_tsconfig_paths.json".format(ctx.label.name),
+        "_{}.vitest/tsconfig_paths.json".format(ctx.label.name),
     )
     chain = [ctx.file.tsconfig]
     if TsConfigInfo in ctx.attr.tsconfig:
@@ -456,44 +437,59 @@ def tsconfig_paths_action(ctx):
     )
     return tsconfig_paths
 
+def _package_path(ctx, name):
+    """The runfiles path of `name` in the test's package."""
+    return "/".join(
+        [p for p in [ctx.workspace_name, ctx.label.package, name] if p],
+    )
+
 def vitest_config_action(
         ctx,
         test_entry_points,
-        node_modules_files,
         pool_layer,
         tsconfig_paths,
         inline_members):
-    """Writes the entry config for `ctx`'s test and stages its user `config`.
+    """Writes the entry config for `ctx`'s test.
 
     `pool_layer` is the Workers pool's layer module or None; `tsconfig_paths`
-    the file tsconfig_paths_action wrote or None. Returns struct(config,
-    user_config_files): the generated file and the staged copy of the user's
-    config with the modules it imports, [] without a `config`.
+    the file tsconfig_paths_action wrote or None. Returns struct(config, entry,
+    stage, symlinks, root_rel): the generated file; the runfiles path the
+    launcher writes it to; every file the launcher writes into the package as a
+    regular file, its destination keyed by the runfiles path it is read from;
+    the private runfiles entries of `config` and `config_srcs`; and vite's root
+    relative to the package.
     """
-    vitest_config = ctx.actions.declare_file(
-        "_{}_vitest.config.mjs".format(ctx.label.name),
-    )
-
-    # The config's copy and the package modules it imports go beside the runtime
-    # tree, the one directory whose realpath resolves both: vite_config.bzl.
-    user_config = None
-    staged_config_files = []
     if ctx.attr.config_srcs and not ctx.file.config:
         fail(("ts_test {}: config_srcs names the modules `config` imports; " +
               "there is no `config`.").format(ctx.label))
+    name = ctx.label.name
+    vitest_config = ctx.actions.declare_file(
+        "_{}.vitest/config.mjs".format(name),
+    )
+    entry = _package_path(ctx, "_{}_vitest.config.mjs".format(name))
+    stage = {rlocation_path(ctx, vitest_config): entry}
+
+    # At its own runfiles path a source may be the package's src, which the
+    # regular file takes the place of: the launcher reads it from a private one.
+    symlinks = {}
+    private = "/".join(
+        [p for p in [ctx.label.package, "_{}.vitest".format(name)] if p],
+    )
+    user_config_rf = None
     if ctx.file.config:
-        if not node_modules_files:
-            fail(("ts_test {}: a `config` resolves its imports beside the " +
-                  "node_modules tree, and this test has none; a dep on the " +
-                  "vitest package brings it.").format(ctx.label))
-        staged_config = stage_vite_config(
-            ctx,
-            ctx.file.config,
-            ctx.files.config_srcs,
-            _package_relative_dir(ctx, node_modules_files[0]),
-        )
-        user_config = staged_config.entry
-        staged_config_files = staged_config.files
+        for f in [ctx.file.config] + ctx.files.config_srcs:
+            key = private + "/" + f.short_path
+            symlinks[key] = f
+            stage[ctx.workspace_name + "/" + key] = rlocation_path(ctx, f)
+        user_config_rf = rlocation_path(ctx, ctx.file.config)
+    pool_rf = None
+    if pool_layer:
+        pool_rf = _package_path(ctx, "_{}_workers_pool.mjs".format(name))
+        stage[rlocation_path(ctx, pool_layer)] = pool_rf
+    paths_rf = None
+    if tsconfig_paths:
+        paths_rf = _package_path(ctx, "_{}_tsconfig_paths.json".format(name))
+        stage[rlocation_path(ctx, tsconfig_paths)] = paths_rf
 
     # A `config` from an ancestor package roots vite there.
     root_rel = "."
@@ -505,14 +501,10 @@ def vitest_config_action(
         [p for p in [ctx.workspace_name, root_dir, "_"] if p],
     )
 
-    config_rf = rlocation_path(ctx, vitest_config)
-    user_config_rf = rlocation_path(ctx, user_config) if user_config else None
-    pool_rf = rlocation_path(ctx, pool_layer) if pool_layer else None
-    paths_rf = rlocation_path(ctx, tsconfig_paths) if tsconfig_paths else None
     ctx.actions.write(
         output = vitest_config,
         content = _vitest_config_content(
-            config_rf = config_rf,
+            config_rf = entry,
             user_config_rf = user_config_rf,
             coverage_provider = ctx.attr.coverage_provider,
             snapshot_bases = _snapshot_bases(ctx.files.srcs, test_entry_points),
@@ -534,6 +526,8 @@ def vitest_config_action(
     )
     return struct(
         config = vitest_config,
-        user_config_files = staged_config_files,
+        entry = entry,
+        stage = stage,
+        symlinks = symlinks,
         root_rel = root_rel,
     )

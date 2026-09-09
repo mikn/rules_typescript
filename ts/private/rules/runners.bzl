@@ -25,7 +25,6 @@ def _vitest_launch(ctx, test):
     written = vitest_config_action(
         ctx,
         test_entry_points = test.entry_points,
-        node_modules_files = test.node_modules_files,
         pool_layer = pool.layer,
         tsconfig_paths = tsconfig_paths,
         inline_members = test.inline_members,
@@ -34,8 +33,9 @@ def _vitest_launch(ctx, test):
     # Every path is a runfiles path; the launcher resolves them through the
     # runfiles library, so manifest-only layouts work like symlink trees.
     section = {
-        "config_file": rlocation_path(ctx, written.config),
+        "config_file": written.entry,
         "root_rel": written.root_rel,
+        "stage": written.stage,
         "test_files_list": rlocation_path(ctx, test.test_files_list),
         "reads_hook": rlocation_path(ctx, test.runner.hook),
     }
@@ -54,10 +54,7 @@ def _vitest_launch(ctx, test):
     env = dict(ctx.attr.env)
     env.setdefault("CI", "true")
 
-    files = (
-        [written.config, test.runner.hook] + pool.files +
-        written.user_config_files
-    )
+    files = [written.config, test.runner.hook] + pool.files
     if tsconfig_paths:
         files.append(tsconfig_paths)
     return struct(
@@ -65,7 +62,7 @@ def _vitest_launch(ctx, test):
         section = section,
         env = env,
         files = files,
-        symlinks = pool.symlinks,
+        symlinks = pool.symlinks | written.symlinks,
         transitive_files = depset(transitive = (
             [test.transitive_js] + pool.runtime_data_sets +
             test.package_sources

@@ -178,10 +178,9 @@ _TEST_ATTRS = {
         allow_single_file = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"],
     ),
     "config_srcs": attr.label_list(
-        doc = "The modules `config` imports relatively, and theirs: staged " +
-              "with the config's copy at their paths relative to the " +
-              "config's package, so its imports resolve there.  A file " +
-              "outside that package is an analysis error.",
+        doc = "The modules `config` imports relatively, and theirs, each " +
+              "written at its own path in the runfiles tree, where the " +
+              "config's imports resolve as in the checkout.",
         allow_files = True,
     ),
     "data": attr.label_list(

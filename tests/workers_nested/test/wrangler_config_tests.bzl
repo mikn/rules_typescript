@@ -23,7 +23,11 @@ def _wrangler_config_runfiles_impl(ctx):
     # The copy takes the source's runfiles path and keeps its own as well, which
     # is what admits its realpath when a `?raw` load re-resolves it.
     symlinks = [(s.path, s.target_file.basename) for s in runfiles.symlinks.to_list()]
-    asserts.equals(env, [(_SOURCE, "_worker_test_wrangler.jsonc")], symlinks, "the symlink at the source's path")
+    asserts.true(
+        env,
+        (_SOURCE, "_worker_test_wrangler.jsonc") in symlinks,
+        "the symlink at the source's path: " + str(symlinks),
+    )
     asserts.true(env, "tests/workers_nested/test/_worker_test_wrangler.jsonc" in files, "the copy at its own path: " + str(files))
 
     # A runfiles file at the symlink's path wins over it silently, so the

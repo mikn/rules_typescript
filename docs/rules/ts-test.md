@@ -33,7 +33,7 @@ target that runs the compiled files.
 | `env` | `string_dict` | `{}` | Extra environment variables for the runner |
 | `args` | `string_list` | `[]` | The runner's command-line flags: node's under the node:test runner, vitest's under the vitest runner; `bazel test --test_arg` appends to them. See [The node:test Runner](#the-nodetest-runner) |
 | `config` | `label` | `None` | The vitest config file (`.ts`/`.mts`/`.cts`/`.js`/`.mjs`/`.cjs`), merged over the generated config's Bazel layer. Every vitest setting is the file's. See [A Config File](#a-config-file) |
-| `config_srcs` | `label_list` | `[]` | The modules `config` imports relatively, and theirs, staged with the config's copy at their paths relative to the config's package; Gazelle writes it from the config's listing. See [A Config File](#a-config-file) |
+| `config_srcs` | `label_list` | `[]` | The modules `config` imports relatively, and theirs, each at its own path in the runfiles; Gazelle writes it from the config's listing. See [A Config File](#a-config-file) |
 | `data` | `label_list` | `[]` | Extra runfiles: fixtures, anything read at run time |
 | `wrangler_config` | `label` | `None` | The wrangler config a Workers-pool `config` names through `wrangler.configPath`. See [A Workers Pool](#a-workers-pool) |
 | `coverage_provider` | `string` | `""` | `test.coverage.provider`: `"v8"` (vitest's default) or `"istanbul"`. See [Coverage](#coverage) |
@@ -60,6 +60,18 @@ resolve hook), so `./index.ts` beside the compiled test is the same-package
 `ts_compile`'s `src/index.ts`. Another package's sources are not in the tree: a
 file a test reads across a package boundary is a `data` entry.
 `//tests/vitest/reads_own_source` is the example.
+
+vitest runs from the `config`'s package in the runfiles, the test's own with no
+config -- the directory `pnpm run test` runs from -- so `process.cwd()` names it
+and `join(process.cwd(), "fixtures/x.txt")` reads the package's file. The
+config vitest is handed, the `config` file and its `config_srcs` are regular
+files there, written by the launcher before the run: a runfiles entry is a
+symlink, and Vite bundles a config from its realpath, so through the symlink
+`__dirname` and the walk up for a bare import would start in `bazel-out`.
+`__dirname`, `import.meta.dirname` and `__filename` in the config and in a
+`config_srcs` module are the package's paths, as under plain `vitest`, and a
+bare import walks up to the `node_modules` link at the runfiles root.
+`//tests/vitest/cwd_and_dirname` is the example.
 
 The compiled program is what runs. A `setupFiles` entry naming a source runs
 the compiled sibling staged beside it ([Setup Files](#setup-files)), and a
@@ -214,20 +226,16 @@ project gets its own Vite server.
 
 Vite's root is the config's package, so a relative path in the config names the
 directory the file sits in, as under plain `vitest`, whether the test is in that
-package or one below it; with no config it is the test's package. The config
-file itself is a copy beside the `node_modules` tree, where its bare imports
-resolve, so a path relative to the config file is a different path.
-`TS_TEST_PACKAGE_DIR` holds the test's package directory in the runfiles, the
-anchor the root is resolved from, for a path that has to be absolute.
+package or one below it; with no config it is the test's package. vitest runs
+from that directory, and the config is loaded from its own path in it, so
+`__dirname` and `import.meta.dirname` name it too ([Files at Run
+Time](#files-at-run-time)).
 
-Vite bundles the config from that copy's realpath, so a module the config
-imports relatively has to be a copy beside it too: `config_srcs` names the
-modules the config imports and the ones they import, first-party files of the
-config's package, and each is staged at its path relative to that package
-(`./plugins/foo` in the copy is `plugins/foo.ts` beside it, and a bare import in
-`plugins/foo.ts` walks up to the same tree). A module outside the config's
-package is an analysis-time error naming it; a config from an ancestor package
-names its modules as that package's files, `//<package>:<file>`.
+`config_srcs` names the modules the config imports relatively and the ones
+they import; each is written at its own path in the runfiles, so `./plugins/foo`
+is `plugins/foo.ts` beside the config, and a bare import in `plugins/foo.ts`
+walks up to the runfiles tree's `node_modules`. A config from an ancestor
+package names its modules as that package's files, `//<package>:<file>`.
 `//tests/vitest/config_srcs` is the example.
 
 Gazelle writes `config` from the file plain `vitest` would read: a
@@ -444,8 +452,8 @@ above; `reads_declared_test` lists them and prints nothing.
 ## Environments
 
 The Workers pool is the vitest runner's environment: `wrangler_config`, the
-config layer copied beside the generated config, the `WranglerTestConfig`
-action, and the runfiles and symlinks it adds are one file,
+config layer the generated config imports, the `WranglerTestConfig` action,
+and the runfiles and symlinks it adds are one file,
 `ts/private/actions/workers_pool.bzl`, the only file that names wrangler. The
 runner reaches it through the one struct it returns, so a Workers ruleset
 takes the file as it is.

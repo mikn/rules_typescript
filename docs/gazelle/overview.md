@@ -205,11 +205,11 @@ time. Every import of the config, bare or relative, is a dep of the test: the
 config is listed by tsgo from its own directory, as vitest loads it, and the
 listing is followed through every first-party module it reaches. Those modules
 are the test's `config_srcs`, spelled from the test's package -- a path under
-it, or `//<package>:<file>` for a config an ancestor package exports -- so the
-rule stages them beside the config's copy, where its relative imports resolve
-([A config file](../rules/ts-test.md#a-config-file)). A module outside the
-config's package is said and gets no entry: the copy's siblings are that
-package's files alone.
+it, or `//<package>:<file>` for a config an ancestor package exports -- and the
+rule writes each at its own path in the runfiles, where the config's relative
+imports resolve ([A config file](../rules/ts-test.md#a-config-file)). A module
+outside the config's package is said and gets no entry: a config's modules are
+its package's files.
 
 ### A Workers-Pool Config
 

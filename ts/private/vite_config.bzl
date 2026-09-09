@@ -1,6 +1,4 @@
-"""Staging for a user-supplied Vite config and the modules it imports.
-
-Two problems, one shared by both rules that accept a `vite_config`.
+"""Staging for ts_dev_server's `vite_config` and the modules it imports.
 
 The config cannot be loaded from the source tree. The generated config imports
 it by path, and Node resolves that path to its real location before resolving
@@ -11,10 +9,10 @@ attr built.
 
 And one file is not a config. A real one imports local plugin modules, and
 copying only the entry leaves those relative imports pointing at nothing. So
-`vite_config_srcs` (`config_srcs` on a `ts_test`) declares them and they are
-staged together, each at its path relative to the entry config's package, which
-is what makes `./plugins/foo` resolve inside the staged tree the same way it
-does in the source tree.
+`vite_config_srcs` declares them and they are staged together, each at its
+path relative to the entry config's package, which is what makes
+`./plugins/foo` resolve inside the staged tree the same way it does in the
+source tree.
 
 A file outside that package would stage above the staging root, so it is
 rejected rather than silently flattened.

@@ -68,6 +68,9 @@ type VitestConfig struct {
 	// RootRel is vite's root relative to the config's directory: the package
 	// of a `config` from an ancestor package, "." otherwise.
 	RootRel string `json:"root_rel,omitempty"`
+	// Stage maps a runfiles path to the runfiles path the launcher writes its
+	// content to as a regular file; ConfigFile is one of the destinations.
+	Stage map[string]string `json:"stage,omitempty"`
 }
 
 // NodeTestConfig carries no config file: node:test is configured by CLI flags

@@ -11,19 +11,20 @@ import (
 func TestTheRootIsTheConfigsPackage(t *testing.T) {
 	tree := verify.New(t)
 
-	tree.File("tests/workers_nested/test/_worker_test_vitest.config.mjs").Contains(
+	tree.File("tests/workers_nested/test/_worker_test.vitest/config.mjs").Contains(
 		`import { workersPoolLayer } from './_worker_test_workers_pool.mjs';`,
-		`root: resolve(process.env.TS_TEST_PACKAGE_DIR, ".."),`,
+		`from '../vitest.config.mjs';`,
+		`root: resolve(HERE, ".."),`,
 		`cacheDir: resolve(process.env.TEST_TMPDIR, '.vite')`,
-		`workersPoolLayer(bazelLayer, user, resolve(process.env.TS_TEST_PACKAGE_DIR, "../../.."))`,
+		`workersPoolLayer(bazelLayer, user, resolve(HERE, "../../.."))`,
 		`merge(merge(bazelLayer, user), providerLayer)`,
 	)
 
 	// The same-package control: the config beside the tests keeps the test's
 	// package as the root.
-	tree.File("tests/workers/_worker_test_vitest.config.mjs").Contains(
+	tree.File("tests/workers/_worker_test.vitest/config.mjs").Contains(
 		`import { workersPoolLayer } from './_worker_test_workers_pool.mjs';`,
-		`root: resolve(process.env.TS_TEST_PACKAGE_DIR, "."),`,
-		`workersPoolLayer(bazelLayer, user, resolve(process.env.TS_TEST_PACKAGE_DIR, "../.."))`,
+		`root: resolve(HERE, "."),`,
+		`workersPoolLayer(bazelLayer, user, resolve(HERE, "../.."))`,
 	)
 }
