@@ -29,7 +29,10 @@ bazelisk and repository caches in all of them, the external cache in all but
      three gates run before the suite and none skips it: the two `bazel` steps
      run whatever the gates did, and the job still fails on a failed gate
    - `bazel test --config=ci //...`, then
-     `bazel build --config=ci //... --output_groups=+_validation`
+     `bazel build --config=ci //... --output_groups=+_validation`, then, on
+     ubuntu only, `tools/ci/check_coverage_report.sh`: the fixture under
+     `bazel coverage`, its report's `SF:` lines against what the filter selects
+     (see [below](#coverage-report))
    - Matrix: `ubuntu-latest` and `macos-latest`
 
 2. **E2E Tests** (`e2e`)
@@ -180,6 +183,18 @@ A file that asserts a retired name is absent or inert -- `kinds_surface_test.go`
 pins the kinds Gazelle no longer writes -- is listed in `ALLOWED` inside the
 script with the reason. The list is exact in both directions: a listed file
 with no hit fails until the entry is removed. `git grep` only, no Bazel.
+
+### Coverage Report
+
+`bazel test //...` never makes a coverage run, and a coverage run whose report
+is empty passes: Bazel's `collect_coverage.sh` merges what the test left under
+`COVERAGE_DIR`, and an empty directory is an empty `coverage.dat`.
+`check_coverage_report.sh` runs `//tests/vitest/coverage:math_coverage_test`
+under `bazel coverage --combined_report=lcov` twice, with the default
+`--instrumentation_filter` and with `^//tests/vitest[/:]`, and compares the
+combined report's `SF:` lines with the files each filter selects
+([ts_test § Coverage](rules/ts-test.md#coverage)). It is the last step of the
+`test` job, after the suite, on ubuntu only.
 
 ### Triggering CI
 

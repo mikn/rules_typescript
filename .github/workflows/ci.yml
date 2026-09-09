@@ -74,6 +74,14 @@ jobs:
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bazel build --config=ci //... --output_groups=+_validation
 
+      # The suite never runs `bazel coverage`, and a coverage run whose report
+      # is empty passes; the fixture runs under it here and its report is read.
+      - name: bazel coverage on the fixture names what the filter selects
+        if: >-
+          ${{ !cancelled() && steps.setup.outcome == 'success' &&
+              matrix.os == 'ubuntu-latest' }}
+        run: tools/ci/check_coverage_report.sh
+
   e2e:
     name: E2E Tests
     strategy:
@@ -347,7 +355,7 @@ jobs:
         run: |
           go vet ./gazelle/... ./tests/... ./ts/... \
             ./tools/changelog/... ./tools/copy_to_workspace/... \
-            ./tools/launcher/... ./tools/release/...
+            ./tools/launcher/... ./tools/lcov_merger/... ./tools/release/...
 
       # docs.yml builds the site only on push to main, so until now a PR that
       # broke the nav or a page reference was caught after it had already merged.

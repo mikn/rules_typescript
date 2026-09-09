@@ -13,9 +13,9 @@ func planNodeTest(
 	n := cfg.NodeTest
 	plan.Dir = r.Dir()
 
-	// A coverage run asks for a file node --test has nothing to write into, and
-	// an empty lcov would read as a clean run.
-	if out := os.Getenv("COVERAGE_OUTPUT_FILE"); out != "" {
+	// A coverage run asks for a report node --test cannot write, and an empty
+	// one would read as a clean run.
+	if os.Getenv("COVERAGE_DIR") != "" {
 		return nil, fmt.Errorf(
 			"ts_test: the node:test runner does not report coverage. " +
 				"Run `bazel coverage` against vitest targets, or `bazel test` " +

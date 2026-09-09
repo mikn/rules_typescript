@@ -98,7 +98,8 @@ func planVitest(
 	argv := append(runtime, vitestBin)
 	plan.Argv = append(append(argv, flags...), files...)
 	plan.UseExec = false
-	plan.PostRun = writeCoverage(cfg.Workspace, plan.Dir)
+	root := filepath.Join(filepath.Dir(configFile), v.RootRel)
+	plan.PostRun = writeCoverage(cfg.Workspace, plan.Dir, root)
 	if reads != nil {
 		hook, err := r.Path(v.ReadsHook)
 		if err != nil {
@@ -209,141 +210,67 @@ func shardFiles(r *Resolver, listPath string) ([]testFile, error) {
 }
 
 func coverageFlags() []string {
-	out := os.Getenv("COVERAGE_OUTPUT_FILE")
-	if out == "" {
+	dir := os.Getenv("COVERAGE_DIR")
+	if dir == "" {
 		return nil
 	}
-	dir := filepath.Dir(out)
-	_ = os.MkdirAll(dir, 0o755)
 	return []string{
 		"--coverage.enabled", "true",
 		"--coverage.reporter", "lcov",
-		"--coverage.reportsDirectory", dir,
+		"--coverage.reportsDirectory", filepath.Join(dir, "vitest"),
 	}
 }
 
-func writeCoverage(workspace, runDir string) func(int) error {
-	out := os.Getenv("COVERAGE_OUTPUT_FILE")
-	if out == "" {
+// writeCoverage is the run's post-step under `bazel coverage`: vitest's lcov,
+// its paths made workspace-relative, as the .dat the rule's merger reads.
+func writeCoverage(workspace, runDir, root string) func(int) error {
+	dir := os.Getenv("COVERAGE_DIR")
+	if dir == "" {
 		return nil
 	}
-	manifest := os.Getenv("COVERAGE_MANIFEST")
-	return func(int) error {
-		data, err := os.ReadFile(filepath.Join(filepath.Dir(out), "lcov.info"))
+	return func(code int) error {
+		if code != 0 {
+			return nil
+		}
+		data, err := os.ReadFile(filepath.Join(dir, "vitest", "lcov.info"))
 		if err != nil {
-			return os.WriteFile(out, nil, 0o644)
+			return fmt.Errorf("ts_test: vitest wrote no coverage report: %w", err)
 		}
-		lcov := RewriteLcov(data, workspace, runDir)
-		if selected, ok := readCoverageManifest(manifest); ok {
-			lcov = SelectInstrumented(lcov, selected)
-		}
-		return os.WriteFile(out, lcov, 0o644)
+		lcov := RewriteLcov(data, workspace, runDir, root)
+		return os.WriteFile(filepath.Join(dir, "vitest.dat"), lcov, 0o644)
 	}
 }
 
-// readCoverageManifest reads the files --instrumentation_filter selected for
-// this test, which Bazel writes from the InstrumentedFilesInfo of every target
-// in the test's dependency graph. A manifest that exists and selects nothing is
-// a filter that excluded everything, which is not the same answer as a run with
-// no manifest at all -- hence the second return value.
-func readCoverageManifest(path string) (map[string]bool, bool) {
-	if path == "" {
-		return nil, false
+// RewriteLcov turns the paths vitest reports, relative to its root, into the
+// workspace-relative ones the coverage manifest is matched against.
+func RewriteLcov(data []byte, workspace, runDir, root string) []byte {
+	tree := ""
+	if runDir != "" && workspace != "" {
+		tree = filepath.ToSlash(runDir) + "/" + workspace + "/"
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, false
-	}
-	selected := map[string]bool{}
-	for _, line := range strings.Split(string(data), "\n") {
-		if key := coverageKey(line); key != "" {
-			selected[key] = true
-		}
-	}
-	return selected, true
-}
-
-// SelectInstrumented drops every record naming a file the manifest does not
-// select, which is what makes --instrumentation_filter change the report.
-func SelectInstrumented(data []byte, selected map[string]bool) []byte {
-	text := string(data)
-	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
-	kept := make([]string, 0, len(lines))
-
-	// A record runs from its SF: line to end_of_record; whatever precedes the
-	// SF: (lcov's TN: test-name line) belongs to the record that follows it.
-	record, inRecord, keep := []string{}, false, false
-	for _, line := range lines {
-		if rest, isSF := strings.CutPrefix(line, "SF:"); isSF {
-			inRecord, keep = true, selected[coverageKey(rest)]
-		}
-		record = append(record, line)
-		if line == "end_of_record" {
-			if keep {
-				kept = append(kept, record...)
-			}
-			record, inRecord, keep = nil, false, false
-		}
-	}
-	if !inRecord || keep {
-		kept = append(kept, record...)
-	}
-
-	out := strings.Join(kept, "\n")
-	if out != "" && strings.HasSuffix(text, "\n") {
-		out += "\n"
-	}
-	return []byte(out)
-}
-
-// coverageKey identifies a file across the two spellings of it that have to
-// meet: the manifest names the .ts a target declared, the report names the .js
-// the compiler emitted for it.
-func coverageKey(p string) string {
-	p = filepath.ToSlash(strings.TrimSpace(p))
-	if p == "" {
-		return ""
-	}
-	if rest, ok := strings.CutPrefix(p, "bazel-out/"); ok {
-		if parts := strings.SplitN(rest, "/", 3); len(parts) == 3 {
-			p = parts[2]
-		}
-	}
-	return strings.TrimSuffix(p, filepath.Ext(p))
-}
-
-// RewriteLcov turns the source paths vitest reports into the workspace-relative
-// ones Bazel's lcov_merger expects.
-func RewriteLcov(data []byte, workspace, runDir string) []byte {
-	prefix := "SF:" + workspace + "/"
 	lines := strings.Split(string(data), "\n")
 	for i, line := range lines {
 		rest, isSF := strings.CutPrefix(line, "SF:")
 		if !isSF {
 			continue
 		}
-		if workspace != "" && strings.HasPrefix(line, prefix) {
-			lines[i] = "SF:" + strings.TrimPrefix(line, prefix)
-			continue
+		p := rest
+		if !filepath.IsAbs(p) && root != "" {
+			p = filepath.Join(root, p)
 		}
-		if p, ok := packagePathUnderBazelOut(rest, runDir); ok {
-			lines[i] = "SF:" + p
+		p = filepath.ToSlash(filepath.Clean(p))
+		if tree != "" && strings.HasPrefix(p, tree) {
+			lines[i] = "SF:" + strings.TrimPrefix(p, tree)
+		} else if pkg, ok := packagePathUnderBazelOut(p); ok {
+			lines[i] = "SF:" + pkg
 		}
 	}
 	return []byte(strings.Join(lines, "\n"))
 }
 
-// packagePathUnderBazelOut recovers the package path of a build output named
-// from outside the vite root, which is how istanbul reports a module a pool
-// resolved through its execroot realpath rather than its runfiles symlink.
-func packagePathUnderBazelOut(p, runDir string) (string, bool) {
-	if !filepath.IsAbs(p) {
-		if runDir == "" {
-			return "", false
-		}
-		p = filepath.Join(runDir, p)
-	}
-	p = filepath.ToSlash(filepath.Clean(p))
+// packagePathUnderBazelOut recovers the package path of a build output istanbul
+// named by its execroot realpath: a module a pool resolved past its symlink.
+func packagePathUnderBazelOut(p string) (string, bool) {
 	i := strings.LastIndex(p, "/bazel-out/")
 	if i < 0 {
 		return "", false

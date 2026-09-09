@@ -65,6 +65,9 @@ type VitestConfig struct {
 	TestFilesList string `json:"test_files_list"`
 	NodeModules   string `json:"node_modules,omitempty"`
 	ReadsHook     string `json:"reads_hook,omitempty"`
+	// RootRel is vite's root relative to the config's directory: the package
+	// of a `config` from an ancestor package, "." otherwise.
+	RootRel string `json:"root_rel,omitempty"`
 }
 
 // NodeTestConfig carries no config file: node:test is configured by CLI flags

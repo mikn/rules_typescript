@@ -1,7 +1,8 @@
 """What --instrumentation_filter selects, read off the test target's provider.
 
-The report itself is only reachable from a `bazel coverage` run, so what a
-checked-in test can pin is the selection Bazel hands the runner: the same flag,
+The report itself is only reachable from a `bazel coverage` run, which
+tools/ci/check_coverage_report.sh makes in CI; what a checked-in test can pin
+is the selection Bazel writes to the manifest the merger reads: the same flag,
 two values, one dep on either side of it. The test's own files are a test
 target's, which Bazel leaves out under --noinstrument_test_targets.
 """

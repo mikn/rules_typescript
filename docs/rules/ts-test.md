@@ -350,6 +350,18 @@ read-only snapshot mode, so no `bazel test` writes a `.snap`. Writing one is
 `bazel coverage //path/to:my_test` works on any `ts_test` on the vitest runner
 with no attribute set; `@vitest/coverage-v8` must be in `node_modules`.
 
+Bazel's `collect_coverage.sh` runs the test with `COVERAGE_DIR` set; the
+launcher runs vitest with the lcov reporter and writes the report, its paths
+resolved against vitest's root, the config's package, and made
+workspace-relative, as `vitest.dat` in that directory. Bazel then runs the
+rule's merger, `@rules_typescript//tools/lcov_merger`, over the directory, and
+it keeps the records the coverage manifest selects. The merger is the rule's
+rather than Bazel's own because the manifest names the `.ts` a target declared
+and the report names the `.js` compiled from it, and Bazel's merger keeps a
+record only under the manifest's exact spelling; the rule's matches the two by
+path. `tools/ci/check_coverage_report.sh` runs the two commands below in CI and
+reads the report.
+
 `--instrumentation_filter` selects the targets whose files reach the report.
 Bazel derives a default from the targets on the command line; for
 `bazel coverage //foo:bar_test` that is `^//foo[/:]`, so a library in another

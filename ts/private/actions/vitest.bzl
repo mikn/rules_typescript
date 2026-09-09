@@ -535,4 +535,5 @@ def vitest_config_action(
     return struct(
         config = vitest_config,
         user_config_files = staged_config_files,
+        root_rel = root_rel,
     )

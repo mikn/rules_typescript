@@ -229,6 +229,18 @@ hit. A file that asserts a retired name is absent or inert is listed in
 `ALLOWED` inside the script with the reason; the list is exact in both
 directions. It is the third step of the `test` job.
 
+### Coverage Report
+
+```bash
+tools/ci/check_coverage_report.sh
+```
+
+The suite never runs `bazel coverage`, and a coverage run whose report is
+empty passes. The script runs `//tests/vitest/coverage:math_coverage_test`
+under it twice, with the default `--instrumentation_filter` and with one naming
+`//tests/vitest`, and compares the combined report's `SF:` lines against the
+files each filter selects. It is the step after the suite in the `test` job.
+
 ### Integration Tests
 
 Integration tests spin up an isolated Bazel workspace each to verify end-to-end

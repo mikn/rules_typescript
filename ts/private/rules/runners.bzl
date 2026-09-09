@@ -35,6 +35,7 @@ def _vitest_launch(ctx, test):
     # runfiles library, so manifest-only layouts work like symlink trees.
     section = {
         "config_file": rlocation_path(ctx, written.config),
+        "root_rel": written.root_rel,
         "test_files_list": rlocation_path(ctx, test.test_files_list),
         "reads_hook": rlocation_path(ctx, test.runner.hook),
     }

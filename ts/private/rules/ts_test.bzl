@@ -206,18 +206,14 @@ ts_test = rule(
     test = True,
     attrs = dict(
         TS_COMPILE_ATTRS | _TEST_ATTRS | WORKERS_POOL_ATTRS | LAUNCHER_ATTRS,
-        # Bazel's coverage protocol: `bazel coverage` merges the shards' files
-        # with this binary, --coverage_output_generator's or bazel_tools'.
+        # The report names the compiled .js and Bazel's manifest the .ts, so
+        # the merger is the rule's; docs/rules/ts-test.md § Coverage.
         _lcov_merger = attr.label(
             cfg = "exec",
-            default = configuration_field(
-                fragment = "coverage",
-                name = "output_generator",
-            ),
+            default = Label("//tools/lcov_merger"),
             executable = True,
         ),
     ),
-    fragments = ["coverage"],
     toolchains = TS_COMPILE_TOOLCHAINS + [
         config_common.toolchain_type(
             JS_RUNTIME_TOOLCHAIN_TYPE,

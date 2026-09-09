@@ -2,7 +2,6 @@ package main
 
 import (
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -182,7 +181,7 @@ func TestPlanNodeTestOmitsTheNamePatternWithoutAFilter(t *testing.T) {
 // clean run, so the plan refuses instead.
 func TestPlanNodeTestRefusesACoverageRun(t *testing.T) {
 	r, _ := nodeTestFixture(t)
-	t.Setenv("COVERAGE_OUTPUT_FILE", filepath.Join(t.TempDir(), "out.dat"))
+	t.Setenv("COVERAGE_DIR", t.TempDir())
 	_, err := MakePlan(nodeTestConfig(), r, nil)
 	if err == nil || !strings.Contains(err.Error(), "does not report coverage") {
 		t.Fatalf("want a coverage refusal naming the runner, got %v", err)

@@ -181,6 +181,9 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 - `tools/ci/check_retired_names.sh`: a retired attribute, kind, provider,
   directive, export or path is named in `changelog.d/` and nowhere else. A file
   asserting the absence goes in its `ALLOWED` list with why
+- `tools/ci/check_coverage_report.sh`: `bazel coverage` on the fixture, its
+  report's `SF:` lines against what `--instrumentation_filter` selects; the
+  suite never runs coverage and an empty report passes
 
 **npm:**
 - pnpm is hermetic (`bazel run //:pnpm`). No system pnpm needed.

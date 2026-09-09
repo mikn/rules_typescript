@@ -77,12 +77,19 @@ to rediscover them. Each names the file to change.
   a build output whose realpath sits outside the vite root, so without it istanbul
   instruments nothing and writes an empty report while the run stays green. That
   is the `0 | 0 | 0 | 0` symptom, and removing the one line reproduces it on
-  demand. And istanbul's `SF:` path is an eleven-level escaping relative path that
-  `lcov_merger` passes through verbatim, so the report is not empty but wrong
-  until `RewriteLcov` resolves it against the run directory. `coverageFlags` no
-  longer hardcodes `--coverage.provider v8` (vitest defaults to v8 anyway), so a
-  provider set in a config layer survives; `ts_test` gained a `coverage_provider`
-  attr. Still true: no CI job runs `bazel coverage`.
+  demand. And istanbul's `SF:` path is an eleven-level escaping relative path,
+  so the report is not empty but wrong until `RewriteLcov` resolves it against
+  the run directory. `coverageFlags` no longer hardcodes `--coverage.provider
+  v8` (vitest defaults to v8 anyway), so a provider set in a config layer
+  survives; `ts_test` gained a `coverage_provider` attr. Under Bazel 9.2.0 that
+  report went nowhere: the launcher wrote `COVERAGE_OUTPUT_FILE`, which Bazel's
+  `lcov_merger` then wrote from an empty `COVERAGE_DIR`, and that merger keeps a
+  record only under the manifest's spelling, the `.ts`, where the report names
+  the `.js`. The launcher writes `vitest.dat` under `COVERAGE_DIR`, its paths
+  resolved against vitest's root (the config's package, not the runfiles
+  directory `RewriteLcov` assumed), and `//tools/lcov_merger` is the rule's
+  merger; `tools/ci/check_coverage_report.sh` runs `bazel coverage` on the
+  fixture in the `test` job.
 - **`ts_add_package` takes the hub whose lockfile it edits.** There is one
   `//:add_package_<hub>` per `npm.translate_lock()`, each pinned to that hub's
   `pnpm_lock`, because pnpm rewrites whichever lockfile it resolves against and
@@ -298,10 +305,10 @@ this is a design question, not a checklist.
 
 ### 5.2 Coverage
 - [x] Pass --coverage flag to vitest CLI
-- [x] Collect coverage artifacts and integrate with bazel coverage (`COVERAGE_OUTPUT_FILE` + `_lcov_merger` + `fragments = ["coverage"]`)
-- [x] Collect coverage artifacts (lcov) as test outputs (written to `COVERAGE_OUTPUT_FILE`)
+- [x] Collect coverage artifacts and integrate with bazel coverage (`COVERAGE_DIR` + the rule's `_lcov_merger`, `//tools/lcov_merger`)
+- [x] Collect coverage artifacts (lcov) as test outputs (the launcher writes `vitest.dat` under `COVERAGE_DIR`; the merger writes `coverage.dat`)
 - [x] Integrate with Bazel's `--combined_report=lcov` (combined report produced at `bazel-out/_coverage/_coverage_report.dat`)
-- [ ] Support `--instrumentation_filter` for selective coverage (InstrumentedFilesInfo traversal not yet wired)
+- [x] Support `--instrumentation_filter` for selective coverage (every `ts_compile` carries `InstrumentedFilesInfo`, the merger keeps what the manifest selects; tests/vitest/coverage pins the selection)
 
 ### 5.3 Snapshot Testing
 - [x] Solve the read-only sandbox for snapshot writes. `test.resolveSnapshotPath` points at `<package>/__snapshots__/<source>.snap`; the `.snap` is a src, so a stale or missing one FAILS instead of being rewritten in the sandbox; `CI=true` keeps `bazel test` read-only; writing is `vitest -u` in the package. `--sandbox_writable_path` is no longer involved.
@@ -580,13 +587,13 @@ instantiated it. Publishing is out of scope until one does.
 - [x] Exported via `exports_files(["vite_env.d.ts"])` in `ts/BUILD.bazel`
 
 ### 13.8 Coverage with bazel coverage
-- [x] Configure vitest to write lcov report to a known path (via `COVERAGE_OUTPUT_FILE` env var set by `bazel coverage`)
-- [x] Wire `_lcov_merger` tool for `bazel coverage --combined_report=lcov` (via `_lcov_merger` attr + `fragments = ["coverage"]`)
+- [x] Configure vitest to write lcov report to a known path (under `COVERAGE_DIR`, set by `bazel coverage`)
+- [x] Wire `_lcov_merger` tool for `bazel coverage --combined_report=lcov` (`_lcov_merger = //tools/lcov_merger`)
 - [x] The coverage output is collected as a test output and available in `bazel-testlogs`
 - [x] Test: `bazel coverage //tests/vitest/coverage:math_coverage_test --combined_report=lcov` produces lcov file at `bazel-out/_coverage/_coverage_report.dat`
 - [x] Requires `@vitest/coverage-v8` in npm deps; documented in tests/vitest/coverage/BUILD.bazel
 - [x] node_modules symlink created at RUNFILES root so Vite can resolve `@vitest/coverage-v8` in sandbox
-- [x] lcov paths normalized (`SF:_main/` prefix stripped via sed) before writing to `COVERAGE_OUTPUT_FILE`
+- [x] lcov paths normalized (`SF:_main/` prefix stripped by `RewriteLcov`) before writing `vitest.dat`
 
 ### 13.9 Zero-Prerequisites First Run
 - [x] Document EXACT steps from empty directory to passing build (including Bazelisk install) — see README Requirements section
