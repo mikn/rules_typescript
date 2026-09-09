@@ -283,6 +283,7 @@ trap 'exit 143' TERM INT
 shutdown_ob() {
   [ -d "$1" ] || return 0
   (cd "$CHECKOUT" && "$BAZEL" "--output_base=$1" shutdown) > /dev/null 2>&1
+  chmod -R u+w "$1" 2> /dev/null
   rm -rf "$1"
 }
 
