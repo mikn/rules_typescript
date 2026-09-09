@@ -145,4 +145,4 @@ interface, documented under
 The runtime comes from the `js_runtime` toolchain when `runtime` is unset. The
 launcher `cd`s to `RUNFILES_DIR` before running the script, which is why a
 linter run through one gets execroot-absolute paths
-([ts_lint § Paths](ts-lint.md#paths)).
+([Lint § Paths](../guides/lint.md#paths)).

@@ -6,6 +6,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/mikn/rules_typescript/ts/tools/explainfiles"
 )
 
 // One pnpm importer: the names it declares, each with the version it
@@ -135,20 +137,20 @@ func (l *npmLock) memberView(spec, pkg, kind string) (string, bool) {
 
 // edgeLabel is the one label an edge from a file of pkg into node_modules
 // takes: the specifier's package when it names one, else the listed file's.
-func (l *npmLock) edgeLabel(e edge, pkg, kind string) string {
-	if lbl, ok := l.memberView(e.specifier, pkg, kind); ok {
+func (l *npmLock) edgeLabel(e explainfiles.Edge, pkg, kind string) string {
+	if lbl, ok := l.memberView(e.Specifier, pkg, kind); ok {
 		return lbl
 	}
-	name := npmPackageName(e.to)
-	if e.kind == edgeImport && isBareSpecifier(e.specifier) {
-		name = barePackageName(e.specifier)
+	name := npmPackageName(e.To)
+	if e.Kind == explainfiles.Import && isBareSpecifier(e.Specifier) {
+		name = barePackageName(e.Specifier)
 	}
 	if !l.names[name] {
 		log.Printf("typescript: %s: %q names the npm package %q, which %s does "+
-			"not mention; no dep", e.from, e.specifier, name, pnpmLockfileName)
+			"not mention; no dep", e.From, e.Specifier, name, pnpmLockfileName)
 		return ""
 	}
-	return l.label(name, parentDir(e.from))
+	return l.label(name, parentDir(e.From))
 }
 
 // manifestLabels is a ts_test's runtime union: the manifest's dependencies

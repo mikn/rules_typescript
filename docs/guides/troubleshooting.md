@@ -180,14 +180,14 @@ The tarball is the same both ways; what differs is what the package's own
 dependencies resolve to, and that lives in the one
 `node_modules/<name>/node_modules`.
 
-## imports a module no direct dep provides
+## imports files no direct dep provides
 
 ```
-ERROR: .../src/app/BUILD.bazel:3:11: TsStrictDeps //src/app:app failed: (Exit 1)
-//src/app:app imports a module no direct dep provides:
-
-  src/app/main.ts:1  imports "zod"
-                     add "@npm//:zod" to deps
+ERROR: .../src/app/BUILD.bazel:3:11: TsgoDeclare //src/app:app failed: (Exit 1)
+tsaction: //src/app:app imports files no direct dep provides:
+  src/app/main.ts imports "zod"
+    resolved to node_modules/zod/index.d.ts
+    add @npm//:zod to deps
 ```
 
 The import resolves today only because it reaches this target through another
@@ -198,10 +198,10 @@ the message names, or run Gazelle:
 bazel run //:gazelle
 ```
 
-Gazelle writes `deps` from tsgo's own listing of the program, so a Gazelle run
-that leaves a reported failure unfixed is a bug. Two things are outside the
-check: `/// <reference types="x" />`, which is not an import (it is an edge of
-the listing, so Gazelle writes the dep), and an import nothing in the closure
+Gazelle writes `deps` from tsgo's own listing of the program, the listing the
+check reads, so a Gazelle run that leaves a reported failure unfixed is a bug.
+Outside the check: an edge from a dep's own file, which is that dep's to
+declare; a tsconfig `types` entry; and an import nothing in the closure
 provides, which TypeScript reports as `TS2307`.
 
 ## Option 'baseUrl' has been removed
@@ -237,7 +237,7 @@ no `module` beside it.
 
 tsgo resolves with `moduleResolution: "Bundler"` (what tsgo derives from every
 `module` but `Node16`/`NodeNext`) against the `node_modules` forest built from
-`deps`. A bare import that resolves nowhere, with no `TsStrictDeps` failure and
+`deps`. A bare import that resolves nowhere, with no strict-deps failure and
 only `TS2307`, means no dep in the closure provides it. Add the package:
 
 ```python
@@ -275,8 +275,9 @@ landed in is the label
 that needs a package names it in the `types` of the tsconfig its packages
 extend, which is an edge of every program in the tree.
 
-That is the directive in a file of your own: Gazelle writes the dep it names
-and rewrites nothing else, and the strict-deps checker does not read it. One
+That is the directive in a file of your own: Gazelle writes the dep it names,
+and the tsgo check fails the build while it is missing
+([Deps Have to Be Direct](../rules/ts-compile.md#deps-have-to-be-direct)). One
 in an npm package's declaration entry (`@types/bun/index.d.ts` is
 `/// <reference types="bun-types" />`) is followed by the rule; see
 [`@types/*` packages](../rules/ts-compile.md#types-packages).

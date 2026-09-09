@@ -10,12 +10,12 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/bazelbuild/rules_go/go/runfiles"
 
+	"github.com/mikn/rules_typescript/ts/tools/explainfiles"
 	"github.com/mikn/rules_typescript/ts/tools/tsconfig"
 )
 
@@ -25,36 +25,9 @@ var tsgoRlocationpath string
 // One tsconfig.json as tsgo lists it from the repository root: first-party
 // paths print relative to the root, node_modules and the toolchain's libs under ../.
 type program struct {
-	dir         string
-	files       []string
-	roots       []string
-	edges       []edge
-	types       []typeEntry
-	implicit    []typeEntry
-	diagnostics []string
-	unresolved  []string
-	refused     string
-}
-
-type edgeKind int
-
-const (
-	edgeImport        edgeKind = iota
-	edgeReference              // /// <reference path>
-	edgeTypeReference          // /// <reference types>
-)
-
-type edge struct {
-	kind      edgeKind
-	from      string
-	to        string
-	specifier string
-}
-
-// A compilerOptions.types entry as written, and the file it resolved to.
-type typeEntry struct {
-	entry string
-	file  string
+	explainfiles.Listing
+	dir     string
+	refused string
 }
 
 // One run's listings, one store every directory's config shares: the packages
@@ -74,7 +47,7 @@ type programStore struct {
 	// The vitest configs the generated tests name, listed together at the
 	// first ask into vitestEdges, the listing's edges by importing file.
 	vitestConfigs   map[string]bool
-	vitestEdges     map[string][]edge
+	vitestEdges     map[string][]explainfiles.Edge
 	wranglerConfigs map[string]string
 	installChecked  bool
 	noLockSaid      bool
@@ -186,15 +159,15 @@ func listTsConfigProgram(repoRoot, rel string, tc *tsConfig) {
 		store.say("%s: not listed: %s", cfg, p.refused)
 		return
 	}
-	if isle != nil && len(p.unresolved) > 0 {
+	if isle != nil && len(p.Unresolved) > 0 {
 		log.Printf("typescript: %s: %s is no importer in %s, so pnpm installs "+
 			"nothing for it; tsgo could not resolve: %s", cfg,
 			path.Join(isle.dir, "package.json"), pnpmLockfileName,
-			strings.Join(p.unresolved, ", "))
+			strings.Join(p.Unresolved, ", "))
 	}
 	// tsgo's diagnostics stay on the program and print under -ts_verbose only: a
 	// types entry naming a generated file draws one on every run over a clean checkout.
-	for _, d := range p.diagnostics {
+	for _, d := range p.Diagnostics {
 		store.say("%s: %s", cfg, d)
 	}
 	if store.packages[rel] == nil {
@@ -202,7 +175,7 @@ func listTsConfigProgram(repoRoot, rel string, tc *tsConfig) {
 		return
 	}
 	store.say("%s: %d files listed, %d roots, %d edges, %d type entries",
-		cfg, len(p.files), len(p.roots), len(p.edges), len(p.types))
+		cfg, len(p.Files), len(p.Roots), len(p.Edges), len(p.Types))
 }
 
 // The visited .ts/.tsx/.mts/.cts files no listing names, once every directory
@@ -213,7 +186,7 @@ func (s *programStore) reportUnlisted() {
 	}
 	listed := map[string]bool{}
 	for _, p := range s.programs {
-		for _, f := range p.files {
+		for _, f := range p.Files {
 			listed[f] = true
 		}
 	}
@@ -324,8 +297,8 @@ func (s *programStore) vitestConfig(cfg string) { s.vitestConfigs[cfg] = true }
 
 // configEdges is what cfg and every first-party module it reaches import:
 // the runner imports the config, so the closure's imports are the test's.
-func (s *programStore) configEdges(repoRoot, cfg string) []edge {
-	var out []edge
+func (s *programStore) configEdges(repoRoot, cfg string) []explainfiles.Edge {
+	var out []explainfiles.Edge
 	for _, f := range s.configClosure(repoRoot, cfg) {
 		out = append(out, s.vitestEdges[f]...)
 	}
@@ -346,7 +319,7 @@ func (s *programStore) configSrcs(repoRoot, cfg string) []string {
 // listing's edges: one run over every registered config, at the first ask.
 func (s *programStore) configClosure(repoRoot, cfg string) []string {
 	if s.vitestEdges == nil {
-		s.vitestEdges = map[string][]edge{}
+		s.vitestEdges = map[string][]explainfiles.Edge{}
 		if configs := slices.Sorted(maps.Keys(s.vitestConfigs)); len(configs) > 0 {
 			tsgo, err := s.binary()
 			if err != nil {
@@ -356,8 +329,8 @@ func (s *programStore) configClosure(repoRoot, cfg string) []string {
 			if err != nil {
 				log.Fatalf("typescript: %v", err)
 			}
-			for _, e := range p.edges {
-				s.vitestEdges[e.from] = append(s.vitestEdges[e.from], e)
+			for _, e := range p.Edges {
+				s.vitestEdges[e.From] = append(s.vitestEdges[e.From], e)
 			}
 		}
 	}
@@ -368,9 +341,9 @@ func (s *programStore) configClosure(repoRoot, cfg string) []string {
 	closure := []string{cfg}
 	for i := 0; i < len(closure); i++ {
 		for _, e := range s.vitestEdges[closure[i]] {
-			if firstParty(e.to) && !seen[e.to] {
-				seen[e.to] = true
-				closure = append(closure, e.to)
+			if firstParty(e.To) && !seen[e.To] {
+				seen[e.To] = true
+				closure = append(closure, e.To)
 			}
 		}
 	}
@@ -402,13 +375,13 @@ func (s *programStore) requireInstall(repoRoot string) {
 	}
 }
 
-func (p *program) typeEdges() []edge {
+func (p *program) typeEdges() []explainfiles.Edge {
 	cfg := tsconfigIn(p.dir)
-	var out []edge
-	for _, entries := range [][]typeEntry{p.types, p.implicit} {
+	var out []explainfiles.Edge
+	for _, entries := range [][]explainfiles.TypeEntry{p.Types, p.Implicit} {
 		for _, te := range entries {
-			out = append(out, edge{kind: edgeTypeReference, from: cfg,
-				to: te.file, specifier: te.entry})
+			out = append(out, explainfiles.Edge{Kind: explainfiles.TypeReference,
+				From: cfg, To: te.File, Specifier: te.Entry})
 		}
 	}
 	return out
@@ -423,161 +396,31 @@ func runListing(repoRoot, tsgo, subject string, args []string,
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	runErr := cmd.Run()
-	p, err := parseListing(stdout.String())
+	l, err := explainfiles.Parse(stdout.String())
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", subject, err)
 	}
+	p := &program{Listing: *l}
 	switch {
 	case runErr == nil:
 		return p, nil
-	case len(p.diagnostics) == 0:
+	case len(p.Diagnostics) == 0:
 		return nil, fmt.Errorf("%s: tsgo %s failed (%v) with no diagnostic:\n%s%s",
 			subject, strings.Join(args, " "), runErr, stdout.String(),
 			stderr.String())
-	case len(p.files) > 0, noInputs(p):
+	case len(p.Files) > 0, noInputs(p):
 		return p, nil
 	}
-	p.refused = fmt.Sprintf("tsgo %v: %s", runErr, strings.Join(p.diagnostics, "\n"))
+	p.refused = fmt.Sprintf("tsgo %v: %s", runErr,
+		strings.Join(p.Diagnostics, "\n"))
 	return p, nil
 }
 
 func noInputs(p *program) bool {
-	for _, d := range p.diagnostics {
+	for _, d := range p.Diagnostics {
 		if !strings.Contains(d, "error TS18003:") {
 			return false
 		}
 	}
-	return len(p.diagnostics) > 0
-}
-
-// A file prints on its own line, each reason for it indented three spaces; a
-// diagnostic's continuation lines are indented two.
-var diagnosticLine = regexp.MustCompile(`^(?:\S.*\(\d+,\d+\): )?error TS\d+: `)
-
-// A --traceResolution block runs from its Resolving line to the line saying how
-// it went, all before the listing; its prose sits at column 0 like a path.
-const traceOpens = "======== Resolving "
-
-var notResolved = regexp.MustCompile(
-	`^======== (?:Module name|Type reference directive) '(.*)' was not ` +
-		`resolved\. ========$`)
-
-func parseListing(text string) (*program, error) {
-	p := &program{}
-	var file string
-	inDiagnostic, inTrace := false, false
-	for _, line := range strings.Split(text, "\n") {
-		line = strings.TrimRight(line, "\r")
-		switch {
-		case line == "":
-		case inTrace:
-			if !strings.HasPrefix(line, "========") {
-				continue
-			}
-			inTrace = false
-			m := notResolved.FindStringSubmatch(line)
-			if m != nil && !slices.Contains(p.unresolved, m[1]) {
-				p.unresolved = append(p.unresolved, m[1])
-			}
-		case strings.HasPrefix(line, traceOpens):
-			inTrace = true
-		case inDiagnostic && strings.HasPrefix(line, "  "):
-			p.diagnostics[len(p.diagnostics)-1] += "\n" + line
-		case strings.HasPrefix(line, "   "):
-			if file == "" {
-				return nil, fmt.Errorf("a reason before any file line: %q", line)
-			}
-			if err := readReason(p, file, line[3:]); err != nil {
-				return nil, err
-			}
-		case diagnosticLine.MatchString(line):
-			p.diagnostics = append(p.diagnostics, line)
-			inDiagnostic = true
-		default:
-			file = line
-			p.files = append(p.files, line)
-			inDiagnostic = false
-		}
-	}
-	return p, nil
-}
-
-func readReason(p *program, file, reason string) error {
-	for _, f := range reasonForms {
-		if m := f.re.FindStringSubmatch(reason); m != nil {
-			f.read(p, file, m)
-			return nil
-		}
-	}
-	return fmt.Errorf("%s: unrecognised --explainFiles reason %q; the grammar is tsgo's, pinned in gazelle/program.go", file, reason)
-}
-
-// tsgo's --explainFiles templates for a program without project references,
-// from its string table, each with what it says of its file.
-type reasonForm struct {
-	re   *regexp.Regexp
-	read func(p *program, file string, m []string)
-}
-
-// A quoted value runs to the quote before its form's next literal token, so a
-// quote inside a path parses; a family's longer forms come first for the same reason.
-const (
-	quoted    = `'(.*?)'`
-	specifier = `(".*?"|'.*?')`
-	packageID = ` with packageId '.*?'`
-)
-
-func form(pattern string, read func(p *program, file string, m []string)) reasonForm {
-	return reasonForm{regexp.MustCompile("^" + pattern + "$"), read}
-}
-
-func asRoot(p *program, file string, _ []string) { p.roots = append(p.roots, file) }
-
-func asNothing(*program, string, []string) {}
-
-func asEdge(kind edgeKind) func(p *program, file string, m []string) {
-	return func(p *program, file string, m []string) {
-		spec := m[1]
-		if kind == edgeImport {
-			spec = spec[1 : len(spec)-1]
-		}
-		p.edges = append(p.edges, edge{kind: kind, from: m[2], to: file, specifier: spec})
-	}
-}
-
-func asTypeEntry(p *program, file string, m []string) {
-	p.types = append(p.types, typeEntry{entry: m[1], file: file})
-}
-
-func asImplicit(p *program, file string, m []string) {
-	p.implicit = append(p.implicit, typeEntry{entry: m[1], file: file})
-}
-
-var reasonForms = []reasonForm{
-	form(`Imported via `+specifier+` from file `+quoted+packageID+` to import 'jsx' and 'jsxs' factory functions`, asEdge(edgeImport)),
-	form(`Imported via `+specifier+` from file `+quoted+packageID+` to import 'importHelpers' as specified in compilerOptions`, asEdge(edgeImport)),
-	form(`Imported via `+specifier+` from file `+quoted+packageID, asEdge(edgeImport)),
-	form(`Imported via `+specifier+` from file `+quoted+` to import 'jsx' and 'jsxs' factory functions`, asEdge(edgeImport)),
-	form(`Imported via `+specifier+` from file `+quoted+` to import 'importHelpers' as specified in compilerOptions`, asEdge(edgeImport)),
-	form(`Imported via `+specifier+` from file `+quoted, asEdge(edgeImport)),
-	form(`Referenced via `+quoted+` from file `+quoted, asEdge(edgeReference)),
-	form(`Type library referenced via `+quoted+` from file `+quoted+packageID, asEdge(edgeTypeReference)),
-	form(`Type library referenced via `+quoted+` from file `+quoted, asEdge(edgeTypeReference)),
-	form(`Entry point of type library `+quoted+` specified in compilerOptions`+packageID, asTypeEntry),
-	form(`Entry point of type library `+quoted+` specified in compilerOptions`, asTypeEntry),
-	form(`Entry point for implicit type library `+quoted+packageID, asImplicit),
-	form(`Entry point for implicit type library `+quoted, asImplicit),
-	form(`Matched by include pattern `+quoted+` in `+quoted, asRoot),
-	form(`Matched by default include pattern `+quoted, asRoot),
-	form(`Part of 'files' list in tsconfig.json`, asRoot),
-	form(`Root file specified for compilation`, asRoot),
-	form(`Library referenced via `+quoted+` from file `+quoted, asNothing),
-	form(`Library `+quoted+` specified in compilerOptions`, asNothing),
-	form(`Default library for target `+quoted, asNothing),
-	form(`Default library`, asNothing),
-	form(`File is ECMAScript module because `+quoted+` has field "type" with value "module"`, asNothing),
-	form(`File is CommonJS module because `+quoted+` has field "type" whose value is not "module"`, asNothing),
-	form(`File is CommonJS module because `+quoted+` does not have field "type"`, asNothing),
-	form(`File is CommonJS module because 'package.json' was not found`, asNothing),
-	form(`File redirects to file `+quoted, asNothing),
+	return len(p.Diagnostics) > 0
 }

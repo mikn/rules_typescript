@@ -215,9 +215,8 @@ One root lockfile is the default
 Three things follow from a second hub:
 
 - **Gazelle writes `@npm` alone.** Every npm label it writes names the hub of
-  the root `pnpm-lock.yaml` it reads, and a `ts_lint`'s `linter_binary` names
-  `@npm//:<linter>_bin`. A package whose imports come from another hub writes
-  its `deps` by hand under `# keep`.
+  the root `pnpm-lock.yaml` it reads. A package whose imports come from another
+  hub writes its `deps` by hand under `# keep`.
 - **One `ts_add_package` target per hub.** pnpm rewrites whichever lockfile it
   resolves against, so the hub belongs in the command a person types:
 

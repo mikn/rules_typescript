@@ -174,7 +174,6 @@ func main() {
 		theTsconfigsExcludeIsTheExclusion(it)
 		allowJsCompilesAndDeclares(it)
 		checkedInDeclarationTypesTheJavaScript(it)
-		lintWithoutTheLinterIsRefused(it, gazelleLog)
 		programsAreListedWithTheToolchainsTsgo(it, gazelleLog)
 		handWrittenDevServerIsLeftAlone(it)
 		handWrittenRuleSharesTheProgram(it)
@@ -584,20 +583,6 @@ func programsAreListedWithTheToolchainsTsgo(it *harness.IT, gazelleLog *harness.
 		it.Fail("Gazelle did not report the files in no program once the walk was done")
 	}
 	it.Pass("Gazelle reports the files in no program: %s", summary)
-}
-
-// src/app holds an eslint.config.js and the lockfile has no eslint: a ts_lint
-// naming @npm//:eslint_bin fails the package at analysis, as the build says.
-func lintWithoutTheLinterIsRefused(it *harness.IT, gazelleLog *harness.Log) {
-	it.RequireNotContains(it.Path("src/app/BUILD.bazel"), "ts_lint",
-		"src/app got a ts_lint for a linter the lockfile does not have")
-	it.Pass("src/app/BUILD.bazel carries no ts_lint")
-
-	if !gazelleLog.Contains("src/app/eslint.config.js") {
-		gazelleLog.Dump()
-		it.Fail("Gazelle wrote no ts_lint for src/app and did not say which config it refused")
-	}
-	it.Pass("Gazelle named src/app/eslint.config.js as the config it wrote no ts_lint for")
 }
 
 // A ts_codegen is hand-written; its srcs reach into messages/, which no

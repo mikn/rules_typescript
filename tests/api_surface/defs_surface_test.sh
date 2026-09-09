@@ -22,7 +22,6 @@ cat > "${want}" <<'NAMES'
 BundlerInfo
 DevServerInfo
 TsInfo
-TsLintInfo
 TsTestRunnerInfo
 ts_add_package
 ts_binary
@@ -30,7 +29,6 @@ ts_codegen
 ts_compile
 ts_config
 ts_dev_server
-ts_lint
 ts_pnpm
 ts_refresh_tsconfig
 ts_test

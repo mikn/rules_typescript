@@ -42,10 +42,20 @@ workspace member's hub view forwards the member's.
                         "links in its forest and runtime tree for this " +
                         "target's deps. A package itself arrives through " +
                         "its NpmPackageInfo.",
+        "owners": "depset of struct(label, files): one record per " +
+                  "first-party target in the closure, this one first -- " +
+                  "the label a deps list writes and the declarations and " +
+                  "data it stages. The tsgo action names the owner of a " +
+                  "listed file from these.",
     },
 )
 
 _EMPTY = depset()
+
+def label_text(label):
+    """The label as a deps list writes it, the main repo's @@ dropped."""
+    text = str(label)
+    return text[2:] if text.startswith("@@//") else text
 
 def _or_direct(transitive, direct):
     return direct if transitive == None else transitive
@@ -60,9 +70,16 @@ def ts_info(
         transitive_js_maps = None,
         transitive_declarations = None,
         transitive_data = None,
-        npm_packages = _EMPTY):
+        npm_packages = _EMPTY,
+        label = None):
     """A TsInfo for a target without first-party deps: each closure it
-    leaves unsaid is the direct set."""
+    leaves unsaid is the direct set, and `label` makes it the one owner."""
+    owners = _EMPTY
+    if label:
+        owners = depset([struct(
+            label = label_text(label),
+            files = depset(transitive = [declarations, data]),
+        )])
     return TsInfo(
         js = js,
         js_maps = js_maps,
@@ -77,6 +94,7 @@ def ts_info(
         ),
         transitive_data = _or_direct(transitive_data, data),
         npm_packages = npm_packages,
+        owners = owners,
     )
 
 TsTestRunnerInfo = provider(

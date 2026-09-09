@@ -27,7 +27,7 @@ What is still thin:
 | Type-checking (tsgo) | Production-ready; imports must be satisfied by a direct dep, checked per target |
 | npm deps (pnpm → Bazel) | Production-ready; one repo per package, patches verified at extension time |
 | node_modules trees | Every *resolution* placed — name, version and peer set (primary flat, the rest under `.pnpm/<name>@<version>[_<peer set>]/`, with a relative link per disagreeing edge) |
-| Gazelle BUILD generation | Production-ready (JS/TS, path aliases from tsconfig.json); alias resolution is deterministic, extension-spelling specifiers resolve, and one scanner is shared with the strict-deps check. CI pins four properties of a run over the `gazelle_roundtrip` workspace (the output builds; generating twice from scratch is byte-identical; the test-target set is unchanged; `bazel test //...` passes on the output) and, on this tree, that every test source file is claimed by a test target (`tools/ci/check_test_sources.sh`). A run on this tree is not a no-op: `bazel run //gazelle -- -mode=diff` exits 1; the BUILD files here are hand-written, and nothing pins them to Gazelle's output |
+| Gazelle BUILD generation | Production-ready (JS/TS, path aliases from tsconfig.json); alias resolution is deterministic, extension-spelling specifiers resolve, and deps come from the tsgo listing the strict-deps check reads. CI pins four properties of a run over the `gazelle_roundtrip` workspace (the output builds; generating twice from scratch is byte-identical; the test-target set is unchanged; `bazel test //...` passes on the output) and, on this tree, that every test source file is claimed by a test target (`tools/ci/check_test_sources.sh`). A run on this tree is not a no-op: `bazel run //gazelle -- -mode=diff` exits 1; the BUILD files here are hand-written, and nothing pins them to Gazelle's output |
 | Testing (vitest) | Solid (DOM run for real, coverage, the user's config, snapshots read; written by `vitest -u` in the package, watch mode, debugging) |
 | Bundling | `ts_binary` takes any `BundlerInfo` bundler, in the CLI mode or the generated-Vite-config mode; the ruleset ships no implementation, so nothing in this tree exercises the bundle action |
 | Dev server + HMR | Pluggable: `ts_dev_server(server = ...)` takes a `DevServerInfo`, Vite by default. Serves first-party source with Bazel out of the inner loop; resolves bare npm specifiers through the `node_modules` tree via the `bazel:npm-resolve` plugin; codegen rebuilds and config-aware restarts under ibazel; does not typecheck |
@@ -132,16 +132,6 @@ to rediscover them. Each names the file to change.
   …)`,** the external label, which resolves through the module's self-mapping but
   is not what a maintainer writes by hand — so BUILD files here carry both forms.
   Cosmetic, and it costs a reader a moment every time.
-- **Gazelle's node-builtin list is still hand-written; it is no longer
-  unchecked.** The list omitted 15 names `builtinModules` reports — `sys` and
-  the legacy `_http_*`/`_stream_*`/`_tls_*` modules — so a bare `import "sys"`
-  had Gazelle write `@npm//:sys`, a label no hub declares, while the checker
-  treated it as a builtin. `//tests/strict_deps:checker_test` now compares the
-  list against the toolchain node's own `builtinModules`, so a `node_version`
-  bump that adds a bare builtin fails there and names it. A prefix-only module
-  (`node:sqlite`, `node:test`) was never at risk: `resolveNpmPackage` answers on
-  the prefix before any name is consulted. Two recognisers of one thing; see
-  AGENTS.md.
 - **Gazelle keeps emitting the external `@rules_typescript//` load label inside
   this repository.** A per-run "generating for self" flag was tried and reverted:
   `Loads()` has no directory context, so one flag decides for the whole walk --
@@ -454,9 +444,8 @@ this is a design question, not a checklist.
 - [ ] Consider progress messages in actions ("Compiling 5 TypeScript files...")
 
 ### 9.4 Linting Integration
-- [x] Create `ts_lint` rule wrapping eslint or oxlint
-- [x] Wire as a validation action (like type-checking)
-- [x] Gazelle generates `ts_lint` targets alongside `ts_compile` when an oxlint.json or .eslintrc.* config is detected
+- [x] `ts.lint(binary, config, fail_on_warnings)` in the root MODULE.bazel names the linter once
+- [x] Every `ts_compile` and `ts_test` runs it as a validation action (like type-checking)
 
 ---
 
@@ -633,7 +622,7 @@ Sub-projects that unlock real application support:
 **What works today:**
 - Pure TypeScript library monorepo with npm deps, vitest tests, hermetic builds. Good for backend services, shared libraries, CLI tools.
 - CSS and asset support: a `.css`, an image or a `.json` is a src of the `ts_compile` that imports it, typed by the tsconfig and staged beside the compiled `.js`.
-- Gazelle: generates ts_compile, ts_test and ts_lint targets from TypeScript source files. Reads path aliases from tsconfig.json compilerOptions.paths/baseUrl.
+- Gazelle: generates ts_compile and ts_test targets from TypeScript source files. Reads path aliases from tsconfig.json compilerOptions.paths/baseUrl.
 - Dev server: ts_dev_server serves first-party source through Vite with Bazel out of the inner loop; bazel-bin supplies codegen output, assets and the npm tree. Under ibazel one Vite process lives across rebuilds and restarts only when the config's own inputs change. It does not typecheck, which is native Vite parity but makes the editor load-bearing. bundler attr accepts BundlerInfo for custom dev server implementations. react_refresh = True wires @vitejs/plugin-react for React Fast Refresh.
 - CI/CD: documented remote caching (BuildBuddy/EngFlow/self-hosted), remote execution, GitLab CI template, and known sources of non-determinism. Documented, not exercised: this repository's own CI configures no remote or disk cache.
 

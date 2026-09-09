@@ -110,18 +110,6 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 				"visibility": true,
 			},
 		},
-		"ts_lint": {
-			NonEmptyAttrs: map[string]bool{
-				"srcs": true,
-			},
-			MergeableAttrs: map[string]bool{
-				"srcs":             true,
-				"linter":           true,
-				"linter_binary":    true,
-				"config":           true,
-				"fail_on_warnings": true,
-			},
-		},
 		// ts_codegen is hand-written and never generated; a Kind so that its
 		// out_dir is indexed (codegenTreeSpecs) and its outs are deps (D9).
 		"ts_codegen": {},

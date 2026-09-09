@@ -26,7 +26,8 @@ is an output, so tsaction runs it from a program root that mirrors the exec
 root with the forest at its node_modules, and every import resolves as it does
 over a pnpm install. Under --//ts:declarations=oxc the check is a validation
 action in the _validation output group: it runs during `bazel build` and does
-not block downstream compilation.
+not block downstream compilation. The linter the root module's ts.lint() names
+runs over the same sources as a second validation action, TsLint.
 
 The rule has three attributes: srcs, deps and tsconfig. Every compiler option is
 the tsconfig's; the emit knobs are the build flags //ts:declarations (tsgo|oxc),
@@ -42,6 +43,7 @@ load(
     "NpmPackageInfo",
     "TsConfigInfo",
     "TsInfo",
+    "label_text",
 )
 load("//ts/private:runtime.bzl", "JS_TOOL_TOOLCHAIN_TYPE")
 load(
@@ -51,18 +53,19 @@ load(
     "get_oxc_toolchain",
 )
 load("//ts/private/actions:forest.bzl", "forest_action", "forest_packages")
+load("//ts/private/actions:lint.bzl", "LintConfigInfo", "lint_action")
 load("//ts/private/actions:oxc.bzl", "oxc_compile_action")
-load(
-    "//ts/private/actions:strict_deps.bzl",
-    "npm_hub_entry",
-    "strict_deps_check",
-)
 load(
     "//ts/private/actions:tsconfig.bzl",
     "tsconfig_action",
     "write_baseline_tsconfig",
 )
-load("//ts/private/actions:tsgo.bzl", "tsgo_action")
+load(
+    "//ts/private/actions:tsgo.bzl",
+    "npm_hub_entry",
+    "ownership_manifest",
+    "tsgo_action",
+)
 
 _TS_EXTENSIONS = ["ts", "tsx"]
 
@@ -199,12 +202,10 @@ def compile_program(ctx):
     transitive_js_map_sets = []
     transitive_data_sets = []
 
-    # What the direct deps produce themselves, which is the set an import has to
-    # be satisfied from. The transitive sets above stay the action inputs.
-    direct_provided_sets = []
-
     direct_npm_infos = []
     direct_npm_names = {}
+    direct_labels = []
+    owner_sets = []
 
     # A dep linked in the forest reaches the program and the runtime there; a
     # copy of its files at their exec paths would duplicate every module.
@@ -220,46 +221,28 @@ def compile_program(ctx):
         transitive_js_sets.append(info.transitive_js)
         transitive_js_map_sets.append(info.transitive_js_maps)
         transitive_data_sets.append(info.transitive_data)
-        direct_provided_sets.append(info.declarations)
-        direct_provided_sets.append(info.js)
-        direct_provided_sets.append(info.data)
+        direct_labels.append(label_text(dep.label))
+        owner_sets.append(info.owners)
 
     packages = forest_packages(direct_npm_infos, dep_npm_package_sets)
 
-    # One entry per name for the undeclared-import check, direct deps first. A
-    # workspace member has no package_dir: npm_direct answers for its view.
-    reachable_by_name = {}
-    for npm_info in packages:
-        name = npm_info.package_name
-        if npm_info.package_dir and name not in reachable_by_name:
-            reachable_by_name[name] = npm_info
+    # The forest links a direct package's @types twin for it (ts_npm_package's
+    # types_dep), so an edge into the twin is declared by the package.
+    forest_names = {info.package_name: True for info in packages}
+    npm_declared = dict(direct_npm_names)
+    for name in direct_npm_names:
+        if not name.startswith("@") and "@types/" + name in forest_names:
+            npm_declared["@types/" + name] = True
+    npm_reachable = []
+    for info in packages:
+        if info.package_name not in npm_declared:
+            npm_declared[info.package_name] = False
+            npm_reachable.append(npm_hub_entry(info))
 
     dep_dts_depset = depset(
         transitive = transitive_dts_sets,
         order = "postorder",
     )
-
-    # No deps, no closure to arrive through: nothing an import could resolve to
-    # that a direct dep does not provide.
-    scan_srcs = compile_srcs + js_srcs + passthrough_dts
-    strict_deps = None
-    if ctx.attr.deps and scan_srcs:
-        strict_deps = strict_deps_check(
-            ctx = ctx,
-            scan_srcs = scan_srcs,
-            own_files = ctx.files.srcs,
-            direct_provided = depset(transitive = direct_provided_sets),
-            transitive_provided = depset(transitive = (
-                transitive_dts_sets + transitive_js_sets + transitive_data_sets
-            )),
-            npm_direct = sorted(direct_npm_names),
-            npm_reachable = [
-                npm_hub_entry(reachable_by_name[name])
-                for name in sorted(reachable_by_name)
-            ],
-        )
-    strict_deps_inputs = [strict_deps.stamp] if strict_deps else []
-    strict_deps_gated = False
 
     # Starlark cannot read the file to follow its extends chain, so a ts_config
     # target declares it and every file in it is an action input.
@@ -358,6 +341,14 @@ def compile_program(ctx):
         js_passthrough + data_staged
     )
 
+    owners = depset(
+        [struct(
+            label = label_text(ctx.label),
+            files = depset(dts_outputs + passthrough_dts + data_staged),
+        )],
+        transitive = owner_sets,
+    )
+
     program_srcs = compile_srcs + js_srcs
     check_srcs = compile_srcs + js_srcs + passthrough_dts
 
@@ -429,7 +420,6 @@ def compile_program(ctx):
         options_file = written.options
 
     for root in sorted(oxc_srcs_by_root.keys()):
-        strict_deps_gated = True
         oxc_compile_action(
             ctx,
             oxc = oxc,
@@ -441,15 +431,25 @@ def compile_program(ctx):
             dep_dts = dep_dts_depset,
             source_map = source_map,
             emit_dts = oxc_emits_dts,
-            gate = strict_deps_inputs,
         )
 
     forest = None
     validation_outputs = []
     if program_srcs:
         forest = forest_action(ctx, packages)
-        strict_deps_gated = True
         emit_outputs = dts_outputs + dts_map_outputs if tsgo_emits_dts else []
+        ownership = ownership_manifest(
+            ctx,
+            own = check_srcs + json_srcs,
+            direct = direct_labels,
+            owners = owners,
+            npm_declared = sorted([
+                name
+                for name in npm_declared
+                if npm_declared[name]
+            ]),
+            npm_reachable = npm_reachable,
+        )
         stamp = tsgo_action(
             ctx,
             tsgo = tsgo,
@@ -457,17 +457,16 @@ def compile_program(ctx):
             forest = forest,
             srcs = check_srcs + json_srcs + dep_json,
             chain = tsconfig_chain,
-            gate = strict_deps_inputs,
             dep_dts = dep_dts_depset,
+            ownership = ownership,
             emit_outputs = emit_outputs,
         )
         if stamp:
             validation_outputs.append(stamp)
 
-    # A target with declarations alone has no compile action to hang the stamp
-    # on, so it goes in the output group Bazel requests for every target.
-    if strict_deps and not strict_deps_gated:
-        validation_outputs.append(strict_deps.stamp)
+    lint = ctx.attr._lint[LintConfigInfo]
+    if lint.binary and check_srcs:
+        validation_outputs.append(lint_action(ctx, lint, check_srcs))
 
     direct_dts = depset(dts_outputs + passthrough_dts, order = "postorder")
     direct_js = depset(js_outputs + js_passthrough, order = "postorder")
@@ -509,6 +508,7 @@ def compile_program(ctx):
             transitive = dep_npm_package_sets,
             order = "postorder",
         ),
+        owners = owners,
     )
 
     output_groups = {}
@@ -519,13 +519,6 @@ def compile_program(ctx):
         output_groups["tsconfig"] = depset([tsconfig])
     if validation_outputs:
         output_groups["_validation"] = depset(validation_outputs)
-    if strict_deps:
-        # Requesting this group alone checks every target's deps without
-        # compiling anything, since the check reads only the target's own srcs.
-        output_groups["strict_deps"] = depset([
-            strict_deps.stamp,
-            strict_deps.checker,
-        ])
 
     return struct(
         outputs = all_outputs + passthrough_dts,
@@ -640,6 +633,10 @@ for all of them but Node16/NodeNext.""",
         default = Label("//ts/tools/tsaction"),
         executable = True,
         cfg = "exec",
+    ),
+    "_lint": attr.label(
+        default = Label("//ts:lint"),
+        providers = [LintConfigInfo],
     ),
     "_declarations": attr.label(default = Label("//ts:declarations")),
     "_source_map": attr.label(default = Label("//ts:source_map")),

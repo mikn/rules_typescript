@@ -107,5 +107,88 @@ func main() {
 			it.Fail("//src/app did not recompile after src/lib's .d.ts changed")
 		}
 		it.Pass("//src/app recompiled once the .d.ts changed")
+
+		strictDeps(it)
 	})
+}
+
+// A type-only import through a `paths` alias reaches a file only a dep's dep
+// owns; the build names that dep, and declaring it is the fix.
+func strictDeps(it *harness.IT) {
+	it.Write(it.Path("strict/hidden.ts"), `export interface Hidden {
+  id: string;
+}
+`)
+	it.Write(it.Path("strict/leaf.ts"), `import type { Hidden } from "./hidden";
+
+export interface Leaf {
+  base: Hidden;
+}
+`)
+	it.Write(it.Path("strict/middle.ts"),
+		`import type { Hidden } from "#strict/hidden";
+import type { Leaf } from "./leaf";
+
+export interface Middle {
+  base: Hidden;
+  leaf: Leaf;
+}
+`)
+	it.Write(it.Path("strict/tsconfig.json"), `{
+  "compilerOptions": {
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "target": "es2022",
+    "strict": true,
+    "paths": { "#strict/*": ["./*"] }
+  }
+}
+`)
+	it.Write(it.Path("strict/BUILD.bazel"),
+		`load("@rules_typescript//ts:defs.bzl", "ts_compile")
+
+ts_compile(
+    name = "hidden",
+    srcs = ["hidden.ts"],
+)
+
+ts_compile(
+    name = "leaf",
+    srcs = ["leaf.ts"],
+    deps = [":hidden"],
+)
+
+ts_compile(
+    name = "middle",
+    srcs = ["middle.ts"],
+    tsconfig = "tsconfig.json",
+    deps = [":leaf"],
+)
+`)
+
+	log, err := it.BazelLog("strict_deps.log", "build", "//strict:middle")
+	if err == nil {
+		log.Dump()
+		it.Fail("//strict:middle built; middle.ts reaches hidden.d.ts " +
+			"through :leaf alone")
+	}
+	it.Pass("//strict:middle failed to build")
+	if !log.Contains("add //strict:hidden to deps") {
+		log.Dump()
+		it.Fail("the failure does not name //strict:hidden as the dep to add")
+	}
+	var excerpt []string
+	for _, line := range log.Lines() {
+		if strings.Contains(line, "tsaction:") || strings.HasPrefix(line, "  ") {
+			excerpt = append(excerpt, line)
+		}
+	}
+	fmt.Printf("INFO: the failure:\n%s\n", strings.Join(excerpt, "\n"))
+	it.Pass("the failure names //strict:hidden")
+
+	it.Replace(it.Path("strict/BUILD.bazel"),
+		"    deps = [\":leaf\"],\n",
+		"    deps = [\n        \":hidden\",\n        \":leaf\",\n    ],\n")
+	it.MustBazel("build", "//strict:middle")
+	it.Pass("//strict:middle builds with :hidden declared")
 }

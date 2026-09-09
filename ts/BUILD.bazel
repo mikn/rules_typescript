@@ -37,6 +37,13 @@ bool_flag(
     build_setting_default = False,
 )
 
+# The linter every compile runs: ts.lint() in the root MODULE.bazel writes the
+# lint_config this names.
+label_flag(
+    name = "lint",
+    build_setting_default = "@lint_config//:lint",
+)
+
 # //tests/api_surface:defs_surface_test reads the exported names out of it.
 exports_files(["defs.bzl"])
 
@@ -50,7 +57,6 @@ bzl_library(
         "//ts/private:ts_codegen",
         "//ts/private:ts_config",
         "//ts/private:ts_dev_server",
-        "//ts/private:ts_lint",
         "//ts/private/rules:ts_compile",
         "//ts/private/rules:ts_test",
     ],
@@ -63,5 +69,6 @@ bzl_library(
         "//npm/private:npm_translate_lock",
         "//ts/private:toolchain",
         "//ts/private:tsgo_lock",
+        "//ts/private/actions:lint",
     ],
 )

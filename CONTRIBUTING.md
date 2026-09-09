@@ -406,16 +406,17 @@ extension written in Go.
 | File | Role |
 |---|---|
 | `gazelle/language.go` | Entry point: registers the language, `Kinds()`, `Loads()`; `KnownDirectives()` is empty |
-| `gazelle/program.go` | The tsgo listing of each `tsconfig.json` and its `--explainFiles` grammar; the combined run over the vitest configs; the install check |
+| `gazelle/program.go` | The tsgo listing of each `tsconfig.json`; the combined run over the vitest configs; the install check |
 | `gazelle/owner.go` | The run's packages, `owner(f)`, the test/library/declaration split, the unowned report |
 | `gazelle/npm.go` | The lockfile gate, the importer-scoped label, the member table and the member view |
 | `gazelle/manifest.go` | The nearest `package.json`: its name, its dependencies |
 | `gazelle/generate.go` | One package's rules from the owner map; `Empty` where no program is |
 | `gazelle/resolve.go` | `deps` from the listing's edges: one label per edge target |
 | `gazelle/workers_pool.go` | The Workers pool's half: the wrangler config a vitest config names as a `filegroup`, and a pooled `ts_test`'s `wrangler_config`, `coverage_provider` and istanbul dep |
-| `gazelle/config.go` | The root-once lockfile load, the `ts_codegen` bookkeeping, linter detection |
+| `gazelle/config.go` | The root-once lockfile load, the `ts_codegen` bookkeeping |
 | `gazelle/keep.go` | The managed-attribute reports: what a run drops and what it cannot merge |
 | `gazelle/pnpm_lock.go` | The lockfile's names, importers, links and aliases |
+| `ts/tools/explainfiles/` | The `--explainFiles` grammar: one listing's files, roots, edges and `types` entries -- shared with the build actions |
 | `ts/tools/tsconfig/` | The `tsconfig.json` reader -- one file, or its `extends` chain flattened leaf-wins -- shared with the build actions |
 | `ts/tools/jsonc/` | JSONC parser, so a commented `tsconfig.json` still yields its `paths` |
 

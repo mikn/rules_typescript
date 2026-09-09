@@ -193,8 +193,8 @@ A tsconfig passed as a plain file declares nothing, so one that sets `preserve`
 fails the same way, for a target with a `.tsx` src, without a `ts_config`;
 a `.ts`-only program has nothing `jsx` names. From the declaration on, the
 emit is tsc's: oxc names the file `.jsx` when it transforms under
-`--jsx preserve`, the strict-deps scanner and every consumer stage a `.jsx` as
-they stage a `.js`, a `ts_test` runs a `.jsx` test file and resolves a `.tsx`
+`--jsx preserve`, every consumer stages a `.jsx` as it stages a `.js`, a
+`ts_test` runs a `.jsx` test file and resolves a `.tsx`
 setup file to it, and the hub's view of a member links a `.jsx` at its
 package-relative path with the member's manifest as built naming it: the view
 reads the declaration off the compiling target's `ts_config` and rewrites a
@@ -249,37 +249,50 @@ and is not judged.
 
 ## Deps Have to Be Direct
 
-A source may import only what a **direct** dep provides. Every `ts_compile`
-target that has both sources and `deps` runs a `TsStrictDeps` action, which
-reads those sources and fails on any specifier that resolves only because it
-arrives through another dep's own deps:
+A source may import only what a **direct** dep provides. The one tsgo action a
+target runs -- `TsgoDeclare`, or `TsgoCheck` under `--//ts:declarations=oxc`
+-- runs with `--explainFiles`, and tsaction reads the listing it prints, every
+file in the program with the edge that brought it in, against an ownership
+manifest the rule writes beside it: the target's own srcs, each first-party
+target in the closure with the files it stages (`TsInfo.owners`), and the
+forest's packages split into the ones `deps` declare and the ones another
+package's closure carries. An edge from one of the target's own files into a
+file whose owner is not in `deps` fails the action, naming the label:
 
 ```
-ERROR: .../src/app/BUILD.bazel:3:11: TsStrictDeps //src/app:app failed: (Exit 1)
-//src/app:app imports modules no direct dep provides:
-
-  src/app/main.ts:1  imports "./hidden"
-                     add "//src/app:hidden" to deps
-  src/app/main.ts:2  imports "zod"
-                     add "@npm//:zod" to deps
-
-Each of those resolves today only because it reaches this target through
-another dep's own deps, and stops resolving the moment that dep drops it.
-Re-run gazelle to regenerate deps, or add the labels above by hand.
+ERROR: .../src/app/BUILD.bazel:3:11: TsgoDeclare //src/app:app failed: (Exit 1)
+tsaction: //src/app:app imports files no direct dep provides:
+  src/app/main.ts imports "./hidden"
+    resolved to bazel-out/k8-fastbuild/bin/src/app/hidden.d.ts
+    add //src/app:hidden to deps
+  src/app/main.ts imports "zod"
+    resolved to node_modules/zod/index.d.ts
+    add @npm//:zod to deps
+Each reaches this target only through another dep's own deps. Run Gazelle,
+which writes deps from these edges, or add the labels above by hand.
 ```
 
-`bazel run //:gazelle` writes those labels. There is no flag and no opt-out.
+`bazel run //:gazelle` writes those labels from the same listing. There is no
+flag and no opt-out. The npm label in the message is the hub's root view,
+`@<hub>//:<name>`; Gazelle spells a name the nearest lockfile importer declares
+under that importer, `@npm//web:zod`, the version the importing file's own
+`package.json` resolved
+([The Lockfile Gate](../gazelle/overview.md#the-lockfile-gate)).
 
-**What is checked:** relative imports, and bare specifiers that name an npm
-package the closure carries. **What is exempt:** Node builtins and `node:`
-specifiers, and a specifier no package in the closure answers, a tsconfig
-`paths` alias included: an alias resolves to files this target already stages,
-and an import nothing provides has no label to suggest, so TypeScript reports it
-as `TS2307`.
+**What is checked:** every `Imported via`, `Referenced via` and `Type library
+referenced via` edge whose importer is one of the target's own files -- a
+type-only import, a `paths` alias, an `import()` type, a `/// <reference
+path>`, a `/// <reference types>` and the JSX runtime import tsgo adds to every
+`.tsx` alike, since tsgo resolved each one and says which file it landed in. A
+file under `node_modules/` belongs to the package the segments after the last
+`node_modules/` name; a direct package's `@types/<name>` twin, which the forest
+links for it, counts as declared. An edge into the target's own srcs passes.
 
-`/// <reference types="x" />` is not checked: it is not an import. The dep it
-names is Gazelle's to write
-([Import Resolution](../gazelle/overview.md#import-resolution)).
+**What is exempt:** an edge from a dep's own file, which is that dep's to
+declare; a tsconfig `types` entry, which is an entry rather than an edge; the
+toolchain's `lib.*.d.ts`; and a specifier tsgo could not resolve, which has no
+file to own and is `TS2307`. A target with no program -- declarations alone in
+`srcs` -- runs no tsgo action, and so has no edges to check.
 
 ### The node_modules Forest
 
@@ -635,23 +648,18 @@ The fields, and the load path, are in
 - **`OutputGroupInfo(tsconfig=...)`**: the tsconfig this target handed the
   compiler, on any target with a program
 - **`OutputGroupInfo(_validation=...)`**: the tsgo check stamp, written only
-  under `--//ts:declarations=oxc`; under the default the declarations are the
-  tsgo action's own outputs.
-- **`OutputGroupInfo(strict_deps=...)`**: the `TsStrictDeps` stamp, on any
-  target with both `deps` and sources. The compile actions take it as an input,
-  so a violation fails a plain `bazel build`; the output group exposes the stamp
-  and the checker on their own.
+  under `--//ts:declarations=oxc` (under the default the declarations are the
+  tsgo action's own outputs), and the `TsLint` stamp when the root module's
+  `ts.lint()` names a linter ([Lint](../guides/lint.md)).
 
 ## Architecture
 
-Four actions per target, each a function in `ts/private/actions/` --
-`strict_deps.bzl`, `tsconfig.bzl`, `oxc.bzl`, `tsgo.bzl`, with the forest the
-last one reads in `forest.bzl`; the rule in `ts/private/rules/ts_compile.bzl`
-declares the outputs, calls them in this order and builds the providers.
-`TsStrictDeps` runs first, as a Node action over a
-params-file manifest of the target's declared and reachable providers. Its
-scanner is a character walk over the source: a quoted string is a specifier only
-when the tokens before it say so.
+Three actions per target, each a function in `ts/private/actions/` --
+`tsconfig.bzl`, `oxc.bzl`, `tsgo.bzl`, with the forest the last one reads in
+`forest.bzl`, and a fourth, `lint.bzl`'s `TsLint`, when the root module's
+`ts.lint()` names a linter ([Lint](../guides/lint.md)); the rule in
+`ts/private/rules/ts_compile.bzl` declares the outputs, calls them in this
+order and builds the providers.
 
 `TsConfig` writes `<name>.tsconfig.json` and `<name>.options.json` from
 `tsgo --showConfig` ([above](#where-compiler-options-come-from)). `OxcCompile`
@@ -664,7 +672,9 @@ processes each `.ts` file with the options file's `target`, `jsx` and
 4. TypeScript/JSX transform (oxc_transformer)
 5. Code generation (oxc_codegen) for `.js` + `.js.map`
 
-tsgo runs from the program root, with `--project` on the written tsconfig.
+tsgo runs from the program root, with `--project` on the written tsconfig and
+`--explainFiles`; tsaction reads the listing against the ownership manifest
+([Deps Have to Be Direct](#deps-have-to-be-direct)).
 Under `--//ts:declarations=tsgo` that tsconfig sets `declaration`,
 `emitDeclarationOnly`, `rootDir` and `outDir` so the emitted declarations land
 beside Oxc's `.js` (mnemonic `TsgoDeclare`). Under `oxc` it runs with `--noEmit`

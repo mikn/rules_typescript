@@ -4,7 +4,6 @@ Users should load rules from this file:
     load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_test", "ts_binary")
     load("@rules_typescript//ts:defs.bzl", "TsInfo", "BundlerInfo")
     load("@rules_typescript//ts:defs.bzl", "DevServerInfo", "TsTestRunnerInfo")
-    load("@rules_typescript//ts:defs.bzl", "ts_lint", "TsLintInfo")
     load("@rules_typescript//ts:defs.bzl", "ts_pnpm", "ts_add_package", "ts_refresh_tsconfig")
     load("@rules_typescript//ts:defs.bzl", "ts_codegen")
 """
@@ -21,7 +20,6 @@ load("//ts/private:ts_binary.bzl", _ts_binary = "ts_binary")
 load("//ts/private:ts_codegen.bzl", _ts_codegen = "ts_codegen")
 load("//ts/private:ts_config.bzl", _ts_config = "ts_config")
 load("//ts/private:ts_dev_server.bzl", _ts_dev_server = "ts_dev_server")
-load("//ts/private:ts_lint.bzl", _TsLintInfo = "TsLintInfo", _ts_lint = "ts_lint")
 load(
     "//ts/private:tsconfig_aspect.bzl",
     _ts_refresh_tsconfig = "ts_refresh_tsconfig",
@@ -33,7 +31,6 @@ load("//ts/private/rules:ts_test.bzl", _ts_test = "ts_test")
 TsInfo = _TsInfo
 BundlerInfo = _BundlerInfo
 DevServerInfo = _DevServerInfo
-TsLintInfo = _TsLintInfo
 TsTestRunnerInfo = _TsTestRunnerInfo
 
 # The compile rule: srcs, deps, tsconfig. Every compiler option is the
@@ -50,9 +47,6 @@ ts_binary = _ts_binary
 
 # Dev server rule; `server` takes any target returning DevServerInfo.
 ts_dev_server = _ts_dev_server
-
-# Lint rule.
-ts_lint = _ts_lint
 
 # Hermetic pnpm workspace macros, and the IDE tsconfig's run target.
 ts_pnpm = _ts_pnpm

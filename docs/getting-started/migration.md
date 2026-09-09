@@ -88,8 +88,8 @@ An import has to be satisfied by a direct dep. A declaration arriving through
 another dep's own deps does not count, and the error names the label to add.
 `rules_ts` passes the whole transitive closure to `tsc`, so a target can compile
 against a dependency it never declared and break when an unrelated package drops
-one. BUILD files must therefore be accurate; Gazelle generates them from the
-same specifier scanner the check uses.
+one. BUILD files must therefore be accurate; Gazelle writes them from the same
+tsgo listing the check reads.
 
 ### Incremental Boundary
 
@@ -117,8 +117,7 @@ toolchains. `rules_ts` needs neither.
 ### Gazelle
 
 Open-source BUILD file generation: one package per `tsconfig.json`, its deps
-from tsgo's own listing of the program, lint targets beside it, and no
-directive of its own. `rules_ts` relies on the proprietary Aspect CLI.
+from tsgo's own listing of the program, and no directive of its own. `rules_ts` relies on the proprietary Aspect CLI.
 
 ### System Prerequisites
 

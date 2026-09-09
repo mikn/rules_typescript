@@ -87,8 +87,16 @@ use_repo(
 # ─── TypeScript toolchains ──────────────────────────────────────────────────
 
 ts = use_extension("//ts:extensions.bzl", "ts")
+
+# Every fixture ts_compile and ts_test lints under the test hub's oxlint;
+# //tests/lint_real is the proof.
+ts.lint(
+    binary = "@npm//:oxlint_bin",
+    config = "//tests/lint_real:oxlint.json",
+)
 use_repo(
     ts,
+    "lint_config",
     "tsgo_darwin_amd64",
     "tsgo_darwin_arm64",
     "tsgo_linux_amd64",

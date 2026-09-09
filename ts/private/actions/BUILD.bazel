@@ -19,14 +19,13 @@ bzl_library(
 )
 
 bzl_library(
-    name = "oxc",
-    srcs = ["oxc.bzl"],
+    name = "lint",
+    srcs = ["lint.bzl"],
 )
 
 bzl_library(
-    name = "strict_deps",
-    srcs = ["strict_deps.bzl"],
-    deps = ["//ts/private:runtime"],
+    name = "oxc",
+    srcs = ["oxc.bzl"],
 )
 
 bzl_library(
@@ -37,6 +36,7 @@ bzl_library(
 bzl_library(
     name = "tsgo",
     srcs = ["tsgo.bzl"],
+    deps = ["//ts/private:providers"],
 )
 
 bzl_library(

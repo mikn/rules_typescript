@@ -1,8 +1,9 @@
-"""Module extension for the rules_typescript compiler toolchains."""
+"""Module extension for the rules_typescript compiler toolchains and linter."""
 
 load("//npm/private:npm_translate_lock.bzl", "npmrc_registries")
 load("//ts/private:toolchain.bzl", "TSGO_PLATFORMS", "tsgo_toolchain_repo")
 load("//ts/private:tsgo_lock.bzl", "tsgo_from_pnpm_lock", "tsgo_from_version")
+load("//ts/private/actions:lint.bzl", "lint_config_repo")
 
 # Label(), not a string, so it resolves in this repository from any consumer.
 _DEFAULT_TSGO_LOCK = Label("//ts/private/tsgo:pnpm-lock.yaml")
@@ -37,6 +38,18 @@ def _spec_for(module_ctx, tag):
         return tsgo_from_version(tag.package, tag.version, TSGO_PLATFORMS, _registries(module_ctx, tag.npmrc))
     fail("ts.tsgo(): set pnpm_lock (the lockfile whose TypeScript the toolchain fetches, verified) or version (a release to download unverified).")
 
+def _lint_for(module_ctx):
+    for mod in module_ctx.modules:
+        if mod.is_root:
+            if len(mod.tags.lint) > 1:
+                fail(("ts.lint(): the root module calls it {} times; one " +
+                      "call names the linter every target runs.").format(
+                    len(mod.tags.lint),
+                ))
+            for tag in mod.tags.lint:
+                return tag
+    return None
+
 def _ts_impl(module_ctx):
     tag = None
     for mod in module_ctx.modules:
@@ -47,6 +60,14 @@ def _ts_impl(module_ctx):
     spec = _spec_for(module_ctx, tag)
     if spec.error:
         fail(spec.error)
+
+    lint = _lint_for(module_ctx)
+    lint_config_repo(
+        name = "lint_config",
+        binary = str(lint.binary) if lint else "",
+        config = str(lint.config) if lint and lint.config else "",
+        fail_on_warnings = lint.fail_on_warnings if lint else False,
+    )
 
     for platform in TSGO_PLATFORMS:
         resolved = spec.platforms[platform]
@@ -105,6 +126,39 @@ The unverified alternative, for a version no lockfile states:
 """,
 )
 
+_lint_tag = tag_class(
+    attrs = {
+        "binary": attr.label(
+            mandatory = True,
+            doc = """The linter's executable: `@npm//:oxlint_bin` or
+`@npm//:eslint_bin` from the workspace's hub, so the lockfile decides which
+oxlint or eslint runs. There is no linter toolchain.""",
+        ),
+        "config": attr.label(
+            allow_single_file = True,
+            doc = """The linter's own config file, passed as `--config`. Unset,
+no flag is passed: oxlint runs its defaults, and eslint needs a flat config.
+Another repository names the file, so its package exports it
+(`exports_files`).""",
+        ),
+        "fail_on_warnings": attr.bool(
+            doc = "A warning fails the build: `--max-warnings=0`, which " +
+                  "oxlint and eslint spell alike.",
+        ),
+    },
+    doc = """The linter every ts_compile and ts_test runs over its sources as a
+validation action (docs/guides/lint.md).
+
+Only the root module's ts.lint() call takes effect, and it makes one; a module
+graph with no call lints nothing. The call writes the @lint_config repository,
+whose one target the //ts:lint label flag names.
+
+Example:
+    ts = use_extension("@rules_typescript//ts:extensions.bzl", "ts")
+    ts.lint(binary = "@npm//:oxlint_bin", config = "//:oxlint.json")
+""",
+)
+
 # Deliberately neither os_dependent nor arch_dependent: it declares a repo for
 # every supported platform and reads nothing about the host, so its result --
 # and MODULE.bazel.lock -- is identical everywhere.  Only the repo Bazel
@@ -113,5 +167,6 @@ ts = module_extension(
     implementation = _ts_impl,
     tag_classes = {
         "tsgo": _tsgo_tag,
+        "lint": _lint_tag,
     },
 )

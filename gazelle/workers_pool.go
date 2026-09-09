@@ -13,6 +13,8 @@ import (
 	"github.com/bazelbuild/bazel-gazelle/label"
 	"github.com/bazelbuild/bazel-gazelle/language"
 	"github.com/bazelbuild/bazel-gazelle/rule"
+
+	"github.com/mikn/rules_typescript/ts/tools/explainfiles"
 )
 
 // The Workers pool's half of Gazelle, the one tool-specific file: called from
@@ -99,10 +101,10 @@ func wranglerConfigRule(args language.GenerateArgs, tc *tsConfig,
 	return r
 }
 
-func importsWorkersPool(edges []edge) bool {
+func importsWorkersPool(edges []explainfiles.Edge) bool {
 	for _, e := range edges {
-		if e.kind == edgeImport && isBareSpecifier(e.specifier) &&
-			barePackageName(e.specifier) == workersPoolPackage {
+		if e.Kind == explainfiles.Import && isBareSpecifier(e.Specifier) &&
+			barePackageName(e.Specifier) == workersPoolPackage {
 			return true
 		}
 	}
@@ -112,7 +114,7 @@ func importsWorkersPool(edges []edge) bool {
 // workersPoolAttrs writes what a ts_test whose config imports the pool needs;
 // the istanbul label it returns is a dep, "" when the lockfile lacks it.
 func workersPoolAttrs(c *config.Config, tc *tsConfig, r *rule.Rule, cfg string,
-	edges []edge, from label.Label) string {
+	edges []explainfiles.Edge, from label.Label) string {
 	if !importsWorkersPool(edges) {
 		return ""
 	}

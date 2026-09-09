@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/mikn/rules_typescript/ts/tools/explainfiles"
 )
 
 // The shapes the npm rules tell apart: importers at the root and below it, two
@@ -377,8 +379,9 @@ func TestNpmLock_ImporterAbove(t *testing.T) {
 	}
 }
 
-func importEdge(from, spec, to string) edge {
-	return edge{kind: edgeImport, from: from, to: to, specifier: spec}
+func importEdge(from, spec, to string) explainfiles.Edge {
+	return explainfiles.Edge{Kind: explainfiles.Import, From: from, To: to,
+		Specifier: spec}
 }
 
 // One label per edge: the specifier's package, spelled for the importer
@@ -432,19 +435,21 @@ func TestEdgeLabel_AliasKeepsTheImportersName(t *testing.T) {
 func TestEdgeLabel_NoBarePackageTakesTheListedFile(t *testing.T) {
 	_, l := npmRepo(t)
 	for _, c := range []struct {
-		e    edge
+		e    explainfiles.Edge
 		want string
 	}{
-		{edge{kind: edgeTypeReference, from: "web/src/env.d.ts",
-			to: storeViteClient, specifier: "vite/client"}, "@npm//:vite"},
-		{edge{kind: edgeTypeReference, from: "scripts/run.ts",
-			to: storeNode, specifier: "node"}, "@npm//:types_node"},
+		{explainfiles.Edge{Kind: explainfiles.TypeReference,
+			From: "web/src/env.d.ts", To: storeViteClient,
+			Specifier: "vite/client"}, "@npm//:vite"},
+		{explainfiles.Edge{Kind: explainfiles.TypeReference,
+			From: "scripts/run.ts", To: storeNode, Specifier: "node"},
+			"@npm//:types_node"},
 		{importEdge("scripts/run.ts", "node:fs", storeTypesNodeFS),
 			"@npm//:types_node"},
 		{importEdge("web/src/x.ts", "#dep", storeZod), "@npm//:zod"},
 	} {
-		if got := l.edgeLabel(c.e, parentDir(c.e.from), "ts_compile"); got != c.want {
-			t.Errorf("%q from %s: %q, want %q", c.e.specifier, c.e.from, got,
+		if got := l.edgeLabel(c.e, parentDir(c.e.From), "ts_compile"); got != c.want {
+			t.Errorf("%q from %s: %q, want %q", c.e.Specifier, c.e.From, got,
 				c.want)
 		}
 	}
