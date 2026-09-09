@@ -21,7 +21,7 @@ ts_binary(
 
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `entry_point` | `label` | required | `ts_compile` target providing `JsInfo`, or a single `.js`/`.mjs`/`.cjs` source file |
+| `entry_point` | `label` | required | `ts_compile` target providing `TsInfo`, or a single `.js`/`.mjs`/`.cjs` source file |
 | `entry_file` | `string` | `""` | Which source's `.js` is the entry when the target emits several, e.g. `"main.ts"`; `index.js` by convention when unset |
 | `data` | `label_list` | `[]` | Extra runfiles: sibling modules a source `entry_point` imports, fixtures, anything read at runtime |
 | `bundler` | `label` | `None` | Target providing `BundlerInfo`. When set, the bundle is what runs |

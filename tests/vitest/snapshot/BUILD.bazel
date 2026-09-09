@@ -5,10 +5,14 @@ ts_compile(
     srcs = ["widget.ts"],
 )
 
+# The .snap is a src, as every file under the package is: that is what puts it
+# in the sandbox.
 ts_test(
     name = "widget_test",
-    srcs = ["widget.test.ts"],
-    snapshots = ["__snapshots__/widget.test.ts.snap"],
+    srcs = [
+        "__snapshots__/widget.test.ts.snap",
+        "widget.test.ts",
+    ],
     deps = [
         ":widget",
         "@npm//:vitest",

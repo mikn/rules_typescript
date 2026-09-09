@@ -34,10 +34,8 @@ depends on. Two constraints:
   a `tsconfig.json` with an empty `paths`: no packages, no aliases.
 - **`deps` obeys visibility**, so a package-private `ts_compile` target cannot be
   listed here. Gazelle writes `visibility = ["//visibility:public"]` on the
-  targets it generates, and so does `ts_test` for the `ts_compile` targets it
-  generates from `srcs`, `setup_files` and `global_setup`: `//path:_my_test_compile`
-  is listable. `visibility` on the `ts_test` narrows them again, and the generated targets
-  follow it. Hand-written private targets are covered by
+  targets it generates. A `ts_test` carries its own program and is listed itself, under its own `visibility`; the targets over
+  this list are testonly for it. Hand-written private targets are covered by
   [Complete coverage for the resolution map](#complete-coverage-for-the-resolution-map).
 
 Then run it:
@@ -57,8 +55,8 @@ That writes, into the source tree:
 | `.bazel/tsserver-hook-resolver.js` | The map builder both front-ends share |
 | `.bazel/tsserver-hook-worker.js` | Its background worker |
 
-The target is a [`refresh_workspace_files`](../rules/ts-codegen.md#checking-the-output-in)
-over those files, so it runs only under `bazel run`.
+The target copies those files into the source tree, so it runs only under
+`bazel run`.
 
 `tsconfig` (default `"tsconfig.json"`) is where the generated config lands.
 

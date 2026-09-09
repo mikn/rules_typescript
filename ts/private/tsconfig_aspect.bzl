@@ -102,7 +102,7 @@ def _canonical_options(options):
     return canonical
 
 def _option_group(target, ctx):
-    """The editor program one ts_compile target needs beyond the root block, or []."""
+    """The editor program a target's srcs need beyond the root block, or []."""
 
     # A `manual` target is one nothing builds -- a fixture read by an analysis
     # test rather than run. There is no editor program to get right.
@@ -167,7 +167,7 @@ def _tsconfig_aspect_impl(target, ctx):
 
     # A workspace member's view adds nothing of its own: the checkout's
     # node_modules holds pnpm's link to the member, and the editor resolves it there.
-    if ctx.rule.kind == "ts_compile":
+    if ctx.rule.kind in ("ts_compile", "ts_test"):
         if target.label.package:
             packages = [struct(
                 path = target.label.package,
@@ -486,10 +486,11 @@ def _check_declared_nested(ctx, computed):
 _IDE_ATTRS = {
     "deps": attr.label_list(
         aspects = [tsconfig_aspect],
-        doc = """The ts_compile targets the IDE should see.
+        doc = """The ts_compile and ts_test targets the IDE should see.
 
 The aspect walks `deps` from here, so a target whose sources another listed
-target already depends on does not need its own entry.""",
+target already depends on does not need its own entry. A ts_test is a test
+target, so the targets the macro declares over this list are testonly.""",
     ),
 }
 
@@ -650,8 +651,8 @@ def ts_refresh_tsconfig(
         name:     Name of the `bazel run` target. The generated files are
                   `<name>.generated` and `<name>.hook_data`, the diff test
                   `<name>_test`.
-        deps:     ts_compile targets the IDE should see. The aspect follows
-                  `deps` from each one.
+        deps:     ts_compile and ts_test targets the IDE should see. The
+                  aspect follows `deps` from each one.
         tsconfig: Where in the workspace the file is written.
         extra_exclude:
                   Globs added to the generated `exclude`, for TypeScript trees
@@ -673,6 +674,7 @@ def ts_refresh_tsconfig(
     """
     ide_tsconfig(
         name = name + ".generated",
+        testonly = True,
         deps = deps,
         extra_exclude = extra_exclude,
         nested_tsconfigs = nested_tsconfigs,
@@ -681,15 +683,18 @@ def ts_refresh_tsconfig(
     for nested in nested_tsconfigs:
         _nested_tsconfig_file(
             name = "{}.nested.{}".format(name, nested.replace("/", "_").replace(".", "_")),
+            testonly = True,
             generator = ":" + name + ".generated",
             dest = nested,
         )
     ide_hook_data(
         name = name + ".hook_data",
+        testonly = True,
         deps = deps,
     )
     refresh_workspace_files(
         name = name,
+        testonly = True,
         files = {
             ":" + name + ".generated": tsconfig,
             ":" + name + ".hook_data": ".bazel/tsserver-hook-data.json",

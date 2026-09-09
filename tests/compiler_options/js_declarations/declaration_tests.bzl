@@ -1,14 +1,14 @@
 """Analysis-time proof of what a .d.mts in srcs is: a declaration, and the one."""
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
-load("//ts:defs.bzl", "TsDeclarationInfo")
+load("//ts:defs.bzl", "TsInfo")
 
 _PKG = "tests/compiler_options/js_declarations/"
 
 _CHECKED_IN = ["esm.d.mts", "legacy.d.cts"]
 
 def _declarations_of(env):
-    return analysistest.target_under_test(env)[TsDeclarationInfo].declaration_files.to_list()
+    return analysistest.target_under_test(env)[TsInfo].declarations.to_list()
 
 def _passes_declarations_through_impl(ctx):
     env = analysistest.begin(ctx)

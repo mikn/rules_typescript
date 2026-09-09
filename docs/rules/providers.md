@@ -1,7 +1,7 @@
 # Providers and Toolchains
 
 The contract a rule outside this ruleset writes against: the providers the
-rules return, and the toolchains they resolve. Four providers load from
+rules return, and the toolchains they resolve. Five providers load from
 `@rules_typescript//ts:defs.bzl`; the toolchain contract loads from
 `@rules_typescript//ts/toolchain:defs.bzl`.
 
@@ -9,58 +9,76 @@ rules return, and the toolchains they resolve. Four providers load from
 load(
     "@rules_typescript//ts:defs.bzl",
     "BundlerInfo",
-    "JsInfo",
-    "TsDeclarationInfo",
+    "DevServerInfo",
+    "TsInfo",
     "TsLintInfo",
+    "TsTestRunnerInfo",
 )
 ```
 
 | Provider | Returned by |
 |---|---|
-| `JsInfo` | `ts_compile`, `ts_codegen`, `ts_binary`, the `@npm` package targets |
-| `TsDeclarationInfo` | `ts_compile`, `ts_codegen`, the `@npm` package targets |
+| `TsInfo` | `ts_compile`, `ts_codegen`, `ts_binary`, the `@npm` package targets and a member's hub view |
+| `TsTestRunnerInfo` | `//ts/runners:vitest`, `//ts/runners:node_test`, a runner of your own |
 | `BundlerInfo` | any rule that [brings its own bundler](../guides/bundling.md#custom-bundler-bundlerinfo-interface); the ruleset ships none |
+| `DevServerInfo` | `//vite:dev_server`, a [server of your own](../guides/dev-server.md#bringing-your-own-server) |
 | `TsLintInfo` | `ts_lint` |
 
-## Direct and Transitive Fields
+## TsInfo
+
+A dep provides one thing: what a consumer's program and runtime need. `TsInfo`
+carries the files a consumer stages and the npm packages its forest links, and
+`deps` on `ts_compile` and `ts_test` accepts any target returning it.
 
 A direct field carries only what the target itself produces. A rule that
 forwards a dep's files leaves the direct field empty and puts the closure in the
 transitive one; `ts_compile` does that for its deps' data files, which reach
-`JsInfo.transitive_data_files` and never `data_files`. A consumer that wants
-everything reachable reads the transitive field.
-
-## JsInfo
+`transitive_data` and never `data`. A consumer that wants everything reachable
+reads the transitive field.
 
 | Field | Type | Description |
 |---|---|---|
-| `js_files` | `depset of File` | The `.js` files this target produces: compiled output, plus any JavaScript src staged as-is |
-| `js_map_files` | `depset of File` | The `.js.map` files this target produces |
-| `transitive_js_files` | `depset of File` | Every `.js` from this target and its deps |
-| `transitive_js_map_files` | `depset of File` | Every `.js.map` from this target and its deps |
-| `data_files` | `depset of File` | The srcs that are neither TypeScript, JavaScript nor declarations, staged at their package-relative paths beside the compiled `.js` |
-| `transitive_data_files` | `depset of File` | The data files of this target and its deps: what a compiled module reaches beside itself at run time or in a bundle |
-| `source_files` | `depset of File` | The TypeScript srcs, `.ts`, `.tsx` and declarations; a `ts_test` in the same package stages them in its runfiles at their source paths |
+| `js` | `depset of File` | The `.js` files this target produces: compiled output, plus any JavaScript src staged as-is |
+| `js_maps` | `depset of File` | The `.js.map` beside them |
+| `declarations` | `depset of File` | The declarations this target produces, plus the ambient ones it passes through from `srcs`. A global one is in scope in a consumer only when the consumer's tsconfig `types` names it |
+| `data` | `depset of File` | The srcs that are neither TypeScript, JavaScript nor declarations, staged at their package-relative paths beside the compiled `.js` |
+| `sources` | `depset of File` | The TypeScript srcs, `.ts`, `.tsx` and declarations; a `ts_test` in the same package stages them in its runfiles at their source paths |
+| `transitive_js` | `depset of File` | Every `.js` from this target and its first-party deps |
+| `transitive_js_maps` | `depset of File` | Their `.js.map` |
+| `transitive_declarations` | `depset of File` | Every declaration from this target and its first-party deps. An npm package's declarations reach a consumer through the node_modules forest its tsgo action stages, not through this depset |
+| `transitive_data` | `depset of File` | The data files of this target and its first-party deps: what a compiled module reaches beside itself at run time or in a bundle |
+| `npm_packages` | `depset of NpmPackageInfo` | The npm packages a consumer links into its forest and runtime tree for this target's deps. A dep's emitted `.d.ts` imports the packages the dep declared and resolves them in the consumer's program by walking that forest. A package itself arrives through its `NpmPackageInfo` |
+
+A dep linked in the forest -- an `@npm` package, a member's hub view -- reaches
+the consumer's program and runtime there: `ts_compile` reads `npm_packages`
+off it and none of its file fields, so an npm package's `TsInfo` stages
+nothing by path. A first-party dep's files are staged at their exec paths and
+its `declarations`, `js` and `data` are what an import may resolve to
+([Deps have to be direct](ts-compile.md#deps-have-to-be-direct)).
 
 `ts_binary` with a `bundler` returns the bundle as the one member of both `.js`
-fields, and the entry's data closure.
-`ts_codegen` with `out_dir` returns the directory as the one member; nothing
-downstream compiles the tree, so what it holds is already compiled output. An
-`outs` codegen returns its `.js` outs here and its `.d.ts` outs in
-`TsDeclarationInfo`, so `deps = [":worker_types"]` is legal and a consumer's
-tsconfig `types` can name the generated declaration.
-
-## TsDeclarationInfo
-
-| Field | Type | Description |
-|---|---|---|
-| `declaration_files` | `depset of File` | The declarations this target produces, plus the ambient ones it passes through from `srcs`. A global one is in scope in a consumer only when the consumer's tsconfig `types` names it |
-| `transitive_declaration_files` | `depset of File` | Every declaration from this target and its first-party deps. An npm package's declarations reach a consumer through the node_modules forest its tsgo action stages, not through this depset |
-| `transitive_npm_packages` | `depset of NpmPackageInfo` | The npm packages a consumer links into its forest for this target's declarations. A dep's emitted `.d.ts` imports the packages the dep declared and resolves them in the consumer's program by walking that forest. An npm package target names its `transitive_deps`; the package itself arrives through its `NpmPackageInfo` |
+fields, and the entry's data closure; without one it returns the entry's
+`TsInfo`. `ts_codegen` with `out_dir` returns the directory as the one member
+of `js` and `declarations`; nothing downstream compiles the tree, so what it
+holds is already compiled output. An `outs` codegen returns its `.js` outs in
+`js` and its `.d.ts` outs in `declarations`, so `deps = [":worker_types"]` is
+legal and a consumer's tsconfig `types` can name the generated declaration.
 
 A global `.d.ts` travels as a declaration output and nothing more: the consumer
 names it in its own tsconfig `types` to bring its globals into scope. See
 [Which ambients a consumer gets](ts-compile.md#which-ambients-a-consumer-gets).
+
+## TsTestRunnerInfo
+
+| Field | Type | Description |
+|---|---|---|
+| `packages` | `list of string` | The npm packages the runner needs in the test's `node_modules` tree, `vitest` for the vitest runner; `ts_test` fails at analysis naming the one no dep provides |
+| `hook` | `File` | The one module the runner loads into node before the tests: the node:test runner's resolver, the vitest runner's reads recorder |
+| `launch` | `function` | The runner's half of one test's analysis: given the test's `ctx` and the struct `ts_test` builds from the compile, it returns the launcher config's mode and section, the env, and the runfiles the runner adds |
+
+A runner is a target, the way a toolchain is: `//ts/runners:vitest` and
+`//ts/runners:node_test` are the two shipped, and a rule in another ruleset
+returning this provider is a third. See [Runners](ts-test.md#runners).
 
 ## BundlerInfo
 
@@ -107,7 +125,6 @@ read the manifest in the tree, as they do over an install.
 
 ## DevServerInfo
 
-`DevServerInfo` is not exported either; it loads from the same private file.
 The shipped implementation, `//vite:dev_server`, returns it;
 `ts_dev_server(server = ...)` takes any target that does.
 

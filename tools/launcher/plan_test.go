@@ -153,6 +153,7 @@ func vitestConfig() *Config {
 
 func TestPlanVitestRunsEveryTestFileByDefault(t *testing.T) {
 	r, real := vitestFixture(t)
+	t.Setenv("COVERAGE_DIR", "")
 	plan, err := MakePlan(vitestConfig(), r, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -169,6 +170,9 @@ func TestPlanVitestRunsEveryTestFileByDefault(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Errorf("argv %q is missing %q", joined, want)
 		}
+	}
+	if strings.Contains(joined, "--coverage") {
+		t.Errorf("argv %q has coverage flags on a plain run", joined)
 	}
 	if plan.UseExec {
 		t.Error("the test runner has to outlive vitest to post-process coverage")
@@ -228,187 +232,128 @@ func TestPlanVitestExitsCleanlyOnAnEmptyShard(t *testing.T) {
 	}
 }
 
-func TestPlanVitestSkipsTheRuntimeForAnNpmBinWrapper(t *testing.T) {
-	r, real := vitestFixture(t)
-	cfg := vitestConfig()
-	cfg.Vitest.Vitest = "_main/tests/app/node_modules/vitest/vitest.mjs"
-	cfg.Vitest.VitestIsNpmBin = true
-	plan, err := MakePlan(cfg, r, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer plan.Cleanup()
-	if plan.Argv[0] == real["+node+/bin/node"] {
-		t.Errorf("an npm_bin wrapper resolves its own node; argv = %q", plan.Argv)
-	}
-}
-
-func TestPlanVitestAddsCoverageFlagsUnderBazelCoverage(t *testing.T) {
-	r, _ := vitestFixture(t)
-	out := filepath.Join(t.TempDir(), "coverage", "out.dat")
+// collect_coverage.sh merges the .dat files under COVERAGE_DIR into
+// COVERAGE_OUTPUT_FILE with the rule's merger; the launcher writes the former.
+func TestPlanVitestWritesItsLcovUnderCoverageDir(t *testing.T) {
+	_, real := vitestFixture(t)
+	r := runfilesTree(t, real)
+	dir := filepath.Join(t.TempDir(), "coverage")
+	out := filepath.Join(t.TempDir(), "coverage.dat")
+	t.Setenv("COVERAGE_DIR", dir)
 	t.Setenv("COVERAGE_OUTPUT_FILE", out)
 	plan, err := MakePlan(vitestConfig(), r, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer plan.Cleanup()
 	joined := strings.Join(plan.Argv, " ")
-	if !strings.Contains(joined, "--coverage.reportsDirectory "+filepath.Dir(out)) {
-		t.Errorf("argv %q is missing the lcov output directory", joined)
+	reports := filepath.Join(dir, "vitest")
+	if !strings.Contains(joined, "--coverage.reportsDirectory "+reports) {
+		t.Errorf("argv %q is missing the reports directory %q", joined, reports)
 	}
 	if plan.PostRun == nil {
 		t.Fatal("coverage runs need the lcov post-processing step")
 	}
-	if err := os.WriteFile(filepath.Join(filepath.Dir(out), "lcov.info"),
-		[]byte("SF:_main/tests/app/a.js\nDA:1,1\n"), 0o644); err != nil {
+	if err := os.MkdirAll(reports, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(reports, "lcov.info"),
+		[]byte("SF:a.js\nDA:1,1\nend_of_record\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := plan.PostRun(0); err != nil {
 		t.Fatal(err)
 	}
-	got, err := os.ReadFile(out)
+	got, err := os.ReadFile(filepath.Join(dir, "vitest.dat"))
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("the merger reads the .dat files under COVERAGE_DIR: %v", err)
 	}
-	if !strings.HasPrefix(string(got), "SF:tests/app/a.js") {
-		t.Errorf("lcov = %q, want the repository prefix stripped", got)
-	}
-}
-
-func TestPlanVitestWritesEmptyCoverageWhenVitestProducedNone(t *testing.T) {
-	r, _ := vitestFixture(t)
-	out := filepath.Join(t.TempDir(), "coverage", "out.dat")
-	t.Setenv("COVERAGE_OUTPUT_FILE", out)
-	plan, err := MakePlan(vitestConfig(), r, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer plan.Cleanup()
-	if err := plan.PostRun(1); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(out); err != nil {
-		t.Errorf("bazel coverage requires the output file to exist: %v", err)
-	}
-}
-
-func TestPlanVitestEnablesCoverageFromTheAttrOnAPlainTestRun(t *testing.T) {
-	r, _ := vitestFixture(t)
-	tmp := t.TempDir()
-	t.Setenv("TEST_TMPDIR", tmp)
-	t.Setenv("COVERAGE_OUTPUT_FILE", "")
-	cfg := vitestConfig()
-	cfg.Vitest.Coverage = true
-	plan, err := MakePlan(cfg, r, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer plan.Cleanup()
-	joined := strings.Join(plan.Argv, " ")
-	if !strings.Contains(joined, "--coverage.enabled true") {
-		t.Errorf("coverage = True has to enable coverage under `bazel test`; argv = %q", joined)
-	}
-	if !strings.Contains(joined, "--coverage.reportsDirectory "+filepath.Join(tmp, "coverage")) {
-		t.Errorf("a report written into the runfiles tree would be a write to a test input; argv = %q", joined)
-	}
-}
-
-func TestPlanVitestKeepsOnlyTheFilesBazelInstrumented(t *testing.T) {
-	r, _ := vitestFixture(t)
-	dir := t.TempDir()
-	out := filepath.Join(dir, "coverage.dat")
-	manifest := filepath.Join(dir, "instrumented.txt")
-	if err := os.WriteFile(manifest, []byte(
-		"tests/app/kept.ts\nbazel-out/k8-fastbuild/bin/tests/app/generated.ts\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("COVERAGE_OUTPUT_FILE", out)
-	t.Setenv("COVERAGE_MANIFEST", manifest)
-	plan, err := MakePlan(vitestConfig(), r, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer plan.Cleanup()
-	if err := os.WriteFile(filepath.Join(dir, "lcov.info"), []byte(
-		"TN:\nSF:_main/tests/app/kept.js\nDA:1,1\nend_of_record\n"+
-			"TN:\nSF:_main/tests/app/generated.js\nDA:1,1\nend_of_record\n"+
-			"TN:\nSF:_main/tests/app/filtered.js\nDA:1,0\nend_of_record\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := plan.PostRun(0); err != nil {
-		t.Fatal(err)
-	}
-	got, err := os.ReadFile(out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := "TN:\nSF:tests/app/kept.js\nDA:1,1\nend_of_record\n" +
-		"TN:\nSF:tests/app/generated.js\nDA:1,1\nend_of_record\n"
+	want := "SF:tests/app/a.js\nDA:1,1\nend_of_record\n"
 	if string(got) != want {
-		t.Errorf("lcov = %q, want %q", got, want)
+		t.Errorf("vitest.dat = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Errorf("COVERAGE_OUTPUT_FILE is the merger's to write, got %v", err)
 	}
 }
 
-func TestSelectInstrumentedTreatsAnEmptySelectionAsExcludingEverything(t *testing.T) {
-	in := "SF:tests/app/a.js\nDA:1,1\nend_of_record\n"
-	if got := string(SelectInstrumented([]byte(in), nil)); got != "" {
-		t.Errorf("SelectInstrumented = %q, want an empty report", got)
+// runfilesTree is the fixture as the directory a Linux test runs from, where
+// vitest's root and the launcher's tree are one and the same runfiles tree.
+func runfilesTree(t *testing.T, real map[string]string) *Resolver {
+	t.Helper()
+	const config = "_main/tests/app/_app_vitest.config.mjs"
+	dir := strings.TrimSuffix(real[config], string(filepath.Separator)+
+		filepath.FromSlash(config))
+	r, err := directoryResolver(dir)
+	if err != nil {
+		t.Fatal(err)
 	}
+	return r
 }
 
-func TestCoverageKeyMatchesASourceAgainstWhatWasCompiledFromIt(t *testing.T) {
-	cases := map[string]string{
-		"tests/app/a.ts": "tests/app/a",
-		"bazel-out/k8-fastbuild/bin/tests/app/a.js": "tests/app/a",
-		"  tests/app/a.tsx  ":                       "tests/app/a",
-		"":                                          "",
+func TestPlanVitestFailsAPassingRunThatWroteNoLcov(t *testing.T) {
+	r, _ := vitestFixture(t)
+	t.Setenv("COVERAGE_DIR", t.TempDir())
+	plan, err := MakePlan(vitestConfig(), r, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	for in, want := range cases {
-		if got := coverageKey(in); got != want {
-			t.Errorf("coverageKey(%q) = %q, want %q", in, got, want)
-		}
+	defer plan.Cleanup()
+	if err := plan.PostRun(0); err == nil {
+		t.Error("a passing run with no lcov.info would read as a clean report")
+	}
+	if err := plan.PostRun(1); err != nil {
+		t.Errorf("a failed run has no report to write: %v", err)
 	}
 }
 
 func TestRewriteLcovOnlyTouchesSourceFileLines(t *testing.T) {
 	in := []byte("SF:_main/a.js\nFN:1,_main/x\nSF:_mainless/b.js\n")
-	got := string(RewriteLcov(in, "_main", ""))
+	got := string(RewriteLcov(in, "_main", "/r", "/r"))
 	want := "SF:a.js\nFN:1,_main/x\nSF:_mainless/b.js\n"
 	if got != want {
 		t.Errorf("RewriteLcov = %q, want %q", got, want)
 	}
 }
 
-func TestRewriteLcovResolvesBuildOutputsReportedFromOutsideTheRoot(t *testing.T) {
+// istanbul writes paths relative to vite's root, the config's package, and a
+// module a pool resolved through its realpath as an execroot path.
+func TestRewriteLcovResolvesThePathsAgainstTheRoot(t *testing.T) {
 	runDir := "/w/execroot/_main/bazel-out/k8-fastbuild/bin/tests/workers/t.runfiles"
+	root := runDir + "/_main/tests/vitest/coverage"
 	cases := []struct {
 		name string
 		in   string
 		want string
 	}{{
+		name: "a file in the root's package",
+		in:   "SF:same_package.js\n",
+		want: "SF:tests/vitest/coverage/same_package.js\n",
+	}, {
+		name: "a file in an ancestor package",
+		in:   "SF:../math.js\n",
+		want: "SF:tests/vitest/math.js\n",
+	}, {
 		name: "escaping relative, as istanbul writes an out-of-root module",
-		in:   "SF:../../../../../execroot/_main/bazel-out/k8-fastbuild/bin/tests/workers/src/index.js\n",
+		in: "SF:../../../../../../../../../../" +
+			"bazel-out/k8-fastbuild/bin/tests/workers/src/index.js\n",
 		want: "SF:tests/workers/src/index.js\n",
 	}, {
-		name: "absolute",
+		name: "absolute, under bazel-out",
 		in:   "SF:/w/execroot/_main/bazel-out/k8-fastbuild/bin/tests/workers/src/index.js\n",
 		want: "SF:tests/workers/src/index.js\n",
 	}, {
-		name: "a path with no bazel-out in it is left alone",
+		name: "absolute, elsewhere, is left alone",
 		in:   "SF:/home/me/src/tests/workers/src/index.js\n",
 		want: "SF:/home/me/src/tests/workers/src/index.js\n",
 	}, {
-		name: "a relative path staying inside the runfiles tree is left alone",
-		in:   "SF:_other/x.js\n",
-		want: "SF:_other/x.js\n",
-	}, {
-		name: "a runfiles path keeps the repository-prefix rule",
-		in:   "SF:_main/tests/vitest/math.js\n",
-		want: "SF:tests/vitest/math.js\n",
+		name: "a path into another repository's runfiles is left alone",
+		in:   "SF:../../../../_other/x.js\n",
+		want: "SF:../../../../_other/x.js\n",
 	}}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := string(RewriteLcov([]byte(tc.in), "_main", runDir)); got != tc.want {
+			got := string(RewriteLcov([]byte(tc.in), "_main", runDir, root))
+			if got != tc.want {
 				t.Errorf("RewriteLcov = %q, want %q", got, tc.want)
 			}
 		})
@@ -605,7 +550,7 @@ func TestPlanVitestStagesAPrivateRootWithoutARunfilesDirectory(t *testing.T) {
 // Vitest finds a bare specifier by walking up from the test's runfiles path,
 // and nothing on that walk is named node_modules before the runfiles root.
 func TestPlanVitestLinksTheNpmTreeAtTheRunfilesRoot(t *testing.T) {
-	const tree = "_main/tests/app/_app_test_node_modules/node_modules"
+	const tree = "_main/tests/app/app_test/node_modules"
 	_, real := fakeRunfiles(t, map[string]string{
 		"_main/tests/app/_app_vitest.config.mjs": "export default {}",
 		"_main/tests/app/app_test_files.txt":     "_main/tests/app/a.test.js",

@@ -120,7 +120,9 @@ Key conventions (see also AGENTS.md):
 - `depset(order = "postorder")` for transitive file sets
 - `args.add_all()` for file lists; never materialize depsets at analysis time
 - Private attrs prefixed with `_`
-- Public rules exposed from `defs.bzl`; raw implementations in `ts/private/`
+- Public rules exposed from `defs.bzl`; raw implementations in `ts/private/`:
+  the rule declarations in `ts/private/rules/`, one action per file in
+  `ts/private/actions/` (rules_go's `go/private/{rules,actions}` layout)
 
 ### Go (Gazelle Extension)
 
@@ -213,6 +215,32 @@ The script is read-only: a loading-phase query and `git ls-files`. It is the
 first step of the `test` job in CI. `git ls-files` cannot see an unstaged new
 file, so a local run reports green on a test not yet `git add`ed.
 
+### Retired Names
+
+```bash
+tools/ci/check_retired_names.sh
+```
+
+A rule attribute, Gazelle kind, provider, directive, export or file path this
+ruleset has retired is named in `changelog.d/` and nowhere else. The script
+greps every tracked file outside `changelog.d/`, `CHANGELOG.md` and the two
+history documents for the names it carries, in identifier form, and fails on a
+hit. A file that asserts a retired name is absent or inert is listed in
+`ALLOWED` inside the script with the reason; the list is exact in both
+directions. It is the third step of the `test` job.
+
+### Coverage Report
+
+```bash
+tools/ci/check_coverage_report.sh
+```
+
+The suite never runs `bazel coverage`, and a coverage run whose report is
+empty passes. The script runs `//tests/vitest/coverage:math_coverage_test`
+under it twice, with the default `--instrumentation_filter` and with one naming
+`//tests/vitest`, and compares the combined report's `SF:` lines against the
+files each filter selects. It is the step after the suite in the `test` job.
+
 ### Integration Tests
 
 Integration tests spin up an isolated Bazel workspace each to verify end-to-end
@@ -258,6 +286,7 @@ bazel test //...
 | Gazelle | `bazel test //gazelle/...` | Gazelle extension unit tests |
 | E2E | `cd e2e/basic && bazel build //...` | Real consumer workspace |
 | Test-source coverage | `tools/ci/check_test_sources.sh` | Every tracked test source is claimed by a target that runs |
+| Retired names | `tools/ci/check_retired_names.sh` | No tracked prose or code outside the changelog names a retired attribute, kind, provider, directive, export or path |
 
 ---
 
@@ -279,7 +308,7 @@ bazel test //...
    ### Added
 
    - **`ts_binary` takes a plain JavaScript file as its `entry_point`.** The
-     attr is polymorphic: a target providing `JsInfo` behaves exactly as before.
+     attr is polymorphic: a target providing `TsInfo` behaves exactly as before.
    EOF
 
    bazel run //tools/changelog   # prints the section as it will read

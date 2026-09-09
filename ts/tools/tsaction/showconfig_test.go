@@ -436,8 +436,8 @@ func TestOxcStep_ExitCodeIsTheTools(t *testing.T) {
 	}
 }
 
-// The spelling _generate_tsconfig used: "." for the same directory, no
-// leading "./" -- and "" or "." both name the exec root.
+// "." for the same directory, no leading "./"; "" and "." both name the exec
+// root.
 func TestRelativePath(t *testing.T) {
 	cases := []struct{ from, to, want string }{
 		{binDir + "/pkg", "", "../../../.."},

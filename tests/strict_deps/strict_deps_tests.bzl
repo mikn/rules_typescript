@@ -7,7 +7,7 @@ keep satisfying an import -- the drift this whole check exists to catch.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
-load("//ts/private:providers.bzl", "TsDeclarationInfo")
+load("//ts:defs.bzl", "TsInfo")
 
 _MNEMONIC = "TsStrictDeps"
 
@@ -16,7 +16,7 @@ def _resolution_surface_impl(ctx):
 
     transitive_only = [
         f.path
-        for f in ctx.attr.transitive_dep[TsDeclarationInfo].declaration_files.to_list()
+        for f in ctx.attr.transitive_dep[TsInfo].declarations.to_list()
     ]
     asserts.true(
         env,

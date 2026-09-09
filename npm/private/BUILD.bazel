@@ -50,7 +50,7 @@ bzl_library(
     deps = [
         ":member_manifest",
         "//ts/private:providers",
-        "//ts/private:ts_compile",
+        "//ts/private/rules:ts_compile",
     ],
 )
 

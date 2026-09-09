@@ -143,66 +143,9 @@ Gazelle writes the `deps` entry for either spelling. An `out_dir` target is
 indexed by the workspace-relative `out_dir` path a relative or aliased
 specifier reaches it by; a specifier under that root resolves to the target. The
 root is matched as a prefix, after every indexed source has failed to claim the
-specifier. An `outs` target is indexed under no root: it returns no `JsInfo`,
-so nothing depends on it, and its outputs are importable through the
-`ts_compile` that names it in `srcs`.
-
-## Checking the Output In
-
-Some generated files have to be in the source tree. A route tree is one: the
-routes are typed against it, and one `ts_compile` cannot hold both it and them.
-`refresh_workspace_files` copies build outputs into the workspace under
-`bazel run`, and a `diff_test` beside it fails when the checked-in copy drifts.
-The two rules, for a TanStack Router route tree:
-
-```python
-load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
-load("@rules_typescript//ts:defs.bzl", "refresh_workspace_files", "ts_codegen")
-
-ts_codegen(
-    name = "route_tree",
-    srcs = glob(["**/*.tsx"]),
-    outs = ["routeTree.gen.expected.ts"],  # keep
-    args = ["--out", "{out}", "--srcs", "{srcs}"],
-    generator = "@rules_typescript//tools/codegen:tanstack_routes",
-    node_modules = "//:router_generator_node_modules",
-)
-
-refresh_workspace_files(
-    name = "update_route_tree",
-    files = {":route_tree": "src/routes/routeTree.gen.ts"},
-)
-
-diff_test(
-    name = "route_tree_test",
-    size = "small",
-    failure_message = "src/routes/routeTree.gen.ts is stale: run `bazel run //src/routes:update_route_tree`.",
-    file1 = ":route_tree",
-    file2 = "routeTree.gen.ts",
-)
-```
-
-`bazel run //src/routes:update_route_tree` writes the file and prints
-`wrote src/routes/routeTree.gen.ts`. The declared out carries a name of its
-own, since an output named after a source file in the same package is a Bazel
-error; the copy takes the checked-in name, and the program lists it as a
-source like any other.
-
-| Attribute | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `files` | `label_keyed_string_dict` | required | Each key is a target producing exactly one file; the value is where it is written, relative to the workspace root |
-
-A key producing another count fails at analysis:
-`refresh_workspace_files: @@//src/routes:route_tree produces 2 files, want exactly one.`
-
-The rule decides what to write at analysis time and writes a manifest; the copy
-is a Go binary reading `BUILD_WORKSPACE_DIRECTORY`, so the target runs only
-under `bazel run` and refuses a destination outside the workspace
-(`copy_to_workspace: destination "../x" is outside the workspace`).
-`bazel run //:refresh_tsconfig` is an instance of this rule: `ts_refresh_tsconfig`
-declares one over the generated tsconfig, the hook data and the tsserver plugin
-files, and the nested editor tsconfigs reach the copier through a private
-provider the generator returns.
+specifier. An `outs` target is indexed under no root: its `TsInfo.js` is
+empty, so nothing depends on it for a module, and its outputs are importable
+through the `ts_compile` that names it in `srcs`.
 
 ## Cloudflare Worker Bindings
 

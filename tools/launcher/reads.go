@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-// readsRun is one <test>.reads run: the workspace the report is relative to
+// readsRun is one --reads run: the workspace the report is relative to
 // and the file the hook appends every read outside the runfiles to.
 type readsRun struct {
 	workspace string

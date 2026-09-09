@@ -1,9 +1,7 @@
-"""What runner = "node:test" refuses at analysis, rather than dropping in silence.
+"""What the node:test runner refuses at analysis rather than dropping silently.
 
-Both ts_tests are `manual`: they are asserted to fail, so a wildcard that built
-them would fail with them. They take a source file each because the compile the
-macro generates names its outputs after the source, and one package cannot
-declare the same output twice.
+The ts_test is `manual`: it is asserted to fail, so a wildcard that built it
+would fail with it.
 """
 
 load("//ts:defs.bzl", "ts_test")
@@ -12,9 +10,9 @@ load(":analysis_tests.bzl", "vitest_attr_test")
 ts_test(
     name = "vitest_attrs",
     srcs = ["attrs.test.ts"],
-    environment = "node",
-    globals = True,
-    runner = "node:test",
+    config = "//tests/workers_nested:vitest_config",
+    coverage_provider = "istanbul",
+    runner = "//ts/runners:node_test",
     tags = ["manual"],
     wrangler_config = "//tests/workers_nested:wrangler.jsonc",
     deps = ["@npm//:types_node"],

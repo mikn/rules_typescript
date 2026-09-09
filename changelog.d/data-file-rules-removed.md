@@ -4,7 +4,7 @@
   with `CssInfo`, `CssModuleInfo` and `AssetInfo`.** A `.css`, an image, a
   `.json` or any other file a module imports is a src of the `ts_compile` that
   imports it: staged beside the compiled `.js`, carried to `ts_test`,
-  `ts_binary` and `ts_dev_server` in `JsInfo.transitive_data_files`, and typed
+  `ts_binary` and `ts_dev_server` in `TsInfo.transitive_data`, and typed
   by the tsconfig -- `vite/client` in `types`, a `declare module "*.svg"` in
   `srcs`, a `.json` from its contents under `resolveJsonModule`. A dep's `.json`
   is a tsgo input of the consumer too, so a relative import of one across

@@ -28,7 +28,7 @@ What is still thin:
 | npm deps (pnpm → Bazel) | Production-ready; one repo per package, patches verified at extension time |
 | node_modules trees | Every *resolution* placed — name, version and peer set (primary flat, the rest under `.pnpm/<name>@<version>[_<peer set>]/`, with a relative link per disagreeing edge) |
 | Gazelle BUILD generation | Production-ready (JS/TS, path aliases from tsconfig.json); alias resolution is deterministic, extension-spelling specifiers resolve, and one scanner is shared with the strict-deps check. CI pins four properties of a run over the `gazelle_roundtrip` workspace (the output builds; generating twice from scratch is byte-identical; the test-target set is unchanged; `bazel test //...` passes on the output) and, on this tree, that every test source file is claimed by a test target (`tools/ci/check_test_sources.sh`). A run on this tree is not a no-op: `bazel run //gazelle -- -mode=diff` exits 1; the BUILD files here are hand-written, and nothing pins them to Gazelle's output |
-| Testing (vitest) | Solid (DOM run for real, coverage, custom config, snapshots read *and* written, watch mode, debugging). Gap: `coverage_thresholds` enforcement is unproven |
+| Testing (vitest) | Solid (DOM run for real, coverage, the user's config, snapshots read; written by `vitest -u` in the package, watch mode, debugging) |
 | Bundling | `ts_binary` takes any `BundlerInfo` bundler, in the CLI mode or the generated-Vite-config mode; the ruleset ships no implementation, so nothing in this tree exercises the bundle action |
 | Dev server + HMR | Pluggable: `ts_dev_server(server = ...)` takes a `DevServerInfo`, Vite by default. Serves first-party source with Bazel out of the inner loop; resolves bare npm specifiers through the `node_modules` tree via the `bazel:npm-resolve` plugin; codegen rebuilds and config-aware restarts under ibazel; does not typecheck |
 | IDE integration | Generated tsconfig + tsserver hook; `module_name` and `extra_exclude` supported. A package whose targets disagree with the root `compilerOptions` gets its own generated tsconfig, declared in `nested_tsconfigs` and staleness-tested; the root excludes those files individually so unclaimed ones stay in its program. Zero tsc errors across the root and all nine nested programs |
@@ -77,12 +77,19 @@ to rediscover them. Each names the file to change.
   a build output whose realpath sits outside the vite root, so without it istanbul
   instruments nothing and writes an empty report while the run stays green. That
   is the `0 | 0 | 0 | 0` symptom, and removing the one line reproduces it on
-  demand. And istanbul's `SF:` path is an eleven-level escaping relative path that
-  `lcov_merger` passes through verbatim, so the report is not empty but wrong
-  until `RewriteLcov` resolves it against the run directory. `coverageFlags` no
-  longer hardcodes `--coverage.provider v8` (vitest defaults to v8 anyway), so a
-  provider set in a config layer survives; `ts_test` gained a `coverage_provider`
-  attr. Still true: no CI job runs `bazel coverage`.
+  demand. And istanbul's `SF:` path is an eleven-level escaping relative path,
+  so the report is not empty but wrong until `RewriteLcov` resolves it against
+  the run directory. `coverageFlags` no longer hardcodes `--coverage.provider
+  v8` (vitest defaults to v8 anyway), so a provider set in a config layer
+  survives; `ts_test` gained a `coverage_provider` attr. Under Bazel 9.2.0 that
+  report went nowhere: the launcher wrote `COVERAGE_OUTPUT_FILE`, which Bazel's
+  `lcov_merger` then wrote from an empty `COVERAGE_DIR`, and that merger keeps a
+  record only under the manifest's spelling, the `.ts`, where the report names
+  the `.js`. The launcher writes `vitest.dat` under `COVERAGE_DIR`, its paths
+  resolved against vitest's root (the config's package, not the runfiles
+  directory `RewriteLcov` assumed), and `//tools/lcov_merger` is the rule's
+  merger; `tools/ci/check_coverage_report.sh` runs `bazel coverage` on the
+  fixture in the `test` job.
 - **`ts_add_package` takes the hub whose lockfile it edits.** There is one
   `//:add_package_<hub>` per `npm.translate_lock()`, each pinned to that hub's
   `pnpm_lock`, because pnpm rewrites whichever lockfile it resolves against and
@@ -104,17 +111,19 @@ to rediscover them. Each names the file to change.
   `files: ["dist", "README.md"]` ships neither a licence nor a README (there is
   no `eslint-plugin/README.md`). Pick one licence, add the matching text, and put
   it in `files` before publishing.
-- **The Gazelle test-set property is now a CI step, with one gap.**
+- **The Gazelle test-set property is now a CI step.**
   `tools/ci/check_test_sources.sh` asserts every tracked test source on disk is
-  named in some test target's `srcs`, in one loading-phase query (~1.5s, folded
-  into the existing `test` job). It is anchored to something Gazelle does not
+  named in some test target's `srcs`, in two loading-phase queries (folded into
+  the existing `test` job). It is anchored to something Gazelle does not
   write, which is why a run that *deletes* a test target cannot satisfy it — the
   failure mode that lost seven `go_test` targets in an earlier round. Verified
   red by deleting a `go_test` and a `ts_test` block, then restored.
-  The gap: `tests(//...)` counts `manual`-tagged targets, so the check proves a
-  file is *claimed*, not that `bazel test //...` executes it — a regression that
-  merely tags a test `manual` stays green. Tightening it would go red today on
-  `//tests/vitest/environment:{edge,jsdom}_test`, which are deliberately manual.
+  A `manual` tag is checked too: a file whose every claiming target is `manual`
+  must be in the script's `MANUAL_ONLY` allowlist with a reason, and the list is
+  exact in both directions; today's three are
+  `tests/node_test/analysis/attrs.test.ts`,
+  `tests/workers_nested/test/data_shadow.test.ts` and
+  `tests/vitest/reads_report/reads_report.test.ts`.
   Two properties are still hand-verified: `bazel test` on what Gazelle wrote, and
   the roundtrip test's comparison is scoped to a synthetic 3-package child
   workspace with no Go.
@@ -133,14 +142,6 @@ to rediscover them. Each names the file to change.
   (`node:sqlite`, `node:test`) was never at risk: `resolveNpmPackage` answers on
   the prefix before any name is consulted. Two recognisers of one thing; see
   AGENTS.md.
-- **`coverage = True` never instrumented anything.** `tools/launcher/vitest.go`
-  gated it on `COVERAGE_ENABLED == "true"` -- an env var nothing sets, and Bazel
-  has none. So a `coverage_thresholds` on such a target was silently never
-  checked, which is what "enforcement is unproven" turned out to mean. The attr
-  alone now enables coverage, and `//tests/vitest/thresholds` pins both
-  directions: a target missing its threshold exits non-zero naming it, one
-  meeting it exits zero, and the two compiled tests are byte-identical so the
-  exit statuses can only be about the threshold.
 - **Gazelle keeps emitting the external `@rules_typescript//` load label inside
   this repository.** A per-run "generating for self" flag was tried and reverted:
   `Loads()` has no directory context, so one flag decides for the whole walk --
@@ -263,7 +264,7 @@ invocation modes, so a bundler is a rule returning the provider.
 **Goal:** `import "./Button.css"` works in compilation, bundling, and dev server. Assets (images, fonts, SVGs) are handled correctly.
 
 ### 3.1 CSS Imports in Compilation
-- [x] `ts_compile` accepts every file in `srcs`; a `.css`, an image or a `.json` is staged beside the `.js` and carried in `JsInfo.transitive_data_files`
+- [x] `ts_compile` accepts every file in `srcs`; a `.css`, an image or a `.json` is staged beside the `.js` and carried in `TsInfo.transitive_data`
 - [ ] Strip CSS import statements from compiled `.js` — the bundler (Vite) handles this at bundle time; for library targets without a bundler, oxc leaves CSS imports in the .js output which may cause runtime errors if executed directly in Node.js without a bundler
 
 ### 3.3 Tailwind CSS
@@ -293,34 +294,31 @@ this is a design question, not a checklist.
 **Goal:** vitest tests work reliably with DOM testing, coverage, snapshots, and custom config.
 
 ### 5.0 ts_test Ergonomics (DONE)
-- [x] Auto-generate node_modules tree from @npm// deps in ts_test macro
-- [x] No more explicit node_modules target or node_modules attr required
+- [x] The rule builds the node_modules forest from the @npm// deps; there is no node_modules target or attribute
 - [x] Gazelle no longer generates node_modules rules; emits empty stubs to delete stale ones
-- [x] Backwards compatible: explicit node_modules attr still accepted
 - [x] `# gazelle:ts_runtime_dep`: Gazelle appends listed labels to every ts_test deps list — eliminates manual happy-dom, react, @vitest/coverage-v8 additions
 
 ### 5.1 DOM Testing
 - [x] Verify @testing-library/react works with vitest in Bazel sandbox
-- [x] Verify a happy-dom or jsdom environment works. happy-dom is in the test lockfile and //tests/vitest/environment:dom_test RUNS under it, paired with :node_test asserting there is no `document`, so a defaulted `environment` fails one of them. Needed `resolve.preserveSymlinks`: a DOM environment realpaths module ids, which walks runfiles symlinks out of the sandbox. jsdom and edge-runtime stay analysis-only (`build_test`), which is enough to pin that the attr is not a fixed list
-- [x] Add `environment` attr to `ts_test` (node/happy-dom/jsdom)
+- [x] `test.environment` is the config file's, as under plain `vitest`: //tests/setup_files_compiled/dom runs under happy-dom, and //tests/vitest/attrs sets `node` and `globals` and runs on what the file set. Bazel's layer sets `resolve.preserveSymlinks`: a DOM environment realpaths module ids, which would walk runfiles symlinks out of the sandbox. happy-dom is in the test lockfile; jsdom and edge-runtime are not, and nothing pins them
 - [x] Create example with @testing-library component tests
 
 ### 5.2 Coverage
 - [x] Pass --coverage flag to vitest CLI
-- [x] Collect coverage artifacts and integrate with bazel coverage (`COVERAGE_OUTPUT_FILE` + `_lcov_merger` + `fragments = ["coverage"]`)
-- [x] Collect coverage artifacts (lcov) as test outputs (written to `COVERAGE_OUTPUT_FILE`)
+- [x] Collect coverage artifacts and integrate with bazel coverage (`COVERAGE_DIR` + the rule's `_lcov_merger`, `//tools/lcov_merger`)
+- [x] Collect coverage artifacts (lcov) as test outputs (the launcher writes `vitest.dat` under `COVERAGE_DIR`; the merger writes `coverage.dat`)
 - [x] Integrate with Bazel's `--combined_report=lcov` (combined report produced at `bazel-out/_coverage/_coverage_report.dat`)
-- [ ] Support `--instrumentation_filter` for selective coverage (InstrumentedFilesInfo traversal not yet wired)
+- [x] Support `--instrumentation_filter` for selective coverage (every `ts_compile` carries `InstrumentedFilesInfo`, the merger keeps what the manifest selects; tests/vitest/coverage pins the selection)
 
 ### 5.3 Snapshot Testing
-- [x] Solve the read-only sandbox for snapshot writes. `test.resolveSnapshotPath` points at `<package>/__snapshots__/<source>.snap`; the `snapshots` attr puts the files in runfiles, so a stale or missing one FAILS instead of being rewritten in the sandbox; `CI=true` keeps `bazel test` read-only; and every `ts_test` declares `<name>.update_snapshots`, which reuses the test's own ts_compile and writes under `BUILD_WORKSPACE_DIRECTORY`. `--sandbox_writable_path` is no longer involved.
+- [x] Solve the read-only sandbox for snapshot writes. `test.resolveSnapshotPath` points at `<package>/__snapshots__/<source>.snap`; the `.snap` is a src, so a stale or missing one FAILS instead of being rewritten in the sandbox; `CI=true` keeps `bazel test` read-only; writing is `vitest -u` in the package. `--sandbox_writable_path` is no longer involved.
 - [x] Document the snapshot workflow in a Bazel context (docs/rules/ts-test.md, docs/guides/testing.md)
-- [x] Test that can fail: //tests/vitest/snapshot, whose checked-in `.snap` was proven to fail the test when edited and when dropped from `snapshots`
+- [x] Test that can fail: //tests/vitest/snapshot reads its checked-in `.snap` from `srcs`
 
 ### 5.4 Custom vitest Configuration
 - [x] Add `config` attr to `ts_test` (label to vitest.config.ts)
-- [x] Support custom reporters, setup files, global setup
-- [x] Support an array-form `config` for monorepo configurations. It becomes `test.projects` -- the name vitest 3.2 renamed `test.workspace` to and vitest 4 removed the old spelling of -- and each project gets the Bazel and attribute layers
+- [x] Reporters, setup files, global setup: the `config` file's, as under plain `vitest`
+- [x] Support an array-form `config` for monorepo configurations. It becomes `test.projects` -- the name vitest 3.2 renamed `test.workspace` to and vitest 4 removed the old spelling of -- and each project gets the Bazel layer
 
 ### 5.5 Watch Mode
 - [x] Document `ibazel test //path:test` as the watch mode workflow (README.md)
@@ -361,7 +359,7 @@ this is a design question, not a checklist.
 ### 6.4 Conditional Exports
 - [x] Parse `exports` field in package.json
 - [x] Resolve conditional exports (import/require/types/default) correctly
-- [x] Wire resolved entry points into TsDeclarationInfo
+- [x] Wire resolved entry points into the declaration provider (since replaced: tsgo resolves entries through the forest)
 
 ### 6.5 Integrity & Security
 - [ ] Verify SRI hashes for all downloaded packages (fail if missing, with override)
@@ -589,14 +587,13 @@ instantiated it. Publishing is out of scope until one does.
 - [x] Exported via `exports_files(["vite_env.d.ts"])` in `ts/BUILD.bazel`
 
 ### 13.8 Coverage with bazel coverage
-- [x] Declare coverage output directory in `ts_test` when `coverage = True`
-- [x] Configure vitest to write lcov report to a known path (via `COVERAGE_OUTPUT_FILE` env var set by `bazel coverage`)
-- [x] Wire `_lcov_merger` tool for `bazel coverage --combined_report=lcov` (via `_lcov_merger` attr + `fragments = ["coverage"]`)
+- [x] Configure vitest to write lcov report to a known path (under `COVERAGE_DIR`, set by `bazel coverage`)
+- [x] Wire `_lcov_merger` tool for `bazel coverage --combined_report=lcov` (`_lcov_merger = //tools/lcov_merger`)
 - [x] The coverage output is collected as a test output and available in `bazel-testlogs`
 - [x] Test: `bazel coverage //tests/vitest/coverage:math_coverage_test --combined_report=lcov` produces lcov file at `bazel-out/_coverage/_coverage_report.dat`
 - [x] Requires `@vitest/coverage-v8` in npm deps; documented in tests/vitest/coverage/BUILD.bazel
 - [x] node_modules symlink created at RUNFILES root so Vite can resolve `@vitest/coverage-v8` in sandbox
-- [x] lcov paths normalized (`SF:_main/` prefix stripped via sed) before writing to `COVERAGE_OUTPUT_FILE`
+- [x] lcov paths normalized (`SF:_main/` prefix stripped by `RewriteLcov`) before writing `vitest.dat`
 
 ### 13.9 Zero-Prerequisites First Run
 - [x] Document EXACT steps from empty directory to passing build (including Bazelisk install) — see README Requirements section

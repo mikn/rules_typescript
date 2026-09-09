@@ -5,9 +5,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 if (typeof module.registerHooks !== "function") {
   throw new Error(
-    `ts_test runner "node:test": node:module.registerHooks is unavailable on ` +
-      `Node ${process.version}, so the package's code cannot resolve at its ` +
-      "runfiles paths. Upgrade the js_runtime toolchain.",
+    "ts_test //ts/runners:node_test: node:module.registerHooks is " +
+      `unavailable on Node ${process.version}, so the package's code cannot ` +
+      "resolve at its runfiles paths. Upgrade the js_runtime toolchain.",
   );
 }
 

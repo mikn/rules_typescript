@@ -147,6 +147,6 @@ it. A hand-written target the editor should see needs a visibility grant to the
 root package. See
 [IDE Setup](../getting-started/ide-setup.md#setup).
 
-The `ts_compile` targets `ts_test` generates from your sources take the test's
-`visibility`, and are public when it declares none. An IDE tsconfig can
-therefore see the npm packages only a test declares.
+A `ts_test` is a program of its own and is listed there itself, under its own
+`visibility`; the targets over that list are testonly for it. An IDE tsconfig
+can therefore see the npm packages only a test declares.

@@ -2,7 +2,6 @@ package main
 
 import (
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -16,12 +15,12 @@ func nodeTestFixture(t *testing.T) (*Resolver, map[string]string) {
 			"_main/tests/app/b.test.js",
 			"_main/tests/app/c.test.js",
 		}, "\n"),
-		"_main/tests/app/a.test.js":                           "x",
-		"_main/tests/app/b.test.js":                           "x",
-		"_main/tests/app/c.test.js":                           "x",
-		"_main/tests/app/_app_test_node_modules/node_modules": dirMarker,
-		"_main/ts/private/node_test_hook.mjs":                 "export {}",
-		"+node+/bin/node":                                     "#!/bin/sh\n",
+		"_main/tests/app/a.test.js":             "x",
+		"_main/tests/app/b.test.js":             "x",
+		"_main/tests/app/c.test.js":             "x",
+		"_main/tests/app/app_test/node_modules": dirMarker,
+		"_main/ts/private/node_test_hook.mjs":   "export {}",
+		"+node+/bin/node":                       "#!/bin/sh\n",
 	})
 }
 
@@ -33,7 +32,7 @@ func nodeTestConfig() *Config {
 		Runtime:   "+node+/bin/node",
 		NodeTest: &NodeTestConfig{
 			TestFilesList: "_main/tests/app/app_test_files.txt",
-			NodeModules:   "_main/tests/app/_app_test_node_modules/node_modules",
+			NodeModules:   "_main/tests/app/app_test/node_modules",
 			ResolveHook:   "_main/ts/private/node_test_hook.mjs",
 		},
 	}
@@ -182,7 +181,7 @@ func TestPlanNodeTestOmitsTheNamePatternWithoutAFilter(t *testing.T) {
 // clean run, so the plan refuses instead.
 func TestPlanNodeTestRefusesACoverageRun(t *testing.T) {
 	r, _ := nodeTestFixture(t)
-	t.Setenv("COVERAGE_OUTPUT_FILE", filepath.Join(t.TempDir(), "out.dat"))
+	t.Setenv("COVERAGE_DIR", t.TempDir())
 	_, err := MakePlan(nodeTestConfig(), r, nil)
 	if err == nil || !strings.Contains(err.Error(), "does not report coverage") {
 		t.Fatalf("want a coverage refusal naming the runner, got %v", err)
@@ -196,7 +195,7 @@ func TestPlanNodeTestNamesTheNpmTreeOnNodePath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tree := real["_main/tests/app/_app_test_node_modules/node_modules"]
+	tree := real["_main/tests/app/app_test/node_modules"]
 	nodePath := plan.EnvOverrides["NODE_PATH"]
 	if strings.Split(nodePath, string(os.PathListSeparator))[0] != tree {
 		t.Errorf("NODE_PATH = %q, want it to start with %q", nodePath, tree)

@@ -211,7 +211,7 @@ such package fails the snippet above until the list is filled in. That attribute
 - **[IDE Setup](https://mikn.github.io/rules_typescript/getting-started/ide-setup/)** — a generated `tsconfig.json` plus live tsserver resolution from Bazel's build graph (TypeScript's GOPACKAGESDRIVER)
 - **[Isolated Declarations](https://mikn.github.io/rules_typescript/getting-started/isolated-declarations/)** — the opt-in throughput mode
 - **[npm Dependencies](https://mikn.github.io/rules_typescript/guides/npm/)** — pnpm lockfile integration, platform-specific packages, bin scripts
-- **[Testing with vitest](https://mikn.github.io/rules_typescript/guides/testing/)** — `ts_test`, snapshots, sharding, watch mode with ibazel; `runner = "node:test"` for tests written against node's own runner
+- **[Testing with vitest](https://mikn.github.io/rules_typescript/guides/testing/)** — `ts_test`, snapshots, sharding, watch mode with ibazel; `runner = "@rules_typescript//ts/runners:node_test"` for tests written against node's own runner
 - **[Bundling](https://mikn.github.io/rules_typescript/guides/bundling/)** — `ts_binary` with any `BundlerInfo`-compatible bundler
 - **[Dev Server](https://mikn.github.io/rules_typescript/guides/dev-server/)** — a pluggable dev server with ibazel HMR: Vite by default, any `DevServerInfo` rule through `server`
 - **[Monorepo Layout](https://mikn.github.io/rules_typescript/guides/monorepo/)** — one package per `tsconfig.json`, cross-package `.d.ts` caching

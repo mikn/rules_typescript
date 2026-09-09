@@ -7,14 +7,10 @@ compilers, and the repository rule that fetches a TypeScript compiler binary.
 load("//npm/private:npmrc_auth.bzl", "npmrc_auth")
 load("//platforms:platforms.bzl", "constraints")
 
-# ─── Toolchain type labels ────────────────────────────────────────────────────
-
 # Label(), not a string: these resolve in this file's repository mapping, so
 # they keep working when a consumer gives rules_typescript another repo name.
 OXC_TOOLCHAIN_TYPE = Label("//ts/toolchain:oxc_toolchain_type")
 TSGO_TOOLCHAIN_TYPE = Label("//ts/toolchain:tsgo_toolchain_type")
-
-# ─── Providers ────────────────────────────────────────────────────────────────
 
 OxcToolchainInfo = provider(
     doc = "Information about the oxc-bazel toolchain.",
@@ -29,8 +25,6 @@ TsgoToolchainInfo = provider(
         "tsgo_binary": "File: The tsgo CLI binary.",
     },
 )
-
-# ─── Toolchain implementations ────────────────────────────────────────────────
 
 def _oxc_toolchain_impl(ctx):
     binary = ctx.file.oxc_binary
@@ -90,31 +84,13 @@ tsgo_toolchain = rule(
     },
 )
 
-# ─── Toolchain resolution helpers ─────────────────────────────────────────────
-
 def get_oxc_toolchain(ctx):
-    """Resolves the oxc toolchain from the rule context.
-
-    Args:
-        ctx: The rule context.
-
-    Returns:
-        OxcToolchainInfo: The resolved oxc toolchain info.
-    """
+    """The resolved OxcToolchainInfo."""
     return ctx.toolchains[OXC_TOOLCHAIN_TYPE].oxc_info
 
 def get_tsgo_toolchain(ctx):
-    """Resolves the tsgo toolchain from the rule context.
-
-    Args:
-        ctx: The rule context.
-
-    Returns:
-        TsgoToolchainInfo: The resolved tsgo toolchain info.
-    """
+    """The resolved TsgoToolchainInfo."""
     return ctx.toolchains[TSGO_TOOLCHAIN_TYPE].tsgo_info
-
-# ─── Supported platforms ──────────────────────────────────────────────────────
 
 # Keys of //platforms:platforms.bzl%PLATFORMS. Both compiler packages publish
 # win32 builds too; Windows is unsupported here (COMPATIBILITY.md#windows).
@@ -122,8 +98,6 @@ TSGO_PLATFORMS = ["linux_amd64", "linux_arm64", "darwin_amd64", "darwin_arm64"]
 
 # oxc-bazel needs no such list: it is built from source by rules_rust for
 # whichever exec platform the build runs on.
-
-# ─── Toolchain macros ─────────────────────────────────────────────────────────
 
 def declare_oxc_toolchain(name):
     """Declares the oxc toolchain.
@@ -175,8 +149,6 @@ def declare_tsgo_toolchains(name, repo_prefix = None):
             toolchain_type = TSGO_TOOLCHAIN_TYPE,
             exec_compatible_with = constraints(platform),
         )
-
-# ─── tsgo repository rule ─────────────────────────────────────────────────────
 
 def _auth_for_fetch(repository_ctx, url):
     npmrc = repository_ctx.attr.npmrc

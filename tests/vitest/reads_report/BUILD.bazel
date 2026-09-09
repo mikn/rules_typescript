@@ -1,5 +1,6 @@
-"""A read outside the runfiles: `<name>.reads` prints the files as labels, and
-the twin that lists them in `data` makes the same read inside the sandbox."""
+"""A read outside the runfiles: `bazel run <test> -- --reads` prints the files
+as labels, and the twin that lists them in `data` makes the same read inside
+the sandbox."""
 
 load("//ts:defs.bzl", "ts_compile", "ts_test")
 
@@ -9,7 +10,8 @@ ts_compile(
     deps = ["@npm//:types_node"],
 )
 
-# Denied by the sandbox by design; :reads_report_test.reads runs it.
+# Denied by the sandbox by design; `bazel run :reads_report_test -- --reads`
+# runs it.
 # keep
 ts_test(
     name = "reads_report_test",

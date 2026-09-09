@@ -69,8 +69,8 @@ Typical patterns:
          )
 
      A route tree has to be checked in -- the routes are typed against it, and
-     one ts_compile cannot hold both it and them -- so pair the target with
-     refresh_workspace_files and diff_test.
+     one ts_compile cannot hold both it and them -- so a diff_test beside the
+     target fails when the checked-in copy drifts.
 
 Placeholder substitution in args:
   {srcs_dir}         → execroot-relative directory of the first src file
@@ -85,7 +85,7 @@ When node_modules is set, ts_codegen automatically sets:
   TS_CODEGEN_NODE_MODULES → same path (for scripts that fork child processes)
 """
 
-load("//ts/private:providers.bzl", "JsInfo", "TsDeclarationInfo")
+load("//ts/private:providers.bzl", "ts_info")
 load("//ts/private:runtime.bzl", "JS_TOOL_TOOLCHAIN_TYPE", "get_js_tool")
 
 _DECLARATION_SUFFIXES = (".d.ts", ".d.mts", ".d.cts")
@@ -202,20 +202,7 @@ def _ts_codegen_impl(ctx):
         declarations = depset([f for f in outs if f.basename.endswith(_DECLARATION_SUFFIXES)])
     return [
         DefaultInfo(files = files),
-        JsInfo(
-            js_files = js,
-            js_map_files = depset(),
-            transitive_js_files = js,
-            transitive_js_map_files = depset(),
-            data_files = depset(),
-            transitive_data_files = depset(),
-            source_files = depset(),
-        ),
-        TsDeclarationInfo(
-            declaration_files = declarations,
-            transitive_declaration_files = declarations,
-            transitive_npm_packages = depset(),
-        ),
+        ts_info(js = js, declarations = declarations),
     ]
 
 # ─── Rule declaration ──────────────────────────────────────────────────────────

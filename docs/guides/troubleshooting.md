@@ -45,7 +45,7 @@ use_repo(npm, "npm", "pnpm")
 ERROR: no such package '@@[unknown repo 'npm' requested from @@]//': The
 repository '@@[unknown repo 'npm' requested from @@]' could not be resolved:
 No repository visible as '@npm' from main repository and referenced by
-'//src/lib:_lib_test_node_modules'
+'//src/lib:lib_test'
 ```
 
 Gazelle resolved a bare import to an `@npm//:…` label and `use_repo` does not
@@ -281,15 +281,17 @@ in an npm package's declaration entry (`@types/bun/index.d.ts` is
 `/// <reference types="bun-types" />`) is followed by the rule; see
 [`@types/*` packages](../rules/ts-compile.md#types-packages).
 
-## ts_test: vitest not found
+## ts_test: needs vitest in the node_modules tree, which no dep provides
 
 ```
-ts_test: vitest not found. Set the vitest attr or add @npm//:vitest to the deps
-of the node_modules() target this test uses.
+ts_test @@//path/to:my_test: @@//ts/runners:vitest runs the tests and needs
+vitest in the node_modules tree, which no dep provides.
+Add the hub label of each to deps.
 ```
 
-`vitest` has to be reachable from the tree the test runs against. With the
-default (auto) `node_modules`, list it in `deps`:
+The vitest runner runs `vitest` out of the tree the tests run in, the forest
+the test's `deps` build, and a package no dep provides is not in it. List
+`@npm//:vitest` in `deps`:
 
 ```python
 ts_test(
@@ -299,27 +301,11 @@ ts_test(
 )
 ```
 
-With an explicit `node_modules` target, put it there; the auto generation is
-skipped entirely when `node_modules` is set:
-
-```python
-node_modules(
-    name = "node_modules",
-    deps = ["@npm//:vitest"],
-)
-
-ts_test(
-    name = "my_test",
-    srcs = ["my.test.ts"],
-    deps = [":my_lib"],
-    node_modules = ":node_modules",
-)
-```
-
-The same applies to every package the run needs at runtime, including ones only
-the production code imports: the auto tree is built from `ts_test`'s own npm deps
-and their transitive npm deps, and a `ts_compile` dep does not contribute its
-own.
+Every other package the run needs at runtime is in the tree the same way: the
+test's npm deps, their closures, and each `ts_compile` dep's npm closure, so a
+package only the production code imports arrives through that dep. See
+[Runners](../rules/ts-test.md#runners) and
+[Listing npm Deps](../rules/ts-test.md#listing-npm-deps).
 
 ## Isolated Declarations Error: Missing Return Type
 
@@ -504,10 +490,10 @@ parsed as a label.
 `ts_test` runs vitest in read-only snapshot mode, so a mismatch is a failure and
 a snapshot the sandbox cannot read counts as absent. Two causes:
 
-- The `.snap` is not in `snapshots`, so it never reached the runfiles tree. Add
-  `snapshots = glob(["__snapshots__/*.snap"])`.
-- The snapshot is stale. Regenerate it:
-  `bazel run //path/to:my_test.update_snapshots`, then commit.
+- The `.snap` is not in `srcs`, so it never reached the runfiles tree. List it
+  with the package's other files, as Gazelle does.
+- The snapshot is stale. Regenerate it with `vitest -u` in the package, then
+  commit.
 
 Full workflow: [Snapshots](testing.md#snapshots).
 

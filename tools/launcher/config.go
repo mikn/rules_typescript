@@ -28,10 +28,6 @@ const (
 	ModeDevServer = "devserver"
 )
 
-// RunnerNodeTest is the ts_test `runner` value this mode serves; diagnostics
-// quote it, so the rule and the launcher have to spell it the same.
-const RunnerNodeTest = "node:test"
-
 // Config is the whole contract between the Starlark rules and this binary.
 // Every path field is a runfiles path; nothing here is ever shell-quoted.
 type Config struct {
@@ -64,15 +60,14 @@ type PackageLink struct {
 
 // VitestConfig runs the vitest CLI over a sharded set of compiled test files.
 type VitestConfig struct {
-	Vitest          string `json:"vitest,omitempty"`
-	VitestInTree    string `json:"vitest_in_tree,omitempty"`
-	VitestIsNpmBin  bool   `json:"vitest_is_npm_bin,omitempty"`
-	ConfigFile      string `json:"config_file"`
-	TestFilesList   string `json:"test_files_list"`
-	NodeModules     string `json:"node_modules,omitempty"`
-	UpdateSnapshots bool   `json:"update_snapshots,omitempty"`
-	Coverage        bool   `json:"coverage,omitempty"`
-	ReadsHook       string `json:"reads_hook,omitempty"`
+	VitestInTree  string `json:"vitest_in_tree,omitempty"`
+	ConfigFile    string `json:"config_file"`
+	TestFilesList string `json:"test_files_list"`
+	NodeModules   string `json:"node_modules,omitempty"`
+	ReadsHook     string `json:"reads_hook,omitempty"`
+	// RootRel is vite's root relative to the config's directory: the package
+	// of a `config` from an ancestor package, "." otherwise.
+	RootRel string `json:"root_rel,omitempty"`
 }
 
 // NodeTestConfig carries no config file: node:test is configured by CLI flags
@@ -99,7 +94,6 @@ type DevServerConfig struct {
 	RunsInJsRuntime bool     `json:"runs_in_js_runtime,omitempty"`
 	Plugin          string   `json:"plugin,omitempty"`
 	UserConfig      string   `json:"user_config,omitempty"`
-	BundlerBinary   string   `json:"bundler_binary,omitempty"`
 	// ScratchDir is this target's directory under bazel-bin, where a dev server
 	// that insists on writing somewhere is pointed instead of the source tree.
 	ScratchDir string `json:"scratch_dir,omitempty"`

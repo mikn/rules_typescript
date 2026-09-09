@@ -295,7 +295,6 @@ arrived.
 | `node_modules` | `label` | `None` | `node_modules` target providing the application's runtime deps, plus Vite on the Vite path; also what makes a bare npm import resolve; see [above](#how-a-bare-npm-specifier-resolves) |
 | `plugin` | `label` | `None` | Compiled `vite-plugin-bazel` `.mjs`; see [above](#vite-plugin-bazel) |
 | `server` | `label` | `@rules_typescript//vite:dev_server` | `DevServerInfo`-providing target choosing the implementation; see [above](#bringing-your-own-server) |
-| `bundler` | `label` | `None` | `BundlerInfo`-providing target, for a custom dev server that needs a bundler binary in runfiles. The shipped server does not |
 | `react_refresh` | `bool` | `False` | React Fast Refresh via `@vitejs/plugin-react`; requires `@npm//:vitejs_plugin-react` in the `node_modules` deps, and fails against a server applying Fast Refresh itself; see [above](#react-fast-refresh) |
 | `vite_config_srcs` | `label_list` | `[]` | The local modules `vite_config` imports, staged beside it. A file outside the config's package is an analysis-time error |
 | `vite_config` | `label` | `None` | A `.ts`/`.mts`/`.mjs`/`.js` file default-exporting `{plugins: [...]}`, prepended to Bazel's plugins; see [above](#vite_config-what-it-may-import) |

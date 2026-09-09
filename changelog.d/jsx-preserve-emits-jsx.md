@@ -7,8 +7,7 @@
   Vite 7, `RollupError: Parse failure: Expression expected`). The rule names
   its outputs before any action can read the tsconfig, so `ts_config` gains
   `jsx = "preserve"`, the one compiler option that names an output; `ts_compile`
-  and the `ts_compile` a `ts_test` generates declare `foo.jsx` and `foo.jsx.map`
-  from it, oxc-bazel names the file `.jsx` under `--jsx preserve`, and the
+  and `ts_test` declare `foo.jsx` and `foo.jsx.map` from it, oxc-bazel names the file `.jsx` under `--jsx preserve`, and the
   `TsConfig` action fails a target with a `.tsx` src when the declaration and
   the chain's effective `jsx` disagree, naming the edit. A `ts_test` runs a
   `.jsx` test file and resolves a `.tsx` setup file to its `.jsx`. The hub's

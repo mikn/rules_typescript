@@ -16,7 +16,7 @@ func TestTheRootIsTheConfigsPackage(t *testing.T) {
 		`root: resolve(process.env.TS_TEST_PACKAGE_DIR, ".."),`,
 		`cacheDir: resolve(process.env.TEST_TMPDIR, '.vite')`,
 		`workersPoolLayer(bazelLayer, user, resolve(process.env.TS_TEST_PACKAGE_DIR, "../../.."))`,
-		`merge(merge(bazelLayer, user), attrLayer)`,
+		`merge(merge(bazelLayer, user), providerLayer)`,
 	)
 
 	// The same-package control: the config beside the tests keeps the test's

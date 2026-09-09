@@ -86,11 +86,14 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 
 **Key files:**
 - `ts/defs.bzl` — public API (all rules, providers, macros)
-- `ts/private/ts_compile.bzl` — core compilation rule
+- `ts/private/rules/ts_compile.bzl` — the `ts_compile` rule and
+  `TS_COMPILE_ATTRS`; `ts/private/actions/` — one action per file (`tsconfig`,
+  `oxc`, `tsgo`, `forest`, `strict_deps`), the functions the rule calls in that
+  order
 - `ts/tools/tsaction/` — the Go runner behind the actions: `tsconfig` writes the action config from `tsgo --showConfig`, `oxc` relays the options to oxc, `tsgo` lays out the program root and runs tsgo from it
 - `ts/tools/tsconfig/`, `ts/tools/jsonc/` — the tsconfig `extends` chain reader and the JSONC parser, shared by tsaction and Gazelle
 - `ts/private/node_modules.bzl` — the `node_modules` tree builder; `ts_compile`'s forest and `ts_test`'s runtime tree
-- `ts/private/providers.bzl` — JsInfo, TsDeclarationInfo, TsConfigInfo, NpmPackageInfo, DevServerInfo, BundlerInfo
+- `ts/private/providers.bzl` — TsInfo, TsTestRunnerInfo, TsConfigInfo, NpmPackageInfo, DevServerInfo, BundlerInfo
 - `npm/private/npm_translate_lock.bzl` — pnpm lockfile reader (parsing only; no repository rule)
 - `npm/extensions.bzl` — the `npm` module extension (translate_lock, pnpm tags)
 - `npm/lazy.bzl` — whole-graph analysis + one `npm_import` per package + the alias hub
@@ -102,7 +105,12 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 - `ts/private/ts_config.bzl` — the public `ts_config` rule (a hand-written tsconfig.json and its `extends` chain)
 - `platforms/platforms.bzl` — the one platform table (`PLATFORMS`) everything loads
 - `ts/toolchain/BUILD.bazel` — toolchain types and instances; `//ts/toolchain:all`
-- `ts/private/ts_test.bzl` — test macro: vitest by default, `runner = "node:test"` for node's own runner (auto node_modules)
+- `ts/private/rules/ts_test.bzl` — the `ts_test` rule over `TS_COMPILE_ATTRS`
+  and the test attributes; `ts/private/rules/runners.bzl` — the two runner
+  targets under `//ts/runners`, `vitest` and `node_test`, each providing
+  `TsTestRunnerInfo`; `ts/private/actions/vitest.bzl` — the generated vitest
+  config; `ts/private/actions/workers_pool.bzl` — the Workers pool's half of
+  the test environment, the one file that names wrangler
 - `ts/private/bundle_action.bzl` — the bundle action behind `ts_binary`'s `bundler` attr
 - `ts/private/ts_dev_server.bzl` — dev server with HMR
 - `ts/private/ts_codegen.bzl` — general code generation
@@ -147,8 +155,8 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
   whose `tsconfig.json` lists a first-party file, its program is that listing,
   and its deps come from the listing's edges, the lockfile and the nearest
   `package.json`
-- `ts_test` auto-generates node_modules from the npm deps in `deps` and each
-  `ts_compile` dep's npm closure (`TsDeclarationInfo.transitive_npm_packages`)
+- A `ts_test` runs in the forest its `deps` build: the npm deps in `deps` and
+  each `ts_compile` dep's npm closure (`TsInfo.npm_packages`)
 - Register new rules in `Kinds()` + `Loads()`
 - `bazel run //gazelle -- -mode=diff` on a clean tree must print nothing. A
   fixture that differs only in Gazelle's own rendering (a one-element list
@@ -170,6 +178,12 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
   (`shareRepositoryCache` in `tests/integration/harness/harness.go`); do not add a
   workspace that bypasses `prepare()`.
 - Use `sh_test` for output verification, `go_test` for Gazelle logic, vitest for runtime behavior
+- `tools/ci/check_retired_names.sh`: a retired attribute, kind, provider,
+  directive, export or path is named in `changelog.d/` and nowhere else. A file
+  asserting the absence goes in its `ALLOWED` list with why
+- `tools/ci/check_coverage_report.sh`: `bazel coverage` on the fixture, its
+  report's `SF:` lines against what `--instrumentation_filter` selects; the
+  suite never runs coverage and an empty report passes
 
 **npm:**
 - pnpm is hermetic (`bazel run //:pnpm`). No system pnpm needed.
@@ -182,17 +196,19 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 
 ## Provider Contract
 
-Every `ts_compile` target provides: `JsInfo` + `TsDeclarationInfo` +
-`OutputGroupInfo(_validation)`. `_validation` is only populated under
+Every `ts_compile` target provides: `TsInfo` + `InstrumentedFilesInfo` +
+`OutputGroupInfo(_validation)`; a `ts_test` runs the same actions over its
+srcs and provides the last two. `_validation` is only
+populated under
 `--//ts:declarations=oxc`; under the default the declarations are the proof.
 A `ts_compile` with any `deps` additionally exposes the strict-deps stamp: in
 `OutputGroupInfo(strict_deps = ...)` always, and as an input to the compile
 actions, so a violation fails the build and not only `--output_groups`.
-Every `ts_npm_package` provides: `JsInfo` + `TsDeclarationInfo` +
-`NpmPackageInfo` (whose `direct_deps` carries the per-dependent resolution the
-`node_modules` links are built from).
+Every `ts_npm_package` provides: `TsInfo`, naming its closure in
+`npm_packages` and nothing by path, + `NpmPackageInfo` (whose `direct_deps`
+carries the per-dependent resolution the `node_modules` links are built from).
 A data src of a `ts_compile` -- a `.css`, an image, a `.json` -- travels in
-`JsInfo.transitive_data_files`, which `ts_test`, `ts_binary` and
+`TsInfo.transitive_data`, which `ts_test`, `ts_binary` and
 `ts_dev_server` stage beside the `.js`; a `*.module.css` is Vite's own CSS
 modules wherever Vite runs it.
 
@@ -323,13 +339,9 @@ form emits `test.projects` (vitest 4 throws on `test.workspace`).
 
 `ts_test` redirects `test.resolveSnapshotPath` to
 `<package>/__snapshots__/<source>.snap`, where a plain `vitest` keeps it, reads
-those files from runfiles via the `snapshots` attr, and runs vitest in read-only
+those files from the runfiles as srcs of the test, and runs vitest in read-only
 snapshot mode (`CI=true`), so no `bazel test` can write a `.snap` and pass on
-what it wrote. Every vitest `ts_test` also declares `<name>.update_snapshots`, which
-reuses the test's own `ts_compile` (a second `ts_compile` over the same srcs would
-declare the same `.js` outputs) and writes under `BUILD_WORKSPACE_DIRECTORY`.
-Update mode pins `test.dir`, `test.include` and `cacheDir`, because `bazel run`
-puts the working directory in the user's source tree.
+what it wrote. Writing one is vitest's own `vitest -u` in the package.
 
 ## Anti-Patterns
 

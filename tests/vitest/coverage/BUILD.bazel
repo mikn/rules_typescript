@@ -11,8 +11,9 @@ is not, until a wider filter selects it:
     --instrumentation_filter='^//tests/vitest[/:]'    both
     --instrumentation_filter='-tests/vitest'          neither
 
-Requires @vitest/coverage-v8 in the npm deps.  The provider is selected
-automatically when Bazel sets COVERAGE_OUTPUT_FILE.
+Requires @vitest/coverage-v8 in the npm deps.  The launcher turns coverage on
+when Bazel sets COVERAGE_DIR, and //tools/lcov_merger keeps what the manifest
+selects; tools/ci/check_coverage_report.sh runs both commands in CI.
 """
 
 load("//ts:defs.bzl", "ts_compile", "ts_test")
@@ -29,7 +30,7 @@ ts_compile(
 ts_test(
     name = "math_coverage_test",
     srcs = ["math.test.ts"],
-    coverage = True,
+    visibility = ["//:__pkg__"],
     deps = [
         ":same_package",
         "//tests/vitest:math",

@@ -22,11 +22,17 @@ bazelisk and repository caches in all of them, the external cache in all but
      (see [below](#test-source-coverage))
    - On ubuntu only, second: `tools/ci/check_integration_shards.sh`. Every
      integration test has to land on exactly one leg of the `integration-tests`
-     matrix. Both gates run before the suite and neither skips it: the two
-     `bazel` steps run whatever the gates did, and the job still fails on a
-     failed gate
+     matrix
+   - On ubuntu only, third: `tools/ci/check_retired_names.sh`. No tracked
+     prose or code outside the changelog names a retired attribute, kind,
+     provider, directive, export or path (see [below](#retired-names)). The
+     three gates run before the suite and none skips it: the two `bazel` steps
+     run whatever the gates did, and the job still fails on a failed gate
    - `bazel test --config=ci //...`, then
-     `bazel build --config=ci //... --output_groups=+_validation`
+     `bazel build --config=ci //... --output_groups=+_validation`, then, on
+     ubuntu only, `tools/ci/check_coverage_report.sh`: the fixture under
+     `bazel coverage`, its report's `SF:` lines against what the filter selects
+     (see [below](#coverage-report))
    - Matrix: `ubuntu-latest` and `macos-latest`
 
 2. **E2E Tests** (`e2e`)
@@ -156,6 +162,39 @@ of scope: `//...` does not descend into them.
 The script is read-only: a loading-phase `bazel query` and `git ls-files`, no
 Gazelle run and no writes. `git ls-files` cannot see an unstaged new file, so a
 local run reports green on a test that has no target yet.
+
+### Retired Names
+
+A retired attribute, kind, provider, directive, export or file path that a page
+or a comment still names is a sentence the code falsified.
+`check_retired_names.sh` carries the list and greps every tracked file for it in
+identifier form: whole words, a `# gazelle:` directive with a `ts_` name, the
+macro's `_<name>_test_compile` and `_<name>_test_node_modules` targets, the two
+rule files' pre-split paths under `ts/private/`. Out of scope:
+`changelog.d/` and `CHANGELOG.md`, where a retirement is recorded with the edit
+it requires; `TODO.md` and `rules-ts-v2-project-plan.md`, the project's
+history; the rows of `docs/gazelle/directives.md`'s table mapping each retired
+directive to its replacement. Two names are left off the list because they are
+live under another meaning, `module_name` (bzlmod's `git_override` keyword) and
+`jsx_import_source` (an oxc_cli option field); four attribute names that are
+also fixture directories under `tests/` match only outside a path.
+
+A file that asserts a retired name is absent or inert -- `kinds_surface_test.go`
+pins the kinds Gazelle no longer writes -- is listed in `ALLOWED` inside the
+script with the reason. The list is exact in both directions: a listed file
+with no hit fails until the entry is removed. `git grep` only, no Bazel.
+
+### Coverage Report
+
+`bazel test //...` never makes a coverage run, and a coverage run whose report
+is empty passes: Bazel's `collect_coverage.sh` merges what the test left under
+`COVERAGE_DIR`, and an empty directory is an empty `coverage.dat`.
+`check_coverage_report.sh` runs `//tests/vitest/coverage:math_coverage_test`
+under `bazel coverage --combined_report=lcov` twice, with the default
+`--instrumentation_filter` and with `^//tests/vitest[/:]`, and compares the
+combined report's `SF:` lines with the files each filter selects
+([ts_test § Coverage](rules/ts-test.md#coverage)). It is the last step of the
+`test` job, after the suite, on ubuntu only.
 
 ### Triggering CI
 

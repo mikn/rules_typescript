@@ -48,8 +48,14 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: tools/ci/check_integration_shards.sh
 
-      # Both gates keep their place in front of the suite -- the reason above
-      # holds -- but a step defaults to `if: success()`, so either of them going
+      # A retired name a page or a comment still uses is a sentence the code
+      # falsified; changelog.d is where a retirement is recorded.
+      - name: No prose or code names a retired attribute, kind or provider
+        if: matrix.os == 'ubuntu-latest'
+        run: tools/ci/check_retired_names.sh
+
+      # The gates keep their place in front of the suite -- the reason above
+      # holds -- but a step defaults to `if: success()`, so one of them going
       # red used to skip everything below on ubuntu while fail-fast cancelled
       # macOS, and `bazel test //...` ran nowhere. That is how #74 to #77 merged
       # onto a red main with the suite effectively switched off. These two run
@@ -67,6 +73,14 @@ jobs:
       - name: Type checking (validation)
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bazel build --config=ci //... --output_groups=+_validation
+
+      # The suite never runs `bazel coverage`, and a coverage run whose report
+      # is empty passes; the fixture runs under it here and its report is read.
+      - name: bazel coverage on the fixture names what the filter selects
+        if: >-
+          ${{ !cancelled() && steps.setup.outcome == 'success' &&
+              matrix.os == 'ubuntu-latest' }}
+        run: tools/ci/check_coverage_report.sh
 
   e2e:
     name: E2E Tests
@@ -341,7 +355,7 @@ jobs:
         run: |
           go vet ./gazelle/... ./tests/... ./ts/... \
             ./tools/changelog/... ./tools/copy_to_workspace/... \
-            ./tools/launcher/... ./tools/release/...
+            ./tools/launcher/... ./tools/lcov_merger/... ./tools/release/...
 
       # docs.yml builds the site only on push to main, so until now a PR that
       # broke the nav or a page reference was caught after it had already merged.

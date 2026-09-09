@@ -436,8 +436,8 @@ own `package.json` is the one data src the link leaves out: the manifest as
 built stands in its place, in the link and at the member's own path in a
 `ts_test`'s runfiles, where a test inside the member resolves the member's name
 through the nearest manifest and would otherwise reach the source targets. The
-view forwards `JsInfo`, so the closure's `transitive_data_files` reach a
-consumer as any dep's do. `ts_test` inlines the tree's workspace members for vite
+view forwards the member's `TsInfo`; a consumer reaches the member's files in
+the tree, as it reaches any npm package's. `ts_test` inlines the tree's workspace members for vite
 (`server.deps.inline`), because a member's emitted `.js` keeps its sources'
 extensionless relative imports, which node's loader rejects and vite resolves,
 and pnpm inlines a linked package for the same reason.

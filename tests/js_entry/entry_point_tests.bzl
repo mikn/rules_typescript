@@ -16,4 +16,6 @@ def _fails_with(message):
     return analysistest.make(_impl, expect_failure = True)
 
 typescript_entry_point_test = _fails_with("is a TypeScript source, which this rule does not compile")
-unusable_entry_point_test = _fails_with("does not provide JsInfo and is not a JavaScript file")
+unusable_entry_point_test = _fails_with(
+    "does not provide TsInfo and is not a JavaScript file",
+)

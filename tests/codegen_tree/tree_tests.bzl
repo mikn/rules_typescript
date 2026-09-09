@@ -7,14 +7,14 @@ next person from "fixing" the expansion by staging the tree there.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
-load("//ts/private:providers.bzl", "TsDeclarationInfo")
+load("//ts:defs.bzl", "TsInfo")
 
 def _tree_reaches_compile_impl(ctx):
     env = analysistest.begin(ctx)
 
     trees = [
         f
-        for f in ctx.attr.tree[TsDeclarationInfo].declaration_files.to_list()
+        for f in ctx.attr.tree[TsInfo].declarations.to_list()
         if f.is_directory
     ]
     asserts.equals(env, 1, len(trees), "the codegen target provides no directory")
