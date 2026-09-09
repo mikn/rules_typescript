@@ -7,7 +7,7 @@
   --changed`) beside `bazel build //...` and `bazel test //...`; an `EXCLUDE`
   file leaves a red target and its checkout row out of the test-everything
   cells; one headed log per run and `summary.md` with medians and spread.
-  A cell starts once the machine's other work is under `OTHER_CORES` (2)
-  over 3 s, and a cell during which other work averaged more is not a
-  number: its log moves to `contended/` and its segment is redone, `REDO`
-  (3) attempts before the runner stops.
+  A cell starts once other processes' CPU (kernel threads aside) is under
+  `OTHER_CORES` (2) over 3 s, and a cell during which it averaged more is
+  not a number: its log moves to `contended/` and its segment is redone,
+  `REDO` (3) attempts before the runner stops.
