@@ -7,9 +7,11 @@ usage() {
   echo "  EXCLUDE: a file, one '<ts_test label>|<CI row, worker dir or" >&2
   echo "    ->|<why>' per line, left out of the test-everything cells" >&2
   echo "  OTHER_CORES (default 2): a cell starts once other processes' CPU" >&2
-  echo "    (kernel threads aside) is under it over 3 s; a cell during" >&2
-  echo "    which it averaged more is redone with its segment, REDO" >&2
-  echo "    (default 3) attempts before the runner stops" >&2
+  echo "    is under it over 3 s; a cell during which it averaged more is" >&2
+  echo "    redone with its segment, REDO (default 3) attempts before the" >&2
+  echo "    runner stops. Kernel threads are not other processes, nor the" >&2
+  echo "    /proc/<pid>/comm names in SYSTEM_PROCS (a security sensor" >&2
+  echo "    whose CPU follows the benchmark's own activity)" >&2
   exit 2
 }
 [ $# -ge 3 ] && [ $# -le 4 ] || usage
@@ -21,6 +23,7 @@ BAZEL="${BAZEL:-bazelisk}"
 EXCLUDE="${EXCLUDE:-}"
 OTHER_CORES="${OTHER_CORES:-2}"
 REDO="${REDO:-3}"
+SYSTEM_PROCS="${SYSTEM_PROCS:-}"
 TCK="$(getconf CLK_TCK)"
 TSGO="--@rules_typescript//ts:declarations=tsgo"
 TYPECHECK=.github/scripts/typecheck.sh
@@ -124,17 +127,22 @@ proc_jiffies() {
   [ -n "$1" ] && [ -r "/proc/$1/stat" ] || { echo 0; return; }
   cut -d')' -f2 "/proc/$1/stat" | awk '{print $12+$13+$14+$15}'
 }
-kernel_jiffies() {
-  cat /proc/[0-9]*/stat 2> /dev/null | awk '{pid=$1; sub(/^[^)]*\) /, "");
-    if (pid == 2 || $2 == 2) s += $12+$13+$14+$15} END{print s+0}'
+system_jiffies() {
+  cat /proc/[0-9]*/stat 2> /dev/null | awk -v names="$SYSTEM_PROCS" '
+    BEGIN{n=split(names, a, " "); for (i=1;i<=n;i++) sp[substr(a[i],1,15)]=1}
+    {match($0, /\(.*\)/); comm=substr($0, RSTART+1, RLENGTH-2);
+     split(substr($0, RSTART+RLENGTH+1), f, " "); c=f[12]+f[13]+f[14]+f[15];
+     if ($1 == 2 || f[2] == 2) k+=c; else if (comm in sp) s+=c}
+    END{print k+0, s+0}'
 }
 server_pid() { [ -n "$1" ] && cat "$1/server/server.pid.txt" 2>/dev/null; }
 other_cores_now() {
-  local a b ka kb
-  ka=$(kernel_jiffies); a=$(busy_jiffies)
+  local a b ka kb ga gb
+  read -r ka ga <<< "$(system_jiffies)"; a=$(busy_jiffies)
   sleep 3
-  b=$(busy_jiffies); kb=$(kernel_jiffies)
-  awk -v a="$((b - a - kb + ka))" -v t="$TCK" 'BEGIN{printf "%.2f", a/t/3}'
+  b=$(busy_jiffies); read -r kb gb <<< "$(system_jiffies)"
+  awk -v a="$((b - a - kb + ka - gb + ga))" -v t="$TCK" \
+    'BEGIN{if (a<0) a=0; printf "%.2f", a/t/3}'
 }
 over() { awk -v c="$1" -v m="$OTHER_CORES" 'BEGIN{exit !(c >= m)}'; }
 wait_quiet() {
@@ -161,7 +169,7 @@ excluded_row() {
 run_cell() {
   local name="$1" run="$2" note="$3" cwd="$4" ob="$5"; shift 5
   local log="$LOGS/$name/run$run.log" quiet t0 t1 rc wall cpu cores
-  local b0 b1 k0 k1 o0 o1 p0 p1 s0 s1
+  local b0 b1 k0 k1 g0 g1 o0 o1 p0 p1 s0 s1
   mkdir -p "$LOGS/$name"
   quiet="$(wait_quiet)"
   {
@@ -172,20 +180,22 @@ run_cell() {
       "$quiet"
   } > "$log"
   p0="$(server_pid "$ob")"; s0="$(proc_jiffies "$p0")"
-  o0="$(proc_jiffies $$)"; k0="$(kernel_jiffies)"; b0="$(busy_jiffies)"
+  o0="$(proc_jiffies $$)"; read -r k0 g0 <<< "$(system_jiffies)"
+  b0="$(busy_jiffies)"
   t0=$(date +%s.%N)
   (cd "$cwd" && "$@") >> "$log" 2>&1
   rc=$?
   t1=$(date +%s.%N)
-  b1="$(busy_jiffies)"; k1="$(kernel_jiffies)"; o1="$(proc_jiffies $$)"
-  p1="$(server_pid "$ob")"; s1="$(proc_jiffies "$p1")"
+  b1="$(busy_jiffies)"; read -r k1 g1 <<< "$(system_jiffies)"
+  o1="$(proc_jiffies $$)"; p1="$(server_pid "$ob")"; s1="$(proc_jiffies "$p1")"
   [ "$p1" = "$p0" ] || s0=0
   wall="$(awk -v a="$t0" -v b="$t1" 'BEGIN{printf "%.1f", b-a}')"
-  cpu="$(awk -v b="$((b1 - b0))" -v k="$((k1 - k0))" -v t="$TCK" \
-    -v o="$((o1 - o0 + s1 - s0))" -v a="$t0" -v z="$t1" 'BEGIN{
-    if (k<0) k=0; x=(b-o-k)/t; if (x<0) x=0; w=z-a;
-    printf "total=%.1f ours=%.1f kernel=%.1f others=%.1f others_cores=%.2f",
-      b/t, o/t, k/t, x, (w>0 ? x/w : 0)}')"
+  cpu="$(awk -v b="$((b1 - b0))" -v k="$((k1 - k0))" -v g="$((g1 - g0))" \
+    -v o="$((o1 - o0 + s1 - s0))" -v t="$TCK" -v a="$t0" -v z="$t1" 'BEGIN{
+    if (k<0) k=0; if (g<0) g=0; x=(b-o-k-g)/t; if (x<0) x=0; w=z-a;
+    printf "total=%.1f ours=%.1f kernel=%.1f system_procs=%.1f", b/t, o/t,
+      k/t, g/t;
+    printf " others=%.1f others_cores=%.2f", x, (w>0 ? x/w : 0)}')"
   cores="${cpu##*others_cores=}"
   {
     printf '# wall=%s\n' "$wall"
@@ -432,7 +442,7 @@ BAZEL_VER="$(cd "$CHECKOUT" &&
 TOOLS="$(tool_versions)"
 echo "# $(now) load $(load) runs=$RUNS" \
   "local_test_jobs=${LOCAL_TEST_JOBS:-default} other_cores=$OTHER_CORES" \
-  "redo=$REDO exclude=${EXCLUDE:-none}"
+  "redo=$REDO system_procs=${SYSTEM_PROCS:-none} exclude=${EXCLUDE:-none}"
 for n in $(seq 1 "$RUNS"); do
   lanes "$n"
   all_complete "$n" "$COLD $WARM $EDIT $CACHED" && continue
