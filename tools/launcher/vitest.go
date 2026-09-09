@@ -10,8 +10,17 @@ import (
 	"strings"
 )
 
-func planVitest(cfg *Config, r *Resolver, plan *Plan) (*Plan, error) {
+func planVitest(
+	cfg *Config, r *Resolver, plan *Plan, args []string,
+) (*Plan, error) {
 	v := cfg.Vitest
+	var reads *readsRun
+	if v.ReadsHook != "" {
+		var err error
+		if r, reads, err = startReads(cfg.Label, r); err != nil {
+			return nil, err
+		}
+	}
 	plan.Dir = testWorkingDir(r, v.UpdateSnapshots)
 
 	nodeModules, err := installNodeModules(r, plan, v.NodeModules)
@@ -67,6 +76,7 @@ func planVitest(cfg *Config, r *Resolver, plan *Plan) (*Plan, error) {
 		flags = append(flags, "--update")
 	}
 	flags = append(flags, coverageFlags(v.Coverage)...)
+	flags = append(flags, args...)
 
 	vitestBin, viaPath, err := resolveVitest(r, v, nodeModules)
 	if err != nil {
@@ -87,6 +97,14 @@ func planVitest(cfg *Config, r *Resolver, plan *Plan) (*Plan, error) {
 	plan.Argv = append(append(argv, flags...), files...)
 	plan.UseExec = false
 	plan.PostRun = writeCoverage(cfg.Workspace, plan.Dir)
+	if reads != nil {
+		hook, err := r.Path(v.ReadsHook)
+		if err != nil {
+			return nil, err
+		}
+		reads.install(plan, hook, r.Dir())
+		plan.PostRun = chainPostRun(plan.PostRun, reads.report(os.Stdout))
+	}
 	return plan, nil
 }
 

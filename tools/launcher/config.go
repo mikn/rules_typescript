@@ -72,6 +72,7 @@ type VitestConfig struct {
 	NodeModules     string `json:"node_modules,omitempty"`
 	UpdateSnapshots bool   `json:"update_snapshots,omitempty"`
 	Coverage        bool   `json:"coverage,omitempty"`
+	ReadsHook       string `json:"reads_hook,omitempty"`
 }
 
 // NodeTestConfig carries no config file: node:test is configured by CLI flags

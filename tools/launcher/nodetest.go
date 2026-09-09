@@ -7,7 +7,9 @@ import (
 
 // planNodeTest names every file on the command line, so unlike the vitest plan
 // there is no staged root to keep the runner from globbing a sibling out of bin.
-func planNodeTest(cfg *Config, r *Resolver, plan *Plan) (*Plan, error) {
+func planNodeTest(
+	cfg *Config, r *Resolver, plan *Plan, args []string,
+) (*Plan, error) {
 	n := cfg.NodeTest
 	plan.Dir = r.Dir()
 
@@ -47,6 +49,10 @@ func planNodeTest(cfg *Config, r *Resolver, plan *Plan) (*Plan, error) {
 		// process and forwards the parent's execArgv to it.
 		argv = append(argv, "--import", hook)
 	}
+	// The entry keeps its runfiles path, so relative reads land where the
+	// checkout has them; node --test forwards execArgv to its children.
+	argv = append(argv, "--preserve-symlinks-main")
+	argv = append(argv, args...)
 	argv = append(argv, "--test")
 
 	// --test_filter reaches a test runner as TESTBRIDGE_TEST_ONLY; node:test

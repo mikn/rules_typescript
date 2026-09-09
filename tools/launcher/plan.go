@@ -56,9 +56,9 @@ func MakePlan(cfg *Config, r *Resolver, args []string) (*Plan, error) {
 	case ModeNode:
 		return planNode(cfg, r, plan, args)
 	case ModeVitest:
-		return planVitest(cfg, r, plan)
+		return planVitest(cfg, r, plan, args)
 	case ModeNodeTest:
-		return planNodeTest(cfg, r, plan)
+		return planNodeTest(cfg, r, plan, args)
 	case ModeDevServer:
 		return planDevServer(cfg, r, plan, args)
 	}

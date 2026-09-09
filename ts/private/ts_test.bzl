@@ -5,7 +5,7 @@ NOTE — Windows compatibility:
   The node_modules tree action (_ts_auto_node_modules) runs via a cross-platform
   Node.js script and works on all platforms including Windows.
 
-  However, the test runner itself (_ts_test_runner_impl / _ts_snapshot_updater)
+  However, the test runner itself (_ts_test_runner_impl and its two rules)
   generates a bash script and is therefore NOT compatible with Windows.  Running
   `bazel test` or `bazel run` with ts_test targets on Windows requires a bash
   environment (e.g. Git Bash, WSL) or a future replacement of the runner script
@@ -79,6 +79,12 @@ Snapshot testing:
   files under BUILD_WORKSPACE_DIRECTORY.  It shares the test's ts_compile
   target; a second ts_test over the same srcs would collide with it on the
   compiled .js outputs.
+
+Run-time reads:
+  Every vitest ts_test also declares `bazel run //path:my_test.reads`, which
+  runs the same compiled tests unsandboxed under an fs hook and prints the
+  workspace files they opened outside the runfiles as the labels a `data`
+  entry would take; docs/rules/ts-test.md § Finding What a Test Reads.
 """
 
 load("//tools/launcher:launcher.bzl", "LAUNCHER_ATTRS", "declare_launcher", "rlocation_path")
@@ -87,10 +93,12 @@ load(
     "//ts/private:providers.bzl",
     "JsInfo",
     "NpmPackageInfo",
+    "TsConfigInfo",
     "TsDeclarationInfo",
 )
 load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "JS_TOOL_TOOLCHAIN_TYPE", "get_js_runtime", "get_js_tool")
 load("//ts/private:ts_compile.bzl", "ts_compile")
+load("//ts/private:vite_config.bzl", "stage_vite_config")
 
 # ─── Internal auto node_modules rule ──────────────────────────────────────────
 #
@@ -206,15 +214,14 @@ const merge = (a, b) => {
 """
 
 _SETUP_HELPERS = """\
-// A config's setup entries and a compiled module's imports name sources the
-// runfiles never hold; what a dep stages at that path is the compiled sibling.
+// A setup entry or an import names a source; the program vitest runs is the
+// compiled one (docs/rules/ts-test.md § Files at Run Time).
 const COMPILED_EXT = {
   '.ts': ['.js'], '.tsx': ['.js', '.jsx'], '.mts': ['.mjs'], '.cts': ['.cjs'],
 };
 const compiledSibling = (dir, spec) => {
   const m = typeof spec === 'string' ? /\\.[cm]?tsx?$/.exec(spec) : null;
   if (!m || !(m[0] in COMPILED_EXT)) return spec;
-  if (existsSync(resolve(dir, spec))) return spec;
   const sibling = COMPILED_EXT[m[0]]
     .map((ext) => spec.slice(0, -m[0].length) + ext)
     .find((candidate) => existsSync(resolve(dir, candidate)));
@@ -265,6 +272,72 @@ const setupFilesInRoot = (config) => {
   return { ...config, plugins: [...(config.plugins ?? []), plugin] };
 };
 """
+
+_PATHS_HELPERS = """\
+// tsc took the exact key, else the longest matching prefix, and the first of
+// its values that resolved; the run does the same over the compiled tree.
+const tsconfigPaths = (dir, paths) => {
+  const entries = Object.entries(paths).map(([key, values]) => {
+    const star = key.indexOf('*');
+    const exact = star < 0;
+    return {
+      exact,
+      prefix: exact ? key : key.slice(0, star),
+      suffix: exact ? '' : key.slice(star + 1),
+      values,
+    };
+  });
+  entries.sort((a, b) =>
+    Number(b.exact) - Number(a.exact) || b.prefix.length - a.prefix.length);
+  const match = (id) => {
+    for (const e of entries) {
+      if (e.exact) {
+        if (id === e.prefix) return { e, captured: '' };
+        continue;
+      }
+      const fits = id.length >= e.prefix.length + e.suffix.length;
+      if (fits && id.startsWith(e.prefix) && id.endsWith(e.suffix)) {
+        const end = id.length - e.suffix.length;
+        return { e, captured: id.slice(e.prefix.length, end) };
+      }
+    }
+    return null;
+  };
+  return {
+    name: 'rules_typescript:tsconfig-paths',
+    enforce: 'pre',
+    async resolveId(id, importer, opts) {
+      if (/^[./\\0]/.test(id)) return null;
+      const m = match(id);
+      if (!m) return null;
+      for (const value of m.e.values) {
+        const target = resolve(dir, value.replace('*', m.captured));
+        const resolved = await this.resolve(
+          compiledSibling(dir, target), importer, { ...opts, skipSelf: true },
+        );
+        if (resolved) return resolved;
+      }
+      return null;
+    },
+  };
+};
+"""
+
+def _package_relative_dir(ctx, f):
+    """The directory of the package's output `f`, relative to the package."""
+    prefix = ctx.label.package + "/" if ctx.label.package else ""
+    if not f.short_path.startswith(prefix):
+        fail(("ts_test {}: the node_modules tree {} is not in the test's " +
+              "package, where the config is staged beside it.").format(
+            ctx.label,
+            f.short_path,
+        ))
+    return f.short_path[len(prefix):].rpartition("/")[0]
+
+def _is_test_file(f):
+    """A compiled `<stem>.{test,spec}.<ext>`: vitest's default include."""
+    parts = f.basename.split(".")
+    return len(parts) >= 3 and parts[-2] in ("test", "spec")
 
 def _relative_dir(from_dir, to_dir):
     """Relative path from one workspace directory to another, "." when equal."""
@@ -368,8 +441,10 @@ def _vitest_config_content(
         snapshot_bases = {},
         snapshot_root = "",
         test_include = [],
+        run_include = [],
         update_snapshots = False,
         workers_pool_rf = None,
+        tsconfig_paths_rf = None,
         root_rel = ".",
         workspace_rel = ".",
         inline_members = []):
@@ -384,9 +459,7 @@ def _vitest_config_content(
         ("basename, dirname, join, resolve, sep" if snapshot_bases else "dirname, resolve") +
         " } from 'node:path';",
         "import { fileURLToPath } from 'node:url';",
-        "import { existsSync, " +
-        ("readFileSync, " if snapshot_bases else "") +
-        "realpathSync } from 'node:fs';",
+        "import { existsSync, readFileSync, realpathSync } from 'node:fs';",
     ]
     if workers_pool_rf:
         lines.append("import {{ workersPoolLayer }} from '{}';".format(
@@ -413,6 +486,23 @@ def _vitest_config_content(
     lines += [
         _CONFIG_MERGE_HELPERS,
         _SETUP_HELPERS,
+        _PATHS_HELPERS,
+    ]
+    if tsconfig_paths_rf:
+        lines += [
+            "const TSCONFIG_PATHS = JSON.parse(readFileSync(",
+            "  resolve(process.env.TS_TEST_PACKAGE_DIR, {}), 'utf8'));".format(
+                _js(_relative_import(config_rf, tsconfig_paths_rf)),
+            ),
+            "const PATHS_DIR = resolve(",
+            "  process.env.TS_TEST_PACKAGE_DIR, TSCONFIG_PATHS.dir);",
+            "const pathsPlugins = Object.keys(TSCONFIG_PATHS.paths).length",
+            "  ? [tsconfigPaths(PATHS_DIR, TSCONFIG_PATHS.paths)]",
+            "  : [];",
+        ]
+    else:
+        lines.append("const pathsPlugins = [];")
+    lines += [
         # Every path vitest is handed is a runfiles symlink; resolving them to
         # their targets walks out of the test sandbox, which the browser-like
         # environments do and the node one does not.
@@ -436,7 +526,7 @@ def _vitest_config_content(
         # which is the runfiles tree.
         "  ...(process.env.TEST_TMPDIR ? { cacheDir: resolve(process.env.TEST_TMPDIR, '.vite') } : {}),",
         "  resolve: { preserveSymlinks: true },",
-        "  plugins: [compiledImports],",
+        "  plugins: [compiledImports, ...pathsPlugins],",
         # A workspace member's .js keeps its sources' extensionless relative
         # imports, which vite resolves and node's loader rejects: vite runs it.
         "  test: {{ coverage: {{ allowExternal: true }}, server: {{ deps: {{ inline: [{}] }} }} }},".format(
@@ -448,7 +538,11 @@ def _vitest_config_content(
     if user_config_json:
         lines.append("const userConfigExport = {};".format(user_config_json))
 
+    # The run is the rule's srcs: a config's include, written for the sources,
+    # matches no compiled .js, and vitest would stop with "No test files found".
     test_overrides = []
+    if run_include:
+        test_overrides.append("  include: {},".format(_js(run_include)))
     if environment:
         test_overrides.append("  environment: {},".format(_js(environment)))
     if setup_files_rf:
@@ -570,6 +664,17 @@ def _without(files, paths):
         return files
     return depset([f for f in files.to_list() if f.short_path not in paths])
 
+def _same_package(a, b):
+    return a.package == b.package and a.repo_name == b.repo_name
+
+# Another package's files reach a test through `data`.
+def _package_sources(ctx):
+    return [
+        dep[JsInfo].source_files
+        for dep in ctx.attr.deps
+        if JsInfo in dep and _same_package(dep.label, ctx.label)
+    ]
+
 def _ts_test_runner_impl(ctx):
     # Collect transitive .js files from all deps.
     transitive_js_sets = []
@@ -616,6 +721,7 @@ def _ts_test_runner_impl(ctx):
         depset(transitive = transitive_data_sets),
         member_manifests,
     )]
+    package_sources = _package_sources(ctx)
 
     # Resolve vitest binary.
     # When set via the `vitest` attr, the label points to an npm_bin wrapper
@@ -651,7 +757,8 @@ def _ts_test_runner_impl(ctx):
         return _node_test_providers(
             ctx,
             runtime_files = depset(
-                transitive = [transitive_js] + runtime_data_sets,
+                transitive = [transitive_js] + runtime_data_sets +
+                             package_sources,
             ),
             test_files_list = test_files_list,
             node_modules_files = node_modules_files,
@@ -666,40 +773,52 @@ def _ts_test_runner_impl(ctx):
     vitest_config = ctx.actions.declare_file(
         "_{}_vitest.config.mjs".format(ctx.label.name),
     )
+
+    tsconfig_paths = None
+    if ctx.file.tsconfig:
+        tsconfig_paths = ctx.actions.declare_file(
+            "_{}_tsconfig_paths.json".format(ctx.label.name),
+        )
+        chain = [ctx.file.tsconfig]
+        if TsConfigInfo in ctx.attr.tsconfig:
+            chain += ctx.attr.tsconfig[TsConfigInfo].deps_tsconfigs.to_list()
+        ctx.actions.run(
+            inputs = chain,
+            outputs = [tsconfig_paths],
+            executable = ctx.executable._tsaction,
+            arguments = [
+                "paths",
+                "-tsconfig=" + ctx.file.tsconfig.path,
+                "-package=" + ctx.label.package,
+                "-bin_dir=" + ctx.bin_dir.path,
+                "-out=" + tsconfig_paths.path,
+            ],
+            mnemonic = "TsTestPaths",
+            progress_message = "TsTestPaths %{label}",
+        )
     if ctx.file.config and ctx.attr.config_json:
         fail("ts_test: `config` takes either a config file or an inline dict, not both.")
 
-    # The generated config imports the user's config relatively, and esbuild
-    # resolves that against the real file — bazel-bin, not the runfiles tree — so
-    # the user's config has to exist there too.  rules_ts copies tsconfig.json
-    # into bin for the same reason.
-    #
-    # Staged BESIDE the node_modules tree, not in the package directory: Vite
-    # leaves a bare import in a config file external, so Node resolves it by
-    # walking up from where that file sits, and the tree is one level deeper than
-    # the package (`<nm_target>/node_modules`, so two tests in one package do not
-    # collide). From the package directory that walk never reaches it, and a
-    # config importing the pool it installs -- which is what a Workers config is
-    # -- fails to load. As its sibling, the first directory the walk looks in is
-    # the tree itself.
+    # The config's copy and the package modules it imports go beside the runtime
+    # tree, the one directory whose realpath resolves both: vite_config.bzl.
     user_config = None
+    staged_config_files = []
+    if ctx.attr.config_srcs and not ctx.file.config:
+        fail(("ts_test {}: config_srcs names the modules `config` imports; " +
+              "there is no `config`.").format(ctx.label))
     if ctx.file.config:
-        config_basename = "_{}_vitest.user.config.{}".format(
-            ctx.label.name,
-            ctx.file.config.extension,
+        if not node_modules_files:
+            fail(("ts_test {}: a `config` resolves its imports beside the " +
+                  "node_modules tree, and this test has none; a dep on the " +
+                  "vitest package brings it.").format(ctx.label))
+        staged_config = stage_vite_config(
+            ctx,
+            ctx.file.config,
+            ctx.files.config_srcs,
+            _package_relative_dir(ctx, node_modules_files[0]),
         )
-        if node_modules_files:
-            user_config = ctx.actions.declare_file(
-                config_basename,
-                sibling = node_modules_files[0],
-            )
-        else:
-            user_config = ctx.actions.declare_file(config_basename)
-        ctx.actions.expand_template(
-            template = ctx.file.config,
-            output = user_config,
-            substitutions = {},
-        )
+        user_config = staged_config.entry
+        staged_config_files = staged_config.files
 
     # The pool's half of the Bazel layer, copied beside the generated config:
     # vitest resolves the config's imports from its real path in bin.
@@ -756,9 +875,13 @@ def _ts_test_runner_impl(ctx):
 
     # A `config` from an ancestor package roots vite there.
     root_rel = "."
+    root_dir = ctx.label.package
     if ctx.file.config:
-        config_dir = ctx.file.config.short_path.rpartition("/")[0]
-        root_rel = _relative_dir(ctx.label.package, config_dir)
+        root_dir = ctx.file.config.short_path.rpartition("/")[0]
+        root_rel = _relative_dir(ctx.label.package, root_dir)
+    root_marker = "/".join(
+        [p for p in [ctx.workspace_name, root_dir, "_"] if p],
+    )
 
     compiled_extensions = ("js", "jsx", "mjs", "cjs")
     setup_js = [
@@ -771,6 +894,7 @@ def _ts_test_runner_impl(ctx):
         for f in ctx.files.global_setup
         if f.extension in compiled_extensions
     ]
+    paths_rf = rlocation_path(ctx, tsconfig_paths) if tsconfig_paths else None
     ctx.actions.write(
         output = vitest_config,
         content = _vitest_config_content(
@@ -793,8 +917,17 @@ def _ts_test_runner_impl(ctx):
                 ).removeprefix("./")
                 for f in test_entry_points
             ],
+            run_include = [
+                _relative_import(
+                    root_marker,
+                    rlocation_path(ctx, f),
+                ).removeprefix("./")
+                for f in test_entry_points
+                if _is_test_file(f)
+            ],
             update_snapshots = ctx.attr.update_snapshots,
             workers_pool_rf = rlocation_path(ctx, workers_pool) if workers_pool else None,
+            tsconfig_paths_rf = paths_rf,
             root_rel = root_rel,
             workspace_rel = _relative_dir(ctx.label.package, ""),
             inline_members = inline_members,
@@ -822,6 +955,8 @@ def _ts_test_runner_impl(ctx):
         # The canonical bin entry from vitest's package.json#bin, reached inside
         # the node_modules tree artifact.
         vitest_cfg["vitest_in_tree"] = "vitest/vitest.mjs"
+    if ctx.attr.reads_report:
+        vitest_cfg["reads_hook"] = rlocation_path(ctx, ctx.file._reads_hook)
 
     # A sandboxed test must fail on a stale or missing .snap, never write one,
     # and vitest only stops writing when it believes it is running in CI.
@@ -846,6 +981,7 @@ def _ts_test_runner_impl(ctx):
     runfiles_files = (
         [test_files_list, vitest_config] + launcher.files +
         test_js_files +
+        ctx.files.srcs +
         node_modules_files +
         ctx.files.setup_files +
         ctx.files.global_setup +
@@ -856,22 +992,25 @@ def _ts_test_runner_impl(ctx):
         runfiles_files.append(vitest_bin)
     if runtime_binary:
         runfiles_files.append(runtime_binary)
-    if user_config:
-        runfiles_files.append(user_config)
+    runfiles_files.extend(staged_config_files)
     if workers_pool:
         runfiles_files.append(workers_pool)
+    if tsconfig_paths:
+        runfiles_files.append(tsconfig_paths)
     if wrangler_patched:
         runfiles_files.append(wrangler_patched)
+    if ctx.attr.reads_report:
+        runfiles_files.append(ctx.file._reads_hook)
 
     symlinks = dict(member_manifests)
     if wrangler_patched:
         symlinks[ctx.file.wrangler_config.short_path] = wrangler_patched
     runfiles = ctx.runfiles(
         files = runfiles_files,
-        # The data srcs as well as the .js: each is in the sandbox only because
-        # it is named here.
+        # The .js, the data srcs and the package's sources: each is in the
+        # sandbox only because it is named here.
         transitive_files = depset(
-            transitive = [transitive_js] + runtime_data_sets,
+            transitive = [transitive_js] + runtime_data_sets + package_sources,
         ),
         root_symlinks = launcher.root_symlinks,
         symlinks = symlinks,
@@ -963,6 +1102,7 @@ def _node_test_providers(
     runfiles_files = (
         [test_files_list, ctx.file._node_test_hook] + launcher.files +
         ctx.files.compiled_tests +
+        ctx.files.srcs +
         node_modules_files +
         ctx.files.data
     )
@@ -1030,11 +1170,23 @@ _RUNNER_ATTRS = {
         aspects = [_instrumented_files_aspect],
         doc = "ts_compile and other targets whose .js files may be available " +
               "at test runtime; a dep's data srcs are in the runfiles beside " +
-              "its .js.",
+              "its .js, and a dep in the test's package has its TypeScript " +
+              "srcs there too, at their source paths.",
     ),
     "node_modules": attr.label(
         doc = "A node_modules target providing the runtime npm dependency tree.",
         allow_files = True,
+    ),
+    "tsconfig": attr.label(
+        doc = "The tsconfig `compiled_tests` was built under. Its `paths` " +
+              "resolve at run time to the compiled modules they named at " +
+              "compile time (docs/rules/ts-test.md § A paths Alias).",
+        allow_single_file = [".json"],
+    ),
+    "_tsaction": attr.label(
+        default = Label("//ts/tools/tsaction"),
+        executable = True,
+        cfg = "exec",
     ),
     "_workers_pool": attr.label(
         default = Label("//ts/private:vitest_workers_pool.mjs"),
@@ -1046,6 +1198,10 @@ _RUNNER_ATTRS = {
     ),
     "_node_test_hook": attr.label(
         default = Label("//ts/private:node_test_hook.mjs"),
+        allow_single_file = True,
+    ),
+    "_reads_hook": attr.label(
+        default = Label("//ts/private:reads_hook.cjs"),
         allow_single_file = True,
     ),
     "runner": attr.string(
@@ -1097,9 +1253,16 @@ _RUNNER_ATTRS = {
               "layer (root, cacheDir, preserveSymlinks, " +
               "coverage.allowExternal, the Workers-pool half) survives.  A " +
               "config that default-exports an array is read as a list of " +
-              "vitest projects (test.projects).  Files it imports relatively " +
-              "must be listed in `data`.",
+              "vitest projects (test.projects).  The modules it imports " +
+              "relatively are `config_srcs`.",
         allow_single_file = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"],
+    ),
+    "config_srcs": attr.label_list(
+        doc = "The modules `config` imports relatively, and theirs: staged " +
+              "with the config's copy at their paths relative to the " +
+              "config's package, so its imports resolve there.  A file " +
+              "outside that package is an analysis error.",
+        allow_files = True,
     ),
     "config_json": attr.string(
         doc = "Inline vitest config as a JSON object, occupying the same " +
@@ -1127,14 +1290,14 @@ _RUNNER_ATTRS = {
         allow_files = True,
     ),
     "data": attr.label_list(
-        doc = "Extra runfiles for the test: fixtures, files imported by a " +
-              "`config` or `setup_files` entry, anything read at runtime.",
+        doc = "Extra runfiles for the test: fixtures, files a `setup_files` " +
+              "entry imports, anything read at runtime.",
         allow_files = True,
     ),
     "srcs": attr.label_list(
-        doc = "The .ts/.tsx test sources `compiled_tests` was built from. The " +
-              "runner only reads their paths, to map each compiled test file " +
-              "back to the snapshot file its source implies.",
+        doc = "The TypeScript test sources `compiled_tests` was built from, " +
+              "staged in the runfiles at their source paths; each compiled " +
+              "test file maps back to the snapshot file its source implies.",
         allow_files = [".ts", ".tsx", ".mts", ".cts"],
     ),
     "snapshots": attr.label_list(
@@ -1174,6 +1337,12 @@ _RUNNER_ATTRS = {
               "Used by the update_snapshots variant of ts_test.",
         default = False,
     ),
+    "reads_report": attr.bool(
+        doc = "Internal: when True this runner preloads the fs hook and " +
+              "prints the workspace files the tests read outside the " +
+              "runfiles. Used by the .reads variant of ts_test.",
+        default = False,
+    ),
 }
 
 _ts_test_runner_test = rule(
@@ -1201,9 +1370,7 @@ _ts_test_runner_test = rule(
     doc = "Internal test runner rule; use ts_test macro instead.",
 )
 
-# Executable (non-test) variant used when update_snapshots = True.
-# `bazel run //path:update_snapshots` writes snapshot files back to the source tree.
-_ts_snapshot_updater = rule(
+_ts_test_runner_binary = rule(
     implementation = _ts_test_runner_impl,
     executable = True,
     attrs = _RUNNER_ATTRS | LAUNCHER_ATTRS,
@@ -1211,7 +1378,8 @@ _ts_snapshot_updater = rule(
         config_common.toolchain_type(JS_RUNTIME_TOOLCHAIN_TYPE, mandatory = False),
         config_common.toolchain_type(JS_TOOL_TOOLCHAIN_TYPE, mandatory = False),
     ],
-    doc = "Internal snapshot-updater rule; use ts_test(update_snapshots=True) macro instead.",
+    doc = "Internal executable runner: a test's `.update_snapshots` and " +
+          "`.reads` companions, and a ts_test(update_snapshots = True).",
 )
 
 def _compile_setup_sources(name, sources, deps, tsconfig, visibility, tags):
@@ -1240,6 +1408,7 @@ def ts_test(
         vitest = None,
         runtime = None,
         env = {},
+        args = [],
         size = "medium",
         timeout = None,
         tags = [],
@@ -1249,6 +1418,7 @@ def ts_test(
         environment = "",
         coverage = False,
         config = None,
+        config_srcs = [],
         wrangler_config = None,
         setup_files = [],
         global_setup = [],
@@ -1290,6 +1460,10 @@ def ts_test(
         runtime:           Per-target JS runtime binary override (optional). Takes
                            priority over the js_runtime toolchain.
         env:               Extra environment variables for the test runner.
+        args:              The runner's command-line flags: node's under
+                           "node:test" (`--experimental-test-module-mocks`
+                           for `mock.module`), vitest's under "vitest";
+                           `bazel test --test_arg` appends to them.
         size:              Bazel test size (default "medium").
         timeout:           Bazel test timeout.
         tags:              Bazel tags. `manual` also reaches the targets this
@@ -1331,7 +1505,8 @@ def ts_test(
                            the `lib` a worker test needs, a `types` entry naming
                            a pool's ambient module (`cloudflare:test`) or
                            `vitest/globals`, the `paths` the test files import
-                           through.
+                           through, which the vitest runner resolves at run
+                           time to the compiled modules they named.
         config:            Vitest config, either a label pointing at a config file
                            (.ts/.mts/.js/.mjs) or an inline dict.  It is MERGED
                            into the config rules_typescript generates rather than
@@ -1340,7 +1515,9 @@ def ts_test(
                            default-exports an array is read as a list of vitest
                            projects (test.projects), and each project in it
                            receives the Bazel layer and the attribute layer too.
-                           Files the config imports relatively belong in `data`.
+        config_srcs:       The modules `config` imports relatively, and theirs,
+                           staged with the config's copy at their paths relative
+                           to the config's package.
         wrangler_config:   The wrangler config a Workers-pool `config` names
                            through `wrangler.configPath`. A copy whose `main`
                            (and every `env.<name>.main`) names the compiled
@@ -1354,7 +1531,7 @@ def ts_test(
         global_setup:      Files run once around the whole test run
                            (test.globalSetup); compiled like setup_files.
         data:              Extra runfiles: fixtures the tests read, and files that
-                           `config` or `setup_files` entries import.
+                           `setup_files` entries import.
         globals:           Enables vitest's global describe/it/expect
                            (test.globals). The type program sees them through a
                            `types` entry naming "vitest/globals" in `tsconfig`,
@@ -1482,10 +1659,12 @@ def ts_test(
         "snapshots": snapshots,
         "deps": deps,
         "env": env,
+        "args": args,
         "environment": environment,
         "coverage": coverage,
         "coverage_thresholds": coverage_thresholds,
         "coverage_provider": coverage_provider,
+        "config_srcs": config_srcs,
         "data": data,
         "global_setup": global_setup_labels,
         "globals": globals,
@@ -1495,6 +1674,8 @@ def ts_test(
     }
     if node_modules:
         runner_kwargs["node_modules"] = node_modules
+    if tsconfig:
+        runner_kwargs["tsconfig"] = tsconfig
     if vitest:
         runner_kwargs["vitest"] = vitest
     if runtime:
@@ -1511,16 +1692,23 @@ def ts_test(
     if update_snapshots:
         # Produce an executable target (not a test) so `bazel run` works.
         # size/timeout are test-only attrs; omit them for the executable rule.
-        _ts_snapshot_updater(**(runner_kwargs | {"tags": wildcard_tags}))
+        _ts_test_runner_binary(**(runner_kwargs | {"tags": wildcard_tags}))
         return
 
-    # The updater shares the test's compile (a second ts_compile over the same
-    # srcs declares the same .js outputs); node:test rejects update_snapshots.
+    # The companions share the test's compile (a second ts_compile over the
+    # same srcs declares the same .js outputs); node:test has neither.
     if runner == RUNNER_VITEST:
-        _ts_snapshot_updater(
+        _ts_test_runner_binary(
             **(runner_kwargs | {
                 "name": "{}.update_snapshots".format(name),
                 "update_snapshots": True,
+                "tags": wildcard_tags,
+            })
+        )
+        _ts_test_runner_binary(
+            **(runner_kwargs | {
+                "name": "{}.reads".format(name),
+                "reads_report": True,
                 "tags": wildcard_tags,
             })
         )

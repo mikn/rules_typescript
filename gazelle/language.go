@@ -132,9 +132,11 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 				"tsconfig": true,
 				"config":   true,
 			},
-			// Written at Resolve, from the config's edges: the pool's attributes.
+			// Written at Resolve, from the config's listing: its modules and
+			// the pool's attributes.
 			ResolveAttrs: map[string]bool{
 				"deps":              true,
+				"config_srcs":       true,
 				"wrangler_config":   true,
 				"coverage_provider": true,
 			},

@@ -120,8 +120,9 @@ ts_test(
 )
 ```
 
-Anything the config imports relatively belongs in `data`; it is not a build
-input otherwise. A config that default-exports an array is read as a list of
+The modules the config imports relatively are `config_srcs`, staged beside the
+config's copy; Gazelle writes them from the config's listing. A config that
+default-exports an array is read as a list of
 vitest projects, and each project in it gets the Bazel and attribute layers too.
 That array becomes `test.projects`, which needs vitest 3.2 or later; see
 [A config file](../rules/ts-test.md#a-config-file). Every other `config` shape
@@ -338,8 +339,8 @@ build output the runfiles do not hold; see
 
 `configPath` is relative to the config file, and `ts_test` roots Vite at the
 config's package, so it names the file it names under plain `vitest`. That
-file's `main` is `src/index.ts`, the deploy entry, which the runfiles do not
-hold; `wrangler_config` stages a copy whose `main` and `env.test.main` are
+file's `main` is `src/index.ts`, the deploy entry; `wrangler_config` stages a
+copy whose `main` and `env.test.main` are
 `src/index.js`, the compiled worker, at the file's own path, and that is the
 config the pool reads. A `rules` module the worker imports
 (`import greeting from "./greeting.txt"`) is a src of the `ts_compile`, which

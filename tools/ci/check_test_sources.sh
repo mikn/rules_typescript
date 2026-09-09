@@ -52,6 +52,9 @@ tests/workers_nested/test/data_shadow.test.ts
 # failure, so `bazel test //...` running it directly would report a red test for
 # a passing behaviour.
 tests/vitest/thresholds/missed/partial.test.ts
+# Denied by the sandbox by design: the read outside the runfiles that
+# :reads_report_test.reads names; reads_declared_test makes it with data set.
+tests/vitest/reads_report/reads_report.test.ts
 ALLOWLIST
 )
 

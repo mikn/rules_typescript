@@ -979,6 +979,10 @@ def _ts_compile_impl(ctx):
             transitive_js_map_files = transitive_js_map,
             data_files = depset(data_staged, order = "postorder"),
             transitive_data_files = transitive_data,
+            source_files = depset(
+                compile_srcs + passthrough_dts,
+                order = "postorder",
+            ),
         ),
         TsDeclarationInfo(
             declaration_files = direct_dts,

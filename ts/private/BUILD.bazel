@@ -8,6 +8,7 @@ package(default_visibility = [
 
 exports_files([
     "node_test_hook.mjs",
+    "reads_hook.cjs",
     "vitest_workers_pool.mjs",
     "wrangler_test_config.mjs",
 ])

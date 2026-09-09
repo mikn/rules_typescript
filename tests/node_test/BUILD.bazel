@@ -5,9 +5,9 @@ nothing vitest collects -- under the default runner the same file collects zero
 tests -- so it passes only because `runner` reached the launcher.
 
 :ts_specifier_test pins the other half of running node:test as written: oxc
-copies the `./counter.ts` specifier into the .js it emits verbatim, and only
-counter.js is in the runfiles tree, so the file loads only through the resolver
-hook the runner installs.
+copies the `./counter.ts` specifier into the .js it emits verbatim, and the
+resolver hook the runner installs loads counter.js, the compiled sibling, not
+the counter.ts source staged beside it.
 
 :compile_attrs_test pins that the tsconfig reaches a node:test compile as it
 reaches a vitest one: a type-only import through its `paths` resolves only if
@@ -17,6 +17,20 @@ the @types auto-inclusion off, as under tsc.
 
 :vitest_default_test declares no `runner` and imports vitest, which plain node
 cannot resolve out of this layout -- so it fails if the default ever moves.
+
+:runfiles_layout_test pins where the package's code runs: at its runfiles path,
+with the test's own source and its `data` entry beside it, as under vitest.
+
+:extensionless_test pins bundler resolution at run time: `./counter` loads
+counter.js and `./nested` loads nested/index.js, the compiled files, though
+neither specifier names one.
+
+:bare_import_test pins that a bare specifier resolves from the test's own
+node_modules tree, not from whatever `node_modules` the walk up from
+`bazel-out` happens to meet.
+
+:module_mocks_test pins that `args` reach node's command line: `mock.module`
+exists only under `--experimental-test-module-mocks`.
 """
 
 # Compiler options, not data: named by the tsconfig attr.
@@ -72,4 +86,50 @@ ts_test(
     name = "vitest_default_test",
     srcs = ["vitest_default.test.ts"],
     deps = ["@npm//:vitest"],
+)
+
+ts_test(
+    name = "runfiles_layout_test",
+    srcs = ["runfiles_layout.test.ts"],
+    data = ["fixtures/note.txt"],
+    runner = "node:test",
+    deps = ["@npm//:types_node"],
+)
+
+ts_compile(
+    name = "nested",
+    srcs = ["nested/index.ts"],
+)
+
+ts_test(
+    name = "extensionless_test",
+    srcs = ["extensionless.test.ts"],
+    runner = "node:test",
+    deps = [
+        ":counter",
+        ":nested",
+        "@npm//:types_node",
+    ],
+)
+
+ts_test(
+    name = "bare_import_test",
+    srcs = ["bare_import.test.ts"],
+    runner = "node:test",
+    deps = [
+        "@npm//:types_node",
+        "@npm//:zod",
+    ],
+)
+
+ts_test(
+    name = "module_mocks_test",
+    srcs = [
+        "mocked.ts",
+        "module_mocks.test.ts",
+    ],
+    args = ["--experimental-test-module-mocks"],
+    runner = "node:test",
+    tsconfig = "tsconfig.ts_extensions.json",
+    deps = ["@npm//:types_node"],
 )

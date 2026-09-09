@@ -1,0 +1,14 @@
+"""A user config's `test.include` is written for the sources, `**/*.test.ts`;
+the compiled `.js` the launcher hands vitest match none of it. The attribute
+layer's `include` names the compiled test files, so the run is the rule's srcs
+whatever the config's globs say."""
+
+load("//ts:defs.bzl", "ts_test")
+
+# keep
+ts_test(
+    name = "config_include_test",
+    srcs = ["include.test.ts"],
+    config = "vitest.config.mjs",
+    deps = ["@npm//:vitest"],
+)

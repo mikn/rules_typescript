@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/bazelbuild/rules_go/go/runfiles"
 )
 
 func TestPlanNodeExecsTheToolchainRuntime(t *testing.T) {
@@ -170,6 +172,25 @@ func TestPlanVitestRunsEveryTestFileByDefault(t *testing.T) {
 	}
 	if plan.UseExec {
 		t.Error("the test runner has to outlive vitest to post-process coverage")
+	}
+}
+
+// vitest reads its flags up to the first file, so the target's args go after
+// the launcher's own flags and before the files.
+func TestPlanVitestPutsArgsBeforeTheFiles(t *testing.T) {
+	r, _ := vitestFixture(t)
+	args := []string{"--reporter=dot"}
+	plan, err := MakePlan(vitestConfig(), r, args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer plan.Cleanup()
+	flag := slices.Index(plan.Argv, args[0])
+	config := slices.Index(plan.Argv, "--config")
+	a := filepath.Join(plan.Dir, "_main/tests/app/a.test.js")
+	first := slices.Index(plan.Argv, a)
+	if flag < 0 || !(config < flag && flag < first) {
+		t.Errorf("argv = %q, want %q before the files", plan.Argv, args[0])
 	}
 }
 
@@ -579,6 +600,47 @@ func TestPlanVitestStagesAPrivateRootWithoutARunfilesDirectory(t *testing.T) {
 	if _, err := os.Stat(root); !os.IsNotExist(err) {
 		t.Errorf("cleanup left %s behind", root)
 	}
+}
+
+// Vitest finds a bare specifier by walking up from the test's runfiles path,
+// and nothing on that walk is named node_modules before the runfiles root.
+func TestPlanVitestLinksTheNpmTreeAtTheRunfilesRoot(t *testing.T) {
+	const tree = "_main/tests/app/_app_test_node_modules/node_modules"
+	_, real := fakeRunfiles(t, map[string]string{
+		"_main/tests/app/_app_vitest.config.mjs": "export default {}",
+		"_main/tests/app/app_test_files.txt":     "_main/tests/app/a.test.js",
+		"_main/tests/app/a.test.js":              "x",
+		tree:                                     dirMarker,
+		tree + "/vitest/vitest.mjs":              "x",
+		"+node+/bin/node":                        "#!/bin/sh\n",
+	})
+	r, root := withRunfilesDir(t, real[tree], tree)
+	cfg := vitestConfig()
+	cfg.Vitest.NodeModules = tree
+	if _, err := MakePlan(cfg, r, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.Readlink(filepath.Join(root, "node_modules"))
+	if err != nil {
+		t.Fatalf("no node_modules link at the runfiles root: %v", err)
+	}
+	if got != real[tree] {
+		t.Errorf("link -> %q, want the npm tree %q", got, real[tree])
+	}
+}
+
+// withRunfilesDir rebuilds the resolver with RUNFILES_DIR at the fixture's tree
+// root: fakeRunfiles clears it, and a resolver reads it once, at construction.
+func withRunfilesDir(t *testing.T, real, rlocation string) (*Resolver, string) {
+	t.Helper()
+	root := strings.TrimSuffix(filepath.ToSlash(real), "/"+rlocation)
+	t.Setenv("RUNFILES_DIR", root)
+	manifest := runfiles.ManifestFile(os.Getenv("RUNFILES_MANIFEST_FILE"))
+	r, err := newResolver(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r, root
 }
 
 func TestEnvironCollapsesDuplicateKeys(t *testing.T) {

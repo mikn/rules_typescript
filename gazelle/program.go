@@ -72,7 +72,7 @@ type programStore struct {
 	bases    map[string][]string
 	extended map[string]bool
 	// The vitest configs the generated tests name, listed together at the
-	// first ask; vitestEdges is nil until then.
+	// first ask into vitestEdges, the listing's edges by importing file.
 	vitestConfigs   map[string]bool
 	vitestEdges     map[string][]edge
 	wranglerConfigs map[string]string
@@ -322,9 +322,29 @@ func listVitestConfigs(repoRoot, tsgo string, configs []string,
 
 func (s *programStore) vitestConfig(cfg string) { s.vitestConfigs[cfg] = true }
 
-// configEdges is what cfg imports, from one run over every registered config at
-// the first ask: the runner imports the config, so its imports are the test's.
+// configEdges is what cfg and every first-party module it reaches import:
+// the runner imports the config, so the closure's imports are the test's.
 func (s *programStore) configEdges(repoRoot, cfg string) []edge {
+	var out []edge
+	for _, f := range s.configClosure(repoRoot, cfg) {
+		out = append(out, s.vitestEdges[f]...)
+	}
+	return out
+}
+
+// configSrcs is the first-party modules cfg reaches, sorted: what a test stages
+// beside the config's copy.
+func (s *programStore) configSrcs(repoRoot, cfg string) []string {
+	closure := s.configClosure(repoRoot, cfg)
+	if len(closure) < 2 {
+		return nil
+	}
+	return slices.Sorted(slices.Values(closure[1:]))
+}
+
+// configClosure is cfg, then every first-party file reached from it over the
+// listing's edges: one run over every registered config, at the first ask.
+func (s *programStore) configClosure(repoRoot, cfg string) []string {
 	if s.vitestEdges == nil {
 		s.vitestEdges = map[string][]edge{}
 		if configs := slices.Sorted(maps.Keys(s.vitestConfigs)); len(configs) > 0 {
@@ -337,13 +357,24 @@ func (s *programStore) configEdges(repoRoot, cfg string) []edge {
 				log.Fatalf("typescript: %v", err)
 			}
 			for _, e := range p.edges {
-				if s.vitestConfigs[e.from] {
-					s.vitestEdges[e.from] = append(s.vitestEdges[e.from], e)
-				}
+				s.vitestEdges[e.from] = append(s.vitestEdges[e.from], e)
 			}
 		}
 	}
-	return s.vitestEdges[cfg]
+	if !s.vitestConfigs[cfg] {
+		return nil
+	}
+	seen := map[string]bool{cfg: true}
+	closure := []string{cfg}
+	for i := 0; i < len(closure); i++ {
+		for _, e := range s.vitestEdges[closure[i]] {
+			if firstParty(e.to) && !seen[e.to] {
+				seen[e.to] = true
+				closure = append(closure, e.to)
+			}
+		}
+	}
+	return closure
 }
 
 // installMissing says why the listing cannot be trusted: a root lockfile with

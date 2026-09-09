@@ -30,6 +30,7 @@ const usage = `usage:
       -bin_dir=DIR [-jsx=preserve] [-types_dep=NAME]...
       [-emit -out_dir=DIR -root_dir=DIR] [-declaration_map]
       [-isolated_declarations] [-lib_check] SRC...
+  tsaction paths -tsconfig=FILE -package=PKG [-bin_dir=DIR] -out=FILE
   tsaction tsgo -root=DIR -node_modules=DIR [-stamp=FILE] -- TSGO [ARG...]
   tsaction oxc -options=FILE -- OXC [ARG...]`
 
@@ -50,6 +51,8 @@ func main() {
 		err = writeTar(args)
 	case "tsconfig":
 		err = writeTsconfig(args)
+	case "paths":
+		err = writePaths(args)
 	case "tsgo":
 		err = runTsgo(args)
 	case "oxc":

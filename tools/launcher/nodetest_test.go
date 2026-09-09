@@ -6,8 +6,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/bazelbuild/rules_go/go/runfiles"
 )
 
 func nodeTestFixture(t *testing.T) (*Resolver, map[string]string) {
@@ -50,6 +48,7 @@ func TestPlanNodeTestRunsEveryTestFileUnderTheToolchainNode(t *testing.T) {
 	want := []string{
 		real["+node+/bin/node"],
 		"--import", real["_main/ts/private/node_test_hook.mjs"],
+		"--preserve-symlinks-main",
 		"--test",
 		real["_main/tests/app/a.test.js"],
 		real["_main/tests/app/b.test.js"],
@@ -75,6 +74,41 @@ func TestPlanNodeTestPutsTheResolveHookBeforeTheTestFlag(t *testing.T) {
 	test := slices.Index(plan.Argv, "--test")
 	if hook < 0 || test < 0 || hook > test {
 		t.Errorf("argv = %q, want --import before --test", plan.Argv)
+	}
+}
+
+// The entry keeps its runfiles path, so a test's relative reads land where
+// the checkout has them; the flag rides execArgv into node --test's children.
+func TestPlanNodeTestKeepsTheEntryAtItsRunfilesPath(t *testing.T) {
+	r, _ := nodeTestFixture(t)
+	plan, err := MakePlan(nodeTestConfig(), r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flag := slices.Index(plan.Argv, "--preserve-symlinks-main")
+	test := slices.Index(plan.Argv, "--test")
+	if flag < 0 || test < 0 || flag > test {
+		t.Errorf("argv = %q, want --preserve-symlinks-main before --test", plan.Argv)
+	}
+}
+
+// node reads its flags up to the first file, so the target's args go between
+// the launcher's own flags and --test, where the children inherit them too.
+func TestPlanNodeTestPutsArgsBeforeTheTestFlag(t *testing.T) {
+	r, real := nodeTestFixture(t)
+	args := []string{"--experimental-test-module-mocks"}
+	plan, err := MakePlan(nodeTestConfig(), r, args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flag := slices.Index(plan.Argv, args[0])
+	test := slices.Index(plan.Argv, "--test")
+	hook := slices.Index(plan.Argv, "--import")
+	if flag < 0 || !(hook < flag && flag < test) {
+		t.Errorf("argv = %q, want %q between --import and --test", plan.Argv, args[0])
+	}
+	if slices.Index(plan.Argv, real["_main/tests/app/a.test.js"]) < test {
+		t.Errorf("argv = %q, want the files after --test", plan.Argv)
 	}
 }
 
@@ -155,40 +189,18 @@ func TestPlanNodeTestRefusesACoverageRun(t *testing.T) {
 	}
 }
 
-// A bare specifier resolves only through the node_modules link at the runfiles
-// root, which is what ESM's upward walk reaches; NODE_PATH answers CJS only.
-func TestPlanNodeTestExposesTheNpmTreeToEsmResolution(t *testing.T) {
-	_, real := nodeTestFixture(t)
-	const rlocation = "_main/tests/app/_app_test_node_modules/node_modules"
-	tree := real[rlocation]
-	r, root := withRunfilesDir(t, tree, rlocation)
+// The resolve hook reads NODE_PATH for the tree a bare specifier resolves from.
+func TestPlanNodeTestNamesTheNpmTreeOnNodePath(t *testing.T) {
+	r, real := nodeTestFixture(t)
 	plan, err := MakePlan(nodeTestConfig(), r, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(plan.EnvOverrides["NODE_PATH"], tree) {
-		t.Errorf("NODE_PATH = %q, want it to start with %q", plan.EnvOverrides["NODE_PATH"], tree)
+	tree := real["_main/tests/app/_app_test_node_modules/node_modules"]
+	nodePath := plan.EnvOverrides["NODE_PATH"]
+	if strings.Split(nodePath, string(os.PathListSeparator))[0] != tree {
+		t.Errorf("NODE_PATH = %q, want it to start with %q", nodePath, tree)
 	}
-	got, err := os.Readlink(filepath.Join(root, "node_modules"))
-	if err != nil {
-		t.Fatalf("no node_modules link at the runfiles root: %v", err)
-	}
-	if got != tree {
-		t.Errorf("link -> %q, want the npm tree %q", got, tree)
-	}
-}
-
-// withRunfilesDir rebuilds the resolver with RUNFILES_DIR at the fixture's tree
-// root: fakeRunfiles clears it, and a resolver reads it once, at construction.
-func withRunfilesDir(t *testing.T, real, rlocation string) (*Resolver, string) {
-	t.Helper()
-	root := strings.TrimSuffix(filepath.ToSlash(real), "/"+rlocation)
-	t.Setenv("RUNFILES_DIR", root)
-	r, err := newResolver(runfiles.ManifestFile(os.Getenv("RUNFILES_MANIFEST_FILE")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return r, root
 }
 
 func TestParseConfigRejectsANodeTestSectionWithoutAFileList(t *testing.T) {

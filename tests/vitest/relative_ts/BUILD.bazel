@@ -1,5 +1,6 @@
-"""A relative `.ts` specifier the compiled `.js` keeps runs against the
-sibling the runfiles hold: the test imports `./lib.ts`, lib `./deep/util.ts`.
+"""A relative `.ts` specifier the compiled `.js` keeps runs the compiled
+sibling, not the source staged beside it: the test imports `./lib.ts`, lib
+`./deep/util.ts`, and both assert the `.js` ran.
 """
 
 # Compiler options, not data: named by the tsconfig attr.

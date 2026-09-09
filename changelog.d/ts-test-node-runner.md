@@ -6,14 +6,16 @@
   was not selectable. `runner` defaults to `"vitest"`, so no existing target
   changes. A node:test target runs `node --test` over the same sharded file
   list, honours `--test_filter` as node's `--test-name-pattern`, and reports by
-  exit status like the vitest path. It also installs an ESM resolver hook that
-  retries a failed relative resolution with `.ts` rewritten to `.js`: oxc
-  copies an `allowImportingTsExtensions` specifier into the `.js` it emits
-  verbatim and only the `.js` is in the runfiles tree. The hook leaves user
-  source and the emit untouched. `tsconfig` reaches the node:test compile exactly as it reaches the vitest
-  one. Every vitest-shaped attribute (`config`, `environment`, `globals`,
-  `reporters`, `setup_files`, `global_setup`, `snapshots`, the coverage trio,
-  `update_snapshots`, `vitest`) is an analysis error under `"node:test"`, and
-  `bazel coverage` on such a target fails
-  instead of handing Bazel an empty report. No `<name>.update_snapshots` target
-  is generated for it.
+  exit status like the vitest path. The package's code runs at its runfiles
+  paths, as under vitest: the entry keeps its path (`--preserve-symlinks-main`)
+  and a `node:module` resolve hook resolves a relative specifier to the file
+  the compiled tree holds for it -- the compiled sibling of a `.ts`, the `.js`
+  or `index.js` of an extensionless one, the file as written otherwise -- and a
+  bare specifier from the test's own node_modules tree. The hook leaves user
+  source and the emit untouched. `tsconfig` reaches the node:test compile
+  exactly as it reaches the vitest one. Every vitest-shaped attribute
+  (`config`, `environment`, `globals`, `reporters`, `setup_files`,
+  `global_setup`, `snapshots`, the coverage trio, `update_snapshots`, `vitest`)
+  is an analysis error under `"node:test"`, and `bazel coverage` on such a
+  target fails instead of handing Bazel an empty report. No
+  `<name>.update_snapshots` target is generated for it.
