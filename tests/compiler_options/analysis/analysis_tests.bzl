@@ -21,36 +21,37 @@ def _written_file_action(env, suffix):
             return action
     return None
 
-def _oxc_command_line_impl(ctx):
+def _emit_command_line_impl(ctx):
     env = analysistest.begin(ctx)
-    oxc_actions = [
+    emit_actions = [
         action
         for action in analysistest.target_actions(env)
-        if action.mnemonic == "OxcCompile"
+        if action.mnemonic == "TsEmit"
     ]
 
-    # One invocation, not one per directory: --strip-dir-prefix is the package,
-    # so a source's depth below it survives into --out-dir.
-    asserts.equals(env, 1, len(oxc_actions), "OxcCompile actions")
-    if len(oxc_actions) != 1:
+    # One invocation, not one per directory: the root is the package, so a
+    # source's depth below it survives into the output directory.
+    asserts.equals(env, 1, len(emit_actions), "TsEmit actions")
+    if len(emit_actions) != 1:
         return analysistest.end(env)
 
-    argv = oxc_actions[0].argv
-    out_dir = argv[argv.index("--out-dir") + 1]
+    argv = emit_actions[0].argv
+    out_dirs = [a for a in argv if a.startswith("-out_dir=")]
+    asserts.equals(env, 1, len(out_dirs), "-out_dir flags")
     asserts.true(
         env,
-        out_dir.endswith("/tests/compiler_options/analysis"),
-        "--out-dir is the package's bin directory: " + out_dir,
+        out_dirs[0].endswith("/tests/compiler_options/analysis"),
+        "-out_dir is the package's bin directory: " + out_dirs[0],
     )
     asserts.equals(
         env,
-        "tests/compiler_options/analysis",
-        argv[argv.index("--strip-dir-prefix") + 1],
-        "--strip-dir-prefix",
+        ["-root=tests/compiler_options/analysis"],
+        [a for a in argv if a.startswith("-root=")],
+        "-root",
     )
     return analysistest.end(env)
 
-oxc_command_line_test = analysistest.make(_oxc_command_line_impl)
+emit_command_line_test = analysistest.make(_emit_command_line_impl)
 
 # Restated, not imported: a change to _BASELINE_OPTIONS has to be made here too.
 _BASELINE_KEYS = {

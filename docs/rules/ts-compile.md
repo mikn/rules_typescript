@@ -44,13 +44,14 @@ through a Starlark transition; `tests/flags.bzl` is the ruleset's own.
 
 `srcs` accepts every file. Four classes of src, by extension:
 
-- **TypeScript**, `.ts` and `.tsx`: compiled by oxc to `.js` and `.js.map`,
-  type-checked by tsgo, and declared as `.d.ts` by whichever emitter
-  `--//ts:declarations` names. A `.tsx` under `jsx: "preserve"` is compiled to
-  `.jsx` and `.jsx.map`, the names tsc gives it, with its JSX left for the
-  bundler ([below](#a-tsx-under-jsx-preserve)). A `.mts` or `.cts` is refused:
-  the rule emits `.js` and `.d.ts` from `.ts` alone, and has no output shape
-  for one.
+- **TypeScript**, `.ts` and `.tsx`: compiled to `.js` and `.js.map` -- by oxc,
+  or by tsgo when the program's `module` is CommonJS-shaped ([The Module
+  Format](#the-module-format)) -- type-checked by tsgo, and declared as `.d.ts`
+  by whichever emitter `--//ts:declarations` names. A `.tsx` under
+  `jsx: "preserve"` is compiled to `.jsx` and `.jsx.map`, the names tsc gives
+  it, with its JSX left for the bundler ([below](#a-tsx-under-jsx-preserve)).
+  A `.mts` or `.cts` is refused: the rule emits `.js` and `.d.ts` from `.ts`
+  alone, and has no output shape for one.
 - **JavaScript**, `.js`, `.mjs` and `.cjs`: staged into the output tree
   unchanged and in the type program. The rule sets `allowJs` for it, so its
   JSDoc types reach consumers; `checkJs` in the tsconfig has its own body
@@ -113,7 +114,7 @@ For each source file `foo.ts`:
 
 | Output | Description |
 |--------|-------------|
-| `foo.js` | Compiled JavaScript (always from Oxc) |
+| `foo.js` | Compiled JavaScript ([The Module Format](#the-module-format)) |
 | `foo.js.map` | Source map, under `--//ts:source_map` |
 | `foo.d.ts` | Declaration file, the compilation boundary |
 
@@ -146,7 +147,7 @@ or `files`, so tsc neither walks the output directory nor loses the chain's own
 3. **The keys Bazel owns**, written last: `rootDirs` bridging the source and
    output trees, `preserveSymlinks`, `declaration`, `emitDeclarationOnly`,
    `declarationMap`, `composite`, `incremental`, `rootDir`; under the tsgo emit
-   `noEmit: false`, `noEmitOnError`, `outDir` and `declarationDir`; `allowJs`
+   `noEmit: false`, `noEmitOnError` and `outDir`; `allowJs`
    when a src is JavaScript; `isolatedDeclarations` under
    `--//ts:declarations=oxc`; `skipLibCheck: false` under `--//ts:lib_check`.
    `files` is the srcs the tsconfig's own `include` and `files` name, in the
@@ -160,7 +161,9 @@ or `files`, so tsc neither walks the output directory nor loses the chain's own
 `--showConfig` is run over the chain, not over the user's file alone, so a
 default the baseline supplies reaches oxc as tsgo sees it: oxc transforms with
 the `target`, `jsx` and `jsxImportSource` the same run yields, handed over in
-`<name>.options.json`, and the two compilers agree.
+`<name>.options.json`, and the two compilers agree. The same file carries the
+chain's `module`, which decides which tool emits the JavaScript
+([The Module Format](#the-module-format)).
 
 `preserveSymlinks` is what keeps a program to its declared inputs. Bazel stages
 every input as a symlink into the source tree; resolved through the link, a
@@ -214,6 +217,35 @@ to `bazel-bin/.../foo.js`, the runfiles a `ts_test` stages by path, the member
 view's manifest targets, a `ts_binary`'s entry, the `paths` bin-dir twins -- so
 the whole per-file output model would have moved into trees for one extension.
 
+### The Module Format
+
+The JavaScript a target emits has the module format tsc gives the program:
+`module` in the tsconfig chain and, under `node16`, `node18` and `nodenext`,
+the nearest `package.json`'s `type` per file, as tsc reads them. oxc's
+transform keeps the module syntax it reads, which is the emit of every ES kind
+(`es2015` through `esnext`) and of `preserve`, so those programs are oxc's.
+Every other kind -- `commonjs`, the `node*` kinds, `amd`, `umd`, `system` --
+is tsgo's: `TsEmit` runs `tsgo --noCheck` from the program root the check
+runs in and moves each src's `.js`, `.js.map` and, under
+`--//ts:declarations=oxc`, `.d.ts` into place. `--noCheck` emits from the
+parsed program with tsc's import elision and reports no type error; the type
+check stays the tsgo action's, in either mode.
+
+A CommonJS program's compiled code has `require`, `exports`, `__dirname` and
+`__filename`, and a named import from a CommonJS dependency is that
+dependency's export -- `import { app } from "electron"` -- where ES-module
+linking sees only what `cjs-module-lexer` finds. Under
+`--//ts:declarations=oxc` such a program's declarations are tsgo's
+isolated-declarations emit, under oxc's rule: every export annotated. One tsgo
+emit has one `rootDir`, so a CommonJS program's srcs hang off one root, as
+under the declaration emit ([below](#one-root-per-declaration-emit)).
+`//tests/node_test/cjs` pins the format at run time.
+
+The format is the tsconfig's, not the manifest's alone: a package whose
+`package.json` has no `type` and whose tsconfig says `module: "ESNext"` emits
+ES modules, which node runs as such. A package that runs as CommonJS says so
+where tsc reads it, `module: "commonjs"` or `"nodenext"`.
+
 ### What Fails Before tsgo Runs
 
 Analysis rejects a `.jsx` src, a directory in `srcs` (a `ts_codegen` `out_dir`
@@ -231,7 +263,9 @@ declaration the chain's effective `jsx` contradicts
 One tsgo declaration emit has one `rootDir`. A checked-in source hangs off the
 package directory, a generated one off the package's directory in `bazel-bin`,
 and a src from another package off that package's directory. A target whose
-srcs hang off more than one root fails at analysis under the tsgo emit:
+srcs hang off more than one root fails at analysis under the tsgo declaration
+emit, and a CommonJS-shaped program's `TsEmit` fails it the same way when it
+runs ([The Module Format](#the-module-format)):
 
 ```
 ts_compile: srcs on @@//src/app:app hang off 2 different roots, and one
@@ -240,12 +274,12 @@ declaration emit has one rootDir:
   src/app
 ```
 
-Put the generated sources in their own target and depend on it, or build with
-`--//ts:declarations=oxc`, which groups sources by root and runs oxc once per
-group. A target holding only generated sources has one root and builds under
-either emitter. A descendant package's file is inside this package's directory
-and shares its root; a `.d.ts` from anywhere is passed through, not compiled,
-and is not judged.
+Put the generated sources in their own target and depend on it, or, for an
+ES-module program, build with `--//ts:declarations=oxc`, under which oxc runs
+once per root. A target holding only generated sources has one root and builds
+under either emitter. A descendant package's file is inside this package's
+directory and shares its root; a `.d.ts` from anywhere is passed through, not
+compiled, and is not judged.
 
 ## Deps Have to Be Direct
 
@@ -585,8 +619,9 @@ the owning target's file named in `types`.
 
 ## Which Tool Emits the Declarations
 
-Oxc always does the JavaScript transform. `--//ts:declarations` decides which
-tool produces the `.d.ts`, for every target in the build.
+The program's `module` decides which tool emits the JavaScript ([The Module
+Format](#the-module-format)); `--//ts:declarations` decides which tool produces
+the `.d.ts`, for every target in the build.
 
 ### `--//ts:declarations=tsgo` (default)
 
@@ -604,11 +639,12 @@ every first-party dep's `.d.ts` and the forest.
 
 ### `--//ts:declarations=oxc`
 
-Oxc emits declarations syntactically, per file, with no type program. This
+Oxc emits declarations syntactically, per file, with no type program -- tsgo's
+isolated-declarations emit does the same for a CommonJS-shaped program. This
 requires [isolated declarations](../getting-started/isolated-declarations.md):
-every export needs an explicit type, and Oxc **errors** when one does not have
-one. Type-checking moves into the `_validation` output group, off the critical
-path, so downstream targets compile while checking runs concurrently.
+every export needs an explicit type, and the emitter **errors** when one does
+not have one. Type-checking moves into the `_validation` output group, off the
+critical path, so downstream targets compile while checking runs concurrently.
 
 Set it in `.bazelrc` once every package's exports are annotated.
 
@@ -655,16 +691,17 @@ The fields, and the load path, are in
 ## Architecture
 
 Three actions per target, each a function in `ts/private/actions/` --
-`tsconfig.bzl`, `oxc.bzl`, `tsgo.bzl`, with the forest the last one reads in
+`tsconfig.bzl`, `emit.bzl`, `tsgo.bzl`, with the forest the last two read in
 `forest.bzl`, and a fourth, `lint.bzl`'s `TsLint`, when the root module's
 `ts.lint()` names a linter ([Lint](../guides/lint.md)); the rule in
 `ts/private/rules/ts_compile.bzl` declares the outputs, calls them in this
 order and builds the providers.
 
 `TsConfig` writes `<name>.tsconfig.json` and `<name>.options.json` from
-`tsgo --showConfig` ([above](#where-compiler-options-come-from)). `OxcCompile`
-processes each `.ts` file with the options file's `target`, `jsx` and
-`jsxImportSource`:
+`tsgo --showConfig` ([above](#where-compiler-options-come-from)). `TsEmit`
+reads the options file's `module` ([The Module Format](#the-module-format)):
+for an ES-module program it runs oxc over each root's `.ts` files with the
+file's `target`, `jsx` and `jsxImportSource`:
 
 1. Parse (oxc_parser)
 2. Semantic analysis (oxc_semantic)
@@ -672,12 +709,16 @@ processes each `.ts` file with the options file's `target`, `jsx` and
 4. TypeScript/JSX transform (oxc_transformer)
 5. Code generation (oxc_codegen) for `.js` + `.js.map`
 
+For a CommonJS-shaped program it runs `tsgo --noCheck` from the program root
+below, with the emit shape on the command line, and moves the outputs into
+place.
+
 tsgo runs from the program root, with `--project` on the written tsconfig and
 `--explainFiles`; tsaction reads the listing against the ownership manifest
 ([Deps Have to Be Direct](#deps-have-to-be-direct)).
 Under `--//ts:declarations=tsgo` that tsconfig sets `declaration`,
 `emitDeclarationOnly`, `rootDir` and `outDir` so the emitted declarations land
-beside Oxc's `.js` (mnemonic `TsgoDeclare`). Under `oxc` it runs with `--noEmit`
+beside the `.js` (mnemonic `TsgoDeclare`). Under `oxc` it runs with `--noEmit`
 and writes only a stamp (mnemonic `TsgoCheck`); `rootDir` is the exec root
 there, which every input is under, since tsgo checks the program against it
 even when nothing is emitted (`TS6059`).

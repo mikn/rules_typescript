@@ -9,9 +9,8 @@ import (
 	"github.com/mikn/rules_typescript/tests/integration/harness"
 )
 
-// A SUBCOMMAND line reads:
-//
-//	SUBCOMMAND: # ts_compile rule target //src/lib:lib [action 'OxcCompile ...'
+// A SUBCOMMAND line reads
+// "SUBCOMMAND: # ts_compile rule target //src/lib:lib [action 'TsEmit ...".
 var subcommandTarget = regexp.MustCompile(`(?m)^SUBCOMMAND:.* target (//[^ ]+) \[action `)
 
 func executedTargets(log *harness.Log) []string {

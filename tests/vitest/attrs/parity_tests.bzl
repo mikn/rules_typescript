@@ -1,5 +1,5 @@
 """ts_test compiles its srcs with ts_compile's actions: over the same srcs,
-deps and tsconfig, the two register the same TsConfig, OxcCompile and tsgo
+deps and tsconfig, the two register the same TsConfig, TsEmit and tsgo
 actions, argv for argv once the target's package and name are put aside."""
 
 load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
@@ -14,7 +14,7 @@ def _actions_aspect_impl(target, _ctx):
 
 _actions_aspect = aspect(implementation = _actions_aspect_impl)
 
-_COMPILE_MNEMONICS = ["TsConfig", "OxcCompile", "TsgoDeclare", "TsgoCheck"]
+_COMPILE_MNEMONICS = ["TsConfig", "TsEmit", "TsgoDeclare", "TsgoCheck"]
 
 def _compile_argv(target):
     """Each compile action's argv, the target's package and name abstracted."""

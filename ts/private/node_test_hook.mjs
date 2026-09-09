@@ -103,11 +103,14 @@ module.registerHooks({
       }
       return asWritten(specifier);
     }
+    // require() reads NODE_PATH itself and ignores a swapped parentURL.
+    const imported = !context.conditions.includes("require");
     if (trees.length > 0 && isBare(specifier)) {
       const fromTrees = (form) => fromTheTrees(form, context, next);
+      const attempt = imported ? fromTrees : asWritten;
       return (
-        firstResolved(compiledExtensionForms(specifier), fromTrees) ??
-        fromTrees(specifier)
+        firstResolved(compiledExtensionForms(specifier), attempt) ??
+        attempt(specifier)
       );
     }
     return asWritten(specifier);

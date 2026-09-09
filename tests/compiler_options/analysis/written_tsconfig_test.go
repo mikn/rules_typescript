@@ -33,8 +33,8 @@ func TestWrittenConfigForASubtreeWithJavaScript(t *testing.T) {
 	if opts["preserveSymlinks"] != true {
 		t.Errorf("preserveSymlinks = %v, want true", opts["preserveSymlinks"])
 	}
-	if opts["outDir"] != "." || opts["declarationDir"] != "." {
-		t.Errorf("outDir = %v, declarationDir = %v, want \".\" for both", opts["outDir"], opts["declarationDir"])
+	if opts["outDir"] != "." {
+		t.Errorf("outDir = %v, want \".\"", opts["outDir"])
 	}
 	rootDir, _ := opts["rootDir"].(string)
 	if !strings.HasSuffix(rootDir, "/tests/compiler_options/analysis") {

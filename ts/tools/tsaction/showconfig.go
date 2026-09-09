@@ -1,5 +1,5 @@
 // The tsconfig step writes the action's tsconfig from the baseline, the user's
-// file and what `tsgo --showConfig` says the two mean; the oxc step reads that.
+// file and what `tsgo --showConfig` says they mean; the emit step reads that.
 
 package main
 
@@ -23,13 +23,17 @@ type effectiveOptions struct {
 	Target          string    `json:"target"`
 	Jsx             string    `json:"jsx"`
 	JsxImportSource string    `json:"jsxImportSource"`
+	Module          string    `json:"module"`
 	Types           *[]string `json:"types"`
 }
 
+// oxcOptions is the options file: what oxc transforms with, and the module
+// kind that decides whether oxc or tsgo emits the JavaScript.
 type oxcOptions struct {
 	Target          string `json:"target,omitempty"`
 	Jsx             string `json:"jsx,omitempty"`
 	JsxImportSource string `json:"jsxImportSource,omitempty"`
+	Module          string `json:"module,omitempty"`
 }
 
 func (o oxcOptions) flags() []string {
@@ -179,6 +183,7 @@ func (a *actionConfig) resolve(dir string, chain *tsconfig.Resolved,
 		Target:          effective.Target,
 		Jsx:             effective.Jsx,
 		JsxImportSource: effective.JsxImportSource,
+		Module:          effective.Module,
 	}, nil
 }
 
@@ -240,7 +245,6 @@ func (a *actionConfig) build(effective *effectiveOptions, roots []string,
 		opts["noEmit"] = false
 		opts["noEmitOnError"] = true
 		opts["outDir"] = relativePath(dir, a.outDir)
-		opts["declarationDir"] = opts["outDir"]
 		opts["rootDir"] = relativePath(dir, a.rootDir)
 	} else {
 		opts["rootDir"] = relativePath(dir, "")
@@ -433,25 +437,4 @@ func writeJSON(name string, v any) error {
 		return err
 	}
 	return os.WriteFile(name, append(data, '\n'), 0o644)
-}
-
-func runOxc(args []string) error {
-	flags := flag.NewFlagSet("oxc", flag.ExitOnError)
-	options := flags.String("options", "", "the options file the tsconfig step wrote")
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	cmdline := flags.Args()
-	if *options == "" || len(cmdline) == 0 {
-		return errors.New("oxc needs -options=FILE and a command after --")
-	}
-	data, err := os.ReadFile(*options)
-	if err != nil {
-		return err
-	}
-	var o oxcOptions
-	if err := json.Unmarshal(data, &o); err != nil {
-		return fmt.Errorf("%s: %w", *options, err)
-	}
-	return runTool(append(cmdline, o.flags()...))
 }

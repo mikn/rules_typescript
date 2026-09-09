@@ -2,9 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -183,6 +181,7 @@ func TestDecodeShowConfig_EnumsAreNames(t *testing.T) {
 		Target:          "es2017",
 		Jsx:             "react-jsx",
 		JsxImportSource: "preact",
+		Module:          "es6",
 		Types:           &[]string{"./globals.d.ts", "./generated.d.ts", "node", "@cloudflare/workers-types"},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -245,7 +244,8 @@ func TestTsconfigStep_WritesTheForestShapedConfig(t *testing.T) {
   "references": []
 }`)
 	assertJSON(t, "pkg.options.json", readJSON(t, binDir+"/pkg/pkg.options.json"),
-		`{"target": "es2017", "jsx": "react-jsx", "jsxImportSource": "preact"}`)
+		`{"target": "es2017", "jsx": "react-jsx", "jsxImportSource": "preact",
+		  "module": "es6"}`)
 }
 
 // tsc's root order is the tsconfig's include order, which showConfig prints
@@ -298,7 +298,8 @@ func TestTsconfigStep_NoTypesWritesTheDirectTypesDeps(t *testing.T) {
 	config := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")
 	assertJSON(t, "types", config["compilerOptions"].(map[string]any)["types"], `["node", "react"]`)
 	assertJSON(t, "pkg.options.json", readJSON(t, binDir+"/pkg/pkg.options.json"),
-		`{"target": "esnext", "jsx": "preserve", "jsxImportSource": "preact"}`)
+		`{"target": "esnext", "jsx": "preserve", "jsxImportSource": "preact",
+		  "module": "nodenext"}`)
 
 	mustWriteTsconfig(t, e.tsconfigArgs("-jsx=preserve"))
 	config = readJSON(t, binDir+"/pkg/pkg.tsconfig.json")
@@ -357,7 +358,6 @@ func TestTsconfigStep_EmitShape(t *testing.T) {
 		"noEmit":               false,
 		"noEmitOnError":        true,
 		"outDir":               ".",
-		"declarationDir":       ".",
 		"rootDir":              "../../../../pkg",
 		"declarationMap":       false,
 		"isolatedDeclarations": true,
@@ -395,44 +395,6 @@ func TestTsconfigStep_ShowConfigFailureIsTheError(t *testing.T) {
 	err := writeTsconfig(e.tsconfigArgs())
 	if err == nil || !strings.Contains(err.Error(), "TS5023") || !strings.Contains(err.Error(), "--showConfig") {
 		t.Errorf("writeTsconfig = %v, want tsgo's diagnostic and the command that printed it", err)
-	}
-}
-
-// The oxc step appends the options file to the command line it is handed; a key
-// the tsconfig leaves unset is not passed, and oxc's own default stands.
-func TestOxcStep_AppendsTheOptions(t *testing.T) {
-	root := t.TempDir()
-	oxc, argv := fakeTool(t, root, "oxc-bazel", "")
-	options := filepath.Join(root, "pkg.options.json")
-
-	writeFile(t, options, `{"target": "es2017", "jsx": "react-jsx", "jsxImportSource": "preact"}`)
-	if err := runOxc([]string{"-options=" + options, "--", oxc, "--files", "a.ts", "--out-dir", "out"}); err != nil {
-		t.Fatal(err)
-	}
-	want := []string{"--files", "a.ts", "--out-dir", "out", "--target", "es2017", "--jsx", "react-jsx", "--jsx-import-source", "preact"}
-	if got := recordedArgs(t, argv); !reflect.DeepEqual(got, want) {
-		t.Errorf("oxc ran with %q, want %q", got, want)
-	}
-
-	writeFile(t, options, `{}`)
-	if err := runOxc([]string{"-options=" + options, "--", oxc, "--files", "a.ts"}); err != nil {
-		t.Fatal(err)
-	}
-	if got, want := recordedArgs(t, argv), []string{"--files", "a.ts"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("oxc ran with %q, want %q", got, want)
-	}
-}
-
-func TestOxcStep_ExitCodeIsTheTools(t *testing.T) {
-	root := t.TempDir()
-	oxc, _ := fakeTool(t, root, "oxc-bazel", "exit 3\n")
-	options := filepath.Join(root, "pkg.options.json")
-	writeFile(t, options, `{"target": "es2022"}`)
-
-	err := runOxc([]string{"-options=" + options, "--", oxc, "--files", "a.ts"})
-	var exit *exec.ExitError
-	if !errors.As(err, &exit) || exit.ExitCode() != 3 {
-		t.Errorf("runOxc = %v, want oxc's exit status 3", err)
 	}
 }
 
@@ -482,7 +444,8 @@ func TestTsconfigStep_JsxPreserveNeedsTheDeclaration(t *testing.T) {
 	mustWriteTsconfig(t,
 		append(e.tsconfigArgs("-jsx=preserve"), "pkg/src/view.tsx"))
 	assertJSON(t, "pkg.options.json", readJSON(t, binDir+"/pkg/pkg.options.json"),
-		`{"target": "esnext", "jsx": "preserve", "jsxImportSource": "preact"}`)
+		`{"target": "esnext", "jsx": "preserve", "jsxImportSource": "preact",
+		  "module": "nodenext"}`)
 }
 
 func TestTsconfigStep_JsxDeclaredPreserveUnderAnotherModeFails(t *testing.T) {

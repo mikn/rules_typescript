@@ -1,8 +1,10 @@
-"""Core TypeScript compilation rule using oxc-bazel.
+"""Core TypeScript compilation rule: oxc and tsgo over the tsconfig's options.
 
 ts_compile transforms .ts/.tsx source files into .js + .js.map + .d.ts outputs
-using the oxc-bazel CLI as a Bazel action. A .tsx under jsx: preserve emits
-.jsx, the name tsc gives it, with its JSX left for the bundler.
+in one TsEmit action: oxc's transform for an ES-module program, tsgo's emit
+for a CommonJS-shaped one (docs/rules/ts-compile.md § The Module Format). A
+.tsx under jsx: preserve emits .jsx, the name tsc gives it, with its JSX left
+for the bundler.
 
 JavaScript sources (.js/.mjs/.cjs) are accepted too. They need no transform, so
 they are materialised in the output tree unchanged and joined into the type
@@ -27,7 +29,8 @@ root with the forest at its node_modules, and every import resolves as it does
 over a pnpm install. Under --//ts:declarations=oxc the check is a validation
 action in the _validation output group: it runs during `bazel build` and does
 not block downstream compilation. The linter the root module's ts.lint() names
-runs over the same sources as a second validation action, TsLint.
+runs over the same sources as a second validation action, TsLint. The emit
+reads the same program root when tsgo emits the JavaScript.
 
 The rule has three attributes: srcs, deps and tsconfig. Every compiler option is
 the tsconfig's; the emit knobs are the build flags //ts:declarations (tsgo|oxc),
@@ -52,9 +55,9 @@ load(
     "TSGO_TOOLCHAIN_TYPE",
     "get_oxc_toolchain",
 )
+load("//ts/private/actions:emit.bzl", "emit_action")
 load("//ts/private/actions:forest.bzl", "forest_action", "forest_packages")
 load("//ts/private/actions:lint.bzl", "LintConfigInfo", "lint_action")
-load("//ts/private/actions:oxc.bzl", "oxc_compile_action")
 load(
     "//ts/private/actions:tsconfig.bzl",
     "tsconfig_action",
@@ -270,15 +273,15 @@ def compile_program(ctx):
             "with one flag or the other.",
         )
 
-    # One output per src at its package-relative path; oxc runs once per root.
+    # One output per src at its package-relative path.
     out_base = "/".join([
         p
         for p in [ctx.bin_dir.path, ctx.label.workspace_root, pkg]
         if p
     ])
 
-    oxc_srcs_by_root = {}
-    oxc_outs_by_root = {}
+    emit_roots = {}
+    emit_outputs = []
     js_outputs = []
     js_map_outputs = []
     dts_outputs = []
@@ -286,22 +289,20 @@ def compile_program(ctx):
 
     for src in compile_srcs:
         stem = _package_relative_stem(src, pkg)
-        root = _source_root(src, pkg)
-        group_outs = oxc_outs_by_root.setdefault(root, [])
-        oxc_srcs_by_root.setdefault(root, []).append(src)
+        emit_roots[_source_root(src, pkg)] = True
 
         js_extension = tsx_extension if src.extension == "tsx" else ".js"
         js_out = ctx.actions.declare_file(stem + js_extension)
         js_outputs.append(js_out)
-        group_outs.append(js_out)
+        emit_outputs.append(js_out)
         if source_map:
             js_map_out = ctx.actions.declare_file(stem + js_extension + ".map")
             js_map_outputs.append(js_map_out)
-            group_outs.append(js_map_out)
+            emit_outputs.append(js_map_out)
         dts_out = ctx.actions.declare_file(stem + ".d.ts")
         dts_outputs.append(dts_out)
         if oxc_emits_dts:
-            group_outs.append(dts_out)
+            emit_outputs.append(dts_out)
         if declaration_map:
             dts_map_outputs.append(ctx.actions.declare_file(stem + ".d.ts.map"))
 
@@ -419,25 +420,33 @@ def compile_program(ctx):
         tsconfig = written.tsconfig
         options_file = written.options
 
-    for root in sorted(oxc_srcs_by_root.keys()):
-        oxc_compile_action(
-            ctx,
-            oxc = oxc,
-            srcs = oxc_srcs_by_root[root],
-            outputs = oxc_outs_by_root[root],
-            out_base = out_base,
-            root = root,
-            options_file = options_file,
-            dep_dts = dep_dts_depset,
-            source_map = source_map,
-            emit_dts = oxc_emits_dts,
-        )
-
     forest = None
     validation_outputs = []
     if program_srcs:
         forest = forest_action(ctx, packages)
-        emit_outputs = dts_outputs + dts_map_outputs if tsgo_emits_dts else []
+        program_inputs = check_srcs + json_srcs + dep_json
+        if compile_srcs:
+            emit_action(
+                ctx,
+                oxc = oxc,
+                tsgo = tsgo,
+                srcs = compile_srcs,
+                roots = sorted(emit_roots.keys()),
+                outputs = emit_outputs,
+                out_base = out_base,
+                tsconfig = tsconfig,
+                chain = tsconfig_chain,
+                forest = forest,
+                program_inputs = program_inputs,
+                dep_dts = dep_dts_depset,
+                options_file = options_file,
+                scratch = "{}/{}.emit".format(tsconfig.dirname, ctx.label.name),
+                source_map = source_map,
+                emit_dts = oxc_emits_dts,
+            )
+        declaration_outputs = (
+            dts_outputs + dts_map_outputs if tsgo_emits_dts else []
+        )
         ownership = ownership_manifest(
             ctx,
             own = check_srcs + json_srcs,
@@ -455,11 +464,11 @@ def compile_program(ctx):
             tsgo = tsgo,
             tsconfig = tsconfig,
             forest = forest,
-            srcs = check_srcs + json_srcs + dep_json,
+            srcs = program_inputs,
             chain = tsconfig_chain,
             dep_dts = dep_dts_depset,
             ownership = ownership,
-            emit_outputs = emit_outputs,
+            emit_outputs = declaration_outputs,
         )
         if stamp:
             validation_outputs.append(stamp)
@@ -557,9 +566,11 @@ TS_COMPILE_ATTRS = {
     "srcs": attr.label_list(
         doc = """The package's files.
 
-.ts / .tsx      compiled by oxc; one .js (+ .js.map, + .d.ts) output each. A
-                .tsx under jsx: preserve emits .jsx (+ .jsx.map), the name tsc
-                gives it, when the tsconfig's ts_config declares that value.
+.ts / .tsx      compiled; one .js (+ .js.map, + .d.ts) output each, from oxc
+                for an ES-module program and from tsgo for a CommonJS-shaped
+                one, as the tsconfig's `module` says. A .tsx under jsx:
+                preserve emits .jsx (+ .jsx.map), the name tsc gives it, when
+                the tsconfig's ts_config declares that value.
 .js / .mjs/.cjs staged into the output tree unchanged and added to the type
                 program. allowJs is set for them, so JSDoc types cross the
                 package boundary; set checkJs in the tsconfig to have them
@@ -620,7 +631,8 @@ the keys Bazel owns -- rootDirs, preserveSymlinks, the emit shape, `include` and
 `files` -- rewrites `paths` to the source and bin-dir twins of each value, and
 rebases each path-shaped `types` entry to the staged file it names; a `types`
 entry naming a package resolves through the forest. oxc transforms with the
-target, jsx and jsxImportSource tsgo reads from the same chain.
+target, jsx and jsxImportSource tsgo reads from the same chain, and the
+chain's `module` decides whether oxc or tsgo emits the JavaScript.
 
 Without a tsconfig the baseline alone is the program's options.
 
@@ -654,7 +666,8 @@ ts_compile = rule(
     implementation = _ts_compile_impl,
     attrs = TS_COMPILE_ATTRS,
     toolchains = TS_COMPILE_TOOLCHAINS,
-    doc = """Compiles TypeScript with oxc and checks it with tsgo.
+    doc = """Compiles TypeScript with oxc, or tsgo for CommonJS, and checks it
+with tsgo.
 
 Produces one .js (+ .js.map under --//ts:source_map, the default) and one .d.ts
 per .ts/.tsx input -- .jsx and .jsx.map for a .tsx under jsx: preserve, as tsc

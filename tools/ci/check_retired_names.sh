@@ -22,6 +22,7 @@ WORDS=(
   ts_test_macro _ts_auto_node_modules RUNNER_NODE_TEST RUNNER_VITEST
   _generate_tsconfig
   TsStrictDeps _STRICT_DEPS_MJS strict_deps_check
+  OxcCompile
 )
 
 # Attribute names that are also fixture directories under tests/: a hit is one

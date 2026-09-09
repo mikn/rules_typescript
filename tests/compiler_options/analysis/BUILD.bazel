@@ -27,9 +27,9 @@ load(
     ":analysis_tests.bzl",
     "baseline_file_test",
     "declaration_map_without_tsgo_test",
+    "emit_command_line_test",
     "jsx_source_test",
     "mixed_source_roots_test",
-    "oxc_command_line_test",
 )
 
 package(default_visibility = ["//:__pkg__"])
@@ -46,8 +46,8 @@ ts_compile(
     tsconfig = "tsconfig.checkjs.json",
 )
 
-oxc_command_line_test(
-    name = "oxc_command_line_test",
+emit_command_line_test(
+    name = "emit_command_line_test",
     target_under_test = ":everything",
 )
 

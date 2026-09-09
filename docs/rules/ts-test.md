@@ -54,11 +54,12 @@ finds it where the checkout has it:
 const sdkSource = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
 ```
 
-`import.meta.url` is the runfiles path on either runner (vitest's
-`resolve.preserveSymlinks`; node's `--preserve-symlinks-main` and the runner's
-resolve hook), so `./index.ts` beside the compiled test is the same-package
-`ts_compile`'s `src/index.ts`. Another package's sources are not in the tree: a
-file a test reads across a package boundary is a `data` entry.
+`import.meta.url` -- and `__dirname`, in a CommonJS test -- is the runfiles
+path on either runner (vitest's `resolve.preserveSymlinks`; node's
+`--preserve-symlinks-main` and the runner's resolve hook), so `./index.ts`
+beside the compiled test is the same-package `ts_compile`'s `src/index.ts`.
+Another package's sources are not in the tree: a file a test reads across a
+package boundary is a `data` entry.
 `//tests/vitest/reads_own_source` is the example.
 
 vitest runs from the `config`'s package in the runfiles, the test's own with no
@@ -576,12 +577,22 @@ file outside the node_modules tree:
   three: `:ts_specifier_test`, `:extensionless_test`, `:runfiles_layout_test`.
 - A bare specifier resolves from the test's node_modules tree, the directory
   the launcher puts on `NODE_PATH`, never from a `node_modules` the walk up
-  from `bazel-out` happens to meet (`:bare_import_test`); one ending in `.ts`,
-  `.tsx`, `.mts` or `.cts` -- a subpath into a workspace member -- to the
-  compiled file the tree holds for it (`//tests/npm:by_name_member_node_test`).
-  Code inside the tree resolves as node resolves it, at its realpath, a `.ts`
-  specifier to its compiled form, so a link the tree holds for a second
-  resolution of a name works as installed.
+  from `bazel-out` happens to meet (`:bare_import_test`): the hook resolves an
+  `import` from the tree, and a `require` reads `NODE_PATH` itself. One ending
+  in `.ts`, `.tsx`, `.mts` or `.cts` -- a subpath into a workspace member --
+  resolves to the compiled file the tree holds for it, on either route
+  (`//tests/npm:by_name_member_node_test`). Code inside the tree resolves as
+  node resolves it, at its realpath, a `.ts` specifier to its compiled form,
+  so a link the tree holds for a second resolution of a name works as
+  installed.
+
+The compiled tests run in the module format their tsconfig gives them
+([The Module Format](ts-compile.md#the-module-format)). A package whose
+`module` is `commonjs`, or `nodenext` with no `type` in its `package.json`,
+runs as CommonJS: `__dirname` is the test's runfiles directory, `require` is
+node's, a relative `require` resolves through the hook as an `import` does,
+and a named import from a CommonJS dependency is that dependency's export.
+`//tests/node_test/cjs` pins the four.
 
 Under vitest, [layer 1's plugin](#ts-specifiers) resolves the `.ts` specifier
 and the generated config the rest.

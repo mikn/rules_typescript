@@ -1,7 +1,7 @@
 """The TsConfig action: tsaction writes the tsconfig the compile actions read.
 
 It extends the baseline written here, then the target's own chain, and sets
-the keys Bazel owns; tsgo and oxc read target and jsx from the same file.
+the keys Bazel owns; the emit reads target, jsx and module from the same file.
 """
 
 # The file the action config extends FIRST, so every key the user's chain sets

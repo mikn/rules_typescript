@@ -46,29 +46,35 @@ declared_outputs_test = analysistest.make(
     config_settings = {str(Label("//ts:declaration_map")): True},
 )
 
-def _oxc_strip_prefix_impl(ctx):
+def _emit_root_impl(ctx):
     env = analysistest.begin(ctx)
-    oxc_actions = [
+    emit_actions = [
         action
         for action in analysistest.target_actions(env)
-        if action.mnemonic == "OxcCompile"
+        if action.mnemonic == "TsEmit"
     ]
 
-    # Two sibling directories are one source root, so one invocation.
-    asserts.equals(env, 1, len(oxc_actions), "OxcCompile actions")
-    if len(oxc_actions) != 1:
+    # Two sibling directories are one source root, so one root.
+    asserts.equals(env, 1, len(emit_actions), "TsEmit actions")
+    if len(emit_actions) != 1:
         return analysistest.end(env)
 
-    argv = oxc_actions[0].argv
-    asserts.equals(env, _PKG, argv[argv.index("--strip-dir-prefix") + 1], "--strip-dir-prefix")
+    argv = emit_actions[0].argv
+    asserts.equals(
+        env,
+        ["-root=" + _PKG],
+        [a for a in argv if a.startswith("-root=")],
+        "-root",
+    )
+    out_dirs = [a for a in argv if a.startswith("-out_dir=")]
     asserts.true(
         env,
-        argv[argv.index("--out-dir") + 1].endswith("/" + _PKG),
-        "--out-dir is the package's bin directory: " + argv[argv.index("--out-dir") + 1],
+        len(out_dirs) == 1 and out_dirs[0].endswith("/" + _PKG),
+        "-out_dir is the package's bin directory: " + str(out_dirs),
     )
     return analysistest.end(env)
 
-oxc_strip_prefix_test = analysistest.make(_oxc_strip_prefix_impl)
+emit_root_test = analysistest.make(_emit_root_impl)
 
 def _package_relative(f):
     marker = _PKG + "/"
