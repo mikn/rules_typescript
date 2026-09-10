@@ -36,11 +36,12 @@ func runTest(it *harness.IT, logName string) (*harness.Log, error) {
 		"--test_output=all")
 }
 
-// The test's own line naming the version it ran under.
+// The test's own line naming the version it ran under; node's TAP reporter
+// prints it as a comment, the spec reporter as written.
 func versionLine(log *harness.Log) string {
 	for _, line := range log.Lines() {
-		if strings.HasPrefix(line, "process.version ") {
-			return line
+		if at := strings.Index(line, "process.version v"); at >= 0 {
+			return line[at:]
 		}
 	}
 	return ""
