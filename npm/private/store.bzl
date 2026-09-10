@@ -1,12 +1,10 @@
 """The virtual store: one tree of real files per lockfile snapshot, its
 dependency links beside it. docs/rules/node-modules.md § The Store."""
 
-load("//npm/private:member_manifest.bzl", "member_manifest_json")
 load(
     "//ts/private:providers.bzl",
     "NpmHoistInfo",
     "NpmLinkInfo",
-    "TsConfigInfo",
     "TsInfo",
 )
 
@@ -24,8 +22,6 @@ NpmStoreInfo = provider(
         "transitive": "depset of File: the tree, its links and every " +
                       "dependency store's transitive set, a cut edge's " +
                       "excepted.",
-        "manifest": "File or None: a member's package.json as built, the " +
-                    "copy its tree holds; None for a published snapshot.",
     },
 )
 
@@ -142,7 +138,7 @@ def _stage(ctx, tree, files, dest):
         progress_message = "Staging %{label}",
     )
 
-def _store_info(ctx, parts, tree, links, manifest = None):
+def _store_info(ctx, parts, tree, links):
     return NpmStoreInfo(
         key = parts.key,
         tree = tree,
@@ -151,7 +147,6 @@ def _store_info(ctx, parts, tree, links, manifest = None):
             [tree] + links.values(),
             transitive = [d[NpmStoreInfo].transitive for d in ctx.attr.deps],
         ),
-        manifest = manifest,
     )
 
 def _npm_store_impl(ctx):
@@ -216,26 +211,6 @@ behind it. `npm_virtual_store` declares every one of a lockfile's; not for
 hand use.""",
 )
 
-_MemberJsx = provider(
-    doc = "The jsx a member's compiling target declares, TsConfigInfo.jsx.",
-    fields = {
-        "jsx": "string: \"preserve\" when a .tsx emits .jsx; \"\" otherwise.",
-    },
-)
-
-def _member_jsx_impl(target, ctx):
-    tsconfig = getattr(ctx.rule.attr, "tsconfig", None)
-    jsx = ""
-    if tsconfig and TsConfigInfo in tsconfig:
-        jsx = tsconfig[TsConfigInfo].jsx
-    return [_MemberJsx(jsx = jsx)]
-
-_member_jsx = aspect(
-    implementation = _member_jsx_impl,
-    doc = "Reads the declared jsx off the compiling target's tsconfig: it " +
-          "names a .tsx's emit and travels in no provider of the target's own.",
-)
-
 def _member_roots(ctx, member):
     parts = [member.label.workspace_root, ctx.attr.member_dir]
     src = "/".join([p for p in parts if p])
@@ -245,29 +220,28 @@ def _npm_store_member_impl(ctx):
     parts = _store_parts(ctx.label.name)
     member = ctx.attr.member
     tree = ctx.actions.declare_directory(ctx.label.name)
-    key_dir = parts.links_dir.rsplit("/", 1)[0]
-    manifest = ctx.actions.declare_file(key_dir + "/package.json")
-    jsx = member[_MemberJsx].jsx if _MemberJsx in member else ""
-    text = member_manifest_json(json.decode(ctx.attr.manifest_json), jsx)
-    ctx.actions.write(output = manifest, content = text + "\n")
-
     info = member[TsInfo]
-    own = ctx.attr.member_dir + "/package.json"
-    files = [f for f in info.data.to_list() if f.short_path != own]
+    files = info.data.to_list()
     for emitted in (info.declarations, info.js, info.js_maps):
         files.extend(emitted.to_list())
     roots = _member_roots(ctx, member)
 
     def dest(f):
-        if f == manifest:
-            return "package.json"
         for root in roots:
             if f.path.startswith(root):
                 return f.path[len(root):]
         return f.basename
 
-    _stage(ctx, tree, [manifest] + files, dest)
-    store = _store_info(ctx, parts, tree, _dep_links(ctx, parts), manifest)
+    if "package.json" not in [dest(f) for f in files]:
+        fail(("{}: {} stages no package.json at {}; the tree's manifest is " +
+              "the one the member's compile stages as built, so list the " +
+              "member's package.json in its srcs.").format(
+            ctx.label,
+            member.label,
+            ctx.attr.member_dir,
+        ))
+    _stage(ctx, tree, files, dest)
+    store = _store_info(ctx, parts, tree, _dep_links(ctx, parts))
     return [DefaultInfo(files = store.transitive), store]
 
 npm_store_member = rule(
@@ -275,7 +249,6 @@ npm_store_member = rule(
     attrs = {
         "member": attr.label(
             mandatory = True,
-            aspects = [_member_jsx],
             providers = [TsInfo],
             doc = "The target that compiles the member, as npm_hub finds it.",
         ),
@@ -283,19 +256,13 @@ npm_store_member = rule(
             mandatory = True,
             doc = "The member's directory from the workspace root.",
         ),
-        "manifest_json": attr.string(
-            mandatory = True,
-            doc = "The member's package.json as text; written as built " +
-                  "(npm/private/member_manifest.bzl) beside the tree and " +
-                  "copied into it.",
-        ),
         "deps": _DEPS,
         "_tsaction": _TSACTION,
     },
     doc = """A workspace member's store tree, `node_modules/.pnpm/<name with /
-as +>@0.0.0/node_modules/<name>`: its package.json as built, its `.js`,
-`.js.map`, `.d.ts` and data at their package-relative paths, the source
-package.json excepted; one declared symlink beside it per dependency the
+as +>@0.0.0/node_modules/<name>`: its `.js`, `.js.map`, `.d.ts` and data srcs
+at their package-relative paths, the package.json among them as the compile
+staged it, as built; one declared symlink beside it per dependency the
 member's importer declares. Declared by `npm_virtual_store`.""",
 )
 
@@ -384,8 +351,8 @@ def virtual_store(name, graph, members, files, package_dir):
     Args:
         name: The store directory the call is named after, `node_modules/.pnpm`.
         graph: The hub's store graph, decoded.
-        members: {member path: struct(target = Label, manifest = str)} for
-            every member whose BUILD file declares its target.
+        members: {member path: Label of its compiling target} for every
+            member whose BUILD file declares it.
         files: function(repo) -> Label of the snapshot repository's `:files`,
             evaluated in the hub, which sees the repository by that name.
         package_dir: function(repo, name) -> Label of its package.json.
@@ -449,12 +416,10 @@ def virtual_store(name, graph, members, files, package_dir):
     for index, member in enumerate(graph["members"]):
         if index not in member_targets:
             continue
-        resolved = members[member["path"]]
         npm_store_member(
             name = member_targets[index],
-            member = resolved.target,
+            member = members[member["path"]],
             member_dir = member["path"],
-            manifest_json = resolved.manifest,
             deps = edges(member["deps"], member["links"]),
             tags = ["manual"],
             visibility = ["//visibility:public"],

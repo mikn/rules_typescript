@@ -1,10 +1,11 @@
 """Analysis-time proof that tsgo resolves npm packages through the importer
 chain. The build tests beside this prove the programs resolve; these pin the
-route: `-node_modules=` names the chain's directories nearest first, the
-action's inputs are the chain's links for the direct names with the closure's
-store trees and the edge links beside them, no tree is built per target, and
-no npm file is staged from a source repository. The tsconfig step is handed
-the direct @types deps and nothing about the closure."""
+route: `-node_modules=` names the chain's directories nearest first,
+`-overlay=` the first-party deps at or above the package, the action's inputs
+are the chain's links for the direct names with the closure's store trees and
+the edge links beside them, no tree is built per target, and no npm file is
+staged from a source repository. The tsconfig step is handed the direct @types
+deps and nothing about the closure."""
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 
@@ -29,6 +30,16 @@ def _chain_impl(ctx):
             if arg.startswith("-node_modules=")
         ],
         "the importer chain, nearest first",
+    )
+    asserts.equals(
+        env,
+        [ctx.bin_dir.path + "/" + d for d in ctx.attr.overlays],
+        [
+            arg[len("-overlay="):]
+            for arg in tsgo.argv
+            if arg.startswith("-overlay=")
+        ],
+        "the first-party deps at or above the package, laid over its sources",
     )
     inputs = tsgo.inputs.to_list()
     asserts.equals(
@@ -80,6 +91,11 @@ chain_test = analysistest.make(
         "linked": attr.string_list(
             doc = "Path suffixes the tsgo action stages: an importer's link " +
                   "`node_modules/<name>`, a store tree, an edge beside one.",
+        ),
+        "overlays": attr.string_list(
+            doc = "The packages of the first-party deps at or above the " +
+                  "target's, bin-dir relative, whose outputs the program " +
+                  "root lays over the sources.",
         ),
         "types_deps": attr.string_list(
             doc = "The @types packages the target declares directly, by the " +

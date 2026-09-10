@@ -20,7 +20,7 @@ import (
 type emitConfig struct {
 	options, tsconfig, scratch, outDir string
 	oxc, tsgo                          string
-	roots, importers                   stringList
+	roots, importers, overlays         stringList
 	sourceMap, declarations, esModules bool
 	srcs                               []string
 }
@@ -34,6 +34,9 @@ func runEmit(args []string) error {
 		"the tsconfig the tsconfig step wrote")
 	flags.Var(&e.importers, "node_modules",
 		"an importer's node_modules directory, nearest first (repeatable)")
+	flags.Var(&e.overlays, "overlay",
+		"the output directory of a dep whose package is at or above this "+
+			"one's, laid over that package's sources (repeatable)")
 	flags.StringVar(&e.scratch, "scratch", "",
 		"where the program root and tsgo's outDir go, removed after")
 	flags.StringVar(&e.outDir, "out_dir", "",
@@ -157,7 +160,7 @@ func (e *emitConfig) tsgoEmit(groups map[string][]string, o oxcOptions) error {
 	root := roots[0]
 	programRoot := filepath.Join(e.scratch, "root")
 	scratchOut := filepath.Join(e.scratch, "out")
-	if err := layOutProgramRoot(programRoot, e.importers); err != nil {
+	if err := layOutProgramRoot(programRoot, e.importers, e.overlays); err != nil {
 		return err
 	}
 	defer os.RemoveAll(e.scratch)

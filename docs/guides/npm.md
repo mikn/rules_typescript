@@ -402,11 +402,12 @@ directory -- at `@npm//:<name>`; each importer that links the member holds a
 target names in `deps`. The view is that member as an npm package: its store
 tree, `node_modules/.pnpm/<name with / as +>@0.0.0/node_modules/<name>`, holds
 the member's `package.json` as built beside the member's `.js`, `.js.map` and
-`.d.ts` at the paths the manifest names. "As built" is one rewrite, done by the member's
-store target at analysis, where the compiling target's declared `jsx` is known:
-every source-file target under `main`, `module`, `browser`, `exports` and
-`imports` names the emitted file -- the `.js`, or the `.jsx` for a `.tsx` under
-`jsx: "preserve"` ([a `.tsx` under `jsx: preserve`](../rules/ts-compile.md#a-tsx-under-jsx-preserve))
+`.d.ts` at the paths the manifest names. "As built" is one rewrite, done by the
+member's `ts_compile` when it stages the `package.json` in its `srcs`
+(`tsaction manifest`, under the `jsx` its tsconfig declares): every source-file
+target under `main`, `module`, `browser`, `exports` and `imports` names the
+emitted file -- the `.js`, or the `.jsx` for a `.tsx` under `jsx: "preserve"`
+([a `.tsx` under `jsx: preserve`](../rules/ts-compile.md#a-tsx-under-jsx-preserve))
 -- and every `types`, `typings` or `exports` `types` condition names the
 `.d.ts`, key order kept, so an `exports` condition map is read in the order it
 was written. A member that sets no `type` is ESM.
@@ -434,10 +435,12 @@ of one name, or one directory linked under two names, fail the extension.
 The tree holds the member's data srcs too, at their package-relative paths
 beside the `.js` that reads them: a member whose module imports `./banner.json`
 answers `import { tagline } from "shared"` from the tree alone. The member's
-own `package.json` is the one data src the tree leaves out: the manifest as
-built stands in its place, in the tree and at the member's own path in a
-`ts_test`'s runfiles, where a test inside the member resolves the member's name
-through the nearest manifest and would otherwise reach the source targets. The
+own `package.json` is one of them, staged as built, so the tree, a `ts_test`'s
+runfiles and a dependent's program root hold one manifest at the member's
+path: a test inside the member imports the member by name through that
+manifest -- a self-reference, which tsc, node and Vite resolve through the
+nearest `package.json`'s `name` and `exports` -- and reaches the emitted files,
+with the member's `ts_compile` as its dep and no link. The
 link target forwards the view's `TsInfo` and `NpmPackageInfo`; a consumer
 reaches the member's files in the store, as it reaches any npm package's.
 `ts_test` names the closure's workspace members in `test.server.deps.inline`:

@@ -179,7 +179,7 @@ func main() {
 		programsAreListedWithTheToolchainsTsgo(it, gazelleLog)
 		handWrittenDevServerIsLeftAlone(it)
 		handWrittenRuleSharesTheProgram(it)
-		memberSelfImportTakesTheHubLabel(it)
+		memberSelfImportIsTheCompile(it)
 		memberByNameIsTheHubView(it)
 		parentDirectoryImportIsADep(it)
 		packageRootVitestConfigReachesTheTestBelow(it)
@@ -248,50 +248,26 @@ func theRootBaseIsATsConfig(it *harness.IT) {
 		"extends names")
 }
 
-// The member's own tests import it by name through its exports map; only the
-// root's link target puts it at node_modules/<name>, so it sits beside :shared.
-func memberSelfImportTakesTheHubLabel(it *harness.IT) {
+// The member's own tests import it by name: a self-reference through the
+// manifest as built at the member's path, the compile alone their dep.
+func memberSelfImportIsTheCompile(it *harness.IT) {
 	build := it.Path("packages/shared/BUILD.bazel")
 	it.RequireContains(build, `name = "shared_test"`,
 		"Gazelle wrote no ts_test for the member's test files")
-	// The member's own target too, from the relative imports of the sources
-	// under test: the first target to carry the member and its link at once.
 	requireLabels(it, "deps", "//packages/shared:shared_test",
-		[]string{"//:node_modules/shared", "//packages/shared:shared",
-			"@npm//:vitest"})
-	it.Pass("//packages/shared:shared_test depends on //:node_modules/shared " +
-		"beside :shared")
+		[]string{"//packages/shared:shared", "@npm//:vitest"})
+	it.Pass("//packages/shared:shared_test depends on :shared and on no " +
+		"link target: the member's own name is a self-reference")
 
 	for _, rel := range []string{"packages/shared/src/entry.test.js", "packages/shared/src/wire.test.js"} {
 		it.RequireFile(it.Bin(rel),
 			"%s was not written; the `bazel build //...` above did not compile the test program", rel)
 	}
-	it.Pass("the test program resolved `shared` and `shared/wire` through the hub view's link")
+	it.Pass("the test program resolved `shared` and `shared/wire` through " +
+		"the manifest as built at packages/shared/package.json")
 
-	// The measurement behind writing the link target: the member's own target
-	// alone puts nothing at node_modules/shared.
-	restore := it.Read(build)
-	it.Replace(build, "        \"//:node_modules/shared\",\n", "")
-	log, err := it.BazelLog("self_import_without_the_link", "build",
+	log, err := it.BazelLog("self_import_at_run_time", "test",
 		"//packages/shared:shared_test")
-	it.Write(build, restore)
-	if err == nil {
-		log.Dump()
-		it.Fail("the test program compiled without the link target; Gazelle " +
-			"need not write it")
-	}
-	for _, specifier := range []string{"shared", "shared/wire"} {
-		if !log.Contains(fmt.Sprintf("TS2307: Cannot find module '%s'", specifier)) {
-			log.Dump()
-			it.Fail("without the link target the compile did not fail on %q", specifier)
-		}
-	}
-	it.Pass("without the link target `shared` and `shared/wire` are TS2307: " +
-		"only the member's link puts it on the chain")
-
-	// The view's package.json is the member's with its exports map rewritten to
-	// the emitted files, so node resolves both specifiers through the link.
-	log, err = it.BazelLog("self_import_at_run_time", "test", "//packages/shared:shared_test")
 	if err != nil {
 		log.Dump()
 		it.Fail("//packages/shared:shared_test failed: %v", err)
@@ -302,10 +278,12 @@ func memberSelfImportTakesTheHubLabel(it *harness.IT) {
 	} {
 		if log.Contains(stale) {
 			log.Dump()
-			it.Fail("the runtime link still fails to resolve: %q", stale)
+			it.Fail("the runtime still fails to resolve: %q", stale)
 		}
 	}
-	it.Pass("//packages/shared:shared_test type-checks and runs: the runtime link resolves `shared` and `shared/wire` through the member's exports map")
+	it.Pass("//packages/shared:shared_test type-checks and runs: node resolves " +
+		"`shared` and `shared/wire` through the member's exports map at its " +
+		"own path")
 }
 
 // member/'s test imports the member by name and by its exports subpath from

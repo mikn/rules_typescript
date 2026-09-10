@@ -1,8 +1,10 @@
 """The tsgo action: TsgoDeclare emits the declarations, TsgoCheck a stamp.
 
 tsaction runs tsgo from a program root that mirrors the exec root with each
-importer's node_modules at the importer's directory, so every bare specifier
-resolves as over pnpm's install, and checks the --explainFiles listing against
+importer's node_modules at the importer's directory and the outputs of each
+first-party dep at or above the target's package laid over that package's
+sources, so every bare specifier resolves as over pnpm's install, the package's
+own name included, and checks the --explainFiles listing against
 the ownership manifest written here: an edge from one of the target's files
 into a file a label outside deps owns fails the action naming that label
 (docs/rules/ts-compile.md § Deps Have to Be Direct).
@@ -74,6 +76,7 @@ def tsgo_action(
         tsgo,
         tsconfig,
         importers,
+        overlays,
         srcs,
         chain,
         dep_dts,
@@ -82,8 +85,10 @@ def tsgo_action(
         emit_outputs):
     """Registers the one tsgo run a target makes.
 
-    `importers` are the chain's node_modules directories nearest first and
-    `npm_files` the store files the program reaches. With `emit_outputs` it
+    `importers` are the chain's node_modules directories nearest first,
+    `overlays` the output directories of the first-party deps at or above the
+    target's package and `npm_files` the store files the program reaches. With
+    `emit_outputs` it
     is TsgoDeclare and they are its outputs, so a type error fails the build
     and no stale declaration survives; without, it is TsgoCheck under
     --noEmit, and the stamp returned is its output, for the _validation
@@ -97,6 +102,7 @@ def tsgo_action(
         "-root={}/{}.program".format(tsconfig.dirname, ctx.label.name),
     )
     run_args.add_all(importers, format_each = "-node_modules=%s")
+    run_args.add_all(overlays, format_each = "-overlay=%s")
     run_args.add(ownership, format = "-check=%s")
     if stamp:
         run_args.add(stamp, format = "-stamp=%s")

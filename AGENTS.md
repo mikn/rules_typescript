@@ -108,7 +108,7 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 - `npm/extensions.bzl` — the `npm` module extension (translate_lock, pnpm tags)
 - `npm/lazy.bzl` — whole-graph analysis + one `npm_import` per package + the alias hub
 - `npm/private/npm_import.bzl` — the per-package repository rule and `npm_hub`
-- `npm/private/workspace_package.bzl`, `npm/private/member_manifest.bzl` — the hub's view of a workspace member and the manifest rewrite it links
+- `npm/private/workspace_package.bzl` — the hub's view of a workspace member
 - `npm/private/npmrc_auth.bzl` — the credentials an `.npmrc` grants a fetch; loaded by `npm_import` and the tsgo toolchain's repository rule
 - `ts/private/pnpm.bzl` — hermetic pnpm download + `ts_pnpm`/`ts_add_package` macros
 - `ts/private/tsgo_lock.bzl` — which compiler a pnpm lockfile pins, the reader behind `ts.tsgo(pnpm_lock = ...)`; `ts/private/tsgo/pnpm-lock.yaml` is the default
@@ -274,15 +274,14 @@ A package's `exports`, `types`, `typings`, `main` and the `/// <reference
 types>` headers of its declarations are read by nothing here: tsgo and node read
 the manifest where the importer's link leads, as they do over an install, and
 `NpmPackageInfo` carries no entry point. The one manifest the rules write is a
-workspace member's: the member's store target (`npm_store_member`,
-`npm/private/store.bzl`) rewrites, at analysis, every source-file target under
+`package.json` in a `ts_compile`'s `srcs`, staged as built: `tsaction manifest`
+(`ts/tools/tsaction/manifest.go`) rewrites every source-file target under
 `main`, `module`, `browser`, `exports` and `imports` to the emitted `.js` (the
-`.jsx` for a `.tsx` under the compiling target's declared `jsx: preserve`) and
-every `types` target to the `.d.ts`, key order kept (Bazel's `json.encode`
-sorts keys, and an `exports` condition map is read in the order it is
-written), and the member's store tree holds it
-(`npm/private/member_manifest.bzl`). `tests/npm/member_manifest_tests.bzl` is
-the table.
+`.jsx` for a `.tsx` under the target's declared `jsx: preserve`) and every
+`types` target to the `.d.ts`, key order kept (an `exports` condition map is
+read in the order it is written); the member's store tree copies it, and a
+dependent's program root lays it over the member's directory.
+`manifest_test.go` is the table.
 
 ## Dev Server Generated Config
 

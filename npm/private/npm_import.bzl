@@ -538,7 +538,7 @@ def _unresolved_link_note(package_name, member):
 def _unresolved_manifest_note(package_name, member):
     return [
         "# NO MANIFEST for '{}'. {}/package.json is missing or".format(package_name, member),
-        "# has no name, and the manifest is what the member's store writes:",
+        "# has no name, and a member is the package its manifest names:",
         "# give the member a package.json with a name.",
         "",
     ]
@@ -555,8 +555,9 @@ def _link_block(members, targets, manifests, lock):
 
     Not an alias: Bazel resolves an alias before any rule implementation runs, so
     the member would arrive at a consumer with no record of the npm name at all.
-    The view names the member's store, which writes the member's package.json
-    as built; a member with no manifest has no store and no view.
+    The view names the member's store, the tree of the compile's outputs with
+    the package.json as built among them; a member with no named manifest has
+    no store and no view.
 
     Args:
         members: Label name -> "<npm name>|<member path>".
@@ -631,22 +632,15 @@ def npm_virtual_store(name):
 '''
 
 def _member_lines(rctx, targets):
-    """The `_MEMBERS` entries of defs.bzl: path -> target and manifest, for
-    every member whose BUILD file declares its target."""
+    """The `_MEMBERS` entries of defs.bzl: path -> the compiling target, for
+    every named member whose BUILD file declares it."""
     lines = []
     for label_name in sorted(rctx.attr.members):
         _, _, member = rctx.attr.members[label_name].partition("|")
         target = targets.get(member)
-        manifest = rctx.attr.member_manifests.get(label_name)
-        if not target or not manifest:
+        if not target or not rctx.attr.member_manifests.get(label_name):
             continue
-        lines.append(
-            '    "{}": struct(target = Label("{}"), manifest = {}),'.format(
-                member,
-                target,
-                json.encode(manifest),
-            ),
-        )
+        lines.append('    "{}": Label("{}"),'.format(member, target))
     return "\n".join(lines)
 
 def _npm_hub_impl(rctx):
@@ -712,10 +706,9 @@ npm_hub = repository_rule(
                   "the label of '@types/react' and of 'types_react'.",
         ),
         "member_manifests": attr.string_dict(
-            doc = "Label name -> the member's package.json as text; the view " +
-                  "rewrites every source-file target to the emitted file. A " +
-                  "member missing here has no package.json with a name and " +
-                  "gets a comment, no view.",
+            doc = "Label name -> the member's package.json as text, the " +
+                  "name it is imported by. A member missing here has no " +
+                  "package.json with a name and gets a comment, no view.",
         ),
         "pnpm_lock": attr.label(
             allow_single_file = True,

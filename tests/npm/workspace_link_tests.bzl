@@ -1,6 +1,6 @@
 """The hub's view of a `link:` member: the one target it names, what it writes
 when the member's BUILD file declares none, and what the view carries. The
-manifest the member's store writes is tests/npm/store_tests.bzl's."""
+tree the member's store stages is tests/npm/store_tests.bzl's."""
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
 load("//npm/private:npm_import.bzl", "link_block", "link_target_label")
@@ -116,8 +116,7 @@ def _unresolved_link_block_test(ctx):
         env,
         [],
         [line for line in unmanifested if line and not line.startswith("#")],
-        "and gets no target: the store writes the manifest, so there is " +
-        "nothing to write",
+        "and gets no target: a member is the package its manifest names",
     )
 
     resolved = link_block(
@@ -155,12 +154,6 @@ def _member_view_impl(ctx):
         info.store.key,
         "the view names the member's store tree",
     )
-    asserts.equals(
-        env,
-        "package.json",
-        info.store.manifest.basename,
-        "the manifest as built is the store's",
-    )
     asserts.true(
         env,
         info.package_root.endswith("/packages/shared"),
@@ -185,9 +178,9 @@ def _member_view_impl(ctx):
             f.path[len(root):] if f.path.startswith(root) else f.basename
             for f in info.all_files.to_list()
         ]),
-        "the view holds the manifest as built, the member's .js and .d.ts at " +
-        "the paths the manifest names, and its data srcs at their " +
-        "package-relative paths, the member's own package.json excepted",
+        "the view holds the member's .js and .d.ts at the paths the manifest " +
+        "names and its data srcs at their package-relative paths, the " +
+        "package.json among them as the compile staged it",
     )
     return analysistest.end(env)
 

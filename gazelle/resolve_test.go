@@ -549,8 +549,8 @@ func TestResolveEdges_ConfigSrcsAreTheConfigsModules(t *testing.T) {
 	}
 }
 
-// A self-import through an exports subpath: the own view from a ts_test, whose
-// runtime resolves the name through node_modules; nothing from the ts_compile.
+// A self-import through an exports subpath lands on the member's own file:
+// nothing from the ts_compile, the compile alone from the ts_test, no line.
 func TestResolveEdges_MemberSelfImport(t *testing.T) {
 	c, tc := edgeRepo(t, edgeListings)
 	ix := buildIndex(t, c, edgeRules...)
@@ -562,11 +562,12 @@ func TestResolveEdges_MemberSelfImport(t *testing.T) {
 	if r.Attr("deps") != nil || logged != "" {
 		t.Errorf("ts_compile deps = %v, log %q; want none", r.Attr("deps"), logged)
 	}
-	r, _ = resolveEdgesOf(t, c, ix, "ts_test", "packages/lib", "lib_test",
+	r, logged = resolveEdgesOf(t, c, ix, "ts_test", "packages/lib", "lib_test",
 		s.testImports(c.RepoRoot, tc.lock, "packages/lib", ":lib", "", set))
-	want := []string{"//:node_modules/@acme/lib", ":lib"}
-	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
-		t.Errorf("ts_test deps = %q, want %q", got, want)
+	want := []string{":lib"}
+	got := r.AttrStrings("deps")
+	if !reflect.DeepEqual(got, want) || logged != "" {
+		t.Errorf("ts_test deps = %q, log %q; want %q and no line", got, logged, want)
 	}
 }
 

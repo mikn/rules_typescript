@@ -9,14 +9,14 @@ imported as `shared` would be the alias label, which nothing can read.
 This rule is that alias with the name attached. It forwards the member's TsInfo
 unchanged and describes the member as an npm package: `NpmPackageInfo.store` is
 the member's store tree (`npm_store_member`, docs/rules/node-modules.md § The
-Store) and `all_files` the files that tree copies -- the manifest as built, the
-member's `.js`, `.js.map` and `.d.ts`, and its data srcs, its own package.json
-excepted.
+Store) and `all_files` the files that tree copies -- the member's `.js`,
+`.js.map` and `.d.ts`, and its data srcs, the package.json among them as the
+compile staged it, as built.
 
 Two fields of NpmPackageInfo that assume an extracted tarball say otherwise:
 
   package_dir  is None. A member has no package.json in an external repository;
-               its store writes the manifest as built.
+               its compile stages the manifest as built.
   package_root is the member's directory under bazel-bin, where the compiling
                target's outputs hang off, and not that target's package: a
                member whose entry sits in a subdirectory is compiled by a target
@@ -34,11 +34,7 @@ def _package_root(ctx, member):
     ])
 
 def _npm_package_info(ctx, member):
-    store = ctx.attr.store[NpmStoreInfo]
     info = member[TsInfo]
-    own = ctx.attr.member_dir + "/package.json"
-    data = [f for f in info.data.to_list() if f.short_path != own]
-
     return NpmPackageInfo(
         package_name = ctx.attr.package_name,
         package_version = MEMBER_VERSION,
@@ -46,11 +42,10 @@ def _npm_package_info(ctx, member):
         package_dir = None,
         package_root = _package_root(ctx, member),
         all_files = depset(
-            [store.manifest] + data,
-            transitive = [info.declarations, info.js, info.js_maps],
+            transitive = [info.data, info.declarations, info.js, info.js_maps],
         ),
         transitive_deps = info.npm_packages,
-        store = store,
+        store = ctx.attr.store[NpmStoreInfo],
     )
 
 def _npm_workspace_package_impl(ctx):

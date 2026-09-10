@@ -150,13 +150,13 @@ The call declares, `manual` and public:
   a closure through the edge that closes the cycle, as it is in pnpm's store.
 - one `npm_store_member` per workspace member whose BUILD file declares its
   target, `node_modules/.pnpm/<name with / as +>@0.0.0/node_modules/<name>`:
-  the member's `package.json` as built (every source-file target rewritten to
-  the emitted file, [what a workspace member is imported
-  as](../guides/npm.md#what-a-workspace-member-is-imported-as)), written as a
-  file beside the tree at `node_modules/.pnpm/<key>/package.json` and copied
-  into it, with the member's `.js`, `.js.map`, `.d.ts` and data srcs at their
-  package-relative paths, the source `package.json` excepted; and one link per
-  dependency the member's importer declares, other members among them.
+  the member's `.js`, `.js.map`, `.d.ts` and data srcs at their
+  package-relative paths, the `package.json` among them as the compile staged
+  it, as built (every source-file target rewritten to the emitted file, [what a
+  workspace member is imported
+  as](../guides/npm.md#what-a-workspace-member-is-imported-as)); and one link
+  per dependency the member's importer declares, other members among them. A
+  compile that stages no `package.json` fails the store naming the src to add.
 - one `npm_store_hoist`, `node_modules/.pnpm/node_modules`: pnpm's hidden
   hoist. For every name `hoist-pattern` matches it links one resolution at
   `node_modules/.pnpm/node_modules/<name>`, and for every name
@@ -206,7 +206,7 @@ extension fills in from another module's lockfile serves that module's own
 targets, never a consumer's.
 
 Every `ts_npm_package` carries its snapshot's store as `NpmPackageInfo.store`
-(`NpmStoreInfo`: `key`, `tree`, `links`, `transitive`, `manifest`), and a
+(`NpmStoreInfo`: `key`, `tree`, `links`, `transitive`), and a
 member's hub view carries the member's. The importer's links above read it,
 and the chain below is where `ts_compile` and `ts_test` find them.
 

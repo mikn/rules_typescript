@@ -9,6 +9,7 @@ go_library(
         "check.go",
         "emit.go",
         "main.go",
+        "manifest.go",
         "paths.go",
         "showconfig.go",
         "tsgo.go",
@@ -33,6 +34,7 @@ go_test(
     srcs = [
         "check_test.go",
         "emit_test.go",
+        "manifest_test.go",
         "paths_test.go",
         "showconfig_test.go",
         "tsgo_test.go",

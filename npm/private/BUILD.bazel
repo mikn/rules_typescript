@@ -36,17 +36,9 @@ bzl_library(
 )
 
 bzl_library(
-    name = "member_manifest",
-    srcs = ["member_manifest.bzl"],
-)
-
-bzl_library(
     name = "store",
     srcs = ["store.bzl"],
-    deps = [
-        ":member_manifest",
-        "//ts/private:providers",
-    ],
+    deps = ["//ts/private:providers"],
 )
 
 bzl_library(

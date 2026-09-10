@@ -5,6 +5,9 @@ load("//ts:defs.bzl", "ts_compile")
 # keep
 ts_compile(
     name = "lib",
-    srcs = ["index.ts"],
+    srcs = [
+        "index.ts",
+        "package.json",
+    ],
     visibility = ["//visibility:public"],
 )

@@ -85,11 +85,14 @@ through a Starlark transition; `tests/flags.bzl` is the ruleset's own.
   nearest `package.json` of every source for the module's format and for the
   package's own name, so a package that imports itself by name
   (`import "@scope/pkg/wire"` from inside `pkg`) resolves through the manifest
-  in `srcs`. That manifest names source targets, so it is the one data src the
-  hub's view leaves out of the link, and a `ts_test` stages the manifest as
-  built at the member's own path in its runfiles: Vite resolves the
-  self-import through the nearest `package.json` too, and reaches the emitted
-  `.js`. See [What a Workspace Member Is Imported
+  in `srcs`. That manifest names source targets, so the staged copy is the
+  manifest as built -- every source-file target rewritten to the emitted file,
+  by `tsaction manifest` -- and it is what every reader of the staged tree
+  holds: a `ts_test` inside the package resolves the package's own name through
+  it, Vite at run time to the emitted `.js`, tsgo in the program root to the
+  `.d.ts` beside the test's sources ([The node_modules
+  Chain](#the-node_modules-chain)); the member's store tree copies it. See
+  [What a Workspace Member Is Imported
   As](../guides/npm.md#what-a-workspace-member-is-imported-as).
 
 Gazelle writes the first three classes from tsgo's listing of the package's
@@ -215,10 +218,10 @@ a `.ts`-only program has nothing `jsx` names. From the declaration on, the
 emit is tsc's: oxc names the file `.jsx` when it transforms under
 `--jsx preserve`, every consumer stages a `.jsx` as it stages a `.js`, a
 `ts_test` runs a `.jsx` test file and resolves a `.tsx`
-setup file to it, and the hub's view of a member links a `.jsx` at its
-package-relative path with the member's manifest as built naming it: the view
-reads the declaration off the compiling target's `ts_config` and rewrites a
-`.tsx` target to the `.jsx`. Vite transforms a `.jsx` module and refuses JSX in
+setup file to it, and the target stages its `package.json` as built with a
+`.tsx` target rewritten to the `.jsx`, the manifest the hub's view of a member
+links beside the `.jsx` at its package-relative path. Vite transforms a `.jsx`
+module and refuses JSX in
 a `.js` (`Failed to parse source for import analysis ... If you are using JSX,
 make sure to name the file with the .jsx or .tsx extension`), which is what a
 `.tsx` compiled to `.js` under `preserve` met. `//tests/jsx_preserve` is the
@@ -434,11 +437,16 @@ source in the exec root is an action output, so `tsaction tsgo` lays out a
 program root under the target's output directory -- a symlink to every
 top-level entry of the exec root, each importer's `node_modules` at the
 importer's directory (made a real directory of links down to it), the
-lockfile's root importer's at the root's `node_modules` -- and runs tsgo from
-there. A bare specifier, an `exports` condition, a subpath, a `@types/*`
-pairing and a `types` entry resolve as tsc resolves them over a pnpm install,
-and a declaration tsgo emits names a package the way that package's `exports`
-allow. A package's own imports resolve from its realpath in the store,
+lockfile's root importer's at the root's `node_modules`, and the outputs of
+every first-party dep whose package is at or above the target's laid over that
+package's directory, its `package.json` as built and its declarations beside
+the sources -- and runs tsgo from there. A bare specifier, an `exports`
+condition, a subpath, a `@types/*` pairing, a `types` entry and the package's
+own name through the nearest manifest resolve as tsc resolves them over a pnpm
+install, and a declaration tsgo emits names a package the way that package's
+`exports` allow. A file the root links is listed by its path under the root,
+which the ownership check reads through the link to the dep's output. A
+package's own imports resolve from its realpath in the store,
 `node_modules/.pnpm/<key>/node_modules/<name>/`, to the edges beside its tree,
 so every dependent reaches the resolution pnpm recorded for it, and an import
 of a name the package does not declare to the hoist's link at

@@ -31,16 +31,16 @@ ts_compile(
 )
 
 # The member's own test imports the member by name and by subpath, as
-# @lovable/canvas-sdk's does: the hub label beside the compiling target.
+# @lovable/canvas-sdk's does: a self-reference, the compiling target its dep.
 # keep
 ts_test(
     name = "shared_test",
     size = "small",
     srcs = ["src/shared.test.ts"],
     node_modules = ":node_modules",
+    visibility = ["//tests/npm:__pkg__"],
     deps = [
         ":shared",
-        "//tests/npm:node_modules/shared",
         "@npm//:vitest",
     ],
 )

@@ -134,30 +134,6 @@ def _member_store_impl(ctx):
     info = analysistest.target_under_test(env)[NpmStoreInfo]
     asserts.equals(env, "shared@0.0.0", info.key, "a member's key")
 
-    written = [
-        a
-        for a in analysistest.target_actions(env)
-        if a.outputs.to_list() == [info.manifest]
-    ]
-    asserts.equals(env, 1, len(written), "the store writes the manifest")
-    if len(written) == 1:
-        manifest = json.decode(written[0].content)
-        asserts.equals(env, "shared", manifest.get("name"), "the member's name")
-        asserts.equals(env, "module", manifest.get("type"), "the .js is ESM")
-        asserts.equals(
-            env,
-            {".": "./src/index.js", "./wire": "./src/wire/index.js"},
-            manifest.get("exports"),
-            "every source-file target in exports names the emitted file",
-        )
-    manifest_path = "tests/npm/node_modules/.pnpm/shared@0.0.0/package.json"
-    asserts.true(
-        env,
-        info.manifest.short_path.endswith(manifest_path),
-        "the manifest sits beside the tree's node_modules: " +
-        info.manifest.short_path,
-    )
-
     staged = _actions(env, "NpmStore")
     asserts.equals(env, 1, len(staged), "one NpmStore action")
     root = "/packages/shared/"
@@ -179,9 +155,9 @@ def _member_store_impl(ctx):
             "src/wire/package.json",
         ],
         copied,
-        "the tree holds the manifest as built, the member's .js and .d.ts at " +
-        "the paths the manifest names, and its data srcs at their " +
-        "package-relative paths, the member's own package.json excepted",
+        "the tree holds the member's .js and .d.ts at the paths the manifest " +
+        "names and its data srcs at their package-relative paths, the " +
+        "package.json among them as the compile staged it",
     )
     asserts.equals(env, ["zod"], info.links.keys(), "the importer's dependency")
     return analysistest.end(env)

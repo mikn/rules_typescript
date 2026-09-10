@@ -29,8 +29,11 @@ with it, a member link target brings the member's tree, and every first-party
 dep's npm files come along. tsgo walks up from the importing file for a bare
 specifier and nothing above a source in the exec root is an output, so tsaction
 runs it from a program root that mirrors the exec root with each importer's
-node_modules at the importer's directory, and every import resolves as it does
-over a pnpm install. Under --//ts:declarations=oxc the check is a validation
+node_modules at the importer's directory, and the outputs of every first-party
+dep at or above the target's package laid over that package's sources -- its
+package.json as built, its declarations -- so every import resolves as it does
+over a pnpm install, the package's own name through the nearest manifest
+included. Under --//ts:declarations=oxc the check is a validation
 action in the _validation output group: it runs during `bazel build` and does
 not block downstream compilation. The linter the root module's ts.lint() names
 runs over the same sources as a second validation action, TsLint. The emit
@@ -64,6 +67,7 @@ load(
 )
 load("//ts/private/actions:emit.bzl", "emit_action")
 load("//ts/private/actions:lint.bzl", "LintConfigInfo", "lint_action")
+load("//ts/private/actions:manifest.bzl", "manifest_action")
 load(
     "//ts/private/actions:tsconfig.bzl",
     "tsconfig_action",
@@ -204,6 +208,21 @@ def _types_twin(name):
 def _manifest_of(importer):
     return "/".join([p for p in [importer.label.package, "package.json"] if p])
 
+def _bin_dir(ctx, label):
+    return "/".join([
+        p
+        for p in [ctx.bin_dir.path, label.workspace_root, label.package]
+        if p
+    ])
+
+# A dep at or above this package shares its directory with the sources: the
+# program root lays the dep's outputs over them.
+def _encloses(dep, target):
+    if dep.workspace_root != target.workspace_root:
+        return False
+    return dep.package == "" or dep.package == target.package or \
+           target.package.startswith(dep.package + "/")
+
 def _importer_chain(ctx, packages):
     if not ctx.attr.node_modules:
         if packages:
@@ -311,6 +330,7 @@ def compile_program(ctx, es_modules = False, es_twins = False):
     npm_links = []
     direct_labels = []
     owner_sets = []
+    overlays = {}
 
     # A dep reached through the store is in the program there; a copy of its
     # files at their exec paths would duplicate every module.
@@ -336,6 +356,8 @@ def compile_program(ctx, es_modules = False, es_twins = False):
         dep_npm_file_sets.append(info.npm_files)
         direct_labels.append(label_text(dep.label))
         owner_sets.append(info.owners)
+        if _encloses(dep.label, ctx.label):
+            overlays[_bin_dir(ctx, dep.label)] = True
 
     # A direct package resolves along the chain nearest first, pnpm's walk-up;
     # the @types twin an importer links beside it is the package's to declare.
@@ -404,11 +426,7 @@ def compile_program(ctx, es_modules = False, es_twins = False):
         )
 
     # One output per src at its package-relative path.
-    out_base = "/".join([
-        p
-        for p in [ctx.bin_dir.path, ctx.label.workspace_root, pkg]
-        if p
-    ])
+    out_base = _bin_dir(ctx, ctx.label)
 
     emit_roots = {}
     emit_outputs = []
@@ -466,7 +484,10 @@ def compile_program(ctx, es_modules = False, es_twins = False):
     data_staged = []
     for src in data_srcs:
         staged = ctx.actions.declare_file(_package_relative_path(src, pkg))
-        ctx.actions.symlink(output = staged, target_file = src)
+        if src.basename == "package.json":
+            manifest_action(ctx, src, staged, tsx_extension)
+        else:
+            ctx.actions.symlink(output = staged, target_file = src)
         data_staged.append(staged)
 
     # JavaScript srcs whose declarations are all checked in leave tsgo nothing
@@ -572,6 +593,7 @@ def compile_program(ctx, es_modules = False, es_twins = False):
                 tsconfig = tsconfig,
                 chain = tsconfig_chain,
                 importers = importers,
+                overlays = sorted(overlays.keys()),
                 program_inputs = program_inputs,
                 dep_dts = dep_dts_depset,
                 npm_files = npm_files,
@@ -593,6 +615,7 @@ def compile_program(ctx, es_modules = False, es_twins = False):
                 tsconfig = tsconfig,
                 chain = tsconfig_chain,
                 importers = importers,
+                overlays = sorted(overlays.keys()),
                 program_inputs = program_inputs,
                 dep_dts = dep_dts_depset,
                 npm_files = npm_files,
@@ -621,6 +644,7 @@ def compile_program(ctx, es_modules = False, es_twins = False):
             tsgo = tsgo,
             tsconfig = tsconfig,
             importers = importers,
+            overlays = sorted(overlays.keys()),
             srcs = program_inputs,
             chain = tsconfig_chain,
             dep_dts = dep_dts_depset,
@@ -759,7 +783,10 @@ TS_COMPILE_ATTRS = {
 .json           staged, and a tsgo input: an import of it resolves to the file
                 and is typed from its contents under resolveJsonModule, which
                 bundler resolution implies, and the nearest package.json decides
-                a module's format and the package's own name.
+                a module's format and the package's own name. A package.json is
+                staged as built -- every source-file target rewritten to the
+                emitted file -- the manifest a dependent's program root, a
+                test's runfiles and a member's store tree read.
 anything else   staged into the output tree unchanged at its package-relative
                 path, so the compiled module beside it reaches it by the same
                 relative path at run time; never a tsgo input. A consumer gets
@@ -780,7 +807,9 @@ An npm dep reaches tsgo through the link of the nearest importer on the
 dep through its declarations, staged under bazel-bin at the paths the
 tsconfig's `paths` and their bin-dir twins reach, or through a relative
 import; a workspace member through its importer's link target,
-`//<importer>:node_modules/<name>`.""",
+`//<importer>:node_modules/<name>`; the package's own name, from a test or a
+package below it, through the manifest as built at the package's path, the dep
+being the package's ts_compile.""",
         providers = [TsInfo],
     ),
     "node_modules": attr.label(

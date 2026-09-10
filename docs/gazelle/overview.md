@@ -365,10 +365,12 @@ label:
   importer -- is the link target of the nearest importer at or above the
   package that links it, `//web:node_modules/@acme/ui`; where no importer
   above links it there is no label and one line names the member, since a
-  target resolves through its importers alone. From the member's own
-  `ts_compile` the file is its own and the edge is nothing. A `ts_test`
-  inside the member takes the link: the runtime resolves the name through
-  `node_modules`, and only the link puts the member there.
+  target resolves through its importers alone. The name of the nearest
+  `package.json` above the importing file, a subpath included, is a
+  self-reference, which tsc resolves through that manifest's `exports` to a
+  file of the member: a first-party file, resolved as any owned file is -- the
+  member's `ts_compile` from a `ts_test` or a package below it, nothing from
+  the member's own `ts_compile` -- and no line.
 - **A file another package owns**, reached by a relative path or a `paths`
   alias, is that package's `ts_compile`, or whichever rule holds the file in
   `srcs`: a hand-written one under `# keep` answers as a generated one does. A

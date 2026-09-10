@@ -31,21 +31,6 @@ load(
 
 _ENTRY_EXTENSIONS = ["js", "jsx", "mjs", "cjs"]
 
-# A test inside a member resolves the member's name through the nearest
-# package.json, so the manifest as built stands at the member's own path.
-def _member_manifests(ctx, members):
-    prefix = ctx.bin_dir.path + "/"
-    out = {}
-    for info in members:
-        member_dir = info.package_root.removeprefix(prefix)
-        out[member_dir + "/package.json"] = info.store.manifest
-    return out
-
-def _without(files, paths):
-    if not paths:
-        return files
-    return depset([f for f in files.to_list() if f.short_path not in paths])
-
 def _same_package(a, b):
     return a.package == b.package and a.repo_name == b.repo_name
 
@@ -106,7 +91,6 @@ def _ts_test_impl(ctx):
     # The workspace members in the closure: the packages with no extracted
     # manifest.
     members = [info for info in program.packages if info.package_dir == None]
-    member_manifests = _member_manifests(ctx, members)
     chain = _chain(ctx, program)
 
     launched = runner.launch(ctx, struct(
@@ -115,9 +99,7 @@ def _ts_test_impl(ctx):
         chain = chain,
         transitive_js = program.transitive_js,
         es_twins = program.es_twins,
-        runtime_data_sets = [
-            _without(program.transitive_data, member_manifests),
-        ],
+        runtime_data_sets = [program.transitive_data],
         package_sources = _package_sources(ctx),
         inline_members = sorted({m.package_name: True for m in members}.keys()),
         runner = runner,
@@ -153,7 +135,7 @@ def _ts_test_impl(ctx):
             transitive = [launched.transitive_files, chain.npm_files],
         ),
         root_symlinks = launcher.root_symlinks,
-        symlinks = dict(member_manifests) | launched.symlinks,
+        symlinks = launched.symlinks,
     )
     for target in ctx.attr.data:
         runfiles = runfiles.merge(target[DefaultInfo].default_runfiles)

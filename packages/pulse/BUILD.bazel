@@ -28,6 +28,7 @@ ts_compile(
     srcs = [
         "components/controls/button/index.ts",
         "entry.ts",
+        "package.json",
         "styles/tokens/color.ts",
     ],
     visibility = ["//visibility:public"],

@@ -67,7 +67,8 @@ declared_outputs_test(
     target_under_test = ":view",
 )
 
-# The store of member/: its manifest as built names view.jsx.
+# The store of member/: the .jsx at the path its manifest as built names;
+# //tests/npm:member_manifest_test reads that manifest.
 member_view_test(
     name = "member_view_test",
     target_under_test = "//tests/npm:node_modules/.pnpm/preserve-view@0.0.0/" +

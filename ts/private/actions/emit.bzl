@@ -17,6 +17,7 @@ def emit_action(
         tsconfig,
         chain,
         importers,
+        overlays,
         program_inputs,
         dep_dts,
         npm_files,
@@ -27,7 +28,8 @@ def emit_action(
         es_modules = False):
     """Registers one emit over `srcs`, which hang off `roots`.
 
-    `program_inputs`, `importers` and `npm_files` are the tsgo check's, since
+    `program_inputs`, `importers`, `overlays` and `npm_files` are the tsgo
+    check's, since
     the emit is tsgo's when the options file says so; under `es_modules` it
     is oxc's whatever the module and reads the srcs and the options alone.
     `emit_dts` adds the isolated-declarations emit of --//ts:declarations=oxc.
@@ -39,6 +41,7 @@ def emit_action(
     if not es_modules:
         args.add(tsconfig, format = "-tsconfig=%s")
         args.add_all(importers, format_each = "-node_modules=%s")
+        args.add_all(overlays, format_each = "-overlay=%s")
         args.add("-scratch=" + scratch)
     args.add("-out_dir=" + out_base)
     args.add(oxc.oxc_binary, format = "-oxc=%s")

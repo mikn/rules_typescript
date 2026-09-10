@@ -31,10 +31,11 @@ const usage = `usage:
       [-emit -out_dir=DIR -root_dir=DIR] [-declaration_map]
       [-isolated_declarations] [-lib_check] SRC...
   tsaction paths -tsconfig=FILE -package=PKG [-bin_dir=DIR] -out=FILE
-  tsaction tsgo -root=DIR -node_modules=DIR -check=FILE [-stamp=FILE]
-      -- TSGO [ARG...]
-  tsaction emit -options=FILE -tsconfig=FILE -node_modules=DIR -scratch=DIR
-      -out_dir=DIR -oxc=BIN -tsgo=BIN -root=DIR... [-source_map]
+  tsaction manifest [-tsx=.js|.jsx] SRC OUT
+  tsaction tsgo -root=DIR -node_modules=DIR [-overlay=DIR]... -check=FILE
+      [-stamp=FILE] -- TSGO [ARG...]
+  tsaction emit -options=FILE -tsconfig=FILE -node_modules=DIR [-overlay=DIR]...
+      -scratch=DIR -out_dir=DIR -oxc=BIN -tsgo=BIN -root=DIR... [-source_map]
       [-declarations] SRC...
   tsaction emit -options=FILE -out_dir=DIR -oxc=BIN -root=DIR... -es_modules
       [-source_map] [-declarations] SRC...`
@@ -58,6 +59,8 @@ func main() {
 		err = writeTsconfig(args)
 	case "paths":
 		err = writePaths(args)
+	case "manifest":
+		err = runManifest(args)
 	case "tsgo":
 		err = runTsgo(args)
 	case "emit":

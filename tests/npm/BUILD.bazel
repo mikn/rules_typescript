@@ -6,7 +6,6 @@ load("//tests/strict_deps:strict_deps_tests.bzl", "tsgo_check_test")
 load("//ts:defs.bzl", "ts_binary", "ts_codegen", "ts_compile", "ts_test")
 load(":forest_tests.bzl", "chain_test")
 load(":hub_provenance_tests.bzl", "store_provenance_test")
-load(":member_manifest_tests.bzl", "member_manifest_test_suite")
 load(":node_modules_tests.bzl", "member_link_test", "node_modules_test")
 load(":parser_tests.bzl", "parser_test_suite")
 load(":store_tests.bzl", "peer_variant_stores", "store_test_suite")
@@ -141,8 +140,32 @@ parser_test_suite(name = "parser_tests")
 
 workspace_link_test_suite(name = "workspace_link_tests")
 
-# Manifest-text tests: a workspace member's package.json as the view carries it.
-member_manifest_test_suite(name = "member_manifest_tests")
+# A package.json src is staged as built: the fixture members' name their
+# emitted files, the .jsx under the tsconfig that declares jsx: preserve.
+go_test(
+    name = "member_manifest_test",
+    size = "small",
+    srcs = ["member_manifest_test.go"],
+    data = [
+        "//packages/shared",
+        "//tests/jsx_preserve/member",
+    ],
+    deps = ["//tests/verify"],
+)
+
+# The member's own test names the member: the program root lays :shared's
+# outputs over packages/shared, its manifest as built among the inputs.
+chain_test(
+    name = "shared_test_chain_test",
+    size = "small",
+    chain = [
+        "packages/shared/node_modules",
+        "tests/npm/node_modules",
+    ],
+    linked = ["packages/shared/package.json"],
+    overlays = ["packages/shared"],
+    target_under_test = "//packages/shared:shared_test",
+)
 
 ts_compile(
     name = "app",

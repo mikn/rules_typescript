@@ -113,7 +113,7 @@ func resolveEdges(c *config.Config, ix *resolve.RuleIndex, r *rule.Rule,
 	}
 	reported := map[string]bool{}
 	for _, e := range edges {
-		if dep := edgeDep(c, ix, tc, r.Kind(), e, from, reported); dep != "" {
+		if dep := edgeDep(c, ix, tc, e, from, reported); dep != "" {
 			deps[dep] = true
 		}
 	}
@@ -156,7 +156,7 @@ func configSrcLabels(files []string, cfg string, from label.Label) []string {
 	return out
 }
 
-func edgeDep(c *config.Config, ix *resolve.RuleIndex, tc *tsConfig, kind string,
+func edgeDep(c *config.Config, ix *resolve.RuleIndex, tc *tsConfig,
 	e explainfiles.Edge, from label.Label, reported map[string]bool) string {
 	s := tc.programs
 	if !firstParty(e.To) {
@@ -171,7 +171,7 @@ func edgeDep(c *config.Config, ix *resolve.RuleIndex, tc *tsConfig, kind string,
 			}
 			return ""
 		}
-		return tc.lock.edgeLabel(e, from.Pkg, kind)
+		return tc.lock.edgeLabel(e, from.Pkg)
 	}
 	spec := resolve.ImportSpec{Lang: languageName, Imp: e.To}
 	if lbl, ok := resolve.FindRuleWithOverride(c, spec, languageName); ok {
@@ -184,7 +184,7 @@ func edgeDep(c *config.Config, ix *resolve.RuleIndex, tc *tsConfig, kind string,
 		return lbl
 	}
 	if tc.lock != nil {
-		if lbl, ok := tc.lock.memberView(e.Specifier, from.Pkg, kind); ok {
+		if lbl, ok := tc.lock.memberView(e.Specifier, e.From, from.Pkg); ok {
 			return lbl
 		}
 	}

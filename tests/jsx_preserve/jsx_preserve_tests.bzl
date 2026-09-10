@@ -38,22 +38,6 @@ declared_outputs_test = analysistest.make(_declared_outputs_impl)
 
 def _member_view_impl(ctx):
     env = analysistest.begin(ctx)
-    written = [
-        a
-        for a in analysistest.target_actions(env)
-        if len(a.outputs.to_list()) == 1 and
-           a.outputs.to_list()[0].basename == "package.json"
-    ]
-    asserts.equals(env, 1, len(written), "the store writes one package.json")
-    if len(written) == 1:
-        manifest = json.decode(written[0].content)
-        asserts.equals(
-            env,
-            "./view.jsx",
-            manifest.get("exports"),
-            "the exports target names the emitted .jsx",
-        )
-
     staged = [
         a
         for a in analysistest.target_actions(env)

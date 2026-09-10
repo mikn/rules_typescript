@@ -26,6 +26,7 @@ type pnpmImporter struct {
 // What pnpm-lock.yaml says the hub declares: every name it mentions, the
 // importers by directory ("" is the root) and each member's directory.
 type npmLock struct {
+	repoRoot  string
 	names     map[string]bool
 	importers map[string]*pnpmImporter
 	members   map[string]string
@@ -43,6 +44,7 @@ func loadNpmLock(repoRoot string) (*npmLock, error) {
 // manifest name of every importer but the root that no link names.
 func parseNpmLock(repoRoot string, lines []string) *npmLock {
 	l := &npmLock{
+		repoRoot:  repoRoot,
 		names:     parsePnpmLockNames(lines),
 		importers: parsePnpmImporters(lines),
 		members:   map[string]string{},
@@ -132,19 +134,19 @@ func (l *npmLock) label(name, dir string) string {
 	return "@npm//:" + npmPackageToLabelName(name)
 }
 
-// memberView is the member a bare specifier names, from every package but the
-// member's own ts_compile, where it is nothing; memberLabel spells it.
-func (l *npmLock) memberView(spec, pkg, kind string) (string, bool) {
+// memberView is the member a bare specifier from file names, spelled by
+// memberLabel; the nearest manifest's own name is a self-reference, no view.
+func (l *npmLock) memberView(spec, file, pkg string) (string, bool) {
 	if !isBareSpecifier(spec) {
 		return "", false
 	}
 	name := barePackageName(spec)
-	dir, ok := l.members[name]
-	if !ok {
+	if _, ok := l.members[name]; !ok {
 		return "", false
 	}
-	if kind == "ts_compile" && dir == pkg {
-		return "", true
+	m := nearestManifest(l.repoRoot, parentDir(file))
+	if m != nil && m.name == name {
+		return "", false
 	}
 	return l.memberLabel(name, pkg), true
 }
@@ -164,8 +166,8 @@ func (l *npmLock) memberLabel(name, pkg string) string {
 
 // edgeLabel is the one label an edge from a file of pkg into node_modules
 // takes: the specifier's package when it names one, else the listed file's.
-func (l *npmLock) edgeLabel(e explainfiles.Edge, pkg, kind string) string {
-	if lbl, ok := l.memberView(e.Specifier, pkg, kind); ok {
+func (l *npmLock) edgeLabel(e explainfiles.Edge, pkg string) string {
+	if lbl, ok := l.memberView(e.Specifier, e.From, pkg); ok {
 		return lbl
 	}
 	name := npmPackageName(e.To)
