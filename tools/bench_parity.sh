@@ -267,10 +267,7 @@ web_tests_script() {
   step . "test.yml:1105 --changed" \
     "pnpm --filter=web run test:run --changed"
 }
-leaf_script() {
-  step . "tsc -p $LEAF" "node_modules/.bin/tsc -p $LEAF --noEmit"
-  step "$LEAF" "cf-workers-test.yml:40" "$CF_TEST"
-}
+leaf_script() { step "$LEAF" "cf-workers-test.yml:40" "$CF_TEST"; }
 clear_vitest_caches() {
   local d n=0
   for d in "$CHECKOUT"/node_modules/.vite/vitest \
