@@ -140,17 +140,28 @@ func TestEmitStep_CommonJSGoesToTsgo(t *testing.T) {
 	}
 }
 
-// node16 and nodenext decide the format per file from the nearest package.json,
-// which only tsgo reads.
-func TestEmitsWithOxc(t *testing.T) {
-	for module, want := range map[string]bool{
-		"preserve": true, "esnext": true, "es2022": true, "es2015": true,
-		"commonjs": false, "node16": false, "node18": false, "nodenext": false,
-		"": false,
-	} {
-		if got := emitsWithOxc(module); got != want {
-			t.Errorf("emitsWithOxc(%q) = %v, want %v", module, got, want)
-		}
+// -es_modules is oxc's transform whatever the module, with oxc's inputs alone:
+// the vitest runner's program, and the ES twins of one tsgo emits.
+func TestEmitStep_ESModulesFlagIsOxcWhateverTheModule(t *testing.T) {
+	e := newEmitRoot(t, "commonjs")
+	err := runEmit([]string{
+		"-options=" + binDir + "/pkg/pkg.options.json",
+		"-out_dir=" + binDir + "/pkg/pkg.es", "-oxc=" + e.oxc, "-root=pkg",
+		"-es_modules", "pkg/src/a.ts", "pkg/src/view.tsx",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"--files", "pkg/src/a.ts", "pkg/src/view.tsx",
+		"--out-dir", binDir + "/pkg/pkg.es", "--strip-dir-prefix", "pkg",
+		"--target", "es2017", "--jsx", "preserve",
+	}
+	if got := recordedArgs(t, e.oxcArgv); !reflect.DeepEqual(got, want) {
+		t.Errorf("oxc ran with %q, want %q", got, want)
+	}
+	if _, err := os.Stat(e.tsgoArgv); err == nil {
+		t.Error("tsgo ran under -es_modules")
 	}
 }
 

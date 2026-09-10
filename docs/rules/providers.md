@@ -45,6 +45,7 @@ reads the transitive field.
 | `transitive_js_maps` | `depset of File` | Their `.js.map` |
 | `transitive_declarations` | `depset of File` | Every declaration from this target and its first-party deps. An npm package's declarations reach a consumer through the node_modules forest its tsgo action stages, not through this depset |
 | `transitive_data` | `depset of File` | The data files of this target and its first-party deps: what a compiled module reaches beside itself at run time or in a bundle |
+| `transitive_es_twins` | `depset of (File, File)` | For a program tsgo emits, each `.js` of this target and its first-party deps paired with the ES module oxc emits from the same source; the vitest runner stages the second at the first's runfiles path ([The Module Format](ts-compile.md#the-module-format)) |
 | `npm_packages` | `depset of NpmPackageInfo` | The npm packages a consumer links into its forest and runtime tree for this target's deps. A dep's emitted `.d.ts` imports the packages the dep declared and resolves them in the consumer's program by walking that forest. A package itself arrives through its `NpmPackageInfo` |
 | `owners` | `depset of struct(label, files)` | One record per first-party target in the closure, this one first: `label`, the string a `deps` list writes for it, and `files`, the declarations and data it stages. The tsgo action reads the closure's records to name the target a listed file belongs to ([Deps have to be direct](ts-compile.md#deps-have-to-be-direct)) |
 
@@ -74,6 +75,7 @@ names it in its own tsconfig `types` to bring its globals into scope. See
 |---|---|---|
 | `packages` | `list of string` | The npm packages the runner needs in the test's `node_modules` tree, `vitest` for the vitest runner; `ts_test` fails at analysis naming the one no dep provides |
 | `hook` | `File` | The one module the runner loads into node before the tests: the node:test runner's resolver, the vitest runner's reads recorder |
+| `es_modules` | `bool` | `True` when the runner runs the program as ES modules whatever its tsconfig's `module` -- vitest -- so `ts_test` emits its srcs as such and stages a dep's ES twins; `False` for node:test, which runs the package's format ([Runners](ts-test.md#runners)) |
 | `launch` | `function` | The runner's half of one test's analysis: given the test's `ctx` and the struct `ts_test` builds from the compile, it returns the launcher config's mode and section, the env, and the runfiles the runner adds |
 
 A runner is a target, the way a toolchain is: `//ts/runners:vitest` and

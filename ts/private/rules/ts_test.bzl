@@ -57,8 +57,8 @@ def _package_sources(ctx):
     ]
 
 def _ts_test_impl(ctx):
-    program = compile_program(ctx)
     runner = ctx.attr.runner[TsTestRunnerInfo]
+    program = compile_program(ctx, es_modules = runner.es_modules)
 
     linked = {info.package_name: True for info in program.packages}
     missing = [name for name in runner.packages if name not in linked]
@@ -103,6 +103,7 @@ def _ts_test_impl(ctx):
         test_files_list = test_files_list,
         node_modules_files = node_modules_files,
         transitive_js = program.transitive_js,
+        es_twins = program.es_twins,
         runtime_data_sets = [
             _without(program.transitive_data, member_manifests),
         ],

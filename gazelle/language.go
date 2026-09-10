@@ -97,8 +97,8 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 				"coverage_provider": true,
 			},
 		},
-		// ts_config makes a package's tsconfig.json a label. deps and jsx are
-		// read out of the file, so both are Gazelle's; a hand value needs # keep.
+		// ts_config makes a package's tsconfig.json a label. deps, jsx and module
+		// are read out of the file, so all three are Gazelle's (# keep otherwise).
 		"ts_config": {
 			NonEmptyAttrs: map[string]bool{
 				"src": true,
@@ -107,6 +107,7 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 				"src":        true,
 				"deps":       true,
 				"jsx":        true,
+				"module":     true,
 				"visibility": true,
 			},
 		},

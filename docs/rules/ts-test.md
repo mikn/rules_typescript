@@ -17,10 +17,11 @@ ts_test(
 ```
 
 `srcs`, `deps` and `tsconfig` are `ts_compile`'s. The same actions compile the
-test files, and the `node_modules` forest tsgo checked them against -- every
-dep providing `NpmPackageInfo`, their transitive npm deps and the npm closure
-of every `ts_compile` dep -- is the tree the tests run in. `runner` names the
-target that runs the compiled files.
+test files -- the emit as ES modules under the vitest runner
+([Runners](#runners)) -- and the `node_modules` forest tsgo checked them
+against -- every dep providing `NpmPackageInfo`, their transitive npm deps and
+the npm closure of every `ts_compile` dep -- is the tree the tests run in.
+`runner` names the target that runs the compiled files.
 
 ## Attributes
 
@@ -75,8 +76,10 @@ module are the package's paths, as under plain `vitest`, and a bare import
 walks up to the `node_modules` link at the runfiles root.
 `//tests/vitest/cwd_and_dirname` is the example.
 
-The compiled program is what runs. A `setupFiles` entry naming a source runs
-the compiled sibling staged beside it ([Setup Files](#setup-files)), and a
+The compiled program is what runs -- under vitest as ES modules, whatever the
+tsconfig's `module` ([Runners](#runners)). A `setupFiles` entry naming a
+source runs the compiled sibling staged beside it ([Setup Files](#setup-files)),
+and a
 `.ts` specifier the emit keeps -- relative, or a subpath into a workspace
 member -- resolves to the compiled file ([`.ts` Specifiers](#ts-specifiers);
 under node:test, the runner's hook:
@@ -158,6 +161,18 @@ Add the hub label of each to deps.
 of an ambient module -- `node:test` resolves to no file -- so nothing Gazelle
 reads says which runner a test file was written for; Gazelle never writes
 `runner`, and a hand-written value survives every run without `# keep`.
+
+The two runners run different module formats, and a runner says which with
+`TsTestRunnerInfo.es_modules`. vitest imports every file through vite's ESM
+transform, so the program a vitest test runs is ES modules whatever its
+tsconfig's `module`: the test's own srcs are emitted as such, and a
+`ts_compile` dep whose program tsgo emits -- `module: "commonjs"`, or
+`"nodenext"` in a package with no `type` -- is staged as the ES twins it
+emits beside its `.js`
+([The Module Format](ts-compile.md#the-module-format)). node:test has no
+transform, so it runs the package's format as tsc emits it
+([The node:test Runner](#the-nodetest-runner)). `//tests/vitest/commonjs` and
+`//tests/node_test/cjs` pin the two over one `module: commonjs` shape.
 
 ## The vitest Runner
 

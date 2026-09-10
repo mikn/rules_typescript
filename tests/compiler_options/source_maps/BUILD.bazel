@@ -6,7 +6,7 @@ one shape a .js.map has from either emitter."""
 
 load("@rules_go//go:def.bzl", "go_test")
 load("//tests:flags.bzl", "ts_under_flags")
-load("//ts:defs.bzl", "ts_compile")
+load("//ts:defs.bzl", "ts_compile", "ts_config")
 
 package(default_visibility = ["//:__pkg__"])
 
@@ -21,10 +21,16 @@ ts_compile(
 )
 
 # tsgo's emit, moved from TsEmit's scratch outDir; oxc writes mapped.js.map.
+ts_config(
+    name = "commonjs_tsconfig",
+    src = "tsconfig.commonjs.json",
+    module = "commonjs",
+)
+
 ts_compile(
     name = "commonjs",
     srcs = ["commonjs.ts"],
-    tsconfig = "tsconfig.commonjs.json",
+    tsconfig = ":commonjs_tsconfig",
 )
 
 # --//ts:declaration_map is what makes go-to-definition from a consumer's editor

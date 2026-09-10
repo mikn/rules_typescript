@@ -129,8 +129,11 @@ For each source file `foo.ts`:
 | `foo.d.ts` | Declaration file, the compilation boundary |
 
 For a `foo.tsx` under `jsx: "preserve"` the first two are `foo.jsx` and
-`foo.jsx.map`, as tsc names them ([below](#a-tsx-under-jsx-preserve)). Every
-other src is staged at its package-relative path, unchanged.
+`foo.jsx.map`, as tsc names them ([below](#a-tsx-under-jsx-preserve)). A
+program tsgo emits has one more, `<name>.es/foo.js`: the ES module a vitest
+test runs in place of `foo.js` ([The Module Format](#the-module-format)),
+in no default output. Every other src is staged at its package-relative path,
+unchanged.
 
 ## Where Compiler Options Come From
 
@@ -264,6 +267,45 @@ The format is the tsconfig's, not the manifest's alone: a package whose
 ES modules, which node runs as such. A package that runs as CommonJS says so
 where tsc reads it, `module: "commonjs"` or `"nodenext"`.
 
+A vitest test runs ES modules whatever the program's `module`
+([Runners](ts-test.md#runners)): vitest imports every file through vite's
+transform, and the checkout never runs tsc's output under it, so `module`
+describes the package's published output and not its tests -- and vitest
+refuses a CommonJS importer outright (`Vitest cannot be imported in a CommonJS
+module using require()`). A `ts_test` under the vitest runner therefore emits
+its own srcs as ES modules (`TsEmit -es_modules`: oxc's transform with the
+chain's `target` and `jsx`, reading the srcs and the options alone), and a
+`ts_compile` whose program tsgo emits also emits the ES twin of each `.js`:
+`foo.js` and `<name>.es/foo.js`, oxc's transform of the same source in a
+second `TsEmit`. A vitest test that depends on it stages the twin at the
+`.js`'s runfiles path, so `import "./foo"` and a `setupFiles` entry reach the
+ES module; every other consumer -- node:test, `ts_binary`, a member's hub view
+-- runs the `.js`. The twins travel in `TsInfo.transitive_es_twins`
+([providers](providers.md#tsinfo)), a runner asks for them with
+`TsTestRunnerInfo.es_modules`, and they are in no default output. The
+alternative, a configuration transition on a vitest test's deps, would build
+every program a vitest test reaches a second time; a twin is one oxc run over
+a program tsgo emits, and nothing else changes.
+
+The rule names its outputs before any action reads the tsconfig, so, as with
+`jsx`, the `module` that names the twins is declared on the tsconfig's
+[`ts_config`](#ts_config): `module = "commonjs"`, `"node16"`, `"node18"` or
+`"nodenext"`, lowercased as tsgo prints it, and unset for an ES kind or
+`preserve`. Gazelle writes it from the `extends` chain, and the `TsConfig`
+action fails a target with a `.ts` src when the declaration and the chain's
+effective `module` disagree:
+
+```
+tsaction: pkg/tsconfig.json: module is "commonjs", so tsgo emits the
+JavaScript and a vitest test runs its ES twins, and the rule declared none:
+declare it on the tsconfig's ts_config, module = "commonjs"
+```
+
+A tsconfig passed as a plain file declares nothing, so a CommonJS-shaped one
+fails the same way without a `ts_config`. `//tests/vitest/commonjs` is the
+example: a `module: commonjs` package with no `type`, whose setup file imports
+vitest from the `ts_compile` the test depends on.
+
 ### What Fails Before tsgo Runs
 
 Analysis rejects a `.jsx` src, a directory in `srcs` (a `ts_codegen` `out_dir`
@@ -272,9 +314,10 @@ tree belongs in `deps`), a `.mts` or `.cts` src,
 sources and no tsgo toolchain. One more is the root check below. `tsaction`
 fails the `TsConfig` action on a path-shaped `types` entry no input sits at
 ([a `types` entry that names a declaration file](#a-types-entry-that-names-a-declaration-file)),
-naming the entry, the tsconfig and the path it looked for, and on a `jsx`
-declaration the chain's effective `jsx` contradicts
-([above](#a-tsx-under-jsx-preserve)), naming the edit.
+naming the entry, the tsconfig and the path it looked for, and on a `jsx` or
+`module` declaration the chain's effective value contradicts
+([above](#a-tsx-under-jsx-preserve); [The Module Format](#the-module-format)),
+naming the edit.
 
 ### One Root per Declaration Emit
 
@@ -469,9 +512,11 @@ alias to it as the compile did
 
 Starlark cannot read a file, so a `ts_config` declares what a rule needs from
 the tsconfig before any action runs: the `extends` chain, every file of which
-becomes an input to the type-check action, and `jsx = "preserve"` when that is
-the chain's effective `jsx`, the one compiler option that names an output
-([above](#a-tsx-under-jsx-preserve)):
+becomes an input to the type-check action, and the two compiler options that
+name an output -- `jsx = "preserve"` when that is the chain's effective `jsx`
+([above](#a-tsx-under-jsx-preserve)), and `module` when the chain's is one
+tsgo emits, which names the ES twins a vitest test runs
+([The Module Format](#the-module-format)):
 
 ```python
 load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_config")
@@ -490,10 +535,10 @@ ts_compile(
 )
 ```
 
-Gazelle writes both from the chain
+Gazelle writes all three from the chain
 ([the tsconfig and its ts_config](../gazelle/overview.md#the-tsconfig-and-its-ts_config)).
-A tsconfig that extends nothing and does not set `preserve` goes straight into
-`ts_compile`:
+A tsconfig that extends nothing, does not set `preserve` and whose `module` is
+an ES kind goes straight into `ts_compile`:
 
 ```python
 ts_compile(

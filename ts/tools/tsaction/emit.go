@@ -1,5 +1,5 @@
 // The emit step writes the program's JavaScript: oxc's transform when the
-// chain's module is ESM-shaped, tsgo's emit from the program root otherwise.
+// chain's module is ESM-shaped or -es_modules says so, tsgo's emit otherwise.
 
 package main
 
@@ -13,13 +13,15 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/mikn/rules_typescript/ts/tools/tsconfig"
 )
 
 type emitConfig struct {
 	options, tsconfig, forest, scratch, outDir string
 	oxc, tsgo                                  string
 	roots                                      stringList
-	sourceMap, declarations                    bool
+	sourceMap, declarations, esModules         bool
 	srcs                                       []string
 }
 
@@ -44,15 +46,22 @@ func runEmit(args []string) error {
 		"emit a .js.map beside every .js")
 	flags.BoolVar(&e.declarations, "declarations", false,
 		"emit a .d.ts beside every .js, with isolated declarations")
+	flags.BoolVar(&e.esModules, "es_modules", false,
+		"emit ES modules whatever the options' module: oxc's transform")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	e.srcs = flags.Args()
-	for _, required := range []struct{ name, value string }{
-		{"-options", e.options}, {"-tsconfig", e.tsconfig},
-		{"-node_modules", e.forest}, {"-scratch", e.scratch},
-		{"-out_dir", e.outDir}, {"-oxc", e.oxc}, {"-tsgo", e.tsgo},
-	} {
+	required := []struct{ name, value string }{
+		{"-options", e.options}, {"-out_dir", e.outDir}, {"-oxc", e.oxc},
+	}
+	if !e.esModules {
+		required = append(required, []struct{ name, value string }{
+			{"-tsconfig", e.tsconfig}, {"-node_modules", e.forest},
+			{"-scratch", e.scratch}, {"-tsgo", e.tsgo},
+		}...)
+	}
+	for _, required := range required {
 		if required.value == "" {
 			return fmt.Errorf("emit needs %s", required.name)
 		}
@@ -69,7 +78,7 @@ func runEmit(args []string) error {
 	if err != nil {
 		return err
 	}
-	if emitsWithOxc(o.Module) {
+	if e.esModules || tsconfig.OxcEmits(o.Module) {
 		return e.oxcEmit(groups, o)
 	}
 	return e.tsgoEmit(groups, o)
@@ -85,13 +94,6 @@ func readOptions(name string) (oxcOptions, error) {
 		return oxcOptions{}, fmt.Errorf("%s: %w", name, err)
 	}
 	return o, nil
-}
-
-// oxc keeps the module syntax it reads: every ES kind and preserve. tsgo emits
-// commonjs and the node kinds, whose format is the nearest package.json's.
-func emitsWithOxc(module string) bool {
-	m := strings.ToLower(module)
-	return m == "preserve" || strings.HasPrefix(m, "es")
 }
 
 // groupByRoot files each src under the longest root that contains it.

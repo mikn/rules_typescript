@@ -207,7 +207,8 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 
 Every `ts_compile` target provides: `TsInfo` + `InstrumentedFilesInfo` +
 `OutputGroupInfo(_validation)`; a `ts_test` runs the same actions over its
-srcs and provides the last two. `_validation` holds the tsgo check stamp under
+srcs -- the emit as ES modules under the vitest runner -- and provides the
+last two. `_validation` holds the tsgo check stamp under
 `--//ts:declarations=oxc` (under the default the declarations are the proof)
 and the `TsLint` stamp when the root module's `ts.lint()` names a linter.
 Every `ts_npm_package` provides: `TsInfo`, naming its closure in

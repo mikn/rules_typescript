@@ -3,8 +3,10 @@
 ts_compile transforms .ts/.tsx source files into .js + .js.map + .d.ts outputs
 in one TsEmit action: oxc's transform for an ES-module program, tsgo's emit
 for a CommonJS-shaped one (docs/rules/ts-compile.md § The Module Format). A
-.tsx under jsx: preserve emits .jsx, the name tsc gives it, with its JSX left
-for the bundler.
+program tsgo emits, declared by its ts_config's `module`, gets a second TsEmit:
+the ES twin of each .js under <name>.es/, which a vitest test runs in place of
+the .js. A .tsx under jsx: preserve emits .jsx, the name tsc gives it, with its
+JSX left for the bundler.
 
 JavaScript sources (.js/.mjs/.cjs) are accepted too. They need no transform, so
 they are materialised in the output tree unchanged and joined into the type
@@ -187,12 +189,15 @@ def _classify_srcs(ctx):
             data_srcs.append(f)
     return compile_srcs, js_srcs, passthrough_dts, data_srcs
 
-def compile_program(ctx):
+def compile_program(ctx, es_modules = False, es_twins = False):
     """Registers the actions over ctx's srcs, deps and tsconfig.
 
     The body of ts_compile and of ts_test: one attrs dict, one set of action
-    functions. Returns struct(outputs, js, forest, packages, transitive_js,
-    transitive_data, info, instrumented, output_groups).
+    functions. `es_modules` emits the program as ES modules whatever its
+    tsconfig's module, the vitest runner's program; `es_twins` adds, to a
+    program tsgo emits, the ES twin of each .js for the vitest tests that
+    depend on it. Returns struct(outputs, js, forest, packages, transitive_js,
+    transitive_data, es_twins, info, instrumented, output_groups).
     """
     oxc = get_oxc_toolchain(ctx)
     pkg = ctx.label.package
@@ -204,6 +209,7 @@ def compile_program(ctx):
     transitive_js_sets = []
     transitive_js_map_sets = []
     transitive_data_sets = []
+    transitive_es_twins_sets = []
 
     direct_npm_infos = []
     direct_npm_names = {}
@@ -224,6 +230,7 @@ def compile_program(ctx):
         transitive_js_sets.append(info.transitive_js)
         transitive_js_map_sets.append(info.transitive_js_maps)
         transitive_data_sets.append(info.transitive_data)
+        transitive_es_twins_sets.append(info.transitive_es_twins)
         direct_labels.append(label_text(dep.label))
         owner_sets.append(info.owners)
 
@@ -252,12 +259,14 @@ def compile_program(ctx):
     baseline_file = write_baseline_tsconfig(ctx)
     tsconfig_chain = [baseline_file]
     declared_jsx = ""
+    declared_module = ""
     if ctx.file.tsconfig:
         tsconfig_chain.append(ctx.file.tsconfig)
         if TsConfigInfo in ctx.attr.tsconfig:
             config_info = ctx.attr.tsconfig[TsConfigInfo]
             tsconfig_chain += config_info.deps_tsconfigs.to_list()
             declared_jsx = config_info.jsx
+            declared_module = config_info.module
     tsx_extension = ".jsx" if declared_jsx == "preserve" else ".js"
 
     oxc_emits_dts = ctx.attr._declarations[BuildSettingInfo].value == "oxc"
@@ -286,6 +295,8 @@ def compile_program(ctx):
     js_map_outputs = []
     dts_outputs = []
     dts_map_outputs = []
+    twin_pairs = []
+    twins_dir = "{}.es".format(ctx.label.name)
 
     for src in compile_srcs:
         stem = _package_relative_stem(src, pkg)
@@ -295,6 +306,10 @@ def compile_program(ctx):
         js_out = ctx.actions.declare_file(stem + js_extension)
         js_outputs.append(js_out)
         emit_outputs.append(js_out)
+        if es_twins and declared_module:
+            twin_pairs.append((js_out, ctx.actions.declare_file(
+                "{}/{}".format(twins_dir, stem + js_extension),
+            )))
         if source_map:
             js_map_out = ctx.actions.declare_file(stem + js_extension + ".map")
             js_map_outputs.append(js_map_out)
@@ -407,6 +422,7 @@ def compile_program(ctx):
             baseline_file = baseline_file,
             dep_dts = dep_dts_depset,
             declared_jsx = declared_jsx,
+            declared_module = declared_module,
             types_deps = sorted([
                 name[len("@types/"):]
                 for name in direct_npm_names
@@ -443,6 +459,27 @@ def compile_program(ctx):
                 scratch = "{}/{}.emit".format(tsconfig.dirname, ctx.label.name),
                 source_map = source_map,
                 emit_dts = oxc_emits_dts,
+                es_modules = es_modules,
+            )
+        if twin_pairs:
+            emit_action(
+                ctx,
+                oxc = oxc,
+                tsgo = tsgo,
+                srcs = compile_srcs,
+                roots = sorted(emit_roots.keys()),
+                outputs = [twin for _, twin in twin_pairs],
+                out_base = "{}/{}".format(out_base, twins_dir),
+                tsconfig = tsconfig,
+                chain = tsconfig_chain,
+                forest = forest,
+                program_inputs = program_inputs,
+                dep_dts = dep_dts_depset,
+                options_file = options_file,
+                scratch = "{}/{}.emit".format(tsconfig.dirname, twins_dir),
+                source_map = False,
+                emit_dts = False,
+                es_modules = True,
             )
         declaration_outputs = (
             dts_outputs + dts_map_outputs if tsgo_emits_dts else []
@@ -501,6 +538,10 @@ def compile_program(ctx):
         transitive = transitive_data_sets,
         order = "postorder",
     )
+    transitive_es_twins = depset(
+        twin_pairs,
+        transitive = transitive_es_twins_sets,
+    )
 
     info = TsInfo(
         js = direct_js,
@@ -512,6 +553,7 @@ def compile_program(ctx):
         transitive_js_maps = transitive_js_map,
         transitive_declarations = transitive_dts,
         transitive_data = transitive_data,
+        transitive_es_twins = transitive_es_twins,
         npm_packages = depset(
             direct_npm_infos,
             transitive = dep_npm_package_sets,
@@ -536,6 +578,7 @@ def compile_program(ctx):
         packages = packages,
         transitive_js = transitive_js,
         transitive_data = transitive_data,
+        es_twins = transitive_es_twins,
         info = info,
         # The runner reports on the compiled .js; a baseline naming the .ts
         # would be a second name for the same code, with no lines at all.
@@ -550,7 +593,7 @@ def compile_program(ctx):
     )
 
 def _ts_compile_impl(ctx):
-    program = compile_program(ctx)
+    program = compile_program(ctx, es_twins = True)
 
     # This target's own outputs; a dep's reach a consumer through TsInfo.
     providers = [
@@ -568,9 +611,12 @@ TS_COMPILE_ATTRS = {
 
 .ts / .tsx      compiled; one .js (+ .js.map, + .d.ts) output each, from oxc
                 for an ES-module program and from tsgo for a CommonJS-shaped
-                one, as the tsconfig's `module` says. A .tsx under jsx:
-                preserve emits .jsx (+ .jsx.map), the name tsc gives it, when
-                the tsconfig's ts_config declares that value.
+                one, as the tsconfig's `module` says. A program tsgo emits,
+                declared by its ts_config's `module`, also gets the ES twin
+                of each .js under <name>.es/, which a vitest test runs in
+                place of the .js. A .tsx under jsx: preserve emits .jsx
+                (+ .jsx.map), the name tsc gives it, when the tsconfig's
+                ts_config declares that value.
 .js / .mjs/.cjs staged into the output tree unchanged and added to the type
                 program. allowJs is set for them, so JSDoc types cross the
                 package boundary; set checkJs in the tsconfig to have them
@@ -617,11 +663,12 @@ import; a workspace member through the hub's view of it, `@npm//:<name>`.""",
 comes from.
 
 Either a .json file or a ts_config target, which additionally declares the
-files the tsconfig `extends` and, with `jsx = "preserve"`, that a .tsx emits
-.jsx; the rule names its outputs before any action reads the file, and the
-TsConfig action fails a target with a .tsx src when the declaration and the
-file disagree. The file is referenced where it lives, not copied, so relative
-paths inside it keep resolving against the directory they were written for.
+files the tsconfig `extends`, with `jsx = "preserve"` that a .tsx emits .jsx,
+and with `module` the kind tsgo emits, so the ES twins exist; the rule names
+its outputs before any action reads the file, and the TsConfig action fails a
+target when a declaration and the file disagree. The file is referenced where
+it lives, not copied, so relative paths inside it keep resolving against the
+directory they were written for.
 
 The action's tsconfig extends the ruleset's baseline (strict, module Preserve,
 target es2022, jsx react-jsx, skipLibCheck, esModuleInterop) and then this

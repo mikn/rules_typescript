@@ -239,15 +239,20 @@ from the tsconfig ([where compiler options come
 from](../rules/ts-compile.md#where-compiler-options-come-from)), so no
 attribute restates one to the compiler. The `ts_config` beside the file is what
 makes it a label, and it declares what the rule needs from the file before any
-action reads it: `deps`, the `extends` chain, and `jsx = "preserve"` when that
-is the chain's effective `jsx`, the one value that names an output
-([a `.tsx` under `jsx: preserve`](../rules/ts-compile.md#a-tsx-under-jsx-preserve)).
-Both are Gazelle's to recompute on every run.
+action reads it: `deps`, the `extends` chain, and the two values that name an
+output -- `jsx = "preserve"` when that is the chain's effective `jsx`
+([`jsx: preserve`](../rules/ts-compile.md#a-tsx-under-jsx-preserve)) and
+`module` when the chain's is one tsgo emits
+([The Module Format](../rules/ts-compile.md#the-module-format)). All three
+are Gazelle's to recompute on every run.
 
 `ts_config.jsx` is written as `"preserve"` when the chain's effective `jsx` is
 `preserve`, read leaf-wins as tsc reads it and inherited through `extends`, and
 removed otherwise; no other value is written, since no other value names an
-output.
+output. `ts_config.module` is written the same way when the chain's effective
+`module` is one tsgo emits -- `commonjs`, `node16`, `node18`, `nodenext`,
+lowercased as tsgo prints it -- and removed for an ES kind or `preserve`,
+which oxc emits with no twin to name.
 
 `ts_config.deps` is the `extends` chain. Gazelle reads the package's
 `tsconfig.json` and writes a dep on the `ts_config` of every `tsconfig.json`

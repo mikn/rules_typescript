@@ -2,7 +2,8 @@
 
 A runner is a target providing TsTestRunnerInfo, the way a toolchain is:
 ts_test compiles the tests and builds the forest, and the runner's `launch`
-turns them into the launcher config and the runfiles of one test.
+turns them into the launcher config and the runfiles of one test. vitest runs
+ES modules whatever the program's module; node:test the package's format.
 docs/rules/ts-test.md § Runners.
 """
 
@@ -15,7 +16,20 @@ load(
 )
 load("//ts/private/actions:workers_pool.bzl", "workers_pool_environment")
 
+# A dep tsgo emits runs as the ES modules oxc emitted from the same sources:
+# each twin at its .js's runfiles path, in place of the .js.
+def _es_twins_in_place(test):
+    twins = {js.short_path: es for js, es in test.es_twins.to_list()}
+    if not twins:
+        return test.transitive_js, {}
+    return depset([
+        f
+        for f in test.transitive_js.to_list()
+        if f.short_path not in twins
+    ]), twins
+
 def _vitest_launch(ctx, test):
+    program_js, twins = _es_twins_in_place(test)
     pool = workers_pool_environment(
         ctx,
         test.node_modules_files,
@@ -62,10 +76,9 @@ def _vitest_launch(ctx, test):
         section = section,
         env = env,
         files = files,
-        symlinks = pool.symlinks | written.symlinks,
+        symlinks = pool.symlinks | written.symlinks | twins,
         transitive_files = depset(transitive = (
-            [test.transitive_js] + pool.runtime_data_sets +
-            test.package_sources
+            [program_js] + pool.runtime_data_sets + test.package_sources
         )),
         # The config vitest ran with, for debugging and for the tests that pin
         # the layering.
@@ -117,6 +130,7 @@ def _vitest_runner_impl(ctx):
     return [TsTestRunnerInfo(
         packages = ["vitest"],
         hook = ctx.file._reads_hook,
+        es_modules = True,
         launch = _vitest_launch,
     )]
 
@@ -129,7 +143,8 @@ vitest_runner = rule(
         ),
     },
     doc = "The vitest runner: the generated config over the user's, vitest " +
-          "from the test's node_modules tree, and under `bazel run <test> " +
+          "from the test's node_modules tree, the program as ES modules " +
+          "whatever its tsconfig's module, and under `bazel run <test> " +
           "-- --reads` the report of the workspace files the tests read.",
 )
 
@@ -137,6 +152,7 @@ def _node_test_runner_impl(ctx):
     return [TsTestRunnerInfo(
         packages = [],
         hook = ctx.file._resolve_hook,
+        es_modules = False,
         launch = _node_test_launch,
     )]
 
@@ -148,7 +164,7 @@ node_test_runner = rule(
             allow_single_file = True,
         ),
     },
-    doc = "node's own runner: `node --test` over the compiled files, with " +
-          "the resolve hook that answers a relative `.ts` specifier with " +
-          "the compiled sibling.",
+    doc = "node's own runner: `node --test` over the compiled files, in the " +
+          "module format their tsconfig gives them, with the resolve hook " +
+          "that answers a relative `.ts` specifier with the compiled sibling.",
 )

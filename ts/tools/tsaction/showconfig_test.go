@@ -293,7 +293,7 @@ func TestTsconfigStep_NoTypesWritesTheDirectTypesDeps(t *testing.T) {
 	e := newExecroot(t, noTypesLeaf, capture)
 
 	mustWriteTsconfig(t, e.tsconfigArgs(
-		"-jsx=preserve", "-types_dep=node", "-types_dep=react",
+		"-jsx=preserve", "-module=nodenext", "-types_dep=node", "-types_dep=react",
 	))
 	config := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")
 	assertJSON(t, "types", config["compilerOptions"].(map[string]any)["types"], `["node", "react"]`)
@@ -301,7 +301,7 @@ func TestTsconfigStep_NoTypesWritesTheDirectTypesDeps(t *testing.T) {
 		`{"target": "esnext", "jsx": "preserve", "jsxImportSource": "preact",
 		  "module": "nodenext"}`)
 
-	mustWriteTsconfig(t, e.tsconfigArgs("-jsx=preserve"))
+	mustWriteTsconfig(t, e.tsconfigArgs("-jsx=preserve", "-module=nodenext"))
 	config = readJSON(t, binDir+"/pkg/pkg.tsconfig.json")
 	assertJSON(t, "types with no @types dep", config["compilerOptions"].(map[string]any)["types"], `[]`)
 }
@@ -335,12 +335,13 @@ func TestTsconfigStep_JavaScriptSrcSetsAllowJs(t *testing.T) {
 	e := newExecroot(t, noTypesLeaf, readTestdata(t, "showconfig-no-types.json"))
 	writeFile(t, "pkg/src/b.js", "export const b = 1;\n")
 
-	mustWriteTsconfig(t, e.tsconfigArgs("-jsx=preserve"))
+	mustWriteTsconfig(t, e.tsconfigArgs("-jsx=preserve", "-module=nodenext"))
 	if got := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")["compilerOptions"].(map[string]any)["allowJs"]; got != nil {
 		t.Errorf("allowJs = %v with no JavaScript src, want unset", got)
 	}
 
-	mustWriteTsconfig(t, append(e.tsconfigArgs("-jsx=preserve"), "pkg/src/b.js"))
+	mustWriteTsconfig(t, append(
+		e.tsconfigArgs("-jsx=preserve", "-module=nodenext"), "pkg/src/b.js"))
 	if got := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")["compilerOptions"].(map[string]any)["allowJs"]; got != true {
 		t.Errorf("allowJs = %v with a JavaScript src, want true", got)
 	}
@@ -350,7 +351,8 @@ func TestTsconfigStep_EmitShape(t *testing.T) {
 	e := newExecroot(t, noTypesLeaf, readTestdata(t, "showconfig-no-types.json"))
 
 	mustWriteTsconfig(t, e.tsconfigArgs(
-		"-jsx=preserve", "-emit", "-out_dir="+binDir+"/pkg", "-root_dir=pkg",
+		"-jsx=preserve", "-module=nodenext", "-emit", "-out_dir="+binDir+"/pkg",
+		"-root_dir=pkg",
 		"-isolated_declarations", "-lib_check",
 	))
 	opts := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")["compilerOptions"].(map[string]any)
@@ -428,10 +430,11 @@ func TestTsconfigStep_JsxPreserveNeedsTheDeclaration(t *testing.T) {
 	e := newExecroot(t, noTypesLeaf, readTestdata(t, "showconfig-no-types.json"))
 
 	// Nothing in a .ts-only program is named by jsx: a plain file passes.
-	mustWriteTsconfig(t, e.tsconfigArgs())
+	mustWriteTsconfig(t, e.tsconfigArgs("-module=nodenext"))
 
 	writeFile(t, "pkg/src/view.tsx", "export const v = 1;\n")
-	err := writeTsconfig(append(e.tsconfigArgs(), "pkg/src/view.tsx"))
+	err := writeTsconfig(append(
+		e.tsconfigArgs("-module=nodenext"), "pkg/src/view.tsx"))
 	if err == nil || !strings.Contains(err.Error(), `jsx = "preserve"`) ||
 		!strings.Contains(err.Error(), "pkg/tsconfig.json") {
 		t.Fatalf("writeTsconfig = %v, want the declaration named against "+
@@ -441,11 +444,55 @@ func TestTsconfigStep_JsxPreserveNeedsTheDeclaration(t *testing.T) {
 		t.Error("a config was written although the declaration is missing")
 	}
 
-	mustWriteTsconfig(t,
-		append(e.tsconfigArgs("-jsx=preserve"), "pkg/src/view.tsx"))
+	mustWriteTsconfig(t, append(
+		e.tsconfigArgs("-jsx=preserve", "-module=nodenext"), "pkg/src/view.tsx"))
 	assertJSON(t, "pkg.options.json", readJSON(t, binDir+"/pkg/pkg.options.json"),
 		`{"target": "esnext", "jsx": "preserve", "jsxImportSource": "preact",
 		  "module": "nodenext"}`)
+}
+
+// The rule names a program's ES twins from the ts_config's module before any
+// action reads the tsconfig; the step holds the two to one answer.
+func TestTsconfigStep_ModuleTsgoEmitsNeedsTheDeclaration(t *testing.T) {
+	e := newExecroot(t, noTypesLeaf, readTestdata(t, "showconfig-no-types.json"))
+
+	err := writeTsconfig(e.tsconfigArgs())
+	if err == nil || !strings.Contains(err.Error(), `module = "nodenext"`) ||
+		!strings.Contains(err.Error(), "pkg/tsconfig.json") {
+		t.Fatalf("writeTsconfig = %v, want the declaration named against "+
+			"pkg/tsconfig.json", err)
+	}
+	if _, statErr := os.Stat(binDir + "/pkg/pkg.tsconfig.json"); statErr == nil {
+		t.Error("a config was written although the declaration is missing")
+	}
+
+	// A declaration-only program has no emit for module to name.
+	mustWriteTsconfig(t, []string{
+		"-tsgo=" + e.tsgo, "-tsconfig=pkg/tsconfig.json",
+		"-baseline=" + binDir + "/pkg/pkg.tsconfig_baseline.json",
+		"-out=" + binDir + "/pkg/pkg.tsconfig.json",
+		"-options=" + binDir + "/pkg/pkg.options.json",
+		"-bin_dir=" + binDir, "pkg/globals.d.ts",
+	})
+
+	err = writeTsconfig(e.tsconfigArgs("-module=commonjs"))
+	if err == nil ||
+		!strings.Contains(err.Error(), `declares module = "commonjs"`) ||
+		!strings.Contains(err.Error(), `declare module = "nodenext"`) {
+		t.Errorf("writeTsconfig = %v, want the chain's module and the edit", err)
+	}
+
+	mustWriteTsconfig(t, e.tsconfigArgs("-module=nodenext"))
+}
+
+func TestTsconfigStep_ModuleDeclaredUnderAnESKindFails(t *testing.T) {
+	e := newExecroot(t, chainLeaf, readTestdata(t, "showconfig-chain.json"))
+
+	err := writeTsconfig(e.tsconfigArgs("-module=commonjs"))
+	if err == nil || !strings.Contains(err.Error(), `"es6"`) ||
+		!strings.Contains(err.Error(), "drop the attribute") {
+		t.Errorf("writeTsconfig = %v, want the effective module and the edit", err)
+	}
 }
 
 func TestTsconfigStep_JsxDeclaredPreserveUnderAnotherModeFails(t *testing.T) {

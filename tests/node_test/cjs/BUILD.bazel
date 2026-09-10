@@ -10,7 +10,13 @@ dependency's export, which ESM linking cannot see (json5 assigns
 # Compiler options, not data: named by the tsconfig attr.
 # gazelle:exclude tsconfig.cjs.json
 
-load("//ts:defs.bzl", "ts_test")
+load("//ts:defs.bzl", "ts_config", "ts_test")
+
+ts_config(
+    name = "cjs_tsconfig",
+    src = "tsconfig.cjs.json",
+    module = "commonjs",
+)
 
 ts_test(
     name = "cjs_test",
@@ -21,7 +27,7 @@ ts_test(
     ],
     data = ["fixtures/note.txt"],
     runner = "//ts/runners:node_test",
-    tsconfig = "tsconfig.cjs.json",
+    tsconfig = ":cjs_tsconfig",
     deps = [
         "@npm//:json5",
         "@npm//:types_node",

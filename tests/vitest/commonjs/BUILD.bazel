@@ -1,0 +1,59 @@
+"""vitest runs ES modules: a CommonJS program's tests run its ES twins.
+
+The setup file and the helper are the package's program, `:commonjs`, whose
+.js is CommonJS -- `require("vitest")`, which vitest refuses. Its ts_config
+declares the module, so the emit writes the ES twin of each .js and the vitest
+runner stages the twins at the .js paths; the test file is the ts_test's own,
+emitted as ES modules under the vitest runner. node:test would run the .js.
+"""
+
+# Compiler options, not data: named by the tsconfig attr.
+# gazelle:exclude tsconfig.commonjs.json
+
+load("//ts:defs.bzl", "ts_compile", "ts_config", "ts_test")
+load(":es_twins_tests.bzl", "es_modules_emit_test", "es_twins_test")
+
+package(default_visibility = ["//:__pkg__"])
+
+# keep
+ts_config(
+    name = "commonjs_tsconfig",
+    src = "tsconfig.commonjs.json",
+    module = "commonjs",
+)
+
+# keep
+ts_compile(
+    name = "commonjs",
+    srcs = [
+        "helper.ts",
+        "package.json",
+        "vitest.setup.ts",
+    ],
+    tsconfig = ":commonjs_tsconfig",
+    deps = ["@npm//:vitest"],
+)
+
+# keep
+ts_test(
+    name = "commonjs_test",
+    srcs = ["commonjs.test.ts"],
+    config = "vitest.config.mjs",
+    tsconfig = ":commonjs_tsconfig",
+    deps = [
+        ":commonjs",
+        "@npm//:vitest",
+    ],
+)
+
+# The program's emit and its twins': two TsEmit actions, the second oxc's alone.
+es_twins_test(
+    name = "es_twins_test",
+    target_under_test = ":commonjs",
+)
+
+# The test's own emit is the ES-modules one; nothing twins a test's program.
+es_modules_emit_test(
+    name = "es_modules_emit_test",
+    target_under_test = ":commonjs_test",
+)
