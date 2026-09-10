@@ -18,6 +18,7 @@ ts_config(
     module = "commonjs",
 )
 
+# keep
 ts_test(
     name = "cjs_test",
     srcs = [
