@@ -22,7 +22,7 @@ gazelle(
     gazelle = "@rules_typescript//gazelle:gazelle_typescript",
 )
 
-npm_virtual_store()
+npm_virtual_store(name = "node_modules/.pnpm")
 
 # Bundle the application entry point into a single ESM file.
 ts_binary(

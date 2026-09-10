@@ -467,7 +467,7 @@ def _hoist_entries(lock, settings, index, member_index):
     return entries
 
 def _store_graph(pnpm_lock, graph, importers, settings):
-    """The lockfile's store as data: what npm_virtual_store() declares.
+    """The lockfile's store as data: what `npm_virtual_store` declares.
 
     Snapshots and members carry their edges as indices into the two lists;
     the cycle-broken edges are absent from a snapshot's, as they are from its

@@ -193,8 +193,8 @@ The shipped implementation is Vite (`//vite:dev_server`), the default of
 
 Two things differ between implementations and neither can be papered over.
 A server shipping as an npm package has no `File` to point at -- its executable
-is a path inside the `node_modules` tree artifact, which Starlark cannot address
-at analysis time -- so it sets `server_in_tree` and leaves `server_binary` None.
+is a path under the importer's `node_modules` directory, reached through the
+package's link -- so it sets `server_in_tree` and leaves `server_binary` None.
 A native binary is the other way round; exactly one of the two must be set.
 
 `config_dialect` names the config the server is handed; only Vite's is
@@ -203,14 +203,40 @@ a field it does without: one taking the serve root from argv instead says so in
 `argv`, and one ignoring a field says so in `ignored_config_fields`.
 """,
     fields = {
-        "server_binary": "File or None: the server executable, for a server that is a build artifact. None when the server ships inside the npm tree, in which case server_in_tree names it instead.",
-        "server_in_tree": "string: the server executable's path relative to the root of the node_modules tree, for a server that ships as an npm package. Empty when server_binary is set.",
+        "server_binary": "File or None: the server executable, for a server that is a build artifact. None when the server ships as an npm package, in which case server_in_tree names it instead.",
+        "server_in_tree": "string: the server executable's path under the importer's node_modules directory, for a server that ships as an npm package. Empty when server_binary is set.",
         "argv": "list of string: the command line after the executable. `{config}` expands to the generated config's path and `{root}` to the directory being served; a server taking either somewhere other than where the other one takes it says so here rather than in the launcher.",
         "config_dialect": "string: which config format this server is handed. Only \"vite\" is generated today; a server reading its own format declares its own dialect, and the generator has to learn it before that server can be selected.",
         "runs_in_js_runtime": "bool: True when the executable is JavaScript and the toolchain Node runs it, False for a native binary. A native server still gets the toolchain Node on PATH: one whose plugin host is a Node process is not a Node-free one.",
         "ignored_config_fields": "list of string: dotted config paths this server does not honour, e.g. [\"server.open\"]. A target whose configuration depends on one of these fails at analysis time naming the field and the server, rather than starting a server that quietly does something else.",
         "native_react_refresh": "bool: True when the server applies React Fast Refresh itself. `react_refresh = True` then fails rather than stacking @vitejs/plugin-react on top of a transform that already ran.",
-        "runtime_deps": "depset of File: everything the server needs in runfiles beyond the generated config and the npm tree.",
+        "runtime_deps": "depset of File: everything the server needs in runfiles beyond the generated config and the importer's node_modules.",
+    },
+)
+
+NodeModulesInfo = provider(
+    doc = """An importer's node_modules: the links a `node_modules` target
+declares into the virtual store, one per npm package the importer declares,
+and the importer above it (docs/rules/node-modules.md).""",
+    fields = {
+        "dir": "string: the importer's node_modules directory as a bin-dir " +
+               "path, `bazel-out/<cfg>/bin/<package>/node_modules`: the " +
+               "parent of every link, which no artifact names.",
+        "links": "dict of string -> File: per package name, the declared " +
+                 "symlink `node_modules/<name>` into the package's store tree.",
+        "stores": "dict of string -> NpmStoreInfo: every snapshot of the " +
+                  "importer's closure, by store key.",
+        "parent": "NodeModulesInfo or None: the importer above's.",
+    },
+)
+
+NpmLinkInfo = provider(
+    doc = """A workspace member's link `node_modules/<member name>` into the
+member's store tree: what a `node_modules_member` target declares beside the
+member's own TsInfo and NpmPackageInfo.""",
+    fields = {
+        "link": "File: the declared symlink `node_modules/<member name>`.",
+        "store": "NpmStoreInfo: the member's store, the link's target.",
     },
 )
 

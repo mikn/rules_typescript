@@ -11,7 +11,7 @@ exports_files([
     "pnpm-lock.yaml",
 ])
 
-npm_virtual_store()
+npm_virtual_store(name = "node_modules/.pnpm")
 
 # The combined vitest-config listing in //gazelle:typescript_test runs over it.
 exports_files(

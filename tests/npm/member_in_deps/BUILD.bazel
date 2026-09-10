@@ -1,0 +1,14 @@
+load("//npm:defs.bzl", "node_modules")
+load("//tests/npm:node_modules_tests.bzl", "member_in_deps_test")
+
+# A member's view in deps: the link is a node_modules_member target's.
+node_modules(
+    name = "node_modules",
+    tags = ["manual"],
+    deps = ["@npm//:shared"],
+)
+
+member_in_deps_test(
+    name = "member_in_deps_test",
+    target_under_test = ":node_modules",
+)

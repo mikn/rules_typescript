@@ -1,21 +1,30 @@
 # node_modules
 
-Creates a hermetic `node_modules` directory in the Bazel sandbox holding exactly
-the packages named and their transitive dependencies.
-
-Every `ts_compile` and `ts_test` builds one from `deps` as the forest its tsgo
-action walks, and a test's is the tree its tests run in (see
-[ts_test](ts-test.md)); both go through this rule's builder. A hand-written one
-covers a program or tool that needs packages on disk at runtime.
+An importer's `node_modules`. One `node_modules` target per Bazel package
+declares a symlink `node_modules/<name>` into [the store](#the-store) for
+every npm package the importer declares, and one `node_modules_member` per
+workspace member it links. `ts_codegen`, `ts_binary`, `ts_dev_server` and the
+ruleset's `esbuild_bundle` take the target and stage its links and every store
+tree they reach; `ts_compile` and `ts_test` build their own forest from `deps`
+with [the builder below](#trees-ts_compile-and-ts_test-generate).
 
 ## Usage
 
 ```python
-load("@rules_typescript//npm:defs.bzl", "node_modules")
+load("@rules_typescript//npm:defs.bzl", "node_modules", "node_modules_member")
 
 node_modules(
     name = "node_modules",
-    deps = ["@npm//:vite"],
+    deps = [
+        "@npm//web:react",
+        "@npm//web:vite",
+    ],
+    parent = "//:node_modules",
+)
+
+node_modules_member(
+    name = "node_modules/@acme/ui",
+    member = "@npm//:acme_ui",
 )
 
 ts_dev_server(
@@ -25,107 +34,92 @@ ts_dev_server(
 )
 ```
 
-One tree can serve several targets in the same package, keeping one copy in the
-sandbox.
+Gazelle writes both in every lockfile importer's package
+([What Gazelle Writes](../gazelle/overview.md#what-gazelle-writes)); one in a
+package that is no importer is hand-written under `# keep`.
 
 ## Attributes
 
+`node_modules`:
+
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `deps` | `label_list` | required | npm package targets from `@npm` to include in `node_modules` |
+| `deps` | `label_list` | `[]` | The npm packages the importer declares, as hub labels: the importer's own package (`@npm//web:react`) where it declares the name, the root's otherwise. Empty for an importer that declares nothing |
+| `parent` | `label` | `None` | The `node_modules` target of the importer above; none in the lockfile's package |
+
+`node_modules_member`:
+
+| Attribute | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `member` | `label` | required | The hub's view of the workspace member, `@npm//:<name>`; the target is named `node_modules/<name>` |
 
 ## The Layout
 
-The tree is pnpm-shaped, and it is the same tree whether a test runs on it or
-tsgo type-checks against it: every package sits at `node_modules/<name>` with
-its own files, a workspace member sits there as its hub view links it (its
-`package.json` as built beside its `.js` and `.d.ts`), and a `@types/*` package
-sits beside the package it types, so TypeScript's `node_modules/@types` walk
-pairs them. One npm name can resolve more than once inside a single closure, and
-pnpm records each resolution separately. The tree is flat where flat is
-unambiguous and keyed by resolution where it is not:
+Every entry is a declared symlink with a relative target into the lockfile
+package's store, pnpm's top level:
 
 ```
-node_modules/
-  minimatch/                                     ← the primary resolution, as files
-  .pnpm/minimatch@9.0.9/node_modules/minimatch/  ← any other one, files once
-  glob/node_modules/minimatch                    ← relative link, → the store above
+node_modules/                                  ← the root importer's, beside .pnpm
+  .pnpm/                                       ← the store: one tree per snapshot
+    minimatch@9.0.9/node_modules/minimatch/
+    minimatch@9.0.9/node_modules/brace-expansion → ../../brace-expansion@2.0.2/node_modules/brace-expansion
+  minimatch → .pnpm/minimatch@9.0.9/node_modules/minimatch
+  shared → .pnpm/shared@0.0.0/node_modules/shared   ← a node_modules_member
+web/node_modules/
+  react → ../../node_modules/.pnpm/react@19.0.0/node_modules/react
 ```
 
-A resolution is name, version and peer set. pnpm resolves a package once per
-distinct set of peers and records each outcome: `fdir@6.5.0(picomatch@4.0.3)`
-beside `fdir@6.5.0(picomatch@4.0.7)`. They share a tarball and have different
-dependency edges. Two of those in one closure get two store entries,
-distinguished by a peer component after the version:
+A package's own imports resolve from its realpath,
+`.pnpm/<key>/node_modules/<name>/`, to the links beside its tree, so every
+dependent reaches the resolution pnpm recorded for it: `test-exclude`'s
+`minimatch` is 10.2.4 beside its tree while the importer links 9.0.9 at the
+top. Node, tsgo and Vite realpath a package before resolving its imports;
+`--preserve-symlinks` walks from the link and meets no edge, as over pnpm's
+own install.
+
+A `node_modules` target's outputs are `node_modules/<name>`, so one target per
+Bazel package holds them, and they sit in the store's repository: a relative
+link has one text in the execroot and the runfiles tree only while link and
+target share one, so a dep whose store is another module's lockfile fails at
+analysis naming it. `DefaultInfo.files` is every link and every store tree the
+links reach; a consumer that runs outside an action stages them and takes the
+directory, which no artifact names. `NodeModulesInfo` carries `dir` (the
+directory as a bin-dir path), `links`, `stores` and `parent`, and a
+`node_modules_member` returns `NpmLinkInfo(link, store)` beside the view's
+`TsInfo` and `NpmPackageInfo`, so a target names it in `deps` where it named
+the view ([Providers](providers.md#nodemodulesinfo)).
+
+## One Link per Name
+
+Two resolutions of one name in `deps` is one link name twice, and fails:
 
 ```
-  .pnpm/fdir@6.5.0_picomatch_4_0_3_<digest>/node_modules/fdir/
+node_modules: @@//src/app:node_modules: 'minimatch' linked twice, to
+@@+npm+npm__minimatch__10_2_4//:pkg and @@+npm+npm__minimatch__9_0_9//:pkg:
+one link per name
 ```
 
-- **Primary** is the resolution the tree's own `deps` declare. Where they
-  declare none it is the highest version present, the same rule `@npm//:<name>`
-  follows, and among peer variants of that version the one pnpm left
-  un-suffixed, or the lowest-sorting peer set if every variant carries one. It
-  keeps the top-level directory Node's walk-up finds, and tsgo's: a target that
-  declares `zod` type-checks against the `zod` it declared, whatever version a
-  dependency's closure carries.
-- **Every other resolution** gets its bytes exactly once under
-  `.pnpm/<name>@<version>[_<peer set>]/node_modules/<name>`, using pnpm's own
-  encoding for a scoped name (`.pnpm/@scope+name@1.2.3/node_modules/@scope/name`).
-  The peer component is a readable prefix plus a digest of the whole peer set.
-- **Links** are emitted only for an edge that disagrees with the primary, at
-  `<dependent>/node_modules/<name>`, pointing at the store copy with a relative
-  target. Cost scales with the disagreeing edges. Links chain: a store copy's
-  own disagreeing dep gets a link inside it.
+Two peer resolutions of one version are two keys and fail the same way. Each
+dependent reaches its own resolution beside its tree; the importer's `deps` is
+what the importer itself declared, one resolution per name.
 
-The links are relative and internal to the tree, so they survive everywhere the
-tree goes: as an input to another action, in a test's runfiles, and under
-`bazel run`.
-
-## Two Resolutions of One Name in `deps`
-
-Declaring two resolutions of a name directly on one `node_modules` target is an
-error:
-
-```
-node_modules: @@//src/app:node_modules depends on two versions of 'minimatch' at once:
-  minimatch@10.2.4
-  minimatch@9.0.9
-node_modules/minimatch is one directory and Node resolves the name to it, so a
-tree cannot present both as the answer to `import "minimatch"`.
-Did you mean to depend on one of them here and let the other arrive through the
-package that needs it? A version reached transitively keeps its own version.
-Otherwise split the two into separate node_modules targets.
-```
-
-Two peer resolutions of one version is the same error, one level narrower:
-
-```
-node_modules: @@//src/app:node_modules depends on two resolutions of
-'fdir@6.5.0' at once, one per peer set:
-  peers picomatch_4_0_3_<digest>
-  peers picomatch_4_0_7_<digest>
-The tarball is the same either way; what differs is what the package's own
-dependencies resolve to, and node_modules/fdir/node_modules can hold one
-answer.
-Did you mean to depend on one of them here and let the other arrive through the
-package that needs it? A resolution reached transitively keeps its own peers.
-Otherwise split the two into separate node_modules targets.
-```
-
-The transitive case both messages point at is the one
-[The Layout](#the-layout) handles.
+A workspace member in `deps` fails naming the `node_modules_member` to write
+instead. The link is a target of its own because a member's compile walks up
+to the importers above it: an importer target holding the member's link would
+depend on the member's tree, and through it on the member's compile, a cycle
+for every member the root links.
 
 ## The Store
 
 Every lockfile has a virtual store, pnpm's `node_modules/.pnpm`, declared in
-the lockfile's own package by `npm_virtual_store()`, a macro the lockfile's hub
-writes into `@<hub>//:defs.bzl` from the graph the `npm` extension computes:
+the lockfile's own package by `npm_virtual_store`, a macro the lockfile's hub
+writes into `@<hub>//:defs.bzl` from the graph the `npm` extension computes,
+named after the directory it declares:
 
 ```python
 load("@npm//:defs.bzl", "npm_virtual_store")
 
-npm_virtual_store()
+npm_virtual_store(name = "node_modules/.pnpm")
 ```
 
 The call declares, `manual` and public:
@@ -188,8 +182,8 @@ targets, never a consumer's.
 
 Every `ts_npm_package` carries its snapshot's store as `NpmPackageInfo.store`
 (`NpmStoreInfo`: `key`, `tree`, `links`, `transitive`, `manifest`), and a
-member's hub view carries the member's. Nothing else reads the store: the
-forest below is what `ts_compile` and `ts_test` stage.
+member's hub view carries the member's. The importer's links above read it;
+the forest below is what `ts_compile` and `ts_test` stage.
 
 ## Trees `ts_compile` and `ts_test` Generate
 
@@ -199,7 +193,10 @@ walks it from a program root that mirrors the exec root; see
 [the node_modules forest](ts-compile.md#the-node_modules-forest). A `ts_test`
 builds the same forest and runs its tests in it: the tree the compile was
 checked against is the runtime tree, with nothing to declare. See
-[ts_test](ts-test.md).
+[ts_test](ts-test.md). The tree is pnpm-shaped: one resolution per name flat at
+the top, the target's own deps first, every other one under
+`.pnpm/<name>@<version>[_<peer set>]/node_modules/<name>` with a relative link
+from each dependent that resolved to it.
 
 ## npm_bin
 

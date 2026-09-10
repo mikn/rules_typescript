@@ -7,7 +7,7 @@ workspace/ a subpackage of the parent, where glob() cannot see it.
 load("@npm//:defs.bzl", "npm_virtual_store")
 load("@rules_typescript//ts:defs.bzl", "ts_test")
 
-npm_virtual_store()
+npm_virtual_store(name = "node_modules/.pnpm")
 
 # .nvmrc is staged beside the test, which compares it to process.version.
 ts_test(

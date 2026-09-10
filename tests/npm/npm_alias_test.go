@@ -1,38 +1,32 @@
 package npm_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/mikn/rules_typescript/tests/verify"
 )
 
-// `nano-alias: npm:nanoid@3.3.11` means `import "nano-alias"` must find
-// node_modules/nano-alias. That only exists if the alias gets its own target with
-// package_name set to the alias: package_name is what the tree builder writes on
-// disk, so a Bazel alias pointing at nanoid's own target writes node_modules/nanoid.
-//
-// The two routes an alias arrives by are checked separately, each with a fixture
-// entry that only the one route reaches.
+// An alias is a link under the alias name into the aliased tree: at the
+// importer's node_modules when it declares it, beside the dependent otherwise.
 func TestAliasInstallsUnderItsAliasName(t *testing.T) {
 	tree := verify.New(t)
+	nm := tree.FoundDir("*/features/node_modules")
 
-	for _, c := range []struct {
-		tree, alias, via string
-	}{
-		// Declared by the workspace root and by nothing else, so the label exists
-		// only if importers are read for aliases as well as links.
-		{"importer_alias_node_modules", "ms-alias", "the root importer"},
-		// Declared by zod and by nothing else, so it exists only if the dependency
-		// edge carries the name zod imports nanoid under.
-		{"package_alias_node_modules", "nano-alias", "zod's dependency edge"},
-		// Pinned through a catalog, and resolved against a peer set, so the
-		// lockfile records it under a `snapshots:` key rather than a bare
-		// name@version.
-		{"catalog_alias_node_modules", "styles-alias", "a catalog entry with peers"},
-	} {
-		nm := tree.FoundDir("*/" + c.tree)
-		if !nm.File(c.alias + "/package.json").Exists() {
-			t.Errorf("%s has no %s/ directory (alias reached via %s)", nm.Name(), c.alias, c.via)
-		}
+	// Declared by the features root and by nothing else, so the link exists
+	// only if importers are read for aliases as well as links.
+	if !nm.File("ms-alias/package.json").Exists() {
+		t.Errorf("%s has no ms-alias link (alias reached via the root importer)", nm.Name())
+	}
+	// Pinned through a catalog and resolved against a peer set: a `snapshots:`
+	// key, not a bare name@version.
+	if !nm.File("styles-alias/package.json").Exists() {
+		t.Errorf("%s has no styles-alias link (alias reached via a catalog entry with peers)", nm.Name())
+	}
+	// Declared by zod and by nothing else, so it exists only if the dependency
+	// edge carries the name zod imports nanoid under.
+	if _, err := os.Stat(filepath.Join(beside(t, filepath.Join(nm.Abs(), "zod"), "nano-alias"), "package.json")); err != nil {
+		t.Errorf("zod's tree has no nano-alias link beside it (alias reached via zod's dependency edge): %v", err)
 	}
 }

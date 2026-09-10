@@ -27,7 +27,7 @@
                                 what an editor actually runs.
 
 The last three get node from the JS runtime toolchain and typescript from the
-lockfile via :lsp_node_modules, so they need nothing from the host.
+lockfile via :node_modules, so they need nothing from the host.
 """
 
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
@@ -47,7 +47,7 @@ package(default_visibility = ["//:__pkg__"])
 # tests run real TypeScript -- its tsserver binary and its resolveModuleName --
 # and tsgo has no equivalent surface.
 node_modules(
-    name = "lsp_node_modules",
+    name = "node_modules",
     testonly = True,
     deps = ["@npm//:typescript"],
 )
@@ -97,7 +97,7 @@ sh_test(
     srcs = ["test_resolve_integration.sh"],
     data = [
         "resolve_test.mjs",
-        ":lsp_node_modules",
+        ":node_modules",
         "//tools:tsserver-hook.js",
         "//tools:tsserver-hook-resolver.js",
         "//ts/toolchain:node_resolved",
@@ -111,7 +111,7 @@ sh_test(
     srcs = ["test_tsserver_diagnostics.sh"],
     data = [
         "tsserver_diag_test.mjs",
-        ":lsp_node_modules",
+        ":node_modules",
         "//tools:tsserver-hook.js",
         "//tools:tsserver-hook-resolver.js",
         "//ts/toolchain:node_resolved",
@@ -129,7 +129,7 @@ sh_test(
     srcs = ["test_tsserver_plugin.sh"],
     data = [
         "tsserver_plugin_test.mjs",
-        ":lsp_node_modules",
+        ":node_modules",
         "//:refresh_tsconfig",
         "//ts/toolchain:node_resolved",
     ],

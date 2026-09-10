@@ -139,6 +139,9 @@ a source, and a BUILD file there is emptied and named the same way.
 | `ts_config` | `tsconfig` | `src`, `deps`, `visibility` |
 | `filegroup` | `vitest_config` | `srcs`, `visibility` |
 | `filegroup` | `wrangler_config` | `srcs`, `visibility` |
+| `node_modules` | `node_modules` | `deps`, `parent`, `visibility` |
+| `node_modules_member` | `node_modules/<member name>` | `member`, `visibility` |
+| `npm_virtual_store` | `node_modules/.pnpm` | |
 
 Per package: a `ts_compile` when the program has a library file, holding the
 library files, every owned declaration and the data files; a `ts_test` when it
@@ -153,6 +156,17 @@ this: Gazelle does not write or touch it ([Dev Server](../guides/dev-server.md))
 A src whose name Bazel cannot spell (a `:` in it) is dropped and named in the
 log; a name that opens a label (`@`, `//`) is pinned to the package with a
 leading `:`.
+
+Per lockfile importer, package or not: a `node_modules` whose `deps` are the
+importer's declared `dependencies`, `devDependencies` and
+`optionalDependencies` as hub labels (`@npm//web:react`; `@npm//:react` for
+the root's) and whose `parent` is the importer above's target; one
+`node_modules_member` per `link:` entry, `node_modules/<member name>` over the
+member's view; and, at the repository root, the lockfile's package,
+`npm_virtual_store(name = "node_modules/.pnpm")` from `@npm//:defs.bzl`
+([node_modules](../rules/node-modules.md)). A directory that is no importer
+withdraws its `node_modules` and every `node_modules_member`; a hand-written
+one there is kept under `# keep`.
 
 ```python
 # packages/core/BUILD.bazel -- tsconfig.json here, the sources under src/
@@ -346,11 +360,12 @@ label:
   of its own.
 - **A workspace member imported by its name** -- a bare specifier whose
   package is a `link:` name in the lockfile, or the manifest name of an
-  importer -- is the hub's view of the member, `@npm//:<name>`, from every
-  package but the member's own `ts_compile`, where the file is its own and the
-  edge is nothing. A `ts_test` inside the member takes the view: the runtime
-  resolves the name through `node_modules`, and only the view links the member
-  there.
+  importer -- is the link target of the nearest importer at or above the
+  package that links it, `//web:node_modules/@acme/ui`, and the hub's view
+  `@npm//:<name>` where no importer above links it; from every package but
+  the member's own `ts_compile`, where the file is its own and the edge is
+  nothing. A `ts_test` inside the member takes the link: the runtime resolves
+  the name through `node_modules`, and only the link puts the member there.
 - **A file another package owns**, reached by a relative path or a `paths`
   alias, is that package's `ts_compile`, or whichever rule holds the file in
   `srcs`: a hand-written one under `# keep` answers as a generated one does. A
@@ -382,7 +397,8 @@ the library files and the declarations, since the test runs the package's code
 and needs its npm closure; the edges of its vitest config and of the modules
 the config reaches; and the nearest
 `package.json`'s `dependencies` and `devDependencies`, each spelled as an edge
-would be, a member's name as its view and every other name through the gate.
+would be, a member's name as its link target and every other name through the
+gate.
 So a test carries the packages the config and the manifest name and no source
 imports (`vitest`, a pool package, `jsdom`), and none of them needs a `# keep`.
 

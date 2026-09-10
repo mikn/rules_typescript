@@ -100,9 +100,9 @@ The two invocation modes and the recipe for a bundler of your own are in
 from `@rules_typescript//ts/private:providers.bzl`, and everything under
 `ts/private/` is [volatile](../compatibility.md#volatile). Every `@npm` package
 target returns it, and so does a workspace member's hub view
-`npm_workspace_package`; the `node_modules` builder lays a tree out from it, the
-runtime tree's and the type-check forest's alike, and `store` names the
-snapshot's tree in [the store](node-modules.md#the-store).
+`npm_workspace_package`; `ts_compile`'s forest builder lays a tree out from it,
+a `node_modules` target links `store`'s tree under `package_name`, and `store`
+names the snapshot's tree in [the store](node-modules.md#the-store).
 
 | Field | Type | Description |
 |---|---|---|
@@ -127,17 +127,43 @@ The shipped implementation, `//vite:dev_server`, returns it;
 | Field | Type | Vite | Description |
 |---|---|---|---|
 | `server_binary` | `File or None` | `None` | The server executable, for a server that is a build artifact. `None` when it ships inside the npm tree |
-| `server_in_tree` | `string` | `"vite/bin/vite.js"` | The executable's path relative to the root of the `node_modules` tree, for a server that ships as an npm package. Exactly one of the two is set |
+| `server_in_tree` | `string` | `"vite/bin/vite.js"` | The executable's path under the importer's `node_modules` directory, for a server that ships as an npm package. Exactly one of the two is set |
 | `argv` | `list of string` | `["dev", "--config", "{config}"]` | The command line after the executable. `{config}` expands to the generated config's path, `{port}` to the `port` attr, `{root}` to the directory served |
 | `config_dialect` | `string` | `"vite"` | The config format the server is handed. Only `"vite"` is generated today; a server reading its own format declares its own dialect, and the generator has to learn it before that server can be selected |
 | `runs_in_js_runtime` | `bool` | `True` | `True` when the executable is JavaScript and the toolchain Node runs it. A native server still gets the toolchain Node on `PATH`, for a plugin host that is a Node process |
 | `ignored_config_fields` | `list of string` | `[]` | Dotted config paths the server does not honour. A target whose configuration reaches one fails at analysis time naming the field and the server |
 | `native_react_refresh` | `bool` | `False` | `True` when the server applies React Fast Refresh itself. `react_refresh = True` then fails at analysis time |
-| `runtime_deps` | `depset of File` | empty | Everything the server needs in runfiles beyond the generated config and the npm tree |
+| `runtime_deps` | `depset of File` | empty | Everything the server needs in runfiles beyond the generated config and the importer's `node_modules` |
 
 A server shipping as an npm package has no `File` to point at: its executable is
-a path inside the `node_modules` tree artifact, which Starlark cannot address at
-analysis time. That is why `server_in_tree` exists beside `server_binary`.
+a path under the importer's `node_modules` directory, reached through the
+package's link, which no artifact names. That is why `server_in_tree` exists
+beside `server_binary`.
+
+## NodeModulesInfo
+
+A [`node_modules`](node-modules.md) target returns it; `ts_codegen`,
+`ts_binary`, `ts_dev_server` and `esbuild_bundle` read it from their
+`node_modules` attr, and take the target's `DefaultInfo.files` -- every link
+and every store tree the links reach -- as inputs or runfiles.
+
+| Field | Type | Description |
+|---|---|---|
+| `dir` | `string` | The importer's `node_modules` directory as a bin-dir path, `bazel-out/<cfg>/bin/<package>/node_modules`: the parent of every link, which no artifact names |
+| `links` | `dict of string -> File` | Per package name, the declared symlink `node_modules/<name>` into the package's store tree |
+| `stores` | `dict of string -> NpmStoreInfo` | Every snapshot of the importer's closure, by store key |
+| `parent` | `NodeModulesInfo or None` | The importer above's |
+
+## NpmLinkInfo
+
+A [`node_modules_member`](node-modules.md) target returns it beside the
+member's `TsInfo` and `NpmPackageInfo`, so a `ts_compile` names the link target
+in `deps` where it named the hub's view.
+
+| Field | Type | Description |
+|---|---|---|
+| `link` | `File` | The declared symlink `node_modules/<member name>` |
+| `store` | `NpmStoreInfo` | The member's store, the link's target |
 
 ## Toolchain Contract
 

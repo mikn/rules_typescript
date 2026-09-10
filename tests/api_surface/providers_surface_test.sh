@@ -20,8 +20,8 @@ PROVIDERS="${RUNFILES}/ts/private/providers.bzl"
 want="${TEST_TMPDIR}/want"
 got="${TEST_TMPDIR}/got"
 
-printf '%s\n' BundlerInfo DevServerInfo NpmPackageInfo TsConfigInfo TsInfo \
-  TsTestRunnerInfo > "${want}"
+printf '%s\n' BundlerInfo DevServerInfo NodeModulesInfo NpmLinkInfo \
+  NpmPackageInfo TsConfigInfo TsInfo TsTestRunnerInfo > "${want}"
 sed -n 's/^\([A-Za-z]*\) = provider($/\1/p' "${PROVIDERS}" \
   | LC_ALL=C sort > "${got}"
 if ! LC_ALL=C diff -u "${want}" "${got}" > "${TEST_TMPDIR}/diff"; then
@@ -43,4 +43,4 @@ if ! LC_ALL=C diff -u "${want}" "${got}" > "${TEST_TMPDIR}/diff"; then
   cat "${TEST_TMPDIR}/diff" >&2
   exit 1
 fi
-echo "providers.bzl defines exactly 6 providers; TsInfo has exactly 12 fields"
+echo "providers.bzl defines exactly 8 providers; TsInfo has exactly 12 fields"

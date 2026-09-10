@@ -504,20 +504,23 @@ func TestEdgeLabel_CuloriPairing(t *testing.T) {
 	}
 }
 
-// A bare specifier naming a member is the member's view from every package
-// but the member's own ts_compile, where it is nothing (G's rule).
+// A member by name is the nearest linking importer's link target, else the
+// view, from every package but the member's own ts_compile (G's rule).
 func TestMemberView(t *testing.T) {
 	_, l := npmRepo(t)
 	for _, c := range []struct {
 		spec, pkg, kind, want string
 		ok                    bool
 	}{
-		{"@acme/lib/wire", "packages/app", "ts_compile", "@npm//:acme_lib", true},
-		{"@acme/lib", "packages/lib", "ts_test", "@npm//:acme_lib", true},
+		{"@acme/lib/wire", "packages/app", "ts_compile", "//:node_modules/@acme/lib", true},
+		{"@acme/lib", "packages/lib", "ts_test", "//:node_modules/@acme/lib", true},
 		{"@acme/lib/icons/Check", "packages/lib", "ts_compile", "", true},
 		{"@acme/lib/wire", "packages/lib/example", "ts_compile",
-			"@npm//:acme_lib", true},
-		{"@acme/ui", "web", "ts_compile", "@npm//:acme_ui", true},
+			"//:node_modules/@acme/lib", true},
+		{"@acme/lib", "", "ts_test", ":node_modules/@acme/lib", true},
+		{"@acme/ui", "web", "ts_compile", ":node_modules/@acme/ui", true},
+		{"@acme/ui", "web/src", "ts_compile", "//web:node_modules/@acme/ui", true},
+		{"@acme/ui", "packages/app", "ts_compile", "@npm//:acme_ui", true},
 		{"web-app", "web", "ts_compile", "", true},
 		{"web-app", "web", "ts_test", "@npm//:web-app", true},
 		{"download", "workers/download/test", "ts_test", "@npm//:download", true},

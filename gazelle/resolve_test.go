@@ -386,7 +386,7 @@ func TestResolveEdges_CompileDepsFromTheListing(t *testing.T) {
 	r, logged := resolveEdgesOf(t, c, ix, "ts_compile", "web", "web", imps)
 	want := []string{
 		"//packages/ui",
-		"@npm//:acme_ui",
+		":node_modules/@acme/ui",
 		"@npm//:types_node",
 		"@npm//:vite",
 		"@npm//:zod",
@@ -432,7 +432,7 @@ func TestResolveEdges_DepOnAnUnlistedSrc(t *testing.T) {
 	want := []string{
 		"//packages/figma",
 		"//packages/ui",
-		"@npm//:acme_ui",
+		":node_modules/@acme/ui",
 		"@npm//:types_node",
 		"@npm//:vite",
 		"@npm//:zod",
@@ -476,8 +476,8 @@ func TestResolveEdges_TestDepsCarryTheRuntime(t *testing.T) {
 	r, logged := resolveEdgesOf(t, c, ix, "ts_test", "web", "web_test", imps)
 	want := []string{
 		"//packages/ui",
+		":node_modules/@acme/ui",
 		":web",
-		"@npm//:acme_ui",
 		"@npm//:types_node",
 		"@npm//:typescript",
 		"@npm//:vite",
@@ -564,7 +564,7 @@ func TestResolveEdges_MemberSelfImport(t *testing.T) {
 	}
 	r, _ = resolveEdgesOf(t, c, ix, "ts_test", "packages/lib", "lib_test",
 		s.testImports(c.RepoRoot, tc.lock, "packages/lib", ":lib", "", set))
-	want := []string{":lib", "@npm//:acme_lib"}
+	want := []string{"//:node_modules/@acme/lib", ":lib"}
 	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
 		t.Errorf("ts_test deps = %q, want %q", got, want)
 	}

@@ -386,8 +386,8 @@ func devServerFixture(t *testing.T) (*Resolver, map[string]string) {
 	})
 }
 
-// devServerWorkspace is a real directory, because planDevServer links the npm
-// tree into it as node_modules.
+// devServerWorkspace is a real directory, because planDevServer links the
+// importer's node_modules into it.
 func devServerWorkspace(t *testing.T) string {
 	t.Helper()
 	ws := t.TempDir()
@@ -449,7 +449,7 @@ func TestPlanDevServerExplainsAMissingVite(t *testing.T) {
 	cfg.DevServer.ServerInTree = "vite/bin/absent.js"
 	_, err := MakePlan(cfg, r, nil)
 	if err == nil {
-		t.Fatal("a node_modules tree without vite must fail")
+		t.Fatal("a node_modules without vite must fail")
 	}
 	if !strings.Contains(err.Error(), "node_modules() target") {
 		t.Errorf("error is not actionable: %v", err)
@@ -587,7 +587,7 @@ func TestPlanVitestLinksTheNpmTreeAtTheRunfilesRoot(t *testing.T) {
 		t.Fatalf("no node_modules link at the runfiles root: %v", err)
 	}
 	if got != real[tree] {
-		t.Errorf("link -> %q, want the npm tree %q", got, real[tree])
+		t.Errorf("link -> %q, want the node_modules %q", got, real[tree])
 	}
 }
 
@@ -627,10 +627,8 @@ func TestEnvironCollapsesDuplicateKeys(t *testing.T) {
 	}
 }
 
-// The npm tree is a Bazel output with no node_modules above the source that
-// imports from it, so the launcher links it in at the workspace root. These
-// pin what it does with whatever is already sitting on that name -- getting it
-// wrong serves a stale install, or deletes one.
+// The launcher links the importer's node_modules in at the workspace root;
+// these pin what it does with whatever already sits on that name.
 
 func TestPlanDevServerLinksTheNpmTreeIntoTheWorkspace(t *testing.T) {
 	r, real := devServerFixture(t)
@@ -645,7 +643,7 @@ func TestPlanDevServerLinksTheNpmTreeIntoTheWorkspace(t *testing.T) {
 		t.Fatalf("no node_modules link at the workspace root: %v", err)
 	}
 	if target != real["_main/tests/app/node_modules"] {
-		t.Errorf("link -> %q, want the npm tree %q", target, real["_main/tests/app/node_modules"])
+		t.Errorf("link -> %q, want the node_modules %q", target, real["_main/tests/app/node_modules"])
 	}
 	if plan.Cleanup == nil {
 		t.Fatal("a link the launcher made has to come back off")
@@ -667,7 +665,7 @@ func TestPlanDevServerKeepsAnIdenticalLinkAndDoesNotRemoveIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Another dev server on the same tree may own it; removing it would break a
+	// Another dev server on the same directory may own it; removing it breaks a
 	// server this process never started.
 	if plan.Cleanup != nil {
 		plan.Cleanup()
@@ -677,7 +675,7 @@ func TestPlanDevServerKeepsAnIdenticalLinkAndDoesNotRemoveIt(t *testing.T) {
 	}
 }
 
-func TestPlanDevServerRefusesALinkToAnotherTree(t *testing.T) {
+func TestPlanDevServerRefusesALinkToAnotherNodeModules(t *testing.T) {
 	r, _ := devServerFixture(t)
 	ws := devServerWorkspace(t)
 	other := t.TempDir()
@@ -687,10 +685,10 @@ func TestPlanDevServerRefusesALinkToAnotherTree(t *testing.T) {
 	}
 	_, err := MakePlan(devServerConfig(), r, nil)
 	if err == nil {
-		t.Fatal("two npm trees cannot both be at the workspace root")
+		t.Fatal("two node_modules cannot both be at the workspace root")
 	}
 	if !strings.Contains(err.Error(), other) {
-		t.Errorf("the error does not name the tree already there: %v", err)
+		t.Errorf("the error does not name the directory already there: %v", err)
 	}
 	if target, _ := os.Readlink(link); target != other {
 		t.Errorf("the existing link was replaced with %q", target)

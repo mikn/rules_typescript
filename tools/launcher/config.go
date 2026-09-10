@@ -83,11 +83,8 @@ type NodeTestConfig struct {
 	ResolveHook string `json:"resolve_hook,omitempty"`
 }
 
-// DevServerConfig runs one dev server implementation, chosen by
-// ts_dev_server's server attr. ServerBinary and ServerInTree are the two ways a
-// server can arrive and exactly one is set: a native binary is a runfile, while
-// a server shipping as an npm package is only a path inside the node_modules
-// tree, since a file inside a TreeArtifact has no label to put in runfiles.
+// DevServerConfig runs one dev server implementation. Exactly one of
+// ServerBinary (a runfile) and ServerInTree (a path under NodeModules) is set.
 type DevServerConfig struct {
 	ConfigFile      string   `json:"config_file"`
 	NodeModules     string   `json:"node_modules,omitempty"`

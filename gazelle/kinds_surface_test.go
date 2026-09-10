@@ -1,6 +1,7 @@
 package typescript
 
 import (
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -12,23 +13,29 @@ import (
 // wantKinds is every kind this extension writes or withdraws.
 var wantKinds = []string{
 	"filegroup",
+	"node_modules",
+	"node_modules_member",
+	"npm_virtual_store",
 	"ts_codegen",
 	"ts_compile",
 	"ts_config",
 	"ts_test",
 }
 
-// wantSymbols is the load line: every kind but filegroup, which is native.
-var wantSymbols = []string{
-	"ts_codegen", "ts_compile", "ts_config", "ts_test",
+// wantLoads is the load lines by file: every kind but filegroup, which is
+// native; the store call comes from the hub.
+var wantLoads = map[string][]string{
+	"@npm//:defs.bzl":                 {"npm_virtual_store"},
+	"@rules_typescript//npm:defs.bzl": {"node_modules", "node_modules_member"},
+	"@rules_typescript//ts:defs.bzl":  {"ts_codegen", "ts_compile", "ts_config", "ts_test"},
 }
 
 // A goneKind back in Kinds() or a load would have Gazelle write a rule it must
-// not: six that no .bzl defines, and the four that are written by hand.
+// not: six that no .bzl defines, and the three that are written by hand.
 var goneKinds = []string{
 	"next_build", "next_dev_server", "sveltekit_build", "ts_bundle",
 	"vite_bundler", "ts_lint",
-	"node_modules", "ts_add_package", "ts_dev_server", "ts_pnpm",
+	"ts_add_package", "ts_dev_server", "ts_pnpm",
 }
 
 func TestKinds_ExactSurface(t *testing.T) {
@@ -48,30 +55,33 @@ func TestKinds_ExactSurface(t *testing.T) {
 	}
 }
 
-// The one load, its symbols exactly wantSymbols in that order: a symbol
+// The loads, each file's symbols exactly wantLoads' in that order: a symbol
 // Kinds() lacks or a gone kind fails here, and so does a map-ordered list.
-func TestLoads_OneDefsLoadNamingEveryKind(t *testing.T) {
+func TestLoads_ThreeLoadsNamingEveryKind(t *testing.T) {
 	lang := &tsLang{}
 	for name, loads := range map[string][]rule.LoadInfo{
 		"Loads":         lang.Loads(),
 		"ApparentLoads": lang.ApparentLoads(func(string) string { return "" }),
 	} {
-		if len(loads) != 1 {
-			t.Errorf("%s = %d loads, want the one over //ts:defs.bzl", name, len(loads))
-			continue
+		got := map[string][]string{}
+		for _, li := range loads {
+			got[li.Name] = li.Symbols
 		}
-		li := loads[0]
-		if li.Name != "@rules_typescript//ts:defs.bzl" {
-			t.Errorf("%s loads %s", name, li.Name)
-		}
-		if !slices.Equal(li.Symbols, wantSymbols) {
-			t.Errorf("%s symbols = %v\nwant %v", name, li.Symbols, wantSymbols)
+		if !reflect.DeepEqual(got, wantLoads) {
+			t.Errorf("%s = %v\nwant %v", name, got, wantLoads)
 		}
 	}
 	apparent := lang.ApparentLoads(func(module string) string {
 		return strings.ReplaceAll(module, "rules_typescript", "rules_ts~")
 	})
-	if got := apparent[0].Name; got != "@rules_ts~//ts:defs.bzl" {
-		t.Errorf("ApparentLoads under an apparent name loads %s", got)
+	var names []string
+	for _, li := range apparent {
+		names = append(names, li.Name)
+	}
+	want := []string{"@npm//:defs.bzl", "@rules_ts~//npm:defs.bzl",
+		"@rules_ts~//ts:defs.bzl"}
+	if !slices.Equal(names, want) {
+		t.Errorf("ApparentLoads under an apparent name loads %v, want %v",
+			names, want)
 	}
 }

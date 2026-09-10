@@ -23,7 +23,9 @@ NpmStoreInfo = provider(
 
 MEMBER_VERSION = "0.0.0"
 
-HOIST_TARGET = "node_modules/.pnpm/node_modules"
+STORE_DIR = "node_modules/.pnpm"
+
+HOIST_TARGET = STORE_DIR + "/node_modules"
 
 def store_key(name, version, peer_id):
     """The store directory of one resolution: name, version and peer set."""
@@ -32,7 +34,7 @@ def store_key(name, version, peer_id):
 
 def store_target(key, name):
     """The name of a store target, which is its tree's path in the package."""
-    return "node_modules/.pnpm/{}/node_modules/{}".format(key, name)
+    return "{}/{}/node_modules/{}".format(STORE_DIR, key, name)
 
 def _store_parts(name):
     parts = name.split("/")
@@ -63,6 +65,16 @@ def _relative(from_dir, to):
         shared += 1
     return "/".join([".."] * (len(a) - shared) + b[shared:])
 
+def store_link(ctx, dir, name, store):
+    """The declared symlink `<dir>/<name>`, its target the relative path to
+    `store`'s tree."""
+    link = ctx.actions.declare_symlink("{}/{}".format(dir, name))
+    ctx.actions.symlink(
+        output = link,
+        target_path = _relative(link.dirname, store.tree.path),
+    )
+    return link
+
 def _link(ctx, dir, name, dep, links):
     if name in links:
         fail("{}: '{}' linked twice, to {} and {}".format(
@@ -71,12 +83,7 @@ def _link(ctx, dir, name, dep, links):
             links[name].owner,
             dep.label,
         ))
-    link = ctx.actions.declare_symlink("{}/{}".format(dir, name))
-    ctx.actions.symlink(
-        output = link,
-        target_path = _relative(link.dirname, dep[NpmStoreInfo].tree.path),
-    )
-    links[name] = link
+    links[name] = store_link(ctx, dir, name, dep[NpmStoreInfo])
 
 def _dep_links(ctx, parts):
     links = {}
@@ -173,7 +180,7 @@ npm_store = rule(
     },
     doc = """One store tree, named after its path: the snapshot's files copied
 by `tsaction stage` into `node_modules/.pnpm/<key>/node_modules/<name>`, and
-one declared symlink beside it per dependency. `npm_virtual_store()` declares
+one declared symlink beside it per dependency. `npm_virtual_store` declares
 every one of a lockfile's; not for hand use.""",
 )
 
@@ -257,7 +264,7 @@ npm_store_member = rule(
 as +>@0.0.0/node_modules/<name>`: its package.json as built, its `.js`,
 `.js.map`, `.d.ts` and data at their package-relative paths, the source
 package.json excepted; one declared symlink beside it per dependency the
-member's importer declares. Declared by `npm_virtual_store()`.""",
+member's importer declares. Declared by `npm_virtual_store`.""",
 )
 
 def _hoist_links(ctx, dir, entries, links):
@@ -289,7 +296,7 @@ npm_store_hoist = rule(
     doc = """The hidden hoist of one lockfile: a declared symlink into a store
 tree per hoisted name, `private` ones under this target's name
 (`node_modules/.pnpm/node_modules/<name>`), `public` ones at the root
-importer's `node_modules/<name>`. Declared by `npm_virtual_store()`.""",
+importer's `node_modules/<name>`. Declared by `npm_virtual_store`.""",
 )
 
 def _join(names):
@@ -331,11 +338,12 @@ def hoisted_on(graph, platform):
         out[entry["alias"]] = (entry["kind"], (which, index))
     return out
 
-def virtual_store(graph, members, files, package_dir):
+def virtual_store(name, graph, members, files, package_dir):
     """Declares a lockfile's store in the calling package: every npm_store,
     npm_store_member and the npm_store_hoist, `manual` and public.
 
     Args:
+        name: The store directory the call is named after, `node_modules/.pnpm`.
         graph: The hub's store graph, decoded.
         members: {member path: struct(target = Label, manifest = str)} for
             every member whose BUILD file declares its target.
@@ -343,10 +351,15 @@ def virtual_store(graph, members, files, package_dir):
             evaluated in the hub, which sees the repository by that name.
         package_dir: function(repo, name) -> Label of its package.json.
     """
+    if name != STORE_DIR:
+        fail(
+            "npm_virtual_store: the store is pnpm's {}, ".format(STORE_DIR) +
+            "which names the call; got '{}'".format(name),
+        )
     here = (native.repo_name(), native.package_name())
     if here != (graph["repo"], graph["package"]):
         fail(
-            "npm_virtual_store() called from @@{}//{}: the store of {} ".format(
+            "npm_virtual_store called from @@{}//{}: the store of {} ".format(
                 here[0],
                 here[1],
                 graph["lockfile"],

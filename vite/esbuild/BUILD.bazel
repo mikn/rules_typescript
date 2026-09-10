@@ -7,4 +7,4 @@ exports_files([
     "pnpm-lock.yaml",
 ])
 
-npm_virtual_store()
+npm_virtual_store(name = "node_modules/.pnpm")

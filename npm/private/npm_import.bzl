@@ -592,7 +592,7 @@ _HUB_HEADER = [
     "# Aliases, plus one view per workspace member: this repository downloads",
     "# nothing, so it stays cheap to regenerate when the lockfile changes, and",
     "# referencing one alias fetches only that package's own repository. The",
-    "# lockfile's store is declared by defs.bzl's npm_virtual_store().",
+    "# lockfile's store is declared by defs.bzl's npm_virtual_store.",
     'package(default_visibility = ["//visibility:public"])',
     "",
 ]
@@ -606,8 +606,9 @@ def _hub_lines(members, note = None):
 
 _DEFS_HEADER = '''"""The virtual store of {lockfile}; generated, do not edit.
 
-`npm_virtual_store()`, called once in the lockfile's package, declares one
-store target per snapshot and per workspace member and the hidden hoist;
+`npm_virtual_store(name = "node_modules/.pnpm")`, called once in the
+lockfile's package and named after the store directory, declares one store
+target per snapshot and per workspace member and the hidden hoist;
 `store_graph` is the graph it declares them from. docs/rules/node-modules.md
 § The Store.
 """
@@ -625,8 +626,8 @@ def _files(repo):
 def _package_dir(repo, name):
     return Label("@{{}}//:node_modules/{{}}/package.json".format(repo, name))
 
-def npm_virtual_store():
-    virtual_store(store_graph, _MEMBERS, _files, _package_dir)
+def npm_virtual_store(name):
+    virtual_store(name, store_graph, _MEMBERS, _files, _package_dir)
 '''
 
 def _member_lines(rctx, targets):
@@ -727,7 +728,7 @@ npm_hub = repository_rule(
             doc = "The lockfile's store graph as JSON (npm/lazy.bzl): every " +
                   "snapshot's store key, repository, platforms and edges, " +
                   "the members with theirs, and the hoisted names; " +
-                  "defs.bzl's `npm_virtual_store()` declares the store " +
+                  "defs.bzl's `npm_virtual_store` declares the store " +
                   "from it.",
         ),
         "broken_cycle_edges": attr.string_list(
@@ -736,7 +737,7 @@ npm_hub = repository_rule(
     },
     doc = "Alias-only hub giving npm packages stable @npm//:<name> labels, one view " +
           "per workspace member, one package per importer holding that " +
-          "importer's own resolution, and defs.bzl's `npm_virtual_store()`.",
+          "importer's own resolution, and defs.bzl's `npm_virtual_store`.",
 )
 
 # Exported for the tests that pin the credential rules and the `link:` member

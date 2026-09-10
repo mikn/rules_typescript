@@ -22,7 +22,7 @@ ts_binary(
 )
 
 node_modules(
-    name = "generator_node_modules",
+    name = "node_modules",
     deps = ["@npm//:nanoid"],
 )
 
@@ -35,7 +35,7 @@ ts_codegen(
         "{out}",
     ],
     generator = ":main",
-    node_modules = ":generator_node_modules",
+    node_modules = ":node_modules",
 )
 
 ts_compile(

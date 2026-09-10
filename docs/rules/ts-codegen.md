@@ -80,7 +80,7 @@ that reads any layout.
 | `out_dir` | `string` | `""` | A single declared **directory** instead, for a generator that produces a tree it will not enumerate (Prisma's client, say) |
 | `generator` | `label` | required | The executable, built for the exec configuration |
 | `args` | `string_list` | `[]` | The generator's command line, after placeholder substitution |
-| `node_modules` | `label` | `None` | An npm tree for a generator that imports packages at runtime. Name the target `node_modules` if the generator uses ESM |
+| `node_modules` | `label` | `None` | The importer's [`node_modules`](node-modules.md) target, for a generator that imports npm packages at runtime |
 | `env` | `string_dict` | `{}` | Extra environment for the action |
 
 `outs` and `out_dir` are **mutually exclusive, and exactly one is required**.
@@ -224,7 +224,7 @@ execroot-relative.
 | `{srcs}` | every src path, space-separated in one argument |
 | `{out}` | the path of the first declared output; the `out_dir` directory when `out_dir` is set |
 | `{outs_dir}` | the directory of the first declared output |
-| `{node_modules_dir}` | the npm tree's path; only substituted when `node_modules` is set |
+| `{node_modules_dir}` | the importer's `node_modules` directory; only substituted when `node_modules` is set |
 
 `{srcs_dir}` and `{outs_dir}` are the first entry's directory, not a common
 ancestor. A `glob()` spanning two directories hands the generator one of them; a
@@ -240,21 +240,13 @@ The rule sets three variables:
 | Variable | When | Value |
 |---|---|---|
 | `NODE_BINARY` | a `js_tool` toolchain is registered | the toolchain node. Set with `setdefault`, so an `env` entry of your own wins |
-| `NODE_PATH` | `node_modules` is set | the tree's directory, for CJS resolution |
+| `NODE_PATH` | `node_modules` is set | the directory, for CJS resolution |
 | `TS_CODEGEN_NODE_MODULES` | `node_modules` is set | the same path, for a script that forks a child process |
 
-A generator with bare ESM imports needs the target named `node_modules`. The
-tree's directory is named after its target, and Node's ESM resolver looks only
-in a directory called `node_modules` as it walks up; `NODE_PATH` is a CJS
-mechanism, and ESM ignores it. `node_modules = ":codegen_node_modules"` fails at
-runtime:
-
-```
-Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'consola'
-```
-
-One `node_modules` target per package follows; a second npm tree in the same
-package can only serve a CJS generator.
+The directory is the importer's `node_modules`, so a generator's bare ESM
+import resolves by Node's walk up from the script and a CJS one through
+`NODE_PATH` alike; every link and every store tree the links reach is an input
+of the action.
 
 A Node generator is a [`ts_binary`](ts-binary.md) whose `entry_point` is the
 script. The rule resolves the runtime from the JS runtime toolchain and locates

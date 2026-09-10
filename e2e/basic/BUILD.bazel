@@ -13,7 +13,7 @@ gazelle(
     gazelle = "@rules_typescript//gazelle:gazelle_typescript",
 )
 
-npm_virtual_store()
+npm_virtual_store(name = "node_modules/.pnpm")
 
 # Bundle the app entry point, pulling in the transitive //src/lib dependency.
 # Exercises ts_binary's entry_point wiring and the cross-package depset walk.

@@ -66,7 +66,7 @@ func TestManifestLabels_Union(t *testing.T) {
 		got = l.manifestLabels(nearestManifest(root, "workers/download/test"))
 	})
 	want := []string{
-		"@npm//:acme_lib",
+		"//:node_modules/@acme/lib",
 		"@npm//workers/download:typescript",
 		"@npm//workers/download:wrangler",
 	}

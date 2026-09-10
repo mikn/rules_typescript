@@ -11,7 +11,7 @@ gazelle(
     gazelle = "@rules_typescript//gazelle:gazelle_typescript",
 )
 
-npm_virtual_store()
+npm_virtual_store(name = "node_modules/.pnpm")
 
 # The runner installs node_modules with it before Gazelle lists the program.
 ts_pnpm(name = "pnpm")

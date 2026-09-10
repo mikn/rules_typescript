@@ -5,8 +5,11 @@ package typescript
 import (
 	"flag"
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 	"sort"
+	"strings"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
 	"github.com/bazelbuild/bazel-gazelle/label"
@@ -125,19 +128,43 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 				"visibility": true,
 			},
 		},
+		// An importer declaring nothing has no deps, so deps and parent
+		// together decide emptiness.
+		"node_modules": {
+			NonEmptyAttrs: map[string]bool{
+				"deps":   true,
+				"parent": true,
+			},
+			MergeableAttrs: map[string]bool{
+				"deps":       true,
+				"parent":     true,
+				"visibility": true,
+			},
+		},
+		"node_modules_member": {
+			NonEmptyAttrs: map[string]bool{
+				"member": true,
+			},
+			MergeableAttrs: map[string]bool{
+				"member":     true,
+				"visibility": true,
+			},
+		},
+		// The lockfile package's store call, named after its directory.
+		"npm_virtual_store": {},
 	}
 }
 
-// Every Kind but filegroup, which is native, is a symbol of //ts:defs.bzl.
-func (l *tsLang) defsSymbols() []string {
-	var symbols []string
-	for kind := range l.Kinds() {
-		if kind != "filegroup" {
-			symbols = append(symbols, kind)
-		}
-	}
-	sort.Strings(symbols)
-	return symbols
+// The load each kind comes from; filegroup is native. The hub is spelled
+// @npm, as every npm label Gazelle writes is.
+var kindLoads = map[string]string{
+	"ts_codegen":          "//ts:defs.bzl",
+	"ts_compile":          "//ts:defs.bzl",
+	"ts_config":           "//ts:defs.bzl",
+	"ts_test":             "//ts:defs.bzl",
+	"node_modules":        "//npm:defs.bzl",
+	"node_modules_member": "//npm:defs.bzl",
+	"npm_virtual_store":   "@npm//:defs.bzl",
 }
 
 func (l *tsLang) Loads() []rule.LoadInfo {
@@ -151,10 +178,23 @@ func (l *tsLang) ApparentLoads(
 	if rulesTs == "" {
 		rulesTs = "rules_typescript"
 	}
-	return []rule.LoadInfo{{
-		Name:    "@" + rulesTs + "//ts:defs.bzl",
-		Symbols: l.defsSymbols(),
-	}}
+	symbols := map[string][]string{}
+	for kind := range l.Kinds() {
+		file, ok := kindLoads[kind]
+		if !ok {
+			continue
+		}
+		if !strings.HasPrefix(file, "@") {
+			file = "@" + rulesTs + file
+		}
+		symbols[file] = append(symbols[file], kind)
+	}
+	var loads []rule.LoadInfo
+	for _, file := range slices.Sorted(maps.Keys(symbols)) {
+		sort.Strings(symbols[file])
+		loads = append(loads, rule.LoadInfo{Name: file, Symbols: symbols[file]})
+	}
+	return loads
 }
 
 // Fix is empty: no ruleset code knows a retired attribute.

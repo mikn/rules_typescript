@@ -231,7 +231,8 @@ ts_test(
 	sort.Strings(got)
 	wantStrings(t, "pkg/src withdraws", got, []string{
 		"filegroup(vitest_config)", "filegroup(wrangler_config)",
-		"ts_compile(src)", "ts_config(tsconfig)", "ts_test(src_test)"})
+		"node_modules(node_modules)", "ts_compile(src)", "ts_config(tsconfig)",
+		"ts_test(src_test)"})
 	if n := strings.Count(g.logged, "pkg/src/BUILD.bazel"); n != 1 {
 		t.Errorf("the BUILD file to delete was named %d times, want once:\n%s",
 			n, g.logged)
@@ -1008,4 +1009,80 @@ func TestGenerate_DeclarationFlavoursRideInEveryTarget(t *testing.T) {
 	test := mustRule(t, res, "ts_test", "pkg_test")
 	wantStrings(t, "ts_test srcs", test.AttrStrings("srcs"),
 		[]string{"compile.d.mts", "compile.test.ts", "globals.d.mts"})
+}
+
+// ---- the lockfile's importers -----------------------------------------------
+
+// Every importer gets its node_modules and a link target per member it links,
+// the lockfile's package the store call; a non-importer withdraws all three.
+func TestGenerate_ImporterNodeModules(t *testing.T) {
+	g := generateAll(t, writeTree(t, map[string]string{
+		"package.json":              rootManifest,
+		pnpmLockfileName:            lockText,
+		"packages/lib/package.json": `{"name":"@acme/lib"}` + "\n",
+		"packages/ui/package.json":  `{"name":"@acme/ui-src"}` + "\n",
+		"web/package.json":          `{"name":"web-app"}` + "\n",
+		"web/tsconfig.json":         includeSrc,
+		"web/src/app.ts":            "export const app = 1;\n",
+		"web/BUILD.bazel": `load("@rules_typescript//npm:defs.bzl", "node_modules_member")
+
+node_modules_member(
+    name = "node_modules/@acme/gone",
+    member = "@npm//:acme_gone",
+)
+`,
+	}))
+
+	root := g.results[""]
+	mustRule(t, root, "npm_virtual_store", "node_modules/.pnpm")
+	nm := mustRule(t, root, "node_modules", "node_modules")
+	wantStrings(t, "root node_modules deps", nm.AttrStrings("deps"), []string{
+		"@npm//:types_node", "@npm//:typescript", "@npm//:vite", "@npm//:zod",
+	})
+	if got := nm.AttrString("parent"); got != "" {
+		t.Errorf("the root's node_modules names a parent: %q", got)
+	}
+	wantStrings(t, "root node_modules visibility", nm.AttrStrings("visibility"),
+		[]string{"//visibility:public"})
+	lib := mustRule(t, root, "node_modules_member", "node_modules/@acme/lib")
+	if got := lib.AttrString("member"); got != "@npm//:acme_lib" {
+		t.Errorf("node_modules/@acme/lib links %q, want @npm//:acme_lib", got)
+	}
+
+	web := g.results["web"]
+	wnm := mustRule(t, web, "node_modules", "node_modules")
+	wantStrings(t, "web node_modules deps", wnm.AttrStrings("deps"), []string{
+		"@npm//web:marked", "@npm//web:react", "@npm//web:tailwindcss-v3",
+		"@npm//web:types_react",
+	})
+	if got := wnm.AttrString("parent"); got != "//:node_modules" {
+		t.Errorf("web's parent = %q, want //:node_modules", got)
+	}
+	ui := mustRule(t, web, "node_modules_member", "node_modules/@acme/ui")
+	if got := ui.AttrString("member"); got != "@npm//:acme_ui" {
+		t.Errorf("node_modules/@acme/ui links %q, want @npm//:acme_ui", got)
+	}
+	if !withdraws(web, "node_modules_member", "node_modules/@acme/gone") {
+		t.Errorf("web keeps a link no importer declares; Empty = %v",
+			kindsOf(web.Empty))
+	}
+
+	ui2 := mustRule(t, g.results["packages/ui"], "node_modules", "node_modules")
+	if deps := ui2.AttrStrings("deps"); len(deps) != 0 {
+		t.Errorf("packages/ui declares nothing but links %v", deps)
+	}
+	if got := ui2.AttrString("parent"); got != "//:node_modules" {
+		t.Errorf("packages/ui's parent = %q, want //:node_modules", got)
+	}
+
+	for _, rel := range []string{"web/src", "packages"} {
+		res := g.results[rel]
+		if r := generatedRule(res, "node_modules"); r != nil {
+			t.Errorf("%s is no importer but generates %s", rel, r.Kind())
+		}
+		if !withdraws(res, "node_modules", "node_modules") {
+			t.Errorf("%s does not withdraw node_modules; Empty = %v", rel,
+				kindsOf(res.Empty))
+		}
+	}
 }

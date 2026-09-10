@@ -14,8 +14,8 @@ bazel-bin, and the bundler reads them there.  Bazel owns the transform.
 `bazel run //app:dev`: Bazel is OUT of the inner loop.  Vite transforms
 checked-in first-party source in memory, so a keystroke reaches the browser
 without a Bazel analysis and action cycle in between.  bazel-bin stays
-authoritative for what Vite cannot produce itself: the npm tree the
-`node_modules` attr built, `ts_codegen` output (route trees, generated protos),
+authoritative for what Vite cannot produce itself: the npm packages the
+`node_modules` attr links, `ts_codegen` output (route trees, generated protos),
 and non-source assets and passthrough .d.ts.  Generated code is recognised by
 having no checked-in source, not by a list of paths that would drift out of
 sync with ts_codegen.
@@ -36,13 +36,13 @@ This rule generates:
        search-path option (`resolve.modules` is webpack's): it resolves a bare
        specifier by walking up from the importer, or from `root` for a package
        in resolve.dedupe and for optimizeDeps.include, and nothing above a
-       checked-in source file is a node_modules directory -- the npm tree is a
-       Bazel output. Neither of those two walks goes through the plugin
+       checked-in source file is a node_modules directory -- the importer's is
+       a Bazel output. Neither of those two walks goes through the plugin
        container, which is why the link and not a plugin is the mechanism. The
        plugin still catches an importer the walk cannot reach, by handing the
        specifier back to the resolver anchored at that package's package.json
-       inside the tree, so exports maps, conditions and subpaths stay Vite's to
-       interpret rather than this rule's to reimplement.
+       under the directory, so exports maps, conditions and subpaths stay
+       Vite's to interpret rather than this rule's to reimplement.
      - Loads @vitejs/plugin-react (`react_refresh = True`) at the entry point
        that package's own `exports` map declares.
      - Imports the `vite_config` file from a copy in bazel-bin rather than from
@@ -53,7 +53,7 @@ This rule generates:
 
   2. A launcher config (read by //tools/launcher) that:
      - Runs the Node binary of the resolved JS runtime toolchain, from runfiles.
-     - Resolves the vite CLI from the node_modules runfile tree.
+     - Resolves the vite CLI under the node_modules directory in the runfiles.
      - Exits with a diagnostic rather than reaching for a host `node` or `vite`.
      - Sets BAZEL_BIN_DIR to the bazel-bin symlink so the plugin can find outputs.
      - cd's to BUILD_WORKSPACE_DIRECTORY (set by `bazel run`).
@@ -72,7 +72,7 @@ process, by this generated config and the plugin:
     first-party source        Vite transform → HMR   no (Bazel uninvolved)
     ts_codegen output         bazel-bin watcher      no
     this generated config     ConfigWatcher          yes
-    npm tree / Vite version   ConfigWatcher          yes, plus a warning that
+    npm links / Vite version  ConfigWatcher          yes, plus a warning that
     toolchain node binary     ConfigWatcher          only a new `bazel run`
                                                      really replaces them
 
@@ -133,7 +133,8 @@ Usage:
 """
 
 load("//tools/launcher:launcher.bzl", "LAUNCHER_ATTRS", "declare_launcher", "rlocation_path")
-load("//ts/private:providers.bzl", "DevServerInfo", "TsInfo")
+load("//ts/private:node_modules.bzl", "runfiles_dir")
+load("//ts/private:providers.bzl", "DevServerInfo", "NodeModulesInfo", "TsInfo")
 load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "get_js_runtime")
 load("//ts/private:vite_config.bzl", "LOAD_USER_CONFIG_JS", "VITE_CONFIG_EXTENSIONS", "VITE_CONFIG_SRCS_DOC", "stage_vite_config")
 
@@ -189,7 +190,8 @@ def _generate_dev_config(
     The config is designed to work in conjunction with the launcher:
       - BAZEL_BIN_DIR env var is set to the bazel-bin path.
       - BUILD_WORKSPACE_DIRECTORY is set by `bazel run`.
-      - NODE_MODULES_PATH env var is set to the generated node_modules tree.
+      - NODE_MODULES_PATH env var is set to the importer's node_modules
+        directory.
       - VITE_PLUGIN_PATH env var is set to the compiled vite-plugin-bazel .mjs
         (only when the plugin attr is set).
       - VITE_USER_CONFIG_PATH env var is set to the user-supplied plugin config
@@ -197,8 +199,8 @@ def _generate_dev_config(
 
     Args:
         ctx: The rule context.
-        node_modules_rl: Runfiles-tree-relative path to the node_modules dir,
-            or empty string if node_modules is not set.
+        node_modules_rl: Runfiles-tree-relative path to the importer's
+            node_modules directory, or empty string if node_modules is not set.
         plugin_rl: Runfiles-tree-relative path to the compiled
             vite_plugin_bazel.mjs, or empty string if not set.
         react_refresh: bool, whether to import and use @vitejs/plugin-react
@@ -235,7 +237,7 @@ def _generate_dev_config(
         "// Environment variables read at startup:\n" +
         "//   BUILD_WORKSPACE_DIRECTORY — workspace root (set by `bazel run`)\n" +
         "//   BAZEL_BIN_DIR             — absolute path to the bazel-bin symlink\n" +
-        "//   NODE_MODULES_PATH         — absolute path to the Bazel-generated node_modules\n" +
+        "//   NODE_MODULES_PATH         — absolute path to the importer's node_modules\n" +
         (
             "//   VITE_PLUGIN_PATH           — absolute path to vite_plugin_bazel.mjs\n" if plugin_rl else ""
         ) +
@@ -253,7 +255,7 @@ def _generate_dev_config(
         "// bazel-bin is typically a symlink at <workspace>/bazel-bin.\n" +
         "const bazelBin = process.env['BAZEL_BIN_DIR'] || path.join(workspaceRoot, 'bazel-bin');\n" +
         "\n" +
-        "// The Bazel-generated node_modules tree (absolute path in runfiles).\n" +
+        "// The importer's node_modules directory (absolute path in runfiles).\n" +
         "const nodeModulesPath = process.env['NODE_MODULES_PATH'] || null;\n" +
         "\n"
     )
@@ -293,8 +295,8 @@ def _generate_dev_config(
     if react_refresh:
         react_load_failed = json.encode(
             "[ts_dev_server] {} sets react_refresh = True, but @vitejs/plugin-react did not ".format(ctx.label) +
-            "load from the Bazel node_modules tree. Add @npm//:vitejs_plugin-react to the deps " +
-            "of the node_modules() target this dev server uses. Cause: ",
+            "load from the node_modules the dev server links. Add @npm//:vitejs_plugin-react " +
+            "to the deps of the node_modules() target this dev server uses. Cause: ",
         )
         config_content += (
             "// A package's own `exports` map is the only authority on its entry point;\n" +
@@ -382,16 +384,16 @@ def _generate_dev_config(
 
     if node_modules_rl:
         config_content += (
-            "// A fallback, not the mechanism: the launcher links the npm tree in as\n" +
-            "// <workspace>/node_modules, so the walk up from an importer finds it the\n" +
-            "// way it would outside Bazel. This catches what that walk cannot see --\n" +
-            "// an importer outside the workspace, or a server whose resolver does no\n" +
-            "// walk at all -- by handing the id back with an importer that has the\n" +
-            "// tree above it: the package's own manifest. Exports maps, conditions and\n" +
-            "// subpaths stay the resolver's. It runs 'post' so it only fires where the\n" +
-            "// primary resolver came back empty; at 'pre' it rewrote every bare\n" +
-            "// importer into the tree, which reads to Vite as a node_modules-internal\n" +
-            "// import and opts the module out of dependency optimisation.\n" +
+            "// A fallback, not the mechanism: the launcher links the importer's\n" +
+            "// node_modules in as <workspace>/node_modules, so the walk up from an\n" +
+            "// importer finds it the way it would outside Bazel. This catches what that\n" +
+            "// walk cannot see -- an importer outside the workspace, or a server whose\n" +
+            "// resolver does no walk at all -- by handing the id back with an importer\n" +
+            "// under the directory: the package's own manifest. Exports maps,\n" +
+            "// conditions and subpaths stay the resolver's. It runs 'post' so it only\n" +
+            "// fires where the primary resolver came back empty; at 'pre' it rewrote\n" +
+            "// every bare importer into node_modules, which reads to Vite as a\n" +
+            "// node_modules-internal import and opts the module out of optimisation.\n" +
             "const bazelNpmResolve = {\n" +
             "  name: 'bazel:npm-resolve',\n" +
             "  enforce: 'post',\n" +
@@ -423,7 +425,6 @@ def _generate_dev_config(
             "  plugins.push(bazelPluginFn({\n" +
             "    bazelBin: bazelBin,\n" +
             "    nodeModules: nodeModulesPath || undefined,\n" +
-            "    target: " + json.encode(str(ctx.label)) + ",\n" +
             "    configInputs: bazelConfigInputs,\n" +
             "  }));\n" +
             "}\n"
@@ -444,8 +445,8 @@ def _generate_dev_config(
         "    host: " + host_js + ",\n" +
         "    open: " + open_js + ",\n" +
         "    fs: {\n" +
-        "      // Allow Vite to serve files from bazel-bin and the generated\n" +
-        "      // node_modules tree (Vite restricts serving by default).\n" +
+        "      // Allow Vite to serve files from bazel-bin and the importer's\n" +
+        "      // node_modules (Vite restricts serving by default).\n" +
         "      allow: fsAllow,\n" +
         "    },\n" +
         "    watch: {\n" +
@@ -457,8 +458,8 @@ def _generate_dev_config(
         "  },\n" +
         "\n" +
         "  // A bare specifier is left to the resolver's own walk up from the importer,\n" +
-        "  // which the launcher's <workspace>/node_modules link puts the Bazel tree on;\n" +
-        "  // a workspace member is in that tree through the hub's view of it. There is\n" +
+        "  // which the launcher's <workspace>/node_modules link puts the links on;\n" +
+        "  // a workspace member is among them through its link target. There is\n" +
         "  // no resolve.modules: that is a webpack option, and Vite ignores it.\n" +
         "  plugins,\n" +
         "\n"
@@ -565,10 +566,12 @@ def _ts_dev_server_impl(ctx):
     runtime_binary = js_runtime.runtime_binary
     runtime_args = js_runtime.args_prefix
 
-    node_modules_files = ctx.files.node_modules
+    node_modules = ctx.attr.node_modules
+    node_modules_files = depset()
     node_modules_rl = ""
-    if node_modules_files:
-        node_modules_rl = rlocation_path(ctx, node_modules_files[0])
+    if node_modules:
+        node_modules_files = node_modules[DefaultInfo].files
+        node_modules_rl = runfiles_dir(ctx, node_modules)
 
     plugin_files = ctx.files.plugin
     plugin_rl = ""
@@ -600,9 +603,8 @@ def _ts_dev_server_impl(ctx):
         user_config_rl,
     )
 
-    # A server inside the npm tree is a path, not a File: an individual file
-    # inside a TreeArtifact has no label at analysis time, so the launcher joins
-    # it onto the resolved tree. A native server is a File and needs neither.
+    # A server shipped as an npm package is a path under the node_modules
+    # directory, joined by the launcher; a native server is a File.
     dev_server = {
         "config_file": rlocation_path(ctx, config_file),
         "argv": server_info.argv,
@@ -616,7 +618,7 @@ def _ts_dev_server_impl(ctx):
         dev_server["server_in_tree"] = server_info.server_in_tree
     else:
         dev_server["server_binary"] = server_binary_rl
-    if node_modules_files:
+    if node_modules:
         dev_server["node_modules"] = node_modules_rl
     if plugin_files:
         dev_server["plugin"] = plugin_rl
@@ -633,7 +635,6 @@ def _ts_dev_server_impl(ctx):
     })
 
     explicit_runfiles = [config_file, runtime_binary] + launcher.files
-    explicit_runfiles.extend(node_modules_files)
     explicit_runfiles.extend(plugin_files)
     explicit_runfiles.extend(staged_config.files)
 
@@ -648,6 +649,7 @@ def _ts_dev_server_impl(ctx):
                 entry.transitive_js_maps,
                 entry.transitive_data,
                 server_info.runtime_deps,
+                node_modules_files,
             ],
         ),
     )
@@ -673,11 +675,10 @@ ts_dev_server = rule(
             mandatory = True,
         ),
         "node_modules": attr.label(
-            doc = "A node_modules() target containing vite and all application dependencies. " +
-                  "The directory must be named 'node_modules' so that Node.js ESM resolution " +
-                  "works correctly. When set, the generated config points module resolution at " +
-                  "this tree.",
-            allow_files = True,
+            doc = "The importer's `node_modules` target, linking vite and every " +
+                  "package the application imports. The generated config points " +
+                  "module resolution at its directory.",
+            providers = [NodeModulesInfo],
         ),
         "plugin": attr.label(
             doc = "Optional compiled vite-plugin-bazel JavaScript file. " +
@@ -757,7 +758,7 @@ From there Bazel is out of the inner loop: Vite transforms your first-party
 `.ts`/`.tsx` source in memory, so a save reaches the browser as HMR without a
 Bazel analysis and action cycle in between. bazel-bin is still where Vite reads
 what it cannot produce itself -- `ts_codegen` output, generated assets, and the
-npm tree from the `node_modules` attr.
+npm packages the `node_modules` attr links.
 
 **The dev server does not typecheck.** That is the same deal as a native
 `vite dev` (Vite has never typechecked; tsserver and `bazel build` do), but it
@@ -766,12 +767,12 @@ in `bazel build`, and no longer blocks the browser update.
 
 `ibazel run //app:dev` is still worth using for what Bazel does own: a
 `ts_codegen` rebuild reaches the browser as HMR, and a rebuild that changed the
-server's own configuration -- BUILD deps, the entry point, the npm tree --
+server's own configuration -- BUILD deps, the entry point, the npm links --
 restarts Vite instead of leaving it serving a graph that no longer
 exists. A rebuild that changed neither does nothing, which is the point.
 
-The node_modules attr must point to a node_modules() rule that includes `vite`
-and all packages imported by the application.
+The node_modules attr names the importer's node_modules() target, whose deps
+include `vite` and every package the application imports.
 
 The optional plugin attr wires in vite-plugin-bazel, which is what resolves
 generated code out of bazel-bin, invalidates precisely on a rebuild, and makes

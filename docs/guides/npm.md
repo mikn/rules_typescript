@@ -548,37 +548,36 @@ the generated tsconfig writes no `paths` key for it.
 
 ## node_modules Targets
 
-For test and dev-server targets that need a real `node_modules` directory on
-disk:
+Every lockfile importer's package holds a `node_modules` target, its declared
+npm packages linked into the store, and a `node_modules_member` per member it
+links; Gazelle writes both from the lockfile's `importers:`:
 
 ```python
-load("@rules_typescript//npm:defs.bzl", "node_modules")
+load("@rules_typescript//npm:defs.bzl", "node_modules", "node_modules_member")
 
 node_modules(
     name = "node_modules",
     deps = ["@npm//:vitest", "@npm//:react"],
 )
+
+node_modules_member(
+    name = "node_modules/shared",
+    member = "@npm//:shared",
+)
 ```
 
-This builds a `node_modules` tree in the sandbox holding exactly those packages
-and their transitive dependencies. `ts_test` does it for you from its `deps`. See
-[Testing with vitest](testing.md).
-
-The tree places every resolution a closure made, not one per name. A name's
-primary resolution keeps the flat top-level directory; any other one gets its
-bytes once under `.pnpm/<name>@<version>[_<peer set>]/node_modules/<name>`, with
-a relative link from each dependent that resolved to it. A resolution is name,
-version and peer set: pnpm resolves a package once per distinct peer set, and
-those outcomes have different dependency edges. Declaring two resolutions of
-one name directly on one target is an error. See
+`ts_codegen`, `ts_binary` and `ts_dev_server` take the importer's target and
+stage its links and every store tree they reach; `ts_test` builds its own tree
+from `deps`. See [Testing with vitest](testing.md) and
 [node_modules](../rules/node-modules.md#the-layout).
 
-Beside the trees, every lockfile's package declares pnpm's virtual store:
-`npm_virtual_store()`, loaded from the hub's `defs.bzl`, is one cached tree of
-real files per snapshot at `node_modules/.pnpm/<key>/node_modules/<name>`, its
-dependency links declared symlinks beside it, a tree per workspace member, and
-pnpm's hidden hoist; every package target carries its store as
-`NpmPackageInfo.store`. See [The Store](../rules/node-modules.md#the-store).
+Beside them, every lockfile's package declares pnpm's virtual store:
+`npm_virtual_store(name = "node_modules/.pnpm")`, loaded from the hub's
+`defs.bzl`, is one cached tree of real files per snapshot at
+`node_modules/.pnpm/<key>/node_modules/<name>`, its dependency links declared
+symlinks beside it, a tree per workspace member, and pnpm's hidden hoist; every
+package target carries its store as `NpmPackageInfo.store`. See
+[The Store](../rules/node-modules.md#the-store).
 
 ## One Repository per Package
 

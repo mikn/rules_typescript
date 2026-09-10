@@ -101,8 +101,8 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 - `ts/tools/explainfiles/`, `ts/tools/tsconfig/`, `ts/tools/jsonc/` — the
   `--explainFiles` grammar, the tsconfig `extends` chain reader and the JSONC
   parser, shared by tsaction and Gazelle
-- `ts/private/node_modules.bzl` — the `node_modules` tree builder; `ts_compile`'s forest and `ts_test`'s runtime tree
-- `ts/private/providers.bzl` — TsInfo, TsTestRunnerInfo, TsConfigInfo, NpmPackageInfo, DevServerInfo, BundlerInfo
+- `ts/private/node_modules.bzl` — `node_modules` and `node_modules_member`, an importer's links into the store; and the forest builder, `ts_compile`'s forest and `ts_test`'s runtime tree
+- `ts/private/providers.bzl` — TsInfo, TsTestRunnerInfo, TsConfigInfo, NpmPackageInfo, DevServerInfo, BundlerInfo, NodeModulesInfo, NpmLinkInfo
 - `npm/private/npm_translate_lock.bzl` — pnpm lockfile reader (parsing only; no repository rule)
 - `npm/extensions.bzl` — the `npm` module extension (translate_lock, pnpm tags)
 - `npm/lazy.bzl` — whole-graph analysis + one `npm_import` per package + the alias hub
@@ -393,9 +393,10 @@ what it wrote. Writing one is vitest's own `vitest -u` in the package.
   root module's `translate_lock` priority for every hub name, so none is
   privileged: a ruleset-internal target naming `@npm//:x` resolves into whatever
   lockfile the consumer registered, and the `dev_dependency` hubs do not exist
-  for a consumer at all. `//vite:esbuild_node_modules` named `@npm//:esbuild`,
+  for a consumer at all. `//vite:node_modules` named `@npm//:esbuild`,
   and it feeds `//vite:vite_plugin_bazel`, which `ts_dev_server` takes through
   its `plugin` attr. `plugin` has no default, and no workspace here
   set it, so nothing had reached the label and no build had failed. The `@npm`
-  labels still in `//vite` are unreached, not sanctioned. One tree pins the
-  rule, `//vite:esbuild_node_modules`, declared in `tests/npm/BUILD.bazel`.
+  labels still in `//vite` are unreached, not sanctioned. One test pins the
+  rule, `//tests/npm:vite_plugin_hub_test`, over the store `//vite:node_modules`
+  links into.

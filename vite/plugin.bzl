@@ -2,24 +2,27 @@
 
 The plugin is a single bundled ESM file that a generated vite.config.mjs
 imports.  Node comes from the js_tool toolchain (exec platform) and esbuild
-from a node_modules tree, so nothing is resolved from PATH and no per-platform
-select is needed.
+through the importer's node_modules, so nothing is resolved from PATH and no
+per-platform select is needed.
 """
 
+load("//ts/private:providers.bzl", "NodeModulesInfo")
 load("//ts/private:runtime.bzl", "JS_TOOL_TOOLCHAIN_TYPE", "get_js_tool")
 
 def _esbuild_bundle_impl(ctx):
     js_tool = get_js_tool(ctx)
-    node_modules_files = ctx.files.node_modules
-    if not node_modules_files:
-        fail("esbuild_bundle: 'node_modules' produced no files; it must be a node_modules() target containing esbuild.")
-    node_modules_dir = node_modules_files[0]
+    node_modules = ctx.attr.node_modules[NodeModulesInfo]
+    if "esbuild" not in node_modules.links:
+        fail("esbuild_bundle: {} links no esbuild; add it to the node_modules target's deps.".format(
+            ctx.attr.node_modules.label,
+        ))
+    node_modules_dir = node_modules.dir
 
     out = ctx.actions.declare_file(ctx.attr.out)
 
     args = ctx.actions.args()
     args.add_all(js_tool.args_prefix)
-    args.add("{}/esbuild/bin/esbuild".format(node_modules_dir.path))
+    args.add("{}/esbuild/bin/esbuild".format(node_modules_dir))
     args.add(ctx.file.entry_point)
     args.add("--bundle")
     args.add("--platform=node")
@@ -37,12 +40,15 @@ def _esbuild_bundle_impl(ctx):
     args.add("--outfile=" + out.path)
 
     ctx.actions.run(
-        inputs = depset(ctx.files.srcs, transitive = [depset(node_modules_files)]),
+        inputs = depset(
+            ctx.files.srcs,
+            transitive = [ctx.attr.node_modules[DefaultInfo].files],
+        ),
         outputs = [out],
         executable = js_tool.runtime_binary,
         arguments = [args],
         # esbuild's launcher requires('esbuild') to find its native binary.
-        env = {"NODE_PATH": node_modules_dir.path},
+        env = {"NODE_PATH": node_modules_dir},
         mnemonic = "EsbuildBundle",
         progress_message = "EsbuildBundle %{label}",
     )
@@ -70,8 +76,8 @@ esbuild_bundle = rule(
             mandatory = True,
         ),
         "node_modules": attr.label(
-            doc = "A node_modules() target containing esbuild.",
-            allow_files = True,
+            doc = "The importer's node_modules() target, linking esbuild.",
+            providers = [NodeModulesInfo],
             mandatory = True,
         ),
         "external": attr.string_list(

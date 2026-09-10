@@ -37,7 +37,7 @@ runfile() {
 NODE="$(runfile ts/toolchain/node_resolved/node)"
 HOOK_JS="$(runfile tools/tsserver-hook.js)"
 DIAG_TEST_MJS="$(runfile tests/lsp/tsserver_diag_test.mjs)"
-NODE_MODULES="$(runfile tests/lsp/lsp_node_modules)"
+NODE_MODULES="$(runfile tests/lsp/node_modules)"
 [[ -d "${NODE_MODULES}" ]] || fail "not a node_modules tree: ${NODE_MODULES}"
 
 echo "INFO: node $("${NODE}" --version)"
@@ -45,7 +45,7 @@ echo "INFO: node $("${NODE}" --version)"
 # A host install would satisfy require('typescript') silently, which is exactly
 # the non-hermeticity this test used to have.
 [[ -f "${NODE_MODULES}/typescript/package.json" ]] || \
-  fail "typescript is not in ${NODE_MODULES} -- is @npm//:typescript still a dep of //tests/lsp:lsp_node_modules?"
+  fail "typescript is not in ${NODE_MODULES} -- is @npm//:typescript still a dep of //tests/lsp:node_modules?"
 
 # What the worker puts in the cache for a first-party package: its key is the
 # package path and its value the .d.ts a build wrote into bazel-bin.

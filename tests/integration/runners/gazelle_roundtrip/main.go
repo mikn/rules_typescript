@@ -42,7 +42,7 @@ func testTarget(dir string) string {
 
 // A ts_test's deps carry its manifest's dependencies and devDependencies
 // beside its edges; under the root package.json that is these six.
-var rootManifestDeps = []string{"@npm//:culori", "@npm//:shared",
+var rootManifestDeps = []string{"//:node_modules/shared", "@npm//:culori",
 	"@npm//:types_culori", "@npm//:types_node", "@npm//:vite", "@npm//:vitest"}
 
 func withRootManifest(own ...string) []string {
@@ -249,16 +249,16 @@ func theRootBaseIsATsConfig(it *harness.IT) {
 }
 
 // The member's own tests import it by name through its exports map; only the
-// hub's view links it at node_modules/<name>, so its label sits beside :shared.
+// root's link target links it at node_modules/<name>, so it sits beside :shared.
 func memberSelfImportTakesTheHubLabel(it *harness.IT) {
 	build := it.Path("packages/shared/BUILD.bazel")
 	it.RequireContains(build, `name = "shared_test"`,
 		"Gazelle wrote no ts_test for the member's test files")
 	// The member's own target too, from the relative imports of the sources
-	// under test: the first target to carry the member and its hub label at once.
+	// under test: the first target to carry the member and its link at once.
 	requireLabels(it, "deps", "//packages/shared:shared_test",
-		[]string{"//packages/shared:shared", "@npm//:shared", "@npm//:vitest"})
-	it.Pass("//packages/shared:shared_test depends on @npm//:shared beside :shared")
+		[]string{"//:node_modules/shared", "//packages/shared:shared", "@npm//:vitest"})
+	it.Pass("//packages/shared:shared_test depends on //:node_modules/shared beside :shared")
 
 	for _, rel := range []string{"packages/shared/src/entry.test.js", "packages/shared/src/wire.test.js"} {
 		it.RequireFile(it.Bin(rel),
@@ -266,24 +266,24 @@ func memberSelfImportTakesTheHubLabel(it *harness.IT) {
 	}
 	it.Pass("the test program resolved `shared` and `shared/wire` through the hub view's link")
 
-	// The measurement behind writing the hub label: the member's own target
+	// The measurement behind writing the link target: the member's own target
 	// alone puts nothing at node_modules/shared.
 	restore := it.Read(build)
-	it.Replace(build, "        \"@npm//:shared\",\n", "")
-	log, err := it.BazelLog("self_import_without_the_hub", "build",
+	it.Replace(build, "        \"//:node_modules/shared\",\n", "")
+	log, err := it.BazelLog("self_import_without_the_link", "build",
 		"//packages/shared:shared_test")
 	it.Write(build, restore)
 	if err == nil {
 		log.Dump()
-		it.Fail("the test program compiled without the hub label; Gazelle need not write it")
+		it.Fail("the test program compiled without the link target; Gazelle need not write it")
 	}
 	for _, specifier := range []string{"shared", "shared/wire"} {
 		if !log.Contains(fmt.Sprintf("TS2307: Cannot find module '%s'", specifier)) {
 			log.Dump()
-			it.Fail("without the hub label the compile did not fail on %q", specifier)
+			it.Fail("without the link target the compile did not fail on %q", specifier)
 		}
 	}
-	it.Pass("without the hub label `shared` and `shared/wire` are TS2307: only the hub's view links the member into the forest")
+	it.Pass("without the link target `shared` and `shared/wire` are TS2307: only the member's link puts it in the forest")
 
 	// The view's package.json is the member's with its exports map rewritten to
 	// the emitted files, so node resolves both specifiers through the link.
@@ -305,11 +305,11 @@ func memberSelfImportTakesTheHubLabel(it *harness.IT) {
 }
 
 // member/'s test imports the member by name and by its exports subpath from
-// another package: the dep is the hub's view, never the member's ts_compile.
+// another package: the dep is the root's link target, never the ts_compile.
 func memberByNameIsTheHubView(it *harness.IT) {
 	requireLabels(it, "deps", "//member:member_test", withRootManifest())
-	it.Pass("//member:member_test depends on @npm//:shared, the view, for " +
-		"`shared` and `shared/wire`")
+	it.Pass("//member:member_test depends on //:node_modules/shared, the root's " +
+		"link target, for `shared` and `shared/wire`")
 	it.RequireFile(it.Bin("member/consumer.test.js"),
 		"the member's consumer did not compile against the view")
 	it.Pass("the test compiled and ran under `bazel test //...` above, " +
@@ -646,21 +646,21 @@ ts_codegen(
 )
 `
 
-// The workers lockfile's package holds its store and nothing else: a tree
-// named node_modules beside the store's node_modules/.pnpm cannot be declared.
+// The workers lockfile's package holds its store and nothing else.
 const wranglerLock = `load("@npm_workers//:defs.bzl", "npm_virtual_store")
 
-npm_virtual_store()
+npm_virtual_store(name = "node_modules/.pnpm")
 `
 
 // A worker with nothing checked in: the ts_codegen beside the config writes the
-// declaration its tsconfig names.
+// declaration its tsconfig names; its node_modules links another lockfile.
 const generatedWorkerPackage = `load(
     "@rules_typescript//npm:defs.bzl",
     "node_modules",
 )
 load("@rules_typescript//ts:defs.bzl", "ts_codegen")
 
+# keep
 node_modules(
     name = "node_modules",
     deps = ["@npm_workers//:wrangler"],

@@ -1,43 +1,41 @@
-"""Analysis test: which npm hub a ruleset-internal target's files come from.
+"""Analysis test: which lockfile's store a ruleset-internal node_modules links.
 
 Root-module `translate_lock` wins for *any* hub name (npm/extensions.bzl), so no
 name here is reserved to the ruleset: a consumer-reachable target naming `@npm`
 resolves into whatever lockfile the consumer registered, and the `dev_dependency`
-hubs do not exist for a consumer at all. These tests pin which hub two such
-targets resolve; they do not make the name they expect immune to being claimed.
-"""
+hubs do not exist for a consumer at all. A store tree sits in its lockfile's
+package, so the package every tree of a target's files lies under is the
+lockfile it came from."""
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 
-# Package repos are named "<hub>__<pkg>__<version>" (npm/lazy.bzl), so the hub
-# name is a path prefix; @npm supplies the canonical per-extension part.
-_EXTENSION_PREFIX = "external/" + Label("@npm").repo_name.removesuffix("npm")
-
-def _hub_provenance_impl(ctx):
+def _store_provenance_impl(ctx):
     env = analysistest.begin(ctx)
-    expected = _EXTENSION_PREFIX + ctx.attr.hub + "__"
-
-    paths = []
-    for action in analysistest.target_actions(env):
-        paths.extend([f.path for f in action.inputs.to_list()])
-
-    from_npm_hubs = [p for p in paths if p.startswith(_EXTENSION_PREFIX)]
+    prefix = ctx.attr.store_package + "/node_modules/.pnpm/"
+    trees = [
+        f.short_path
+        for f in analysistest.target_under_test(env)[DefaultInfo].files.to_list()
+        if f.is_directory
+    ]
     asserts.true(
         env,
-        len(from_npm_hubs) > 0,
-        "no npm package among the action inputs -- the test would pass vacuously",
+        len(trees) > 0,
+        "no store tree among the files -- the test would pass vacuously",
     )
     asserts.equals(
         env,
         [],
-        [p for p in from_npm_hubs if not p.startswith(expected)],
-        "these files come from a hub other than @{}".format(ctx.attr.hub),
+        [p for p in trees if not p.startswith(prefix)],
+        "these trees come from a store other than {}'s".format(ctx.attr.store_package),
     )
     return analysistest.end(env)
 
-hub_provenance_test = analysistest.make(
-    _hub_provenance_impl,
+store_provenance_test = analysistest.make(
+    _store_provenance_impl,
     attrs = {
-        "hub": attr.string(mandatory = True),
+        "store_package": attr.string(
+            mandatory = True,
+            doc = "The lockfile's package, where its store sits.",
+        ),
     },
 )

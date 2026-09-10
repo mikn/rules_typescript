@@ -1,0 +1,45 @@
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("//npm:defs.bzl", "node_modules")
+
+package(default_visibility = ["//tests/npm:__pkg__"])
+
+# The importer declares minimatch@9 beside test-exclude, whose own edge is
+# minimatch@10: the top links the declared resolution, each tree its own.
+node_modules(
+    name = "node_modules",
+    parent = "//tests/npm:node_modules",
+    deps = [
+        "@npm//:minimatch_9_0_9",
+        "@npm//:test-exclude",
+    ],
+)
+
+# The same links read as an action input: a declared symlink is staged as the
+# same relative symlink, so a dependent's edge is found beside its tree.
+genrule(
+    name = "through_action",
+    srcs = [":node_modules"],
+    outs = ["through_action.txt"],
+    cmd = """set -eu
+d="$(BINDIR)/tests/npm/multi_version/node_modules"
+v() { awk -F'"' '/"version"/{print $$4; exit}' "$$1/package.json"; }
+beside() { echo "$$(dirname "$$(readlink -f "$$1")")/$$2"; }
+mm="$$d/minimatch"
+te="$$d/test-exclude"
+te_mm="$$(beside "$$te" minimatch)"
+{
+  printf 'minimatch %s\\n' "$$(v "$$mm")"
+  printf 'minimatch/brace-expansion %s\\n' "$$(v "$$(beside "$$mm" brace-expansion)")"
+  printf 'test-exclude %s\\n' "$$(v "$$te")"
+  printf 'test-exclude/minimatch %s\\n' "$$(v "$$te_mm")"
+  printf 'test-exclude/minimatch/brace-expansion %s\\n' "$$(v "$$(beside "$$te_mm" brace-expansion)")"
+} > $@
+""",
+)
+
+diff_test(
+    name = "npm_multi_version_action_input_test",
+    size = "small",
+    file1 = ":through_action",
+    file2 = "through_action.expected",
+)

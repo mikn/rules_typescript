@@ -2,10 +2,16 @@ package typescript
 
 import (
 	"log"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
+
+	"github.com/bazelbuild/bazel-gazelle/label"
+	"github.com/bazelbuild/bazel-gazelle/rule"
 
 	"github.com/mikn/rules_typescript/ts/tools/explainfiles"
 )
@@ -118,8 +124,8 @@ func (l *npmLock) label(name, dir string) string {
 	return "@npm//:" + npmPackageToLabelName(name)
 }
 
-// memberView is the hub's view of the member a bare specifier names, from
-// every package but the member's own ts_compile, where it is nothing.
+// memberView is the member a bare specifier names, from every package but the
+// member's own ts_compile, where it is nothing; memberLabel spells it.
 func (l *npmLock) memberView(spec, pkg, kind string) (string, bool) {
 	if !isBareSpecifier(spec) {
 		return "", false
@@ -132,7 +138,18 @@ func (l *npmLock) memberView(spec, pkg, kind string) (string, bool) {
 	if kind == "ts_compile" && dir == pkg {
 		return "", true
 	}
-	return "@npm//:" + npmPackageToLabelName(name), true
+	return l.memberLabel(name, pkg), true
+}
+
+// memberLabel spells member name for a target in pkg: the link target of the
+// nearest importer at or above pkg that links it, else the hub's view.
+func (l *npmLock) memberLabel(name, pkg string) string {
+	for dir, more := pkg, true; more; dir, more = parentDir(dir), dir != "" {
+		if imp, ok := l.importers[dir]; ok && imp.links[name] != "" {
+			return label.New("", dir, "node_modules/"+name).Rel("", pkg).String()
+		}
+	}
+	return "@npm//:" + npmPackageToLabelName(name)
 }
 
 // edgeLabel is the one label an edge from a file of pkg into node_modules
@@ -163,7 +180,7 @@ func (l *npmLock) manifestLabels(m *manifest) []string {
 	for _, name := range m.deps {
 		switch _, member := l.members[name]; {
 		case member:
-			labels = append(labels, "@npm//:"+npmPackageToLabelName(name))
+			labels = append(labels, l.memberLabel(name, m.dir))
 		case l.names[name]:
 			labels = append(labels, l.label(name, m.dir))
 		default:
@@ -185,4 +202,70 @@ func barePackageName(spec string) string {
 		return spec
 	}
 	return strings.SplitN(spec, "/", 2)[0]
+}
+
+// An importer's rules: node_modules, a link target per member it links, and
+// the store call in the lockfile's package, the root.
+const (
+	nodeModulesTargetName = "node_modules"
+	storeTargetName       = "node_modules/.pnpm"
+)
+
+var publicVisibility = []string{"//visibility:public"}
+
+// importerRules is what Gazelle writes in rel for the lockfile's importer
+// there, or nothing when rel is no importer.
+func (l *npmLock) importerRules(rel string) []*rule.Rule {
+	imp, ok := l.importers[rel]
+	if !ok {
+		return nil
+	}
+	var out []*rule.Rule
+	if rel == "" {
+		out = append(out, rule.NewRule("npm_virtual_store", storeTargetName))
+	}
+	nm := rule.NewRule("node_modules", nodeModulesTargetName)
+	var deps []string
+	for name := range imp.deps {
+		deps = append(deps, l.label(name, rel))
+	}
+	if len(deps) > 0 {
+		sort.Strings(deps)
+		nm.SetAttr("deps", deps)
+	}
+	if rel != "" {
+		nm.SetAttr("parent", "//"+l.importerAbove(parentDir(rel))+":"+
+			nodeModulesTargetName)
+	}
+	nm.SetAttr("visibility", publicVisibility)
+	out = append(out, nm)
+	for _, name := range slices.Sorted(maps.Keys(imp.links)) {
+		link := rule.NewRule("node_modules_member", "node_modules/"+name)
+		link.SetAttr("member", "@npm//:"+npmPackageToLabelName(name))
+		link.SetAttr("visibility", publicVisibility)
+		out = append(out, link)
+	}
+	return out
+}
+
+// importerEmpties is every importer rule to withdraw from f: the node_modules
+// and every node_modules_member not among gen.
+func importerEmpties(f *rule.File, gen []*rule.Rule) []*rule.Rule {
+	kept := map[string]bool{}
+	for _, r := range gen {
+		kept[r.Kind()+" "+r.Name()] = true
+	}
+	var out []*rule.Rule
+	if !kept["node_modules "+nodeModulesTargetName] {
+		out = append(out, rule.NewRule("node_modules", nodeModulesTargetName))
+	}
+	if f == nil {
+		return out
+	}
+	for _, r := range f.Rules {
+		if r.Kind() == "node_modules_member" && !kept[r.Kind()+" "+r.Name()] {
+			out = append(out, rule.NewRule(r.Kind(), r.Name()))
+		}
+	}
+	return out
 }

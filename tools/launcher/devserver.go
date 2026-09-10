@@ -8,10 +8,8 @@ import (
 	"strings"
 )
 
-// serverCommand builds the argv for whichever dev server implementation the
-// target selected. A server inside the npm tree is a path joined onto the
-// resolved tree, because a file inside a TreeArtifact has no label to resolve;
-// a native binary is a runfile. ts_dev_server guarantees exactly one is set.
+// serverCommand builds the argv for the selected dev server: a path under the
+// importer's node_modules, or a native binary from the runfiles.
 func serverCommand(cfg *Config, r *Resolver, configFile, nodeModules string, port int) ([]string, string, error) {
 	d := cfg.DevServer
 	var argv []string
@@ -20,7 +18,7 @@ func serverCommand(cfg *Config, r *Resolver, configFile, nodeModules string, por
 	if d.ServerInTree != "" {
 		if nodeModules == "" {
 			return nil, "", fmt.Errorf(
-				"ts_dev_server: %s selected a server that ships inside the npm tree (%s), "+
+				"ts_dev_server: %s selected a server that ships as an npm package (%s), "+
 					"but the target has no node_modules attr.\n"+
 					"Add node_modules = \":node_modules\" pointing at a node_modules() target "+
 					"whose deps include that package; there is no host-PATH fallback.",
@@ -29,7 +27,7 @@ func serverCommand(cfg *Config, r *Resolver, configFile, nodeModules string, por
 		serverPath = filepath.Join(nodeModules, filepath.FromSlash(d.ServerInTree))
 		if !fileExists(serverPath) {
 			return nil, "", fmt.Errorf(
-				"ts_dev_server: the dev server is missing from the node_modules tree of %s:\n"+
+				"ts_dev_server: the dev server is missing from the node_modules of %s:\n"+
 					"                 %s\n"+
 					"                 Add the package providing it to the deps of that "+
 					"node_modules() target.",
@@ -105,7 +103,7 @@ func planDevServer(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, 
 			"ts_dev_server: %s has no node_modules attr, so the app's own dependencies "+
 				"are not in runfiles.\n"+
 				"Add node_modules = \":node_modules\" pointing at a node_modules() target; "+
-				"the generated config resolves every bare specifier through that tree.", cfg.Label)
+				"the generated config resolves every bare specifier through its links.", cfg.Label)
 	}
 	nodeModules, err := r.Path(d.NodeModules)
 	if err != nil {
@@ -196,7 +194,7 @@ func planDevServer(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, 
 	)
 	if anchor != "" {
 		plan.Messages = append(plan.Messages, fmt.Sprintf(
-			"[ts_dev_server] Linked %s -> the npm tree; removed on Ctrl-C. "+
+			"[ts_dev_server] Linked %s -> the node_modules; removed on Ctrl-C. "+
 				"Add `node_modules` (no trailing slash) to .gitignore.", anchor))
 	}
 
@@ -208,22 +206,8 @@ func planDevServer(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, 
 	return plan, nil
 }
 
-// anchorNodeModules links the npm tree in as <workspace>/node_modules, and
-// returns the link it created, or "" when one was already there.
-//
-// This is what makes a bare `import "react"` resolve at all in the parts of a
-// bundler that no plugin can reach. Vite's SSR externalisation and its
-// optimizeDeps.include resolution both call the resolver directly rather than
-// through the plugin container, and both walk the directory chain up from the
-// importer -- or, for a package in resolve.dedupe, up from `root` regardless of
-// the importer. Above a checked-in source file there is nothing to find: the
-// npm tree is a Bazel output somewhere else entirely. Naming it here is the
-// only place the walk can see it, and it is what a bundler outside Bazel would
-// have found anyway.
-//
-// An existing path is never replaced. A real directory is somebody's install
-// and a link to another tree belongs to another dev server; either way the two
-// answers cannot both be right, so the launcher says which two and stops.
+// anchorNodeModules links the importer's node_modules in as <workspace>/
+// node_modules (docs/guides/dev-server.md § How a Bare npm Specifier Resolves).
 func anchorNodeModules(workspace, nodeModules string, plan *Plan) (string, error) {
 	link := filepath.Join(workspace, "node_modules")
 	switch target, err := os.Readlink(link); {
@@ -231,11 +215,11 @@ func anchorNodeModules(workspace, nodeModules string, plan *Plan) (string, error
 		return "", nil
 	case err == nil:
 		return "", fmt.Errorf(
-			"ts_dev_server: %s is already a symlink to a different npm tree:\n"+
+			"ts_dev_server: %s is already a symlink to a different node_modules:\n"+
 				"                 have %s\n"+
 				"                 want %s\n"+
 				"A dev server resolves bare specifiers by walking up from the "+
-				"workspace root, so the two trees cannot both be there. Stop the "+
+				"workspace root, so the two cannot both be there. Stop the "+
 				"other dev server, or point both targets at one node_modules().",
 			link, target, nodeModules)
 	}
@@ -243,7 +227,7 @@ func anchorNodeModules(workspace, nodeModules string, plan *Plan) (string, error
 		return "", fmt.Errorf(
 			"ts_dev_server: %s already exists and is not a symlink.\n"+
 				"That is usually a `pnpm install` tree. The dev server resolves "+
-				"through the Bazel npm tree at\n"+
+				"through the Bazel node_modules at\n"+
 				"                 %s\n"+
 				"and will not delete an install to get there -- remove it yourself "+
 				"if Bazel should own the dependencies.", link, nodeModules)
@@ -256,9 +240,8 @@ func anchorNodeModules(workspace, nodeModules string, plan *Plan) (string, error
 				"On Windows a symlink needs Developer Mode or an elevated shell.",
 			link, nodeModules, err)
 	}
-	// ibazel SIGTERMs the launcher on every rebuild and Supervise.IgnoreTerm
-	// swallows it, so this runs on Ctrl-C rather than once per rebuild. Remove
-	// the link only -- never its target, which is the Bazel tree.
+	// Supervise.IgnoreTerm swallows ibazel's per-rebuild SIGTERM, so this runs
+	// on Ctrl-C; the link only, never its target.
 	plan.Cleanup = func() { os.Remove(link) }
 	return link, nil
 }

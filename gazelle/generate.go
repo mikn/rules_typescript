@@ -25,10 +25,30 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	if root, ok := codegenOutDirOwning(args.Rel, tc); ok {
 		return codegenOutDirResult(args, root)
 	}
+	var res language.GenerateResult
 	if s.packages[args.Rel] == nil {
-		return nonPackageRules(args, tc)
+		res = nonPackageRules(args, tc)
+	} else {
+		res = packageRules(args, tc)
 	}
-	return packageRules(args, tc)
+	return withImporterRules(args, tc, res)
+}
+
+// withImporterRules adds the lockfile importer's rules for the directory, or
+// withdraws them where it is no importer.
+func withImporterRules(args language.GenerateArgs, tc *tsConfig,
+	res language.GenerateResult) language.GenerateResult {
+	var gen []*rule.Rule
+	if tc.lock != nil {
+		gen = tc.lock.importerRules(args.Rel)
+	}
+	for _, r := range gen {
+		res.Gen = append(res.Gen, r)
+		res.Imports = append(res.Imports, nil)
+	}
+	res.Empty = append(res.Empty, importerEmpties(args.File, gen)...)
+	reportManagedAttrDrops(args, gen)
+	return res
 }
 
 // packageName is the ts_compile's name in rel: the directory's basename.

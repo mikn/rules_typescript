@@ -5,7 +5,7 @@
 #
 # The subject is the patched ts.resolveModuleName, so every assertion is in
 # resolve_test.mjs and this file is the shim around it: node from the JS runtime
-# toolchain, typescript from the lockfile via //tests/lsp:lsp_node_modules. The
+# toolchain, typescript from the lockfile via //tests/lsp:node_modules. The
 # hook's resolution cache is pre-populated through TSSERVER_HOOK_PRELOAD_MAP so
 # the assertions do not race the background worker; what the worker itself
 # produces is //tests/lsp:test_worker_map's job.
@@ -36,7 +36,7 @@ runfile() {
 NODE="$(runfile ts/toolchain/node_resolved/node)"
 HOOK_JS="$(runfile tools/tsserver-hook.js)"
 RESOLVE_TEST_MJS="$(runfile tests/lsp/resolve_test.mjs)"
-NODE_MODULES="$(runfile tests/lsp/lsp_node_modules)"
+NODE_MODULES="$(runfile tests/lsp/node_modules)"
 [[ -d "${NODE_MODULES}" ]] || fail "not a node_modules tree: ${NODE_MODULES}"
 
 echo "INFO: node $("${NODE}" --version)"

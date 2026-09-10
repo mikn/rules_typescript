@@ -82,9 +82,8 @@ try {
     }
   }
 
-  // esbuild and wrangler's own imports resolve a bare specifier by walking up
-  // from the staged config, so the tree has to be a sibling of it under the
-  // name "node_modules" whatever the Bazel target is called.
+  // wrangler resolves from the staged config by walking up, and its own
+  // imports from its realpath in the store, to the links beside its tree.
   symlinkSync(resolve(nodeModules), join(work, "node_modules"));
 
   // wrangler echoes its own argv into the file's header comment. The output
@@ -106,10 +105,6 @@ try {
         CI: "true",
         WRANGLER_SEND_METRICS: "false",
         NODE_PATH: resolve(nodeModules),
-        // Node resolves a module to its realpath before looking for sibling
-        // packages, and the realpath of the link above is the Bazel target's
-        // own directory, which is not called node_modules.
-        NODE_OPTIONS: "--preserve-symlinks --preserve-symlinks-main",
       },
     },
   );
