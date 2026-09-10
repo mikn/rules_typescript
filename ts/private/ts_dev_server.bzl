@@ -99,6 +99,7 @@ Usage:
     node_modules(
         name = "node_modules",
         deps = ["@npm//:vite", "@npm//:react", ...],
+        hoist = "//:node_modules/.pnpm/node_modules",
     )
 
     ts_dev_server(
@@ -800,6 +801,7 @@ Example (basic):
     node_modules(
         name = "node_modules",
         deps = ["@npm//:vite", "@npm//:react", "@npm//:react-dom"],
+        hoist = "//:node_modules/.pnpm/node_modules",
     )
 
     ts_dev_server(
@@ -835,6 +837,7 @@ Example (with React Fast Refresh — preserves component state across HMR):
             "@npm//:react-dom",
             "@npm//:vitejs_plugin-react",  # required for react_refresh = True
         ],
+        hoist = "//:node_modules/.pnpm/node_modules",
     )
 
     ts_dev_server(

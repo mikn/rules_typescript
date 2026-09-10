@@ -83,18 +83,20 @@ def store_link(ctx, dir, name, store):
     )
     return link
 
-def _link(ctx, dir, name, dep, links):
-    if name in links:
+def _link(ctx, dir, name, dep, linked):
+    if name in linked:
         fail("{}: '{}' linked twice, to {} and {}".format(
             ctx.label,
             name,
-            links[name].owner,
+            linked[name].label,
             dep.label,
         ))
-    links[name] = store_link(ctx, dir, name, dep[NpmStoreInfo])
+    linked[name] = dep
+    return store_link(ctx, dir, name, dep[NpmStoreInfo])
 
 def _dep_links(ctx, parts, cut = {}):
     links = {}
+    linked = {}
     for dep, names in ctx.attr.deps.items():
         for name in names.split(" "):
             if name == parts.package:
@@ -105,7 +107,7 @@ def _dep_links(ctx, parts, cut = {}):
                         name,
                     ) + "the path its tree holds; pnpm writes no such edge.",
                 )
-            _link(ctx, parts.links_dir, name, dep, links)
+            links[name] = _link(ctx, parts.links_dir, name, dep, linked)
     for name, tree in cut.items():
         if name in links:
             fail("{}: '{}' is a dependency and a cut edge".format(
@@ -297,19 +299,19 @@ package.json excepted; one declared symlink beside it per dependency the
 member's importer declares. Declared by `npm_virtual_store`.""",
 )
 
-def _hoist_links(ctx, dir, entries, links):
-    for dep, names in entries.items():
-        for name in names.split(" "):
-            _link(ctx, dir, name, dep, links)
-            links[name] = NpmLinkInfo(
-                link = links[name],
-                store = dep[NpmStoreInfo],
-            )
-    return links
-
 def _npm_store_hoist_impl(ctx):
-    links = _hoist_links(ctx, ctx.label.name, ctx.attr.private, {})
-    links = _hoist_links(ctx, "node_modules", ctx.attr.public, links)
+    linked = {}
+    links = {}
+    for dir, entries in (
+        (ctx.label.name, ctx.attr.private),
+        ("node_modules", ctx.attr.public),
+    ):
+        for dep, names in entries.items():
+            for name in names.split(" "):
+                links[name] = NpmLinkInfo(
+                    link = _link(ctx, dir, name, dep, linked),
+                    store = dep[NpmStoreInfo],
+                )
     return [
         DefaultInfo(files = depset(
             [entry.link for entry in links.values()],

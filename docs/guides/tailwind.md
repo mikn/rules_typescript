@@ -21,6 +21,7 @@ node_modules(
         "@npm_tailwind//:tailwindcss_vite",
         "@npm_tailwind//:vite",
     ],
+    hoist = ":node_modules/.pnpm/node_modules",
 )
 
 ts_dev_server(

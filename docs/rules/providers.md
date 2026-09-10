@@ -48,7 +48,7 @@ reads the transitive field.
 | `transitive_data` | `depset of File` | The data files of this target and its first-party deps: what a compiled module reaches beside itself at run time or in a bundle |
 | `transitive_es_twins` | `depset of (File, File)` | For a program tsgo emits, each `.js` of this target and its first-party deps paired with the ES module oxc emits from the same source; the vitest runner stages the second at the first's runfiles path ([The Module Format](ts-compile.md#the-module-format)) |
 | `npm_packages` | `depset of NpmPackageInfo` | The npm closure of this target's deps: what the ownership manifest names and a runner checks its packages against. A package itself arrives through its `NpmPackageInfo` |
-| `npm_files` | `depset of File` | The store files this target's program and runtime reach: the importer links of its direct npm deps and their `@types` twins, the member links its deps name, every store tree and edge link of their closures, and its first-party deps' `npm_files`. A dep's emitted `.d.ts` imports the packages the dep declared and resolves them from the dep's own importer's links, which this depset carries into the consumer's action |
+| `npm_files` | `depset of File` | The store files this target's program and runtime reach: the importer links of its direct npm deps and their `@types` twins, the member links its deps name, every store tree and edge link of their closures, the hoist links whose names the closure holds with the trees they enter ([The Store](node-modules.md#the-store)), and its first-party deps' `npm_files`. An action stages this and nothing else of the store. A dep's emitted `.d.ts` imports the packages the dep declared and resolves them from the dep's own importer's links, which this depset carries into the consumer's action |
 | `owners` | `depset of struct(label, files)` | One record per first-party target in the closure, this one first: `label`, the string a `deps` list writes for it, and `files`, the declarations and data it stages. The tsgo action reads the closure's records to name the target a listed file belongs to ([Deps have to be direct](ts-compile.md#deps-have-to-be-direct)) |
 
 A dep reached through the store -- an `@npm` package, a member's link target
@@ -149,7 +149,9 @@ A [`node_modules`](node-modules.md) target returns it; `ts_codegen`,
 `node_modules` attr, and take the target's `DefaultInfo.files` -- every link
 and every store tree the links reach -- as inputs or runfiles; `ts_compile`
 and `ts_test` follow `parent` up the chain and stage the links a direct dep
-resolves to ([The Chain](node-modules.md#the-chain)).
+resolves to ([The Chain](node-modules.md#the-chain)), and from `hoist`, the
+lockfile's hidden hoist carried unchanged down the chain, the links whose
+names the closure holds ([The Store](node-modules.md#the-store)).
 
 | Field | Type | Description |
 |---|---|---|
@@ -157,6 +159,19 @@ resolves to ([The Chain](node-modules.md#the-chain)).
 | `dir` | `string` | The importer's `node_modules` directory as a bin-dir path, `bazel-out/<cfg>/bin/<package>/node_modules`: the parent of every link, which no artifact names |
 | `links` | `dict of string -> NpmLinkInfo` | Per package name, the declared symlink `node_modules/<name>` and the store it enters |
 | `parent` | `NodeModulesInfo or None` | The importer above's |
+| `hoist` | `dict of string -> NpmLinkInfo` | The lockfile's hidden hoist: per hoisted name, the declared symlink `node_modules/.pnpm/node_modules/<name>` (a `public-hoist-pattern` match's at the root importer's `node_modules/<name>`) and the store it enters; the root importer's `hoist` target's, the same on every importer of its chain |
+
+## NpmHoistInfo
+
+A lockfile's hidden hoist, what its `npm_store_hoist` target
+`node_modules/.pnpm/node_modules` returns
+([The Store](node-modules.md#the-store)); the root importer names the target
+in `hoist`, and every importer on the chain carries the links as
+`NodeModulesInfo.hoist`.
+
+| Field | Type | Description |
+|---|---|---|
+| `links` | `dict of string -> NpmLinkInfo` | Per hoisted name, the declared symlink and the store it enters |
 
 ## NpmLinkInfo
 

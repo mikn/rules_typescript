@@ -29,6 +29,7 @@ node_modules(
         "@npm//:vite",
         # every npm package the app imports, too — see below
     ],
+    hoist = "//:node_modules/.pnpm/node_modules",
 )
 
 ts_dev_server(
@@ -158,6 +159,7 @@ node_modules(
         "@npm//:vite",
         "@npm//:vitejs_plugin-react",
     ],
+    hoist = "//:node_modules/.pnpm/node_modules",
 )
 
 ts_dev_server(

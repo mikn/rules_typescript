@@ -165,6 +165,7 @@ load("@rules_typescript//ts:defs.bzl", "ts_codegen")
 node_modules(
     name = "node_modules",
     deps = ["@npm//:wrangler"],
+    hoist = ":node_modules/.pnpm/node_modules",
 )
 
 ts_codegen(

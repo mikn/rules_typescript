@@ -182,15 +182,15 @@ The call declares, `manual` and public:
   link is under a `select()`.
   `tests/npm/hoisted_dependencies.bzl` is pnpm's own answer over the fixture
   lockfile, and `tests/npm:store_tests_hoist` asserts the store's. The target
-  returns the links as `NpmHoistInfo`; the root importer names it in `hoist`,
-  and every importer on its chain carries them as `NodeModulesInfo.hoist`. A
-  `ts_compile` or `ts_test` stages the hoist links whose names its npm closure
-  holds, with the store trees they enter -- pnpm's pick for a name can be a
-  snapshot no edge of the closure reaches -- so a store package's import of a
-  name it does not declare resolves as in the checkout, and the action's
-  inputs stay the closure's names: a bump re-runs the targets whose closure
-  holds the package. A first-party source importing an undeclared name still
-  fails the ownership check
+  returns the links as [`NpmHoistInfo`](providers.md#npmhoistinfo); the root
+  importer names it in `hoist`, and every importer on its chain carries them
+  as `NodeModulesInfo.hoist`. A `ts_compile` or `ts_test` stages the hoist
+  links whose names its npm closure holds, with the store trees they enter --
+  pnpm's pick for a name can be a snapshot no edge of the closure reaches --
+  so a store package's import of a name it does not declare resolves as in
+  the checkout, and the action's inputs stay the closure's names: a bump
+  re-runs the targets whose closure holds the package. A first-party source
+  importing an undeclared name still fails the ownership check
   ([ts_compile](ts-compile.md#deps-have-to-be-direct)).
   `//tests/npm/features/hoist` runs one.
 

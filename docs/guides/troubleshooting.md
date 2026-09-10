@@ -378,6 +378,7 @@ node_modules(
         "@npm//:vite",
         "@npm//:vitejs_plugin-react",
     ],
+    hoist = ":node_modules/.pnpm/node_modules",
 )
 ```
 
@@ -427,6 +428,7 @@ the package is not in that tree. Add it to the target's `deps` and restart:
 node_modules(
     name = "node_modules",
     deps = ["@npm//:vite", "@npm//:some-package"],
+    hoist = ":node_modules/.pnpm/node_modules",
 )
 ```
 

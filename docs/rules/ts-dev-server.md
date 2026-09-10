@@ -24,6 +24,7 @@ load("@rules_typescript//npm:defs.bzl", "node_modules")
 node_modules(
     name = "dev_node_modules",
     deps = ["@npm//:vite"],
+    hoist = "//:node_modules/.pnpm/node_modules",
 )
 
 ts_dev_server(

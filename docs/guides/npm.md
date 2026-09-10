@@ -554,7 +554,9 @@ the generated tsconfig writes no `paths` key for it.
 
 Every lockfile importer's package holds a `node_modules` target, its declared
 npm packages linked into the store, and a `node_modules_member` per member it
-links; Gazelle writes both from the lockfile's `importers:`:
+links; Gazelle writes both from the lockfile's `importers:`. The root
+importer's names `hoist`, the lockfile's `:node_modules/.pnpm/node_modules`;
+every other importer's names `parent`, the importer above's target:
 
 ```python
 load("@rules_typescript//npm:defs.bzl", "node_modules", "node_modules_member")
@@ -562,6 +564,7 @@ load("@rules_typescript//npm:defs.bzl", "node_modules", "node_modules_member")
 node_modules(
     name = "node_modules",
     deps = ["@npm//:vitest", "@npm//:react"],
+    hoist = ":node_modules/.pnpm/node_modules",
 )
 
 node_modules_member(
