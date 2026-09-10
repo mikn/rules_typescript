@@ -22,10 +22,10 @@ WORKERS_POOL_ATTRS = {
     ),
 }
 
-def workers_pool_environment(ctx, forest, runtime_data_sets):
+def workers_pool_environment(ctx, chain, runtime_data_sets):
     """The pool's half of the test environment, or its absence.
 
-    `forest` is ts_test's struct(dirs, rlocations, npm_files). Returns
+    `chain` is ts_test's struct(dirs, rlocations, npm_files). Returns
     struct(symlinks, runtime_data_sets): the patched wrangler config over the
     source's path, and the data sets less that source.
     """
@@ -56,7 +56,7 @@ def workers_pool_environment(ctx, forest, runtime_data_sets):
         if not js_tool:
             fail(("ts_test {}: wrangler_config needs the JS tool toolchain " +
                   "to patch the config.").format(ctx.label))
-        if not forest.dirs:
+        if not chain.dirs:
             fail(("ts_test {}: wrangler_config needs `node_modules`, the " +
                   "importer whose links hold the pool; wrangler is the " +
                   "pool's own edge.").format(ctx.label))
@@ -67,11 +67,11 @@ def workers_pool_environment(ctx, forest, runtime_data_sets):
         args.add(ctx.file._wrangler_patch)
         args.add("--config", src)
         args.add("--out", patched)
-        args.add_all(forest.dirs, before_each = "--node-modules")
+        args.add_all(chain.dirs, before_each = "--node-modules")
         ctx.actions.run(
             inputs = depset(
                 [src, ctx.file._wrangler_patch],
-                transitive = [forest.npm_files],
+                transitive = [chain.npm_files],
             ),
             outputs = [patched],
             executable = js_tool.runtime_binary,

@@ -1,8 +1,9 @@
-"""A dep's npm closure reaches the consumer's forest.
+"""A dep's npm closure reaches the consumer's action through TsInfo.npm_files.
 
-lib.d.ts imports zod, which :consumer never declares. Its program resolves that
-import through the forest, which links every package :lib's closure carries;
-without it `Props` keeps only its own member, and consumer.ts is TS2353.
+lib.d.ts imports zod, which :consumer never declares. :lib's npm_files carry
+zod's store tree and the importer's link, and the emitted lib.d.ts resolves
+the import up through that importer's node_modules; without them `Props`
+keeps only its own member, and consumer.ts is TS2353.
 """
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")

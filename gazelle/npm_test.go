@@ -379,6 +379,64 @@ func TestNpmLock_ImporterAbove(t *testing.T) {
 	}
 }
 
+// A name the importing file's own importer does not declare is spelled under
+// the nearest importer above it that does, the root last: pnpm's walk-up.
+func TestNpmLock_LabelWalksTheChain(t *testing.T) {
+	const lock = `lockfileVersion: '9.0'
+
+importers:
+
+  .:
+    dependencies:
+      zod:
+        specifier: ^3.0.0
+        version: 3.24.2
+    devDependencies:
+      typescript:
+        specifier: 5.9.2
+        version: 5.9.2
+
+  packages/lib:
+    dependencies:
+      zod:
+        specifier: ^4.0.0
+        version: 4.1.0
+
+  packages/lib/example: {}
+
+packages:
+
+  typescript@5.9.2: {}
+
+  zod@3.24.2: {}
+
+  zod@4.1.0: {}
+`
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, pnpmLockfileName), lock)
+	for dir, name := range map[string]string{
+		"packages/lib":         "@acme/lib",
+		"packages/lib/example": "@acme/lib-example",
+	} {
+		writeFile(t, filepath.Join(root, dir, "package.json"),
+			`{"name": "`+name+`"}`)
+	}
+	l, err := loadNpmLock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ name, dir, want string }{
+		{"zod", "packages/lib/example/src", "@npm//packages/lib:zod"},
+		{"typescript", "packages/lib/example/src", "@npm//:typescript"},
+		{"zod", "packages/lib/src", "@npm//packages/lib:zod"},
+		{"zod", "scripts", "@npm//:zod"},
+	} {
+		if got := l.label(c.name, c.dir); got != c.want {
+			t.Errorf("label(%q, %q) = %q, want %q", c.name, c.dir, got, c.want)
+		}
+	}
+}
+
 func importEdge(from, spec, to string) explainfiles.Edge {
 	return explainfiles.Edge{Kind: explainfiles.Import, From: from, To: to,
 		Specifier: spec}

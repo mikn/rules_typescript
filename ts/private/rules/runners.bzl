@@ -30,7 +30,7 @@ def _es_twins_in_place(test):
 
 def _vitest_launch(ctx, test):
     program_js, twins = _es_twins_in_place(test)
-    pool = workers_pool_environment(ctx, test.forest, test.runtime_data_sets)
+    pool = workers_pool_environment(ctx, test.chain, test.runtime_data_sets)
     tsconfig_paths = tsconfig_paths_action(ctx)
     written = vitest_config_action(
         ctx,
@@ -49,8 +49,8 @@ def _vitest_launch(ctx, test):
         "test_files_list": rlocation_path(ctx, test.test_files_list),
         "reads_hook": rlocation_path(ctx, test.runner.hook),
     }
-    if test.forest.rlocations:
-        section["node_modules"] = test.forest.rlocations
+    if test.chain.rlocations:
+        section["node_modules"] = test.chain.rlocations
 
         # The canonical bin entry from vitest's package.json#bin, under the
         # first importer on the chain that links vitest.
@@ -101,8 +101,8 @@ def _node_test_launch(ctx, test):
         "test_files_list": rlocation_path(ctx, test.test_files_list),
         "resolve_hook": rlocation_path(ctx, test.runner.hook),
     }
-    if test.forest.rlocations:
-        section["node_modules"] = test.forest.rlocations
+    if test.chain.rlocations:
+        section["node_modules"] = test.chain.rlocations
     return struct(
         mode = "node_test",
         section = section,

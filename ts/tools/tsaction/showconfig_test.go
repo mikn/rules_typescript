@@ -211,8 +211,8 @@ func TestDecodeShowConfig_DiagnosticsAreNotAConfig(t *testing.T) {
 }
 
 // The written config extends the baseline then the user's file, rewrites paths,
-// roots each path-shaped types entry, names no forest package, leaves typeRoots.
-func TestTsconfigStep_WritesTheForestShapedConfig(t *testing.T) {
+// roots each path-shaped types entry, names no npm package, leaves typeRoots.
+func TestTsconfigStep_WritesTheChainShapedConfig(t *testing.T) {
 	capture := readTestdata(t, "showconfig-chain.json")
 	e := newExecroot(t, chainLeaf, capture)
 

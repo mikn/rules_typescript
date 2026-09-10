@@ -76,8 +76,9 @@ compiles the paraglide messages and runs `tsc --noEmit --incremental false`
 over the 22 tsconfig.json files in its list at f9fd041, one process each, in
 sequence: 31 s. Bazel runs 5332 actions (4237 internal, 1095 in sandboxes)
 with a critical path of 677 s. The long ones are the `NodeModulesTree`
-actions -- every target stages its own node_modules tree, copied from the
-pnpm store; seven of them 128-194 s -- and `TsgoDeclare //web:web`, 213 s:
+actions f9fd041 ran -- there every target staged its own node_modules tree,
+copied from the pnpm store; seven of them 128-194 s -- and `TsgoDeclare
+//web:web`, 213 s:
 under `--declarations=tsgo` the check of a program is its declaration emit,
 tsgo over the staged tree with `--explainFiles` (ts/private/actions/tsgo.bzl
 checks that listing against the ownership manifest), so web is checked and
@@ -89,15 +90,16 @@ fetched, once per output base.
 false`) and repeats the cold row: 26.7 s. Bazel executes nothing: `327 action
 cache hit, 1 internal`, and the 58.9 s are that one internal step's 38.6 s
 critical path plus analysis -- the check that the previous build's outputs,
-the node_modules trees with their millions of files among them, are what it
-wrote.
+f9fd041's node_modules trees with their millions of files among them, are
+what it wrote.
 
 **Typecheck everything, a fresh output base over a populated disk cache.**
 The shape of a CI runner with a shared cache. 955 of the 1095 sandboxed
 actions are disk cache hits; the other 140 execute: the `NodeModulesTree`
-actions carry `no-cache` (`NEVER_FROM_A_CACHE` in ts/private/node_modules.bzl:
-a cache fetch does not reliably reproduce every path of a tree, so the tree is
-copied from files already on disk every time), and they are the 400.7 s. The
+actions carried `no-cache` at f9fd041 (`NEVER_FROM_A_CACHE` in that commit's
+ts/private/node_modules.bzl: a cache fetch did not reliably reproduce every
+path of a tree, so the tree was copied from files already on disk every
+time), and they are the 400.7 s. The
 checkout has no counterpart: its caches are the vitest cache and typecheck.sh's
 own outputs.
 
@@ -105,8 +107,9 @@ own outputs.
 4.1.5 over 297 files and 6179 tests -- in sequence, each with its own node and
 pnpm start: 131.9 s. Bazel runs 5153 actions (4081 internal, 1115 in sandboxes)
 for 43 test targets; the tests' own times sum to 230 s (proxy-worker2's 78.7 s
-the longest) and the critical path is 692 s: the node_modules trees, compiles
-and declares of everything the tests need come first, as in the check lane.
+the longest) and the critical path is 692 s: f9fd041's node_modules trees,
+the compiles and declares of everything the tests need come first, as in the
+check lane.
 The checkout's 32 rows are what CI runs; the 43 targets are every `ts_test`
 outside the exclusions, CI row or not.
 
@@ -115,8 +118,8 @@ tests again: 125.2 s. Bazel runs none: `Executed 0 out of 43 tests`, one
 internal action, 37.2 s.
 
 **Test everything, a fresh output base over a populated disk cache.** 988
-disk cache hits and the 127 `NodeModulesTree` executions the cache never
-holds: 321.0 s, with no test run.
+disk cache hits and the 127 `NodeModulesTree` executions f9fd041's cache
+never held: 321.0 s, with no test run.
 
 **One-line change in web, re-check.** `tsc -p web --noEmit` checks the whole
 web program with no state: 19.5 s. `bazel build //web/...` re-runs the three
@@ -149,5 +152,5 @@ for three: 9.2 s, of which the type check is work the checkout's CI never does.
 (812.7 s) the runner's own processes used 5751.8 CPU-seconds, the kernel's
 threads 1108.9 and the security sensor 1401.2; during typecheck.sh (31.2 s)
 the kernel 15.2 and the sensor 9.1. The threads copy and encrypt what Bazel
-writes; the sensor inspects what it executes and opens. Both scale with the
-node_modules trees.
+writes; the sensor inspects what it executes and opens. Both scaled with
+f9fd041's node_modules trees.

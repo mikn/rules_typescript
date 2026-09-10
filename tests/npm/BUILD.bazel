@@ -145,7 +145,7 @@ chain_test(
 )
 
 # @types/node's globals reach a program through `types` (a direct dep) and not
-# through the forest alone (a package the closure carries).
+# through the chain alone (a package the closure carries).
 ts_compile(
     name = "direct_types_probe",
     srcs = ["direct_types_probe.ts"],

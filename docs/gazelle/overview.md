@@ -420,9 +420,9 @@ With no root lockfile at all, npm imports get no dep, said once per run.
 The spelling follows the importer. The file tsgo listed carries the exact
 version the importing file's own `package.json` resolved, and the hub declares
 each importer's resolutions under the importer's directory beside the root's:
-`@npm//web:marked` beside `@npm//:marked`. A name the nearest lockfile importer
-above the importing file declares is spelled under that importer, and a name
-only the root declares under the root. A flat label for a name two importers
+`@npm//web:marked` beside `@npm//:marked`. A name is spelled under the nearest
+importer on the chain above the importing file that declares it, the root
+last. A flat label for a name two importers
 resolve differently names a resolution the target's chain does not link, and
 fails analysis. Every `ts_compile` and `ts_test` gets `node_modules`, the
 nearest lockfile importer's target at or above the package -- the root's for a

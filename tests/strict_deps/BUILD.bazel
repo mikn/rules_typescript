@@ -85,7 +85,7 @@ build_test(
 )
 
 # Every edge of these resolves to an own src, a direct dep's file or a direct
-# forest package: the check passes and the targets build.
+# npm package: the check passes and the targets build.
 build_test(
     name = "declared_deps_test",
     targets = [

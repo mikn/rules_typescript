@@ -28,7 +28,7 @@ def _es_twins_impl(ctx):
 
     asserts.equals(env, 1, len(_flags(program[0], "-tsgo=")), "tsgo emits")
     asserts.equals(env, [], _flags(twins[0], "-tsgo="), "the twins are oxc's")
-    asserts.equals(env, [], _flags(twins[0], "-node_modules="), "no forest")
+    asserts.equals(env, [], _flags(twins[0], "-node_modules="), "no chain")
     out_dirs = _flags(twins[0], "-out_dir=")
     twins_dir = "/" + _PKG + "/commonjs.es"
     asserts.true(

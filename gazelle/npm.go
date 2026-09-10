@@ -120,10 +120,11 @@ func (l *npmLock) nodeModulesLabel(pkg string) string {
 	return label.New("", imp, nodeModulesTargetName).Rel("", pkg).String()
 }
 
-// label spells name for an import from a file in dir: the importer's own
-// package when the nearest importer above dir declares it, else the root's.
+// label spells name for an import from a file in dir: under the nearest
+// importer on the chain above dir that declares it, the root last.
 func (l *npmLock) label(name, dir string) string {
-	if imp := l.importerAbove(dir); imp != "" {
+	imp := l.importerAbove(dir)
+	for ; imp != ""; imp = l.importerAbove(parentDir(imp)) {
 		if _, ok := l.importers[imp].deps[name]; ok {
 			return "@npm//" + imp + ":" + npmPackageToLabelName(name)
 		}

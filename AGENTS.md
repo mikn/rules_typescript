@@ -214,8 +214,10 @@ last two. `_validation` holds the tsgo check stamp under
 `--//ts:declarations=oxc` (under the default the declarations are the proof)
 and the `TsLint` stamp when the root module's `ts.lint()` names a linter.
 Every `ts_npm_package` provides: `TsInfo`, naming its closure in
-`npm_packages` and nothing by path, + `NpmPackageInfo` (whose `direct_deps`
-carries the per-dependent resolution the `node_modules` links are built from).
+`npm_packages` and nothing by path, + `NpmPackageInfo` (whose `store` is the
+snapshot's tree and the links beside it); a consumer reaches the package
+through the chain its `node_modules` names, and its `TsInfo.npm_files` carries
+the store files its action stages.
 A data src of a `ts_compile` -- a `.css`, an image, a `.json` -- travels in
 `TsInfo.transitive_data`, which `ts_test`, `ts_binary` and
 `ts_dev_server` stage beside the `.js`; a `*.module.css` is Vite's own CSS

@@ -111,8 +111,9 @@ the compile. Three entries are the ones a test usually needs:
   no set `target` implies.
 - **A `types` entry naming a package or a subpath**, such as
   `@cloudflare/vitest-pool-workers/types` for a pool's `cloudflare:test`
-  module, or `vitest/globals`. tsgo resolves it through the forest built from
-  the test's `deps`, so the package is listed there; see
+  module, or `vitest/globals`. tsgo resolves it through the chain
+  `node_modules` names, so the package is in `deps`, which stages the
+  importer's link the walk up meets; see
   [a `types` entry that names a package](ts-compile.md#a-types-entry-that-names-a-package).
 - **A `types` entry naming a declaration file**, `../worker-configuration.d.ts`
   for the declaration a wrangler project keeps beside its worker. The target

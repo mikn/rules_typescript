@@ -9,7 +9,7 @@ The `paths` map holds first-party packages: the package directory and its
 bazel-bin twin, where a build leaves the .d.ts. npm packages are not in it. The
 checkout's node_modules holds what the lockfile resolves, pnpm's links to the
 workspace members included, and TypeScript walks it from the importing file the
-way tsgo walks the forest a build stages; a `paths` key naming a copy of a
+way tsgo walks the chain a build lays out; a `paths` key naming a copy of a
 package's declarations would only send the editor somewhere the build does not
 look.
 """

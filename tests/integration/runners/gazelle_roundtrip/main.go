@@ -186,7 +186,7 @@ func main() {
 		configBesideTheTestsIsNamed(it)
 		workersPoolConfigReachesTheTest(it)
 		importerScopedLabelsResolve(it)
-		pairedTypesReachTheProgramThroughTheForest(it)
+		pairedTypesReachTheProgramThroughTheChain(it)
 		// Last: it rewrites the tree the checks above read.
 		declarationMovesToACodegen(it)
 	})
@@ -287,7 +287,7 @@ func memberSelfImportTakesTheHubLabel(it *harness.IT) {
 		}
 	}
 	it.Pass("without the link target `shared` and `shared/wire` are TS2307: " +
-		"only the member's link puts it in the forest")
+		"only the member's link puts it on the chain")
 
 	// The view's package.json is the member's with its exports map rewritten to
 	// the emitted files, so node resolves both specifiers through the link.
@@ -317,7 +317,7 @@ func memberByNameIsTheHubView(it *harness.IT) {
 	it.RequireFile(it.Bin("member/consumer.test.js"),
 		"the member's consumer did not compile against the view")
 	it.Pass("the test compiled and ran under `bazel test //...` above, " +
-		"through the forest's link")
+		"through the importer's link")
 }
 
 // dotdot/inner imports "..", the package above: the listing resolves the
@@ -424,8 +424,8 @@ func importerScopedLabelsResolve(it *harness.IT) {
 }
 
 // src/app imports culori, which ships no declarations: the edge's label is the
-// package the specifier names, and @types/culori arrives paired in the forest.
-func pairedTypesReachTheProgramThroughTheForest(it *harness.IT) {
+// package the specifier names, and @types/culori arrives paired on the chain.
+func pairedTypesReachTheProgramThroughTheChain(it *harness.IT) {
 	requireLabels(it, "deps", "//src/app:app",
 		[]string{"//src/lib:lib", "@npm//:culori", "@npm//:vite"})
 	it.Pass("//src/app depends on @npm//:culori alone and type-checked " +
@@ -1060,7 +1060,7 @@ func parentEntryResolvesThroughTheOwner(it *harness.IT) {
 }
 
 // src/app/tsconfig.json names vite/client and no file; the entry resolves through
-// the forest, so what the BUILD file carries is the dep that puts vite in it.
+// the chain, so what the BUILD file carries is the dep that puts vite on it.
 func packageEntryIsADep(it *harness.IT) {
 	build := it.Path("src/app/BUILD.bazel")
 	it.RequireNotContains(build, "types =",
@@ -1082,5 +1082,6 @@ func packageEntryIsADep(it *harness.IT) {
 		log.Dump()
 		it.Fail("//src/app failed for some other reason than vite/client resolving to nothing")
 	}
-	it.Pass("without the dep vite/client resolves to nothing in the forest: the dep is what puts it in the program")
+	it.Pass("without the dep vite/client resolves to nothing on the chain: " +
+		"the dep is what puts it in the program")
 }

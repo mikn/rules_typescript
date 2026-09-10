@@ -33,8 +33,8 @@ store; a workspace member's hub view forwards the member's.
         "transitive_js_maps": "depset of File: their .js.map.",
         "transitive_declarations": "depset of File: the .d.ts of this " +
                                    "target and its first-party deps. An npm " +
-                                   "package's reach a consumer through the " +
-                                   "forest, not through this depset.",
+                                   "package's reach a consumer through " +
+                                   "`npm_files`, not through this depset.",
         "transitive_data": "depset of File: the data files of this target " +
                            "and its first-party deps, what a compiled module " +
                            "reaches beside itself at run time.",
@@ -136,9 +136,9 @@ into the launcher's config and the runfiles of one test.
                       "package's format.",
         "launch": "function(ctx, test) -> struct: the runner's half of one " +
                   "test's analysis. `test` is the struct ts_test builds from " +
-                  "the compile (entry_points, test_files_list, forest, " +
+                  "the compile (entry_points, test_files_list, chain, " +
                   "transitive_js, es_twins, runtime_data_sets, " +
-                  "package_sources, inline_members, runner); `forest` is " +
+                  "package_sources, inline_members, runner); `chain` is " +
                   "struct(dirs, rlocations, npm_files): the chain's " +
                   "node_modules directories nearest first, as bin-dir paths " +
                   "and as runfiles paths, and the store files the test " +

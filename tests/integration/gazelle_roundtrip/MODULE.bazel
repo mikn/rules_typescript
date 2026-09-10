@@ -23,7 +23,7 @@ local_path_override(
 register_toolchains("@rules_typescript//ts/toolchain:all")
 
 # The fixture's own lockfile: the runner installs it, Gazelle lists the tree
-# and the hub builds the forest from the same file.
+# and the hub's store and links are built from the same file.
 npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
 npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
 

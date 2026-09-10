@@ -29,7 +29,8 @@ func TestWrittenConfigNamesNoPackage(t *testing.T) {
 		tree.File("tests/npm/" + c.target + ".tsconfig.json").JSON(&config)
 		opts := config.CompilerOptions
 		if _, ok := opts["paths"]; ok {
-			t.Errorf("%s: compilerOptions.paths = %v, want none: the forest answers every bare specifier", c.target, opts["paths"])
+			t.Errorf("%s: compilerOptions.paths = %v, want none: the chain "+
+				"answers every bare specifier", c.target, opts["paths"])
 		}
 		if _, ok := opts["typeRoots"]; ok {
 			t.Errorf("%s: compilerOptions.typeRoots = %v, want unset", c.target, opts["typeRoots"])

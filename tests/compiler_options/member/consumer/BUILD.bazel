@@ -6,7 +6,7 @@ load("//ts:defs.bzl", "ts_compile")
 package(default_visibility = ["//:__pkg__"])
 
 # tests/npm/pnpm-lock.yaml links "@acme/ui" to the member lib/ beside this
-# package; the forest holds node_modules/@acme/ui with its manifest as built.
+# package; the importer links node_modules/@acme/ui, its manifest as built.
 ts_compile(
     name = "app",
     srcs = ["main.ts"],

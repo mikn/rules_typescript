@@ -57,7 +57,7 @@ def _package_sources(ctx):
         if _same_package(dep.label, ctx.label)
     ]
 
-def _forest(ctx, program):
+def _chain(ctx, program):
     return struct(
         dirs = [importer.dir for importer in program.importers],
         rlocations = [
@@ -107,12 +107,12 @@ def _ts_test_impl(ctx):
     # manifest.
     members = [info for info in program.packages if info.package_dir == None]
     member_manifests = _member_manifests(ctx, members)
-    forest = _forest(ctx, program)
+    chain = _chain(ctx, program)
 
     launched = runner.launch(ctx, struct(
         entry_points = entry_points,
         test_files_list = test_files_list,
-        forest = forest,
+        chain = chain,
         transitive_js = program.transitive_js,
         es_twins = program.es_twins,
         runtime_data_sets = [
@@ -150,7 +150,7 @@ def _ts_test_impl(ctx):
     runfiles = ctx.runfiles(
         files = files,
         transitive_files = depset(
-            transitive = [launched.transitive_files, forest.npm_files],
+            transitive = [launched.transitive_files, chain.npm_files],
         ),
         root_symlinks = launcher.root_symlinks,
         symlinks = dict(member_manifests) | launched.symlinks,

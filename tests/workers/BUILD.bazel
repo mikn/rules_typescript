@@ -106,8 +106,8 @@ build_test(
     targets = [":experimental_types"],
 )
 
-# index.ts, a module, beside index.d.ts, a global script: tsgo walks the forest for
-# the bare import and takes index.ts first, as over a pnpm install; nothing pins it.
+# index.ts, a module, beside index.d.ts, a global script: tsgo walks the chain
+# for the bare import and takes index.ts first, as over pnpm; nothing pins it.
 ts_compile(
     name = "module_import",
     srcs = ["src/module_import.ts"],

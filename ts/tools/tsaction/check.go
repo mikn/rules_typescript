@@ -128,7 +128,7 @@ func quoted(e explainfiles.Edge) string {
 }
 
 // owner names the label owning `to` and whether this target may use it: an
-// own src, a forest package, or the first-party file or tree it sits under.
+// own src, an npm package, or the first-party file or tree it sits under.
 func (o *ownership) owner(to string) (label string, declared bool, err error) {
 	if o.own[to] {
 		return o.label, true, nil
@@ -141,7 +141,7 @@ func (o *ownership) owner(to string) (label string, declared bool, err error) {
 			return label, false, nil
 		}
 		return "", false, fmt.Errorf("resolves to %s, under a package the "+
-			"forest does not hold", to)
+			"npm closure does not hold", to)
 	}
 	for p := to; p != "." && p != "/" && p != ""; p = path.Dir(p) {
 		owners, ok := o.files[p]
@@ -155,12 +155,12 @@ func (o *ownership) owner(to string) (label string, declared bool, err error) {
 		}
 		return owners[0], false, nil
 	}
-	return "", false, fmt.Errorf("resolves to %s, which no src, dep or forest "+
+	return "", false, fmt.Errorf("resolves to %s, which no src, dep or npm "+
 		"package of this target owns", to)
 }
 
-// npmPackageOf names the package a forest path belongs to -- the segments
-// after the last node_modules/ -- or "" for a first-party path.
+// npmPackageOf names the package a node_modules path belongs to: the
+// segments after the last node_modules/, or "" for a first-party path.
 func npmPackageOf(p string) string {
 	const marker = "node_modules/"
 	i := strings.LastIndex(p, marker)
