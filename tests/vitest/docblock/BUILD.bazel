@@ -1,0 +1,16 @@
+"""A file's leading docblock outlives the `import type` it sits on: vitest
+reads `// @vitest-environment` from the compiled file it runs, so the config's
+happy-dom would take this test if the emit dropped the comment."""
+
+load("//ts:defs.bzl", "ts_test")
+
+# keep
+ts_test(
+    name = "docblock_test",
+    srcs = ["node_env.test.ts"],
+    config = "vitest.config.mjs",
+    deps = [
+        "@npm//:happy-dom",
+        "@npm//:vitest",
+    ],
+)

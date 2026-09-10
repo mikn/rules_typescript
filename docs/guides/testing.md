@@ -81,8 +81,11 @@ export default {
 `test.environment` takes any value vitest accepts (`node`, `jsdom`, `happy-dom`,
 `edge-runtime`, or a custom environment package), and the matching package has
 to be in `deps`; Gazelle writes it from the config's imports and the nearest
-`package.json`. Scoped npm names take their label form: `@testing-library/react`
-is `@npm//:testing-library_react`. `test.setupFiles` entries run before every
+`package.json`. A file's `// @vitest-environment` docblock names that file's
+environment over the config's, as under plain vitest; the compiled file keeps
+the docblock ([Comments](../rules/ts-compile.md#comments)). Scoped npm names
+take their label form: `@testing-library/react` is
+`@npm//:testing-library_react`. `test.setupFiles` entries run before every
 test file, which is where `matchMedia`, `ResizeObserver` and `PointerEvent`
 belong; an entry naming a TypeScript source runs its compiled sibling, so the
 `ts_compile` whose `srcs` hold `setupTests.ts` is in `deps` -- under Gazelle the

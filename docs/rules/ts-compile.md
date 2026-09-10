@@ -306,6 +306,18 @@ fails the same way without a `ts_config`. `//tests/vitest/commonjs` is the
 example: a `module: commonjs` package with no `type`, whose setup file imports
 vitest from the `ts_compile` the test depends on.
 
+### Comments
+
+The compiled JavaScript keeps the comments the source has above its
+statements. Under oxc, a comment above a top-level statement the transform
+erases -- an `import type`, an import whose every binding the file uses as a
+type, an `interface`, a `type` alias -- moves to the next statement the source
+keeps, or to the file's end when none follows, so a file that opens with
+`// @vitest-environment node` over an `import type` keeps the docblock above
+its first remaining import; vitest reads it from the file it runs, under Bazel
+the compiled sibling. tsgo's emit drops such a comment.
+`//tests/vitest/docblock` pins it.
+
 ### What Fails Before tsgo Runs
 
 Analysis rejects a `.jsx` src, a directory in `srcs` (a `ts_codegen` `out_dir`
