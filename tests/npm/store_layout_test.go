@@ -11,10 +11,8 @@ import (
 	"github.com/mikn/rules_typescript/tests/verify"
 )
 
-// The features lockfile resolves ansi-styles@6.2.3 twice, once per peer set:
-// two store trees, two keys, each holding real files only, and beside each a
-// relative link to the ansi-regex its snapshot names. The hidden hoist links
-// one ansi-regex: app-a's, the first importer whose direct deps claim the name.
+// The features lockfile resolves ansi-styles@6.2.3 once per peer set; the
+// hidden hoist links app-a's ansi-regex, the first importer to claim the name.
 func TestStoreTreesAndLinks(t *testing.T) {
 	tree := verify.New(t)
 

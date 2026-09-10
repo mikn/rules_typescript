@@ -133,12 +133,8 @@ npm.translate_lock(
     pnpm_lock = "//vite/esbuild:pnpm-lock.yaml",
 )
 
-# A second hub for the pnpm features that need their own fixture: the main
-# lockfile is copied verbatim into the integration and bootstrap scratch
-# workspaces, which pass no patch files.
-#
-# Nothing outside //tests/npm/... names @npm_features, so this hub and its
-# patched nanoid have no business in a consumer's MODULE.bazel.lock.
+# The dev hubs: nothing outside this module's tests names them, so no
+# consumer's MODULE.bazel.lock records them.
 npm_dev = use_extension("//npm:extensions.bzl", "npm", dev_dependency = True)
 
 # Tailwind v4's own hub. //tests/npm's lockfile is a curated fixture -- its
@@ -166,6 +162,9 @@ npm_dev.translate_lock(
     name = "npm_workers",
     pnpm_lock = "//tests/workers:pnpm-lock.yaml",
 )
+
+# pnpm's patches need a lockfile of their own: tests/npm's is copied verbatim
+# into scratch workspaces that pass no patch files.
 npm_dev.translate_lock(
     name = "npm_features",
     patches = [

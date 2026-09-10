@@ -27,9 +27,8 @@ register_toolchains("@rules_typescript//ts/toolchain:all")
 npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
 npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
 
-# The wrangler that generated_worker/'s hand-written ts_codegen runs. The runner
-# copies tests/workers/pnpm-lock.yaml into wrangler_lock/, a package of its own:
-# one lockfile per package, since the store sits in the lockfile's package.
+# The wrangler generated_worker/'s ts_codegen runs; the runner copies
+# tests/workers/pnpm-lock.yaml into wrangler_lock/, a package of its own.
 npm.translate_lock(
     name = "npm_workers",
     pnpm_lock = "//wrangler_lock:pnpm-lock.yaml",

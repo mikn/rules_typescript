@@ -266,7 +266,7 @@ ts_compile(
 )
 
 # A workspace member imported by its PACKAGE NAME, through the hub's view of the
-# `link:` in pnpm-lock-features.yaml; an alias carries no name the rule can see.
+# `link:` in features/pnpm-lock.yaml; an alias carries no name the rule can see.
 ts_compile(
     name = "ws_linked_consumer",
     srcs = ["ws_linked_consumer.ts"],

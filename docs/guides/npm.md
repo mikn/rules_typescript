@@ -401,9 +401,8 @@ forest and the runtime tree link it at `node_modules/<name>`, holding the
 member's `package.json` as built beside the member's `.js`, `.js.map` and `.d.ts`
 at the paths the manifest names. "As built" is one rewrite, done by the member's
 store target at analysis, where the compiling target's declared `jsx` is known:
-every
-source-file target under `main`, `module`, `browser`, `exports` and `imports`
-names the emitted file -- the `.js`, or the `.jsx` for a `.tsx` under
+every source-file target under `main`, `module`, `browser`, `exports` and
+`imports` names the emitted file -- the `.js`, or the `.jsx` for a `.tsx` under
 `jsx: "preserve"` ([a `.tsx` under `jsx: preserve`](../rules/ts-compile.md#a-tsx-under-jsx-preserve))
 -- and every `types`, `typings` or `exports` `types` condition names the
 `.d.ts`, key order kept, so an `exports` condition map is read in the order it

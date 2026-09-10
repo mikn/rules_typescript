@@ -1,8 +1,6 @@
 load("@npm_tailwind//:defs.bzl", "npm_virtual_store")
 
-# @npm_tailwind is translated from these; nothing in this package builds them.
-# A package of its own: the store sits in the lockfile's package, and the
-# fixture beside it holds the `node_modules` tree the dev server runs on.
+# @npm_tailwind is translated from these; nothing here builds them.
 exports_files([
     "package.json",
     "pnpm-lock.yaml",

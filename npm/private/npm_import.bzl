@@ -727,7 +727,8 @@ npm_hub = repository_rule(
             doc = "The lockfile's store graph as JSON (npm/lazy.bzl): every " +
                   "snapshot's store key, repository, platforms and edges, " +
                   "the members with theirs, and the hoisted names; " +
-                  "defs.bzl's `npm_virtual_store()` declares the store from it.",
+                  "defs.bzl's `npm_virtual_store()` declares the store " +
+                  "from it.",
         ),
         "broken_cycle_edges": attr.string_list(
             doc = "Human-readable record of edges the extension removed.",

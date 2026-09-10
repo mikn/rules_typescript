@@ -142,7 +142,8 @@ The call declares, `manual` and public:
   edge to a platform-partitioned snapshot is declared under the same
   `select()` the snapshot's repository writes, so no platform fetches
   another's tarball. An edge the extension dropped to break a cycle has no
-  link; the import resolves through the hidden hoist below.
+  link; the name resolves through the hidden hoist below, to the resolution
+  the hoist links.
 - one `npm_store_member` per workspace member whose BUILD file declares its
   target, `node_modules/.pnpm/<name with / as +>@0.0.0/node_modules/<name>`:
   the member's `package.json` as built (every source-file target rewritten to
@@ -177,16 +178,17 @@ The call declares, `manual` and public:
 A tree holds no symlink, so Bazel hashes it as files and restores it as files
 from a disk or remote cache in every download mode, and a fresh output base
 over a populated cache executes no `NpmStore`; the links are internal actions,
-re-run per output base. The store sits in the lockfile's repository because a
+re-run per output base. The store sits in the lockfile's package because that
+is pnpm's `node_modules/.pnpm`, and in the lockfile's repository because a
 relative link has one text in the execroot and the runfiles tree only while
-link and target share a repository; so every lockfile is in a package of its
-own -- the `npm` extension refuses two in one -- and a module's hub the
+link and target share a repository: two lockfiles in one package would share
+one store, so the `npm` extension refuses them, and a module's hub the
 extension fills in from another module's lockfile serves that module's own
 targets, never a consumer's.
 
 Every `ts_npm_package` carries its snapshot's store as `NpmPackageInfo.store`
 (`NpmStoreInfo`: `key`, `tree`, `links`, `transitive`, `manifest`), and a
-member's hub view carries the member's. Nothing else reads the store yet: the
+member's hub view carries the member's. Nothing else reads the store: the
 forest below is what `ts_compile` and `ts_test` stage.
 
 ## Trees `ts_compile` and `ts_test` Generate

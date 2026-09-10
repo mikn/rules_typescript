@@ -6,8 +6,6 @@ package(default_visibility = ["//:__pkg__"])
 
 # gazelle:exclude *_test.go
 
-# @npm_tailwind is translated from lock/.
-
 ts_compile(
     name = "entry",
     srcs = [
