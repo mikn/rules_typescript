@@ -22,14 +22,14 @@
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_go//go:def.bzl", "go_test")
-load("//ts:defs.bzl", "ts_compile")
+load("//ts:defs.bzl", "ts_compile", "ts_config")
 load(
     ":analysis_tests.bzl",
     "baseline_file_test",
     "declaration_map_without_tsgo_test",
+    "emit_command_line_test",
     "jsx_source_test",
     "mixed_source_roots_test",
-    "oxc_command_line_test",
 )
 
 package(default_visibility = ["//:__pkg__"])
@@ -46,8 +46,8 @@ ts_compile(
     tsconfig = "tsconfig.checkjs.json",
 )
 
-oxc_command_line_test(
-    name = "oxc_command_line_test",
+emit_command_line_test(
+    name = "emit_command_line_test",
     target_under_test = ":everything",
 )
 
@@ -74,10 +74,16 @@ build_test(
 
 # A `module` of the target's own drops the ruleset's and the resolver paired
 # with it; only a real build says tsgo accepts the pair.
+ts_config(
+    name = "nodenext_tsconfig",
+    src = "tsconfig.nodenext.json",
+    module = "nodenext",
+)
+
 ts_compile(
     name = "derived_resolution",
     srcs = ["derived.ts"],
-    tsconfig = "tsconfig.nodenext.json",
+    tsconfig = ":nodenext_tsconfig",
 )
 
 build_test(

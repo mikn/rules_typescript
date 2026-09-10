@@ -15,7 +15,7 @@ load(
     "data_srcs_test",
     "declared_outputs_test",
     "dep_json_inputs_test",
-    "oxc_strip_prefix_test",
+    "emit_root_test",
     "transitive_data_test",
 )
 
@@ -81,8 +81,8 @@ declared_outputs_test(
     target_under_test = ":siblings",
 )
 
-oxc_strip_prefix_test(
-    name = "oxc_strip_prefix_test",
+emit_root_test(
+    name = "emit_root_test",
     target_under_test = ":siblings",
 )
 

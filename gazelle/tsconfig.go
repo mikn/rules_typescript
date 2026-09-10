@@ -24,3 +24,13 @@ func programPreservesJsx(tsConfigPath string) bool {
 	resolved, err := tsconfig.Resolve(tsConfigPath)
 	return err == nil && strings.EqualFold(resolved.Jsx, "preserve")
 }
+
+// The chain's effective module when tsgo emits it, lowercased as tsgo prints
+// it: the ts_config value that names a program's ES twins; "" for oxc's kinds.
+func programModule(tsConfigPath string) string {
+	resolved, err := tsconfig.Resolve(tsConfigPath)
+	if err != nil || tsconfig.OxcEmits(resolved.Module) {
+		return ""
+	}
+	return strings.ToLower(resolved.Module)
+}

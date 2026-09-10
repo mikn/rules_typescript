@@ -1,5 +1,5 @@
 // The tsconfig step writes the action's tsconfig from the baseline, the user's
-// file and what `tsgo --showConfig` says the two mean; the oxc step reads that.
+// file and what `tsgo --showConfig` says they mean; the emit step reads that.
 
 package main
 
@@ -23,13 +23,17 @@ type effectiveOptions struct {
 	Target          string    `json:"target"`
 	Jsx             string    `json:"jsx"`
 	JsxImportSource string    `json:"jsxImportSource"`
+	Module          string    `json:"module"`
 	Types           *[]string `json:"types"`
 }
 
+// oxcOptions is the options file: what oxc transforms with, and the module
+// kind that decides whether oxc or tsgo emits the JavaScript.
 type oxcOptions struct {
 	Target          string `json:"target,omitempty"`
 	Jsx             string `json:"jsx,omitempty"`
 	JsxImportSource string `json:"jsxImportSource,omitempty"`
+	Module          string `json:"module,omitempty"`
 }
 
 func (o oxcOptions) flags() []string {
@@ -80,7 +84,7 @@ func decodeShowConfig(out []byte) (*effectiveOptions, []string, error) {
 type actionConfig struct {
 	tsgo, project, baseline, out, options string
 	binDir                                string
-	jsx                                   string
+	jsx, module                           string
 	typesDeps                             stringList
 	srcs                                  []string
 	emit                                  bool
@@ -115,6 +119,8 @@ func writeTsconfig(args []string) error {
 	flags.StringVar(&a.binDir, "bin_dir", "", "the output tree's root")
 	flags.StringVar(&a.jsx, "jsx", "",
 		"the ts_config's jsx: \"preserve\" names a .tsx's emit .jsx")
+	flags.StringVar(&a.module, "module", "",
+		"the ts_config's module: the chain's, when tsgo emits it")
 	flags.Var(&a.typesDeps, "types_dep", "a direct @types dep's name, written to types when the user's chain sets none (repeatable)")
 	flags.BoolVar(&a.emit, "emit", false, "tsgo emits this target's declarations")
 	flags.StringVar(&a.outDir, "out_dir", "", "where the declarations land, with -emit")
@@ -171,6 +177,9 @@ func (a *actionConfig) resolve(dir string, chain *tsconfig.Resolved,
 	if err := a.checkJsx(effective.Jsx); err != nil {
 		return nil, oxcOptions{}, err
 	}
+	if err := a.checkModule(effective.Module); err != nil {
+		return nil, oxcOptions{}, err
+	}
 	config, err := a.build(effective, roots, chain, dir)
 	if err != nil {
 		return nil, oxcOptions{}, err
@@ -179,6 +188,7 @@ func (a *actionConfig) resolve(dir string, chain *tsconfig.Resolved,
 		Target:          effective.Target,
 		Jsx:             effective.Jsx,
 		JsxImportSource: effective.JsxImportSource,
+		Module:          effective.Module,
 	}, nil
 }
 
@@ -200,6 +210,32 @@ func (a *actionConfig) checkJsx(effective string) error {
 			"declares jsx = \"preserve\": drop the attribute", a.project, effective)
 	}
 	return nil
+}
+
+// The rule declared the ES twins of a program tsgo emits from the ts_config
+// before any action read the file; the two answers agree, or the edit is named.
+func (a *actionConfig) checkModule(effective string) error {
+	if !a.hasTsSrc() {
+		return nil
+	}
+	want := ""
+	if !tsconfig.OxcEmits(effective) {
+		want = strings.ToLower(effective)
+	}
+	switch {
+	case a.module == want:
+		return nil
+	case want == "":
+		return fmt.Errorf("%s: module is %q, which oxc emits, and the ts_config "+
+			"declares module = %q: drop the attribute", a.project, effective, a.module)
+	case a.module == "":
+		return fmt.Errorf("%s: module is %q, so tsgo emits the JavaScript and a "+
+			"vitest test runs its ES twins, and the rule declared none: declare "+
+			"it on the tsconfig's ts_config, module = %q", a.project, effective, want)
+	default:
+		return fmt.Errorf("%s: module is %q and the ts_config declares "+
+			"module = %q: declare module = %q", a.project, effective, a.module, want)
+	}
 }
 
 func (a *actionConfig) extends(dir string) []string {
@@ -240,7 +276,6 @@ func (a *actionConfig) build(effective *effectiveOptions, roots []string,
 		opts["noEmit"] = false
 		opts["noEmitOnError"] = true
 		opts["outDir"] = relativePath(dir, a.outDir)
-		opts["declarationDir"] = opts["outDir"]
 		opts["rootDir"] = relativePath(dir, a.rootDir)
 	} else {
 		opts["rootDir"] = relativePath(dir, "")
@@ -287,6 +322,19 @@ func (a *actionConfig) roots(printed []string, dir string,
 		}
 	}
 	return files, include
+}
+
+// A .ts or .tsx src has an emit; a declaration has none to name.
+func (a *actionConfig) hasTsSrc() bool {
+	for _, src := range a.srcs {
+		switch path.Ext(src) {
+		case ".ts", ".tsx":
+			if !strings.HasSuffix(src, ".d.ts") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (a *actionConfig) hasTsxSrc() bool {
@@ -433,25 +481,4 @@ func writeJSON(name string, v any) error {
 		return err
 	}
 	return os.WriteFile(name, append(data, '\n'), 0o644)
-}
-
-func runOxc(args []string) error {
-	flags := flag.NewFlagSet("oxc", flag.ExitOnError)
-	options := flags.String("options", "", "the options file the tsconfig step wrote")
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	cmdline := flags.Args()
-	if *options == "" || len(cmdline) == 0 {
-		return errors.New("oxc needs -options=FILE and a command after --")
-	}
-	data, err := os.ReadFile(*options)
-	if err != nil {
-		return err
-	}
-	var o oxcOptions
-	if err := json.Unmarshal(data, &o); err != nil {
-		return fmt.Errorf("%s: %w", *options, err)
-	}
-	return runTool(append(cmdline, o.flags()...))
 }

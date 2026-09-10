@@ -28,14 +28,31 @@ const COMPILED = {
   ".cts": [".cjs"],
 };
 
+// The compiled files a `.ts` specifier names, relative or bare: a subpath
+// into a workspace member's view holds them too.
+function compiledExtensionForms(specifier) {
+  const ext = path.extname(specifier);
+  if (!(ext in COMPILED)) return [];
+  return COMPILED[ext].map((c) => specifier.slice(0, -ext.length) + c);
+}
+
 // The files the compiled tree holds for a specifier tsc resolved under the
 // tsconfig: a .ts's sibling; the .js or index.js of an extensionless one.
 function compiledForms(specifier) {
-  const ext = path.extname(specifier);
-  if (ext in COMPILED) {
-    return COMPILED[ext].map((c) => specifier.slice(0, -ext.length) + c);
+  const forms = compiledExtensionForms(specifier);
+  if (forms.length > 0 || path.extname(specifier) !== "") return forms;
+  return [`${specifier}.js`, `${specifier}/index.js`];
+}
+
+function firstResolved(forms, attempt) {
+  for (const form of forms) {
+    try {
+      return attempt(form);
+    } catch {
+      // The specifier as written decides.
+    }
   }
-  return ext === "" ? [`${specifier}.js`, `${specifier}/index.js`] : [];
+  return undefined;
 }
 
 function isFile(url) {
@@ -72,19 +89,30 @@ function fromTheTrees(specifier, context, next) {
 module.registerHooks({
   resolve(specifier, context, next) {
     const { parentURL } = context;
+    const asWritten = (form) => next(form, context);
     if (!parentURL?.startsWith("file:") || insideATree(parentURL)) {
-      return next(specifier, context);
+      return (
+        firstResolved(compiledExtensionForms(specifier), asWritten) ??
+        asWritten(specifier)
+      );
     }
     if (specifier.startsWith("./") || specifier.startsWith("../")) {
       for (const form of [...compiledForms(specifier), specifier]) {
         const url = new URL(form, parentURL);
         if (isFile(url)) return { url: url.href, shortCircuit: true };
       }
-      return next(specifier, context);
+      return asWritten(specifier);
     }
+    // require() reads NODE_PATH itself and ignores a swapped parentURL.
+    const imported = !context.conditions.includes("require");
     if (trees.length > 0 && isBare(specifier)) {
-      return fromTheTrees(specifier, context, next);
+      const fromTrees = (form) => fromTheTrees(form, context, next);
+      const attempt = imported ? fromTrees : asWritten;
+      return (
+        firstResolved(compiledExtensionForms(specifier), attempt) ??
+        attempt(specifier)
+      );
     }
-    return next(specifier, context);
+    return asWritten(specifier);
   },
 });

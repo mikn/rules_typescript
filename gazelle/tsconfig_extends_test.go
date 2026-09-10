@@ -452,13 +452,13 @@ ts_config(
 `
 }
 
-// tsConfigJsx is the jsx of the ts_config target in pkg, "" when unset; the
-// rule is required to be there, as for tsConfigDeps.
-func tsConfigJsx(t *testing.T, root, pkg string) string {
+// tsConfigAttr is a string attribute of the ts_config target in pkg, "" when
+// unset; the rule is required to be there, as for tsConfigDeps.
+func tsConfigAttr(t *testing.T, root, pkg, attr string) string {
 	t.Helper()
 	for _, r := range loadRules(t, root, pkg) {
 		if r.Kind() == "ts_config" && r.Name() == tsConfigTargetName {
-			return r.AttrString("jsx")
+			return r.AttrString(attr)
 		}
 	}
 	t.Fatalf("generation wrote no ts_config(%s) in %s", tsConfigTargetName, pkg)
@@ -486,9 +486,42 @@ func TestTsConfigJsx_PreserveIsDeclaredFromTheChain(t *testing.T) {
 	}
 	for pass := 1; pass <= 2; pass++ {
 		for pkg, jsx := range want {
-			if got := tsConfigJsx(t, root, pkg); got != jsx {
+			if got := tsConfigAttr(t, root, pkg, "jsx"); got != jsx {
 				t.Errorf("pass %d: ts_config(%s).jsx in %s = %q, want %q",
 					pass, tsConfigTargetName, pkg, got, jsx)
+			}
+		}
+		captureLog(t, func() { convergeGazelle(t, root) })
+	}
+	assertNoDanglingLabels(t, root)
+}
+
+// The chain's module, when tsgo emits it, names a program's ES twins: written
+// lowercased as tsgo prints it, inherited through extends; an ES kind: nothing.
+func TestTsConfigModule_TsgoEmittedIsDeclaredFromTheChain(t *testing.T) {
+	requireTsgo(t)
+	root := t.TempDir()
+	writeWorkspace(t, root, map[string]string{
+		"package.json":           `{"name":"w"}` + "\n",
+		"cjs/tsconfig.json":      `{"compilerOptions":{"module":"CommonJS"}}` + "\n",
+		"cjs/lib.ts":             "export const c = 1;\n",
+		"cjs/test/tsconfig.json": `{"extends":"../tsconfig.json"}` + "\n",
+		"cjs/test/lib.test.ts":   "export const t = 1;\n",
+		"node/tsconfig.json":     `{"compilerOptions":{"module":"NodeNext"}}` + "\n",
+		"node/lib.ts":            "export const n = 1;\n",
+		"esm/tsconfig.json":      `{"compilerOptions":{"module":"ESNext"}}` + "\n",
+		"esm/lib.ts":             "export const e = 1;\n",
+	})
+	captureLog(t, func() { convergeGazelle(t, root) })
+
+	want := map[string]string{
+		"cjs": "commonjs", "cjs/test": "commonjs", "node": "nodenext", "esm": "",
+	}
+	for pass := 1; pass <= 2; pass++ {
+		for pkg, module := range want {
+			if got := tsConfigAttr(t, root, pkg, "module"); got != module {
+				t.Errorf("pass %d: ts_config(%s).module in %s = %q, want %q",
+					pass, tsConfigTargetName, pkg, got, module)
 			}
 		}
 		captureLog(t, func() { convergeGazelle(t, root) })

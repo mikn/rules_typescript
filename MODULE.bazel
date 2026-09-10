@@ -69,9 +69,8 @@ use_repo(crate, "crates")
 
 node = use_extension("@rules_nodejs//nodejs:extensions.bzl", "node")
 node.toolchain(
-    # The explicit name "nodejs" documents the dependency: _NODEJS_REPO_PLATFORM
-    # in ts/private/runtime.bzl constructs repo labels as "nodejs_<platform>",
-    # which requires this prefix to match.
+    # A default: rules_nodejs keeps the root module's tag of this name over this
+    # one, so a consumer's .nvmrc wins. runtime.bzl's labels expect the name.
     name = "nodejs",
     node_version = "22.23.1",
 )

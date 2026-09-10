@@ -27,13 +27,17 @@ const usage = `usage:
   tsaction stage -out=DIR SRC DEST [SRC DEST...]
   tsaction tar -out=FILE -dir=DIR [-prefix=P]
   tsaction tsconfig -tsgo=BIN [-tsconfig=FILE] -baseline=FILE -out=FILE -options=FILE
-      -bin_dir=DIR [-jsx=preserve] [-types_dep=NAME]...
+      -bin_dir=DIR [-jsx=preserve] [-module=KIND] [-types_dep=NAME]...
       [-emit -out_dir=DIR -root_dir=DIR] [-declaration_map]
       [-isolated_declarations] [-lib_check] SRC...
   tsaction paths -tsconfig=FILE -package=PKG [-bin_dir=DIR] -out=FILE
   tsaction tsgo -root=DIR -node_modules=DIR -check=FILE [-stamp=FILE]
       -- TSGO [ARG...]
-  tsaction oxc -options=FILE -- OXC [ARG...]`
+  tsaction emit -options=FILE -tsconfig=FILE -node_modules=DIR -scratch=DIR
+      -out_dir=DIR -oxc=BIN -tsgo=BIN -root=DIR... [-source_map]
+      [-declarations] SRC...
+  tsaction emit -options=FILE -out_dir=DIR -oxc=BIN -root=DIR... -es_modules
+      [-source_map] [-declarations] SRC...`
 
 func main() {
 	if len(os.Args) < 2 {
@@ -56,8 +60,8 @@ func main() {
 		err = writePaths(args)
 	case "tsgo":
 		err = runTsgo(args)
-	case "oxc":
-		err = runOxc(args)
+	case "emit":
+		err = runEmit(args)
 	default:
 		err = fmt.Errorf("unknown subcommand %q\n%s", os.Args[1], usage)
 	}

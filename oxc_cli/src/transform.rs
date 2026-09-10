@@ -23,7 +23,7 @@ use oxc_codegen::{Codegen, CodegenOptions};
 use oxc_isolated_declarations::{IsolatedDeclarations, IsolatedDeclarationsOptions};
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
-use oxc_span::SourceType;
+use oxc_span::{GetSpan, SourceType};
 use oxc_transformer::{JsxOptions, JsxRuntime, TransformOptions, Transformer, TypeScriptOptions};
 
 use crate::options::CliOptions;
@@ -138,6 +138,9 @@ pub fn transform_file(input_path: &Path, opts: &CliOptions) -> miette::Result<()
             None
         };
 
+        let starts_before: Vec<u32> =
+            parse_ret.program.body.iter().map(|s| s.span().start).collect();
+
         // Transform (mutates parse_ret.program in place).
         let transformer_ret = Transformer::new(
             &allocator,
@@ -153,6 +156,23 @@ pub fn transform_file(input_path: &Path, opts: &CliOptions) -> miette::Result<()
                 &transformer_ret.errors,
                 "Transform error(s)",
             ));
+        }
+
+        // A comment above an erased statement moves to the next kept one: a
+        // leading docblock outlives the `import type` it sits on.
+        let starts_after: Vec<u32> =
+            parse_ret.program.body.iter().map(|s| s.span().start).collect();
+        let end = parse_ret.program.span.end;
+        for comment in parse_ret.program.comments.iter_mut() {
+            let at = comment.attached_to;
+            if starts_before.contains(&at) && !starts_after.contains(&at) {
+                comment.attached_to = starts_after
+                    .iter()
+                    .copied()
+                    .filter(|&s| s > at)
+                    .min()
+                    .unwrap_or(end);
+            }
         }
 
         // Codegen for .js — optionally emit a source map.

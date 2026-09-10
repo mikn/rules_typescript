@@ -44,13 +44,14 @@ through a Starlark transition; `tests/flags.bzl` is the ruleset's own.
 
 `srcs` accepts every file. Four classes of src, by extension:
 
-- **TypeScript**, `.ts` and `.tsx`: compiled by oxc to `.js` and `.js.map`,
-  type-checked by tsgo, and declared as `.d.ts` by whichever emitter
-  `--//ts:declarations` names. A `.tsx` under `jsx: "preserve"` is compiled to
-  `.jsx` and `.jsx.map`, the names tsc gives it, with its JSX left for the
-  bundler ([below](#a-tsx-under-jsx-preserve)). A `.mts` or `.cts` is refused:
-  the rule emits `.js` and `.d.ts` from `.ts` alone, and has no output shape
-  for one.
+- **TypeScript**, `.ts` and `.tsx`: compiled to `.js` and `.js.map` -- by oxc,
+  or by tsgo when the program's `module` is CommonJS-shaped ([The Module
+  Format](#the-module-format)) -- type-checked by tsgo, and declared as `.d.ts`
+  by whichever emitter `--//ts:declarations` names. A `.tsx` under
+  `jsx: "preserve"` is compiled to `.jsx` and `.jsx.map`, the names tsc gives
+  it, with its JSX left for the bundler ([below](#a-tsx-under-jsx-preserve)).
+  A `.mts` or `.cts` is refused: the rule emits `.js` and `.d.ts` from `.ts`
+  alone, and has no output shape for one.
 - **JavaScript**, `.js`, `.mjs` and `.cjs`: staged into the output tree
   unchanged and in the type program. The rule sets `allowJs` for it, so its
   JSDoc types reach consumers; `checkJs` in the tsconfig has its own body
@@ -107,19 +108,32 @@ land on the `.ts` source. It requires the tsgo declaration emit; under
 `--//ts:declarations=oxc` it is an analysis error naming both flags, since oxc
 emits no map.
 
+A `.js.map` has one shape from either emitter: `sources` names the src by its
+exec-root-relative path -- `tests/smoke/hello.ts`, the path Bazel and a
+coverage report use -- and `sourcesContent` carries the text, so a consumer
+resolves nothing against the map's directory. oxc writes that form. tsgo
+writes its maps into `TsEmit`'s scratch `outDir`, `sources` relative to the
+map as tsc computes them and `sourcesContent` from `--inlineSources`, and the
+move into place resolves each `sources` entry to the exec-root path
+([The Module Format](#the-module-format)).
+`//tests/compiler_options/source_maps` pins both emitters' maps.
+
 ## Outputs
 
 For each source file `foo.ts`:
 
 | Output | Description |
 |--------|-------------|
-| `foo.js` | Compiled JavaScript (always from Oxc) |
-| `foo.js.map` | Source map, under `--//ts:source_map` |
+| `foo.js` | Compiled JavaScript ([The Module Format](#the-module-format)) |
+| `foo.js.map` | Source map, under `--//ts:source_map` ([Source and Declaration Maps](#source-and-declaration-maps)) |
 | `foo.d.ts` | Declaration file, the compilation boundary |
 
 For a `foo.tsx` under `jsx: "preserve"` the first two are `foo.jsx` and
-`foo.jsx.map`, as tsc names them ([below](#a-tsx-under-jsx-preserve)). Every
-other src is staged at its package-relative path, unchanged.
+`foo.jsx.map`, as tsc names them ([below](#a-tsx-under-jsx-preserve)). A
+program tsgo emits has one more, `<name>.es/foo.js`: the ES module a vitest
+test runs in place of `foo.js` ([The Module Format](#the-module-format)),
+in no default output. Every other src is staged at its package-relative path,
+unchanged.
 
 ## Where Compiler Options Come From
 
@@ -146,7 +160,7 @@ or `files`, so tsc neither walks the output directory nor loses the chain's own
 3. **The keys Bazel owns**, written last: `rootDirs` bridging the source and
    output trees, `preserveSymlinks`, `declaration`, `emitDeclarationOnly`,
    `declarationMap`, `composite`, `incremental`, `rootDir`; under the tsgo emit
-   `noEmit: false`, `noEmitOnError`, `outDir` and `declarationDir`; `allowJs`
+   `noEmit: false`, `noEmitOnError` and `outDir`; `allowJs`
    when a src is JavaScript; `isolatedDeclarations` under
    `--//ts:declarations=oxc`; `skipLibCheck: false` under `--//ts:lib_check`.
    `files` is the srcs the tsconfig's own `include` and `files` name, in the
@@ -160,7 +174,9 @@ or `files`, so tsc neither walks the output directory nor loses the chain's own
 `--showConfig` is run over the chain, not over the user's file alone, so a
 default the baseline supplies reaches oxc as tsgo sees it: oxc transforms with
 the `target`, `jsx` and `jsxImportSource` the same run yields, handed over in
-`<name>.options.json`, and the two compilers agree.
+`<name>.options.json`, and the two compilers agree. The same file carries the
+chain's `module`, which decides which tool emits the JavaScript
+([The Module Format](#the-module-format)).
 
 `preserveSymlinks` is what keeps a program to its declared inputs. Bazel stages
 every input as a symlink into the source tree; resolved through the link, a
@@ -214,6 +230,94 @@ to `bazel-bin/.../foo.js`, the runfiles a `ts_test` stages by path, the member
 view's manifest targets, a `ts_binary`'s entry, the `paths` bin-dir twins -- so
 the whole per-file output model would have moved into trees for one extension.
 
+### The Module Format
+
+The JavaScript a target emits has the module format tsc gives the program:
+`module` in the tsconfig chain and, under `node16`, `node18` and `nodenext`,
+the nearest `package.json`'s `type` per file, as tsc reads them. oxc's
+transform keeps the module syntax it reads, which is the emit of every ES kind
+(`es2015` through `esnext`) and of `preserve`, so those programs are oxc's.
+Every other kind -- `commonjs`, the `node*` kinds, `amd`, `umd`, `system` --
+is tsgo's: `TsEmit` runs `tsgo --noCheck` from the program root the check
+runs in and moves each src's `.js`, `.js.map` and, under
+`--//ts:declarations=oxc`, `.d.ts` into place, the map's `sources` resolved
+to exec-root paths on the way
+([Source and Declaration Maps](#source-and-declaration-maps)). `--noCheck`
+emits from the parsed program with tsc's import elision and reports no type
+error; the type check stays the tsgo action's, in either mode.
+
+The emit's inputs are the check's for every program -- the srcs, the forest,
+the tsconfig chain, the deps' declarations -- since which tool emits is
+decided when the action runs, so an oxc emit waits for the forest and re-runs
+when it changes. A CommonJS-shaped program builds the tsgo program twice: once
+for the emit under `--noCheck`, once for the check.
+
+A CommonJS program's compiled code has `require`, `exports`, `__dirname` and
+`__filename`, and a named import from a CommonJS dependency is that
+dependency's export -- `import { app } from "electron"` -- where ES-module
+linking sees only what `cjs-module-lexer` finds. Under
+`--//ts:declarations=oxc` such a program's declarations are tsgo's
+isolated-declarations emit, under oxc's rule: every export annotated. One tsgo
+emit has one `rootDir`, so a CommonJS program's srcs hang off one root, as
+under the declaration emit ([below](#one-root-per-declaration-emit)).
+`//tests/node_test/cjs` pins the format at run time.
+
+The format is the tsconfig's, not the manifest's alone: a package whose
+`package.json` has no `type` and whose tsconfig says `module: "ESNext"` emits
+ES modules, which node runs as such. A package that runs as CommonJS says so
+where tsc reads it, `module: "commonjs"` or `"nodenext"`.
+
+A vitest test runs ES modules whatever the program's `module`
+([Runners](ts-test.md#runners)): vitest imports every file through vite's
+transform, and the checkout never runs tsc's output under it, so `module`
+describes the package's published output and not its tests -- and vitest
+refuses a CommonJS importer outright (`Vitest cannot be imported in a CommonJS
+module using require()`). A `ts_test` under the vitest runner therefore emits
+its own srcs as ES modules (`TsEmit -es_modules`: oxc's transform with the
+chain's `target` and `jsx`, reading the srcs and the options alone), and a
+`ts_compile` whose program tsgo emits also emits the ES twin of each `.js`:
+`foo.js` and `<name>.es/foo.js`, oxc's transform of the same source in a
+second `TsEmit`. A vitest test that depends on it stages the twin at the
+`.js`'s runfiles path, so `import "./foo"` and a `setupFiles` entry reach the
+ES module; every other consumer -- node:test, `ts_binary`, a member's hub view
+-- runs the `.js`. The twins travel in `TsInfo.transitive_es_twins`
+([providers](providers.md#tsinfo)), a runner asks for them with
+`TsTestRunnerInfo.es_modules`, and they are in no default output. The
+alternative, a configuration transition on a vitest test's deps, would build
+every program a vitest test reaches a second time; a twin is one oxc run over
+a program tsgo emits, and nothing else changes.
+
+The rule names its outputs before any action reads the tsconfig, so, as with
+`jsx`, the `module` that names the twins is declared on the tsconfig's
+[`ts_config`](#ts_config): `module = "commonjs"`, `"node16"`, `"node18"` or
+`"nodenext"`, lowercased as tsgo prints it, and unset for an ES kind or
+`preserve`. Gazelle writes it from the `extends` chain, and the `TsConfig`
+action fails a target with a `.ts` src when the declaration and the chain's
+effective `module` disagree:
+
+```
+tsaction: pkg/tsconfig.json: module is "commonjs", so tsgo emits the
+JavaScript and a vitest test runs its ES twins, and the rule declared none:
+declare it on the tsconfig's ts_config, module = "commonjs"
+```
+
+A tsconfig passed as a plain file declares nothing, so a CommonJS-shaped one
+fails the same way without a `ts_config`. `//tests/vitest/commonjs` is the
+example: a `module: commonjs` package with no `type`, whose setup file imports
+vitest from the `ts_compile` the test depends on.
+
+### Comments
+
+The compiled JavaScript keeps the comments the source has above its
+statements. Under oxc, a comment above a top-level statement the transform
+erases -- an `import type`, an import whose every binding the file uses as a
+type, an `interface`, a `type` alias -- moves to the next statement the source
+keeps, or to the file's end when none follows, so a file that opens with
+`// @vitest-environment node` over an `import type` keeps the docblock above
+its first remaining import; vitest reads it from the file it runs, under Bazel
+the compiled sibling. tsgo's emit drops such a comment.
+`//tests/vitest/docblock` pins it.
+
 ### What Fails Before tsgo Runs
 
 Analysis rejects a `.jsx` src, a directory in `srcs` (a `ts_codegen` `out_dir`
@@ -222,16 +326,19 @@ tree belongs in `deps`), a `.mts` or `.cts` src,
 sources and no tsgo toolchain. One more is the root check below. `tsaction`
 fails the `TsConfig` action on a path-shaped `types` entry no input sits at
 ([a `types` entry that names a declaration file](#a-types-entry-that-names-a-declaration-file)),
-naming the entry, the tsconfig and the path it looked for, and on a `jsx`
-declaration the chain's effective `jsx` contradicts
-([above](#a-tsx-under-jsx-preserve)), naming the edit.
+naming the entry, the tsconfig and the path it looked for, and on a `jsx` or
+`module` declaration the chain's effective value contradicts
+([above](#a-tsx-under-jsx-preserve); [The Module Format](#the-module-format)),
+naming the edit.
 
 ### One Root per Declaration Emit
 
 One tsgo declaration emit has one `rootDir`. A checked-in source hangs off the
 package directory, a generated one off the package's directory in `bazel-bin`,
 and a src from another package off that package's directory. A target whose
-srcs hang off more than one root fails at analysis under the tsgo emit:
+srcs hang off more than one root fails at analysis under the tsgo declaration
+emit, and a CommonJS-shaped program's `TsEmit` fails it the same way when it
+runs ([The Module Format](#the-module-format)):
 
 ```
 ts_compile: srcs on @@//src/app:app hang off 2 different roots, and one
@@ -240,12 +347,12 @@ declaration emit has one rootDir:
   src/app
 ```
 
-Put the generated sources in their own target and depend on it, or build with
-`--//ts:declarations=oxc`, which groups sources by root and runs oxc once per
-group. A target holding only generated sources has one root and builds under
-either emitter. A descendant package's file is inside this package's directory
-and shares its root; a `.d.ts` from anywhere is passed through, not compiled,
-and is not judged.
+Put the generated sources in their own target and depend on it, or, for an
+ES-module program, build with `--//ts:declarations=oxc`, under which oxc runs
+once per root. A target holding only generated sources has one root and builds
+under either emitter. A descendant package's file is inside this package's
+directory and shares its root; a `.d.ts` from anywhere is passed through, not
+compiled, and is not judged.
 
 ## Deps Have to Be Direct
 
@@ -417,9 +524,11 @@ alias to it as the compile did
 
 Starlark cannot read a file, so a `ts_config` declares what a rule needs from
 the tsconfig before any action runs: the `extends` chain, every file of which
-becomes an input to the type-check action, and `jsx = "preserve"` when that is
-the chain's effective `jsx`, the one compiler option that names an output
-([above](#a-tsx-under-jsx-preserve)):
+becomes an input to the type-check action, and the two compiler options that
+name an output -- `jsx = "preserve"` when that is the chain's effective `jsx`
+([above](#a-tsx-under-jsx-preserve)), and `module` when the chain's is one
+tsgo emits, which names the ES twins a vitest test runs
+([The Module Format](#the-module-format)):
 
 ```python
 load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_config")
@@ -438,10 +547,10 @@ ts_compile(
 )
 ```
 
-Gazelle writes both from the chain
+Gazelle writes all three from the chain
 ([the tsconfig and its ts_config](../gazelle/overview.md#the-tsconfig-and-its-ts_config)).
-A tsconfig that extends nothing and does not set `preserve` goes straight into
-`ts_compile`:
+A tsconfig that extends nothing, does not set `preserve` and whose `module` is
+an ES kind goes straight into `ts_compile`:
 
 ```python
 ts_compile(
@@ -585,8 +694,9 @@ the owning target's file named in `types`.
 
 ## Which Tool Emits the Declarations
 
-Oxc always does the JavaScript transform. `--//ts:declarations` decides which
-tool produces the `.d.ts`, for every target in the build.
+The program's `module` decides which tool emits the JavaScript ([The Module
+Format](#the-module-format)); `--//ts:declarations` decides which tool produces
+the `.d.ts`, for every target in the build.
 
 ### `--//ts:declarations=tsgo` (default)
 
@@ -604,11 +714,12 @@ every first-party dep's `.d.ts` and the forest.
 
 ### `--//ts:declarations=oxc`
 
-Oxc emits declarations syntactically, per file, with no type program. This
+Oxc emits declarations syntactically, per file, with no type program -- tsgo's
+isolated-declarations emit does the same for a CommonJS-shaped program. This
 requires [isolated declarations](../getting-started/isolated-declarations.md):
-every export needs an explicit type, and Oxc **errors** when one does not have
-one. Type-checking moves into the `_validation` output group, off the critical
-path, so downstream targets compile while checking runs concurrently.
+every export needs an explicit type, and the emitter **errors** when one does
+not have one. Type-checking moves into the `_validation` output group, off the
+critical path, so downstream targets compile while checking runs concurrently.
 
 Set it in `.bazelrc` once every package's exports are annotated.
 
@@ -628,7 +739,8 @@ medians of three interleaved runs:
 | `--//ts:declarations=tsgo` | 6.3s | 4.89s |
 | `--//ts:declarations=oxc` | 3.8s | 2.15s |
 
-Both modes run tsgo once per target, so the gap is serialisation. Under `oxc`
+The benchmark's programs are ES modules, so tsgo runs once per target in
+both modes and the gap is serialisation. Under `oxc`
 the check is a validation action nothing waits for, and the critical path is
 Oxc's per-file transform; under `tsgo` each of the 20 links waits for its
 dependency's declarations. The gap shrinks on shallower graphs and widens on
@@ -655,16 +767,17 @@ The fields, and the load path, are in
 ## Architecture
 
 Three actions per target, each a function in `ts/private/actions/` --
-`tsconfig.bzl`, `oxc.bzl`, `tsgo.bzl`, with the forest the last one reads in
+`tsconfig.bzl`, `emit.bzl`, `tsgo.bzl`, with the forest the last two read in
 `forest.bzl`, and a fourth, `lint.bzl`'s `TsLint`, when the root module's
 `ts.lint()` names a linter ([Lint](../guides/lint.md)); the rule in
 `ts/private/rules/ts_compile.bzl` declares the outputs, calls them in this
 order and builds the providers.
 
 `TsConfig` writes `<name>.tsconfig.json` and `<name>.options.json` from
-`tsgo --showConfig` ([above](#where-compiler-options-come-from)). `OxcCompile`
-processes each `.ts` file with the options file's `target`, `jsx` and
-`jsxImportSource`:
+`tsgo --showConfig` ([above](#where-compiler-options-come-from)). `TsEmit`
+reads the options file's `module` ([The Module Format](#the-module-format)):
+for an ES-module program it runs oxc over each root's `.ts` files with the
+file's `target`, `jsx` and `jsxImportSource`:
 
 1. Parse (oxc_parser)
 2. Semantic analysis (oxc_semantic)
@@ -672,12 +785,16 @@ processes each `.ts` file with the options file's `target`, `jsx` and
 4. TypeScript/JSX transform (oxc_transformer)
 5. Code generation (oxc_codegen) for `.js` + `.js.map`
 
+For a CommonJS-shaped program it runs `tsgo --noCheck` from the program root
+below, with the emit shape on the command line, and moves the outputs into
+place, each map's `sources` resolved to exec-root paths.
+
 tsgo runs from the program root, with `--project` on the written tsconfig and
 `--explainFiles`; tsaction reads the listing against the ownership manifest
 ([Deps Have to Be Direct](#deps-have-to-be-direct)).
 Under `--//ts:declarations=tsgo` that tsconfig sets `declaration`,
 `emitDeclarationOnly`, `rootDir` and `outDir` so the emitted declarations land
-beside Oxc's `.js` (mnemonic `TsgoDeclare`). Under `oxc` it runs with `--noEmit`
+beside the `.js` (mnemonic `TsgoDeclare`). Under `oxc` it runs with `--noEmit`
 and writes only a stamp (mnemonic `TsgoCheck`); `rootDir` is the exec root
 there, which every input is under, since tsgo checks the program against it
 even when nothing is emitted (`TS6059`).

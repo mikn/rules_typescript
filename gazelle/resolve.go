@@ -141,7 +141,7 @@ func configSrcLabels(files []string, cfg string, from label.Label) []string {
 		}
 		if !under {
 			log.Printf("typescript: %s: %s imports %s, outside the config's package "+
-				"%s; a config's modules are staged from its package alone, so no "+
+				"%s; a config's modules are its package's files, so no "+
 				"config_srcs entry", from, cfg, f, orRepoRoot(dir))
 			continue
 		}

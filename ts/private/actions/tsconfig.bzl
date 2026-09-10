@@ -1,7 +1,8 @@
 """The TsConfig action: tsaction writes the tsconfig the compile actions read.
 
 It extends the baseline written here, then the target's own chain, and sets
-the keys Bazel owns; tsgo and oxc read target and jsx from the same file.
+the keys Bazel owns; the emit reads target, jsx and module from the same file.
+The ts_config's jsx and module declarations are checked against the chain.
 """
 
 # The file the action config extends FIRST, so every key the user's chain sets
@@ -42,6 +43,7 @@ def tsconfig_action(
         baseline_file,
         dep_dts,
         declared_jsx,
+        declared_module,
         types_deps,
         emit,
         declaration_map,
@@ -70,6 +72,8 @@ def tsconfig_action(
     config_args.add(ctx.bin_dir.path, format = "-bin_dir=%s")
     if declared_jsx:
         config_args.add(declared_jsx, format = "-jsx=%s")
+    if declared_module:
+        config_args.add(declared_module, format = "-module=%s")
     config_args.add_all(types_deps, format_each = "-types_dep=%s")
     if emit:
         config_args.add("-emit")

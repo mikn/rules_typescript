@@ -280,8 +280,8 @@ func codegenLabels(f *rule.File) []string {
 	return out
 }
 
-// tsConfigRule names the directory's tsconfig.json, with the ts_config of
-// every tsconfig.json its extends names as a dep, and the chain's jsx preserve.
+// tsConfigRule names the directory's tsconfig.json, with the ts_config of every
+// tsconfig.json its extends names as a dep, its jsx preserve and its module.
 func tsConfigRule(args language.GenerateArgs, tc *tsConfig) *rule.Rule {
 	r := rule.NewRule("ts_config", tsConfigTargetName)
 	r.SetAttr("src", "tsconfig.json")
@@ -297,6 +297,9 @@ func tsConfigRule(args language.GenerateArgs, tc *tsConfig) *rule.Rule {
 		filepath.FromSlash(tsconfigIn(args.Rel)))
 	if programPreservesJsx(own) {
 		r.SetAttr("jsx", "preserve")
+	}
+	if module := programModule(own); module != "" {
+		r.SetAttr("module", module)
 	}
 	r.SetAttr("visibility", []string{"//visibility:public"})
 	return r
@@ -354,6 +357,8 @@ func codegenOutDirResult(args language.GenerateArgs, root string) language.Gener
 var vitestConfigNames = []string{
 	"vitest.config.ts", "vitest.config.mts", "vitest.config.cts",
 	"vitest.config.js", "vitest.config.mjs", "vitest.config.cjs",
+	"vite.config.ts", "vite.config.mts", "vite.config.cts",
+	"vite.config.js", "vite.config.mjs", "vite.config.cjs",
 }
 
 // vitestConfigIn returns the vitest config file in dir, or "" when there is

@@ -38,6 +38,11 @@ workspace member's hub view forwards the member's.
         "transitive_data": "depset of File: the data files of this target " +
                            "and its first-party deps, what a compiled module " +
                            "reaches beside itself at run time.",
+        "transitive_es_twins": "depset of (File, File): for a program tsgo " +
+                               "emits, each .js of this target and its " +
+                               "first-party deps paired with the ES module " +
+                               "oxc emits from the same source; the vitest " +
+                               "runner stages the second at the first's path.",
         "npm_packages": "depset of NpmPackageInfo: the packages a consumer " +
                         "links in its forest and runtime tree for this " +
                         "target's deps. A package itself arrives through " +
@@ -70,6 +75,7 @@ def ts_info(
         transitive_js_maps = None,
         transitive_declarations = None,
         transitive_data = None,
+        transitive_es_twins = _EMPTY,
         npm_packages = _EMPTY,
         label = None):
     """A TsInfo for a target without first-party deps: each closure it
@@ -93,6 +99,7 @@ def ts_info(
             declarations,
         ),
         transitive_data = _or_direct(transitive_data, data),
+        transitive_es_twins = transitive_es_twins,
         npm_packages = npm_packages,
         owners = owners,
     )
@@ -113,11 +120,18 @@ the launcher's config and the runfiles of one test.
         "hook": "File: the one module the runner loads into node before the " +
                 "tests -- the node:test runner's resolver, the vitest " +
                 "runner's reads recorder.",
+        "es_modules": "bool: True when the runner runs the program as ES " +
+                      "modules whatever its tsconfig's module -- vitest, " +
+                      "which imports every file through vite's transform -- " +
+                      "so ts_test emits its srcs as such and stages a dep's " +
+                      "ES twins; False for node:test, which runs the " +
+                      "package's format.",
         "launch": "function(ctx, test) -> struct: the runner's half of one " +
                   "test's analysis. `test` is the struct ts_test builds from " +
                   "the compile (entry_points, test_files_list, " +
-                  "node_modules_files, transitive_js, runtime_data_sets, " +
-                  "package_sources, inline_members, runner); the result " +
+                  "node_modules_files, transitive_js, es_twins, " +
+                  "runtime_data_sets, package_sources, inline_members, " +
+                  "runner); the result " +
                   "carries `mode` and `section` (the launcher config's mode " +
                   "and that mode's section), `env`, `files`, `symlinks` and " +
                   "`transitive_files` for the runfiles, and `output_groups`.",
@@ -125,17 +139,23 @@ the launcher's config and the runfiles of one test.
 )
 
 TsConfigInfo = provider(
-    doc = """A tsconfig.json, the files it extends and its jsx when preserve.
+    doc = """A tsconfig.json, the files it extends, its jsx when preserve and
+its module when tsgo emits it.
 
 Starlark cannot read the file, so a ts_config target declares what a rule needs
 from it before any action runs: the `extends` chain, every file of which becomes
-an action input, and the one compiler option that names an output.
+an action input, and the two compiler options that name an output.
 """,
     fields = {
         "tsconfig": "File: The tsconfig.json this target declares.",
         "deps_tsconfigs": "depset of File: Every file `tsconfig` extends, transitively.",
         "jsx": "string: \"preserve\" when the chain's effective jsx is " +
                "preserve, so a .tsx emits .jsx as under tsc; \"\" otherwise.",
+        "module": "string: the chain's effective module when tsgo emits it " +
+                  "-- commonjs, node16, node18, nodenext -- lowercased as " +
+                  "tsgo prints it, so a ts_compile declares the ES twin of " +
+                  "each .js for the vitest runner; \"\" for an ES kind or " +
+                  "preserve.",
     },
 )
 

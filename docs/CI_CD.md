@@ -255,7 +255,7 @@ rule of your own has to do.
 ### 1. Build Timestamps in Compiled Output
 
 **Risk**: A compiler that embeds the current timestamp in its output.
-**Status in rules_typescript**: `oxc` embeds no timestamp in compiled `.js` or `.js.map` files; `tsgo` embeds none in `.d.ts` files. The `determinism` CI job checks the compiled `.js` of `//tests/smoke:hello`.
+**Status in rules_typescript**: neither `oxc` nor `tsgo` embeds a timestamp in a compiled `.js` or `.js.map`, and `tsgo` embeds none in a `.d.ts`. The `determinism` CI job checks the compiled `.js` of `//tests/smoke:hello`.
 **Mitigation**: A `genrule` running a tool that calls `date` is non-deterministic. Pass `--no-timestamp` or the equivalent to that tool.
 
 ### 2. File Ordering in Directory Outputs
@@ -312,7 +312,7 @@ input.
 
 | Source | Affects | Deterministic? | Notes |
 |--------|---------|---------------|-------|
-| oxc compiled .js/.js.map | Compilation | Yes | No timestamps |
+| compiled .js/.js.map, oxc's or tsgo's | Compilation | Yes | No timestamps |
 | tsgo generated .d.ts | Type checking | Yes | Sorted output |
 | Vite bundle | Bundling | Yes (per source tree) | Chunk hashes change with source |
 | node_modules tree | Runtime | Yes | per-package isolation |

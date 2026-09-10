@@ -32,6 +32,7 @@ type CompilerOptions struct {
 	Types           *[]string `json:"types"`
 	Jsx             string    `json:"jsx"`
 	JsxImportSource string    `json:"jsxImportSource"`
+	Module          string    `json:"module"`
 }
 
 // Extends is the list of configs a tsconfig inherits from, written as one
@@ -75,6 +76,7 @@ type Resolved struct {
 	Types           *[]string
 	Jsx             string
 	JsxImportSource string
+	Module          string
 	// Inputs reports whether a file in the chain sets include or files;
 	// without either, tsc enumerates the directory tree.
 	Inputs bool
@@ -122,6 +124,7 @@ func resolve(path string, ancestors map[string]bool) (*Resolved, error) {
 		Types:           f.CompilerOptions.Types,
 		Jsx:             f.CompilerOptions.Jsx,
 		JsxImportSource: f.CompilerOptions.JsxImportSource,
+		Module:          f.CompilerOptions.Module,
 		Inputs:          f.Include != nil || f.Files != nil,
 	})
 	return resolved, nil
@@ -143,9 +146,19 @@ func (r *Resolved) override(other *Resolved) {
 	if other.JsxImportSource != "" {
 		r.JsxImportSource = other.JsxImportSource
 	}
+	if other.Module != "" {
+		r.Module = other.Module
+	}
 	if other.Inputs {
 		r.Inputs = true
 	}
+}
+
+// OxcEmits: oxc keeps the module syntax it reads, so it emits every ES kind
+// and preserve; tsgo emits commonjs and the node kinds (package.json's format).
+func OxcEmits(module string) bool {
+	m := strings.ToLower(module)
+	return m == "preserve" || strings.HasPrefix(m, "es")
 }
 
 // ResolveExtends turns an extends value into a path on disk. A bare specifier

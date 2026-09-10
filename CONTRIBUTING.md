@@ -69,9 +69,10 @@ release `ts/private/tsgo/pnpm-lock.yaml` pins and the Node.js version
 `MODULE.bazel` pins. `oxc_resolved` builds `oxc-bazel` first. No test asserts
 what the three print here; `//tests/integration/tsgo_lockfile` asserts what
 `tsgo_resolved` prints in a consumer workspace against that workspace's
-lockfile. `node_resolved` is the node the `tests/dev_server`, `tests/lsp` and
-`tests/integration` suites run, and `//tests/toolchain` pins which platform each
-toolchain's binary comes from.
+lockfile. `node_resolved` is the node the `tests/dev_server` and `tests/lsp`
+suites run, and the one a `tests/integration` workspace that makes no
+`node.toolchain()` call runs (`//tests/integration/node_version` makes one);
+`//tests/toolchain` pins which platform each toolchain's binary comes from.
 
 ### Pre-Push Hook
 

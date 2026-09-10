@@ -81,8 +81,11 @@ export default {
 `test.environment` takes any value vitest accepts (`node`, `jsdom`, `happy-dom`,
 `edge-runtime`, or a custom environment package), and the matching package has
 to be in `deps`; Gazelle writes it from the config's imports and the nearest
-`package.json`. Scoped npm names take their label form: `@testing-library/react`
-is `@npm//:testing-library_react`. `test.setupFiles` entries run before every
+`package.json`. A file's `// @vitest-environment` docblock names that file's
+environment over the config's, as under plain vitest; the compiled file keeps
+the docblock ([Comments](../rules/ts-compile.md#comments)). Scoped npm names
+take their label form: `@testing-library/react` is
+`@npm//:testing-library_react`. `test.setupFiles` entries run before every
 test file, which is where `matchMedia`, `ResizeObserver` and `PointerEvent`
 belong; an entry naming a TypeScript source runs its compiled sibling, so the
 `ts_compile` whose `srcs` hold `setupTests.ts` is in `deps` -- under Gazelle the
@@ -90,18 +93,20 @@ package's own compile, which is there already. `test.globalSetup` is the same
 mechanism for a file that runs once around the whole run
 ([Setup Files](../rules/ts-test.md#setup-files)).
 
-The modules the config imports relatively are `config_srcs`, staged beside the
-config's copy; Gazelle writes them from the config's listing. A config that
-default-exports an array is read as a list of vitest projects, each of which
-gets the Bazel layer too; the array becomes `test.projects`, which needs vitest
-3.2 or later ([A Config File](../rules/ts-test.md#a-config-file)).
+The modules the config imports relatively are `config_srcs`, each written at
+its own path in the runfiles beside the config; Gazelle writes them from the
+config's listing. A config that default-exports an array is read as a list of
+vitest projects, each of which gets the Bazel layer too; the array becomes
+`test.projects`, which needs vitest 3.2 or later
+([A Config File](../rules/ts-test.md#a-config-file)).
 
-Gazelle writes `config` from the file plain `vitest` would read: a
-`vitest.config.*` beside the tests by name, else the one in the nearest
-directory above holding a `package.json`, or the repository root, as the label
-`//pkg:vitest_config` of a public `filegroup` it writes over the file in that
-package. Vite's root is the config's package either way, so a relative path in
-the config resolves against the directory it sits in;
+Gazelle writes `config` from the file plain `vitest` would read -- a
+`vitest.config.*`, else a `vite.config.*`, so a package that configures vitest
+in its `vite.config.ts` runs under it -- beside the tests by name, else the one
+in the nearest directory above holding a `package.json`, or the repository
+root, as the label `//pkg:vitest_config` of a public `filegroup` it writes over
+the file in that package. Vite's root is the config's package either way, so a
+relative path in the config resolves against the directory it sits in;
 `//tests/config_at_root` is the example. Every import of the config is a dep of
 the test ([what Gazelle writes](../gazelle/overview.md#what-gazelle-writes)).
 

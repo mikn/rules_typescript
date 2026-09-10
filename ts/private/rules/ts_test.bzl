@@ -57,8 +57,8 @@ def _package_sources(ctx):
     ]
 
 def _ts_test_impl(ctx):
-    program = compile_program(ctx)
     runner = ctx.attr.runner[TsTestRunnerInfo]
+    program = compile_program(ctx, es_modules = runner.es_modules)
 
     linked = {info.package_name: True for info in program.packages}
     missing = [name for name in runner.packages if name not in linked]
@@ -103,6 +103,7 @@ def _ts_test_impl(ctx):
         test_files_list = test_files_list,
         node_modules_files = node_modules_files,
         transitive_js = program.transitive_js,
+        es_twins = program.es_twins,
         runtime_data_sets = [
             _without(program.transitive_data, member_manifests),
         ],
@@ -178,10 +179,9 @@ _TEST_ATTRS = {
         allow_single_file = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"],
     ),
     "config_srcs": attr.label_list(
-        doc = "The modules `config` imports relatively, and theirs: staged " +
-              "with the config's copy at their paths relative to the " +
-              "config's package, so its imports resolve there.  A file " +
-              "outside that package is an analysis error.",
+        doc = "The modules `config` imports relatively, and theirs, each " +
+              "written at its own path in the runfiles tree, where the " +
+              "config's imports resolve as in the checkout.",
         allow_files = True,
     ),
     "data": attr.label_list(

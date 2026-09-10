@@ -190,10 +190,13 @@ ts_config(
 ```
 
 A `ts_test` runs under the vitest config plain `vitest` would read for its
-files. A `vitest.config.*` beside the tests goes into `config` by name. With
-none there, Gazelle walks up to the directory plain `vitest` runs from, the
-nearest one holding a `package.json` or the repository root, and takes the
-config it holds: that directory gets a public `filegroup` named
+files: a `vitest.config.*`, else a `vite.config.*`, in vitest's own order of
+extensions (`.ts`, `.mts`, `.cts`, `.js`, `.mjs`, `.cjs`), so a package that
+configures vitest through vite -- a `define`, a plugin, a `resolve.alias` --
+runs as `pnpm vitest` runs it. One beside the tests goes into `config` by
+name. With none there, Gazelle walks up to the directory plain `vitest` runs
+from, the nearest one holding a `package.json` or the repository root, and
+takes the config it holds: that directory gets a public `filegroup` named
 `vitest_config` over the file, and the test names it by label. A directory
 between the two with no `package.json` is passed over, as `vitest` run from the
 package root passes it over. The directory holding the config has to be a
@@ -205,11 +208,11 @@ time. Every import of the config, bare or relative, is a dep of the test: the
 config is listed by tsgo from its own directory, as vitest loads it, and the
 listing is followed through every first-party module it reaches. Those modules
 are the test's `config_srcs`, spelled from the test's package -- a path under
-it, or `//<package>:<file>` for a config an ancestor package exports -- so the
-rule stages them beside the config's copy, where its relative imports resolve
-([A config file](../rules/ts-test.md#a-config-file)). A module outside the
-config's package is said and gets no entry: the copy's siblings are that
-package's files alone.
+it, or `//<package>:<file>` for a config an ancestor package exports -- and the
+rule writes each at its own path in the runfiles, where the config's relative
+imports resolve ([A config file](../rules/ts-test.md#a-config-file)). A module
+outside the config's package is said and gets no entry: a config's modules are
+its package's files.
 
 ### A Workers-Pool Config
 
@@ -239,15 +242,20 @@ from the tsconfig ([where compiler options come
 from](../rules/ts-compile.md#where-compiler-options-come-from)), so no
 attribute restates one to the compiler. The `ts_config` beside the file is what
 makes it a label, and it declares what the rule needs from the file before any
-action reads it: `deps`, the `extends` chain, and `jsx = "preserve"` when that
-is the chain's effective `jsx`, the one value that names an output
-([a `.tsx` under `jsx: preserve`](../rules/ts-compile.md#a-tsx-under-jsx-preserve)).
-Both are Gazelle's to recompute on every run.
+action reads it: `deps`, the `extends` chain, and the two values that name an
+output -- `jsx = "preserve"` when that is the chain's effective `jsx`
+([`jsx: preserve`](../rules/ts-compile.md#a-tsx-under-jsx-preserve)) and
+`module` when the chain's is one tsgo emits
+([The Module Format](../rules/ts-compile.md#the-module-format)). All three
+are Gazelle's to recompute on every run.
 
 `ts_config.jsx` is written as `"preserve"` when the chain's effective `jsx` is
 `preserve`, read leaf-wins as tsc reads it and inherited through `extends`, and
 removed otherwise; no other value is written, since no other value names an
-output.
+output. `ts_config.module` is written the same way when the chain's effective
+`module` is one tsgo emits -- `commonjs`, `node16`, `node18`, `nodenext`,
+lowercased as tsgo prints it -- and removed for an ES kind or `preserve`,
+which oxc emits with no twin to name.
 
 `ts_config.deps` is the `extends` chain. Gazelle reads the package's
 `tsconfig.json` and writes a dep on the `ts_config` of every `tsconfig.json`

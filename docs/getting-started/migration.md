@@ -24,7 +24,7 @@ release, production users and Windows support. This has none of the three.
 
 | | rules_ts (Aspect) | rules_typescript (this) |
 |---|---|---|
-| **Compiler** | tsc (JavaScript) | Oxc (Rust) |
+| **Compiler** | tsc (JavaScript) | Oxc (Rust) for an ES-module program, tsgo (Go) for a CommonJS-shaped one |
 | **Type-checker** | tsc | tsgo (Go port of TypeScript) |
 | **Compilation boundary** | tsc project references | `.d.ts` per target |
 | **Bundler** | Bring your own | Bring your own, through `BundlerInfo` on `ts_binary` |

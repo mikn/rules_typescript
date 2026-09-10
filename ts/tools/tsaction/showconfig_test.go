@@ -2,9 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -183,6 +181,7 @@ func TestDecodeShowConfig_EnumsAreNames(t *testing.T) {
 		Target:          "es2017",
 		Jsx:             "react-jsx",
 		JsxImportSource: "preact",
+		Module:          "es6",
 		Types:           &[]string{"./globals.d.ts", "./generated.d.ts", "node", "@cloudflare/workers-types"},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -245,7 +244,8 @@ func TestTsconfigStep_WritesTheForestShapedConfig(t *testing.T) {
   "references": []
 }`)
 	assertJSON(t, "pkg.options.json", readJSON(t, binDir+"/pkg/pkg.options.json"),
-		`{"target": "es2017", "jsx": "react-jsx", "jsxImportSource": "preact"}`)
+		`{"target": "es2017", "jsx": "react-jsx", "jsxImportSource": "preact",
+		  "module": "es6"}`)
 }
 
 // tsc's root order is the tsconfig's include order, which showConfig prints
@@ -293,14 +293,15 @@ func TestTsconfigStep_NoTypesWritesTheDirectTypesDeps(t *testing.T) {
 	e := newExecroot(t, noTypesLeaf, capture)
 
 	mustWriteTsconfig(t, e.tsconfigArgs(
-		"-jsx=preserve", "-types_dep=node", "-types_dep=react",
+		"-jsx=preserve", "-module=nodenext", "-types_dep=node", "-types_dep=react",
 	))
 	config := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")
 	assertJSON(t, "types", config["compilerOptions"].(map[string]any)["types"], `["node", "react"]`)
 	assertJSON(t, "pkg.options.json", readJSON(t, binDir+"/pkg/pkg.options.json"),
-		`{"target": "esnext", "jsx": "preserve", "jsxImportSource": "preact"}`)
+		`{"target": "esnext", "jsx": "preserve", "jsxImportSource": "preact",
+		  "module": "nodenext"}`)
 
-	mustWriteTsconfig(t, e.tsconfigArgs("-jsx=preserve"))
+	mustWriteTsconfig(t, e.tsconfigArgs("-jsx=preserve", "-module=nodenext"))
 	config = readJSON(t, binDir+"/pkg/pkg.tsconfig.json")
 	assertJSON(t, "types with no @types dep", config["compilerOptions"].(map[string]any)["types"], `[]`)
 }
@@ -334,12 +335,13 @@ func TestTsconfigStep_JavaScriptSrcSetsAllowJs(t *testing.T) {
 	e := newExecroot(t, noTypesLeaf, readTestdata(t, "showconfig-no-types.json"))
 	writeFile(t, "pkg/src/b.js", "export const b = 1;\n")
 
-	mustWriteTsconfig(t, e.tsconfigArgs("-jsx=preserve"))
+	mustWriteTsconfig(t, e.tsconfigArgs("-jsx=preserve", "-module=nodenext"))
 	if got := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")["compilerOptions"].(map[string]any)["allowJs"]; got != nil {
 		t.Errorf("allowJs = %v with no JavaScript src, want unset", got)
 	}
 
-	mustWriteTsconfig(t, append(e.tsconfigArgs("-jsx=preserve"), "pkg/src/b.js"))
+	mustWriteTsconfig(t, append(
+		e.tsconfigArgs("-jsx=preserve", "-module=nodenext"), "pkg/src/b.js"))
 	if got := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")["compilerOptions"].(map[string]any)["allowJs"]; got != true {
 		t.Errorf("allowJs = %v with a JavaScript src, want true", got)
 	}
@@ -349,7 +351,8 @@ func TestTsconfigStep_EmitShape(t *testing.T) {
 	e := newExecroot(t, noTypesLeaf, readTestdata(t, "showconfig-no-types.json"))
 
 	mustWriteTsconfig(t, e.tsconfigArgs(
-		"-jsx=preserve", "-emit", "-out_dir="+binDir+"/pkg", "-root_dir=pkg",
+		"-jsx=preserve", "-module=nodenext", "-emit", "-out_dir="+binDir+"/pkg",
+		"-root_dir=pkg",
 		"-isolated_declarations", "-lib_check",
 	))
 	opts := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")["compilerOptions"].(map[string]any)
@@ -357,7 +360,6 @@ func TestTsconfigStep_EmitShape(t *testing.T) {
 		"noEmit":               false,
 		"noEmitOnError":        true,
 		"outDir":               ".",
-		"declarationDir":       ".",
 		"rootDir":              "../../../../pkg",
 		"declarationMap":       false,
 		"isolatedDeclarations": true,
@@ -398,44 +400,6 @@ func TestTsconfigStep_ShowConfigFailureIsTheError(t *testing.T) {
 	}
 }
 
-// The oxc step appends the options file to the command line it is handed; a key
-// the tsconfig leaves unset is not passed, and oxc's own default stands.
-func TestOxcStep_AppendsTheOptions(t *testing.T) {
-	root := t.TempDir()
-	oxc, argv := fakeTool(t, root, "oxc-bazel", "")
-	options := filepath.Join(root, "pkg.options.json")
-
-	writeFile(t, options, `{"target": "es2017", "jsx": "react-jsx", "jsxImportSource": "preact"}`)
-	if err := runOxc([]string{"-options=" + options, "--", oxc, "--files", "a.ts", "--out-dir", "out"}); err != nil {
-		t.Fatal(err)
-	}
-	want := []string{"--files", "a.ts", "--out-dir", "out", "--target", "es2017", "--jsx", "react-jsx", "--jsx-import-source", "preact"}
-	if got := recordedArgs(t, argv); !reflect.DeepEqual(got, want) {
-		t.Errorf("oxc ran with %q, want %q", got, want)
-	}
-
-	writeFile(t, options, `{}`)
-	if err := runOxc([]string{"-options=" + options, "--", oxc, "--files", "a.ts"}); err != nil {
-		t.Fatal(err)
-	}
-	if got, want := recordedArgs(t, argv), []string{"--files", "a.ts"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("oxc ran with %q, want %q", got, want)
-	}
-}
-
-func TestOxcStep_ExitCodeIsTheTools(t *testing.T) {
-	root := t.TempDir()
-	oxc, _ := fakeTool(t, root, "oxc-bazel", "exit 3\n")
-	options := filepath.Join(root, "pkg.options.json")
-	writeFile(t, options, `{"target": "es2022"}`)
-
-	err := runOxc([]string{"-options=" + options, "--", oxc, "--files", "a.ts"})
-	var exit *exec.ExitError
-	if !errors.As(err, &exit) || exit.ExitCode() != 3 {
-		t.Errorf("runOxc = %v, want oxc's exit status 3", err)
-	}
-}
-
 // "." for the same directory, no leading "./"; "" and "." both name the exec
 // root.
 func TestRelativePath(t *testing.T) {
@@ -466,10 +430,11 @@ func TestTsconfigStep_JsxPreserveNeedsTheDeclaration(t *testing.T) {
 	e := newExecroot(t, noTypesLeaf, readTestdata(t, "showconfig-no-types.json"))
 
 	// Nothing in a .ts-only program is named by jsx: a plain file passes.
-	mustWriteTsconfig(t, e.tsconfigArgs())
+	mustWriteTsconfig(t, e.tsconfigArgs("-module=nodenext"))
 
 	writeFile(t, "pkg/src/view.tsx", "export const v = 1;\n")
-	err := writeTsconfig(append(e.tsconfigArgs(), "pkg/src/view.tsx"))
+	err := writeTsconfig(append(
+		e.tsconfigArgs("-module=nodenext"), "pkg/src/view.tsx"))
 	if err == nil || !strings.Contains(err.Error(), `jsx = "preserve"`) ||
 		!strings.Contains(err.Error(), "pkg/tsconfig.json") {
 		t.Fatalf("writeTsconfig = %v, want the declaration named against "+
@@ -479,10 +444,55 @@ func TestTsconfigStep_JsxPreserveNeedsTheDeclaration(t *testing.T) {
 		t.Error("a config was written although the declaration is missing")
 	}
 
-	mustWriteTsconfig(t,
-		append(e.tsconfigArgs("-jsx=preserve"), "pkg/src/view.tsx"))
+	mustWriteTsconfig(t, append(
+		e.tsconfigArgs("-jsx=preserve", "-module=nodenext"), "pkg/src/view.tsx"))
 	assertJSON(t, "pkg.options.json", readJSON(t, binDir+"/pkg/pkg.options.json"),
-		`{"target": "esnext", "jsx": "preserve", "jsxImportSource": "preact"}`)
+		`{"target": "esnext", "jsx": "preserve", "jsxImportSource": "preact",
+		  "module": "nodenext"}`)
+}
+
+// The rule names a program's ES twins from the ts_config's module before any
+// action reads the tsconfig; the step holds the two to one answer.
+func TestTsconfigStep_ModuleTsgoEmitsNeedsTheDeclaration(t *testing.T) {
+	e := newExecroot(t, noTypesLeaf, readTestdata(t, "showconfig-no-types.json"))
+
+	err := writeTsconfig(e.tsconfigArgs())
+	if err == nil || !strings.Contains(err.Error(), `module = "nodenext"`) ||
+		!strings.Contains(err.Error(), "pkg/tsconfig.json") {
+		t.Fatalf("writeTsconfig = %v, want the declaration named against "+
+			"pkg/tsconfig.json", err)
+	}
+	if _, statErr := os.Stat(binDir + "/pkg/pkg.tsconfig.json"); statErr == nil {
+		t.Error("a config was written although the declaration is missing")
+	}
+
+	// A declaration-only program has no emit for module to name.
+	mustWriteTsconfig(t, []string{
+		"-tsgo=" + e.tsgo, "-tsconfig=pkg/tsconfig.json",
+		"-baseline=" + binDir + "/pkg/pkg.tsconfig_baseline.json",
+		"-out=" + binDir + "/pkg/pkg.tsconfig.json",
+		"-options=" + binDir + "/pkg/pkg.options.json",
+		"-bin_dir=" + binDir, "pkg/globals.d.ts",
+	})
+
+	err = writeTsconfig(e.tsconfigArgs("-module=commonjs"))
+	if err == nil ||
+		!strings.Contains(err.Error(), `declares module = "commonjs"`) ||
+		!strings.Contains(err.Error(), `declare module = "nodenext"`) {
+		t.Errorf("writeTsconfig = %v, want the chain's module and the edit", err)
+	}
+
+	mustWriteTsconfig(t, e.tsconfigArgs("-module=nodenext"))
+}
+
+func TestTsconfigStep_ModuleDeclaredUnderAnESKindFails(t *testing.T) {
+	e := newExecroot(t, chainLeaf, readTestdata(t, "showconfig-chain.json"))
+
+	err := writeTsconfig(e.tsconfigArgs("-module=commonjs"))
+	if err == nil || !strings.Contains(err.Error(), `"es6"`) ||
+		!strings.Contains(err.Error(), "drop the attribute") {
+		t.Errorf("writeTsconfig = %v, want the effective module and the edit", err)
+	}
 }
 
 func TestTsconfigStep_JsxDeclaredPreserveUnderAnotherModeFails(t *testing.T) {

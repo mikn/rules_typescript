@@ -19,6 +19,7 @@ is already the price of the older child-workspace layout.
 # gazelle:exclude gazelle_roundtrip
 # gazelle:exclude lsp
 # gazelle:exclude new_project
+# gazelle:exclude node_version
 # gazelle:exclude npm_deps
 # gazelle:exclude npm_integrity
 # gazelle:exclude npmrc_registry
@@ -34,6 +35,7 @@ _RUNNERS = [
     "gazelle_roundtrip",
     "lsp",
     "new_project",
+    "node_version",
     "npm_deps",
     "npm_integrity",
     "npmrc_registry",

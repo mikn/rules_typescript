@@ -6,13 +6,14 @@
 # one package) and rebuilds each tree from a cold action cache.
 #
 # What is actually being compared, per target:
-#   "tsgo": OxcCompile (js) + TsgoDeclare (d.ts + diagnostics)
-#   "oxc" : OxcCompile (js + d.ts) + TsgoCheck (diagnostics, _validation group)
-# tsgo runs once per target either way, so total work should land near parity and
-# the interesting number is the critical path: under "oxc" a consumer can compile
-# against oxc's syntactic .d.ts while checking runs concurrently, whereas under
-# "tsgo" it waits for the declarations. The generated chain is linear and deep so
-# that difference has somewhere to show up.
+#   "tsgo": TsEmit (js) + TsgoDeclare (d.ts + diagnostics)
+#   "oxc" : TsEmit (js + d.ts) + TsgoCheck (diagnostics, _validation group)
+# The generated programs are ES modules, so tsgo runs once per target either
+# way: total work should land near parity and the interesting number is the
+# critical path: under "oxc" a consumer can compile against oxc's syntactic
+# .d.ts while checking runs concurrently, whereas under "tsgo" it waits for the
+# declarations. The generated chain is linear and deep so that difference has
+# somewhere to show up.
 #
 # Usage: tools/bench_declarations.sh [PACKAGES] [FILES_PER_PACKAGE] [ITERATIONS]
 set -euo pipefail
@@ -126,5 +127,5 @@ echo
 echo "wall = end-to-end rebuild of that arm after touching every source"
 echo "crit = Bazel's reported critical path"
 echo
-echo "tsgo         : OxcCompile (js) + TsgoDeclare (d.ts + diagnostics)"
-echo "oxc+check    : OxcCompile (js + d.ts) + TsgoCheck (diagnostics only)"
+echo "tsgo         : TsEmit (js) + TsgoDeclare (d.ts + diagnostics)"
+echo "oxc+check    : TsEmit (js + d.ts) + TsgoCheck (diagnostics only)"

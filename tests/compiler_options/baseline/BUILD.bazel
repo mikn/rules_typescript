@@ -54,6 +54,7 @@ build_test(
 ts_config(
     name = "nodenext_tsconfig",
     src = "nodenext.tsconfig.json",
+    module = "nodenext",
 )
 
 ts_compile(

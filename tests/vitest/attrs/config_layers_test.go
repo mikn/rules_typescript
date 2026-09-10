@@ -11,11 +11,11 @@ import (
 func TestTheGeneratedConfigLayersBazelUserProviderAndSnapshots(t *testing.T) {
 	tree := verify.New(t)
 
-	config := tree.File("tests/vitest/attrs/_attrs_test_vitest.config.mjs")
+	config := tree.File("tests/vitest/attrs/_attrs_test.vitest/config.mjs")
 	config.Contains(
 		`import { workersPoolLayer } from './_attrs_test_workers_pool.mjs';`,
-		`from './attrs_test/vitest.config.mts';`,
-		`root: resolve(process.env.TS_TEST_PACKAGE_DIR, "."),`,
+		`from './vitest.config.mts';`,
+		`root: resolve(HERE, "."),`,
 		`const providerLayer = { test: { coverage: { provider: "v8" } } };`,
 		`merge(merge(merge(bazelLayer, user), providerLayer), snapshotLayer)`,
 		`const merged = setupFilesInRoot(withCompiledSetup(`,

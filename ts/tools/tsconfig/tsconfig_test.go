@@ -336,6 +336,41 @@ func TestResolveExtends(t *testing.T) {
 	}
 }
 
+func TestResolve_ModuleLeafWins(t *testing.T) {
+	repo := t.TempDir()
+	write(t, filepath.Join(repo, "base.json"),
+		`{"compilerOptions": {"module": "commonjs"}}`)
+	write(t, filepath.Join(repo, "inherits.json"), `{"extends": "./base.json"}`)
+	write(t, filepath.Join(repo, "overrides.json"),
+		`{"extends": "./base.json", "compilerOptions": {"module": "ESNext"}}`)
+	write(t, filepath.Join(repo, "unset.json"),
+		`{"compilerOptions": {"strict": true}}`)
+
+	for name, want := range map[string]string{
+		"inherits.json":  "commonjs",
+		"overrides.json": "ESNext",
+		"unset.json":     "",
+	} {
+		if got := mustResolve(t, filepath.Join(repo, name)).Module; got != want {
+			t.Errorf("%s: Module = %q, want %q", name, got, want)
+		}
+	}
+}
+
+// node16 and nodenext decide the format per file from the nearest package.json,
+// which only tsgo reads.
+func TestOxcEmits(t *testing.T) {
+	for module, want := range map[string]bool{
+		"preserve": true, "esnext": true, "es2022": true, "es2015": true,
+		"ESNext": true, "commonjs": false, "CommonJS": false, "node16": false,
+		"node18": false, "nodenext": false, "": false,
+	} {
+		if got := OxcEmits(module); got != want {
+			t.Errorf("OxcEmits(%q) = %v, want %v", module, got, want)
+		}
+	}
+}
+
 func TestResolve_JsxLeafWins(t *testing.T) {
 	repo := t.TempDir()
 	write(t, filepath.Join(repo, "base.json"),

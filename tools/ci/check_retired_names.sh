@@ -18,10 +18,11 @@ WORDS=(
   next_dev_server next_serve remix_build svelte_library sveltekit_build
   ts_worker_deploy ts_worker_dry_run ts_worker_dry_run_test
   JsInfo TsDeclarationInfo TsModuleInfo CssInfo CssModuleInfo AssetInfo
-  NpmPublishInfo TsLintInfo ts_lint linter_binary
+  NpmPublishInfo TsLintInfo ts_lint linter_binary TS_TEST_PACKAGE_DIR
   ts_test_macro _ts_auto_node_modules RUNNER_NODE_TEST RUNNER_VITEST
   _generate_tsconfig
   TsStrictDeps _STRICT_DEPS_MJS strict_deps_check
+  OxcCompile
 )
 
 # Attribute names that are also fixture directories under tests/: a hit is one

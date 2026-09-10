@@ -121,7 +121,7 @@ func TestPlanNodeLinksOptionalDepsIntoATempTree(t *testing.T) {
 func vitestFixture(t *testing.T) (*Resolver, map[string]string) {
 	t.Helper()
 	return fakeRunfiles(t, map[string]string{
-		"_main/tests/app/_app_vitest.config.mjs": "export default {}",
+		"_main/tests/app/_app.vitest/config.mjs": "export default {}",
 		"_main/tests/app/app_test_files.txt": strings.Join([]string{
 			"_main/tests/app/a.test.js",
 			"_main/tests/app/b.test.js",
@@ -147,8 +147,17 @@ func vitestConfig() *Config {
 			ConfigFile:    "_main/tests/app/_app_vitest.config.mjs",
 			TestFilesList: "_main/tests/app/app_test_files.txt",
 			NodeModules:   "_main/tests/app/node_modules",
+			Stage: map[string]string{
+				"_main/tests/app/_app.vitest/config.mjs": "_main/tests/app/" +
+					"_app_vitest.config.mjs",
+			},
 		},
 	}
+}
+
+// treeRoot is the tree plan.Dir, the config's package, sits under.
+func treeRoot(plan *Plan) string {
+	return strings.TrimSuffix(plan.Dir, filepath.FromSlash("/_main/tests/app"))
 }
 
 func TestPlanVitestRunsEveryTestFileByDefault(t *testing.T) {
@@ -160,12 +169,14 @@ func TestPlanVitestRunsEveryTestFileByDefault(t *testing.T) {
 	}
 	defer plan.Cleanup()
 	joined := strings.Join(plan.Argv, " ")
+	tree := treeRoot(plan)
 	for _, want := range []string{
 		real["+node+/bin/node"],
 		filepath.Join(real["_main/tests/app/node_modules"], "vitest", "vitest.mjs"),
-		"run --config " + real["_main/tests/app/_app_vitest.config.mjs"],
-		filepath.Join(plan.Dir, "_main/tests/app/a.test.js"),
-		filepath.Join(plan.Dir, "_main/tests/app/c.test.js"),
+		"run --config " +
+			filepath.Join(tree, "_main/tests/app/_app_vitest.config.mjs"),
+		filepath.Join(tree, "_main/tests/app/a.test.js"),
+		filepath.Join(tree, "_main/tests/app/c.test.js"),
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("argv %q is missing %q", joined, want)
@@ -191,7 +202,7 @@ func TestPlanVitestPutsArgsBeforeTheFiles(t *testing.T) {
 	defer plan.Cleanup()
 	flag := slices.Index(plan.Argv, args[0])
 	config := slices.Index(plan.Argv, "--config")
-	a := filepath.Join(plan.Dir, "_main/tests/app/a.test.js")
+	a := filepath.Join(treeRoot(plan), "_main/tests/app/a.test.js")
 	first := slices.Index(plan.Argv, a)
 	if flag < 0 || !(config < flag && flag < first) {
 		t.Errorf("argv = %q, want %q before the files", plan.Argv, args[0])
@@ -208,13 +219,16 @@ func TestPlanVitestPartitionsShards(t *testing.T) {
 	}
 	defer plan.Cleanup()
 	joined := strings.Join(plan.Argv, " ")
-	if !strings.Contains(joined, filepath.Join(plan.Dir, "_main/tests/app/b.test.js")) {
+	tree := treeRoot(plan)
+	b := filepath.Join(tree, "_main/tests/app/b.test.js")
+	if !strings.Contains(joined, b) {
 		t.Errorf("shard 1 of 2 should run b.test.js, got %q", joined)
 	}
 	if strings.Contains(joined, "a.test.js") {
 		t.Errorf("shard 1 of 2 should not run a.test.js, got %q", joined)
 	}
-	if _, err := os.Lstat(filepath.Join(plan.Dir, "_main/tests/app/a.test.js")); !os.IsNotExist(err) {
+	a := filepath.Join(tree, "_main/tests/app/a.test.js")
+	if _, err := os.Lstat(a); !os.IsNotExist(err) {
 		t.Error("a.test.js belongs to the other shard; staging it would let vitest glob it")
 	}
 }
@@ -280,7 +294,7 @@ func TestPlanVitestWritesItsLcovUnderCoverageDir(t *testing.T) {
 // vitest's root and the launcher's tree are one and the same runfiles tree.
 func runfilesTree(t *testing.T, real map[string]string) *Resolver {
 	t.Helper()
-	const config = "_main/tests/app/_app_vitest.config.mjs"
+	const config = "_main/tests/app/_app.vitest/config.mjs"
 	dir := strings.TrimSuffix(real[config], string(filepath.Separator)+
 		filepath.FromSlash(config))
 	r, err := directoryResolver(dir)
@@ -492,14 +506,16 @@ func TestPlanVitestStagesAPrivateRootWithoutARunfilesDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Dir == "" || plan.Dir == filepath.Dir(real["_main/tests/app/a.test.js"]) {
-		t.Fatalf("dir = %q, want a staged root of this test's own", plan.Dir)
+	root := treeRoot(plan)
+	if root == "" || root == plan.Dir ||
+		strings.HasPrefix(real["_main/tests/app/a.test.js"], root) {
+		t.Fatalf("dir = %q, want a package under a staged root of its own", plan.Dir)
 	}
 
 	want := []string{
-		filepath.Join(plan.Dir, "_main/tests/app/a.test.js"),
-		filepath.Join(plan.Dir, "_main/tests/app/b.test.js"),
-		filepath.Join(plan.Dir, "_main/tests/app/c.test.js"),
+		filepath.Join(root, "_main/tests/app/a.test.js"),
+		filepath.Join(root, "_main/tests/app/b.test.js"),
+		filepath.Join(root, "_main/tests/app/c.test.js"),
 	}
 	got := plan.Argv[len(plan.Argv)-len(want):]
 	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
@@ -517,20 +533,22 @@ func TestPlanVitestStagesAPrivateRootWithoutARunfilesDirectory(t *testing.T) {
 	}
 
 	files := []string{}
-	if err := filepath.WalkDir(plan.Dir, func(p string, d os.DirEntry, err error) error {
+	walk := func(p string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if !d.IsDir() {
-			rel, _ := filepath.Rel(plan.Dir, p)
+			rel, _ := filepath.Rel(root, p)
 			files = append(files, filepath.ToSlash(rel))
 		}
 		return nil
-	}); err != nil {
+	}
+	if err := filepath.WalkDir(root, walk); err != nil {
 		t.Fatal(err)
 	}
 	slices.Sort(files)
 	wantStaged := []string{
+		"_main/tests/app/_app_vitest.config.mjs",
 		"_main/tests/app/a.test.js",
 		"_main/tests/app/b.test.js",
 		"_main/tests/app/c.test.js",
@@ -540,7 +558,6 @@ func TestPlanVitestStagesAPrivateRootWithoutARunfilesDirectory(t *testing.T) {
 		t.Errorf("staged root holds %q, want exactly %q", files, wantStaged)
 	}
 
-	root := plan.Dir
 	plan.Cleanup()
 	if _, err := os.Stat(root); !os.IsNotExist(err) {
 		t.Errorf("cleanup left %s behind", root)
@@ -552,7 +569,7 @@ func TestPlanVitestStagesAPrivateRootWithoutARunfilesDirectory(t *testing.T) {
 func TestPlanVitestLinksTheNpmTreeAtTheRunfilesRoot(t *testing.T) {
 	const tree = "_main/tests/app/app_test/node_modules"
 	_, real := fakeRunfiles(t, map[string]string{
-		"_main/tests/app/_app_vitest.config.mjs": "export default {}",
+		"_main/tests/app/_app.vitest/config.mjs": "export default {}",
 		"_main/tests/app/app_test_files.txt":     "_main/tests/app/a.test.js",
 		"_main/tests/app/a.test.js":              "x",
 		tree:                                     dirMarker,
@@ -743,5 +760,103 @@ func TestPlanDevServerCreatesTheScratchDirectoriesItNames(t *testing.T) {
 		if st, err := os.Stat(dir); err != nil || !st.IsDir() {
 			t.Errorf("%s names %q, which is not a directory (%v)", name, dir, err)
 		}
+	}
+}
+
+// pnpm runs vitest from the package, and a test's relative read or a config's
+// __dirname names files there: the run's directory is the config's package.
+func TestPlanVitestRunsFromTheConfigsPackage(t *testing.T) {
+	_, real := vitestFixture(t)
+	r := runfilesTree(t, real)
+	plan, err := MakePlan(vitestConfig(), r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(r.Dir(), "_main/tests/app"); plan.Dir != want {
+		t.Errorf("dir = %q, want the config's package %q", plan.Dir, want)
+	}
+}
+
+func TestPlanVitestRunsFromAnAncestorConfigsPackage(t *testing.T) {
+	_, real := vitestFixture(t)
+	r := runfilesTree(t, real)
+	cfg := vitestConfig()
+	cfg.Vitest.RootRel = ".."
+	plan, err := MakePlan(cfg, r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(r.Dir(), "_main/tests"); plan.Dir != want {
+		t.Errorf("dir = %q, want the ancestor package %q", plan.Dir, want)
+	}
+}
+
+// Vite bundles a config from its realpath, which for a runfiles symlink is
+// bazel-out: the config vitest is handed is a regular file in the package.
+func TestPlanVitestWritesTheConfigAsARegularFileInThePackage(t *testing.T) {
+	_, real := vitestFixture(t)
+	r := runfilesTree(t, real)
+	plan, err := MakePlan(vitestConfig(), r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(r.Dir(), "_main/tests/app/_app_vitest.config.mjs")
+	st, err := os.Lstat(dst)
+	if err != nil {
+		t.Fatalf("no config at the package path: %v", err)
+	}
+	if !st.Mode().IsRegular() {
+		t.Errorf("%s is %v, want a regular file", dst, st.Mode())
+	}
+	if got, _ := os.ReadFile(dst); string(got) != "export default {}" {
+		t.Errorf("content = %q, want the generated config's", got)
+	}
+	joined := strings.Join(plan.Argv, " ")
+	if !strings.Contains(joined, "--config "+dst) {
+		t.Errorf("argv %q does not hand vitest %q", joined, dst)
+	}
+}
+
+// A config that is also a package src has a runfiles symlink at its own path;
+// the copy replaces it, and is written from its private entry every run.
+func TestPlanVitestReplacesASymlinkAtAStagedPath(t *testing.T) {
+	const from = "_main/tests/app/_app.vitest/tests/app/vitest.config.mts"
+	const to = "_main/tests/app/vitest.config.mts"
+	const fresh = "export default { fresh: true }"
+	_, real := fakeRunfiles(t, map[string]string{
+		"_main/tests/app/_app.vitest/config.mjs":         "export default {}",
+		from:                                             fresh,
+		"_main/tests/app/app_test_files.txt":             "_main/tests/app/a.test.js",
+		"_main/tests/app/a.test.js":                      "x",
+		"_main/tests/app/node_modules":                   dirMarker,
+		"_main/tests/app/node_modules/vitest/vitest.mjs": "x",
+		"+node+/bin/node":                                "#!/bin/sh\n",
+	})
+	r := runfilesTree(t, real)
+	stale := filepath.Join(t.TempDir(), "stale.mts")
+	if err := os.WriteFile(stale, []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(r.Dir(), filepath.FromSlash(to))
+	if err := os.Symlink(stale, dst); err != nil {
+		t.Fatal(err)
+	}
+	cfg := vitestConfig()
+	cfg.Vitest.Stage[from] = to
+	if _, err := MakePlan(cfg, r, nil); err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Lstat(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Mode().IsRegular() {
+		t.Errorf("%s is %v, want a regular file over the symlink", dst, st.Mode())
+	}
+	if got, _ := os.ReadFile(dst); string(got) != fresh {
+		t.Errorf("content = %q, want the private entry's", got)
+	}
+	if got, _ := os.ReadFile(stale); string(got) != "stale" {
+		t.Errorf("the symlink's target was written through: %q", got)
 	}
 }

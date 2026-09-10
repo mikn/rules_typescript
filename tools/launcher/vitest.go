@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -33,25 +34,11 @@ func planVitest(
 			return nil, err
 		}
 	}
-	plan.Dir = r.Dir()
 
 	nodeModules, err := installNodeModules(r, plan, v.NodeModules)
 	if err != nil {
 		return nil, err
 	}
-
-	configFile, err := r.Path(v.ConfigFile)
-	if err != nil {
-		return nil, err
-	}
-
-	// A user config is staged wherever its own imports resolve, which is not the
-	// package directory -- so a path it needs to name (the compiled worker a
-	// Workers pool boots, say) cannot be written relative to itself. The
-	// generated config does sit in the package's output directory, so its
-	// dirname is the anchor, and it is exported rather than derived so that
-	// moving either file does not silently change what a config resolves.
-	plan.setEnv("TS_TEST_PACKAGE_DIR", filepath.Dir(configFile))
 
 	shard, err := shardFiles(r, v.TestFilesList)
 	if err != nil {
@@ -69,19 +56,26 @@ func planVitest(
 		files = append(files, f.path)
 	}
 
-	// Vitest globs its root -- the working directory -- for tests, and positional
-	// args only substring-filter that; bazel-bin holds every sibling's copy too.
-	if plan.Dir == "" {
+	// Vitest globs its root for tests, and positional args only substring-filter
+	// that; bazel-bin holds every sibling's copy too.
+	tree := r.Dir()
+	if tree == "" {
 		root, staged, err := stageTestRoot(shard)
 		if err != nil {
 			return nil, err
 		}
-		plan.Dir, files = root, staged
+		tree, files = root, staged
 		plan.Cleanup = func() { _ = os.RemoveAll(root) }
 		if nodeModules != "" {
 			linkAs(filepath.Join(root, "node_modules"), nodeModules)
 		}
 	}
+	if err := stageFiles(r, tree, v.Stage); err != nil {
+		return nil, err
+	}
+	configFile := filepath.Join(tree, filepath.FromSlash(v.ConfigFile))
+	plan.Dir = filepath.Join(
+		filepath.Dir(configFile), filepath.FromSlash(v.RootRel))
 
 	flags := []string{"run", "--config", configFile}
 	flags = append(flags, coverageFlags()...)
@@ -98,8 +92,7 @@ func planVitest(
 	argv := append(runtime, vitestBin)
 	plan.Argv = append(append(argv, flags...), files...)
 	plan.UseExec = false
-	root := filepath.Join(filepath.Dir(configFile), v.RootRel)
-	plan.PostRun = writeCoverage(cfg.Workspace, plan.Dir, root)
+	plan.PostRun = writeCoverage(cfg.Workspace, tree, plan.Dir)
 	if reads != nil {
 		hook, err := r.Path(v.ReadsHook)
 		if err != nil {
@@ -109,6 +102,32 @@ func planVitest(
 		plan.PostRun = chainPostRun(plan.PostRun, reads.report(os.Stdout))
 	}
 	return plan, nil
+}
+
+// stageFiles writes each entry as a regular file under the tree: a config's
+// __dirname and its bare-import walk-up then start at its package path.
+func stageFiles(r *Resolver, tree string, stage map[string]string) error {
+	for _, from := range slices.Sorted(maps.Keys(stage)) {
+		src, err := r.Path(from)
+		if err != nil {
+			return err
+		}
+		data, err := os.ReadFile(src)
+		if err != nil {
+			return fmt.Errorf("ts_test: reading %s: %w", from, err)
+		}
+		dst := filepath.Join(tree, filepath.FromSlash(stage[from]))
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return err
+		}
+		if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if err := os.WriteFile(dst, data, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // stageTestRoot gives a manifest-only run a root of its own: symlinks to just

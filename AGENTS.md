@@ -65,13 +65,17 @@ Do not skip the review stage.
 ```
 ts_compile → TsConfig action (<name>.tsconfig.json + <name>.options.json from
              `tsgo --showConfig` over the baseline and the target's tsconfig)
-           → OxcCompile action (.js + .js.map; + .d.ts under --//ts:declarations=oxc)
+           → TsEmit action (.js + .js.map; + .d.ts under
+             --//ts:declarations=oxc): oxc for an ES-module program,
+             `tsgo --noCheck` for a CommonJS-shaped one, by the options
+             file's module
            → TsgoDeclare action (.d.ts; the default)
              or TsgoCheck validation action (.tscheck stamp in _validation; under oxc)
-           both run from a program root mirroring the exec root with the
-           target's node_modules forest at node_modules, with --explainFiles,
-           and fail an edge from a src into a file a label outside deps owns
-           (the <name>.ownership manifest names the owner)
+           the tsgo runs are from a program root mirroring the exec root
+           with the target's node_modules forest at node_modules; the check
+           adds --explainFiles and fails an edge from a src into a file a
+           label outside deps owns (the <name>.ownership manifest names the
+           owner)
            → TsLint validation action (.tslint stamp in _validation) when the
              root module's ts.lint() names a linter
 
@@ -203,7 +207,8 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 
 Every `ts_compile` target provides: `TsInfo` + `InstrumentedFilesInfo` +
 `OutputGroupInfo(_validation)`; a `ts_test` runs the same actions over its
-srcs and provides the last two. `_validation` holds the tsgo check stamp under
+srcs -- the emit as ES modules under the vitest runner -- and provides the
+last two. `_validation` holds the tsgo check stamp under
 `--//ts:declarations=oxc` (under the default the declarations are the proof)
 and the `TsLint` stamp when the root module's `ts.lint()` names a linter.
 Every `ts_npm_package` provides: `TsInfo`, naming its closure in
