@@ -67,22 +67,23 @@ web/shared/lib/markdown/markedRenderer.ts and to workers/download/src/index.ts.
 
 ## What each difference is
 
-Every figure below is from the median run's log of its cell -- the run whose
-wall is the table's median; a range in parentheses is the table's minimum and
-maximum.
+Every measurement below is from the median run's log of its cell -- the run
+whose wall is the table's median; a range in parentheses is the table's
+minimum and maximum.
 
 **Typecheck everything, cold.** typecheck.sh builds `@lovablelabs/agent-sdk`,
 compiles the paraglide messages and runs `tsc --noEmit --incremental false`
-over 22 tsconfig.json files in one process each, in sequence: 31 s. Bazel runs
-5332 actions (4237 internal, 1095 in sandboxes) with a critical path of 677 s.
-The long ones are the `NodeModulesTree` actions -- every target stages its own
-node_modules tree, copied from the pnpm store; seven of them 128-194 s -- and
-`TsgoDeclare //web:web`, 213 s: under `--declarations=tsgo` the check of a
-program is its declaration emit, tsgo over the staged tree with
-`--explainFiles` (ts/private/actions/tsgo.bzl checks that listing against the
-ownership manifest), so web is checked and its declarations written where
-typecheck.sh only checks. The cold build also compiles the `oxc-bazel` tool
-from Rust source and builds the Go toolchain it fetched, once per output base.
+over the 22 tsconfig.json files in its list at f9fd041, one process each, in
+sequence: 31 s. Bazel runs 5332 actions (4237 internal, 1095 in sandboxes)
+with a critical path of 677 s. The long ones are the `NodeModulesTree`
+actions -- every target stages its own node_modules tree, copied from the
+pnpm store; seven of them 128-194 s -- and `TsgoDeclare //web:web`, 213 s:
+under `--declarations=tsgo` the check of a program is its declaration emit,
+tsgo over the staged tree with `--explainFiles` (ts/private/actions/tsgo.bzl
+checks that listing against the ownership manifest), so web is checked and
+its declarations written where typecheck.sh only checks. The cold build also
+compiles the `oxc-bazel` tool from Rust source and builds the Go toolchain it
+fetched, once per output base.
 
 **Typecheck everything, warm.** typecheck.sh keeps no state (`--incremental
 false`) and repeats the cold row: 26.7 s. Bazel executes nothing: `327 action
@@ -139,10 +140,10 @@ one-line change in web runs web's whole suite.
 **One-line change in a leaf worker, re-test.** The checkout runs vitest in
 workers/download: one file, 76 tests, 268 ms, 1.7 s with pnpm's start; CI
 typechecks no worker (lint-js.yml generates `worker-configuration.d.ts` for
-type-aware oxlint alone, and typecheck.sh's 22 tsconfigs hold none). Bazel
-runs six sandboxed actions -- among them `TsCodegen` for the worker's types
-and the test itself at 0.9 s -- and hits the action cache for three:
-9.2 s, of which the type check is work the checkout's CI never does.
+type-aware oxlint alone, and typecheck.sh's list of 22 tsconfigs at f9fd041
+holds none). Bazel runs six sandboxed actions -- among them `TsCodegen` for
+the worker's types and the test itself at 0.9 s -- and hits the action cache
+for three: 9.2 s, of which the type check is work the checkout's CI never does.
 
 **What a build costs the machine besides itself.** During the cold Bazel check
 (812.7 s) the runner's own processes used 5751.8 CPU-seconds, the kernel's
