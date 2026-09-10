@@ -191,7 +191,7 @@ plain `vitest`:
 
 | Layer | Contents | Workspace projects |
 |-------|----------|---|
-| 1. Bazel | `root` (the `config`'s package; the test's own with none), `cacheDir` under `TEST_TMPDIR`, `resolve.preserveSymlinks`, `test.coverage.allowExternal`, `test.include` naming the compiled test files, the plugin resolving a relative `.ts` specifier to its compiled sibling, the plugin resolving a tsconfig `paths` alias, the plugin serving a `setupFiles` entry from its staged path, and the [Workers pool's half](#a-workers-pool) when the `config`'s `plugins` hold the pool | yes |
+| 1. Bazel | `root` (the `config`'s package; the test's own with none), `cacheDir` under `TEST_TMPDIR`, `resolve.preserveSymlinks`, `test.coverage.allowExternal`, `test.include` naming the compiled test files, `test.server.deps.inline` naming each workspace member in the tree, the plugin resolving a relative `.ts` specifier to its compiled sibling, the plugin resolving a tsconfig `paths` alias, the plugin serving a `setupFiles` entry from its staged path, and the [Workers pool's half](#a-workers-pool) when the `config`'s `plugins` hold the pool | yes |
 | 2. user | the `config` file | it supplies the projects |
 | 3. provider | `test.coverage.provider` from `coverage_provider` | no, root only |
 | 4. snapshots | `test.resolveSnapshotPath` | no, root only |
@@ -214,6 +214,17 @@ example.
 `preserveSymlinks` in layer 1 is on: a DOM environment resolves every module id
 to its realpath, which for a runfiles symlink walks out of the test sandbox.
 Under the Workers pool it is off ([A Workers Pool](#a-workers-pool)).
+
+`server.deps.inline` in layer 1 names every workspace member in the tree.
+vitest runs a module under `node_modules` in node unless a pattern names it,
+and a member's emitted `.js` keeps the extensionless relative imports vite
+resolves and node's loader rejects; under pnpm the same member is inlined
+because its link's realpath lies outside `node_modules`. Inlined, a member's
+own imports resolve through vite with the environment's conditions on both
+layouts, and vitest 4 gives a DOM environment the server set (`node`,
+`development|production`): a package whose exports map splits `browser` from
+`node` answers with its node build unless the `config` sets
+`resolve.conditions`.
 
 Two things sit outside the layering: npm resolution into the runfiles tree
 (the launcher's `node_modules` link at the runfiles root, [Files at Run

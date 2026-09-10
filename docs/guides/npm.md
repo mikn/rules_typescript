@@ -436,10 +436,12 @@ built stands in its place, in the link and at the member's own path in a
 `ts_test`'s runfiles, where a test inside the member resolves the member's name
 through the nearest manifest and would otherwise reach the source targets. The
 view forwards the member's `TsInfo`; a consumer reaches the member's files in
-the tree, as it reaches any npm package's. `ts_test` inlines the tree's workspace members for vite
-(`server.deps.inline`), because a member's emitted `.js` keeps its sources'
-extensionless relative imports, which node's loader rejects and vite resolves,
-and pnpm inlines a linked package for the same reason.
+the tree, as it reaches any npm package's. `ts_test` names the tree's
+workspace members in `test.server.deps.inline`: vitest runs a module under
+`node_modules` in node unless a pattern names it, and a member's emitted `.js`
+keeps its sources' extensionless relative imports, which node's loader rejects
+and vite resolves; under pnpm a linked member is inlined because its realpath
+lies outside `node_modules`.
 
 The view holds the member's own files and nothing outside them, so a member's
 file names another package by its package name. A relative path that leaves
