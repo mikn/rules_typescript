@@ -389,6 +389,8 @@ overwrites files that exist, and `--bazel-version` changes `.bazelversion`.
 
 ## Version Pinning
 
+### TypeScript
+
 The tsgo toolchain is a TypeScript 7 release. The `typescript` npm package is a
 launcher whose Go compiler lives in per-platform optional dependencies
 (`@typescript/typescript-linux-x64` and the like), so a pnpm lockfile that pins
@@ -422,7 +424,9 @@ ts.tsgo(version = "7.0.2")
 Nothing verifies that download: the registry tarball is fetched as is, with a
 warning naming the URL. Prefer `pnpm_lock` wherever there is a lockfile.
 
-To pin Node.js:
+### Node.js
+
+The tests run under the Node your `.nvmrc` names. Add to `MODULE.bazel`:
 
 ```python
 bazel_dep(name = "rules_nodejs", version = "6.7.5")
@@ -430,9 +434,17 @@ bazel_dep(name = "rules_nodejs", version = "6.7.5")
 node = use_extension("@rules_nodejs//nodejs:extensions.bzl", "node")
 node.toolchain(
     name = "nodejs",
-    node_version = "22.14.0",
+    node_version_from_nvmrc = "//:.nvmrc",
 )
 ```
+
+Every `ts_test`, and every build tool that is node, runs under that version;
+an edit to the file moves the runtime with it. The file holds the bare
+version, `24.18.0`. `node_version = "24.18.0"` in place of the
+`node_version_from_nvmrc` line pins the same without a file. With no
+`node.toolchain()` call the runtime is the `22.23.1` `rules_typescript`'s own
+`MODULE.bazel` pins: a default, not a decision for your workspace.
+`//tests/integration/node_version` pins the three cases.
 
 The `bazel_dep` line is required. `rules_nodejs` reaches your build as a
 transitive dependency of `rules_typescript`, so without it `@rules_nodejs` is

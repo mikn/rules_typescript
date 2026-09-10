@@ -177,8 +177,10 @@ transform, so it runs the package's format as tsc emits it
 ## The vitest Runner
 
 vitest is the one in the test's `node_modules` tree, the JS runtime the
-toolchain's. Under `bazel test` the runner sets `CI=true` so vitest writes no
-`.snap` ([Snapshots](#snapshots)); `env = {"CI": "false"}` opts out.
+toolchain's: the Node your `.nvmrc` names
+([Node.js](../getting-started/quickstart.md#nodejs)). Under `bazel test` the
+runner sets `CI=true` so vitest writes no `.snap` ([Snapshots](#snapshots));
+`env = {"CI": "false"}` opts out.
 
 ### The Generated vitest Config
 
