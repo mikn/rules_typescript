@@ -41,7 +41,8 @@ cache entries removed).
 ## The table
 
 Seconds, the median of three runs with the minimum and maximum; other work in
-cores, the median run's. A cell's exit code stands where it is not 0.
+cores, the median run's. An exit code stands where it is not 0: the failing
+step's for the checkout, Bazel's for Bazel.
 
 | Work | Cache state | The checkout's way | Bazel | Other work (checkout / Bazel) |
 |---|---|---|---|---|
@@ -66,13 +67,17 @@ web/shared/lib/markdown/markedRenderer.ts and to workers/download/src/index.ts.
 
 ## What each difference is
 
+Every figure below is from the median run's log of its cell -- the run whose
+wall is the table's median; a range in parentheses is the table's minimum and
+maximum.
+
 **Typecheck everything, cold.** typecheck.sh builds `@lovablelabs/agent-sdk`,
 compiles the paraglide messages and runs `tsc --noEmit --incremental false`
 over 22 tsconfig.json files in one process each, in sequence: 31 s. Bazel runs
 5332 actions (4237 internal, 1095 in sandboxes) with a critical path of 677 s.
 The long ones are the `NodeModulesTree` actions -- every target stages its own
-node_modules tree, copied from the pnpm store; seven of them ran 100-194 s --
-and `TsgoDeclare //web:web`, 213 s: under `--declarations=tsgo` the check of a
+node_modules tree, copied from the pnpm store; seven of them 128-194 s -- and
+`TsgoDeclare //web:web`, 213 s: under `--declarations=tsgo` the check of a
 program is its declaration emit, tsgo over the staged tree with
 `--explainFiles` (ts/private/actions/tsgo.bzl checks that listing against the
 ownership manifest), so web is checked and its declarations written where
@@ -80,7 +85,7 @@ typecheck.sh only checks. The cold build also compiles the `oxc-bazel` tool
 from Rust source and builds the Go toolchain it fetched, once per output base.
 
 **Typecheck everything, warm.** typecheck.sh keeps no state (`--incremental
-false`) and repeats the cold row: 26.7 s. Bazel executes nothing: `318 action
+false`) and repeats the cold row: 26.7 s. Bazel executes nothing: `327 action
 cache hit, 1 internal`, and the 58.9 s are that one internal step's 38.6 s
 critical path plus analysis -- the check that the previous build's outputs,
 the node_modules trees with their millions of files among them, are what it
@@ -115,32 +120,33 @@ holds: 321.0 s, with no test run.
 **One-line change in web, re-check.** `tsc -p web --noEmit` checks the whole
 web program with no state: 19.5 s. `bazel build //web/...` re-runs the three
 sandboxed actions on `//web:web` whose inputs changed -- `TsConfig`, the
-`TsEmit` compile and `TsgoDeclare` at 147-151 s -- and hits the action cache
+`TsEmit` compile and `TsgoDeclare` at 147 s -- and hits the action cache
 for the other 15: the declarations a `;` produces are byte-identical, so
 nothing downstream re-runs. The target is the unit: one line in web re-checks
 and re-emits web, and the emit is the cost tsc's `--noEmit` never pays.
 
 **One-line change in web, re-test the affected suites.** The checkout's way
 does not finish: `vitest run --changed` computes the affected set over web's
-2372 test files and dies at V8's 4288 MB heap limit (`FATAL ERROR: Reached
-heap limit`, SIGABRT, exit 134) in every run, after 48-64 s; nothing in the
-checkout raises the heap. `bazel test //web/...` runs the three test targets
-whose inputs changed: `web_test` over its 2235 files in 577.7 s (red: the
-parity proof's RULESET cases), `node_tooling_test` 13.6 s, `scripts_lib_test`
-1.9 s, after the same re-emit of web on the test lane; 744.3 s. A target is
-the unit of re-testing, so a one-line change in web runs web's whole suite.
+test files and dies at V8's heap limit (`FATAL ERROR: Reached heap limit`, the
+heap at 4085 MB after its last GC, SIGABRT, exit 134) in every run, after
+48.1 s (47.4-64.3); nothing in the checkout raises the heap. `bazel test
+//web/...` runs the three test targets whose inputs changed: `web_test` over
+its 2235 files in 577.7 s (red: the parity proof's RULESET cases),
+`node_tooling_test` 13.6 s, `scripts_lib_test` 1.9 s, after the same re-emit
+of web on the test lane; 744.3 s. A target is the unit of re-testing, so a
+one-line change in web runs web's whole suite.
 
 **One-line change in a leaf worker, re-test.** The checkout runs vitest in
-workers/download: one file, 76 tests, 225 ms, 1.7 s with pnpm's start; CI
+workers/download: one file, 76 tests, 268 ms, 1.7 s with pnpm's start; CI
 typechecks no worker (lint-js.yml generates `worker-configuration.d.ts` for
 type-aware oxlint alone, and typecheck.sh's 22 tsconfigs hold none). Bazel
 runs six sandboxed actions -- among them `TsCodegen` for the worker's types
-and the test itself at 0.8-1.0 s -- and hits the action cache for three:
+and the test itself at 0.9 s -- and hits the action cache for three:
 9.2 s, of which the type check is work the checkout's CI never does.
 
 **What a build costs the machine besides itself.** During the cold Bazel check
-(812.7 s) the runner's own processes used 5722 CPU-seconds, the kernel's
-threads 1251 and the security sensor 1545; during typecheck.sh (31.2 s) the
-kernel 4.8 and the sensor 10.1. The threads copy and encrypt what Bazel
+(812.7 s) the runner's own processes used 5751.8 CPU-seconds, the kernel's
+threads 1108.9 and the security sensor 1401.2; during typecheck.sh (31.2 s)
+the kernel 15.2 and the sensor 9.1. The threads copy and encrypt what Bazel
 writes; the sensor inspects what it executes and opens. Both scale with the
 node_modules trees.
