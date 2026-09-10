@@ -1,13 +1,14 @@
 """A program holds its declared inputs and nothing the source tree has beside them.
 
-Bazel stages every input as a symlink into the source tree. tsgo reads an
-`include`d root at its staged path, and without `preserveSymlinks` resolves a
-`types` entry to its realpath and that file's own imports from there.
-`bindings.d.ts` names `./stray` in a `typeof import()`, and `stray.ts` is checked
-in beside it, in no target's srcs, holding a type error. Read at the staged
-path the import resolves to nothing and `skipLibCheck` drops the TS2307 inside
-the .d.ts; read at the realpath it resolves to the source-tree file, and the
-build fails on an error in a file the target never named.
+Bazel stages every input as a symlink into the source tree. tsgo reads a root
+file at its staged path and resolves a type reference directive to its realpath,
+that file's own imports from there; a path-shaped `types` entry is a root file
+of the action tsconfig, not a directive. `bindings.d.ts` names `./stray` in a
+`typeof import()`, and `stray.ts` is checked in beside it, in no target's srcs,
+holding a type error. Read at the staged path the import resolves to nothing
+and `skipLibCheck` drops the TS2307 inside the .d.ts; read at the realpath it
+resolves to the source-tree file, and the build fails on an error in a file the
+target never named.
 """
 
 # stray.ts is the fixture, the one file that must be in no target's srcs.

@@ -158,7 +158,7 @@ or `files`, so tsc neither walks the output directory nor loses the chain's own
    against the directory they were written for. Everything it says wins over
    layer 1, so tsgo checks the code under the options `tsc` would.
 3. **The keys Bazel owns**, written last: `rootDirs` bridging the source and
-   output trees, `preserveSymlinks`, `declaration`, `emitDeclarationOnly`,
+   output trees, `declaration`, `emitDeclarationOnly`,
    `declarationMap`, `composite`, `incremental`, `rootDir`; under the tsgo emit
    `noEmit: false`, `noEmitOnError` and `outDir`; `allowJs`
    when a src is JavaScript; `isolatedDeclarations` under
@@ -167,8 +167,9 @@ or `files`, so tsc neither walks the output directory nor loses the chain's own
    order `--showConfig` reports them, and `include` the srcs it does not;
    `exclude` and `references` are `[]`. Two keys are the tsconfig's values
    rewritten: `paths`, each value from the directory of the chain file that set
-   it and a `bazel-bin` twin beside it, and `types`, each path-shaped entry
-   rebased to the file the sandbox stages (below). A value the tsconfig sets
+   it and a `bazel-bin` twin beside it, and `types`, its package names alone:
+   each path-shaped entry joins `include` as a root file at the path the
+   sandbox stages it (below). A value the tsconfig sets
    for one of these keys is overridden by `extends` order, not refused.
 
 `--showConfig` is run over the chain, not over the user's file alone, so a
@@ -178,13 +179,15 @@ the `target`, `jsx` and `jsxImportSource` the same run yields, handed over in
 chain's `module`, which decides which tool emits the JavaScript
 ([The Module Format](#the-module-format)).
 
-`preserveSymlinks` is what keeps a program to its declared inputs. Bazel stages
-every input as a symlink into the source tree; resolved through the link, a
-`types` entry is read at its realpath and its own imports resolve from there,
-into files the target never declared. Read at the staged path, a program holds
-its declared inputs and nothing the source tree has beside them: an import
-inside a staged `.d.ts` that names a file nothing stages resolves to nothing,
-and `skipLibCheck` drops the `TS2307`.
+A root file keeps a program to its declared inputs. Bazel stages every input as
+a symlink into the source tree; tsgo reads a root file, a relative import and a
+`paths` match at the path given, and resolves a bare specifier and a type
+reference directive to their realpaths. A path-shaped `types` entry is
+therefore listed as a root file: read at its staged path, its own imports
+resolve among the declared inputs and nothing the source tree has beside them
+-- an import inside a staged `.d.ts` that names a file nothing stages resolves
+to nothing, and `skipLibCheck` drops the `TS2307`. A package's file resolves at
+its realpath, where its own imports are.
 
 Read the tsconfig a target handed the compiler with
 `bazel build //pkg:lib --output_groups=tsconfig`.
@@ -607,10 +610,11 @@ tsgo's `TS2688: Cannot find type definition file`, from the action.
 ### A `types` Entry That Names a Declaration File
 
 `types: ["./worker-configuration.d.ts"]` names a path. tsc resolves it against
-the tsconfig's own directory, and tsaction rebases it to where the sandbox
-stages the file, with tsc's lookup: the path as a file or directory, or the
-path with a TypeScript or declaration extension added, in the source tree first
-and under `bazel-bin` second. A checked-in declaration is in the source tree; a
+the tsconfig's own directory, and tsaction lists the file as a root of the
+program at the path the sandbox stages it, found with tsc's lookup: the path as
+a file, the path with a TypeScript or declaration extension added, or a
+directory's `index.d.ts`, in the source tree first and under `bazel-bin`
+second. A checked-in declaration is in the source tree; a
 generated one, such as the [`ts_codegen`](ts-codegen.md#cloudflare-worker-bindings)
 running `wrangler types` writes, is in `bazel-bin`. What stages the file is a
 label: `srcs`, or a dep whose `srcs` hold it or whose `outs` write it (a `.d.ts`
@@ -643,9 +647,10 @@ gives it.
 ### Ambient Precedence
 
 The target's own declarations are root files, in the order the tsconfig's
-`include` gives them and ahead of what `types` brings in, so where two declare
-the same `declare module` pattern the one the tsconfig lists first wins, and
-the project's own beats a `types` entry's. `tsc` orders them the same way: a
+`include` gives them and ahead of what `types` brings in -- a path-shaped entry
+is listed after every src -- so where two declare the same `declare module`
+pattern the one the tsconfig lists first wins, and the project's own beats a
+`types` entry's. `tsc` orders them the same way: a
 `types` entry arrives as a type-reference directive, which joins the program
 after the root files. The first declaration of a pattern wins, and a narrower
 pattern does not change that: an earlier `declare module "*.svg"` beats a

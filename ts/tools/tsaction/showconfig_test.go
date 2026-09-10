@@ -210,8 +210,8 @@ func TestDecodeShowConfig_DiagnosticsAreNotAConfig(t *testing.T) {
 	}
 }
 
-// The written config extends the baseline then the user's file, rewrites paths
-// and types, names no forest package and leaves typeRoots unset.
+// The written config extends the baseline then the user's file, rewrites paths,
+// roots each path-shaped types entry, names no forest package, leaves typeRoots.
 func TestTsconfigStep_WritesTheForestShapedConfig(t *testing.T) {
 	capture := readTestdata(t, "showconfig-chain.json")
 	e := newExecroot(t, chainLeaf, capture)
@@ -233,12 +233,11 @@ func TestTsconfigStep_WritesTheForestShapedConfig(t *testing.T) {
       "#lib": ["../../../../base/lib/index.ts", "../base/lib/index.ts"],
       "@app/*": ["../../../../base/src/*", "../base/src/*"]
     },
-    "preserveSymlinks": true,
     "rootDir": "../../../..",
     "rootDirs": ["../../../..", ".."],
-    "types": ["../../../../pkg/globals.d.ts", "./generated.d.ts", "node", "@cloudflare/workers-types"]
+    "types": ["node", "@cloudflare/workers-types"]
   },
-  "include": ["../../../../pkg/globals.d.ts"],
+  "include": ["../../../../pkg/globals.d.ts", "./generated.d.ts"],
   "files": ["../../../../pkg/src/a.ts"],
   "exclude": [],
   "references": []
@@ -258,6 +257,22 @@ func TestTsconfigStep_RootsKeepTheTsconfigsOrder(t *testing.T) {
 	assertJSON(t, "files", config["files"],
 		`["../../../../pkg/globals.d.ts", "../../../../pkg/src/a.ts"]`)
 	assertJSON(t, "include", config["include"], `["../../../../pkg/data.json"]`)
+}
+
+// A path-shaped entry is a root file, so the lookup names the file itself.
+func TestTypesEntryFile(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	writeFile(t, "a.d.ts", "")
+	writeFile(t, "c.ts", "")
+	writeFile(t, "d/index.d.ts", "")
+	for in, want := range map[string]string{
+		"a.d.ts": "a.d.ts", "c": "c.ts", "d": "d/index.d.ts", "missing": "",
+	} {
+		if got := typesEntryFile(in); got != want {
+			t.Errorf("typesEntryFile(%q) = %q, want %q", in, got, want)
+		}
+	}
 }
 
 // The first pass hands --showConfig the chain alone; `files: []` is set only

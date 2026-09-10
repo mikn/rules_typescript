@@ -1,9 +1,8 @@
 """The Workers pool: vitest's tests inside workerd.
 
 The pool's half of a ts_test's environment, in one file: its attributes, the
-config layer the generated config imports, the WranglerTestConfig action and
-the runfiles and symlinks both add. ts_test reaches it through the struct
-workers_pool_environment returns, and no other file names wrangler.
+WranglerTestConfig action and the symlink it adds. ts_test reaches it through
+the struct workers_pool_environment returns, and no other file names wrangler.
 """
 
 load("//ts/private:runtime.bzl", "get_js_tool")
@@ -17,10 +16,6 @@ WORKERS_POOL_ATTRS = {
               "also listed in `data`.",
         allow_single_file = [".jsonc", ".json", ".toml"],
     ),
-    "_workers_pool": attr.label(
-        default = Label("//ts/private:vitest_workers_pool.mjs"),
-        allow_single_file = True,
-    ),
     "_wrangler_patch": attr.label(
         default = Label("//ts/private:wrangler_test_config.mjs"),
         allow_single_file = True,
@@ -30,16 +25,10 @@ WORKERS_POOL_ATTRS = {
 def workers_pool_environment(ctx, node_modules_files, runtime_data_sets):
     """The pool's half of the test environment, or its absence.
 
-    Returns struct(layer, files, symlinks, runtime_data_sets): the config layer
-    module (None without a `config`), the runfiles the pool adds, the patched
-    wrangler config over the source's path, and the data sets less that source.
+    Returns struct(symlinks, runtime_data_sets): the patched wrangler config
+    over the source's path, and the data sets less that source.
     """
-    files = []
     symlinks = {}
-
-    layer = ctx.file._workers_pool if ctx.file.config else None
-    if layer:
-        files.append(layer)
 
     # The pool boots the file `main` names, the source; a copy naming the
     # compiled entry takes the source's runfiles path, so `configPath` reads it.
@@ -92,12 +81,9 @@ def workers_pool_environment(ctx, node_modules_files, runtime_data_sets):
             mnemonic = "WranglerTestConfig",
             progress_message = "WranglerTestConfig %{label}",
         )
-        files.append(patched)
         symlinks[src.short_path] = patched
 
     return struct(
-        layer = layer,
-        files = files,
         symlinks = symlinks,
         runtime_data_sets = runtime_data_sets,
     )

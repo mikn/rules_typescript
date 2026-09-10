@@ -2,6 +2,8 @@
 import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 
+declare const __UNDECLARED__: string;
+
 import { moduleUrl } from "../src/index";
 import wranglerRaw from "../wrangler.jsonc?raw";
 
@@ -33,7 +35,7 @@ describe("nested worker", () => {
 
   it("refuses a build output the runfiles do not hold", async () => {
     // A variable keeps vite's import analysis from resolving it while the file loads.
-    const undeclared = "../src/index.d.ts?raw";
+    const undeclared = __UNDECLARED__ + "?raw";
     await expect(import(undeclared)).rejects.toThrow(/runfiles do not hold/);
   });
 

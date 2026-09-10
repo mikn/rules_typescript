@@ -174,10 +174,10 @@ If you decide to migrate from `rules_ts`:
 
 **The tsconfig is generated, and yours is what it extends.** `ts_compile` writes
 a tsconfig per target that extends the ruleset's baseline and then your file,
-referenced where it lives, and sets over both what Bazel owns: `rootDirs`,
-`preserveSymlinks`, the emit shape, `include` and `files`. It rewrites each
-`paths` value to its source and `bazel-bin` twins and rebases a path-shaped
-`types` entry to the staged file. Every other option is the file's; the rule
+referenced where it lives, and sets over both what Bazel owns: `rootDirs`, the
+emit shape, `include` and `files`. It rewrites each `paths` value to its source
+and `bazel-bin` twins and lists a path-shaped `types` entry as a root file.
+Every other option is the file's; the rule
 has no attribute for any of them.
 
 **One Bazel repository per npm package.** `rules_ts` with `rules_js` builds a

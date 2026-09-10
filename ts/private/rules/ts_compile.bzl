@@ -674,10 +674,10 @@ The action's tsconfig extends the ruleset's baseline (strict, module Preserve,
 target es2022, jsx react-jsx, skipLibCheck, esModuleInterop) and then this
 file, so every key the file or its own extends chain mentions wins and only the
 keys it says nothing about fall back to the baseline. Over both, tsaction sets
-the keys Bazel owns -- rootDirs, preserveSymlinks, the emit shape, `include` and
-`files` -- rewrites `paths` to the source and bin-dir twins of each value, and
-rebases each path-shaped `types` entry to the staged file it names; a `types`
-entry naming a package resolves through the forest. oxc transforms with the
+the keys Bazel owns -- rootDirs, the emit shape, `include` and `files` --
+rewrites `paths` to the source and bin-dir twins of each value, and lists each
+path-shaped `types` entry as a root file at its staged path; a `types` entry
+naming a package resolves through the forest. oxc transforms with the
 target, jsx and jsxImportSource tsgo reads from the same chain, and the
 chain's `module` decides whether oxc or tsgo emits the JavaScript.
 

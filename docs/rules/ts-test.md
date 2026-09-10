@@ -56,8 +56,9 @@ const sdkSource = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
 ```
 
 `import.meta.url` -- and `__dirname`, in a CommonJS test -- is the runfiles
-path on either runner (vitest's `resolve.preserveSymlinks`; node's
-`--preserve-symlinks-main` and the runner's resolve hook), so `./index.ts`
+path on either runner (the vitest layer's module ids, [The Generated vitest
+Config](#the-generated-vitest-config); node's `--preserve-symlinks-main` and
+the runner's resolve hook), so `./index.ts`
 beside the compiled test is the same-package `ts_compile`'s `src/index.ts`.
 Another package's sources are not in the tree: a file a test reads across a
 package boundary is a `data` entry.
@@ -193,15 +194,15 @@ plain `vitest`:
 
 | Layer | Contents | Workspace projects |
 |-------|----------|---|
-| 1. Bazel | `root` (the `config`'s package; the test's own with none), `cacheDir` under `TEST_TMPDIR`, `resolve.preserveSymlinks`, `test.coverage.allowExternal`, `test.include` naming the compiled test files, `test.server.deps.inline` naming each workspace member in the tree, the plugin resolving a relative `.ts` specifier to its compiled sibling, the plugin resolving a tsconfig `paths` alias, the plugin serving a `setupFiles` entry from its staged path, and the [Workers pool's half](#a-workers-pool) when the `config`'s `plugins` hold the pool | yes |
+| 1. Bazel | `root` (the `config`'s package; the test's own with none), `cacheDir` under `TEST_TMPDIR`, `server.fs.allow` naming the workspace's runfiles and `bazel-bin`'s realpath, `test.coverage.allowExternal`, `test.include` naming the compiled test files, `test.server.deps.inline` naming each workspace member in the tree, the plugin giving each module its id (below), the plugin resolving a relative `.ts` specifier to its compiled sibling, and the plugin resolving a tsconfig `paths` alias | yes |
 | 2. user | the `config` file | it supplies the projects |
 | 3. provider | `test.coverage.provider` from `coverage_provider` | no, root only |
 | 4. snapshots | `test.resolveSnapshotPath` | no, root only |
 
 Objects merge key by key; arrays concatenate base-first, as vite's own
 `mergeConfig` does, so a `plugins` list in the config joins layer 1's. Scalars
-from a later layer win: a `resolve.preserveSymlinks` the config sets wins over
-layer 1's, and `coverage_provider` over a provider the config names. Layers 3
+from a later layer win: a `cacheDir` the config sets wins over layer 1's, and
+`coverage_provider` over a provider the config names. Layers 3
 and 4 are root-only because coverage and `resolveSnapshotPath` are vitest's
 non-project options, applied once and never merged into a project.
 
@@ -213,9 +214,18 @@ concatenate, so the config's globs stay in the merged array and select
 nothing the launcher did not name. `//tests/vitest/config_include` is the
 example.
 
-`preserveSymlinks` in layer 1 is on: a DOM environment resolves every module id
-to its realpath, which for a runfiles symlink walks out of the test sandbox.
-Under the Workers pool it is off ([A Workers Pool](#a-workers-pool)).
+A module's id is its runfiles path where the runfiles hold the file and its
+realpath otherwise. Vite resolves every id to its realpath -- a test file's and
+a compiled module's lie in `bazel-out`, a source file's in the source tree --
+and layer 1's plugin gives a file the runfiles hold at that path its runfiles
+path back, so `import.meta.url` and a relative import stay in the runfiles
+tree; a file under `node_modules` keeps its realpath, so a package's own
+imports resolve from its place in the tree, and one file is one module. An id
+that resolves to a file the runfiles do not hold is refused:
+`rules_typescript: "<id>" resolved to <path>, which this test's runfiles do not
+hold`. `server.fs.allow` names the workspace's runfiles and `bazel-bin`'s
+realpath, the two places an id can be, for the DOM environments that load
+through Vite's server.
 
 `server.deps.inline` in layer 1 names every workspace member in the tree.
 vitest runs a module under `node_modules` in node unless a pattern names it,
@@ -300,12 +310,11 @@ entry is `# keep`. `//tests/setup_files_compiled` is the example, with the
 config at the package root and beside the tests.
 
 vitest resolves each entry through Node's resolver, which follows the runfiles
-link to the compiled file in `bazel-out`. The `node` environment loads that
-realpath. A DOM environment (`jsdom`, `happy-dom`) loads setup files through
-Vite, which serves the root and refuses a path outside it: `Cannot find module
-'/@fs/<bazel-out path>/vitest.setup.js'`. Layer 1 carries a plugin that answers
-that request with the staged path. `//tests/setup_files_compiled/dom` is the
-example.
+link to the compiled file in `bazel-out`; layer 1 gives the module its runfiles
+path back as its id, as it does every file the runfiles hold, so a DOM
+environment (`jsdom`, `happy-dom`), which loads setup files through Vite's
+server, is served a path under the root. `//tests/setup_files_compiled/dom` is
+the example.
 
 ### `.ts` Specifiers
 
@@ -499,11 +508,12 @@ takes the file as it is.
 ### A Workers Pool
 
 A `config` whose `plugins` hold `@cloudflare/vitest-pool-workers` runs the tests
-inside workerd. Four things put the compiled worker in front of it. Three are
+inside workerd. Two things put the compiled worker in front of it. One is
 layer 1's: the root is the config's package, so `wrangler.configPath` names the
-file beside the config; `resolve.preserveSymlinks` is off, so a module has one
-identity; a compiled module's bare imports are resolved from the root, where
-the runfiles tree's `node_modules` link is. The fourth is `wrangler_config`:
+file beside the config, and every module has one id ([The Generated vitest
+Config](#the-generated-vitest-config)) -- the pool resolves vitest's own
+modules for workerd by realpath, and a package's file has its realpath as its
+id. The other is `wrangler_config`:
 
 ```python
 ts_test(
@@ -522,19 +532,6 @@ ts_test(
 )
 ```
 
-`preserveSymlinks` is off because the pool resolves modules for workerd through
-a second path, where a lexical path is a second module identity for the same
-file. Left on, the pool fails inside its runner: `Cannot read properties of
-undefined (reading 'config')` on pool 0.22.0 / vitest 4.1.11, `No such module
-".../vitest/dist/@vitest/spy"` on 0.18.4 / 4.1.5. A `resolve.preserveSymlinks`
-the config sets still wins. On realpaths a compiled module is imported from
-`bazel-out`, which has no `node_modules` above it, so the same case adds a
-plugin: a compiled module's relative imports are resolved from its runfiles
-path, its bare imports from the root, and an import that resolves to a build
-output the runfiles do not hold at its own path is refused with
-`rules_typescript: "<id>" resolved to <path>, a build output this test's
-runfiles do not hold`.
-
 The pool boots the file `main` names, resolved against the config file's
 directory; in a repository that is the source, `src/index.ts`, and the worker
 under test is the compiled one. `WranglerTestConfig` copies the file and
@@ -542,8 +539,7 @@ patches `main` and every `env.<name>.main` to the compiled entry with wrangler's
 `experimental_patchConfig` (`.ts` and `.tsx` to `.js`, `.mts` to `.mjs`, `.cts`
 to `.cjs`; a `.js` is left as written). wrangler is the one in the test's
 `node_modules` tree. The copy is staged at the source's runfiles path, which is
-what `configPath` names, and under its own name beside the generated config,
-which admits its realpath when a `?raw` import of the config re-resolves it.
+what `configPath` names and the id a `?raw` import of it gets back.
 Comments and every other key survive; the formatting is wrangler's. A config
 naming no `main`, or a `.toml` holding `#` comments, fails the action.
 

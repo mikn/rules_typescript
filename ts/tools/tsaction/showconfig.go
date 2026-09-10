@@ -248,7 +248,7 @@ func (a *actionConfig) extends(dir string) []string {
 
 func (a *actionConfig) build(effective *effectiveOptions, roots []string,
 	chain *tsconfig.Resolved, dir string) (*tsconfigFile, error) {
-	types, err := a.types(effective, dir)
+	types, typesRoots, err := a.types(effective, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -257,7 +257,6 @@ func (a *actionConfig) build(effective *effectiveOptions, roots []string,
 	opts := map[string]any{
 		"types":               types,
 		"rootDirs":            []string{relativePath(dir, ""), relativePath(dir, a.binDir)},
-		"preserveSymlinks":    true,
 		"declaration":         true,
 		"emitDeclarationOnly": true,
 		"declarationMap":      a.declarationMap,
@@ -288,6 +287,15 @@ func (a *actionConfig) build(effective *effectiveOptions, roots []string,
 	}
 
 	files, include := a.roots(roots, dir)
+	listed := map[string]bool{}
+	for _, p := range append(files, include...) {
+		listed[path.Clean(p)] = true
+	}
+	for _, p := range typesRoots {
+		if !listed[path.Clean(p)] {
+			include = append(include, p)
+		}
+	}
 	return &tsconfigFile{
 		Extends:         a.extends(dir),
 		CompilerOptions: opts,
@@ -381,52 +389,60 @@ func (a *actionConfig) paths(chain *tsconfig.Resolved, dir string) map[string][]
 	return out
 }
 
-// types is the user's list, each path-shaped entry rebased to where the sandbox
-// stages it, or the direct @types deps when the chain sets none. Always set.
-func (a *actionConfig) types(effective *effectiveOptions, dir string) ([]string, error) {
+// types keeps the user's package names, or the direct @types deps when the
+// chain sets none, and returns each path-shaped entry as a root file.
+func (a *actionConfig) types(effective *effectiveOptions, dir string,
+) (names, roots []string, err error) {
 	if effective.Types == nil {
-		return append([]string{}, a.typesDeps...), nil
+		return append([]string{}, a.typesDeps...), nil, nil
 	}
 	projectDir := "."
 	if a.project != "" {
 		projectDir = path.Dir(a.project)
 	}
-	out := make([]string, 0, len(*effective.Types))
+	names = make([]string, 0, len(*effective.Types))
 	for _, entry := range *effective.Types {
 		if !isRelative(entry) {
-			out = append(out, entry)
+			names = append(names, entry)
 			continue
 		}
 		target := path.Join(projectDir, entry)
-		generated := path.Join(a.binDir, target)
-		switch {
-		case typesEntryExists(target):
-			out = append(out, explicitlyRelative(relativePath(dir, target)))
-		case typesEntryExists(generated):
-			out = append(out, explicitlyRelative(relativePath(dir, generated)))
-		default:
-			return nil, fmt.Errorf("compilerOptions.types entry %q in %s names %s, which no input of this action sits at: "+
+		file := typesEntryFile(target)
+		if file == "" {
+			file = typesEntryFile(path.Join(a.binDir, target))
+		}
+		if file == "" {
+			return nil, nil, fmt.Errorf("compilerOptions.types entry %q in %s names %s, which no input of this action sits at: "+
 				"not in the source tree, not under %s.\nA declaration this program names is a src of the target "+
 				"or an output of one of its deps.", entry, a.project, target, a.binDir)
 		}
+		roots = append(roots, fileRelative(dir, file))
 	}
-	return out, nil
+	return names, roots, nil
 }
 
 var typesEntryExtensions = []string{".ts", ".tsx", ".d.ts", ".mts", ".d.mts", ".cts", ".d.cts"}
 
-// typesEntryExists is tsc's lookup for a path-shaped entry: the path as a file
-// or directory, or the path with a TypeScript or declaration extension added.
-func typesEntryExists(p string) bool {
-	if _, err := os.Stat(p); err == nil {
-		return true
+// typesEntryFile is tsc's lookup for a path-shaped entry: the path as a file,
+// with a TypeScript or declaration extension added, or a directory's index.d.ts.
+func typesEntryFile(p string) string {
+	if isFile(p) {
+		return p
 	}
 	for _, ext := range typesEntryExtensions {
-		if _, err := os.Stat(p + ext); err == nil {
-			return true
+		if isFile(p + ext) {
+			return p + ext
 		}
 	}
-	return false
+	if index := path.Join(p, "index.d.ts"); isFile(index) {
+		return index
+	}
+	return ""
+}
+
+func isFile(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && !st.IsDir()
 }
 
 func isRelative(p string) bool {

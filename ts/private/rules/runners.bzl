@@ -39,9 +39,9 @@ def _vitest_launch(ctx, test):
     written = vitest_config_action(
         ctx,
         test_entry_points = test.entry_points,
-        pool_layer = pool.layer,
         tsconfig_paths = tsconfig_paths,
         inline_members = test.inline_members,
+        overlays = pool.symlinks | twins,
     )
 
     # Every path is a runfiles path; the launcher resolves them through the
@@ -68,7 +68,7 @@ def _vitest_launch(ctx, test):
     env = dict(ctx.attr.env)
     env.setdefault("CI", "true")
 
-    files = [written.config, test.runner.hook] + pool.files
+    files = [written.config, test.runner.hook]
     if tsconfig_paths:
         files.append(tsconfig_paths)
     return struct(

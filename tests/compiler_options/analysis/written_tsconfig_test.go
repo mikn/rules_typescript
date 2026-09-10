@@ -30,9 +30,6 @@ func TestWrittenConfigForASubtreeWithJavaScript(t *testing.T) {
 	if opts["allowJs"] != true {
 		t.Errorf("allowJs = %v, want true: a JavaScript src is in `include`", opts["allowJs"])
 	}
-	if opts["preserveSymlinks"] != true {
-		t.Errorf("preserveSymlinks = %v, want true", opts["preserveSymlinks"])
-	}
 	if opts["outDir"] != "." {
 		t.Errorf("outDir = %v, want \".\"", opts["outDir"])
 	}

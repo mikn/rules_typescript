@@ -254,8 +254,8 @@ copy whose `main` and `env.test.main` are `src/index.js`, the compiled worker,
 at the file's own path, and that is the config the pool reads. A `rules` module
 the worker imports (`import greeting from "./greeting.txt"`) is a src of the
 `ts_compile`, which puts it in the runfiles. What else a wrangler config can
-name, and the `preserveSymlinks` flip the pool needs, are in
-[A Workers Pool](../rules/ts-test.md#a-workers-pool). `//tests/workers` is the
+name is in [A Workers Pool](../rules/ts-test.md#a-workers-pool).
+`//tests/workers` is the
 same-package shape: the config beside the tests, `main: "src/index.js"`, and
 the file in `data`.
 

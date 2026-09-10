@@ -448,10 +448,10 @@ file names another package by its package name. A relative path that leaves
 the member (`../../../../web/shared/lib/proto/x.ts` from
 `packages/app-mcp/src/generated/`) resolves under pnpm alone, where
 `node_modules/<name>` is a symlink and node resolves the importer to its real
-path first. Here the view is the member's files at `node_modules/<name>`, read
-at that path by tsgo and by both runners (`preserveSymlinks`, which a sandbox's
-staged inputs require), so the path lands beside the other packages, where the
-file is not: the run fails with `Cannot find module`, and tsgo reports `TS2307`
+path first. Here the view is the member's files at `node_modules/<name>` in
+the tree, and tsgo and both runners resolve a package's file at its place in
+the tree, so the path lands beside the other packages, where the file is not:
+the run fails with `Cannot find module`, and tsgo reports `TS2307`
 in the member's `.d.ts` under `--//ts:lib_check` and, without it, widens every
 name the file re-exported to `any`. A `.ts` subpath into a member with no
 `exports` map (`web/shared/lib/proto/x.ts`, the shape an application package

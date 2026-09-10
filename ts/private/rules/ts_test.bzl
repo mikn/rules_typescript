@@ -170,8 +170,8 @@ _TEST_ATTRS = {
     ),
     "config": attr.label(
         doc = "The vitest config file (.ts/.mts/.cts/.js/.mjs/.cjs), merged " +
-              "over the Bazel layer (root, cacheDir, preserveSymlinks, " +
-              "coverage.allowExternal, the Workers-pool half), so every " +
+              "over the Bazel layer (root, cacheDir, the module ids, " +
+              "server.fs.allow, coverage.allowExternal), so every " +
               "vitest setting is the file's, as under plain vitest. A " +
               "config that default-exports an array is read as a list of " +
               "vitest projects (test.projects). The modules it imports " +

@@ -10,20 +10,8 @@ import (
 	"github.com/mikn/rules_typescript/tests/verify"
 )
 
-// What each dependent resolves must not depend on whether the resolver follows
-// symlinks. `--preserve-symlinks` (Vite's `resolve.preserveSymlinks`) changes a
-// module's IDENTITY -- its cache key and __filename -- and this ruleset already
-// needs it both ways: ts_test turns it on because a DOM environment realpaths
-// ids straight out of the sandbox, and tests/workers turns it back off because
-// the pool would otherwise hold two identities for one file.
-//
-// Which version a dependent gets is a different question, and the answer has to
-// be the same in both modes: the store keeps a package's own pinned
-// dependencies beside it, and both modes reach them because the walk over
-// `node_modules` candidates traverses the link either way. A layout that only
-// resolved correctly under realpath would break silently the moment either flag
-// flipped -- silently because the version that answered would be a real version
-// of the real package.
+// The same version answers with and without --preserve-symlinks: a layout right
+// under one mode alone fails silently, with a real version of the real package.
 const probeJS = `
 const { createRequire } = require('module');
 const { join, dirname } = require('path');

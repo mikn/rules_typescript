@@ -1,0 +1,24 @@
+"""A DOM environment loads every module through Vite's server, which serves the
+directories `server.fs.allow` names alone: another package's compiled module,
+a source file the runfiles hold, and a workspace member vite inlines at its
+realpath."""
+
+load("//ts:defs.bzl", "ts_test")
+
+# keep
+ts_test(
+    name = "dom_realpath_test",
+    srcs = [
+        "dom.test.ts",
+        "fixture.json",
+    ],
+    config = "vitest.config.mjs",
+    deps = [
+        "//tests/vitest:math",
+        "@npm//:happy-dom",
+        "@npm//:shared",
+        "@npm//:types_node",
+        "@npm//:vitest",
+        "@npm//:zod",
+    ],
+)

@@ -42,8 +42,8 @@ func TestWrittenConfigNamesNoPackage(t *testing.T) {
 		if !reflect.DeepEqual(types, c.types) {
 			t.Errorf("%s: compilerOptions.types = %v, want %v", c.target, types, c.types)
 		}
-		if opts["preserveSymlinks"] != true {
-			t.Errorf("%s: preserveSymlinks = %v, want true", c.target, opts["preserveSymlinks"])
+		if _, ok := opts["preserveSymlinks"]; ok {
+			t.Errorf("%s: preserveSymlinks = %v, want unset: a package resolves at its realpath", c.target, opts["preserveSymlinks"])
 		}
 		if len(config.Files) != 0 {
 			t.Errorf("%s: files = %v, want []: a global reaches the program through `types`", c.target, config.Files)
