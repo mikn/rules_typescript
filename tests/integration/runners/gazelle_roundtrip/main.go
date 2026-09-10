@@ -61,7 +61,7 @@ var generated = []string{
 // BUILD files a run merges into rather than writes, the root's among them.
 var handWritten = []string{
 	"", "src/i18n", "src/locales", "generated_worker", "devserver",
-	"shared_program",
+	"shared_program", "wrangler_lock",
 }
 
 func main() {
@@ -77,8 +77,10 @@ func main() {
 		it.Write(it.Path("devserver/BUILD.bazel"), handWrittenDevServerPackage)
 		it.Write(it.Path("shared_program/BUILD.bazel"), sharedProgramPackage)
 		it.Write(it.Path("worker/src/BUILD.bazel"), staleWorkerSrcPackage)
+		it.Write(it.Path("wrangler_lock/BUILD.bazel"), wranglerLock)
 		// wrangler, for generated_worker's ts_codegen, is in tests/workers' lockfile.
-		it.Write(it.Path("pnpm-lock.workers.yaml"), it.Read(filepath.Join(it.RulesTSRoot, "tests/workers/pnpm-lock.yaml")))
+		it.Write(it.Path("wrangler_lock/pnpm-lock.yaml"),
+			it.Read(filepath.Join(it.RulesTSRoot, "tests/workers/pnpm-lock.yaml")))
 
 		it.Install()
 		it.Pass("pnpm install: the listing runs over the tree the build will check")
@@ -644,9 +646,19 @@ ts_codegen(
 )
 `
 
+// The workers lockfile's package holds its store and nothing else: a tree
+// named node_modules beside the store's node_modules/.pnpm cannot be declared.
+const wranglerLock = `load("@npm_workers//:defs.bzl", "npm_virtual_store")
+
+npm_virtual_store()
+`
+
 // A worker with nothing checked in: the ts_codegen beside the config writes the
 // declaration its tsconfig names.
-const generatedWorkerPackage = `load("@rules_typescript//npm:defs.bzl", "node_modules")
+const generatedWorkerPackage = `load(
+    "@rules_typescript//npm:defs.bzl",
+    "node_modules",
+)
 load("@rules_typescript//ts:defs.bzl", "ts_codegen")
 
 node_modules(

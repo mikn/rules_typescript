@@ -29,6 +29,7 @@ bzl_library(
     srcs = ["npm_import.bzl"],
     deps = [
         ":npmrc_auth",
+        ":store",
         ":workspace_package",
         "//ts/private:ts_npm_package",
     ],
@@ -40,6 +41,21 @@ bzl_library(
 )
 
 bzl_library(
+    name = "store",
+    srcs = ["store.bzl"],
+    deps = [
+        ":member_manifest",
+        "//ts/private:providers",
+    ],
+)
+
+bzl_library(
+    name = "hoist",
+    srcs = ["hoist.bzl"],
+    deps = [":npm_translate_lock"],
+)
+
+bzl_library(
     name = "npmrc_auth",
     srcs = ["npmrc_auth.bzl"],
 )
@@ -48,9 +64,8 @@ bzl_library(
     name = "workspace_package",
     srcs = ["workspace_package.bzl"],
     deps = [
-        ":member_manifest",
+        ":store",
         "//ts/private:providers",
-        "//ts/private/rules:ts_compile",
     ],
 )
 

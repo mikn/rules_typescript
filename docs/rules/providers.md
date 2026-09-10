@@ -101,20 +101,20 @@ from `@rules_typescript//ts/private:providers.bzl`, and everything under
 `ts/private/` is [volatile](../compatibility.md#volatile). Every `@npm` package
 target returns it, and so does a workspace member's hub view
 `npm_workspace_package`; the `node_modules` builder lays a tree out from it, the
-runtime tree's and the type-check forest's alike.
+runtime tree's and the type-check forest's alike, and `store` names the
+snapshot's tree in [the store](node-modules.md#the-store).
 
 | Field | Type | Description |
 |---|---|---|
 | `package_name` | `string` | The npm name, `react` or `@types/react`; what the tree links the package as |
 | `package_version` | `string` | The version; `0.0.0` on a workspace member, which pnpm resolves by path |
 | `peer_id` | `string` | A filesystem-safe token naming the peer set this resolution was made against, empty for a package pnpm resolved only one way. Two snapshots can share `name@version` and differ only here |
-| `package_dir` | `File or None` | The `package.json` at the root of the extracted package. `None` on a workspace member, whose view writes the manifest it links |
+| `package_dir` | `File or None` | The `package.json` at the root of the extracted package. `None` on a workspace member, whose store writes the manifest as built |
 | `package_root` | `string` | Exec-root-relative directory the files in `all_files` hang off: where `package_dir` sits for an extracted tarball, the member's directory under `bazel-bin` for a workspace member |
-| `all_files` | `depset of File` | Every file of the package (`package.json`, `.js`, `.d.ts`, other assets): what a `node_modules` tree holds for it |
-| `js_files` | `depset of File` | The JavaScript files in the package |
-| `direct_deps` | `list of NpmPackageInfo` | The packages this one depends on directly, each under the name this package imports it by; what places two versions of one name in a tree |
+| `all_files` | `depset of File` | Every file of the package (`package.json`, `.js`, `.d.ts`, other assets), the files its store tree copies; a member's are its outputs and the manifest as built |
+| `direct_deps` | `list of NpmPackageInfo` | The packages this one depends on directly, each under the name this package imports it by; empty on a member's view, whose edges are its store's links |
 | `transitive_deps` | `depset of NpmPackageInfo` | Every npm package reachable from this one, the paired `@types/*` package included |
-| `transitive_package_dirs` | `depset of File` | The `package.json` of this package and of every transitive dep |
+| `store` | `NpmStoreInfo` | The snapshot's store tree and the links beside it: `key`, `tree`, `links`, `transitive`, `manifest` (`npm/private/store.bzl`) |
 
 The package's `exports`, `types` and `main` are nowhere in it: tsgo and node
 read the manifest in the tree, as they do over an install.

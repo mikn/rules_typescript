@@ -4,7 +4,10 @@ Renamed to BUILD.bazel in the scratch copy: a real BUILD.bazel here would make
 workspace/ a subpackage of the parent, where glob() cannot see it.
 """
 
+load("@npm//:defs.bzl", "npm_virtual_store")
 load("@rules_typescript//ts:defs.bzl", "ts_test")
+
+npm_virtual_store()
 
 # .nvmrc is staged beside the test, which compares it to process.version.
 ts_test(

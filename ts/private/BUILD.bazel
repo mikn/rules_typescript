@@ -85,6 +85,7 @@ bzl_library(
     srcs = ["ts_npm_package.bzl"],
     deps = [
         ":providers",
+        "//npm/private:store",
     ],
 )
 

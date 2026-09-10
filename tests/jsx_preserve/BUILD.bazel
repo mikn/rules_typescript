@@ -66,10 +66,11 @@ declared_outputs_test(
     target_under_test = ":view",
 )
 
-# The hub's view of member/: its manifest as built names view.jsx.
+# The store of member/: its manifest as built names view.jsx.
 member_view_test(
     name = "member_view_test",
-    target_under_test = "@npm//:preserve-view",
+    target_under_test = "//tests/npm:node_modules/.pnpm/preserve-view@0.0.0/" +
+                        "node_modules/preserve-view",
 )
 
 go_test(

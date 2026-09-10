@@ -116,6 +116,79 @@ Otherwise split the two into separate node_modules targets.
 The transitive case both messages point at is the one
 [The Layout](#the-layout) handles.
 
+## The Store
+
+Every lockfile has a virtual store, pnpm's `node_modules/.pnpm`, declared in
+the lockfile's own package by `npm_virtual_store()`, a macro the lockfile's hub
+writes into `@<hub>//:defs.bzl` from the graph the `npm` extension computes:
+
+```python
+load("@npm//:defs.bzl", "npm_virtual_store")
+
+npm_virtual_store()
+```
+
+The call declares, `manual` and public:
+
+- one `npm_store` per snapshot, named after its tree,
+  `node_modules/.pnpm/<key>/node_modules/<name>`, where `<key>` is
+  `<name with / as +>@<version>` plus `_<peer id>` when pnpm resolved the
+  package against a peer set (`NpmPackageInfo.peer_id`). Its one action,
+  `NpmStore`, copies the fetched package's files into the tree with
+  `tsaction stage`; beside the tree it declares one symlink per dependency
+  edge the lockfile records, `node_modules/.pnpm/<key>/node_modules/<dep>` ->
+  `../../<dep key>/node_modules/<dep>`, under the name the snapshot imports
+  the dependency by, so an npm alias is a link name and not a second copy. An
+  edge to a platform-partitioned snapshot is declared under the same
+  `select()` the snapshot's repository writes, so no platform fetches
+  another's tarball. An edge the extension dropped to break a cycle has no
+  link; the import resolves through the hidden hoist below.
+- one `npm_store_member` per workspace member whose BUILD file declares its
+  target, `node_modules/.pnpm/<name with / as +>@0.0.0/node_modules/<name>`:
+  the member's `package.json` as built (every source-file target rewritten to
+  the emitted file, [what a workspace member is imported
+  as](../guides/npm.md#what-a-workspace-member-is-imported-as)), written as a
+  file beside the tree at `node_modules/.pnpm/<key>/package.json` and copied
+  into it, with the member's `.js`, `.js.map`, `.d.ts` and data srcs at their
+  package-relative paths, the source `package.json` excepted; and one link per
+  dependency the member's importer declares, other members among them.
+- one `npm_store_hoist`, `node_modules/.pnpm/node_modules`: pnpm's hidden
+  hoist. For every name `hoist-pattern` matches it links one resolution at
+  `node_modules/.pnpm/node_modules/<name>`, and for every name
+  `public-hoist-pattern` matches one at the root importer's
+  `node_modules/<name>`, so a package importing a dependency it does not
+  declare resolves as it does in the checkout. The settings are the lockfile
+  package's `.npmrc` -- `hoist`, `hoist-pattern`, `public-hoist-pattern`,
+  `hoist-workspace-packages` -- and pnpm's defaults where it is silent: hoist
+  on, `hoist-pattern` `*`, `public-hoist-pattern` empty, members hoisted. The
+  resolution hoisted for a name is the one pnpm's hoist step picks: the walk
+  starts at every importer's direct dependencies, marks each level's children
+  in order before it descends into the first child, and visits the snapshots
+  it reached by depth and then by snapshot id; the first snapshot whose
+  dependencies name a not-yet-taken name claims it, workspace members and the
+  importers' own direct dependencies first (the root importer's are never
+  hoisted: they sit at the root already), a snapshot skipped on the target
+  platform claims nothing, and a name is taken case-insensitively. A pattern
+  is pnpm's: `*` matches any run, `!` negates, the last matching pattern
+  decides. Where platforms disagree the link is under a `select()`.
+  `tests/npm/hoisted_dependencies.bzl` is pnpm's own answer over the fixture
+  lockfile, and `tests/npm:store_tests_hoist` asserts the store's.
+
+A tree holds no symlink, so Bazel hashes it as files and restores it as files
+from a disk or remote cache in every download mode, and a fresh output base
+over a populated cache executes no `NpmStore`; the links are internal actions,
+re-run per output base. The store sits in the lockfile's repository because a
+relative link has one text in the execroot and the runfiles tree only while
+link and target share a repository; so every lockfile is in a package of its
+own -- the `npm` extension refuses two in one -- and a module's hub the
+extension fills in from another module's lockfile serves that module's own
+targets, never a consumer's.
+
+Every `ts_npm_package` carries its snapshot's store as `NpmPackageInfo.store`
+(`NpmStoreInfo`: `key`, `tree`, `links`, `transitive`, `manifest`), and a
+member's hub view carries the member's. Nothing else reads the store yet: the
+forest below is what `ts_compile` and `ts_test` stage.
+
 ## Trees `ts_compile` and `ts_test` Generate
 
 `ts_compile` builds `<name>/node_modules` from its npm deps, their closures, the

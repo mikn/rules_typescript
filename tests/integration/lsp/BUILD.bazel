@@ -1,12 +1,15 @@
 """Root BUILD file for the lsp integration test workspace."""
 
 load("@gazelle//:def.bzl", "gazelle")
+load("@npm//:defs.bzl", "npm_virtual_store")
 load("@rules_typescript//ts:defs.bzl", "ts_add_package", "ts_pnpm", "ts_refresh_tsconfig")
 
 gazelle(
     name = "gazelle",
     gazelle = "@rules_typescript//gazelle:gazelle_typescript",
 )
+
+npm_virtual_store()
 
 ts_pnpm(name = "pnpm")
 

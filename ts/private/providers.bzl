@@ -165,13 +165,23 @@ NpmPackageInfo = provider(
         "package_name": "string: npm package name (e.g., 'react').",
         "package_version": "string: npm package version.",
         "peer_id": "string: a filesystem-safe token naming the peer set this resolution was made against, empty for a package pnpm resolved only one way. Two snapshots can share name@version and differ only here, and they are two different dependency graphs, so anything keying a package by name and version alone merges them.",
-        "package_dir": "File or None: The package.json file at the root of the extracted package. None on a pnpm workspace member, which was never extracted from a tarball: its view writes the manifest it links.",
+        "package_dir": "File or None: The package.json file at the root of " +
+                       "the extracted package. None on a pnpm workspace " +
+                       "member, which was never extracted from a tarball: " +
+                       "its store writes the manifest as built.",
         "package_root": "string: exec-root-relative directory the files in `all_files` hang off -- where `package_dir` sits for an extracted tarball, the member's directory under bazel-bin for a workspace member. A file outside it stages at the package root under its basename.",
-        "all_files": "depset of File: All files in this package (package.json + .js + .d.ts + other assets): what a node_modules tree holds for it, the runtime tree's and the type-check forest's alike.",
-        "js_files": "depset of File: JavaScript files in this package.",
-        "direct_deps": "list of NpmPackageInfo: the packages this one depends on directly, each under the name this package imports it by. The flattened transitive closure cannot answer which version an individual package resolved to, which is what a node_modules tree needs to place two versions of one name.",
+        "all_files": "depset of File: every file of this package " +
+                     "(package.json, .js, .d.ts, other assets), the files " +
+                     "its store tree copies; a member's are its outputs and " +
+                     "the manifest as built.",
+        "direct_deps": "list of NpmPackageInfo: the packages this one " +
+                       "depends on directly, each under the name this " +
+                       "package imports it by; empty on a member's view, " +
+                       "whose edges are its store's links.",
         "transitive_deps": "depset of NpmPackageInfo: Transitive npm dependencies.",
-        "transitive_package_dirs": "depset of File: package.json files for this package and all transitive deps.",
+        "store": "NpmStoreInfo: this resolution's store tree and the links " +
+                 "beside it (npm/private/store.bzl), one per snapshot, in " +
+                 "the lockfile's package.",
     },
 )
 

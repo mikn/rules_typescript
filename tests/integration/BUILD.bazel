@@ -30,20 +30,20 @@ apiece is what bounds how many nested Bazel servers share one machine. Roughly
 three minutes each. Which CI leg runs a test is its shard tag; tags.bzl holds
 both.
 
-  bazel test //tests/integration/...                 the whole suite, 13 tests
+  bazel test //tests/integration/...                 the whole suite, 14 tests
   bazel test //tests/integration:integration_tests   the 8 in this package
   bazel test //tests/integration:new_project_test    one of them
   bazel test --config=ci-integration-npm \
     //tests/integration/...                          one CI leg's subset
   bazel test --config=fast //...                     everything BUT these
 
-The four nested-Bazel tests outside this package --
+The five nested-Bazel tests outside this package --
 //tests/integration/node_version, //tests/integration/npm_integrity,
-//tests/integration/npmrc_registry and //tests/integration/tsgo_lockfile -- are
-not in :integration_tests and cannot be: no such package exports its test.
-`//tests/integration/...`, which is what CI runs, is the pattern that covers all
-13: those 12 and //tests/integration/harness:harness_test, the harness's own
-go_test.
+//tests/integration/npmrc_registry, //tests/integration/store_cache and
+//tests/integration/tsgo_lockfile -- are not in :integration_tests and cannot
+be: no such package exports its test. `//tests/integration/...`, which is what
+CI runs, is the pattern that covers all 14: those 13 and
+//tests/integration/harness:harness_test, the harness's own go_test.
 """
 
 # Each child workspace is staged into a scratch dir at test time; Gazelle must

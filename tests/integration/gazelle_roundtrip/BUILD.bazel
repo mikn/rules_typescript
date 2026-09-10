@@ -2,6 +2,7 @@
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@gazelle//:def.bzl", "gazelle")
+load("@npm//:defs.bzl", "npm_virtual_store")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("@rules_typescript//ts:defs.bzl", "ts_pnpm")
 
@@ -9,6 +10,8 @@ gazelle(
     name = "gazelle",
     gazelle = "@rules_typescript//gazelle:gazelle_typescript",
 )
+
+npm_virtual_store()
 
 # The runner installs node_modules with it before the first Gazelle pass: the
 # listing must run over the tree the build will check.

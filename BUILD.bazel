@@ -123,7 +123,7 @@ ts_refresh_tsconfig(
 # Run pnpm commands without needing a system-level pnpm installation.
 #
 #   bazel run //:pnpm -- --version
-#   bazel run //:pnpm -- add zod --lockfile-only --dir tests/tailwind
+#   bazel run //:pnpm -- add zod --lockfile-only --dir tests/tailwind/lock
 #   bazel run //:add_package_tailwind -- zod
 #
 # One :add_package_* per hub, each pinned to the lockfile its
@@ -149,7 +149,7 @@ ts_add_package(
 
 ts_add_package(
     name = "add_package_tailwind",
-    pnpm_lock = "//tests/tailwind:pnpm-lock.yaml",
+    pnpm_lock = "//tests/tailwind/lock:pnpm-lock.yaml",
 )
 
 ts_add_package(

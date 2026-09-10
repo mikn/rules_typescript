@@ -13,6 +13,7 @@ Run `bazel build //... --output_groups=+_validation` to type-check with tsgo.
 """
 
 load("@gazelle//:def.bzl", "gazelle")
+load("@npm//:defs.bzl", "npm_virtual_store")
 load("@rules_typescript//ts:defs.bzl", "ts_binary")
 
 # Run "bazel run //:gazelle" to auto-generate BUILD files.
@@ -20,6 +21,8 @@ gazelle(
     name = "gazelle",
     gazelle = "@rules_typescript//gazelle:gazelle_typescript",
 )
+
+npm_virtual_store()
 
 # Bundle the application entry point into a single ESM file.
 ts_binary(

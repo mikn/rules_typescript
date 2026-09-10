@@ -1,0 +1,6 @@
+load("@npm_features//:defs.bzl", "npm_virtual_store")
+
+# @npm_features is translated from this lockfile; nothing here builds it.
+exports_files(["pnpm-lock.yaml"])
+
+npm_virtual_store()

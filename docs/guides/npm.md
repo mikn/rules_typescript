@@ -399,8 +399,9 @@ target and every importer whose `package.json` has a `name`, one view per member
 directory -- at `@npm//:<name>`. The view is that member as an npm package: the
 forest and the runtime tree link it at `node_modules/<name>`, holding the
 member's `package.json` as built beside the member's `.js`, `.js.map` and `.d.ts`
-at the paths the manifest names. "As built" is one rewrite, done by the view at
-analysis, where the compiling target's declared `jsx` is known: every
+at the paths the manifest names. "As built" is one rewrite, done by the member's
+store target at analysis, where the compiling target's declared `jsx` is known:
+every
 source-file target under `main`, `module`, `browser`, `exports` and `imports`
 names the emitted file -- the `.js`, or the `.jsx` for a `.tsx` under
 `jsx: "preserve"` ([a `.tsx` under `jsx: preserve`](../rules/ts-compile.md#a-tsx-under-jsx-preserve))
@@ -572,6 +573,13 @@ version and peer set: pnpm resolves a package once per distinct peer set, and
 those outcomes have different dependency edges. Declaring two resolutions of
 one name directly on one target is an error. See
 [node_modules](../rules/node-modules.md#the-layout).
+
+Beside the trees, every lockfile's package declares pnpm's virtual store:
+`npm_virtual_store()`, loaded from the hub's `defs.bzl`, is one cached tree of
+real files per snapshot at `node_modules/.pnpm/<key>/node_modules/<name>`, its
+dependency links declared symlinks beside it, a tree per workspace member, and
+pnpm's hidden hoist; every package target carries its store as
+`NpmPackageInfo.store`. See [The Store](../rules/node-modules.md#the-store).
 
 ## One Repository per Package
 

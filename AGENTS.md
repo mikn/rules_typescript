@@ -269,12 +269,13 @@ A package's `exports`, `types`, `typings`, `main` and the `/// <reference
 types>` headers of its declarations are read by nothing here: tsgo and node read
 the manifest where the forest links it, as they do over an install, and
 `NpmPackageInfo` carries no entry point. The one manifest the rules write is a
-workspace member's: the hub's `npm_workspace_package` view rewrites, at
-analysis, every source-file target under `main`, `module`, `browser`, `exports`
-and `imports` to the emitted `.js` (the `.jsx` for a `.tsx` under the compiling
-target's declared `jsx: preserve`) and every `types` target to the `.d.ts`, key
-order kept (Bazel's `json.encode` sorts keys, and an `exports` condition map is
-read in the order it is written), and links it at `node_modules/<name>`
+workspace member's: the member's store target (`npm_store_member`,
+`npm/private/store.bzl`) rewrites, at analysis, every source-file target under
+`main`, `module`, `browser`, `exports` and `imports` to the emitted `.js` (the
+`.jsx` for a `.tsx` under the compiling target's declared `jsx: preserve`) and
+every `types` target to the `.d.ts`, key order kept (Bazel's `json.encode`
+sorts keys, and an `exports` condition map is read in the order it is
+written), and the forest links it at `node_modules/<name>`
 (`npm/private/member_manifest.bzl`). `tests/npm/member_manifest_tests.bzl` is
 the table.
 
@@ -322,7 +323,7 @@ carries most of it: `tests/vitest/**`, `tests/dev_server/**` and `vite/tests/**`
 (vite-plugin-bazel's own tests). The integration workspaces that import npm
 (`tests/integration/gazelle_roundtrip`, `npm_deps`, `lsp`) carry their own
 lockfiles, translated by the nested Bazel: the first two resolve the same 8.2.2
-and 4.1.11, `lsp`'s resolves neither tool. `@npm_features` (`tests/npm/pnpm-lock-features.yaml`, declared
+and 4.1.11, `lsp`'s resolves neither tool. `@npm_features` (`tests/npm/features/pnpm-lock.yaml`, declared
 `dev_dependency`) is the pnpm patch/alias/peer-variant fixture and resolves
 neither tool; `@npm_esbuild` (`vite/esbuild/pnpm-lock.yaml`) holds the esbuild
 that bundles `vite-plugin-bazel` and resolves neither either. The per-hub table is in

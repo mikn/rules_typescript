@@ -1,5 +1,6 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("@npm//:defs.bzl", "npm_virtual_store")
 load("@rules_go//go:def.bzl", "go_test")
 load("//npm:defs.bzl", "node_modules")
 load("//ts:defs.bzl", "ts_compile", "ts_test")
@@ -8,9 +9,9 @@ load(":forest_tests.bzl", "forest_test")
 load(":hub_provenance_tests.bzl", "hub_provenance_test")
 load(":link_depth_tests.bzl", "link_depth_test_suite")
 load(":member_manifest_tests.bzl", "member_manifest_test_suite")
-load(":node_modules_cache_tests.bzl", "tree_is_never_fetched_test")
 load(":parser_tests.bzl", "parser_test_suite")
 load(":resolution_tests.bzl", "conflicting_direct_peers_test", "conflicting_direct_versions_test")
+load(":store_tests.bzl", "peer_variant_stores", "store_test_suite")
 load(":workspace_link_tests.bzl", "member_view_test", "workspace_link_test_suite")
 
 package(default_visibility = ["//:__pkg__"])
@@ -22,6 +23,21 @@ package(default_visibility = ["//:__pkg__"])
 # @npm is translated from this, and //:add_package_npm edits it; nothing in this
 # package builds it.
 exports_files(["pnpm-lock.yaml"])
+
+npm_virtual_store()
+
+# The store: one tree per snapshot, its links beside it, and pnpm's hidden
+# hoist; docs/rules/node-modules.md § The Store.
+store_test_suite(name = "store_tests")
+
+go_test(
+    name = "store_layout_test",
+    size = "small",
+    srcs = ["store_layout_test.go"],
+    data = ["//tests/npm/features:node_modules/.pnpm/node_modules"] +
+           peer_variant_stores(),
+    deps = ["//tests/verify"],
+)
 
 # Lockfile-text tests: what the parsers read, and what they must keep ignoring.
 parser_test_suite(name = "parser_tests")
@@ -354,14 +370,6 @@ go_test(
         ":package_alias_node_modules",
     ],
     deps = ["//tests/verify"],
-)
-
-# Any node_modules target would do: the requirement is on the action the shared
-# builder emits, so every tree in the repository carries it or none does.
-tree_is_never_fetched_test(
-    name = "node_modules_not_cached_test",
-    size = "small",
-    target_under_test = ":package_alias_node_modules",
 )
 
 # ── Peer-dependency variants and per-importer resolution ─────────────────────

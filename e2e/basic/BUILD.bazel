@@ -5,12 +5,15 @@ acts as the integration-test entry point for bazel build //...
 """
 
 load("@gazelle//:def.bzl", "gazelle")
+load("@npm//:defs.bzl", "npm_virtual_store")
 load("@rules_typescript//ts:defs.bzl", "ts_binary")
 
 gazelle(
     name = "gazelle",
     gazelle = "@rules_typescript//gazelle:gazelle_typescript",
 )
+
+npm_virtual_store()
 
 # Bundle the app entry point, pulling in the transitive //src/lib dependency.
 # Exercises ts_binary's entry_point wiring and the cross-package depset walk.

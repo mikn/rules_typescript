@@ -1,4 +1,5 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@npm_workers//:defs.bzl", "npm_virtual_store")
 load("//tests/vitest:vitest_config.bzl", "vitest_config")
 load("//ts:defs.bzl", "ts_compile", "ts_config", "ts_test")
 
@@ -9,6 +10,8 @@ exports_files([
     "package.json",
     "pnpm-lock.yaml",
 ])
+
+npm_virtual_store()
 
 # The combined vitest-config listing in //gazelle:typescript_test runs over it.
 exports_files(
