@@ -260,8 +260,8 @@ ts_test(
     ],
 )
 
-# What the view carries: the manifest as built and the member's files at the
-# paths it names.
+# What the view carries: the manifest as built, the member's files at the paths
+# it names, and the compiling target's direct npm deps.
 member_view_test(
     name = "member_view_test",
     size = "small",

@@ -9,10 +9,11 @@ imported as `shared` would be the alias label, which nothing can read.
 This rule is that alias with the name attached. It forwards the member's TsInfo
 unchanged and describes the member as an npm package: `NpmPackageInfo.store` is
 the member's store tree (`npm_store_member`, docs/rules/node-modules.md § The
-Store), and `all_files` holds what that tree copies -- the manifest as built,
-the member's `.js`, `.js.map` and `.d.ts`, and its data srcs, its own
-package.json excepted -- for the forest that still links a member at
-`node_modules/<name>`.
+Store); `all_files` and `direct_deps` are what the forest links a member from
+(§ Trees ts_compile and ts_test Generate there): the files that tree copies --
+the manifest as built, the member's `.js`, `.js.map` and `.d.ts`, and its data
+srcs, its own package.json excepted -- and the compiling target's direct npm
+deps, so the forest places the member's own resolution of a name under it.
 
 Two fields of NpmPackageInfo that assume an extracted tarball say otherwise:
 
@@ -26,6 +27,28 @@ Two fields of NpmPackageInfo that assume an extracted tarball say otherwise:
 
 load("//npm/private:store.bzl", "MEMBER_VERSION", "NpmStoreInfo")
 load("//ts/private:providers.bzl", "NpmPackageInfo", "TsInfo")
+
+_WorkspaceNpmDeps = provider(
+    doc = "The npm packages a workspace member depends on directly.",
+    fields = {
+        "direct": "list of NpmPackageInfo: the npm packages this target " +
+                  "depends on directly.",
+    },
+)
+
+def _workspace_npm_deps_impl(target, ctx):
+    return [_WorkspaceNpmDeps(direct = [
+        dep[NpmPackageInfo]
+        for dep in getattr(ctx.rule.attr, "deps", [])
+        if NpmPackageInfo in dep
+    ])]
+
+_workspace_npm_deps = aspect(
+    implementation = _workspace_npm_deps_impl,
+    doc = "Reads the member's direct npm deps: TsInfo carries the closure, " +
+          "and the direct set, which the forest places under the member, " +
+          "travels in no provider of the target's own.",
+)
 
 def _package_root(ctx, member):
     return "/".join([
@@ -50,7 +73,7 @@ def _npm_package_info(ctx, member):
             [store.manifest] + data,
             transitive = [info.declarations, info.js, info.js_maps],
         ),
-        direct_deps = [],
+        direct_deps = member[_WorkspaceNpmDeps].direct,
         transitive_deps = info.npm_packages,
         store = store,
     )
@@ -81,6 +104,7 @@ npm_workspace_package = rule(
         ),
         "target": attr.label(
             mandatory = True,
+            aspects = [_workspace_npm_deps],
             providers = [TsInfo],
             doc = "The target that compiles the member, as npm_hub finds it.",
         ),

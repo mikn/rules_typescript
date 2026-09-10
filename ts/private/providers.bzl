@@ -176,8 +176,9 @@ NpmPackageInfo = provider(
                      "the manifest as built.",
         "direct_deps": "list of NpmPackageInfo: the packages this one " +
                        "depends on directly, each under the name this " +
-                       "package imports it by; empty on a member's view, " +
-                       "whose edges are its store's links.",
+                       "package imports it by -- a member's view, its " +
+                       "compiling target's direct npm deps; what places " +
+                       "two resolutions of one name in the forest.",
         "transitive_deps": "depset of NpmPackageInfo: Transitive npm dependencies.",
         "store": "NpmStoreInfo: this resolution's store tree and the links " +
                  "beside it (npm/private/store.bzl), one per snapshot, in " +

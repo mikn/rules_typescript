@@ -23,6 +23,6 @@
   `npm` extension refuses two lockfiles in one package and a consumer that
   took `@npm` from the ruleset's own lockfile declares one of its own
   (`e2e/basic`). `NpmPackageInfo.js_files` and `transitive_package_dirs`,
-  which nothing read, are gone; the hub view no longer writes the manifest or
-  reads the member's direct deps. The forest `ts_compile` and `ts_test` stage
-  is unchanged by this: nothing consumes the store yet.
+  which nothing read, are gone, and the hub view no longer writes the
+  manifest. The forest `ts_compile` and `ts_test` stage is unchanged by this:
+  it reads a package's `all_files` and `direct_deps`, not its store.

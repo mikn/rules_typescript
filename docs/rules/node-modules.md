@@ -156,16 +156,20 @@ The call declares, `manual` and public:
   package's `.npmrc` -- `hoist`, `hoist-pattern`, `public-hoist-pattern`,
   `hoist-workspace-packages` -- and pnpm's defaults where it is silent: hoist
   on, `hoist-pattern` `*`, `public-hoist-pattern` empty, members hoisted. The
-  resolution hoisted for a name is the one pnpm's hoist step picks: the walk
-  starts at every importer's direct dependencies, marks each level's children
-  in order before it descends into the first child, and visits the snapshots
-  it reached by depth and then by snapshot id; the first snapshot whose
+  resolution hoisted for a name follows pnpm's hoist step: the walk starts at
+  every importer's direct dependencies, marks each level's children in order
+  before it descends into the first child, and visits the snapshots it
+  reached by depth and then by snapshot id; the first snapshot whose
   dependencies name a not-yet-taken name claims it, workspace members and the
   importers' own direct dependencies first (the root importer's are never
   hoisted: they sit at the root already), a snapshot skipped on the target
-  platform claims nothing, and a name is taken case-insensitively. A pattern
-  is pnpm's: `*` matches any run, `!` negates, the last matching pattern
-  decides. Where platforms disagree the link is under a `select()`.
+  platform claims nothing, and a name is taken case-insensitively. pnpm's
+  tie-break at one depth is its graph's key: the snapshot id after a
+  resolving install, the store directory's name after a frozen one, which
+  spells `/` as `+` and a peer suffix's brackets as `_` and so can order two
+  ids the other way round. A pattern is pnpm's: `*` matches any run, `!`
+  negates, the last matching pattern decides. Where platforms disagree the
+  link is under a `select()`.
   `tests/npm/hoisted_dependencies.bzl` is pnpm's own answer over the fixture
   lockfile, and `tests/npm:store_tests_hoist` asserts the store's.
 
