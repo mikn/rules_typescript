@@ -203,14 +203,22 @@ a field it does without: one taking the serve root from argv instead says so in
 `argv`, and one ignoring a field says so in `ignored_config_fields`.
 """,
     fields = {
-        "server_binary": "File or None: the server executable, for a server that is a build artifact. None when the server ships as an npm package, in which case server_in_tree names it instead.",
-        "server_in_tree": "string: the server executable's path under the importer's node_modules directory, for a server that ships as an npm package. Empty when server_binary is set.",
+        "server_binary": "File or None: the server executable, for a server " +
+                         "that is a build artifact. None when the server " +
+                         "ships as an npm package, in which case " +
+                         "server_in_tree names it instead.",
+        "server_in_tree": "string: the server executable's path under the " +
+                          "importer's node_modules directory, for a server " +
+                          "that ships as an npm package. Empty when " +
+                          "server_binary is set.",
         "argv": "list of string: the command line after the executable. `{config}` expands to the generated config's path and `{root}` to the directory being served; a server taking either somewhere other than where the other one takes it says so here rather than in the launcher.",
         "config_dialect": "string: which config format this server is handed. Only \"vite\" is generated today; a server reading its own format declares its own dialect, and the generator has to learn it before that server can be selected.",
         "runs_in_js_runtime": "bool: True when the executable is JavaScript and the toolchain Node runs it, False for a native binary. A native server still gets the toolchain Node on PATH: one whose plugin host is a Node process is not a Node-free one.",
         "ignored_config_fields": "list of string: dotted config paths this server does not honour, e.g. [\"server.open\"]. A target whose configuration depends on one of these fails at analysis time naming the field and the server, rather than starting a server that quietly does something else.",
         "native_react_refresh": "bool: True when the server applies React Fast Refresh itself. `react_refresh = True` then fails rather than stacking @vitejs/plugin-react on top of a transform that already ran.",
-        "runtime_deps": "depset of File: everything the server needs in runfiles beyond the generated config and the importer's node_modules.",
+        "runtime_deps": "depset of File: everything the server needs in " +
+                        "runfiles beyond the generated config and the " +
+                        "importer's node_modules.",
     },
 )
 

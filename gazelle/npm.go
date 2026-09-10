@@ -171,8 +171,8 @@ func (l *npmLock) edgeLabel(e explainfiles.Edge, pkg, kind string) string {
 }
 
 // manifestLabels is a ts_test's runtime union: the manifest's dependencies
-// and devDependencies, a member's name as its view, the rest lockfile-gated.
-func (l *npmLock) manifestLabels(m *manifest) []string {
+// and devDependencies, a member's link target spelled from the test's pkg.
+func (l *npmLock) manifestLabels(m *manifest, pkg string) []string {
 	if m == nil {
 		return nil
 	}
@@ -180,7 +180,7 @@ func (l *npmLock) manifestLabels(m *manifest) []string {
 	for _, name := range m.deps {
 		switch _, member := l.members[name]; {
 		case member:
-			labels = append(labels, l.memberLabel(name, m.dir))
+			labels = append(labels, l.memberLabel(name, pkg))
 		case l.names[name]:
 			labels = append(labels, l.label(name, m.dir))
 		default:

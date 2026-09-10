@@ -512,7 +512,8 @@ func TestMemberView(t *testing.T) {
 		spec, pkg, kind, want string
 		ok                    bool
 	}{
-		{"@acme/lib/wire", "packages/app", "ts_compile", "//:node_modules/@acme/lib", true},
+		{"@acme/lib/wire", "packages/app", "ts_compile",
+			"//:node_modules/@acme/lib", true},
 		{"@acme/lib", "packages/lib", "ts_test", "//:node_modules/@acme/lib", true},
 		{"@acme/lib/icons/Check", "packages/lib", "ts_compile", "", true},
 		{"@acme/lib/wire", "packages/lib/example", "ts_compile",

@@ -237,7 +237,8 @@ def _generate_dev_config(
         "// Environment variables read at startup:\n" +
         "//   BUILD_WORKSPACE_DIRECTORY — workspace root (set by `bazel run`)\n" +
         "//   BAZEL_BIN_DIR             — absolute path to the bazel-bin symlink\n" +
-        "//   NODE_MODULES_PATH         — absolute path to the importer's node_modules\n" +
+        "//   NODE_MODULES_PATH         — absolute path to the importer's\n" +
+        "//                              node_modules\n" +
         (
             "//   VITE_PLUGIN_PATH           — absolute path to vite_plugin_bazel.mjs\n" if plugin_rl else ""
         ) +
@@ -255,7 +256,7 @@ def _generate_dev_config(
         "// bazel-bin is typically a symlink at <workspace>/bazel-bin.\n" +
         "const bazelBin = process.env['BAZEL_BIN_DIR'] || path.join(workspaceRoot, 'bazel-bin');\n" +
         "\n" +
-        "// The importer's node_modules directory (absolute path in runfiles).\n" +
+        "// The importer's node_modules directory, absolute, in runfiles.\n" +
         "const nodeModulesPath = process.env['NODE_MODULES_PATH'] || null;\n" +
         "\n"
     )
@@ -295,8 +296,9 @@ def _generate_dev_config(
     if react_refresh:
         react_load_failed = json.encode(
             "[ts_dev_server] {} sets react_refresh = True, but @vitejs/plugin-react did not ".format(ctx.label) +
-            "load from the node_modules the dev server links. Add @npm//:vitejs_plugin-react " +
-            "to the deps of the node_modules() target this dev server uses. Cause: ",
+            "load from the node_modules the dev server links. Add " +
+            "@npm//:vitejs_plugin-react to the deps of the node_modules() " +
+            "target this dev server uses. Cause: ",
         )
         config_content += (
             "// A package's own `exports` map is the only authority on its entry point;\n" +
@@ -384,16 +386,19 @@ def _generate_dev_config(
 
     if node_modules_rl:
         config_content += (
-            "// A fallback, not the mechanism: the launcher links the importer's\n" +
-            "// node_modules in as <workspace>/node_modules, so the walk up from an\n" +
-            "// importer finds it the way it would outside Bazel. This catches what that\n" +
-            "// walk cannot see -- an importer outside the workspace, or a server whose\n" +
-            "// resolver does no walk at all -- by handing the id back with an importer\n" +
-            "// under the directory: the package's own manifest. Exports maps,\n" +
-            "// conditions and subpaths stay the resolver's. It runs 'post' so it only\n" +
-            "// fires where the primary resolver came back empty; at 'pre' it rewrote\n" +
-            "// every bare importer into node_modules, which reads to Vite as a\n" +
-            "// node_modules-internal import and opts the module out of optimisation.\n" +
+            "// A fallback, not the mechanism: the launcher links the\n" +
+            "// importer's node_modules in as <workspace>/node_modules, so\n" +
+            "// the walk up from an importer finds it the way it would\n" +
+            "// outside Bazel. This catches what that walk cannot see --\n" +
+            "// an importer outside the workspace, or a server whose\n" +
+            "// resolver does no walk at all -- by handing the id back\n" +
+            "// with an importer under the directory: the package's own\n" +
+            "// manifest. Exports maps, conditions and subpaths stay the\n" +
+            "// resolver's. It runs 'post' so it only fires where the\n" +
+            "// primary resolver came back empty; at 'pre' it rewrote\n" +
+            "// every bare importer into node_modules, which reads to Vite\n" +
+            "// as a node_modules-internal import and opts the module out\n" +
+            "// of optimisation.\n" +
             "const bazelNpmResolve = {\n" +
             "  name: 'bazel:npm-resolve',\n" +
             "  enforce: 'post',\n" +
@@ -445,8 +450,8 @@ def _generate_dev_config(
         "    host: " + host_js + ",\n" +
         "    open: " + open_js + ",\n" +
         "    fs: {\n" +
-        "      // Allow Vite to serve files from bazel-bin and the importer's\n" +
-        "      // node_modules (Vite restricts serving by default).\n" +
+        "      // Vite serves the workspace root alone by default; bazel-\n" +
+        "      // bin and the importer's node_modules join the allow list.\n" +
         "      allow: fsAllow,\n" +
         "    },\n" +
         "    watch: {\n" +
@@ -457,10 +462,11 @@ def _generate_dev_config(
         "    },\n" +
         "  },\n" +
         "\n" +
-        "  // A bare specifier is left to the resolver's own walk up from the importer,\n" +
-        "  // which the launcher's <workspace>/node_modules link puts the links on;\n" +
-        "  // a workspace member is among them through its link target. There is\n" +
-        "  // no resolve.modules: that is a webpack option, and Vite ignores it.\n" +
+        "  // A bare specifier is left to the resolver's own walk up from\n" +
+        "  // the importer, which the launcher's <workspace>/node_modules\n" +
+        "  // link puts the links on; a workspace member is among them\n" +
+        "  // through its link target. There is no resolve.modules: a\n" +
+        "  // webpack option, and Vite ignores it.\n" +
         "  plugins,\n" +
         "\n"
     )
@@ -675,9 +681,9 @@ ts_dev_server = rule(
             mandatory = True,
         ),
         "node_modules": attr.label(
-            doc = "The importer's `node_modules` target, linking vite and every " +
-                  "package the application imports. The generated config points " +
-                  "module resolution at its directory.",
+            doc = "The importer's `node_modules` target, linking vite and " +
+                  "every package the application imports. The generated " +
+                  "config points module resolution at its directory.",
             providers = [NodeModulesInfo],
         ),
         "plugin": attr.label(

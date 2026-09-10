@@ -14,7 +14,9 @@ def _store_provenance_impl(ctx):
     prefix = ctx.attr.store_package + "/node_modules/.pnpm/"
     trees = [
         f.short_path
-        for f in analysistest.target_under_test(env)[DefaultInfo].files.to_list()
+        for f in analysistest.target_under_test(env)[DefaultInfo]
+            .files
+            .to_list()
         if f.is_directory
     ]
     asserts.true(
@@ -26,7 +28,9 @@ def _store_provenance_impl(ctx):
         env,
         [],
         [p for p in trees if not p.startswith(prefix)],
-        "these trees come from a store other than {}'s".format(ctx.attr.store_package),
+        "these trees come from a store other than {}'s".format(
+            ctx.attr.store_package,
+        ),
     )
     return analysistest.end(env)
 

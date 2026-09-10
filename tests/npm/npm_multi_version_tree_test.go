@@ -10,8 +10,8 @@ import (
 
 const nodeModules = "node_modules"
 
-// resolveFrom is Node's walk from a package directory, <dir>/node_modules/<name>
-// at every ancestor, to the resolved package's realpath, or "".
+// resolveFrom is Node's walk from a package directory, node_modules/<name> at
+// every ancestor, to the resolved package's realpath, or "".
 func resolveFrom(from, name string) string {
 	for dir := from; ; dir = filepath.Dir(dir) {
 		candidate := filepath.Join(dir, nodeModules, name)
@@ -70,7 +70,8 @@ func TestEachDependentResolvesItsOwnVersion(t *testing.T) {
 	}
 }
 
-func followChain(t *testing.T, importer, from string, names, versions []string) {
+func followChain(t *testing.T, importer, from string, names, versions []string,
+) {
 	t.Helper()
 	dir := from
 	for i, name := range names {
@@ -103,9 +104,10 @@ func TestEachDependentResolvesItsOwnPeerSet(t *testing.T) {
 
 	// One tree per resolution, `<name>@<version>_<peer id>`; only the prefix is
 	// pinned, since the peer id ends in a digest of the whole peer set.
-	store := tree.Find("*/features/node_modules/.pnpm/ansi-styles@6.2.3_*/node_modules/ansi-styles")
-	if len(store) != 2 {
-		t.Errorf("%d directories match .pnpm/ansi-styles@6.2.3_*/node_modules/ansi-styles, want 2: one tree per peer set",
-			len(store))
+	const pattern = "*/features/node_modules/.pnpm/ansi-styles@6.2.3_*/" +
+		"node_modules/ansi-styles"
+	if store := tree.Find(pattern); len(store) != 2 {
+		t.Errorf("%d directories match %s, want 2: one tree per peer set",
+			len(store), pattern)
 	}
 }

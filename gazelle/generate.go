@@ -527,7 +527,7 @@ func (s *programStore) testImports(repoRoot string, lock *npmLock,
 	}
 	if lock != nil {
 		m := nearestManifest(repoRoot, pkg)
-		imps.deps = append(imps.deps, lock.manifestLabels(m)...)
+		imps.deps = append(imps.deps, lock.manifestLabels(m, pkg)...)
 	}
 	if cfg != "" {
 		s.vitestConfig(cfg)

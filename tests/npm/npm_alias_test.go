@@ -17,16 +17,20 @@ func TestAliasInstallsUnderItsAliasName(t *testing.T) {
 	// Declared by the features root and by nothing else, so the link exists
 	// only if importers are read for aliases as well as links.
 	if !nm.File("ms-alias/package.json").Exists() {
-		t.Errorf("%s has no ms-alias link (alias reached via the root importer)", nm.Name())
+		t.Errorf("%s has no ms-alias link (declared by the root importer)",
+			nm.Name())
 	}
 	// Pinned through a catalog and resolved against a peer set: a `snapshots:`
 	// key, not a bare name@version.
 	if !nm.File("styles-alias/package.json").Exists() {
-		t.Errorf("%s has no styles-alias link (alias reached via a catalog entry with peers)", nm.Name())
+		t.Errorf("%s has no styles-alias link (a catalog entry with peers)",
+			nm.Name())
 	}
 	// Declared by zod and by nothing else, so it exists only if the dependency
 	// edge carries the name zod imports nanoid under.
-	if _, err := os.Stat(filepath.Join(beside(t, filepath.Join(nm.Abs(), "zod"), "nano-alias"), "package.json")); err != nil {
-		t.Errorf("zod's tree has no nano-alias link beside it (alias reached via zod's dependency edge): %v", err)
+	nano := beside(t, filepath.Join(nm.Abs(), "zod"), "nano-alias")
+	if _, err := os.Stat(filepath.Join(nano, "package.json")); err != nil {
+		t.Errorf("zod's tree has no nano-alias link beside it (zod's own edge): %v",
+			err)
 	}
 }

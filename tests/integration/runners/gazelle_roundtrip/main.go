@@ -249,7 +249,7 @@ func theRootBaseIsATsConfig(it *harness.IT) {
 }
 
 // The member's own tests import it by name through its exports map; only the
-// root's link target links it at node_modules/<name>, so it sits beside :shared.
+// root's link target puts it at node_modules/<name>, so it sits beside :shared.
 func memberSelfImportTakesTheHubLabel(it *harness.IT) {
 	build := it.Path("packages/shared/BUILD.bazel")
 	it.RequireContains(build, `name = "shared_test"`,
@@ -257,8 +257,10 @@ func memberSelfImportTakesTheHubLabel(it *harness.IT) {
 	// The member's own target too, from the relative imports of the sources
 	// under test: the first target to carry the member and its link at once.
 	requireLabels(it, "deps", "//packages/shared:shared_test",
-		[]string{"//:node_modules/shared", "//packages/shared:shared", "@npm//:vitest"})
-	it.Pass("//packages/shared:shared_test depends on //:node_modules/shared beside :shared")
+		[]string{"//:node_modules/shared", "//packages/shared:shared",
+			"@npm//:vitest"})
+	it.Pass("//packages/shared:shared_test depends on //:node_modules/shared " +
+		"beside :shared")
 
 	for _, rel := range []string{"packages/shared/src/entry.test.js", "packages/shared/src/wire.test.js"} {
 		it.RequireFile(it.Bin(rel),
@@ -275,7 +277,8 @@ func memberSelfImportTakesTheHubLabel(it *harness.IT) {
 	it.Write(build, restore)
 	if err == nil {
 		log.Dump()
-		it.Fail("the test program compiled without the link target; Gazelle need not write it")
+		it.Fail("the test program compiled without the link target; Gazelle " +
+			"need not write it")
 	}
 	for _, specifier := range []string{"shared", "shared/wire"} {
 		if !log.Contains(fmt.Sprintf("TS2307: Cannot find module '%s'", specifier)) {
@@ -283,7 +286,8 @@ func memberSelfImportTakesTheHubLabel(it *harness.IT) {
 			it.Fail("without the link target the compile did not fail on %q", specifier)
 		}
 	}
-	it.Pass("without the link target `shared` and `shared/wire` are TS2307: only the member's link puts it in the forest")
+	it.Pass("without the link target `shared` and `shared/wire` are TS2307: " +
+		"only the member's link puts it in the forest")
 
 	// The view's package.json is the member's with its exports map rewritten to
 	// the emitted files, so node resolves both specifiers through the link.

@@ -13,7 +13,13 @@ would exec.
 load("//tools/launcher:launcher.bzl", "LAUNCHER_ATTRS", "declare_launcher", "rlocation_path")
 load("//ts/private:bundle_action.bzl", "create_bundle_action")
 load("//ts/private:node_modules.bzl", "runfiles_dir")
-load("//ts/private:providers.bzl", "BundlerInfo", "NodeModulesInfo", "TsInfo", "ts_info")
+load(
+    "//ts/private:providers.bzl",
+    "BundlerInfo",
+    "NodeModulesInfo",
+    "TsInfo",
+    "ts_info",
+)
 load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "get_js_runtime")
 
 _JS_ENTRY_EXTENSIONS = [".js", ".mjs", ".cjs"]
@@ -132,7 +138,9 @@ def _ts_binary_impl(ctx):
     )
 
     node_modules = ctx.attr.node_modules
-    node_modules_files = node_modules[DefaultInfo].files if node_modules else depset()
+    node_modules_files = depset()
+    if node_modules:
+        node_modules_files = node_modules[DefaultInfo].files
     config = {
         "label": str(ctx.label),
         "mode": "node",
@@ -158,7 +166,9 @@ def _ts_binary_impl(ctx):
 
     runfiles = ctx.runfiles(
         files = explicit_runfiles,
-        transitive_files = depset(transitive = [runtime_depset, node_modules_files]),
+        transitive_files = depset(
+            transitive = [runtime_depset, node_modules_files],
+        ),
         root_symlinks = launcher.root_symlinks,
     )
 

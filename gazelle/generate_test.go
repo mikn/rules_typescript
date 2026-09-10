@@ -1024,7 +1024,10 @@ func TestGenerate_ImporterNodeModules(t *testing.T) {
 		"web/package.json":          `{"name":"web-app"}` + "\n",
 		"web/tsconfig.json":         includeSrc,
 		"web/src/app.ts":            "export const app = 1;\n",
-		"web/BUILD.bazel": `load("@rules_typescript//npm:defs.bzl", "node_modules_member")
+		"web/BUILD.bazel": `load(
+    "@rules_typescript//npm:defs.bzl",
+    "node_modules_member",
+)
 
 node_modules_member(
     name = "node_modules/@acme/gone",

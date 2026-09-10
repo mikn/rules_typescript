@@ -63,7 +63,8 @@ func TestManifestLabels_Union(t *testing.T) {
 	}`)
 	var got []string
 	out := captureLog(t, func() {
-		got = l.manifestLabels(nearestManifest(root, "workers/download/test"))
+		got = l.manifestLabels(nearestManifest(root, "workers/download/test"),
+			"workers/download/test")
 	})
 	want := []string{
 		"//:node_modules/@acme/lib",
@@ -90,12 +91,29 @@ func TestManifestLabels_RootAndNone(t *testing.T) {
 		"name": "monorepo",
 		"devDependencies": {"typescript": "5.9.2", "vite": "8.2.2"}
 	}`)
-	got := l.manifestLabels(nearestManifest(root, "scripts"))
+	got := l.manifestLabels(nearestManifest(root, "scripts"), "scripts")
 	if want := []string{"@npm//:typescript", "@npm//:vite"}; !slices.Equal(got,
 		want) {
 		t.Errorf("manifestLabels = %v, want %v", got, want)
 	}
-	if got := l.manifestLabels(nil); got != nil {
+	if got := l.manifestLabels(nil, ""); got != nil {
 		t.Errorf("manifestLabels(nil) = %v, want nil", got)
+	}
+}
+
+// The root manifest read from a package below it: the member's link target is
+// spelled from the test's package, not the manifest's, so it stays the root's.
+func TestManifestLabels_RootManifestFromBelow(t *testing.T) {
+	root, l := npmRepo(t)
+	writeFile(t, filepath.Join(root, "package.json"),
+		`{"name": "monorepo", "dependencies": {"@acme/lib": "workspace:*"}}`)
+	m := nearestManifest(root, "worker/test/deep")
+	if got := l.manifestLabels(m, "worker/test/deep"); !slices.Equal(got,
+		[]string{"//:node_modules/@acme/lib"}) {
+		t.Errorf("from worker/test/deep: %v, want the root's link target", got)
+	}
+	if got := l.manifestLabels(m, ""); !slices.Equal(got,
+		[]string{":node_modules/@acme/lib"}) {
+		t.Errorf("from the root: %v, want the link target in the package", got)
 	}
 }

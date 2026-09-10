@@ -29,10 +29,12 @@ te="$$d/test-exclude"
 te_mm="$$(beside "$$te" minimatch)"
 {
   printf 'minimatch %s\\n' "$$(v "$$mm")"
-  printf 'minimatch/brace-expansion %s\\n' "$$(v "$$(beside "$$mm" brace-expansion)")"
+  printf 'minimatch/brace-expansion %s\\n' \\
+    "$$(v "$$(beside "$$mm" brace-expansion)")"
   printf 'test-exclude %s\\n' "$$(v "$$te")"
   printf 'test-exclude/minimatch %s\\n' "$$(v "$$te_mm")"
-  printf 'test-exclude/minimatch/brace-expansion %s\\n' "$$(v "$$(beside "$$te_mm" brace-expansion)")"
+  printf 'test-exclude/minimatch/brace-expansion %s\\n' \\
+    "$$(v "$$(beside "$$te_mm" brace-expansion)")"
 } > $@
 """,
 )

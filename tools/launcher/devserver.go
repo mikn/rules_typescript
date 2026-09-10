@@ -103,7 +103,8 @@ func planDevServer(cfg *Config, r *Resolver, plan *Plan, args []string) (*Plan, 
 			"ts_dev_server: %s has no node_modules attr, so the app's own dependencies "+
 				"are not in runfiles.\n"+
 				"Add node_modules = \":node_modules\" pointing at a node_modules() target; "+
-				"the generated config resolves every bare specifier through its links.", cfg.Label)
+				"the generated config resolves every bare specifier through its links.",
+			cfg.Label)
 	}
 	nodeModules, err := r.Path(d.NodeModules)
 	if err != nil {

@@ -27,7 +27,9 @@ var wantKinds = []string{
 var wantLoads = map[string][]string{
 	"@npm//:defs.bzl":                 {"npm_virtual_store"},
 	"@rules_typescript//npm:defs.bzl": {"node_modules", "node_modules_member"},
-	"@rules_typescript//ts:defs.bzl":  {"ts_codegen", "ts_compile", "ts_config", "ts_test"},
+	"@rules_typescript//ts:defs.bzl": {
+		"ts_codegen", "ts_compile", "ts_config", "ts_test",
+	},
 }
 
 // A goneKind back in Kinds() or a load would have Gazelle write a rule it must

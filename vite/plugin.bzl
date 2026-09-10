@@ -13,7 +13,8 @@ def _esbuild_bundle_impl(ctx):
     js_tool = get_js_tool(ctx)
     node_modules = ctx.attr.node_modules[NodeModulesInfo]
     if "esbuild" not in node_modules.links:
-        fail("esbuild_bundle: {} links no esbuild; add it to the node_modules target's deps.".format(
+        fail(("esbuild_bundle: {} links no esbuild; add it to the " +
+              "node_modules target's deps.").format(
             ctx.attr.node_modules.label,
         ))
     node_modules_dir = node_modules.dir

@@ -643,7 +643,8 @@ func TestPlanDevServerLinksTheNpmTreeIntoTheWorkspace(t *testing.T) {
 		t.Fatalf("no node_modules link at the workspace root: %v", err)
 	}
 	if target != real["_main/tests/app/node_modules"] {
-		t.Errorf("link -> %q, want the node_modules %q", target, real["_main/tests/app/node_modules"])
+		t.Errorf("link -> %q, want the node_modules %q", target,
+			real["_main/tests/app/node_modules"])
 	}
 	if plan.Cleanup == nil {
 		t.Fatal("a link the launcher made has to come back off")

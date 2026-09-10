@@ -45,7 +45,8 @@ echo "INFO: node $("${NODE}" --version)"
 # A host install would satisfy require('typescript') silently, which is exactly
 # the non-hermeticity this test used to have.
 [[ -f "${NODE_MODULES}/typescript/package.json" ]] || \
-  fail "typescript is not in ${NODE_MODULES} -- is @npm//:typescript still a dep of //tests/lsp:node_modules?"
+  fail "typescript is not in ${NODE_MODULES} -- is @npm//:typescript still a" \
+    "dep of //tests/lsp:node_modules?"
 
 # What the worker puts in the cache for a first-party package: its key is the
 # package path and its value the .d.ts a build wrote into bazel-bin.
