@@ -20,6 +20,7 @@ ts_compile(
 # beside -- the platform-specific oxide binary included.
 node_modules(
     name = "node_modules",
+    hoist = "//tests/tailwind/lock:node_modules/.pnpm/node_modules",
     deps = [
         "@npm_tailwind//:tailwindcss",
         "@npm_tailwind//:tailwindcss_vite",

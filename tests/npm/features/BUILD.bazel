@@ -11,11 +11,13 @@ npm_virtual_store(name = "node_modules/.pnpm")
 # The root importer: its declared names, two of them aliases, beside .pnpm.
 node_modules(
     name = "node_modules",
+    hoist = ":node_modules/.pnpm/node_modules",
     visibility = ["//tests/npm:__subpackages__"],
     deps = [
         "@npm_features//:ms-alias",
         "@npm_features//:styles-alias",
         "@npm_features//:types_ms",
+        "@npm_features//:types_node",
         "@npm_features//:zod",
     ],
 )

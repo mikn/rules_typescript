@@ -667,6 +667,7 @@ load("@rules_typescript//ts:defs.bzl", "ts_codegen")
 # keep
 node_modules(
     name = "node_modules",
+    hoist = "//wrangler_lock:node_modules/.pnpm/node_modules",
     deps = ["@npm_workers//:wrangler"],
 )
 

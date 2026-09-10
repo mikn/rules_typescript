@@ -28,6 +28,7 @@ npm_virtual_store(name = "node_modules/.pnpm")
 # The root importer: the chain every target here resolves its npm deps through.
 node_modules(
     name = "node_modules",
+    hoist = ":node_modules/.pnpm/node_modules",
     visibility = ["//visibility:public"],
     deps = [
         "@npm//:happy-dom",

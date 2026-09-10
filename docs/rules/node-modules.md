@@ -15,6 +15,12 @@ load("@rules_typescript//npm:defs.bzl", "node_modules", "node_modules_member")
 
 node_modules(
     name = "node_modules",
+    deps = ["@npm//:vite"],
+    hoist = ":node_modules/.pnpm/node_modules",
+)
+
+node_modules(
+    name = "node_modules",
     deps = [
         "@npm//web:react",
         "@npm//web:vite",
@@ -45,7 +51,8 @@ package that is no importer is hand-written under `# keep`.
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `deps` | `label_list` | `[]` | The npm packages the importer declares, as hub labels: the importer's own package (`@npm//web:react`) where it declares the name, the root's otherwise. Empty for an importer that declares nothing |
-| `parent` | `label` | `None` | The `node_modules` target of the importer above; none in the lockfile's package |
+| `parent` | `label` | `None` | The `node_modules` target of the importer above; the lockfile's root importer names `hoist` instead |
+| `hoist` | `label` | `None` | The lockfile's `npm_store_hoist` target, `:node_modules/.pnpm/node_modules` in the lockfile's package; the root importer names it where every other importer names `parent`, and its `deps` come from that lockfile |
 
 `node_modules_member`:
 
@@ -84,8 +91,10 @@ target share one, so a dep whose store is another module's lockfile fails at
 analysis naming it. `DefaultInfo.files` is every link and every store tree the
 links reach; a consumer that runs outside an action stages them and takes the
 directory, which no artifact names. `NodeModulesInfo` carries `label`, `dir`
-(the directory as a bin-dir path), `links` (name to `NpmLinkInfo(link, store)`)
-and `parent`, and a `node_modules_member` returns `NpmLinkInfo` beside the
+(the directory as a bin-dir path), `links` (name to `NpmLinkInfo(link, store)`),
+`parent` and `hoist` (the lockfile's hidden hoist, name to `NpmLinkInfo`, the
+root importer's `hoist` target's on every importer of the chain), and a
+`node_modules_member` returns `NpmLinkInfo` beside the
 view's `TsInfo` and `NpmPackageInfo`, so a target names it in `deps` where it
 named the view ([Providers](providers.md#nodemodulesinfo)).
 
@@ -171,7 +180,18 @@ The call declares, `manual` and public:
   negates, the last matching pattern decides. Where platforms disagree the
   link is under a `select()`.
   `tests/npm/hoisted_dependencies.bzl` is pnpm's own answer over the fixture
-  lockfile, and `tests/npm:store_tests_hoist` asserts the store's.
+  lockfile, and `tests/npm:store_tests_hoist` asserts the store's. The target
+  returns the links as `NpmHoistInfo`; the root importer names it in `hoist`,
+  and every importer on its chain carries them as `NodeModulesInfo.hoist`. A
+  `ts_compile` or `ts_test` stages the hoist links whose names its npm closure
+  holds, with the store trees they enter -- pnpm's pick for a name can be a
+  snapshot no edge of the closure reaches -- so a store package's import of a
+  name it does not declare resolves as in the checkout, and the action's
+  inputs stay the closure's names: a bump re-runs the targets whose closure
+  holds the package. A first-party source importing an undeclared name still
+  fails the ownership check
+  ([ts_compile](ts-compile.md#deps-have-to-be-direct)).
+  `//tests/npm/features/hoist` runs one.
 
 A tree holds no symlink, so Bazel hashes it as files and restores it as files
 from a disk or remote cache in every download mode, and a fresh output base
@@ -204,8 +224,10 @@ workspace member is named by the importer's link target,
 The action stages the links and the store files the program reaches and
 nothing else: the chain's links for the direct names, the `@types/<name>`
 twin an importer on the chain links, the member links `deps` name, every store
-tree and edge link their closures hold, and each first-party dep's
-(`TsInfo.npm_files`). tsaction lays the exec root out again under the
+tree and edge link their closures hold, the hoist links whose names the
+closure holds with the trees they enter ([The Store](#the-store)), and each
+first-party dep's (`TsInfo.npm_files`). tsaction lays the exec root out again
+under the
 target's output directory with each importer's `node_modules` at the
 importer's directory -- the lockfile's root importer's at the program root's
 `node_modules` -- so a source at `web/src/a.ts` walks up through

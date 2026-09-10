@@ -62,6 +62,8 @@ func managedAttrCases() []nonLiteralCase {
 			"deps", "list"),
 		managed("pnpm_member", "packages/core", "node_modules", "node_modules",
 			"parent", "scalar"),
+		managed("pnpm_member", "", "node_modules", "node_modules", "hoist",
+			"scalar"),
 		managed("pnpm_member", "packages/core", "node_modules", "node_modules",
 			"visibility", "list"),
 		managed("pnpm_member", "", "node_modules_member", "node_modules/@w/core",

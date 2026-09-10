@@ -245,7 +245,9 @@ func (l *npmLock) importerRules(rel string) []*rule.Rule {
 		sort.Strings(deps)
 		nm.SetAttr("deps", deps)
 	}
-	if rel != "" {
+	if rel == "" {
+		nm.SetAttr("hoist", ":"+storeTargetName+"/node_modules")
+	} else {
 		nm.SetAttr("parent", "//"+l.importerAbove(parentDir(rel))+":"+
 			nodeModulesTargetName)
 	}

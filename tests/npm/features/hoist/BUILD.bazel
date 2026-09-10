@@ -1,0 +1,32 @@
+"""The features lockfile patches zod to import ansi-regex, a name zod does not
+declare; styles-alias declares it, and pnpm's hidden hoist links app-a's
+5.0.1, a snapshot no edge of this closure reaches. The test runs the import;
+the chain test pins the link and its tree among the tsgo action's inputs."""
+
+load("//tests/npm:forest_tests.bzl", "chain_test")
+load("//ts:defs.bzl", "ts_test")
+
+ts_test(
+    name = "hoist_test",
+    size = "small",
+    srcs = ["hoist.test.ts"],
+    node_modules = "//tests/npm/features:node_modules",
+    runner = "//ts/runners:node_test",
+    deps = [
+        "@npm_features//:styles-alias",
+        "@npm_features//:types_node",
+        "@npm_features//:zod",
+    ],
+)
+
+chain_test(
+    name = "hoist_chain_test",
+    size = "small",
+    chain = ["tests/npm/features/node_modules"],
+    linked = [
+        "tests/npm/features/node_modules/.pnpm/node_modules/ansi-regex",
+        "node_modules/.pnpm/ansi-regex@5.0.1/node_modules/ansi-regex",
+    ],
+    target_under_test = ":hoist_test",
+    types_deps = ["node"],
+)

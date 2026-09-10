@@ -130,16 +130,18 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 				"visibility": true,
 			},
 		},
-		// An importer declaring nothing has no deps, so deps and parent
-		// together decide emptiness.
+		// An importer declaring nothing has no deps, so deps, parent and
+		// hoist together decide emptiness.
 		"node_modules": {
 			NonEmptyAttrs: map[string]bool{
 				"deps":   true,
 				"parent": true,
+				"hoist":  true,
 			},
 			MergeableAttrs: map[string]bool{
 				"deps":       true,
 				"parent":     true,
+				"hoist":      true,
 				"visibility": true,
 			},
 		},

@@ -1013,8 +1013,8 @@ func TestGenerate_DeclarationFlavoursRideInEveryTarget(t *testing.T) {
 
 // ---- the lockfile's importers -----------------------------------------------
 
-// Every importer gets its node_modules and a link target per member it links,
-// the lockfile's package the store call; a non-importer withdraws all three.
+// Every importer gets its node_modules and a link target per member, the
+// lockfile's package the store call and `hoist`; a non-importer withdraws all.
 func TestGenerate_ImporterNodeModules(t *testing.T) {
 	g := generateAll(t, writeTree(t, map[string]string{
 		"package.json":              rootManifest,
@@ -1045,6 +1045,10 @@ node_modules_member(
 	if got := nm.AttrString("parent"); got != "" {
 		t.Errorf("the root's node_modules names a parent: %q", got)
 	}
+	if got := nm.AttrString("hoist"); got != ":node_modules/.pnpm/node_modules" {
+		t.Errorf("the root's hoist = %q, want :node_modules/.pnpm/node_modules",
+			got)
+	}
 	wantStrings(t, "root node_modules visibility", nm.AttrStrings("visibility"),
 		[]string{"//visibility:public"})
 	lib := mustRule(t, root, "node_modules_member", "node_modules/@acme/lib")
@@ -1060,6 +1064,9 @@ node_modules_member(
 	})
 	if got := wnm.AttrString("parent"); got != "//:node_modules" {
 		t.Errorf("web's parent = %q, want //:node_modules", got)
+	}
+	if got := wnm.AttrString("hoist"); got != "" {
+		t.Errorf("web's node_modules names a hoist: %q", got)
 	}
 	ui := mustRule(t, web, "node_modules_member", "node_modules/@acme/ui")
 	if got := ui.AttrString("member"); got != "@npm//:acme_ui" {

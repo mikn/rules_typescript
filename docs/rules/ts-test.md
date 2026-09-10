@@ -96,7 +96,10 @@ chain's root in there. Under node:test the hook resolves it from the chain's
 directories the launcher names in `NODE_PATH`, nearest first
 ([The node:test Runner](#the-nodetest-runner)). A package's own imports
 resolve from its realpath in the store to the edges beside its tree, on both
-runners (`//tests/npm/multi_version:own_edge_node_test`, `:own_edge_vitest_test`).
+runners (`//tests/npm/multi_version:own_edge_node_test`,
+`:own_edge_vitest_test`), and an import of a name it does not declare to the
+hoist link the runfiles carry for a name the closure holds
+(`//tests/npm/features/hoist`).
 
 ## The Test's tsconfig
 

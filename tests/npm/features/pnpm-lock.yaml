@@ -43,6 +43,9 @@ overrides:
 patchedDependencies:
   '@types/ms@2.1.0': 384aa81ade2cdcee50b83f6a65b91d565b53299919c172cac3c6d5676c0c65fd
   nanoid@3.3.11: c55f4f6ee369a589edbbc9e7c7d0731b078544f72aed77ff416bdc9d831333fd
+  # zod imports ansi-regex, which it does not declare; the hidden hoist
+  # answers, as it does in a checkout (tests/npm/features/hoist).
+  zod@3.24.2: 0d3863c296f0fd6a3d3996163221a9ab4fb01db6531cb28cee874c69a0486a54
 
 importers:
 
@@ -91,6 +94,9 @@ importers:
       '@types/ms':
         specifier: 2.1.0
         version: 2.1.0
+      '@types/node':
+        specifier: 22.20.1
+        version: 22.20.1
 
   # Two workspace members that resolve one name to two different majors, and one
   # package that pnpm resolved twice -- once per peer set. Both are recorded the
@@ -136,6 +142,9 @@ packages:
   '@types/ms@2.1.0':
     resolution: {integrity: sha512-GsCCIZDE/p3i96vtEqx+7dBUGXrc7zeSK3wwPHIaRThS+9OhWIXRqzs4d6k1SVU8g91DrNRWxWUGhp5KXQb2VA==}
 
+  '@types/node@22.20.1':
+    resolution: {integrity: sha512-EANqOCF9QFyra+4pfxUcX9STKJpCLjMbObVzljIJomAWSnuSIEAvyzEU53GaajbXJEgdh0iEcPL+DGvpUd4k1Q==}
+
   ansi-regex@5.0.1:
     resolution: {integrity: sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ==}
     engines: {node: '>=8'}
@@ -172,6 +181,9 @@ packages:
     resolution: {integrity: sha512-yDPMNjp4WyfYBkHnjIRLfca1i6KMyGCtsVgoKe/z1+6vukgaENdgGBZt+ZmKPc4gavvEZ5OgHfHdrazhgNyG7w==}
     engines: {node: '>=12'}
 
+  undici-types@6.21.0:
+    resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
+
   wrap-ansi@8.1.0:
     resolution: {integrity: sha512-si7QWI6zUMq56bESFvagtmzMdGOtoxfR+Sez11Mobfc7tm+VkUckk9bW2UeffTGVUbOksxmSw0AA2gs8g71NCQ==}
     engines: {node: '>=12'}
@@ -182,6 +194,10 @@ packages:
 snapshots:
 
   '@types/ms@2.1.0': {}
+
+  '@types/node@22.20.1':
+    dependencies:
+      undici-types: 6.21.0
 
   ansi-regex@5.0.1: {}
 
@@ -215,6 +231,8 @@ snapshots:
   strip-ansi@7.2.0:
     dependencies:
       ansi-regex: 6.2.2
+
+  undici-types@6.21.0: {}
 
   # A dependent of ansi-styles, and the only route to the (ansi-regex@6.2.2)
   # resolution that does not go through an importer. Its own key carries the peer

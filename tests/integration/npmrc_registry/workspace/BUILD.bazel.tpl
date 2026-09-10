@@ -9,6 +9,7 @@ npm_virtual_store(name = "node_modules/.pnpm")
 
 node_modules(
     name = "node_modules",
+    hoist = ":node_modules/.pnpm/node_modules",
     visibility = ["//visibility:public"],
     deps = ["@npm//:acme_greeter"],
 )

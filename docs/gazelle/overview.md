@@ -139,7 +139,7 @@ a source, and a BUILD file there is emptied and named the same way.
 | `ts_config` | `tsconfig` | `src`, `deps`, `visibility` |
 | `filegroup` | `vitest_config` | `srcs`, `visibility` |
 | `filegroup` | `wrangler_config` | `srcs`, `visibility` |
-| `node_modules` | `node_modules` | `deps`, `parent`, `visibility` |
+| `node_modules` | `node_modules` | `deps`, `parent`, `hoist`, `visibility` |
 | `node_modules_member` | `node_modules/<member name>` | `member`, `visibility` |
 | `npm_virtual_store` | `node_modules/.pnpm` | |
 
@@ -160,7 +160,9 @@ leading `:`.
 Per lockfile importer, package or not: a `node_modules` whose `deps` are the
 importer's declared `dependencies`, `devDependencies` and
 `optionalDependencies` as hub labels (`@npm//web:react`; `@npm//:react` for
-the root's) and whose `parent` is the importer above's target; one
+the root's) and whose `parent` is the importer above's target, the
+lockfile's root importer naming `hoist = ":node_modules/.pnpm/node_modules"`
+instead; one
 `node_modules_member` per `link:` entry, `node_modules/<member name>` over the
 member's view; and, at the repository root, the lockfile's package,
 `npm_virtual_store(name = "node_modules/.pnpm")` from `@npm//:defs.bzl`

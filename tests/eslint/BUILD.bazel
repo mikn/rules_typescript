@@ -16,6 +16,7 @@ npm_virtual_store(name = "node_modules/.pnpm")
 # The root importer of the plugin's lockfile: //eslint-plugin's chain.
 node_modules(
     name = "node_modules",
+    hoist = ":node_modules/.pnpm/node_modules",
     visibility = ["//eslint-plugin:__pkg__"],
     deps = [
         "@npm_eslint//:eslint",

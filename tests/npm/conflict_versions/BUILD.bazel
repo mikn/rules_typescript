@@ -4,6 +4,7 @@ load("//tests/npm:node_modules_tests.bzl", "linked_twice_test")
 # Both versions of one name declared, which is one link name twice.
 node_modules(
     name = "node_modules",
+    hoist = "//tests/npm:node_modules/.pnpm/node_modules",
     tags = ["manual"],
     deps = [
         "@npm//:minimatch",

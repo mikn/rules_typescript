@@ -49,6 +49,7 @@ package(default_visibility = ["//:__pkg__"])
 node_modules(
     name = "node_modules",
     testonly = True,
+    hoist = "//tests/npm:node_modules/.pnpm/node_modules",
     deps = ["@npm//:typescript"],
 )
 

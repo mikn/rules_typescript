@@ -15,6 +15,7 @@ package(default_visibility = ["//:__pkg__"])
 
 node_modules(
     name = "node_modules",
+    hoist = "//tests/workers:node_modules/.pnpm/node_modules",
     deps = ["@npm_workers//:wrangler"],
 )
 

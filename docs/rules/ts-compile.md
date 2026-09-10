@@ -422,7 +422,9 @@ links fails analysis naming the nearest importer's `package.json`; a name an
 importer links at another resolution fails naming the label to write,
 `@npm//web:marked`. The action stages the chain's links for the direct names,
 the `@types/<name>` twin an importer links beside one, the member links `deps`
-name, the store trees and edge links their closures hold, and every
+name, the store trees and edge links their closures hold, the lockfile's hoist
+links whose names the closure holds with the trees they enter
+([The Store](node-modules.md#the-store)), and every
 first-party dep's (`TsInfo.npm_files`): a dep's emitted `.d.ts` imports the
 packages the dep declared, and they resolve from the dep's own importer's
 links, an ancestor of its declarations under `bazel-out`.
@@ -438,7 +440,9 @@ pairing and a `types` entry resolve as tsc resolves them over a pnpm install,
 and a declaration tsgo emits names a package the way that package's `exports`
 allow. A package's own imports resolve from its realpath in the store,
 `node_modules/.pnpm/<key>/node_modules/<name>/`, to the edges beside its tree,
-so every dependent reaches the resolution pnpm recorded for it. npm deps
+so every dependent reaches the resolution pnpm recorded for it, and an import
+of a name the package does not declare to the hoist's link at
+`node_modules/.pnpm/node_modules/<name>`, as in the checkout. npm deps
 contribute no other input: a `ts_compile`'s `transitive_declarations` holds
 first-party declarations alone, and a package's file sits under
 `node_modules/<name>/`, the segment TypeScript reads to take it for a library

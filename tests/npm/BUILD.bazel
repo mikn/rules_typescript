@@ -33,6 +33,7 @@ npm_virtual_store(name = "node_modules/.pnpm")
 # every fixture outside an importer's package resolves through.
 node_modules(
     name = "node_modules",
+    hoist = ":node_modules/.pnpm/node_modules",
     visibility = ["//visibility:public"],
     deps = [
         "@npm//:culori",
@@ -55,6 +56,10 @@ node_modules(
 node_modules_test(
     name = "node_modules_test",
     dir = "tests/npm/node_modules",
+    hoisted = [
+        "minimatch=minimatch@10.2.4",
+        "undici-types=undici-types@6.21.0",
+    ],
     links = [
         "@types/bun",
         "@types/culori",
@@ -78,6 +83,20 @@ node_modules_test(
         "test-exclude@7.0.2",
     ],
     target_under_test = ":node_modules",
+)
+
+# An importer below the root carries the lockfile's hoist unchanged: the
+# hoist's minimatch is 10.2.4 while this importer links 9.0.9.
+node_modules_test(
+    name = "multi_version_node_modules_test",
+    dir = "tests/npm/multi_version/node_modules",
+    has_parent = True,
+    hoisted = ["minimatch=minimatch@10.2.4"],
+    links = [
+        "minimatch",
+        "test-exclude",
+    ],
+    target_under_test = "//tests/npm/multi_version:node_modules",
 )
 
 # One link target per member the root links, into the member's store tree.

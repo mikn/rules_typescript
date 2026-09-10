@@ -2,7 +2,13 @@
 dependency links beside it. docs/rules/node-modules.md § The Store."""
 
 load("//npm/private:member_manifest.bzl", "member_manifest_json")
-load("//ts/private:providers.bzl", "TsConfigInfo", "TsInfo")
+load(
+    "//ts/private:providers.bzl",
+    "NpmHoistInfo",
+    "NpmLinkInfo",
+    "TsConfigInfo",
+    "TsInfo",
+)
 
 NpmStoreInfo = provider(
     doc = "One snapshot of the virtual store: its tree and the links beside " +
@@ -295,16 +301,22 @@ def _hoist_links(ctx, dir, entries, links):
     for dep, names in entries.items():
         for name in names.split(" "):
             _link(ctx, dir, name, dep, links)
+            links[name] = NpmLinkInfo(
+                link = links[name],
+                store = dep[NpmStoreInfo],
+            )
     return links
 
 def _npm_store_hoist_impl(ctx):
     links = _hoist_links(ctx, ctx.label.name, ctx.attr.private, {})
     links = _hoist_links(ctx, "node_modules", ctx.attr.public, links)
-    stores = ctx.attr.private.keys() + ctx.attr.public.keys()
-    return [DefaultInfo(files = depset(
-        links.values(),
-        transitive = [dep[NpmStoreInfo].transitive for dep in stores],
-    ))]
+    return [
+        DefaultInfo(files = depset(
+            [entry.link for entry in links.values()],
+            transitive = [entry.store.transitive for entry in links.values()],
+        )),
+        NpmHoistInfo(links = links),
+    ]
 
 _HOISTED = attr.label_keyed_string_dict(
     providers = [NpmStoreInfo],
@@ -320,7 +332,8 @@ npm_store_hoist = rule(
     doc = """The hidden hoist of one lockfile: a declared symlink into a store
 tree per hoisted name, `private` ones under this target's name
 (`node_modules/.pnpm/node_modules/<name>`), `public` ones at the root
-importer's `node_modules/<name>`. Declared by `npm_virtual_store`.""",
+importer's `node_modules/<name>`; `NpmHoistInfo` carries them for the root
+importer's `hoist`. Declared by `npm_virtual_store`.""",
 )
 
 def _join(names):

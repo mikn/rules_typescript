@@ -52,6 +52,7 @@ bzl_library(
 # which resolves into the consumer's and need not have esbuild at all.
 node_modules(
     name = "node_modules",
+    hoist = "//vite/esbuild:node_modules/.pnpm/node_modules",
     deps = ["@npm_esbuild//:esbuild"],
 )
 

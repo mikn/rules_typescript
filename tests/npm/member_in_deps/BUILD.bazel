@@ -4,6 +4,7 @@ load("//tests/npm:node_modules_tests.bzl", "member_in_deps_test")
 # A member's view in deps: the link is a node_modules_member target's.
 node_modules(
     name = "node_modules",
+    hoist = "//tests/npm:node_modules/.pnpm/node_modules",
     tags = ["manual"],
     deps = ["@npm//:shared"],
 )

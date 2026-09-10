@@ -51,8 +51,10 @@ store; a workspace member's hub view forwards the member's.
                      "and runtime reach -- the importer links of its direct " +
                      "npm deps and their @types twins, the member links its " +
                      "deps name, every store tree and edge link of their " +
-                     "closures, and its first-party deps' npm_files. An " +
-                     "action stages this and nothing else of the store.",
+                     "closures, the hoist links whose names the closure " +
+                     "holds with the trees they enter, and its first-party " +
+                     "deps' npm_files. An action stages this and nothing " +
+                     "else of the store.",
         "owners": "depset of struct(label, files): one record per " +
                   "first-party target in the closure, this one first -- " +
                   "the label a deps list writes and the declarations and " +
@@ -232,7 +234,8 @@ a field it does without: one taking the serve root from argv instead says so in
 NodeModulesInfo = provider(
     doc = """An importer's node_modules: the links a `node_modules` target
 declares into the virtual store, one per npm package the importer declares,
-and the importer above it (docs/rules/node-modules.md).""",
+the importer above it and the lockfile's hidden hoist
+(docs/rules/node-modules.md).""",
     fields = {
         "label": "Label: the node_modules target's, the importer's package " +
                  "and what a message names.",
@@ -243,6 +246,23 @@ and the importer above it (docs/rules/node-modules.md).""",
                  "declared symlink `node_modules/<name>` and the store it " +
                  "enters.",
         "parent": "NodeModulesInfo or None: the importer above's.",
+        "hoist": "dict of string -> NpmLinkInfo: the lockfile's hidden " +
+                 "hoist, per hoisted name the declared symlink " +
+                 "`node_modules/.pnpm/node_modules/<name>` (a " +
+                 "`public-hoist-pattern` match's at the root importer's " +
+                 "`node_modules/<name>`) and the store it enters; the root " +
+                 "importer's `hoist` target's, the same on every importer " +
+                 "of its chain.",
+    },
+)
+
+NpmHoistInfo = provider(
+    doc = """A lockfile's hidden hoist, what its `npm_store_hoist` target
+returns: the root importer names the target in `hoist`, and every importer
+on the chain carries the links as `NodeModulesInfo.hoist`.""",
+    fields = {
+        "links": "dict of string -> NpmLinkInfo: per hoisted name, the " +
+                 "declared symlink and the store it enters.",
     },
 )
 
