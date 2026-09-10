@@ -721,6 +721,35 @@ func TestGenerate_VitestConfigBesideTheTestsIsTheTests(t *testing.T) {
 	assertNoDanglingLabels(t, root)
 }
 
+// With no vitest.config.*, plain vitest reads vite.config.*: the test's config.
+func TestGenerate_ViteConfigIsTheTestsWhenNoVitestConfig(t *testing.T) {
+	g := generateAll(t, writeTree(t, map[string]string{
+		"package.json":       rootManifest,
+		"pkg/tsconfig.json":  includeSrc,
+		"pkg/src/a.test.ts":  "export const t = 1;\n",
+		"pkg/vite.config.ts": "export default { define: { __A__: \"1\" } };\n",
+	}))
+	test := mustRule(t, g.results["pkg"], "ts_test", "pkg_test")
+	if got := test.AttrString("config"); got != "vite.config.ts" {
+		t.Errorf("config = %q, want vite.config.ts", got)
+	}
+}
+
+// Beside a vite.config.*, the vitest.config.* is the one vitest reads.
+func TestGenerate_VitestConfigWinsOverViteConfig(t *testing.T) {
+	g := generateAll(t, writeTree(t, map[string]string{
+		"package.json":         rootManifest,
+		"pkg/tsconfig.json":    includeSrc,
+		"pkg/src/a.test.ts":    "export const t = 1;\n",
+		"pkg/vite.config.ts":   "export default {};\n",
+		"pkg/vitest.config.ts": "export default { test: { globals: true } };\n",
+	}))
+	test := mustRule(t, g.results["pkg"], "ts_test", "pkg_test")
+	if got := test.AttrString("config"); got != "vitest.config.ts" {
+		t.Errorf("config = %q, want vitest.config.ts", got)
+	}
+}
+
 // Plain vitest reads the config beside the nearest package.json; a test a
 // package down names it by label, and that package writes the filegroup.
 func TestGenerate_VitestConfigAtThePackageRootReachesATestBelow(t *testing.T) {

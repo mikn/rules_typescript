@@ -357,6 +357,8 @@ func codegenOutDirResult(args language.GenerateArgs, root string) language.Gener
 var vitestConfigNames = []string{
 	"vitest.config.ts", "vitest.config.mts", "vitest.config.cts",
 	"vitest.config.js", "vitest.config.mjs", "vitest.config.cjs",
+	"vite.config.ts", "vite.config.mts", "vite.config.cts",
+	"vite.config.js", "vite.config.mjs", "vite.config.cjs",
 }
 
 // vitestConfigIn returns the vitest config file in dir, or "" when there is

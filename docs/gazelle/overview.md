@@ -190,10 +190,13 @@ ts_config(
 ```
 
 A `ts_test` runs under the vitest config plain `vitest` would read for its
-files. A `vitest.config.*` beside the tests goes into `config` by name. With
-none there, Gazelle walks up to the directory plain `vitest` runs from, the
-nearest one holding a `package.json` or the repository root, and takes the
-config it holds: that directory gets a public `filegroup` named
+files: a `vitest.config.*`, else a `vite.config.*`, in vitest's own order of
+extensions (`.ts`, `.mts`, `.cts`, `.js`, `.mjs`, `.cjs`), so a package that
+configures vitest through vite -- a `define`, a plugin, a `resolve.alias` --
+runs as `pnpm vitest` runs it. One beside the tests goes into `config` by
+name. With none there, Gazelle walks up to the directory plain `vitest` runs
+from, the nearest one holding a `package.json` or the repository root, and
+takes the config it holds: that directory gets a public `filegroup` named
 `vitest_config` over the file, and the test names it by label. A directory
 between the two with no `package.json` is passed over, as `vitest` run from the
 package root passes it over. The directory holding the config has to be a

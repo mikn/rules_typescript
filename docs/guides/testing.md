@@ -100,12 +100,13 @@ vitest projects, each of which gets the Bazel layer too; the array becomes
 `test.projects`, which needs vitest 3.2 or later
 ([A Config File](../rules/ts-test.md#a-config-file)).
 
-Gazelle writes `config` from the file plain `vitest` would read: a
-`vitest.config.*` beside the tests by name, else the one in the nearest
-directory above holding a `package.json`, or the repository root, as the label
-`//pkg:vitest_config` of a public `filegroup` it writes over the file in that
-package. Vite's root is the config's package either way, so a relative path in
-the config resolves against the directory it sits in;
+Gazelle writes `config` from the file plain `vitest` would read -- a
+`vitest.config.*`, else a `vite.config.*`, so a package that configures vitest
+in its `vite.config.ts` runs under it -- beside the tests by name, else the one
+in the nearest directory above holding a `package.json`, or the repository
+root, as the label `//pkg:vitest_config` of a public `filegroup` it writes over
+the file in that package. Vite's root is the config's package either way, so a
+relative path in the config resolves against the directory it sits in;
 `//tests/config_at_root` is the example. Every import of the config is a dep of
 the test ([what Gazelle writes](../gazelle/overview.md#what-gazelle-writes)).
 

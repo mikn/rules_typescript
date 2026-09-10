@@ -256,12 +256,13 @@ walks up to the runfiles tree's `node_modules`. A config from an ancestor
 package names its modules as that package's files, `//<package>:<file>`.
 `//tests/vitest/config_srcs` is the example.
 
-Gazelle writes `config` from the file plain `vitest` would read: a
-`vitest.config.*` beside the tests by name, else the one in the nearest
-directory above holding a `package.json`, or the repository root, as the label
-`//pkg:vitest_config` of a public `filegroup` it writes over the file; and
-`config_srcs` from the config's listing, followed through every first-party
-module it reaches ([what Gazelle
+Gazelle writes `config` from the file plain `vitest` would read -- a
+`vitest.config.*`, else a `vite.config.*`; `//tests/vitest/vite_config` is the
+example, a `define` the test reads -- beside the tests by name, else the one
+in the nearest directory above holding a `package.json`, or the repository
+root, as the label `//pkg:vitest_config` of a public `filegroup` it writes over
+the file; and `config_srcs` from the config's listing, followed through every
+first-party module it reaches ([what Gazelle
 writes](../gazelle/overview.md#what-gazelle-writes)).
 
 !!! warning "The array form needs vitest 3.2 or later"
