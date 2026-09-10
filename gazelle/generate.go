@@ -136,11 +136,18 @@ func packageRules(args language.GenerateArgs, tc *tsConfig,
 		res.Empty = append(res.Empty, rule.NewRule(kind, name))
 	}
 
+	nodeModules := ""
+	if tc.lock != nil {
+		nodeModules = tc.lock.nodeModulesLabel(pkg)
+	}
 	compile := len(set.library) > 0
 	if compile {
 		r := rule.NewRule("ts_compile", name)
 		r.SetAttr("srcs", packageSrcs(args, set.library, set.declaration, data))
 		r.SetAttr("tsconfig", tsConfigAttr)
+		if nodeModules != "" {
+			r.SetAttr("node_modules", nodeModules)
+		}
 		r.SetAttr("visibility", []string{"//visibility:public"})
 		imps := s.compileImports(pkg, set)
 		imps.deps = append(imps.deps, codegens...)
@@ -161,6 +168,9 @@ func packageRules(args language.GenerateArgs, tc *tsConfig,
 			r.SetAttr("config", attr)
 		}
 		r.SetAttr("tsconfig", tsConfigAttr)
+		if nodeModules != "" {
+			r.SetAttr("node_modules", nodeModules)
+		}
 		compileLabel := ""
 		if compile {
 			compileLabel = ":" + name

@@ -1,20 +1,21 @@
 """The test lives in its own package and lists only what it imports itself."""
 
 load("//ts:defs.bzl", "ts_test")
-load(":tree_tests.bzl", "runtime_tree_is_the_forest_test")
+load(":tree_tests.bzl", "runtime_is_the_chain_test")
 
 # keep
 ts_test(
     name = "test_test",
     srcs = ["lib.test.ts"],
+    node_modules = "//tests/npm:node_modules",
     deps = [
         "//tests/vitest/dep_npm_runtime",
         "@npm//:vitest",
     ],
 )
 
-runtime_tree_is_the_forest_test(
-    name = "runtime_tree_is_the_forest_test",
+runtime_is_the_chain_test(
+    name = "runtime_is_the_chain_test",
     size = "small",
     test = ":test_test",
 )

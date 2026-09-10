@@ -284,8 +284,8 @@ jobs:
             --test_env=RULES_TS_IT_SCRATCH=/mnt/rules_ts_it 2>&1 \
             | tee "${RUNNER_TEMP}/integration.log"
 
-      # Bazel intermittently fails to stage a node_modules tree into the
-      # sandbox -- "[unix_jni.cc:281] <path> (No such file or directory)" for a
+      # Bazel intermittently fails to stage a store tree or a declared link
+      # into the sandbox -- "[unix_jni.cc:281] <path> (No such file or directory)" for a
       # directory inside its own output base, on a different path each time. It
       # has never reproduced outside CI, so the state at the moment of failure
       # is the evidence that is missing: whether the path is absent, a symlink,

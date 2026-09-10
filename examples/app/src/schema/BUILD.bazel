@@ -16,6 +16,7 @@ ts_compile(
         "index.ts",
         "user.ts",
     ],
+    node_modules = "//:node_modules",
     visibility = ["//visibility:public"],
     deps = ["@npm//:zod"],
 )
@@ -25,6 +26,7 @@ ts_compile(
 ts_test(
     name = "schema_test",
     srcs = ["user.test.ts"],
+    node_modules = "//:node_modules",
     deps = [
         ":schema",
         "@npm//:vitest",

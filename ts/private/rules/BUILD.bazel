@@ -21,11 +21,11 @@ bzl_library(
     name = "ts_compile",
     srcs = ["ts_compile.bzl"],
     deps = [
+        "//ts/private:node_modules",
         "//ts/private:providers",
         "//ts/private:runtime",
         "//ts/private:toolchain",
         "//ts/private/actions:emit",
-        "//ts/private/actions:forest",
         "//ts/private/actions:lint",
         "//ts/private/actions:tsconfig",
         "//ts/private/actions:tsgo",
@@ -47,6 +47,7 @@ bzl_library(
     srcs = ["ts_test.bzl"],
     deps = [
         ":ts_compile",
+        "//ts/private:node_modules",
         "//ts/private:providers",
         "//ts/private:runtime",
         "//ts/private/actions:workers_pool",

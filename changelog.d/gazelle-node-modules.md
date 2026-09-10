@@ -8,4 +8,5 @@
   "node_modules/.pnpm")`; a directory that is no importer withdraws them. A
   member a target imports by name is spelled as the nearest importer's link
   target, `//web:node_modules/@acme/ui`, where it was the hub's view; a member
-  no importer above the package links keeps the view label.
+  no importer at or above the package links gets no label and one line naming
+  it, since a target resolves through its importers alone.

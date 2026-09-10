@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -15,12 +16,12 @@ func nodeTestFixture(t *testing.T) (*Resolver, map[string]string) {
 			"_main/tests/app/b.test.js",
 			"_main/tests/app/c.test.js",
 		}, "\n"),
-		"_main/tests/app/a.test.js":             "x",
-		"_main/tests/app/b.test.js":             "x",
-		"_main/tests/app/c.test.js":             "x",
-		"_main/tests/app/app_test/node_modules": dirMarker,
-		"_main/ts/private/node_test_hook.mjs":   "export {}",
-		"+node+/bin/node":                       "#!/bin/sh\n",
+		"_main/tests/app/a.test.js":                 "x",
+		"_main/tests/app/b.test.js":                 "x",
+		"_main/tests/app/c.test.js":                 "x",
+		"_main/tests/app/node_modules/zod/index.js": "x",
+		"_main/ts/private/node_test_hook.mjs":       "export {}",
+		"+node+/bin/node":                           "#!/bin/sh\n",
 	})
 }
 
@@ -32,7 +33,7 @@ func nodeTestConfig() *Config {
 		Runtime:   "+node+/bin/node",
 		NodeTest: &NodeTestConfig{
 			TestFilesList: "_main/tests/app/app_test_files.txt",
-			NodeModules:   "_main/tests/app/app_test/node_modules",
+			NodeModules:   []string{"_main/tests/app/node_modules"},
 			ResolveHook:   "_main/ts/private/node_test_hook.mjs",
 		},
 	}
@@ -188,17 +189,32 @@ func TestPlanNodeTestRefusesACoverageRun(t *testing.T) {
 	}
 }
 
-// The resolve hook reads NODE_PATH for the tree a bare specifier resolves from.
-func TestPlanNodeTestNamesTheNpmTreeOnNodePath(t *testing.T) {
+// The resolve hook reads NODE_PATH for the importer's directory; without a
+// runfiles tree it is staged from the manifest and linked in at the root.
+func TestPlanNodeTestNamesTheImportersNodeModulesOnNodePath(t *testing.T) {
 	r, real := nodeTestFixture(t)
 	plan, err := MakePlan(nodeTestConfig(), r, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	tree := real["_main/tests/app/app_test/node_modules"]
+	const importer = "/_main/tests/app/node_modules"
 	nodePath := plan.EnvOverrides["NODE_PATH"]
-	if strings.Split(nodePath, string(os.PathListSeparator))[0] != tree {
-		t.Errorf("NODE_PATH = %q, want it to start with %q", nodePath, tree)
+	dir := strings.Split(nodePath, string(os.PathListSeparator))[0]
+	if !strings.HasSuffix(dir, filepath.FromSlash(importer)) {
+		t.Fatalf("NODE_PATH = %q, want the importer's staged directory first", dir)
+	}
+	got, err := filepath.EvalSymlinks(filepath.Join(dir, "zod", "index.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	zod := real["_main/tests/app/node_modules/zod/index.js"]
+	if want, _ := filepath.EvalSymlinks(zod); got != want {
+		t.Errorf("zod/index.js resolves to %q, want %q", got, want)
+	}
+	root := strings.TrimSuffix(dir, filepath.FromSlash(importer))
+	link := filepath.Join(root, "_main", "node_modules")
+	if target, err := os.Readlink(link); err != nil || target != dir {
+		t.Errorf("%s -> %q, %v; want the importer's %q", link, target, err, dir)
 	}
 }
 

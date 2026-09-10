@@ -29,7 +29,7 @@ release, production users and Windows support. This has none of the three.
 | **Compilation boundary** | tsc project references | `.d.ts` per target |
 | **Bundler** | Bring your own | Bring your own, through `BundlerInfo` on `ts_binary` |
 | **Dev server** | None built-in | Vite, with HMR and React Fast Refresh; any `DevServerInfo` rule per target |
-| **npm management** | rules_js (pnpm virtual store, symlinks) | Own pnpm lockfile reader: a `pnpm-lock.yaml` is required, npm and yarn lockfiles are not read; one Bazel repository per package, fetched on demand |
+| **npm management** | rules_js (pnpm virtual store, symlinks) | Own pnpm lockfile reader: a `pnpm-lock.yaml` is required, npm and yarn lockfiles are not read; one Bazel repository per package, fetched on demand; pnpm's virtual store as Bazel artifacts |
 | **BUILD generation** | Aspect CLI (proprietary) | Gazelle (open-source; one package per `tsconfig.json`) |
 | **Framework support** | None built-in | None built-in; a framework's Vite plugin runs in the dev server through `vite_config` |
 | **Bazel deps** | rules_js + rules_nodejs | rules_nodejs, rules_rust, rules_go + gazelle, rules_shell, bazel_skylib, platforms, toolchain_utils |
@@ -57,12 +57,10 @@ repeatedly pre-1.0. Read the [changelog](../changelog.md) when you move a pin.
 
 ### npm Handling
 
-`rules_js`'s pnpm virtual store with symlinks handles more edge cases than our lockfile parser:
-- Nested `node_modules` patterns
-- Complex peer dependency resolution
-- Hoisting edge cases
-
-Our parser handles the common cases (scoped packages, `@types` pairing, multiple versions, npm aliases, pnpm workspaces, dependency cycles) but exotic lockfile patterns may break.
+`rules_js`'s lockfile reader has seen more lockfiles than ours. Ours handles
+scoped packages, `@types` pairing, multiple versions, peer sets (one store tree
+per snapshot), npm aliases, pnpm workspaces, dependency cycles and pnpm's
+hidden hoist; an exotic lockfile pattern may still break it.
 
 ### Windows
 
@@ -107,8 +105,9 @@ choice. `rules_ts` has no dev server; you wire that yourself.
 
 ### No JS-Ruleset Layer
 
-There is no `rules_js` and no virtual store: the ruleset reads `pnpm-lock.yaml`
-itself and declares one Bazel repository per package behind a `@npm` alias hub.
+There is no `rules_js`: the ruleset reads `pnpm-lock.yaml` itself, declares
+one Bazel repository per package behind a `@npm` alias hub, and builds pnpm's
+virtual store from them as Bazel artifacts.
 That is fewer moving parts in the JS layer and a larger dependency chain overall.
 Oxc is Rust, so `rules_rust` and a Rust toolchain come along; Gazelle is Go, so
 `rules_go`, `gazelle` and a Go SDK do too. The first build pays for both
@@ -180,21 +179,21 @@ and `bazel-bin` twins and lists a path-shaped `types` entry as a root file.
 Every other option is the file's; the rule
 has no attribute for any of them.
 
-**One Bazel repository per npm package.** `rules_ts` with `rules_js` builds a
-pnpm virtual store of symlinks. Here each package is its own external
-repository, fetched when something needs it, and `@npm` holds only aliases into
-them. Consumer labels are unchanged: `@npm//:react`, `@npm//:types_react`,
-`@npm//:vitest_bin`.
+**One Bazel repository per npm package.** Both build pnpm's virtual store:
+`rules_js` from one repository holding every package, this ruleset from one
+repository per package, fetched when something needs it, with `@npm` holding
+aliases into them and each lockfile's package declaring the store
+(`npm_virtual_store`). Consumer labels are unchanged: `@npm//:react`,
+`@npm//:types_react`, `@npm//:vitest_bin`.
 
 **Isolated declarations are a build flag.** `--//ts:declarations=tsgo`, the
 default, needs no annotations; `--//ts:declarations=oxc` emits every `.d.ts`
 from the annotated source alone, taking type-checking off the critical path.
 
-**`node_modules` is built from `deps`.** `ts_compile` type-checks against a
-`node_modules` forest built from its deps, and `ts_test` runs in the same tree;
-a hand-written `node_modules` target serves a `ts_dev_server` or `ts_codegen`
-that needs packages on disk. The layout is its own, not pnpm's virtual store. A name's primary resolution sits
-flat at the top level. Every other resolution of that name (another version, or
-the same version resolved against different peers) gets its own store directory
-plus a link from the dependent that resolved to it, which is the part of pnpm's
-layout Node's resolution needs.
+**`node_modules` is the importer's.** Every lockfile importer's package holds
+a `node_modules` target, its declared packages linked into the store, and
+`ts_compile` and `ts_test` name the nearest one and resolve each npm dep along
+it and its `parent`s, pnpm's walk-up; `ts_dev_server` and `ts_codegen` take
+the same target. The layout is pnpm's: one store tree per resolution -- name,
+version and peer set -- with its own edges beside it, and an importer's links
+at the top.

@@ -1,5 +1,5 @@
 // The tsgo step runs tsgo from a program root: the exec root laid out again
-// under the target's output directory, with the forest at node_modules.
+// under the target's output directory, the importer chain's node_modules in.
 
 package main
 
@@ -20,7 +20,10 @@ import (
 func runTsgo(args []string) error {
 	flags := flag.NewFlagSet("tsgo", flag.ExitOnError)
 	root := flags.String("root", "", "the program root to lay out, under the target's output directory")
-	forest := flags.String("node_modules", "", "the node_modules tree the program root holds")
+	var importers stringList
+	flags.Var(&importers, "node_modules",
+		"an importer's node_modules directory, nearest first (repeatable); "+
+			"the last is the lockfile's root importer")
 	check := flags.String("check", "",
 		"the ownership manifest the --explainFiles listing is checked against")
 	stamp := flags.String("stamp", "", "file to create when tsgo exits 0")
@@ -28,15 +31,14 @@ func runTsgo(args []string) error {
 		return err
 	}
 	cmdline := flags.Args()
-	if *root == "" || *forest == "" || *check == "" || len(cmdline) == 0 {
-		return errors.New("tsgo needs -root=DIR, -node_modules=DIR, " +
-			"-check=FILE and a command after --")
+	if *root == "" || *check == "" || len(cmdline) == 0 {
+		return errors.New("tsgo needs -root=DIR, -check=FILE and a command after --")
 	}
 	own, err := readOwnership(*check)
 	if err != nil {
 		return err
 	}
-	if err := layOutProgramRoot(*root, *forest); err != nil {
+	if err := layOutProgramRoot(*root, importers); err != nil {
 		return err
 	}
 	defer os.RemoveAll(*root)
@@ -82,9 +84,9 @@ func checkedRun(dir string, cmdline []string, own *ownership) error {
 	return nil
 }
 
-// layOutProgramRoot links the exec root's top-level entries into root, and the
-// forest as root/node_modules; absolute targets, the links die with the action.
-func layOutProgramRoot(root, forest string) error {
+// layOutProgramRoot links the exec root's entries into root, the last importer
+// at root/node_modules, the others under real directories of links to them.
+func layOutProgramRoot(root string, importers []string) error {
 	execroot, err := os.Getwd()
 	if err != nil {
 		return err
@@ -92,20 +94,87 @@ func layOutProgramRoot(root, forest string) error {
 	if err := os.RemoveAll(root); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(root, 0o755); err != nil {
+	if err := linkEntries(root, execroot, "node_modules"); err != nil {
 		return err
 	}
-	entries, err := os.ReadDir(execroot)
+	for i, binDir := range importers {
+		at := "node_modules"
+		if i < len(importers)-1 {
+			dir := importerDir(binDir)
+			if err := realDirs(root, execroot, dir); err != nil {
+				return err
+			}
+			at = filepath.Join(dir, "node_modules")
+		}
+		link := filepath.Join(root, at)
+		if err := os.RemoveAll(link); err != nil {
+			return err
+		}
+		if err := os.Symlink(filepath.Join(execroot, binDir), link); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// importerDir is the importer's directory in the exec root, read off its
+// node_modules' bin-dir path bazel-out/<cfg>/bin/<dir>/node_modules.
+func importerDir(binDir string) string {
+	rest := binDir
+	if i := strings.Index(binDir, "/bin/"); i >= 0 {
+		rest = binDir[i+len("/bin/"):]
+	}
+	dir := filepath.Dir(filepath.FromSlash(rest))
+	if dir == "." {
+		return ""
+	}
+	return dir
+}
+
+// realDirs makes root/<each prefix of dir> a real directory holding a link
+// per entry of the exec root's directory at that level.
+func realDirs(root, execroot, dir string) error {
+	rel := ""
+	for _, part := range strings.Split(dir, string(filepath.Separator)) {
+		rel = filepath.Join(rel, part)
+		at := filepath.Join(root, rel)
+		st, err := os.Lstat(at)
+		if err == nil && st.IsDir() {
+			continue
+		}
+		if err == nil {
+			if err := os.Remove(at); err != nil {
+				return err
+			}
+		}
+		if err := linkEntries(at, filepath.Join(execroot, rel), ""); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// linkEntries creates dir and links every entry of from into it but skip; a
+// from that is not there is an empty directory.
+func linkEntries(dir, from, skip string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(from)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
 	for _, entry := range entries {
-		if entry.Name() == "node_modules" {
+		if entry.Name() == skip {
 			continue
 		}
-		if err := os.Symlink(filepath.Join(execroot, entry.Name()), filepath.Join(root, entry.Name())); err != nil {
+		target := filepath.Join(from, entry.Name())
+		if err := os.Symlink(target, filepath.Join(dir, entry.Name())); err != nil {
 			return err
 		}
 	}
-	return os.Symlink(filepath.Join(execroot, forest), filepath.Join(root, "node_modules"))
+	return nil
 }

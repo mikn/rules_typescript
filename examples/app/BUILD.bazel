@@ -12,6 +12,7 @@ Run `bazel run //:gazelle` to regenerate BUILD files from TypeScript sources.
 
 load("@gazelle//:def.bzl", "gazelle")
 load("@npm//:defs.bzl", "npm_virtual_store")
+load("@rules_typescript//npm:defs.bzl", "node_modules")
 load("@rules_typescript//ts:defs.bzl", "ts_binary")
 
 # Run "bazel run //:gazelle" to auto-generate BUILD files.
@@ -21,6 +22,17 @@ gazelle(
 )
 
 npm_virtual_store(name = "node_modules/.pnpm")
+
+# The root importer: the chain every target here resolves its npm deps through.
+node_modules(
+    name = "node_modules",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@npm//:vite",
+        "@npm//:vitest",
+        "@npm//:zod",
+    ],
+)
 
 # Bundle the application entry point.
 # Pulls in //src/app, which in turn depends on //src/schema via .d.ts boundary.

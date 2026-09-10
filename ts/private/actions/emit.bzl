@@ -16,9 +16,10 @@ def emit_action(
         out_base,
         tsconfig,
         chain,
-        forest,
+        importers,
         program_inputs,
         dep_dts,
+        npm_files,
         options_file,
         scratch,
         source_map,
@@ -26,10 +27,10 @@ def emit_action(
         es_modules = False):
     """Registers one emit over `srcs`, which hang off `roots`.
 
-    `program_inputs` are the tsgo check's inputs, since the emit is tsgo's
-    when the options file says so; under `es_modules` it is oxc's whatever
-    the module and reads the srcs and the options alone. `emit_dts` adds the
-    isolated-declarations emit of --//ts:declarations=oxc.
+    `program_inputs`, `importers` and `npm_files` are the tsgo check's, since
+    the emit is tsgo's when the options file says so; under `es_modules` it
+    is oxc's whatever the module and reads the srcs and the options alone.
+    `emit_dts` adds the isolated-declarations emit of --//ts:declarations=oxc.
     """
     args = ctx.actions.args()
     args.use_param_file("@%s", use_always = False)
@@ -37,7 +38,7 @@ def emit_action(
     args.add(options_file, format = "-options=%s")
     if not es_modules:
         args.add(tsconfig, format = "-tsconfig=%s")
-        args.add("-node_modules=" + forest.path)
+        args.add_all(importers, format_each = "-node_modules=%s")
         args.add("-scratch=" + scratch)
     args.add("-out_dir=" + out_base)
     args.add(oxc.oxc_binary, format = "-oxc=%s")
@@ -56,8 +57,8 @@ def emit_action(
         tools = [oxc.oxc_binary]
     else:
         inputs = depset(
-            program_inputs + [options_file, tsconfig, forest] + chain,
-            transitive = [dep_dts],
+            program_inputs + [options_file, tsconfig] + chain,
+            transitive = [dep_dts, npm_files],
         )
         tools = [oxc.oxc_binary, tsgo.tsgo_binary]
     ctx.actions.run(

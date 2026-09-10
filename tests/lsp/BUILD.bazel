@@ -141,6 +141,7 @@ sh_test(
 ts_compile(
     name = "npm_fixture",
     srcs = ["npm_fixture.ts"],
+    node_modules = "//tests/npm:node_modules",
     tags = ["manual"],
     deps = [
         "@npm//:types_node",

@@ -14,5 +14,6 @@ ts_test(
         "plugins/define.ts",
         "plugins/meta.json",
     ],
+    node_modules = "//tests/npm:node_modules",
     deps = ["@npm//:vitest"],
 )

@@ -7,6 +7,7 @@ ts_compile(
         "Counter.tsx",
         "index.ts",
     ],
+    node_modules = "//:node_modules",
     visibility = ["//visibility:public"],
     deps = [
         "//src/hooks",
@@ -17,6 +18,7 @@ ts_compile(
 ts_test(
     name = "components_test",
     srcs = ["Button.test.tsx"],
+    node_modules = "//:node_modules",
     deps = [
         ":components",
         "//src/hooks",

@@ -238,7 +238,7 @@ hub's view of the member.
 
 The generated config names no npm package. TypeScript resolves a bare specifier
 by walking the checkout's `node_modules` from the importing file, as tsgo walks
-the forest a build stages, so `pnpm install` is the editor's npm setup: the tree
+the importer chain a build stages, so `pnpm install` is the editor's npm setup: the tree
 it installs is the lockfile's, which is what the build resolves too. A
 `@types/*` package, an `exports` subpath and a `types` entry naming a package
 resolve the same way. A package your targets declare and the checkout does not

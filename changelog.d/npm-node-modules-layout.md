@@ -9,6 +9,6 @@
   type-checked but never emitted and outside the `rootDir` check, and one under
   none is project source. A test or script that matched an exec path by
   repository name alone has to expect `node_modules/<name>/` after it. The
-  `node_modules` tree is laid out from the package root, as before; it no longer
-  carries the generated `BUILD.bazel` and `REPO.bazel` of each package, which
-  the root glob had matched.
+  store tree is copied from the package root; it does not carry the generated
+  `BUILD.bazel` and `REPO.bazel` of each package, which the root glob had
+  matched.

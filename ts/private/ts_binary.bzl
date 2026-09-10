@@ -134,6 +134,7 @@ def _ts_binary_impl(ctx):
             entry.transitive_js,
             entry.transitive_js_maps,
             entry.transitive_data,
+            entry.npm_files,
         ],
     )
 
@@ -153,7 +154,7 @@ def _ts_binary_impl(ctx):
     if runtime_binary:
         config["runtime"] = rlocation_path(ctx, runtime_binary)
     if node_modules:
-        config["node"]["node_modules"] = runfiles_dir(ctx, node_modules)
+        config["node"]["node_modules"] = runfiles_dir(ctx, node_modules.label)
 
     launcher = declare_launcher(ctx, config)
 

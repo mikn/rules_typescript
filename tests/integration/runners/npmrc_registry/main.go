@@ -80,6 +80,7 @@ const consumerPackage = `load("@rules_typescript//ts:defs.bzl", "ts_compile")
 ts_compile(
     name = "consumer",
     srcs = ["greeting.ts"],
+    node_modules = "//:node_modules",
     deps = ["@npm//:acme_greeter"],
 )
 `

@@ -18,11 +18,11 @@ import (
 )
 
 type emitConfig struct {
-	options, tsconfig, forest, scratch, outDir string
-	oxc, tsgo                                  string
-	roots                                      stringList
-	sourceMap, declarations, esModules         bool
-	srcs                                       []string
+	options, tsconfig, scratch, outDir string
+	oxc, tsgo                          string
+	roots, importers                   stringList
+	sourceMap, declarations, esModules bool
+	srcs                               []string
 }
 
 func runEmit(args []string) error {
@@ -32,8 +32,8 @@ func runEmit(args []string) error {
 		"the options file the tsconfig step wrote")
 	flags.StringVar(&e.tsconfig, "tsconfig", "",
 		"the tsconfig the tsconfig step wrote")
-	flags.StringVar(&e.forest, "node_modules", "",
-		"the node_modules tree the program root holds")
+	flags.Var(&e.importers, "node_modules",
+		"an importer's node_modules directory, nearest first (repeatable)")
 	flags.StringVar(&e.scratch, "scratch", "",
 		"where the program root and tsgo's outDir go, removed after")
 	flags.StringVar(&e.outDir, "out_dir", "",
@@ -57,8 +57,8 @@ func runEmit(args []string) error {
 	}
 	if !e.esModules {
 		required = append(required, []struct{ name, value string }{
-			{"-tsconfig", e.tsconfig}, {"-node_modules", e.forest},
-			{"-scratch", e.scratch}, {"-tsgo", e.tsgo},
+			{"-tsconfig", e.tsconfig}, {"-scratch", e.scratch},
+			{"-tsgo", e.tsgo},
 		}...)
 	}
 	for _, required := range required {
@@ -157,7 +157,7 @@ func (e *emitConfig) tsgoEmit(groups map[string][]string, o oxcOptions) error {
 	root := roots[0]
 	programRoot := filepath.Join(e.scratch, "root")
 	scratchOut := filepath.Join(e.scratch, "out")
-	if err := layOutProgramRoot(programRoot, e.forest); err != nil {
+	if err := layOutProgramRoot(programRoot, e.importers); err != nil {
 		return err
 	}
 	defer os.RemoveAll(e.scratch)

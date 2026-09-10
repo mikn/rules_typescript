@@ -6,6 +6,7 @@ acts as the integration-test entry point for bazel build //...
 
 load("@gazelle//:def.bzl", "gazelle")
 load("@npm//:defs.bzl", "npm_virtual_store")
+load("@rules_typescript//npm:defs.bzl", "node_modules")
 load("@rules_typescript//ts:defs.bzl", "ts_binary")
 
 gazelle(
@@ -14,6 +15,16 @@ gazelle(
 )
 
 npm_virtual_store(name = "node_modules/.pnpm")
+
+# The root importer: the chain every target here resolves its npm deps through.
+node_modules(
+    name = "node_modules",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@npm//:vite",
+        "@npm//:vitest",
+    ],
+)
 
 # Bundle the app entry point, pulling in the transitive //src/lib dependency.
 # Exercises ts_binary's entry_point wiring and the cross-package depset walk.

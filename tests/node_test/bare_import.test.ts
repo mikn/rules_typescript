@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { z } from "zod";
 
-test("a bare specifier resolves from the test's node_modules tree", () => {
+test("a bare specifier resolves through the importer into the store", () => {
   assert.ok(z.string().safeParse("x").success);
-  const tree = /\/bare_import_test\/node_modules\/zod\//;
-  assert.match(import.meta.resolve("zod"), tree);
+  const store =
+    /\/tests\/npm\/node_modules\/\.pnpm\/zod@3\.24\.2\/node_modules\/zod\//;
+  assert.match(import.meta.resolve("zod"), store);
 });

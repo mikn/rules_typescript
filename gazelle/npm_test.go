@@ -504,8 +504,8 @@ func TestEdgeLabel_CuloriPairing(t *testing.T) {
 	}
 }
 
-// A member by name is the nearest linking importer's link target, else the
-// view, from every package but the member's own ts_compile (G's rule).
+// A member by name is the nearest linking importer's link target, from every
+// package but the member's own ts_compile (G's rule), and "" where none links.
 func TestMemberView(t *testing.T) {
 	_, l := npmRepo(t)
 	for _, c := range []struct {
@@ -521,14 +521,13 @@ func TestMemberView(t *testing.T) {
 		{"@acme/lib", "", "ts_test", ":node_modules/@acme/lib", true},
 		{"@acme/ui", "web", "ts_compile", ":node_modules/@acme/ui", true},
 		{"@acme/ui", "web/src", "ts_compile", "//web:node_modules/@acme/ui", true},
-		{"@acme/ui", "packages/app", "ts_compile", "@npm//:acme_ui", true},
+		{"@acme/ui", "packages/app", "ts_compile", "", true},
 		{"web-app", "web", "ts_compile", "", true},
-		{"web-app", "web", "ts_test", "@npm//:web-app", true},
-		{"download", "workers/download/test", "ts_test", "@npm//:download", true},
-		{"api-gateway", "web", "ts_compile", "@npm//:api-gateway", true},
+		{"web-app", "web", "ts_test", "", true},
+		{"download", "workers/download/test", "ts_test", "", true},
+		{"api-gateway", "web", "ts_compile", "", true},
 		{"api-gateway", "workers/api-gateway", "ts_compile", "", true},
-		{"api-gateway", "workers/api-gateway/test", "ts_test",
-			"@npm//:api-gateway", true},
+		{"api-gateway", "workers/api-gateway/test", "ts_test", "", true},
 		{"zod", "packages/lib", "ts_compile", "", false},
 		{"./wire", "packages/lib", "ts_compile", "", false},
 		{"@acme/ui-src", "web", "ts_compile", "", false},

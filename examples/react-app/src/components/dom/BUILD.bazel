@@ -1,25 +1,14 @@
 """DOM tests for the Button component using @testing-library/react, in a
-package of their own with the node_modules they run in."""
+package of their own."""
 
-load("@rules_typescript//npm:defs.bzl", "node_modules")
 load("@rules_typescript//ts:defs.bzl", "ts_test")
 
-node_modules(
-    name = "node_modules",
-    deps = [
-        "@npm//:testing-library_react",
-        "@npm//:vitest",
-    ],
-)
-
 # DOM tests using @testing-library/react under happy-dom environment.
-# Uses a custom vitest config with preserveSymlinks:true to prevent vite
-# from resolving the runfiles symlinks to paths outside the sandbox.
 ts_test(
     name = "button_dom_test",
     srcs = ["Button.dom.test.tsx"],
     config = ":vitest.config.mjs",
-    node_modules = ":node_modules",
+    node_modules = "//:node_modules",
     deps = [
         "//src/components",
         "@npm//:react",

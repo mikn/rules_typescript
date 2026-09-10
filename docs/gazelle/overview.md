@@ -356,16 +356,17 @@ label:
   after the last `node_modules/` in the path (two when the first is a scope),
   or by the bare specifier's package when the edge is an import. The label is
   spelled through [the lockfile gate](#the-lockfile-gate). The `@types/*` twin
-  of a package arrives paired through the hub in the forest and gets no label
-  of its own.
+  of a package is the importer's to declare beside it and gets no label of its
+  own.
 - **A workspace member imported by its name** -- a bare specifier whose
   package is a `link:` name in the lockfile, or the manifest name of an
   importer -- is the link target of the nearest importer at or above the
-  package that links it, `//web:node_modules/@acme/ui`, and the hub's view
-  `@npm//:<name>` where no importer above links it; from every package but
-  the member's own `ts_compile`, where the file is its own and the edge is
-  nothing. A `ts_test` inside the member takes the link: the runtime resolves
-  the name through `node_modules`, and only the link puts the member there.
+  package that links it, `//web:node_modules/@acme/ui`; where no importer
+  above links it there is no label and one line names the member, since a
+  target resolves through its importers alone. From the member's own
+  `ts_compile` the file is its own and the edge is nothing. A `ts_test`
+  inside the member takes the link: the runtime resolves the name through
+  `node_modules`, and only the link puts the member there.
 - **A file another package owns**, reached by a relative path or a `paths`
   alias, is that package's `ts_compile`, or whichever rule holds the file in
   `srcs`: a hand-written one under `# keep` answers as a generated one does. A
@@ -422,8 +423,10 @@ each importer's resolutions under the importer's directory beside the root's:
 `@npm//web:marked` beside `@npm//:marked`. A name the nearest lockfile importer
 above the importing file declares is spelled under that importer, and a name
 only the root declares under the root. A flat label for a name two importers
-resolve differently would put the root's version at the target's top level in
-the forest, where the importer's own code expects its own.
+resolve differently names a resolution the target's chain does not link, and
+fails analysis. Every `ts_compile` and `ts_test` gets `node_modules`, the
+nearest lockfile importer's target at or above the package -- the root's for a
+package under no importer -- which is that chain.
 
 ## Verifying a Run
 

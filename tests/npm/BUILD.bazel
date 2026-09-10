@@ -3,10 +3,8 @@ load("@npm//:defs.bzl", "npm_virtual_store")
 load("@rules_go//go:def.bzl", "go_test")
 load("//npm:defs.bzl", "node_modules", "node_modules_member")
 load("//ts:defs.bzl", "ts_compile", "ts_test")
-load(":direct_version_tests.bzl", "direct_version_wins_test")
-load(":forest_tests.bzl", "forest_test")
+load(":forest_tests.bzl", "chain_test")
 load(":hub_provenance_tests.bzl", "store_provenance_test")
-load(":link_depth_tests.bzl", "link_depth_test_suite")
 load(":member_manifest_tests.bzl", "member_manifest_test_suite")
 load(":node_modules_tests.bzl", "member_link_test", "node_modules_test")
 load(":parser_tests.bzl", "parser_test_suite")
@@ -30,10 +28,11 @@ exports_files(
 
 npm_virtual_store(name = "node_modules/.pnpm")
 
-# The root importer: a link per name it declares, beside the store.
+# The root importer: a link per name it declares, beside the store. The chain
+# every fixture outside an importer's package resolves through.
 node_modules(
     name = "node_modules",
-    visibility = ["//tests/npm:__subpackages__"],
+    visibility = ["//visibility:public"],
     deps = [
         "@npm//:culori",
         "@npm//:happy-dom",
@@ -81,10 +80,21 @@ node_modules_test(
 )
 
 # One link target per member the root links, into the member's store tree.
-node_modules_member(
-    name = "node_modules/shared",
-    member = "@npm//:shared",
-)
+[
+    node_modules_member(
+        name = "node_modules/" + name,
+        member = "@npm//:" + label,
+        visibility = ["//visibility:public"],
+    )
+    for name, label in [
+        ("@acme/ui", "acme_ui"),
+        ("by-name-member", "by-name-member"),
+        ("preserve-view", "preserve-view"),
+        ("pulse", "pulse"),
+        ("shared", "shared"),
+        ("subpath-member", "subpath-member"),
+    ]
+]
 
 member_link_test(
     name = "member_link_test",
@@ -109,8 +119,6 @@ go_test(
 # Lockfile-text tests: what the parsers read, and what they must keep ignoring.
 parser_test_suite(name = "parser_tests")
 
-link_depth_test_suite(name = "link_depth_tests")
-
 workspace_link_test_suite(name = "workspace_link_tests")
 
 # Manifest-text tests: a workspace member's package.json as the view carries it.
@@ -119,15 +127,20 @@ member_manifest_test_suite(name = "member_manifest_tests")
 ts_compile(
     name = "app",
     srcs = ["app.ts"],
+    node_modules = ":node_modules",
     deps = ["@npm//:zod"],
 )
 
-# The forest the tsgo action stages, and the tsconfig it reads: bare specifiers
-# resolve through node_modules alone, so the config names no package.
-forest_test(
-    name = "app_forest_test",
+# The chain the tsgo action resolves through, and the tsconfig it reads: bare
+# specifiers resolve through node_modules alone, so the config names no package.
+chain_test(
+    name = "app_chain_test",
     size = "small",
-    linked = ["zod/package.json"],
+    chain = ["tests/npm/node_modules"],
+    linked = [
+        "tests/npm/node_modules/zod",
+        "tests/npm/node_modules/.pnpm/zod@3.24.2/node_modules/zod",
+    ],
     target_under_test = ":app",
 )
 
@@ -136,12 +149,14 @@ forest_test(
 ts_compile(
     name = "direct_types_probe",
     srcs = ["direct_types_probe.ts"],
+    node_modules = ":node_modules",
     deps = ["@npm//:types_node"],
 )
 
 ts_compile(
     name = "transitive_types_probe",
     srcs = ["transitive_types_probe.ts"],
+    node_modules = ":node_modules",
     deps = ["@npm//:vite"],
 )
 
@@ -153,29 +168,34 @@ build_test(
     ],
 )
 
-forest_test(
-    name = "direct_types_forest_test",
+chain_test(
+    name = "direct_types_chain_test",
     size = "small",
-    linked = ["@types/node/package.json"],
+    chain = ["tests/npm/node_modules"],
+    linked = ["tests/npm/node_modules/@types/node"],
     target_under_test = ":direct_types_probe",
     types_deps = ["node"],
 )
 
-forest_test(
-    name = "transitive_types_forest_test",
+# vite's snapshot resolved @types/node as a peer: the edge beside vite's tree.
+chain_test(
+    name = "transitive_types_chain_test",
     size = "small",
+    chain = ["tests/npm/node_modules"],
     linked = [
-        "@types/node/package.json",
-        "vite/package.json",
+        "tests/npm/node_modules/vite",
+        "node_modules/vite",
+        "node_modules/@types/node",
     ],
     target_under_test = ":transitive_types_probe",
 )
 
-# The hub pairs `culori` with `@types/culori` and the pairing rides in the closure,
-# so the forest links the @types package where TypeScript walks for it.
+# The importer declares `culori` and `@types/culori`: the chain stages the
+# twin's link beside the package's, where TypeScript walks for it.
 ts_compile(
     name = "paired_types_probe",
     srcs = ["paired_types_probe.ts"],
+    node_modules = ":node_modules",
     deps = ["@npm//:culori"],
 )
 
@@ -184,12 +204,13 @@ build_test(
     targets = [":paired_types_probe"],
 )
 
-forest_test(
-    name = "paired_types_forest_test",
+chain_test(
+    name = "paired_types_chain_test",
     size = "small",
+    chain = ["tests/npm/node_modules"],
     linked = [
-        "@types/culori/package.json",
-        "culori/package.json",
+        "tests/npm/node_modules/@types/culori",
+        "tests/npm/node_modules/culori",
     ],
     target_under_test = ":paired_types_probe",
 )
@@ -220,32 +241,13 @@ go_test(
     deps = ["//tests/verify"],
 )
 
-# An importer's own resolution against a transitive dependent's older copy of
-# the same name. app-a declared ansi-regex 5.0.1; strip-ansi carries 6.2.2 in its
-# closure and sorts first in `deps`, which is the order Gazelle writes.
-ts_compile(
-    name = "direct_version_consumer",
-    srcs = ["direct_version_consumer.ts"],
-    deps = [
-        "@npm_features//:strip-ansi",
-        "@npm_features//app-a:ansi-regex",
-    ],
-)
-
-direct_version_wins_test(
-    name = "direct_version_wins_test",
-    size = "small",
-    package = "ansi-regex",
-    target_under_test = ":direct_version_consumer",
-    want_dir = "ansi-regex__5_0_1",
-)
-
-# @npm//:shared is the hub's view of the `link:` in tests/npm/pnpm-lock.yaml,
-# its exports rewritten to the emitted files; bare name and `./wire` resolve.
+# :node_modules/shared is the root's link to the member's store tree, its
+# exports rewritten to the emitted files; bare name and `./wire` resolve.
 ts_compile(
     name = "workspace_consumer",
     srcs = ["workspace_consumer.ts"],
-    deps = ["@npm//:shared"],
+    node_modules = ":node_modules",
+    deps = [":node_modules/shared"],
 )
 
 # The same link at run time: node reads the same manifest and runs the .js the
@@ -254,8 +256,9 @@ ts_test(
     name = "workspace_runtime_test",
     size = "small",
     srcs = ["workspace_runtime.test.ts"],
+    node_modules = ":node_modules",
     deps = [
-        "@npm//:shared",
+        ":node_modules/shared",
         "@npm//:vitest",
     ],
 )
@@ -274,8 +277,9 @@ ts_test(
     name = "by_name_member_test",
     size = "small",
     srcs = ["by_name_member.test.ts"],
+    node_modules = ":node_modules",
     deps = [
-        "@npm//:by-name-member",
+        ":node_modules/by-name-member",
         "@npm//:vitest",
     ],
 )
@@ -284,9 +288,10 @@ ts_test(
     name = "by_name_member_node_test",
     size = "small",
     srcs = ["by_name_member_node.test.ts"],
+    node_modules = ":node_modules",
     runner = "//ts/runners:node_test",
     deps = [
-        "@npm//:by-name-member",
+        ":node_modules/by-name-member",
         "@npm//:types_node",
     ],
 )
@@ -322,22 +327,13 @@ go_test(
     deps = ["//tests/verify"],
 )
 
-# Same feature from a NON-ROOT importer: pnpm-lock.yaml has importer
-# tests/npm/nested with `version: link:../../../packages/nested-shared`, which
-# only yields a valid label once resolved against the importer path. Treating
-# it as root-relative produces "@@//../../../packages/nested-shared:...".
-ts_compile(
-    name = "nested_workspace_consumer",
-    srcs = ["nested_workspace_consumer.ts"],
-    deps = ["@npm//:nested-shared"],
-)
-
-# A workspace member imported by its PACKAGE NAME, through the hub's view of the
-# `link:` in features/pnpm-lock.yaml; an alias carries no name the rule can see.
+# A workspace member imported by its PACKAGE NAME, through the features root's
+# link target for the `link:` in features/pnpm-lock.yaml.
 ts_compile(
     name = "ws_linked_consumer",
     srcs = ["ws_linked_consumer.ts"],
-    deps = ["@npm_features//:ws-linked"],
+    node_modules = "//tests/npm/features:node_modules",
+    deps = ["//tests/npm/features:node_modules/ws-linked"],
 )
 
 # ── The link target ──────────────────────────────────────────────────────────

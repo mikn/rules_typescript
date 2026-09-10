@@ -5,8 +5,8 @@ declares a symlink `node_modules/<name>` into [the store](#the-store) for
 every npm package the importer declares, and one `node_modules_member` per
 workspace member it links. `ts_codegen`, `ts_binary`, `ts_dev_server` and the
 ruleset's `esbuild_bundle` take the target and stage its links and every store
-tree they reach; `ts_compile` and `ts_test` build their own forest from `deps`
-with [the builder below](#trees-ts_compile-and-ts_test-generate).
+tree they reach; `ts_compile` and `ts_test` take it as [the chain](#the-chain)
+a direct npm dep resolves along.
 
 ## Usage
 
@@ -83,11 +83,11 @@ link has one text in the execroot and the runfiles tree only while link and
 target share one, so a dep whose store is another module's lockfile fails at
 analysis naming it. `DefaultInfo.files` is every link and every store tree the
 links reach; a consumer that runs outside an action stages them and takes the
-directory, which no artifact names. `NodeModulesInfo` carries `dir` (the
-directory as a bin-dir path), `links`, `stores` and `parent`, and a
-`node_modules_member` returns `NpmLinkInfo(link, store)` beside the view's
-`TsInfo` and `NpmPackageInfo`, so a target names it in `deps` where it named
-the view ([Providers](providers.md#nodemodulesinfo)).
+directory, which no artifact names. `NodeModulesInfo` carries `label`, `dir`
+(the directory as a bin-dir path), `links` (name to `NpmLinkInfo(link, store)`)
+and `parent`, and a `node_modules_member` returns `NpmLinkInfo` beside the
+view's `TsInfo` and `NpmPackageInfo`, so a target names it in `deps` where it
+named the view ([Providers](providers.md#nodemodulesinfo)).
 
 ## One Link per Name
 
@@ -135,9 +135,9 @@ The call declares, `manual` and public:
   the dependency by, so an npm alias is a link name and not a second copy. An
   edge to a platform-partitioned snapshot is declared under the same
   `select()` the snapshot's repository writes, so no platform fetches
-  another's tarball. An edge the extension dropped to break a cycle has no
-  link; the name resolves through the hidden hoist below, to the resolution
-  the hoist links.
+  another's tarball. An edge the extension cut to break a cycle in the target
+  graph is a link all the same, with no dependency behind it: its tree is in
+  a closure through the edge that closes the cycle, as it is in pnpm's store.
 - one `npm_store_member` per workspace member whose BUILD file declares its
   target, `node_modules/.pnpm/<name with / as +>@0.0.0/node_modules/<name>`:
   the member's `package.json` as built (every source-file target rewritten to
@@ -186,21 +186,36 @@ targets, never a consumer's.
 
 Every `ts_npm_package` carries its snapshot's store as `NpmPackageInfo.store`
 (`NpmStoreInfo`: `key`, `tree`, `links`, `transitive`, `manifest`), and a
-member's hub view carries the member's. The importer's links above read it;
-the forest below is what `ts_compile` and `ts_test` stage.
+member's hub view carries the member's. The importer's links above read it,
+and the chain below is where `ts_compile` and `ts_test` find them.
 
-## Trees `ts_compile` and `ts_test` Generate
+## The Chain
 
-`ts_compile` builds `<name>/node_modules` from its npm deps, their closures, the
-paired `@types/*` packages and every first-party dep's npm closure, and tsgo
-walks it from a program root that mirrors the exec root; see
-[the node_modules forest](ts-compile.md#the-node_modules-forest). A `ts_test`
-builds the same forest and runs its tests in it: the tree the compile was
-checked against is the runtime tree, with nothing to declare. See
-[ts_test](ts-test.md). The tree is pnpm-shaped: one resolution per name flat at
-the top, the target's own deps first, every other one under
-`.pnpm/<name>@<version>[_<peer set>]/node_modules/<name>` with a relative link
-from each dependent that resolved to it.
+`ts_compile` and `ts_test` build no tree. Each names in `node_modules` the
+nearest lockfile importer at or above its package, and a direct npm dep
+resolves along that target and its `parent`s nearest first, pnpm's walk-up
+from the importing file: the link whose store is the dep's resolution is the
+one the program reads. A name no importer on the chain links fails analysis
+naming the nearest importer's `package.json`; a name linked at another
+resolution fails naming the importer-scoped label, `@npm//web:marked`. A
+workspace member is named by the importer's link target,
+`//web:node_modules/@acme/ui`, and its store tree comes with the link.
+
+The action stages the links and the store files the program reaches and
+nothing else: the chain's links for the direct names, the `@types/<name>`
+twin an importer on the chain links, the member links `deps` name, every store
+tree and edge link their closures hold, and each first-party dep's
+(`TsInfo.npm_files`). tsaction lays the exec root out again under the
+target's output directory with each importer's `node_modules` at the
+importer's directory -- the lockfile's root importer's at the program root's
+`node_modules` -- so a source at `web/src/a.ts` walks up through
+`web/node_modules` to the root's, and a dep's declaration under
+`bazel-out/<cfg>/bin/packages/ui/` through `packages/ui/node_modules`
+([ts_compile](ts-compile.md#the-node_modules-chain)). A `ts_test` runs in
+the same layout: the runfiles hold the links and store files at their own
+paths, `NODE_PATH` names the chain's directories nearest first, and where the
+walk up from the tests meets no `node_modules` before the workspace's root
+the launcher links the chain's root in there ([ts_test](ts-test.md)).
 
 ## npm_bin
 

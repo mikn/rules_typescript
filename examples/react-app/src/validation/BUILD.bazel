@@ -6,6 +6,7 @@ ts_compile(
         "index.ts",
         "userSchema.ts",
     ],
+    node_modules = "//:node_modules",
     visibility = ["//visibility:public"],
     deps = ["@npm//:zod"],
 )
@@ -13,6 +14,7 @@ ts_compile(
 ts_test(
     name = "validation_test",
     srcs = ["userSchema.test.ts"],
+    node_modules = "//:node_modules",
     deps = [
         ":validation",
         "@npm//:vitest",

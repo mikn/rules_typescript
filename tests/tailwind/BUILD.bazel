@@ -31,6 +31,7 @@ node_modules(
 ts_compile(
     name = "tailwind_config",
     srcs = ["tailwind_config.ts"],
+    node_modules = ":node_modules",
     deps = [
         "@npm_tailwind//:tailwindcss_vite",
         "@npm_tailwind//:vite",

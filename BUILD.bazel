@@ -78,7 +78,7 @@ ts_refresh_tsconfig(
         "//tests/dev_server:dev_app",
         "//tests/multi/app",
         "//tests/npm:app",
-        "//tests/npm:nested_workspace_consumer",
+        "//tests/npm/nested:nested_workspace_consumer",
         "//tests/npm:workspace_consumer",
         "//tests/smoke:button",
         "//tests/smoke:hello",

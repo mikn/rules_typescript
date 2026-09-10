@@ -72,10 +72,11 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 				"srcs": true,
 			},
 			MergeableAttrs: map[string]bool{
-				"srcs":       true,
-				"deps":       true,
-				"visibility": true,
-				"tsconfig":   true,
+				"srcs":         true,
+				"deps":         true,
+				"visibility":   true,
+				"tsconfig":     true,
+				"node_modules": true,
 			},
 			ResolveAttrs: map[string]bool{
 				"deps": true,
@@ -86,10 +87,11 @@ func (l *tsLang) Kinds() map[string]rule.KindInfo {
 				"srcs": true,
 			},
 			MergeableAttrs: map[string]bool{
-				"srcs":     true,
-				"deps":     true,
-				"tsconfig": true,
-				"config":   true,
+				"srcs":         true,
+				"deps":         true,
+				"tsconfig":     true,
+				"config":       true,
+				"node_modules": true,
 			},
 			// Written at Resolve, from the config's listing: its modules and
 			// the pool's attributes.

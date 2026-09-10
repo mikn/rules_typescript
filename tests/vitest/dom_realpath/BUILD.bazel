@@ -13,10 +13,11 @@ ts_test(
         "fixture.json",
     ],
     config = "vitest.config.mjs",
+    node_modules = "//tests/npm:node_modules",
     deps = [
+        "//tests/npm:node_modules/shared",
         "//tests/vitest:math",
         "@npm//:happy-dom",
-        "@npm//:shared",
         "@npm//:types_node",
         "@npm//:vitest",
         "@npm//:zod",

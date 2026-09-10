@@ -113,6 +113,13 @@ func (l *npmLock) importerAbove(dir string) string {
 	return ""
 }
 
+// nodeModulesLabel spells, for a target in pkg, the node_modules target of
+// the nearest importer at or above it: the chain its npm deps resolve along.
+func (l *npmLock) nodeModulesLabel(pkg string) string {
+	imp := l.importerAbove(pkg)
+	return label.New("", imp, nodeModulesTargetName).Rel("", pkg).String()
+}
+
 // label spells name for an import from a file in dir: the importer's own
 // package when the nearest importer above dir declares it, else the root's.
 func (l *npmLock) label(name, dir string) string {
@@ -142,14 +149,16 @@ func (l *npmLock) memberView(spec, pkg, kind string) (string, bool) {
 }
 
 // memberLabel spells member name for a target in pkg: the link target of the
-// nearest importer at or above pkg that links it, else the hub's view.
+// nearest importer at or above pkg that links it, or "" and a line for none.
 func (l *npmLock) memberLabel(name, pkg string) string {
 	for dir, more := pkg, true; more; dir, more = parentDir(dir), dir != "" {
 		if imp, ok := l.importers[dir]; ok && imp.links[name] != "" {
 			return label.New("", dir, "node_modules/"+name).Rel("", pkg).String()
 		}
 	}
-	return "@npm//:" + npmPackageToLabelName(name)
+	log.Printf("typescript: %s: the workspace member %q is linked by no "+
+		"importer at or above it; no dep", orRepoRoot(pkg), name)
+	return ""
 }
 
 // edgeLabel is the one label an edge from a file of pkg into node_modules
@@ -180,7 +189,9 @@ func (l *npmLock) manifestLabels(m *manifest, pkg string) []string {
 	for _, name := range m.deps {
 		switch _, member := l.members[name]; {
 		case member:
-			labels = append(labels, l.memberLabel(name, pkg))
+			if lbl := l.memberLabel(name, pkg); lbl != "" {
+				labels = append(labels, lbl)
+			}
 		case l.names[name]:
 			labels = append(labels, l.label(name, m.dir))
 		default:

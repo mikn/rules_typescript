@@ -22,6 +22,7 @@ ts_test(
         "worker.test.ts",
         "worker-configuration.d.ts",
     ],
+    node_modules = "//tests/npm:node_modules",
     deps = [
         ":zz_ambient_e2e",
         "@npm//:vitest",

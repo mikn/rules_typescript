@@ -16,9 +16,10 @@ pnpm add react react-dom --lockfile-only
 ```
 
 `--lockfile-only` updates the lockfile without creating a `node_modules/`
-directory. The rules read no `node_modules/` from the source tree; Bazel
-materialises one inside the sandbox for the targets that need it, the forest
-tsgo type-checks against and the tree a test runs on. The editor is the one
+directory. The rules read no `node_modules/` from the source tree: the build
+declares pnpm's virtual store and each importer's links into it
+([node_modules](../rules/node-modules.md)), and a target resolves through the
+importer chain, in the sandbox and in a test's runfiles. The editor is the one
 reader of a checkout `node_modules`, so `pnpm install` is its setup
 ([IDE Setup](../getting-started/ide-setup.md#npm-packages)).
 
@@ -82,11 +83,10 @@ ts_compile(
   versions also gets a version-suffixed label per version, so one can be pinned.
 - A `workspace:*` link resolves to a target in your own repository. See
   [workspace links](#workspace-links).
-- A target's node_modules forest links one resolution per name at the top
-  level, the one its own `deps` name, so a target that reaches two versions of
-  one name type-checks against the version it declared. A version reached only
-  through another dependency's closure fills a name no direct dep claims, and
-  never displaces one that does.
+- A target resolves a name to its importer's resolution: the link of the
+  nearest lockfile importer at or above it that declares the name. A version
+  another importer declares, or one only a dependency's closure carries, is
+  not the target's to import, and naming it in `deps` fails analysis.
 
 ## Adding Dependencies
 
@@ -375,7 +375,8 @@ directories inside one repository.
 ## Where a Package's Type Declarations Come From
 
 From the package's own `package.json`, read by tsgo where the package sits in
-the forest: `node_modules/<name>/`. Nothing here reads `exports`, `types`,
+the store, `node_modules/.pnpm/<key>/node_modules/<name>/`, reached through the
+importer's link. Nothing here reads `exports`, `types`,
 `typings` or `main` for it. tsgo walks the tree as it walks a pnpm install --
 the `exports` map in its own key order with the conditions as written, then
 `typings` and `types`, then `main`, then the root index -- and a
@@ -389,17 +390,19 @@ subpath (`@cloudflare/vitest-pool-workers/types`) and a one-star pattern
 
 A `.ts` module entry sits under `node_modules/<name>/` and is a library file to
 TypeScript: type-checked, never emitted, outside the `rootDir` check. See
-[the node_modules forest](../rules/ts-compile.md#the-node_modules-forest).
+[the node_modules chain](../rules/ts-compile.md#the-node_modules-chain).
 
 ## What a Workspace Member Is Imported As
 
 A `workspace:*` dependency resolves to a `link:` in the lockfile, and the hub
 writes one `npm_workspace_package` view per workspace member -- every `link:`
 target and every importer whose `package.json` has a `name`, one view per member
-directory -- at `@npm//:<name>`. The view is that member as an npm package: the
-forest and the runtime tree link it at `node_modules/<name>`, holding the
-member's `package.json` as built beside the member's `.js`, `.js.map` and `.d.ts`
-at the paths the manifest names. "As built" is one rewrite, done by the member's
+directory -- at `@npm//:<name>`; each importer that links the member holds a
+`node_modules_member` target, `//<importer>:node_modules/<name>`, which a
+target names in `deps`. The view is that member as an npm package: its store
+tree, `node_modules/.pnpm/<name with / as +>@0.0.0/node_modules/<name>`, holds
+the member's `package.json` as built beside the member's `.js`, `.js.map` and
+`.d.ts` at the paths the manifest names. "As built" is one rewrite, done by the member's
 store target at analysis, where the compiling target's declared `jsx` is known:
 every source-file target under `main`, `module`, `browser`, `exports` and
 `imports` names the emitted file -- the `.js`, or the `.jsx` for a `.tsx` under
@@ -422,35 +425,36 @@ tsc maps a `.js` or `.jsx` target to the `.d.ts` beside it, node runs the `.js`
 and vite transforms the `.jsx`, so one manifest serves the type check and the
 run: `import { frame } from
 "@acme/canvas-sdk/wire"` resolves for tsgo to `src/wire/index.d.ts` and for
-vitest to `src/wire/index.js`, both under the link. The link's root is the
+vitest to `src/wire/index.js`, both under the tree. The tree's root is the
 member's directory under `bazel-bin`, where the compiling target's outputs hang
 off, whichever directory holds that target. A member whose directory holds no
 `package.json` with a `name` gets a comment in the hub and no view; two members
 of one name, or one directory linked under two names, fail the extension.
 
-The link holds the member's data srcs too, at their package-relative paths
+The tree holds the member's data srcs too, at their package-relative paths
 beside the `.js` that reads them: a member whose module imports `./banner.json`
-answers `import { tagline } from "shared"` from the link alone. The member's
-own `package.json` is the one data src the link leaves out: the manifest as
-built stands in its place, in the link and at the member's own path in a
+answers `import { tagline } from "shared"` from the tree alone. The member's
+own `package.json` is the one data src the tree leaves out: the manifest as
+built stands in its place, in the tree and at the member's own path in a
 `ts_test`'s runfiles, where a test inside the member resolves the member's name
 through the nearest manifest and would otherwise reach the source targets. The
-view forwards the member's `TsInfo`; a consumer reaches the member's files in
-the tree, as it reaches any npm package's. `ts_test` names the tree's
-workspace members in `test.server.deps.inline`: vitest runs a module under
+link target forwards the view's `TsInfo` and `NpmPackageInfo`; a consumer
+reaches the member's files in the store, as it reaches any npm package's.
+`ts_test` names the closure's workspace members in `test.server.deps.inline`:
+vitest runs a module under
 `node_modules` in node unless a pattern names it, and a member's emitted `.js`
 keeps its sources' extensionless relative imports, which node's loader rejects
 and vite resolves; under pnpm a linked member is inlined because its realpath
 lies outside `node_modules`.
 
-The view holds the member's own files and nothing outside them, so a member's
+The tree holds the member's own files and nothing outside them, so a member's
 file names another package by its package name. A relative path that leaves
 the member (`../../../../web/shared/lib/proto/x.ts` from
 `packages/app-mcp/src/generated/`) resolves under pnpm alone, where
-`node_modules/<name>` is a symlink and node resolves the importer to its real
-path first. Here the view is the member's files at `node_modules/<name>` in
-the tree, and tsgo and both runners resolve a package's file at its place in
-the tree, so the path lands beside the other packages, where the file is not:
+`node_modules/<name>` is a symlink to the member's directory and node resolves
+the importer to its real path first. Here the member is its files in the store
+tree, and tsgo and both runners resolve a package's file at its realpath there,
+so the path lands beside the other store trees, where the file is not:
 the run fails with `Cannot find module`, and tsgo reports `TS2307`
 in the member's `.d.ts` under `--//ts:lib_check` and, without it, widens every
 name the file re-exported to `any`. A `.ts` subpath into a member with no
@@ -536,9 +540,9 @@ lockfile.
     the hub, not just for the member. Give the member its `tsconfig.json` and
     run Gazelle, or write the target by hand.
 
-A workspace member is staged into `node_modules` like any other package, so a
-`ts_test` or `ts_binary` that lists `@npm//:shared` can import it at run time and
-not only type-check against it. Its own npm dependencies come along, and its
+A workspace member is a store tree like any other package, so a `ts_test` or
+`ts_binary` that lists the importer's link target, `//:node_modules/shared`,
+can import it at run time and not only type-check against it. Its own npm dependencies come along, and its
 `package.json` is the member's own with source-file targets rewritten to the
 emitted files, so the entry and every `exports` subpath resolve at run time as
 they do for the check; see
@@ -567,8 +571,10 @@ node_modules_member(
 ```
 
 `ts_codegen`, `ts_binary` and `ts_dev_server` take the importer's target and
-stage its links and every store tree they reach; `ts_test` builds its own tree
-from `deps`. See [Testing with vitest](testing.md) and
+stage its links and every store tree they reach; `ts_compile` and `ts_test`
+name it in `node_modules` and resolve each npm dep along it and its `parent`s
+([The Chain](../rules/node-modules.md#the-chain)). See
+[Testing with vitest](testing.md) and
 [node_modules](../rules/node-modules.md#the-layout).
 
 Beside them, every lockfile's package declares pnpm's virtual store:
@@ -596,8 +602,8 @@ the rules write for it -- an action input, an exec path such as
 `external/+npm+npm__zod__4_1_5/node_modules/zod/index.d.ts` -- carries a
 `node_modules` segment. TypeScript classifies a file by that segment: under one
 it is a library file, type-checked and never emitted; under none it is project
-source, emit-eligible and checked against `rootDir`. The `node_modules` tree is
-laid out from the package root.
+source, emit-eligible and checked against `rootDir`. The store tree is copied
+from the package root.
 
 One measurement, made while both layouts existed: building one vitest test
 target from an empty output base against a 2731-package lockfile went from 392s

@@ -24,10 +24,11 @@ ts_test(
     name = "member_test",
     srcs = ["view.test.ts"],
     config = "vitest.config.mjs",
+    node_modules = "//tests/npm:node_modules",
     tsconfig = ":tsconfig",
     deps = [
         ":member",
-        "@npm//:preserve-view",
+        "//tests/npm:node_modules/preserve-view",
         "@npm//:vitest",
     ],
 )

@@ -23,6 +23,7 @@ ts_compile(
 ts_test(
     name = "relative_ts_test",
     srcs = ["relative_ts.test.ts"],
+    node_modules = "//tests/npm:node_modules",
     tsconfig = "tsconfig.ts_extensions.json",
     deps = [
         ":lib",

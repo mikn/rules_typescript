@@ -13,6 +13,7 @@ ts_test(
         "__snapshots__/widget.test.ts.snap",
         "widget.test.ts",
     ],
+    node_modules = "//tests/npm:node_modules",
     deps = [
         ":widget",
         "@npm//:vitest",

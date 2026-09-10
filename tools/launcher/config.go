@@ -44,7 +44,8 @@ type Config struct {
 	DevServer *DevServerConfig `json:"dev_server,omitempty"`
 }
 
-// NodeConfig runs one .js entry point.
+// NodeConfig runs one .js entry point. NodeModules, here and below, is an
+// importer's node_modules: a directory no manifest entry names.
 type NodeConfig struct {
 	Entry         string        `json:"entry"`
 	NodeModules   string        `json:"node_modules,omitempty"`
@@ -59,12 +60,13 @@ type PackageLink struct {
 }
 
 // VitestConfig runs the vitest CLI over a sharded set of compiled test files.
+// NodeModules is the importer chain, nearest first.
 type VitestConfig struct {
-	VitestInTree  string `json:"vitest_in_tree,omitempty"`
-	ConfigFile    string `json:"config_file"`
-	TestFilesList string `json:"test_files_list"`
-	NodeModules   string `json:"node_modules,omitempty"`
-	ReadsHook     string `json:"reads_hook,omitempty"`
+	VitestInTree  string   `json:"vitest_in_tree,omitempty"`
+	ConfigFile    string   `json:"config_file"`
+	TestFilesList string   `json:"test_files_list"`
+	NodeModules   []string `json:"node_modules,omitempty"`
+	ReadsHook     string   `json:"reads_hook,omitempty"`
 	// RootRel is vite's root relative to the config's directory: the package
 	// of a `config` from an ancestor package, "." otherwise.
 	RootRel string `json:"root_rel,omitempty"`
@@ -76,8 +78,8 @@ type VitestConfig struct {
 // NodeTestConfig carries no config file: node:test is configured by CLI flags
 // and by the test file itself.
 type NodeTestConfig struct {
-	TestFilesList string `json:"test_files_list"`
-	NodeModules   string `json:"node_modules,omitempty"`
+	TestFilesList string   `json:"test_files_list"`
+	NodeModules   []string `json:"node_modules,omitempty"`
 	// ResolveHook is the ESM resolver shim that answers the `./x.ts` specifier
 	// oxc emits verbatim into the .js beside it. Empty disables it.
 	ResolveHook string `json:"resolve_hook,omitempty"`

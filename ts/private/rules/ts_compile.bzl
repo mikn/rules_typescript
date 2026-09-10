@@ -22,20 +22,23 @@ dep's .d.ts doesn't change (e.g. because an internal implementation detail
 changed but the public API did not), dependents are not recompiled.
 
 tsgo checks the program -- and emits its declarations under declarations =
-"tsgo" -- against a node_modules forest: the target's npm deps, their closures,
-the @types/* package paired with each and every first-party dep's npm closure,
-laid out as node_modules.bzl lays out a runtime tree. tsgo walks up from the
-importing file for a bare specifier and nothing above a source in the exec root
-is an output, so tsaction runs it from a program root that mirrors the exec
-root with the forest at its node_modules, and every import resolves as it does
+"tsgo" -- against the importer chain `node_modules` names: a direct npm dep is
+the link of the nearest importer that declares it, its closure the store trees
+and edge links that link reaches, a `@types/<name>` twin the chain links comes
+with it, a member link target brings the member's tree, and every first-party
+dep's npm files come along. tsgo walks up from the importing file for a bare
+specifier and nothing above a source in the exec root is an output, so tsaction
+runs it from a program root that mirrors the exec root with each importer's
+node_modules at the importer's directory, and every import resolves as it does
 over a pnpm install. Under --//ts:declarations=oxc the check is a validation
 action in the _validation output group: it runs during `bazel build` and does
 not block downstream compilation. The linter the root module's ts.lint() names
 runs over the same sources as a second validation action, TsLint. The emit
 reads the same program root when tsgo emits the JavaScript.
 
-The rule has three attributes: srcs, deps and tsconfig. Every compiler option is
-the tsconfig's; the emit knobs are the build flags //ts:declarations (tsgo|oxc),
+The rule has four attributes: srcs, deps, tsconfig and node_modules. Every
+compiler option is the tsconfig's; the emit knobs are the build flags
+//ts:declarations (tsgo|oxc),
 //ts:source_map, //ts:declaration_map and //ts:lib_check. Each action is a
 function under ts/private/actions/; compile_program declares the outputs, calls
 them in order and builds the providers, for ts_compile and for the ts_test rule
@@ -45,6 +48,8 @@ over the same attributes.
 load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load(
     "//ts/private:providers.bzl",
+    "NodeModulesInfo",
+    "NpmLinkInfo",
     "NpmPackageInfo",
     "TsConfigInfo",
     "TsInfo",
@@ -58,7 +63,6 @@ load(
     "get_oxc_toolchain",
 )
 load("//ts/private/actions:emit.bzl", "emit_action")
-load("//ts/private/actions:forest.bzl", "forest_action", "forest_packages")
 load("//ts/private/actions:lint.bzl", "LintConfigInfo", "lint_action")
 load(
     "//ts/private/actions:tsconfig.bzl",
@@ -68,6 +72,7 @@ load(
 load(
     "//ts/private/actions:tsgo.bzl",
     "npm_hub_entry",
+    "npm_hub_label",
     "ownership_manifest",
     "tsgo_action",
 )
@@ -189,15 +194,104 @@ def _classify_srcs(ctx):
             data_srcs.append(f)
     return compile_srcs, js_srcs, passthrough_dts, data_srcs
 
+def _types_twin(name):
+    if name.startswith("@types/"):
+        return None
+    if name.startswith("@"):
+        return "@types/" + name[1:].replace("/", "__")
+    return "@types/" + name
+
+def _manifest_of(importer):
+    return "/".join([p for p in [importer.label.package, "package.json"] if p])
+
+def _importer_chain(ctx, packages):
+    if not ctx.attr.node_modules:
+        if packages:
+            fail(("{}: the closure holds npm packages ({}) and " +
+                  "`node_modules` names no importer whose chain resolves " +
+                  "them; set it to the `node_modules` target of the nearest " +
+                  "lockfile importer at or above this package, as Gazelle " +
+                  "writes it.").format(
+                ctx.label,
+                ", ".join(sorted([info.package_name for info in packages])),
+            ))
+        return []
+    chain = [ctx.attr.node_modules[NodeModulesInfo]]
+    for _ in range(1000):
+        if chain[-1].parent == None:
+            return chain
+        chain.append(chain[-1].parent)
+    fail("{}: the importer chain from {} is more than 1000 deep".format(
+        ctx.label,
+        ctx.attr.node_modules.label,
+    ))
+
+def _importer_linking(chain, name):
+    for importer in chain:
+        if name in importer.links:
+            return importer
+    return None
+
+def _resolve_on_chain(ctx, chain, dep):
+    name = dep.info.package_name
+    importer = _importer_linking(chain, name)
+    if importer == None:
+        fail(("{}: '{}' in deps is linked by no importer on the chain {}; " +
+              "declare it in {} and run `pnpm install " +
+              "--lockfile-only`.").format(
+            ctx.label,
+            name,
+            " -> ".join([label_text(i.label) for i in chain]),
+            _manifest_of(chain[0]),
+        ))
+    link = importer.links[name]
+    if link.store.key != dep.info.store.key:
+        fail(("{}: '{}' in deps is {} ({}) and the importer {} links {}: a " +
+              "target resolves its importer's resolution; name {} in " +
+              "deps.").format(
+            ctx.label,
+            name,
+            dep.info.store.key,
+            dep.label,
+            label_text(importer.label),
+            link.store.key,
+            npm_hub_label(dep.info, importer.label.package),
+        ))
+    return link
+
+def _bare_view_message(ctx, name):
+    return ("{}: '{}' in deps is the hub's view of a workspace member; name " +
+            "the link target of the importer that links it instead, " +
+            "`//<importer>:node_modules/{}`, as Gazelle writes it.").format(
+        ctx.label,
+        name,
+        name,
+    )
+
+def _npm_closure(direct, dep_sets):
+    """Every distinct resolution the direct npm deps and the first-party deps'
+    closures reach, the direct ones first, by store key."""
+    seen = {}
+    packages = []
+    closure = depset(transitive = dep_sets, order = "postorder").to_list()
+    for info in direct + closure:
+        for reached in [info] + info.transitive_deps.to_list():
+            if reached.store.key not in seen:
+                seen[reached.store.key] = True
+                packages.append(reached)
+    return packages
+
 def compile_program(ctx, es_modules = False, es_twins = False):
-    """Registers the actions over ctx's srcs, deps and tsconfig.
+    """Registers the actions over ctx's srcs, deps, tsconfig and node_modules.
 
     The body of ts_compile and of ts_test: one attrs dict, one set of action
     functions. `es_modules` emits the program as ES modules whatever its
     tsconfig's module, the vitest runner's program; `es_twins` adds, to a
     program tsgo emits, the ES twin of each .js for the vitest tests that
-    depend on it. Returns struct(outputs, js, forest, packages, transitive_js,
-    transitive_data, es_twins, info, instrumented, output_groups).
+    depend on it. Returns struct(outputs, js, importers, npm_files, packages,
+    transitive_js, transitive_data, es_twins, info, instrumented,
+    output_groups): `importers` the chain's NodeModulesInfo nearest first and
+    `npm_files` the store files the program reaches.
     """
     oxc = get_oxc_toolchain(ctx)
     pkg = ctx.label.package
@@ -206,43 +300,63 @@ def compile_program(ctx, es_modules = False, es_twins = False):
 
     transitive_dts_sets = []
     dep_npm_package_sets = []
+    dep_npm_file_sets = []
     transitive_js_sets = []
     transitive_js_map_sets = []
     transitive_data_sets = []
     transitive_es_twins_sets = []
 
     direct_npm_infos = []
-    direct_npm_names = {}
+    published = []
+    npm_links = []
     direct_labels = []
     owner_sets = []
 
-    # A dep linked in the forest reaches the program and the runtime there; a
-    # copy of its files at their exec paths would duplicate every module.
+    # A dep reached through the store is in the program there; a copy of its
+    # files at their exec paths would duplicate every module.
     for dep in ctx.attr.deps:
         info = dep[TsInfo]
         dep_npm_package_sets.append(info.npm_packages)
+        if NpmLinkInfo in dep:
+            direct_npm_infos.append(dep[NpmPackageInfo])
+            npm_links.append(dep[NpmLinkInfo])
+            continue
         if NpmPackageInfo in dep:
             npm_info = dep[NpmPackageInfo]
+            if npm_info.package_dir == None:
+                fail(_bare_view_message(ctx, npm_info.package_name))
             direct_npm_infos.append(npm_info)
-            direct_npm_names[npm_info.package_name] = True
+            published.append(struct(label = dep.label, info = npm_info))
             continue
         transitive_dts_sets.append(info.transitive_declarations)
         transitive_js_sets.append(info.transitive_js)
         transitive_js_map_sets.append(info.transitive_js_maps)
         transitive_data_sets.append(info.transitive_data)
         transitive_es_twins_sets.append(info.transitive_es_twins)
+        dep_npm_file_sets.append(info.npm_files)
         direct_labels.append(label_text(dep.label))
         owner_sets.append(info.owners)
 
-    packages = forest_packages(direct_npm_infos, dep_npm_package_sets)
+    # A direct package resolves along the chain nearest first, pnpm's walk-up;
+    # the @types twin an importer links beside it is the package's to declare.
+    packages = _npm_closure(direct_npm_infos, dep_npm_package_sets)
+    chain = _importer_chain(ctx, packages)
+    npm_declared = {info.package_name: True for info in direct_npm_infos}
+    for dep in published:
+        npm_links.append(_resolve_on_chain(ctx, chain, dep))
+        twin = _types_twin(dep.info.package_name)
+        twin_importer = _importer_linking(chain, twin) if twin else None
+        if twin_importer != None:
+            npm_links.append(twin_importer.links[twin])
+            npm_declared[twin] = True
+    npm_files = depset(
+        [entry.link for entry in npm_links],
+        transitive = (
+            [entry.store.transitive for entry in npm_links] + dep_npm_file_sets
+        ),
+    )
+    importers = [importer.dir for importer in chain]
 
-    # The forest links a direct package's @types twin for it (ts_npm_package's
-    # types_dep), so an edge into the twin is declared by the package.
-    forest_names = {info.package_name: True for info in packages}
-    npm_declared = dict(direct_npm_names)
-    for name in direct_npm_names:
-        if not name.startswith("@") and "@types/" + name in forest_names:
-            npm_declared["@types/" + name] = True
     npm_reachable = []
     for info in packages:
         if info.package_name not in npm_declared:
@@ -424,9 +538,9 @@ def compile_program(ctx, es_modules = False, es_twins = False):
             declared_jsx = declared_jsx,
             declared_module = declared_module,
             types_deps = sorted([
-                name[len("@types/"):]
-                for name in direct_npm_names
-                if name.startswith("@types/")
+                info.package_name[len("@types/"):]
+                for info in direct_npm_infos
+                if info.package_name.startswith("@types/")
             ]),
             emit = emit,
             declaration_map = declaration_map,
@@ -436,10 +550,8 @@ def compile_program(ctx, es_modules = False, es_twins = False):
         tsconfig = written.tsconfig
         options_file = written.options
 
-    forest = None
     validation_outputs = []
     if program_srcs:
-        forest = forest_action(ctx, packages)
         program_inputs = check_srcs + json_srcs + dep_json
         if compile_srcs:
             emit_action(
@@ -452,9 +564,10 @@ def compile_program(ctx, es_modules = False, es_twins = False):
                 out_base = out_base,
                 tsconfig = tsconfig,
                 chain = tsconfig_chain,
-                forest = forest,
+                importers = importers,
                 program_inputs = program_inputs,
                 dep_dts = dep_dts_depset,
+                npm_files = npm_files,
                 options_file = options_file,
                 scratch = "{}/{}.emit".format(tsconfig.dirname, ctx.label.name),
                 source_map = source_map,
@@ -472,9 +585,10 @@ def compile_program(ctx, es_modules = False, es_twins = False):
                 out_base = "{}/{}".format(out_base, twins_dir),
                 tsconfig = tsconfig,
                 chain = tsconfig_chain,
-                forest = forest,
+                importers = importers,
                 program_inputs = program_inputs,
                 dep_dts = dep_dts_depset,
+                npm_files = npm_files,
                 options_file = options_file,
                 scratch = "{}/{}.emit".format(tsconfig.dirname, twins_dir),
                 source_map = False,
@@ -500,10 +614,11 @@ def compile_program(ctx, es_modules = False, es_twins = False):
             ctx,
             tsgo = tsgo,
             tsconfig = tsconfig,
-            forest = forest,
+            importers = importers,
             srcs = program_inputs,
             chain = tsconfig_chain,
             dep_dts = dep_dts_depset,
+            npm_files = npm_files,
             ownership = ownership,
             emit_outputs = declaration_outputs,
         )
@@ -559,6 +674,7 @@ def compile_program(ctx, es_modules = False, es_twins = False):
             transitive = dep_npm_package_sets,
             order = "postorder",
         ),
+        npm_files = npm_files,
         owners = owners,
     )
 
@@ -574,7 +690,8 @@ def compile_program(ctx, es_modules = False, es_twins = False):
     return struct(
         outputs = all_outputs + passthrough_dts,
         js = js_outputs + js_passthrough,
-        forest = forest,
+        importers = chain,
+        npm_files = npm_files,
         packages = packages,
         transitive_js = transitive_js,
         transitive_data = transitive_data,
@@ -652,11 +769,25 @@ Paths are kept relative to the target's package, so srcs may span a subtree.
         doc = """What this target imports: ts_compile, ts_codegen or
 ts_npm_package targets, each providing TsInfo.
 
-An npm dep reaches tsgo through the node_modules forest, under its package name;
-a first-party dep through its declarations, staged under bazel-bin at the paths
-the tsconfig's `paths` and their bin-dir twins reach, or through a relative
-import; a workspace member through the hub's view of it, `@npm//:<name>`.""",
+An npm dep reaches tsgo through the link of the nearest importer on the
+`node_modules` chain that declares it, under its package name; a first-party
+dep through its declarations, staged under bazel-bin at the paths the
+tsconfig's `paths` and their bin-dir twins reach, or through a relative
+import; a workspace member through its importer's link target,
+`//<importer>:node_modules/<name>`.""",
         providers = [TsInfo],
+    ),
+    "node_modules": attr.label(
+        doc = """The `node_modules` target of the nearest lockfile importer at
+or above this package: the chain a direct npm dep resolves along, nearest
+importer first, as pnpm's walk-up from the importing file. The link whose
+store is the dep's resolution is the one the program reads; a name no
+importer on the chain declares, or one declared at another version, fails
+analysis. Required when the closure holds an npm package, a first-party
+dep's included: its declarations import the packages it declared, and the
+walk up from them ends at the chain's root. Gazelle writes it on every
+target.""",
+        providers = [NodeModulesInfo],
     ),
     "tsconfig": attr.label(
         doc = """The project's own tsconfig.json: where every compiler option
@@ -677,7 +808,7 @@ keys it says nothing about fall back to the baseline. Over both, tsaction sets
 the keys Bazel owns -- rootDirs, the emit shape, `include` and `files` --
 rewrites `paths` to the source and bin-dir twins of each value, and lists each
 path-shaped `types` entry as a root file at its staged path; a `types` entry
-naming a package resolves through the forest. oxc transforms with the
+naming a package resolves through the importer chain. oxc transforms with the
 target, jsx and jsxImportSource tsgo reads from the same chain, and the
 chain's `module` decides whether oxc or tsgo emits the JavaScript.
 
@@ -734,7 +865,7 @@ a .d.ts.map beside each declaration under the tsgo emit; --//ts:lib_check
 checks the program's .d.ts closure too.
 
 Compiler options come from the ruleset's baseline and from `tsconfig`, read
-through `tsgo --showConfig`. npm packages reach tsgo through a node_modules
-forest built from `deps`.
+through `tsgo --showConfig`. npm packages reach tsgo through the importer
+chain `node_modules` names, one link per name an importer declares.
 """,
 )

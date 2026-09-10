@@ -35,11 +35,6 @@ func planVitest(
 		}
 	}
 
-	nodeModules, err := installNodeModules(r, plan, v.NodeModules)
-	if err != nil {
-		return nil, err
-	}
-
 	shard, err := shardFiles(r, v.TestFilesList)
 	if err != nil {
 		return nil, err
@@ -66,9 +61,11 @@ func planVitest(
 		}
 		tree, files = root, staged
 		plan.Cleanup = func() { _ = os.RemoveAll(root) }
-		if nodeModules != "" {
-			linkAs(filepath.Join(root, "node_modules"), nodeModules)
-		}
+	}
+	nodeModules, err := installNodeModules(
+		r, plan, tree, cfg.Workspace, v.NodeModules)
+	if err != nil {
+		return nil, err
 	}
 	if err := stageFiles(r, tree, v.Stage); err != nil {
 		return nil, err
@@ -151,18 +148,21 @@ func stageTestRoot(files []testFile) (root string, staged []string, err error) {
 	return root, staged, nil
 }
 
-// resolveVitest finds vitest's bin entry inside the test's node_modules tree,
-// the one place it can come from: the runner requires the package in deps.
-func resolveVitest(v *VitestConfig, nodeModules string) (string, error) {
-	if v.VitestInTree != "" && nodeModules != "" {
-		p := filepath.Join(nodeModules, filepath.FromSlash(v.VitestInTree))
-		if fileExists(p) {
-			return p, nil
+// resolveVitest finds vitest's bin entry under the first importer on the
+// chain that links it, pnpm's walk up from the test's package.
+func resolveVitest(v *VitestConfig, nodeModules []string) (string, error) {
+	if v.VitestInTree != "" {
+		for _, dir := range nodeModules {
+			p := filepath.Join(dir, filepath.FromSlash(v.VitestInTree))
+			if fileExists(p) {
+				return p, nil
+			}
 		}
 	}
 	return "", fmt.Errorf(
-		"ts_test: vitest is not in the node_modules tree at %q; "+
-			"add @npm//:vitest to deps", nodeModules)
+		"ts_test: vitest is in the node_modules of no importer on the chain %q; "+
+			"add the hub label to deps and declare it in the importer's "+
+			"package.json", nodeModules)
 }
 
 func fileExists(p string) bool {

@@ -52,8 +52,12 @@ func managedAttrCases() []nonLiteralCase {
 		managed("plain", "", "ts_config", "tsconfig", "visibility", "list"),
 		managed("plain", "src", "ts_config", "tsconfig", "deps", "list"),
 
+		managed("pnpm_member", "packages/core", "ts_compile", "core",
+			"node_modules", "scalar"),
 		managed("pnpm_member", "packages/core", "ts_test", "core_test", "deps",
 			"list"),
+		managed("pnpm_member", "packages/core", "ts_test", "core_test",
+			"node_modules", "scalar"),
 		managed("pnpm_member", "packages/core", "node_modules", "node_modules",
 			"deps", "list"),
 		managed("pnpm_member", "packages/core", "node_modules", "node_modules",

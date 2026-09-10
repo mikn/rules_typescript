@@ -189,13 +189,6 @@ def _member_view_impl(ctx):
         "the paths the manifest names, and its data srcs at their " +
         "package-relative paths, the member's own package.json excepted",
     )
-    asserts.equals(
-        env,
-        ["zod@3.24.2"],
-        [d.package_name + "@" + d.package_version for d in info.direct_deps],
-        "the view carries the compiling target's direct npm deps: the forest " +
-        "places a member's own resolution of a name under the member",
-    )
     return analysistest.end(env)
 
 member_view_test = analysistest.make(_member_view_impl)

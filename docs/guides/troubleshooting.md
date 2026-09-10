@@ -222,9 +222,12 @@ no `module` beside it.
 ## Import Not Resolving in tsgo
 
 tsgo resolves with `moduleResolution: "Bundler"` (what tsgo derives from every
-`module` but `Node16`/`NodeNext`) against the `node_modules` forest built from
-`deps`. A bare import that resolves nowhere, with no strict-deps failure and
-only `TS2307`, means no dep in the closure provides it. Add the package:
+`module` but `Node16`/`NodeNext`) through the importer chain `node_modules`
+names. A bare import that resolves nowhere, with no strict-deps failure and
+only `TS2307`, means no dep provides it. Add the package, which the importer's
+`package.json` declares -- a name no importer on the chain declares, or one
+declared at another version, fails analysis naming the manifest or the label
+to write:
 
 ```python
 ts_compile(
@@ -243,8 +246,8 @@ app.ts(1,23): error TS2688: Cannot find type definition file for 'vite/client'.
 From a `/// <reference types="vite/client" />`, the line Vite's own project
 template puts at the top of `src/vite-env.d.ts`. The directive resolves through
 TypeScript's type-reference resolver, which walks `node_modules/@types` and the
-`node_modules` above the file; under Bazel that tree is the forest built from
-`deps`, so the package has to be there:
+`node_modules` above the file; under Bazel that walk is the importer chain, so
+the package has to be a dep the importer declares:
 
 ```python
 ts_compile(
@@ -268,17 +271,16 @@ in an npm package's declaration entry (`@types/bun/index.d.ts` is
 `/// <reference types="bun-types" />`) is followed by the rule; see
 [`@types/*` packages](../rules/ts-compile.md#types-packages).
 
-## ts_test: needs vitest in the node_modules tree, which no dep provides
+## ts_test: needs vitest in the npm closure, which no dep provides
 
 ```
 ts_test @@//path/to:my_test: @@//ts/runners:vitest runs the tests and needs
-vitest in the node_modules tree, which no dep provides.
+vitest in the npm closure, which no dep provides.
 Add the hub label of each to deps.
 ```
 
-The vitest runner runs `vitest` out of the tree the tests run in, the forest
-the test's `deps` build, and a package no dep provides is not in it. List
-`@npm//:vitest` in `deps`:
+The vitest runner runs `vitest` out of the importer chain the tests run in,
+and a package no dep provides is not in it. List `@npm//:vitest` in `deps`:
 
 ```python
 ts_test(
@@ -288,8 +290,8 @@ ts_test(
 )
 ```
 
-Every other package the run needs at runtime is in the tree the same way: the
-test's npm deps, their closures, and each `ts_compile` dep's npm closure, so a
+Every other package the run needs at runtime is in the runfiles the same way:
+the test's npm deps' links and store trees, and each `ts_compile` dep's, so a
 package only the production code imports arrives through that dep. See
 [Runners](../rules/ts-test.md#runners) and
 [Listing npm Deps](../rules/ts-test.md#listing-npm-deps).

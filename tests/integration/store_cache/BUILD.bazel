@@ -1,10 +1,14 @@
-"""Integration test: a store tree comes back out of the disk cache as files.
+"""Integration test: a store tree comes back out of the disk cache as files,
+and a test runs in it under the modes CI runs tests in.
 
 The store's cache property cannot be seen from one output base: a tree artifact
 of real files is hashed as files and restored as files, so a fresh output base
 over a populated disk cache executes no NpmStore and the restored tree holds no
 symlink. The runner builds one store target, expunges, builds again and reads
-the process summary and the tree. docs/rules/node-modules.md § The Store.
+the process summary and the tree; then it runs the workspace's ts_test under
+--nobuild_runfile_links, under --noenable_runfiles (a manifest-only runfiles
+layout) and, over another fresh output base, under
+--remote_download_outputs=minimal. docs/rules/node-modules.md § The Store.
 
 The child workspace lives in workspace/ and keeps its root BUILD file as
 BUILD.bazel.tpl, which the runner renames in the scratch copy: a real

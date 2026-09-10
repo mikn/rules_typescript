@@ -1,0 +1,23 @@
+load("//npm:defs.bzl", "node_modules", "node_modules_member")
+load("//ts:defs.bzl", "ts_compile")
+
+package(default_visibility = ["//:__pkg__"])
+
+# A non-root importer declaring one `link:`, importer-relative in the lockfile
+# (`link:../../../packages/nested-shared`): it links the member, no package.
+node_modules(
+    name = "node_modules",
+    parent = "//tests/npm:node_modules",
+)
+
+node_modules_member(
+    name = "node_modules/nested-shared",
+    member = "@npm//:nested-shared",
+)
+
+ts_compile(
+    name = "nested_workspace_consumer",
+    srcs = ["nested_workspace_consumer.ts"],
+    node_modules = ":node_modules",
+    deps = [":node_modules/nested-shared"],
+)

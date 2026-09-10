@@ -1,4 +1,4 @@
-import { realpathSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import module from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -11,13 +11,12 @@ if (typeof module.registerHooks !== "function") {
   );
 }
 
-// The launcher names the test's node_modules tree in NODE_PATH, which ESM
-// resolution ignores; a bare specifier from the package's code resolves there.
+// The launcher names the importer chain in NODE_PATH, which ESM resolution
+// ignores; a bare specifier resolves from each importer's directory in turn.
 const trees = (process.env.NODE_PATH ?? "")
   .split(path.delimiter)
   .filter(Boolean)
   .map((dir) => ({
-    realpath: realpathSync(dir) + path.sep,
     parentURL: pathToFileURL(path.dirname(dir) + path.sep).href,
   }));
 
@@ -59,9 +58,11 @@ function isFile(url) {
   return statSync(url, { throwIfNoEntry: false })?.isFile() ?? false;
 }
 
+// A store file's realpath and a member's store path hold the segment; a test
+// file's runfiles path does not.
 function insideATree(parentURL) {
-  const importer = fileURLToPath(parentURL);
-  return trees.some((tree) => importer.startsWith(tree.realpath));
+  const segment = `${path.sep}node_modules${path.sep}`;
+  return fileURLToPath(parentURL).includes(segment);
 }
 
 function isBare(specifier) {

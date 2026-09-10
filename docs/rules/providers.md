@@ -25,8 +25,9 @@ load(
 ## TsInfo
 
 A dep provides one thing: what a consumer's program and runtime need. `TsInfo`
-carries the files a consumer stages and the npm packages its forest links, and
-`deps` on `ts_compile` and `ts_test` accepts any target returning it.
+carries the files a consumer stages, its npm closure and the store files it
+reaches, and `deps` on `ts_compile` and `ts_test` accepts any target returning
+it.
 
 A direct field carries only what the target itself produces. A rule that
 forwards a dep's files leaves the direct field empty and puts the closure in the
@@ -43,16 +44,18 @@ reads the transitive field.
 | `sources` | `depset of File` | The TypeScript srcs, `.ts`, `.tsx` and declarations; a `ts_test` in the same package stages them in its runfiles at their source paths |
 | `transitive_js` | `depset of File` | Every `.js` from this target and its first-party deps |
 | `transitive_js_maps` | `depset of File` | Their `.js.map` |
-| `transitive_declarations` | `depset of File` | Every declaration from this target and its first-party deps. An npm package's declarations reach a consumer through the node_modules forest its tsgo action stages, not through this depset |
+| `transitive_declarations` | `depset of File` | Every declaration from this target and its first-party deps. An npm package's declarations reach a consumer through the importer chain its tsgo action resolves along, not through this depset |
 | `transitive_data` | `depset of File` | The data files of this target and its first-party deps: what a compiled module reaches beside itself at run time or in a bundle |
 | `transitive_es_twins` | `depset of (File, File)` | For a program tsgo emits, each `.js` of this target and its first-party deps paired with the ES module oxc emits from the same source; the vitest runner stages the second at the first's runfiles path ([The Module Format](ts-compile.md#the-module-format)) |
-| `npm_packages` | `depset of NpmPackageInfo` | The npm packages a consumer links into its forest and runtime tree for this target's deps. A dep's emitted `.d.ts` imports the packages the dep declared and resolves them in the consumer's program by walking that forest. A package itself arrives through its `NpmPackageInfo` |
+| `npm_packages` | `depset of NpmPackageInfo` | The npm closure of this target's deps: what the ownership manifest names and a runner checks its packages against. A package itself arrives through its `NpmPackageInfo` |
+| `npm_files` | `depset of File` | The store files this target's program and runtime reach: the importer links of its direct npm deps and their `@types` twins, the member links its deps name, every store tree and edge link of their closures, and its first-party deps' `npm_files`. A dep's emitted `.d.ts` imports the packages the dep declared and resolves them from the dep's own importer's links, which this depset carries into the consumer's action |
 | `owners` | `depset of struct(label, files)` | One record per first-party target in the closure, this one first: `label`, the string a `deps` list writes for it, and `files`, the declarations and data it stages. The tsgo action reads the closure's records to name the target a listed file belongs to ([Deps have to be direct](ts-compile.md#deps-have-to-be-direct)) |
 
-A dep linked in the forest -- an `@npm` package, a member's hub view -- reaches
-the consumer's program and runtime there: `ts_compile` reads `npm_packages`
-off it and none of its file fields, so an npm package's `TsInfo` stages
-nothing by path and its `owners` is empty. A first-party dep's files are staged
+A dep reached through the store -- an `@npm` package, a member's link target
+-- reaches the consumer's program and runtime there: `ts_compile` reads
+`npm_packages` off it and none of its file fields, and stages its link and
+store files, so an npm package's `TsInfo` stages nothing by path and its
+`owners` is empty. A first-party dep's files are staged
 at their exec paths, its `declarations`, `js` and `data` are what an import may
 resolve to, and its `owners` record is what names it when an import does
 ([Deps have to be direct](ts-compile.md#deps-have-to-be-direct)).
@@ -73,7 +76,7 @@ names it in its own tsconfig `types` to bring its globals into scope. See
 
 | Field | Type | Description |
 |---|---|---|
-| `packages` | `list of string` | The npm packages the runner needs in the test's `node_modules` tree, `vitest` for the vitest runner; `ts_test` fails at analysis naming the one no dep provides |
+| `packages` | `list of string` | The npm packages the runner needs in the test's npm closure, `vitest` for the vitest runner; `ts_test` fails at analysis naming the one no dep provides |
 | `hook` | `File` | The one module the runner loads into node before the tests: the node:test runner's resolver, the vitest runner's reads recorder |
 | `es_modules` | `bool` | `True` when the runner runs the program as ES modules whatever its tsconfig's `module` -- vitest -- so `ts_test` emits its srcs as such and stages a dep's ES twins; `False` for node:test, which runs the package's format ([Runners](ts-test.md#runners)) |
 | `launch` | `function` | The runner's half of one test's analysis: given the test's `ctx` and the struct `ts_test` builds from the compile, it returns the launcher config's mode and section, the env, and the runfiles the runner adds |
@@ -100,8 +103,8 @@ The two invocation modes and the recipe for a bundler of your own are in
 from `@rules_typescript//ts/private:providers.bzl`, and everything under
 `ts/private/` is [volatile](../compatibility.md#volatile). Every `@npm` package
 target returns it, and so does a workspace member's hub view
-`npm_workspace_package`; `ts_compile`'s forest builder lays a tree out from it,
-a `node_modules` target links `store`'s tree under `package_name`, and `store`
+`npm_workspace_package`; a `node_modules` target links `store`'s tree under
+`package_name`, `ts_compile` resolves a direct dep to that link, and `store`
 names the snapshot's tree in [the store](node-modules.md#the-store).
 
 | Field | Type | Description |
@@ -112,7 +115,6 @@ names the snapshot's tree in [the store](node-modules.md#the-store).
 | `package_dir` | `File or None` | The `package.json` at the root of the extracted package. `None` on a workspace member, whose store writes the manifest as built |
 | `package_root` | `string` | Exec-root-relative directory the files in `all_files` hang off: where `package_dir` sits for an extracted tarball, the member's directory under `bazel-bin` for a workspace member |
 | `all_files` | `depset of File` | Every file of the package (`package.json`, `.js`, `.d.ts`, other assets), the files its store tree copies; a member's are its outputs and the manifest as built |
-| `direct_deps` | `list of NpmPackageInfo` | The packages this one depends on directly, each under the name this package imports it by -- a member's view, its compiling target's direct npm deps; what places two resolutions of one name in the forest |
 | `transitive_deps` | `depset of NpmPackageInfo` | Every npm package reachable from this one, the paired `@types/*` package included |
 | `store` | `NpmStoreInfo` | The snapshot's store tree and the links beside it: `key`, `tree`, `links`, `transitive`, `manifest` (`npm/private/store.bzl`) |
 
@@ -145,25 +147,28 @@ beside `server_binary`.
 A [`node_modules`](node-modules.md) target returns it; `ts_codegen`,
 `ts_binary`, `ts_dev_server` and `esbuild_bundle` read it from their
 `node_modules` attr, and take the target's `DefaultInfo.files` -- every link
-and every store tree the links reach -- as inputs or runfiles.
+and every store tree the links reach -- as inputs or runfiles; `ts_compile`
+and `ts_test` follow `parent` up the chain and stage the links a direct dep
+resolves to ([The Chain](node-modules.md#the-chain)).
 
 | Field | Type | Description |
 |---|---|---|
+| `label` | `Label` | The `node_modules` target's: the importer's package, and what a message names |
 | `dir` | `string` | The importer's `node_modules` directory as a bin-dir path, `bazel-out/<cfg>/bin/<package>/node_modules`: the parent of every link, which no artifact names |
-| `links` | `dict of string -> File` | Per package name, the declared symlink `node_modules/<name>` into the package's store tree |
-| `stores` | `dict of string -> NpmStoreInfo` | Every snapshot of the importer's closure, by store key |
+| `links` | `dict of string -> NpmLinkInfo` | Per package name, the declared symlink `node_modules/<name>` and the store it enters |
 | `parent` | `NodeModulesInfo or None` | The importer above's |
 
 ## NpmLinkInfo
 
-A [`node_modules_member`](node-modules.md) target returns it beside the
-member's `TsInfo` and `NpmPackageInfo`, so a `ts_compile` names the link target
-in `deps` where it named the hub's view.
+One link `node_modules/<name>` into a store tree: an entry of
+`NodeModulesInfo.links`, and what a [`node_modules_member`](node-modules.md)
+target returns beside the member's `TsInfo` and `NpmPackageInfo`, so a
+`ts_compile` names the link target in `deps` where it named the hub's view.
 
 | Field | Type | Description |
 |---|---|---|
-| `link` | `File` | The declared symlink `node_modules/<member name>` |
-| `store` | `NpmStoreInfo` | The member's store, the link's target |
+| `link` | `File` | The declared symlink `node_modules/<name>` |
+| `store` | `NpmStoreInfo` | The store the link enters |
 
 ## Toolchain Contract
 

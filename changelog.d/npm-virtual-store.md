@@ -24,5 +24,6 @@
   took `@npm` from the ruleset's own lockfile declares one of its own
   (`e2e/basic`). `NpmPackageInfo.js_files` and `transitive_package_dirs`,
   which nothing read, are gone, and the hub view no longer writes the
-  manifest. The forest `ts_compile` and `ts_test` stage is unchanged by this:
-  it reads a package's `all_files` and `direct_deps`, not its store.
+  manifest. `ts_compile` and `ts_test` reach the store through the importer
+  chain their `node_modules` names, and a test runs in the same links and
+  trees (under Breaking).

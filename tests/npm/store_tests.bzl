@@ -1,6 +1,7 @@
 """The virtual store at analysis: one NpmStore action per snapshot writing one
-tree, the links beside it declared symlinks and nothing inside the tree, a
-member's manifest as built, and pnpm's hidden hoist over the fixture lockfile
+tree, the links beside it declared symlinks and nothing inside the tree, a cut
+edge a link with no dependency behind it, a member's manifest as built, and
+pnpm's hidden hoist over the fixture lockfile
 (tests/npm/hoisted_dependencies.bzl, pnpm's own answer)."""
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
@@ -94,6 +95,39 @@ store_tree_test = analysistest.make(
         "dep_trees": attr.string_list(),
     },
 )
+
+_ESLINT = "//tests/eslint:node_modules/.pnpm/eslint@10.9.1/node_modules/eslint"
+
+_ESLINT_UTILS = "@eslint-community+eslint-utils@4.10.1_eslint_10_9_1_2fdd10f5"
+
+# eslint -> @eslint-community/eslint-utils closes a cycle the extension cut.
+def _cut_edge_impl(ctx):
+    env = analysistest.begin(ctx)
+    info = analysistest.target_under_test(env)[NpmStoreInfo]
+    name = "@eslint-community/eslint-utils"
+    asserts.true(env, name in info.links, "the cut edge is a link by the tree")
+    if name in info.links:
+        asserts.true(env, info.links[name].is_symlink, "a declared symlink")
+        asserts.equals(
+            env,
+            info.tree.dirname + "/" + name,
+            info.links[name].path,
+            "in the store's node_modules beside the tree",
+        )
+    asserts.equals(
+        env,
+        [],
+        [
+            f.short_path
+            for f in info.transitive.to_list()
+            if f.is_directory and _ESLINT_UTILS in f.short_path
+        ],
+        "no dependency behind the link: eslint-utils' tree is not in " +
+        "eslint's transitive set",
+    )
+    return analysistest.end(env)
+
+cut_edge_test = analysistest.make(_cut_edge_impl)
 
 def _member_store_impl(ctx):
     env = analysistest.begin(ctx)
@@ -247,8 +281,9 @@ def peer_variant_stores():
     ]
 
 def store_test_suite(name):
-    """The store tests over the features lockfile's peer variants and the
-    fixture lockfile's `shared` member and hidden hoist."""
+    """The store tests over the features lockfile's peer variants, the
+    fixture lockfile's `shared` member and hidden hoist, and the eslint
+    lockfile's cut edge."""
     a, b = peer_variant_stores()
     store_tree_test(
         name = name + "_peer_a",
@@ -271,6 +306,10 @@ def store_test_suite(name):
         target_under_test = "//tests/npm:node_modules/.pnpm/shared@0.0.0/" +
                             "node_modules/shared",
     )
+    cut_edge_test(
+        name = name + "_cut_edge",
+        target_under_test = _ESLINT,
+    )
     unittest.suite(name + "_hoist", hoist_test, settings_test)
     native.test_suite(
         name = name,
@@ -278,6 +317,7 @@ def store_test_suite(name):
             ":" + name + "_peer_a",
             ":" + name + "_peer_b",
             ":" + name + "_member",
+            ":" + name + "_cut_edge",
             ":" + name + "_hoist",
         ],
     )

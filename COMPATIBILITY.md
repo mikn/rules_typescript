@@ -47,15 +47,14 @@ On a musl host the Node the ruleset downloads is still the glibc build.
 
 Windows is not supported right now. It may be considered in the future.
 
-What exists there today: a registered Node.js toolchain, a `windows_amd64` entry
-in `//platforms`, and a `node_modules` tree action driven by a cross-platform
-Node script with no shell dependency. That builds a `node_modules` directory and
-nothing else.
+What exists there today: a registered Node.js toolchain and a `windows_amd64`
+entry in `//platforms`. The store copier is Go (`tsaction stage`), so no build
+action needs a shell; every `node_modules/<name>` is a symlink Bazel declares,
+which Windows grants only with the symlink privilege the dev server's anchor
+already requires.
 
 Support would take a Windows entry in `TSGO_PLATFORMS`
-(`ts/private/toolchain.bzl`) and `_PNPM_PLATFORMS` (`ts/private/pnpm.bzl`), and
-a replacement for the one build-action wrapper that still needs a POSIX shell,
-the `node_modules` fallback taken when no JS runtime toolchain is registered.
+(`ts/private/toolchain.bzl`) and `_PNPM_PLATFORMS` (`ts/private/pnpm.bzl`).
 oxc needs no entry: `oxc-bazel` is built from source by
 rules_rust for whichever exec platform the build runs on, so one toolchain
 covers every platform. None of this has been run on Windows, so any estimate of

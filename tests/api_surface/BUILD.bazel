@@ -10,7 +10,7 @@ sh_test(
 )
 
 # The providers, as an exact list, and the fields of TsInfo: what a consumer's
-# program and runtime stage, and the npm packages its forest links.
+# program and runtime stage, its npm closure and the store files it reaches.
 sh_test(
     name = "providers_surface_test",
     size = "small",
@@ -18,8 +18,8 @@ sh_test(
     data = ["//ts/private:providers.bzl"],
 )
 
-# ts_compile's public attributes, as an exact list: srcs, deps, tsconfig. Every
-# compiler option is the tsconfig's and every emit knob a build flag.
+# ts_compile's public attributes, as an exact list: srcs, deps, tsconfig and
+# node_modules; every compiler option is the tsconfig's, every emit knob a flag.
 sh_test(
     name = "ts_compile_attrs_test",
     size = "small",
@@ -27,7 +27,7 @@ sh_test(
     data = ["//ts/private/rules:ts_compile.bzl"],
 )
 
-# ts_test's public attributes, as an exact list: ts_compile's three, runner,
+# ts_test's public attributes, as an exact list: ts_compile's four, runner,
 # env and the vitest runner's five. Every other vitest setting is the file's.
 sh_test(
     name = "ts_test_attrs_test",

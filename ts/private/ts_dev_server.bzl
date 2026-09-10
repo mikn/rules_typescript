@@ -577,7 +577,7 @@ def _ts_dev_server_impl(ctx):
     node_modules_rl = ""
     if node_modules:
         node_modules_files = node_modules[DefaultInfo].files
-        node_modules_rl = runfiles_dir(ctx, node_modules)
+        node_modules_rl = runfiles_dir(ctx, node_modules.label)
 
     plugin_files = ctx.files.plugin
     plugin_rl = ""
@@ -654,6 +654,7 @@ def _ts_dev_server_impl(ctx):
                 entry.transitive_js,
                 entry.transitive_js_maps,
                 entry.transitive_data,
+                entry.npm_files,
                 server_info.runtime_deps,
                 node_modules_files,
             ],

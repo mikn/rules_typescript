@@ -16,6 +16,7 @@ ts_test(
     size = "small",
     srcs = ["peer_version.test.ts"],
     data = ["//vite:package.json"],
+    node_modules = "//tests/npm:node_modules",
     deps = [
         "@npm//:types_node",
         "@npm//:vite",

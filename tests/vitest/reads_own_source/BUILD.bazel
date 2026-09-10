@@ -15,6 +15,7 @@ ts_compile(
 ts_test(
     name = "reads_own_source_test",
     srcs = ["test/reads.test.ts"],
+    node_modules = "//tests/npm:node_modules",
     deps = [
         ":reads_own_source",
         "//tests/vitest:math",

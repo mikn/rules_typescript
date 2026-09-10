@@ -52,6 +52,7 @@ ts_test(
     name = "jsx_preserve_test",
     srcs = ["view.test.tsx"],
     config = "vitest.config.mjs",
+    node_modules = "//tests/npm:node_modules",
     tsconfig = ":preserve_tsconfig",
     deps = [
         ":jsx_runtime",

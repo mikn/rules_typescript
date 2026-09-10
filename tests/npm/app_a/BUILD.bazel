@@ -1,4 +1,6 @@
 load("//npm:defs.bzl", "node_modules")
+load("//tests/npm:direct_version_tests.bzl", "importer_resolution_wins_test")
+load("//ts:defs.bzl", "ts_compile")
 
 package(default_visibility = ["//tests/npm:__pkg__"])
 
@@ -10,4 +12,19 @@ node_modules(
         "@npm_features//app-a:ansi-regex",
         "@npm_features//app-a:ansi-styles",
     ],
+)
+
+# The root's ansi-regex is the other major; app-a's code resolves app-a's.
+ts_compile(
+    name = "root_regex",
+    srcs = ["root_regex.ts"],
+    node_modules = ":node_modules",
+    tags = ["manual"],
+    deps = ["@npm_features//:ansi-regex"],
+)
+
+importer_resolution_wins_test(
+    name = "importer_resolution_wins_test",
+    size = "small",
+    target_under_test = ":root_regex",
 )

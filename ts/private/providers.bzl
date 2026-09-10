@@ -8,12 +8,12 @@ consumer that wants everything reachable reads the transitive field.
 
 TsInfo = provider(
     doc = """What a dep gives a consumer: the files its program and runtime
-stage, and the npm packages its forest links.
+stage, the npm packages its closure holds and the store files they reach.
 
 ts_compile, ts_codegen and ts_binary return it over their outputs; an npm
 package target returns one naming its closure in `npm_packages` and nothing by
-path, since its files reach a consumer through the node_modules tree; a
-workspace member's hub view forwards the member's.
+path, since its files reach a consumer through the importer's links into the
+store; a workspace member's hub view forwards the member's.
 """,
     fields = {
         "js": "depset of File: the .js this target produces -- compiled " +
@@ -43,10 +43,16 @@ workspace member's hub view forwards the member's.
                                "first-party deps paired with the ES module " +
                                "oxc emits from the same source; the vitest " +
                                "runner stages the second at the first's path.",
-        "npm_packages": "depset of NpmPackageInfo: the packages a consumer " +
-                        "links in its forest and runtime tree for this " +
-                        "target's deps. A package itself arrives through " +
-                        "its NpmPackageInfo.",
+        "npm_packages": "depset of NpmPackageInfo: the npm closure of this " +
+                        "target's deps, what the ownership manifest names " +
+                        "and a runner checks its packages against. A " +
+                        "package itself arrives through its NpmPackageInfo.",
+        "npm_files": "depset of File: the store files this target's program " +
+                     "and runtime reach -- the importer links of its direct " +
+                     "npm deps and their @types twins, the member links its " +
+                     "deps name, every store tree and edge link of their " +
+                     "closures, and its first-party deps' npm_files. An " +
+                     "action stages this and nothing else of the store.",
         "owners": "depset of struct(label, files): one record per " +
                   "first-party target in the closure, this one first -- " +
                   "the label a deps list writes and the declarations and " +
@@ -77,6 +83,7 @@ def ts_info(
         transitive_data = None,
         transitive_es_twins = _EMPTY,
         npm_packages = _EMPTY,
+        npm_files = _EMPTY,
         label = None):
     """A TsInfo for a target without first-party deps: each closure it
     leaves unsaid is the direct set, and `label` makes it the one owner."""
@@ -101,6 +108,7 @@ def ts_info(
         transitive_data = _or_direct(transitive_data, data),
         transitive_es_twins = transitive_es_twins,
         npm_packages = npm_packages,
+        npm_files = npm_files,
         owners = owners,
     )
 
@@ -109,12 +117,12 @@ TsTestRunnerInfo = provider(
 
 //ts/runners:vitest and //ts/runners:node_test are the two shipped; a rule in
 another ruleset returning this provider is a third. ts_test compiles the tests
-and builds the forest they run in, and the runner's `launch` turns them into
-the launcher's config and the runfiles of one test.
+against the importer chain they run in, and the runner's `launch` turns them
+into the launcher's config and the runfiles of one test.
 """,
     fields = {
         "packages": "list of string: the npm packages the runner needs in " +
-                    "the test's node_modules tree, `vitest` for the vitest " +
+                    "the test's npm closure, `vitest` for the vitest " +
                     "runner; ts_test fails at analysis naming the one no dep " +
                     "provides.",
         "hook": "File: the one module the runner loads into node before the " +
@@ -128,10 +136,13 @@ the launcher's config and the runfiles of one test.
                       "package's format.",
         "launch": "function(ctx, test) -> struct: the runner's half of one " +
                   "test's analysis. `test` is the struct ts_test builds from " +
-                  "the compile (entry_points, test_files_list, " +
-                  "node_modules_files, transitive_js, es_twins, " +
-                  "runtime_data_sets, package_sources, inline_members, " +
-                  "runner); the result " +
+                  "the compile (entry_points, test_files_list, forest, " +
+                  "transitive_js, es_twins, runtime_data_sets, " +
+                  "package_sources, inline_members, runner); `forest` is " +
+                  "struct(dirs, rlocations, npm_files): the chain's " +
+                  "node_modules directories nearest first, as bin-dir paths " +
+                  "and as runfiles paths, and the store files the test " +
+                  "reaches; the result " +
                   "carries `mode` and `section` (the launcher config's mode " +
                   "and that mode's section), `env`, `files`, `symlinks` and " +
                   "`transitive_files` for the runfiles, and `output_groups`.",
@@ -174,11 +185,6 @@ NpmPackageInfo = provider(
                      "(package.json, .js, .d.ts, other assets), the files " +
                      "its store tree copies; a member's are its outputs and " +
                      "the manifest as built.",
-        "direct_deps": "list of NpmPackageInfo: the packages this one " +
-                       "depends on directly, each under the name this " +
-                       "package imports it by -- a member's view, its " +
-                       "compiling target's direct npm deps; what places " +
-                       "two resolutions of one name in the forest.",
         "transitive_deps": "depset of NpmPackageInfo: Transitive npm dependencies.",
         "store": "NpmStoreInfo: this resolution's store tree and the links " +
                  "beside it (npm/private/store.bzl), one per snapshot, in " +
@@ -228,24 +234,25 @@ NodeModulesInfo = provider(
 declares into the virtual store, one per npm package the importer declares,
 and the importer above it (docs/rules/node-modules.md).""",
     fields = {
+        "label": "Label: the node_modules target's, the importer's package " +
+                 "and what a message names.",
         "dir": "string: the importer's node_modules directory as a bin-dir " +
                "path, `bazel-out/<cfg>/bin/<package>/node_modules`: the " +
                "parent of every link, which no artifact names.",
-        "links": "dict of string -> File: per package name, the declared " +
-                 "symlink `node_modules/<name>` into the package's store tree.",
-        "stores": "dict of string -> NpmStoreInfo: every snapshot of the " +
-                  "importer's closure, by store key.",
+        "links": "dict of string -> NpmLinkInfo: per package name, the " +
+                 "declared symlink `node_modules/<name>` and the store it " +
+                 "enters.",
         "parent": "NodeModulesInfo or None: the importer above's.",
     },
 )
 
 NpmLinkInfo = provider(
-    doc = """A workspace member's link `node_modules/<member name>` into the
-member's store tree: what a `node_modules_member` target declares beside the
-member's own TsInfo and NpmPackageInfo.""",
+    doc = """One link `node_modules/<name>` into a store tree: an entry of
+`NodeModulesInfo.links`, and what a `node_modules_member` target returns for
+a workspace member beside the member's own TsInfo and NpmPackageInfo.""",
     fields = {
-        "link": "File: the declared symlink `node_modules/<member name>`.",
-        "store": "NpmStoreInfo: the member's store, the link's target.",
+        "link": "File: the declared symlink `node_modules/<name>`.",
+        "store": "NpmStoreInfo: the store the link enters.",
     },
 )
 

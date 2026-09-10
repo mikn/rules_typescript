@@ -470,8 +470,9 @@ def _store_graph(pnpm_lock, graph, importers, settings):
     """The lockfile's store as data: what `npm_virtual_store` declares.
 
     Snapshots and members carry their edges as indices into the two lists;
-    the cycle-broken edges are absent from a snapshot's, as they are from its
-    repository's deps. The hoist is pnpm's over the whole graph, cycles kept.
+    an edge the cycle breaker cut is a snapshot's `cut`, a link beside its
+    tree with no dependency behind it, as it is absent from its repository's
+    deps. The hoist is pnpm's over the whole graph, cycles kept.
 
     Args:
         pnpm_lock: The lockfile's label.
@@ -502,6 +503,11 @@ def _store_graph(pnpm_lock, graph, importers, settings):
                 edge(dep_sid, imported_as)
                 for (dep_sid, imported_as) in graph.deps_by_sid[sid]
                 if not graph.dropped.get(sid, {}).get(dep_sid)
+            ],
+            "cut": [
+                edge(dep_sid, imported_as)
+                for (dep_sid, imported_as) in graph.deps_by_sid[sid]
+                if graph.dropped.get(sid, {}).get(dep_sid)
             ],
         }
         if len(graph.platforms_of[sid]) != len(_ALL_PLATFORMS):

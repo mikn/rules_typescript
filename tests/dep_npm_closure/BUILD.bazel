@@ -13,12 +13,14 @@ package(default_visibility = ["//:__pkg__"])
 ts_compile(
     name = "lib",
     srcs = ["lib.ts"],
+    node_modules = "//tests/npm:node_modules",
     deps = ["@npm//:zod"],
 )
 
 ts_compile(
     name = "consumer",
     srcs = ["consumer.ts"],
+    node_modules = "//tests/npm:node_modules",
     deps = [":lib"],
 )
 

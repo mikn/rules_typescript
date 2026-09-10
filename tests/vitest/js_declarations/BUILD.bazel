@@ -19,6 +19,7 @@ ts_compile(
 ts_test(
     name = "compile_test",
     srcs = ["compile.test.ts"],
+    node_modules = "//tests/npm:node_modules",
     deps = [
         ":compile",
         "@npm//:vitest",
@@ -32,5 +33,6 @@ ts_test(
         "inline.test.ts",
     ],
     data = ["compile.mjs"],
+    node_modules = "//tests/npm:node_modules",
     deps = ["@npm//:vitest"],
 )

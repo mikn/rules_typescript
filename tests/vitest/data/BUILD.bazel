@@ -7,6 +7,7 @@ ts_test(
     name = "fixture_test",
     srcs = ["fixture.test.ts"],
     data = ["fixture.txt"],
+    node_modules = "//tests/npm:node_modules",
     visibility = ["//:__pkg__"],
     deps = [
         "@npm//:types_node",
@@ -23,12 +24,14 @@ ts_compile(
         "lib_data.json",
         "lib_note.txt",
     ],
+    node_modules = "//tests/npm:node_modules",
     deps = ["@npm//:types_node"],
 )
 
 ts_test(
     name = "dep_data_srcs_test",
     srcs = ["dep_data_srcs.test.ts"],
+    node_modules = "//tests/npm:node_modules",
     deps = [
         ":lib",
         "@npm//:vitest",

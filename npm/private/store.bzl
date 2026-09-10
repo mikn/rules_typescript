@@ -13,9 +13,11 @@ NpmStoreInfo = provider(
         "tree": "File: the tree artifact of the snapshot's files, " +
                 "`node_modules/.pnpm/<key>/node_modules/<name>`.",
         "links": "dict of string -> File: the dependency links beside the " +
-                 "tree, by the name the snapshot imports each dependency by.",
+                 "tree, by the name the snapshot imports each dependency by; " +
+                 "a cut edge's among them.",
         "transitive": "depset of File: the tree, its links and every " +
-                      "dependency store's transitive set.",
+                      "dependency store's transitive set, a cut edge's " +
+                      "excepted.",
         "manifest": "File or None: a member's package.json as built, the " +
                     "copy its tree holds; None for a published snapshot.",
     },
@@ -85,7 +87,7 @@ def _link(ctx, dir, name, dep, links):
         ))
     links[name] = store_link(ctx, dir, name, dep[NpmStoreInfo])
 
-def _dep_links(ctx, parts):
+def _dep_links(ctx, parts, cut = {}):
     links = {}
     for dep, names in ctx.attr.deps.items():
         for name in names.split(" "):
@@ -98,6 +100,19 @@ def _dep_links(ctx, parts):
                     ) + "the path its tree holds; pnpm writes no such edge.",
                 )
             _link(ctx, parts.links_dir, name, dep, links)
+    for name, tree in cut.items():
+        if name in links:
+            fail("{}: '{}' is a dependency and a cut edge".format(
+                ctx.label,
+                name,
+            ))
+        path = "{}/{}".format(parts.links_dir, name)
+        link = ctx.actions.declare_symlink(path)
+        ctx.actions.symlink(
+            output = link,
+            target_path = _relative(path.rsplit("/", 1)[0], tree),
+        )
+        links[name] = link
     return links
 
 def _stage(ctx, tree, files, dest):
@@ -146,7 +161,8 @@ def _npm_store_impl(ctx):
         return f.path[len(root):]
 
     _stage(ctx, tree, ctx.files.files, dest)
-    info = _store_info(ctx, parts, tree, _dep_links(ctx, parts))
+    links = _dep_links(ctx, parts, ctx.attr.cut)
+    info = _store_info(ctx, parts, tree, links)
     return [DefaultInfo(files = info.transitive), info]
 
 _TSACTION = attr.label(
@@ -176,12 +192,20 @@ npm_store = rule(
                   "root.",
         ),
         "deps": _DEPS,
+        "cut": attr.string_dict(
+            doc = "Link name -> the tree path, in this package, of a " +
+                  "dependency the extension cut to break a cycle: a link " +
+                  "beside the tree with no dependency behind it, as pnpm's " +
+                  "store has it; the tree is in a closure through the edge " +
+                  "that closes the cycle.",
+        ),
         "_tsaction": _TSACTION,
     },
     doc = """One store tree, named after its path: the snapshot's files copied
 by `tsaction stage` into `node_modules/.pnpm/<key>/node_modules/<name>`, and
-one declared symlink beside it per dependency. `npm_virtual_store` declares
-every one of a lockfile's; not for hand use.""",
+one declared symlink beside it per dependency, a cut edge's with no dependency
+behind it. `npm_virtual_store` declares every one of a lockfile's; not for
+hand use.""",
 )
 
 _MemberJsx = provider(
@@ -399,6 +423,10 @@ def virtual_store(name, graph, members, files, package_dir):
             files = files(snap["repo"]),
             package_dir = package_dir(snap["repo"], snap["name"]),
             deps = edges(snap["deps"], []),
+            cut = {
+                alias or snapshots[dep]["name"]: snapshot_target(dep)
+                for dep, alias in snap["cut"]
+            },
             tags = ["manual"],
             visibility = ["//visibility:public"],
         )

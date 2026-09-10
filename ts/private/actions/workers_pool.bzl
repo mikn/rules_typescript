@@ -22,11 +22,12 @@ WORKERS_POOL_ATTRS = {
     ),
 }
 
-def workers_pool_environment(ctx, node_modules_files, runtime_data_sets):
+def workers_pool_environment(ctx, forest, runtime_data_sets):
     """The pool's half of the test environment, or its absence.
 
-    Returns struct(symlinks, runtime_data_sets): the patched wrangler config
-    over the source's path, and the data sets less that source.
+    `forest` is ts_test's struct(dirs, rlocations, npm_files). Returns
+    struct(symlinks, runtime_data_sets): the patched wrangler config over the
+    source's path, and the data sets less that source.
     """
     symlinks = {}
 
@@ -55,29 +56,26 @@ def workers_pool_environment(ctx, node_modules_files, runtime_data_sets):
         if not js_tool:
             fail(("ts_test {}: wrangler_config needs the JS tool toolchain " +
                   "to patch the config.").format(ctx.label))
-        if not node_modules_files:
-            fail(("ts_test {}: wrangler_config needs a node_modules tree " +
-                  "holding wrangler; the pool in deps brings it.").format(
-                ctx.label,
-            ))
+        if not forest.dirs:
+            fail(("ts_test {}: wrangler_config needs `node_modules`, the " +
+                  "importer whose links hold the pool; wrangler is the " +
+                  "pool's own edge.").format(ctx.label))
         patched = ctx.actions.declare_file(
             "_{}_wrangler.{}".format(ctx.label.name, src.extension),
         )
+        args = ctx.actions.args()
+        args.add(ctx.file._wrangler_patch)
+        args.add("--config", src)
+        args.add("--out", patched)
+        args.add_all(forest.dirs, before_each = "--node-modules")
         ctx.actions.run(
             inputs = depset(
-                [src, ctx.file._wrangler_patch] + node_modules_files,
+                [src, ctx.file._wrangler_patch],
+                transitive = [forest.npm_files],
             ),
             outputs = [patched],
             executable = js_tool.runtime_binary,
-            arguments = js_tool.args_prefix + [
-                ctx.file._wrangler_patch.path,
-                "--config",
-                src.path,
-                "--out",
-                patched.path,
-                "--node-modules",
-                node_modules_files[0].path,
-            ],
+            arguments = js_tool.args_prefix + [args],
             mnemonic = "WranglerTestConfig",
             progress_message = "WranglerTestConfig %{label}",
         )

@@ -1,5 +1,6 @@
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("//npm:defs.bzl", "node_modules")
+load("//ts:defs.bzl", "ts_test")
 
 package(default_visibility = ["//tests/npm:__pkg__"])
 
@@ -44,4 +45,32 @@ diff_test(
     size = "small",
     file1 = ":through_action",
     file2 = "through_action.expected",
+)
+
+# The same edges at run time, on both runners: the test's minimatch is the
+# importer's, test-exclude's the one beside its own tree.
+ts_test(
+    name = "own_edge_node_test",
+    size = "small",
+    srcs = ["own_edge_node.test.ts"],
+    node_modules = ":node_modules",
+    runner = "//ts/runners:node_test",
+    deps = [
+        "@npm//:minimatch_9_0_9",
+        "@npm//:test-exclude",
+        "@npm//:types_node",
+    ],
+)
+
+ts_test(
+    name = "own_edge_vitest_test",
+    size = "small",
+    srcs = ["own_edge_vitest.test.ts"],
+    node_modules = ":node_modules",
+    deps = [
+        "@npm//:minimatch_9_0_9",
+        "@npm//:test-exclude",
+        "@npm//:types_node",
+        "@npm//:vitest",
+    ],
 )

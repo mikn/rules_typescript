@@ -1,11 +1,11 @@
 ### Breaking — ts_test
 
-- **`ts_test` is a rule over `ts_compile`'s attributes, with ten attributes,
-  and `runner` names a runner target.** `srcs`, `deps` and `tsconfig` are
-  `ts_compile`'s: the test target compiles its srcs with the same actions, and
-  the `node_modules` forest tsgo checked them against is the tree the tests run
-  in, so the `_<name>_compile` and `_<name>_node_modules` targets the macro
-  generated no longer exist and `node_modules` and `npm_workspace_name` are
+- **`ts_test` is a rule over `ts_compile`'s attributes, with eleven attributes,
+  and `runner` names a runner target.** `srcs`, `deps`, `tsconfig` and
+  `node_modules` are `ts_compile`'s: the test target compiles its srcs with
+  the same actions, and the importer chain tsgo checked them against is what
+  the tests run in, so the `_<name>_compile` and `_<name>_node_modules`
+  targets the macro generated no longer exist and `npm_workspace_name` is
   gone; an IDE tsconfig lists the test itself, and `ts_refresh_tsconfig`'s
   targets are testonly for it. `runner` is a label, `//ts/runners:vitest` by
   default; `runner = "node:test"` becomes
@@ -24,13 +24,13 @@
   `update_snapshots`, and `<name>.reads`. A `.snap` is a src of the test, as
   every other file under the package is; writing one is `vitest -u` in the
   package. `<name>.reads` becomes `bazel run //path:my_test -- --reads`. vitest
-  is the one in the test's `node_modules` tree, which the runner requires in
-  `deps`; the JS runtime is the toolchain's; `bazel coverage` needs no opt-in,
+  is the one the importer chain links, which the runner requires in `deps`;
+  the JS runtime is the toolchain's; `bazel coverage` needs no opt-in,
   and a plain `bazel test` passes vitest no coverage flags. A test's own files
   leave the coverage report: they are a test target's, which Bazel excludes
   unless `--instrument_test_targets` is set.
 
   Migration: move each vitest setting into the package's vitest config and
   name the file in `config`; list the `.snap` files in `srcs`, or let Gazelle;
-  drop `vitest`, `runtime`, `coverage`, `node_modules` and
-  `npm_workspace_name`; spell `runner` as the label.
+  drop `vitest`, `runtime`, `coverage` and `npm_workspace_name`; spell
+  `runner` as the label.

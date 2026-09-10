@@ -1,5 +1,6 @@
-"""A ts_test's runtime node_modules is the forest its tsgo action resolved
-against: one tree, built once, the ts_compile dep's closure included."""
+"""A ts_test runs in the importer chain its tsgo action resolved against: no
+tree is built, the launcher is handed the importer's node_modules directory,
+and a dep's package reaches the runfiles through the dep's npm_files."""
 
 load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
 
@@ -19,51 +20,44 @@ def _only_output(action, suffix):
         return outputs[0]
     return None
 
-def _runtime_tree_is_the_forest_impl(ctx):
+def _runtime_is_the_chain_impl(ctx):
     env = unittest.begin(ctx)
     actions = ctx.attr.test[_ActionsInfo].actions
-    manifests = [a for a in actions if _only_output(a, "__manifest.txt")]
-    trees = [
-        f
-        for a in actions
-        if a.mnemonic == "NodeModulesTree"
-        for f in a.outputs.to_list()
-    ]
+    trees = [a for a in actions if a.mnemonic == "NodeModulesTree"]
     tsgo = [a for a in actions if a.mnemonic in ("TsgoDeclare", "TsgoCheck")]
     launchers = [a for a in actions if _only_output(a, "_test_launcher.json")]
-    asserts.equals(env, 1, len(manifests), "one node_modules manifest")
-    asserts.equals(env, 1, len(trees), "one node_modules tree")
+    asserts.equals(env, [], trees, "no tree is built per target")
     asserts.equals(env, 1, len(tsgo), "one tsgo action")
     asserts.equals(env, 1, len(launchers), "one launcher config")
-    if [len(manifests), len(trees), len(tsgo), len(launchers)] == [1, 1, 1, 1]:
+    if len(tsgo) == 1 and len(launchers) == 1:
+        importer = ctx.bin_dir.path + "/tests/npm/node_modules"
+        asserts.equals(
+            env,
+            ["-node_modules=" + importer],
+            [a for a in tsgo[0].argv if a.startswith("-node_modules=")],
+            "tsgo resolves through the importer's node_modules",
+        )
         asserts.true(
             env,
             len([
-                line
-                for line in manifests[0].content.splitlines()
-                if line.split("\t")[0] == "C" and
-                   line.endswith("zod/package.json")
-            ]) > 0,
-            "zod, declared by the ts_compile dep alone, is in the tree",
+                f
+                for f in tsgo[0].inputs.to_list()
+                if f.path == importer + "/zod"
+            ]) == 1,
+            "zod, declared by the ts_compile dep alone, is staged through " +
+            "the dep's npm_files",
         )
+        content = launchers[0].content
         asserts.true(
             env,
-            "-node_modules=" + trees[0].path in tsgo[0].argv,
-            "tsgo resolves against the tree: " + str(tsgo[0].argv),
-        )
-        linked = '"node_modules": "{}/{}"'.format(
-            ctx.workspace_name,
-            trees[0].short_path,
-        )
-        asserts.true(
-            env,
-            linked in launchers[0].content,
-            "the launcher runs the tests in the same tree: " +
-            launchers[0].content,
+            '"node_modules": [' in content and
+            '"{}/tests/npm/node_modules"'.format(ctx.workspace_name) in content,
+            "the launcher runs the tests in the importer's node_modules: " +
+            content,
         )
     return unittest.end(env)
 
-runtime_tree_is_the_forest_test = unittest.make(
-    _runtime_tree_is_the_forest_impl,
+runtime_is_the_chain_test = unittest.make(
+    _runtime_is_the_chain_impl,
     attrs = {"test": attr.label(aspects = [_actions_aspect])},
 )

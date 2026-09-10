@@ -77,6 +77,7 @@ esbuild_bundle(
 ts_compile(
     name = "plugin_typecheck",
     srcs = glob(["src/*.ts"]),
+    node_modules = "//tests/npm:node_modules",
     tsconfig = "vite.tsconfig.json",
     deps = [
         "@npm//:types_node",
@@ -89,6 +90,7 @@ ts_compile(
 ts_compile(
     name = "tsup_config",
     srcs = ["tsup.config.ts"],
+    node_modules = "//tests/npm:node_modules",
     deps = ["@npm//:tsup"],
 )
 

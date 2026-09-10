@@ -10,7 +10,8 @@ package(default_visibility = ["//:__pkg__"])
 ts_compile(
     name = "app",
     srcs = ["main.ts"],
-    deps = ["@npm//:acme_ui"],
+    node_modules = "//tests/npm:node_modules",
+    deps = ["//tests/npm:node_modules/@acme/ui"],
 )
 
 build_test(

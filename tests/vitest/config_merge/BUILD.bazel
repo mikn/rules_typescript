@@ -16,6 +16,7 @@ ts_test(
         "virtual.d.ts",
     ],
     config = "vitest.config.mts",
+    node_modules = "//tests/npm:node_modules",
     deps = [
         "@npm//:vitest",
         # The config's own bare import; without it in the tree the config that

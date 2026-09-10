@@ -155,11 +155,12 @@ def _option_group(target, ctx):
     )]
 
 def _tsconfig_aspect_impl(target, ctx):
-    # A workspace member's view reaches the member through `target`, the way a
-    # ts_compile reaches its deps; ts_compile's own `target` is an ES version.
+    # A link target reaches the view through `member`, the view the member
+    # through `target`; ts_compile's own `target` is an ES version.
     reached = list(getattr(ctx.rule.attr, "deps", []))
-    if type(getattr(ctx.rule.attr, "target", None)) == "Target":
-        reached.append(ctx.rule.attr.target)
+    for attr in ("member", "target"):
+        if type(getattr(ctx.rule.attr, attr, None)) == "Target":
+            reached.append(getattr(ctx.rule.attr, attr))
     inherited = [dep[TsconfigSourcesInfo] for dep in reached if TsconfigSourcesInfo in dep]
 
     packages = []
@@ -193,7 +194,7 @@ def _tsconfig_aspect_impl(target, ctx):
 
 tsconfig_aspect = aspect(
     implementation = _tsconfig_aspect_impl,
-    attr_aspects = ["deps", "target"],
+    attr_aspects = ["deps", "member", "target"],
     doc = """Collects the source roots an IDE tsconfig needs.
 
 Also writes one `<target>.tsconfig-fragment.json` per target reached, in the

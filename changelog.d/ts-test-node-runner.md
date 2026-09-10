@@ -12,7 +12,7 @@
   and a `node:module` resolve hook resolves a relative specifier to the file
   the compiled tree holds for it -- the compiled sibling of a `.ts`, the `.js`
   or `index.js` of an extensionless one, the file as written otherwise -- and a
-  bare specifier from the test's own node_modules tree. The hook leaves user
+  bare specifier from the importer chain's directories. The hook leaves user
   source and the emit untouched. `tsconfig` reaches the node:test compile
   exactly as it reaches the vitest one. Every vitest attribute (`config`,
   `config_srcs`, `coverage_provider`, `wrangler_config`) is an analysis

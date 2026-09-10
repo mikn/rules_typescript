@@ -22,10 +22,6 @@ func planNodeTest(
 				"against this one.")
 	}
 
-	if _, err := installNodeModules(r, plan, n.NodeModules); err != nil {
-		return nil, err
-	}
-
 	shard, err := shardFiles(r, n.TestFilesList)
 	if err != nil {
 		return nil, err
@@ -35,6 +31,18 @@ func planNodeTest(
 		plan.Messages = append(plan.Messages, fmt.Sprintf(
 			"ts_test: no test files assigned to shard %d/%d", shardIndex(), totalShards()))
 		return plan, nil
+	}
+
+	root := r.Dir()
+	if root == "" {
+		root, err = os.MkdirTemp(os.Getenv("TEST_TMPDIR"), "ts_test_root")
+		if err != nil {
+			return nil, err
+		}
+	}
+	_, err = installNodeModules(r, plan, root, cfg.Workspace, n.NodeModules)
+	if err != nil {
+		return nil, err
 	}
 
 	argv, err := runtimeCommand(cfg, r)

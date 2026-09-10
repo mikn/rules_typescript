@@ -7,6 +7,7 @@ load("//ts:defs.bzl", "ts_compile", "ts_test")
 ts_compile(
     name = "workspace_root",
     srcs = ["workspace_root.ts"],
+    node_modules = "//tests/npm:node_modules",
     deps = ["@npm//:types_node"],
 )
 
@@ -16,6 +17,7 @@ ts_compile(
 ts_test(
     name = "reads_report_test",
     srcs = ["reads_report.test.ts"],
+    node_modules = "//tests/npm:node_modules",
     tags = ["manual"],
     deps = [
         ":workspace_root",
@@ -31,6 +33,7 @@ ts_test(
         "//:MODULE.bazel",
         "//tests/vitest/reads_report/fixtures:outside.txt",
     ],
+    node_modules = "//tests/npm:node_modules",
     deps = [
         ":workspace_root",
         "@npm//:types_node",

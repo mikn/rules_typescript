@@ -58,7 +58,23 @@ func main() {
 			"NpmStore: %s", strings.Join(kinds, ", "))
 		requireStore(it)
 		it.Pass("the restored tree holds files only, the link its relative target")
+
+		runTest(it, "test_nobuild_runfile_links.log", "--nobuild_runfile_links")
+		runTest(it, "test_noenable_runfiles.log", "--noenable_runfiles")
+		it.MustBazel("clean", "--expunge")
+		runTest(it, "test_download_minimal.log", "--remote_download_outputs=minimal")
 	})
+}
+
+// runTest runs the workspace's ts_test under one runfiles mode: CI's two, and
+// the manifest-only layout only --noenable_runfiles gives a local test.
+func runTest(it *harness.IT, logName, flag string) {
+	log, err := it.BazelLog(logName, "test", "//:strip_ansi_test", flag)
+	if err != nil {
+		log.Dump()
+		it.Fail("bazel test //:strip_ansi_test %s exited non-zero: %v", flag, err)
+	}
+	it.Pass("//:strip_ansi_test passes under %s", flag)
 }
 
 func processKinds(text string) []string {

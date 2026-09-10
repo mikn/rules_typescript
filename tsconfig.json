@@ -127,6 +127,10 @@
         "./tests/npm/*",
         "./bazel-bin/tests/npm/*"
       ],
+      "tests/npm/nested/*": [
+        "./tests/npm/nested/*",
+        "./bazel-bin/tests/npm/nested/*"
+      ],
       "tests/smoke/*": [
         "./tests/smoke/*",
         "./bazel-bin/tests/smoke/*"
