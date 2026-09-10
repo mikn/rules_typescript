@@ -100,22 +100,31 @@ tests/strict_deps/inside.ts
 	}
 }
 
+// A file's realpath in the store: node_modules/.pnpm/<key>/node_modules/<name>.
+func store(key, name string) string {
+	return "node_modules/.pnpm/" + key + "/node_modules/" + name
+}
+
+var (
+	typesNode = store("@types+node@22.20.1", "@types/node")
+	undici    = store("undici-types@6.21.0", "undici-types")
+)
+
 const builtinsOwnership = `label	//tests/strict_deps:builtins
 own	tests/strict_deps/builtins.ts
-npm-direct	@types/node
-npm	undici-types	@npm//:undici-types
+npm-direct	@types/node	@types+node@22.20.1
+npm	undici-types	@npm//:undici-types	undici-types@6.21.0
 `
 
 func TestCheck_NodeBuiltinIntoTypesNodeDeclaredPasses(t *testing.T) {
-	listing := `node_modules/@types/node/fs.d.ts
+	listing := typesNode + `/fs.d.ts
    Imported via "node:fs" from file 'tests/strict_deps/builtins.ts'
-node_modules/@types/node/path.d.ts
+` + typesNode + `/path.d.ts
    Imported via "path" from file 'tests/strict_deps/builtins.ts'
-node_modules/@types/node/globals.d.ts
-   Referenced via 'globals.d.ts' from file 'node_modules/@types/node/index.d.ts'
-node_modules/undici-types/index.d.ts
-   Imported via "undici-types" from file ` +
-		`'node_modules/@types/node/globals.d.ts'` +
+` + typesNode + `/globals.d.ts
+   Referenced via 'globals.d.ts' from file '` + typesNode + `/index.d.ts'
+` + undici + `/index.d.ts
+   Imported via "undici-types" from file '` + typesNode + `/globals.d.ts'` +
 		` with packageId 'undici-types/index.d.ts@6.21.0'
 tests/strict_deps/builtins.ts
    Root file specified for compilation
@@ -127,7 +136,7 @@ tests/strict_deps/builtins.ts
 }
 
 func TestCheck_NpmEdgeIntoATransitivePackageNamesItsLabel(t *testing.T) {
-	listing := `node_modules/undici-types/index.d.ts
+	listing := undici + `/index.d.ts
    Imported via "undici-types" from file 'tests/strict_deps/builtins.ts'` +
 		` with packageId 'undici-types/index.d.ts@6.21.0'
 tests/strict_deps/builtins.ts
@@ -143,20 +152,21 @@ tests/strict_deps/builtins.ts
 	}
 }
 
-// A store path names its package by the segments after the last node_modules/.
-func TestCheck_NestedStorePathNamesThePackage(t *testing.T) {
+// A store path names its tree by the key segment; every file under the tree
+// is that resolution's, whatever the specifier that reached it.
+func TestCheck_AStorePathIsItsTrees(t *testing.T) {
 	manifest := `label	//pkg:app
 own	pkg/app.ts
-npm-direct	zod
-npm	@scope/util	@npm//:scope_util
+npm-direct	zod	zod@3.24.2
+npm	@scope/util	@npm//:scope_util	@scope+util@1.0.0_zod_3_24_2_0c1d2e3f
 `
-	store := "node_modules/.pnpm/@scope+util@1.0.0/node_modules/@scope/util"
-	listing := store + `/index.d.ts
+	util := store("@scope+util@1.0.0_zod_3_24_2_0c1d2e3f", "@scope/util")
+	listing := util + `/index.d.ts
    Imported via "@scope/util" from file 'pkg/app.ts'` +
 		` with packageId '@scope/util/index.d.ts@1.0.0'
-node_modules/zod/node_modules/@scope/util/index.d.ts
-   Imported via "@scope/util/index" from file 'pkg/app.ts'
-node_modules/zod/index.d.ts
+` + util + `/lib/deep.d.ts
+   Imported via "@scope/util/lib/deep" from file 'pkg/app.ts'
+` + store("zod@3.24.2", "zod") + `/index.d.ts
    Imported via "zod" from file 'pkg/app.ts'` +
 		` with packageId 'zod/index.d.ts@3.24.2'
 pkg/app.ts
@@ -179,12 +189,12 @@ func TestCheck_ReferenceDirectivesAreEdgesToo(t *testing.T) {
 own	tests/strict_deps/refs.ts
 direct	//tests/strict_deps:leaf
 file	//tests/strict_deps:hidden	` + strictDepsBin + `/hidden.d.ts
-npm	@types/node	@npm//:types_node
+npm	@types/node	@npm//:types_node	@types+node@22.20.1
 `
 	ref := "../../" + strictDepsBin + "/hidden.d.ts"
 	listing := strictDepsBin + `/hidden.d.ts
    Referenced via '` + ref + `' from file 'tests/strict_deps/refs.ts'
-node_modules/@types/node/index.d.ts
+` + typesNode + `/index.d.ts
    Type library referenced via 'node' from file 'tests/strict_deps/refs.ts'
 tests/strict_deps/refs.ts
    Root file specified for compilation
@@ -202,6 +212,53 @@ tests/strict_deps/refs.ts
 		if !strings.Contains(out, want) {
 			t.Errorf("the message lacks %q:\n%s", want, out)
 		}
+	}
+}
+
+// An alias is a link name at the aliased package's tree: the importer links
+// `styles-alias`, tsgo lists ansi-styles' realpath, the row carries the tree.
+const aliasKey = "ansi-styles@6.2.3_ansi-regex_6_2_2_602a0566"
+
+const aliasOwnership = `label	//tests/npm:alias_consumer
+own	tests/npm/alias_consumer.ts
+npm-direct	styles-alias	` + aliasKey + `
+`
+
+const aliasTree = "../../../../../../../../../../../execroot/_main/bazel-out/" +
+	"k8-fastbuild/bin/tests/npm/features/node_modules/.pnpm/" + aliasKey +
+	"/node_modules/ansi-styles"
+
+func TestCheck_AnAliasIsDeclaredByTheTreeItsLinkEnters(t *testing.T) {
+	listing := aliasTree + `/index.d.ts
+   Imported via "styles-alias" from file 'tests/npm/alias_consumer.ts'` +
+		` with packageId 'ansi-styles/index.d.ts@6.2.3'
+tests/npm/alias_consumer.ts
+   Root file specified for compilation
+`
+	if out, ok := runCheck(t, aliasOwnership, listing); !ok {
+		t.Errorf("an import of a declared alias failed the check:\n%s", out)
+	}
+}
+
+func TestCheck_AFileUnderATreeTheClosureLacksIsAnError(t *testing.T) {
+	own, err := parseOwnership("label\t//tests/npm:alias_consumer\n" +
+		"own\ttests/npm/alias_consumer.ts\nnpm-direct\tzod\tzod@3.24.2\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l, err := explainfiles.Parse(aliasTree + `/index.d.ts
+   Imported via "styles-alias" from file 'tests/npm/alias_consumer.ts'
+tests/npm/alias_consumer.ts
+   Root file specified for compilation
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = own.check(l)
+	want := "resolves to " + aliasTree + "/index.d.ts, under a package the " +
+		"npm closure does not hold"
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("check = %v, want an error ending %q", err, want)
 	}
 }
 
@@ -300,19 +357,24 @@ which writes deps from these edges, or add the labels above by hand.
 	}
 }
 
-func TestNpmPackageOf(t *testing.T) {
+func TestStoreKeyOf(t *testing.T) {
+	scoped := "@scope+util@1.0.0_zod_3_24_2_0c1d2e3f"
+	libDts := "../../external/+ts+tsgo_linux_amd64/lib/lib.es2022.full.d.ts"
 	for p, want := range map[string]string{
-		"node_modules/zod/index.d.ts":                                  "zod",
-		"node_modules/@types/node/fs.d.ts":                             "@types/node",
-		"node_modules/.pnpm/foo@1.0.0/node_modules/foo/index.d.ts":     "foo",
-		"node_modules/a/node_modules/@s/b/x.d.ts":                      "@s/b",
-		"node_modules/@types/node":                                     "@types/node",
-		"tests/strict_deps/middle.ts":                                  "",
-		binDir + "/tests/strict_deps/hidden.d.ts":                      "",
-		"../../external/+ts+tsgo_linux_amd64/lib/lib.es2022.full.d.ts": "",
+		store("foo@1.0.0", "foo") + "/index.d.ts":               "foo@1.0.0",
+		store(scoped, "@scope/util") + "/lib/deep.d.ts":         scoped,
+		store("ws-linked@0.0.0", "ws-linked") + "/index.d.ts":   "ws-linked@0.0.0",
+		aliasTree + "/index.d.ts":                               aliasKey,
+		"node_modules/.pnpm/foo@1.0.0/node_modules":             "",
+		"node_modules/.pnpm/node_modules/foo/index.d.ts":        "",
+		"node_modules/zod/index.d.ts":                           "",
+		"xnode_modules/.pnpm/foo@1.0.0/node_modules/foo/i.d.ts": "",
+		"tests/strict_deps/middle.ts":                           "",
+		binDir + "/tests/strict_deps/hidden.d.ts":               "",
+		libDts: "",
 	} {
-		if got := npmPackageOf(p); got != want {
-			t.Errorf("npmPackageOf(%q) = %q, want %q", p, got, want)
+		if got := storeKeyOf(p); got != want {
+			t.Errorf("storeKeyOf(%q) = %q, want %q", p, got, want)
 		}
 	}
 }

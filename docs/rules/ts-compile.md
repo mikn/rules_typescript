@@ -366,9 +366,10 @@ target runs -- `TsgoDeclare`, or `TsgoCheck` under `--//ts:declarations=oxc`
 file in the program with the edge that brought it in, against an ownership
 manifest the rule writes beside it: the target's own srcs, each first-party
 target in the closure with the files it stages (`TsInfo.owners`), and the
-closure's packages split into the ones `deps` declare and the ones another
-package's closure carries. An edge from one of the target's own files into a
-file whose owner is not in `deps` fails the action, naming the label:
+closure's packages by store tree -- the tree each link of `deps` enters, and
+every other tree the closure holds with the hub label to add. An edge from one
+of the target's own files into a file whose owner is not in `deps` fails the
+action, naming the label:
 
 ```
 ERROR: .../src/app/BUILD.bazel:3:11: TsgoDeclare //src/app:app failed: (Exit 1)
@@ -377,7 +378,7 @@ tsaction: //src/app:app imports files no direct dep provides:
     resolved to bazel-out/k8-fastbuild/bin/src/app/hidden.d.ts
     add //src/app:hidden to deps
   src/app/main.ts imports "zod"
-    resolved to node_modules/zod/index.d.ts
+    resolved to .../node_modules/.pnpm/zod@3.24.2/node_modules/zod/index.d.ts
     add @npm//:zod to deps
 Each reaches this target only through another dep's own deps. Run Gazelle,
 which writes deps from these edges, or add the labels above by hand.
@@ -395,10 +396,13 @@ referenced via` edge whose importer is one of the target's own files -- a
 type-only import, a `paths` alias, an `import()` type, a `/// <reference
 path>`, a `/// <reference types>` and the JSX runtime import tsgo adds to every
 `.tsx` alike, since tsgo resolved each one and says which file it landed in. A
-file under `node_modules/` belongs to the package the segments after the last
-`node_modules/` name; a direct package's `@types/<name>` twin, which an
-importer on the chain links beside it, counts as declared. An edge into the
-target's own srcs passes.
+file under the store is its tree's: tsgo lists the realpath,
+`node_modules/.pnpm/<key>/node_modules/<name>/...`, and the manifest carries
+the key of the tree each link of `deps` enters, so an npm alias -- a link name
+at the aliased package's tree, `tailwindcss-v3` at `tailwindcss@3.4.18_...` --
+is declared by the name the importer links. A direct package's `@types/<name>`
+twin, which an importer on the chain links beside it, counts as declared. An
+edge into the target's own srcs passes.
 
 **What is exempt:** an edge from a dep's own file, which is that dep's to
 declare; a tsconfig `types` entry, which is an entry rather than an edge; the

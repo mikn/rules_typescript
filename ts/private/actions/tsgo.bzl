@@ -30,18 +30,20 @@ def npm_hub_label(npm_info, package = ""):
     return "@{}//{}:{}".format(hub, package, label_name)
 
 def npm_hub_entry(npm_info):
-    """struct(name, label) for a package the closure carries undeclared."""
+    """struct(name, label, key) for a package the closure carries undeclared."""
     return struct(
         name = npm_info.package_name,
         label = npm_hub_label(npm_info),
+        key = npm_info.store.key,
     )
 
 def ownership_manifest(ctx, own, direct, owners, npm_declared, npm_reachable):
     """Writes <name>.ownership: what an edge may resolve to, by owner.
 
     `own` are the target's tsgo inputs, `direct` its first-party dep labels,
-    `owners` the closure's TsInfo.owners records, `npm_declared` the npm
-    names deps cover and `npm_reachable` struct(name, label) for the rest.
+    `owners` the closure's TsInfo.owners records, `npm_declared` struct(name,
+    key) per link deps cover -- the store tree it enters -- and
+    `npm_reachable` struct(name, label, key) for the rest of the closure.
     Returns the file.
     """
     manifest = ctx.actions.declare_file("{}.ownership".format(ctx.label.name))
@@ -56,9 +58,12 @@ def ownership_manifest(ctx, own, direct, owners, npm_declared, npm_reachable):
             format_each = "file\t{}\t%s".format(record.label),
             expand_directories = False,
         )
-    lines.add_all(npm_declared, format_each = "npm-direct\t%s")
     lines.add_all([
-        "npm\t{}\t{}".format(package.name, package.label)
+        "npm-direct\t{}\t{}".format(link.name, link.key)
+        for link in npm_declared
+    ])
+    lines.add_all([
+        "npm\t{}\t{}\t{}".format(package.name, package.label, package.key)
         for package in npm_reachable
     ])
     ctx.actions.write(output = manifest, content = lines)

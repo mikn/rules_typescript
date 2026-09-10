@@ -341,14 +341,17 @@ def compile_program(ctx, es_modules = False, es_twins = False):
     # the @types twin an importer links beside it is the package's to declare.
     packages = _npm_closure(direct_npm_infos, dep_npm_package_sets)
     chain = _importer_chain(ctx, packages)
-    npm_declared = {info.package_name: True for info in direct_npm_infos}
+    npm_declared = {
+        info.package_name: info.store.key
+        for info in direct_npm_infos
+    }
     for dep in published:
         npm_links.append(_resolve_on_chain(ctx, chain, dep))
         twin = _types_twin(dep.info.package_name)
         twin_importer = _importer_linking(chain, twin) if twin else None
         if twin_importer != None:
             npm_links.append(twin_importer.links[twin])
-            npm_declared[twin] = True
+            npm_declared[twin] = twin_importer.links[twin].store.key
     npm_files = depset(
         [entry.link for entry in npm_links],
         transitive = (
@@ -357,11 +360,12 @@ def compile_program(ctx, es_modules = False, es_twins = False):
     )
     importers = [importer.dir for importer in chain]
 
-    npm_reachable = []
-    for info in packages:
-        if info.package_name not in npm_declared:
-            npm_declared[info.package_name] = False
-            npm_reachable.append(npm_hub_entry(info))
+    declared_keys = {key: True for key in npm_declared.values()}
+    npm_reachable = [
+        npm_hub_entry(info)
+        for info in packages
+        if info.store.key not in declared_keys
+    ]
 
     dep_dts_depset = depset(
         transitive = transitive_dts_sets,
@@ -603,11 +607,10 @@ def compile_program(ctx, es_modules = False, es_twins = False):
             own = check_srcs + json_srcs,
             direct = direct_labels,
             owners = owners,
-            npm_declared = sorted([
-                name
-                for name in npm_declared
-                if npm_declared[name]
-            ]),
+            npm_declared = [
+                struct(name = name, key = npm_declared[name])
+                for name in sorted(npm_declared)
+            ],
             npm_reachable = npm_reachable,
         )
         stamp = tsgo_action(

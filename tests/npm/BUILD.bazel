@@ -2,6 +2,7 @@ load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@npm//:defs.bzl", "npm_virtual_store")
 load("@rules_go//go:def.bzl", "go_test")
 load("//npm:defs.bzl", "node_modules", "node_modules_member")
+load("//tests/strict_deps:strict_deps_tests.bzl", "tsgo_check_test")
 load("//ts:defs.bzl", "ts_compile", "ts_test")
 load(":forest_tests.bzl", "chain_test")
 load(":hub_provenance_tests.bzl", "store_provenance_test")
@@ -334,6 +335,29 @@ ts_compile(
     srcs = ["ws_linked_consumer.ts"],
     node_modules = "//tests/npm/features:node_modules",
     deps = ["//tests/npm/features:node_modules/ws-linked"],
+)
+
+# An npm alias imported by the name the root links, `styles-alias`, whose
+# link enters ansi-styles' store tree: the tree the ownership check declares.
+ts_compile(
+    name = "alias_consumer",
+    srcs = ["alias_consumer.ts"],
+    node_modules = "//tests/npm/features:node_modules",
+    deps = ["@npm_features//:styles-alias"],
+)
+
+build_test(
+    name = "alias_consumer_test",
+    targets = [":alias_consumer"],
+)
+
+tsgo_check_test(
+    name = "alias_consumer_manifest_test",
+    size = "small",
+    lines = [
+        "npm-direct\tstyles-alias\tansi-styles@6.2.3_ansi-regex_6_2_2_602a0566",
+    ],
+    target_under_test = ":alias_consumer",
 )
 
 # ── The link target ──────────────────────────────────────────────────────────
