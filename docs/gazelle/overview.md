@@ -360,6 +360,16 @@ label:
   spelled through [the lockfile gate](#the-lockfile-gate). The `@types/*` twin
   of a package is the importer's to declare beside it and gets no label of its
   own.
+- **A `/// <reference types>` directive in a file under `node_modules`** is the
+  target's edge when the file it landed on is the `@types/<name>` package an
+  importer at or above the target's package declares, spelled as that
+  importer's, `@npm//:types_node`: TypeScript's primary lookup for the directive
+  walks `node_modules/@types` up from the tsconfig's directory -- the chain --
+  before the referencing file's own directory, so that copy is the one the
+  program loads, and the link has to be staged for the build's program to load
+  it too. A directive the chain does not answer resolved beside the referencing
+  package's own tree and is nothing. The directive is the edge of the rule
+  whose files reach the referencing file, the `ts_compile`'s or the `ts_test`'s.
 - **A workspace member imported by its name** -- a bare specifier whose
   package is a `link:` name in the lockfile, or the manifest name of an
   importer -- is the link target of the nearest importer at or above the

@@ -1,14 +1,11 @@
 """pnpm's hidden hoist over tests/npm/pnpm-lock.yaml, as pnpm 10.32.1 wrote
 it: `node_modules/.modules.yaml#hoistedDependencies` after `pnpm install
 --frozen-lockfile` over a scratch copy of the lockfile and its members'
-package.json files (rt-evidence/logs/plan10/perf-forest/N.2a/
-01-pnpm-install-fixture.log), and the workspace members it linked beside them
+package.json files (rt-evidence/logs/plan10/perf-forest/N.6e/
+02-pnpm-frozen-install.log), and the workspace members it linked beside them
 under `node_modules/.pnpm/node_modules`."""
 
 HOISTED = {
-    "bun-types@1.3.5": {
-        "bun-types": "private",
-    },
     "undici-types@6.21.0": {
         "undici-types": "private",
     },
@@ -60,11 +57,11 @@ HOISTED = {
     "tinyrainbow@3.1.1": {
         "tinyrainbow": "private",
     },
+    "@types/ws@8.5.14": {
+        "@types/ws": "private",
+    },
     "@types/whatwg-mimetype@3.0.2": {
         "@types/whatwg-mimetype": "private",
-    },
-    "@types/ws@8.18.1": {
-        "@types/ws": "private",
     },
     "entities@7.0.1": {
         "entities": "private",

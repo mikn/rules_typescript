@@ -122,16 +122,50 @@ func (l *npmLock) nodeModulesLabel(pkg string) string {
 	return label.New("", imp, nodeModulesTargetName).Rel("", pkg).String()
 }
 
+// declaring is the nearest importer at or above dir that declares name.
+func (l *npmLock) declaring(name, dir string) (string, bool) {
+	for imp := l.importerAbove(dir); ; imp = l.importerAbove(parentDir(imp)) {
+		if i := l.importers[imp]; i != nil {
+			if _, ok := i.deps[name]; ok {
+				return imp, true
+			}
+		}
+		if imp == "" {
+			return "", false
+		}
+	}
+}
+
 // label spells name for an import from a file in dir: under the nearest
 // importer on the chain above dir that declares it, the root last.
 func (l *npmLock) label(name, dir string) string {
-	imp := l.importerAbove(dir)
-	for ; imp != ""; imp = l.importerAbove(parentDir(imp)) {
-		if _, ok := l.importers[imp].deps[name]; ok {
-			return "@npm//" + imp + ":" + npmPackageToLabelName(name)
-		}
+	imp, _ := l.declaring(name, dir)
+	return "@npm//" + imp + ":" + npmPackageToLabelName(name)
+}
+
+// typesPackage is the @types package a `/// <reference types>` names:
+// DefinitelyTyped's `@types/<name>`, a scoped `@a/b`'s `@types/a__b`.
+func typesPackage(spec string) string {
+	name := barePackageName(spec)
+	if strings.HasPrefix(name, "@") {
+		return "@types/" + strings.Replace(name[1:], "/", "__", 1)
 	}
-	return "@npm//:" + npmPackageToLabelName(name)
+	return "@types/" + name
+}
+
+// chainTypesLabel spells a store file's `/// <reference types>` when an
+// importer at or above pkg declares the @types package it landed on.
+func (l *npmLock) chainTypesLabel(e explainfiles.Edge, pkg string) string {
+	name := npmPackageName(e.To)
+	if e.Kind != explainfiles.TypeReference ||
+		name != typesPackage(e.Specifier) {
+		return ""
+	}
+	imp, ok := l.declaring(name, pkg)
+	if !ok {
+		return ""
+	}
+	return "@npm//" + imp + ":" + npmPackageToLabelName(name)
 }
 
 // memberView is the member a bare specifier from file names, spelled by
@@ -164,9 +198,12 @@ func (l *npmLock) memberLabel(name, pkg string) string {
 	return ""
 }
 
-// edgeLabel is the one label an edge from a file of pkg into node_modules
-// takes: the specifier's package when it names one, else the listed file's.
+// edgeLabel is the one label an edge into node_modules takes: the chain's
+// @types package for a store file's, else the specifier's or listed package.
 func (l *npmLock) edgeLabel(e explainfiles.Edge, pkg string) string {
+	if !firstParty(e.From) {
+		return l.chainTypesLabel(e, pkg)
+	}
 	if lbl, ok := l.memberView(e.Specifier, e.From, pkg); ok {
 		return lbl
 	}

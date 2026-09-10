@@ -173,6 +173,19 @@ func TestNpmPackageToLabelName(t *testing.T) {
 	}
 }
 
+func TestTypesPackage(t *testing.T) {
+	for spec, want := range map[string]string{
+		"node":        "@types/node",
+		"vite/client": "@types/vite",
+		"@acme/ui":    "@types/acme__ui",
+		"@acme/ui/x":  "@types/acme__ui",
+	} {
+		if got := typesPackage(spec); got != want {
+			t.Errorf("typesPackage(%q) = %q, want %q", spec, got, want)
+		}
+	}
+}
+
 func TestBarePackageName(t *testing.T) {
 	for spec, want := range map[string]string{
 		"react":                    "react",

@@ -1,8 +1,10 @@
 package typescript
 
 import (
+	"maps"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -886,5 +888,78 @@ func TestResolveEdges_SamePackagePoolNamesTheFile(t *testing.T) {
 	r, _ := resolveEdgesOf(t, c, ix, "ts_test", "worker", "worker_test", imps)
 	if got := r.AttrString("wrangler_config"); got != "wrangler.jsonc" {
 		t.Errorf("wrangler_config = %q, want wrangler.jsonc", got)
+	}
+}
+
+// scripts' program: a store file's `/// <reference types>` answered by the
+// chain (the root's @types/node) and one answered beside the file's own tree.
+var scriptsListing = storeZod + "\n" +
+	viaLine("zod", "scripts/run.ts", "zod/index.d.ts@3.24.2") +
+	storeTypesReact + "\n" +
+	"   Type library referenced via 'react' from file '" + storeZod + "'\n" +
+	storeMarked + "\n" +
+	viaLine("marked", "scripts/run.test.ts", "marked/lib/marked.d.ts@15.0.12") +
+	storeTypesNode + "\n" +
+	"   Type library referenced via 'node' from file '" + storeMarked + "'\n" +
+	"scripts/run.ts\n" + includeLine("scripts") +
+	viaLine("./run", "scripts/run.test.ts", "") +
+	"scripts/run.test.ts\n" + includeLine("scripts")
+
+// web/tools' program: the same reference under an importer that declares the
+// @types package.
+var toolsListing = storeMarked + "\n" +
+	viaLine("marked", "web/tools/gen.ts", "marked/lib/marked.d.ts@15.0.12") +
+	storeTypesReact + "\n" +
+	"   Type library referenced via 'react' from file '" + storeMarked + "'\n" +
+	"web/tools/gen.ts\n" + includeLine("web/tools")
+
+// A store file's `/// <reference types>` the chain answers is the edge of the
+// rule whose files reach the file, spelled as the declaring importer's.
+func TestResolveEdges_StoreFileTypeReferenceIsTheChains(t *testing.T) {
+	listings := maps.Clone(edgeListings)
+	listings["scripts"] = scriptsListing
+	listings["web/tools"] = toolsListing
+	c, tc := edgeRepo(t, listings)
+	rules := append(slices.Clone(edgeRules),
+		indexedRule{kind: "ts_compile", name: "scripts", pkg: "scripts",
+			srcs: []string{"run.ts"}},
+		indexedRule{kind: "ts_test", name: "scripts_test", pkg: "scripts",
+			srcs: []string{"run.test.ts"}},
+		indexedRule{kind: "ts_compile", name: "tools", pkg: "web/tools",
+			srcs: []string{"gen.ts"}})
+	ix := buildIndex(t, c, rules...)
+	s := tc.programs
+
+	set := s.srcs("scripts", tc)
+	r, logged := resolveEdgesOf(t, c, ix, "ts_compile", "scripts", "scripts",
+		s.compileImports("scripts", set))
+	want := []string{"@npm//:zod"}
+	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+		t.Errorf("scripts deps = %q, want %q: the test file alone reaches "+
+			"marked, and no importer on the chain declares @types/react",
+			got, want)
+	}
+	if logged != "" {
+		t.Errorf("scripts logged:\n%s", logged)
+	}
+	r, logged = resolveEdgesOf(t, c, ix, "ts_test", "scripts", "scripts_test",
+		s.testImports(c.RepoRoot, tc.lock, "scripts", ":scripts", "", set))
+	want = []string{":scripts", "@npm//:marked", "@npm//:types_node",
+		"@npm//:zod"}
+	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+		t.Errorf("scripts_test deps = %q, want %q", got, want)
+	}
+	if logged != "" {
+		t.Errorf("scripts_test logged:\n%s", logged)
+	}
+
+	r, logged = resolveEdgesOf(t, c, ix, "ts_compile", "web/tools", "tools",
+		s.compileImports("web/tools", s.srcs("web/tools", tc)))
+	want = []string{"@npm//web:marked", "@npm//web:types_react"}
+	if got := r.AttrStrings("deps"); !reflect.DeepEqual(got, want) {
+		t.Errorf("tools deps = %q, want %q", got, want)
+	}
+	if logged != "" {
+		t.Errorf("tools logged:\n%s", logged)
 	}
 }

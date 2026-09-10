@@ -407,8 +407,11 @@ is declared by the name the importer links. A direct package's `@types/<name>`
 twin, which an importer on the chain links beside it, counts as declared. An
 edge into the target's own srcs passes.
 
-**What is exempt:** an edge from a dep's own file, which is that dep's to
-declare; a tsconfig `types` entry, which is an entry rather than an edge; the
+**What is exempt:** an edge from a dep's own file -- its imports are that dep's
+to declare, and a `/// <reference types>` the chain answers is written from the
+listing
+([Import Resolution](../gazelle/overview.md#import-resolution)); a tsconfig
+`types` entry, which is an entry rather than an edge; the
 toolchain's `lib.*.d.ts`; and a specifier tsgo could not resolve, which has no
 file to own and is `TS2307`. A target with no program -- declarations alone in
 `srcs` -- runs no tsgo action, and so has no edges to check.

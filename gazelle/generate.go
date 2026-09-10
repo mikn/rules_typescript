@@ -501,8 +501,8 @@ type ruleImports struct {
 	deps   []string
 }
 
-// ownedEdges is the edges of pkg's program from the given files, and the
-// program's type entries, which are the tsconfig's.
+// ownedEdges is the edges of pkg's program from the given files, the type
+// references of the store files those reach, and the tsconfig's type entries.
 func (s *programStore) ownedEdges(pkg string, files ...[]string,
 ) []explainfiles.Edge {
 	from := map[string]bool{}
@@ -512,10 +512,25 @@ func (s *programStore) ownedEdges(pkg string, files ...[]string,
 		}
 	}
 	p := s.programs[pkg]
-	var out []explainfiles.Edge
+	byFrom := map[string][]explainfiles.Edge{}
 	for _, e := range p.Edges {
-		if from[e.From] {
-			out = append(out, e)
+		byFrom[e.From] = append(byFrom[e.From], e)
+	}
+	reached := maps.Clone(from)
+	queue := slices.Sorted(maps.Keys(from))
+	var out []explainfiles.Edge
+	for len(queue) > 0 {
+		f := queue[0]
+		queue = queue[1:]
+		for _, e := range byFrom[f] {
+			ref := e.Kind == explainfiles.TypeReference && !firstParty(e.To)
+			if from[f] || ref {
+				out = append(out, e)
+			}
+			if !firstParty(e.To) && !reached[e.To] {
+				reached[e.To] = true
+				queue = append(queue, e.To)
+			}
 		}
 	}
 	return append(out, p.typeEdges()...)
