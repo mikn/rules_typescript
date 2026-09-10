@@ -3,7 +3,7 @@ load("@npm//:defs.bzl", "npm_virtual_store")
 load("@rules_go//go:def.bzl", "go_test")
 load("//npm:defs.bzl", "node_modules", "node_modules_member")
 load("//tests/strict_deps:strict_deps_tests.bzl", "tsgo_check_test")
-load("//ts:defs.bzl", "ts_compile", "ts_test")
+load("//ts:defs.bzl", "ts_binary", "ts_codegen", "ts_compile", "ts_test")
 load(":forest_tests.bzl", "chain_test")
 load(":hub_provenance_tests.bzl", "store_provenance_test")
 load(":member_manifest_tests.bzl", "member_manifest_test_suite")
@@ -281,6 +281,36 @@ ts_test(
         ":node_modules/shared",
         "@npm//:vitest",
     ],
+)
+
+# A generator resolves the member as a file in the importer's package would:
+# the link target in deps stages node_modules/shared and the member's tree.
+ts_binary(
+    name = "member_resolver",
+    entry_point = "member_resolver.mjs",
+)
+
+ts_codegen(
+    name = "member_resolution",
+    srcs = ["member_specifiers.txt"],
+    outs = ["member_resolution.ts"],
+    args = [
+        "--specifiers",
+        "{srcs}",
+        "--out",
+        "{out}",
+    ],
+    generator = ":member_resolver",
+    node_modules = ":node_modules",
+    deps = [":node_modules/shared"],
+)
+
+go_test(
+    name = "member_resolution_test",
+    size = "small",
+    srcs = ["member_resolution_test.go"],
+    data = [":member_resolution"],
+    deps = ["//tests/verify"],
 )
 
 # What the view carries: the manifest as built, the member's files at the paths

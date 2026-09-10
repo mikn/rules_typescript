@@ -35,7 +35,8 @@ ts_compile(
 
 `ts_binary` runs the `.mjs` on the JS runtime toolchain, so the generator is the
 script and nothing else. A generator that imports npm packages at runtime
-additionally takes `node_modules`; see
+additionally takes `node_modules`, and one that resolves a workspace member
+names the member's link target in `deps`; see
 [The environment the generator gets](#the-environment-the-generator-gets).
 
 The generated sources are their own `ts_compile` target; see
@@ -81,6 +82,7 @@ that reads any layout.
 | `generator` | `label` | required | The executable, built for the exec configuration |
 | `args` | `string_list` | `[]` | The generator's command line, after placeholder substitution |
 | `node_modules` | `label` | `None` | The importer's [`node_modules`](node-modules.md) target, for a generator that imports npm packages at runtime |
+| `deps` | `label_list` | `[]` | Workspace members the generator resolves, as the importer's link targets, `//<importer>:node_modules/<name>` |
 | `env` | `string_dict` | `{}` | Extra environment for the action |
 
 `outs` and `out_dir` are **mutually exclusive, and exactly one is required**.
@@ -247,6 +249,44 @@ The directory is the importer's `node_modules`, so a generator's bare ESM
 import resolves by Node's walk up from the script and a CJS one through
 `NODE_PATH` alike; every link and every store tree the links reach is an input
 of the action.
+
+A workspace member's link is no output of the importer's target but a target of
+its own, `//<importer>:node_modules/<name>`
+([One Link per Name](node-modules.md#one-link-per-name)), and a generator that
+resolves the member names it in `deps`. The link and the member's store tree
+join the action's inputs, and the link sits in the directory `node_modules`
+names, so the member resolves as it does from a file under the importer. A Vite
+build whose entry imports `@lovable.dev/pulse/fonts.css`, a member's exported
+stylesheet:
+
+```python
+ts_codegen(
+    name = "frame_build",
+    srcs = [
+        "vite.config.mts",
+        "//workers/file-viewer/frame:srcs",
+    ],
+    out_dir = "public/v1",
+    args = [
+        "--out",
+        "{out}",
+        "--srcs",
+        "{srcs}",
+        "--config",
+        "vite.config.mts",
+    ],
+    generator = ":vite_build",
+    node_modules = ":node_modules",
+    deps = [":node_modules/@lovable.dev/pulse"],
+)
+```
+
+Without the entry the link is not staged and Rollup stops at the import:
+
+```
+[vite]: Rollup failed to resolve import "@lovable.dev/pulse/fonts.css" from
+".../workers/file-viewer/frame/src/main.tsx".
+```
 
 A Node generator is a [`ts_binary`](ts-binary.md) whose `entry_point` is the
 script. The rule resolves the runtime from the JS runtime toolchain and locates

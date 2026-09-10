@@ -163,7 +163,9 @@ resolves to ([The Chain](node-modules.md#the-chain)).
 One link `node_modules/<name>` into a store tree: an entry of
 `NodeModulesInfo.links`, and what a [`node_modules_member`](node-modules.md)
 target returns beside the member's `TsInfo` and `NpmPackageInfo`, so a
-`ts_compile` names the link target in `deps` where it named the hub's view.
+`ts_compile` or `ts_test` names the link target in `deps` where it named the
+hub's view, and a `ts_codegen` names it there for a generator that resolves
+the member.
 
 | Field | Type | Description |
 |---|---|---|

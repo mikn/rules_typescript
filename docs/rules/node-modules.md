@@ -116,7 +116,8 @@ A workspace member in `deps` fails naming the `node_modules_member` to write
 instead. The link is a target of its own because a member's compile walks up
 to the importers above it: an importer target holding the member's link would
 depend on the member's tree, and through it on the member's compile, a cycle
-for every member the root links.
+for every member the root links. `ts_compile`, `ts_test` and `ts_codegen` name
+the link target in `deps`.
 
 ## The Store
 

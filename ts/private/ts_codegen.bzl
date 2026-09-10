@@ -36,7 +36,9 @@ Typical patterns:
 
      node_modules on the ts_codegen, the importer's `node_modules` target,
      puts NODE_PATH and TS_CODEGEN_NODE_MODULES in the generator's
-     environment, which is how the script reaches npm packages.
+     environment, which is how the script reaches npm packages.  A workspace
+     member the generator resolves is the importer's link target in deps,
+     `:node_modules/<member name>`.
 
          ts_binary(name = "gen_schema", entry_point = "generate-schema.mjs")
          ts_codegen(
@@ -85,7 +87,12 @@ When node_modules is set, ts_codegen automatically sets:
   TS_CODEGEN_NODE_MODULES → same path (for scripts that fork child processes)
 """
 
-load("//ts/private:providers.bzl", "NodeModulesInfo", "ts_info")
+load(
+    "//ts/private:providers.bzl",
+    "NodeModulesInfo",
+    "NpmLinkInfo",
+    "ts_info",
+)
 load("//ts/private:runtime.bzl", "JS_TOOL_TOOLCHAIN_TYPE", "get_js_tool")
 
 _DECLARATION_SUFFIXES = (".d.ts", ".d.mts", ".d.cts")
@@ -135,6 +142,11 @@ def _ts_codegen_impl(ctx):
     if ctx.attr.node_modules:
         node_modules_files = ctx.attr.node_modules[DefaultInfo].files
         node_modules_dir = ctx.attr.node_modules[NodeModulesInfo].dir
+    member_links = [dep[NpmLinkInfo] for dep in ctx.attr.deps]
+    member_files = depset(
+        [entry.link for entry in member_links],
+        transitive = [entry.store.transitive for entry in member_links],
+    )
 
     # Resolve node as a build tool (for passing NODE_BINARY env).
     js_tool = get_js_tool(ctx)
@@ -171,7 +183,10 @@ def _ts_codegen_impl(ctx):
         action_env.setdefault("NODE_BINARY", runtime_binary.path)
         extra_inputs.append(runtime_binary)
 
-    inputs = depset(srcs + extra_inputs, transitive = [node_modules_files])
+    inputs = depset(
+        srcs + extra_inputs,
+        transitive = [node_modules_files, member_files],
+    )
 
     # Run the generator action.
     ctx.actions.run(
@@ -282,6 +297,17 @@ When set:
   - {node_modules_dir} placeholder is available in args
 """,
             providers = [NodeModulesInfo],
+        ),
+        "deps": attr.label_list(
+            doc = """The workspace members the generator resolves, as the
+importer's link targets, `//<importer>:node_modules/<name>`.
+
+Each link and the member's store tree join the action's inputs; the link sits
+in the directory `node_modules` names, where the walk up from a file under the
+importer finds it. A published package is the importer's to link in
+`node_modules`.
+""",
+            providers = [[NpmLinkInfo]],
         ),
         "env": attr.string_dict(
             doc = "Additional environment variables passed to the generator action.",
