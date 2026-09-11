@@ -10,22 +10,22 @@ import (
 
 const nodeModules = "node_modules"
 
-// resolveFrom is Node's module resolution restricted to one tree: from the
-// directory holding an importing file, try <dir>/node_modules/<name> at every
-// ancestor. The tree root stands in for a node_modules directory of its own,
-// which is what it is wherever these trees are mounted. Returns the resolved
-// directory relative to the tree root, or "".
-func resolveFrom(root, from, name string) string {
+// resolveFrom is Node's walk from a package directory, node_modules/<name> at
+// every ancestor, to the resolved package's realpath, or "".
+func resolveFrom(from, name string) string {
 	for dir := from; ; dir = filepath.Dir(dir) {
-		if filepath.Base(dir) != nodeModules {
-			if candidate := filepath.Join(dir, nodeModules, name); isPackage(candidate) {
-				return candidate
-			}
+		candidate := filepath.Join(dir, nodeModules, name)
+		if filepath.Base(dir) == nodeModules {
+			candidate = filepath.Join(dir, name)
 		}
-		if dir == root {
-			if candidate := filepath.Join(dir, name); isPackage(candidate) {
-				return candidate
+		if isPackage(candidate) {
+			real, err := filepath.EvalSymlinks(candidate)
+			if err != nil {
+				return ""
 			}
+			return real
+		}
+		if filepath.Dir(dir) == dir {
 			return ""
 		}
 	}
@@ -36,136 +36,78 @@ func isPackage(dir string) bool {
 	return err == nil
 }
 
-// One name resolving to two versions in one closure is not an edge case: pnpm
-// records each resolution separately and every one of them is real. A tree that
-// keys a directory by name alone has one place to put them, so the second
-// version copied overwrites the first and every dependent gets whichever won --
-// silently, because the version that survives is a real version of the real
-// package.
-//
-// Both chains below run three deep through the same three names and disagree at
-// every level, so a name-keyed tree hands one of them the other's closure.
-//
-// The tree arrives here as a test action's input, materialised from the
-// TreeArtifact rather than read where it was written, which is the part the
-// version-keyed layout depends on: the links into .pnpm are relative and
-// internal to the tree, so they have to travel with it.
+// Every chain starts at a name the importer declares and follows each
+// dependent's own edge, the link beside its store tree, as node does.
 func TestEachDependentResolvesItsOwnVersion(t *testing.T) {
 	tree := verify.New(t)
 
 	for _, fixture := range []struct {
-		nodeModules string
-		chains      [][2][]string
+		importer string
+		chains   [][2][]string
 	}{
-		{"multi_version_node_modules", [][2][]string{
+		{"multi_version", [][2][]string{
+			// The importer declared minimatch@9, so that is what it links.
+			{{"minimatch", "brace-expansion", "balanced-match"},
+				{"9.0.9", "2.0.2", "1.0.2"}},
+			// test-exclude's own edge is the newer major of all three.
 			{{"test-exclude", "minimatch", "brace-expansion", "balanced-match"},
 				{"7.0.2", "10.2.4", "5.0.4", "4.0.4"}},
-			// glob is in the same closure and pins the older major of all three,
-			// which is the chain a name-keyed tree loses.
-			{{"glob", "minimatch", "brace-expansion", "balanced-match"},
-				{"10.5.0", "9.0.9", "2.0.2", "1.0.2"}},
+			{{"test-exclude", "glob", "minimatch", "brace-expansion", "balanced-match"},
+				{"7.0.2", "10.5.0", "9.0.9", "2.0.2", "1.0.2"}},
 		}},
 		// A scoped name, whose store directory is one path segment while the name
 		// inside it is two.
-		{"scoped_multi_version_node_modules", [][2][]string{
+		{"scoped_multi_version", [][2][]string{
 			{{"@vitejs/plugin-react", "@rolldown/pluginutils"}, {"5.2.0", "1.0.0-rc.3"}},
-			{{"rolldown", "@rolldown/pluginutils"}, {"1.2.5", "1.0.1"}},
+			{{"@vitejs/plugin-react", "vite", "rolldown", "@rolldown/pluginutils"},
+				{"5.2.0", "8.2.2", "1.2.5", "1.0.1"}},
 		}},
 	} {
-		nm := tree.FoundDir("*/" + fixture.nodeModules)
-		root := nm.Abs()
+		root := tree.FoundDir("*/" + fixture.importer + "/node_modules").Abs()
 		for _, chain := range fixture.chains {
-			names, versions := chain[0], chain[1]
-			dir := root
-			for i, name := range names {
-				resolved := resolveFrom(root, dir, name)
-				if resolved == "" {
-					t.Errorf("%s: %v does not resolve %q: nothing by that name up the tree from %s",
-						fixture.nodeModules, names[:i], name, rel(t, root, dir))
-					break
-				}
-				var pkg struct {
-					Version string `json:"version"`
-				}
-				at := rel(t, root, resolved)
-				nm.File(at + "/package.json").JSON(&pkg)
-				if pkg.Version != versions[i] {
-					t.Errorf("%s: %v resolves %q to %s@%s (at %s), want %s@%s",
-						fixture.nodeModules, names[:i], name, name, pkg.Version, at, name, versions[i])
-				}
-				dir = resolved
-			}
+			followChain(t, fixture.importer, filepath.Dir(root), chain[0], chain[1])
 		}
 	}
 }
 
-// A version is not a resolution. pnpm resolves a package once per distinct PEER
-// SET and keys each outcome apart, because the outcomes have different
-// dependency edges: ansi-styles@6.2.3(ansi-regex@5.0.1) and
-// ansi-styles@6.2.3(ansi-regex@6.2.2) are one tarball and two builds.
-//
-// A tree keyed by name@version has one directory for the pair and one
-// `node_modules/ansi-regex` inside it, so one of the two dependents imports the
-// other one's peer. That is harder to see than the version case, not easier: the
-// ansi-styles files are byte-identical whichever resolution won, so the only
-// evidence is the version reached one hop further down.
-//
-// The fixture declares app-a's resolution here and reaches the other only
-// through wrap-ansi, so the tree has to place both and point each dependent at
-// its own.
+func followChain(t *testing.T, importer, from string, names, versions []string,
+) {
+	t.Helper()
+	dir := from
+	for i, name := range names {
+		resolved := resolveFrom(dir, name)
+		if resolved == "" {
+			t.Errorf("%s: %v does not resolve %q: nothing by that name up from %s",
+				importer, names[:i], name, dir)
+			return
+		}
+		if got := versionOf(t, resolved); got != versions[i] {
+			t.Errorf("%s: %v resolves %q to %s@%s (at %s), want %s@%s",
+				importer, names[:i], name, name, got, resolved, name, versions[i])
+		}
+		dir = resolved
+	}
+}
+
+// The importer declares app-a's ansi-styles and reaches the other peer variant
+// only through wrap-ansi: both are store trees and each edge names its own.
 func TestEachDependentResolvesItsOwnPeerSet(t *testing.T) {
 	tree := verify.New(t)
-	nm := tree.FoundDir("*/peer_variant_both_node_modules")
-	root := nm.Abs()
+	root := tree.FoundDir("*/peer_variant_both/node_modules").Abs()
 
 	for _, chain := range [][2][]string{
 		{{"ansi-styles", "ansi-regex"}, {"6.2.3", "5.0.1"}},
 		{{"wrap-ansi", "ansi-styles", "ansi-regex"}, {"8.1.0", "6.2.3", "6.2.2"}},
 	} {
-		names, versions := chain[0], chain[1]
-		dir := root
-		for i, name := range names {
-			resolved := resolveFrom(root, dir, name)
-			if resolved == "" {
-				t.Errorf("%v does not resolve %q: nothing by that name up the tree from %s",
-					names[:i], name, rel(t, root, dir))
-				break
-			}
-			var pkg struct {
-				Version string `json:"version"`
-			}
-			at := rel(t, root, resolved)
-			nm.File(at + "/package.json").JSON(&pkg)
-			if pkg.Version != versions[i] {
-				t.Errorf("%v resolves %q to %s@%s (at %s), want %s@%s",
-					names[:i], name, name, pkg.Version, at, name, versions[i])
-			}
-			dir = resolved
-		}
+		followChain(t, "peer_variant_both", filepath.Dir(root), chain[0], chain[1])
 	}
 
-	// The store path is pnpm's own: one directory per resolution, named
-	// `<name>@<version>` with the peer set appended after an underscore. Only the
-	// prefix is pinned -- the peer component ends in a digest of the whole peer
-	// suffix, because nested peer sets run to hundreds of characters and
-	// truncating alone would collide two resolutions into one directory, which is
-	// the bug this keying exists to avoid.
-	//
-	// Asserted by looking for the directory rather than by reading the link that
-	// reaches it: runfiles staging materialises a link to a directory as the
-	// directory, so the link is only a link where the tree is an action input.
-	store := tree.Find("*/peer_variant_both_node_modules/.pnpm/ansi-styles@6.2.3_*/node_modules/ansi-styles")
-	if len(store) != 1 {
-		t.Errorf("%d directories match .pnpm/ansi-styles@6.2.3_*/node_modules/ansi-styles, want 1",
-			len(store))
+	// One tree per resolution, `<name>@<version>_<peer id>`; only the prefix is
+	// pinned, since the peer id ends in a digest of the whole peer set.
+	const pattern = "*/features/node_modules/.pnpm/ansi-styles@6.2.3_*/" +
+		"node_modules/ansi-styles"
+	if store := tree.Find(pattern); len(store) != 2 {
+		t.Errorf("%d directories match %s, want 2: one tree per peer set",
+			len(store), pattern)
 	}
-}
-
-func rel(t *testing.T, root, path string) string {
-	t.Helper()
-	out, err := filepath.Rel(root, path)
-	if err != nil {
-		t.Fatalf("relativising %s against %s: %v", path, root, err)
-	}
-	return filepath.ToSlash(out)
 }

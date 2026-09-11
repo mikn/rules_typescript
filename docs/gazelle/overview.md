@@ -63,8 +63,8 @@ Five things, and no directive of its own.
    so its imports, and those of the first-party modules they reach, are the
    test's.
 5. **The hand-written `ts_codegen` rules** in the BUILD files walked: their
-   `outs`, and every `out_dir`, which is that target's output whatever a local
-   run of the generator left on disk.
+   `outs` and every `out_dir`, the target's output whatever a local run of the
+   generator left on disk.
 
 The listing resolves through the checkout's `node_modules`, so a repository
 with a root lockfile is installed before a run. tsgo prints no line for an
@@ -104,12 +104,15 @@ file. A file tsgo could have listed -- `.ts`, `.tsx`, `.mts`, `.cts`, `.js`,
 `.jsx`, `.mjs`, `.cjs` -- is a src only when the program lists it: one the
 tsconfig's `exclude` leaves out is neither a src nor data. Every other regular
 file under the package's tree -- not a `BUILD.bazel`, not the package's own
-`tsconfig.json`, not under a deeper package or a declared `out_dir` -- is a
-data src of the package: a `.json`, a `.css`, an image, a fixture, the
-`package.json`. The one unlisted JavaScript that is a src is the twin beside an
-owned declaration of the same stem (`x.mjs` beside `x.d.mts`): tsc drops it
-from the program and resolves `./x.mjs` to the declaration, so the listing
-never names the module itself.
+`tsconfig.json`, not under a deeper package -- is a data src of the package: a
+`.json`, a `.css`, an image, a fixture, the `package.json`. A file a
+`ts_codegen` writes -- one its `outs` declare, or anything under its `out_dir`
+-- is neither, listed or not: a copy on disk is what a local run of the
+generator left, and the target that reaches it depends on the codegen. The one
+unlisted JavaScript that is a src is the twin beside an owned declaration of
+the same stem (`x.mjs` beside `x.d.mts`): tsc drops it from the program and
+resolves `./x.mjs` to the declaration, so the listing never names the module
+itself.
 
 Two programs importing each other's files is a dependency cycle between two
 Bazel targets, which Bazel rejects with the loop of labels when it loads them.
@@ -139,6 +142,9 @@ a source, and a BUILD file there is emptied and named the same way.
 | `ts_config` | `tsconfig` | `src`, `deps`, `visibility` |
 | `filegroup` | `vitest_config` | `srcs`, `visibility` |
 | `filegroup` | `wrangler_config` | `srcs`, `visibility` |
+| `node_modules` | `node_modules` | `deps`, `parent`, `hoist`, `visibility` |
+| `node_modules_member` | `node_modules/<member name>` | `member`, `visibility` |
+| `npm_virtual_store` | `node_modules/.pnpm` | |
 
 Per package: a `ts_compile` when the program has a library file, holding the
 library files, every owned declaration and the data files; a `ts_test` when it
@@ -153,6 +159,19 @@ this: Gazelle does not write or touch it ([Dev Server](../guides/dev-server.md))
 A src whose name Bazel cannot spell (a `:` in it) is dropped and named in the
 log; a name that opens a label (`@`, `//`) is pinned to the package with a
 leading `:`.
+
+Per lockfile importer, package or not: a `node_modules` whose `deps` are the
+importer's declared `dependencies`, `devDependencies` and
+`optionalDependencies` as hub labels (`@npm//web:react`; `@npm//:react` for
+the root's) and whose `parent` is the importer above's target, the
+lockfile's root importer naming `hoist = ":node_modules/.pnpm/node_modules"`
+instead; one
+`node_modules_member` per `link:` entry, `node_modules/<member name>` over the
+member's view; and, at the repository root, the lockfile's package,
+`npm_virtual_store(name = "node_modules/.pnpm")` from `@npm//:defs.bzl`
+([node_modules](../rules/node-modules.md)). A directory that is no importer
+withdraws its `node_modules` and every `node_modules_member`; a hand-written
+one there is kept under `# keep`.
 
 ```python
 # packages/core/BUILD.bazel -- tsconfig.json here, the sources under src/
@@ -295,12 +314,12 @@ tsconfig to the file, and it resolves as any edge does: to the rule whose
 that is not in the checkout is listed by no program, so Gazelle reads the entry
 from the chain itself, resolved against the package's directory as tsc
 resolves it, and writes the codegen into `deps`. Nothing else is written: no
-`types`, no filegroup. The checked-in copy of a declared out goes: a file that
-is both a src and an output of its package is a conflict Bazel rejects. The
-codegen is named for what it writes, never for its directory: the directory's
-name is the package's `ts_compile`, and a hand-written rule of another kind
-holding that name keeps the merger from writing the compile. The run names
-such a rule; rename it.
+`types`, no filegroup. A copy of a declared out left on disk by a local
+`wrangler types` is no rule's src: the out is the codegen's, and the program
+that lists it depends on the codegen. The codegen is named for what it writes,
+never for its directory: the directory's name is the package's `ts_compile`,
+and a hand-written rule of another kind holding that name keeps the merger
+from writing the compile. The run names such a rule; rename it.
 
 ```python
 # workers/proxy/BUILD.bazel -- the ts_codegen is hand-written; Gazelle leaves it
@@ -342,15 +361,29 @@ label:
   after the last `node_modules/` in the path (two when the first is a scope),
   or by the bare specifier's package when the edge is an import. The label is
   spelled through [the lockfile gate](#the-lockfile-gate). The `@types/*` twin
-  of a package arrives paired through the hub in the forest and gets no label
-  of its own.
+  of a package is the importer's to declare beside it and gets no label of its
+  own.
+- **A `/// <reference types>` directive in a file under `node_modules`** is the
+  target's edge when the file it landed on is the `@types/<name>` package an
+  importer at or above the target's package declares, spelled as that
+  importer's, `@npm//:types_node`: TypeScript's primary lookup for the directive
+  walks `node_modules/@types` up from the tsconfig's directory -- the chain --
+  before the referencing file's own directory, so that copy is the one the
+  program loads, and the link has to be staged for the build's program to load
+  it too. A directive the chain does not answer resolved beside the referencing
+  package's own tree and is nothing. The directive is the edge of the rule
+  whose files reach the referencing file, the `ts_compile`'s or the `ts_test`'s.
 - **A workspace member imported by its name** -- a bare specifier whose
   package is a `link:` name in the lockfile, or the manifest name of an
-  importer -- is the hub's view of the member, `@npm//:<name>`, from every
-  package but the member's own `ts_compile`, where the file is its own and the
-  edge is nothing. A `ts_test` inside the member takes the view: the runtime
-  resolves the name through `node_modules`, and only the view links the member
-  there.
+  importer -- is the link target of the nearest importer at or above the
+  package that links it, `//web:node_modules/@acme/ui`; where no importer
+  above links it there is no label and one line names the member, since a
+  target resolves through its importers alone. The name of the nearest
+  `package.json` above the importing file, a subpath included, is a
+  self-reference, which tsc resolves through that manifest's `exports` to a
+  file of the member: a first-party file, resolved as any owned file is -- the
+  member's `ts_compile` from a `ts_test` or a package below it, nothing from
+  the member's own `ts_compile` -- and no line.
 - **A file another package owns**, reached by a relative path or a `paths`
   alias, is that package's `ts_compile`, or whichever rule holds the file in
   `srcs`: a hand-written one under `# keep` answers as a generated one does. A
@@ -382,7 +415,8 @@ the library files and the declarations, since the test runs the package's code
 and needs its npm closure; the edges of its vitest config and of the modules
 the config reaches; and the nearest
 `package.json`'s `dependencies` and `devDependencies`, each spelled as an edge
-would be, a member's name as its view and every other name through the gate.
+would be, a member's name as its link target and every other name through the
+gate.
 So a test carries the packages the config and the manifest name and no source
 imports (`vitest`, a pool package, `jsdom`), and none of them needs a `# keep`.
 
@@ -403,11 +437,13 @@ With no root lockfile at all, npm imports get no dep, said once per run.
 The spelling follows the importer. The file tsgo listed carries the exact
 version the importing file's own `package.json` resolved, and the hub declares
 each importer's resolutions under the importer's directory beside the root's:
-`@npm//web:marked` beside `@npm//:marked`. A name the nearest lockfile importer
-above the importing file declares is spelled under that importer, and a name
-only the root declares under the root. A flat label for a name two importers
-resolve differently would put the root's version at the target's top level in
-the forest, where the importer's own code expects its own.
+`@npm//web:marked` beside `@npm//:marked`. A name is spelled under the nearest
+importer on the chain above the importing file that declares it, the root
+last. A flat label for a name two importers
+resolve differently names a resolution the target's chain does not link, and
+fails analysis. Every `ts_compile` and `ts_test` gets `node_modules`, the
+nearest lockfile importer's target at or above the package -- the root's for a
+package under no importer -- which is that chain.
 
 ## Verifying a Run
 

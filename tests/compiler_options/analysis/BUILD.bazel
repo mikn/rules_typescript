@@ -131,7 +131,8 @@ go_test(
 ts_compile(
     name = "exported_subpaths",
     srcs = ["exported_subpaths.ts"],
-    deps = ["@npm//:pulse"],
+    node_modules = "//tests/npm:node_modules",
+    deps = ["//tests/npm:node_modules/pulse"],
 )
 
 build_test(
@@ -146,9 +147,10 @@ build_test(
 ts_compile(
     name = "requested_types",
     srcs = ["requested_types.ts"],
+    node_modules = "//tests/npm:node_modules",
     tsconfig = "tsconfig.requested_types.json",
     deps = [
-        "@npm//:types_estree",
+        "@npm//:types_culori",
         "@npm//:types_node",
         "@npm//:vite",
     ],

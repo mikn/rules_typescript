@@ -20,15 +20,18 @@ def _wrangler_config_runfiles_impl(ctx):
             "the source is the action's --config: " + str(argv),
         )
 
-    # The copy takes the source's runfiles path and keeps its own as well, which
-    # is what admits its realpath when a `?raw` load re-resolves it.
+    # The copy takes the source's runfiles path, and that path alone.
     symlinks = [(s.path, s.target_file.basename) for s in runfiles.symlinks.to_list()]
     asserts.true(
         env,
         (_SOURCE, "_worker_test_wrangler.jsonc") in symlinks,
         "the symlink at the source's path: " + str(symlinks),
     )
-    asserts.true(env, "tests/workers_nested/test/_worker_test_wrangler.jsonc" in files, "the copy at its own path: " + str(files))
+    asserts.false(
+        env,
+        "tests/workers_nested/test/_worker_test_wrangler.jsonc" in files,
+        "the copy is held under the source's path alone: " + str(files),
+    )
 
     # A runfiles file at the symlink's path wins over it silently, so the
     # worker's staged copy of its wrangler.jsonc src is kept out.

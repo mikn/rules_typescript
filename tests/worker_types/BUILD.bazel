@@ -13,8 +13,10 @@ load("//ts:defs.bzl", "ts_codegen", "ts_compile", "ts_config")
 
 package(default_visibility = ["//:__pkg__"])
 
+# keep
 node_modules(
     name = "node_modules",
+    hoist = "//tests/workers:node_modules/.pnpm/node_modules",
     deps = ["@npm_workers//:wrangler"],
 )
 

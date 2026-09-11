@@ -16,12 +16,12 @@ import (
 // ownership is the manifest the rule writes beside the tsgo action: which
 // label owns each file the program can resolve an edge to.
 type ownership struct {
-	label     string
-	own       map[string]bool
-	direct    map[string]bool
-	files     map[string][]string
-	npmDirect map[string]bool
-	npm       map[string]string
+	label        string
+	own          map[string]bool
+	direct       map[string]bool
+	files        map[string][]string
+	directStores map[string]bool
+	stores       map[string]string
 }
 
 func readOwnership(name string) (*ownership, error) {
@@ -38,11 +38,11 @@ func readOwnership(name string) (*ownership, error) {
 
 func parseOwnership(text string) (*ownership, error) {
 	o := &ownership{
-		own:       map[string]bool{},
-		direct:    map[string]bool{},
-		files:     map[string][]string{},
-		npmDirect: map[string]bool{},
-		npm:       map[string]string{},
+		own:          map[string]bool{},
+		direct:       map[string]bool{},
+		files:        map[string][]string{},
+		directStores: map[string]bool{},
+		stores:       map[string]string{},
 	}
 	for i, line := range strings.Split(text, "\n") {
 		if line == "" {
@@ -58,10 +58,10 @@ func parseOwnership(text string) (*ownership, error) {
 			o.direct[f[1]] = true
 		case f[0] == "file" && len(f) == 3:
 			o.files[f[2]] = append(o.files[f[2]], f[1])
-		case f[0] == "npm-direct" && len(f) == 2:
-			o.npmDirect[f[1]] = true
-		case f[0] == "npm" && len(f) == 3:
-			o.npm[f[1]] = f[2]
+		case f[0] == "npm-direct" && len(f) == 3:
+			o.directStores[f[2]] = true
+		case f[0] == "npm" && len(f) == 4:
+			o.stores[f[3]] = f[2]
 		default:
 			return nil, fmt.Errorf("ownership manifest line %d: %q", i+1, line)
 		}
@@ -128,20 +128,20 @@ func quoted(e explainfiles.Edge) string {
 }
 
 // owner names the label owning `to` and whether this target may use it: an
-// own src, a forest package, or the first-party file or tree it sits under.
+// own src, a store tree a dep's link enters, or a first-party file or tree.
 func (o *ownership) owner(to string) (label string, declared bool, err error) {
 	if o.own[to] {
 		return o.label, true, nil
 	}
-	if name := npmPackageOf(to); name != "" {
-		if o.npmDirect[name] {
+	if key := storeKeyOf(to); key != "" {
+		if o.directStores[key] {
 			return "", true, nil
 		}
-		if label, ok := o.npm[name]; ok {
+		if label, ok := o.stores[key]; ok {
 			return label, false, nil
 		}
 		return "", false, fmt.Errorf("resolves to %s, under a package the "+
-			"forest does not hold", to)
+			"npm closure does not hold", to)
 	}
 	for p := to; p != "." && p != "/" && p != ""; p = path.Dir(p) {
 		owners, ok := o.files[p]
@@ -155,24 +155,21 @@ func (o *ownership) owner(to string) (label string, declared bool, err error) {
 		}
 		return owners[0], false, nil
 	}
-	return "", false, fmt.Errorf("resolves to %s, which no src, dep or forest "+
+	return "", false, fmt.Errorf("resolves to %s, which no src, dep or npm "+
 		"package of this target owns", to)
 }
 
-// npmPackageOf names the package a forest path belongs to -- the segments
-// after the last node_modules/ -- or "" for a first-party path.
-func npmPackageOf(p string) string {
-	const marker = "node_modules/"
-	i := strings.LastIndex(p, marker)
+// storeKeyOf names the store tree a path is under, the <key> of
+// node_modules/.pnpm/<key>/node_modules/<name>/..., or "" outside the store.
+func storeKeyOf(p string) string {
+	const marker = "node_modules/.pnpm/"
+	i := strings.Index(p, marker)
 	if i < 0 || (i > 0 && p[i-1] != '/') {
 		return ""
 	}
 	rest := strings.SplitN(p[i+len(marker):], "/", 3)
-	if strings.HasPrefix(rest[0], "@") {
-		if len(rest) < 2 {
-			return ""
-		}
-		return rest[0] + "/" + rest[1]
+	if len(rest) < 3 || rest[1] != "node_modules" {
+		return ""
 	}
 	return rest[0]
 }

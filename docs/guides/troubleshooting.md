@@ -152,33 +152,19 @@ patch file changed without `pnpm install` being re-run. Re-run it (`pnpm install
 --lockfile-only`) so the lockfile records what the file now is, or restore the
 file. Bazel does not apply a patch pnpm never saw.
 
-## node_modules: depends on two versions of one name at once
+## node_modules: linked twice
 
 ```
-node_modules: @@//src/app:node_modules depends on two versions of 'minimatch' at once:
-  minimatch@10.2.4
-  minimatch@9.0.9
+node_modules: @@//src/app:node_modules: 'minimatch' linked twice, to
+@@+npm+npm__minimatch__10_2_4//:pkg and @@+npm+npm__minimatch__9_0_9//:pkg:
+one link per name
 ```
 
-`node_modules/<name>` is one directory, so no arrangement of the tree answers
-`import "<name>"` with both. Depend on one version here and let the other arrive
-through the package that needs it, where it keeps its own store directory, or
-split the two into separate `node_modules` targets. See
-[node_modules](../rules/node-modules.md#two-resolutions-of-one-name-in-deps).
-
-A narrower form covers two resolutions of one version that differ in the peers
-pnpm resolved them against:
-
-```
-node_modules: @@//src/app:node_modules depends on two resolutions of
-'fdir@6.5.0' at once, one per peer set:
-  peers picomatch_4_0_3_<digest>
-  peers picomatch_4_0_7_<digest>
-```
-
-The tarball is the same both ways; what differs is what the package's own
-dependencies resolve to, and that lives in the one
-`node_modules/<name>/node_modules`.
+`deps` names two resolutions of one name, and `node_modules/<name>` is one
+link. Depend on the one the importer declares; a dependent that resolved the
+other reaches it beside its own store tree. Two peer resolutions of one version
+are two keys and fail the same way. See
+[node_modules](../rules/node-modules.md#one-link-per-name).
 
 ## imports files no direct dep provides
 
@@ -236,9 +222,12 @@ no `module` beside it.
 ## Import Not Resolving in tsgo
 
 tsgo resolves with `moduleResolution: "Bundler"` (what tsgo derives from every
-`module` but `Node16`/`NodeNext`) against the `node_modules` forest built from
-`deps`. A bare import that resolves nowhere, with no strict-deps failure and
-only `TS2307`, means no dep in the closure provides it. Add the package:
+`module` but `Node16`/`NodeNext`) through the importer chain `node_modules`
+names. A bare import that resolves nowhere, with no strict-deps failure and
+only `TS2307`, means no dep provides it. Add the package, which the importer's
+`package.json` declares -- a name no importer on the chain declares, or one
+declared at another version, fails analysis naming the manifest or the label
+to write:
 
 ```python
 ts_compile(
@@ -257,8 +246,8 @@ app.ts(1,23): error TS2688: Cannot find type definition file for 'vite/client'.
 From a `/// <reference types="vite/client" />`, the line Vite's own project
 template puts at the top of `src/vite-env.d.ts`. The directive resolves through
 TypeScript's type-reference resolver, which walks `node_modules/@types` and the
-`node_modules` above the file; under Bazel that tree is the forest built from
-`deps`, so the package has to be there:
+`node_modules` above the file; under Bazel that walk is the importer chain, so
+the package has to be a dep the importer declares:
 
 ```python
 ts_compile(
@@ -282,17 +271,16 @@ in an npm package's declaration entry (`@types/bun/index.d.ts` is
 `/// <reference types="bun-types" />`) is followed by the rule; see
 [`@types/*` packages](../rules/ts-compile.md#types-packages).
 
-## ts_test: needs vitest in the node_modules tree, which no dep provides
+## ts_test: needs vitest in the npm closure, which no dep provides
 
 ```
 ts_test @@//path/to:my_test: @@//ts/runners:vitest runs the tests and needs
-vitest in the node_modules tree, which no dep provides.
+vitest in the npm closure, which no dep provides.
 Add the hub label of each to deps.
 ```
 
-The vitest runner runs `vitest` out of the tree the tests run in, the forest
-the test's `deps` build, and a package no dep provides is not in it. List
-`@npm//:vitest` in `deps`:
+The vitest runner runs `vitest` out of the importer chain the tests run in,
+and a package no dep provides is not in it. List `@npm//:vitest` in `deps`:
 
 ```python
 ts_test(
@@ -302,8 +290,8 @@ ts_test(
 )
 ```
 
-Every other package the run needs at runtime is in the tree the same way: the
-test's npm deps, their closures, and each `ts_compile` dep's npm closure, so a
+Every other package the run needs at runtime is in the runfiles the same way:
+the test's npm deps' links and store trees, and each `ts_compile` dep's, so a
 package only the production code imports arrives through that dep. See
 [Runners](../rules/ts-test.md#runners) and
 [Listing npm Deps](../rules/ts-test.md#listing-npm-deps).
@@ -363,37 +351,18 @@ Add node_modules = ":node_modules" pointing at a node_modules() target; the
 generated config resolves every bare specifier through that tree.
 ```
 
-Nothing in the source tree says which tree the app resolves against, and
-Gazelle does not write or touch `ts_dev_server`. Declare the tree in the dev
-server's own Bazel package, listing every npm package the app imports, plus
-`@npm//:vite` under the default server, and name it on the rule:
+Gazelle does not write or touch `ts_dev_server`. Name the importer's
+`node_modules` target on the rule, the one Gazelle writes in the importer's
+package, whose `deps` link every npm package the app imports, plus `vite` under
+the default server:
 
 ```python
-node_modules(
-    name = "node_modules",
-    deps = ["@npm//:vite", "@npm//:zod"],
+ts_dev_server(
+    name = "dev",
+    entry_point = ":app",
+    node_modules = ":node_modules",
 )
 ```
-
-Name it `node_modules`; see the next entry.
-
-## Cannot find package 'rolldown' imported from …/vite/dist/node/chunks/node.js
-
-```
-Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'rolldown' imported from
-…/bin/src/app/dev_node_modules/vite/dist/node/chunks/node.js
-Did you mean to import "file:///…/dev_node_modules/rolldown/dist/parse-ast-index.mjs"?
-```
-
-The `node_modules()` target is named something other than `node_modules`. The
-tree is materialised at the target's own name, and Node resolves a bare specifier
-by walking up for a directory called `node_modules` and nothing else, so Vite 8,
-whose entry imports `rolldown` that way, does not start. The "Did you mean" line
-shows the package in the tree.
-
-Rename the target to `node_modules` (one per Bazel package) and update the attr
-pointing at it. `@vitejs/plugin-react` fails the same walk-up for its
-`react-refresh` runtime, so `react_refresh = True` needs the same name.
 
 ## ts_dev_server: sets react_refresh = True, but @vitejs/plugin-react did not load
 
@@ -409,6 +378,7 @@ node_modules(
         "@npm//:vite",
         "@npm//:vitejs_plugin-react",
     ],
+    hoist = ":node_modules/.pnpm/node_modules",
 )
 ```
 
@@ -458,6 +428,7 @@ the package is not in that tree. Add it to the target's `deps` and restart:
 node_modules(
     name = "node_modules",
     deps = ["@npm//:vite", "@npm//:some-package"],
+    hoist = ":node_modules/.pnpm/node_modules",
 )
 ```
 

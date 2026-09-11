@@ -1,4 +1,4 @@
-import { realpathSync, statSync } from "node:fs";
+import { readFileSync, realpathSync, statSync } from "node:fs";
 import module from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -11,13 +11,12 @@ if (typeof module.registerHooks !== "function") {
   );
 }
 
-// The launcher names the test's node_modules tree in NODE_PATH, which ESM
-// resolution ignores; a bare specifier from the package's code resolves there.
+// The launcher names the importer chain in NODE_PATH, which ESM resolution
+// ignores; a bare specifier resolves from each importer's directory in turn.
 const trees = (process.env.NODE_PATH ?? "")
   .split(path.delimiter)
   .filter(Boolean)
   .map((dir) => ({
-    realpath: realpathSync(dir) + path.sep,
     parentURL: pathToFileURL(path.dirname(dir) + path.sep).href,
   }));
 
@@ -59,9 +58,11 @@ function isFile(url) {
   return statSync(url, { throwIfNoEntry: false })?.isFile() ?? false;
 }
 
+// A store file's realpath and a member's store path hold the segment; a test
+// file's runfiles path does not.
 function insideATree(parentURL) {
-  const importer = fileURLToPath(parentURL);
-  return trees.some((tree) => importer.startsWith(tree.realpath));
+  const segment = `${path.sep}node_modules${path.sep}`;
+  return fileURLToPath(parentURL).includes(segment);
 }
 
 function isBare(specifier) {
@@ -71,6 +72,46 @@ function isBare(specifier) {
     !module.isBuiltin(specifier) &&
     !URL.canParse(specifier)
   );
+}
+
+// The nearest package.json above the importer, at its runfiles path and at
+// the source path node realpaths a self-reference into.
+function packageScope(parentURL) {
+  let dir = path.dirname(fileURLToPath(parentURL));
+  for (;;) {
+    const manifest = path.join(dir, "package.json");
+    if (isFile(pathToFileURL(manifest))) {
+      const { name, exports } = JSON.parse(readFileSync(manifest, "utf8"));
+      const real = path.dirname(realpathSync(manifest));
+      return { dir, real, name, exports };
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+// node's own first step for a bare specifier: the scope names the
+// specifier's package and has `exports`.
+function isSelfReference(specifier, scope) {
+  return (
+    scope !== null &&
+    scope.exports != null &&
+    (specifier === scope.name || specifier.startsWith(`${scope.name}/`))
+  );
+}
+
+// The manifest as written names a source; the compiled sibling at the source's
+// runfiles path runs.
+function compiledSibling(resolved, scope) {
+  const real = fileURLToPath(resolved.url);
+  if (!real.startsWith(scope.real + path.sep)) return resolved;
+  const held = path.join(scope.dir, real.slice(scope.real.length + 1));
+  for (const form of compiledExtensionForms(held)) {
+    const url = pathToFileURL(form);
+    if (isFile(url)) return { url: url.href, shortCircuit: true };
+  }
+  return resolved;
 }
 
 function fromTheTrees(specifier, context, next) {
@@ -102,6 +143,10 @@ module.registerHooks({
         if (isFile(url)) return { url: url.href, shortCircuit: true };
       }
       return asWritten(specifier);
+    }
+    const scope = isBare(specifier) ? packageScope(parentURL) : null;
+    if (isSelfReference(specifier, scope)) {
+      return compiledSibling(asWritten(specifier), scope);
     }
     // require() reads NODE_PATH itself and ignores a swapped parentURL.
     const imported = !context.conditions.includes("require");

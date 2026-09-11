@@ -42,7 +42,7 @@ func testTarget(dir string) string {
 
 // A ts_test's deps carry its manifest's dependencies and devDependencies
 // beside its edges; under the root package.json that is these six.
-var rootManifestDeps = []string{"@npm//:culori", "@npm//:shared",
+var rootManifestDeps = []string{"//:node_modules/shared", "@npm//:culori",
 	"@npm//:types_culori", "@npm//:types_node", "@npm//:vite", "@npm//:vitest"}
 
 func withRootManifest(own ...string) []string {
@@ -61,7 +61,7 @@ var generated = []string{
 // BUILD files a run merges into rather than writes, the root's among them.
 var handWritten = []string{
 	"", "src/i18n", "src/locales", "generated_worker", "devserver",
-	"shared_program",
+	"shared_program", "wrangler_lock",
 }
 
 func main() {
@@ -77,8 +77,10 @@ func main() {
 		it.Write(it.Path("devserver/BUILD.bazel"), handWrittenDevServerPackage)
 		it.Write(it.Path("shared_program/BUILD.bazel"), sharedProgramPackage)
 		it.Write(it.Path("worker/src/BUILD.bazel"), staleWorkerSrcPackage)
+		it.Write(it.Path("wrangler_lock/BUILD.bazel"), wranglerLock)
 		// wrangler, for generated_worker's ts_codegen, is in tests/workers' lockfile.
-		it.Write(it.Path("pnpm-lock.workers.yaml"), it.Read(filepath.Join(it.RulesTSRoot, "tests/workers/pnpm-lock.yaml")))
+		it.Write(it.Path("wrangler_lock/pnpm-lock.yaml"),
+			it.Read(filepath.Join(it.RulesTSRoot, "tests/workers/pnpm-lock.yaml")))
 
 		it.Install()
 		it.Pass("pnpm install: the listing runs over the tree the build will check")
@@ -177,14 +179,14 @@ func main() {
 		programsAreListedWithTheToolchainsTsgo(it, gazelleLog)
 		handWrittenDevServerIsLeftAlone(it)
 		handWrittenRuleSharesTheProgram(it)
-		memberSelfImportTakesTheHubLabel(it)
+		memberSelfImportIsTheCompile(it)
 		memberByNameIsTheHubView(it)
 		parentDirectoryImportIsADep(it)
 		packageRootVitestConfigReachesTheTestBelow(it)
 		configBesideTheTestsIsNamed(it)
 		workersPoolConfigReachesTheTest(it)
 		importerScopedLabelsResolve(it)
-		pairedTypesReachTheProgramThroughTheForest(it)
+		pairedTypesReachTheProgramThroughTheChain(it)
 		// Last: it rewrites the tree the checks above read.
 		declarationMovesToACodegen(it)
 	})
@@ -246,46 +248,26 @@ func theRootBaseIsATsConfig(it *harness.IT) {
 		"extends names")
 }
 
-// The member's own tests import it by name through its exports map; only the
-// hub's view links it at node_modules/<name>, so its label sits beside :shared.
-func memberSelfImportTakesTheHubLabel(it *harness.IT) {
+// The member's own tests import it by name: a self-reference through the
+// manifest as built at the member's path, the compile alone their dep.
+func memberSelfImportIsTheCompile(it *harness.IT) {
 	build := it.Path("packages/shared/BUILD.bazel")
 	it.RequireContains(build, `name = "shared_test"`,
 		"Gazelle wrote no ts_test for the member's test files")
-	// The member's own target too, from the relative imports of the sources
-	// under test: the first target to carry the member and its hub label at once.
 	requireLabels(it, "deps", "//packages/shared:shared_test",
-		[]string{"//packages/shared:shared", "@npm//:shared", "@npm//:vitest"})
-	it.Pass("//packages/shared:shared_test depends on @npm//:shared beside :shared")
+		[]string{"//packages/shared:shared", "@npm//:vitest"})
+	it.Pass("//packages/shared:shared_test depends on :shared and on no " +
+		"link target: the member's own name is a self-reference")
 
 	for _, rel := range []string{"packages/shared/src/entry.test.js", "packages/shared/src/wire.test.js"} {
 		it.RequireFile(it.Bin(rel),
 			"%s was not written; the `bazel build //...` above did not compile the test program", rel)
 	}
-	it.Pass("the test program resolved `shared` and `shared/wire` through the hub view's link")
+	it.Pass("the test program resolved `shared` and `shared/wire` through " +
+		"the manifest as built laid at packages/shared/package.json")
 
-	// The measurement behind writing the hub label: the member's own target
-	// alone puts nothing at node_modules/shared.
-	restore := it.Read(build)
-	it.Replace(build, "        \"@npm//:shared\",\n", "")
-	log, err := it.BazelLog("self_import_without_the_hub", "build",
+	log, err := it.BazelLog("self_import_at_run_time", "test",
 		"//packages/shared:shared_test")
-	it.Write(build, restore)
-	if err == nil {
-		log.Dump()
-		it.Fail("the test program compiled without the hub label; Gazelle need not write it")
-	}
-	for _, specifier := range []string{"shared", "shared/wire"} {
-		if !log.Contains(fmt.Sprintf("TS2307: Cannot find module '%s'", specifier)) {
-			log.Dump()
-			it.Fail("without the hub label the compile did not fail on %q", specifier)
-		}
-	}
-	it.Pass("without the hub label `shared` and `shared/wire` are TS2307: only the hub's view links the member into the forest")
-
-	// The view's package.json is the member's with its exports map rewritten to
-	// the emitted files, so node resolves both specifiers through the link.
-	log, err = it.BazelLog("self_import_at_run_time", "test", "//packages/shared:shared_test")
 	if err != nil {
 		log.Dump()
 		it.Fail("//packages/shared:shared_test failed: %v", err)
@@ -296,22 +278,24 @@ func memberSelfImportTakesTheHubLabel(it *harness.IT) {
 	} {
 		if log.Contains(stale) {
 			log.Dump()
-			it.Fail("the runtime link still fails to resolve: %q", stale)
+			it.Fail("the runtime still fails to resolve: %q", stale)
 		}
 	}
-	it.Pass("//packages/shared:shared_test type-checks and runs: the runtime link resolves `shared` and `shared/wire` through the member's exports map")
+	it.Pass("//packages/shared:shared_test type-checks and runs: node resolves " +
+		"`shared` and `shared/wire` through the member's exports map at its " +
+		"own path")
 }
 
 // member/'s test imports the member by name and by its exports subpath from
-// another package: the dep is the hub's view, never the member's ts_compile.
+// another package: the dep is the root's link target, never the ts_compile.
 func memberByNameIsTheHubView(it *harness.IT) {
 	requireLabels(it, "deps", "//member:member_test", withRootManifest())
-	it.Pass("//member:member_test depends on @npm//:shared, the view, for " +
-		"`shared` and `shared/wire`")
+	it.Pass("//member:member_test depends on //:node_modules/shared, the root's " +
+		"link target, for `shared` and `shared/wire`")
 	it.RequireFile(it.Bin("member/consumer.test.js"),
 		"the member's consumer did not compile against the view")
 	it.Pass("the test compiled and ran under `bazel test //...` above, " +
-		"through the forest's link")
+		"through the importer's link")
 }
 
 // dotdot/inner imports "..", the package above: the listing resolves the
@@ -418,8 +402,8 @@ func importerScopedLabelsResolve(it *harness.IT) {
 }
 
 // src/app imports culori, which ships no declarations: the edge's label is the
-// package the specifier names, and @types/culori arrives paired in the forest.
-func pairedTypesReachTheProgramThroughTheForest(it *harness.IT) {
+// package the specifier names, and @types/culori arrives paired on the chain.
+func pairedTypesReachTheProgramThroughTheChain(it *harness.IT) {
 	requireLabels(it, "deps", "//src/app:app",
 		[]string{"//src/lib:lib", "@npm//:culori", "@npm//:vite"})
 	it.Pass("//src/app depends on @npm//:culori alone and type-checked " +
@@ -514,25 +498,28 @@ ts_codegen(
 )
 `
 
-// Bazel says the half the converge test cannot: the rewritten labels resolve,
-// and every program under worker/ type-checks against the generated declaration.
+// The copy on disk stays, in a shape no program here compiles against: the
+// declared out is the codegen's, and a green build says which copy was staged.
 func declarationMovesToACodegen(it *harness.IT) {
-	if err := os.Remove(it.Path("worker/worker-configuration.d.ts")); err != nil {
-		it.Fail("cannot delete the checked-in declaration: %v", err)
-	}
+	it.Write(it.Path("worker/worker-configuration.d.ts"),
+		"declare const WORKER_BUILD_ID: string;\n\n"+
+			"interface WorkerEnv {\n\treadonly stale: string;\n}\n")
 	it.Write(it.Path("worker/bindings.txt"), "bucket\n")
 	owner := it.Path("worker/BUILD.bazel")
 	it.Write(owner, it.Read(owner)+workerTypesCodegen)
 	it.MustBazel("run", "//:gazelle")
-	it.Pass("gazelle run over the migration: declaration deleted, ts_codegen appended")
+	it.Pass("gazelle run over the migration: ts_codegen appended, a stale " +
+		"copy left on disk")
 
 	it.RequireContains(owner, `name = "worker_types"`,
 		"the hand-written ts_codegen did not survive the Gazelle run")
 	requireLabels(it, "srcs", "//worker:worker",
 		[]string{"//worker:bindings.txt", "//worker:src/handler.ts"})
+	requireLabels(it, "srcs", "//worker:worker_test",
+		[]string{"//worker:src/handler.test.ts"})
 	requireLabels(it, "deps", "//worker:worker", []string{"//worker:worker_types"})
-	it.Pass("worker/BUILD.bazel keeps the ts_codegen; //worker loses the " +
-		"declaration and gains the codegen")
+	it.Pass("worker/BUILD.bazel keeps the ts_codegen; no rule in //worker " +
+		"lists the declared out on disk, and //worker gains the codegen")
 
 	for _, dir := range []string{"worker/test", "worker/test/deep"} {
 		requireLabels(it, "deps", testTarget(dir),
@@ -541,12 +528,30 @@ func declarationMovesToACodegen(it *harness.IT) {
 			"for the import", dir)
 	}
 
+	dirs := []string{"worker", "worker/test", "worker/test/deep"}
+	written := map[string]string{}
+	for _, dir := range dirs {
+		written[dir] = it.Read(it.Path(dir, "BUILD.bazel"))
+	}
+	it.MustBazel("run", "//:gazelle")
+	for _, dir := range dirs {
+		again := it.Read(it.Path(dir, "BUILD.bazel"))
+		if again != written[dir] {
+			fmt.Fprintf(os.Stderr, "--- %s/BUILD.bazel run 1 ---\n%s"+
+				"--- run 2 ---\n%s", dir, written[dir], again)
+			it.Fail("a second Gazelle run rewrote %s/BUILD.bazel", dir)
+		}
+	}
+	it.Pass("a second Gazelle run writes nothing under worker/")
+
 	it.MustBazel("test", "//worker/...")
-	it.Pass("bazel test //worker/...: every program under worker/ resolves the generated declaration")
+	it.Pass("bazel test //worker/...: every program under worker/ resolves " +
+		"the generated declaration")
 	declaration := it.Bin("worker/worker-configuration.d.ts")
 	it.RequireContains(declaration, "readonly bucket: string;",
 		"the generated declaration names no binding from bindings.txt")
-	it.Pass("the declaration the programs compiled against is the generated one")
+	it.Pass("the programs compiled against the generated declaration: each " +
+		"reads env.bucket, which the copy on disk does not declare")
 }
 
 // Every tsconfig.json here is below the root, so tsgo lists each; that the tsgo
@@ -644,13 +649,24 @@ ts_codegen(
 )
 `
 
+// The workers lockfile's package holds its store and nothing else.
+const wranglerLock = `load("@npm_workers//:defs.bzl", "npm_virtual_store")
+
+npm_virtual_store(name = "node_modules/.pnpm")
+`
+
 // A worker with nothing checked in: the ts_codegen beside the config writes the
-// declaration its tsconfig names.
-const generatedWorkerPackage = `load("@rules_typescript//npm:defs.bzl", "node_modules")
+// declaration its tsconfig names; its node_modules links another lockfile.
+const generatedWorkerPackage = `load(
+    "@rules_typescript//npm:defs.bzl",
+    "node_modules",
+)
 load("@rules_typescript//ts:defs.bzl", "ts_codegen")
 
+# keep
 node_modules(
     name = "node_modules",
+    hoist = "//wrangler_lock:node_modules/.pnpm/node_modules",
     deps = ["@npm_workers//:wrangler"],
 )
 
@@ -1044,7 +1060,7 @@ func parentEntryResolvesThroughTheOwner(it *harness.IT) {
 }
 
 // src/app/tsconfig.json names vite/client and no file; the entry resolves through
-// the forest, so what the BUILD file carries is the dep that puts vite in it.
+// the chain, so what the BUILD file carries is the dep that puts vite on it.
 func packageEntryIsADep(it *harness.IT) {
 	build := it.Path("src/app/BUILD.bazel")
 	it.RequireNotContains(build, "types =",
@@ -1066,5 +1082,6 @@ func packageEntryIsADep(it *harness.IT) {
 		log.Dump()
 		it.Fail("//src/app failed for some other reason than vite/client resolving to nothing")
 	}
-	it.Pass("without the dep vite/client resolves to nothing in the forest: the dep is what puts it in the program")
+	it.Pass("without the dep vite/client resolves to nothing on the chain: " +
+		"the dep is what puts it in the program")
 }

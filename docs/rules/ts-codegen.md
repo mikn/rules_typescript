@@ -35,7 +35,8 @@ ts_compile(
 
 `ts_binary` runs the `.mjs` on the JS runtime toolchain, so the generator is the
 script and nothing else. A generator that imports npm packages at runtime
-additionally takes `node_modules`; see
+additionally takes `node_modules`, and one that resolves a workspace member
+names the member's link target in `deps`; see
 [The environment the generator gets](#the-environment-the-generator-gets).
 
 The generated sources are their own `ts_compile` target; see
@@ -43,13 +44,13 @@ The generated sources are their own `ts_compile` target; see
 
 A `ts_codegen` is hand-written. Gazelle reads every one in the BUILD files it
 walks and never writes or rewrites one: a `ts_codegen` in a package's BUILD
-file is a dep of every target Gazelle writes there, a file its `outs` declare
-resolves to it wherever a program reaches the file, and everything under a
-declared `out_dir` is the target's output whether or not a local run of the
-generator left a copy on disk, so nothing under it is a source and an import
-into the tree resolves to the target. A checked-in `*.gen.ts` no rule declares
-is an ordinary source, listed by its program like any other; one the program's
-`exclude` names is not.
+file is a dep of every target Gazelle writes there, and the files its `outs`
+declare and everything under a declared `out_dir` are the target's output
+whether or not a local run of the generator left a copy on disk, so none is a
+src, a program reaching an out depends on the target, and an import into the
+tree resolves to it. A checked-in `*.gen.ts` no rule declares is an ordinary
+source, listed by its program like any other; one the program's `exclude`
+names is not.
 
 ## Compiling the Output
 
@@ -80,7 +81,8 @@ that reads any layout.
 | `out_dir` | `string` | `""` | A single declared **directory** instead, for a generator that produces a tree it will not enumerate (Prisma's client, say) |
 | `generator` | `label` | required | The executable, built for the exec configuration |
 | `args` | `string_list` | `[]` | The generator's command line, after placeholder substitution |
-| `node_modules` | `label` | `None` | An npm tree for a generator that imports packages at runtime. Name the target `node_modules` if the generator uses ESM |
+| `node_modules` | `label` | `None` | The importer's [`node_modules`](node-modules.md) target, for a generator that imports npm packages at runtime |
+| `deps` | `label_list` | `[]` | Workspace members the generator resolves, as the importer's link targets, `//<importer>:node_modules/<name>` |
 | `env` | `string_dict` | `{}` | Extra environment for the action |
 
 `outs` and `out_dir` are **mutually exclusive, and exactly one is required**.
@@ -163,6 +165,7 @@ load("@rules_typescript//ts:defs.bzl", "ts_codegen")
 node_modules(
     name = "node_modules",
     deps = ["@npm//:wrangler"],
+    hoist = ":node_modules/.pnpm/node_modules",
 )
 
 ts_codegen(
@@ -224,7 +227,7 @@ execroot-relative.
 | `{srcs}` | every src path, space-separated in one argument |
 | `{out}` | the path of the first declared output; the `out_dir` directory when `out_dir` is set |
 | `{outs_dir}` | the directory of the first declared output |
-| `{node_modules_dir}` | the npm tree's path; only substituted when `node_modules` is set |
+| `{node_modules_dir}` | the importer's `node_modules` directory; only substituted when `node_modules` is set |
 
 `{srcs_dir}` and `{outs_dir}` are the first entry's directory, not a common
 ancestor. A `glob()` spanning two directories hands the generator one of them; a
@@ -240,21 +243,51 @@ The rule sets three variables:
 | Variable | When | Value |
 |---|---|---|
 | `NODE_BINARY` | a `js_tool` toolchain is registered | the toolchain node. Set with `setdefault`, so an `env` entry of your own wins |
-| `NODE_PATH` | `node_modules` is set | the tree's directory, for CJS resolution |
+| `NODE_PATH` | `node_modules` is set | the directory, for CJS resolution |
 | `TS_CODEGEN_NODE_MODULES` | `node_modules` is set | the same path, for a script that forks a child process |
 
-A generator with bare ESM imports needs the target named `node_modules`. The
-tree's directory is named after its target, and Node's ESM resolver looks only
-in a directory called `node_modules` as it walks up; `NODE_PATH` is a CJS
-mechanism, and ESM ignores it. `node_modules = ":codegen_node_modules"` fails at
-runtime:
+The directory is the importer's `node_modules`, so a generator's bare ESM
+import resolves by Node's walk up from the script and a CJS one through
+`NODE_PATH` alike; every link and every store tree the links reach is an input
+of the action.
+
+A workspace member's link is no output of the importer's target but a target of
+its own, `//<importer>:node_modules/<name>`
+([One Link per Name](node-modules.md#one-link-per-name)), and a generator that
+resolves the member names it in `deps`. The link and the member's store tree
+join the action's inputs, and the link sits in the directory `node_modules`
+names, so the member resolves as it does from a file under the importer. A Vite
+build whose entry imports `@lovable.dev/pulse/fonts.css`, a member's exported
+stylesheet:
+
+```python
+ts_codegen(
+    name = "frame_build",
+    srcs = [
+        "vite.config.mts",
+        "//workers/file-viewer/frame:srcs",
+    ],
+    out_dir = "public/v1",
+    args = [
+        "--out",
+        "{out}",
+        "--srcs",
+        "{srcs}",
+        "--config",
+        "vite.config.mts",
+    ],
+    generator = ":vite_build",
+    node_modules = ":node_modules",
+    deps = [":node_modules/@lovable.dev/pulse"],
+)
+```
+
+Without the entry the link is not staged and Rollup stops at the import:
 
 ```
-Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'consola'
+[vite]: Rollup failed to resolve import "@lovable.dev/pulse/fonts.css" from
+".../workers/file-viewer/frame/src/main.tsx".
 ```
-
-One `node_modules` target per package follows; a second npm tree in the same
-package can only serve a CJS generator.
 
 A Node generator is a [`ts_binary`](ts-binary.md) whose `entry_point` is the
 script. The rule resolves the runtime from the JS runtime toolchain and locates

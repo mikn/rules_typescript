@@ -5,6 +5,9 @@ load("@rules_typescript//ts:defs.bzl", "ts_compile")
 # keep
 ts_compile(
     name = "nested-shared",
-    srcs = ["index.ts"],
+    srcs = [
+        "index.ts",
+        "package.json",
+    ],
     visibility = ["//visibility:public"],
 )

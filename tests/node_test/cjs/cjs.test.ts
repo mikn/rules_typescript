@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { parse } from "json5";
+import { version } from "typescript";
 
 import { bump, dir } from "./helper";
 
@@ -23,5 +23,5 @@ test("a data entry is beside __dirname", () => {
 });
 
 test("a named import from a CommonJS dependency is its export", () => {
-  assert.deepEqual(parse("{a: 1}"), { a: 1 });
+  assert.match(version, /^\d+\.\d+\./);
 });

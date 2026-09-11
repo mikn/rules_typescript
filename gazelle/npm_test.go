@@ -173,6 +173,19 @@ func TestNpmPackageToLabelName(t *testing.T) {
 	}
 }
 
+func TestTypesPackage(t *testing.T) {
+	for spec, want := range map[string]string{
+		"node":        "@types/node",
+		"vite/client": "@types/vite",
+		"@acme/ui":    "@types/acme__ui",
+		"@acme/ui/x":  "@types/acme__ui",
+	} {
+		if got := typesPackage(spec); got != want {
+			t.Errorf("typesPackage(%q) = %q, want %q", spec, got, want)
+		}
+	}
+}
+
 func TestBarePackageName(t *testing.T) {
 	for spec, want := range map[string]string{
 		"react":                    "react",
@@ -379,6 +392,64 @@ func TestNpmLock_ImporterAbove(t *testing.T) {
 	}
 }
 
+// A name the importing file's own importer does not declare is spelled under
+// the nearest importer above it that does, the root last: pnpm's walk-up.
+func TestNpmLock_LabelWalksTheChain(t *testing.T) {
+	const lock = `lockfileVersion: '9.0'
+
+importers:
+
+  .:
+    dependencies:
+      zod:
+        specifier: ^3.0.0
+        version: 3.24.2
+    devDependencies:
+      typescript:
+        specifier: 5.9.2
+        version: 5.9.2
+
+  packages/lib:
+    dependencies:
+      zod:
+        specifier: ^4.0.0
+        version: 4.1.0
+
+  packages/lib/example: {}
+
+packages:
+
+  typescript@5.9.2: {}
+
+  zod@3.24.2: {}
+
+  zod@4.1.0: {}
+`
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, pnpmLockfileName), lock)
+	for dir, name := range map[string]string{
+		"packages/lib":         "@acme/lib",
+		"packages/lib/example": "@acme/lib-example",
+	} {
+		writeFile(t, filepath.Join(root, dir, "package.json"),
+			`{"name": "`+name+`"}`)
+	}
+	l, err := loadNpmLock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ name, dir, want string }{
+		{"zod", "packages/lib/example/src", "@npm//packages/lib:zod"},
+		{"typescript", "packages/lib/example/src", "@npm//:typescript"},
+		{"zod", "packages/lib/src", "@npm//packages/lib:zod"},
+		{"zod", "scripts", "@npm//:zod"},
+	} {
+		if got := l.label(c.name, c.dir); got != c.want {
+			t.Errorf("label(%q, %q) = %q, want %q", c.name, c.dir, got, c.want)
+		}
+	}
+}
+
 func importEdge(from, spec, to string) explainfiles.Edge {
 	return explainfiles.Edge{Kind: explainfiles.Import, From: from, To: to,
 		Specifier: spec}
@@ -389,11 +460,11 @@ func importEdge(from, spec, to string) explainfiles.Edge {
 func TestEdgeLabel_ReactIntoTypesReactIsOneLabel(t *testing.T) {
 	_, l := npmRepo(t)
 	e := importEdge("web/src/app.tsx", "react", storeTypesReact)
-	if got := l.edgeLabel(e, "web", "ts_compile"); got != "@npm//web:react" {
+	if got := l.edgeLabel(e, "web"); got != "@npm//web:react" {
 		t.Errorf("edgeLabel = %q, want @npm//web:react", got)
 	}
 	e = importEdge("web/src/app.tsx", "react/jsx-runtime", storeTypesReact)
-	if got := l.edgeLabel(e, "web", "ts_compile"); got != "@npm//web:react" {
+	if got := l.edgeLabel(e, "web"); got != "@npm//web:react" {
 		t.Errorf("jsx-runtime edgeLabel = %q, want @npm//web:react", got)
 	}
 }
@@ -413,8 +484,8 @@ func TestEdgeLabel_ImporterScopedAgainstRoot(t *testing.T) {
 				"typescript.d.ts", "@npm//workers/download:typescript"},
 		{"web/src/x.ts", "fsevents", storeFsevents, "@npm//:fsevents"},
 	} {
-		if got := l.edgeLabel(importEdge(c.from, c.spec, c.to), parentDir(c.from),
-			"ts_compile"); got != c.want {
+		e := importEdge(c.from, c.spec, c.to)
+		if got := l.edgeLabel(e, parentDir(c.from)); got != c.want {
 			t.Errorf("%s imports %q: %q, want %q", c.from, c.spec, got, c.want)
 		}
 	}
@@ -425,7 +496,7 @@ func TestEdgeLabel_ImporterScopedAgainstRoot(t *testing.T) {
 func TestEdgeLabel_AliasKeepsTheImportersName(t *testing.T) {
 	_, l := npmRepo(t)
 	e := importEdge("web/src/styles.ts", "tailwindcss-v3/plugin", storeTailwind)
-	got := l.edgeLabel(e, "web", "ts_compile")
+	got := l.edgeLabel(e, "web")
 	if got != "@npm//web:tailwindcss-v3" {
 		t.Errorf("edgeLabel = %q, want @npm//web:tailwindcss-v3", got)
 	}
@@ -448,7 +519,7 @@ func TestEdgeLabel_NoBarePackageTakesTheListedFile(t *testing.T) {
 			"@npm//:types_node"},
 		{importEdge("web/src/x.ts", "#dep", storeZod), "@npm//:zod"},
 	} {
-		if got := l.edgeLabel(c.e, parentDir(c.e.From), "ts_compile"); got != c.want {
+		if got := l.edgeLabel(c.e, parentDir(c.e.From)); got != c.want {
 			t.Errorf("%q from %s: %q, want %q", c.e.Specifier, c.e.From, got,
 				c.want)
 		}
@@ -462,7 +533,7 @@ func TestEdgeLabel_UnknownNameIsRefused(t *testing.T) {
 	e := importEdge("tools/pr/classification.ts", "@anthropic-ai/sdk/resources",
 		storeSDK)
 	var got string
-	out := captureLog(t, func() { got = l.edgeLabel(e, "tools/pr", "ts_compile") })
+	out := captureLog(t, func() { got = l.edgeLabel(e, "tools/pr") })
 	if got != "" {
 		t.Errorf("edgeLabel = %q, want none", got)
 	}
@@ -489,12 +560,13 @@ func TestEdgeLabel_CuloriPairing(t *testing.T) {
 	l := parseNpmLock(t.TempDir(), strings.Split(string(data), "\n"))
 	e := importEdge("tests/npm/app.ts", "culori",
 		store+"@types/culori/2.1.1/jjj/node_modules/@types/culori/index.d.ts")
-	if got := l.edgeLabel(e, "tests/npm", "ts_compile"); got != "@npm//:culori" {
+	if got := l.edgeLabel(e, "tests/npm"); got != "@npm//:culori" {
 		t.Errorf("edgeLabel = %q, want @npm//:culori", got)
 	}
 	if want := map[string]string{
 		"shared": "packages/shared", "pulse": "packages/pulse",
 		"@acme/ui":       "tests/compiler_options/member/lib",
+		"hoisted-member": "packages/hoisted-member",
 		"nested-shared":  "packages/nested-shared",
 		"preserve-view":  "tests/jsx_preserve/member",
 		"by-name-member": "packages/by-name-member",
@@ -504,36 +576,53 @@ func TestEdgeLabel_CuloriPairing(t *testing.T) {
 	}
 }
 
-// A bare specifier naming a member is the member's view from every package
-// but the member's own ts_compile, where it is nothing (G's rule).
+// A member by name is the nearest linking importer's link target, "" and a
+// line where none links; the nearest manifest's own name is a self-reference.
 func TestMemberView(t *testing.T) {
 	_, l := npmRepo(t)
-	for _, c := range []struct {
-		spec, pkg, kind, want string
+	cases := []struct {
+		spec, file, pkg, want string
 		ok                    bool
 	}{
-		{"@acme/lib/wire", "packages/app", "ts_compile", "@npm//:acme_lib", true},
-		{"@acme/lib", "packages/lib", "ts_test", "@npm//:acme_lib", true},
-		{"@acme/lib/icons/Check", "packages/lib", "ts_compile", "", true},
-		{"@acme/lib/wire", "packages/lib/example", "ts_compile",
-			"@npm//:acme_lib", true},
-		{"@acme/ui", "web", "ts_compile", "@npm//:acme_ui", true},
-		{"web-app", "web", "ts_compile", "", true},
-		{"web-app", "web", "ts_test", "@npm//:web-app", true},
-		{"download", "workers/download/test", "ts_test", "@npm//:download", true},
-		{"api-gateway", "web", "ts_compile", "@npm//:api-gateway", true},
-		{"api-gateway", "workers/api-gateway", "ts_compile", "", true},
-		{"api-gateway", "workers/api-gateway/test", "ts_test",
-			"@npm//:api-gateway", true},
-		{"zod", "packages/lib", "ts_compile", "", false},
-		{"./wire", "packages/lib", "ts_compile", "", false},
-		{"@acme/ui-src", "web", "ts_compile", "", false},
-	} {
-		got, ok := l.memberView(c.spec, c.pkg, c.kind)
-		if got != c.want || ok != c.ok {
-			t.Errorf("%s in %s imports %q: (%q, %v), want (%q, %v)", c.kind,
-				c.pkg, c.spec, got, ok, c.want, c.ok)
+		{"@acme/lib/wire", "packages/app/src/a.ts", "packages/app",
+			"//:node_modules/@acme/lib", true},
+		{"@acme/lib", "packages/lib/src/x.test.ts", "packages/lib", "", false},
+		{"@acme/lib/icons/Check", "packages/lib/src/index.ts", "packages/lib",
+			"", false},
+		{"@acme/lib/wire", "packages/lib/tools/gen.ts", "packages/lib/tools",
+			"", false},
+		{"@acme/lib/wire", "packages/lib/example/src/a.ts",
+			"packages/lib/example", "//:node_modules/@acme/lib", true},
+		{"@acme/lib", "x.test.ts", "", ":node_modules/@acme/lib", true},
+		{"@acme/ui", "web/src/a.ts", "web", ":node_modules/@acme/ui", true},
+		{"@acme/ui", "web/src/a.ts", "web/src", "//web:node_modules/@acme/ui",
+			true},
+		{"@acme/ui", "packages/app/src/a.ts", "packages/app", "", true},
+		{"web-app", "web/src/a.ts", "web", "", false},
+		{"web-app", "web/src/a.test.ts", "web", "", false},
+		{"download", "workers/download/test/x.test.ts", "workers/download/test",
+			"", false},
+		{"api-gateway", "web/src/a.ts", "web", "", true},
+		{"api-gateway", "workers/api-gateway/src/x.ts", "workers/api-gateway",
+			"", false},
+		{"api-gateway", "workers/api-gateway/test/x.test.ts",
+			"workers/api-gateway/test", "", false},
+		{"zod", "packages/lib/src/index.ts", "packages/lib", "", false},
+		{"./wire", "packages/lib/src/index.ts", "packages/lib", "", false},
+		{"@acme/ui-src", "web/src/a.ts", "web", "", false},
+	}
+	logged := captureLog(t, func() {
+		for _, c := range cases {
+			got, ok := l.memberView(c.spec, c.file, c.pkg)
+			if got != c.want || ok != c.ok {
+				t.Errorf("%s in %s imports %q: (%q, %v), want (%q, %v)", c.file,
+					c.pkg, c.spec, got, ok, c.want, c.ok)
+			}
 		}
+	})
+	if n := strings.Count(logged, "linked by no importer"); n != 2 {
+		t.Errorf("%d lines name an unlinked member, want the two cases no "+
+			"importer above links and no self-reference:\n%s", n, logged)
 	}
 }
 
@@ -541,11 +630,12 @@ func TestMemberView(t *testing.T) {
 func TestEdgeLabel_MemberInstalledPackage(t *testing.T) {
 	_, l := npmRepo(t)
 	e := importEdge("packages/lib/src/index.ts", "zod", storeZod)
-	got := l.edgeLabel(e, "packages/lib", "ts_compile")
+	got := l.edgeLabel(e, "packages/lib")
 	if got != "@npm//packages/lib:zod" {
 		t.Errorf("edgeLabel = %q, want @npm//packages/lib:zod", got)
 	}
-	if _, ok := l.memberView("zod", "packages/lib", "ts_compile"); ok {
+	_, ok := l.memberView("zod", "packages/lib/src/index.ts", "packages/lib")
+	if ok {
 		t.Error("zod is a member")
 	}
 }

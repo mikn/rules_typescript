@@ -60,10 +60,10 @@ to rediscover them. Each names the file to change.
   the pool has to be installed as a **Vite plugin** (`cloudflareTest()`, which
   both installs the pool runner and owns `cloudflare:test` through its own
   `resolveId`/`load`), not as `test.pool` (`cloudflarePool()` is only the runner);
-  and `resolve.preserveSymlinks` must be **false** (ts_test's own layer sets it
-  so when the config's plugins hold the pool's), because the pool resolves
-  modules for a second runtime and a lexical path there is a second module
-  identity. Left true it reads as
+  and a module must have **one identity** (ts_test's layer gives a package's
+  file its realpath as its id), because the pool resolves modules for a second
+  runtime and a lexical path there is a second module identity. Under
+  `resolve.preserveSymlinks` it reads as
   `Cannot read properties of undefined (reading 'config')`, which looks like a
   plugin-API problem and is not.
   The deploy dry run that sat beside it (`ts_worker_dry_run_test`) went with
@@ -290,7 +290,7 @@ this is a design question, not a checklist.
 
 ### 5.1 DOM Testing
 - [x] Verify @testing-library/react works with vitest in Bazel sandbox
-- [x] `test.environment` is the config file's, as under plain `vitest`: //tests/setup_files_compiled/dom runs under happy-dom, and //tests/vitest/attrs sets `node` and `globals` and runs on what the file set. Bazel's layer sets `resolve.preserveSymlinks`: a DOM environment realpaths module ids, which would walk runfiles symlinks out of the sandbox. happy-dom is in the test lockfile; jsdom and edge-runtime are not, and nothing pins them
+- [x] `test.environment` is the config file's, as under plain `vitest`: //tests/setup_files_compiled/dom runs under happy-dom, and //tests/vitest/attrs sets `node` and `globals` and runs on what the file set. Bazel's layer gives a module the runfiles hold its runfiles path as its id and serves `bazel-bin` too: a DOM environment loads every module through Vite's server. happy-dom is in the test lockfile; jsdom and edge-runtime are not, and nothing pins them
 - [x] Create example with @testing-library component tests
 
 ### 5.2 Coverage

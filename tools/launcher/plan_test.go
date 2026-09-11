@@ -50,10 +50,12 @@ func TestPlanNodeFallsBackToSystemNode(t *testing.T) {
 	}
 }
 
+// Without a runfiles tree the importer's node_modules is staged from the
+// manifest into a directory of the plan's own, which NODE_PATH names.
 func TestPlanNodeAddsNodeModulesToNodePath(t *testing.T) {
 	r, real := fakeRunfiles(t, map[string]string{
-		"_main/a.js":               "x",
-		"_main/tests/node_modules": dirMarker,
+		"_main/a.js":                            "x",
+		"_main/tests/node_modules/zod/index.js": "x",
 	})
 	t.Setenv("NODE_PATH", "/pre-existing")
 	cfg := &Config{Mode: ModeNode, Node: &NodeConfig{
@@ -64,9 +66,22 @@ func TestPlanNodeAddsNodeModulesToNodePath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := real["_main/tests/node_modules"] + string(os.PathListSeparator) + "/pre-existing"
-	if plan.EnvOverrides["NODE_PATH"] != want {
-		t.Errorf("NODE_PATH = %q, want %q", plan.EnvOverrides["NODE_PATH"], want)
+	defer plan.Cleanup()
+	nodePath := plan.EnvOverrides["NODE_PATH"]
+	entries := strings.Split(nodePath, string(os.PathListSeparator))
+	importer := filepath.FromSlash("/_main/tests/node_modules")
+	if len(entries) != 2 || entries[1] != "/pre-existing" ||
+		!strings.HasSuffix(entries[0], importer) {
+		t.Fatalf("NODE_PATH = %q, want the staged importer before /pre-existing",
+			nodePath)
+	}
+	got, err := filepath.EvalSymlinks(filepath.Join(entries[0], "zod", "index.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	zod := real["_main/tests/node_modules/zod/index.js"]
+	if want, _ := filepath.EvalSymlinks(zod); got != want {
+		t.Errorf("zod/index.js resolves to %q, want %q", got, want)
 	}
 }
 
@@ -146,7 +161,7 @@ func vitestConfig() *Config {
 			VitestInTree:  "vitest/vitest.mjs",
 			ConfigFile:    "_main/tests/app/_app_vitest.config.mjs",
 			TestFilesList: "_main/tests/app/app_test_files.txt",
-			NodeModules:   "_main/tests/app/node_modules",
+			NodeModules:   []string{"_main/tests/app/node_modules"},
 			Stage: map[string]string{
 				"_main/tests/app/_app.vitest/config.mjs": "_main/tests/app/" +
 					"_app_vitest.config.mjs",
@@ -172,7 +187,7 @@ func TestPlanVitestRunsEveryTestFileByDefault(t *testing.T) {
 	tree := treeRoot(plan)
 	for _, want := range []string{
 		real["+node+/bin/node"],
-		filepath.Join(real["_main/tests/app/node_modules"], "vitest", "vitest.mjs"),
+		filepath.Join(tree, "_main/tests/app/node_modules/vitest/vitest.mjs"),
 		"run --config " +
 			filepath.Join(tree, "_main/tests/app/_app_vitest.config.mjs"),
 		filepath.Join(tree, "_main/tests/app/a.test.js"),
@@ -386,8 +401,8 @@ func devServerFixture(t *testing.T) (*Resolver, map[string]string) {
 	})
 }
 
-// devServerWorkspace is a real directory, because planDevServer links the npm
-// tree into it as node_modules.
+// devServerWorkspace is a real directory, because planDevServer links the
+// importer's node_modules into it.
 func devServerWorkspace(t *testing.T) string {
 	t.Helper()
 	ws := t.TempDir()
@@ -449,7 +464,7 @@ func TestPlanDevServerExplainsAMissingVite(t *testing.T) {
 	cfg.DevServer.ServerInTree = "vite/bin/absent.js"
 	_, err := MakePlan(cfg, r, nil)
 	if err == nil {
-		t.Fatal("a node_modules tree without vite must fail")
+		t.Fatal("a node_modules without vite must fail")
 	}
 	if !strings.Contains(err.Error(), "node_modules() target") {
 		t.Errorf("error is not actionable: %v", err)
@@ -548,11 +563,12 @@ func TestPlanVitestStagesAPrivateRootWithoutARunfilesDirectory(t *testing.T) {
 	}
 	slices.Sort(files)
 	wantStaged := []string{
+		"_main/node_modules",
 		"_main/tests/app/_app_vitest.config.mjs",
 		"_main/tests/app/a.test.js",
 		"_main/tests/app/b.test.js",
 		"_main/tests/app/c.test.js",
-		"node_modules",
+		"_main/tests/app/node_modules/vitest/vitest.mjs",
 	}
 	if strings.Join(files, ",") != strings.Join(wantStaged, ",") {
 		t.Errorf("staged root holds %q, want exactly %q", files, wantStaged)
@@ -564,30 +580,164 @@ func TestPlanVitestStagesAPrivateRootWithoutARunfilesDirectory(t *testing.T) {
 	}
 }
 
-// Vitest finds a bare specifier by walking up from the test's runfiles path,
-// and nothing on that walk is named node_modules before the runfiles root.
-func TestPlanVitestLinksTheNpmTreeAtTheRunfilesRoot(t *testing.T) {
-	const tree = "_main/tests/app/app_test/node_modules"
+// A test outside its importer's package meets no node_modules on the walk up
+// before the workspace's root, so the importer's is linked in there.
+func TestPlanVitestLinksTheImporterAtTheWorkspaceRoot(t *testing.T) {
+	const importer = "_main/tests/npm/node_modules"
 	_, real := fakeRunfiles(t, map[string]string{
 		"_main/tests/app/_app.vitest/config.mjs": "export default {}",
 		"_main/tests/app/app_test_files.txt":     "_main/tests/app/a.test.js",
 		"_main/tests/app/a.test.js":              "x",
-		tree:                                     dirMarker,
-		tree + "/vitest/vitest.mjs":              "x",
+		importer:                                 dirMarker,
+		importer + "/vitest/vitest.mjs":          "x",
 		"+node+/bin/node":                        "#!/bin/sh\n",
 	})
-	r, root := withRunfilesDir(t, real[tree], tree)
+	r, root := withRunfilesDir(t, real[importer], importer)
 	cfg := vitestConfig()
-	cfg.Vitest.NodeModules = tree
-	if _, err := MakePlan(cfg, r, nil); err != nil {
+	cfg.Vitest.NodeModules = []string{importer}
+	plan, err := MakePlan(cfg, r, nil)
+	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := os.Readlink(filepath.Join(root, "node_modules"))
+	got, err := os.Readlink(filepath.Join(root, "_main", "node_modules"))
 	if err != nil {
-		t.Fatalf("no node_modules link at the runfiles root: %v", err)
+		t.Fatalf("no node_modules link at the workspace root: %v", err)
 	}
-	if got != real[tree] {
-		t.Errorf("link -> %q, want the npm tree %q", got, real[tree])
+	if want := filepath.Join(root, filepath.FromSlash(importer)); got != want {
+		t.Errorf("link -> %q, want the importer's node_modules %q", got, want)
+	}
+	vitest := filepath.Join(root, importer, "vitest/vitest.mjs")
+	if !slices.Contains(plan.Argv, vitest) {
+		t.Errorf("argv = %q, want vitest from the importer %q", plan.Argv, vitest)
+	}
+}
+
+// vitest may be an importer above's: the chain is walked nearest first, as
+// node walks up, and NODE_PATH names it in that order.
+func TestPlanVitestWalksTheChainForVitest(t *testing.T) {
+	_, real := fakeRunfiles(t, map[string]string{
+		"_main/tests/app/_app.vitest/config.mjs":     "export default {}",
+		"_main/tests/app/app_test_files.txt":         "_main/tests/app/a.test.js",
+		"_main/tests/app/a.test.js":                  "x",
+		"_main/tests/app/node_modules/zod/i.js":      "x",
+		"_main/tests/node_modules/vitest/vitest.mjs": "x",
+		"+node+/bin/node":                            "#!/bin/sh\n",
+	})
+	const test = "_main/tests/app/a.test.js"
+	r, root := withRunfilesDir(t, real[test], test)
+	cfg := vitestConfig()
+	near, above := "_main/tests/app/node_modules", "_main/tests/node_modules"
+	cfg.Vitest.NodeModules = []string{near, above}
+	plan, err := MakePlan(cfg, r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vitest := filepath.Join(root, above, "vitest/vitest.mjs")
+	if !slices.Contains(plan.Argv, vitest) {
+		t.Errorf("argv = %q, want vitest from the importer above %q",
+			plan.Argv, vitest)
+	}
+	want := filepath.Join(root, near) + string(os.PathListSeparator) +
+		filepath.Join(root, above)
+	if got := plan.EnvOverrides["NODE_PATH"]; got != want {
+		t.Errorf("NODE_PATH = %q, want the chain nearest first %q", got, want)
+	}
+	link := filepath.Join(root, "_main", "node_modules")
+	if got, _ := os.Readlink(link); got != filepath.Join(root, above) {
+		t.Errorf("%s -> %q, want the chain's root", link, got)
+	}
+}
+
+// A manifest-only layout has no directory to walk: the store is staged into
+// the test root, a declared link keeping its relative target.
+func TestPlanVitestStagesTheStoreFromTheManifest(t *testing.T) {
+	base := t.TempDir()
+	const store = "bin/tests/app/node_modules/.pnpm/vitest@4/node_modules/vitest"
+	tree := filepath.Join(base, store)
+	for rel, body := range map[string]string{
+		"files/app_test_files.txt": "_main/tests/app/a.test.js\n",
+		"files/a.test.js":          "x",
+		"files/config.mjs":         "export default {}",
+		"files/node":               "#!/bin/sh\n",
+		store + "/vitest.mjs":      "x",
+	} {
+		p := filepath.Join(base, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := filepath.Join(base, "files")
+	r := manifestResolver(t, []string{
+		"_main/tests/app/app_test_files.txt " + files + "/app_test_files.txt",
+		"_main/tests/app/a.test.js " + files + "/a.test.js",
+		"_main/tests/app/_app.vitest/config.mjs " + files + "/config.mjs",
+		"_main/tests/app/node_modules/vitest .pnpm/vitest@4/node_modules/vitest",
+		"_main/tests/app/node_modules/.pnpm/vitest@4/node_modules/vitest " + tree,
+		"+node+/bin/node " + files + "/node",
+	})
+	plan, err := MakePlan(vitestConfig(), r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer plan.Cleanup()
+	root := treeRoot(plan)
+	link := filepath.Join(root, "_main/tests/app/node_modules/vitest")
+	relative := filepath.FromSlash(".pnpm/vitest@4/node_modules/vitest")
+	if got, err := os.Readlink(link); err != nil || got != relative {
+		t.Errorf("readlink %s = %q, %v; want the manifest's target verbatim",
+			link, got, err)
+	}
+	if got, _ := filepath.EvalSymlinks(link); got != tree {
+		t.Errorf("%s resolves to %q, want the store tree %q", link, got, tree)
+	}
+	entry := filepath.Join(link, "vitest.mjs")
+	if !slices.Contains(plan.Argv, entry) {
+		t.Errorf("argv = %q, want vitest through the staged link %q",
+			plan.Argv, entry)
+	}
+	nodeModules := filepath.Join(root, "_main/tests/app/node_modules")
+	if got := plan.EnvOverrides["NODE_PATH"]; got != nodeModules {
+		t.Errorf("NODE_PATH = %q, want the staged importer directory", got)
+	}
+}
+
+// manifestResolver is a manifest-only layout over the given manifest lines.
+func manifestResolver(t *testing.T, lines []string) *Resolver {
+	t.Helper()
+	manifest := filepath.Join(t.TempDir(), "MANIFEST")
+	data := []byte(strings.Join(lines, "\n") + "\n")
+	if err := os.WriteFile(manifest, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RUNFILES_DIR", "")
+	t.Setenv("TEST_SRCDIR", "")
+	t.Setenv("RUNFILES_MANIFEST_FILE", manifest)
+	r, err := newResolver(runfiles.ManifestFile(manifest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+func TestManifestEntryReadsBothLineShapes(t *testing.T) {
+	const link, tree = "_main/node_modules/zod", "../.pnpm/zod@3/node_modules/zod"
+	const store = "_main/node_modules/.pnpm/zod@3/node_modules/zod"
+	for _, tc := range []struct{ line, rlocation, target string }{
+		{link + " " + tree, link, tree},
+		{store + " /abs/tree", store, "/abs/tree"},
+		{` _main/a\sb /abs/a\sb\bc`, "_main/a b", `/abs/a b\c`},
+	} {
+		rlocation, target, ok := manifestEntry(tc.line)
+		if !ok || rlocation != tc.rlocation || target != tc.target {
+			t.Errorf("manifestEntry(%q) = %q, %q, %v; want %q, %q",
+				tc.line, rlocation, target, ok, tc.rlocation, tc.target)
+		}
+	}
+	if _, _, ok := manifestEntry(""); ok {
+		t.Error("an empty line is no entry")
 	}
 }
 
@@ -627,10 +777,8 @@ func TestEnvironCollapsesDuplicateKeys(t *testing.T) {
 	}
 }
 
-// The npm tree is a Bazel output with no node_modules above the source that
-// imports from it, so the launcher links it in at the workspace root. These
-// pin what it does with whatever is already sitting on that name -- getting it
-// wrong serves a stale install, or deletes one.
+// The launcher links the importer's node_modules in at the workspace root;
+// these pin what it does with whatever already sits on that name.
 
 func TestPlanDevServerLinksTheNpmTreeIntoTheWorkspace(t *testing.T) {
 	r, real := devServerFixture(t)
@@ -645,7 +793,8 @@ func TestPlanDevServerLinksTheNpmTreeIntoTheWorkspace(t *testing.T) {
 		t.Fatalf("no node_modules link at the workspace root: %v", err)
 	}
 	if target != real["_main/tests/app/node_modules"] {
-		t.Errorf("link -> %q, want the npm tree %q", target, real["_main/tests/app/node_modules"])
+		t.Errorf("link -> %q, want the node_modules %q", target,
+			real["_main/tests/app/node_modules"])
 	}
 	if plan.Cleanup == nil {
 		t.Fatal("a link the launcher made has to come back off")
@@ -667,7 +816,7 @@ func TestPlanDevServerKeepsAnIdenticalLinkAndDoesNotRemoveIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Another dev server on the same tree may own it; removing it would break a
+	// Another dev server on the same directory may own it; removing it breaks a
 	// server this process never started.
 	if plan.Cleanup != nil {
 		plan.Cleanup()
@@ -677,7 +826,7 @@ func TestPlanDevServerKeepsAnIdenticalLinkAndDoesNotRemoveIt(t *testing.T) {
 	}
 }
 
-func TestPlanDevServerRefusesALinkToAnotherTree(t *testing.T) {
+func TestPlanDevServerRefusesALinkToAnotherNodeModules(t *testing.T) {
 	r, _ := devServerFixture(t)
 	ws := devServerWorkspace(t)
 	other := t.TempDir()
@@ -687,10 +836,10 @@ func TestPlanDevServerRefusesALinkToAnotherTree(t *testing.T) {
 	}
 	_, err := MakePlan(devServerConfig(), r, nil)
 	if err == nil {
-		t.Fatal("two npm trees cannot both be at the workspace root")
+		t.Fatal("two node_modules cannot both be at the workspace root")
 	}
 	if !strings.Contains(err.Error(), other) {
-		t.Errorf("the error does not name the tree already there: %v", err)
+		t.Errorf("the error does not name the directory already there: %v", err)
 	}
 	if target, _ := os.Readlink(link); target != other {
 		t.Errorf("the existing link was replaced with %q", target)

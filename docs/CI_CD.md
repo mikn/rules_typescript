@@ -261,7 +261,7 @@ rule of your own has to do.
 ### 2. File Ordering in Directory Outputs
 
 **Risk**: With `ctx.actions.declare_directory`, file ordering inside the directory follows the filesystem's readdir order, which varies across kernels and filesystems.
-**Status in rules_typescript**: The rules with a declared output directory (`node_modules`, `ts_codegen`) are staging directories, never inputs to further compilation, so ordering matters only in a byte-for-byte directory comparison.
+**Status in rules_typescript**: The rules with a declared output directory (`npm_store`, `ts_codegen`) copy files by name: a store tree is a compile input, deterministic by construction (one `tsaction stage` over the fetched package), read as files and never as a listing, so ordering matters only in a byte-for-byte directory comparison.
 **Mitigation**: Check directory artifacts with `diff -r`, which is order-insensitive; `tar c ... | sha256sum` is not.
 
 ### 3. Vite Bundle Content Hashes
@@ -296,9 +296,8 @@ ordering dependency.
 **Risk**: An action shelling out to a host interpreter or coreutil produces
 whatever that version produces.
 **Status**: not applicable. There is no Python in the ruleset; the house rule is
-Starlark's `json.decode`/`json.encode` or awk. The one host dependency left is
-`bash`, for the `node_modules` fallback taken when no JS runtime toolchain is
-registered.
+Starlark's `json.decode`/`json.encode` or awk. No build action runs a host
+interpreter: the store copier and the launcher are Go.
 **Mitigation**: none needed. In a `genrule` of your own, reach for a toolchain
 input.
 
@@ -315,7 +314,7 @@ input.
 | compiled .js/.js.map, oxc's or tsgo's | Compilation | Yes | No timestamps |
 | tsgo generated .d.ts | Type checking | Yes | Sorted output |
 | Vite bundle | Bundling | Yes (per source tree) | Chunk hashes change with source |
-| node_modules tree | Runtime | Yes | per-package isolation |
+| store tree (`npm_store`) | Compile inputs, runtime | Yes | one copy per resolution, restored as files from a cache |
 | Gazelle BUILD generation | Repo structure | Yes | sorted output |
 
 ## Guarantees
@@ -404,7 +403,11 @@ against a mismatched hash.
 !!! note "Documented, not exercised"
     Nothing in this repository's own CI uses `--remote_cache` or RBE. The setups
     below are configurations we believe are right but do not run, and no
-    cache-hit figure on this page was measured here.
+    cache-hit figure on this page was measured here. The disk cache is
+    exercised: `//tests/integration:store_cache_test` rebuilds a store tree
+    over a populated disk cache in a fresh output base and runs a test in it
+    under `--nobuild_runfile_links` and under `--remote_download_outputs=minimal`.
+    Remote execution is not.
 
 A remote cache lets one machine reuse another's action outputs. Determinism is
 what makes that safe; see

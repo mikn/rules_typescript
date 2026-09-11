@@ -25,10 +25,30 @@ func generateRules(args language.GenerateArgs) language.GenerateResult {
 	if root, ok := codegenOutDirOwning(args.Rel, tc); ok {
 		return codegenOutDirResult(args, root)
 	}
+	var res language.GenerateResult
 	if s.packages[args.Rel] == nil {
-		return nonPackageRules(args, tc)
+		res = nonPackageRules(args, tc)
+	} else {
+		res = packageRules(args, tc)
 	}
-	return packageRules(args, tc)
+	return withImporterRules(args, tc, res)
+}
+
+// withImporterRules adds the lockfile importer's rules for the directory, or
+// withdraws them where it is no importer.
+func withImporterRules(args language.GenerateArgs, tc *tsConfig,
+	res language.GenerateResult) language.GenerateResult {
+	var gen []*rule.Rule
+	if tc.lock != nil {
+		gen = tc.lock.importerRules(args.Rel)
+	}
+	for _, r := range gen {
+		res.Gen = append(res.Gen, r)
+		res.Imports = append(res.Imports, nil)
+	}
+	res.Empty = append(res.Empty, importerEmpties(args.File, gen)...)
+	reportManagedAttrDrops(args, gen)
+	return res
 }
 
 // packageName is the ts_compile's name in rel: the directory's basename.
@@ -116,11 +136,18 @@ func packageRules(args language.GenerateArgs, tc *tsConfig,
 		res.Empty = append(res.Empty, rule.NewRule(kind, name))
 	}
 
+	nodeModules := ""
+	if tc.lock != nil {
+		nodeModules = tc.lock.nodeModulesLabel(pkg)
+	}
 	compile := len(set.library) > 0
 	if compile {
 		r := rule.NewRule("ts_compile", name)
 		r.SetAttr("srcs", packageSrcs(args, set.library, set.declaration, data))
 		r.SetAttr("tsconfig", tsConfigAttr)
+		if nodeModules != "" {
+			r.SetAttr("node_modules", nodeModules)
+		}
 		r.SetAttr("visibility", []string{"//visibility:public"})
 		imps := s.compileImports(pkg, set)
 		imps.deps = append(imps.deps, codegens...)
@@ -141,6 +168,9 @@ func packageRules(args language.GenerateArgs, tc *tsConfig,
 			r.SetAttr("config", attr)
 		}
 		r.SetAttr("tsconfig", tsConfigAttr)
+		if nodeModules != "" {
+			r.SetAttr("node_modules", nodeModules)
+		}
 		compileLabel := ""
 		if compile {
 			compileLabel = ":" + name
@@ -232,7 +262,7 @@ func programCandidate(name string) bool {
 }
 
 // dataFiles is every regular file under pkg's tree no listing decides; not a
-// deeper package's, an out_dir's, a BUILD file or the ts_config's own src.
+// deeper package's, a ts_codegen's, a BUILD file or the ts_config's own src.
 func (s *programStore) dataFiles(pkg string, tc *tsConfig) []string {
 	var out []string
 	for _, dir := range slices.Sorted(maps.Keys(s.files)) {
@@ -242,13 +272,11 @@ func (s *programStore) dataFiles(pkg string, tc *tsConfig) []string {
 		if s.nearestPackage(dir) != pkg {
 			continue
 		}
-		if _, gen := codegenOutDirOwning(dir, tc); gen {
-			continue
-		}
 		for _, f := range s.files[dir] {
 			switch {
 			case f == "BUILD.bazel", f == "BUILD", programCandidate(f):
 			case dir == pkg && f == "tsconfig.json":
+			case codegenWrites(path.Join(dir, f), tc):
 			default:
 				out = append(out, path.Join(dir, f))
 			}
@@ -336,6 +364,15 @@ func codegenOutDirOwning(rel string, tc *tsConfig) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// codegenWrites is whether a ts_codegen declares f: in outs, or under out_dir.
+func codegenWrites(f string, tc *tsConfig) bool {
+	if _, out := tc.codegenOuts[f]; out {
+		return true
+	}
+	_, under := codegenOutDirOwning(parentDir(f), tc)
+	return under
 }
 
 // codegenOutDirResult withdraws what Gazelle generates inside an out_dir. A BUILD
@@ -471,8 +508,8 @@ type ruleImports struct {
 	deps   []string
 }
 
-// ownedEdges is the edges of pkg's program from the given files, and the
-// program's type entries, which are the tsconfig's.
+// ownedEdges is the edges of pkg's program from the given files, the type
+// references of the store files those reach, and the tsconfig's type entries.
 func (s *programStore) ownedEdges(pkg string, files ...[]string,
 ) []explainfiles.Edge {
 	from := map[string]bool{}
@@ -482,10 +519,25 @@ func (s *programStore) ownedEdges(pkg string, files ...[]string,
 		}
 	}
 	p := s.programs[pkg]
-	var out []explainfiles.Edge
+	byFrom := map[string][]explainfiles.Edge{}
 	for _, e := range p.Edges {
-		if from[e.From] {
-			out = append(out, e)
+		byFrom[e.From] = append(byFrom[e.From], e)
+	}
+	reached := maps.Clone(from)
+	queue := slices.Sorted(maps.Keys(from))
+	var out []explainfiles.Edge
+	for len(queue) > 0 {
+		f := queue[0]
+		queue = queue[1:]
+		for _, e := range byFrom[f] {
+			ref := e.Kind == explainfiles.TypeReference && !firstParty(e.To)
+			if from[f] || ref {
+				out = append(out, e)
+			}
+			if !firstParty(e.To) && !reached[e.To] {
+				reached[e.To] = true
+				queue = append(queue, e.To)
+			}
 		}
 	}
 	return append(out, p.typeEdges()...)
@@ -507,7 +559,7 @@ func (s *programStore) testImports(repoRoot string, lock *npmLock,
 	}
 	if lock != nil {
 		m := nearestManifest(repoRoot, pkg)
-		imps.deps = append(imps.deps, lock.manifestLabels(m)...)
+		imps.deps = append(imps.deps, lock.manifestLabels(m, pkg)...)
 	}
 	if cfg != "" {
 		s.vitestConfig(cfg)

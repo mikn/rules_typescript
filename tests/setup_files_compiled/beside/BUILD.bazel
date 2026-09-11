@@ -4,6 +4,7 @@ load("//ts:defs.bzl", "ts_compile", "ts_test")
 ts_compile(
     name = "beside",
     srcs = ["vitest.setup.ts"],
+    node_modules = "//tests/npm:node_modules",
     visibility = ["//visibility:public"],
     deps = ["@npm//:vitest"],
 )
@@ -15,6 +16,7 @@ ts_test(
     name = "beside_test",
     srcs = ["beside.test.ts"],
     config = "vitest.config.mjs",
+    node_modules = "//tests/npm:node_modules",
     deps = [
         ":beside",
         "@npm//:vitest",

@@ -30,6 +30,7 @@ ts_compile(
 ts_test(
     name = "math_coverage_test",
     srcs = ["math.test.ts"],
+    node_modules = "//tests/npm:node_modules",
     visibility = ["//:__pkg__"],
     deps = [
         ":same_package",

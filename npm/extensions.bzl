@@ -10,7 +10,10 @@ Design note: when both the root workspace and rules_typescript register a repo
 with the same name (e.g. "npm"), the root workspace wins.  This lets consumers
 provide their own pnpm-lock.yaml while rules_typescript ships a default lockfile
 for its own tests.  Non-root registrations for a name are silently skipped when
-the root module has already claimed that name.
+the root module has already claimed that name. A non-root module's hub that
+does fill in serves that module's own targets (`@npm_esbuild` for
+`//vite:vite_plugin_bazel`): its store sits in that module's lockfile package,
+and a link never crosses a repository (docs/rules/node-modules.md § The Store).
 """
 
 load("//npm:lazy.bzl", "declare_lazy_npm_repos")
@@ -37,6 +40,21 @@ def _npm_impl(module_ctx):
         for lock_tag in mod.tags.translate_lock:
             if lock_tag.name not in claimed:
                 claimed[lock_tag.name] = lock_tag
+
+    lockfile_of = {}
+    for name, lock_tag in claimed.items():
+        lock = lock_tag.pnpm_lock
+        package = "@@{}//{}".format(lock.repo_name, lock.package)
+        if package in lockfile_of:
+            fail(
+                "npm: {} and {} name lockfiles in one package, {}: ".format(
+                    lockfile_of[package],
+                    lock,
+                    package,
+                ) + "two lockfiles in one package would share one store " +
+                "(node_modules/.pnpm). Move one into a package of its own.",
+            )
+        lockfile_of[package] = lock_tag.pnpm_lock
 
     for name, lock_tag in claimed.items():
         declare_lazy_npm_repos(

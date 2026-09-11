@@ -10,6 +10,7 @@ ts_test(
     config = "vitest.config.mts",
     config_srcs = ["plugins/where.ts"],
     data = ["fixtures/x.txt"],
+    node_modules = "//tests/npm:node_modules",
     deps = [
         "@npm//:types_node",
         "@npm//:vitest",

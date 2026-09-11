@@ -8,12 +8,12 @@ consumer that wants everything reachable reads the transitive field.
 
 TsInfo = provider(
     doc = """What a dep gives a consumer: the files its program and runtime
-stage, and the npm packages its forest links.
+stage, the npm packages its closure holds and the store files they reach.
 
 ts_compile, ts_codegen and ts_binary return it over their outputs; an npm
 package target returns one naming its closure in `npm_packages` and nothing by
-path, since its files reach a consumer through the node_modules tree; a
-workspace member's hub view forwards the member's.
+path, since its files reach a consumer through the importer's links into the
+store; a workspace member's hub view forwards the member's.
 """,
     fields = {
         "js": "depset of File: the .js this target produces -- compiled " +
@@ -25,6 +25,12 @@ workspace member's hub view forwards the member's.
                         "tsconfig `types` names it.",
         "data": "depset of File: the other srcs, staged at their " +
                 "package-relative paths beside the .js.",
+        "manifest": "File or None: the package.json at the package's root " +
+                    "as built, every source-file target rewritten to the " +
+                    "emitted file, <name>.package.json. A dependent's " +
+                    "program root lays it at the package's path and the " +
+                    "member's store tree copies it there; the src as written " +
+                    "is in `data`.",
         "sources": "depset of File: the TypeScript srcs -- .ts, .tsx and " +
                    "declarations. A ts_test in the same package stages them " +
                    "at their source paths.",
@@ -33,8 +39,8 @@ workspace member's hub view forwards the member's.
         "transitive_js_maps": "depset of File: their .js.map.",
         "transitive_declarations": "depset of File: the .d.ts of this " +
                                    "target and its first-party deps. An npm " +
-                                   "package's reach a consumer through the " +
-                                   "forest, not through this depset.",
+                                   "package's reach a consumer through " +
+                                   "`npm_files`, not through this depset.",
         "transitive_data": "depset of File: the data files of this target " +
                            "and its first-party deps, what a compiled module " +
                            "reaches beside itself at run time.",
@@ -43,15 +49,23 @@ workspace member's hub view forwards the member's.
                                "first-party deps paired with the ES module " +
                                "oxc emits from the same source; the vitest " +
                                "runner stages the second at the first's path.",
-        "npm_packages": "depset of NpmPackageInfo: the packages a consumer " +
-                        "links in its forest and runtime tree for this " +
-                        "target's deps. A package itself arrives through " +
-                        "its NpmPackageInfo.",
+        "npm_packages": "depset of NpmPackageInfo: the npm closure of this " +
+                        "target's deps, what the ownership manifest names " +
+                        "and a runner checks its packages against. A " +
+                        "package itself arrives through its NpmPackageInfo.",
+        "npm_files": "depset of File: the store files this target's program " +
+                     "and runtime reach -- the importer links of its direct " +
+                     "npm deps and their @types twins, the member links its " +
+                     "deps name, every store tree and edge link of their " +
+                     "closures, the hoist links whose names the closure " +
+                     "holds with the trees they enter, and its first-party " +
+                     "deps' npm_files. An action stages this and nothing " +
+                     "else of the store.",
         "owners": "depset of struct(label, files): one record per " +
                   "first-party target in the closure, this one first -- " +
-                  "the label a deps list writes and the declarations and " +
-                  "data it stages. The tsgo action names the owner of a " +
-                  "listed file from these.",
+                  "the label a deps list writes and the declarations, " +
+                  "data and manifest as built it stages. The tsgo action " +
+                  "names the owner of a listed file from these.",
     },
 )
 
@@ -70,6 +84,7 @@ def ts_info(
         js_maps = _EMPTY,
         declarations = _EMPTY,
         data = _EMPTY,
+        manifest = None,
         sources = _EMPTY,
         transitive_js = None,
         transitive_js_maps = None,
@@ -77,6 +92,7 @@ def ts_info(
         transitive_data = None,
         transitive_es_twins = _EMPTY,
         npm_packages = _EMPTY,
+        npm_files = _EMPTY,
         label = None):
     """A TsInfo for a target without first-party deps: each closure it
     leaves unsaid is the direct set, and `label` makes it the one owner."""
@@ -91,6 +107,7 @@ def ts_info(
         js_maps = js_maps,
         declarations = declarations,
         data = data,
+        manifest = manifest,
         sources = sources,
         transitive_js = _or_direct(transitive_js, js),
         transitive_js_maps = _or_direct(transitive_js_maps, js_maps),
@@ -101,6 +118,7 @@ def ts_info(
         transitive_data = _or_direct(transitive_data, data),
         transitive_es_twins = transitive_es_twins,
         npm_packages = npm_packages,
+        npm_files = npm_files,
         owners = owners,
     )
 
@@ -109,12 +127,12 @@ TsTestRunnerInfo = provider(
 
 //ts/runners:vitest and //ts/runners:node_test are the two shipped; a rule in
 another ruleset returning this provider is a third. ts_test compiles the tests
-and builds the forest they run in, and the runner's `launch` turns them into
-the launcher's config and the runfiles of one test.
+against the importer chain they run in, and the runner's `launch` turns them
+into the launcher's config and the runfiles of one test.
 """,
     fields = {
         "packages": "list of string: the npm packages the runner needs in " +
-                    "the test's node_modules tree, `vitest` for the vitest " +
+                    "the test's npm closure, `vitest` for the vitest " +
                     "runner; ts_test fails at analysis naming the one no dep " +
                     "provides.",
         "hook": "File: the one module the runner loads into node before the " +
@@ -128,10 +146,13 @@ the launcher's config and the runfiles of one test.
                       "package's format.",
         "launch": "function(ctx, test) -> struct: the runner's half of one " +
                   "test's analysis. `test` is the struct ts_test builds from " +
-                  "the compile (entry_points, test_files_list, " +
-                  "node_modules_files, transitive_js, es_twins, " +
-                  "runtime_data_sets, package_sources, inline_members, " +
-                  "runner); the result " +
+                  "the compile (entry_points, test_files_list, chain, " +
+                  "transitive_js, es_twins, runtime_data_sets, " +
+                  "package_sources, inline_members, runner); `chain` is " +
+                  "struct(dirs, rlocations, npm_files): the chain's " +
+                  "node_modules directories nearest first, as bin-dir paths " +
+                  "and as runfiles paths, and the store files the test " +
+                  "reaches; the result " +
                   "carries `mode` and `section` (the launcher config's mode " +
                   "and that mode's section), `env`, `files`, `symlinks` and " +
                   "`transitive_files` for the runfiles, and `output_groups`.",
@@ -165,13 +186,19 @@ NpmPackageInfo = provider(
         "package_name": "string: npm package name (e.g., 'react').",
         "package_version": "string: npm package version.",
         "peer_id": "string: a filesystem-safe token naming the peer set this resolution was made against, empty for a package pnpm resolved only one way. Two snapshots can share name@version and differ only here, and they are two different dependency graphs, so anything keying a package by name and version alone merges them.",
-        "package_dir": "File or None: The package.json file at the root of the extracted package. None on a pnpm workspace member, which was never extracted from a tarball: its view writes the manifest it links.",
+        "package_dir": "File or None: The package.json file at the root of " +
+                       "the extracted package. None on a pnpm workspace " +
+                       "member, which was never extracted from a tarball: " +
+                       "its compile writes the manifest as built.",
         "package_root": "string: exec-root-relative directory the files in `all_files` hang off -- where `package_dir` sits for an extracted tarball, the member's directory under bazel-bin for a workspace member. A file outside it stages at the package root under its basename.",
-        "all_files": "depset of File: All files in this package (package.json + .js + .d.ts + other assets): what a node_modules tree holds for it, the runtime tree's and the type-check forest's alike.",
-        "js_files": "depset of File: JavaScript files in this package.",
-        "direct_deps": "list of NpmPackageInfo: the packages this one depends on directly, each under the name this package imports it by. The flattened transitive closure cannot answer which version an individual package resolved to, which is what a node_modules tree needs to place two versions of one name.",
+        "all_files": "depset of File: every file of this package " +
+                     "(package.json, .js, .d.ts, other assets), the files " +
+                     "its store tree copies; a member's are its outputs, " +
+                     "the manifest as built in place of the src.",
         "transitive_deps": "depset of NpmPackageInfo: Transitive npm dependencies.",
-        "transitive_package_dirs": "depset of File: package.json files for this package and all transitive deps.",
+        "store": "NpmStoreInfo: this resolution's store tree and the links " +
+                 "beside it (npm/private/store.bzl), one per snapshot, in " +
+                 "the lockfile's package.",
     },
 )
 
@@ -183,8 +210,8 @@ The shipped implementation is Vite (`//vite:dev_server`), the default of
 
 Two things differ between implementations and neither can be papered over.
 A server shipping as an npm package has no `File` to point at -- its executable
-is a path inside the `node_modules` tree artifact, which Starlark cannot address
-at analysis time -- so it sets `server_in_tree` and leaves `server_binary` None.
+is a path under the importer's `node_modules` directory, reached through the
+package's link -- so it sets `server_in_tree` and leaves `server_binary` None.
 A native binary is the other way round; exactly one of the two must be set.
 
 `config_dialect` names the config the server is handed; only Vite's is
@@ -193,14 +220,69 @@ a field it does without: one taking the serve root from argv instead says so in
 `argv`, and one ignoring a field says so in `ignored_config_fields`.
 """,
     fields = {
-        "server_binary": "File or None: the server executable, for a server that is a build artifact. None when the server ships inside the npm tree, in which case server_in_tree names it instead.",
-        "server_in_tree": "string: the server executable's path relative to the root of the node_modules tree, for a server that ships as an npm package. Empty when server_binary is set.",
+        "server_binary": "File or None: the server executable, for a server " +
+                         "that is a build artifact. None when the server " +
+                         "ships as an npm package, in which case " +
+                         "server_in_tree names it instead.",
+        "server_in_tree": "string: the server executable's path under the " +
+                          "importer's node_modules directory, for a server " +
+                          "that ships as an npm package. Empty when " +
+                          "server_binary is set.",
         "argv": "list of string: the command line after the executable. `{config}` expands to the generated config's path and `{root}` to the directory being served; a server taking either somewhere other than where the other one takes it says so here rather than in the launcher.",
         "config_dialect": "string: which config format this server is handed. Only \"vite\" is generated today; a server reading its own format declares its own dialect, and the generator has to learn it before that server can be selected.",
         "runs_in_js_runtime": "bool: True when the executable is JavaScript and the toolchain Node runs it, False for a native binary. A native server still gets the toolchain Node on PATH: one whose plugin host is a Node process is not a Node-free one.",
         "ignored_config_fields": "list of string: dotted config paths this server does not honour, e.g. [\"server.open\"]. A target whose configuration depends on one of these fails at analysis time naming the field and the server, rather than starting a server that quietly does something else.",
         "native_react_refresh": "bool: True when the server applies React Fast Refresh itself. `react_refresh = True` then fails rather than stacking @vitejs/plugin-react on top of a transform that already ran.",
-        "runtime_deps": "depset of File: everything the server needs in runfiles beyond the generated config and the npm tree.",
+        "runtime_deps": "depset of File: everything the server needs in " +
+                        "runfiles beyond the generated config and the " +
+                        "importer's node_modules.",
+    },
+)
+
+NodeModulesInfo = provider(
+    doc = """An importer's node_modules: the links a `node_modules` target
+declares into the virtual store, one per npm package the importer declares,
+the importer above it and the lockfile's hidden hoist
+(docs/rules/node-modules.md).""",
+    fields = {
+        "label": "Label: the node_modules target's, the importer's package " +
+                 "and what a message names.",
+        "dir": "string: the importer's node_modules directory as a bin-dir " +
+               "path, `bazel-out/<cfg>/bin/<package>/node_modules`: the " +
+               "parent of every link, which no artifact names.",
+        "links": "dict of string -> NpmLinkInfo: per package name, the " +
+                 "declared symlink `node_modules/<name>` and the store it " +
+                 "enters.",
+        "parent": "NodeModulesInfo or None: the importer above's.",
+        "hoist": "NpmHoistInfo: the lockfile's hidden hoist, the root " +
+                 "importer's `hoist` target's, the same on every importer " +
+                 "of its chain.",
+    },
+)
+
+NpmHoistInfo = provider(
+    doc = """A lockfile's hidden hoist, what its `npm_store_hoist` target
+returns: the root importer names the target in `hoist`, and every importer
+on the chain carries it as `NodeModulesInfo.hoist`.""",
+    fields = {
+        "links": "dict of string -> NpmLinkInfo: per hoisted name, the " +
+                 "declared symlink `node_modules/.pnpm/node_modules/<name>` " +
+                 "(a `public-hoist-pattern` match's at the root importer's " +
+                 "`node_modules/<name>`) and the store it enters.",
+        "members": "dict of string -> File: per hoisted workspace member, " +
+                   "the declared symlink alone, with no dependency on the " +
+                   "member's tree; a consumer's closure holds the tree " +
+                   "through the member's link target.",
+    },
+)
+
+NpmLinkInfo = provider(
+    doc = """One link `node_modules/<name>` into a store tree: an entry of
+`NodeModulesInfo.links`, and what a `node_modules_member` target returns for
+a workspace member beside the member's own TsInfo and NpmPackageInfo.""",
+    fields = {
+        "link": "File: the declared symlink `node_modules/<name>`.",
+        "store": "NpmStoreInfo: the store the link enters.",
     },
 )
 

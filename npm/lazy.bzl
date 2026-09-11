@@ -54,6 +54,7 @@ a whole-graph decision that one package cannot make about itself:
                         branch may reference it
 """
 
+load("//npm/private:hoist.bzl", "hoist_settings", "hoisted")
 load(
     "//npm/private:npm_import.bzl",
     "npm_hub",
@@ -75,6 +76,7 @@ load(
     "verify_integrity",
     "versioned_label_name",
 )
+load("//npm/private:store.bzl", "MEMBER_VERSION", "store_key", "store_target")
 load(
     "//platforms:platforms.bzl",
     "PLATFORMS",
@@ -415,6 +417,152 @@ def _check_integrity(packages, pnpm_lock):
         "lockfile with a current pnpm.",
     )
 
+def _hoist_settings(module_ctx, pnpm_lock):
+    """The lockfile package's .npmrc hoist settings; the file is watched."""
+    npmrc = module_ctx.path(pnpm_lock).dirname.get_child(".npmrc")
+    if npmrc.exists:
+        return hoist_settings(module_ctx.read(npmrc))
+    module_ctx.watch(npmrc)
+    return hoist_settings(None)
+
+def _store_label(pnpm_lock, key, name):
+    return "@@{}//{}:{}".format(
+        pnpm_lock.repo_name,
+        pnpm_lock.package,
+        store_target(key, name),
+    )
+
+def _snapshot_key(snap):
+    peer_id = peer_suffix_dir_name(snap["peer_suffix"])
+    return store_key(snap["name"], snap["version"], peer_id)
+
+def _hoist_entries(lock, settings, index, member_index):
+    """The graph's `hoist` list: per hoisted name its kind and target, one
+    target when every platform hoists the same one, else one per platform."""
+
+    def ref(target):
+        which, key = target
+        if which == "snapshot":
+            return {"snapshot": index[key]}
+        return {"member": member_index[key]}
+
+    per_platform = {p: hoisted(lock, settings, p) for p in _ALL_PLATFORMS}
+    aliases = {}
+    for found in per_platform.values():
+        aliases.update({alias: True for alias in found})
+    entries = []
+    for alias in sorted(aliases):
+        on = {p: per_platform[p].get(alias) for p in _ALL_PLATFORMS}
+        first = [t for t in on.values() if t != None][0]
+        entry = {"alias": alias, "kind": first[0]}
+        if all([on[p] == first for p in _ALL_PLATFORMS]):
+            entry["target"] = ref(first[1])
+        else:
+            entry["targets"] = {
+                p: ref(t[1])
+                for p, t in on.items()
+                if t != None
+            }
+        entries.append(entry)
+    return entries
+
+def _store_graph(pnpm_lock, graph, importers, settings):
+    """The lockfile's store as data: what `npm_virtual_store` declares.
+
+    Snapshots and members carry their edges as indices into the two lists;
+    an edge the cycle breaker cut is a snapshot's `cut`, a link beside its
+    tree with no dependency behind it, as it is absent from its repository's
+    deps. The hoist is pnpm's over the whole graph, cycles kept.
+
+    Args:
+        pnpm_lock: The lockfile's label.
+        graph: struct(live, platforms_of, repo_of, deps_by_sid, dropped,
+            members): the extension's view of the lockfile, `members` as
+            {member path: npm name} for the members with a manifest.
+        importers: parse_importers() of the lockfile.
+        settings: hoist_settings() of the lockfile package's .npmrc.
+    """
+    live = graph.live
+    sids = sorted(live)
+    index = {sid: i for i, sid in enumerate(sids)}
+    paths = sorted(graph.members)
+    member_index = {path: i for i, path in enumerate(paths)}
+
+    def edge(dep_sid, imported_as):
+        return [index[dep_sid], imported_as]
+
+    snapshots = []
+    for sid in sids:
+        snap = live[sid]
+        entry = {
+            "id": sid,
+            "name": snap["name"],
+            "key": _snapshot_key(snap),
+            "repo": graph.repo_of[sid],
+            "deps": [
+                edge(dep_sid, imported_as)
+                for (dep_sid, imported_as) in graph.deps_by_sid[sid]
+                if not graph.dropped.get(sid, {}).get(dep_sid)
+            ],
+            "cut": [
+                edge(dep_sid, imported_as)
+                for (dep_sid, imported_as) in graph.deps_by_sid[sid]
+                if graph.dropped.get(sid, {}).get(dep_sid)
+            ],
+        }
+        if len(graph.platforms_of[sid]) != len(_ALL_PLATFORMS):
+            entry["platforms"] = graph.platforms_of[sid]
+        snapshots.append(entry)
+
+    members = []
+    for path in paths:
+        importer = importers["importers"].get(path, {"deps": {}, "links": {}})
+        name = graph.members[path]
+        deps = []
+        for dep_name, dep_sid in importer["deps"].items():
+            if dep_sid not in live:
+                continue
+            aliased = live[dep_sid]["name"] != dep_name
+            deps.append(edge(dep_sid, dep_name if aliased else ""))
+        members.append({
+            "name": name,
+            "path": path,
+            "key": store_key(name, MEMBER_VERSION, ""),
+            "deps": deps,
+            "links": [
+                [member_index[linked], alias]
+                for alias, linked in importer["links"].items()
+                if linked in member_index
+            ],
+        })
+
+    lock = struct(
+        snapshots = {
+            sid: struct(
+                children = (
+                    live[sid]["dependencies"].items() +
+                    live[sid]["optionalDependencies"].items()
+                ),
+                platforms = graph.platforms_of[sid],
+            )
+            for sid in sids
+        },
+        importers = [
+            (path, entry["deps"].items(), entry["links"].items())
+            for path, entry in importers["importers"].items()
+        ],
+        members = [(graph.members[path], path) for path in paths],
+    )
+    return {
+        "lockfile": str(pnpm_lock),
+        "repo": pnpm_lock.repo_name,
+        "package": pnpm_lock.package,
+        "platforms": _ALL_PLATFORMS,
+        "snapshots": snapshots,
+        "members": members,
+        "hoist": _hoist_entries(lock, settings, index, member_index),
+    }
+
 def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc):
     """Declares one npm_import per resolved package plus one npm_hub of aliases.
 
@@ -447,6 +595,7 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
     _check_integrity(packages, pnpm_lock)
     importers = parse_importers(lock_content)
     patches = _patch_by_package(module_ctx, lock_content, patch_labels)
+    settings = _hoist_settings(module_ctx, pnpm_lock)
 
     # A snapshot needs its `packages:` entry for the bytes to download, and needs
     # to be buildable on some platform we can name. Platform filtering is a
@@ -568,6 +717,7 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
             platform_deps = platform_deps,
             platforms = _ALL_PLATFORMS,
             types_dep = "@{}//:pkg".format(repo_of[types_sid]) if types_sid else "",
+            store = _store_label(pnpm_lock, _snapshot_key(snap), snap["name"]),
             aliases = {
                 _alias_target_name(alias): alias
                 for alias in sorted(aliases_of_sid.get(sid, {}).keys())
@@ -709,5 +859,22 @@ def declare_lazy_npm_repos(module_ctx, hub_name, pnpm_lock, patch_labels, npmrc)
         importer_aliases = importer_aliases,
         members = members,
         member_manifests = member_manifests,
+        store_graph = json.encode(_store_graph(
+            pnpm_lock,
+            struct(
+                live = live,
+                platforms_of = platforms_of,
+                repo_of = repo_of,
+                deps_by_sid = deps_by_sid,
+                dropped = dropped,
+                members = {
+                    path: members[label].partition("|")[0]
+                    for label, path in member_dirs.items()
+                    if label in member_manifests
+                },
+            ),
+            importers,
+            settings,
+        )),
         broken_cycle_edges = ["{} -> {}".format(a, b) for (a, b) in broken],
     )

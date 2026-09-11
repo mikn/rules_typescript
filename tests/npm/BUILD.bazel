@@ -1,16 +1,19 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
-load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("@npm//:defs.bzl", "npm_virtual_store")
 load("@rules_go//go:def.bzl", "go_test")
-load("//npm:defs.bzl", "node_modules")
-load("//ts:defs.bzl", "ts_compile", "ts_test")
-load(":direct_version_tests.bzl", "direct_version_wins_test")
-load(":forest_tests.bzl", "forest_test")
-load(":hub_provenance_tests.bzl", "hub_provenance_test")
-load(":link_depth_tests.bzl", "link_depth_test_suite")
-load(":member_manifest_tests.bzl", "member_manifest_test_suite")
-load(":node_modules_cache_tests.bzl", "tree_is_never_fetched_test")
+load("//npm:defs.bzl", "node_modules", "node_modules_member")
+load("//tests/strict_deps:strict_deps_tests.bzl", "tsgo_check_test")
+load("//ts:defs.bzl", "ts_binary", "ts_codegen", "ts_compile", "ts_test")
+load(":forest_tests.bzl", "chain_test")
+load(":hub_provenance_tests.bzl", "store_provenance_test")
+load(
+    ":node_modules_tests.bzl",
+    "hoist_links_test",
+    "member_link_test",
+    "node_modules_test",
+)
 load(":parser_tests.bzl", "parser_test_suite")
-load(":resolution_tests.bzl", "conflicting_direct_peers_test", "conflicting_direct_versions_test")
+load(":store_tests.bzl", "peer_variant_stores", "store_test_suite")
 load(":workspace_link_tests.bzl", "member_view_test", "workspace_link_test_suite")
 
 package(default_visibility = ["//:__pkg__"])
@@ -23,42 +26,208 @@ package(default_visibility = ["//:__pkg__"])
 # package builds it.
 exports_files(["pnpm-lock.yaml"])
 
+exports_files(
+    ["node_modules_tests.bzl"],
+    visibility = ["//tests/npm:__subpackages__"],
+)
+
+npm_virtual_store(name = "node_modules/.pnpm")
+
+# The root importer: a link per name it declares, beside the store. The chain
+# every fixture outside an importer's package resolves through.
+# keep
+node_modules(
+    name = "node_modules",
+    hoist = ":node_modules/.pnpm/node_modules",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@npm//:bun-types",
+        "@npm//:culori",
+        "@npm//:happy-dom",
+        "@npm//:oxlint",
+        "@npm//:test-exclude",
+        "@npm//:tsup",
+        "@npm//:types_bun",
+        "@npm//:types_culori",
+        "@npm//:types_node",
+        "@npm//:typescript",
+        "@npm//:vite",
+        "@npm//:vitejs_plugin-react",
+        "@npm//:vitest",
+        "@npm//:vitest_coverage-v8",
+        "@npm//:zod",
+    ],
+)
+
+node_modules_test(
+    name = "node_modules_test",
+    dir = "tests/npm/node_modules",
+    hoisted = [
+        "minimatch=minimatch@10.2.4",
+        "undici-types=undici-types@6.21.0",
+    ],
+    hoisted_members = [
+        "hoisted-member",
+        "nested-shared",
+    ],
+    links = [
+        "@types/bun",
+        "@types/culori",
+        "@types/node",
+        "@vitejs/plugin-react",
+        "@vitest/coverage-v8",
+        "bun-types",
+        "culori",
+        "happy-dom",
+        "oxlint",
+        "test-exclude",
+        "tsup",
+        "typescript",
+        "vite",
+        "vitest",
+        "zod",
+    ],
+    stores = [
+        "zod@3.24.2",
+        "minimatch@9.0.9",
+        "minimatch@10.2.4",
+        "test-exclude@7.0.2",
+    ],
+    target_under_test = ":node_modules",
+)
+
+# An importer below the root carries the lockfile's hoist unchanged: the
+# hoist's minimatch is 10.2.4 while this importer links 9.0.9.
+node_modules_test(
+    name = "multi_version_node_modules_test",
+    dir = "tests/npm/multi_version/node_modules",
+    has_parent = True,
+    hoisted = ["minimatch=minimatch@10.2.4"],
+    hoisted_members = ["hoisted-member"],
+    links = [
+        "minimatch",
+        "test-exclude",
+    ],
+    target_under_test = "//tests/npm/multi_version:node_modules",
+)
+
+# The members the root does not link, a link by name each: the root's
+# node_modules depends on no member's compile (nested-consumer has no target).
+hoist_links_test(
+    name = "hoist_links_test",
+    members = [
+        "hoisted-member",
+        "nested-shared",
+    ],
+    target_under_test = ":node_modules/.pnpm/node_modules",
+)
+
+# One link target per member the root links, into the member's store tree.
+[
+    node_modules_member(
+        name = "node_modules/" + name,
+        member = "@npm//:" + label,
+        visibility = ["//visibility:public"],
+    )
+    for name, label in [
+        ("@acme/ui", "acme_ui"),
+        ("by-name-member", "by-name-member"),
+        ("preserve-view", "preserve-view"),
+        ("pulse", "pulse"),
+        ("shared", "shared"),
+        ("subpath-member", "subpath-member"),
+    ]
+]
+
+member_link_test(
+    name = "member_link_test",
+    key = "shared@0.0.0",
+    member = "shared",
+    target_under_test = ":node_modules/shared",
+)
+
+# The store: one tree per snapshot, its links beside it, and pnpm's hidden
+# hoist; docs/rules/node-modules.md § The Store.
+store_test_suite(name = "store_tests")
+
+go_test(
+    name = "store_layout_test",
+    size = "small",
+    srcs = ["store_layout_test.go"],
+    data = ["//tests/npm/features:node_modules/.pnpm/node_modules"] +
+           peer_variant_stores(),
+    deps = ["//tests/verify"],
+)
+
 # Lockfile-text tests: what the parsers read, and what they must keep ignoring.
 parser_test_suite(name = "parser_tests")
 
-link_depth_test_suite(name = "link_depth_tests")
-
 workspace_link_test_suite(name = "workspace_link_tests")
 
-# Manifest-text tests: a workspace member's package.json as the view carries it.
-member_manifest_test_suite(name = "member_manifest_tests")
+# A package.json src is staged as written; the manifest as built beside it names
+# the emitted files, the .jsx under the tsconfig that declares jsx: preserve.
+go_test(
+    name = "member_manifest_test",
+    size = "small",
+    srcs = ["member_manifest_test.go"],
+    data = [
+        "//packages/shared",
+        "//tests/jsx_preserve/member",
+    ],
+    deps = ["//tests/verify"],
+)
+
+# The member's own test names the member: the program root lays :shared's
+# outputs over packages/shared and its manifest as built at the package's path.
+chain_test(
+    name = "shared_test_chain_test",
+    size = "small",
+    chain = [
+        "packages/shared/node_modules",
+        "tests/npm/node_modules",
+    ],
+    linked = [
+        "packages/shared/package.json",
+        "packages/shared/shared.package.json",
+    ],
+    manifests = ["packages/shared/shared.package.json"],
+    overlays = ["packages/shared"],
+    target_under_test = "//packages/shared:shared_test",
+)
 
 ts_compile(
     name = "app",
     srcs = ["app.ts"],
+    node_modules = ":node_modules",
     deps = ["@npm//:zod"],
 )
 
-# The forest the tsgo action stages, and the tsconfig it reads: bare specifiers
-# resolve through node_modules alone, so the config names no package.
-forest_test(
-    name = "app_forest_test",
+# The chain the tsgo action resolves through, and the tsconfig it reads: bare
+# specifiers resolve through node_modules alone, so the config names no package.
+chain_test(
+    name = "app_chain_test",
     size = "small",
-    linked = ["zod/package.json"],
+    chain = ["tests/npm/node_modules"],
+    linked = [
+        "tests/npm/node_modules/zod",
+        "tests/npm/node_modules/.pnpm/zod@3.24.2/node_modules/zod",
+    ],
     target_under_test = ":app",
 )
 
 # @types/node's globals reach a program through `types` (a direct dep) and not
-# through the forest alone (a package the closure carries).
+# through the chain alone (a package the closure carries).
 ts_compile(
     name = "direct_types_probe",
     srcs = ["direct_types_probe.ts"],
+    node_modules = ":node_modules",
     deps = ["@npm//:types_node"],
 )
 
 ts_compile(
     name = "transitive_types_probe",
     srcs = ["transitive_types_probe.ts"],
+    node_modules = ":node_modules",
     deps = ["@npm//:vite"],
 )
 
@@ -70,29 +239,34 @@ build_test(
     ],
 )
 
-forest_test(
-    name = "direct_types_forest_test",
+chain_test(
+    name = "direct_types_chain_test",
     size = "small",
-    linked = ["@types/node/package.json"],
+    chain = ["tests/npm/node_modules"],
+    linked = ["tests/npm/node_modules/@types/node"],
     target_under_test = ":direct_types_probe",
     types_deps = ["node"],
 )
 
-forest_test(
-    name = "transitive_types_forest_test",
+# vite's snapshot resolved @types/node as a peer: the edge beside vite's tree.
+chain_test(
+    name = "transitive_types_chain_test",
     size = "small",
+    chain = ["tests/npm/node_modules"],
     linked = [
-        "@types/node/package.json",
-        "vite/package.json",
+        "tests/npm/node_modules/vite",
+        "node_modules/vite",
+        "node_modules/@types/node",
     ],
     target_under_test = ":transitive_types_probe",
 )
 
-# The hub pairs `culori` with `@types/culori` and the pairing rides in the closure,
-# so the forest links the @types package where TypeScript walks for it.
+# The importer declares `culori` and `@types/culori`: the chain stages the
+# twin's link beside the package's, where TypeScript walks for it.
 ts_compile(
     name = "paired_types_probe",
     srcs = ["paired_types_probe.ts"],
+    node_modules = ":node_modules",
     deps = ["@npm//:culori"],
 )
 
@@ -101,12 +275,42 @@ build_test(
     targets = [":paired_types_probe"],
 )
 
-forest_test(
-    name = "paired_types_forest_test",
+# A store file's `/// <reference types="node" />` resolves through the chain
+# first: the root's @types/node is the one copy when its link is staged.
+ts_compile(
+    name = "chain_types_probe",
+    srcs = ["chain_types_probe.ts"],
+    node_modules = ":node_modules",
+    deps = [
+        "@npm//:bun-types",
+        "@npm//:types_node",
+    ],
+)
+
+build_test(
+    name = "chain_types_build_test",
+    targets = [":chain_types_probe"],
+)
+
+chain_test(
+    name = "chain_types_chain_test",
     size = "small",
+    chain = ["tests/npm/node_modules"],
     linked = [
-        "@types/culori/package.json",
-        "culori/package.json",
+        "tests/npm/node_modules/@types/node",
+        "tests/npm/node_modules/bun-types",
+    ],
+    target_under_test = ":chain_types_probe",
+    types_deps = ["node"],
+)
+
+chain_test(
+    name = "paired_types_chain_test",
+    size = "small",
+    chain = ["tests/npm/node_modules"],
+    linked = [
+        "tests/npm/node_modules/@types/culori",
+        "tests/npm/node_modules/culori",
     ],
     target_under_test = ":paired_types_probe",
 )
@@ -137,32 +341,13 @@ go_test(
     deps = ["//tests/verify"],
 )
 
-# An importer's own resolution against a transitive dependent's older copy of
-# the same name. app-a declared ansi-regex 5.0.1; strip-ansi carries 6.2.2 in its
-# closure and sorts first in `deps`, which is the order Gazelle writes.
-ts_compile(
-    name = "direct_version_consumer",
-    srcs = ["direct_version_consumer.ts"],
-    deps = [
-        "@npm_features//:strip-ansi",
-        "@npm_features//app-a:ansi-regex",
-    ],
-)
-
-direct_version_wins_test(
-    name = "direct_version_wins_test",
-    size = "small",
-    package = "ansi-regex",
-    target_under_test = ":direct_version_consumer",
-    want_dir = "ansi-regex__5_0_1",
-)
-
-# @npm//:shared is the hub's view of the `link:` in tests/npm/pnpm-lock.yaml,
-# its exports rewritten to the emitted files; bare name and `./wire` resolve.
+# :node_modules/shared is the root's link to the member's store tree, its
+# exports rewritten to the emitted files; bare name and `./wire` resolve.
 ts_compile(
     name = "workspace_consumer",
     srcs = ["workspace_consumer.ts"],
-    deps = ["@npm//:shared"],
+    node_modules = ":node_modules",
+    deps = [":node_modules/shared"],
 )
 
 # The same link at run time: node reads the same manifest and runs the .js the
@@ -171,14 +356,45 @@ ts_test(
     name = "workspace_runtime_test",
     size = "small",
     srcs = ["workspace_runtime.test.ts"],
+    node_modules = ":node_modules",
     deps = [
-        "@npm//:shared",
+        ":node_modules/shared",
         "@npm//:vitest",
     ],
 )
 
-# What the view carries: the manifest as built and the member's files at the
-# paths it names.
+# A generator resolves the member as a file in the importer's package would:
+# the link target in deps stages node_modules/shared and the member's tree.
+ts_binary(
+    name = "member_resolver",
+    entry_point = "member_resolver.mjs",
+)
+
+ts_codegen(
+    name = "member_resolution",
+    srcs = ["member_specifiers.txt"],
+    outs = ["member_resolution.ts"],
+    args = [
+        "--specifiers",
+        "{srcs}",
+        "--out",
+        "{out}",
+    ],
+    generator = ":member_resolver",
+    node_modules = ":node_modules",
+    deps = [":node_modules/shared"],
+)
+
+go_test(
+    name = "member_resolution_test",
+    size = "small",
+    srcs = ["member_resolution_test.go"],
+    data = [":member_resolution"],
+    deps = ["//tests/verify"],
+)
+
+# What the view carries: the manifest as built, the member's files at the paths
+# it names, and the compiling target's direct npm deps.
 member_view_test(
     name = "member_view_test",
     size = "small",
@@ -191,8 +407,9 @@ ts_test(
     name = "by_name_member_test",
     size = "small",
     srcs = ["by_name_member.test.ts"],
+    node_modules = ":node_modules",
     deps = [
-        "@npm//:by-name-member",
+        ":node_modules/by-name-member",
         "@npm//:vitest",
     ],
 )
@@ -201,9 +418,10 @@ ts_test(
     name = "by_name_member_node_test",
     size = "small",
     srcs = ["by_name_member_node.test.ts"],
+    node_modules = ":node_modules",
     runner = "//ts/runners:node_test",
     deps = [
-        "@npm//:by-name-member",
+        ":node_modules/by-name-member",
         "@npm//:types_node",
     ],
 )
@@ -239,22 +457,36 @@ go_test(
     deps = ["//tests/verify"],
 )
 
-# Same feature from a NON-ROOT importer: pnpm-lock.yaml has importer
-# tests/npm/nested with `version: link:../../../packages/nested-shared`, which
-# only yields a valid label once resolved against the importer path. Treating
-# it as root-relative produces "@@//../../../packages/nested-shared:...".
-ts_compile(
-    name = "nested_workspace_consumer",
-    srcs = ["nested_workspace_consumer.ts"],
-    deps = ["@npm//:nested-shared"],
-)
-
-# A workspace member imported by its PACKAGE NAME, through the hub's view of the
-# `link:` in pnpm-lock-features.yaml; an alias carries no name the rule can see.
+# A workspace member imported by its PACKAGE NAME, through the features root's
+# link target for the `link:` in features/pnpm-lock.yaml.
 ts_compile(
     name = "ws_linked_consumer",
     srcs = ["ws_linked_consumer.ts"],
-    deps = ["@npm_features//:ws-linked"],
+    node_modules = "//tests/npm/features:node_modules",
+    deps = ["//tests/npm/features:node_modules/ws-linked"],
+)
+
+# An npm alias imported by the name the root links, `styles-alias`, whose
+# link enters ansi-styles' store tree: the tree the ownership check declares.
+ts_compile(
+    name = "alias_consumer",
+    srcs = ["alias_consumer.ts"],
+    node_modules = "//tests/npm/features:node_modules",
+    deps = ["@npm_features//:styles-alias"],
+)
+
+build_test(
+    name = "alias_consumer_test",
+    targets = [":alias_consumer"],
+)
+
+tsgo_check_test(
+    name = "alias_consumer_manifest_test",
+    size = "small",
+    lines = [
+        "npm-direct\tstyles-alias\tansi-styles@6.2.3_ansi-regex_6_2_2_602a0566",
+    ],
+    target_under_test = ":alias_consumer",
 )
 
 # ── The link target ──────────────────────────────────────────────────────────
@@ -270,22 +502,17 @@ build_test(
     ],
 )
 
-# The same three through a node_modules tree, each at the path its manifest's
-# `main` names: another target's label analyses clean and stages wrong files.
-node_modules(
-    name = "workspace_link_target_node_modules",
-    deps = [
-        "@npm_features//:boundary-member",
-        "@npm_features//:exports-member",
-        "@npm_features//:leaf-member",
-    ],
-)
-
+# The same three through the features root's link targets, each at the path
+# its manifest's `main` names: another target's label stages wrong files.
 go_test(
     name = "workspace_link_target_files_test",
     size = "small",
     srcs = ["workspace_link_target_test.go"],
-    data = [":workspace_link_target_node_modules"],
+    data = [
+        "//tests/npm/features:node_modules/boundary-member",
+        "//tests/npm/features:node_modules/exports-member",
+        "//tests/npm/features:node_modules/leaf-member",
+    ],
     deps = ["//tests/verify"],
 )
 
@@ -323,111 +550,37 @@ go_test(
     deps = ["//tests/verify"],
 )
 
-# Two npm alias specifiers in the fixture lockfile, each reachable by exactly
-# one route: ms-alias is declared by the workspace root and nothing else,
-# nano-alias by zod and nothing else.
-node_modules(
-    name = "importer_alias_node_modules",
-    deps = ["@npm_features//:ms-alias"],
-)
-
-node_modules(
-    name = "package_alias_node_modules",
-    deps = ["@npm_features//:zod"],
-)
-
-# The third route: an alias pnpm resolved against peers, spelled `catalog:` at
-# the use site. Its resolution is a `snapshots:` key and not a `packages:` one,
-# so it is the case a peer-stripped alias value cannot find.
-node_modules(
-    name = "catalog_alias_node_modules",
-    deps = ["@npm_features//:styles-alias"],
-)
-
+# Three npm aliases, each reachable by exactly one route: the features root,
+# zod's own edge, and a catalog entry resolved against a peer set.
 go_test(
     name = "npm_alias_test",
     size = "small",
-    srcs = ["npm_alias_test.go"],
-    data = [
-        ":catalog_alias_node_modules",
-        ":importer_alias_node_modules",
-        ":package_alias_node_modules",
+    srcs = [
+        "npm_alias_test.go",
+        "store_links_test.go",
     ],
+    data = ["//tests/npm/features:node_modules"],
     deps = ["//tests/verify"],
 )
 
-# Any node_modules target would do: the requirement is on the action the shared
-# builder emits, so every tree in the repository carries it or none does.
-tree_is_never_fetched_test(
-    name = "node_modules_not_cached_test",
-    size = "small",
-    target_under_test = ":package_alias_node_modules",
-)
-
-# ── Peer-dependency variants and per-importer resolution ─────────────────────
-#
-# pnpm resolves a package once PER PEER SET, and the fixture lockfile has
-# ansi-styles@6.2.3 resolved twice: once against ansi-regex@5.0.1 for the
-# workspace member app-a, once against ansi-regex@6.2.2 for app-b. Both
-# resolutions are the same tarball; only the transitive versions differ.
-#
-# Two things have to hold, and each fails silently on its own:
-#   the graph keeps the variants apart   -- otherwise both members get whichever
-#                                          snapshot the reader saw last
-#   the label names the member's own     -- otherwise a flat hub hands both
-#                                          members the highest version
-#
-# Nothing in the built output would look wrong either way: every version present
-# is a real version of a real package. Only the tree contents tell them apart.
-node_modules(
-    name = "peer_variant_a_node_modules",
-    deps = ["@npm_features//app-a:ansi-styles"],
-)
-
-node_modules(
-    name = "peer_variant_b_node_modules",
-    deps = ["@npm_features//app-b:ansi-styles"],
-)
-
-node_modules(
-    name = "importer_a_node_modules",
-    deps = ["@npm_features//app-a:ansi-regex"],
-)
-
-node_modules(
-    name = "importer_b_node_modules",
-    deps = ["@npm_features//app-b:ansi-regex"],
-)
-
+# Peer variants per importer: app-a and app-b each link their own ansi-regex
+# and the ansi-styles pnpm resolved against it, whose edge is that peer.
 go_test(
     name = "npm_peer_variant_test",
     size = "small",
-    srcs = ["npm_peer_variant_test.go"],
+    srcs = [
+        "npm_peer_variant_test.go",
+        "store_links_test.go",
+    ],
     data = [
-        ":importer_a_node_modules",
-        ":importer_b_node_modules",
-        ":peer_variant_a_node_modules",
-        ":peer_variant_b_node_modules",
+        "//tests/npm/app_a:node_modules",
+        "//tests/npm/app_b:node_modules",
     ],
     deps = ["//tests/verify"],
 )
 
-# Both peer resolutions of ONE version in one tree. app-a's ansi-styles is
-# declared here; the other resolution arrives only through wrap-ansi, which
-# depends on ansi-styles@6.2.3(ansi-regex@6.2.2).
-#
-# The two share a tarball, so a tree keyed by name@version has one directory for
-# them and one `node_modules/ansi-regex` inside it -- and whichever resolution
-# loses, its dependents import the other one's peer. Nothing about that looks
-# wrong: both ansi-regex versions are real, and the ansi-styles files are
-# byte-identical either way.
-node_modules(
-    name = "peer_variant_both_node_modules",
-    deps = [
-        "@npm_features//:wrap-ansi",
-        "@npm_features//app-a:ansi-styles",
-    ],
-)
+# Both peer resolutions of one version through one importer: app-a's
+# ansi-styles declared, the other only through wrap-ansi's edge.
 
 # ── The graph does not depend on the machine that read the lockfile ──────────
 #
@@ -457,125 +610,28 @@ build_test(
     ],
 )
 
-# ── Two versions of one name, in one closure ────────────────────────────────
-#
-# test-exclude's closure resolves three names twice, nested three deep:
-#
-#   test-exclude -> minimatch@10.2.4 -> brace-expansion@5.0.4 -> balanced-match@4.0.4
-#   glob         -> minimatch@9.0.9  -> brace-expansion@2.0.2 -> balanced-match@1.0.2
-#
-# A tree keyed by name alone has one minimatch directory, so one of those two
-# chains is silently overwritten by the other and glob ends up loading whichever
-# minimatch was copied last. Nothing about the result looks wrong: both versions
-# are real versions of the real package.
-node_modules(
-    name = "multi_version_node_modules",
-    deps = ["@npm//:test-exclude"],
-)
-
-go_test(
-    name = "resolution_mode_test",
-    size = "small",
-    srcs = ["resolution_mode_test.go"],
-    data = [
-        ":multi_version_node_modules",
-        "//ts/toolchain:node_resolved",
-    ],
-    deps = ["//tests/verify"],
-)
-
+# Two versions of one name: multi_version links minimatch@9 beside
+# test-exclude's minimatch@10; scoped_multi_version two @rolldown/pluginutils.
 go_test(
     name = "npm_multi_version_tree_test",
     size = "small",
-    srcs = ["npm_multi_version_tree_test.go"],
+    srcs = [
+        "npm_multi_version_tree_test.go",
+        "store_links_test.go",
+    ],
     data = [
-        ":multi_version_node_modules",
-        ":peer_variant_both_node_modules",
-        ":scoped_multi_version_node_modules",
+        "//tests/npm/multi_version:node_modules",
+        "//tests/npm/peer_variant_both:node_modules",
+        "//tests/npm/scoped_multi_version:node_modules",
     ],
     deps = ["//tests/verify"],
 )
 
-# The same tree read as an ACTION input rather than through runfiles. The two
-# stage a TreeArtifact differently, and the layout leans on links that are
-# relative and internal to the tree -- a symlink naming an exec-root path is only
-# valid inside the action that created it, so the distinction is load-bearing and
-# not something to assume. Every path but the last three is reached through at
-# least one of those links.
-genrule(
-    name = "multi_version_through_action",
-    srcs = [":multi_version_node_modules"],
-    outs = ["multi_version_through_action.txt"],
-    cmd = """set -eu
-d=$(location :multi_version_node_modules)
-for p in \
-  glob/node_modules/minimatch \
-  .pnpm/minimatch@9.0.9/node_modules/minimatch/node_modules/brace-expansion \
-  .pnpm/brace-expansion@2.0.2/node_modules/brace-expansion/node_modules/balanced-match \
-  minimatch \
-  brace-expansion \
-  balanced-match
-do
-  printf '%s %s\\n' "$$p" "$$(awk -F'"' '/"version"/{print $$4; exit}' "$$d/$$p/package.json")"
-done > $@
-""",
-)
-
-diff_test(
-    name = "npm_multi_version_action_input_test",
-    size = "small",
-    file1 = ":multi_version_through_action",
-    file2 = "multi_version_through_action.expected",
-)
-
-# A scoped name resolved twice, inside one plugin's closure: @vitejs/plugin-react
-# depends on @rolldown/pluginutils@1.0.0-rc.3 while rolldown, reached through the
-# vite it declares as a peer, depends on 1.0.1. The store path for a scoped
-# package is one directory, not two, so the name is flattened there and spelled
-# out again inside it -- pnpm's own convention -- and the link from the dependent
-# is two segments deeper than an unscoped one.
-node_modules(
-    name = "scoped_multi_version_node_modules",
-    deps = ["@npm//:vitejs_plugin-react"],
-)
-
-# Both versions named directly, which is the one arrangement no tree can hold.
-node_modules(
-    name = "conflicting_direct_versions",
-    tags = ["manual"],
-    deps = [
-        "@npm//:minimatch",
-        "@npm//:minimatch_9_0_9",
-    ],
-)
-
-conflicting_direct_versions_test(
-    name = "npm_conflicting_direct_versions_test",
-    target_under_test = ":conflicting_direct_versions",
-)
-
-# Two peer resolutions of ONE version, named directly, which is the same
-# arrangement one level narrower: the files are identical, but the two disagree
-# about what ansi-styles' own `import "ansi-regex"` resolves to, and
-# node_modules/ansi-styles/node_modules holds one answer.
-node_modules(
-    name = "conflicting_direct_peers",
-    tags = ["manual"],
-    deps = [
-        "@npm_features//app-a:ansi-styles",
-        "@npm_features//app-b:ansi-styles",
-    ],
-)
-
-conflicting_direct_peers_test(
-    name = "npm_conflicting_direct_peers_test",
-    target_under_test = ":conflicting_direct_peers",
-)
-
-# The bundle is consumer API, through ts_dev_server's `plugin` attr.
-hub_provenance_test(
+# The bundle is consumer API, through ts_dev_server's `plugin` attr: its
+# esbuild comes from vite/esbuild's own lockfile, never the consumer's.
+store_provenance_test(
     name = "vite_plugin_hub_test",
     size = "small",
-    hub = "npm_esbuild",
-    target_under_test = "//vite:esbuild_node_modules",
+    store_package = "vite/esbuild",
+    target_under_test = "//vite:node_modules",
 )

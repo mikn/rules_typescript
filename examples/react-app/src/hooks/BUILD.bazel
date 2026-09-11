@@ -6,6 +6,7 @@ ts_compile(
         "index.ts",
         "useCounter.ts",
     ],
+    node_modules = "//:node_modules",
     visibility = ["//visibility:public"],
     deps = ["@npm//:react"],
 )
@@ -13,6 +14,7 @@ ts_compile(
 ts_test(
     name = "hooks_test",
     srcs = ["useCounter.test.ts"],
+    node_modules = "//:node_modules",
     deps = [
         ":hooks",
         "@npm//:react",

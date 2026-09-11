@@ -34,6 +34,7 @@ ts_compile(
 ts_test(
     name = "clean_test",
     srcs = ["clean.test.ts"],
+    node_modules = "//tests/npm:node_modules",
     deps = [
         ":clean",
         "@npm//:vitest",

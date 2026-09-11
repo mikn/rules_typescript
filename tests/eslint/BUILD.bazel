@@ -1,3 +1,6 @@
+load("@npm_eslint//:defs.bzl", "npm_virtual_store")
+load("//npm:defs.bzl", "node_modules")
+
 # @npm_eslint is translated from these; nothing in this package builds them.
 # The @typescript-eslint closure lives here rather than in //tests/npm because
 # that lockfile is a curated fixture -- its comments say what each entry proves,
@@ -7,3 +10,22 @@ exports_files([
     "package.json",
     "pnpm-lock.yaml",
 ])
+
+npm_virtual_store(name = "node_modules/.pnpm")
+
+# The root importer of the plugin's lockfile: //eslint-plugin's chain.
+# keep
+node_modules(
+    name = "node_modules",
+    hoist = ":node_modules/.pnpm/node_modules",
+    visibility = ["//eslint-plugin:__pkg__"],
+    deps = [
+        "@npm_eslint//:eslint",
+        "@npm_eslint//:types_node",
+        "@npm_eslint//:typescript",
+        "@npm_eslint//:typescript-eslint_parser",
+        "@npm_eslint//:typescript-eslint_rule-tester",
+        "@npm_eslint//:typescript-eslint_utils",
+        "@npm_eslint//:vitest",
+    ],
+)

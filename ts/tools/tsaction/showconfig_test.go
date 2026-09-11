@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-// Captures of `tsgo --showConfig -p` (7.0.2), files relative to the written
-// config; a base elsewhere sets paths, target and jsx, a leaf types or nothing.
+// Captures of `tsgo --showConfig -p` (7.0.2), paths relative to the written
+// config; a base sets paths, jsx and typeRoots, a leaf types or nothing.
 const baseConfig = `{
   // A comment: tsconfig.json is JSONC.
   "compilerOptions": {
@@ -43,6 +43,13 @@ const filesLeaf = `{
 const noTypesLeaf = `{
   "extends": "../base/tsconfig.base.json",
   "compilerOptions": { "target": "esnext", "jsx": "preserve", "module": "nodenext" }
+}
+`
+
+const noRootsLeaf = `{
+  "compilerOptions": {
+    "target": "esnext", "jsx": "preserve", "module": "nodenext"
+  }
 }
 `
 
@@ -183,6 +190,7 @@ func TestDecodeShowConfig_EnumsAreNames(t *testing.T) {
 		JsxImportSource: "preact",
 		Module:          "es6",
 		Types:           &[]string{"./globals.d.ts", "./generated.d.ts", "node", "@cloudflare/workers-types"},
+		TypeRoots:       []string{"../base/typings"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("decodeShowConfig = %+v, want %+v", got, want)
@@ -200,6 +208,20 @@ func TestDecodeShowConfig_EnumsAreNames(t *testing.T) {
 		t.Errorf("Target, Jsx, JsxImportSource = %q, %q, %q; want esnext, preserve, preact",
 			noTypes.Target, noTypes.Jsx, noTypes.JsxImportSource)
 	}
+	if want := []string{"../base/typings"}; !reflect.DeepEqual(
+		noTypes.TypeRoots, want) {
+		t.Errorf("TypeRoots = %v, want %v: the base sets it", noTypes.TypeRoots, want)
+	}
+
+	capture = readTestdata(t, "showconfig-no-roots.json")
+	noRoots, _, err := decodeShowConfig([]byte(capture))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if noRoots.TypeRoots != nil {
+		t.Errorf("TypeRoots = %v, want nil: the leaf sets no typeRoots key",
+			noRoots.TypeRoots)
+	}
 }
 
 func TestDecodeShowConfig_DiagnosticsAreNotAConfig(t *testing.T) {
@@ -210,9 +232,9 @@ func TestDecodeShowConfig_DiagnosticsAreNotAConfig(t *testing.T) {
 	}
 }
 
-// The written config extends the baseline then the user's file, rewrites paths
-// and types, names no forest package and leaves typeRoots unset.
-func TestTsconfigStep_WritesTheForestShapedConfig(t *testing.T) {
+// The written config extends the baseline then the user's file, rewrites paths,
+// roots each path-shaped types entry, names no npm package, leaves typeRoots.
+func TestTsconfigStep_WritesTheChainShapedConfig(t *testing.T) {
 	capture := readTestdata(t, "showconfig-chain.json")
 	e := newExecroot(t, chainLeaf, capture)
 
@@ -233,12 +255,11 @@ func TestTsconfigStep_WritesTheForestShapedConfig(t *testing.T) {
       "#lib": ["../../../../base/lib/index.ts", "../base/lib/index.ts"],
       "@app/*": ["../../../../base/src/*", "../base/src/*"]
     },
-    "preserveSymlinks": true,
     "rootDir": "../../../..",
     "rootDirs": ["../../../..", ".."],
-    "types": ["../../../../pkg/globals.d.ts", "./generated.d.ts", "node", "@cloudflare/workers-types"]
+    "types": ["node", "@cloudflare/workers-types"]
   },
-  "include": ["../../../../pkg/globals.d.ts"],
+  "include": ["../../../../pkg/globals.d.ts", "./generated.d.ts"],
   "files": ["../../../../pkg/src/a.ts"],
   "exclude": [],
   "references": []
@@ -258,6 +279,22 @@ func TestTsconfigStep_RootsKeepTheTsconfigsOrder(t *testing.T) {
 	assertJSON(t, "files", config["files"],
 		`["../../../../pkg/globals.d.ts", "../../../../pkg/src/a.ts"]`)
 	assertJSON(t, "include", config["include"], `["../../../../pkg/data.json"]`)
+}
+
+// A path-shaped entry is a root file, so the lookup names the file itself.
+func TestTypesEntryFile(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	writeFile(t, "a.d.ts", "")
+	writeFile(t, "c.ts", "")
+	writeFile(t, "d/index.d.ts", "")
+	for in, want := range map[string]string{
+		"a.d.ts": "a.d.ts", "c": "c.ts", "d": "d/index.d.ts", "missing": "",
+	} {
+		if got := typesEntryFile(in); got != want {
+			t.Errorf("typesEntryFile(%q) = %q, want %q", in, got, want)
+		}
+	}
 }
 
 // The first pass hands --showConfig the chain alone; `files: []` is set only
@@ -286,24 +323,45 @@ func TestTsconfigStep_FirstPassKeepsTheChainsInputs(t *testing.T) {
 	}
 }
 
-// A chain that sets no types would let tsgo include every package under
-// typeRoots; the direct @types deps are written instead, an empty list if none.
+// A chain that sets no types would let tsgo include every package under the
+// default typeRoots; the direct @types deps are written, an empty list if none.
 func TestTsconfigStep_NoTypesWritesTheDirectTypesDeps(t *testing.T) {
-	capture := readTestdata(t, "showconfig-no-types.json")
-	e := newExecroot(t, noTypesLeaf, capture)
+	capture := readTestdata(t, "showconfig-no-roots.json")
+	e := newExecroot(t, noRootsLeaf, capture)
 
 	mustWriteTsconfig(t, e.tsconfigArgs(
 		"-jsx=preserve", "-module=nodenext", "-types_dep=node", "-types_dep=react",
 	))
+	opts := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")["compilerOptions"]
+	assertJSON(t, "types", opts.(map[string]any)["types"], `["node", "react"]`)
+	assertJSON(t, "pkg.options.json", readJSON(t, binDir+"/pkg/pkg.options.json"),
+		`{"target": "esnext", "jsx": "preserve", "module": "nodenext"}`)
+
+	mustWriteTsconfig(t, e.tsconfigArgs("-jsx=preserve", "-module=nodenext"))
+	opts = readJSON(t, binDir+"/pkg/pkg.tsconfig.json")["compilerOptions"]
+	assertJSON(t, "types with no @types dep", opts.(map[string]any)["types"], `[]`)
+}
+
+// A chain that sets typeRoots bounded automatic inclusion itself, and tsgo
+// skips the node_modules walk for a `types` name under it: none is written.
+func TestTsconfigStep_NoTypesUnderTypeRootsWritesNone(t *testing.T) {
+	capture := readTestdata(t, "showconfig-no-types.json")
+	e := newExecroot(t, noTypesLeaf, capture)
+
+	mustWriteTsconfig(t, e.tsconfigArgs(
+		"-jsx=preserve", "-module=nodenext", "-types_dep=node",
+	))
 	config := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")
-	assertJSON(t, "types", config["compilerOptions"].(map[string]any)["types"], `["node", "react"]`)
+	opts := config["compilerOptions"].(map[string]any)
+	for _, key := range []string{"types", "typeRoots"} {
+		if value, ok := opts[key]; ok {
+			t.Errorf("compilerOptions.%s = %v, want unset: the chain's "+
+				"typeRoots ../base/typings bounds what tsgo includes", key, value)
+		}
+	}
 	assertJSON(t, "pkg.options.json", readJSON(t, binDir+"/pkg/pkg.options.json"),
 		`{"target": "esnext", "jsx": "preserve", "jsxImportSource": "preact",
 		  "module": "nodenext"}`)
-
-	mustWriteTsconfig(t, e.tsconfigArgs("-jsx=preserve", "-module=nodenext"))
-	config = readJSON(t, binDir+"/pkg/pkg.tsconfig.json")
-	assertJSON(t, "types with no @types dep", config["compilerOptions"].(map[string]any)["types"], `[]`)
 }
 
 // A target with no tsconfig extends the baseline alone: no chain, no paths.

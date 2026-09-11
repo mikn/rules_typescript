@@ -34,9 +34,11 @@ Typical patterns:
              args = ["--out", "{out}"],
          )
 
-     node_modules on the ts_codegen puts NODE_PATH and TS_CODEGEN_NODE_MODULES
-     in the generator's environment, which is how the script reaches npm
-     packages.
+     node_modules on the ts_codegen, the importer's `node_modules` target,
+     puts NODE_PATH and TS_CODEGEN_NODE_MODULES in the generator's
+     environment, which is how the script reaches npm packages.  A workspace
+     member the generator resolves is the importer's link target in deps,
+     `:node_modules/<member name>`.
 
          ts_binary(name = "gen_schema", entry_point = "generate-schema.mjs")
          ts_codegen(
@@ -65,7 +67,7 @@ Typical patterns:
              outs = ["routeTree.gen.expected.ts"],
              generator = "@rules_typescript//tools/codegen:tanstack_routes",
              args = ["--out", "{out}", "--srcs", "{srcs}"],
-             node_modules = "//:router_generator_node_modules",
+             node_modules = "//:node_modules",
          )
 
      A route tree has to be checked in -- the routes are typed against it, and
@@ -77,15 +79,20 @@ Placeholder substitution in args:
   {out}              → execroot-relative path of the first declared output
   {outs_dir}         → execroot-relative directory of the first declared output
   {srcs}             → space-separated list of all src file paths
-  {node_modules_dir} → execroot-relative path of the node_modules directory
-                       (only valid when node_modules is set)
+  {node_modules_dir} → execroot-relative path of the importer's node_modules
+                       directory (only valid when node_modules is set)
 
 When node_modules is set, ts_codegen automatically sets:
   NODE_PATH              → node_modules directory (for Node.js CJS resolution)
   TS_CODEGEN_NODE_MODULES → same path (for scripts that fork child processes)
 """
 
-load("//ts/private:providers.bzl", "ts_info")
+load(
+    "//ts/private:providers.bzl",
+    "NodeModulesInfo",
+    "NpmLinkInfo",
+    "ts_info",
+)
 load("//ts/private:runtime.bzl", "JS_TOOL_TOOLCHAIN_TYPE", "get_js_tool")
 
 _DECLARATION_SUFFIXES = (".d.ts", ".d.mts", ".d.cts")
@@ -130,18 +137,16 @@ def _ts_codegen_impl(ctx):
     # {srcs}: space-separated list of all source paths.
     srcs_list = " ".join([f.path for f in srcs])
 
-    # Collect node_modules files and compute the node_modules directory path.
-    node_modules_files = []
+    node_modules_files = depset()
     node_modules_dir = ""
     if ctx.attr.node_modules:
-        node_modules_files = ctx.files.node_modules
-        if node_modules_files:
-            first_nm = node_modules_files[0]
-            if first_nm.is_directory:
-                node_modules_dir = first_nm.path
-            else:
-                # Fallback: use the parent of the first file.
-                node_modules_dir = first_nm.dirname
+        node_modules_files = ctx.attr.node_modules[DefaultInfo].files
+        node_modules_dir = ctx.attr.node_modules[NodeModulesInfo].dir
+    member_links = [dep[NpmLinkInfo] for dep in ctx.attr.deps]
+    member_files = depset(
+        [entry.link for entry in member_links],
+        transitive = [entry.store.transitive for entry in member_links],
+    )
 
     # Resolve node as a build tool (for passing NODE_BINARY env).
     js_tool = get_js_tool(ctx)
@@ -178,8 +183,10 @@ def _ts_codegen_impl(ctx):
         action_env.setdefault("NODE_BINARY", runtime_binary.path)
         extra_inputs.append(runtime_binary)
 
-    # Build the full input depset: srcs + node_modules + runtime (if any).
-    inputs = depset(srcs + node_modules_files + extra_inputs)
+    inputs = depset(
+        srcs + extra_inputs,
+        transitive = [node_modules_files, member_files],
+    )
 
     # Run the generator action.
     ctx.actions.run(
@@ -271,8 +278,8 @@ Supports placeholder substitution:
   {out}              → execroot-relative path of the first declared output file
   {outs_dir}         → execroot-relative directory of the first declared output
   {srcs}             → space-separated list of all src file paths
-  {node_modules_dir} → execroot-relative path of the node_modules directory
-                       (only valid when node_modules is set)
+  {node_modules_dir} → execroot-relative path of the importer's node_modules
+                       directory (only valid when node_modules is set)
 
 Example:
     args = ["--routes-dir", "{srcs_dir}", "--out", "{out}"]
@@ -280,17 +287,27 @@ Example:
             default = [],
         ),
         "node_modules": attr.label(
-            doc = """Optional node_modules target providing npm packages for the generator.
+            doc = """The importer's `node_modules` target, for a generator that
+imports npm packages at runtime.
 
 When set:
-  - The node_modules tree is added to the action's inputs
-  - NODE_PATH is set to the node_modules directory (for CJS resolution)
+  - Every link of the directory and every store tree it reaches is an input
+  - NODE_PATH is set to the directory (for CJS resolution)
   - TS_CODEGEN_NODE_MODULES is set to the same path
   - {node_modules_dir} placeholder is available in args
-
-Use this when the generator script imports npm packages at runtime.
 """,
-            allow_files = True,
+            providers = [NodeModulesInfo],
+        ),
+        "deps": attr.label_list(
+            doc = """The workspace members the generator resolves, as the
+importer's link targets, `//<importer>:node_modules/<name>`.
+
+Each link and the member's store tree join the action's inputs; the link sits
+in the directory `node_modules` names, where the walk up from a file under the
+importer finds it. A published package is the importer's to link in
+`node_modules`.
+""",
+            providers = [[NpmLinkInfo]],
         ),
         "env": attr.string_dict(
             doc = "Additional environment variables passed to the generator action.",

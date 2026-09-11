@@ -19,7 +19,7 @@ RULE="${RUNFILES}/ts/private/rules/ts_compile.bzl"
 want="${TEST_TMPDIR}/want"
 got="${TEST_TMPDIR}/got"
 
-printf '%s\n' deps srcs tsconfig > "${want}"
+printf '%s\n' deps node_modules srcs tsconfig > "${want}"
 
 # The dict runs from `TS_COMPILE_ATTRS = {` to the closing brace at column 0; a
 # public attribute is a 4-space-indented quoted key at that depth.

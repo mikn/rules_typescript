@@ -7,6 +7,7 @@ ts_compile(
         "global-setup.ts",
         "vitest.setup.ts",
     ],
+    node_modules = "//tests/npm:node_modules",
     visibility = ["//visibility:public"],
     deps = ["@npm//:vitest"],
 )
@@ -17,6 +18,7 @@ ts_test(
     name = "setup_test",
     srcs = ["setup.test.ts"],
     config = "//tests/setup_files_compiled:vitest_config",
+    node_modules = "//tests/npm:node_modules",
     deps = [
         ":test",  # keep
         "@npm//:vitest",

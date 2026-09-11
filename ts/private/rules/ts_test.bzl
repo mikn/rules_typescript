@@ -1,10 +1,11 @@
 """ts_test: ts_compile's actions over the test files, run under a runner target.
 
 The rule takes TS_COMPILE_ATTRS and the test attributes; compile_program
-registers the actions a ts_compile over the same srcs would, and the forest it
-builds is the tree the tests run in. `runner` names the target providing
-TsTestRunnerInfo whose `launch` writes the launcher config.
-docs/rules/ts-test.md is the reference.
+registers the actions a ts_compile over the same srcs would, and the importer
+chain tsgo resolved against is what the tests run in: the runfiles hold the
+chain's links and the store files the program reaches at their own paths.
+`runner` names the target providing TsTestRunnerInfo whose `launch` writes the
+launcher config. docs/rules/ts-test.md is the reference.
 """
 
 load(
@@ -13,6 +14,7 @@ load(
     "declare_launcher",
     "rlocation_path",
 )
+load("//ts/private:node_modules.bzl", "runfiles_dir")
 load("//ts/private:providers.bzl", "TsInfo", "TsTestRunnerInfo")
 load(
     "//ts/private:runtime.bzl",
@@ -29,22 +31,6 @@ load(
 
 _ENTRY_EXTENSIONS = ["js", "jsx", "mjs", "cjs"]
 
-# A test inside a member resolves the member's name through the nearest
-# package.json, so the manifest as built stands at the member's own path.
-def _member_manifests(ctx, members):
-    out = {}
-    for info in members:
-        member_dir = info.package_root.removeprefix(ctx.bin_dir.path + "/")
-        for f in info.all_files.to_list():
-            if f.basename == "package.json" and not f.is_source:
-                out[member_dir + "/package.json"] = f
-    return out
-
-def _without(files, paths):
-    if not paths:
-        return files
-    return depset([f for f in files.to_list() if f.short_path not in paths])
-
 def _same_package(a, b):
     return a.package == b.package and a.repo_name == b.repo_name
 
@@ -56,6 +42,16 @@ def _package_sources(ctx):
         if _same_package(dep.label, ctx.label)
     ]
 
+def _chain(ctx, program):
+    return struct(
+        dirs = [importer.dir for importer in program.importers],
+        rlocations = [
+            runfiles_dir(ctx, importer.label)
+            for importer in program.importers
+        ],
+        npm_files = program.npm_files,
+    )
+
 def _ts_test_impl(ctx):
     runner = ctx.attr.runner[TsTestRunnerInfo]
     program = compile_program(ctx, es_modules = runner.es_modules)
@@ -64,7 +60,7 @@ def _ts_test_impl(ctx):
     missing = [name for name in runner.packages if name not in linked]
     if missing:
         fail(("ts_test {}: {} runs the tests and needs {} in the " +
-              "node_modules tree, which no dep provides.\nAdd the hub label " +
+              "npm closure, which no dep provides.\nAdd the hub label " +
               "of each to deps.").format(
             ctx.label,
             ctx.attr.runner.label,
@@ -92,21 +88,18 @@ def _ts_test_impl(ctx):
         runtime_binary = js_runtime.runtime_binary
         runtime_args = js_runtime.args_prefix
 
-    # The workspace members in the tree: the packages with no extracted
+    # The workspace members in the closure: the packages with no extracted
     # manifest.
     members = [info for info in program.packages if info.package_dir == None]
-    member_manifests = _member_manifests(ctx, members)
-    node_modules_files = [program.forest] if program.forest else []
+    chain = _chain(ctx, program)
 
     launched = runner.launch(ctx, struct(
         entry_points = entry_points,
         test_files_list = test_files_list,
-        node_modules_files = node_modules_files,
+        chain = chain,
         transitive_js = program.transitive_js,
         es_twins = program.es_twins,
-        runtime_data_sets = [
-            _without(program.transitive_data, member_manifests),
-        ],
+        runtime_data_sets = [program.transitive_data],
         package_sources = _package_sources(ctx),
         inline_members = sorted({m.package_name: True for m in members}.keys()),
         runner = runner,
@@ -132,15 +125,17 @@ def _ts_test_impl(ctx):
     # only because it is named here.
     files = (
         [test_files_list] + launcher.files + program.outputs +
-        ctx.files.srcs + node_modules_files + ctx.files.data + launched.files
+        ctx.files.srcs + ctx.files.data + launched.files
     )
     if runtime_binary:
         files.append(runtime_binary)
     runfiles = ctx.runfiles(
         files = files,
-        transitive_files = launched.transitive_files,
+        transitive_files = depset(
+            transitive = [launched.transitive_files, chain.npm_files],
+        ),
         root_symlinks = launcher.root_symlinks,
-        symlinks = dict(member_manifests) | launched.symlinks,
+        symlinks = launched.symlinks,
     )
     for target in ctx.attr.data:
         runfiles = runfiles.merge(target[DefaultInfo].default_runfiles)
@@ -170,8 +165,8 @@ _TEST_ATTRS = {
     ),
     "config": attr.label(
         doc = "The vitest config file (.ts/.mts/.cts/.js/.mjs/.cjs), merged " +
-              "over the Bazel layer (root, cacheDir, preserveSymlinks, " +
-              "coverage.allowExternal, the Workers-pool half), so every " +
+              "over the Bazel layer (root, cacheDir, the module ids, " +
+              "server.fs.allow, coverage.allowExternal), so every " +
               "vitest setting is the file's, as under plain vitest. A " +
               "config that default-exports an array is read as a list of " +
               "vitest projects (test.projects). The modules it imports " +
@@ -222,9 +217,11 @@ ts_test = rule(
     ],
     doc = """Compiles TypeScript tests with ts_compile's actions and runs them.
 
-srcs, deps and tsconfig are ts_compile's, and the node_modules forest tsgo
-checked the tests against is the tree they run in. `runner` names the target
-that runs the compiled files, //ts/runners:vitest by default; `config`, `data`,
-`coverage_provider` and `wrangler_config` are the vitest runner's.
+srcs, deps, tsconfig and node_modules are ts_compile's, and the importer chain
+tsgo checked the tests against is what they run in: the chain's links and the
+store files the program reaches sit in the runfiles at their own paths. `runner`
+names the target that runs the compiled files, //ts/runners:vitest by default;
+`config`, `data`, `coverage_provider` and `wrangler_config` are the vitest
+runner's.
 """,
 )

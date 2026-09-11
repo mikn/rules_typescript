@@ -1357,8 +1357,10 @@ be reproduced from this tree.
   hash merge into one repository and one store directory. Starlark has no real
   hash function. A fix keyed on the hub's enumerated snapshot dict was rejected:
   it broke `//tests/integration:tanstack_test` with a dangling link to
-  `tiny-invariant`. Cross-hub is a second case: `_store_path` and `_package_key`
-  in `ts/private/node_modules.bzl` carry no hub component.
+  `tiny-invariant`. A store tree sits in its lockfile's package, so two hubs'
+  stores never share a directory; the forest `ts_compile` builds still keys by
+  `_package_key` in `ts/private/node_modules.bzl`, which carries no hub
+  component.
 - **There is still no libc `constraint_setting`.** Selection no longer needs
   one, since `libc:` is honoured in the parser and the matcher. What one would
   add is the ability to register a musl toolchain, and Node.js publishes no
@@ -1373,18 +1375,11 @@ be reproduced from this tree.
   directory to hold one of that target's own staged inputs and Gazelle emits no
   `path_alias_srcs`, and `TsconfigSourcesInfo.aliases` carries no ordering index
   for the workspace-root tsconfig's union.
-- **`vite/bundler.bzl` borrows the name `node_modules` in the package output
-  directory, which a sibling `node_modules()` target may already own.** Under
-  the default sandbox the wrapper's `ln -sf` plants the name fresh and two Vite
-  majors in one package do build. With sandboxing off
-  (`--spawn_strategy=local`) the link lands inside the sibling's declared output
-  and the action runs the sibling's Vite, silently. Nesting each tree at
-  `<target>/node_modules` does not fix it: the generated config sits outside the
-  tree and its `import { defineConfig } from "vite"` resolves by walking up out
-  of it. Order of work if taken on: drop that import (`defineConfig` is an
-  identity function, and `ts_dev_server` already loads its plugin by absolute
-  path), then the link, then the tree layout. Until then, one tree per Bazel
-  package, or one per package per Vite major.
+- **One `node_modules` target per Bazel package.** Its outputs are
+  `node_modules/<name>`, the links of the importer's directory, so a second
+  target in the package would declare the same files; the importer's one
+  target serves every consumer in the package, and a package that is no
+  lockfile importer holds one under `# keep` or none.
 - **Windows is unsupported**, not partially supported. See
   [COMPATIBILITY.md](https://github.com/mikn/rules_typescript/blob/main/COMPATIBILITY.md#platforms).
 

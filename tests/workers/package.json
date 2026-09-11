@@ -7,6 +7,7 @@
     "@cloudflare/workers-types": "5.20260825.1",
     "@vitest/coverage-istanbul": "4.1.11",
     "vitest": "4.1.11",
-    "wrangler": "4.126.0"
+    "wrangler": "4.126.0",
+    "zod": "4.4.3"
   }
 }

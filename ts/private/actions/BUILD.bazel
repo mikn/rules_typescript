@@ -13,14 +13,13 @@ exports_files(
 )
 
 bzl_library(
-    name = "forest",
-    srcs = ["forest.bzl"],
-    deps = ["//ts/private:node_modules"],
+    name = "lint",
+    srcs = ["lint.bzl"],
 )
 
 bzl_library(
-    name = "lint",
-    srcs = ["lint.bzl"],
+    name = "manifest",
+    srcs = ["manifest.bzl"],
 )
 
 bzl_library(

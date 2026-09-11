@@ -37,9 +37,8 @@ doc="$(sed -n '/^TsTestRunnerInfo = provider($/,/^)$/p' "${PROVIDERS}" \
   | tr -d '\n')"
 [[ -n "${doc}" ]] || fail "no \"launch\" field in TsTestRunnerInfo"
 
-printf '%s\n' entry_points es_twins inline_members node_modules_files \
-  package_sources runner runtime_data_sets test_files_list transitive_js \
-  > "${want}"
+printf '%s\n' chain entry_points es_twins inline_members package_sources \
+  runner runtime_data_sets test_files_list transitive_js > "${want}"
 printf '%s\n' "${doc}" \
   | sed -n 's/.*builds from the compile (\([^)]*\)).*/\1/p' \
   | tr ', ' '\n\n' | awk 'NF' | LC_ALL=C sort > "${got}"

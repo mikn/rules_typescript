@@ -24,6 +24,7 @@ load("@rules_typescript//npm:defs.bzl", "node_modules")
 node_modules(
     name = "dev_node_modules",
     deps = ["@npm//:vite"],
+    hoist = "//:node_modules/.pnpm/node_modules",
 )
 
 ts_dev_server(
@@ -48,7 +49,7 @@ ibazel run //src/app:dev   # codegen rebuilds and config-aware restarts
 | `port` | `int` | `5173` | Dev server port |
 | `host` | `string` | `"localhost"` | Dev server host. Set to `"0.0.0.0"` to bind on all interfaces |
 | `open` | `bool` | `False` | Open the browser automatically on start. An analysis-time error against a server whose provider lists `server.open` in `ignored_config_fields` |
-| `node_modules` | `label` | `None` | `node_modules` target providing the application's runtime deps, plus Vite on the Vite path; also what makes a bare npm import resolve; see [npm Resolution](#npm-resolution) |
+| `node_modules` | `label` | `None` | The importer's [`node_modules`](node-modules.md) target linking the application's runtime deps, plus Vite on the Vite path; also what makes a bare npm import resolve; see [npm Resolution](#npm-resolution) |
 | `plugin` | `label` | `None` | Compiled `vite-plugin-bazel` `.mjs` file. It resolves generated code out of `bazel-bin`, invalidates on a rebuild, and makes the restart decision. Without it `bazel-bin` is invisible to Vite |
 | `server` | `label` | `@rules_typescript//vite:dev_server` | `DevServerInfo`-providing target choosing the implementation; see [Dev Server](../guides/dev-server.md#bringing-your-own-server) |
 | `react_refresh` | `bool` | `False` | React Fast Refresh via `@vitejs/plugin-react`, so component state survives an HMR update. Requires `@npm//:vitejs_plugin-react` in the `node_modules` deps; the dev server fails to start if the plugin cannot be loaded. An analysis-time error against a server whose provider sets `native_react_refresh` |
@@ -57,25 +58,26 @@ ibazel run //src/app:dev   # codegen rebuilds and config-aware restarts
 
 ## npm Resolution
 
-Starting the server links the `node_modules` tree in at the workspace root and
-removes the link on Ctrl-C, so a bare specifier resolves by the ordinary walk up
-from the importer. SSR externalisation and `optimizeDeps.include` resolve
+Starting the server links the importer's `node_modules` in at the workspace
+root and removes the link on Ctrl-C, so a bare specifier resolves by the
+ordinary walk up from the importer, and a package's own imports from its
+realpath in the store. SSR externalisation and `optimizeDeps.include` resolve
 without going through the plugin container, so they need the link. A generated
 `bazel:npm-resolve` plugin at `enforce: 'post'` covers importers the walk cannot
-reach. Exports maps, conditions and subpaths stay Vite's. A package the tree
-does not carry produces Vite's `Failed to resolve import`; the fix is adding it
+reach. Exports maps, conditions and subpaths stay Vite's. A package the importer
+does not link produces Vite's `Failed to resolve import`; the fix is adding it
 to the `node_modules` target's `deps`.
 
 An existing `node_modules` is never replaced: a real directory or a link to
-another tree is an error naming both. In `.gitignore`, `node_modules` without a
+another one is an error naming both. In `.gitignore`, `node_modules` without a
 trailing slash matches the symlink; `node_modules/` matches directories only.
 
 ## `vite_config` Imports
 
 The rule loads a copy of the file in `bazel-bin`, so its own imports resolve
-beside the Bazel npm tree. A bare npm specifier resolves through the tree the
-`node_modules` attr built, provided that target is in the same Bazel package as
-the dev server. A relative import resolves only if the module is declared in
+beside the importer's `node_modules`. A bare npm specifier resolves through the
+links of the `node_modules` target, provided that target is in the same Bazel
+package as the dev server. A relative import resolves only if the module is declared in
 `vite_config_srcs`; otherwise the server exits with
 `[rules_typescript] Failed to load vite_config` naming the file.
 `//tests/dev_server:vite_config_boundary_test` pins this; details in

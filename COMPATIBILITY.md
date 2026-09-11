@@ -47,15 +47,14 @@ On a musl host the Node the ruleset downloads is still the glibc build.
 
 Windows is not supported right now. It may be considered in the future.
 
-What exists there today: a registered Node.js toolchain, a `windows_amd64` entry
-in `//platforms`, and a `node_modules` tree action driven by a cross-platform
-Node script with no shell dependency. That builds a `node_modules` directory and
-nothing else.
+What exists there today: a registered Node.js toolchain and a `windows_amd64`
+entry in `//platforms`. The store copier is Go (`tsaction stage`), so no build
+action needs a shell; every `node_modules/<name>` is a symlink Bazel declares,
+which Windows grants only with the symlink privilege the dev server's anchor
+already requires.
 
 Support would take a Windows entry in `TSGO_PLATFORMS`
-(`ts/private/toolchain.bzl`) and `_PNPM_PLATFORMS` (`ts/private/pnpm.bzl`), and
-a replacement for the one build-action wrapper that still needs a POSIX shell,
-the `node_modules` fallback taken when no JS runtime toolchain is registered.
+(`ts/private/toolchain.bzl`) and `_PNPM_PLATFORMS` (`ts/private/pnpm.bzl`).
 oxc needs no entry: `oxc-bazel` is built from source by
 rules_rust for whichever exec platform the build runs on, so one toolchain
 covers every platform. None of this has been run on Windows, so any estimate of
@@ -78,18 +77,19 @@ no test runs a generated config against a second major:
 | Hub | Lockfile | Vite | vitest | Coverage |
 |---|---|---|---|---|
 | `@npm` | `tests/npm/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` (the whole `tests/vitest` suite), `ts_dev_server` (six servers started and interrogated over HTTP), and `vite-plugin-bazel`'s own tests |
-| `@npm_tailwind` | `tests/tailwind/pnpm-lock.yaml` | 8.2.2 | — | Tailwind v4 through `vite_config`, under the dev server |
+| `@npm_tailwind` | `tests/tailwind/lock/pnpm-lock.yaml` | 8.2.2 | — | Tailwind v4 through `vite_config`, under the dev server |
 | `@npm_workers` | `tests/workers/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | `ts_test` with the Workers pool (vitest inside workerd), and the `wrangler types` generator `//tools/codegen:wrangler_types` under `ts_codegen` (`tests/worker_types`) |
 | `@npm_eslint` | `tests/eslint/pnpm-lock.yaml` | 8.2.2 | 4.1.11 | the ESLint plugin's own `ts_test` target, against `@typescript-eslint`'s rule tester |
-| `@npm_features` | `tests/npm/pnpm-lock-features.yaml` | — | — | pnpm's patched dependencies, npm aliases, peer-dependency variants, per-importer resolution; resolves neither tool |
+| `@npm_features` | `tests/npm/features/pnpm-lock.yaml` | — | — | pnpm's patched dependencies, npm aliases, peer-dependency variants, per-importer resolution; resolves neither tool |
 | `@npm_esbuild` | `vite/esbuild/pnpm-lock.yaml` | — | — | the esbuild that bundles `vite-plugin-bazel`. The one hub that is not a fixture; the bundle ships to consumers as API |
 
 The `examples/` modules and the integration workspaces under `tests/integration/`
 are separate Bazel modules with their own lockfiles, outside the table above.
-`examples/app`, `examples/react-app`, `tests/integration/gazelle_roundtrip` and
-`tests/integration/npm_deps` resolve Vite 8.2.2 and vitest 4.1.11;
-`tests/integration/lsp` resolves neither tool, and `examples/basic` has no npm
-dependencies.
+`examples/app`, `examples/react-app`, `e2e/basic`,
+`tests/integration/gazelle_roundtrip` and `tests/integration/npm_deps` resolve
+Vite 8.2.2 and vitest 4.1.11; `tests/integration/lsp` resolves neither tool,
+`tests/integration/store_cache` resolves one package with one dependency, and
+`examples/basic` has no npm dependencies.
 
 To re-derive the table from the repository:
 

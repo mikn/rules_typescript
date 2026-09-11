@@ -9,6 +9,7 @@ ts_test(
     name = "docblock_test",
     srcs = ["node_env.test.ts"],
     config = "vitest.config.mjs",
+    node_modules = "//tests/npm:node_modules",
     deps = [
         "@npm//:happy-dom",
         "@npm//:vitest",

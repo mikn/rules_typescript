@@ -8,4 +8,4 @@
   build without stopping the compile actions that waited for the stamp. A
   target with no program -- declarations alone in `srcs` -- runs no tsgo action
   and is not checked. A `ts_compile` with `deps` no longer needs a JS tool
-  toolchain for the check; the forest builder takes one when registered.
+  toolchain for the check.

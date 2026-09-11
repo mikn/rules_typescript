@@ -25,8 +25,8 @@ with the test's own source and its `data` entry beside it, as under vitest.
 counter.js and `./nested` loads nested/index.js, the compiled files, though
 neither specifier names one.
 
-:bare_import_test pins that a bare specifier resolves from the test's own
-node_modules tree, not from whatever `node_modules` the walk up from
+:bare_import_test pins that a bare specifier resolves through the importer's
+node_modules into the store, not from whatever `node_modules` the walk up from
 `bazel-out` happens to meet.
 
 :module_mocks_test pins that `args` reach node's command line: `mock.module`
@@ -48,6 +48,7 @@ ts_compile(
 ts_test(
     name = "collect_test",
     srcs = ["collect.test.ts"],
+    node_modules = "//tests/npm:node_modules",
     runner = "//ts/runners:node_test",
     deps = ["@npm//:types_node"],
 )
@@ -55,6 +56,7 @@ ts_test(
 ts_test(
     name = "ts_specifier_test",
     srcs = ["ts_specifier.test.ts"],
+    node_modules = "//tests/npm:node_modules",
     runner = "//ts/runners:node_test",
     tsconfig = "tsconfig.ts_extensions.json",
     deps = [
@@ -74,6 +76,7 @@ ts_test(
         "compile_attrs.test.ts",
         "shared/value.ts",
     ],
+    node_modules = "//tests/npm:node_modules",
     runner = "//ts/runners:node_test",
     tsconfig = "tsconfig.compile.json",
     deps = [
@@ -85,6 +88,7 @@ ts_test(
 ts_test(
     name = "vitest_default_test",
     srcs = ["vitest_default.test.ts"],
+    node_modules = "//tests/npm:node_modules",
     deps = ["@npm//:vitest"],
 )
 
@@ -92,6 +96,7 @@ ts_test(
     name = "runfiles_layout_test",
     srcs = ["runfiles_layout.test.ts"],
     data = ["fixtures/note.txt"],
+    node_modules = "//tests/npm:node_modules",
     runner = "//ts/runners:node_test",
     deps = ["@npm//:types_node"],
 )
@@ -104,6 +109,7 @@ ts_compile(
 ts_test(
     name = "extensionless_test",
     srcs = ["extensionless.test.ts"],
+    node_modules = "//tests/npm:node_modules",
     runner = "//ts/runners:node_test",
     deps = [
         ":counter",
@@ -115,6 +121,7 @@ ts_test(
 ts_test(
     name = "bare_import_test",
     srcs = ["bare_import.test.ts"],
+    node_modules = "//tests/npm:node_modules",
     runner = "//ts/runners:node_test",
     deps = [
         "@npm//:types_node",
@@ -129,6 +136,7 @@ ts_test(
         "module_mocks.test.ts",
     ],
     args = ["--experimental-test-module-mocks"],
+    node_modules = "//tests/npm:node_modules",
     runner = "//ts/runners:node_test",
     tsconfig = "tsconfig.ts_extensions.json",
     deps = ["@npm//:types_node"],

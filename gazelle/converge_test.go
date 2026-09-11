@@ -401,6 +401,11 @@ func labelResolves(t *testing.T, repoRoot, pkg, name string) bool {
 		if r.Name() == name {
 			return true
 		}
+		// The store macro declares every target under its name: the trees,
+		// their links and the hoist, none a rule this file holds.
+		if r.Kind() == "npm_virtual_store" && strings.HasPrefix(name, r.Name()+"/") {
+			return true
+		}
 	}
 	full := path.Join(pkg, name)
 	info, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(full)))

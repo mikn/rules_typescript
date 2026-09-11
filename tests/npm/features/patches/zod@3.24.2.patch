@@ -1,0 +1,17 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1,4 +1,5 @@
+ "use strict";
++require("ansi-regex");
+ var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+     if (k2 === undefined) k2 = k;
+     var desc = Object.getOwnPropertyDescriptor(m, k);
+diff --git a/lib/index.mjs b/lib/index.mjs
+--- a/lib/index.mjs
++++ b/lib/index.mjs
+@@ -1,3 +1,4 @@
++import "ansi-regex";
+ var util;
+ (function (util) {
+     util.assertEqual = (val) => val;

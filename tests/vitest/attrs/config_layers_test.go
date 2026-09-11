@@ -13,13 +13,14 @@ func TestTheGeneratedConfigLayersBazelUserProviderAndSnapshots(t *testing.T) {
 
 	config := tree.File("tests/vitest/attrs/_attrs_test.vitest/config.mjs")
 	config.Contains(
-		`import { workersPoolLayer } from './_attrs_test_workers_pool.mjs';`,
 		`from './vitest.config.mts';`,
-		`root: resolve(HERE, "."),`,
+		`const ROOT = resolve(HERE, ".");`,
+		`name: 'rules_typescript:module-ids',`,
+		`server: { fs: { allow: FS_ALLOW } },`,
 		`const providerLayer = { test: { coverage: { provider: "v8" } } };`,
 		`merge(merge(merge(bazelLayer, user), providerLayer), snapshotLayer)`,
-		`const merged = setupFilesInRoot(withCompiledSetup(`,
-		`withCompiledSetup(merge(bazelLayer, p))) : p,`,
+		`const merged = withCompiledSetup(merge(`,
+		`withCompiledSetup(merge(bazelLayer, p)) : p,`,
 	)
 	config.Excludes(
 		"attrLayer", "environment:", "setupFiles: [abs(", "globals: true",

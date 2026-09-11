@@ -6,12 +6,14 @@ ts_compile(
         "index.ts",
         "math.ts",
     ],
+    node_modules = "//:node_modules",
     visibility = ["//visibility:public"],
 )
 
 ts_test(
     name = "lib_test",
     srcs = ["math.test.ts"],
+    node_modules = "//:node_modules",
     deps = [
         ":lib",
         "@npm//:vitest",

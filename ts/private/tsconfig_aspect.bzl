@@ -9,7 +9,7 @@ The `paths` map holds first-party packages: the package directory and its
 bazel-bin twin, where a build leaves the .d.ts. npm packages are not in it. The
 checkout's node_modules holds what the lockfile resolves, pnpm's links to the
 workspace members included, and TypeScript walks it from the importing file the
-way tsgo walks the forest a build stages; a `paths` key naming a copy of a
+way tsgo walks the chain a build lays out; a `paths` key naming a copy of a
 package's declarations would only send the editor somewhere the build does not
 look.
 """
@@ -155,11 +155,12 @@ def _option_group(target, ctx):
     )]
 
 def _tsconfig_aspect_impl(target, ctx):
-    # A workspace member's view reaches the member through `target`, the way a
-    # ts_compile reaches its deps; ts_compile's own `target` is an ES version.
+    # A link target reaches the view through `member`, the view the member
+    # through `target`; ts_compile's own `target` is an ES version.
     reached = list(getattr(ctx.rule.attr, "deps", []))
-    if type(getattr(ctx.rule.attr, "target", None)) == "Target":
-        reached.append(ctx.rule.attr.target)
+    for attr in ("member", "target"):
+        if type(getattr(ctx.rule.attr, attr, None)) == "Target":
+            reached.append(getattr(ctx.rule.attr, attr))
     inherited = [dep[TsconfigSourcesInfo] for dep in reached if TsconfigSourcesInfo in dep]
 
     packages = []
@@ -193,7 +194,7 @@ def _tsconfig_aspect_impl(target, ctx):
 
 tsconfig_aspect = aspect(
     implementation = _tsconfig_aspect_impl,
-    attr_aspects = ["deps", "target"],
+    attr_aspects = ["deps", "member", "target"],
     doc = """Collects the source roots an IDE tsconfig needs.
 
 Also writes one `<target>.tsconfig-fragment.json` per target reached, in the

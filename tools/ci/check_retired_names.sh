@@ -23,6 +23,7 @@ WORDS=(
   _generate_tsconfig
   TsStrictDeps _STRICT_DEPS_MJS strict_deps_check
   OxcCompile
+  manifest_json member_manifest_json
 )
 
 # Attribute names that are also fixture directories under tests/: a hit is one
@@ -41,6 +42,7 @@ PATTERNS=(
   '\.update_snapshots'
   '<(name|test)>\.reads'
   '_[a-z_]+_test_(compile|node_modules)'
+  'member_manifest(_tests)?\.bzl'
 )
 
 # Files that assert a retired name is absent or inert, with why. Exact in both

@@ -1,10 +1,10 @@
 """The two runners ts_test ships, one target each under //ts/runners.
 
 A runner is a target providing TsTestRunnerInfo, the way a toolchain is:
-ts_test compiles the tests and builds the forest, and the runner's `launch`
-turns them into the launcher config and the runfiles of one test. vitest runs
-ES modules whatever the program's module; node:test the package's format.
-docs/rules/ts-test.md § Runners.
+ts_test compiles the tests against the importer chain, and the runner's
+`launch` turns them into the launcher config and the runfiles of one test.
+vitest runs ES modules whatever the program's module; node:test the package's
+format. docs/rules/ts-test.md § Runners.
 """
 
 load("//tools/launcher:launcher.bzl", "rlocation_path")
@@ -30,18 +30,14 @@ def _es_twins_in_place(test):
 
 def _vitest_launch(ctx, test):
     program_js, twins = _es_twins_in_place(test)
-    pool = workers_pool_environment(
-        ctx,
-        test.node_modules_files,
-        test.runtime_data_sets,
-    )
+    pool = workers_pool_environment(ctx, test.chain, test.runtime_data_sets)
     tsconfig_paths = tsconfig_paths_action(ctx)
     written = vitest_config_action(
         ctx,
         test_entry_points = test.entry_points,
-        pool_layer = pool.layer,
         tsconfig_paths = tsconfig_paths,
         inline_members = test.inline_members,
+        overlays = pool.symlinks | twins,
     )
 
     # Every path is a runfiles path; the launcher resolves them through the
@@ -53,14 +49,11 @@ def _vitest_launch(ctx, test):
         "test_files_list": rlocation_path(ctx, test.test_files_list),
         "reads_hook": rlocation_path(ctx, test.runner.hook),
     }
-    if test.node_modules_files:
-        section["node_modules"] = rlocation_path(
-            ctx,
-            test.node_modules_files[0],
-        )
+    if test.chain.rlocations:
+        section["node_modules"] = test.chain.rlocations
 
-        # The canonical bin entry from vitest's package.json#bin, reached inside
-        # the node_modules tree artifact.
+        # The canonical bin entry from vitest's package.json#bin, under the
+        # first importer on the chain that links vitest.
         section["vitest_in_tree"] = "vitest/vitest.mjs"
 
     # A sandboxed test must fail on a stale or missing .snap, never write one,
@@ -68,7 +61,7 @@ def _vitest_launch(ctx, test):
     env = dict(ctx.attr.env)
     env.setdefault("CI", "true")
 
-    files = [written.config, test.runner.hook] + pool.files
+    files = [written.config, test.runner.hook]
     if tsconfig_paths:
         files.append(tsconfig_paths)
     return struct(
@@ -108,11 +101,8 @@ def _node_test_launch(ctx, test):
         "test_files_list": rlocation_path(ctx, test.test_files_list),
         "resolve_hook": rlocation_path(ctx, test.runner.hook),
     }
-    if test.node_modules_files:
-        section["node_modules"] = rlocation_path(
-            ctx,
-            test.node_modules_files[0],
-        )
+    if test.chain.rlocations:
+        section["node_modules"] = test.chain.rlocations
     return struct(
         mode = "node_test",
         section = section,
@@ -143,9 +133,10 @@ vitest_runner = rule(
         ),
     },
     doc = "The vitest runner: the generated config over the user's, vitest " +
-          "from the test's node_modules tree, the program as ES modules " +
-          "whatever its tsconfig's module, and under `bazel run <test> " +
-          "-- --reads` the report of the workspace files the tests read.",
+          "from the importer chain's node_modules, the program as ES " +
+          "modules whatever its tsconfig's module, and under `bazel run " +
+          "<test> -- --reads` the report of the workspace files the tests " +
+          "read.",
 )
 
 def _node_test_runner_impl(ctx):

@@ -25,6 +25,7 @@ type effectiveOptions struct {
 	JsxImportSource string    `json:"jsxImportSource"`
 	Module          string    `json:"module"`
 	Types           *[]string `json:"types"`
+	TypeRoots       []string  `json:"typeRoots"`
 }
 
 // oxcOptions is the options file: what oxc transforms with, and the module
@@ -121,7 +122,9 @@ func writeTsconfig(args []string) error {
 		"the ts_config's jsx: \"preserve\" names a .tsx's emit .jsx")
 	flags.StringVar(&a.module, "module", "",
 		"the ts_config's module: the chain's, when tsgo emits it")
-	flags.Var(&a.typesDeps, "types_dep", "a direct @types dep's name, written to types when the user's chain sets none (repeatable)")
+	flags.Var(&a.typesDeps, "types_dep", "a direct @types dep's name, written "+
+		"to types when the user's chain sets neither types nor typeRoots "+
+		"(repeatable)")
 	flags.BoolVar(&a.emit, "emit", false, "tsgo emits this target's declarations")
 	flags.StringVar(&a.outDir, "out_dir", "", "where the declarations land, with -emit")
 	flags.StringVar(&a.rootDir, "root_dir", "", "the source root the declarations mirror, with -emit")
@@ -248,21 +251,22 @@ func (a *actionConfig) extends(dir string) []string {
 
 func (a *actionConfig) build(effective *effectiveOptions, roots []string,
 	chain *tsconfig.Resolved, dir string) (*tsconfigFile, error) {
-	types, err := a.types(effective, dir)
+	types, typesRoots, err := a.types(effective, dir)
 	if err != nil {
 		return nil, err
 	}
 	// typeRoots stays unset: a custom one stops tsgo's node_modules walk, and
 	// that walk is where a `types` entry naming a package outside @types resolves.
 	opts := map[string]any{
-		"types":               types,
 		"rootDirs":            []string{relativePath(dir, ""), relativePath(dir, a.binDir)},
-		"preserveSymlinks":    true,
 		"declaration":         true,
 		"emitDeclarationOnly": true,
 		"declarationMap":      a.declarationMap,
 		"composite":           false,
 		"incremental":         false,
+	}
+	if types != nil {
+		opts["types"] = types
 	}
 	if a.hasJavaScriptSrc() {
 		opts["allowJs"] = true
@@ -288,6 +292,15 @@ func (a *actionConfig) build(effective *effectiveOptions, roots []string,
 	}
 
 	files, include := a.roots(roots, dir)
+	listed := map[string]bool{}
+	for _, p := range append(files, include...) {
+		listed[path.Clean(p)] = true
+	}
+	for _, p := range typesRoots {
+		if !listed[path.Clean(p)] {
+			include = append(include, p)
+		}
+	}
 	return &tsconfigFile{
 		Extends:         a.extends(dir),
 		CompilerOptions: opts,
@@ -381,52 +394,65 @@ func (a *actionConfig) paths(chain *tsconfig.Resolved, dir string) map[string][]
 	return out
 }
 
-// types is the user's list, each path-shaped entry rebased to where the sandbox
-// stages it, or the direct @types deps when the chain sets none. Always set.
-func (a *actionConfig) types(effective *effectiveOptions, dir string) ([]string, error) {
+// types keeps the user's names, or the direct @types deps' when the chain sets
+// no types and no typeRoots; each path-shaped entry is returned as a root file.
+func (a *actionConfig) types(effective *effectiveOptions, dir string,
+) (names, roots []string, err error) {
 	if effective.Types == nil {
-		return append([]string{}, a.typesDeps...), nil
+		if effective.TypeRoots != nil {
+			return nil, nil, nil
+		}
+		return append([]string{}, a.typesDeps...), nil, nil
 	}
 	projectDir := "."
 	if a.project != "" {
 		projectDir = path.Dir(a.project)
 	}
-	out := make([]string, 0, len(*effective.Types))
+	names = make([]string, 0, len(*effective.Types))
 	for _, entry := range *effective.Types {
 		if !isRelative(entry) {
-			out = append(out, entry)
+			names = append(names, entry)
 			continue
 		}
 		target := path.Join(projectDir, entry)
-		generated := path.Join(a.binDir, target)
-		switch {
-		case typesEntryExists(target):
-			out = append(out, explicitlyRelative(relativePath(dir, target)))
-		case typesEntryExists(generated):
-			out = append(out, explicitlyRelative(relativePath(dir, generated)))
-		default:
-			return nil, fmt.Errorf("compilerOptions.types entry %q in %s names %s, which no input of this action sits at: "+
-				"not in the source tree, not under %s.\nA declaration this program names is a src of the target "+
-				"or an output of one of its deps.", entry, a.project, target, a.binDir)
+		file := typesEntryFile(target)
+		if file == "" {
+			file = typesEntryFile(path.Join(a.binDir, target))
 		}
+		if file == "" {
+			return nil, nil, fmt.Errorf("compilerOptions.types entry %q in %s "+
+				"names %s, which no input of this action sits at: not in the "+
+				"source tree, not under %s.\nA declaration this program names "+
+				"is a src of the target or an output of one of its deps.",
+				entry, a.project, target, a.binDir)
+		}
+		roots = append(roots, fileRelative(dir, file))
 	}
-	return out, nil
+	return names, roots, nil
 }
 
 var typesEntryExtensions = []string{".ts", ".tsx", ".d.ts", ".mts", ".d.mts", ".cts", ".d.cts"}
 
-// typesEntryExists is tsc's lookup for a path-shaped entry: the path as a file
-// or directory, or the path with a TypeScript or declaration extension added.
-func typesEntryExists(p string) bool {
-	if _, err := os.Stat(p); err == nil {
-		return true
+// typesEntryFile is tsc's lookup for a path-shaped entry: the path as a file,
+// a TypeScript or declaration extension added, or a directory's index.d.ts.
+func typesEntryFile(p string) string {
+	if isFile(p) {
+		return p
 	}
 	for _, ext := range typesEntryExtensions {
-		if _, err := os.Stat(p + ext); err == nil {
-			return true
+		if isFile(p + ext) {
+			return p + ext
 		}
 	}
-	return false
+	if index := path.Join(p, "index.d.ts"); isFile(index) {
+		return index
+	}
+	return ""
+}
+
+func isFile(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && !st.IsDir()
 }
 
 func isRelative(p string) bool {

@@ -1,5 +1,5 @@
 {
   "compilerOptions": {
-    "types": ["vite/client", "@types/estree", "node"]
+    "types": ["vite/client", "@types/culori", "node"]
   }
 }

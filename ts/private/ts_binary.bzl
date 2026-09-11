@@ -12,7 +12,14 @@ would exec.
 
 load("//tools/launcher:launcher.bzl", "LAUNCHER_ATTRS", "declare_launcher", "rlocation_path")
 load("//ts/private:bundle_action.bzl", "create_bundle_action")
-load("//ts/private:providers.bzl", "BundlerInfo", "TsInfo", "ts_info")
+load("//ts/private:node_modules.bzl", "runfiles_dir")
+load(
+    "//ts/private:providers.bzl",
+    "BundlerInfo",
+    "NodeModulesInfo",
+    "TsInfo",
+    "ts_info",
+)
 load("//ts/private:runtime.bzl", "JS_RUNTIME_TOOLCHAIN_TYPE", "get_js_runtime")
 
 _JS_ENTRY_EXTENSIONS = [".js", ".mjs", ".cjs"]
@@ -127,10 +134,14 @@ def _ts_binary_impl(ctx):
             entry.transitive_js,
             entry.transitive_js_maps,
             entry.transitive_data,
+            entry.npm_files,
         ],
     )
 
-    node_modules_files = ctx.files.node_modules
+    node_modules = ctx.attr.node_modules
+    node_modules_files = depset()
+    if node_modules:
+        node_modules_files = node_modules[DefaultInfo].files
     config = {
         "label": str(ctx.label),
         "mode": "node",
@@ -142,12 +153,12 @@ def _ts_binary_impl(ctx):
     }
     if runtime_binary:
         config["runtime"] = rlocation_path(ctx, runtime_binary)
-    if node_modules_files:
-        config["node"]["node_modules"] = rlocation_path(ctx, node_modules_files[0])
+    if node_modules:
+        config["node"]["node_modules"] = runfiles_dir(ctx, node_modules.label)
 
     launcher = declare_launcher(ctx, config)
 
-    explicit_runfiles = list(node_modules_files) + list(data_files) + launcher.files
+    explicit_runfiles = list(data_files) + launcher.files
     if runtime_binary:
         explicit_runfiles.append(runtime_binary)
     if bundle_out:
@@ -156,7 +167,9 @@ def _ts_binary_impl(ctx):
 
     runfiles = ctx.runfiles(
         files = explicit_runfiles,
-        transitive_files = runtime_depset,
+        transitive_files = depset(
+            transitive = [runtime_depset, node_modules_files],
+        ),
         root_symlinks = launcher.root_symlinks,
     )
 
@@ -231,8 +244,9 @@ ts_binary = rule(
             doc = "Global constant replacements. Only meaningful when bundler is set.",
         ),
         "node_modules": attr.label(
-            doc = "Optional node_modules target. When set, its files are added to NODE_PATH at runtime.",
-            allow_files = True,
+            doc = "The importer's `node_modules` target: its links and store " +
+                  "trees are runfiles, and the directory is on NODE_PATH.",
+            providers = [NodeModulesInfo],
         ),
     },
     doc = """Produces an executable binary from a TypeScript entry point.

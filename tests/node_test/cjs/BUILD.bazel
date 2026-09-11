@@ -3,7 +3,7 @@
 `module: commonjs` in the tsconfig and no `type` in package.json: the compiled
 test has `__dirname` and `require`, an extensionless relative `require` keeps
 the runfiles path, and a named import from a CommonJS dependency is that
-dependency's export, which ESM linking cannot see (json5 assigns
+dependency's export, which ESM linking cannot see (typescript assigns
 `module.exports` an object).
 """
 
@@ -27,10 +27,11 @@ ts_test(
         "package.json",
     ],
     data = ["fixtures/note.txt"],
+    node_modules = "//tests/npm:node_modules",
     runner = "//ts/runners:node_test",
     tsconfig = ":cjs_tsconfig",
     deps = [
-        "@npm//:json5",
         "@npm//:types_node",
+        "@npm//:typescript",
     ],
 )

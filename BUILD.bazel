@@ -78,7 +78,7 @@ ts_refresh_tsconfig(
         "//tests/dev_server:dev_app",
         "//tests/multi/app",
         "//tests/npm:app",
-        "//tests/npm:nested_workspace_consumer",
+        "//tests/npm/nested:nested_workspace_consumer",
         "//tests/npm:workspace_consumer",
         "//tests/smoke:button",
         "//tests/smoke:hello",
@@ -120,17 +120,9 @@ ts_refresh_tsconfig(
 )
 
 # ── Hermetic pnpm ─────────────────────────────────────────────────────────────
-# Run pnpm commands without needing a system-level pnpm installation.
-#
-#   bazel run //:pnpm -- --version
-#   bazel run //:pnpm -- add zod --lockfile-only --dir tests/tailwind
-#   bazel run //:add_package_tailwind -- zod
-#
-# One :add_package_* per hub, each pinned to the lockfile its
-# npm.translate_lock() in MODULE.bazel reads: pnpm rewrites whichever lockfile
-# it resolves against, so which hub is being edited belongs in the command a
-# person types, not in a default they cannot see. Each appends --lockfile-only,
-# so no node_modules tree is created.
+
+# One :add_package_* per hub: pnpm rewrites whichever lockfile it resolves
+# against, so the hub being edited is in the command, not in a hidden default.
 ts_pnpm(name = "pnpm")
 
 # @npm. Its lockfile is a curated fixture -- comments, a workspace link, a
@@ -149,7 +141,7 @@ ts_add_package(
 
 ts_add_package(
     name = "add_package_tailwind",
-    pnpm_lock = "//tests/tailwind:pnpm-lock.yaml",
+    pnpm_lock = "//tests/tailwind/lock:pnpm-lock.yaml",
 )
 
 ts_add_package(

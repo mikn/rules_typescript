@@ -130,6 +130,38 @@ func convergeFixture(t *testing.T, name string) convergeCase {
 	return convergeCase{}
 }
 
+// The root links @w/core and declares zod; @w/core declares zod too.
+const convergeMemberLock = `lockfileVersion: '9.0'
+
+importers:
+
+  .:
+    dependencies:
+      '@w/core':
+        specifier: workspace:*
+        version: link:packages/core
+      zod:
+        specifier: 3.24.2
+        version: 3.24.2
+
+  packages/core:
+    dependencies:
+      zod:
+        specifier: 3.24.2
+        version: 3.24.2
+
+  packages/app: {}
+
+packages:
+
+  zod@3.24.2:
+    resolution: {integrity: sha512-aaa}
+
+snapshots:
+
+  zod@3.24.2: {}
+`
+
 func convergeCases() []convergeCase {
 	return []convergeCase{
 		{
@@ -230,6 +262,8 @@ func convergeCases() []convergeCase {
 			files: map[string]string{
 				"package.json":                   convergePlainPkg,
 				"pnpm-workspace.yaml":            "packages:\n  - packages/*\n",
+				"pnpm-lock.yaml":                 convergeMemberLock,
+				"node_modules/.modules.yaml":     "hoistPattern:\n  - '*'\n",
 				"tsconfig.json":                  convergeRootTsConfig,
 				"packages/core/package.json":     `{"name":"@w/core","version":"1.0.0"}` + "\n",
 				"packages/core/tsconfig.json":    `{"compilerOptions":{"lib":["es2022"]}}` + "\n",

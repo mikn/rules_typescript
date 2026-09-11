@@ -39,7 +39,7 @@ runfile() {
 
 NODE="$(runfile ts/toolchain/node_resolved/node)"
 PLUGIN_TEST_MJS="$(runfile tests/lsp/tsserver_plugin_test.mjs)"
-NODE_MODULES="$(runfile tests/lsp/lsp_node_modules)"
+NODE_MODULES="$(runfile tests/lsp/node_modules)"
 REFRESH="$(runfile refresh_tsconfig)"
 [[ -d "${NODE_MODULES}" ]] || fail "not a node_modules tree: ${NODE_MODULES}"
 
@@ -49,7 +49,8 @@ TSSERVER_JS="${NODE_MODULES}/typescript/lib/tsserver.js"
 # A host install would satisfy this silently, which is exactly the
 # non-hermeticity to keep out of a test about editor behaviour.
 [[ -f "${TSSERVER_JS}" ]] || \
-  fail "no tsserver at ${TSSERVER_JS} -- is @npm//:typescript still a dep of //tests/lsp:lsp_node_modules?"
+  fail "no tsserver at ${TSSERVER_JS} -- is @npm//:typescript still a dep of" \
+    "//tests/lsp:node_modules?"
 
 # ── Stage what refresh_tsconfig installs, into a scratch workspace ────────────
 # The copier reads its manifest from the runfiles tree this test already has, so

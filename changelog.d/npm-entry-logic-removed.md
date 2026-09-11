@@ -10,5 +10,6 @@
   `subpath_patterns`, `type_references`, `ambient_types_file`,
   `types_package_dir`, `declaration_files` and `json_files`. tsgo resolves a
   bare specifier, an `exports` subpath, a `types` entry and a reference
-  directive itself, walking the forest's node_modules as it walks a pnpm
-  install; the paired `@types/*` package is linked beside the runtime one.
+  directive itself, walking the importer chain's node_modules as it walks a
+  pnpm install; the paired `@types/*` package is the importer's link beside
+  the runtime one.

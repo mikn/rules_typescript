@@ -33,16 +33,17 @@ ts_test(
 bazel test //path/to:math_test
 ```
 
-The `node_modules` tree the tests run in is the forest tsgo checked them
-against: every dep that provides `NpmPackageInfo`, their transitive npm deps,
-and the npm closure of every `ts_compile` dep, so the production code under
-test runs against the packages it declared. `deps` lists what the tests
+The tests run in the importer chain tsgo checked them against: `node_modules`
+names the nearest lockfile importer's target, each npm dep resolves to that
+chain's link into the store, and every `ts_compile` dep's store files come
+along, so the production code under test runs against the packages it
+declared. `deps` lists what the tests
 import, the npm imports of the package's production sources, the vitest
 config's imports and the nearest `package.json`'s dependencies;
 `bazel run //:gazelle` writes that list from tsgo's listing of the package.
 An import only some dep's own deps provide fails the build with the label to
 add ([Deps have to be direct](../rules/ts-compile.md#deps-have-to-be-direct));
-a name the closure resolves more than one way is keyed apart in the tree
+each package's own edges sit beside its store tree
 ([the layout](../rules/node-modules.md#the-layout)).
 
 ## A vitest Config
@@ -126,8 +127,7 @@ config. The Bazel layer sets no `css` key. The import is typed by the tsconfig
 bazel coverage //path/to:math_test
 ```
 
-Works on every vitest `ts_test` when `@vitest/coverage-v8` is in the
-`node_modules` tree. Which files are reported is `--instrumentation_filter`'s
+Works on every vitest `ts_test` when `@vitest/coverage-v8` is in `deps`. Which files are reported is `--instrumentation_filter`'s
 answer, and `coverage_provider` picks between `"v8"` and `"istanbul"`; see
 [ts_test § Coverage](../rules/ts-test.md#coverage).
 
@@ -254,8 +254,8 @@ copy whose `main` and `env.test.main` are `src/index.js`, the compiled worker,
 at the file's own path, and that is the config the pool reads. A `rules` module
 the worker imports (`import greeting from "./greeting.txt"`) is a src of the
 `ts_compile`, which puts it in the runfiles. What else a wrangler config can
-name, and the `preserveSymlinks` flip the pool needs, are in
-[A Workers Pool](../rules/ts-test.md#a-workers-pool). `//tests/workers` is the
+name is in [A Workers Pool](../rules/ts-test.md#a-workers-pool).
+`//tests/workers` is the
 same-package shape: the config beside the tests, `main: "src/index.js"`, and
 the file in `data`.
 
@@ -270,8 +270,8 @@ The pool's ambient declaration for `cloudflare:test` is the `exports` subpath
 `@cloudflare/vitest-pool-workers/types`, whose only condition is `types`.
 Nothing imports it: the test file names it in a `/// <reference types>`
 directive, as above, or the test's tsconfig names it in `types`, and tsgo
-resolves either through the forest's `node_modules`, where the pool package is
-because it is in `deps`
+resolves either through the importer's link to the pool package, which `deps`
+names
 ([a `types` entry that names a package](../rules/ts-compile.md#a-types-entry-that-names-a-package)).
 
 ## Snapshots
@@ -318,8 +318,8 @@ ibazel test //...
 ```
 
 ibazel watches the build graph, so only affected targets are rebuilt and
-re-tested. To see what the launcher resolved (node binary, vitest entry,
-`node_modules` tree, shard split):
+re-tested. To see what the launcher resolved (node binary, vitest entry, the
+chain's `node_modules`, shard split):
 
 ```bash
 bazel run //path/to:my_test -- --dump-config

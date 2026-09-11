@@ -7,7 +7,7 @@ load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_config", "ts_test")
 # gazelle:exclude dist
 
 # @npm_eslint is a hub of the plugin's own lockfile, not the one Gazelle
-# writes labels for, so both deps lists are held by hand.
+# writes labels for, so both deps lists and the chain are held by hand.
 ts_compile(
     name = "eslint-plugin",
     srcs = [
@@ -20,6 +20,8 @@ ts_compile(
         "src/rules/require-explicit-types.ts",
         "src/utils.ts",
     ],
+    # keep
+    node_modules = "//tests/eslint:node_modules",
     tsconfig = ":tsconfig",
     visibility = ["//visibility:public"],
     # keep
@@ -30,6 +32,8 @@ ts_test(
     name = "eslint-plugin_test",
     srcs = ["src/rules/__tests__/require-explicit-types.test.ts"],
     config = "vitest.config.ts",
+    # keep
+    node_modules = "//tests/eslint:node_modules",
     tsconfig = ":tsconfig",
     visibility = ["//:__pkg__"],
     # keep

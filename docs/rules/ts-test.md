@@ -16,12 +16,13 @@ ts_test(
 )
 ```
 
-`srcs`, `deps` and `tsconfig` are `ts_compile`'s. The same actions compile the
-test files -- the emit as ES modules under the vitest runner
-([Runners](#runners)) -- and the `node_modules` forest tsgo checked them
-against -- every dep providing `NpmPackageInfo`, their transitive npm deps and
-the npm closure of every `ts_compile` dep -- is the tree the tests run in.
-`runner` names the target that runs the compiled files.
+`srcs`, `deps`, `tsconfig` and `node_modules` are `ts_compile`'s. The same
+actions compile the test files -- the emit as ES modules under the vitest
+runner ([Runners](#runners)) -- and the importer chain tsgo checked them
+against ([The node_modules Chain](ts-compile.md#the-node_modules-chain)) is
+what they run in: the chain's links and the store files the program reaches
+sit in the runfiles at their own paths. `runner` names the target that runs
+the compiled files.
 
 ## Attributes
 
@@ -30,6 +31,7 @@ the npm closure of every `ts_compile` dep -- is the tree the tests run in.
 | `srcs` | `label_list` | required | The test files, as `ts_compile`'s `srcs`, with every other file of the package: a `.snap`, a fixture. The TypeScript ones are in the runfiles at their source paths too; see [Files at Run Time](#files-at-run-time) |
 | `deps` | `label_list` | `[]` | `ts_compile` and `@npm//` targets the tests import. A `ts_compile` dep's data srcs are in the runfiles beside its `.js`, and a dep in the test's package has its TypeScript srcs there too |
 | `tsconfig` | `label` | `None` | The test program's tsconfig, as on `ts_compile`: the package's own `tsconfig.json` or a `ts_config` target; under vitest its `paths` resolve at run time. See [The Test's tsconfig](#the-tests-tsconfig) |
+| `node_modules` | `label` | `None` | The nearest lockfile importer's `node_modules` target, as on `ts_compile`: the chain the tests resolve their npm deps along, at run time too. See [Files at Run Time](#files-at-run-time) |
 | `runner` | `label` | `//ts/runners:vitest` | The target that runs the compiled tests: `//ts/runners:vitest`, `//ts/runners:node_test` or any target providing `TsTestRunnerInfo`. See [Runners](#runners) |
 | `env` | `string_dict` | `{}` | Extra environment variables for the runner |
 | `args` | `string_list` | `[]` | The runner's command-line flags: node's under the node:test runner, vitest's under the vitest runner; `bazel test --test_arg` appends to them. See [The node:test Runner](#the-nodetest-runner) |
@@ -56,12 +58,25 @@ const sdkSource = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
 ```
 
 `import.meta.url` -- and `__dirname`, in a CommonJS test -- is the runfiles
-path on either runner (vitest's `resolve.preserveSymlinks`; node's
-`--preserve-symlinks-main` and the runner's resolve hook), so `./index.ts`
+path on either runner (the vitest layer's module ids, [The Generated vitest
+Config](#the-generated-vitest-config); node's `--preserve-symlinks-main` and
+the runner's resolve hook), so `./index.ts`
 beside the compiled test is the same-package `ts_compile`'s `src/index.ts`.
 Another package's sources are not in the tree: a file a test reads across a
 package boundary is a `data` entry.
 `//tests/vitest/reads_own_source` is the example.
+
+The package's `package.json` is in the tree as written: `ts_compile` stages
+the src unchanged and writes the manifest as built beside it as
+`<name>.package.json`, which the program root and the store tree read and the
+runfiles do not hold ([Sources](ts-compile.md#sources)). A test that reads its
+manifest as data reads what the checkout has, and the package's own name -- a
+self-reference, resolved through the nearest `package.json`'s `name` and
+`exports` -- lands on the source the `exports` name: under vitest the source
+is in the runfiles and vite transforms it, as the checkout's vitest does;
+under node:test the runner's hook maps it to the compiled sibling ([The
+node:test Runner](#the-nodetest-runner)). `//tests/vitest/own_manifest` and
+`//tests/node_test/self_reference` are the examples.
 
 vitest runs from the `config`'s package in the runfiles, the test's own with no
 config -- the directory `pnpm run test` runs from -- so `process.cwd()` names it
@@ -73,7 +88,7 @@ Vite bundles a config from its realpath, so through the symlink `__dirname`
 and the walk up for a bare import would start in `bazel-out`. `__dirname`,
 `import.meta.dirname` and `__filename` in the config and in a `config_srcs`
 module are the package's paths, as under plain `vitest`, and a bare import
-walks up to the `node_modules` link at the runfiles root.
+walks up to the importer's `node_modules`.
 `//tests/vitest/cwd_and_dirname` is the example.
 
 The compiled program is what runs -- under vitest as ES modules, whatever the
@@ -85,11 +100,18 @@ member -- resolves to the compiled file ([`.ts` Specifiers](#ts-specifiers);
 under node:test, the runner's hook:
 [The node:test Runner](#the-nodetest-runner)).
 
-A bare specifier reaches the test's node_modules tree by the runner's own
-route. Under vitest the resolver walks up from the test's runfiles path and
-meets the `node_modules` link the launcher puts at the runfiles root. Under
-node:test the hook resolves it from the tree the launcher names in `NODE_PATH`
-([The node:test Runner](#the-nodetest-runner)).
+A bare specifier resolves through the importer chain by the runner's own
+route. Under vitest the resolver walks up from the test's runfiles path
+through each importer's `node_modules` to the lockfile's root importer's;
+where that walk meets none before the workspace's root, the launcher links the
+chain's root in there. Under node:test the hook resolves it from the chain's
+directories the launcher names in `NODE_PATH`, nearest first
+([The node:test Runner](#the-nodetest-runner)). A package's own imports
+resolve from its realpath in the store to the edges beside its tree, on both
+runners (`//tests/npm/multi_version:own_edge_node_test`,
+`:own_edge_vitest_test`), and an import of a name it does not declare to the
+hoist link the runfiles carry for a name the closure holds
+(`//tests/npm/features/hoist`).
 
 ## The Test's tsconfig
 
@@ -104,8 +126,9 @@ the compile. Three entries are the ones a test usually needs:
   no set `target` implies.
 - **A `types` entry naming a package or a subpath**, such as
   `@cloudflare/vitest-pool-workers/types` for a pool's `cloudflare:test`
-  module, or `vitest/globals`. tsgo resolves it through the forest built from
-  the test's `deps`, so the package is listed there; see
+  module, or `vitest/globals`. tsgo resolves it through the chain
+  `node_modules` names, so the package is in `deps`, which stages the
+  importer's link the walk up meets; see
   [a `types` entry that names a package](ts-compile.md#a-types-entry-that-names-a-package).
 - **A `types` entry naming a declaration file**, `../worker-configuration.d.ts`
   for the declaration a wrangler project keeps beside its worker. The target
@@ -143,17 +166,17 @@ runfiles. Under node:test an alias is type-checking only
 
 A runner is a target providing `TsTestRunnerInfo`
 ([providers](providers.md#tstestrunnerinfo)), the way a toolchain is: `ts_test`
-compiles the tests and builds the forest, and the runner's `launch` turns them
-into the launcher's config and the runfiles of one test. Two ship,
+compiles the tests against the importer chain, and the runner's `launch` turns
+them into the launcher's config and the runfiles of one test. Two ship,
 `//ts/runners:vitest`, the default, and `//ts/runners:node_test`
 (`@rules_typescript//ts/runners:node_test` from a consumer); a third is a rule
 in its own ruleset returning the provider. A runner names the npm packages it
-needs in the tree -- `vitest` for the vitest runner -- and a test whose `deps`
-provide none fails at analysis:
+needs in the closure -- `vitest` for the vitest runner -- and a test whose
+`deps` provide none fails at analysis:
 
 ```
 ts_test @@//path/to:my_test: @@//ts/runners:vitest runs the tests and needs
-vitest in the node_modules tree, which no dep provides.
+vitest in the npm closure, which no dep provides.
 Add the hub label of each to deps.
 ```
 
@@ -176,8 +199,8 @@ transform, so it runs the package's format as tsc emits it
 
 ## The vitest Runner
 
-vitest is the one in the test's `node_modules` tree, the JS runtime the
-toolchain's: the Node your `.nvmrc` names
+vitest is the one the first importer on the chain links, from the test's
+package up, the JS runtime the toolchain's: the Node your `.nvmrc` names
 ([Node.js](../getting-started/quickstart.md#nodejs)). Under `bazel test` the
 runner sets `CI=true` so vitest writes no `.snap` ([Snapshots](#snapshots));
 `env = {"CI": "false"}` opts out.
@@ -193,15 +216,15 @@ plain `vitest`:
 
 | Layer | Contents | Workspace projects |
 |-------|----------|---|
-| 1. Bazel | `root` (the `config`'s package; the test's own with none), `cacheDir` under `TEST_TMPDIR`, `resolve.preserveSymlinks`, `test.coverage.allowExternal`, `test.include` naming the compiled test files, `test.server.deps.inline` naming each workspace member in the tree, the plugin resolving a relative `.ts` specifier to its compiled sibling, the plugin resolving a tsconfig `paths` alias, the plugin serving a `setupFiles` entry from its staged path, and the [Workers pool's half](#a-workers-pool) when the `config`'s `plugins` hold the pool | yes |
+| 1. Bazel | `root` (the `config`'s package; the test's own with none), `cacheDir` under `TEST_TMPDIR`, `server.fs.allow` naming the workspace's runfiles and `bazel-bin`'s realpath, `test.coverage.allowExternal`, `test.include` naming the compiled test files, `test.server.deps.inline` naming each workspace member in the closure, the plugin giving each module its id (below), the plugin resolving a relative `.ts` specifier to its compiled sibling, and the plugin resolving a tsconfig `paths` alias | yes |
 | 2. user | the `config` file | it supplies the projects |
 | 3. provider | `test.coverage.provider` from `coverage_provider` | no, root only |
 | 4. snapshots | `test.resolveSnapshotPath` | no, root only |
 
 Objects merge key by key; arrays concatenate base-first, as vite's own
 `mergeConfig` does, so a `plugins` list in the config joins layer 1's. Scalars
-from a later layer win: a `resolve.preserveSymlinks` the config sets wins over
-layer 1's, and `coverage_provider` over a provider the config names. Layers 3
+from a later layer win: a `cacheDir` the config sets wins over layer 1's, and
+`coverage_provider` over a provider the config names. Layers 3
 and 4 are root-only because coverage and `resolveSnapshotPath` are vitest's
 non-project options, applied once and never merged into a project.
 
@@ -213,11 +236,20 @@ concatenate, so the config's globs stay in the merged array and select
 nothing the launcher did not name. `//tests/vitest/config_include` is the
 example.
 
-`preserveSymlinks` in layer 1 is on: a DOM environment resolves every module id
-to its realpath, which for a runfiles symlink walks out of the test sandbox.
-Under the Workers pool it is off ([A Workers Pool](#a-workers-pool)).
+A module's id is its runfiles path where the runfiles hold the file and its
+realpath otherwise. Vite resolves every id to its realpath -- a test file's and
+a compiled module's lie in `bazel-out`, a source file's in the source tree --
+and layer 1's plugin gives a file the runfiles hold at that path its runfiles
+path back, so `import.meta.url` and a relative import stay in the runfiles
+tree; a file under `node_modules` keeps its realpath, so a package's own
+imports resolve from its place in the tree, and one file is one module. An id
+that resolves to a file the runfiles do not hold is refused:
+`rules_typescript: "<id>" resolved to <path>, which this test's runfiles do not
+hold`. `server.fs.allow` names the workspace's runfiles and `bazel-bin`'s
+realpath, the two places an id can be, for the DOM environments that load
+through Vite's server.
 
-`server.deps.inline` in layer 1 names every workspace member in the tree.
+`server.deps.inline` in layer 1 names every workspace member in the closure.
 vitest runs a module under `node_modules` in node unless a pattern names it,
 and a member's emitted `.js` keeps the extensionless relative imports vite
 resolves and node's loader rejects; under pnpm the same member is inlined
@@ -300,12 +332,11 @@ entry is `# keep`. `//tests/setup_files_compiled` is the example, with the
 config at the package root and beside the tests.
 
 vitest resolves each entry through Node's resolver, which follows the runfiles
-link to the compiled file in `bazel-out`. The `node` environment loads that
-realpath. A DOM environment (`jsdom`, `happy-dom`) loads setup files through
-Vite, which serves the root and refuses a path outside it: `Cannot find module
-'/@fs/<bazel-out path>/vitest.setup.js'`. Layer 1 carries a plugin that answers
-that request with the staged path. `//tests/setup_files_compiled/dom` is the
-example.
+link to the compiled file in `bazel-out`; layer 1 gives the module its runfiles
+path back as its id, as it does every file the runfiles hold, so a DOM
+environment (`jsdom`, `happy-dom`), which loads setup files through Vite's
+server, is served a path under the root. `//tests/setup_files_compiled/dom` is
+the example.
 
 ### `.ts` Specifiers
 
@@ -499,11 +530,12 @@ takes the file as it is.
 ### A Workers Pool
 
 A `config` whose `plugins` hold `@cloudflare/vitest-pool-workers` runs the tests
-inside workerd. Four things put the compiled worker in front of it. Three are
+inside workerd. Two things put the compiled worker in front of it. One is
 layer 1's: the root is the config's package, so `wrangler.configPath` names the
-file beside the config; `resolve.preserveSymlinks` is off, so a module has one
-identity; a compiled module's bare imports are resolved from the root, where
-the runfiles tree's `node_modules` link is. The fourth is `wrangler_config`:
+file beside the config, and every module has one id ([The Generated vitest
+Config](#the-generated-vitest-config)) -- the pool resolves vitest's own
+modules for workerd by realpath, and a package's file has its realpath as its
+id. The other is `wrangler_config`:
 
 ```python
 ts_test(
@@ -522,19 +554,6 @@ ts_test(
 )
 ```
 
-`preserveSymlinks` is off because the pool resolves modules for workerd through
-a second path, where a lexical path is a second module identity for the same
-file. Left on, the pool fails inside its runner: `Cannot read properties of
-undefined (reading 'config')` on pool 0.22.0 / vitest 4.1.11, `No such module
-".../vitest/dist/@vitest/spy"` on 0.18.4 / 4.1.5. A `resolve.preserveSymlinks`
-the config sets still wins. On realpaths a compiled module is imported from
-`bazel-out`, which has no `node_modules` above it, so the same case adds a
-plugin: a compiled module's relative imports are resolved from its runfiles
-path, its bare imports from the root, and an import that resolves to a build
-output the runfiles do not hold at its own path is refused with
-`rules_typescript: "<id>" resolved to <path>, a build output this test's
-runfiles do not hold`.
-
 The pool boots the file `main` names, resolved against the config file's
 directory; in a repository that is the source, `src/index.ts`, and the worker
 under test is the compiled one. `WranglerTestConfig` copies the file and
@@ -542,8 +561,7 @@ patches `main` and every `env.<name>.main` to the compiled entry with wrangler's
 `experimental_patchConfig` (`.ts` and `.tsx` to `.js`, `.mts` to `.mjs`, `.cts`
 to `.cjs`; a `.js` is left as written). wrangler is the one in the test's
 `node_modules` tree. The copy is staged at the source's runfiles path, which is
-what `configPath` names, and under its own name beside the generated config,
-which admits its realpath when a `?raw` import of the config re-resolves it.
+what `configPath` names and the id a `?raw` import of it gets back.
 Comments and every other key survive; the formatting is wrangler's. A config
 naming no `main`, or a `.toml` holding `#` comments, fails the action.
 
@@ -596,7 +614,7 @@ relative specifier and a bare one from the tree, and nothing reads the chain's
 The package's code runs at its runfiles paths, as under vitest: the launcher
 passes `--preserve-symlinks-main`, and the runner target's `node:module`
 resolve hook (`ts/private/node_test_hook.mjs`) resolves every specifier from a
-file outside the node_modules tree:
+file outside the store, one whose path holds no `node_modules/` segment:
 
 - A relative specifier resolves, at the importer's runfiles path, to the file
   the compiled tree holds for it: `./util.ts`, `.tsx`, `.mts` or `.cts` to the
@@ -605,16 +623,20 @@ file outside the node_modules tree:
   `./util` to `util.js` or `util/index.js`, the file bundler resolution named at
   compile time; any other to the file as written. `//tests/node_test` pins the
   three: `:ts_specifier_test`, `:extensionless_test`, `:runfiles_layout_test`.
-- A bare specifier resolves from the test's node_modules tree, the directory
-  the launcher puts on `NODE_PATH`, never from a `node_modules` the walk up
-  from `bazel-out` happens to meet (`:bare_import_test`): the hook resolves an
-  `import` from the tree, and a `require` reads `NODE_PATH` itself. One ending
-  in `.ts`, `.tsx`, `.mts` or `.cts` -- a subpath into a workspace member --
-  resolves to the compiled file the tree holds for it, on either route
-  (`//tests/npm:by_name_member_node_test`). Code inside the tree resolves as
-  node resolves it, at its realpath, a `.ts` specifier to its compiled form,
-  so a link the tree holds for a second resolution of a name works as
-  installed.
+- The package's own name -- the nearest `package.json` above the test names
+  it and has `exports`, node's first step for a bare specifier -- resolves as
+  written from the test's own path, and the source its `exports` name to the
+  compiled sibling (`//tests/node_test/self_reference`).
+- A bare specifier resolves through the importer chain, the directories the
+  launcher puts on `NODE_PATH` nearest first, never from a `node_modules` the
+  walk up from `bazel-out` happens to meet (`:bare_import_test`): the hook
+  resolves an `import` from each importer's directory in turn, and a `require`
+  reads `NODE_PATH` itself. One ending in `.ts`, `.tsx`, `.mts` or `.cts` -- a
+  subpath into a workspace member -- resolves to the compiled file the store
+  holds for it, on either route (`//tests/npm:by_name_member_node_test`). Code
+  in the store resolves as node resolves it, at its realpath, a `.ts`
+  specifier to its compiled form, so a package's edge beside its tree answers
+  its imports as installed (`//tests/npm/multi_version:own_edge_node_test`).
 
 The compiled tests run in the module format their tsconfig gives them
 ([The Module Format](ts-compile.md#the-module-format)). A package whose
@@ -679,12 +701,12 @@ Test sources are checked for undeclared imports like any other `ts_compile`
 sources: a module that only some dep's own deps provide fails the build with the
 label to add ([Deps have to be direct](ts-compile.md#deps-have-to-be-direct)).
 
-A `ts_compile` dep brings its npm closure into the forest: its compiled JS
-value-imports the packages it declared, and `TsInfo.npm_packages` carries that
-closure, so a test in one package runs production code from another without
-repeating its npm deps. `deps` lists what the test files import; where the
-closure resolves a name more than one way, the test's own dep is the resolution
-that sits flat ([the layout](node-modules.md#the-layout)).
+A `ts_compile` dep brings its store files into the runfiles: its compiled JS
+value-imports the packages it declared, and `TsInfo.npm_files` carries the
+dep's importer links and their store trees, so a test in one package runs
+production code from another without repeating its npm deps. `deps` lists
+what the test files import, each resolved through the test's own chain
+([the chain](node-modules.md#the-chain)).
 `bazel run //:gazelle` writes the list from tsgo's listing of the package: the
 edges of the test files, the production sources and the declarations, the
 vitest config's imports, and the nearest `package.json`'s `dependencies` and

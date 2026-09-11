@@ -25,8 +25,9 @@ load(
 ## TsInfo
 
 A dep provides one thing: what a consumer's program and runtime need. `TsInfo`
-carries the files a consumer stages and the npm packages its forest links, and
-`deps` on `ts_compile` and `ts_test` accepts any target returning it.
+carries the files a consumer stages, its npm closure and the store files it
+reaches, and `deps` on `ts_compile` and `ts_test` accepts any target returning
+it.
 
 A direct field carries only what the target itself produces. A rule that
 forwards a dep's files leaves the direct field empty and puts the closure in the
@@ -40,19 +41,22 @@ reads the transitive field.
 | `js_maps` | `depset of File` | The `.js.map` beside them |
 | `declarations` | `depset of File` | The declarations this target produces, plus the ambient ones it passes through from `srcs`. A global one is in scope in a consumer only when the consumer's tsconfig `types` names it |
 | `data` | `depset of File` | The srcs that are neither TypeScript, JavaScript nor declarations, staged at their package-relative paths beside the compiled `.js` |
+| `manifest` | `File or None` | The `package.json` at the package's root as built, every source-file target rewritten to the emitted file, `<name>.package.json`; a dependent's program root lays it at the package's path and the member's store tree copies it there. The src as written is in `data` |
 | `sources` | `depset of File` | The TypeScript srcs, `.ts`, `.tsx` and declarations; a `ts_test` in the same package stages them in its runfiles at their source paths |
 | `transitive_js` | `depset of File` | Every `.js` from this target and its first-party deps |
 | `transitive_js_maps` | `depset of File` | Their `.js.map` |
-| `transitive_declarations` | `depset of File` | Every declaration from this target and its first-party deps. An npm package's declarations reach a consumer through the node_modules forest its tsgo action stages, not through this depset |
+| `transitive_declarations` | `depset of File` | Every declaration from this target and its first-party deps. An npm package's declarations reach a consumer through the importer chain its tsgo action resolves along, not through this depset |
 | `transitive_data` | `depset of File` | The data files of this target and its first-party deps: what a compiled module reaches beside itself at run time or in a bundle |
 | `transitive_es_twins` | `depset of (File, File)` | For a program tsgo emits, each `.js` of this target and its first-party deps paired with the ES module oxc emits from the same source; the vitest runner stages the second at the first's runfiles path ([The Module Format](ts-compile.md#the-module-format)) |
-| `npm_packages` | `depset of NpmPackageInfo` | The npm packages a consumer links into its forest and runtime tree for this target's deps. A dep's emitted `.d.ts` imports the packages the dep declared and resolves them in the consumer's program by walking that forest. A package itself arrives through its `NpmPackageInfo` |
-| `owners` | `depset of struct(label, files)` | One record per first-party target in the closure, this one first: `label`, the string a `deps` list writes for it, and `files`, the declarations and data it stages. The tsgo action reads the closure's records to name the target a listed file belongs to ([Deps have to be direct](ts-compile.md#deps-have-to-be-direct)) |
+| `npm_packages` | `depset of NpmPackageInfo` | The npm closure of this target's deps: what the ownership manifest names and a runner checks its packages against. A package itself arrives through its `NpmPackageInfo` |
+| `npm_files` | `depset of File` | The store files this target's program and runtime reach: the importer links of its direct npm deps and their `@types` twins, the member links its deps name, every store tree and edge link of their closures, the hoist links whose names the closure holds with the trees they enter ([The Store](node-modules.md#the-store)), and its first-party deps' `npm_files`. An action stages this and nothing else of the store. A dep's emitted `.d.ts` imports the packages the dep declared and resolves them from the dep's own importer's links, which this depset carries into the consumer's action |
+| `owners` | `depset of struct(label, files)` | One record per first-party target in the closure, this one first: `label`, the string a `deps` list writes for it, and `files`, the declarations, data and manifest as built it stages. The tsgo action reads the closure's records to name the target a listed file belongs to ([Deps have to be direct](ts-compile.md#deps-have-to-be-direct)) |
 
-A dep linked in the forest -- an `@npm` package, a member's hub view -- reaches
-the consumer's program and runtime there: `ts_compile` reads `npm_packages`
-off it and none of its file fields, so an npm package's `TsInfo` stages
-nothing by path and its `owners` is empty. A first-party dep's files are staged
+A dep reached through the store -- an `@npm` package, a member's link target
+-- reaches the consumer's program and runtime there: `ts_compile` reads
+`npm_packages` off it and none of its file fields, and stages its link and
+store files, so an npm package's `TsInfo` stages nothing by path and its
+`owners` is empty. A first-party dep's files are staged
 at their exec paths, its `declarations`, `js` and `data` are what an import may
 resolve to, and its `owners` record is what names it when an import does
 ([Deps have to be direct](ts-compile.md#deps-have-to-be-direct)).
@@ -73,7 +77,7 @@ names it in its own tsconfig `types` to bring its globals into scope. See
 
 | Field | Type | Description |
 |---|---|---|
-| `packages` | `list of string` | The npm packages the runner needs in the test's `node_modules` tree, `vitest` for the vitest runner; `ts_test` fails at analysis naming the one no dep provides |
+| `packages` | `list of string` | The npm packages the runner needs in the test's npm closure, `vitest` for the vitest runner; `ts_test` fails at analysis naming the one no dep provides |
 | `hook` | `File` | The one module the runner loads into node before the tests: the node:test runner's resolver, the vitest runner's reads recorder |
 | `es_modules` | `bool` | `True` when the runner runs the program as ES modules whatever its tsconfig's `module` -- vitest -- so `ts_test` emits its srcs as such and stages a dep's ES twins; `False` for node:test, which runs the package's format ([Runners](ts-test.md#runners)) |
 | `launch` | `function` | The runner's half of one test's analysis: given the test's `ctx` and the struct `ts_test` builds from the compile, it returns the launcher config's mode and section, the env, and the runfiles the runner adds |
@@ -100,21 +104,20 @@ The two invocation modes and the recipe for a bundler of your own are in
 from `@rules_typescript//ts/private:providers.bzl`, and everything under
 `ts/private/` is [volatile](../compatibility.md#volatile). Every `@npm` package
 target returns it, and so does a workspace member's hub view
-`npm_workspace_package`; the `node_modules` builder lays a tree out from it, the
-runtime tree's and the type-check forest's alike.
+`npm_workspace_package`; a `node_modules` target links `store`'s tree under
+`package_name`, `ts_compile` resolves a direct dep to that link, and `store`
+names the snapshot's tree in [the store](node-modules.md#the-store).
 
 | Field | Type | Description |
 |---|---|---|
 | `package_name` | `string` | The npm name, `react` or `@types/react`; what the tree links the package as |
 | `package_version` | `string` | The version; `0.0.0` on a workspace member, which pnpm resolves by path |
 | `peer_id` | `string` | A filesystem-safe token naming the peer set this resolution was made against, empty for a package pnpm resolved only one way. Two snapshots can share `name@version` and differ only here |
-| `package_dir` | `File or None` | The `package.json` at the root of the extracted package. `None` on a workspace member, whose view writes the manifest it links |
+| `package_dir` | `File or None` | The `package.json` at the root of the extracted package. `None` on a workspace member, whose compile writes the manifest as built |
 | `package_root` | `string` | Exec-root-relative directory the files in `all_files` hang off: where `package_dir` sits for an extracted tarball, the member's directory under `bazel-bin` for a workspace member |
-| `all_files` | `depset of File` | Every file of the package (`package.json`, `.js`, `.d.ts`, other assets): what a `node_modules` tree holds for it |
-| `js_files` | `depset of File` | The JavaScript files in the package |
-| `direct_deps` | `list of NpmPackageInfo` | The packages this one depends on directly, each under the name this package imports it by; what places two versions of one name in a tree |
+| `all_files` | `depset of File` | Every file of the package (`package.json`, `.js`, `.d.ts`, other assets), the files its store tree copies; a member's are its outputs, the manifest as built in place of the src |
 | `transitive_deps` | `depset of NpmPackageInfo` | Every npm package reachable from this one, the paired `@types/*` package included |
-| `transitive_package_dirs` | `depset of File` | The `package.json` of this package and of every transitive dep |
+| `store` | `NpmStoreInfo` | The snapshot's store tree and the links beside it: `key`, `tree`, `links`, `transitive` (`npm/private/store.bzl`) |
 
 The package's `exports`, `types` and `main` are nowhere in it: tsgo and node
 read the manifest in the tree, as they do over an install.
@@ -127,17 +130,64 @@ The shipped implementation, `//vite:dev_server`, returns it;
 | Field | Type | Vite | Description |
 |---|---|---|---|
 | `server_binary` | `File or None` | `None` | The server executable, for a server that is a build artifact. `None` when it ships inside the npm tree |
-| `server_in_tree` | `string` | `"vite/bin/vite.js"` | The executable's path relative to the root of the `node_modules` tree, for a server that ships as an npm package. Exactly one of the two is set |
+| `server_in_tree` | `string` | `"vite/bin/vite.js"` | The executable's path under the importer's `node_modules` directory, for a server that ships as an npm package. Exactly one of the two is set |
 | `argv` | `list of string` | `["dev", "--config", "{config}"]` | The command line after the executable. `{config}` expands to the generated config's path, `{port}` to the `port` attr, `{root}` to the directory served |
 | `config_dialect` | `string` | `"vite"` | The config format the server is handed. Only `"vite"` is generated today; a server reading its own format declares its own dialect, and the generator has to learn it before that server can be selected |
 | `runs_in_js_runtime` | `bool` | `True` | `True` when the executable is JavaScript and the toolchain Node runs it. A native server still gets the toolchain Node on `PATH`, for a plugin host that is a Node process |
 | `ignored_config_fields` | `list of string` | `[]` | Dotted config paths the server does not honour. A target whose configuration reaches one fails at analysis time naming the field and the server |
 | `native_react_refresh` | `bool` | `False` | `True` when the server applies React Fast Refresh itself. `react_refresh = True` then fails at analysis time |
-| `runtime_deps` | `depset of File` | empty | Everything the server needs in runfiles beyond the generated config and the npm tree |
+| `runtime_deps` | `depset of File` | empty | Everything the server needs in runfiles beyond the generated config and the importer's `node_modules` |
 
 A server shipping as an npm package has no `File` to point at: its executable is
-a path inside the `node_modules` tree artifact, which Starlark cannot address at
-analysis time. That is why `server_in_tree` exists beside `server_binary`.
+a path under the importer's `node_modules` directory, reached through the
+package's link, which no artifact names. That is why `server_in_tree` exists
+beside `server_binary`.
+
+## NodeModulesInfo
+
+A [`node_modules`](node-modules.md) target returns it; `ts_codegen`,
+`ts_binary`, `ts_dev_server` and `esbuild_bundle` read it from their
+`node_modules` attr, and take the target's `DefaultInfo.files` -- every link
+and every store tree the links reach -- as inputs or runfiles; `ts_compile`
+and `ts_test` follow `parent` up the chain and stage the links a direct dep
+resolves to ([The Chain](node-modules.md#the-chain)), and from `hoist`, the
+lockfile's hidden hoist carried unchanged down the chain, the links whose
+names the closure holds ([The Store](node-modules.md#the-store)).
+
+| Field | Type | Description |
+|---|---|---|
+| `label` | `Label` | The `node_modules` target's: the importer's package, and what a message names |
+| `dir` | `string` | The importer's `node_modules` directory as a bin-dir path, `bazel-out/<cfg>/bin/<package>/node_modules`: the parent of every link, which no artifact names |
+| `links` | `dict of string -> NpmLinkInfo` | Per package name, the declared symlink `node_modules/<name>` and the store it enters |
+| `parent` | `NodeModulesInfo or None` | The importer above's |
+| `hoist` | `NpmHoistInfo` | The lockfile's hidden hoist, the root importer's `hoist` target's, the same on every importer of its chain ([NpmHoistInfo](#npmhoistinfo)) |
+
+## NpmHoistInfo
+
+A lockfile's hidden hoist, what its `npm_store_hoist` target
+`node_modules/.pnpm/node_modules` returns
+([The Store](node-modules.md#the-store)); the root importer names the target
+in `hoist`, and every importer on the chain carries it as
+`NodeModulesInfo.hoist`.
+
+| Field | Type | Description |
+|---|---|---|
+| `links` | `dict of string -> NpmLinkInfo` | Per hoisted name, the declared symlink `node_modules/.pnpm/node_modules/<name>` (a `public-hoist-pattern` match's at the root importer's `node_modules/<name>`) and the store it enters |
+| `members` | `dict of string -> File` | Per hoisted workspace member, the declared symlink alone, with no dependency on the member's tree; a consumer's closure holds the tree through the member's link target |
+
+## NpmLinkInfo
+
+One link `node_modules/<name>` into a store tree: an entry of
+`NodeModulesInfo.links`, and what a [`node_modules_member`](node-modules.md)
+target returns beside the member's `TsInfo` and `NpmPackageInfo`, so a
+`ts_compile` or `ts_test` names the link target in `deps` where it named the
+hub's view, and a `ts_codegen` names it there for a generator that resolves
+the member.
+
+| Field | Type | Description |
+|---|---|---|
+| `link` | `File` | The declared symlink `node_modules/<name>` |
+| `store` | `NpmStoreInfo` | The store the link enters |
 
 ## Toolchain Contract
 

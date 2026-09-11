@@ -14,8 +14,8 @@ hub_test(
 hub_test(
     name = "tailwind_hub_test",
     size = "small",
-    hub_dir = "tests/tailwind",
-    lockfile = "tests/tailwind/pnpm-lock.yaml",
+    hub_dir = "tests/tailwind/lock",
+    lockfile = "tests/tailwind/lock/pnpm-lock.yaml",
     target_under_test = "//:add_package_tailwind",
 )
 

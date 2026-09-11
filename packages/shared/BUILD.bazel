@@ -2,7 +2,16 @@
 # those labels cross a package boundary.
 # gazelle:exclude src
 
+load("@rules_typescript//npm:defs.bzl", "node_modules")
 load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_test")
+
+# The importer packages/shared: zod, its one declared package.
+# keep
+node_modules(
+    name = "node_modules",
+    parent = "//tests/npm:node_modules",
+    deps = ["@npm//packages/shared:zod"],
+)
 
 # @npm//:shared is the hub's view of this target. zod is imported at run time so
 # //tests/npm:workspace_runtime_test fails unless the member's closure travels.
@@ -16,20 +25,22 @@ ts_compile(
         "src/wire/index.ts",
         "src/wire/package.json",
     ],
+    node_modules = ":node_modules",
     visibility = ["//visibility:public"],
-    deps = ["@npm//:zod"],
+    deps = ["@npm//packages/shared:zod"],
 )
 
 # The member's own test imports the member by name and by subpath, as
-# @lovable/canvas-sdk's does: the hub label beside the compiling target.
+# @lovable/canvas-sdk's does: a self-reference, the compiling target its dep.
 # keep
 ts_test(
     name = "shared_test",
     size = "small",
     srcs = ["src/shared.test.ts"],
+    node_modules = ":node_modules",
+    visibility = ["//tests/npm:__pkg__"],
     deps = [
         ":shared",
-        "@npm//:shared",
         "@npm//:vitest",
     ],
 )

@@ -43,15 +43,17 @@ bzl_library(
     name = "plugin",
     srcs = ["plugin.bzl"],
     deps = [
+        "//ts/private:providers",
         "//ts/private:runtime",
     ],
 )
 
-# node_modules tree for the plugin build action below.
+# The plugin build action's node_modules: vite/esbuild's lockfile, not @npm,
+# which resolves into the consumer's and need not have esbuild at all.
+# keep
 node_modules(
-    name = "esbuild_node_modules",
-    # Not @npm: that name resolves into the consumer's lockfile, which need not
-    # have esbuild at all, and the bundle this feeds is consumer API.
+    name = "node_modules",
+    hoist = "//vite/esbuild:node_modules/.pnpm/node_modules",
     deps = ["@npm_esbuild//:esbuild"],
 )
 
@@ -69,7 +71,7 @@ esbuild_bundle(
     # vite alone: anything else the plugin imports must be a node builtin, so
     # esbuild fails the build rather than shipping an unresolvable import.
     external = ["vite"],
-    node_modules = ":esbuild_node_modules",
+    node_modules = ":node_modules",
 )
 
 # esbuild strips types without checking them, so this is the type check for the
@@ -77,6 +79,7 @@ esbuild_bundle(
 ts_compile(
     name = "plugin_typecheck",
     srcs = glob(["src/*.ts"]),
+    node_modules = "//tests/npm:node_modules",
     tsconfig = "vite.tsconfig.json",
     deps = [
         "@npm//:types_node",
@@ -89,6 +92,7 @@ ts_compile(
 ts_compile(
     name = "tsup_config",
     srcs = ["tsup.config.ts"],
+    node_modules = "//tests/npm:node_modules",
     deps = ["@npm//:tsup"],
 )
 

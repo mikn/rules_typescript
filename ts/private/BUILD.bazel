@@ -9,7 +9,6 @@ package(default_visibility = [
 exports_files([
     "node_test_hook.mjs",
     "reads_hook.cjs",
-    "vitest_workers_pool.mjs",
     "wrangler_test_config.mjs",
 ])
 
@@ -36,6 +35,7 @@ bzl_library(
     name = "ts_codegen",
     srcs = ["ts_codegen.bzl"],
     deps = [
+        ":providers",
         ":runtime",
     ],
 )
@@ -61,6 +61,7 @@ bzl_library(
     srcs = ["ts_binary.bzl"],
     deps = [
         ":bundle_action",
+        ":node_modules",
         ":providers",
         ":runtime",
     ],
@@ -70,6 +71,7 @@ bzl_library(
     name = "ts_dev_server",
     srcs = ["ts_dev_server.bzl"],
     deps = [
+        ":node_modules",
         ":providers",
         ":runtime",
     ],
@@ -85,6 +87,7 @@ bzl_library(
     srcs = ["ts_npm_package.bzl"],
     deps = [
         ":providers",
+        "//npm/private:store",
     ],
 )
 
@@ -93,7 +96,7 @@ bzl_library(
     srcs = ["node_modules.bzl"],
     deps = [
         ":providers",
-        ":runtime",
+        "//npm/private:store",
     ],
 )
 

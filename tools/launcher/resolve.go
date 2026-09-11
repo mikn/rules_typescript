@@ -76,13 +76,3 @@ func (r *Resolver) Path(rlocation string) (string, error) {
 	}
 	return abs, nil
 }
-
-// InTree resolves a path inside a directory artifact. Only the artifact itself
-// is in the runfiles manifest, so its contents have to be reached by joining.
-func (r *Resolver) InTree(rlocation, sub string) (string, error) {
-	root, err := r.Path(rlocation)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(root, filepath.FromSlash(sub)), nil
-}

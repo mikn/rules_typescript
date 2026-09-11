@@ -98,29 +98,6 @@ const withCompiledSetup = (config) => {
   }
   return { ...config, test };
 };
-
-// vitest realpaths each setupFiles entry into bazel-out; a DOM environment
-// then asks Vite for a file outside the root it serves: give the staged path.
-const setupFilesInRoot = (config) => {
-  const root = resolve(config.root ?? '.');
-  const staged = new Map();
-  for (const entry of [config.test?.setupFiles].flat()) {
-    if (typeof entry !== 'string') continue;
-    const path = resolve(root, entry);
-    try {
-      const real = realpathSync(path);
-      if (real !== path) staged.set(real, path);
-    } catch {}
-  }
-  if (staged.size === 0) return config;
-  const plugin = {
-    name: 'rules_typescript:setup-files-in-root',
-    enforce: 'pre',
-    resolveId: (id) =>
-      staged.get(id.startsWith('/@fs/') ? id.slice(4) : id) ?? null,
-  };
-  return { ...config, plugins: [...(config.plugins ?? []), plugin] };
-};
 """
 
 _PATHS_HELPERS = """\
@@ -170,6 +147,69 @@ const tsconfigPaths = (dir, paths) => {
       return null;
     },
   };
+};
+"""
+
+_IDS_HELPERS = """\
+// A module's id is its runfiles path where the runfiles hold the file and its
+// realpath otherwise: a package's imports resolve from its place in the tree.
+const SOURCE_ROOT = (() => {
+  if (!SOURCE_PROBE) return null;
+  try {
+    const real = realpathSync(resolve(WORKSPACE_DIR, SOURCE_PROBE));
+    if (real.endsWith('/' + SOURCE_PROBE)) {
+      return real.slice(0, -(SOURCE_PROBE.length + 1));
+    }
+  } catch {}
+  return null;
+})();
+const BIN_DIR = (() => {
+  for (const f of INCLUDE) {
+    try {
+      const real = realpathSync(resolve(ROOT, f));
+      const m = /^(.*?\\/bazel-out\\/[^/]+\\/bin)\\//.exec(real);
+      if (m) return m[1];
+    } catch {}
+  }
+  return null;
+})();
+const FS_ALLOW = BIN_DIR ? [WORKSPACE_DIR, BIN_DIR] : [WORKSPACE_DIR];
+const runfilesPath = (file) => {
+  const out = /^.*?\\/bazel-out\\/[^/]+\\/bin\\/(.*)$/.exec(file);
+  if (out) {
+    const ext = /^external\\/([^/]+)\\/(.*)$/.exec(out[1]);
+    const rlocation = ext ? ext[1] + '/' + ext[2] : WORKSPACE + '/' + out[1];
+    return resolve(RUNFILES_ROOT, OVERLAYS[rlocation] ?? rlocation);
+  }
+  if (SOURCE_ROOT && file.startsWith(SOURCE_ROOT + '/')) {
+    return resolve(WORKSPACE_DIR, file.slice(SOURCE_ROOT.length + 1));
+  }
+  return null;
+};
+const moduleIds = {
+  name: 'rules_typescript:module-ids',
+  enforce: 'pre',
+  async resolveId(id, importer, opts) {
+    if (id.startsWith('\\0')) return null;
+    const nested = { ...opts, skipSelf: true };
+    const resolved = await this.resolve(id, importer, nested);
+    if (!resolved || resolved.external) return resolved;
+    const cut = resolved.id.search(/[?#]/);
+    const file = cut < 0 ? resolved.id : resolved.id.slice(0, cut);
+    const held = file.startsWith(RUNFILES_ROOT + '/');
+    if (held || file.includes('/node_modules/')) return resolved;
+    const staged = runfilesPath(file);
+    if (staged === null) return resolved;
+    if (!existsSync(staged)) {
+      this.error(
+        `rules_typescript: "${id}" resolved to ${file}, which this test's ` +
+          'runfiles do not hold; a src, dep or data entry has to stage it (a ' +
+          'wrangler rules module is a src of the ts_compile that imports it).',
+      );
+    }
+    const query = cut < 0 ? '' : resolved.id.slice(cut);
+    return { ...resolved, id: staged + query };
+  },
 };
 """
 
@@ -248,11 +288,13 @@ def _vitest_config_content(
         snapshot_bases = {},
         snapshot_root = "",
         run_include = [],
-        workers_pool_rf = None,
         tsconfig_paths_rf = None,
         root_rel = ".",
         workspace_rel = ".",
-        inline_members = []):
+        inline_members = [],
+        source_probe = "",
+        overlays = {},
+        workspace_name = ""):
     """Builds the entry config that layers Bazel's config under the user's."""
     path_imports = "dirname, resolve"
     if snapshot_bases:
@@ -268,12 +310,6 @@ def _vitest_config_content(
         "import { fileURLToPath } from 'node:url';",
         "import { existsSync, readFileSync, realpathSync } from 'node:fs';",
     ]
-    if workers_pool_rf:
-        lines.append("import {{ workersPoolLayer }} from '{}';".format(
-            _relative_import(config_rf, workers_pool_rf),
-        ))
-    else:
-        lines.append("const workersPoolLayer = undefined;")
     if user_config_rf:
         lines.append("import userConfigExport from '{}';".format(
             _relative_import(config_rf, user_config_rf),
@@ -282,6 +318,13 @@ def _vitest_config_content(
         "",
         "const HERE = dirname(fileURLToPath(import.meta.url));",
         "const abs = (p) => resolve(HERE, p);",
+        "const ROOT = resolve(HERE, {});".format(_js(root_rel)),
+        "const WORKSPACE_DIR = resolve(HERE, {});".format(_js(workspace_rel)),
+        "const RUNFILES_ROOT = dirname(WORKSPACE_DIR);",
+        "const WORKSPACE = {};".format(_js(workspace_name)),
+        "const OVERLAYS = {};".format(_js(overlays)),
+        "const SOURCE_PROBE = {};".format(_js(source_probe)),
+        "const INCLUDE = {};".format(_js(run_include)),
         "",
     ]
     if snapshot_bases:
@@ -294,6 +337,7 @@ def _vitest_config_content(
         _CONFIG_MERGE_HELPERS,
         _SETUP_HELPERS,
         _PATHS_HELPERS,
+        _IDS_HELPERS,
     ]
     if tsconfig_paths_rf:
         lines += [
@@ -311,21 +355,20 @@ def _vitest_config_content(
 
     # The run is the rule's srcs: a config's include, written for the sources,
     # matches no compiled .js, and vitest would stop with "No test files found".
-    run_include_key = ["include: " + _js(run_include)] if run_include else []
+    run_include_key = ["include: INCLUDE"] if run_include else []
     lines += [
-        # preserveSymlinks: every path vitest is handed is a runfiles symlink,
-        # and a realpath is outside the sandbox; a pool's layer turns it off.
-
         # A file under test is a build output, so its realpath lies outside the
         # vite root -- which the coverage default drops before instrumenting.
-        "let bazelLayer = {",
-        "  root: resolve(HERE, {}),".format(_js(root_rel)),
+        "const bazelLayer = {",
+        "  root: ROOT,",
         # Vite's cache and the pool's deps optimizer write under the root
         # otherwise, which is the runfiles tree.
         "  ...(process.env.TEST_TMPDIR ? " +
         "{ cacheDir: resolve(process.env.TEST_TMPDIR, '.vite') } : {}),",
-        "  resolve: { preserveSymlinks: true },",
-        "  plugins: [compiledImports, ...pathsPlugins],",
+        "  plugins: [moduleIds, compiledImports, ...pathsPlugins],",
+        # A DOM environment loads through Vite's server, which serves fs.allow
+        # alone: the runfiles hold every runfiles id, bazel-bin every realpath.
+        "  server: { fs: { allow: FS_ALLOW } },",
         # A workspace member's .js keeps its sources' extensionless relative
         # imports, which vite resolves and node's loader rejects: vite runs it.
         "  test: {{ {} }},".format(", ".join(run_include_key + [
@@ -364,12 +407,8 @@ def _vitest_config_content(
     else:
         lines.append("  const user = {};")
     lines += [
-        "  if (typeof workersPoolLayer === 'function') bazelLayer = " +
-        "workersPoolLayer(bazelLayer, user, resolve(HERE, {}));".format(
-            _js(workspace_rel),
-        ),
-        "  const merged = setupFilesInRoot(withCompiledSetup(merge(" +
-        "merge(merge(bazelLayer, user), providerLayer), snapshotLayer)));",
+        "  const merged = withCompiledSetup(merge(" +
+        "merge(merge(bazelLayer, user), providerLayer), snapshotLayer));",
         "  // Every project gets its own Vite server, so the Bazel layer " +
         "has to be",
         "  // applied to each project too; coverage and snapshots are the " +
@@ -379,8 +418,8 @@ def _vitest_config_content(
         "    merged.test = {",
         "      ...merged.test,",
         "      projects: projects.map((p) =>",
-        "        isPlainObject(p) ? setupFilesInRoot(withCompiledSetup(" +
-        "merge(bazelLayer, p))) : p,",
+        "        isPlainObject(p) ? withCompiledSetup(merge(bazelLayer, p))" +
+        " : p,",
         "      ),",
         "    };",
         "  }",
@@ -442,6 +481,13 @@ def tsconfig_paths_action(ctx):
     )
     return tsconfig_paths
 
+# The source root, at run time, is where this file's realpath ends.
+def _source_probe(ctx):
+    for f in ctx.files.srcs:
+        if f.is_source:
+            return f.short_path
+    return ""
+
 def _package_path(ctx, name):
     """The runfiles path of `name` in the test's package."""
     return "/".join(
@@ -451,13 +497,14 @@ def _package_path(ctx, name):
 def vitest_config_action(
         ctx,
         test_entry_points,
-        pool_layer,
         tsconfig_paths,
-        inline_members):
+        inline_members,
+        overlays):
     """Writes the entry config for `ctx`'s test.
 
-    `pool_layer` is the Workers pool's layer module or None; `tsconfig_paths`
-    the file tsconfig_paths_action wrote or None. Returns struct(config, entry,
+    `tsconfig_paths` is the file tsconfig_paths_action wrote or None; `overlays`
+    the runfiles symlinks, runfiles path to File, whose build outputs are held
+    under another name than their own. Returns struct(config, entry,
     stage, symlinks, root_rel): the generated file; the runfiles path the
     launcher writes it to; every file the launcher writes into the package as a
     regular file, its destination keyed by the runfiles path it is read from;
@@ -487,10 +534,6 @@ def vitest_config_action(
             symlinks[key] = f
             stage[ctx.workspace_name + "/" + key] = rlocation_path(ctx, f)
         user_config_rf = rlocation_path(ctx, ctx.file.config)
-    pool_rf = None
-    if pool_layer:
-        pool_rf = _package_path(ctx, "_{}_workers_pool.mjs".format(name))
-        stage[rlocation_path(ctx, pool_layer)] = pool_rf
     paths_rf = None
     if tsconfig_paths:
         paths_rf = _package_path(ctx, "_{}_tsconfig_paths.json".format(name))
@@ -522,11 +565,17 @@ def vitest_config_action(
                 for f in test_entry_points
                 if _is_test_file(f)
             ],
-            workers_pool_rf = pool_rf,
             tsconfig_paths_rf = paths_rf,
             root_rel = root_rel,
             workspace_rel = _relative_dir(ctx.label.package, ""),
             inline_members = inline_members,
+            source_probe = _source_probe(ctx),
+            workspace_name = ctx.workspace_name,
+            overlays = {
+                rlocation_path(ctx, f): ctx.workspace_name + "/" + link
+                for link, f in overlays.items()
+                if not f.is_source
+            },
         ),
     )
     return struct(

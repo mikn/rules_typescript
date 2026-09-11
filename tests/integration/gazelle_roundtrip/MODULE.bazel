@@ -23,14 +23,14 @@ local_path_override(
 register_toolchains("@rules_typescript//ts/toolchain:all")
 
 # The fixture's own lockfile: the runner installs it, Gazelle lists the tree
-# and the hub builds the forest from the same file.
+# and the hub's store and links are built from the same file.
 npm = use_extension("@rules_typescript//npm:extensions.bzl", "npm")
 npm.translate_lock(pnpm_lock = "//:pnpm-lock.yaml")
 
-# The wrangler that generated_worker/'s hand-written ts_codegen runs. The runner
-# copies tests/workers/pnpm-lock.yaml here; no other lockfile resolves wrangler.
+# The wrangler generated_worker/'s ts_codegen runs; the runner copies
+# tests/workers/pnpm-lock.yaml into wrangler_lock/, a package of its own.
 npm.translate_lock(
     name = "npm_workers",
-    pnpm_lock = "//:pnpm-lock.workers.yaml",
+    pnpm_lock = "//wrangler_lock:pnpm-lock.yaml",
 )
 use_repo(npm, "npm", "npm_workers", "pnpm")

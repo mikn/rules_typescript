@@ -2,10 +2,16 @@ package typescript
 
 import (
 	"log"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
+
+	"github.com/bazelbuild/bazel-gazelle/label"
+	"github.com/bazelbuild/bazel-gazelle/rule"
 
 	"github.com/mikn/rules_typescript/ts/tools/explainfiles"
 )
@@ -20,6 +26,7 @@ type pnpmImporter struct {
 // What pnpm-lock.yaml says the hub declares: every name it mentions, the
 // importers by directory ("" is the root) and each member's directory.
 type npmLock struct {
+	repoRoot  string
 	names     map[string]bool
 	importers map[string]*pnpmImporter
 	members   map[string]string
@@ -37,6 +44,7 @@ func loadNpmLock(repoRoot string) (*npmLock, error) {
 // manifest name of every importer but the root that no link names.
 func parseNpmLock(repoRoot string, lines []string) *npmLock {
 	l := &npmLock{
+		repoRoot:  repoRoot,
 		names:     parsePnpmLockNames(lines),
 		importers: parsePnpmImporters(lines),
 		members:   map[string]string{},
@@ -107,38 +115,96 @@ func (l *npmLock) importerAbove(dir string) string {
 	return ""
 }
 
-// label spells name for an import from a file in dir: the importer's own
-// package when the nearest importer above dir declares it, else the root's.
-func (l *npmLock) label(name, dir string) string {
-	if imp := l.importerAbove(dir); imp != "" {
-		if _, ok := l.importers[imp].deps[name]; ok {
-			return "@npm//" + imp + ":" + npmPackageToLabelName(name)
-		}
-	}
-	return "@npm//:" + npmPackageToLabelName(name)
+// nodeModulesLabel spells, for a target in pkg, the node_modules target of
+// the nearest importer at or above it: the chain its npm deps resolve along.
+func (l *npmLock) nodeModulesLabel(pkg string) string {
+	imp := l.importerAbove(pkg)
+	return label.New("", imp, nodeModulesTargetName).Rel("", pkg).String()
 }
 
-// memberView is the hub's view of the member a bare specifier names, from
-// every package but the member's own ts_compile, where it is nothing.
-func (l *npmLock) memberView(spec, pkg, kind string) (string, bool) {
+// declaring is the nearest importer at or above dir that declares name.
+func (l *npmLock) declaring(name, dir string) (string, bool) {
+	for imp := l.importerAbove(dir); ; imp = l.importerAbove(parentDir(imp)) {
+		if i := l.importers[imp]; i != nil {
+			if _, ok := i.deps[name]; ok {
+				return imp, true
+			}
+		}
+		if imp == "" {
+			return "", false
+		}
+	}
+}
+
+// label spells name for an import from a file in dir: under the nearest
+// importer on the chain above dir that declares it, the root last.
+func (l *npmLock) label(name, dir string) string {
+	imp, _ := l.declaring(name, dir)
+	return "@npm//" + imp + ":" + npmPackageToLabelName(name)
+}
+
+// typesPackage is the @types package a `/// <reference types>` names:
+// DefinitelyTyped's `@types/<name>`, a scoped `@a/b`'s `@types/a__b`.
+func typesPackage(spec string) string {
+	name := barePackageName(spec)
+	if strings.HasPrefix(name, "@") {
+		return "@types/" + strings.Replace(name[1:], "/", "__", 1)
+	}
+	return "@types/" + name
+}
+
+// chainTypesLabel spells a store file's `/// <reference types>` when an
+// importer at or above pkg declares the @types package it landed on.
+func (l *npmLock) chainTypesLabel(e explainfiles.Edge, pkg string) string {
+	name := npmPackageName(e.To)
+	if e.Kind != explainfiles.TypeReference ||
+		name != typesPackage(e.Specifier) {
+		return ""
+	}
+	imp, ok := l.declaring(name, pkg)
+	if !ok {
+		return ""
+	}
+	return "@npm//" + imp + ":" + npmPackageToLabelName(name)
+}
+
+// memberView is the member a bare specifier from file names, spelled by
+// memberLabel; the nearest manifest's own name is a self-reference, no view.
+func (l *npmLock) memberView(spec, file, pkg string) (string, bool) {
 	if !isBareSpecifier(spec) {
 		return "", false
 	}
 	name := barePackageName(spec)
-	dir, ok := l.members[name]
-	if !ok {
+	if _, ok := l.members[name]; !ok {
 		return "", false
 	}
-	if kind == "ts_compile" && dir == pkg {
-		return "", true
+	m := nearestManifest(l.repoRoot, parentDir(file))
+	if m != nil && m.name == name {
+		return "", false
 	}
-	return "@npm//:" + npmPackageToLabelName(name), true
+	return l.memberLabel(name, pkg), true
 }
 
-// edgeLabel is the one label an edge from a file of pkg into node_modules
-// takes: the specifier's package when it names one, else the listed file's.
-func (l *npmLock) edgeLabel(e explainfiles.Edge, pkg, kind string) string {
-	if lbl, ok := l.memberView(e.Specifier, pkg, kind); ok {
+// memberLabel spells member name for a target in pkg: the link target of the
+// nearest importer at or above pkg that links it, or "" and a line for none.
+func (l *npmLock) memberLabel(name, pkg string) string {
+	for dir, more := pkg, true; more; dir, more = parentDir(dir), dir != "" {
+		if imp, ok := l.importers[dir]; ok && imp.links[name] != "" {
+			return label.New("", dir, "node_modules/"+name).Rel("", pkg).String()
+		}
+	}
+	log.Printf("typescript: %s: the workspace member %q is linked by no "+
+		"importer at or above it; no dep", orRepoRoot(pkg), name)
+	return ""
+}
+
+// edgeLabel is the one label an edge into node_modules takes: the chain's
+// @types package for a store file's, else the specifier's or listed package.
+func (l *npmLock) edgeLabel(e explainfiles.Edge, pkg string) string {
+	if !firstParty(e.From) {
+		return l.chainTypesLabel(e, pkg)
+	}
+	if lbl, ok := l.memberView(e.Specifier, e.From, pkg); ok {
 		return lbl
 	}
 	name := npmPackageName(e.To)
@@ -154,8 +220,8 @@ func (l *npmLock) edgeLabel(e explainfiles.Edge, pkg, kind string) string {
 }
 
 // manifestLabels is a ts_test's runtime union: the manifest's dependencies
-// and devDependencies, a member's name as its view, the rest lockfile-gated.
-func (l *npmLock) manifestLabels(m *manifest) []string {
+// and devDependencies, a member's link target spelled from the test's pkg.
+func (l *npmLock) manifestLabels(m *manifest, pkg string) []string {
 	if m == nil {
 		return nil
 	}
@@ -163,7 +229,9 @@ func (l *npmLock) manifestLabels(m *manifest) []string {
 	for _, name := range m.deps {
 		switch _, member := l.members[name]; {
 		case member:
-			labels = append(labels, "@npm//:"+npmPackageToLabelName(name))
+			if lbl := l.memberLabel(name, pkg); lbl != "" {
+				labels = append(labels, lbl)
+			}
 		case l.names[name]:
 			labels = append(labels, l.label(name, m.dir))
 		default:
@@ -185,4 +253,72 @@ func barePackageName(spec string) string {
 		return spec
 	}
 	return strings.SplitN(spec, "/", 2)[0]
+}
+
+// An importer's rules: node_modules, a link target per member it links, and
+// the store call in the lockfile's package, the root.
+const (
+	nodeModulesTargetName = "node_modules"
+	storeTargetName       = "node_modules/.pnpm"
+)
+
+var publicVisibility = []string{"//visibility:public"}
+
+// importerRules is what Gazelle writes in rel for the lockfile's importer
+// there, or nothing when rel is no importer.
+func (l *npmLock) importerRules(rel string) []*rule.Rule {
+	imp, ok := l.importers[rel]
+	if !ok {
+		return nil
+	}
+	var out []*rule.Rule
+	if rel == "" {
+		out = append(out, rule.NewRule("npm_virtual_store", storeTargetName))
+	}
+	nm := rule.NewRule("node_modules", nodeModulesTargetName)
+	var deps []string
+	for name := range imp.deps {
+		deps = append(deps, l.label(name, rel))
+	}
+	if len(deps) > 0 {
+		sort.Strings(deps)
+		nm.SetAttr("deps", deps)
+	}
+	if rel == "" {
+		nm.SetAttr("hoist", ":"+storeTargetName+"/node_modules")
+	} else {
+		nm.SetAttr("parent", "//"+l.importerAbove(parentDir(rel))+":"+
+			nodeModulesTargetName)
+	}
+	nm.SetAttr("visibility", publicVisibility)
+	out = append(out, nm)
+	for _, name := range slices.Sorted(maps.Keys(imp.links)) {
+		link := rule.NewRule("node_modules_member", "node_modules/"+name)
+		link.SetAttr("member", "@npm//:"+npmPackageToLabelName(name))
+		link.SetAttr("visibility", publicVisibility)
+		out = append(out, link)
+	}
+	return out
+}
+
+// importerEmpties is every importer rule to withdraw from f: the node_modules
+// and every node_modules_member not among gen.
+func importerEmpties(f *rule.File, gen []*rule.Rule) []*rule.Rule {
+	kept := map[string]bool{}
+	for _, r := range gen {
+		kept[r.Kind()+" "+r.Name()] = true
+	}
+	var out []*rule.Rule
+	if !kept["node_modules "+nodeModulesTargetName] {
+		out = append(out, rule.NewRule("node_modules", nodeModulesTargetName))
+	}
+	if f == nil {
+		return out
+	}
+	for _, r := range f.Rules {
+		if r.Kind() == "node_modules_member" && !kept[r.Kind()+" "+r.Name()] {
+			out = append(out, rule.NewRule(r.Kind(), r.Name()))
+		}
+	}
+	return out
 }

@@ -19,6 +19,7 @@ ts_test(
     ],
     config = "//tests/workers_nested:vitest_config",
     coverage_provider = "istanbul",
+    node_modules = "//tests/workers:node_modules",
     tsconfig = "//tests/workers_nested:worker_tsconfig",
     wrangler_config = "//tests/workers_nested:wrangler.jsonc",
     deps = [
@@ -39,6 +40,7 @@ ts_test(
     name = "data_shadow",
     srcs = ["data_shadow.test.ts"],
     data = ["//tests/workers_nested:wrangler.jsonc"],
+    node_modules = "//tests/workers:node_modules",
     tags = ["manual"],
     wrangler_config = "//tests/workers_nested:wrangler.jsonc",
     deps = ["@npm_workers//:cloudflare_vitest-pool-workers"],

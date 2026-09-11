@@ -30,7 +30,7 @@ ts_binary(
 | `sourcemap` | `bool` | `True` | Emit source map |
 | `external` | `string_list` | `[]` | Module specifiers to leave external |
 | `define` | `string_dict` | `{}` | Global constant replacements |
-| `node_modules` | `label` | `None` | `node_modules` target for packages the program needs at runtime |
+| `node_modules` | `label` | `None` | The importer's [`node_modules`](node-modules.md) target: its links and store trees are runfiles and the directory is on `NODE_PATH` |
 
 ## A JavaScript File as the Entry Point
 

@@ -21,12 +21,11 @@ ts_compile(
     deps = ["//tests/dev_server/lib"],
 )
 
-# One tree for every dev server here, and it has to be named "node_modules":
-# a package inside it resolves its own dependencies by Node's up-walk, which only
-# looks in directories of that name. @vitejs/plugin-react reaching react-refresh
-# is exactly that, and a tree named anything else silently loses Fast Refresh.
+# One node_modules for every dev server here.
+# keep
 node_modules(
     name = "node_modules",
+    hoist = "//tests/npm:node_modules/.pnpm/node_modules",
     deps = [
         "@npm//:vite",
         "@npm//:vitejs_plugin-react",

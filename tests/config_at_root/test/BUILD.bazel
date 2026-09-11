@@ -5,5 +5,6 @@ ts_test(
     srcs = ["answer.test.ts"],
     config = "//tests/config_at_root:vitest_config",
     data = ["setup.mjs"],
+    node_modules = "//tests/npm:node_modules",
     deps = ["@npm//:vitest"],
 )

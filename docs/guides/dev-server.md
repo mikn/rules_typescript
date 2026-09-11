@@ -29,6 +29,7 @@ node_modules(
         "@npm//:vite",
         # every npm package the app imports, too — see below
     ],
+    hoist = "//:node_modules/.pnpm/node_modules",
 )
 
 ts_dev_server(
@@ -59,9 +60,8 @@ http://localhost:5173/src/app/          # the package holding index.html
 `ts_dev_server` takes a `DevServerInfo`, and the implementation is a per-target
 choice: `server` names any rule returning the provider, and the launcher hands
 it the same generated config. A server shipping as an npm package sets
-`server_in_tree` (a path inside the `node_modules` tree, since a file inside a
-TreeArtifact has no label at analysis time); a native binary sets
-`server_binary`. Exactly one. A field a server declares it does not read is an
+`server_in_tree` (a path under the importer's `node_modules`, reached through
+the package's link); a native binary sets `server_binary`. Exactly one. A field a server declares it does not read is an
 analysis-time error on a target that sets the attr reaching it, naming both, so
 switching implementations cannot silently drop a setting. The provider is not
 exported from `@rules_typescript//ts:defs.bzl`: it loads from
@@ -76,7 +76,7 @@ fields, with the values the shipped Vite server returns for each, are in
 |---|---|---|
 | first-party `.ts` | Bazel compiles it; the bundler reads `bazel-bin` | served as source, transformed by the server in memory |
 | `ts_codegen` output | from `bazel-bin` | from `bazel-bin` |
-| npm packages | the `node_modules` tree | the `node_modules` tree, linked in at the workspace root |
+| npm packages | the importer's `node_modules` | the importer's `node_modules`, linked in at the workspace root |
 | assets, data srcs, passthrough `.d.ts` | from `bazel-bin` | from `bazel-bin` |
 
 Generated code is recognised by the absence of a checked-in source file.
@@ -85,12 +85,13 @@ Generated code is recognised by the absence of a checked-in source file.
 
 Vite has no search-path option: it resolves `import "zod"` by walking up from the
 importer looking for a `node_modules` directory, and above a checked-in source
-file there is none; the npm tree is a Bazel output elsewhere. (`resolve.modules`
-is a webpack option; Vite ignores it.)
+file there is none; the importer's `node_modules` is a Bazel output elsewhere.
+(`resolve.modules` is a webpack option; Vite ignores it.)
 
-The launcher links the tree in as `<workspace>/node_modules` when the dev server
-starts, and removes the link on Ctrl-C. Every resolver then finds the packages
-by that walk, including the two no plugin reaches:
+The launcher links that directory in as `<workspace>/node_modules` when the dev
+server starts, and removes the link on Ctrl-C. Every resolver then finds the
+packages by that walk, and a package's own imports from its realpath in the
+store, including the two no plugin reaches:
 
 - **SSR externalisation.** Whether a package is external is decided on the raw
   specifier before the plugin container sees it. A package that does not resolve
@@ -102,23 +103,23 @@ by that walk, including the two no plugin reaches:
   CJS here.
 
 An existing `node_modules` is never replaced. A real directory (a `pnpm install`)
-or a link to a different tree stops the dev server with a message naming it. Two
-npm trees cannot both be at the workspace root, so two dev servers using
-different `node_modules()` targets cannot run at once.
+or a link to a different directory stops the dev server with a message naming
+it. Two importers' `node_modules` cannot both be at the workspace root, so two
+dev servers using different `node_modules()` targets cannot run at once.
 
 Add `node_modules` to `.gitignore` without a trailing slash: `node_modules/`
 matches a directory, and this is a symlink.
 
 A plugin, `bazel:npm-resolve`, stays behind it at `enforce: 'post'` as a
-fallback: it locates `<tree>/<package>/package.json` and hands the id back to the
-resolver anchored there, for an importer the walk cannot reach and for a server
-that does no walk of its own. Exports maps, conditions and subpaths stay the
-resolver's either way, so `import "zod/v4"` and a conditional `exports` behave in
-dev as they do in a build.
+fallback: it locates `<node_modules>/<package>/package.json` and hands the id
+back to the resolver anchored there, for an importer the walk cannot reach and
+for a server that does no walk of its own. Exports maps, conditions and subpaths
+stay the resolver's either way, so `import "zod/v4"` and a conditional `exports`
+behave in dev as they do in a build.
 
-A package the tree does not carry produces Vite's `Failed to resolve import` at
-the moment the browser asks for the module; add it to the `node_modules` target's
-`deps`.
+A package the importer does not link produces Vite's `Failed to resolve import`
+at the moment the browser asks for the module; add it to the `node_modules`
+target's `deps`.
 
 ## Type Checking
 
@@ -158,6 +159,7 @@ node_modules(
         "@npm//:vite",
         "@npm//:vitejs_plugin-react",
     ],
+    hoist = "//:node_modules/.pnpm/node_modules",
 )
 
 ts_dev_server(

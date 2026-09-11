@@ -13,12 +13,35 @@ Run `bazel build //... --output_groups=+_validation` to type-check with tsgo.
 """
 
 load("@gazelle//:def.bzl", "gazelle")
+load("@npm//:defs.bzl", "npm_virtual_store")
+load("@rules_typescript//npm:defs.bzl", "node_modules")
 load("@rules_typescript//ts:defs.bzl", "ts_binary")
 
 # Run "bazel run //:gazelle" to auto-generate BUILD files.
 gazelle(
     name = "gazelle",
     gazelle = "@rules_typescript//gazelle:gazelle_typescript",
+)
+
+npm_virtual_store(name = "node_modules/.pnpm")
+
+# The root importer: the chain every target here resolves its npm deps through.
+node_modules(
+    name = "node_modules",
+    hoist = ":node_modules/.pnpm/node_modules",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@npm//:happy-dom",
+        "@npm//:react",
+        "@npm//:react-dom",
+        "@npm//:testing-library_dom",
+        "@npm//:testing-library_react",
+        "@npm//:types_react",
+        "@npm//:types_react-dom",
+        "@npm//:vite",
+        "@npm//:vitest",
+        "@npm//:zod",
+    ],
 )
 
 # Bundle the application entry point into a single ESM file.

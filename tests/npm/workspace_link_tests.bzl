@@ -1,5 +1,6 @@
 """The hub's view of a `link:` member: the one target it names, what it writes
-when the member's BUILD file declares none, and what the view carries."""
+when the member's BUILD file declares none, and what the view carries. The
+tree the member's store stages is tests/npm/store_tests.bzl's."""
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
 load("//npm/private:npm_import.bzl", "link_block", "link_target_label")
@@ -62,17 +63,23 @@ def _link_target_label_test(ctx):
         asserts.equals(
             env,
             case.expected,
-            link_target_label(case.member, _reader(case.build_files)),
+            link_target_label(case.member, _reader(case.build_files), ""),
             case.shape,
         )
     return unittest.end(env)
 
 _MEMBERS = {"no-target-member": "no-target-member|packages/no-target-member"}
 _MANIFEST = '{"name":"no-target-member","type":"module"}'
+_LOCK = struct(repo = "", package = "tests/npm")
 
 def _unresolved_link_block_test(ctx):
     env = unittest.begin(ctx)
-    lines = link_block(_MEMBERS, {"packages/no-target-member": None}, {"no-target-member": _MANIFEST})
+    lines = link_block(
+        _MEMBERS,
+        {"packages/no-target-member": None},
+        {"no-target-member": _MANIFEST},
+        _LOCK,
+    )
 
     asserts.equals(
         env,
@@ -93,7 +100,12 @@ def _unresolved_link_block_test(ctx):
         "every consumer of the hub",
     )
 
-    unmanifested = link_block(_MEMBERS, {"packages/no-target-member": "@@//packages/x:x"}, {})
+    unmanifested = link_block(
+        _MEMBERS,
+        {"packages/no-target-member": "@@//packages/x:x"},
+        {},
+        _LOCK,
+    )
     asserts.equals(
         env,
         1,
@@ -104,10 +116,15 @@ def _unresolved_link_block_test(ctx):
         env,
         [],
         [line for line in unmanifested if line and not line.startswith("#")],
-        "and gets no target: the view carries the manifest, so there is nothing to write",
+        "and gets no target: a member is the package its manifest names",
     )
 
-    resolved = link_block(_MEMBERS, {"packages/no-target-member": "@@//packages/x:x"}, {"no-target-member": _MANIFEST})
+    resolved = link_block(
+        _MEMBERS,
+        {"packages/no-target-member": "@@//packages/x:x"},
+        {"no-target-member": _MANIFEST},
+        _LOCK,
+    )
     asserts.equals(
         env,
         [
@@ -116,7 +133,8 @@ def _unresolved_link_block_test(ctx):
             '    package_name = "no-target-member",',
             '    member_dir = "packages/no-target-member",',
             '    target = "@@//packages/x:x",',
-            "    manifest_json = " + json.encode(_MANIFEST) + ",",
+            '    store = "@@//tests/npm:node_modules/.pnpm/' +
+            'no-target-member@0.0.0/node_modules/no-target-member",',
             ")",
             "",
         ],
@@ -126,29 +144,16 @@ def _unresolved_link_block_test(ctx):
     )
     return unittest.end(env)
 
-def _view_manifest(env):
-    for action in analysistest.target_actions(env):
-        outputs = action.outputs.to_list()
-        if len(outputs) == 1 and outputs[0].basename == "package.json":
-            return json.decode(action.content)
-    return None
-
 def _member_view_impl(ctx):
     env = analysistest.begin(ctx)
-    manifest = _view_manifest(env)
-    asserts.true(env, manifest != None, "the view writes no package.json")
-    if manifest != None:
-        asserts.equals(env, "shared", manifest.get("name"), "the member's own name")
-        asserts.equals(env, "module", manifest.get("type"), "the emitted .js is ESM")
-        asserts.equals(
-            env,
-            {".": "./src/index.js", "./wire": "./src/wire/index.js"},
-            manifest.get("exports"),
-            "every source-file target in exports names the emitted file: " + str(manifest.get("exports")),
-        )
-
     info = analysistest.target_under_test(env)[NpmPackageInfo]
     asserts.equals(env, "shared", info.package_name, "the name the lockfile links the member by")
+    asserts.equals(
+        env,
+        "shared@0.0.0",
+        info.store.key,
+        "the view names the member's store tree",
+    )
     asserts.true(
         env,
         info.package_root.endswith("/packages/shared"),
@@ -159,7 +164,7 @@ def _member_view_impl(ctx):
     asserts.equals(
         env,
         [
-            "package.json",
+            "shared.package.json",
             "src/banner.json",
             "src/index.d.ts",
             "src/index.js",
@@ -173,9 +178,9 @@ def _member_view_impl(ctx):
             f.path[len(root):] if f.path.startswith(root) else f.basename
             for f in info.all_files.to_list()
         ]),
-        "the link holds the manifest, the member's .js and .d.ts at the " +
-        "paths the manifest names, and its data srcs at their " +
-        "package-relative paths, the member's own package.json excepted",
+        "the view holds the member's .js and .d.ts at the paths the manifest " +
+        "names and its data srcs at their package-relative paths, the " +
+        "manifest as built in place of the package.json src",
     )
     return analysistest.end(env)
 

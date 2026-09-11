@@ -1,6 +1,7 @@
 """Root BUILD file for the npm_deps integration test workspace."""
 
 load("@gazelle//:def.bzl", "gazelle")
+load("@npm//:defs.bzl", "npm_virtual_store")
 load("@rules_typescript//ts:defs.bzl", "ts_compile", "ts_pnpm")
 
 # gazelle:exclude lint_fixture
@@ -9,6 +10,8 @@ gazelle(
     name = "gazelle",
     gazelle = "@rules_typescript//gazelle:gazelle_typescript",
 )
+
+npm_virtual_store(name = "node_modules/.pnpm")
 
 # The runner installs node_modules with it before Gazelle lists the program.
 ts_pnpm(name = "pnpm")

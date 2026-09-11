@@ -72,7 +72,8 @@ ts_compile → TsConfig action (<name>.tsconfig.json + <name>.options.json from
            → TsgoDeclare action (.d.ts; the default)
              or TsgoCheck validation action (.tscheck stamp in _validation; under oxc)
            the tsgo runs are from a program root mirroring the exec root
-           with the target's node_modules forest at node_modules; the check
+           with each importer's node_modules at the importer's directory,
+           the chain `node_modules` names; the check
            adds --explainFiles and fails an edge from a src into a file a
            label outside deps owns (the <name>.ownership manifest names the
            owner)
@@ -94,20 +95,20 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
 - `ts/defs.bzl` — public API (all rules, providers, macros)
 - `ts/private/rules/ts_compile.bzl` — the `ts_compile` rule and
   `TS_COMPILE_ATTRS`; `ts/private/actions/` — one action per file (`tsconfig`,
-  `oxc`, `tsgo`, `forest`, `lint`), the functions the rule calls
-  in that order; `lint.bzl` also holds `lint_config` and the repository rule
+  `emit`, `tsgo`, `lint`, `vitest`, `workers_pool`), the functions the rules
+  call in that order; `lint.bzl` also holds `lint_config` and the repository rule
   `ts.lint()` writes
 - `ts/tools/tsaction/` — the Go runner behind the actions: `tsconfig` writes the action config from `tsgo --showConfig`, `oxc` relays the options to oxc, `tsgo` lays out the program root, runs tsgo from it and checks the listing's edges against the ownership manifest
 - `ts/tools/explainfiles/`, `ts/tools/tsconfig/`, `ts/tools/jsonc/` — the
   `--explainFiles` grammar, the tsconfig `extends` chain reader and the JSONC
   parser, shared by tsaction and Gazelle
-- `ts/private/node_modules.bzl` — the `node_modules` tree builder; `ts_compile`'s forest and `ts_test`'s runtime tree
-- `ts/private/providers.bzl` — TsInfo, TsTestRunnerInfo, TsConfigInfo, NpmPackageInfo, DevServerInfo, BundlerInfo
+- `ts/private/node_modules.bzl` — `node_modules` and `node_modules_member`, an importer's links into the store: the chain `ts_compile` and `ts_test` resolve a direct npm dep along
+- `ts/private/providers.bzl` — TsInfo, TsTestRunnerInfo, TsConfigInfo, NpmPackageInfo, DevServerInfo, BundlerInfo, NodeModulesInfo, NpmHoistInfo, NpmLinkInfo
 - `npm/private/npm_translate_lock.bzl` — pnpm lockfile reader (parsing only; no repository rule)
 - `npm/extensions.bzl` — the `npm` module extension (translate_lock, pnpm tags)
 - `npm/lazy.bzl` — whole-graph analysis + one `npm_import` per package + the alias hub
 - `npm/private/npm_import.bzl` — the per-package repository rule and `npm_hub`
-- `npm/private/workspace_package.bzl`, `npm/private/member_manifest.bzl` — the hub's view of a workspace member and the manifest rewrite it links
+- `npm/private/workspace_package.bzl` — the hub's view of a workspace member
 - `npm/private/npmrc_auth.bzl` — the credentials an `.npmrc` grants a fetch; loaded by `npm_import` and the tsgo toolchain's repository rule
 - `ts/private/pnpm.bzl` — hermetic pnpm download + `ts_pnpm`/`ts_add_package` macros
 - `ts/private/tsgo_lock.bzl` — which compiler a pnpm lockfile pins, the reader behind `ts.tsgo(pnpm_lock = ...)`; `ts/private/tsgo/pnpm-lock.yaml` is the default
@@ -164,8 +165,9 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
   whose `tsconfig.json` lists a first-party file, its program is that listing,
   and its deps come from the listing's edges, the lockfile and the nearest
   `package.json`
-- A `ts_test` runs in the forest its `deps` build: the npm deps in `deps` and
-  each `ts_compile` dep's npm closure (`TsInfo.npm_packages`)
+- A `ts_test` runs in the importer chain its `node_modules` names: its npm
+  deps resolve to the chain's links, and each `ts_compile` dep's store files
+  come along (`TsInfo.npm_files`)
 - Register new rules in `Kinds()` + `Loads()`
 - `bazel run //gazelle -- -mode=diff` on a clean tree must print nothing. A
   fixture that differs only in Gazelle's own rendering (a one-element list
@@ -212,8 +214,10 @@ last two. `_validation` holds the tsgo check stamp under
 `--//ts:declarations=oxc` (under the default the declarations are the proof)
 and the `TsLint` stamp when the root module's `ts.lint()` names a linter.
 Every `ts_npm_package` provides: `TsInfo`, naming its closure in
-`npm_packages` and nothing by path, + `NpmPackageInfo` (whose `direct_deps`
-carries the per-dependent resolution the `node_modules` links are built from).
+`npm_packages` and nothing by path, + `NpmPackageInfo` (whose `store` is the
+snapshot's tree and the links beside it); a consumer reaches the package
+through the chain its `node_modules` names, and its `TsInfo.npm_files` carries
+the store files its action stages.
 A data src of a `ts_compile` -- a `.css`, an image, a `.json` -- travels in
 `TsInfo.transitive_data`, which `ts_test`, `ts_binary` and
 `ts_dev_server` stage beside the `.js`; a `*.module.css` is Vite's own CSS
@@ -234,9 +238,10 @@ can make about itself: platform filtering, which package a bare label means
 naming, patch routing. Each package then reads its own `package.json` and writes
 its own BUILD file, which is what makes on-demand fetching possible. The tarball
 is extracted under `node_modules/<name>/` inside the repository, the segment
-TypeScript reads to classify a file under it as a library file; the forest links
-each package at `node_modules/<name>` from `NpmPackageInfo.package_name` and
-`package_root`, so nothing else spells the layout.
+TypeScript reads to classify a file under it as a library file; an importer's
+`node_modules` links each package at `node_modules/<name>` into its store tree
+from `NpmPackageInfo.package_name` and `store`, so nothing else spells the
+layout.
 
 Handled: scoped packages, `@types` pairing, multiple versions with
 version-suffixed labels, bin scripts (fixed `:bin` alias per package, since the
@@ -267,16 +272,17 @@ the bare name to it.
 
 A package's `exports`, `types`, `typings`, `main` and the `/// <reference
 types>` headers of its declarations are read by nothing here: tsgo and node read
-the manifest where the forest links it, as they do over an install, and
-`NpmPackageInfo` carries no entry point. The one manifest the rules write is a
-workspace member's: the hub's `npm_workspace_package` view rewrites, at
-analysis, every source-file target under `main`, `module`, `browser`, `exports`
-and `imports` to the emitted `.js` (the `.jsx` for a `.tsx` under the compiling
-target's declared `jsx: preserve`) and every `types` target to the `.d.ts`, key
-order kept (Bazel's `json.encode` sorts keys, and an `exports` condition map is
-read in the order it is written), and links it at `node_modules/<name>`
-(`npm/private/member_manifest.bzl`). `tests/npm/member_manifest_tests.bzl` is
-the table.
+the manifest where the importer's link leads, as they do over an install, and
+`NpmPackageInfo` carries no entry point. The one manifest the rules write is
+the `package.json` at a `ts_compile`'s package root as built, `<name>.package.json`
+beside the src staged as written: `tsaction manifest`
+(`ts/tools/tsaction/manifest.go`) rewrites every source-file target under
+`main`, `module`, `browser`, `exports` and `imports` to the emitted `.js` (the
+`.jsx` for a `.tsx` under the target's declared `jsx: preserve`) and every
+`types` target to the `.d.ts`, key order kept (an `exports` condition map is
+read in the order it is written); the member's store tree copies it as its
+`package.json`, and a dependent's program root lays it at the member's path. A
+test's runfiles hold the src as written. `manifest_test.go` is the table.
 
 ## Dev Server Generated Config
 
@@ -322,7 +328,7 @@ carries most of it: `tests/vitest/**`, `tests/dev_server/**` and `vite/tests/**`
 (vite-plugin-bazel's own tests). The integration workspaces that import npm
 (`tests/integration/gazelle_roundtrip`, `npm_deps`, `lsp`) carry their own
 lockfiles, translated by the nested Bazel: the first two resolve the same 8.2.2
-and 4.1.11, `lsp`'s resolves neither tool. `@npm_features` (`tests/npm/pnpm-lock-features.yaml`, declared
+and 4.1.11, `lsp`'s resolves neither tool. `@npm_features` (`tests/npm/features/pnpm-lock.yaml`, declared
 `dev_dependency`) is the pnpm patch/alias/peer-variant fixture and resolves
 neither tool; `@npm_esbuild` (`vite/esbuild/pnpm-lock.yaml`) holds the esbuild
 that bundles `vite-plugin-bazel` and resolves neither either. The per-hub table is in
@@ -353,7 +359,7 @@ what it wrote. Writing one is vitest's own `vitest -u` in the package.
 ## Anti-Patterns
 
 - Don't add Python dependencies. All codegen uses awk or Starlark `json.decode()`.
-- Don't generate bash scripts for Windows compatibility paths. Use Node.js via the runtime toolchain, or the Go launcher for anything runnable. Runners are Go now; what is left is the `node_modules` bash fallback. Don't add to that set.
+- Don't generate bash scripts for Windows compatibility paths. Use Node.js via the runtime toolchain, or the Go launcher for anything runnable. Runners and the store copier are Go; no build action runs a shell.
 - Don't create separate `_check` targets. Use `_validation` output group on the compile target.
 - Don't assume `@npm` is the only repo name. Support custom names via the npm extension.
 - Don't push directly to main. Use PRs.
@@ -378,8 +384,8 @@ what it wrote. Writing one is vitest's own `vitest -u` in the package.
   subdirectory): "resolve this specifier" is a per-target fact on the build and
   a workspace-wide one in the editor. The map names first-party packages only;
   npm resolves through the checkout's `node_modules` in the editor and through
-  the target's forest in the build, one resolver for both.
-- **Silence in a metadata map is not an answer.** The entry reader the rules once had read `exports["."]` and stopped, so a string-valued entry with no `types` key (most of npm, and every `@types/*` package) resolved to nothing and a `paths` entry pointed at a directory. The reader is gone; tsgo reads the map in the forest, and the lesson stands for any map a rule still reads.
+  the target's importer chain in the build, one resolver for both.
+- **Silence in a metadata map is not an answer.** The entry reader the rules once had read `exports["."]` and stopped, so a string-valued entry with no `types` key (most of npm, and every `@types/*` package) resolved to nothing and a `paths` entry pointed at a directory. The reader is gone; tsgo reads the map in the store, and the lesson stands for any map a rule still reads.
 - **A real version bump is a test.** Only moving `@npm` to Vite 8 / vitest 4 fired `test.workspace`, the react entry point and the declaration-entry fallback. Two hubs on two majors looked like coverage of exactly that and supplied none of it.
 - **esbuild reads the workspace `tsconfig.json`.** `srcs` reach the sandbox as
   symlinks, so esbuild walks up from the entry point's real path, finds the
@@ -392,9 +398,10 @@ what it wrote. Writing one is vitest's own `vitest -u` in the package.
   root module's `translate_lock` priority for every hub name, so none is
   privileged: a ruleset-internal target naming `@npm//:x` resolves into whatever
   lockfile the consumer registered, and the `dev_dependency` hubs do not exist
-  for a consumer at all. `//vite:esbuild_node_modules` named `@npm//:esbuild`,
+  for a consumer at all. `//vite:node_modules` named `@npm//:esbuild`,
   and it feeds `//vite:vite_plugin_bazel`, which `ts_dev_server` takes through
   its `plugin` attr. `plugin` has no default, and no workspace here
   set it, so nothing had reached the label and no build had failed. The `@npm`
-  labels still in `//vite` are unreached, not sanctioned. One tree pins the
-  rule, `//vite:esbuild_node_modules`, declared in `tests/npm/BUILD.bazel`.
+  labels still in `//vite` are unreached, not sanctioned. One test pins the
+  rule, `//tests/npm:vite_plugin_hub_test`, over the store `//vite:node_modules`
+  links into.

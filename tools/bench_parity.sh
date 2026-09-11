@@ -6,6 +6,8 @@ usage() {
   echo "  BAZEL (default bazelisk); LOCAL_TEST_JOBS (unset: Bazel's own)" >&2
   echo "  EXCLUDE: a file, one '<ts_test label>|<CI row, worker dir or" >&2
   echo "    ->|<why>' per line, left out of the test-everything cells" >&2
+  echo "  EXCLUDE_BUILD: the same shape for targets red at the proof's" >&2
+  echo "    build, left out of every //... cell on both lanes" >&2
   echo "  OTHER_CORES (default 2): a cell starts once other processes' CPU" >&2
   echo "    is under it over 3 s; a cell during which it averaged more is" >&2
   echo "    redone with its segment, REDO (default 3) attempts before the" >&2
@@ -21,6 +23,7 @@ LOGS="$3"
 RUNS="${4:-3}"
 BAZEL="${BAZEL:-bazelisk}"
 EXCLUDE="${EXCLUDE:-}"
+EXCLUDE_BUILD="${EXCLUDE_BUILD:-}"
 OTHER_CORES="${OTHER_CORES:-2}"
 REDO="${REDO:-3}"
 SYSTEM_PROCS="${SYSTEM_PROCS:-}"
@@ -34,13 +37,14 @@ LEAF=workers/download
 LEAF_EDIT=$LEAF/src/index.ts
 EDIT_LINE=';'
 
-EXCL_LABELS=""
-EXCL_ROWS=""
-if [ -n "$EXCLUDE" ]; then
-  [ -f "$EXCLUDE" ] || { echo "EXCLUDE=$EXCLUDE is not a file" >&2; exit 2; }
-  EXCL_LABELS="$(cut -d'|' -f1 "$EXCLUDE")"
-  EXCL_ROWS="$(cut -d'|' -f2 "$EXCLUDE" | grep -v '^-$')"
-fi
+for f in EXCLUDE EXCLUDE_BUILD; do
+  [ -z "${!f}" ] || [ -f "${!f}" ] ||
+    { echo "$f=${!f} is not a file" >&2; exit 2; }
+done
+field() { [ -n "$1" ] && cut -d'|' -f"$2" "$1"; }
+EXCL_LABELS="$(field "$EXCLUDE" 1)"
+BUILD_LABELS="$(field "$EXCLUDE_BUILD" 1)"
+EXCL_ROWS="$({ field "$EXCLUDE" 2; field "$EXCLUDE_BUILD" 2; } | grep -v '^-$')"
 
 CF_WORKERS='web-proxy proxy-worker2 browser-worker entri-webhook
 project-redirect-worker o11y-tail-worker dwl-logs-tail-worker
@@ -160,11 +164,13 @@ wait_quiet() {
   printf 'other work %s cores over 3 s; waited %ss for under %s' \
     "$c" "$(( $(date +%s) - t0 ))" "$OTHER_CORES"
 }
-excluded_negatives() {
+negatives() {
   local l
-  for l in $EXCL_LABELS; do echo "-$l"; done
+  for l in $1; do echo "-$l"; done
 }
-test_universe() { echo '//...'; excluded_negatives; }
+excluded_negatives() { negatives "$EXCL_LABELS"; }
+build_universe() { echo '//...'; negatives "$BUILD_LABELS"; }
+test_universe() { echo '//...'; excluded_negatives; negatives "$BUILD_LABELS"; }
 excluded_row() {
   local r
   for r in $EXCL_ROWS; do [ "$r" = "$1" ] && return 0; done
@@ -328,12 +334,13 @@ check_lane() {
   note="cold: fresh output base, empty disk cache; $TYPECHECK's outputs removed"
   checkout_cell cold-check-checkout "$n" "$note" no "$(typecheck_script)" ||
     return 1
-  bazel_cell cold-check-bazel "$n" "$note" "$COB" "$CDC" build //... ||
-    return 1
+  bazel_cell cold-check-bazel "$n" "$note" "$COB" "$CDC" \
+    build $(build_universe) || return 1
   note="warm: the cold row's output base and disk cache, nothing changed"
   checkout_cell warm-check-checkout "$n" "$note" no "$(typecheck_script)" ||
     return 1
-  bazel_cell warm-check-bazel "$n" "$note" "$COB" "$CDC" build //...
+  bazel_cell warm-check-bazel "$n" "$note" "$COB" "$CDC" \
+    build $(build_universe)
 }
 
 test_lane() {
@@ -406,14 +413,26 @@ cached() {
   local note="remote-cache-shaped: fresh output base, the cold row's disk cache"
   shutdown_ob "$XOB-check"; shutdown_ob "$XOB-test"
   bazel_cell cached-check-bazel "$n" "$note" "$XOB-check" "$CDC" \
-    build //... || return 1
+    build $(build_universe) || return 1
   bazel_cell cached-test-bazel "$n" "$note" "$XOB-test" "$TDC" \
     test $(test_universe)
 }
 
 median() { sort -n | awk '{a[NR]=$1} END{print a[int((NR+1)/2)]}'; }
+exclusions_table() {
+  local l r w
+  [ -n "$1" ] || return 0
+  echo
+  echo "$2 ($1):"
+  echo
+  echo "| target | checkout row dropped | why |"
+  echo "|---|---|---|"
+  while IFS='|' read -r l r w; do
+    [ -n "$l" ] && echo "| \`$l\` | $r | $w |"
+  done < "$1"
+}
 summary() {
-  local out="$LOGS/summary.md" c logs walls med exits mlog info l r w
+  local out="$LOGS/summary.md" c logs walls med exits mlog info
   {
     echo "| cell | runs | median s | min s | max s | exits |" \
       "median run's other work (cores) | median run's bazel lines |"
@@ -433,16 +452,8 @@ summary() {
         "$(echo "$walls" | sort -n | tail -1) | $exits |" \
         "$(sed -n 's/^# cpu .*others_cores=//p' "$mlog") | $info |"
     done
-    if [ -n "$EXCLUDE" ]; then
-      echo
-      echo "Left out of the test-everything cells ($EXCLUDE):"
-      echo
-      echo "| ts_test target | checkout row dropped | why |"
-      echo "|---|---|---|"
-      while IFS='|' read -r l r w; do
-        [ -n "$l" ] && echo "| \`$l\` | $r | $w |"
-      done < "$EXCLUDE"
-    fi
+    exclusions_table "$EXCLUDE" "Left out of the test-everything cells"
+    exclusions_table "$EXCLUDE_BUILD" 'Left out of every `//...` cell'
   } > "$out"
   cat "$out"
 }
@@ -459,7 +470,8 @@ BAZEL_VER="$(cd "$CHECKOUT" &&
 TOOLS="$(tool_versions)"
 echo "# $(now) load $(load) runs=$RUNS" \
   "local_test_jobs=${LOCAL_TEST_JOBS:-default} other_cores=$OTHER_CORES" \
-  "redo=$REDO system_procs=${SYSTEM_PROCS:-none} exclude=${EXCLUDE:-none}"
+  "redo=$REDO system_procs=${SYSTEM_PROCS:-none} exclude=${EXCLUDE:-none}" \
+  "exclude_build=${EXCLUDE_BUILD:-none}"
 for n in $(seq 1 "$RUNS"); do
   lanes "$n"
   all_complete "$n" "$COLD $WARM $EDIT $CACHED" && continue

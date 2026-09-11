@@ -2,6 +2,7 @@
 
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@gazelle//:def.bzl", "gazelle")
+load("@npm//:defs.bzl", "npm_virtual_store")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("@rules_typescript//ts:defs.bzl", "ts_pnpm")
 
@@ -9,6 +10,8 @@ gazelle(
     name = "gazelle",
     gazelle = "@rules_typescript//gazelle:gazelle_typescript",
 )
+
+npm_virtual_store(name = "node_modules/.pnpm")
 
 # The runner installs node_modules with it before the first Gazelle pass: the
 # listing must run over the tree the build will check.
@@ -36,8 +39,7 @@ sh_binary(
     visibility = ["//visibility:public"],
 )
 
-# The generator the runner's worker/ ts_codegen names once the checked-in
-# declaration is deleted: wrangler's job on the fixture's own terms.
+# The generator the runner's worker/ ts_codegen names.
 sh_binary(
     name = "env_types_gen",
     srcs = ["tools/env_types_gen.sh"],

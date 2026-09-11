@@ -10,5 +10,6 @@ ts_test(
     name = "config_include_test",
     srcs = ["include.test.ts"],
     config = "vitest.config.mjs",
+    node_modules = "//tests/npm:node_modules",
     deps = ["@npm//:vitest"],
 )

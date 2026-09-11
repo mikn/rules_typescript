@@ -29,7 +29,8 @@ func TestWrittenConfigNamesNoPackage(t *testing.T) {
 		tree.File("tests/npm/" + c.target + ".tsconfig.json").JSON(&config)
 		opts := config.CompilerOptions
 		if _, ok := opts["paths"]; ok {
-			t.Errorf("%s: compilerOptions.paths = %v, want none: the forest answers every bare specifier", c.target, opts["paths"])
+			t.Errorf("%s: compilerOptions.paths = %v, want none: the chain "+
+				"answers every bare specifier", c.target, opts["paths"])
 		}
 		if _, ok := opts["typeRoots"]; ok {
 			t.Errorf("%s: compilerOptions.typeRoots = %v, want unset", c.target, opts["typeRoots"])
@@ -42,8 +43,9 @@ func TestWrittenConfigNamesNoPackage(t *testing.T) {
 		if !reflect.DeepEqual(types, c.types) {
 			t.Errorf("%s: compilerOptions.types = %v, want %v", c.target, types, c.types)
 		}
-		if opts["preserveSymlinks"] != true {
-			t.Errorf("%s: preserveSymlinks = %v, want true", c.target, opts["preserveSymlinks"])
+		if _, ok := opts["preserveSymlinks"]; ok {
+			t.Errorf("%s: preserveSymlinks = %v, want unset: "+
+				"a package resolves at its realpath", c.target, opts["preserveSymlinks"])
 		}
 		if len(config.Files) != 0 {
 			t.Errorf("%s: files = %v, want []: a global reaches the program through `types`", c.target, config.Files)

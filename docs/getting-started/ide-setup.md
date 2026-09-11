@@ -238,7 +238,7 @@ hub's view of the member.
 
 The generated config names no npm package. TypeScript resolves a bare specifier
 by walking the checkout's `node_modules` from the importing file, as tsgo walks
-the forest a build stages, so `pnpm install` is the editor's npm setup: the tree
+the importer chain a build stages, so `pnpm install` is the editor's npm setup: the tree
 it installs is the lockfile's, which is what the build resolves too. A
 `@types/*` package, an `exports` subpath and a `types` entry naming a package
 resolve the same way. A package your targets declare and the checkout does not
@@ -311,14 +311,16 @@ The checked-in `tsconfig.json` does not change either. It stays what
 ## Ambient Types in the Editor
 
 The editor is more permissive than the build in one place. `ts_compile` writes
-`types` for every program -- the tsconfig's entries, or the direct `@types/*`
-deps' names when it sets none -- so a global reaches a target because that
-target asked for it. The editor's root program has one `compilerOptions` block
-for the whole workspace and no `types` key, so TypeScript includes every
+`types` from the tsconfig's entries or, when it sets neither `types` nor
+`typeRoots`, from the direct `@types/*` deps' names, and a tsconfig that sets
+`typeRoots` admits what those roots hold, so a global reaches a target because
+that target asked for it. The editor's root program has one `compilerOptions`
+block for the whole workspace and no `types` key, so TypeScript includes every
 `@types/*` package under the root `node_modules/@types`. A file using `process`
 type-checks in the editor as soon as `@types/node` is installed, and then fails
-`bazel build` with `TS2304` until the target's tsconfig names `node` in `types`
-or `@types/node` is among its direct deps.
+`bazel build` with `TS2304` until the target asks for it: `node` in its
+tsconfig's `types`, or `@types/node` among its direct deps when the tsconfig
+sets neither `types` nor `typeRoots`.
 
 Narrowing that per target would need a tsconfig per target, and a package only
 gets its own program when its targets name one

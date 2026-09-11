@@ -1,0 +1,19 @@
+load("//npm:defs.bzl", "node_modules")
+load("//tests/npm:node_modules_tests.bzl", "linked_twice_test")
+
+# Both versions of one name declared, which is one link name twice.
+# keep
+node_modules(
+    name = "node_modules",
+    hoist = "//tests/npm:node_modules/.pnpm/node_modules",
+    tags = ["manual"],
+    deps = [
+        "@npm//:minimatch",
+        "@npm//:minimatch_9_0_9",
+    ],
+)
+
+linked_twice_test(
+    name = "linked_twice_test",
+    target_under_test = ":node_modules",
+)

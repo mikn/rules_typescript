@@ -6,12 +6,6 @@ package(default_visibility = ["//:__pkg__"])
 
 # gazelle:exclude *_test.go
 
-# @npm_tailwind is translated from these; nothing in this package builds them.
-exports_files([
-    "package.json",
-    "pnpm-lock.yaml",
-])
-
 ts_compile(
     name = "entry",
     srcs = [
@@ -24,8 +18,10 @@ ts_compile(
 # @tailwindcss/vite reaches tailwindcss and @tailwindcss/oxide by bare specifier
 # from the staged config, so all three have to be in the tree the server runs
 # beside -- the platform-specific oxide binary included.
+# keep
 node_modules(
     name = "node_modules",
+    hoist = "//tests/tailwind/lock:node_modules/.pnpm/node_modules",
     deps = [
         "@npm_tailwind//:tailwindcss",
         "@npm_tailwind//:tailwindcss_vite",
@@ -37,6 +33,7 @@ node_modules(
 ts_compile(
     name = "tailwind_config",
     srcs = ["tailwind_config.ts"],
+    node_modules = ":node_modules",
     deps = [
         "@npm_tailwind//:tailwindcss_vite",
         "@npm_tailwind//:vite",

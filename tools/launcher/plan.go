@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Plan is everything the launcher decided before it touched the process table.
@@ -78,25 +80,83 @@ func runtimeCommand(cfg *Config, r *Resolver) ([]string, error) {
 	return append([]string{path}, cfg.RunArgs...), nil
 }
 
-// installNodeModules puts the tree on NODE_PATH and under a literal node_modules
-// name too: ESM resolution walks up looking for that name and ignores NODE_PATH.
-func installNodeModules(r *Resolver, plan *Plan, rlocation string) (string, error) {
-	if rlocation == "" {
-		return "", nil
+// installNodeModules puts the chain on NODE_PATH nearest first and links its
+// root in as <workspace>/node_modules, the walk-up's last stop for ESM.
+func installNodeModules(
+	r *Resolver, plan *Plan, root, workspace string, rlocations []string,
+) ([]string, error) {
+	if len(rlocations) == 0 {
+		return nil, nil
 	}
-	dir, err := r.Path(rlocation)
+	if r.Dir() == "" {
+		if err := stageNodeModules(root); err != nil {
+			return nil, err
+		}
+	}
+	dirs := make([]string, 0, len(rlocations))
+	for _, rlocation := range rlocations {
+		dirs = append(dirs, filepath.Join(root, filepath.FromSlash(rlocation)))
+	}
+	for i := len(dirs) - 1; i >= 0; i-- {
+		if isDir(dirs[i]) {
+			plan.prependPath("NODE_PATH", dirs[i])
+		}
+	}
+	if chainRoot := dirs[len(dirs)-1]; isDir(chainRoot) {
+		linkAs(filepath.Join(root, workspace, "node_modules"), chainRoot)
+	}
+	return dirs, nil
+}
+
+func isDir(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.IsDir()
+}
+
+// stageNodeModules links every node_modules entry of the manifest into root
+// at its runfiles path, a declared link's relative target kept verbatim.
+func stageNodeModules(root string) error {
+	manifest := os.Getenv("RUNFILES_MANIFEST_FILE")
+	if manifest == "" {
+		return errors.New("ts_launcher: no runfiles directory and no " +
+			"RUNFILES_MANIFEST_FILE")
+	}
+	data, err := os.ReadFile(manifest)
 	if err != nil {
-		return "", err
+		return err
 	}
-	if st, statErr := os.Stat(dir); statErr != nil || !st.IsDir() {
-		return "", nil
+	for _, line := range strings.Split(string(data), "\n") {
+		rlocation, target, ok := manifestEntry(line)
+		if !ok || !strings.Contains(rlocation, "/node_modules/") {
+			continue
+		}
+		link := filepath.Join(root, filepath.FromSlash(rlocation))
+		if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+			return err
+		}
+		if err := os.Remove(link); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if err := os.Symlink(filepath.FromSlash(target), link); err != nil {
+			return err
+		}
 	}
-	plan.prependPath("NODE_PATH", dir)
-	linkAs(filepath.Join(filepath.Dir(dir), "node_modules"), dir)
-	if r.Dir() != "" {
-		linkAs(filepath.Join(r.Dir(), "node_modules"), dir)
+	return nil
+}
+
+// manifestEntry reads one runfiles manifest line, "<rlocation> <target>"; a
+// line starting with a space escapes both as \s, \n and \b.
+func manifestEntry(line string) (rlocation, target string, ok bool) {
+	escaped := strings.HasPrefix(line, " ")
+	rlocation, target, ok = strings.Cut(strings.TrimPrefix(line, " "), " ")
+	if !ok || rlocation == "" {
+		return "", "", false
 	}
-	return dir, nil
+	if escaped {
+		unescape := strings.NewReplacer(`\s`, " ", `\n`, "\n", `\b`, `\`)
+		rlocation, target = unescape.Replace(rlocation), unescape.Replace(target)
+	}
+	return rlocation, target, true
 }
 
 // linkAs creates link -> target unless something already sits at link.

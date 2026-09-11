@@ -11,5 +11,5 @@
   the node:test hook now map every `.ts`, `.tsx`, `.mts` or `.cts` specifier,
   relative or bare, to the compiled file that resolves from the importer, and
   leave one that resolves to nothing as written. A relative path that leaves
-  the member resolves under pnpm's symlink alone and stays unresolved here;
-  the npm guide says why.
+  the member resolves under pnpm's symlink to the member's directory alone
+  and stays unresolved from its store tree here; the npm guide says why.

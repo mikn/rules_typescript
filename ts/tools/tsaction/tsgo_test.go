@@ -12,29 +12,40 @@ import (
 )
 
 const (
-	programRoot = binDir + "/pkg/app.program"
-	forestDir   = binDir + "/pkg/app/node_modules"
-	manifest    = binDir + "/pkg/app.ownership"
+	programRoot  = binDir + "/pkg/app.program"
+	rootImporter = binDir + "/node_modules"
+	subImporter  = binDir + "/pkg/sub/node_modules"
+	manifest     = binDir + "/pkg/app.ownership"
 )
 
 func tsgoArgs(rest ...string) []string {
 	flags := []string{
 		"-root=" + programRoot,
-		"-node_modules=" + forestDir,
+		"-node_modules=" + subImporter,
+		"-node_modules=" + rootImporter,
 		"-check=" + manifest,
 	}
 	return append(flags, rest...)
 }
 
-// A fake exec root: a source and the manifest owning it, a forest under the
-// bin dir and a tool under external/, where the sandbox puts the toolchain.
+// A fake exec root: sources, the importers' node_modules and pkg's outputs
+// under the bin dir: the manifest as written and as built, a declaration.
 func newTsgoExecroot(t *testing.T, script string) (root, argv string) {
 	t.Helper()
 	root = t.TempDir()
 	for rel, body := range map[string]string{
 		"pkg/a.ts":                        "export {};\n",
-		forestDir + "/zod/index.d.ts":     "export {};\n",
+		"pkg/lib.ts":                      "export {};\n",
+		"pkg/package.json":                `{"exports": "./lib.ts"}` + "\n",
+		"pkg/sub/b.ts":                    "export {};\n",
+		"pkg/other/c.ts":                  "export {};\n",
+		rootImporter + "/zod/index.d.ts":  "export {};\n",
+		subImporter + "/ms/index.d.ts":    "export {};\n",
 		binDir + "/pkg/app.tsconfig.json": "{}\n",
+		binDir + "/pkg/package.json":      `{"exports": "./lib.ts"}` + "\n",
+		binDir + "/pkg/app.package.json":  `{"exports": "./lib.js"}` + "\n",
+		binDir + "/pkg/lib.package.json":  `{"exports": "./lib.js"}` + "\n",
+		binDir + "/pkg/lib.d.ts":          "export {};\n",
 	} {
 		writeFile(t, filepath.Join(root, rel), body)
 	}
@@ -57,11 +68,15 @@ func realpath(t *testing.T, p string) string {
 	return resolved
 }
 
-// tsgo runs from the program root and finds the source through its links;
-// afterwards the root is gone and the stamp is there.
+// The root importer at node_modules, pkg/sub's at its directory made real with
+// the sibling kept as a link; afterwards the root is gone, the stamp is there.
 func TestTsgoStep_RunsFromAProgramRoot(t *testing.T) {
 	root, argv := newTsgoExecroot(t,
-		"pwd >> \"$0.argv\"\nreadlink node_modules >> \"$0.argv\"\nls | tr '\\n' ' ' >> \"$0.argv\"\necho >> \"$0.argv\"\n"+
+		"pwd >> \"$0.argv\"\nreadlink node_modules >> \"$0.argv\"\n"+
+			"readlink pkg/sub/node_modules >> \"$0.argv\"\n"+
+			"ls | tr '\\n' ' ' >> \"$0.argv\"\necho >> \"$0.argv\"\n"+
+			"test -d pkg -a ! -L pkg && echo pkg-is-real >> \"$0.argv\"\n"+
+			"readlink pkg/other >> \"$0.argv\"\n"+
 			"test -f pkg/a.ts && echo source-through-link >> \"$0.argv\"\n")
 	stamp := binDir + "/pkg/app.tscheck"
 
@@ -78,22 +93,128 @@ func TestTsgoStep_RunsFromAProgramRoot(t *testing.T) {
 	if want := filepath.Join(realpath(t, root), programRoot); got[3] != want {
 		t.Errorf("tsgo ran in %s, want the program root %s", got[3], want)
 	}
-	if want := filepath.Join(root, forestDir); got[4] != want {
-		t.Errorf("node_modules -> %s, want the forest %s", got[4], want)
+	if want := filepath.Join(root, rootImporter); got[4] != want {
+		t.Errorf("node_modules -> %s, want the root importer's %s", got[4], want)
+	}
+	if want := filepath.Join(root, subImporter); got[5] != want {
+		t.Errorf("pkg/sub/node_modules -> %s, want the importer's %s", got[5], want)
 	}
 	for _, entry := range []string{"bazel-out", "external", "node_modules", "pkg"} {
-		if !strings.Contains(" "+got[5], " "+entry+" ") {
-			t.Errorf("the program root lists %q, want %s in it", got[5], entry)
+		if !strings.Contains(" "+got[6], " "+entry+" ") {
+			t.Errorf("the program root lists %q, want %s in it", got[6], entry)
 		}
 	}
-	if got[6] != "source-through-link" {
-		t.Errorf("pkg/a.ts is not reachable from the program root: %q", got[6:])
+	if got[7] != "pkg-is-real" {
+		t.Errorf("pkg is not a real directory on the way to pkg/sub: %q", got[7:])
+	}
+	if want := filepath.Join(root, "pkg/other"); got[8] != want {
+		t.Errorf("pkg/other -> %s, want the exec root's sibling %s", got[8], want)
+	}
+	if got[9] != "source-through-link" {
+		t.Errorf("pkg/a.ts is not reachable from the program root: %q", got[9:])
 	}
 	if _, err := os.Stat(stamp); err != nil {
 		t.Errorf("no stamp after a passing run: %v", err)
 	}
 	if _, err := os.Stat(programRoot); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the program root outlived the action: stat = %v", err)
+	}
+}
+
+// -overlay lays a dep's outputs over its package, -manifest its package.json
+// as built over the src; the importer's node_modules and the root are left.
+func TestTsgoStep_LaysADepsOutputsOverItsDirectory(t *testing.T) {
+	root, argv := newTsgoExecroot(t,
+		"readlink pkg/package.json >> \"$0.argv\"\n"+
+			"readlink pkg/lib.d.ts >> \"$0.argv\"\n"+
+			"readlink pkg/lib.ts >> \"$0.argv\"\n"+
+			"readlink pkg/sub/node_modules >> \"$0.argv\"\n"+
+			"test -e pkg/app.program && echo root-linked >> \"$0.argv\" || "+
+			"echo root-skipped >> \"$0.argv\"\n"+
+			"test -d pkg/sub -a ! -L pkg/sub && echo sub-is-real >> \"$0.argv\"\n")
+
+	err := runTsgo(tsgoArgs("-overlay="+binDir+"/pkg",
+		"-manifest="+binDir+"/pkg/app.package.json",
+		"--", "external/tsgo/tsc"))
+	if err != nil {
+		t.Fatalf("runTsgo: %v", err)
+	}
+	got := recordedArgs(t, argv)[1:]
+	want := []string{
+		filepath.Join(root, binDir, "pkg/app.package.json"),
+		filepath.Join(root, binDir, "pkg/lib.d.ts"),
+		filepath.Join(root, "pkg/lib.ts"),
+		filepath.Join(root, subImporter),
+		"root-skipped",
+		"sub-is-real",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("the program root reads\n%q\nwant\n%q", got, want)
+	}
+}
+
+// An overlaid declaration is listed by its path under the root; the check reads
+// it through the link. Without the overlay the listed file is nobody's.
+func TestTsgoStep_ChecksAnOverlaidFileByItsOutput(t *testing.T) {
+	listing := "pkg/lib.d.ts\n" +
+		"   Imported via \"./lib\" from file 'pkg/a.ts'\n" +
+		"pkg/a.ts\n   Root file specified for compilation\n"
+	root, _ := newTsgoExecroot(t, "cat "+binDir+"/pkg/listing.txt\n")
+	writeFile(t, filepath.Join(root, binDir, "pkg/listing.txt"), listing)
+	writeFile(t, filepath.Join(root, manifest),
+		"label\t//pkg:app\nown\tpkg/a.ts\ndirect\t//pkg:lib\n"+
+			"file\t//pkg:lib\t"+binDir+"/pkg/lib.d.ts\n")
+
+	err := runTsgo(tsgoArgs("-overlay="+binDir+"/pkg", "--", "external/tsgo/tsc"))
+	if err != nil {
+		t.Errorf("runTsgo with the dep overlaid: %v", err)
+	}
+	err = runTsgo(tsgoArgs("--", "external/tsgo/tsc"))
+	if err == nil || !strings.Contains(err.Error(), "no src, dep or npm package") {
+		t.Errorf("runTsgo without the overlay = %v, want the file unowned", err)
+	}
+}
+
+// The manifest -manifest lays at pkg/package.json is listed by that path; the
+// check reads it through the link, so the dep's <name>.package.json owns it.
+func TestTsgoStep_ChecksALaidOverManifestByItsOutput(t *testing.T) {
+	listing := "pkg/package.json\n" +
+		"   Imported via \"./package.json\" from file 'pkg/a.ts'\n" +
+		"pkg/a.ts\n   Root file specified for compilation\n"
+	root, _ := newTsgoExecroot(t, "cat "+binDir+"/pkg/listing.txt\n")
+	writeFile(t, filepath.Join(root, binDir, "pkg/listing.txt"), listing)
+	asWritten := "label\t//pkg:app\nown\tpkg/a.ts\ndirect\t//pkg:lib\n" +
+		"file\t//pkg:lib\t" + binDir + "/pkg/package.json\n"
+	args := tsgoArgs("-manifest="+binDir+"/pkg/lib.package.json",
+		"--", "external/tsgo/tsc")
+
+	writeFile(t, filepath.Join(root, manifest),
+		asWritten+"file\t//pkg:lib\t"+binDir+"/pkg/lib.package.json\n")
+	if err := runTsgo(args); err != nil {
+		t.Errorf("runTsgo with the manifest as built owned: %v", err)
+	}
+	writeFile(t, filepath.Join(root, manifest), asWritten)
+	err := runTsgo(args)
+	if err == nil || !strings.Contains(err.Error(), "no src, dep or npm package") {
+		t.Errorf("runTsgo with the src alone owned = %v, want the file unowned", err)
+	}
+}
+
+func TestBinRelative(t *testing.T) {
+	for _, c := range []struct{ binPath, want, importer string }{
+		{binDir + "/pkg/sub/node_modules", "pkg/sub/node_modules", "pkg/sub"},
+		{binDir + "/node_modules", "node_modules", ""},
+		{binDir + "/pkg", "pkg", ""},
+		{binDir, "", ""},
+	} {
+		if got := binRelative(c.binPath); got != c.want {
+			t.Errorf("binRelative(%q) = %q, want %q", c.binPath, got, c.want)
+		}
+		if strings.HasSuffix(c.binPath, "node_modules") {
+			if got := importerDir(c.binPath); got != c.importer {
+				t.Errorf("importerDir(%q) = %q, want %q", c.binPath, got, c.importer)
+			}
+		}
 	}
 }
 
@@ -191,7 +312,7 @@ func TestTsgoStep_NeedsTheManifest(t *testing.T) {
 	_, argv := newTsgoExecroot(t, "echo ran\n")
 
 	err := runTsgo([]string{"-root=" + programRoot,
-		"-node_modules=" + forestDir, "--", "external/tsgo/tsc"})
+		"-node_modules=" + rootImporter, "--", "external/tsgo/tsc"})
 	if err == nil || !strings.Contains(err.Error(), "-check=FILE") {
 		t.Errorf("runTsgo without -check = %v, want an error", err)
 	}

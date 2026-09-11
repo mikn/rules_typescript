@@ -54,8 +54,8 @@ export interface BazelPluginOptions {
    */
   bazelBin?: string;
 
-  /** The Bazel node_modules tree, added to `server.fs.allow`. Default:
-   *  `<target_name>_node_modules` under bazel-bin. */
+  /** The importer's node_modules directory under bazel-bin, added to
+   *  `server.fs.allow`; absolute or relative to the project root. */
   nodeModules?: string;
 
   /**
@@ -65,15 +65,6 @@ export interface BazelPluginOptions {
    * construction.  Example: `"my_workspace"`.
    */
   workspace?: string;
-
-  /**
-   * Bazel target label for the dev server, e.g. `"//app:dev"`.
-   *
-   * Used to derive the default `nodeModules` path when `nodeModules` is not
-   * explicitly provided: the plugin looks for
-   * `bazel-bin/<package>/<name>_node_modules`.
-   */
-  target?: string;
 
   /**
    * Debounce window (ms) for aggregating ibazel rebuild events before
@@ -131,42 +122,10 @@ export function bazelPlugin(options: BazelPluginOptions = {}): Plugin {
     return path.isAbsolute(raw) ? raw : path.resolve(root, raw);
   }
 
-  /**
-   * Attempt to auto-detect the generated node_modules directory.
-   *
-   * Resolution order:
-   *  1. Explicit `options.nodeModules` (absolute or root-relative).
-   *  2. Derived from `options.target`: `bazel-bin/<pkg>/<name>_node_modules`.
-   *  3. `bazel-bin/<workspace>_node_modules` (legacy single-workspace layout).
-   *  4. null — fall through to Vite's default node_modules resolution.
-   */
-  function resolveNodeModules(root: string, bazelBin: string): string | null {
-    if (options.nodeModules != null) {
-      const nm = options.nodeModules;
-      return path.isAbsolute(nm) ? nm : path.resolve(root, nm);
-    }
-
-    if (options.target != null) {
-      const derived = nodeModulesFromTarget(options.target, bazelBin);
-      if (derived != null && fs.existsSync(derived)) return derived;
-    }
-
-    // Fallback: scan bazel-bin for any *_node_modules directory at the top
-    // level (handles single-package workspaces without an explicit target).
-    if (fs.existsSync(bazelBin)) {
-      try {
-        const entries = fs.readdirSync(bazelBin, { withFileTypes: true });
-        for (const entry of entries) {
-          if (entry.isDirectory() && entry.name.endsWith('_node_modules')) {
-            return path.join(bazelBin, entry.name);
-          }
-        }
-      } catch {
-        // Ignore — bazel-bin may not exist yet (first run before any build).
-      }
-    }
-
-    return null;
+  function resolveNodeModules(root: string): string | null {
+    if (options.nodeModules == null) return null;
+    const nm = options.nodeModules;
+    return path.isAbsolute(nm) ? nm : path.resolve(root, nm);
   }
 
   // ── Plugin object ─────────────────────────────────────────────────────────
@@ -186,14 +145,13 @@ export function bazelPlugin(options: BazelPluginOptions = {}): Plugin {
         : process.cwd();
 
       const bazelBin = resolveBazelBin(root);
-      const nodeModules = resolveNodeModules(root, bazelBin);
+      const nodeModules = resolveNodeModules(root);
 
       const patch: UserConfig = {
         server: {
           fs: {
-            // Allow Vite's dev server to serve files from bazel-bin (and the
-            // generated node_modules) — by default Vite restricts serving to
-            // the workspace root.
+            // Vite serves the workspace root alone by default; bazel-bin and
+            // the importer's node_modules join the allow list.
             allow: [
               root,
               bazelBin,
@@ -204,7 +162,7 @@ export function bazelPlugin(options: BazelPluginOptions = {}): Plugin {
           // chokidar's `ignored` would drop the path it adds there.
           ...(options.hmr === false ? { watch: { ignored: [bazelBin] } } : {}),
         },
-        // Optimise dependencies from the generated node_modules.
+        // Optimise dependencies from the importer's node_modules.
         optimizeDeps: {
           ...(nodeModules != null
             ? { include: [], exclude: [] }
@@ -218,7 +176,7 @@ export function bazelPlugin(options: BazelPluginOptions = {}): Plugin {
     // ── configResolved ────────────────────────────────────────────────────
     configResolved(config: ResolvedConfig): void {
       bazelBinAbsolute = resolveBazelBin(config.root);
-      nodeModulesAbsolute = resolveNodeModules(config.root, bazelBinAbsolute);
+      nodeModulesAbsolute = resolveNodeModules(config.root);
 
       resolver = new BazelResolver({
         workspaceRoot: config.root,
@@ -446,23 +404,3 @@ function handleRebuild(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Derives the expected node_modules path from a Bazel target label.
- *
- * Label format: `//package/path:target_name`
- *   → `bazel-bin/package/path/target_name_node_modules`
- *
- * Returns null when the label cannot be parsed.
- */
-function nodeModulesFromTarget(target: string, bazelBin: string): string | null {
-  // Strip leading `//`.
-  const withoutSlashes = target.startsWith('//') ? target.slice(2) : target;
-  const colonIdx = withoutSlashes.indexOf(':');
-  if (colonIdx === -1) return null;
-
-  const pkg = withoutSlashes.slice(0, colonIdx);    // e.g. "app"
-  const name = withoutSlashes.slice(colonIdx + 1);   // e.g. "dev"
-
-  return path.join(bazelBin, pkg, `${name}_node_modules`);
-}
