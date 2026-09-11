@@ -63,9 +63,9 @@ store; a workspace member's hub view forwards the member's.
                      "else of the store.",
         "owners": "depset of struct(label, files): one record per " +
                   "first-party target in the closure, this one first -- " +
-                  "the label a deps list writes and the declarations and " +
-                  "data it stages. The tsgo action names the owner of a " +
-                  "listed file from these.",
+                  "the label a deps list writes and the declarations, " +
+                  "data and manifest as built it stages. The tsgo action " +
+                  "names the owner of a listed file from these.",
     },
 )
 

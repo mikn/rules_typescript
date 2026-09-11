@@ -508,15 +508,18 @@ def compile_program(ctx, es_modules = False, es_twins = False):
     # to write: a program to check, not one to emit from.
     tsgo_emits_dts = tsgo_emits_dts and bool(dts_outputs)
 
+    as_built = [manifest] if manifest else []
     all_outputs = (
         js_outputs + js_map_outputs + dts_outputs + dts_map_outputs +
-        js_passthrough + data_staged + ([manifest] if manifest else [])
+        js_passthrough + data_staged + as_built
     )
 
     owners = depset(
         [struct(
             label = label_text(ctx.label),
-            files = depset(dts_outputs + passthrough_dts + data_staged),
+            files = depset(
+                dts_outputs + passthrough_dts + data_staged + as_built,
+            ),
         )],
         transitive = owner_sets,
     )

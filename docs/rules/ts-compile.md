@@ -408,7 +408,10 @@ the key of the tree each link of `deps` enters, so an npm alias -- a link name
 at the aliased package's tree, `tailwindcss-v3` at `tailwindcss@3.4.18_...` --
 is declared by the name the importer links. A direct package's `@types/<name>`
 twin, which an importer on the chain links beside it, counts as declared. An
-edge into the target's own srcs passes.
+edge into the target's own srcs passes. An import of a package's
+`package.json` lands on the manifest as built the program root lays at the
+package's path, and the compile that wrote it owns it as it owns the src
+([The node_modules Chain](#the-node_modules-chain)).
 
 **What is exempt:** an edge from a dep's own file -- its imports are that dep's
 to declare, and a `/// <reference types>` the chain answers is written from the

@@ -44,6 +44,7 @@ func newTsgoExecroot(t *testing.T, script string) (root, argv string) {
 		binDir + "/pkg/app.tsconfig.json": "{}\n",
 		binDir + "/pkg/package.json":      `{"exports": "./lib.ts"}` + "\n",
 		binDir + "/pkg/app.package.json":  `{"exports": "./lib.js"}` + "\n",
+		binDir + "/pkg/lib.package.json":  `{"exports": "./lib.js"}` + "\n",
 		binDir + "/pkg/lib.d.ts":          "export {};\n",
 	} {
 		writeFile(t, filepath.Join(root, rel), body)
@@ -171,6 +172,31 @@ func TestTsgoStep_ChecksAnOverlaidFileByItsOutput(t *testing.T) {
 	err = runTsgo(tsgoArgs("--", "external/tsgo/tsc"))
 	if err == nil || !strings.Contains(err.Error(), "no src, dep or npm package") {
 		t.Errorf("runTsgo without the overlay = %v, want the file unowned", err)
+	}
+}
+
+// The manifest -manifest lays at pkg/package.json is listed by that path; the
+// check reads it through the link, so the dep's <name>.package.json owns it.
+func TestTsgoStep_ChecksALaidOverManifestByItsOutput(t *testing.T) {
+	listing := "pkg/package.json\n" +
+		"   Imported via \"./package.json\" from file 'pkg/a.ts'\n" +
+		"pkg/a.ts\n   Root file specified for compilation\n"
+	root, _ := newTsgoExecroot(t, "cat "+binDir+"/pkg/listing.txt\n")
+	writeFile(t, filepath.Join(root, binDir, "pkg/listing.txt"), listing)
+	asWritten := "label\t//pkg:app\nown\tpkg/a.ts\ndirect\t//pkg:lib\n" +
+		"file\t//pkg:lib\t" + binDir + "/pkg/package.json\n"
+	args := tsgoArgs("-manifest="+binDir+"/pkg/lib.package.json",
+		"--", "external/tsgo/tsc")
+
+	writeFile(t, filepath.Join(root, manifest),
+		asWritten+"file\t//pkg:lib\t"+binDir+"/pkg/lib.package.json\n")
+	if err := runTsgo(args); err != nil {
+		t.Errorf("runTsgo with the manifest as built owned: %v", err)
+	}
+	writeFile(t, filepath.Join(root, manifest), asWritten)
+	err := runTsgo(args)
+	if err == nil || !strings.Contains(err.Error(), "no src, dep or npm package") {
+		t.Errorf("runTsgo with the src alone owned = %v, want the file unowned", err)
 	}
 }
 
