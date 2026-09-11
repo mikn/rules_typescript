@@ -26,7 +26,7 @@
   `types` (`"./worker-configuration.d.ts"`, `"../src/env.d.ts"`) with the
   owning target in `deps`; a bare specifier naming a workspace member resolves
   through the hub's view of it, `@npm//:<name>`. A package that leaked a global
-  script into a program stops doing so when that program's `types` is written,
-  because `types` is always written (the direct `@types/*` deps when the
-  tsconfig sets none). Build a target under oxc's emit with
+  script into a program stops doing so when that program's `types` is written
+  (the tsconfig's entries, or the direct `@types/*` deps' names when it sets
+  neither `types` nor `typeRoots`). Build a target under oxc's emit with
   `--//ts:declarations=oxc`; a test that has to is wrapped in a transition.

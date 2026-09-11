@@ -486,15 +486,16 @@ publishes declarations of its own, and by `@types/x` when it publishes none. A
 `/// <reference types="bun-types" />`) resolves the directive through the same
 walk.
 
-`types` is written whenever the chain sets no `typeRoots`. When the chain sets
-no `types` either, the direct `@types/*` deps' names are written, so nothing
-auto-includes: a `@types/*` package the closure carries but no entry names is
-in the store for the imports that reach it and out of the global scope, and a
-use of its globals is `TS2304`. `//tests/npm:transitive_types_probe` pins that.
-A chain that sets `typeRoots` has bounded automatic inclusion to those roots
-itself, and tsgo skips the `node_modules` walk for a `types` name under a
-custom `typeRoots`, so no name is written from the deps; a store file's own
-`/// <reference types>` still resolves beside the referencing file.
+`types` is written from the chain's entries. When the chain sets neither
+`types` nor `typeRoots`, the direct `@types/*` deps' names are written, so
+nothing auto-includes: a `@types/*` package the closure carries but no entry
+names is in the store for the imports that reach it and out of the global
+scope, and a use of its globals is `TS2304`.
+`//tests/npm:transitive_types_probe` pins that. A chain that sets `typeRoots`
+and no `types` gets no `types` key: those roots bound automatic inclusion, as
+in the checkout, and tsgo skips the `node_modules` walk for a `types` name
+under a custom `typeRoots`, so a deps' name written there is `TS2688`; a store
+file's own `/// <reference types>` still resolves beside the referencing file.
 `//tests/npm/type_roots` pins that.
 
 ### Finding a Broken Declaration
@@ -519,14 +520,15 @@ not a build mode.
 
 A `.d.ts` with no top-level import or export is a **global script**, and
 everything it declares belongs to every program the file is part of. Under the
-chain a file joins the program two ways: by import, where a bare specifier
-resolves to the package's module entry and no further, and by `types`, which is
-always written. `@sentry/cloudflare`'s declarations import
-`@cloudflare/workers-types`, and that resolves to the package's `index.ts`, a
-module; its `index.d.ts`, 15k lines of global script, enters a program only
-through a `types` entry that names the package. A worker names it in its
-tsconfig; a browser target that depends on `@sentry/cloudflare` does not, and
-keeps `lib.dom`'s `Element`.
+chain a file joins the program by import, where a bare specifier resolves to
+the package's module entry and no further, and by `types`: the chain's entries
+or, when the chain sets neither `types` nor `typeRoots`, the direct `@types/*`
+deps' names; a chain that sets `typeRoots` admits what those roots hold.
+`@sentry/cloudflare`'s declarations import `@cloudflare/workers-types`, and
+that resolves to the package's `index.ts`, a module; its `index.d.ts`, 15k
+lines of global script, enters a program only through a `types` entry that
+names the package. A worker names it in its tsconfig; a browser target that
+depends on `@sentry/cloudflare` does not, and keeps `lib.dom`'s `Element`.
 
 An import of a package the closure does not carry is `TS2307`. A `declare
 module "x"` in a `.d.ts` src answers it, since nothing resolves the specifier
