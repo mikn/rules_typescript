@@ -2,6 +2,7 @@ load("//npm:defs.bzl", "node_modules")
 load("//tests/npm:node_modules_tests.bzl", "linked_twice_test")
 
 # Two peer resolutions of one version declared: the same one name twice.
+# keep
 node_modules(
     name = "node_modules",
     hoist = "//tests/npm/features:node_modules/.pnpm/node_modules",

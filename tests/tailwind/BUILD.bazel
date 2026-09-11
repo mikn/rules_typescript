@@ -18,6 +18,7 @@ ts_compile(
 # @tailwindcss/vite reaches tailwindcss and @tailwindcss/oxide by bare specifier
 # from the staged config, so all three have to be in the tree the server runs
 # beside -- the platform-specific oxide binary included.
+# keep
 node_modules(
     name = "node_modules",
     hoist = "//tests/tailwind/lock:node_modules/.pnpm/node_modules",

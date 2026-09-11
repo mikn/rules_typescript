@@ -21,6 +21,7 @@ ts_binary(
     entry_point = "main.mjs",
 )
 
+# keep
 node_modules(
     name = "node_modules",
     hoist = "//tests/npm:node_modules/.pnpm/node_modules",

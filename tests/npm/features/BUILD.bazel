@@ -9,6 +9,7 @@ exports_files(["pnpm-lock.yaml"])
 npm_virtual_store(name = "node_modules/.pnpm")
 
 # The root importer: its declared names, two of them aliases, beside .pnpm.
+# keep
 node_modules(
     name = "node_modules",
     hoist = ":node_modules/.pnpm/node_modules",

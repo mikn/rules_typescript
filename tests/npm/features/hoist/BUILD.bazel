@@ -6,6 +6,7 @@ the chain test pins the link and its tree among the tsgo action's inputs."""
 load("//tests/npm:forest_tests.bzl", "chain_test")
 load("//ts:defs.bzl", "ts_test")
 
+# keep
 ts_test(
     name = "hoist_test",
     size = "small",

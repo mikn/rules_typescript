@@ -6,6 +6,7 @@ package(default_visibility = ["//tests/npm:__pkg__"])
 
 # The importer declares minimatch@9 beside test-exclude, whose own edge is
 # minimatch@10: the top links the declared resolution, each tree its own.
+# keep
 node_modules(
     name = "node_modules",
     parent = "//tests/npm:node_modules",

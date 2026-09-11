@@ -22,6 +22,7 @@ ts_compile(
 )
 
 # One node_modules for every dev server here.
+# keep
 node_modules(
     name = "node_modules",
     hoist = "//tests/npm:node_modules/.pnpm/node_modules",

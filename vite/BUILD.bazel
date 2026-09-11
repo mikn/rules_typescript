@@ -50,6 +50,7 @@ bzl_library(
 
 # The plugin build action's node_modules: vite/esbuild's lockfile, not @npm,
 # which resolves into the consumer's and need not have esbuild at all.
+# keep
 node_modules(
     name = "node_modules",
     hoist = "//vite/esbuild:node_modules/.pnpm/node_modules",

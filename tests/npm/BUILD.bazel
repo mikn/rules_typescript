@@ -30,6 +30,7 @@ npm_virtual_store(name = "node_modules/.pnpm")
 
 # The root importer: a link per name it declares, beside the store. The chain
 # every fixture outside an importer's package resolves through.
+# keep
 node_modules(
     name = "node_modules",
     hoist = ":node_modules/.pnpm/node_modules",

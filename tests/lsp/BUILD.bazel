@@ -46,6 +46,7 @@ package(default_visibility = ["//:__pkg__"])
 # typescript is a genuine dependency of the LSP path, not a stand-in: these
 # tests run real TypeScript -- its tsserver binary and its resolveModuleName --
 # and tsgo has no equivalent surface.
+# keep
 node_modules(
     name = "node_modules",
     testonly = True,
