@@ -25,6 +25,12 @@ store; a workspace member's hub view forwards the member's.
                         "tsconfig `types` names it.",
         "data": "depset of File: the other srcs, staged at their " +
                 "package-relative paths beside the .js.",
+        "manifest": "File or None: the package.json at the package's root " +
+                    "as built, every source-file target rewritten to the " +
+                    "emitted file, <name>.package.json. A dependent's " +
+                    "program root lays it at the package's path and the " +
+                    "member's store tree copies it there; the src as written " +
+                    "is in `data`.",
         "sources": "depset of File: the TypeScript srcs -- .ts, .tsx and " +
                    "declarations. A ts_test in the same package stages them " +
                    "at their source paths.",
@@ -78,6 +84,7 @@ def ts_info(
         js_maps = _EMPTY,
         declarations = _EMPTY,
         data = _EMPTY,
+        manifest = None,
         sources = _EMPTY,
         transitive_js = None,
         transitive_js_maps = None,
@@ -100,6 +107,7 @@ def ts_info(
         js_maps = js_maps,
         declarations = declarations,
         data = data,
+        manifest = manifest,
         sources = sources,
         transitive_js = _or_direct(transitive_js, js),
         transitive_js_maps = _or_direct(transitive_js_maps, js_maps),
@@ -181,12 +189,12 @@ NpmPackageInfo = provider(
         "package_dir": "File or None: The package.json file at the root of " +
                        "the extracted package. None on a pnpm workspace " +
                        "member, which was never extracted from a tarball: " +
-                       "its compile stages the manifest as built.",
+                       "its compile writes the manifest as built.",
         "package_root": "string: exec-root-relative directory the files in `all_files` hang off -- where `package_dir` sits for an extracted tarball, the member's directory under bazel-bin for a workspace member. A file outside it stages at the package root under its basename.",
         "all_files": "depset of File: every file of this package " +
                      "(package.json, .js, .d.ts, other assets), the files " +
                      "its store tree copies; a member's are its outputs, " +
-                     "the manifest as built among them.",
+                     "the manifest as built in place of the src.",
         "transitive_deps": "depset of NpmPackageInfo: Transitive npm dependencies.",
         "store": "NpmStoreInfo: this resolution's store tree and the links " +
                  "beside it (npm/private/store.bzl), one per snapshot, in " +

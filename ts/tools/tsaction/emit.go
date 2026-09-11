@@ -21,6 +21,7 @@ type emitConfig struct {
 	options, tsconfig, scratch, outDir string
 	oxc, tsgo                          string
 	roots, importers, overlays         stringList
+	manifests                          stringList
 	sourceMap, declarations, esModules bool
 	srcs                               []string
 }
@@ -37,6 +38,9 @@ func runEmit(args []string) error {
 	flags.Var(&e.overlays, "overlay",
 		"the output directory of a dep whose package is at or above this "+
 			"one's, laid over that package's sources (repeatable)")
+	flags.Var(&e.manifests, "manifest",
+		"such a dep's package.json as built, laid at its package's "+
+			"package.json over the src (repeatable)")
 	flags.StringVar(&e.scratch, "scratch", "",
 		"where the program root and tsgo's outDir go, removed after")
 	flags.StringVar(&e.outDir, "out_dir", "",
@@ -160,7 +164,10 @@ func (e *emitConfig) tsgoEmit(groups map[string][]string, o oxcOptions) error {
 	root := roots[0]
 	programRoot := filepath.Join(e.scratch, "root")
 	scratchOut := filepath.Join(e.scratch, "out")
-	if err := layOutProgramRoot(programRoot, e.importers, e.overlays); err != nil {
+	err := layOutProgramRoot(
+		programRoot, e.importers, e.overlays, e.manifests,
+	)
+	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(e.scratch)

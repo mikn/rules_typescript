@@ -10,10 +10,11 @@
   and `ts_test` declare `foo.jsx` and `foo.jsx.map` from it, oxc-bazel names the file `.jsx` under `--jsx preserve`, and the
   `TsConfig` action fails a target with a `.tsx` src when the declaration and
   the chain's effective `jsx` disagree, naming the edit. A `ts_test` runs a
-  `.jsx` test file and resolves a `.tsx` setup file to its `.jsx`. A
-  `package.json` in `srcs` is staged as built with a `.tsx` target rewritten
-  to the `.jsx` when the target's `ts_config` declares `preserve`: the
-  rewrite runs where the declaration is known. Gazelle writes the attribute
+  `.jsx` test file and resolves a `.tsx` setup file to its `.jsx`. The
+  manifest as built a `package.json` src gets, `<name>.package.json`, has a
+  `.tsx` target rewritten to the `.jsx` when the target's `ts_config` declares
+  `preserve`: the rewrite runs where the declaration is known. Gazelle writes
+  the attribute
   from the
   `extends` chain, leaf-wins, and removes it otherwise. A tsconfig passed as a
   plain file declares nothing; one that sets `preserve` fails the `TsConfig`

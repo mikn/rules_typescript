@@ -1,10 +1,11 @@
-"""The TsManifest action: a package.json src staged as built.
+"""The TsManifest action: a package.json src written as built.
 
 tsc, node and Vite read the nearest package.json for the module's format and
 the package's own name, and resolve a self-reference through its `exports`; a
-manifest names sources, and every reader of the staged copy holds the emit, so
-tsaction rewrites each source-file target to the emitted file
-(docs/guides/npm.md § What a Workspace Member Is Imported As).
+manifest names sources, and the two readers that hold the emit -- a dependent's
+program root and the member's store tree -- read this copy, each source-file
+target rewritten to the emitted file (docs/guides/npm.md § What a Workspace
+Member Is Imported As). The src stays staged as written beside it.
 """
 
 def manifest_action(ctx, src, out, tsx_extension):

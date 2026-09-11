@@ -229,25 +229,29 @@ def _npm_store_member_impl(ctx):
     member = ctx.attr.member
     tree = ctx.actions.declare_directory(ctx.label.name)
     info = member[TsInfo]
-    files = info.data.to_list()
-    for emitted in (info.declarations, info.js, info.js_maps):
-        files.extend(emitted.to_list())
     roots = _member_roots(ctx, member)
 
     def dest(f):
+        if f == info.manifest:
+            return "package.json"
         for root in roots:
             if f.path.startswith(root):
                 return f.path[len(root):]
         return f.basename
 
-    if "package.json" not in [dest(f) for f in files]:
+    data = info.data.to_list()
+    written = [f for f in data if dest(f) == "package.json"]
+    if not info.manifest or not written:
         fail(("{}: {} stages no package.json at {}; the tree's manifest is " +
-              "the one the member's compile stages as built, so list the " +
+              "the one the member's compile writes as built, so list the " +
               "member's package.json in its srcs.").format(
             ctx.label,
             member.label,
             ctx.attr.member_dir,
         ))
+    files = [f for f in data if f not in written] + [info.manifest]
+    for emitted in (info.declarations, info.js, info.js_maps):
+        files.extend(emitted.to_list())
     _stage(ctx, tree, files, dest)
     store = _store_info(ctx, parts, tree, _dep_links(ctx, parts))
     return [DefaultInfo(files = store.transitive), store]
@@ -269,9 +273,9 @@ npm_store_member = rule(
     },
     doc = """A workspace member's store tree, `node_modules/.pnpm/<name with /
 as +>@0.0.0/node_modules/<name>`: its `.js`, `.js.map`, `.d.ts` and data srcs
-at their package-relative paths, the package.json among them as the compile
-staged it, as built; one declared symlink beside it per dependency the
-member's importer declares. Declared by `npm_virtual_store`.""",
+at their package-relative paths, the package.json as built in place of the
+src; one declared symlink beside it per dependency the member's importer
+declares. Declared by `npm_virtual_store`.""",
 )
 
 def _npm_store_hoist_impl(ctx):

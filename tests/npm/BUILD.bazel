@@ -164,8 +164,8 @@ parser_test_suite(name = "parser_tests")
 
 workspace_link_test_suite(name = "workspace_link_tests")
 
-# A package.json src is staged as built: the fixture members' name their
-# emitted files, the .jsx under the tsconfig that declares jsx: preserve.
+# A package.json src is staged as written; the manifest as built beside it names
+# the emitted files, the .jsx under the tsconfig that declares jsx: preserve.
 go_test(
     name = "member_manifest_test",
     size = "small",
@@ -178,7 +178,7 @@ go_test(
 )
 
 # The member's own test names the member: the program root lays :shared's
-# outputs over packages/shared, its manifest as built among the inputs.
+# outputs over packages/shared and its manifest as built at the package's path.
 chain_test(
     name = "shared_test_chain_test",
     size = "small",
@@ -186,7 +186,11 @@ chain_test(
         "packages/shared/node_modules",
         "tests/npm/node_modules",
     ],
-    linked = ["packages/shared/package.json"],
+    linked = [
+        "packages/shared/package.json",
+        "packages/shared/shared.package.json",
+    ],
+    manifests = ["packages/shared/shared.package.json"],
     overlays = ["packages/shared"],
     target_under_test = "//packages/shared:shared_test",
 )

@@ -273,15 +273,16 @@ the bare name to it.
 A package's `exports`, `types`, `typings`, `main` and the `/// <reference
 types>` headers of its declarations are read by nothing here: tsgo and node read
 the manifest where the importer's link leads, as they do over an install, and
-`NpmPackageInfo` carries no entry point. The one manifest the rules write is a
-`package.json` in a `ts_compile`'s `srcs`, staged as built: `tsaction manifest`
+`NpmPackageInfo` carries no entry point. The one manifest the rules write is
+the `package.json` at a `ts_compile`'s package root as built, `<name>.package.json`
+beside the src staged as written: `tsaction manifest`
 (`ts/tools/tsaction/manifest.go`) rewrites every source-file target under
 `main`, `module`, `browser`, `exports` and `imports` to the emitted `.js` (the
 `.jsx` for a `.tsx` under the target's declared `jsx: preserve`) and every
 `types` target to the `.d.ts`, key order kept (an `exports` condition map is
-read in the order it is written); the member's store tree copies it, and a
-dependent's program root lays it over the member's directory.
-`manifest_test.go` is the table.
+read in the order it is written); the member's store tree copies it as its
+`package.json`, and a dependent's program root lays it at the member's path. A
+test's runfiles hold the src as written. `manifest_test.go` is the table.
 
 ## Dev Server Generated Config
 

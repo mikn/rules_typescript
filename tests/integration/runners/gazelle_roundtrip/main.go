@@ -264,7 +264,7 @@ func memberSelfImportIsTheCompile(it *harness.IT) {
 			"%s was not written; the `bazel build //...` above did not compile the test program", rel)
 	}
 	it.Pass("the test program resolved `shared` and `shared/wire` through " +
-		"the manifest as built at packages/shared/package.json")
+		"the manifest as built laid at packages/shared/package.json")
 
 	log, err := it.BazelLog("self_import_at_run_time", "test",
 		"//packages/shared:shared_test")

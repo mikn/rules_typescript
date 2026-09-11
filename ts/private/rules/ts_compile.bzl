@@ -31,9 +31,10 @@ specifier and nothing above a source in the exec root is an output, so tsaction
 runs it from a program root that mirrors the exec root with each importer's
 node_modules at the importer's directory, and the outputs of every first-party
 dep at or above the target's package laid over that package's sources -- its
-package.json as built, its declarations -- so every import resolves as it does
-over a pnpm install, the package's own name through the nearest manifest
-included. Under --//ts:declarations=oxc the check is a validation
+declarations, and its package.json as built at the package's path -- so every
+import resolves as it does over a pnpm install, the package's own name through
+the nearest manifest included. Under --//ts:declarations=oxc the check is a
+validation
 action in the _validation output group: it runs during `bazel build` and does
 not block downstream compilation. The linter the root module's ts.lint() names
 runs over the same sources as a second validation action, TsLint. The emit
@@ -331,6 +332,7 @@ def compile_program(ctx, es_modules = False, es_twins = False):
     direct_labels = []
     owner_sets = []
     overlays = {}
+    dep_manifests = []
 
     # A dep reached through the store is in the program there; a copy of its
     # files at their exec paths would duplicate every module.
@@ -358,6 +360,8 @@ def compile_program(ctx, es_modules = False, es_twins = False):
         owner_sets.append(info.owners)
         if _encloses(dep.label, ctx.label):
             overlays[_bin_dir(ctx, dep.label)] = True
+            if info.manifest:
+                dep_manifests.append(info.manifest)
 
     # A direct package resolves along the chain nearest first, pnpm's walk-up;
     # the @types twin an importer links beside it is the package's to declare.
@@ -488,13 +492,17 @@ def compile_program(ctx, es_modules = False, es_twins = False):
                 )
 
     data_staged = []
+    manifest = None
     for src in data_srcs:
-        staged = ctx.actions.declare_file(_package_relative_path(src, pkg))
-        if src.basename == "package.json":
-            manifest_action(ctx, src, staged, tsx_extension)
-        else:
-            ctx.actions.symlink(output = staged, target_file = src)
+        rel = _package_relative_path(src, pkg)
+        staged = ctx.actions.declare_file(rel)
+        ctx.actions.symlink(output = staged, target_file = src)
         data_staged.append(staged)
+        if rel == "package.json":
+            manifest = ctx.actions.declare_file(
+                "{}.package.json".format(ctx.label.name),
+            )
+            manifest_action(ctx, src, manifest, tsx_extension)
 
     # JavaScript srcs whose declarations are all checked in leave tsgo nothing
     # to write: a program to check, not one to emit from.
@@ -502,7 +510,7 @@ def compile_program(ctx, es_modules = False, es_twins = False):
 
     all_outputs = (
         js_outputs + js_map_outputs + dts_outputs + dts_map_outputs +
-        js_passthrough + data_staged
+        js_passthrough + data_staged + ([manifest] if manifest else [])
     )
 
     owners = depset(
@@ -586,7 +594,7 @@ def compile_program(ctx, es_modules = False, es_twins = False):
 
     validation_outputs = []
     if program_srcs:
-        program_inputs = check_srcs + json_srcs + dep_json
+        program_inputs = check_srcs + json_srcs + dep_json + dep_manifests
         if compile_srcs:
             emit_action(
                 ctx,
@@ -600,6 +608,7 @@ def compile_program(ctx, es_modules = False, es_twins = False):
                 chain = tsconfig_chain,
                 importers = importers,
                 overlays = sorted(overlays.keys()),
+                manifests = dep_manifests,
                 program_inputs = program_inputs,
                 dep_dts = dep_dts_depset,
                 npm_files = npm_files,
@@ -622,6 +631,7 @@ def compile_program(ctx, es_modules = False, es_twins = False):
                 chain = tsconfig_chain,
                 importers = importers,
                 overlays = sorted(overlays.keys()),
+                manifests = dep_manifests,
                 program_inputs = program_inputs,
                 dep_dts = dep_dts_depset,
                 npm_files = npm_files,
@@ -651,6 +661,7 @@ def compile_program(ctx, es_modules = False, es_twins = False):
             tsconfig = tsconfig,
             importers = importers,
             overlays = sorted(overlays.keys()),
+            manifests = dep_manifests,
             srcs = program_inputs,
             chain = tsconfig_chain,
             dep_dts = dep_dts_depset,
@@ -699,6 +710,7 @@ def compile_program(ctx, es_modules = False, es_twins = False):
         js_maps = direct_js_map,
         declarations = direct_dts,
         data = depset(data_staged, order = "postorder"),
+        manifest = manifest,
         sources = depset(compile_srcs + passthrough_dts, order = "postorder"),
         transitive_js = transitive_js,
         transitive_js_maps = transitive_js_map,
@@ -789,10 +801,12 @@ TS_COMPILE_ATTRS = {
 .json           staged, and a tsgo input: an import of it resolves to the file
                 and is typed from its contents under resolveJsonModule, which
                 bundler resolution implies, and the nearest package.json decides
-                a module's format and the package's own name. A package.json is
-                staged as built -- every source-file target rewritten to the
-                emitted file -- the manifest a dependent's program root, a
-                test's runfiles and a member's store tree read.
+                a module's format and the package's own name. The package.json
+                at the package's root is also written as built, every
+                source-file target rewritten to the emitted file, as
+                <name>.package.json: the manifest a dependent's program root
+                lays at the package's path and a member's store tree copies. A
+                test's runfiles hold the src as written.
 anything else   staged into the output tree unchanged at its package-relative
                 path, so the compiled module beside it reaches it by the same
                 relative path at run time; never a tsgo input. A consumer gets
@@ -814,8 +828,8 @@ dep through its declarations, staged under bazel-bin at the paths the
 tsconfig's `paths` and their bin-dir twins reach, or through a relative
 import; a workspace member through its importer's link target,
 `//<importer>:node_modules/<name>`; the package's own name, from a test or a
-package below it, through the manifest as built at the package's path, the dep
-being the package's ts_compile.""",
+package below it, through the dep's manifest as built, which the program root
+lays at the package's path, the dep being the package's ts_compile.""",
         providers = [TsInfo],
     ),
     "node_modules": attr.label(

@@ -2,10 +2,10 @@
 
 //tests/npm:ws_linked_consumer imports it as `ws-linked`, the name
 tests/npm/features/pnpm-lock.yaml links to this package. The name reaches the
-compiler from the hub target the link produces, whose tree holds package.json
-as this target stages it, as built, so removing the link from the lockfile --
-or turning that target back into an alias -- breaks the consumer rather than
-this package.
+compiler from the hub target the link produces, whose tree holds the
+package.json this target writes as built, so removing the link from the
+lockfile -- or turning that target back into an alias -- breaks the consumer
+rather than this package.
 """
 
 load("@rules_typescript//ts:defs.bzl", "ts_compile")

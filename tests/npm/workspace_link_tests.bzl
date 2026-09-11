@@ -164,7 +164,7 @@ def _member_view_impl(ctx):
     asserts.equals(
         env,
         [
-            "package.json",
+            "shared.package.json",
             "src/banner.json",
             "src/index.d.ts",
             "src/index.js",
@@ -180,7 +180,7 @@ def _member_view_impl(ctx):
         ]),
         "the view holds the member's .js and .d.ts at the paths the manifest " +
         "names and its data srcs at their package-relative paths, the " +
-        "package.json among them as the compile staged it",
+        "manifest as built in place of the package.json src",
     )
     return analysistest.end(env)
 

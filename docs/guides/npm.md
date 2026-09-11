@@ -403,7 +403,8 @@ target names in `deps`. The view is that member as an npm package: its store
 tree, `node_modules/.pnpm/<name with / as +>@0.0.0/node_modules/<name>`, holds
 the member's `package.json` as built beside the member's `.js`, `.js.map` and
 `.d.ts` at the paths the manifest names. "As built" is one rewrite, done by the
-member's `ts_compile` when it stages the `package.json` in its `srcs`
+member's `ts_compile` over the `package.json` in its `srcs` and written as
+`<name>.package.json` beside the src, which stays staged as written
 (`tsaction manifest`, under the `jsx` its tsconfig declares): every source-file
 target under `main`, `module`, `browser`, `exports` and `imports` names the
 emitted file -- the `.js`, or the `.jsx` for a `.tsx` under `jsx: "preserve"`
@@ -434,13 +435,19 @@ of one name, or one directory linked under two names, fail the extension.
 
 The tree holds the member's data srcs too, at their package-relative paths
 beside the `.js` that reads them: a member whose module imports `./banner.json`
-answers `import { tagline } from "shared"` from the tree alone. The member's
-own `package.json` is one of them, staged as built, so the tree, a `ts_test`'s
-runfiles and a dependent's program root hold one manifest at the member's
-path: a test inside the member imports the member by name through that
-manifest -- a self-reference, which tsc, node and Vite resolve through the
-nearest `package.json`'s `name` and `exports` -- and reaches the emitted files,
-with the member's `ts_compile` as its dep and no link. The
+answers `import { tagline } from "shared"` from the tree alone. The
+`package.json` src is staged as written, and the manifest as built takes its
+place where a reader holds the emit: the store tree copies it as
+`package.json`, and a dependent's program root lays it at the member's path
+over the src. A test inside the member imports the member by name -- a
+self-reference, which tsc, node and Vite resolve through the nearest
+`package.json`'s `name` and `exports` -- with the member's `ts_compile` as its
+dep and no link: tsgo reaches the `.d.ts` through the manifest as built in the
+program root; at run time the runfiles hold the src as written, so the name
+lands on the source its `exports` name, which vitest transforms as the
+checkout's vitest does and the node:test hook maps to the compiled sibling
+([Files at Run Time](../rules/ts-test.md#files-at-run-time)). A test that
+reads its `package.json` as data reads what the checkout has. The
 link target forwards the view's `TsInfo` and `NpmPackageInfo`; a consumer
 reaches the member's files in the store, as it reaches any npm package's.
 `ts_test` names the closure's workspace members in `test.server.deps.inline`:

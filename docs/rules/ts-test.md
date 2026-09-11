@@ -66,6 +66,18 @@ Another package's sources are not in the tree: a file a test reads across a
 package boundary is a `data` entry.
 `//tests/vitest/reads_own_source` is the example.
 
+The package's `package.json` is in the tree as written: `ts_compile` stages
+the src unchanged and writes the manifest as built beside it as
+`<name>.package.json`, which the program root and the store tree read and the
+runfiles do not hold ([Sources](ts-compile.md#sources)). A test that reads its
+manifest as data reads what the checkout has, and the package's own name -- a
+self-reference, resolved through the nearest `package.json`'s `name` and
+`exports` -- lands on the source the `exports` name: under vitest the source
+is in the runfiles and vite transforms it, as the checkout's vitest does;
+under node:test the runner's hook maps it to the compiled sibling ([The
+node:test Runner](#the-nodetest-runner)). `//tests/vitest/own_manifest` and
+`//tests/node_test/self_reference` are the examples.
+
 vitest runs from the `config`'s package in the runfiles, the test's own with no
 config -- the directory `pnpm run test` runs from -- so `process.cwd()` names it
 and `join(process.cwd(), "fixtures/x.txt")` reads the package's file. The
@@ -611,6 +623,10 @@ file outside the store, one whose path holds no `node_modules/` segment:
   `./util` to `util.js` or `util/index.js`, the file bundler resolution named at
   compile time; any other to the file as written. `//tests/node_test` pins the
   three: `:ts_specifier_test`, `:extensionless_test`, `:runfiles_layout_test`.
+- The package's own name -- the nearest `package.json` above the test names
+  it and has `exports`, node's first step for a bare specifier -- resolves as
+  written from the test's own path, and the source its `exports` name to the
+  compiled sibling (`//tests/node_test/self_reference`).
 - A bare specifier resolves through the importer chain, the directories the
   launcher puts on `NODE_PATH` nearest first, never from a `node_modules` the
   walk up from `bazel-out` happens to meet (`:bare_import_test`): the hook

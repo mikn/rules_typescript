@@ -85,13 +85,15 @@ through a Starlark transition; `tests/flags.bzl` is the ruleset's own.
   nearest `package.json` of every source for the module's format and for the
   package's own name, so a package that imports itself by name
   (`import "@scope/pkg/wire"` from inside `pkg`) resolves through the manifest
-  in `srcs`. That manifest names source targets, so the staged copy is the
-  manifest as built -- every source-file target rewritten to the emitted file,
-  by `tsaction manifest` -- and it is what every reader of the staged tree
-  holds: a `ts_test` inside the package resolves the package's own name through
-  it, Vite at run time to the emitted `.js`, tsgo in the program root to the
-  `.d.ts` beside the test's sources ([The node_modules
-  Chain](#the-node_modules-chain)); the member's store tree copies it. See
+  in `srcs`. The src is staged as written, and the `package.json` at the
+  package's root is also written as built -- every source-file target
+  rewritten to the emitted file, by `tsaction manifest` -- as
+  `<name>.package.json`, for the two readers that hold the emit: a dependent's
+  program root lays it at the package's path, so a `ts_test` inside the
+  package resolves the package's own name to the `.d.ts` beside the test's
+  sources ([The node_modules Chain](#the-node_modules-chain)), and the
+  member's store tree copies it as its `package.json`. A test's runfiles hold
+  the src as written ([Files at Run Time](ts-test.md#files-at-run-time)). See
   [What a Workspace Member Is Imported
   As](../guides/npm.md#what-a-workspace-member-is-imported-as).
 
@@ -137,7 +139,8 @@ For a `foo.tsx` under `jsx: "preserve"` the first two are `foo.jsx` and
 program tsgo emits has one more, `<name>.es/foo.js`: the ES module a vitest
 test runs in place of `foo.js` ([The Module Format](#the-module-format)),
 in no default output. Every other src is staged at its package-relative path,
-unchanged.
+unchanged; a `package.json` at the package's root also gets
+`<name>.package.json`, the manifest as built ([Sources](#sources)).
 
 ## Where Compiler Options Come From
 
@@ -218,7 +221,7 @@ a `.ts`-only program has nothing `jsx` names. From the declaration on, the
 emit is tsc's: oxc names the file `.jsx` when it transforms under
 `--jsx preserve`, every consumer stages a `.jsx` as it stages a `.js`, a
 `ts_test` runs a `.jsx` test file and resolves a `.tsx`
-setup file to it, and the target stages its `package.json` as built with a
+setup file to it, and the target writes its `package.json` as built with a
 `.tsx` target rewritten to the `.jsx`, the manifest the hub's view of a member
 links beside the `.jsx` at its package-relative path. Vite transforms a `.jsx`
 module and refuses JSX in
@@ -442,8 +445,9 @@ top-level entry of the exec root, each importer's `node_modules` at the
 importer's directory (made a real directory of links down to it), the
 lockfile's root importer's at the root's `node_modules`, and the outputs of
 every first-party dep whose package is at or above the target's laid over that
-package's directory, its `package.json` as built and its declarations beside
-the sources -- and runs tsgo from there. A bare specifier, an `exports`
+package's directory, its declarations beside the sources and its
+`package.json` as built at the package's path -- and runs tsgo from there. A
+bare specifier, an `exports`
 condition, a subpath, a `@types/*` pairing, a `types` entry and the package's
 own name through the nearest manifest resolve as tsc resolves them over a pnpm
 install, and a declaration tsgo emits names a package the way that package's

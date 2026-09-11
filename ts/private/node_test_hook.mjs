@@ -1,4 +1,4 @@
-import { statSync } from "node:fs";
+import { readFileSync, realpathSync, statSync } from "node:fs";
 import module from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -74,6 +74,46 @@ function isBare(specifier) {
   );
 }
 
+// The nearest package.json above the importer, at its runfiles path and at
+// the source path node realpaths a self-reference into.
+function packageScope(parentURL) {
+  let dir = path.dirname(fileURLToPath(parentURL));
+  for (;;) {
+    const manifest = path.join(dir, "package.json");
+    if (isFile(pathToFileURL(manifest))) {
+      const { name, exports } = JSON.parse(readFileSync(manifest, "utf8"));
+      const real = path.dirname(realpathSync(manifest));
+      return { dir, real, name, exports };
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+// node's own first step for a bare specifier: the scope names the
+// specifier's package and has `exports`.
+function isSelfReference(specifier, scope) {
+  return (
+    scope !== null &&
+    scope.exports != null &&
+    (specifier === scope.name || specifier.startsWith(`${scope.name}/`))
+  );
+}
+
+// The manifest as written names a source; the compiled sibling at the source's
+// runfiles path runs.
+function compiledSibling(resolved, scope) {
+  const real = fileURLToPath(resolved.url);
+  if (!real.startsWith(scope.real + path.sep)) return resolved;
+  const held = path.join(scope.dir, real.slice(scope.real.length + 1));
+  for (const form of compiledExtensionForms(held)) {
+    const url = pathToFileURL(form);
+    if (isFile(url)) return { url: url.href, shortCircuit: true };
+  }
+  return resolved;
+}
+
 function fromTheTrees(specifier, context, next) {
   let notFound;
   for (const tree of trees) {
@@ -103,6 +143,10 @@ module.registerHooks({
         if (isFile(url)) return { url: url.href, shortCircuit: true };
       }
       return asWritten(specifier);
+    }
+    const scope = isBare(specifier) ? packageScope(parentURL) : null;
+    if (isSelfReference(specifier, scope)) {
+      return compiledSibling(asWritten(specifier), scope);
     }
     // require() reads NODE_PATH itself and ignores a swapped parentURL.
     const imported = !context.conditions.includes("require");

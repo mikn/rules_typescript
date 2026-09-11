@@ -152,8 +152,8 @@ The call declares, `manual` and public:
 - one `npm_store_member` per workspace member whose BUILD file declares its
   target, `node_modules/.pnpm/<name with / as +>@0.0.0/node_modules/<name>`:
   the member's `.js`, `.js.map`, `.d.ts` and data srcs at their
-  package-relative paths, the `package.json` among them as the compile staged
-  it, as built (every source-file target rewritten to the emitted file, [what a
+  package-relative paths, the `package.json` as built in place of the src
+  (every source-file target rewritten to the emitted file, [what a
   workspace member is imported
   as](../guides/npm.md#what-a-workspace-member-is-imported-as)); and one link
   per dependency the member's importer declares, other members among them. A

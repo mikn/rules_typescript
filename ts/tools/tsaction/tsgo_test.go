@@ -28,8 +28,8 @@ func tsgoArgs(rest ...string) []string {
 	return append(flags, rest...)
 }
 
-// A fake exec root: sources and pkg's manifest, the importers' node_modules and
-// pkg's outputs (its manifest as built, a declaration) under the bin dir.
+// A fake exec root: sources, the importers' node_modules and pkg's outputs
+// under the bin dir: the manifest as written and as built, a declaration.
 func newTsgoExecroot(t *testing.T, script string) (root, argv string) {
 	t.Helper()
 	root = t.TempDir()
@@ -42,7 +42,8 @@ func newTsgoExecroot(t *testing.T, script string) (root, argv string) {
 		rootImporter + "/zod/index.d.ts":  "export {};\n",
 		subImporter + "/ms/index.d.ts":    "export {};\n",
 		binDir + "/pkg/app.tsconfig.json": "{}\n",
-		binDir + "/pkg/package.json":      `{"exports": "./lib.js"}` + "\n",
+		binDir + "/pkg/package.json":      `{"exports": "./lib.ts"}` + "\n",
+		binDir + "/pkg/app.package.json":  `{"exports": "./lib.js"}` + "\n",
 		binDir + "/pkg/lib.d.ts":          "export {};\n",
 	} {
 		writeFile(t, filepath.Join(root, rel), body)
@@ -119,8 +120,8 @@ func TestTsgoStep_RunsFromAProgramRoot(t *testing.T) {
 	}
 }
 
-// -overlay lays a dep's outputs over its package's directory, the sources
-// beside them; the importer's node_modules and the root itself are left alone.
+// -overlay lays a dep's outputs over its package, -manifest its package.json
+// as built over the src; the importer's node_modules and the root are left.
 func TestTsgoStep_LaysADepsOutputsOverItsDirectory(t *testing.T) {
 	root, argv := newTsgoExecroot(t,
 		"readlink pkg/package.json >> \"$0.argv\"\n"+
@@ -131,13 +132,15 @@ func TestTsgoStep_LaysADepsOutputsOverItsDirectory(t *testing.T) {
 			"echo root-skipped >> \"$0.argv\"\n"+
 			"test -d pkg/sub -a ! -L pkg/sub && echo sub-is-real >> \"$0.argv\"\n")
 
-	err := runTsgo(tsgoArgs("-overlay="+binDir+"/pkg", "--", "external/tsgo/tsc"))
+	err := runTsgo(tsgoArgs("-overlay="+binDir+"/pkg",
+		"-manifest="+binDir+"/pkg/app.package.json",
+		"--", "external/tsgo/tsc"))
 	if err != nil {
 		t.Fatalf("runTsgo: %v", err)
 	}
 	got := recordedArgs(t, argv)[1:]
 	want := []string{
-		filepath.Join(root, binDir, "pkg/package.json"),
+		filepath.Join(root, binDir, "pkg/app.package.json"),
 		filepath.Join(root, binDir, "pkg/lib.d.ts"),
 		filepath.Join(root, "pkg/lib.ts"),
 		filepath.Join(root, subImporter),

@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -20,13 +21,16 @@ import (
 func runTsgo(args []string) error {
 	flags := flag.NewFlagSet("tsgo", flag.ExitOnError)
 	root := flags.String("root", "", "the program root to lay out, under the target's output directory")
-	var importers, overlays stringList
+	var importers, overlays, manifests stringList
 	flags.Var(&importers, "node_modules",
 		"an importer's node_modules directory, nearest first (repeatable); "+
 			"the last is the lockfile's root importer")
 	flags.Var(&overlays, "overlay",
 		"the output directory of a dep whose package is at or above this "+
 			"one's, laid over that package's sources (repeatable)")
+	flags.Var(&manifests, "manifest",
+		"such a dep's package.json as built, laid at its package's "+
+			"package.json over the src (repeatable)")
 	check := flags.String("check", "",
 		"the ownership manifest the --explainFiles listing is checked against")
 	stamp := flags.String("stamp", "", "file to create when tsgo exits 0")
@@ -41,7 +45,8 @@ func runTsgo(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := layOutProgramRoot(*root, importers, overlays); err != nil {
+	err = layOutProgramRoot(*root, importers, overlays, manifests)
+	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(*root)
@@ -114,8 +119,10 @@ func throughRoot(rootAbs, execroot, listed string) string {
 }
 
 // layOutProgramRoot links the exec root's entries into root, each importer's
-// node_modules at its directory, each overlay's files over its package's.
-func layOutProgramRoot(root string, importers, overlays []string) error {
+// node_modules, overlay and manifest as built at its package's place.
+func layOutProgramRoot(
+	root string, importers, overlays, manifests []string,
+) error {
 	execroot, err := os.Getwd()
 	if err != nil {
 		return err
@@ -151,6 +158,20 @@ func layOutProgramRoot(root string, importers, overlays []string) error {
 		from := filepath.Join(execroot, filepath.FromSlash(binDir))
 		rel := filepath.FromSlash(binRelative(binDir))
 		if err := overlayDir(root, rootAbs, execroot, from, rel); err != nil {
+			return err
+		}
+	}
+	for _, file := range manifests {
+		dir := filepath.FromSlash(binRelative(path.Dir(file)))
+		if err := realDirs(root, execroot, dir); err != nil {
+			return err
+		}
+		at := filepath.Join(root, dir, "package.json")
+		if err := os.RemoveAll(at); err != nil {
+			return err
+		}
+		from := filepath.Join(execroot, filepath.FromSlash(file))
+		if err := os.Symlink(from, at); err != nil {
 			return err
 		}
 	}

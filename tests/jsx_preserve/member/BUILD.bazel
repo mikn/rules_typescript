@@ -1,9 +1,11 @@
 """A workspace member under jsx: preserve whose manifest exports a `.tsx`.
 
 `@npm//:preserve-view` is the hub's view of `:member`; the manifest as built
-names `view.jsx`, the file the member emits, and the member's own test reaches
-it by name through that manifest at the member's path. The test's npm deps are
-kept by hand: this tree has no root lockfile for the gate to spell them through.
+names `view.jsx`, the file the member emits. The member's own test reaches the
+member by name: tsgo through the manifest as built laid at the member's path,
+vitest through the src as written, whose `view.tsx` vite transforms. The test's
+npm deps are kept by hand: this tree has no root lockfile for the gate to spell
+them through.
 """
 
 load("//ts:defs.bzl", "ts_compile", "ts_config", "ts_test")

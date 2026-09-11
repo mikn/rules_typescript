@@ -55,13 +55,13 @@ def _member_view_impl(ctx):
             "jsx-runtime.d.ts",
             "jsx-runtime.js",
             "jsx-runtime.js.map",
-            "package.json",
+            "member.package.json",
             "view.d.ts",
             "view.jsx",
             "view.jsx.map",
         ],
         linked,
-        "the tree holds the .jsx at the path the manifest names",
+        "the tree holds the .jsx at the path the manifest as built names",
     )
     return analysistest.end(env)
 
