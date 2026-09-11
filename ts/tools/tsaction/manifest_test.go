@@ -159,7 +159,8 @@ func TestManifestStep_WritesTheFile(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "package.json")
 	out := filepath.Join(dir, "out", "package.json")
-	writeFile(t, src, "{\n  \"name\": \"view\",\n  \"exports\": \"./view.tsx\"\n}\n")
+	writeFile(t, src,
+		"{\n  \"name\": \"view\",\n  \"exports\": \"./view.tsx\"\n}\n")
 	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 		t.Fatal(err)
 	}

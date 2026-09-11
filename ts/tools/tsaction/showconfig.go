@@ -412,9 +412,11 @@ func (a *actionConfig) types(effective *effectiveOptions, dir string,
 			file = typesEntryFile(path.Join(a.binDir, target))
 		}
 		if file == "" {
-			return nil, nil, fmt.Errorf("compilerOptions.types entry %q in %s names %s, which no input of this action sits at: "+
-				"not in the source tree, not under %s.\nA declaration this program names is a src of the target "+
-				"or an output of one of its deps.", entry, a.project, target, a.binDir)
+			return nil, nil, fmt.Errorf("compilerOptions.types entry %q in %s "+
+				"names %s, which no input of this action sits at: not in the "+
+				"source tree, not under %s.\nA declaration this program names "+
+				"is a src of the target or an output of one of its deps.",
+				entry, a.project, target, a.binDir)
 		}
 		roots = append(roots, fileRelative(dir, file))
 	}
@@ -424,7 +426,7 @@ func (a *actionConfig) types(effective *effectiveOptions, dir string,
 var typesEntryExtensions = []string{".ts", ".tsx", ".d.ts", ".mts", ".d.mts", ".cts", ".d.cts"}
 
 // typesEntryFile is tsc's lookup for a path-shaped entry: the path as a file,
-// with a TypeScript or declaration extension added, or a directory's index.d.ts.
+// a TypeScript or declaration extension added, or a directory's index.d.ts.
 func typesEntryFile(p string) string {
 	if isFile(p) {
 		return p
