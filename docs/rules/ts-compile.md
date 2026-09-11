@@ -482,11 +482,16 @@ publishes declarations of its own, and by `@types/x` when it publishes none. A
 `/// <reference types="bun-types" />`) resolves the directive through the same
 walk.
 
-`types` is always written. When the tsconfig chain sets none, the direct
-`@types/*` deps' names are written, so nothing auto-includes: a `@types/*`
-package the closure carries but no entry names is in the store for the imports
-that reach it and out of the global scope, and a use of its globals is `TS2304`.
-`//tests/npm:transitive_types_probe` pins that.
+`types` is written whenever the chain sets no `typeRoots`. When the chain sets
+no `types` either, the direct `@types/*` deps' names are written, so nothing
+auto-includes: a `@types/*` package the closure carries but no entry names is
+in the store for the imports that reach it and out of the global scope, and a
+use of its globals is `TS2304`. `//tests/npm:transitive_types_probe` pins that.
+A chain that sets `typeRoots` has bounded automatic inclusion to those roots
+itself, and tsgo skips the `node_modules` walk for a `types` name under a
+custom `typeRoots`, so no name is written from the deps; a store file's own
+`/// <reference types>` still resolves beside the referencing file.
+`//tests/npm/type_roots` pins that.
 
 ### Finding a Broken Declaration
 
@@ -636,10 +641,10 @@ importer's link, or an edge in a dep's closure -- and an entry the chain does
 not answer is tsgo's `TS2688: Cannot find type definition file`, from the
 action.
 
-`typeRoots` stays unset. With a custom `typeRoots` tsgo skips the
-`node_modules` walk for a `types` entry, and that walk is the only place an
-`exports`-only subpath resolves; inside the program root tsgo's default root is
-`node_modules/@types`, so `types: ["node"]` resolves as before.
+tsaction sets no `typeRoots` of its own. With a custom `typeRoots` tsgo skips
+the `node_modules` walk for a `types` entry, and that walk is the only place an
+`exports`-only subpath resolves; a chain that sets one keeps it, and its `types`
+entries resolve under those roots alone, as they do in the checkout.
 
 ### A `types` Entry That Names a Declaration File
 
@@ -728,8 +733,8 @@ two files.
 
 A consumer that uses a global no entry supplies sees the identifier as
 undefined. Two things supply it: a `@types/*` dep of its own (`@types/node` for
-`process`, in `types` or as a direct dep when the tsconfig sets no `types`), or
-the owning target's file named in `types`.
+`process`, in `types` or as a direct dep when the tsconfig sets neither `types`
+nor `typeRoots`), or the owning target's file named in `types`.
 
 ## Which Tool Emits the Declarations
 

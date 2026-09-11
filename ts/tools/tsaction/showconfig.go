@@ -25,6 +25,7 @@ type effectiveOptions struct {
 	JsxImportSource string    `json:"jsxImportSource"`
 	Module          string    `json:"module"`
 	Types           *[]string `json:"types"`
+	TypeRoots       []string  `json:"typeRoots"`
 }
 
 // oxcOptions is the options file: what oxc transforms with, and the module
@@ -121,7 +122,9 @@ func writeTsconfig(args []string) error {
 		"the ts_config's jsx: \"preserve\" names a .tsx's emit .jsx")
 	flags.StringVar(&a.module, "module", "",
 		"the ts_config's module: the chain's, when tsgo emits it")
-	flags.Var(&a.typesDeps, "types_dep", "a direct @types dep's name, written to types when the user's chain sets none (repeatable)")
+	flags.Var(&a.typesDeps, "types_dep", "a direct @types dep's name, written "+
+		"to types when the user's chain sets neither types nor typeRoots "+
+		"(repeatable)")
 	flags.BoolVar(&a.emit, "emit", false, "tsgo emits this target's declarations")
 	flags.StringVar(&a.outDir, "out_dir", "", "where the declarations land, with -emit")
 	flags.StringVar(&a.rootDir, "root_dir", "", "the source root the declarations mirror, with -emit")
@@ -255,13 +258,15 @@ func (a *actionConfig) build(effective *effectiveOptions, roots []string,
 	// typeRoots stays unset: a custom one stops tsgo's node_modules walk, and
 	// that walk is where a `types` entry naming a package outside @types resolves.
 	opts := map[string]any{
-		"types":               types,
 		"rootDirs":            []string{relativePath(dir, ""), relativePath(dir, a.binDir)},
 		"declaration":         true,
 		"emitDeclarationOnly": true,
 		"declarationMap":      a.declarationMap,
 		"composite":           false,
 		"incremental":         false,
+	}
+	if types != nil {
+		opts["types"] = types
 	}
 	if a.hasJavaScriptSrc() {
 		opts["allowJs"] = true
@@ -389,11 +394,14 @@ func (a *actionConfig) paths(chain *tsconfig.Resolved, dir string) map[string][]
 	return out
 }
 
-// types keeps the user's package names, or the direct @types deps when the
-// chain sets none, and returns each path-shaped entry as a root file.
+// types keeps the user's names, or the direct @types deps' when the chain sets
+// no types and no typeRoots; each path-shaped entry is returned as a root file.
 func (a *actionConfig) types(effective *effectiveOptions, dir string,
 ) (names, roots []string, err error) {
 	if effective.Types == nil {
+		if effective.TypeRoots != nil {
+			return nil, nil, nil
+		}
 		return append([]string{}, a.typesDeps...), nil, nil
 	}
 	projectDir := "."

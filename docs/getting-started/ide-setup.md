@@ -311,14 +311,15 @@ The checked-in `tsconfig.json` does not change either. It stays what
 ## Ambient Types in the Editor
 
 The editor is more permissive than the build in one place. `ts_compile` writes
-`types` for every program -- the tsconfig's entries, or the direct `@types/*`
-deps' names when it sets none -- so a global reaches a target because that
-target asked for it. The editor's root program has one `compilerOptions` block
-for the whole workspace and no `types` key, so TypeScript includes every
-`@types/*` package under the root `node_modules/@types`. A file using `process`
-type-checks in the editor as soon as `@types/node` is installed, and then fails
-`bazel build` with `TS2304` until the target's tsconfig names `node` in `types`
-or `@types/node` is among its direct deps.
+`types` for every program whose tsconfig sets no `typeRoots` -- the tsconfig's
+entries, or the direct `@types/*` deps' names when it sets none -- so a global
+reaches a target because that target asked for it. The editor's root program
+has one `compilerOptions` block for the whole workspace and no `types` key, so
+TypeScript includes every `@types/*` package under the root
+`node_modules/@types`. A file using `process` type-checks in the editor as soon
+as `@types/node` is installed, and then fails `bazel build` with `TS2304` until
+the target's tsconfig names `node` in `types` or `@types/node` is among its
+direct deps.
 
 Narrowing that per target would need a tsconfig per target, and a package only
 gets its own program when its targets name one

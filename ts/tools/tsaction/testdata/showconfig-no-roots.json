@@ -1,0 +1,10 @@
+{
+    "compilerOptions": {
+        "jsx": "preserve",
+        "module": "nodenext",
+        "strict": true,
+        "target": "esnext",
+        "moduleResolution": "nodenext",
+        "moduleDetection": "force"
+    }
+}
