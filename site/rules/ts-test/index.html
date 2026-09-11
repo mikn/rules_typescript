@@ -1,0 +1,2731 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Opinionated Bazel rules for TypeScript. Oxc and tsgo compile, tsgo type-checks, and Vite serves the generated config.">
+      
+      
+      
+        <link rel="canonical" href="https://mikn.github.io/rules_typescript/rules/ts-test/">
+      
+      
+        <link rel="prev" href="../ts-compile/">
+      
+      
+        <link rel="next" href="../ts-binary/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>ts_test - rules_typescript</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#ts_test" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="rules_typescript" class="md-header__button md-logo" aria-label="rules_typescript" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            rules_typescript
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              ts_test
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/mikn/rules_typescript" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    mikn/rules_typescript
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="rules_typescript" class="md-nav__button md-logo" aria-label="rules_typescript" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    rules_typescript
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/mikn/rules_typescript" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    mikn/rules_typescript
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/isolated-declarations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Isolated Declarations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/ide-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IDE Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migrating from rules_ts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/npm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    npm Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing with vitest
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/bundling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bundling with Vite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/dev-server/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dev Server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/tailwind/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tailwind v4
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/monorepo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monorepo Layout
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/lint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/benchmark/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmark
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gazelle
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Gazelle
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gazelle/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gazelle/directives/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Directives Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rules Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Rules Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ts-compile/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ts_compile
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ts_test
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ts_test
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#attributes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attributes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#files-at-run-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Files at Run Time
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-tests-tsconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Test's tsconfig
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#runners" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Runners
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-vitest-runner" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The vitest Runner
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The vitest Runner">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-generated-vitest-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Generated vitest Config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-config-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A Config File
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#setup-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup Files
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ts-specifiers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        .ts Specifiers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-paths-alias" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A paths Alias
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#snapshots" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Snapshots
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Coverage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#finding-what-a-test-reads" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Finding What a Test Reads
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environments
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Environments">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-workers-pool" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A Workers Pool
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-nodetest-runner" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The node:test Runner
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sharding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sharding
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#debugging" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Debugging
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#listing-npm-deps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Listing npm Deps
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ts-binary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ts_binary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ts-dev-server/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ts_dev_server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ts-codegen/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ts_codegen
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../node-modules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    node_modules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers and toolchains
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Maintainers
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Maintainers
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../CI_CD/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CI/CD
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../RELEASE_PROCESS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Process
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../BCR_SUBMISSION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BCR Submission
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#attributes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attributes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#files-at-run-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Files at Run Time
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-tests-tsconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Test's tsconfig
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#runners" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Runners
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-vitest-runner" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The vitest Runner
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The vitest Runner">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-generated-vitest-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Generated vitest Config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-config-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A Config File
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#setup-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup Files
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ts-specifiers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        .ts Specifiers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-paths-alias" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A paths Alias
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#snapshots" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Snapshots
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Coverage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#finding-what-a-test-reads" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Finding What a Test Reads
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environments
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Environments">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-workers-pool" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A Workers Pool
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-nodetest-runner" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The node:test Runner
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sharding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sharding
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#debugging" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Debugging
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#listing-npm-deps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Listing npm Deps
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="ts_test">ts_test<a class="headerlink" href="#ts_test" title="Permanent link">&para;</a></h1>
+<p>Compiles TypeScript test files with <code>ts_compile</code>'s actions and runs them inside
+the Bazel sandbox under a runner target: vitest by default, node's own runner,
+or one of your own.</p>
+<h2 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">&para;</a></h2>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">load</span><span class="p">(</span><span class="s2">"@rules_typescript//ts:defs.bzl"</span><span class="p">,</span> <span class="s2">"ts_test"</span><span class="p">)</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">ts_test</span><span class="p">(</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">name</span> <span class="o">=</span> <span class="s2">"math_test"</span><span class="p">,</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">srcs</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"math.test.ts"</span><span class="p">],</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">deps</span> <span class="o">=</span> <span class="p">[</span><span class="s2">":math"</span><span class="p">,</span> <span class="s2">"@npm//:vitest"</span><span class="p">],</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="p">)</span>
+</span></code></pre></div>
+<p><code>srcs</code>, <code>deps</code>, <code>tsconfig</code> and <code>node_modules</code> are <code>ts_compile</code>'s. The same
+actions compile the test files -- the emit as ES modules under the vitest
+runner (<a href="#runners">Runners</a>) -- and the importer chain tsgo checked them
+against (<a href="../ts-compile/#the-node_modules-chain">The node_modules Chain</a>) is
+what they run in: the chain's links and the store files the program reaches
+sit in the runfiles at their own paths. <code>runner</code> names the target that runs
+the compiled files.</p>
+<h2 id="attributes">Attributes<a class="headerlink" href="#attributes" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Attribute</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>srcs</code></td>
+<td><code>label_list</code></td>
+<td>required</td>
+<td>The test files, as <code>ts_compile</code>'s <code>srcs</code>, with every other file of the package: a <code>.snap</code>, a fixture. The TypeScript ones are in the runfiles at their source paths too; see <a href="#files-at-run-time">Files at Run Time</a></td>
+</tr>
+<tr>
+<td><code>deps</code></td>
+<td><code>label_list</code></td>
+<td><code>[]</code></td>
+<td><code>ts_compile</code> and <code>@npm//</code> targets the tests import. A <code>ts_compile</code> dep's data srcs are in the runfiles beside its <code>.js</code>, and a dep in the test's package has its TypeScript srcs there too</td>
+</tr>
+<tr>
+<td><code>tsconfig</code></td>
+<td><code>label</code></td>
+<td><code>None</code></td>
+<td>The test program's tsconfig, as on <code>ts_compile</code>: the package's own <code>tsconfig.json</code> or a <code>ts_config</code> target; under vitest its <code>paths</code> resolve at run time. See <a href="#the-tests-tsconfig">The Test's tsconfig</a></td>
+</tr>
+<tr>
+<td><code>node_modules</code></td>
+<td><code>label</code></td>
+<td><code>None</code></td>
+<td>The nearest lockfile importer's <code>node_modules</code> target, as on <code>ts_compile</code>: the chain the tests resolve their npm deps along, at run time too. See <a href="#files-at-run-time">Files at Run Time</a></td>
+</tr>
+<tr>
+<td><code>runner</code></td>
+<td><code>label</code></td>
+<td><code>//ts/runners:vitest</code></td>
+<td>The target that runs the compiled tests: <code>//ts/runners:vitest</code>, <code>//ts/runners:node_test</code> or any target providing <code>TsTestRunnerInfo</code>. See <a href="#runners">Runners</a></td>
+</tr>
+<tr>
+<td><code>env</code></td>
+<td><code>string_dict</code></td>
+<td><code>{}</code></td>
+<td>Extra environment variables for the runner</td>
+</tr>
+<tr>
+<td><code>args</code></td>
+<td><code>string_list</code></td>
+<td><code>[]</code></td>
+<td>The runner's command-line flags: node's under the node:test runner, vitest's under the vitest runner; <code>bazel test --test_arg</code> appends to them. See <a href="#the-nodetest-runner">The node:test Runner</a></td>
+</tr>
+<tr>
+<td><code>config</code></td>
+<td><code>label</code></td>
+<td><code>None</code></td>
+<td>The vitest config file (<code>.ts</code>/<code>.mts</code>/<code>.cts</code>/<code>.js</code>/<code>.mjs</code>/<code>.cjs</code>), merged over the generated config's Bazel layer. Every vitest setting is the file's. See <a href="#a-config-file">A Config File</a></td>
+</tr>
+<tr>
+<td><code>config_srcs</code></td>
+<td><code>label_list</code></td>
+<td><code>[]</code></td>
+<td>The modules <code>config</code> imports relatively, and theirs, each at its own path in the runfiles; Gazelle writes it from the config's listing. See <a href="#a-config-file">A Config File</a></td>
+</tr>
+<tr>
+<td><code>data</code></td>
+<td><code>label_list</code></td>
+<td><code>[]</code></td>
+<td>Extra runfiles: fixtures, anything read at run time</td>
+</tr>
+<tr>
+<td><code>wrangler_config</code></td>
+<td><code>label</code></td>
+<td><code>None</code></td>
+<td>The wrangler config a Workers-pool <code>config</code> names through <code>wrangler.configPath</code>. See <a href="#a-workers-pool">A Workers Pool</a></td>
+</tr>
+<tr>
+<td><code>coverage_provider</code></td>
+<td><code>string</code></td>
+<td><code>""</code></td>
+<td><code>test.coverage.provider</code>: <code>"v8"</code> (vitest's default) or <code>"istanbul"</code>. See <a href="#coverage">Coverage</a></td>
+</tr>
+<tr>
+<td><code>size</code>, <code>timeout</code>, <code>tags</code>, <code>visibility</code></td>
+<td></td>
+<td></td>
+<td>Bazel's test attributes</td>
+</tr>
+</tbody>
+</table>
+<p><code>config</code>, <code>config_srcs</code>, <code>coverage_provider</code> and <code>wrangler_config</code> are the
+vitest runner's and an analysis error under the node:test runner.</p>
+<h2 id="files-at-run-time">Files at Run Time<a class="headerlink" href="#files-at-run-time" title="Permanent link">&para;</a></h2>
+<p>A test's runfiles hold, at their source paths, the compiled program -- its own
+<code>.js</code> and every dep's -- the data srcs of every dep, and the TypeScript sources
+of its own package: its <code>srcs</code> and the srcs of every dep in the same Bazel
+package, <code>.ts</code>, <code>.tsx</code> and declarations. A test that reads its package's tree
+finds it where the checkout has it:</p>
+<div class="language-ts highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kd">const</span><span class="w"> </span><span class="nx">sdkSource</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">readFileSync</span><span class="p">(</span><span class="ow">new</span><span class="w"> </span><span class="nx">URL</span><span class="p">(</span><span class="s2">"./index.ts"</span><span class="p">,</span><span class="w"> </span><span class="k">import</span><span class="p">.</span><span class="nx">meta</span><span class="p">.</span><span class="nx">url</span><span class="p">),</span><span class="w"> </span><span class="s2">"utf8"</span><span class="p">);</span>
+</span></code></pre></div>
+<p><code>import.meta.url</code> -- and <code>__dirname</code>, in a CommonJS test -- is the runfiles
+path on either runner (the vitest layer's module ids, <a href="#the-generated-vitest-config">The Generated vitest
+Config</a>; node's <code>--preserve-symlinks-main</code> and
+the runner's resolve hook), so <code>./index.ts</code>
+beside the compiled test is the same-package <code>ts_compile</code>'s <code>src/index.ts</code>.
+Another package's sources are not in the tree: a file a test reads across a
+package boundary is a <code>data</code> entry.
+<code>//tests/vitest/reads_own_source</code> is the example.</p>
+<p>The package's <code>package.json</code> is in the tree as written: <code>ts_compile</code> stages
+the src unchanged and writes the manifest as built beside it as
+<code>&lt;name&gt;.package.json</code>, which the program root and the store tree read and the
+runfiles do not hold (<a href="../ts-compile/#sources">Sources</a>). A test that reads its
+manifest as data reads what the checkout has, and the package's own name -- a
+self-reference, resolved through the nearest <code>package.json</code>'s <code>name</code> and
+<code>exports</code> -- lands on the source the <code>exports</code> name: under vitest the source
+is in the runfiles and vite transforms it, as the checkout's vitest does;
+under node:test the runner's hook maps it to the compiled sibling (<a href="#the-nodetest-runner">The
+node:test Runner</a>). <code>//tests/vitest/own_manifest</code> and
+<code>//tests/node_test/self_reference</code> are the examples.</p>
+<p>vitest runs from the <code>config</code>'s package in the runfiles, the test's own with no
+config -- the directory <code>pnpm run test</code> runs from -- so <code>process.cwd()</code> names it
+and <code>join(process.cwd(), "fixtures/x.txt")</code> reads the package's file. The
+<code>config</code> file and its <code>config_srcs</code> are regular files at their own paths in the
+runfiles, and the generated config vitest is handed is in the test's package,
+all written by the launcher before the run: a runfiles entry is a symlink, and
+Vite bundles a config from its realpath, so through the symlink <code>__dirname</code>
+and the walk up for a bare import would start in <code>bazel-out</code>. <code>__dirname</code>,
+<code>import.meta.dirname</code> and <code>__filename</code> in the config and in a <code>config_srcs</code>
+module are the package's paths, as under plain <code>vitest</code>, and a bare import
+walks up to the importer's <code>node_modules</code>.
+<code>//tests/vitest/cwd_and_dirname</code> is the example.</p>
+<p>The compiled program is what runs -- under vitest as ES modules, whatever the
+tsconfig's <code>module</code> (<a href="#runners">Runners</a>). A <code>setupFiles</code> entry naming a
+source runs the compiled sibling staged beside it (<a href="#setup-files">Setup Files</a>),
+and a
+<code>.ts</code> specifier the emit keeps -- relative, or a subpath into a workspace
+member -- resolves to the compiled file (<a href="#ts-specifiers"><code>.ts</code> Specifiers</a>;
+under node:test, the runner's hook:
+<a href="#the-nodetest-runner">The node:test Runner</a>).</p>
+<p>A bare specifier resolves through the importer chain by the runner's own
+route. Under vitest the resolver walks up from the test's runfiles path
+through each importer's <code>node_modules</code> to the lockfile's root importer's;
+where that walk meets none before the workspace's root, the launcher links the
+chain's root in there. Under node:test the hook resolves it from the chain's
+directories the launcher names in <code>NODE_PATH</code>, nearest first
+(<a href="#the-nodetest-runner">The node:test Runner</a>). A package's own imports
+resolve from its realpath in the store to the edges beside its tree, on both
+runners (<code>//tests/npm/multi_version:own_edge_node_test</code>,
+<code>:own_edge_vitest_test</code>), and an import of a name it does not declare to the
+hoist link the runfiles carry for a name the closure holds
+(<code>//tests/npm/features/hoist</code>).</p>
+<h2 id="the-tests-tsconfig">The Test's tsconfig<a class="headerlink" href="#the-tests-tsconfig" title="Permanent link">&para;</a></h2>
+<p><code>tsconfig</code> is the test program's, as on
+<a href="../ts-compile/#where-compiler-options-come-from"><code>ts_compile</code></a>. The test files
+are a program of their own, so a <code>lib</code>, a <code>types</code> entry or a <code>paths</code> alias the
+package's sources need is in the test program only when the test's tsconfig
+has it too; Gazelle names the package's own <code>tsconfig.json</code> on the test as on
+the compile. Three entries are the ones a test usually needs:</p>
+<ul>
+<li><strong><code>lib</code>.</strong> A worker test needs <code>["esnext", "webworker"]</code>; <code>webworker</code> is in
+  no set <code>target</code> implies.</li>
+<li><strong>A <code>types</code> entry naming a package or a subpath</strong>, such as
+  <code>@cloudflare/vitest-pool-workers/types</code> for a pool's <code>cloudflare:test</code>
+  module, or <code>vitest/globals</code>. tsgo resolves it through the chain
+  <code>node_modules</code> names, so the package is in <code>deps</code>, which stages the
+  importer's link the walk up meets; see
+  <a href="../ts-compile/#a-types-entry-that-names-a-package">a <code>types</code> entry that names a package</a>.</li>
+<li><strong>A <code>types</code> entry naming a declaration file</strong>, <code>../worker-configuration.d.ts</code>
+  for the declaration a wrangler project keeps beside its worker. The target
+  whose <code>srcs</code> hold the file, or whose <code>outs</code> write it, is in <code>deps</code>, and
+  tsaction rebases the entry to the staged file; see
+  <a href="../ts-compile/#a-types-entry-that-names-a-declaration-file">a <code>types</code> entry that names a declaration file</a>.</li>
+</ul>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>// workers/proxy/test/tsconfig.json
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>{
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>  "extends": "../tsconfig.json",
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>  "compilerOptions": { "types": ["../worker-configuration.d.ts"] }
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>}
+</span></code></pre></div>
+<div class="language-starlark highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">ts_test</span><span class="p">(</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    <span class="n">name</span> <span class="o">=</span> <span class="s2">"handler_test"</span><span class="p">,</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="n">srcs</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"handler.test.ts"</span><span class="p">],</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="n">tsconfig</span> <span class="o">=</span> <span class="s2">"tsconfig.json"</span><span class="p">,</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="n">deps</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"//workers/proxy:worker_types"</span><span class="p">,</span> <span class="s2">"//workers/proxy/src"</span><span class="p">,</span> <span class="s2">"@npm//:vitest"</span><span class="p">],</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>A <code>paths</code> alias resolves at run time as it did at compile time. oxc leaves an
+import specifier alone, so a compiled test still names the alias, and the Bazel
+layer of the generated config resolves it to the module the value names in the
+runfiles, the compiled sibling for a <code>.ts</code> value (<a href="#a-paths-alias">A <code>paths</code>
+Alias</a>). A value import through an alias into another package
+needs that package's target in <code>deps</code>, which is what puts the module in the
+runfiles. Under node:test an alias is type-checking only
+(<a href="#the-nodetest-runner">The node:test Runner</a>).</p>
+<h2 id="runners">Runners<a class="headerlink" href="#runners" title="Permanent link">&para;</a></h2>
+<p>A runner is a target providing <code>TsTestRunnerInfo</code>
+(<a href="../providers/#tstestrunnerinfo">providers</a>), the way a toolchain is: <code>ts_test</code>
+compiles the tests against the importer chain, and the runner's <code>launch</code> turns
+them into the launcher's config and the runfiles of one test. Two ship,
+<code>//ts/runners:vitest</code>, the default, and <code>//ts/runners:node_test</code>
+(<code>@rules_typescript//ts/runners:node_test</code> from a consumer); a third is a rule
+in its own ruleset returning the provider. A runner names the npm packages it
+needs in the closure -- <code>vitest</code> for the vitest runner -- and a test whose
+<code>deps</code> provide none fails at analysis:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>ts_test @@//path/to:my_test: @@//ts/runners:vitest runs the tests and needs
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>vitest in the npm closure, which no dep provides.
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>Add the hub label of each to deps.
+</span></code></pre></div>
+<p><code>runner</code> is the owner's attribute. tsgo's listing records no edge for an import
+of an ambient module -- <code>node:test</code> resolves to no file -- so nothing Gazelle
+reads says which runner a test file was written for; Gazelle never writes
+<code>runner</code>, and a hand-written value survives every run without <code># keep</code>.</p>
+<p>The two runners run different module formats, and a runner says which with
+<code>TsTestRunnerInfo.es_modules</code>. vitest imports every file through vite's ESM
+transform, so the program a vitest test runs is ES modules whatever its
+tsconfig's <code>module</code>: the test's own srcs are emitted as such, and a
+<code>ts_compile</code> dep whose program tsgo emits -- <code>module: "commonjs"</code>, or
+<code>"nodenext"</code> in a package with no <code>type</code> -- is staged as the ES twins it
+emits beside its <code>.js</code>
+(<a href="../ts-compile/#the-module-format">The Module Format</a>). node:test has no
+transform, so it runs the package's format as tsc emits it
+(<a href="#the-nodetest-runner">The node:test Runner</a>). <code>//tests/vitest/commonjs</code> and
+<code>//tests/node_test/cjs</code> pin the two over one <code>module: commonjs</code> shape.</p>
+<h2 id="the-vitest-runner">The vitest Runner<a class="headerlink" href="#the-vitest-runner" title="Permanent link">&para;</a></h2>
+<p>vitest is the one the first importer on the chain links, from the test's
+package up, the JS runtime the toolchain's: the Node your <code>.nvmrc</code> names
+(<a href="../../getting-started/quickstart/#nodejs">Node.js</a>). Under <code>bazel test</code> the
+runner sets <code>CI=true</code> so vitest writes no <code>.snap</code> (<a href="#snapshots">Snapshots</a>);
+<code>env = {"CI": "false"}</code> opts out.</p>
+<h3 id="the-generated-vitest-config">The Generated vitest Config<a class="headerlink" href="#the-generated-vitest-config" title="Permanent link">&para;</a></h3>
+<p>A config is always generated and always passed with <code>--config</code>, so vitest never
+auto-discovers a stray config out of the runfiles tree. It layers four sources,
+lowest precedence first; every vitest setting the table does not name --
+<code>test.environment</code>, <code>test.globals</code>, <code>test.setupFiles</code>, <code>test.globalSetup</code>,
+<code>test.reporters</code>, <code>test.coverage.thresholds</code> -- is the <code>config</code> file's, as under
+plain <code>vitest</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Contents</th>
+<th>Workspace projects</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1. Bazel</td>
+<td><code>root</code> (the <code>config</code>'s package; the test's own with none), <code>cacheDir</code> under <code>TEST_TMPDIR</code>, <code>server.fs.allow</code> naming the workspace's runfiles and <code>bazel-bin</code>'s realpath, <code>test.coverage.allowExternal</code>, <code>test.include</code> naming the compiled test files, <code>test.server.deps.inline</code> naming each workspace member in the closure, the plugin giving each module its id (below), the plugin resolving a relative <code>.ts</code> specifier to its compiled sibling, and the plugin resolving a tsconfig <code>paths</code> alias</td>
+<td>yes</td>
+</tr>
+<tr>
+<td>2. user</td>
+<td>the <code>config</code> file</td>
+<td>it supplies the projects</td>
+</tr>
+<tr>
+<td>3. provider</td>
+<td><code>test.coverage.provider</code> from <code>coverage_provider</code></td>
+<td>no, root only</td>
+</tr>
+<tr>
+<td>4. snapshots</td>
+<td><code>test.resolveSnapshotPath</code></td>
+<td>no, root only</td>
+</tr>
+</tbody>
+</table>
+<p>Objects merge key by key; arrays concatenate base-first, as vite's own
+<code>mergeConfig</code> does, so a <code>plugins</code> list in the config joins layer 1's. Scalars
+from a later layer win: a <code>cacheDir</code> the config sets wins over layer 1's, and
+<code>coverage_provider</code> over a provider the config names. Layers 3
+and 4 are root-only because coverage and <code>resolveSnapshotPath</code> are vitest's
+non-project options, applied once and never merged into a project.</p>
+<p>Layer 1's <code>include</code> is the compiled test files, relative to the root: under
+Bazel the run is the rule's <code>srcs</code>. A config's <code>include</code> is written for the
+sources (<code>**/*.test.{ts,tsx}</code>), which the compiled <code>.js</code> the launcher names
+never match, and the run would stop with <code>No test files found</code>; arrays
+concatenate, so the config's globs stay in the merged array and select
+nothing the launcher did not name. <code>//tests/vitest/config_include</code> is the
+example.</p>
+<p>A module's id is its runfiles path where the runfiles hold the file and its
+realpath otherwise. Vite resolves every id to its realpath -- a test file's and
+a compiled module's lie in <code>bazel-out</code>, a source file's in the source tree --
+and layer 1's plugin gives a file the runfiles hold at that path its runfiles
+path back, so <code>import.meta.url</code> and a relative import stay in the runfiles
+tree; a file under <code>node_modules</code> keeps its realpath, so a package's own
+imports resolve from its place in the tree, and one file is one module. An id
+that resolves to a file the runfiles do not hold is refused:
+<code>rules_typescript: "&lt;id&gt;" resolved to &lt;path&gt;, which this test's runfiles do not
+hold</code>. <code>server.fs.allow</code> names the workspace's runfiles and <code>bazel-bin</code>'s
+realpath, the two places an id can be, for the DOM environments that load
+through Vite's server.</p>
+<p><code>server.deps.inline</code> in layer 1 names every workspace member in the closure.
+vitest runs a module under <code>node_modules</code> in node unless a pattern names it,
+and a member's emitted <code>.js</code> keeps the extensionless relative imports vite
+resolves and node's loader rejects; under pnpm the same member is inlined
+because its link's realpath lies outside <code>node_modules</code>. Inlined, a member's
+own imports resolve through vite with the environment's conditions on both
+layouts, and vitest 4 gives a DOM environment the server set (<code>node</code>,
+<code>development|production</code>): a package whose exports map splits <code>browser</code> from
+<code>node</code> answers with its node build unless the <code>config</code> sets
+<code>resolve.conditions</code>.</p>
+<p>Two things sit outside the layering: npm resolution into the runfiles tree
+(the launcher's <code>node_modules</code> link at the runfiles root, <a href="#files-at-run-time">Files at Run
+Time</a>) and coverage output paths (vitest CLI flags, so
+<code>bazel coverage</code> writes lcov where Bazel expects it).</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>bazel<span class="w"> </span>run<span class="w"> </span>//path/to:my_test<span class="w"> </span>--<span class="w"> </span>--dump-config<span class="w">           </span><span class="c1"># what the launcher resolved</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>bazel<span class="w"> </span>build<span class="w"> </span>//path/to:my_test<span class="w"> </span>--output_groups<span class="o">=</span>vitest_config<span class="w">   </span><span class="c1"># the config that ran</span>
+</span></code></pre></div>
+<h3 id="a-config-file">A Config File<a class="headerlink" href="#a-config-file" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">ts_test</span><span class="p">(</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>    <span class="n">name</span> <span class="o">=</span> <span class="s2">"component_test"</span><span class="p">,</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>    <span class="n">srcs</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"Button.test.tsx"</span><span class="p">],</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>    <span class="n">deps</span> <span class="o">=</span> <span class="p">[</span><span class="s2">":button"</span><span class="p">,</span> <span class="s2">"@npm//:react"</span><span class="p">,</span> <span class="s2">"@npm//:vitest"</span><span class="p">],</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>    <span class="n">config</span> <span class="o">=</span> <span class="s2">"vitest.config.ts"</span><span class="p">,</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>    <span class="n">data</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"test/fixtures.json"</span><span class="p">],</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>The file may default-export an object, a function of <code>env</code>, or a promise of
+either. An array is read as a list of vitest projects and becomes
+<code>test.projects</code>; each project in it receives the Bazel layer too, because every
+project gets its own Vite server.</p>
+<p>Vite's root is the config's package, so a relative path in the config names the
+directory the file sits in, as under plain <code>vitest</code>, whether the test is in that
+package or one below it; with no config it is the test's package. vitest runs
+from that directory, and the config is loaded from its own path in it, so
+<code>__dirname</code> and <code>import.meta.dirname</code> name it too (<a href="#files-at-run-time">Files at Run
+Time</a>).</p>
+<p><code>config_srcs</code> names the modules the config imports relatively and the ones
+they import; each is written at its own path in the runfiles, so <code>./plugins/foo</code>
+is <code>plugins/foo.ts</code> beside the config, and a bare import in <code>plugins/foo.ts</code>
+walks up to the runfiles tree's <code>node_modules</code>. A config from an ancestor
+package names its modules as that package's files, <code>//&lt;package&gt;:&lt;file&gt;</code>.
+<code>//tests/vitest/config_srcs</code> is the example.</p>
+<p>Gazelle writes <code>config</code> from the file plain <code>vitest</code> would read -- a
+<code>vitest.config.*</code>, else a <code>vite.config.*</code>; <code>//tests/vitest/vite_config</code> is the
+example, a <code>define</code> the test reads -- beside the tests by name, else the one
+in the nearest directory above holding a <code>package.json</code>, or the repository
+root, as the label <code>//pkg:vitest_config</code> of a public <code>filegroup</code> it writes over
+the file; and <code>config_srcs</code> from the config's listing, followed through every
+first-party module it reaches (<a href="../../gazelle/overview/#what-gazelle-writes">what Gazelle
+writes</a>).</p>
+<div class="admonition warning">
+<p class="admonition-title">The array form needs vitest 3.2 or later</p>
+<p><code>test.projects</code> is the name <code>test.workspace</code> was renamed to in vitest 3.2;
+vitest 4 removed the old name and throws on it. Every other <code>config</code> shape
+(object, function, promise) uses no version-sensitive key.</p>
+</div>
+<h3 id="setup-files">Setup Files<a class="headerlink" href="#setup-files" title="Permanent link">&para;</a></h3>
+<p><code>test.setupFiles</code> in the <code>config</code> names the files that run before every test
+file, which is where DOM polyfills (<code>matchMedia</code>, <code>ResizeObserver</code>,
+<code>PointerEvent</code>) belong; <code>test.globalSetup</code> runs once around the whole run. An
+entry is resolved against the root. Once the layers have merged, an entry
+ending in <code>.ts</code>, <code>.tsx</code>, <code>.mts</code> or <code>.cts</code> whose compiled sibling is in the
+runfiles (<code>.js</code>, <code>.mjs</code> or <code>.cjs</code>; <code>.jsx</code> for a <code>.tsx</code> under <code>jsx: preserve</code>)
+is rewritten to that sibling, so <code>setupFiles: ["./test/vitest.setup.ts"]</code> in a
+config at the package root runs <code>test/vitest.setup.js</code>. An entry with no
+compiled sibling staged is left as written and fails to load: <code>Cannot find
+module '.../test/vitest.setup.ts'</code>. The <code>ts_compile</code> over the source has to be
+in <code>deps</code>; nothing imports a setup file, so Gazelle writes no such dep and the
+entry is <code># keep</code>. <code>//tests/setup_files_compiled</code> is the example, with the
+config at the package root and beside the tests.</p>
+<p>vitest resolves each entry through Node's resolver, which follows the runfiles
+link to the compiled file in <code>bazel-out</code>; layer 1 gives the module its runfiles
+path back as its id, as it does every file the runfiles hold, so a DOM
+environment (<code>jsdom</code>, <code>happy-dom</code>), which loads setup files through Vite's
+server, is served a path under the root. <code>//tests/setup_files_compiled/dom</code> is
+the example.</p>
+<h3 id="ts-specifiers"><code>.ts</code> Specifiers<a class="headerlink" href="#ts-specifiers" title="Permanent link">&para;</a></h3>
+<p><code>import { x } from "./util.ts"</code> is legal TypeScript under
+<code>allowImportingTsExtensions</code>, and the emit keeps the specifier as written.
+Resolved as written, a same-package import runs the source under vite's
+transform, and an import of another package's file fails:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>Error: Cannot find module './util.ts' imported from .../util.test.js
+</span></code></pre></div>
+<p>Layer 1 carries a plugin that resolves a specifier ending in <code>.ts</code>, <code>.tsx</code>,
+<code>.mts</code> or <code>.cts</code> to the compiled file the runfiles hold for it (<code>.js</code>, <code>.mjs</code>
+or <code>.cjs</code>; <code>.jsx</code> for a <code>.tsx</code> under <code>jsx: preserve</code>) whenever that file
+resolves from the importing file: a relative specifier to the sibling beside
+it -- the rule a <code>setupFiles</code> entry is rewritten by -- and a bare one, a
+subpath into a workspace member (<code>subpath-member/src/value.ts</code> from a member
+that declares it), to the file under the member's view in the tree (<a href="../../guides/npm/#what-a-workspace-member-is-imported-as">What a
+Workspace Member Is Imported
+As</a>). A specifier
+with no compiled file resolves as written; the source and the emit are
+untouched. <code>//tests/vitest/relative_ts</code> and
+<code>//tests/npm:by_name_member_test</code> are the examples.</p>
+<h3 id="a-paths-alias">A <code>paths</code> Alias<a class="headerlink" href="#a-paths-alias" title="Permanent link">&para;</a></h3>
+<p>A compiled test imports <code>@app/flags</code> as its source did: oxc leaves the
+specifier alone, and vitest alone would resolve it as a package. At compile
+time tsgo resolved it through the tsconfig's <code>paths</code>
+(<a href="../ts-compile/#importing-another-target-by-bare-specifier">ts-compile.md</a>);
+at run time layer 1 does the same, over the runfiles.</p>
+<p>The <code>TsTestPaths</code> action reads the <code>tsconfig</code> chain with the reader the
+compile's <code>TsConfig</code> action uses and writes its <code>paths</code> beside the generated
+config, with the directory of the chain file that set them (a leaf replaces
+the map whole, as under tsc). The plugin matches a specifier the way tsc does:
+the exact key first, then the pattern with the longest prefix; the matched
+key's values in order, each read from that directory, a value naming a <code>.ts</code>
+swapped for its compiled sibling before resolving; the first value that
+resolves wins, and one that resolves nothing leaves the specifier to vite. A
+relative, absolute or virtual specifier is never matched.</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>// tsconfig.json
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>{ "compilerOptions": { "paths": {
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>  "@shared/*": ["./shared/*"],
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>  "@platform/auth": ["./lib/auth/platform-adapter.ts"]
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>} } }
+</span></code></pre></div>
+<p><code>@shared/flags</code> resolves to <code>shared/flags.js</code> (vite's extension order puts the
+compiled <code>.js</code> before the staged <code>.ts</code>); <code>@platform/auth</code> to
+<code>lib/auth/platform-adapter.js</code>, the sibling of the file the value names. A
+value under another package resolves when that package's target is in <code>deps</code>,
+which stages its compiled module; the source it names is not in the runfiles
+and is not needed. A <code>config</code> that sets <code>resolve.tsconfigPaths</code> still finds no
+<code>tsconfig.json</code> in the runfiles, and does not need one.
+<code>//tests/vitest/path_aliases</code> is the example: a pattern alias, an exact alias
+naming a <code>.ts</code>, and an alias into another package, every one a value import.</p>
+<h3 id="snapshots">Snapshots<a class="headerlink" href="#snapshots" title="Permanent link">&para;</a></h3>
+<p>vitest resolves a <code>.snap</code> beside the test file it ran, which under Bazel is the
+compiled <code>.js</code> in <code>bazel-out</code>. Layer 4 replaces that resolution with the path
+the <code>.ts</code> source implies, <code>&lt;package&gt;/__snapshots__/&lt;source file name&gt;.snap</code>,
+the path a plain <code>vitest</code> run uses. The <code>.snap</code> is a src of the test, as every
+other file under the package is (<a href="../ts-compile/#sources"><code>srcs</code></a>); Gazelle
+lists it with the package's files:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">ts_test</span><span class="p">(</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>    <span class="n">name</span> <span class="o">=</span> <span class="s2">"widget_test"</span><span class="p">,</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>    <span class="n">srcs</span> <span class="o">=</span> <span class="p">[</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>        <span class="s2">"__snapshots__/widget.test.ts.snap"</span><span class="p">,</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>        <span class="s2">"widget.test.ts"</span><span class="p">,</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>    <span class="p">],</span>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>    <span class="n">deps</span> <span class="o">=</span> <span class="p">[</span><span class="s2">":widget"</span><span class="p">,</span> <span class="s2">"@npm//:vitest"</span><span class="p">],</span>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>A snapshot the test cannot read is a failure: <code>CI=true</code> puts vitest in
+read-only snapshot mode, so no <code>bazel test</code> writes a <code>.snap</code>. Writing one is
+<code>vitest -u</code> in the package, as outside Bazel. Commit the result.</p>
+<h3 id="coverage">Coverage<a class="headerlink" href="#coverage" title="Permanent link">&para;</a></h3>
+<p><code>bazel coverage //path/to:my_test</code> works on any <code>ts_test</code> on the vitest runner
+with no attribute set; <code>@vitest/coverage-v8</code> must be in <code>node_modules</code>.</p>
+<p>Bazel's <code>collect_coverage.sh</code> runs the test with <code>COVERAGE_DIR</code> set; the
+launcher runs vitest with the lcov reporter and writes the report, its paths
+resolved against vitest's root, the config's package, and made
+workspace-relative, as <code>vitest.dat</code> in that directory. Bazel then runs the
+rule's merger, <code>@rules_typescript//tools/lcov_merger</code>, over the directory, and
+it keeps the records the coverage manifest selects. The merger is the rule's
+rather than Bazel's own because the manifest names the <code>.ts</code> a target declared
+and the report names the <code>.js</code> compiled from it, and Bazel's merger keeps a
+record only under the manifest's exact spelling; the rule's matches the two by
+path. <code>tools/ci/check_coverage_report.sh</code> runs the two commands below in CI and
+reads the report.</p>
+<p><code>--instrumentation_filter</code> selects the targets whose files reach the report.
+Bazel derives a default from the targets on the command line; for
+<code>bazel coverage //foo:bar_test</code> that is <code>^//foo[/:]</code>, so a library in another
+package is absent from the report until a wider filter names it:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>bazel<span class="w"> </span>coverage<span class="w"> </span>//tests/vitest/coverage:math_coverage_test<span class="w"> </span>--combined_report<span class="o">=</span>lcov
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="c1"># SF:tests/vitest/coverage/same_package.js only</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>bazel<span class="w"> </span>coverage<span class="w"> </span>//tests/vitest/coverage:math_coverage_test<span class="w"> </span>--combined_report<span class="o">=</span>lcov<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">    </span>--instrumentation_filter<span class="o">=</span><span class="s1">'^//tests/vitest[/:]'</span>
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="c1"># adds SF:tests/vitest/math.js</span>
+</span></code></pre></div>
+<p>Every <code>ts_compile</code> carries its own <code>InstrumentedFilesInfo</code>, so the filter is
+applied per target. The test's own files are a test target's, which Bazel
+leaves out of the report unless <code>--instrument_test_targets</code> is set. Coverage is
+reported against the compiled <code>.js</code> in <code>bazel-out</code>, so <code>SF:</code> paths and line
+numbers are the compiler's.</p>
+<p>A test whose pool runs the tests in a second runtime, such as a
+<code>@cloudflare/vitest-pool-workers</code> test in workerd, needs istanbul: v8 coverage
+is counters read back out of Node's inspector, which workerd has no equivalent
+of, and istanbul instruments at transform time. Set
+<code>coverage_provider = "istanbul"</code> and put <code>@vitest/coverage-istanbul</code>, pinned to
+the same version as <code>vitest</code>, in <code>deps</code>. With only the package in <code>deps</code> and no
+<code>coverage_provider</code>, vitest falls back to its v8 default and the run fails with
+<code>MISSING DEPENDENCY  Cannot find dependency '@vitest/coverage-v8'</code>.</p>
+<h3 id="finding-what-a-test-reads">Finding What a Test Reads<a class="headerlink" href="#finding-what-a-test-reads" title="Permanent link">&para;</a></h3>
+<p>A test that opens a file the runfiles do not hold fails in the sandbox with
+<code>ENOENT</code>, and nothing in the build says which file: a run-time read is in no
+program listing, so Gazelle writes no <code>data</code> entry for it.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>bazel<span class="w"> </span>run<span class="w"> </span>//path/to:my_test<span class="w"> </span>--<span class="w"> </span>--reads
+</span></code></pre></div>
+<p>runs the same compiled tests unsandboxed, from the runfiles tree <code>bazel test</code>
+runs them in, under a Node <code>--require</code> hook that records every path the test
+processes open, stat or read. Once vitest has exited it prints, on stdout,
+every regular file under the workspace that the run reached outside the
+runfiles tree -- once, sorted, as the workspace-relative path and the label a
+<code>data</code> entry would take:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>MODULE.bazel    //:MODULE.bazel
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>tests/vitest/reads_report/fixtures/outside.txt  //tests/vitest/reads_report/fixtures:outside.txt
+</span></code></pre></div>
+<p>vitest's own output goes to stderr; a test reading nothing outside its runfiles
+prints nothing; the exit status is the test's. A test that walks up from its
+own directory to a <code>MODULE.bazel</code> or a <code>package.json</code> leaves the runfiles tree
+and finds the workspace's file through the execution root, and the marker it
+stopped at is in the report beside the files it then opened: both go in
+<code>data</code>. What the vitest process itself opens -- a <code>config</code>, a <code>globalSetup</code>
+entry -- is not recorded.</p>
+<p><code>data</code> is the owner's attribute: Gazelle writes nothing into it and leaves what
+is written. A file another package's test reads needs an <code>exports_files</code> in
+its package:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">ts_test</span><span class="p">(</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>    <span class="n">name</span> <span class="o">=</span> <span class="s2">"reads_declared_test"</span><span class="p">,</span>
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>    <span class="n">srcs</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"reads_declared.test.ts"</span><span class="p">],</span>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>    <span class="n">data</span> <span class="o">=</span> <span class="p">[</span>
+</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>        <span class="s2">"//:MODULE.bazel"</span><span class="p">,</span>
+</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>        <span class="s2">"//tests/vitest/reads_report/fixtures:outside.txt"</span><span class="p">,</span>
+</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a>    <span class="p">],</span>
+</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a>    <span class="n">deps</span> <span class="o">=</span> <span class="p">[</span><span class="s2">":workspace_root"</span><span class="p">,</span> <span class="s2">"@npm//:types_node"</span><span class="p">,</span> <span class="s2">"@npm//:vitest"</span><span class="p">],</span>
+</span><span id="__span-13-9"><a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a><span class="p">)</span>
+</span></code></pre></div>
+<p><code>//tests/vitest/reads_report</code> is the example: <code>reads_report_test</code> makes the
+read undeclared and is <code>manual</code>, and run with <code>--reads</code> it prints the two lines
+above; <code>reads_declared_test</code> lists them and prints nothing.</p>
+<h2 id="environments">Environments<a class="headerlink" href="#environments" title="Permanent link">&para;</a></h2>
+<p>The Workers pool is the vitest runner's environment: <code>wrangler_config</code>, the
+config layer the generated config imports, the <code>WranglerTestConfig</code> action,
+and the runfiles and symlinks it adds are one file,
+<code>ts/private/actions/workers_pool.bzl</code>, the only file that names wrangler. The
+runner reaches it through the one struct it returns, so a Workers ruleset
+takes the file as it is.</p>
+<h3 id="a-workers-pool">A Workers Pool<a class="headerlink" href="#a-workers-pool" title="Permanent link">&para;</a></h3>
+<p>A <code>config</code> whose <code>plugins</code> hold <code>@cloudflare/vitest-pool-workers</code> runs the tests
+inside workerd. Two things put the compiled worker in front of it. One is
+layer 1's: the root is the config's package, so <code>wrangler.configPath</code> names the
+file beside the config, and every module has one id (<a href="#the-generated-vitest-config">The Generated vitest
+Config</a>) -- the pool resolves vitest's own
+modules for workerd by realpath, and a package's file has its realpath as its
+id. The other is <code>wrangler_config</code>:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="n">ts_test</span><span class="p">(</span>
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>    <span class="n">name</span> <span class="o">=</span> <span class="s2">"worker_test"</span><span class="p">,</span>
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>    <span class="n">srcs</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"worker.test.ts"</span><span class="p">],</span>
+</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a>    <span class="n">config</span> <span class="o">=</span> <span class="s2">"//workers/proxy:vitest_config"</span><span class="p">,</span>
+</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>    <span class="n">coverage_provider</span> <span class="o">=</span> <span class="s2">"istanbul"</span><span class="p">,</span>
+</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a>    <span class="n">tsconfig</span> <span class="o">=</span> <span class="s2">"tsconfig.json"</span><span class="p">,</span>   <span class="c1"># lib esnext + webworker; types @cloudflare/vitest-pool-workers/types</span>
+</span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a>    <span class="n">wrangler_config</span> <span class="o">=</span> <span class="s2">"//workers/proxy:wrangler.jsonc"</span><span class="p">,</span>
+</span><span id="__span-14-8"><a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a>    <span class="n">deps</span> <span class="o">=</span> <span class="p">[</span>
+</span><span id="__span-14-9"><a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a>        <span class="s2">"//workers/proxy:worker"</span><span class="p">,</span>
+</span><span id="__span-14-10"><a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a>        <span class="s2">"@npm//:cloudflare_vitest-pool-workers"</span><span class="p">,</span>
+</span><span id="__span-14-11"><a id="__codelineno-14-11" name="__codelineno-14-11" href="#__codelineno-14-11"></a>        <span class="s2">"@npm//:vitest"</span><span class="p">,</span>
+</span><span id="__span-14-12"><a id="__codelineno-14-12" name="__codelineno-14-12" href="#__codelineno-14-12"></a>        <span class="s2">"@npm//:vitest_coverage-istanbul"</span><span class="p">,</span>
+</span><span id="__span-14-13"><a id="__codelineno-14-13" name="__codelineno-14-13" href="#__codelineno-14-13"></a>    <span class="p">],</span>
+</span><span id="__span-14-14"><a id="__codelineno-14-14" name="__codelineno-14-14" href="#__codelineno-14-14"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>The pool boots the file <code>main</code> names, resolved against the config file's
+directory; in a repository that is the source, <code>src/index.ts</code>, and the worker
+under test is the compiled one. <code>WranglerTestConfig</code> copies the file and
+patches <code>main</code> and every <code>env.&lt;name&gt;.main</code> to the compiled entry with wrangler's
+<code>experimental_patchConfig</code> (<code>.ts</code> and <code>.tsx</code> to <code>.js</code>, <code>.mts</code> to <code>.mjs</code>, <code>.cts</code>
+to <code>.cjs</code>; a <code>.js</code> is left as written). wrangler is the one in the test's
+<code>node_modules</code> tree. The copy is staged at the source's runfiles path, which is
+what <code>configPath</code> names and the id a <code>?raw</code> import of it gets back.
+Comments and every other key survive; the formatting is wrangler's. A config
+naming no <code>main</code>, or a <code>.toml</code> holding <code>#</code> comments, fails the action.</p>
+<p>A runfiles file at the copy's path wins over it silently, with the unpatched
+<code>main</code>. The file in <code>data</code> as well is an analysis error, <code>is staged through
+wrangler_config; do not list it in data too.</code>, and a <code>ts_compile</code> dep's data
+src at that path is dropped from the runfiles. Every other data src of the deps
+is in the runfiles, which is what a wrangler <code>rules</code> module the worker imports
+needs. <code>//tests/workers_nested</code> is the example with the config at the package
+root; <code>//tests/workers</code>, with the config beside the tests and
+<code>main: "src/index.js"</code> in <code>data</code>, is the same-package one.</p>
+<p>What else a wrangler config names, and where each comes from under <code>ts_test</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>main</code>, <code>env.&lt;name&gt;.main</code></td>
+<td>the compiled entry, through the patched copy</td>
+</tr>
+<tr>
+<td><code>rules</code> modules (<code>**/*.txt</code>, <code>**/*.md</code>, ...)</td>
+<td>a src of the worker's <code>ts_compile</code></td>
+</tr>
+<tr>
+<td><code>assets.directory</code></td>
+<td>its contents in <code>data</code>, at the same path relative to the config</td>
+</tr>
+<tr>
+<td><code>.dev.vars</code>, <code>.dev.vars.&lt;env&gt;</code></td>
+<td>read beside the config; in <code>data</code> when a test needs one</td>
+</tr>
+<tr>
+<td><code>compatibility_date</code>, <code>compatibility_flags</code>, <code>vars</code>, <code>kv_namespaces</code>, <code>r2_buckets</code>, <code>services</code>, <code>durable_objects</code>, <code>migrations</code></td>
+<td>inline values; miniflare emulates the bindings and nothing is staged</td>
+</tr>
+<tr>
+<td><code>durable_objects[].script_name</code> naming another worker</td>
+<td><code>miniflare.workers</code> in the config, as under plain <code>vitest</code></td>
+</tr>
+<tr>
+<td><code>tsconfig</code>, <code>alias</code>, <code>define</code>, <code>no_bundle</code>, <code>build</code></td>
+<td>esbuild and deploy keys; the pool runs none of them</td>
+</tr>
+</tbody>
+</table>
+<p>Gazelle writes <code>wrangler_config</code> and <code>coverage_provider</code> from the config's
+edges (<a href="../../gazelle/overview/#a-workers-pool-config">a Workers-pool config</a>).</p>
+<h2 id="the-nodetest-runner">The node:test Runner<a class="headerlink" href="#the-nodetest-runner" title="Permanent link">&para;</a></h2>
+<p>A test written against <a href="https://nodejs.org/api/test.html"><code>node:test</code></a> registers with node's runner,
+not with vitest's collector, so vitest reports <code>0 test</code> for the file and fails
+it as an empty suite. <code>runner = "//ts/runners:node_test"</code> runs such a file
+under <code>node --test</code>:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="n">ts_test</span><span class="p">(</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>    <span class="n">name</span> <span class="o">=</span> <span class="s2">"scripts_test"</span><span class="p">,</span>
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>    <span class="n">srcs</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"cloudflare-account-token.test.ts"</span><span class="p">],</span>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>    <span class="n">runner</span> <span class="o">=</span> <span class="s2">"@rules_typescript//ts/runners:node_test"</span><span class="p">,</span>
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>    <span class="n">deps</span> <span class="o">=</span> <span class="p">[</span><span class="s2">":scripts"</span><span class="p">,</span> <span class="s2">"@npm//:types_node"</span><span class="p">],</span>
+</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="p">)</span>
+</span></code></pre></div>
+<p><code>tsconfig</code> means on a node:test target what it means above, but a <code>paths</code>
+alias is type-checking only under node:test: the resolve hook below answers a
+relative specifier and a bare one from the tree, and nothing reads the chain's
+<code>paths</code>. Under vitest an alias resolves at run time
+(<a href="#the-tests-tsconfig">The Test's tsconfig</a>).</p>
+<p>The package's code runs at its runfiles paths, as under vitest: the launcher
+passes <code>--preserve-symlinks-main</code>, and the runner target's <code>node:module</code>
+resolve hook (<code>ts/private/node_test_hook.mjs</code>) resolves every specifier from a
+file outside the store, one whose path holds no <code>node_modules/</code> segment:</p>
+<ul>
+<li>A relative specifier resolves, at the importer's runfiles path, to the file
+  the compiled tree holds for it: <code>./util.ts</code>, <code>.tsx</code>, <code>.mts</code> or <code>.cts</code> to the
+  compiled sibling (<code>.js</code>; <code>.jsx</code> for a <code>.tsx</code> under <code>jsx: preserve</code>; <code>.mjs</code>;
+  <code>.cjs</code>), whether or not the source is staged beside it; an extensionless
+  <code>./util</code> to <code>util.js</code> or <code>util/index.js</code>, the file bundler resolution named at
+  compile time; any other to the file as written. <code>//tests/node_test</code> pins the
+  three: <code>:ts_specifier_test</code>, <code>:extensionless_test</code>, <code>:runfiles_layout_test</code>.</li>
+<li>The package's own name -- the nearest <code>package.json</code> above the test names
+  it and has <code>exports</code>, node's first step for a bare specifier -- resolves as
+  written from the test's own path, and the source its <code>exports</code> name to the
+  compiled sibling (<code>//tests/node_test/self_reference</code>).</li>
+<li>A bare specifier resolves through the importer chain, the directories the
+  launcher puts on <code>NODE_PATH</code> nearest first, never from a <code>node_modules</code> the
+  walk up from <code>bazel-out</code> happens to meet (<code>:bare_import_test</code>): the hook
+  resolves an <code>import</code> from each importer's directory in turn, and a <code>require</code>
+  reads <code>NODE_PATH</code> itself. One ending in <code>.ts</code>, <code>.tsx</code>, <code>.mts</code> or <code>.cts</code> -- a
+  subpath into a workspace member -- resolves to the compiled file the store
+  holds for it, on either route (<code>//tests/npm:by_name_member_node_test</code>). Code
+  in the store resolves as node resolves it, at its realpath, a <code>.ts</code>
+  specifier to its compiled form, so a package's edge beside its tree answers
+  its imports as installed (<code>//tests/npm/multi_version:own_edge_node_test</code>).</li>
+</ul>
+<p>The compiled tests run in the module format their tsconfig gives them
+(<a href="../ts-compile/#the-module-format">The Module Format</a>). A package whose
+<code>module</code> is <code>commonjs</code>, or <code>nodenext</code> with no <code>type</code> in its <code>package.json</code>,
+runs as CommonJS: <code>__dirname</code> is the test's runfiles directory, <code>require</code> is
+node's, a relative <code>require</code> resolves through the hook as an <code>import</code> does,
+and a named import from a CommonJS dependency is that dependency's export.
+<code>//tests/node_test/cjs</code> pins the four.</p>
+<p>Under vitest, <a href="#ts-specifiers">layer 1's plugin</a> resolves the <code>.ts</code> specifier
+and the generated config the rest.</p>
+<p>node:test takes no config file; it is configured by CLI flags and by the test
+file itself. <code>args</code> are those flags, placed before <code>--test</code> so that the
+children <code>node --test</code> spawns inherit them: a suite that calls <code>mock.module</code>
+sets <code>args = ["--experimental-test-module-mocks"]</code>, as its package's test
+script does (<code>//tests/node_test:module_mocks_test</code>). The runner refuses the
+vitest attributes, naming the ones set:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>ts_test @@//scripts:scripts_test: the node:test runner reads none of config,
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>coverage_provider. Every one of them configures vitest, which this target does
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>not run. Drop them, or drop `runner` to run the test under vitest.
+</span></code></pre></div>
+<p>The rejected set is <code>config</code>, <code>config_srcs</code>, <code>coverage_provider</code> and
+<code>wrangler_config</code>. <code>bazel coverage</code> on such a target fails saying it reports
+none. <code>--test_filter</code> reaches node as
+<code>--test-name-pattern</code> (a regular expression over test names), and the exit
+status is the test result. Nothing writes a JUnit XML on either runner; Bazel
+synthesises <code>test.xml</code> from the log.</p>
+<h2 id="sharding">Sharding<a class="headerlink" href="#sharding" title="Permanent link">&para;</a></h2>
+<p><code>ts_test</code> distributes test files across shards using <code>TEST_SHARD_INDEX</code> and
+<code>TEST_TOTAL_SHARDS</code>, on either runner. Set <code>shard_count</code> on the target and pass
+<code>--noincompatible_check_sharding_support</code>: the runner never touches
+<code>TEST_SHARD_STATUS_FILE</code>, which is how Bazel expects a test runner to advertise
+sharding support, so without that flag a sharded run fails before any test
+starts.</p>
+<h2 id="debugging">Debugging<a class="headerlink" href="#debugging" title="Permanent link">&para;</a></h2>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="n">ts_test</span><span class="p">(</span>
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>    <span class="n">name</span> <span class="o">=</span> <span class="s2">"my_test_debug"</span><span class="p">,</span>
+</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>    <span class="n">srcs</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"my.test.ts"</span><span class="p">],</span>
+</span><span id="__span-17-4"><a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a>    <span class="n">deps</span> <span class="o">=</span> <span class="p">[</span><span class="s2">":my_lib"</span><span class="p">,</span> <span class="s2">"@npm//:vitest"</span><span class="p">],</span>
+</span><span id="__span-17-5"><a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a>    <span class="n">tags</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"manual"</span><span class="p">],</span>
+</span><span id="__span-17-6"><a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a>    <span class="n">env</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"NODE_OPTIONS"</span><span class="p">:</span> <span class="s2">"--inspect-brk=9229"</span><span class="p">},</span>
+</span><span id="__span-17-7"><a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a><span class="p">)</span>
+</span></code></pre></div>
+<p><code>bazel run //path/to:my_test_debug</code>, then attach with VS Code or
+<code>chrome://inspect</code>.</p>
+<h2 id="listing-npm-deps">Listing npm Deps<a class="headerlink" href="#listing-npm-deps" title="Permanent link">&para;</a></h2>
+<p>Test sources are checked for undeclared imports like any other <code>ts_compile</code>
+sources: a module that only some dep's own deps provide fails the build with the
+label to add (<a href="../ts-compile/#deps-have-to-be-direct">Deps have to be direct</a>).</p>
+<p>A <code>ts_compile</code> dep brings its store files into the runfiles: its compiled JS
+value-imports the packages it declared, and <code>TsInfo.npm_files</code> carries the
+dep's importer links and their store trees, so a test in one package runs
+production code from another without repeating its npm deps. <code>deps</code> lists
+what the test files import, each resolved through the test's own chain
+(<a href="../node-modules/#the-chain">the chain</a>).
+<code>bazel run //:gazelle</code> writes the list from tsgo's listing of the package: the
+edges of the test files, the production sources and the declarations, the
+vitest config's imports, and the nearest <code>package.json</code>'s <code>dependencies</code> and
+<code>devDependencies</code>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/mikn/rules_typescript" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "navigation.instant", "navigation.instant.progress", "content.code.copy", "content.code.annotate", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

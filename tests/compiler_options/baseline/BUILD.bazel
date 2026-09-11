@@ -18,8 +18,8 @@ ts_config(
     deps = ["tsconfig.base.json"],
 )
 
-# The chain reaches tsgo (strict is tsconfig.base.json's), the leaf's `lib`
-# beats its base's, and the options Bazel owns beat the chain's values for them.
+# strict is tsconfig.base.json's, the leaf's `lib` beats its base's, the options
+# Bazel owns beat the chain's, and the leaf's `*.ts` names this src alone.
 ts_compile(
     name = "loose",
     srcs = ["loose.ts"],

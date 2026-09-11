@@ -1,13 +1,14 @@
 """The tsgo action: TsgoDeclare emits the declarations, TsgoCheck a stamp.
 
-tsaction runs tsgo from a program root that mirrors the exec root with each
-importer's node_modules at the importer's directory and the outputs of each
-first-party dep at or above the target's package laid over that package's
-sources, the dep's package.json as built at the package's path, so every bare
-specifier resolves as over pnpm's install, the package's own name included, and
-checks the --explainFiles listing against
-the ownership manifest written here: an edge from one of the target's files
-into a file a label outside deps owns fails the action naming that label
+tsaction runs tsgo from a program root holding the action's source inputs at
+their paths and the output tree whole, with each importer's node_modules at
+the importer's directory and the outputs of each first-party dep at or above
+the target's package laid over that package's sources, the dep's package.json
+as built at the package's path, so the tsconfig's include names the target's
+srcs and every bare specifier resolves as over pnpm's install, the package's
+own name included, and checks the --explainFiles listing against the
+ownership manifest written here: an edge from one of the target's files into
+a file a label outside deps owns fails the action naming that label
 (docs/rules/ts-compile.md § Deps Have to Be Direct).
 """
 
@@ -39,6 +40,11 @@ def npm_hub_entry(npm_info):
         label = npm_hub_label(npm_info),
         key = npm_info.store.key,
     )
+
+def source_path(file):
+    """A File's path when it is in the source tree, else None: the program
+    root links these one by one and the output tree whole."""
+    return file.path if file.is_source else None
 
 def ownership_manifest(ctx, own, direct, owners, npm_declared, npm_reachable):
     """Writes <name>.ownership: what an edge may resolve to, by owner.
@@ -101,8 +107,15 @@ def tsgo_action(
     if not emit_outputs:
         stamp = ctx.actions.declare_file("{}.tscheck".format(ctx.label.name))
     run_args = ctx.actions.args()
+    run_args.use_param_file("@%s", use_always = False)
+    run_args.set_param_file_format("multiline")
     run_args.add(
         "-root={}/{}.program".format(tsconfig.dirname, ctx.label.name),
+    )
+    run_args.add_all(
+        depset(srcs + chain, transitive = [dep_dts]),
+        map_each = source_path,
+        format_each = "-source=%s",
     )
     run_args.add_all(importers, format_each = "-node_modules=%s")
     run_args.add_all(overlays, format_each = "-overlay=%s")

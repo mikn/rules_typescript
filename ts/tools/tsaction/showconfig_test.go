@@ -40,6 +40,27 @@ const filesLeaf = `{
 }
 `
 
+const patternLeaf = `{
+  "extends": "../base/tsconfig.base.json",
+  "include": ["./src/**/*", "globals.d.ts"],
+  "exclude": ["src/**/*.test.ts"]
+}
+`
+
+// A base in another directory sets the roots; the leaf sets none of its own.
+const rootsBase = `{
+  "extends": "./tsconfig.base.json",
+  "include": ["../pkg/src"],
+  "exclude": ["**/*.test.ts"]
+}
+`
+
+const inheritedRootsLeaf = `{
+  "extends": "../base/tsconfig.roots.json",
+  "compilerOptions": { "types": ["./globals.d.ts", "./generated.d.ts"] }
+}
+`
+
 const noTypesLeaf = `{
   "extends": "../base/tsconfig.base.json",
   "compilerOptions": { "target": "esnext", "jsx": "preserve", "module": "nodenext" }
@@ -107,6 +128,7 @@ func newExecroot(t *testing.T, leaf, showConfig string) *execroot {
 	root := t.TempDir()
 	files := map[string]string{
 		"base/tsconfig.base.json":                           baseConfig,
+		"base/tsconfig.roots.json":                          rootsBase,
 		"pkg/tsconfig.json":                                 leaf,
 		"pkg/src/a.ts":                                      "export const a = 1;\n",
 		"pkg/globals.d.ts":                                  "declare const G: number;\n",
@@ -232,8 +254,8 @@ func TestDecodeShowConfig_DiagnosticsAreNotAConfig(t *testing.T) {
 	}
 }
 
-// The written config extends the baseline then the user's file, rewrites paths,
-// roots each path-shaped types entry, names no npm package, leaves typeRoots.
+// The written config extends the baseline then the user's file, rewrites paths
+// and the chain's include, roots an unmatched src and a path-shaped types entry
 func TestTsconfigStep_WritesTheChainShapedConfig(t *testing.T) {
 	capture := readTestdata(t, "showconfig-chain.json")
 	e := newExecroot(t, chainLeaf, capture)
@@ -259,8 +281,8 @@ func TestTsconfigStep_WritesTheChainShapedConfig(t *testing.T) {
     "rootDirs": ["../../../..", ".."],
     "types": ["node", "@cloudflare/workers-types"]
   },
-  "include": ["../../../../pkg/globals.d.ts", "./generated.d.ts"],
-  "files": ["../../../../pkg/src/a.ts"],
+  "include": ["../../../../pkg/src", "./generated.d.ts"],
+  "files": ["../../../../pkg/globals.d.ts"],
   "exclude": [],
   "references": []
 }`)
@@ -269,16 +291,40 @@ func TestTsconfigStep_WritesTheChainShapedConfig(t *testing.T) {
 		  "module": "es6"}`)
 }
 
-// tsc's root order is the tsconfig's include order, which showConfig prints
-// as files; the first declaration of an ambient pattern wins, so it is kept.
-func TestTsconfigStep_RootsKeepTheTsconfigsOrder(t *testing.T) {
-	e := newExecroot(t, chainLeaf, readTestdata(t, "showconfig-roots.json"))
-
-	mustWriteTsconfig(t, append(e.tsconfigArgs(), "pkg/data.json"))
-	config := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")
-	assertJSON(t, "files", config["files"],
-		`["../../../../pkg/globals.d.ts", "../../../../pkg/src/a.ts"]`)
-	assertJSON(t, "include", config["include"], `["../../../../pkg/data.json"]`)
+// The roots are the chain's own files, include and exclude, each spec from its
+// writer's directory; a src no root names joins files, a matched one nothing.
+func TestTsconfigStep_RootsAreTheChainsPatterns(t *testing.T) {
+	for name, tc := range map[string]struct {
+		leaf, capture, files, include, exclude string
+	}{
+		"leaf": {
+			patternLeaf, "showconfig-roots.json",
+			`["../../../../other/c.ts"]`,
+			`["../../../../pkg/src/**/*", "../../../../pkg/globals.d.ts"]`,
+			`["../../../../pkg/src/**/*.test.ts"]`,
+		},
+		"inherited": {
+			inheritedRootsLeaf, "showconfig-chain.json",
+			`["../../../../pkg/globals.d.ts", "../../../../other/c.ts"]`,
+			`["../../../../pkg/src", "./generated.d.ts"]`,
+			`["../../../../base/**/*.test.ts"]`,
+		},
+		"files": {
+			filesLeaf, "showconfig-roots.json",
+			`["../../../../pkg/src/a.ts", "../../../../pkg/globals.d.ts",
+			  "../../../../other/c.ts"]`,
+			`[]`, `[]`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newExecroot(t, tc.leaf, readTestdata(t, tc.capture))
+			mustWriteTsconfig(t, append(e.tsconfigArgs(), "other/c.ts"))
+			config := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")
+			assertJSON(t, "files", config["files"], tc.files)
+			assertJSON(t, "include", config["include"], tc.include)
+			assertJSON(t, "exclude", config["exclude"], tc.exclude)
+		})
+	}
 }
 
 // A path-shaped entry is a root file, so the lookup names the file itself.
@@ -297,15 +343,22 @@ func TestTypesEntryFile(t *testing.T) {
 	}
 }
 
-// The first pass hands --showConfig the chain alone; `files: []` is set only
-// when no file in it names inputs, so a chain's own `files` list is read.
-func TestTsconfigStep_FirstPassKeepsTheChainsInputs(t *testing.T) {
+// The first pass hands --showConfig the chain's roots, tsc's default include
+// over the project when it names none, and allowJs for a JavaScript src.
+func TestTsconfigStep_FirstPassReadsTheChainsRoots(t *testing.T) {
 	extends := `"extends": ` +
 		`["./pkg.tsconfig_baseline.json", "../../../../pkg/tsconfig.json"]`
-	for name, tc := range map[string]struct{ leaf, want string }{
-		"files":   {filesLeaf, "{" + extends + "}"},
-		"include": {chainLeaf, "{" + extends + "}"},
-		"none":    {noTypesLeaf, "{" + extends + `, "files": []}`},
+	for name, tc := range map[string]struct {
+		leaf string
+		srcs []string
+		want string
+	}{
+		"files":   {filesLeaf, nil, "{" + extends + "}"},
+		"include": {chainLeaf, nil, "{" + extends + "}"},
+		"none": {noTypesLeaf, nil,
+			"{" + extends + `, "include": ["../../../../pkg/**/*"]}`},
+		"javascript": {chainLeaf, []string{"pkg/src/b.js"},
+			"{" + extends + `, "compilerOptions": {"allowJs": true}}`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := newExecroot(t, tc.leaf, readTestdata(t, "showconfig-roots.json"))
@@ -317,7 +370,7 @@ func TestTsconfigStep_FirstPassKeepsTheChainsInputs(t *testing.T) {
 			e.tsgo, e.argv = fakeTool(t, root, "tsgo",
 				"cp \"$3\" "+firstPass+"\ncat "+filepath.Join(root, "showconfig.json")+"\n")
 
-			mustWriteTsconfig(t, e.tsconfigArgs())
+			mustWriteTsconfig(t, append(e.tsconfigArgs(), tc.srcs...))
 			assertJSON(t, "first pass", readJSON(t, firstPass), tc.want)
 		})
 	}
@@ -364,7 +417,8 @@ func TestTsconfigStep_NoTypesUnderTypeRootsWritesNone(t *testing.T) {
 		  "module": "nodenext"}`)
 }
 
-// A target with no tsconfig extends the baseline alone: no chain, no paths.
+// A target with no tsconfig extends the baseline alone: no chain, no paths, no
+// pattern, so the srcs are the files list.
 func TestTsconfigStep_NoTsconfigExtendsTheBaselineAlone(t *testing.T) {
 	e := newExecroot(t, noTypesLeaf, `{"compilerOptions": {"target": "es2022", "jsx": "react-jsx"}}`)
 	args := []string{
@@ -385,10 +439,12 @@ func TestTsconfigStep_NoTsconfigExtendsTheBaselineAlone(t *testing.T) {
 		t.Errorf("paths = %v, want none: no chain sets one", opts["paths"])
 	}
 	assertJSON(t, "types", opts["types"], `["node"]`)
+	assertJSON(t, "files", config["files"], `["../../../../pkg/src/a.ts"]`)
+	assertJSON(t, "include", config["include"], `[]`)
 	assertJSON(t, "pkg.options.json", readJSON(t, binDir+"/pkg/pkg.options.json"), `{"target": "es2022", "jsx": "react-jsx"}`)
 }
 
-// A JavaScript src is in include, and tsgo reads it only under allowJs.
+// A JavaScript src sets allowJs; without it tsgo reads no .js the roots name.
 func TestTsconfigStep_JavaScriptSrcSetsAllowJs(t *testing.T) {
 	e := newExecroot(t, noTypesLeaf, readTestdata(t, "showconfig-no-types.json"))
 	writeFile(t, "pkg/src/b.js", "export const b = 1;\n")

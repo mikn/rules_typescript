@@ -6,6 +6,8 @@ Under `es_modules` the emit is oxc's whatever the module, with oxc's inputs
 alone. docs/rules/ts-compile.md § The Module Format.
 """
 
+load(":tsgo.bzl", "source_path")
+
 def emit_action(
         ctx,
         oxc,
@@ -41,6 +43,11 @@ def emit_action(
     args.add(options_file, format = "-options=%s")
     if not es_modules:
         args.add(tsconfig, format = "-tsconfig=%s")
+        args.add_all(
+            depset(program_inputs + chain, transitive = [dep_dts]),
+            map_each = source_path,
+            format_each = "-source=%s",
+        )
         args.add_all(importers, format_each = "-node_modules=%s")
         args.add_all(overlays, format_each = "-overlay=%s")
         args.add_all(manifests, format_each = "-manifest=%s")

@@ -237,11 +237,11 @@ nothing else: the chain's links for the direct names, the `@types/<name>`
 twin an importer on the chain links, the member links `deps` name, every store
 tree and edge link their closures hold, the hoist links whose names the
 closure holds with the trees they enter ([The Store](#the-store)), and each
-first-party dep's (`TsInfo.npm_files`). tsaction lays the exec root out again
-under the
-target's output directory with each importer's `node_modules` at the
-importer's directory -- the lockfile's root importer's at the program root's
-`node_modules` -- so a source at `web/src/a.ts` walks up through
+first-party dep's (`TsInfo.npm_files`). tsaction lays a program root out
+under the target's output directory, the action's sources at their paths,
+with each importer's `node_modules` at the importer's directory -- the
+lockfile's root importer's at the program root's `node_modules` -- so a source
+at `web/src/a.ts` walks up through
 `web/node_modules` to the root's, and a dep's declaration under
 `bazel-out/<cfg>/bin/packages/ui/` through `packages/ui/node_modules`
 ([ts_compile](ts-compile.md#the-node_modules-chain)). A `ts_test` runs in

@@ -13,6 +13,7 @@ type actionConfig struct {
 	Extends         []string       `json:"extends"`
 	CompilerOptions map[string]any `json:"compilerOptions"`
 	Include         []string       `json:"include"`
+	Files           []string       `json:"files"`
 }
 
 func readConfig(t *testing.T, target string) actionConfig {
@@ -28,7 +29,8 @@ func TestWrittenConfigForASubtreeWithJavaScript(t *testing.T) {
 	opts := config.CompilerOptions
 
 	if opts["allowJs"] != true {
-		t.Errorf("allowJs = %v, want true: a JavaScript src is in `include`", opts["allowJs"])
+		t.Errorf("allowJs = %v, want true: a JavaScript src is in the program",
+			opts["allowJs"])
 	}
 	if opts["outDir"] != "." {
 		t.Errorf("outDir = %v, want \".\"", opts["outDir"])
@@ -44,17 +46,15 @@ func TestWrittenConfigForASubtreeWithJavaScript(t *testing.T) {
 		t.Errorf("extends = %v, want the baseline then the target's tsconfig", config.Extends)
 	}
 
-	nested := 0
-	for _, entry := range config.Include {
-		if !strings.HasPrefix(entry, "../") {
-			t.Errorf("include entry %q is not relative", entry)
-		}
-		if strings.HasSuffix(entry, "/nested/leaf.ts") {
-			nested++
-		}
+	// The tsconfig names no include, so the roots are tsc's default pattern
+	// over its directory, which every src of the target is under.
+	pattern := "/tests/compiler_options/analysis/**/*"
+	if len(config.Include) != 1 || !strings.HasPrefix(config.Include[0], "../") ||
+		!strings.HasSuffix(config.Include[0], pattern) {
+		t.Errorf("include = %v, want the package's **/* alone", config.Include)
 	}
-	if nested != 1 {
-		t.Errorf("include = %v, want one entry for the nested source", config.Include)
+	if len(config.Files) != 0 {
+		t.Errorf("files = %v, want []: the pattern names every src", config.Files)
 	}
 }
 

@@ -147,10 +147,12 @@ unchanged; a `package.json` at the package's root also gets
 The tsconfig the actions read is written by `tsaction tsconfig`, one `TsConfig`
 action per target. It `extends` two files, the ruleset's baseline and then the
 target's `tsconfig`, runs `tsgo --showConfig` over that chain to read the
-effective options, and writes the keys Bazel owns over both. The pass that runs
-`--showConfig` sets `files: []` only when no file in the chain names `include`
-or `files`, so tsc neither walks the output directory nor loses the chain's own
-`files` list. Lowest precedence first:
+effective options and the roots the chain names, and writes the keys Bazel
+owns over both. The pass that runs `--showConfig` reads the chain's own roots;
+a chain naming neither `include` nor `files` gets tsc's default `**/*` over
+the tsconfig's directory, so tsc walks the project and not the output
+directory the written file sits in, and a JavaScript src puts `allowJs` on
+that pass too. Lowest precedence first:
 
 1. **The ruleset baseline**: `strict`, `module: "Preserve"`, `target: "es2022"`,
    `jsx: "react-jsx"`, `skipLibCheck`, `esModuleInterop`. Without a `tsconfig`
@@ -170,14 +172,20 @@ or `files`, so tsc neither walks the output directory nor loses the chain's own
    `noEmit: false`, `noEmitOnError` and `outDir`; `allowJs`
    when a src is JavaScript; `isolatedDeclarations` under
    `--//ts:declarations=oxc`; `skipLibCheck: false` under `--//ts:lib_check`.
-   `files` is the srcs the tsconfig's own `include` and `files` name, in the
-   order `--showConfig` reports them, and `include` the srcs it does not;
-   `exclude` and `references` are `[]`. Two keys are the tsconfig's values
-   rewritten: `paths`, each value from the directory of the chain file that set
-   it and a `bazel-bin` twin beside it, and `types`, its package names alone:
-   each path-shaped entry joins `include` as a root file at the path the
-   sandbox stages it (below). A value the tsconfig sets
-   for one of these keys is overridden by `extends` order, not refused.
+   The roots are the tsconfig's own: `files`, `include` and `exclude` are the
+   chain's specs, each rewritten from the directory of the chain file that
+   set it, a chain naming neither `files` nor `include` getting tsc's default
+   `**/*` over its directory; `files` then takes the srcs no root of the
+   chain names, and `include` each path-shaped `types` entry as a root file
+   at the path it is staged (below). A chain that sets no `exclude` gets `[]`,
+   not tsc's default list, whose `outDir` entry is the output directory such
+   an entry sits in. `references` is `[]`. The roots are patterns rather than
+   a `files` entry per src because `--explainFiles` finds a `files` root's
+   reason by a scan of that list, once per root. Two keys are the tsconfig's
+   values rewritten: `paths`, each value from the directory of the chain file
+   that set it and a `bazel-bin` twin beside it, and `types`, its package
+   names alone. A value the tsconfig sets for one of these keys is overridden
+   by `extends` order, not refused.
 
 `--showConfig` is run over the chain, not over the user's file alone, so a
 default the baseline supplies reaches oxc as tsgo sees it: oxc transforms with
@@ -186,15 +194,18 @@ the `target`, `jsx` and `jsxImportSource` the same run yields, handed over in
 chain's `module`, which decides which tool emits the JavaScript
 ([The Module Format](#the-module-format)).
 
-A root file keeps a program to its declared inputs. Bazel stages every input as
-a symlink into the source tree; tsgo reads a root file, a relative import and a
-`paths` match at the path given, and resolves a bare specifier and a type
-reference directive to their realpaths. A path-shaped `types` entry is
-therefore listed as a root file: read at its staged path, its own imports
-resolve among the declared inputs and nothing the source tree has beside them
--- an import inside a staged `.d.ts` that names a file nothing stages resolves
-to nothing, and `skipLibCheck` drops the `TS2307`. A package's file resolves at
-its realpath, where its own imports are.
+The program root keeps a program to its declared inputs
+([The node_modules Chain](#the-node_modules-chain)): it holds the action's
+source inputs and nothing else of the source tree, so a pattern names the
+target's srcs whether or not the action is sandboxed. tsgo reads a root file,
+a relative import and a `paths` match at the path given, and resolves a bare
+specifier and a type reference directive to their realpaths. A path-shaped
+`types` entry is therefore listed as a root file: read at its path under the
+root, its own imports resolve among the declared inputs and nothing the
+source tree has beside them -- an import inside a staged `.d.ts` that names a
+file nothing stages resolves to nothing, and `skipLibCheck` drops the
+`TS2307`. A package's file resolves at its realpath, where its own imports
+are.
 
 Read the tsconfig a target handed the compiler with
 `bazel build //pkg:lib --output_groups=tsconfig`.
@@ -443,14 +454,18 @@ links, an ancestor of its declarations under `bazel-out`.
 
 tsgo walks up from the importing file for a bare specifier, and nothing above a
 source in the exec root is an action output, so `tsaction tsgo` lays out a
-program root under the target's output directory -- a symlink to every
-top-level entry of the exec root, each importer's `node_modules` at the
-importer's directory (made a real directory of links down to it), the
-lockfile's root importer's at the root's `node_modules`, and the outputs of
-every first-party dep whose package is at or above the target's laid over that
-package's directory, its declarations beside the sources and its
-`package.json` as built at the package's path -- and runs tsgo from there. A
-bare specifier, an `exports`
+program root under the target's output directory -- every source input of the
+action linked at its exec path under real directories, the output tree
+`bazel-out` linked whole, each importer's `node_modules` at the importer's
+directory, the lockfile's root importer's at the root's `node_modules`, and
+the outputs of every first-party dep whose package is at or above the target's
+laid over that package's directory, its declarations beside the sources and
+its `package.json` as built at the package's path -- and runs tsgo from there.
+The root holds the srcs, the tsconfig chain and the deps' checked-in
+declarations, so the tsconfig's `include` names the target's srcs and, where
+a dep's outputs are laid over the package, the declarations under its
+patterns; a dep's emitted declarations and the store are reached by import.
+A bare specifier, an `exports`
 condition, a subpath, a `@types/*` pairing, a `types` entry and the package's
 own name through the nearest manifest resolve as tsc resolves them over a pnpm
 install, and a declaration tsgo emits names a package the way that package's

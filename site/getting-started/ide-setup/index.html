@@ -1,0 +1,2595 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Opinionated Bazel rules for TypeScript. Oxc and tsgo compile, tsgo type-checks, and Vite serves the generated config.">
+      
+      
+      
+        <link rel="canonical" href="https://mikn.github.io/rules_typescript/getting-started/ide-setup/">
+      
+      
+        <link rel="prev" href="../isolated-declarations/">
+      
+      
+        <link rel="next" href="../migration/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>IDE Setup - rules_typescript</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#ide-setup" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="rules_typescript" class="md-header__button md-logo" aria-label="rules_typescript" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            rules_typescript
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              IDE Setup
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/mikn/rules_typescript" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    mikn/rules_typescript
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="rules_typescript" class="md-nav__button md-logo" aria-label="rules_typescript" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    rules_typescript
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/mikn/rules_typescript" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    mikn/rules_typescript
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../isolated-declarations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Isolated Declarations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IDE Setup
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IDE Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Setup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#extending-the-generated-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Extending the Generated File
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#excluding-foreign-typescript" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Excluding Foreign TypeScript
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nested-tsconfigs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nested Tsconfigs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bare-specifiers-for-first-party-packages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bare Specifiers for First-Party Packages
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#npm-packages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        npm Packages
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#staleness-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Staleness Test
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#complete-coverage-for-the-resolution-map" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Complete Coverage for the Resolution Map
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Complete Coverage for the Resolution Map">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-fragments-cover" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Fragments Cover
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cost
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ambient-types-in-the-editor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ambient Types in the Editor
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#editor-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Editor Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Editor Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#vs-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VS Code
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#neovim-nvim-lspconfig-with-typescript-language-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Neovim (nvim-lspconfig with typescript-language-server)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#neovim-coc-tsserver" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Neovim (coc-tsserver)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#emacs-lsp-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Emacs (lsp-mode)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tsserver-directly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        tsserver Directly
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#coding-agent-harnesses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Coding Agent Harnesses
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Coding Agent Harnesses">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-the-preload-does-not-reach" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the Preload Does Not Reach
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How It Works
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How It Works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#resolution-priority" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resolution Priority
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-a-build-provides" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a Build Provides
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#debugging" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Debugging
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#debugging-tests-in-vs-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Debugging Tests in VS Code
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migrating from rules_ts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/npm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    npm Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing with vitest
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/bundling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bundling with Vite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/dev-server/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dev Server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/tailwind/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tailwind v4
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/monorepo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monorepo Layout
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/lint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/benchmark/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmark
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gazelle
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Gazelle
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gazelle/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gazelle/directives/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Directives Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rules Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Rules Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rules/ts-compile/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ts_compile
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rules/ts-test/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ts_test
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rules/ts-binary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ts_binary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rules/ts-dev-server/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ts_dev_server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rules/ts-codegen/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ts_codegen
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rules/node-modules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    node_modules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rules/providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers and toolchains
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Maintainers
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Maintainers
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../CI_CD/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CI/CD
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../RELEASE_PROCESS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Process
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../BCR_SUBMISSION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BCR Submission
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Setup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#extending-the-generated-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Extending the Generated File
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#excluding-foreign-typescript" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Excluding Foreign TypeScript
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nested-tsconfigs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nested Tsconfigs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bare-specifiers-for-first-party-packages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bare Specifiers for First-Party Packages
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#npm-packages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        npm Packages
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#staleness-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Staleness Test
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#complete-coverage-for-the-resolution-map" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Complete Coverage for the Resolution Map
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Complete Coverage for the Resolution Map">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-fragments-cover" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Fragments Cover
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cost
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ambient-types-in-the-editor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ambient Types in the Editor
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#editor-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Editor Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Editor Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#vs-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VS Code
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#neovim-nvim-lspconfig-with-typescript-language-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Neovim (nvim-lspconfig with typescript-language-server)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#neovim-coc-tsserver" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Neovim (coc-tsserver)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#emacs-lsp-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Emacs (lsp-mode)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tsserver-directly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        tsserver Directly
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#coding-agent-harnesses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Coding Agent Harnesses
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Coding Agent Harnesses">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-the-preload-does-not-reach" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the Preload Does Not Reach
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How It Works
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How It Works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#resolution-priority" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resolution Priority
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-a-build-provides" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a Build Provides
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#debugging" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Debugging
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#debugging-tests-in-vs-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Debugging Tests in VS Code
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="ide-setup">IDE Setup<a class="headerlink" href="#ide-setup" title="Permanent link">&para;</a></h1>
+<p><code>ts_refresh_tsconfig</code> turns Bazel's build graph into the two things an editor can
+read:</p>
+<ol>
+<li>A workspace-root <code>tsconfig.json</code> whose <code>compilerOptions.paths</code> names every
+   <code>ts_compile</code> package your targets reach, source directory and <code>bazel-bin</code>
+   twin. The file is checked in.</li>
+<li>A <strong>tsserver plugin</strong> that resolves the same set live, following <code>bazel build</code>
+   outputs with no tsconfig reload. It is a layer on top of the generated file,
+   and it needs editor configuration; the generated file needs none.</li>
+</ol>
+<h2 id="setup">Setup<a class="headerlink" href="#setup" title="Permanent link">&para;</a></h2>
+<p>Declare the target once, in your root <code>BUILD.bazel</code>:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">load</span><span class="p">(</span><span class="s2">"@rules_typescript//ts:defs.bzl"</span><span class="p">,</span> <span class="s2">"ts_refresh_tsconfig"</span><span class="p">)</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">ts_refresh_tsconfig</span><span class="p">(</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">name</span> <span class="o">=</span> <span class="s2">"refresh_tsconfig"</span><span class="p">,</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">test</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">deps</span> <span class="o">=</span> <span class="p">[</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>        <span class="s2">"//apps/web"</span><span class="p">,</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>        <span class="s2">"//packages/ui"</span><span class="p">,</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="p">],</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>An aspect walks <code>deps</code> from each entry, so listing a target covers everything it
+depends on. Two constraints:</p>
+<ul>
+<li><strong><code>deps = []</code> is the attribute default, and it reaches nothing.</strong> The result is
+  a <code>tsconfig.json</code> with an empty <code>paths</code>: no packages, no aliases.</li>
+<li><strong><code>deps</code> obeys visibility</strong>, so a package-private <code>ts_compile</code> target cannot be
+  listed here. Gazelle writes <code>visibility = ["//visibility:public"]</code> on the
+  targets it generates. A <code>ts_test</code> carries its own program and is listed itself, under its own <code>visibility</code>; the targets over
+  this list are testonly for it. Hand-written private targets are covered by
+  <a href="#complete-coverage-for-the-resolution-map">Complete coverage for the resolution map</a>.</li>
+</ul>
+<p>Then run it:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>bazel<span class="w"> </span>run<span class="w"> </span>//:refresh_tsconfig
+</span></code></pre></div>
+<p>That writes, into the source tree:</p>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tsconfig.json</code></td>
+<td>Compiler options and the <code>paths</code> map; checked in</td>
+</tr>
+<tr>
+<td><code>.bazel/tsserver-hook-data.json</code></td>
+<td>The same graph facts, in the shape the plugin reads</td>
+</tr>
+<tr>
+<td><code>.bazel/node_modules/@rules_typescript/tsserver-plugin/</code></td>
+<td>The tsserver plugin, as a package tsserver can load by name</td>
+</tr>
+<tr>
+<td><code>.bazel/tsserver-hook.js</code></td>
+<td>A preload variant for a client that resolves through the public <code>ts.resolveModuleName</code>; see <a href="#what-the-preload-does-not-reach">What the preload does not reach</a></td>
+</tr>
+<tr>
+<td><code>.bazel/tsserver-hook-resolver.js</code></td>
+<td>The map builder both front-ends share</td>
+</tr>
+<tr>
+<td><code>.bazel/tsserver-hook-worker.js</code></td>
+<td>Its background worker</td>
+</tr>
+</tbody>
+</table>
+<p>The target copies those files into the source tree, so it runs only under
+<code>bazel run</code>.</p>
+<p><code>tsconfig</code> (default <code>"tsconfig.json"</code>) is where the generated config lands.</p>
+<p>Add <code>.bazel</code> to <code>.bazelignore</code>, so Bazel never reads the plugin's files as a
+package. This repository's own <code>.bazelignore</code> starts with that line.</p>
+<div class="admonition warning">
+<p class="admonition-title">It replaces the file at <code>tsconfig</code> wholesale</p>
+<p>A migrating repository already has a root <code>tsconfig.json</code>, and the first
+<code>bazel run //:refresh_tsconfig</code> overwrites it: <code>include</code>, <code>baseUrl</code>,
+<code>module</code> and every other option in it, not only <code>paths</code>. The generated file
+is a complete config and carries nothing over from yours.</p>
+<p>Move the generator, not your file. Under Gazelle the file keeps its name:
+a directory is a package because it holds a file named <code>tsconfig.json</code>,
+which tsgo lists, and every target in it names the <code>ts_config</code> over that
+file. Rename it and the next run finds no program there: every rule
+Gazelle wrote is withdrawn, and the run names the BUILD file. Set
+<code>ts_refresh_tsconfig(tsconfig = "tsconfig.bazel.json")</code> and <code>extends</code> the
+generated file from yours; see
+<a href="#extending-the-generated-file">Extending the Generated File</a>.</p>
+</div>
+<h3 id="extending-the-generated-file">Extending the Generated File<a class="headerlink" href="#extending-the-generated-file" title="Permanent link">&para;</a></h3>
+<p>A repository that keeps its own <code>tsconfig.json</code> points the generator at another
+name and extends it:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">ts_refresh_tsconfig</span><span class="p">(</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="n">name</span> <span class="o">=</span> <span class="s2">"refresh_tsconfig"</span><span class="p">,</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="n">test</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="n">tsconfig</span> <span class="o">=</span> <span class="s2">"tsconfig.bazel.json"</span><span class="p">,</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    <span class="n">deps</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"//src/app"</span><span class="p">,</span> <span class="s2">"//src/lib"</span><span class="p">],</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="p">)</span>
+</span></code></pre></div>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="p">{</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">"extends"</span><span class="p">:</span><span class="w"> </span><span class="s2">"./tsconfig.bazel.json"</span><span class="p">,</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nt">"compilerOptions"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"paths"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"@/*"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"src/*"</span><span class="p">]</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>Three edits make that build:</p>
+<ol>
+<li>
+<p><strong>The <code>ts_config</code> needs the base in <code>deps</code>.</strong> Gazelle writes
+   <code>ts_config(name = "tsconfig", src = "tsconfig.json")</code> and fills <code>deps</code> for
+   an <code>extends</code> naming another <code>tsconfig.json</code> by relative path. A base of
+   another name gets no entry, and every target fails with
+   <code>error TS5083: Cannot read file '.../tsconfig.bazel.json'.</code> Add the file
+   with a <code># keep</code>, since <code>deps</code> is
+   <a href="../../gazelle/directives/#attributes-gazelle-owns">Gazelle's</a>:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">ts_config</span><span class="p">(</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="n">name</span> <span class="o">=</span> <span class="s2">"tsconfig"</span><span class="p">,</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="n">src</span> <span class="o">=</span> <span class="s2">"tsconfig.json"</span><span class="p">,</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    <span class="n">deps</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"tsconfig.bazel.json"</span><span class="p">],</span>  <span class="c1"># keep</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="n">visibility</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"//visibility:public"</span><span class="p">],</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="p">)</span>
+</span></code></pre></div>
+</li>
+<li>
+<p><strong>An option the root block cannot hold puts every package on the nested
+   list.</strong> Gazelle wires your file onto every target, so a <code>"module": "ESNext"</code>
+   in it disagrees with the root block's <code>Preserve</code> for every package with
+   targets, and the first <code>bazel run //:refresh_tsconfig</code> fails instead of
+   writing:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>ts_refresh_tsconfig: the nested_tsconfigs list does not match what the
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>graph needs.
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>  add:    src/app/tsconfig.json, src/lib/tsconfig.json
+</span></code></pre></div>
+<p>List them in <code>nested_tsconfigs</code> (<a href="#nested-tsconfigs">Nested Tsconfigs</a>), or
+drop the option from your file.</p>
+</li>
+<li>
+<p><strong>Each nested package exports its <code>tsconfig.json</code>.</strong> The staleness
+   <code>diff_test</code> for a nested entry names <code>//&lt;pkg&gt;:tsconfig.json</code>, and the
+   generated file is one Gazelle skips, so nothing declares it. Analysis fails
+   with <code>no such target '//src/lib:tsconfig.json'</code> until the package's BUILD
+   carries <code>exports_files(["tsconfig.json"])</code>, as <code>vite/BUILD.bazel</code> and
+   <code>tests/compiler_options/BUILD.bazel</code> do here.</p>
+</li>
+</ol>
+<p>With those three and <code>.bazel</code> in <code>.bazelignore</code>, <code>bazel build //...</code> and the
+staleness tests pass. A tsconfig with <code>"baseUrl"</code> in it fails for another
+reason; see
+<a href="../../guides/troubleshooting/#option-baseurl-has-been-removed">Option 'baseUrl' has been removed</a>.</p>
+<h3 id="excluding-foreign-typescript">Excluding Foreign TypeScript<a class="headerlink" href="#excluding-foreign-typescript" title="Permanent link">&para;</a></h3>
+<p>The generated config leaves <code>include</code> at <code>**/*</code>, so <code>tsc</code> walks every <code>.ts</code> in
+the repository, including trees outside this module's build graph: a nested Bazel
+module, a workspace listed in <code>.bazelignore</code>, a vendored example. Nothing in
+<code>deps</code> names those files, so they are checked under the wrong <code>compilerOptions</code>
+and their errors are noise. <code>extra_exclude</code> adds globs to the generated
+<code>exclude</code>:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">ts_refresh_tsconfig</span><span class="p">(</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>    <span class="n">name</span> <span class="o">=</span> <span class="s2">"refresh_tsconfig"</span><span class="p">,</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>    <span class="n">test</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>    <span class="n">extra_exclude</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"**/e2e"</span><span class="p">,</span> <span class="s2">"**/examples"</span><span class="p">],</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>    <span class="n">deps</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"//apps/web"</span><span class="p">,</span> <span class="s2">"//packages/ui"</span><span class="p">],</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>Anchor each entry with <code>**/</code>, the way the built-in exclusions
+(<code>**/bazel-*</code>, <code>**/node_modules</code>, <code>**/dist</code>, <code>**/build</code>, <code>**/.next</code>,
+<code>**/.nuxt</code>, <code>.bazel</code>) are.</p>
+<h3 id="nested-tsconfigs">Nested Tsconfigs<a class="headerlink" href="#nested-tsconfigs" title="Permanent link">&para;</a></h3>
+<p>One <code>compilerOptions</code> block cannot serve a target that turns <code>strict</code> off beside
+one that leaves it on, or a target naming a <code>lib</code> its <code>target</code> does not imply.
+An editor resolves a file to a program by directory, so such a package needs
+its own <code>tsconfig.json</code> next to its sources, and the root has to stop claiming
+those files.</p>
+<p><code>ts_refresh_tsconfig</code> generates those files, and you declare which packages get
+one:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">ts_refresh_tsconfig</span><span class="p">(</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>    <span class="n">name</span> <span class="o">=</span> <span class="s2">"refresh_tsconfig"</span><span class="p">,</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>    <span class="n">test</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>    <span class="n">nested_tsconfigs</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"apps/worker/tsconfig.json"</span><span class="p">],</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>    <span class="n">deps</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"//apps/web"</span><span class="p">,</span> <span class="s2">"//apps/worker"</span><span class="p">],</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>The set is computed from what each target names: the <code>tsconfig</code> it compiles
+under, and <code>allowJs</code> for a target with JavaScript srcs where the root block does
+not set it. A package whose targets name a tsconfig of their own gets its own
+program; one whose targets name none stays in the root's. A package whose
+targets name the <code>tsconfig.json</code> in their own directory -- every package
+Gazelle writes -- has its program already, that file: nothing is generated for
+it, and the root program excludes the files it covers.</p>
+<p>The rule fails when the declared list disagrees with the graph, in either
+direction, and the message names what to add or remove. The list is declared
+because <code>glob()</code> does not cross a package boundary, and a leftover entry would go
+on owning its subtree in the editor. Each entry gets its own staleness
+<code>diff_test</code>.</p>
+<p>Each generated file <code>extends</code> the root and the tsconfig the package's targets
+name, root first so the package's file wins. Inherited <code>paths</code> are not
+re-resolved, so the root's aliases still work from down there; <code>include</code> and
+<code>exclude</code> are re-resolved against the extending file, so they are written out.
+<code>noEmit</code>, <code>composite</code>, <code>incremental</code>, <code>rootDir</code> and <code>files</code> are pinned in the
+file itself, since a tsconfig inherited whole would emit into your source tree
+and reject files outside one target's <code>rootDir</code>.</p>
+<p>A package whose targets set the same option to different values has no
+representation, since one directory cannot hold both answers. That is an error
+naming both targets; move one target into its own package.</p>
+<p><strong>Two different <code>tsconfig</code> files in one package is the same error.</strong> TypeScript
+applies an <code>extends</code> array later-wins, so listing both would let one's keys
+replace the other's for both targets' sources. A package gets at most one, from
+whichever of its targets name one.</p>
+<p>A target in that package naming no <code>tsconfig</code> inherits that file in the editor,
+and does not in the build: the rule's baseline (<code>strict</code>, <code>module: Preserve</code>,
+<code>target: es2022</code>, <code>jsx: react-jsx</code>, <code>skipLibCheck</code>, <code>esModuleInterop</code>) is all
+it gets there, which is what the root block holds. Give the odd target the same
+<code>tsconfig</code>, or its own package, when that is not close enough.</p>
+<h3 id="bare-specifiers-for-first-party-packages">Bare Specifiers for First-Party Packages<a class="headerlink" href="#bare-specifiers-for-first-party-packages" title="Permanent link">&para;</a></h3>
+<p>Every package the aspect reaches gets a <code>paths</code> key of its own in the root
+config -- <code>@/&lt;rest&gt;/*</code> for a package under <code>src/</code>, the package path otherwise,
+plus the bare key once the package has an index file -- mapped to the source
+directory and its bazel-bin twin. A pnpm <code>link:</code>/<code>workspace:</code> dependency
+imported by its package name gets no key: the checkout's <code>node_modules</code> holds
+pnpm's link to the member, which is where the build resolves it too, through the
+hub's view of the member.</p>
+<h3 id="npm-packages">npm Packages<a class="headerlink" href="#npm-packages" title="Permanent link">&para;</a></h3>
+<p>The generated config names no npm package. TypeScript resolves a bare specifier
+by walking the checkout's <code>node_modules</code> from the importing file, as tsgo walks
+the importer chain a build stages, so <code>pnpm install</code> is the editor's npm setup: the tree
+it installs is the lockfile's, which is what the build resolves too. A
+<code>@types/*</code> package, an <code>exports</code> subpath and a <code>types</code> entry naming a package
+resolve the same way. A package your targets declare and the checkout does not
+hold is <code>TS2307</code> in the editor until the next <code>pnpm install</code>.</p>
+<h3 id="staleness-test">Staleness Test<a class="headerlink" href="#staleness-test" title="Permanent link">&para;</a></h3>
+<p><code>test = True</code> adds a <code>diff_test</code> named <code>&lt;name&gt;_test</code> that compares the
+checked-in <code>tsconfig.json</code> against the one the graph currently implies:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>bazel<span class="w"> </span><span class="nb">test</span><span class="w"> </span>//:refresh_tsconfig_test
+</span></code></pre></div>
+<p>It fails whenever a dependency edit changes what the IDE should see:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>tsconfig.json is stale: run `bazel run //:refresh_tsconfig`.
+</span></code></pre></div>
+<p>Turn it on once the file is checked in.</p>
+<h2 id="complete-coverage-for-the-resolution-map">Complete Coverage for the Resolution Map<a class="headerlink" href="#complete-coverage-for-the-resolution-map" title="Permanent link">&para;</a></h2>
+<p><code>deps</code> is a rule attribute, so it reaches only what this workspace's visibility
+lets a rule name. An aspect propagates along the dependency edges a build
+already has and creates none, so it needs no grant. Two lines in <code>.bazelrc</code> turn
+that on for every build:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>build --aspects=@rules_typescript//ts/private:tsconfig_aspect.bzl%tsconfig_aspect
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>build --output_groups=+ide_fragments
+</span></code></pre></div>
+<p>Every target whose closure holds a <code>ts_compile</code> package then gets a
+<code>&lt;target&gt;.tsconfig-fragment.json</code> beside its other outputs in
+<code>bazel-out</code>, and the resolver merges what it finds there into the map. <code>+group</code> is
+additive, so this composes with <code>--output_groups=+_validation</code> and with anything
+a command line adds, and any ordinary <code>bazel build</code> refreshes the fragments.</p>
+<p><strong>Both lines are optional.</strong> Without them nothing writes fragments and the plugin
+works from <code>.bazel/tsserver-hook-data.json</code> alone. Fragments augment that file;
+they never replace it, and every key it resolved wins over a fragment that
+disagrees.</p>
+<h3 id="what-fragments-cover">What Fragments Cover<a class="headerlink" href="#what-fragments-cover" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Covered by</th>
+<th>Reaches package-private targets</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ts_compile</code> source roots</td>
+<td>fragments, and the data file</td>
+<td>yes, via fragments</td>
+</tr>
+</tbody>
+</table>
+<p>npm packages are in neither: TypeScript resolves them through the checkout's
+<code>node_modules</code> (<a href="#npm-packages">npm Packages</a>).</p>
+<p>The checked-in <code>tsconfig.json</code> does not change either. It stays what
+<code>refresh_tsconfig</code> generates from <code>deps</code>, which is what a fresh clone, a plain
+<code>tsc</code> run and every editor read. Fragments reach the plugin only.</p>
+<h3 id="cost">Cost<a class="headerlink" href="#cost" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Each fragment carries its target's whole closure</strong>, at the cost of bytes:
+  any one fragment is a complete answer for its own subgraph, which makes a
+  partially built <code>bazel-out</code> usable.</li>
+<li><strong>A deleted or renamed target leaves its fragment behind</strong>, because nothing
+  cleans <code>bazel-out</code>. The resolver opens fragments only under directories the source
+  tree still has a BUILD file for, and nothing enters the map unless the path it
+  names exists on disk, so a stale fragment contributes nothing. <code>bazel clean</code> is
+  not needed.</li>
+</ul>
+<h2 id="ambient-types-in-the-editor">Ambient Types in the Editor<a class="headerlink" href="#ambient-types-in-the-editor" title="Permanent link">&para;</a></h2>
+<p>The editor is more permissive than the build in one place. <code>ts_compile</code> writes
+<code>types</code> from the tsconfig's entries or, when it sets neither <code>types</code> nor
+<code>typeRoots</code>, from the direct <code>@types/*</code> deps' names, and a tsconfig that sets
+<code>typeRoots</code> admits what those roots hold, so a global reaches a target because
+that target asked for it. The editor's root program has one <code>compilerOptions</code>
+block for the whole workspace and no <code>types</code> key, so TypeScript includes every
+<code>@types/*</code> package under the root <code>node_modules/@types</code>. A file using <code>process</code>
+type-checks in the editor as soon as <code>@types/node</code> is installed, and then fails
+<code>bazel build</code> with <code>TS2304</code> until the target asks for it: <code>node</code> in its
+tsconfig's <code>types</code>, or <code>@types/node</code> among its direct deps when the tsconfig
+sets neither <code>types</code> nor <code>typeRoots</code>.</p>
+<p>Narrowing that per target would need a tsconfig per target, and a package only
+gets its own program when its targets name one
+(<a href="#nested-tsconfigs"><code>nested_tsconfigs</code></a>).</p>
+<p>Treat <code>bazel build</code> as the authority, and declare ambient packages up front:
+<code>"types": ["node"]</code> in the tsconfig every package of a tree extends does that
+in one line.</p>
+<h2 id="editor-configuration">Editor Configuration<a class="headerlink" href="#editor-configuration" title="Permanent link">&para;</a></h2>
+<p>The generated <code>tsconfig.json</code> needs no editor setup; every editor already reads
+it, and it is what makes a Bazel-built declaration resolve in a fresh clone.
+The rest of this section is for the plugin, which adds live resolution on top.</p>
+<p>tsserver loads a plugin by name from a probe location. The plugin is installed as
+a package under <code>.bazel/node_modules/</code>, so the probe location is <code>.bazel</code> and the
+name is <code>@rules_typescript/tsserver-plugin</code>. Every recipe below is those two
+facts in one editor's spelling.</p>
+<h3 id="vs-code">VS Code<a class="headerlink" href="#vs-code" title="Permanent link">&para;</a></h3>
+<p><code>.vscode/settings.json</code>:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="p">{</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span><span class="nt">"typescript.tsserver.pluginPaths"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">".bazel"</span><span class="p">]</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>VS Code passes no <code>--globalPlugins</code>, so the plugin has to be named in the config
+the editor is using as well; the generated <code>tsconfig.json</code> names it, and
+<code>bazel run //:refresh_tsconfig</code> keeps it there. Do not add the entry by hand to
+a config the macro owns: the next refresh rewrites the file whole and drops it,
+and tsserver logs and ignores a plugin it cannot load, so the only symptom is
+unresolved imports.</p>
+<p>A workspace whose editor config is its own file (<code>ts_refresh_tsconfig(tsconfig
+= "tsconfig.bazel.json")</code> with a hand-written <code>tsconfig.json</code> that <code>extends</code> it)
+inherits the entry through <code>extends</code> and needs nothing either.</p>
+<p>Restart the TS server: <code>Cmd+Shift+P</code> → <code>TypeScript: Restart TS Server</code>.</p>
+<h3 id="neovim-nvim-lspconfig-with-typescript-language-server">Neovim (nvim-lspconfig with typescript-language-server)<a class="headerlink" href="#neovim-nvim-lspconfig-with-typescript-language-server" title="Permanent link">&para;</a></h3>
+<div class="language-lua highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nb">require</span><span class="p">(</span><span class="s1">'lspconfig'</span><span class="p">).</span><span class="nv">ts_ls</span><span class="p">.</span><span class="nf">setup</span><span class="p">({</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span><span class="nv">init_options</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">    </span><span class="nv">plugins</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">      </span><span class="p">{</span><span class="w"> </span><span class="nv">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"@rules_typescript/tsserver-plugin"</span><span class="p">,</span><span class="w"> </span><span class="nv">location</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">".bazel"</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">    </span><span class="p">},</span>
+</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-12-7"><a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="p">})</span>
+</span></code></pre></div>
+<p><code>typescript-language-server</code> turns its <code>plugins</code> option into tsserver's
+<code>--globalPlugins</code> and <code>--pluginProbeLocations</code>, so no <code>compilerOptions.plugins</code>
+entry is needed with it.</p>
+<h3 id="neovim-coc-tsserver">Neovim (coc-tsserver)<a class="headerlink" href="#neovim-coc-tsserver" title="Permanent link">&para;</a></h3>
+<p><code>coc-settings.json</code>:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="p">{</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span><span class="nt">"tsserver.globalPlugins"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"@rules_typescript/tsserver-plugin"</span><span class="p">,</span><span class="w"> </span><span class="nt">"location"</span><span class="p">:</span><span class="w"> </span><span class="s2">".bazel"</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">  </span><span class="p">]</span>
+</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="p">}</span>
+</span></code></pre></div>
+<h3 id="emacs-lsp-mode">Emacs (lsp-mode)<a class="headerlink" href="#emacs-lsp-mode" title="Permanent link">&para;</a></h3>
+<div class="language-elisp highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="p">(</span><span class="k">setq</span><span class="w"> </span><span class="nv">lsp-clients-typescript-plugins</span>
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">  </span><span class="p">(</span><span class="nf">vector</span><span class="w"> </span><span class="p">(</span><span class="nf">list</span><span class="w"> </span><span class="nb">:name</span><span class="w"> </span><span class="s">"@rules_typescript/tsserver-plugin"</span>
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="w">                </span><span class="nb">:location</span><span class="w"> </span><span class="s">".bazel"</span><span class="p">)))</span>
+</span></code></pre></div>
+<h3 id="tsserver-directly">tsserver Directly<a class="headerlink" href="#tsserver-directly" title="Permanent link">&para;</a></h3>
+<p>Any client that spawns tsserver itself takes the two flags:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>--globalPlugins @rules_typescript/tsserver-plugin
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>--pluginProbeLocations /abs/path/to/workspace/.bazel
+</span></code></pre></div>
+<h2 id="coding-agent-harnesses">Coding Agent Harnesses<a class="headerlink" href="#coding-agent-harnesses" title="Permanent link">&para;</a></h2>
+<p>A coding agent that reads TypeScript usually runs its own language server, not
+an editor's. Claude Code installs <code>typescript-language-server</code> and <code>typescript</code>.</p>
+<p><strong>The generated <code>tsconfig.json</code> needs no configuration.</strong> It is a checked-in
+file with a <code>paths</code> map, which every TypeScript tool reads. An agent's language
+server resolves a Bazel-built <code>.d.ts</code> through it to the real declarations, not
+to <code>any</code>; a nonexistent member on an imported symbol is still an error.
+<code>bazel run //:refresh_tsconfig</code> keeps the file current, and the
+<a href="#staleness-test">staleness test</a> asks for it.</p>
+<p><strong>The plugin needs a configurable server.</strong> If the harness exposes LSP
+<code>initializationOptions</code>, pass the <code>plugins</code> entry from the
+<a href="#neovim-nvim-lspconfig-with-typescript-language-server">nvim-lspconfig recipe</a>;
+most harnesses run <code>typescript-language-server</code>. If it does not, the plugin
+cannot be reached and the <code>tsconfig.json</code> is the whole answer.</p>
+<p>Two facts about <code>NODE_OPTIONS</code>:</p>
+<ul>
+<li><strong><code>NODE_OPTIONS</code> is not a way in.</strong> It propagates into the forked tsserver, so
+  the preload does load there, but loading is not the same as taking effect; see
+  <a href="#what-the-preload-does-not-reach">What the preload does not reach</a>.</li>
+<li><strong>A relative path in <code>NODE_OPTIONS</code> kills the process.</strong> Node resolves
+  <code>--require ./x.js</code> against the process's cwd; from any other directory the
+  process fails to start: <code>Cannot find module</code>, with
+  <code>requireStack: [ 'internal/preload' ]</code>, exit 1. Absolute paths only.</li>
+</ul>
+<p>To check what a harness gives you, ask its language server for
+diagnostics on a file importing a Bazel-built package. <code>TS2307 Cannot find
+module</code> before <code>bazel run //:refresh_tsconfig</code> and no diagnostic after it means
+the <code>tsconfig.json</code> path works. <code>TSSERVER_HOOK_DEBUG=1</code> in the server's
+environment makes the plugin report on its stderr whether it loaded and how many
+entries its map holds.</p>
+<h3 id="what-the-preload-does-not-reach">What the Preload Does Not Reach<a class="headerlink" href="#what-the-preload-does-not-reach" title="Permanent link">&para;</a></h3>
+<p><code>.bazel/tsserver-hook.js</code> patches the <code>typescript</code> module's exported
+<code>resolveModuleName</code>. That reaches a client which builds a <code>LanguageService</code> host
+itself and routes resolution through the public API. It does not reach a
+standalone tsserver process, and every editor above spawns one.</p>
+<p>Two measured facts. <code>lib/tsserver.js</code> loads its bundle as
+<code>require("./typescript.js")</code>, which the preload's matcher does not accept, so the
+patch never installs. With the matcher widened, a real tsserver still reports
+<code>TS2307</code> for the same import: the language service resolves through its
+<code>LanguageServiceHost</code>, not through the export. The plugin decorates that host.</p>
+<h2 id="how-it-works">How It Works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
+<p>The plugin is TypeScript's equivalent of Go's
+<a href="https://jayconrod.com/posts/125/go-editor-support-in-bazel-workspaces">GOPACKAGESDRIVER</a>,
+with one difference: it never runs Bazel. Everything Bazel knows arrives
+through <code>.bazel/tsserver-hook-data.json</code>, which <code>refresh_tsconfig</code> wrote at
+analysis time. A long-lived editor process asking the Bazel server for anything
+would sit on the same lock a build wants.</p>
+<ol>
+<li><strong>Worker thread</strong> reads <code>.bazel/tsserver-hook-data.json</code> (the <code>ts_compile</code>
+   package list) and turns it into a module-name → declaration-path map</li>
+<li><strong>Internal packages</strong> resolved from <code>bazel-bin</code> (<code>.d.ts</code> after a build) or the
+   source tree (<code>.ts</code> before one)</li>
+<li><strong>Fragments</strong>, if the <code>.bazelrc</code> lines above are in place, add the packages
+   of every target the aspect reached, including the ones no rule may name. One
+   target built in two configurations writes two fragments, deduplicated by
+   label with the first config root in sorted order winning, so the merge does
+   not depend on what <code>bazel-out</code> holds</li>
+<li><strong>File watcher</strong> watches the graph data file, and <code>bazel-bin</code> recursively for
+   new <code>.d.ts</code> and new fragments; a change to either rebuilds the map. npm
+   packages and path aliases are not in the map: TypeScript resolves both
+   itself, through the checkout's <code>node_modules</code> and the tsconfig's <code>paths</code></li>
+</ol>
+<p>The main thread is never blocked: the worker builds the map off-thread and posts
+it back. tsserver returns "unresolved" briefly on first load, then resolves when
+the worker completes.</p>
+<h3 id="resolution-priority">Resolution Priority<a class="headerlink" href="#resolution-priority" title="Permanent link">&para;</a></h3>
+<ol>
+<li><code>.d.ts</code> in <code>bazel-bin</code> — fast, precise (available after <code>bazel build</code>)</li>
+<li><code>.ts</code> source file — always available, slower for tsserver to process</li>
+</ol>
+<p>npm packages are not in the map: TypeScript resolves them itself through the
+checkout's <code>node_modules</code>.</p>
+<h3 id="what-a-build-provides">What a Build Provides<a class="headerlink" href="#what-a-build-provides" title="Permanent link">&para;</a></h3>
+<p>First-party resolution works without <code>bazel build</code>, since the source <code>.ts</code> files
+are always on disk. A build adds the <code>.d.ts</code> files and, with the aspect enabled,
+the fragments naming the packages <code>deps</code> could not reach.</p>
+<p>npm resolution is bounded by the checkout's <code>node_modules</code>: a package the
+lockfile gained resolves in the editor after the next <code>pnpm install</code>.</p>
+<h2 id="debugging">Debugging<a class="headerlink" href="#debugging" title="Permanent link">&para;</a></h2>
+<p>Set <code>TSSERVER_HOOK_DEBUG=1</code> in the environment the language server starts in.
+The plugin and its worker then report on the server process's stderr: whether the
+plugin loaded, which project it decorated, how many entries the map holds, and
+each invalidation. It is the server's stderr and not the tsserver log, so where
+it surfaces depends on the client.</p>
+<h2 id="debugging-tests-in-vs-code">Debugging Tests in VS Code<a class="headerlink" href="#debugging-tests-in-vs-code" title="Permanent link">&para;</a></h2>
+<p>To attach a debugger to vitest running inside the Bazel sandbox:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="n">ts_test</span><span class="p">(</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>    <span class="n">name</span> <span class="o">=</span> <span class="s2">"my_test_debug"</span><span class="p">,</span>
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>    <span class="n">srcs</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"my.test.ts"</span><span class="p">],</span>
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a>    <span class="n">deps</span> <span class="o">=</span> <span class="p">[</span><span class="s2">":my_lib"</span><span class="p">,</span> <span class="s2">"@npm//:vitest"</span><span class="p">],</span>
+</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a>    <span class="n">tags</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"manual"</span><span class="p">],</span>
+</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a>    <span class="n">env</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"NODE_OPTIONS"</span><span class="p">:</span> <span class="s2">"--inspect-brk=9229"</span><span class="p">},</span>
+</span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a><span class="p">)</span>
+</span></code></pre></div>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>bazel<span class="w"> </span>run<span class="w"> </span>//path/to:my_test_debug
+</span></code></pre></div>
+<p>Vitest pauses before executing, waiting for a debugger on port 9229. Attach VS Code via "Attach to Node Process" or use <code>chrome://inspect</code>. Source maps are configured automatically.</p>
+<p>Gazelle lists every test file the program owns in the generated <code>ts_test</code>,
+whatever other rule names it, so <code>my.test.ts</code> stays tested by <code>bazel test
+//...</code> while this <code>manual</code> target holds it too. Delete the target when the
+session is over.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/mikn/rules_typescript" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "navigation.instant", "navigation.instant.progress", "content.code.copy", "content.code.annotate", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

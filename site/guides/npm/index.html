@@ -1,0 +1,2532 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Opinionated Bazel rules for TypeScript. Oxc and tsgo compile, tsgo type-checks, and Vite serves the generated config.">
+      
+      
+      
+        <link rel="canonical" href="https://mikn.github.io/rules_typescript/guides/npm/">
+      
+      
+        <link rel="prev" href="../../getting-started/migration/">
+      
+      
+        <link rel="next" href="../testing/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>npm Dependencies - rules_typescript</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#npm-dependencies" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="rules_typescript" class="md-header__button md-logo" aria-label="rules_typescript" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            rules_typescript
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              npm Dependencies
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/mikn/rules_typescript" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    mikn/rules_typescript
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="rules_typescript" class="md-nav__button md-logo" aria-label="rules_typescript" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    rules_typescript
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/mikn/rules_typescript" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    mikn/rules_typescript
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/isolated-declarations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Isolated Declarations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/ide-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IDE Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migrating from rules_ts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    npm Dependencies
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    npm Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#label-convention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Label Convention
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adding-dependencies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adding Dependencies
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hermetic-pnpm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hermetic pnpm
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Hermetic pnpm">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#which-lockfile-the-wrapper-edits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which Lockfile the Wrapper Edits
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#more-than-one-hub" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        More Than One Hub
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#private-and-scoped-registries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Private and Scoped Registries
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#patched-dependencies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Patched Dependencies
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#integrity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Integrity
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#catalogs-overrides-and-packageextensions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        catalogs, overrides and packageExtensions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#platform-specific-packages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Platform-Specific Packages
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-a-packages-type-declarations-come-from" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where a Package's Type Declarations Come From
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-a-workspace-member-is-imported-as" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a Workspace Member Is Imported As
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bin-scripts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bin Scripts
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#npm-aliases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        npm Aliases
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workspace-links" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workspace Links
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#node_modules-targets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        node_modules Targets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#one-repository-per-package" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One Repository per Package
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing with vitest
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bundling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bundling with Vite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dev-server/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dev Server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tailwind/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tailwind v4
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../monorepo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monorepo Layout
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../lint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../benchmark/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmark
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gazelle
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Gazelle
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gazelle/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gazelle/directives/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Directives Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rules Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Rules Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rules/ts-compile/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ts_compile
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rules/ts-test/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ts_test
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rules/ts-binary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ts_binary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rules/ts-dev-server/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ts_dev_server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rules/ts-codegen/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ts_codegen
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rules/node-modules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    node_modules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rules/providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers and toolchains
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Maintainers
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Maintainers
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../CI_CD/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CI/CD
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../RELEASE_PROCESS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Process
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../BCR_SUBMISSION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BCR Submission
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#label-convention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Label Convention
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adding-dependencies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adding Dependencies
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hermetic-pnpm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hermetic pnpm
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Hermetic pnpm">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#which-lockfile-the-wrapper-edits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which Lockfile the Wrapper Edits
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#more-than-one-hub" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        More Than One Hub
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#private-and-scoped-registries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Private and Scoped Registries
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#patched-dependencies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Patched Dependencies
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#integrity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Integrity
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#catalogs-overrides-and-packageextensions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        catalogs, overrides and packageExtensions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#platform-specific-packages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Platform-Specific Packages
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-a-packages-type-declarations-come-from" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where a Package's Type Declarations Come From
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-a-workspace-member-is-imported-as" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a Workspace Member Is Imported As
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bin-scripts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bin Scripts
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#npm-aliases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        npm Aliases
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workspace-links" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workspace Links
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#node_modules-targets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        node_modules Targets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#one-repository-per-package" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One Repository per Package
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="npm-dependencies">npm Dependencies<a class="headerlink" href="#npm-dependencies" title="Permanent link">&para;</a></h1>
+<p>npm packages come from a <code>pnpm-lock.yaml</code>. The <code>npm</code> module extension reads that
+file, text only and no network, and declares one external repository per package
+plus an alias hub named <code>@npm</code> that holds nothing but aliases. Bazel fetches a
+package's repository the first time something needs it, so a target's npm cost is
+its own dependency closure.</p>
+<h2 id="setup">Setup<a class="headerlink" href="#setup" title="Permanent link">&para;</a></h2>
+<p><strong>Step 1.</strong> Create a <code>pnpm-lock.yaml</code>:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pnpm<span class="w"> </span>init
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>pnpm<span class="w"> </span>add<span class="w"> </span>react<span class="w"> </span>react-dom<span class="w"> </span>--lockfile-only
+</span></code></pre></div>
+<p><code>--lockfile-only</code> updates the lockfile without creating a <code>node_modules/</code>
+directory. The rules read no <code>node_modules/</code> from the source tree: the build
+declares pnpm's virtual store and each importer's links into it
+(<a href="../../rules/node-modules/">node_modules</a>), and a target resolves through the
+importer chain, in the sandbox and in a test's runfiles. The editor is the one
+reader of a checkout <code>node_modules</code>, so <code>pnpm install</code> is its setup
+(<a href="../../getting-started/ide-setup/#npm-packages">IDE Setup</a>).</p>
+<p>A <code>pnpm-lock.yaml</code> is the only npm input these rules read; there is no npm or
+yarn lockfile path. A pnpm of your own writes the first one. Every edit after
+that can go through the pnpm the extension downloads, <code>bazel run //:pnpm</code>: the
+extension reads the lockfile when a command first reaches a repository it
+declares, so with <code>npm.translate_lock</code> declared and no file at the label, a
+target that needs no <code>@npm</code> package still builds, and <code>bazel run //:pnpm</code>
+fails in the read. See <a href="#hermetic-pnpm">Hermetic pnpm</a>.</p>
+<p><strong>Step 2.</strong> Add to <code>MODULE.bazel</code>:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">npm</span> <span class="o">=</span> <span class="n">use_extension</span><span class="p">(</span><span class="s2">"@rules_typescript//npm:extensions.bzl"</span><span class="p">,</span> <span class="s2">"npm"</span><span class="p">)</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">npm</span><span class="o">.</span><span class="n">translate_lock</span><span class="p">(</span><span class="n">pnpm_lock</span> <span class="o">=</span> <span class="s2">"//:pnpm-lock.yaml"</span><span class="p">)</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">use_repo</span><span class="p">(</span><span class="n">npm</span><span class="p">,</span> <span class="s2">"npm"</span><span class="p">,</span> <span class="s2">"pnpm"</span><span class="p">)</span>
+</span></code></pre></div>
+<p><code>"npm"</code> is the alias hub your labels spell. <code>"pnpm"</code> is the hermetic pnpm the
+<code>ts_pnpm</code> and <code>ts_add_package</code> targets in your root <code>BUILD.bazel</code> run; write
+them by hand, and take the repo when you do, or <code>bazel build //...</code> stops
+before it builds anything:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>ERROR: no such package '@@[unknown repo 'pnpm' requested from @@ (did you mean
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>'npm'?)]//': The repository '@@[unknown repo 'pnpm' requested from @@ (did you
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>mean 'npm'?)]' could not be resolved: No repository visible as '@pnpm' from
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>main repository and referenced by '//:pnpm'
+</span></code></pre></div>
+<p>Gazelle lists each <code>tsconfig.json</code> with tsgo over the checkout, which resolves
+a bare specifier through <code>node_modules/</code>, so the checkout is installed once
+(<code>bazel run //:pnpm -- install</code>) before the first run. See
+<a href="#hermetic-pnpm">Hermetic pnpm</a>.</p>
+<p><strong>Step 3.</strong> Reference packages in BUILD files:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">ts_compile</span><span class="p">(</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    <span class="n">name</span> <span class="o">=</span> <span class="s2">"app"</span><span class="p">,</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="n">srcs</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"app.ts"</span><span class="p">],</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="n">deps</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"@npm//:zod"</span><span class="p">,</span> <span class="s2">"@npm//:react"</span><span class="p">],</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="p">)</span>
+</span></code></pre></div>
+<h2 id="label-convention">Label Convention<a class="headerlink" href="#label-convention" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>npm package</th>
+<th>Bazel label</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>react</code></td>
+<td><code>@npm//:react</code></td>
+</tr>
+<tr>
+<td><code>react-dom</code></td>
+<td><code>@npm//:react-dom</code></td>
+</tr>
+<tr>
+<td><code>@types/react</code></td>
+<td><code>@npm//:types_react</code></td>
+</tr>
+<tr>
+<td><code>@tanstack/react-query</code></td>
+<td><code>@npm//:tanstack_react-query</code></td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>Scoped packages (<code>@scope/name</code>) become <code>scope_name</code>: drop the <code>@</code>, replace <code>/</code>
+  with <code>_</code>.</li>
+<li>Hyphens are kept as-is.</li>
+<li>A bare label means the root importer's own resolution where the lockfile
+  gives one, and the highest version otherwise. A package resolved at several
+  versions also gets a version-suffixed label per version, so one can be pinned.</li>
+<li>A <code>workspace:*</code> link resolves to a target in your own repository. See
+  <a href="#workspace-links">workspace links</a>.</li>
+<li>A target resolves a name to its importer's resolution: the link of the
+  nearest lockfile importer at or above it that declares the name. A version
+  another importer declares, or one only a dependency's closure carries, is
+  not the target's to import, and naming it in <code>deps</code> fails analysis.</li>
+</ul>
+<h2 id="adding-dependencies">Adding Dependencies<a class="headerlink" href="#adding-dependencies" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>bazel<span class="w"> </span>run<span class="w"> </span>//:pnpm<span class="w"> </span>--<span class="w"> </span>add<span class="w"> </span>zod<span class="w">   </span><span class="c1"># updates pnpm-lock.yaml and installs it</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>bazel<span class="w"> </span>run<span class="w"> </span>//:gazelle<span class="w">           </span><span class="c1"># tsgo lists the import; Gazelle adds @npm//:zod</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>bazel<span class="w"> </span>build<span class="w"> </span>//...<span class="w">              </span><span class="c1"># Bazel fetches just that package's closure</span>
+</span></code></pre></div>
+<p><code>pnpm</code> edits the lockfile and installs the checkout Gazelle lists. It is not
+needed at build time, test time, or on CI.</p>
+<h2 id="hermetic-pnpm">Hermetic pnpm<a class="headerlink" href="#hermetic-pnpm" title="Permanent link">&para;</a></h2>
+<p>The extension downloads a standalone pnpm binary whether or not one is asked
+for, so lockfile edits need no system install. Write the two macros into the
+root <code>BUILD.bazel</code>:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># BUILD.bazel</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">load</span><span class="p">(</span><span class="s2">"@rules_typescript//ts:defs.bzl"</span><span class="p">,</span> <span class="s2">"ts_add_package"</span><span class="p">,</span> <span class="s2">"ts_pnpm"</span><span class="p">)</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="n">ts_pnpm</span><span class="p">(</span><span class="n">name</span> <span class="o">=</span> <span class="s2">"pnpm"</span><span class="p">)</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="n">ts_add_package</span><span class="p">(</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>    <span class="n">name</span> <span class="o">=</span> <span class="s2">"add_package"</span><span class="p">,</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>    <span class="n">pnpm_lock</span> <span class="o">=</span> <span class="s2">"//:pnpm-lock.yaml"</span><span class="p">,</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>The <code>@pnpm</code> repo they need came from Step 2. <code>npm.pnpm()</code> pins which version is
+downloaded; without it a default version is used:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># MODULE.bazel</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">npm</span> <span class="o">=</span> <span class="n">use_extension</span><span class="p">(</span><span class="s2">"@rules_typescript//npm:extensions.bzl"</span><span class="p">,</span> <span class="s2">"npm"</span><span class="p">)</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">npm</span><span class="o">.</span><span class="n">pnpm</span><span class="p">(</span><span class="n">version</span> <span class="o">=</span> <span class="s2">"10.32.1"</span><span class="p">)</span>   <span class="c1"># optional; a default version is used otherwise</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="n">npm</span><span class="o">.</span><span class="n">translate_lock</span><span class="p">(</span><span class="n">pnpm_lock</span> <span class="o">=</span> <span class="s2">"//:pnpm-lock.yaml"</span><span class="p">)</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="n">use_repo</span><span class="p">(</span><span class="n">npm</span><span class="p">,</span> <span class="s2">"npm"</span><span class="p">,</span> <span class="s2">"pnpm"</span><span class="p">)</span>
+</span></code></pre></div>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>bazel<span class="w"> </span>run<span class="w"> </span>//:pnpm<span class="w"> </span>--<span class="w"> </span>--version
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>bazel<span class="w"> </span>run<span class="w"> </span>//:pnpm<span class="w"> </span>--<span class="w"> </span>add<span class="w"> </span>zod<span class="w"> </span>--lockfile-only
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>bazel<span class="w"> </span>run<span class="w"> </span>//:add_package<span class="w"> </span>--<span class="w"> </span>zod<span class="w">          </span><span class="c1"># appends --lockfile-only for you</span>
+</span></code></pre></div>
+<p><code>pnpm_lock</code> is the hub this target edits, spelled as its <code>npm.translate_lock()</code>
+spells it; pnpm is pointed at that label's directory with <code>--dir</code>. It is
+required: a <code>pnpm add</code> with no hub resolves against the workspace root and
+writes a <code>package.json</code> and <code>pnpm-lock.yaml</code> there. Declaring a label also makes
+a missing lockfile, or one this package cannot see, a build error.</p>
+<p>A workspace with several hubs gets one target per hub, named after it:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">ts_add_package</span><span class="p">(</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>    <span class="n">name</span> <span class="o">=</span> <span class="s2">"add_package_tailwind"</span><span class="p">,</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>    <span class="n">pnpm_lock</span> <span class="o">=</span> <span class="s2">"//third_party/tailwind:pnpm-lock.yaml"</span><span class="p">,</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>Both targets <code>cd</code> to <code>$BUILD_WORKSPACE_DIRECTORY</code> first, so they edit the source
+tree. The wrapper is a bash script, so it does not run on Windows.</p>
+<p>Both macros take <code>pnpm_repo_name</code>, default <code>"pnpm"</code>: the repository holding the
+binary, which <code>npm.pnpm(name = ...)</code> declares under the same default. Only the
+root module's <code>npm.pnpm()</code> tag is read; a non-root module's is ignored. Every
+workspace in this repository, the examples and the integration workspaces
+included, uses the default name, and no test renames it.</p>
+<h3 id="which-lockfile-the-wrapper-edits">Which Lockfile the Wrapper Edits<a class="headerlink" href="#which-lockfile-the-wrapper-edits" title="Permanent link">&para;</a></h3>
+<p>Extra <code>pnpm add</code> flags are passed through. Three checks keep the rewrite inside
+the hub, one per route pnpm has to that setting.</p>
+<ul>
+<li><strong>Flags.</strong> Four spellings are rejected, because an appended
+  <code>--lockfile-dir</code> would lose to an earlier <code>--lockfile-directory</code>:</li>
+</ul>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>--lockfile-dir  --lockfile-directory  --config-lockfile-dir  --config-lockfile-directory
+</span></code></pre></div>
+<p>Each argument is normalised first: case-folded, <code>.</code> and <code>_</code> turned into <code>-</code>,
+  anything after an <code>=</code> stripped. <code>--LOCKFILE_DIR=x</code> and
+  <code>--config.lockfile-directory=x</code> are refused too. <code>--dir</code> is allowed, because
+  the one the target appends wins: pnpm takes the last occurrence.
+- <strong>Environment.</strong> Every variable spelled <code>NPM_CONFIG_*</code> or <code>npm_config_*</code> is
+  unset. The match is broad, so <code>NPM_CONFIG_REGISTRY</code> goes along with
+  <code>NPM_CONFIG_LOCKFILE_DIR</code>; a mixed-case <code>Npm_Config_lockfile_dir</code> survives it.
+- <strong>Outcome.</strong> The wrapper lists every <code>pnpm-lock.yaml</code> in the tree before and
+  after the run. Any new one outside the hub is deleted and the target exits
+  non-zero, which covers the mixed-case environment names and any other route to
+  the same setting.</p>
+<p>Two more refusals before pnpm runs: no <code>PNPM_HUB_DIR</code> (the target was not
+generated by <code>ts_add_package</code>), and no <code>package.json</code> beside the hub's lockfile,
+which pnpm would create.</p>
+<p>To edit another hub, run that hub's own target.</p>
+<h2 id="more-than-one-hub">More Than One Hub<a class="headerlink" href="#more-than-one-hub" title="Permanent link">&para;</a></h2>
+<p>A workspace can translate several lockfiles. Each one is its own alias hub, named
+by <code>npm.translate_lock</code>'s <code>name</code> attr, and that name is what <code>use_repo</code> takes and
+what BUILD labels spell:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># MODULE.bazel</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">npm</span> <span class="o">=</span> <span class="n">use_extension</span><span class="p">(</span><span class="s2">"@rules_typescript//npm:extensions.bzl"</span><span class="p">,</span> <span class="s2">"npm"</span><span class="p">)</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="n">npm</span><span class="o">.</span><span class="n">translate_lock</span><span class="p">(</span><span class="n">pnpm_lock</span> <span class="o">=</span> <span class="s2">"//:pnpm-lock.yaml"</span><span class="p">)</span>                       <span class="c1"># name defaults to "npm"</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="n">npm</span><span class="o">.</span><span class="n">translate_lock</span><span class="p">(</span><span class="n">name</span> <span class="o">=</span> <span class="s2">"npm_tools"</span><span class="p">,</span> <span class="n">pnpm_lock</span> <span class="o">=</span> <span class="s2">"//tools:pnpm-lock.yaml"</span><span class="p">)</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="n">use_repo</span><span class="p">(</span><span class="n">npm</span><span class="p">,</span> <span class="s2">"npm"</span><span class="p">,</span> <span class="s2">"npm_tools"</span><span class="p">,</span> <span class="s2">"pnpm"</span><span class="p">)</span>
+</span></code></pre></div>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="n">deps</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"@npm_tools//:eslint"</span><span class="p">]</span>
+</span></code></pre></div>
+<p>A second lockfile keeps a closure (eslint's, say) out of the tree an app's tests
+resolve against, or keeps a curated fixture out of <code>pnpm add</code>'s reach. It costs
+two lockfiles to keep in step, and a package resolved in both is fetched twice.
+One root lockfile is the default
+(<a href="../monorepo/#single-pnpm-lockfile">Monorepo Layout</a>).</p>
+<p>Three things follow from a second hub:</p>
+<ul>
+<li><strong>Gazelle writes <code>@npm</code> alone.</strong> Every npm label it writes names the hub of
+  the root <code>pnpm-lock.yaml</code> it reads. A package whose imports come from another
+  hub writes its <code>deps</code> by hand under <code># keep</code>.</li>
+<li><strong>One <code>ts_add_package</code> target per hub.</strong> pnpm rewrites whichever lockfile it
+  resolves against, so the hub belongs in the command a person types:</li>
+</ul>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="n">ts_add_package</span><span class="p">(</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>    <span class="n">name</span> <span class="o">=</span> <span class="s2">"add_package_tools"</span><span class="p">,</span>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>    <span class="n">pnpm_lock</span> <span class="o">=</span> <span class="s2">"//tools:pnpm-lock.yaml"</span><span class="p">,</span>
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>That hub is then edited with <code>bazel run //:add_package_tools -- eslint</code>.</p>
+<ul>
+<li><strong>A dev-only hub stays out of consumers' lock files.</strong> A hub declared through
+  <code>use_extension(..., dev_dependency = True)</code> is invisible when your module is
+  not the root.</li>
+</ul>
+<h2 id="private-and-scoped-registries">Private and Scoped Registries<a class="headerlink" href="#private-and-scoped-registries" title="Permanent link">&para;</a></h2>
+<p>A pnpm lockfile records a package's <code>name@version</code> and its integrity, and no
+registry anywhere. <code>.npmrc</code> is the only record, so a workspace whose packages
+come from somewhere other than <code>registry.npmjs.org</code> has to pass it:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">npm</span><span class="o">.</span><span class="n">translate_lock</span><span class="p">(</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>    <span class="n">pnpm_lock</span> <span class="o">=</span> <span class="s2">"//:pnpm-lock.yaml"</span><span class="p">,</span>
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>    <span class="n">npmrc</span> <span class="o">=</span> <span class="s2">"//:.npmrc"</span><span class="p">,</span>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>Two kinds of line decide a URL, and they are the only lines the extension reads:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>registry=https://npm.example.com/          # the default for everything
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>@acme:registry=https://npm.example.com/    # the default for one scope
+</span></code></pre></div>
+<p>A <code>tarball:</code> in the lockfile's <code>resolution:</code> is an absolute URL pnpm already
+resolved, and it wins over both.</p>
+<p>Credentials are read at fetch time. The extension's result is serialised into
+the committed <code>MODULE.bazel.lock</code>, so a token in an attribute would be a token
+in git. Each package's own fetch reads the <code>.npmrc</code> again for
+<code>//host/path/:_authToken=</code> or <code>:_auth=</code>; what lands in the lock is the file's
+label.</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>//npm.example.com/:_authToken=${NPM_TOKEN}
+</span></code></pre></div>
+<p><code>${VAR}</code> is expanded from the fetch environment, and changing the variable
+refetches, because reading it registers it. Credentials are keyed by
+<code>//host/path/</code> with the longest matching prefix winning, so a registry
+mounted on a path (an Artifactory repo, say) carries its own token without
+claiming the whole host.</p>
+<p>Two limits:</p>
+<ul>
+<li><strong><code>~/.npmrc</code> is not consulted.</strong> It lies outside the workspace, so Bazel
+  cannot make it an input; <code>${VAR}</code> covers what varies per machine.</li>
+<li><strong><code>username</code> / <code>_password</code> fail</strong> with a message naming the file and the scope.
+  npm stores <code>_password</code> base64-encoded and Starlark cannot decode it (there is
+  no <code>chr()</code>). Use <code>_authToken</code>, which <code>npm config set //host/:_authToken</code>
+  writes, or <code>_auth</code>, the same base64 blob.</li>
+</ul>
+<h2 id="patched-dependencies">Patched Dependencies<a class="headerlink" href="#patched-dependencies" title="Permanent link">&para;</a></h2>
+<p>pnpm's <code>patchedDependencies</code> used to be ignored silently: the <code>packages:</code>
+integrity in the lockfile is the upstream tarball's, so a patched package was
+fetched unpatched.</p>
+<p>Patches are passed as labels: the paths pnpm keeps in <code>pnpm-workspace.yaml</code>
+cannot be turned into labels by an extension, because a path like
+<code>patches/foo.patch</code> says nothing about where your Bazel package boundaries fall.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="n">npm</span><span class="o">.</span><span class="n">translate_lock</span><span class="p">(</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>    <span class="n">pnpm_lock</span> <span class="o">=</span> <span class="s2">"//:pnpm-lock.yaml"</span><span class="p">,</span>
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>    <span class="n">patches</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"//patches:@acme__diffs@1.3.1.patch"</span><span class="p">],</span>
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>Each file is matched to its lockfile entry by filename, pnpm's own convention
+from <code>pnpm patch-commit</code>: <code>&lt;name with / replaced by __&gt;@&lt;version&gt;.patch</code>.</p>
+<p>Every pairing is verified while the extension evaluates, so a patch nothing
+currently depends on is checked too. Four failures, each naming the label:</p>
+<ul>
+<li><strong>the label resolves to no readable file.</strong> Resolving the label also forces
+  the patch's Bazel package to load, so a broken <code>patches/BUILD.bazel</code> surfaces
+  here.</li>
+<li><strong>the file's sha256 disagrees with the digest <code>patchedDependencies</code> records.</strong>
+  pnpm writes that digest when it writes the patch, so a disagreement means the
+  patch changed without <code>pnpm install</code> being re-run. A pre-pnpm-9 lockfile
+  records something other than a sha256; the file still has to be readable, only
+  the comparison is skipped.</li>
+<li><strong>a <code>patchedDependencies</code> entry with no matching label.</strong></li>
+<li><strong>a passed patch file no entry claims:</strong> the lockfile is stale, or the file is
+  misnamed.</li>
+</ul>
+<div class="admonition warning">
+<p class="admonition-title">A patch file whose name starts with <code>@</code></p>
+<p><code>exports_files(glob(["*.patch"]))</code> cannot export it: <code>glob()</code> prefixes <code>:</code>
+onto such a result and <code>exports_files</code> rejects that as a target name, which
+fails the whole package and every patch in it. List those files literally:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="n">exports_files</span><span class="p">([</span><span class="s2">"@acme__diffs@1.3.1.patch"</span><span class="p">,</span> <span class="s2">"nanoid@3.3.11.patch"</span><span class="p">])</span>
+</span></code></pre></div>
+</div>
+<h2 id="integrity">Integrity<a class="headerlink" href="#integrity" title="Permanent link">&para;</a></h2>
+<p>Every <code>packages:</code> entry has to carry an integrity the download can be checked
+against. A package whose <code>resolution:</code> has none used to be fetched with no
+verification. That is now a hard error, raised while the extension evaluates, so
+an entry nothing currently depends on is checked too:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>npm: entries in //:pnpm-lock.yaml whose `resolution:` carries no usable integrity:
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>  unverified@1.0.0 -&gt; resolution keys: tarball
+</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>Bazel would fetch these bytes with nothing to check them against, ...
+</span></code></pre></div>
+<p>Accepted algorithms are <code>sha512-</code>, <code>sha384-</code> and <code>sha256-</code>. The list is explicit,
+so a pre-SRI digest (<code>sha1-</code>) is reported here, naming the package, before any
+fetch turns it into a checksum error naming a URL.</p>
+<p>Three lockfile shapes cannot satisfy it, all dependencies with no published
+tarball: a git dependency (<code>{commit, repo, type: git}</code>), a
+<code>file:</code> dependency on a local directory (<code>{directory, type: directory}</code>), and a
+remote tarball pnpm could not hash (<code>{tarball}</code> with no <code>integrity</code>). Without
+the check the first two fail later: with no <code>tarball:</code> key the registry URL is
+built from the name and the fetch 404s. Depend on such a package as a
+workspace member (a <code>link:</code> entry, which becomes a target in your own repository;
+see <a href="#workspace-links">workspace links</a>) or vendor its files.</p>
+<p>There is no opt-out: the check runs at extension evaluation, and a module
+extension cannot read build flags.</p>
+<h2 id="catalogs-overrides-and-packageextensions"><code>catalogs</code>, <code>overrides</code> and <code>packageExtensions</code><a class="headerlink" href="#catalogs-overrides-and-packageextensions" title="Permanent link">&para;</a></h2>
+<p>pnpm resolves all three at every use site before writing the lockfile, so they
+need no support and have none. <code>catalog:</code> specifiers, <code>overrides</code> (both plain and
+the package-scoped <code>parent&gt;child</code> form) and <code>packageExtensions</code> already appear as
+concrete versions and injected peers in the <code>packages:</code> and <code>snapshots:</code> sections
+the extension reads.</p>
+<h2 id="platform-specific-packages">Platform-Specific Packages<a class="headerlink" href="#platform-specific-packages" title="Permanent link">&para;</a></h2>
+<p>A package whose <code>os</code>/<code>cpu</code> fields exclude the platform
+(<code>@rollup/rollup-linux-x64-gnu</code> on a Mac, say) is not part of the build; there
+is nothing to configure.</p>
+<p>A bin script that resolves an optional dependency at runtime (<code>oxlint</code> →
+<code>@oxlint/linux-x64-gnu</code>) gets it in its runfiles, though the two are not sibling
+directories inside one repository.</p>
+<h2 id="where-a-packages-type-declarations-come-from">Where a Package's Type Declarations Come From<a class="headerlink" href="#where-a-packages-type-declarations-come-from" title="Permanent link">&para;</a></h2>
+<p>From the package's own <code>package.json</code>, read by tsgo where the package sits in
+the store, <code>node_modules/.pnpm/&lt;key&gt;/node_modules/&lt;name&gt;/</code>, reached through the
+importer's link. Nothing here reads <code>exports</code>, <code>types</code>,
+<code>typings</code> or <code>main</code> for it. tsgo walks the tree as it walks a pnpm install --
+the <code>exports</code> map in its own key order with the conditions as written, then
+<code>typings</code> and <code>types</code>, then <code>main</code>, then the root index -- and a
+<code>compilerOptions.types</code> entry or a <code>/// &lt;reference types&gt;</code> directive resolves
+through the same tree by TypeScript's type-reference rules. So
+<code>import type { TraceItem } from "@cloudflare/workers-types"</code> resolves to that
+package's <code>index.ts</code>, a module, and <code>"types": ["@cloudflare/workers-types"]</code>
+to its <code>index.d.ts</code>, a global script, as they do under <code>tsc</code>; an <code>exports</code>
+subpath (<code>@cloudflare/vitest-pool-workers/types</code>) and a one-star pattern
+(<code>"./*": "./dist/esm/*"</code>) resolve because tsgo reads the map itself.</p>
+<p>A <code>.ts</code> module entry sits under <code>node_modules/&lt;name&gt;/</code> and is a library file to
+TypeScript: type-checked, never emitted, outside the <code>rootDir</code> check. See
+<a href="../../rules/ts-compile/#the-node_modules-chain">the node_modules chain</a>.</p>
+<h2 id="what-a-workspace-member-is-imported-as">What a Workspace Member Is Imported As<a class="headerlink" href="#what-a-workspace-member-is-imported-as" title="Permanent link">&para;</a></h2>
+<p>A <code>workspace:*</code> dependency resolves to a <code>link:</code> in the lockfile, and the hub
+writes one <code>npm_workspace_package</code> view per workspace member -- every <code>link:</code>
+target and every importer whose <code>package.json</code> has a <code>name</code>, one view per member
+directory -- at <code>@npm//:&lt;name&gt;</code>; each importer that links the member holds a
+<code>node_modules_member</code> target, <code>//&lt;importer&gt;:node_modules/&lt;name&gt;</code>, which a
+target names in <code>deps</code>. The view is that member as an npm package: its store
+tree, <code>node_modules/.pnpm/&lt;name with / as +&gt;@0.0.0/node_modules/&lt;name&gt;</code>, holds
+the member's <code>package.json</code> as built beside the member's <code>.js</code>, <code>.js.map</code> and
+<code>.d.ts</code> at the paths the manifest names. "As built" is one rewrite, done by the
+member's <code>ts_compile</code> over the <code>package.json</code> in its <code>srcs</code> and written as
+<code>&lt;name&gt;.package.json</code> beside the src, which stays staged as written
+(<code>tsaction manifest</code>, under the <code>jsx</code> its tsconfig declares): every source-file
+target under <code>main</code>, <code>module</code>, <code>browser</code>, <code>exports</code> and <code>imports</code> names the
+emitted file -- the <code>.js</code>, or the <code>.jsx</code> for a <code>.tsx</code> under <code>jsx: "preserve"</code>
+(<a href="../../rules/ts-compile/#a-tsx-under-jsx-preserve">a <code>.tsx</code> under <code>jsx: preserve</code></a>)
+-- and every <code>types</code>, <code>typings</code> or <code>exports</code> <code>types</code> condition names the
+<code>.d.ts</code>, key order kept, so an <code>exports</code> condition map is read in the order it
+was written. A member that sets no <code>type</code> is ESM.</p>
+<table>
+<thead>
+<tr>
+<th>the member's manifest says</th>
+<th>the link's manifest says</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>exports: {".": "./src/index.ts"}</code></td>
+<td><code>exports: {".": "./src/index.js"}</code></td>
+</tr>
+<tr>
+<td><code>exports: {"./wire": "./src/wire/index.ts"}</code></td>
+<td><code>exports: {"./wire": "./src/wire/index.js"}</code></td>
+</tr>
+<tr>
+<td><code>exports: {".": {"types": "./src/index.ts", "default": "./src/index.ts"}}</code></td>
+<td><code>{"types": "./src/index.d.ts", "default": "./src/index.js"}</code>, in that order</td>
+</tr>
+<tr>
+<td><code>exports: {"./icons/*": "./icons/components/*.tsx"}</code></td>
+<td><code>exports: {"./icons/*": "./icons/components/*.js"}</code></td>
+</tr>
+<tr>
+<td>the same, the member's <code>ts_config</code> declaring <code>jsx = "preserve"</code></td>
+<td><code>exports: {"./icons/*": "./icons/components/*.jsx"}</code></td>
+</tr>
+<tr>
+<td><code>main: "./schema.ts"</code>, no <code>exports</code></td>
+<td><code>main: "./schema.js"</code></td>
+</tr>
+<tr>
+<td><code>exports: {"./theme.css": "./theme.css"}</code></td>
+<td>unchanged: no source file</td>
+</tr>
+</tbody>
+</table>
+<p>tsc maps a <code>.js</code> or <code>.jsx</code> target to the <code>.d.ts</code> beside it, node runs the <code>.js</code>
+and vite transforms the <code>.jsx</code>, so one manifest serves the type check and the
+run: <code>import { frame } from
+"@acme/canvas-sdk/wire"</code> resolves for tsgo to <code>src/wire/index.d.ts</code> and for
+vitest to <code>src/wire/index.js</code>, both under the tree. The tree's root is the
+member's directory under <code>bazel-bin</code>, where the compiling target's outputs hang
+off, whichever directory holds that target. A member whose directory holds no
+<code>package.json</code> with a <code>name</code> gets a comment in the hub and no view; two members
+of one name, or one directory linked under two names, fail the extension.</p>
+<p>The tree holds the member's data srcs too, at their package-relative paths
+beside the <code>.js</code> that reads them: a member whose module imports <code>./banner.json</code>
+answers <code>import { tagline } from "shared"</code> from the tree alone. The
+<code>package.json</code> src is staged as written, and the manifest as built takes its
+place where a reader holds the emit: the store tree copies it as
+<code>package.json</code>, and a dependent's program root lays it at the member's path
+over the src. A test inside the member imports the member by name -- a
+self-reference, which tsc, node and Vite resolve through the nearest
+<code>package.json</code>'s <code>name</code> and <code>exports</code> -- with the member's <code>ts_compile</code> as its
+dep and no link: tsgo reaches the <code>.d.ts</code> through the manifest as built in the
+program root; at run time the runfiles hold the src as written, so the name
+lands on the source its <code>exports</code> name, which vitest transforms as the
+checkout's vitest does and the node:test hook maps to the compiled sibling
+(<a href="../../rules/ts-test/#files-at-run-time">Files at Run Time</a>). A test that
+reads its <code>package.json</code> as data reads what the checkout has. The
+link target forwards the view's <code>TsInfo</code> and <code>NpmPackageInfo</code>; a consumer
+reaches the member's files in the store, as it reaches any npm package's.
+<code>ts_test</code> names the closure's workspace members in <code>test.server.deps.inline</code>:
+vitest runs a module under
+<code>node_modules</code> in node unless a pattern names it, and a member's emitted <code>.js</code>
+keeps its sources' extensionless relative imports, which node's loader rejects
+and vite resolves; under pnpm a linked member is inlined because its realpath
+lies outside <code>node_modules</code>.</p>
+<p>The tree holds the member's own files and nothing outside them, so a member's
+file names another package by its package name. A relative path that leaves
+the member (<code>../../../../web/shared/lib/proto/x.ts</code> from
+<code>packages/app-mcp/src/generated/</code>) resolves under pnpm alone, where
+<code>node_modules/&lt;name&gt;</code> is a symlink to the member's directory and node resolves
+the importer to its real path first. Here the member is its files in the store
+tree, and tsgo and both runners resolve a package's file at its realpath there,
+so the path lands beside the other store trees, where the file is not:
+the run fails with <code>Cannot find module</code>, and tsgo reports <code>TS2307</code>
+in the member's <code>.d.ts</code> under <code>--//ts:lib_check</code> and, without it, widens every
+name the file re-exported to <code>any</code>. A <code>.ts</code> subpath into a member with no
+<code>exports</code> map (<code>web/shared/lib/proto/x.ts</code>, the shape an application package
+is imported by) resolves as the member's emitted files do: tsgo maps the <code>.ts</code>
+to the <code>.d.ts</code> beside it, and the runners map it to the <code>.js</code>
+(<a href="../../rules/ts-test/#ts-specifiers"><code>.ts</code> Specifiers</a>).
+<code>//packages/by-name-member</code> is the example.</p>
+<h2 id="bin-scripts">Bin Scripts<a class="headerlink" href="#bin-scripts" title="Permanent link">&para;</a></h2>
+<p>Packages with a <code>bin</code> entry in their <code>package.json</code> get a <code>_bin</code> label:</p>
+<table>
+<thead>
+<tr>
+<th>npm package</th>
+<th>Binary label</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>vitest</code></td>
+<td><code>@npm//:vitest_bin</code></td>
+</tr>
+<tr>
+<td><code>esbuild</code></td>
+<td><code>@npm//:esbuild_bin</code></td>
+</tr>
+<tr>
+<td><code>oxlint</code></td>
+<td><code>@npm//:oxlint_bin</code></td>
+</tr>
+</tbody>
+</table>
+<p>Use these as <code>executable</code> targets or as <code>tools</code> in custom actions. The hub cannot
+know whether a package has a bin without downloading it, so each <code>&lt;label&gt;_bin</code>
+alias is declared unconditionally and resolves only when something asks for it.
+Asking for one on a package with no bin script is an error at that point, not at
+load time. The bin chosen follows npm's own convention: the entry named after the
+package, else the only one.</p>
+<h2 id="npm-aliases">npm Aliases<a class="headerlink" href="#npm-aliases" title="Permanent link">&para;</a></h2>
+<p>A dependency declared under a different name than the package it resolves to,
+<code>"h3-v2": "npm:h3@2.0.1"</code>, gets its own label, so the name your code imports
+exists as a target:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="n">deps</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"@npm//:h3-v2"</span><span class="p">]</span>
+</span></code></pre></div>
+<p>An alias label is created only when no real package in the lockfile already
+claims that name. An alias that resolves to two different packages in one
+lockfile is an error, because the hub is one flat namespace.</p>
+<p>How the alias was spelled makes no difference: <code>npm:h3@2.0.1</code> at the use site
+and a <code>catalog:</code> entry that pins the same thing produce the same lockfile entry,
+because pnpm resolves the catalog before it writes the file.</p>
+<h2 id="workspace-links">Workspace Links<a class="headerlink" href="#workspace-links" title="Permanent link">&para;</a></h2>
+<p>A <code>workspace:*</code> dependency resolves to a target in your own repository, and its
+hub label carries the npm name the lockfile imports it under:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="c1"># pnpm-lock.yaml</span>
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="w">    </span><span class="nt">dependencies</span><span class="p">:</span>
+</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="w">      </span><span class="nt">shared</span><span class="p">:</span>
+</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="w">        </span><span class="nt">specifier</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">workspace:*</span>
+</span><span id="__span-20-5"><a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a><span class="w">        </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">link:packages/shared</span>
+</span></code></pre></div>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="n">deps</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"@npm//:shared"</span><span class="p">]</span>     <span class="c1"># → //packages/shared:shared, importable as "shared"</span>
+</span></code></pre></div>
+<p><code>import { x } from "shared"</code> resolves because that hub target declares the name
+itself. It is a generated rule and not an <code>alias</code>: Bazel resolves an alias before
+any rule implementation runs, so <code>ts_compile</code> would see no record of the name.</p>
+<p>The target a <code>link:</code> entry points at is <code>//&lt;member&gt;:&lt;basename&gt;</code>, the
+<code>ts_compile</code> Gazelle writes for the member's own <code>tsconfig.json</code>
+(<code>//packages/shared:shared</code> for <code>link:packages/shared</code>), and the hub reads the
+member's BUILD file to see that it declares one. That target has to be visible
+to the hub repository, so <code>visibility = ["//visibility:public"]</code>. The view
+forwards its providers and describes it as an npm package named by the
+lockfile.</p>
+<div class="admonition warning">
+<p class="admonition-title">A member whose target is not declared gets no hub target</p>
+<p>If the member's BUILD file declares no target of the member's basename, the
+hub declares nothing for that name and writes a comment saying so where the
+label would have been. <code>@npm//:&lt;member&gt;</code> then fails as an undeclared target
+for whatever asks for it. That covers a member with no <code>BUILD.bazel</code>, one
+whose <code>BUILD.bazel</code> declares something else (a lone <code>ts_config</code>, say), and
+a member whose program is a <code>tsconfig.json</code> above it (at <code>packages/</code>, not
+at <code>packages/shared/</code>), which gives it no target of its own. A label naming
+a target Bazel cannot resolve fails analysis for everything that reaches
+the hub, not just for the member. Give the member its <code>tsconfig.json</code> and
+run Gazelle, or write the target by hand.</p>
+</div>
+<p>A workspace member is a store tree like any other package, so a <code>ts_test</code> or
+<code>ts_binary</code> that lists the importer's link target, <code>//:node_modules/shared</code>,
+can import it at run time and not only type-check against it. Its own npm dependencies come along, and its
+<code>package.json</code> is the member's own with source-file targets rewritten to the
+emitted files, so the entry and every <code>exports</code> subpath resolve at run time as
+they do for the check; see
+<a href="#what-a-workspace-member-is-imported-as">what a workspace member is imported as</a>.
+In the editor the checkout's <code>node_modules</code> holds pnpm's link to the member, and
+the generated tsconfig writes no <code>paths</code> key for it.</p>
+<h2 id="node_modules-targets">node_modules Targets<a class="headerlink" href="#node_modules-targets" title="Permanent link">&para;</a></h2>
+<p>Every lockfile importer's package holds a <code>node_modules</code> target, its declared
+npm packages linked into the store, and a <code>node_modules_member</code> per member it
+links; Gazelle writes both from the lockfile's <code>importers:</code>. The root
+importer's names <code>hoist</code>, the lockfile's <code>:node_modules/.pnpm/node_modules</code>;
+every other importer's names <code>parent</code>, the importer above's target:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="n">load</span><span class="p">(</span><span class="s2">"@rules_typescript//npm:defs.bzl"</span><span class="p">,</span> <span class="s2">"node_modules"</span><span class="p">,</span> <span class="s2">"node_modules_member"</span><span class="p">)</span>
+</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>
+</span><span id="__span-22-3"><a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="n">node_modules</span><span class="p">(</span>
+</span><span id="__span-22-4"><a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a>    <span class="n">name</span> <span class="o">=</span> <span class="s2">"node_modules"</span><span class="p">,</span>
+</span><span id="__span-22-5"><a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a>    <span class="n">deps</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"@npm//:vitest"</span><span class="p">,</span> <span class="s2">"@npm//:react"</span><span class="p">],</span>
+</span><span id="__span-22-6"><a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a>    <span class="n">hoist</span> <span class="o">=</span> <span class="s2">":node_modules/.pnpm/node_modules"</span><span class="p">,</span>
+</span><span id="__span-22-7"><a id="__codelineno-22-7" name="__codelineno-22-7" href="#__codelineno-22-7"></a><span class="p">)</span>
+</span><span id="__span-22-8"><a id="__codelineno-22-8" name="__codelineno-22-8" href="#__codelineno-22-8"></a>
+</span><span id="__span-22-9"><a id="__codelineno-22-9" name="__codelineno-22-9" href="#__codelineno-22-9"></a><span class="n">node_modules_member</span><span class="p">(</span>
+</span><span id="__span-22-10"><a id="__codelineno-22-10" name="__codelineno-22-10" href="#__codelineno-22-10"></a>    <span class="n">name</span> <span class="o">=</span> <span class="s2">"node_modules/shared"</span><span class="p">,</span>
+</span><span id="__span-22-11"><a id="__codelineno-22-11" name="__codelineno-22-11" href="#__codelineno-22-11"></a>    <span class="n">member</span> <span class="o">=</span> <span class="s2">"@npm//:shared"</span><span class="p">,</span>
+</span><span id="__span-22-12"><a id="__codelineno-22-12" name="__codelineno-22-12" href="#__codelineno-22-12"></a><span class="p">)</span>
+</span></code></pre></div>
+<p><code>ts_codegen</code>, <code>ts_binary</code> and <code>ts_dev_server</code> take the importer's target and
+stage its links and every store tree they reach; <code>ts_compile</code> and <code>ts_test</code>
+name it in <code>node_modules</code> and resolve each npm dep along it and its <code>parent</code>s
+(<a href="../../rules/node-modules/#the-chain">The Chain</a>). See
+<a href="../testing/">Testing with vitest</a> and
+<a href="../../rules/node-modules/#the-layout">node_modules</a>.</p>
+<p>Beside them, every lockfile's package declares pnpm's virtual store:
+<code>npm_virtual_store(name = "node_modules/.pnpm")</code>, loaded from the hub's
+<code>defs.bzl</code>, is one cached tree of real files per snapshot at
+<code>node_modules/.pnpm/&lt;key&gt;/node_modules/&lt;name&gt;</code>, its dependency links declared
+symlinks beside it, a tree per workspace member, and pnpm's hidden hoist; every
+package target carries its store as <code>NpmPackageInfo.store</code>. See
+<a href="../../rules/node-modules/#the-store">The Store</a>.</p>
+<h2 id="one-repository-per-package">One Repository per Package<a class="headerlink" href="#one-repository-per-package" title="Permanent link">&para;</a></h2>
+<p>The extension does the whole-graph analysis the lockfile text alone supports
+(platform filtering, which version a bare label means, <code>@types</code> pairing, cycle
+breaking, alias naming, patch routing) and declares one repository per package.
+Each package reads its own <code>package.json</code> and writes its own BUILD file, so
+Bazel fetches on demand, fetches independent repositories in parallel, caches
+and invalidates per package, and a malformed tarball fails only its own package.
+A single repository for the whole lockfile reads <code>bin</code> and <code>exports</code> out of each
+extracted <code>package.json</code> to generate targets, so nothing can be emitted until
+everything is downloaded.</p>
+<p>Inside its repository a package sits under <code>node_modules/&lt;name&gt;/</code>, so every path
+the rules write for it -- an action input, an exec path such as
+<code>external/+npm+npm__zod__4_1_5/node_modules/zod/index.d.ts</code> -- carries a
+<code>node_modules</code> segment. TypeScript classifies a file by that segment: under one
+it is a library file, type-checked and never emitted; under none it is project
+source, emit-eligible and checked against <code>rootDir</code>. The store tree is copied
+from the package root.</p>
+<p>One measurement, made while both layouts existed: building one vitest test
+target from an empty output base against a 2731-package lockfile went from 392s
+and 2.9 GB of <code>external/</code> to 66s and 415 MB, fetching 138 packages (vitest's
+transitive closure) out of 2731. The single-repository implementation has since
+been deleted, so the comparison cannot be re-run from this tree.</p>
+<p>To count the package targets one target reaches, without building anything:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>bazel<span class="w"> </span>query<span class="w"> </span><span class="s1">'kind(ts_npm_package, deps(//path/to:my_test))'</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>wc<span class="w"> </span>-l
+</span></code></pre></div>
+<p>That is close to the set of repositories Bazel would fetch: a package present
+under an npm alias name contributes a second target in the same repository. On
+this repository's own lockfile <code>//tests/vitest:math_test</code> reaches 113 targets in
+113 repositories.</p>
+<p>The single-repository layout, its <code>npm_translate_lock</code> repository rule and the
+<code>npm.translate_lock(lazy = ...)</code> attribute are gone.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/mikn/rules_typescript" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "navigation.instant", "navigation.instant.progress", "content.code.copy", "content.code.annotate", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

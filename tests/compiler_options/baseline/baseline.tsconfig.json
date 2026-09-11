@@ -4,7 +4,5 @@
     "noUnusedLocals": true,
     "lib": ["es2022", "webworker"]
   },
-  "files": ["not-a-real-file.ts"],
-  "include": ["src/**/*.ts"],
-  "exclude": ["**/*.ts"]
+  "include": ["*.ts"]
 }

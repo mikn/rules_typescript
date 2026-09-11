@@ -1,0 +1,2623 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Opinionated Bazel rules for TypeScript. Oxc and tsgo compile, tsgo type-checks, and Vite serves the generated config.">
+      
+      
+      
+        <link rel="canonical" href="https://mikn.github.io/rules_typescript/contributing/">
+      
+      
+        <link rel="prev" href="../compatibility/">
+      
+      
+        <link rel="next" href="../changelog/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Contributing - rules_typescript</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#contributing-to-rules_typescript" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="rules_typescript" class="md-header__button md-logo" aria-label="rules_typescript" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            rules_typescript
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Contributing
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/mikn/rules_typescript" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    mikn/rules_typescript
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="rules_typescript" class="md-nav__button md-logo" aria-label="rules_typescript" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    rules_typescript
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/mikn/rules_typescript" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    mikn/rules_typescript
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/isolated-declarations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Isolated Declarations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/ide-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IDE Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migrating from rules_ts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/npm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    npm Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing with vitest
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/bundling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bundling with Vite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/dev-server/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dev Server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/tailwind/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tailwind v4
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/monorepo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monorepo Layout
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/lint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/benchmark/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmark
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gazelle
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Gazelle
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gazelle/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gazelle/directives/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Directives Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rules Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Rules Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rules/ts-compile/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ts_compile
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rules/ts-test/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ts_test
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rules/ts-binary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ts_binary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rules/ts-dev-server/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ts_dev_server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rules/ts-codegen/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ts_codegen
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rules/node-modules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    node_modules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rules/providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers and toolchains
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#table-of-contents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Table of Contents
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#development-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Development Environment
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Development Environment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#install-bazelisk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install Bazelisk
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#clone-and-verify" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Clone and Verify
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#which-binary-a-toolchain-resolved" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which Binary a Toolchain Resolved
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pre-push-hook" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pre-Push Hook
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#buildifier" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Buildifier
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#code-style" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code Style
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Code Style">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#starlark-build-files-and-bzl-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Starlark (BUILD Files and .bzl Files)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#go-gazelle-extension" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Go (Gazelle Extension)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust-oxc_cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rust (oxc_cli)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Rust (oxc_cli)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#repinning-crate-dependencies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Repinning Crate Dependencies
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#typescript-test-fixtures-and-e2e-workspaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TypeScript (Test Fixtures and E2E Workspaces)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running Tests
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Running Tests">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#unit-tests-and-type-checking-main-repo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Unit Tests and Type Checking (Main Repo)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test-source-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test Source Coverage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#retired-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Retired Names
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#coverage-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Coverage Report
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#integration-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Integration Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#end-to-end-workspace-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        End-To-End Workspace Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test-matrix-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test Matrix Summary
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pull-request-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pull Request Process
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Pull Request Process">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-makes-a-good-pr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Makes a Good PR
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#commit-message-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Commit Message Format
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reporting-security-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reporting Security Issues
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#contributor-license-agreement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Contributor License Agreement
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gazelle-extension-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gazelle Extension Architecture
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Maintainers
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Maintainers
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CI_CD/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CI/CD
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../RELEASE_PROCESS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Process
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../BCR_SUBMISSION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BCR Submission
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#table-of-contents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Table of Contents
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#development-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Development Environment
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Development Environment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#install-bazelisk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install Bazelisk
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#clone-and-verify" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Clone and Verify
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#which-binary-a-toolchain-resolved" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which Binary a Toolchain Resolved
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pre-push-hook" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pre-Push Hook
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#buildifier" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Buildifier
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#code-style" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code Style
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Code Style">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#starlark-build-files-and-bzl-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Starlark (BUILD Files and .bzl Files)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#go-gazelle-extension" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Go (Gazelle Extension)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust-oxc_cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rust (oxc_cli)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Rust (oxc_cli)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#repinning-crate-dependencies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Repinning Crate Dependencies
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#typescript-test-fixtures-and-e2e-workspaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TypeScript (Test Fixtures and E2E Workspaces)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running Tests
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Running Tests">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#unit-tests-and-type-checking-main-repo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Unit Tests and Type Checking (Main Repo)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test-source-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test Source Coverage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#retired-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Retired Names
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#coverage-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Coverage Report
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#integration-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Integration Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#end-to-end-workspace-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        End-To-End Workspace Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test-matrix-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test Matrix Summary
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pull-request-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pull Request Process
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Pull Request Process">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-makes-a-good-pr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Makes a Good PR
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#commit-message-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Commit Message Format
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reporting-security-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reporting Security Issues
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#contributor-license-agreement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Contributor License Agreement
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gazelle-extension-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gazelle Extension Architecture
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="contributing-to-rules_typescript">Contributing to rules_typescript<a class="headerlink" href="#contributing-to-rules_typescript" title="Permanent link">&para;</a></h1>
+<h2 id="table-of-contents">Table of Contents<a class="headerlink" href="#table-of-contents" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="#development-environment">Development Environment</a></li>
+<li><a href="#code-style">Code Style</a></li>
+<li><a href="#running-tests">Running Tests</a></li>
+<li><a href="#pull-request-process">Pull Request Process</a></li>
+<li><a href="#commit-message-format">Commit Message Format</a></li>
+<li><a href="#reporting-security-issues">Reporting Security Issues</a></li>
+<li><a href="#contributor-license-agreement">Contributor License Agreement</a></li>
+<li><a href="#gazelle-extension-architecture">Gazelle Extension Architecture</a></li>
+</ul>
+<hr />
+<h2 id="development-environment">Development Environment<a class="headerlink" href="#development-environment" title="Permanent link">&para;</a></h2>
+<p>The only prerequisite is <strong>Bazelisk</strong> (or Bazel 9+). Every other dependency (the Rust toolchain, Go toolchain, Node.js, and npm packages) is fetched hermetically by Bazel on the first build.</p>
+<h3 id="install-bazelisk">Install Bazelisk<a class="headerlink" href="#install-bazelisk" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># macOS (Homebrew)</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>brew<span class="w"> </span>install<span class="w"> </span>bazelisk
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># Linux / macOS (manual)</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>curl<span class="w"> </span>-Lo<span class="w"> </span>~/.local/bin/bazel<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span>https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>chmod<span class="w"> </span>+x<span class="w"> </span>~/.local/bin/bazel
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="c1"># Windows (Scoop)</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>scoop<span class="w"> </span>install<span class="w"> </span>bazelisk
+</span></code></pre></div>
+<h3 id="clone-and-verify">Clone and Verify<a class="headerlink" href="#clone-and-verify" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/mikn/rules_typescript
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nb">cd</span><span class="w"> </span>rules_typescript
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># Build everything</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>bazel<span class="w"> </span>build<span class="w"> </span>//...
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="c1"># Build with type checking</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>bazel<span class="w"> </span>build<span class="w"> </span>//...<span class="w"> </span>--output_groups<span class="o">=</span>+_validation
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="c1"># Run all tests</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>bazel<span class="w"> </span><span class="nb">test</span><span class="w"> </span>//...
+</span></code></pre></div>
+<p>The first build fetches a Rust toolchain, a Go SDK, Node.js and tsgo, then
+compiles <code>oxc-bazel</code> and its crate graph from source. The Rust compile takes
+minutes. Subsequent builds hit Bazel's content-addressed cache; do not
+<code>bazel clean</code>.</p>
+<h3 id="which-binary-a-toolchain-resolved">Which Binary a Toolchain Resolved<a class="headerlink" href="#which-binary-a-toolchain-resolved" title="Permanent link">&para;</a></h3>
+<p><code>//ts/toolchain</code> declares one runnable target per toolchain type. Each runs the
+binary the toolchain resolved to for this host, with the arguments after <code>--</code>:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>bazel<span class="w"> </span>run<span class="w"> </span>//ts/toolchain:oxc_resolved<span class="w"> </span>--<span class="w"> </span>--help
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>bazel<span class="w"> </span>run<span class="w"> </span>//ts/toolchain:tsgo_resolved<span class="w"> </span>--<span class="w"> </span>--version
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>bazel<span class="w"> </span>run<span class="w"> </span>//ts/toolchain:node_resolved<span class="w"> </span>--<span class="w"> </span>--version
+</span></code></pre></div>
+<p>The second prints <code>Version 7.0.2</code> and the third <code>v22.23.1</code>: the <code>typescript</code>
+release <code>ts/private/tsgo/pnpm-lock.yaml</code> pins and the Node.js version
+<code>MODULE.bazel</code> pins. <code>oxc_resolved</code> builds <code>oxc-bazel</code> first. No test asserts
+what the three print here; <code>//tests/integration/tsgo_lockfile</code> asserts what
+<code>tsgo_resolved</code> prints in a consumer workspace against that workspace's
+lockfile. <code>node_resolved</code> is the node the <code>tests/dev_server</code> and <code>tests/lsp</code>
+suites run, and the one a <code>tests/integration</code> workspace that makes no
+<code>node.toolchain()</code> call runs (<code>//tests/integration/node_version</code> makes one);
+<code>//tests/toolchain</code> pins which platform each toolchain's binary comes from.</p>
+<h3 id="pre-push-hook">Pre-Push Hook<a class="headerlink" href="#pre-push-hook" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>git<span class="w"> </span>config<span class="w"> </span>core.hooksPath<span class="w"> </span>.githooks
+</span></code></pre></div>
+<p><code>.githooks/pre-push</code> refuses a push whose working tree differs from <code>HEAD</code>,
+tracked edits and untracked files alike; <code>.gitignore</code> covers what a working
+checkout carries. A push sends commits, so a file edited but never committed is
+not in it. The failure names the files and says to commit or stash;
+<code>git push --no-verify</code> pushes anyway.</p>
+<p>It is opt-in per clone, because <code>core.hooksPath</code> is repository config and
+repository config is not checked in. A linked worktree inherits it from the
+clone it was created from.</p>
+<h3 id="buildifier">Buildifier<a class="headerlink" href="#buildifier" title="Permanent link">&para;</a></h3>
+<p>See <a href="#starlark-build-files-and-bzl-files">Starlark</a> under Code Style.</p>
+<hr />
+<h2 id="code-style">Code Style<a class="headerlink" href="#code-style" title="Permanent link">&para;</a></h2>
+<p>One formatter per language. The <code>lint</code> CI job checks Starlark and Go; Rust and
+TypeScript formatting are local conventions.</p>
+<h3 id="starlark-build-files-and-bzl-files">Starlark (BUILD Files and .bzl Files)<a class="headerlink" href="#starlark-build-files-and-bzl-files" title="Permanent link">&para;</a></h3>
+<p>Use <strong>buildifier</strong>:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># buildifier is not a bazel_dep — there is no @buildifier repo to run. Use the</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="c1"># released binary, which is what CI checks with.</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>curl<span class="w"> </span>-fsSL<span class="w"> </span>-o<span class="w"> </span>/usr/local/bin/buildifier<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span>https://github.com/bazelbuild/buildtools/releases/download/v8.2.1/buildifier-linux-amd64
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>chmod<span class="w"> </span>+x<span class="w"> </span>/usr/local/bin/buildifier
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>buildifier<span class="w"> </span>-r<span class="w"> </span>.<span class="w"> </span>-exclude_patterns<span class="o">=</span><span class="s1">'bazel-*,.*'</span><span class="w">   </span><span class="c1"># format</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>buildifier<span class="w"> </span>--mode<span class="o">=</span>check<span class="w"> </span>-r<span class="w"> </span>.<span class="w">                     </span><span class="c1"># what CI runs</span>
+</span></code></pre></div>
+<p>Key conventions (see also AGENTS.md):
+- <code>ctx.actions.run</code> over <code>ctx.actions.run_shell</code> wherever possible
+- <code>depset(order = "postorder")</code> for transitive file sets
+- <code>args.add_all()</code> for file lists; never materialize depsets at analysis time
+- Private attrs prefixed with <code>_</code>
+- Public rules exposed from <code>defs.bzl</code>; raw implementations in <code>ts/private/</code>:
+  the rule declarations in <code>ts/private/rules/</code>, one action per file in
+  <code>ts/private/actions/</code> (rules_go's <code>go/private/{rules,actions}</code> layout)</p>
+<h3 id="go-gazelle-extension">Go (Gazelle Extension)<a class="headerlink" href="#go-gazelle-extension" title="Permanent link">&para;</a></h3>
+<p>Use <strong>gofmt</strong>:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nb">cd</span><span class="w"> </span>gazelle<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>gofmt<span class="w"> </span>-w<span class="w"> </span>.
+</span></code></pre></div>
+<p>The Gazelle extension lives in <code>gazelle/</code>. Run its tests with:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>bazel<span class="w"> </span><span class="nb">test</span><span class="w"> </span>//gazelle/...
+</span></code></pre></div>
+<h3 id="rust-oxc_cli">Rust (oxc_cli)<a class="headerlink" href="#rust-oxc_cli" title="Permanent link">&para;</a></h3>
+<p>Use <strong>rustfmt</strong>:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nb">cd</span><span class="w"> </span>oxc_cli<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>cargo<span class="w"> </span>fmt
+</span></code></pre></div>
+<p>The Rust CLI lives in <code>oxc_cli/</code>. Build with:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>bazel<span class="w"> </span>build<span class="w"> </span>//oxc_cli:oxc-bazel
+</span></code></pre></div>
+<h4 id="repinning-crate-dependencies">Repinning Crate Dependencies<a class="headerlink" href="#repinning-crate-dependencies" title="Permanent link">&para;</a></h4>
+<p>The <code>@crates</code> hub is pinned by two checked-in lockfiles, <code>oxc_cli/Cargo.lock</code>
+(the Cargo resolution) and <code>oxc_cli/Cargo.Bazel.lock</code> (the rendering).
+rules_rust requires a lockfile for a hub declared by a non-root module, and
+rules_typescript is a dependency in a consumer's build, where repinning across
+the module boundary is not possible.</p>
+<p>After editing <code>oxc_cli/Cargo.toml</code>, regenerate both:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nv">CARGO_BAZEL_REPIN</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>bazel<span class="w"> </span>query<span class="w"> </span><span class="s2">"@crates//:all"</span>
+</span></code></pre></div>
+<p>A rules_rust bump also invalidates the renderings: the digest covers the cargo
+and rustc versions rules_rust pins, so repin in the same commit as the bump.
+Without it, every build fails with "The current <code>lockfile</code> is out of date".</p>
+<h3 id="typescript-test-fixtures-and-e2e-workspaces">TypeScript (Test Fixtures and E2E Workspaces)<a class="headerlink" href="#typescript-test-fixtures-and-e2e-workspaces" title="Permanent link">&para;</a></h3>
+<p>Use <strong>prettier</strong> (if you have it locally). The TypeScript files in <code>tests/</code> and
+<code>e2e/</code> are fixtures: keep them minimal, illustrating the feature under test. CI
+does not lint them.</p>
+<hr />
+<h2 id="running-tests">Running Tests<a class="headerlink" href="#running-tests" title="Permanent link">&para;</a></h2>
+<h3 id="unit-tests-and-type-checking-main-repo">Unit Tests and Type Checking (Main Repo)<a class="headerlink" href="#unit-tests-and-type-checking-main-repo" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Run all tests</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>bazel<span class="w"> </span><span class="nb">test</span><span class="w"> </span>//...
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="c1"># Run tests and type-check all targets</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>bazel<span class="w"> </span>build<span class="w"> </span>//...<span class="w"> </span>--output_groups<span class="o">=</span>+_validation
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>
+</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="c1"># Run a specific test suite</span>
+</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a>bazel<span class="w"> </span><span class="nb">test</span><span class="w"> </span>//tests/vitest:math_test
+</span><span id="__span-10-9"><a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a>bazel<span class="w"> </span><span class="nb">test</span><span class="w"> </span>//gazelle/...
+</span></code></pre></div>
+<h3 id="test-source-coverage">Test Source Coverage<a class="headerlink" href="#test-source-coverage" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>tools/ci/check_test_sources.sh
+</span></code></pre></div>
+<p>A Gazelle run that deletes a test target still satisfies <code>bazel build //...</code>,
+<code>bazel test //...</code> and a byte-identical Gazelle rerun. The script compares the
+test sources on disk against the srcs of every test target, and again against
+only the targets <code>bazel test //...</code> runs, so a target tagged <code>manual</code> does not
+count as coverage.</p>
+<p>If a file's only target is <code>manual</code>, add the file to <code>MANUAL_ONLY</code> inside the
+script with the reason it cannot run. The list is exact in both directions:
+tagging a test <code>manual</code> fails CI until the reason is written down, and untagging
+it fails until the entry is removed.</p>
+<p>The script is read-only: a loading-phase query and <code>git ls-files</code>. It is the
+first step of the <code>test</code> job in CI. <code>git ls-files</code> cannot see an unstaged new
+file, so a local run reports green on a test not yet <code>git add</code>ed.</p>
+<h3 id="retired-names">Retired Names<a class="headerlink" href="#retired-names" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>tools/ci/check_retired_names.sh
+</span></code></pre></div>
+<p>A rule attribute, Gazelle kind, provider, directive, export or file path this
+ruleset has retired is named in <code>changelog.d/</code> and nowhere else. The script
+greps every tracked file outside <code>changelog.d/</code>, <code>CHANGELOG.md</code> and the two
+history documents for the names it carries, in identifier form, and fails on a
+hit. A file that asserts a retired name is absent or inert is listed in
+<code>ALLOWED</code> inside the script with the reason; the list is exact in both
+directions. It is the third step of the <code>test</code> job.</p>
+<h3 id="coverage-report">Coverage Report<a class="headerlink" href="#coverage-report" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>tools/ci/check_coverage_report.sh
+</span></code></pre></div>
+<p>The suite never runs <code>bazel coverage</code>, and a coverage run whose report is
+empty passes. The script runs <code>//tests/vitest/coverage:math_coverage_test</code>
+under it twice, with the default <code>--instrumentation_filter</code> and with one naming
+<code>//tests/vitest</code>, and compares the combined report's <code>SF:</code> lines against the
+files each filter selects. It is the step after the suite in the <code>test</code> job.</p>
+<h3 id="integration-tests">Integration Tests<a class="headerlink" href="#integration-tests" title="Permanent link">&para;</a></h3>
+<p>Integration tests spin up an isolated Bazel workspace each to verify end-to-end
+user journeys. They are part of <code>bazel test //...</code>, need no environment variable,
+and carry the tags <code>nested-bazel</code> and <code>cpu:2</code>, so Bazel runs as many at once as
+the machine has cores for:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>bazel<span class="w"> </span><span class="nb">test</span><span class="w"> </span>//tests/integration/...
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>bazel<span class="w"> </span><span class="nb">test</span><span class="w"> </span>//tests/integration:new_project_test<span class="w"> </span>--test_output<span class="o">=</span>all
+</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a>bazel<span class="w"> </span><span class="nb">test</span><span class="w"> </span>//tests/integration:existing_project_test<span class="w"> </span>--test_output<span class="o">=</span>all
+</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>bazel<span class="w"> </span><span class="nb">test</span><span class="w"> </span>//tests/integration:npm_deps_test<span class="w"> </span>--test_output<span class="o">=</span>all
+</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a>bazel<span class="w"> </span><span class="nb">test</span><span class="w"> </span>//tests/integration:gazelle_roundtrip_test<span class="w"> </span>--test_output<span class="o">=</span>all
+</span></code></pre></div>
+<p>They are slow (each spawns a nested Bazel). To iterate on everything else, use
+<code>--config=fast</code>, whose <code>--test_tag_filters=-nested-bazel</code> drops them:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>bazel<span class="w"> </span><span class="nb">test</span><span class="w"> </span>--config<span class="o">=</span>fast<span class="w"> </span>//...
+</span></code></pre></div>
+<h3 id="end-to-end-workspace-tests">End-To-End Workspace Tests<a class="headerlink" href="#end-to-end-workspace-tests" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="nb">cd</span><span class="w"> </span>e2e/basic
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>bazel<span class="w"> </span>build<span class="w"> </span>//...
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>bazel<span class="w"> </span><span class="nb">test</span><span class="w"> </span>//...
+</span></code></pre></div>
+<h3 id="test-matrix-summary">Test Matrix Summary<a class="headerlink" href="#test-matrix-summary" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Suite</th>
+<th>Command</th>
+<th>What it covers</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Smoke</td>
+<td><code>bazel test //tests/smoke/...</code></td>
+<td>Single-file .ts and .tsx compilation</td>
+</tr>
+<tr>
+<td>Multi-package</td>
+<td><code>bazel test //tests/multi/...</code></td>
+<td>Cross-package deps, .d.ts boundary</td>
+</tr>
+<tr>
+<td>Vitest</td>
+<td><code>bazel test //tests/vitest/...</code></td>
+<td>ts_test + vitest runner</td>
+</tr>
+<tr>
+<td>Bundle</td>
+<td><code>bazel test //tests/bundle/...</code></td>
+<td>ts_binary bundling</td>
+</tr>
+<tr>
+<td>npm</td>
+<td><code>bazel test //tests/npm/...</code></td>
+<td>npm package targets from pnpm-lock.yaml</td>
+</tr>
+<tr>
+<td>Integration</td>
+<td><code>bazel test //tests/integration/...</code></td>
+<td>Full user-journey tests, each in a nested Bazel workspace (tagged <code>nested-bazel</code>)</td>
+</tr>
+<tr>
+<td>LSP</td>
+<td><code>bazel test //tests/lsp/...</code></td>
+<td>The tsserver resolution hook against a real tsserver</td>
+</tr>
+<tr>
+<td>Gazelle</td>
+<td><code>bazel test //gazelle/...</code></td>
+<td>Gazelle extension unit tests</td>
+</tr>
+<tr>
+<td>E2E</td>
+<td><code>cd e2e/basic &amp;&amp; bazel build //...</code></td>
+<td>Real consumer workspace</td>
+</tr>
+<tr>
+<td>Test-source coverage</td>
+<td><code>tools/ci/check_test_sources.sh</code></td>
+<td>Every tracked test source is claimed by a target that runs</td>
+</tr>
+<tr>
+<td>Retired names</td>
+<td><code>tools/ci/check_retired_names.sh</code></td>
+<td>No tracked prose or code outside the changelog names a retired attribute, kind, provider, directive, export or path</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="pull-request-process">Pull Request Process<a class="headerlink" href="#pull-request-process" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>Fork</strong> the repository and create your branch from <code>main</code>.</li>
+<li><strong>Write tests</strong> for new behaviour, at unit, integration or e2e level.</li>
+<li><strong>Run the full test suite</strong> before opening a PR:
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>bazel<span class="w"> </span><span class="nb">test</span><span class="w"> </span>//...
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>bazel<span class="w"> </span>build<span class="w"> </span>//...<span class="w"> </span>--output_groups<span class="o">=</span>+_validation
+</span></code></pre></div></li>
+<li><strong>Add a changelog entry</strong>: a new file in <code>changelog.d/</code>, not an edit to
+   <code>CHANGELOG.md</code>. Its first line is the <code>###</code> section the entry belongs under;
+   the rest is the entry:</li>
+</ol>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>cat<span class="w"> </span>&gt;<span class="w"> </span>changelog.d/ts-binary-js-entry.md<span class="w"> </span><span class="s">&lt;&lt;'EOF'</span>
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="s">### Added</span>
+</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>
+</span><span id="__span-18-4"><a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="s">- **`ts_binary` takes a plain JavaScript file as its `entry_point`.** The</span>
+</span><span id="__span-18-5"><a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a><span class="s">  attr is polymorphic: a target providing `TsInfo` behaves exactly as before.</span>
+</span><span id="__span-18-6"><a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a><span class="s">EOF</span>
+</span><span id="__span-18-7"><a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a>
+</span><span id="__span-18-8"><a id="__codelineno-18-8" name="__codelineno-18-8" href="#__codelineno-18-8"></a>bazel<span class="w"> </span>run<span class="w"> </span>//tools/changelog<span class="w">   </span><span class="c1"># prints the section as it will read</span>
+</span></code></pre></div>
+<p><code>changelog.d/README.md</code> lists the sections and the rules. A release folds the
+   fragments into <code>CHANGELOG.md</code>.
+5. <strong>Update documentation</strong>: a public-API change (rule attributes, providers,
+   directives) lands with its page under <code>docs/</code> in the same PR, plus <code>README.md</code>
+   and <code>AGENTS.md</code> where they say the same thing. <code>mkdocs build --strict</code> runs in
+   the <code>lint</code> job, so a nav entry without a page, or a link to a page that does
+   not exist, fails CI.
+6. <strong>Open the PR</strong> against <code>main</code> with the provided pull request template filled in.
+7. A maintainer reviews and may request changes. Respond to review comments within two weeks.
+8. Once approved, a maintainer will squash-merge your PR.</p>
+<h3 id="what-makes-a-good-pr">What Makes a Good PR<a class="headerlink" href="#what-makes-a-good-pr" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>One logical change per PR.</strong> Stacked changes are welcome as separate PRs with clear dependency notes.</li>
+<li><strong>Every breaking change carries a <code>changelog.d/</code> entry</strong> under a <code>### Breaking — &lt;area&gt;</code> heading, stating the edit a consumer has to make. Pre-1.0 there is no deprecation window and no compatibility shim (see COMPATIBILITY.md).</li>
+<li><strong>No <code>bazel clean</code></strong> in scripts or documentation. Trust the cache.</li>
+<li><strong>Never reference <code>bazel-out/</code> directly</strong> in Starlark. Use <code>ctx.bin_dir.path</code>, <code>File.path</code>, <code>File.dirname</code>.</li>
+</ul>
+<hr />
+<h2 id="commit-message-format">Commit Message Format<a class="headerlink" href="#commit-message-format" title="Permanent link">&para;</a></h2>
+<p>Use the <strong>Conventional Commits</strong> format:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>&lt;type&gt;(&lt;scope&gt;): &lt;short description&gt;
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>
+</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>[optional body]
+</span><span id="__span-19-4"><a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a>
+</span><span id="__span-19-5"><a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a>[optional footer(s)]
+</span></code></pre></div>
+<p><strong>Types:</strong>
+- <code>feat</code> — a new feature
+- <code>fix</code> — a bug fix
+- <code>docs</code> — documentation only
+- <code>refactor</code> — code change that neither fixes a bug nor adds a feature
+- <code>test</code> — adding or correcting tests
+- <code>chore</code> — maintenance (dependency updates, build scripts, toolchain bumps)</p>
+<p><strong>Scopes</strong> (optional, use when helpful):
+- <code>ts_compile</code>, <code>ts_test</code>, <code>ts_binary</code> — rule changes
+- <code>gazelle</code> — Gazelle extension
+- <code>oxc_cli</code> — Rust CLI
+- <code>npm</code> — npm/lockfile support
+- <code>toolchain</code> — toolchain registration
+- <code>runtime</code> — JS runtime support
+- <code>vite</code> — the Vite dev server and plugin under <code>vite/</code></p>
+<p><strong>Examples:</strong></p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>feat(gazelle): list the vitest configs in one tsgo run
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a>fix(ts_compile): pass rootDirs to tsgo for bin_dir resolution
+</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a>docs: update COMPATIBILITY.md for Bazel 9.x support
+</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a>chore(toolchain): bump oxc to 0.120.0
+</span></code></pre></div>
+<p>The subject line is 72 characters or fewer. The body carries the reason for the
+change.</p>
+<hr />
+<h2 id="reporting-security-issues">Reporting Security Issues<a class="headerlink" href="#reporting-security-issues" title="Permanent link">&para;</a></h2>
+<p><strong>Do not open a public GitHub issue for security vulnerabilities.</strong></p>
+<p>Email security issues to the maintainers directly. Include:
+- A description of the vulnerability
+- Steps to reproduce or a proof-of-concept
+- The affected version(s)</p>
+<p>We will acknowledge your report within 72 hours and work with you on a coordinated disclosure timeline.</p>
+<hr />
+<h2 id="contributor-license-agreement">Contributor License Agreement<a class="headerlink" href="#contributor-license-agreement" title="Permanent link">&para;</a></h2>
+<p>Contributions to this project are made under the <strong>MIT License</strong> (the same license as the project itself). By submitting a pull request, you agree that your contribution is licensed under the MIT License and that you have the right to grant that license.</p>
+<p>There is no separate CLA to sign.</p>
+<hr />
+<h2 id="gazelle-extension-architecture">Gazelle Extension Architecture<a class="headerlink" href="#gazelle-extension-architecture" title="Permanent link">&para;</a></h2>
+<p>The Gazelle extension lives in <code>gazelle/</code> and is a standard Gazelle language
+extension written in Go.</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>gazelle/language.go</code></td>
+<td>Entry point: registers the language, <code>Kinds()</code>, <code>Loads()</code>; <code>KnownDirectives()</code> is empty</td>
+</tr>
+<tr>
+<td><code>gazelle/program.go</code></td>
+<td>The tsgo listing of each <code>tsconfig.json</code>; the combined run over the vitest configs; the install check</td>
+</tr>
+<tr>
+<td><code>gazelle/owner.go</code></td>
+<td>The run's packages, <code>owner(f)</code>, the test/library/declaration split, the unowned report</td>
+</tr>
+<tr>
+<td><code>gazelle/npm.go</code></td>
+<td>The lockfile gate, the importer-scoped label, the member table and the member view</td>
+</tr>
+<tr>
+<td><code>gazelle/manifest.go</code></td>
+<td>The nearest <code>package.json</code>: its name, its dependencies</td>
+</tr>
+<tr>
+<td><code>gazelle/generate.go</code></td>
+<td>One package's rules from the owner map; <code>Empty</code> where no program is</td>
+</tr>
+<tr>
+<td><code>gazelle/resolve.go</code></td>
+<td><code>deps</code> from the listing's edges: one label per edge target</td>
+</tr>
+<tr>
+<td><code>gazelle/workers_pool.go</code></td>
+<td>The Workers pool's half: the wrangler config a vitest config names as a <code>filegroup</code>, and a pooled <code>ts_test</code>'s <code>wrangler_config</code>, <code>coverage_provider</code> and istanbul dep</td>
+</tr>
+<tr>
+<td><code>gazelle/config.go</code></td>
+<td>The root-once lockfile load, the <code>ts_codegen</code> bookkeeping</td>
+</tr>
+<tr>
+<td><code>gazelle/keep.go</code></td>
+<td>The managed-attribute reports: what a run drops and what it cannot merge</td>
+</tr>
+<tr>
+<td><code>gazelle/pnpm_lock.go</code></td>
+<td>The lockfile's names, importers, links and aliases</td>
+</tr>
+<tr>
+<td><code>ts/tools/explainfiles/</code></td>
+<td>The <code>--explainFiles</code> grammar: one listing's files, roots, edges and <code>types</code> entries -- shared with the build actions</td>
+</tr>
+<tr>
+<td><code>ts/tools/tsconfig/</code></td>
+<td>The <code>tsconfig.json</code> reader -- one file, or its <code>extends</code> chain flattened leaf-wins -- shared with the build actions</td>
+</tr>
+<tr>
+<td><code>ts/tools/jsonc/</code></td>
+<td>JSONC parser, so a commented <code>tsconfig.json</code> still yields its <code>paths</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>docs/gazelle/overview.md</code> is the reference for what a run reads and writes;
+<strong>AGENTS.md</strong> carries the contributor rules.</p>
+<p>The extension is compiled into two <code>gazelle_binary</code> targets. <code>//gazelle:gazelle_ts</code>
+is the one this repo runs, through the <code>gazelle</code> runner beside it:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>bazel<span class="w"> </span>run<span class="w"> </span>//gazelle:gazelle
+</span></code></pre></div>
+<p>It also carries the Go and proto languages, because this repo generates BUILD
+files for its own <code>.go</code> sources. <code>//gazelle:gazelle_typescript</code> is the exported
+one and carries TypeScript alone, so it never rewrites a consumer's Go BUILD
+files. A consumer workspace declares its own <code>gazelle</code> target pointing at
+<code>@rules_typescript//gazelle:gazelle_typescript</code> (<code>e2e/basic/BUILD.bazel</code> is the
+worked example) and runs <code>bazel run //:gazelle</code>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/mikn/rules_typescript" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "navigation.instant", "navigation.instant.progress", "content.code.copy", "content.code.annotate", "search.suggest", "search.highlight", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

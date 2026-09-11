@@ -1,0 +1,3213 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Opinionated Bazel rules for TypeScript. Oxc and tsgo compile, tsgo type-checks, and Vite serves the generated config.">
+      
+      
+      
+        <link rel="canonical" href="https://mikn.github.io/rules_typescript/CI_CD/">
+      
+      
+        <link rel="prev" href="../changelog/">
+      
+      
+        <link rel="next" href="../RELEASE_PROCESS/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>CI/CD - rules_typescript</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#cicd-production-readiness" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="rules_typescript" class="md-header__button md-logo" aria-label="rules_typescript" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            rules_typescript
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              CI/CD
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/mikn/rules_typescript" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    mikn/rules_typescript
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="rules_typescript" class="md-nav__button md-logo" aria-label="rules_typescript" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    rules_typescript
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/mikn/rules_typescript" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    mikn/rules_typescript
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/isolated-declarations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Isolated Declarations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/ide-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IDE Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migrating from rules_ts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/npm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    npm Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing with vitest
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/bundling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bundling with Vite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/dev-server/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dev Server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/tailwind/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tailwind v4
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/monorepo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monorepo Layout
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/lint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/benchmark/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmark
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gazelle
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Gazelle
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gazelle/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gazelle/directives/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Directives Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rules Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Rules Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rules/ts-compile/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ts_compile
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rules/ts-test/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ts_test
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rules/ts-binary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ts_binary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rules/ts-dev-server/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ts_dev_server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rules/ts-codegen/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ts_codegen
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rules/node-modules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    node_modules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rules/providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers and toolchains
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Maintainers
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Maintainers
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CI/CD
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CI/CD
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#github-actions-ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GitHub Actions CI
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="GitHub Actions CI">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#workflow-jobs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workflow Jobs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test-source-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test Source Coverage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#retired-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Retired Names
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#coverage-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Coverage Report
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#triggering-ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Triggering CI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-ci-locally" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running CI Locally
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#determinism-verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Determinism Verification
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#known-sources-of-non-determinism" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known Sources of Non-Determinism
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Known Sources of Non-Determinism">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-build-timestamps-in-compiled-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Build Timestamps in Compiled Output
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-file-ordering-in-directory-outputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. File Ordering in Directory Outputs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-vite-bundle-content-hashes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Vite Bundle Content Hashes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-npm-package-download-order" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. npm Package Download Order
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-tsgo-typescript-native-internal-parallelism" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. tsgo (TypeScript Native) Internal Parallelism
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#6-environment-variable-leaks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Environment Variable Leaks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#7-host-interpreters-and-utilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Host Interpreters and Utilities
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#8-gazelle-generated-build-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Gazelle-Generated BUILD Files
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#summary-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary Table
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#guarantees" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Guarantees
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#release-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Release Process
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Release Process">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cutting-a-release" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cutting a Release
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bcr-bazel-central-registry-publishing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BCR (Bazel Central Registry) Publishing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#remote-caching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Remote Caching
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Remote Caching">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#buildbuddy-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BuildBuddy Setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#engflow-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EngFlow Setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#self-hosted-bazel-cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Self-Hosted Bazel Cache
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#verifying-hermeticity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verifying Hermeticity
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cache-hit-rate-tuning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cache Hit Rate Tuning
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#remote-execution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Remote Execution
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Remote Execution">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#prerequisites_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#platform-constraints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Platform Constraints
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#toolchain-binary-compatibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Toolchain Binary Compatibility
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#buildbuddy-rbe-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BuildBuddy RBE Setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#engflow-rbe-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EngFlow RBE Setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#custom-executor-image" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom Executor Image
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#testing-rbe-locally" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing RBE Locally
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gitlab-ci-template" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GitLab CI Template
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Troubleshooting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#determinism-failures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Determinism Failures
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#release-tool-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Release Tool Issues
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ci-failures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CI Failures
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related Documentation
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../RELEASE_PROCESS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Process
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../BCR_SUBMISSION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BCR Submission
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#github-actions-ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GitHub Actions CI
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="GitHub Actions CI">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#workflow-jobs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workflow Jobs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test-source-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test Source Coverage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#retired-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Retired Names
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#coverage-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Coverage Report
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#triggering-ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Triggering CI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-ci-locally" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running CI Locally
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#determinism-verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Determinism Verification
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#known-sources-of-non-determinism" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known Sources of Non-Determinism
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Known Sources of Non-Determinism">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-build-timestamps-in-compiled-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Build Timestamps in Compiled Output
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-file-ordering-in-directory-outputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. File Ordering in Directory Outputs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-vite-bundle-content-hashes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Vite Bundle Content Hashes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-npm-package-download-order" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. npm Package Download Order
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-tsgo-typescript-native-internal-parallelism" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. tsgo (TypeScript Native) Internal Parallelism
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#6-environment-variable-leaks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Environment Variable Leaks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#7-host-interpreters-and-utilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Host Interpreters and Utilities
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#8-gazelle-generated-build-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Gazelle-Generated BUILD Files
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#summary-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary Table
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#guarantees" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Guarantees
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#release-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Release Process
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Release Process">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cutting-a-release" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cutting a Release
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bcr-bazel-central-registry-publishing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BCR (Bazel Central Registry) Publishing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#remote-caching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Remote Caching
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Remote Caching">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#buildbuddy-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BuildBuddy Setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#engflow-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EngFlow Setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#self-hosted-bazel-cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Self-Hosted Bazel Cache
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#verifying-hermeticity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verifying Hermeticity
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cache-hit-rate-tuning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cache Hit Rate Tuning
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#remote-execution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Remote Execution
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Remote Execution">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#prerequisites_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#platform-constraints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Platform Constraints
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#toolchain-binary-compatibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Toolchain Binary Compatibility
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#buildbuddy-rbe-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BuildBuddy RBE Setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#engflow-rbe-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EngFlow RBE Setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#custom-executor-image" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom Executor Image
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#testing-rbe-locally" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing RBE Locally
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gitlab-ci-template" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GitLab CI Template
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Troubleshooting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#determinism-failures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Determinism Failures
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#release-tool-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Release Tool Issues
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ci-failures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CI Failures
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related Documentation
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="cicd-production-readiness">CI/CD &amp; Production Readiness<a class="headerlink" href="#cicd-production-readiness" title="Permanent link">&para;</a></h1>
+<p>The pipeline this repository runs, and the release path out of it. The remote
+cache and remote execution sections further down describe configurations for a
+consumer workspace, which this repository's CI does not run.</p>
+<h2 id="github-actions-ci">GitHub Actions CI<a class="headerlink" href="#github-actions-ci" title="Permanent link">&para;</a></h2>
+<p><code>.github/workflows/ci.yml</code> runs on every push to <code>main</code>/<code>develop</code> and on every
+pull request, whichever branch it targets. It has six jobs.</p>
+<p>The five jobs that run Bazel set it up with <code>bazel-contrib/setup-bazel@0.18.0</code>:
+bazelisk and repository caches in all of them, the external cache in all but
+<code>examples</code>, and a disk cache where the job wants one.</p>
+<h3 id="workflow-jobs">Workflow Jobs<a class="headerlink" href="#workflow-jobs" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Unit Tests &amp; Type Checking</strong> (<code>test</code>)</li>
+<li>On ubuntu only, first: <code>tools/ci/check_test_sources.sh</code>, which requires
+     every tracked test source to be claimed by a test target that runs. It is
+     a loading-phase query the next step pays for anyway
+     (see <a href="#test-source-coverage">below</a>)</li>
+<li>On ubuntu only, second: <code>tools/ci/check_integration_shards.sh</code>. Every
+     integration test has to land on exactly one leg of the <code>integration-tests</code>
+     matrix</li>
+<li>On ubuntu only, third: <code>tools/ci/check_retired_names.sh</code>. No tracked
+     prose or code outside the changelog names a retired attribute, kind,
+     provider, directive, export or path (see <a href="#retired-names">below</a>). The
+     three gates run before the suite and none skips it: the two <code>bazel</code> steps
+     run whatever the gates did, and the job still fails on a failed gate</li>
+<li><code>bazel test --config=ci //...</code>, then
+     <code>bazel build --config=ci //... --output_groups=+_validation</code>, then, on
+     ubuntu only, <code>tools/ci/check_coverage_report.sh</code>: the fixture under
+     <code>bazel coverage</code>, its report's <code>SF:</code> lines against what the filter selects
+     (see <a href="#coverage-report">below</a>)</li>
+<li>
+<p>Matrix: <code>ubuntu-latest</code> and <code>macos-latest</code></p>
+</li>
+<li>
+<p><strong>E2E Tests</strong> (<code>e2e</code>)</p>
+</li>
+<li>Builds and tests <code>e2e/basic</code>, a separate workspace</li>
+<li>
+<p>Matrix: <code>ubuntu-latest</code> and <code>macos-latest</code></p>
+</li>
+<li>
+<p><strong>Examples Build</strong> (<code>examples</code>)</p>
+</li>
+<li>One matrix leg per workspace under <code>examples/</code> (<code>basic</code>, <code>app</code>,
+     <code>react-app</code>), each a separate Bazel invocation, <code>fail-fast: false</code>. Every
+     leg builds <code>//...</code></li>
+<li>
+<p>All three legs share one disk cache key (<code>disk-cache: examples</code>). Most of
+     each example's actions are the same oxc/Rust and toolchain prefix, and
+     three keys would not fit GitHub's 10 GB cache limit</p>
+</li>
+<li>
+<p><strong>Build Determinism Check</strong> (<code>determinism</code>)</p>
+</li>
+<li><code>//tests/smoke:hello</code> built from two empty output bases, then
+     <code>tests/smoke/hello.js</code> compared byte for byte. Two builds cannot be one
+     action, so this check stays a sequence of invocations</li>
+<li>No disk cache: a hit on the second build would compare it against a copy of
+     the first</li>
+<li>
+<p>Scratch space is <code>/mnt/rules_ts_det</code>, provisioned per run. <code>/mnt</code> is a
+     directory on the root filesystem, not a separate disk, so the two full
+     toolchain trees do not change volume; both jobs log <code>df -h /mnt /</code>. The
+     separate directory keeps them out of the checkout and makes their size
+     visible to <code>df</code></p>
+</li>
+<li>
+<p><strong>Integration Tests (nested Bazel)</strong> (<code>integration-tests</code>)</p>
+</li>
+<li>Two legs, one per shard (<code>npm</code>, <code>core</code>), each running
+     <code>bazelisk test --config=ci-integration-&lt;shard&gt; //tests/integration/... --test_env=RULES_TS_IT_SCRATCH=/mnt/rules_ts_it</code>.
+     Each config in <code>.bazelrc</code> selects tests by the <code>shard-&lt;name&gt;</code> tag
+     <code>nested_bazel_tags(shard = ...)</code> in <code>tests/integration/tags.bzl</code> adds;
+     <code>core</code> is the complement of the other, so a test with no shard tag
+     still runs. <code>tools/ci/check_integration_shards.sh</code> fails when the three
+     sources disagree</li>
+<li>The only job that runs them. <code>--config=ci</code> in the <code>test</code> job expands
+     <code>--config=fast</code>, whose <code>--test_tag_filters=-nested-bazel</code> filters them out;
+     unfiltered they would run three times per push</li>
+<li>The targets carry <code>cpu:2</code> in place of <code>exclusive</code>, so Bazel bounds how many
+     nested Bazel servers run at once by the machine's cores</li>
+<li>Each nested Bazel gets its own output base under the test's <code>TEST_TMPDIR</code>,
+     inside <code>&lt;outer output base&gt;/execroot/_main/_tmp</code>, which the outer Bazel
+     clears in full on each <code>bazel test</code>. A killed run leaves nothing that
+     outlives the next invocation, and two checkouts running one test cannot
+     share a directory. <code>/mnt/rules_ts_it</code> holds only the repository, disk,
+     bazelisk and pnpm caches; the job's <code>df -h /mnt /</code>, before and after,
+     records whether the tens of GB of output bases changed volume</li>
+<li><code>/mnt/rules_ts_it</code> is a bare <code>mkdir -p</code> on a fresh runner, and the cache
+     step below restores only the four cache subdirectories, never the per-test
+     output bases, so every nested output base starts empty on every run. A
+     retained output base saves a local developer a measured ~13.5s per test
+     and saves CI nothing</li>
+<li>The harness appends <code>common --repository_cache=&lt;shared&gt;</code> and
+     <code>common --disk_cache=&lt;shared&gt;</code> to every staged workspace's <code>.bazelrc</code>
+     (<code>prepare()</code> in <code>tests/integration/harness/harness.go</code>). Without it each
+     workspace fetches the whole BCR registry for itself, and the resulting
+     lookup failures read as flaky tests. A workspace that carries a lockfile
+     is installed by the runner (<code>Install()</code>) with the workspace's <code>ts_pnpm</code>,
+     its store under <code>/mnt/rules_ts_it/pnpm</code>, before Gazelle lists it</li>
+<li>The harness's persistent root is <code>RULES_TS_IT_SCRATCH</code> when set (CI's
+     <code>/mnt/rules_ts_it</code>), else <code>$XDG_CACHE_HOME/rules_typescript_it</code>, else
+     <code>~/.cache/rules_typescript_it</code>, else <code>os.TempDir()</code>, last because <code>$TMPDIR</code>
+     can be a tmpfs; never <code>TEST_TMPDIR</code>, which the outer Bazel clears on each
+     <code>bazel test</code>, so a cache placed there would be re-fetched every run. It
+     holds the repository, disk, bazelisk and pnpm caches. <code>BAZELISK_HOME</code>,
+     unless inherited, points into it: bazelisk defaults it to <code>$PWD</code>, the
+     per-run workspace, so left unset every test fetched Bazel from
+     <code>releases.bazel.build</code> (~1.2GB a suite; a runner whose DNS timed out is
+     what surfaced it, since Bazel echoes a test's stdout only when the test
+     fails). A runner invoked by hand has no <code>TEST_TMPDIR</code>; its run root is then
+     keyed by the checkout's hash and the test's name under that root rather
+     than a fresh <code>os.MkdirTemp</code> name per process, so a killed run's multi-GB
+     output base is overwritten by that test's next run instead of leaking
+     under a name nothing finds again</li>
+<li><code>/mnt</code> is recreated every run, so an <code>actions/cache@v6</code> step restores
+     <code>/mnt/rules_ts_it/repository_cache</code>, <code>/mnt/rules_ts_it/disk_cache</code>,
+     <code>/mnt/rules_ts_it/bazelisk</code> and <code>/mnt/rules_ts_it/pnpm</code> under the key
+     <code>nested-bazel-&lt;runner.os&gt;-&lt;hash of MODULE.bazel, tests/npm/pnpm-lock.yaml,
+     tests/integration/**/pnpm-lock.yaml, oxc_cli/Cargo.lock, .bazelversion&gt;</code>,
+     with <code>nested-bazel-&lt;runner.os&gt;-</code> as the restore-key prefix. One key serves
+     both legs; only the first leg to finish saves it. Cold, the concurrent
+     servers all miss the shared cache at once and fetch the same artifacts, a
+     measured ~4GB (<code>tests/integration/tags.bzl</code>). The cache is
+     content-addressed, so a stale restore is a miss, never a wrong answer.
+     <code>.bazelversion</code> is in the key because the bazelisk directory holds one
+     Bazel binary named by version, and <code>actions/cache</code> never overwrites an
+     existing key</li>
+<li>
+<p>A step then runs <code>bazelisk --version</code> once with
+     <code>BAZELISK_HOME=/mnt/rules_ts_it/bazelisk</code> and <code>USE_BAZEL_VERSION</code> read off
+     <code>bazel_binaries.download(version = ...)</code> in <code>MODULE.bazel</code>, so on a cold
+     cache one download primes what every nested Bazel would otherwise fetch at
+     the same instant</p>
+</li>
+<li>
+<p><strong>Linting &amp; Code Quality</strong> (<code>lint</code>)</p>
+</li>
+<li><code>buildifier --mode=check -r .</code>, using the released <code>v8.2.1</code> binary
+     downloaded in the job. There is no <code>buildifier</code> <code>bazel_dep</code>, so
+     <code>bazel run @buildifier//:buildifier</code> fails with "No repository visible as
+     '@buildifier'". See
+     <a href="../contributing/#starlark-build-files-and-bzl-files">CONTRIBUTING.md</a></li>
+<li><code>gofmt -l .</code> (a non-empty result fails) and <code>go vet</code> over the Go modules,
+     both through <code>actions/setup-go</code>: they read the <code>go.work</code> module graph off
+     the source tree, so nothing about them comes from the build graph.
+     <code>tools/quickstart</code> is named out of the <code>go vet</code> patterns because its
+     <code>go:embed</code> target is a genrule output and <code>go list</code> failing there aborts the
+     whole <code>./...</code> pattern</li>
+<li><code>mkdocs build --strict</code> into a temporary site directory. <code>docs.yml</code> builds
+     the site only on push to <code>main</code>, so without this step a broken nav or page
+     reference is caught only after merge</li>
+</ol>
+<h3 id="test-source-coverage">Test Source Coverage<a class="headerlink" href="#test-source-coverage" title="Permanent link">&para;</a></h3>
+<p><code>bazel build //...</code>, <code>bazel test //...</code> and a byte-identical Gazelle rerun are
+all satisfied by a Gazelle run that deletes a test target.
+<code>check_test_sources.sh</code> is not: the set of test files on disk is not something
+Gazelle writes.</p>
+<p>Tagging a test <code>manual</code> defeats the same three checks: the target still exists,
+still claims its srcs, and <code>//...</code> skips it. Each file's claim is checked twice:
+against every test target, and against only the targets <code>bazel test //...</code>
+runs. A file with the first claim but not the second is manual-only and has to
+be named in the script's <code>MANUAL_ONLY</code> list with a reason. The list is exact in
+both directions: tagging a test <code>manual</code> fails until the reason is written down,
+and untagging it fails until the entry is removed.</p>
+<p>Directories holding their own <code>MODULE.bazel</code>, and <code>.bazelignore</code> roots, are out
+of scope: <code>//...</code> does not descend into them.</p>
+<p>The script is read-only: a loading-phase <code>bazel query</code> and <code>git ls-files</code>, no
+Gazelle run and no writes. <code>git ls-files</code> cannot see an unstaged new file, so a
+local run reports green on a test that has no target yet.</p>
+<h3 id="retired-names">Retired Names<a class="headerlink" href="#retired-names" title="Permanent link">&para;</a></h3>
+<p>A retired attribute, kind, provider, directive, export or file path that a page
+or a comment still names is a sentence the code falsified.
+<code>check_retired_names.sh</code> carries the list and greps every tracked file for it in
+identifier form: whole words (<code>WORDS</code>), the <code>ts_</code> directive prefix after the
+<code># gazelle:</code> marker, and the spellings a whole word misses (<code>PATTERNS</code>): a
+deleted file's path, a target name Gazelle or the test macro wrote, a retired
+output or target suffix. Out of scope:
+<code>changelog.d/</code> and <code>CHANGELOG.md</code>, where a retirement is recorded with the edit
+it requires; <code>TODO.md</code> and <code>rules-ts-v2-project-plan.md</code>, the project's
+history; the rows of <code>docs/gazelle/directives.md</code>'s table mapping each retired
+directive to its replacement. Two names are left off the list because they are
+live under another meaning, <code>module_name</code> (bzlmod's <code>git_override</code> keyword) and
+<code>jsx_import_source</code> (an oxc_cli option field); a name that is also a path
+under <code>tests/</code> (<code>PATH_CLASHING</code>) matches only outside a path.</p>
+<p>A file that asserts a retired name is absent or inert -- <code>kinds_surface_test.go</code>
+pins the kinds Gazelle no longer writes -- is listed in <code>ALLOWED</code> inside the
+script with the reason. The list is exact in both directions: a listed file
+with no hit fails until the entry is removed. <code>git grep</code> only, no Bazel.</p>
+<h3 id="coverage-report">Coverage Report<a class="headerlink" href="#coverage-report" title="Permanent link">&para;</a></h3>
+<p><code>bazel test //...</code> never makes a coverage run, and a coverage run whose report
+is empty passes: Bazel's <code>collect_coverage.sh</code> merges what the test left under
+<code>COVERAGE_DIR</code>, and an empty directory is an empty <code>coverage.dat</code>.
+<code>check_coverage_report.sh</code> runs <code>//tests/vitest/coverage:math_coverage_test</code>
+under <code>bazel coverage --combined_report=lcov</code> twice, with the default
+<code>--instrumentation_filter</code> and with <code>^//tests/vitest[/:]</code>, and compares the
+combined report's <code>SF:</code> lines with the files each filter selects
+(<a href="../rules/ts-test/#coverage">ts_test § Coverage</a>). It is the last step of the
+<code>test</code> job, after the suite, on ubuntu only.</p>
+<h3 id="triggering-ci">Triggering CI<a class="headerlink" href="#triggering-ci" title="Permanent link">&para;</a></h3>
+<p>Pushes to <code>main</code> and <code>develop</code>, and every pull request, with no branch filter:
+a stacked PR targets the branch below it, and a filtered <code>pull_request</code> fires no
+run for one. There is no <code>workflow_dispatch</code> trigger, so the Actions tab offers
+no "Run workflow" button: re-run a failed job, or push.</p>
+<h2 id="running-ci-locally">Running CI Locally<a class="headerlink" href="#running-ci-locally" title="Permanent link">&para;</a></h2>
+<p>There is no CI driver script: the stages live in <code>.bazelrc</code> as <code>--config=</code>
+groups, so the local command and the workflow step are the same command.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># The main workspace: tests, then type-checking. --config=ci expands</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="c1"># --config=fast, whose --test_tag_filters=-nested-bazel drops the</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># nested-Bazel targets.</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>bazel<span class="w"> </span><span class="nb">test</span><span class="w"> </span>--config<span class="o">=</span>ci<span class="w"> </span>//...
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>bazel<span class="w"> </span>build<span class="w"> </span>--config<span class="o">=</span>ci<span class="w"> </span>//...<span class="w"> </span>--output_groups<span class="o">=</span>+_validation
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1"># The nested-Bazel suite (~3 minutes per target, as many at once as the</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="c1"># machine has cores for).</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>bazel<span class="w"> </span><span class="nb">test</span><span class="w"> </span>--config<span class="o">=</span>ci-integration<span class="w"> </span>//tests/integration/...
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="c1"># e2e/ and examples/ are separate workspaces (.bazelignore), so they are</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="c1"># separate invocations — a --config cannot change workspace.</span>
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="nb">cd</span><span class="w"> </span>e2e/basic<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>bazel<span class="w"> </span>build<span class="w"> </span>//...<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>bazel<span class="w"> </span><span class="nb">test</span><span class="w"> </span>//...
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="nb">cd</span><span class="w"> </span>examples/basic<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>bazel<span class="w"> </span>build<span class="w"> </span>//...
+</span></code></pre></div>
+<h2 id="determinism-verification">Determinism Verification<a class="headerlink" href="#determinism-verification" title="Permanent link">&para;</a></h2>
+<p>Two builds cannot be a single Bazel action, so the check is a sequence of
+invocations. The <code>determinism</code> job runs this shape over <code>//tests/smoke:hello</code>
+(see <a href="#workflow-jobs">Workflow Jobs</a> job 4). The same sequence runs locally:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">for</span><span class="w"> </span>base<span class="w"> </span><span class="k">in</span><span class="w"> </span>a<span class="w"> </span>b<span class="p">;</span><span class="w"> </span><span class="k">do</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span>bazel<span class="w"> </span>--output_base<span class="o">=</span><span class="s2">"</span><span class="nv">$HOME</span><span class="s2">/.cache/det_</span><span class="nv">$base</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span>build<span class="w"> </span>--config<span class="o">=</span>determinism<span class="w"> </span>//tests/smoke:hello
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="k">done</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>cmp<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span><span class="s2">"</span><span class="k">$(</span>bazel<span class="w"> </span>--output_base<span class="o">=</span><span class="s2">"</span><span class="nv">$HOME</span><span class="s2">/.cache/det_a"</span><span class="w"> </span>info<span class="w"> </span>bazel-bin<span class="k">)</span><span class="s2">/tests/smoke/hello.js"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span><span class="s2">"</span><span class="k">$(</span>bazel<span class="w"> </span>--output_base<span class="o">=</span><span class="s2">"</span><span class="nv">$HOME</span><span class="s2">/.cache/det_b"</span><span class="w"> </span>info<span class="w"> </span>bazel-bin<span class="k">)</span><span class="s2">/tests/smoke/hello.js"</span>
+</span></code></pre></div>
+<p><code>--config=determinism</code> turns off the convenience symlinks, which the two builds
+would otherwise race for. <code>bazel info bazel-bin</code> supplies the output path, so the
+<code>bazel-out</code> layout is never guessed at. Separate output bases stand in for
+<code>bazel clean</code> and preserve the repository cache.</p>
+<h2 id="known-sources-of-non-determinism">Known Sources of Non-Determinism<a class="headerlink" href="#known-sources-of-non-determinism" title="Permanent link">&para;</a></h2>
+<p>Eight places non-determinism can enter, the current status of each, and what a
+rule of your own has to do.</p>
+<h3 id="1-build-timestamps-in-compiled-output">1. Build Timestamps in Compiled Output<a class="headerlink" href="#1-build-timestamps-in-compiled-output" title="Permanent link">&para;</a></h3>
+<p><strong>Risk</strong>: A compiler that embeds the current timestamp in its output.
+<strong>Status in rules_typescript</strong>: neither <code>oxc</code> nor <code>tsgo</code> embeds a timestamp in a compiled <code>.js</code> or <code>.js.map</code>, and <code>tsgo</code> embeds none in a <code>.d.ts</code>. The <code>determinism</code> CI job checks the compiled <code>.js</code> of <code>//tests/smoke:hello</code>.
+<strong>Mitigation</strong>: A <code>genrule</code> running a tool that calls <code>date</code> is non-deterministic. Pass <code>--no-timestamp</code> or the equivalent to that tool.</p>
+<h3 id="2-file-ordering-in-directory-outputs">2. File Ordering in Directory Outputs<a class="headerlink" href="#2-file-ordering-in-directory-outputs" title="Permanent link">&para;</a></h3>
+<p><strong>Risk</strong>: With <code>ctx.actions.declare_directory</code>, file ordering inside the directory follows the filesystem's readdir order, which varies across kernels and filesystems.
+<strong>Status in rules_typescript</strong>: The rules with a declared output directory (<code>npm_store</code>, <code>ts_codegen</code>) copy files by name: a store tree is a compile input, deterministic by construction (one <code>tsaction stage</code> over the fetched package), read as files and never as a listing, so ordering matters only in a byte-for-byte directory comparison.
+<strong>Mitigation</strong>: Check directory artifacts with <code>diff -r</code>, which is order-insensitive; <code>tar c ... | sha256sum</code> is not.</p>
+<h3 id="3-vite-bundle-content-hashes">3. Vite Bundle Content Hashes<a class="headerlink" href="#3-vite-bundle-content-hashes" title="Permanent link">&para;</a></h3>
+<p><strong>Risk</strong>: Vite (and Rollup underneath it) names chunk files by content hash. The algorithm is deterministic, but chunk boundaries depend on module graph traversal order, which changes when <code>import()</code> statements are added or removed.
+<strong>Status</strong>: Deterministic for a fixed source tree. A source change changes every dependent chunk hash, which is correct.
+<strong>Mitigation</strong>: None needed. Do not compare Vite output hashes across source versions.</p>
+<h3 id="4-npm-package-download-order">4. npm Package Download Order<a class="headerlink" href="#4-npm-package-download-order" title="Permanent link">&para;</a></h3>
+<p><strong>Risk</strong>: parallel npm tarball downloads; if two packages produced the same
+output file path, the winner would depend on download order.
+<strong>Status</strong>: not possible. Each package is its own external repository with its
+own root, so there is no shared output path to race over and no cross-package
+ordering dependency.
+<strong>Mitigation</strong>: N/A.</p>
+<h3 id="5-tsgo-typescript-native-internal-parallelism">5. tsgo (TypeScript Native) Internal Parallelism<a class="headerlink" href="#5-tsgo-typescript-native-internal-parallelism" title="Permanent link">&para;</a></h3>
+<p><strong>Risk</strong>: <code>tsgo</code> type-checks with goroutines, so diagnostic message ordering can vary between runs on different hardware.
+<strong>Status</strong>: tsgo <code>.d.ts</code> outputs are deterministic (Go's <code>sort.Slice</code> is not random). Diagnostic ordering is consistent within one binary and may differ between tsgo versions.
+<strong>Mitigation</strong>: Pin the tsgo version. This repository pins it through <code>ts/private/tsgo/pnpm-lock.yaml</code>, the lockfile the <code>ts</code> extension reads when no <code>ts.tsgo()</code> is called; a consumer points the extension at its own with <code>ts.tsgo(pnpm_lock = "//:pnpm-lock.yaml")</code>, so the toolchain moves only when <code>pnpm install</code> moves <code>typescript</code>.</p>
+<h3 id="6-environment-variable-leaks">6. Environment Variable Leaks<a class="headerlink" href="#6-environment-variable-leaks" title="Permanent link">&para;</a></h3>
+<p><strong>Risk</strong>: An action reading an env var it does not declare in its <code>env</code> map takes the host's value, which differs between machines.
+<strong>Status</strong>: Bazel's sandbox blocks undeclared env vars for rules with <code>use_default_shell_env = False</code>. Every rule in rules_typescript uses the sandbox with no default shell env.
+<strong>Mitigation</strong>: <code>--incompatible_strict_action_env</code>, set in this repository's <code>.bazelrc</code>, replaces the inherited client environment with a fixed one, so an action that reads a var it never declared reads the same value on every machine.</p>
+<h3 id="7-host-interpreters-and-utilities">7. Host Interpreters and Utilities<a class="headerlink" href="#7-host-interpreters-and-utilities" title="Permanent link">&para;</a></h3>
+<p><strong>Risk</strong>: An action shelling out to a host interpreter or coreutil produces
+whatever that version produces.
+<strong>Status</strong>: not applicable. There is no Python in the ruleset; the house rule is
+Starlark's <code>json.decode</code>/<code>json.encode</code> or awk. No build action runs a host
+interpreter: the store copier and the launcher are Go.
+<strong>Mitigation</strong>: none needed. In a <code>genrule</code> of your own, reach for a toolchain
+input.</p>
+<h3 id="8-gazelle-generated-build-files">8. Gazelle-Generated BUILD Files<a class="headerlink" href="#8-gazelle-generated-build-files" title="Permanent link">&para;</a></h3>
+<p><strong>Risk</strong>: Gazelle updates BUILD files in place. Two developers on different OS/filesystem configurations (e.g. different file listing order) can generate different files.
+<strong>Status</strong>: The Gazelle TypeScript extension sorts every generated <code>srcs</code>, <code>deps</code> and other list attribute. Generated BUILD files are deterministic for a fixed source tree.
+<strong>Mitigation</strong>: Add a CI step <code>bazel run //:gazelle &amp;&amp; git diff --exit-code</code>, so the checked-in BUILD files match what Gazelle generates.</p>
+<h3 id="summary-table">Summary Table<a class="headerlink" href="#summary-table" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Source</th>
+<th>Affects</th>
+<th>Deterministic?</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>compiled .js/.js.map, oxc's or tsgo's</td>
+<td>Compilation</td>
+<td>Yes</td>
+<td>No timestamps</td>
+</tr>
+<tr>
+<td>tsgo generated .d.ts</td>
+<td>Type checking</td>
+<td>Yes</td>
+<td>Sorted output</td>
+</tr>
+<tr>
+<td>Vite bundle</td>
+<td>Bundling</td>
+<td>Yes (per source tree)</td>
+<td>Chunk hashes change with source</td>
+</tr>
+<tr>
+<td>store tree (<code>npm_store</code>)</td>
+<td>Compile inputs, runtime</td>
+<td>Yes</td>
+<td>one copy per resolution, restored as files from a cache</td>
+</tr>
+<tr>
+<td>Gazelle BUILD generation</td>
+<td>Repo structure</td>
+<td>Yes</td>
+<td>sorted output</td>
+</tr>
+</tbody>
+</table>
+<h2 id="guarantees">Guarantees<a class="headerlink" href="#guarantees" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Determinism</strong> is verified by the <code>determinism</code> CI job over the targets it
+  names, and is not a blanket property of every rule.</li>
+<li><strong>A release tarball</strong> is <code>git archive</code> over a tag, so it is a function of the
+  commit.</li>
+<li><strong>Sandbox isolation</strong> is the sandbox's, with no default shell env; see
+  <a href="#6-environment-variable-leaks">Environment Variable Leaks</a>.</li>
+</ul>
+<h2 id="release-process">Release Process<a class="headerlink" href="#release-process" title="Permanent link">&para;</a></h2>
+<h3 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Clean working tree</li>
+<li>A valid semantic version (X.Y.Z or X.Y.Z-prerelease)</li>
+</ul>
+<h3 id="cutting-a-release">Cutting a Release<a class="headerlink" href="#cutting-a-release" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>bazel<span class="w"> </span>run<span class="w"> </span>//tools/release<span class="w"> </span>--<span class="w"> </span><span class="m">0</span>.2.0<span class="w"> </span>--dry-run<span class="w">   </span><span class="c1"># prints every step, writes nothing</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>bazel<span class="w"> </span>run<span class="w"> </span>//tools/release<span class="w"> </span>--<span class="w"> </span><span class="m">0</span>.2.0<span class="w"> </span>--push
+</span></code></pre></div>
+<p>The tool validates the version, stops on a dirty tree or an existing tag,
+rewrites the version inside <code>module()</code> in <code>MODULE.bazel</code> (and nowhere else, so
+<code>bazel_dep</code> versions survive), commits, tags, and optionally pushes. It works on
+the checkout you ran <code>bazel</code> from, via <code>BUILD_WORKING_DIRECTORY</code>.</p>
+<p>Everything after the tag is <code>.github/workflows/release.yml</code>: <code>git archive</code>
+tarball, SRI hash, GitHub release with a provenance attestation, and the PR that
+fills in <code>.bcr/source.json</code>. The tool builds no tarball, because a locally built
+one would differ from the published one and carry the wrong integrity hash.</p>
+<p>Full walkthrough: <a href="../RELEASE_PROCESS/">Release Process</a>.</p>
+<h2 id="bcr-bazel-central-registry-publishing">BCR (Bazel Central Registry) Publishing<a class="headerlink" href="#bcr-bazel-central-registry-publishing" title="Permanent link">&para;</a></h2>
+<p>A BCR submission carries three files: <code>.bcr/metadata.json</code> (module-level, one
+file for every version), <code>.bcr/source.json</code> (the tarball URL, its SRI hash and
+<code>strip_prefix</code>) and <code>.bcr/presubmit.yml</code>. The <code>update-bcr</code> job in
+<code>.github/workflows/release.yml</code> rewrites <code>source.json</code> and opens a PR with it;
+<code>metadata.json</code> and <code>presubmit.yml</code> are hand-maintained, and the job only prints
+them back for the log. The field-by-field walkthrough, the <code>presubmit.yml</code>
+matrix and the submission steps are in <a href="../BCR_SUBMISSION/">BCR Submission</a>.</p>
+<p>Two workflows touch the <code>.bcr</code> files, and they split the work. <code>update-bcr</code>
+computes and writes: it reads the SRI hash off the <code>release</code> job it depends on,
+rewrites <code>source.json</code>, and opens the PR. <code>publish-bcr</code>, the only job in
+<code>.github/workflows/publish-to-bcr.yml</code>, writes nothing to the repository. It
+checks that all three <code>.bcr</code> files exist and that the two JSON ones parse
+(<code>jq -e</code>), <code>HEAD</code>s the tarball URL and confirms the GitHub release exists (both
+print a warning and carry on, neither fails the job), prints the manual
+submission checklist, and uploads the three files as a 30-day artifact. Neither
+job opens the pull request against the registry; that is done by hand.</p>
+<p>Only <code>release.yml</code> runs from a tag push. <code>publish-to-bcr.yml</code> triggers on
+<code>workflow_dispatch</code> and on <code>release: [published]</code>, and the release that
+<code>release.yml</code> creates does not fire it: GitHub starts no workflow run from an
+event created with the default <code>GITHUB_TOKEN</code>, which is what
+<code>softprops/action-gh-release</code> uses here. A release published by hand does fire
+it.</p>
+<p>Run it by hand after the <code>source.json</code> PR merges:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>gh<span class="w"> </span>workflow<span class="w"> </span>run<span class="w"> </span>publish-to-bcr.yml<span class="w"> </span>-f<span class="w"> </span><span class="nv">version</span><span class="o">=</span><span class="m">0</span>.2.0<span class="w"> </span>-R<span class="w"> </span>mikn/rules_typescript
+</span></code></pre></div>
+<p>It reads <code>.bcr/source.json</code> off the checked-out branch. Run any earlier than
+that and it validates and uploads the previous version's URL and hash. On a
+release event it also runs <code>gh release edit --notes</code>, which replaces the release
+notes with one line pointing at the metadata; the step ends in <code>|| true</code>, so it
+never fails the job.</p>
+<p><code>&lt;VERSION&gt;</code> is the tag with its leading <code>v</code> stripped, which the workflow does
+once (<code>VERSION="${TAG#v}"</code>) before building all three strings. The <code>v</code> therefore
+appears in the release path and nowhere else: the tarball is
+<code>rules_typescript-0.2.0.tar.gz</code> under tag <code>v0.2.0</code>, and <code>strip_prefix</code> matches
+the <code>git archive --prefix</code> that produced it. That is the first thing to check
+against a mismatched hash.</p>
+<h2 id="remote-caching">Remote Caching<a class="headerlink" href="#remote-caching" title="Permanent link">&para;</a></h2>
+<div class="admonition note">
+<p class="admonition-title">Documented, not exercised</p>
+<p>Nothing in this repository's own CI uses <code>--remote_cache</code> or RBE. The setups
+below are configurations we believe are right but do not run, and no
+cache-hit figure on this page was measured here. The disk cache is
+exercised: <code>//tests/integration:store_cache_test</code> rebuilds a store tree
+over a populated disk cache in a fresh output base and runs a test in it
+under <code>--nobuild_runfile_links</code> and under <code>--remote_download_outputs=minimal</code>.
+Remote execution is not.</p>
+</div>
+<p>A remote cache lets one machine reuse another's action outputs. Determinism is
+what makes that safe; see
+<a href="#determinism-verification">Determinism Verification</a> for what is checked.</p>
+<h3 id="buildbuddy-setup">BuildBuddy Setup<a class="headerlink" href="#buildbuddy-setup" title="Permanent link">&para;</a></h3>
+<p><a href="https://www.buildbuddy.io">BuildBuddy</a> is a hosted remote cache with a free
+tier. Create an account at https://app.buildbuddy.io for an API key, then add to
+your workspace <code>.bazelrc</code>:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a># Remote cache via BuildBuddy.
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>build:bb --remote_cache=grpcs://remote.buildbuddy.io
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>build:bb --remote_header=x-buildbuddy-api-key=&lt;YOUR_API_KEY&gt;
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a># Optional: upload local results so CI hits also benefit teammates.
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>build:bb --remote_upload_local_results
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a># Optional: stream build events to the BuildBuddy UI.
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>build:bb --bes_backend=grpcs://remote.buildbuddy.io
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>build:bb --bes_results_url=https://app.buildbuddy.io/invocation/
+</span></code></pre></div>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>bazel<span class="w"> </span>build<span class="w"> </span>//...<span class="w"> </span>--config<span class="o">=</span>bb
+</span></code></pre></div>
+<p>For CI, add <code>--config=bb</code> to every <code>bazel build</code> / <code>bazel test</code> invocation.</p>
+<h3 id="engflow-setup">EngFlow Setup<a class="headerlink" href="#engflow-setup" title="Permanent link">&para;</a></h3>
+<p><a href="https://www.engflow.com">EngFlow</a> is a commercial Bazel cache and RBE provider used by larger teams.</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a># .bazelrc
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>build:engflow --remote_cache=grpcs://your-cluster.engflow.com
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>build:engflow --remote_header=Authorization=Bearer &lt;TOKEN&gt;
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>build:engflow --remote_upload_local_results
+</span></code></pre></div>
+<h3 id="self-hosted-bazel-cache">Self-Hosted Bazel Cache<a class="headerlink" href="#self-hosted-bazel-cache" title="Permanent link">&para;</a></h3>
+<p>For air-gapped or cost-sensitive environments you can run a minimal HTTP cache:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Using bazel-remote (open source)</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>docker<span class="w"> </span>run<span class="w"> </span>-u<span class="w"> </span><span class="m">1000</span>:1000<span class="w"> </span>-v<span class="w"> </span>/path/to/cache:/data<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span>-p<span class="w"> </span><span class="m">9090</span>:9090<span class="w"> </span>buchgr/bazel-remote-cache<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span>--max_size<span class="w"> </span><span class="m">10</span>
+</span></code></pre></div>
+<p>Then in <code>.bazelrc</code>:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>build:local-cache --remote_cache=http://localhost:9090
+</span></code></pre></div>
+<h3 id="verifying-hermeticity">Verifying Hermeticity<a class="headerlink" href="#verifying-hermeticity" title="Permanent link">&para;</a></h3>
+<p>All actions run inside the Bazel sandbox. To take the network away from them and confirm there are no hidden external dependencies:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>bazel<span class="w"> </span>build<span class="w"> </span>//...<span class="w"> </span>--sandbox_default_allow_network<span class="o">=</span><span class="nb">false</span>
+</span></code></pre></div>
+<p>A clean build succeeds with no network errors. An action that fails here is downloading something, and the rule needs to declare that dependency explicitly.</p>
+<p>Common sources of non-hermeticity:
+- Shell scripts that call <code>curl</code> or <code>wget</code> without declaring network access.
+- Node scripts that call <code>npm install</code> at build time.
+- Toolchain binaries that phone home on first run (common with some TypeScript tools).</p>
+<h3 id="cache-hit-rate-tuning">Cache Hit Rate Tuning<a class="headerlink" href="#cache-hit-rate-tuning" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong><code>--remote_upload_local_results</code></strong>: local developer builds populate the shared cache.</li>
+<li><strong>Keep <code>--workspace_status_command</code> outputs stable</strong>: stamp variables embedded in binaries bust the cache for every commit. Do not stamp library targets.</li>
+<li><strong>Check for volatile env leaks</strong>: <code>bazel build //... --action_env</code> shows every env var that actions see; only variables that affect outputs should be present.</li>
+</ol>
+<hr />
+<h2 id="remote-execution">Remote Execution<a class="headerlink" href="#remote-execution" title="Permanent link">&para;</a></h2>
+<p>Remote execution (RBE) runs actions on a pool of workers. Same caveat as remote
+caching: nothing here is exercised by this repository's CI.</p>
+<h3 id="prerequisites_1">Prerequisites<a class="headerlink" href="#prerequisites_1" title="Permanent link">&para;</a></h3>
+<ol>
+<li>A compatible RBE backend (BuildBuddy RBE, EngFlow, Google RBE, or self-hosted).</li>
+<li>A Docker image containing the build toolchain (oxc-bazel, Node.js, tsgo).</li>
+<li>Platform constraints declared in your workspace (see below).</li>
+</ol>
+<h3 id="platform-constraints">Platform Constraints<a class="headerlink" href="#platform-constraints" title="Permanent link">&para;</a></h3>
+<p>Bazel selects toolchain binaries by execution platform, so RBE needs one declared. Add a <code>platforms</code> target to your workspace:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># platforms/BUILD.bazel</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">platform</span><span class="p">(</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>    <span class="n">name</span> <span class="o">=</span> <span class="s2">"linux_x86_64"</span><span class="p">,</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>    <span class="n">constraint_values</span> <span class="o">=</span> <span class="p">[</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>        <span class="s2">"@platforms//os:linux"</span><span class="p">,</span>
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>        <span class="s2">"@platforms//cpu:x86_64"</span><span class="p">,</span>
+</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a>    <span class="p">],</span>
+</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>And reference it in <code>.bazelrc</code>:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>build:rbe --host_platform=//platforms:linux_x86_64
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>build:rbe --platforms=//platforms:linux_x86_64
+</span></code></pre></div>
+<h3 id="toolchain-binary-compatibility">Toolchain Binary Compatibility<a class="headerlink" href="#toolchain-binary-compatibility" title="Permanent link">&para;</a></h3>
+<p>The toolchain binaries an executor runs:</p>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Source</th>
+<th>Platforms</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>oxc-bazel</code></td>
+<td>Built from Rust source via rules_rust</td>
+<td>whichever exec platform the build runs on</td>
+</tr>
+<tr>
+<td><code>tsgo</code></td>
+<td>Downloaded npm package</td>
+<td>linux-x64, linux-arm64, darwin-x64, darwin-arm64</td>
+</tr>
+<tr>
+<td>Node.js</td>
+<td>JS runtime toolchain</td>
+<td>linux and macOS on x86_64/arm64, Windows on x86_64</td>
+</tr>
+</tbody>
+</table>
+<p><code>oxc-bazel</code> is compiled on the executor itself, so it matches whatever the worker runs. <code>tsgo</code> and Node.js are self-contained downloads. None of the three needs a library the worker does not already have.</p>
+<h3 id="buildbuddy-rbe-setup">BuildBuddy RBE Setup<a class="headerlink" href="#buildbuddy-rbe-setup" title="Permanent link">&para;</a></h3>
+<p>BuildBuddy offers managed RBE with a free tier. To enable:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a># .bazelrc
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>build:rbe --config=bb
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a># RBE-specific overrides.
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>build:rbe --remote_executor=grpcs://remote.buildbuddy.io
+</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>build:rbe --jobs=100
+</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>build:rbe --remote_instance_name=rules_typescript
+</span></code></pre></div>
+<p>The one host utility an executor needs is <code>bash</code>, which the BuildBuddy image
+has. Everything else an action runs (node, tsgo, oxc, pnpm) is a toolchain
+input.</p>
+<h3 id="engflow-rbe-setup">EngFlow RBE Setup<a class="headerlink" href="#engflow-rbe-setup" title="Permanent link">&para;</a></h3>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a># .bazelrc
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>build:rbe --remote_executor=grpcs://your-cluster.engflow.com
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>build:rbe --jobs=200
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>build:rbe --remote_instance_name=default
+</span></code></pre></div>
+<h3 id="custom-executor-image">Custom Executor Image<a class="headerlink" href="#custom-executor-image" title="Permanent link">&para;</a></h3>
+<p>For additional system tools, build on the minimal image:</p>
+<div class="language-dockerfile highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">FROM</span><span class="w"> </span><span class="s">ubuntu:22.04</span>
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="c"># Only a POSIX shell is needed: the node_modules fallback taken when no JS</span>
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="c"># runtime toolchain is registered is a bash action.</span>
+</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="c"># Everything else runs a declared binary — no host tar, no python, no coreutils</span>
+</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="c"># dependency.</span>
+</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a><span class="k">RUN</span><span class="w"> </span>apt-get<span class="w"> </span>update<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>apt-get<span class="w"> </span>install<span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="w">    </span>bash<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-14-8"><a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a><span class="w">    </span><span class="o">&amp;&amp;</span><span class="w"> </span>rm<span class="w"> </span>-rf<span class="w"> </span>/var/lib/apt/lists/*
+</span></code></pre></div>
+<p>Push to a container registry and configure in EngFlow or your self-hosted RBE cluster.</p>
+<h3 id="testing-rbe-locally">Testing RBE Locally<a class="headerlink" href="#testing-rbe-locally" title="Permanent link">&para;</a></h3>
+<p>To test RBE connectivity without running the whole build:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>bazel<span class="w"> </span>build<span class="w"> </span>//tests/smoke:hello<span class="w"> </span>--config<span class="o">=</span>rbe<span class="w"> </span>--verbose_failures
+</span></code></pre></div>
+<p>A successful build confirms the RBE worker receives actions and the toolchain binaries are executable on the remote platform.</p>
+<hr />
+<h2 id="gitlab-ci-template">GitLab CI Template<a class="headerlink" href="#gitlab-ci-template" title="Permanent link">&para;</a></h2>
+<p>Add this as <code>.gitlab-ci.yml</code>, or import it from a shared template repository:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="c1"># GitLab CI/CD template for rules_typescript workspaces.</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="c1"># Adjust the image, cache backend, and registry variables to match your setup.</span>
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="nt">variables</span><span class="p">:</span>
+</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="w">  </span><span class="c1"># The Bazel remote cache address. Leave empty to disable remote caching.</span>
+</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a><span class="w">  </span><span class="nt">BAZEL_REMOTE_CACHE</span><span class="p">:</span><span class="w"> </span><span class="s">""</span>
+</span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a><span class="w">  </span><span class="c1"># BuildBuddy API key (or your remote cache auth header).</span>
+</span><span id="__span-16-8"><a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a><span class="w">  </span><span class="nt">BUILDBUDDY_API_KEY</span><span class="p">:</span><span class="w"> </span><span class="s">""</span>
+</span><span id="__span-16-9"><a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a>
+</span><span id="__span-16-10"><a id="__codelineno-16-10" name="__codelineno-16-10" href="#__codelineno-16-10"></a><span class="nt">default</span><span class="p">:</span>
+</span><span id="__span-16-11"><a id="__codelineno-16-11" name="__codelineno-16-11" href="#__codelineno-16-11"></a><span class="w">  </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ubuntu:22.04</span>
+</span><span id="__span-16-12"><a id="__codelineno-16-12" name="__codelineno-16-12" href="#__codelineno-16-12"></a><span class="w">  </span><span class="nt">before_script</span><span class="p">:</span>
+</span><span id="__span-16-13"><a id="__codelineno-16-13" name="__codelineno-16-13" href="#__codelineno-16-13"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">apt-get update -qq &amp;&amp; apt-get install -y -qq</span>
+</span><span id="__span-16-14"><a id="__codelineno-16-14" name="__codelineno-16-14" href="#__codelineno-16-14"></a><span class="w">        </span><span class="l l-Scalar l-Scalar-Plain">curl git tar unzip</span>
+</span><span id="__span-16-15"><a id="__codelineno-16-15" name="__codelineno-16-15" href="#__codelineno-16-15"></a><span class="w">    </span><span class="c1"># Install Bazel using Bazelisk.</span>
+</span><span id="__span-16-16"><a id="__codelineno-16-16" name="__codelineno-16-16" href="#__codelineno-16-16"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">curl -fsSL https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64 -o /usr/local/bin/bazel</span>
+</span><span id="__span-16-17"><a id="__codelineno-16-17" name="__codelineno-16-17" href="#__codelineno-16-17"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">chmod +x /usr/local/bin/bazel</span>
+</span><span id="__span-16-18"><a id="__codelineno-16-18" name="__codelineno-16-18" href="#__codelineno-16-18"></a><span class="w">    </span><span class="c1"># Warm up the Bazel server and download toolchains once.</span>
+</span><span id="__span-16-19"><a id="__codelineno-16-19" name="__codelineno-16-19" href="#__codelineno-16-19"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bazel version</span>
+</span><span id="__span-16-20"><a id="__codelineno-16-20" name="__codelineno-16-20" href="#__codelineno-16-20"></a>
+</span><span id="__span-16-21"><a id="__codelineno-16-21" name="__codelineno-16-21" href="#__codelineno-16-21"></a><span class="nt">stages</span><span class="p">:</span>
+</span><span id="__span-16-22"><a id="__codelineno-16-22" name="__codelineno-16-22" href="#__codelineno-16-22"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">test</span>
+</span><span id="__span-16-23"><a id="__codelineno-16-23" name="__codelineno-16-23" href="#__codelineno-16-23"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build</span>
+</span><span id="__span-16-24"><a id="__codelineno-16-24" name="__codelineno-16-24" href="#__codelineno-16-24"></a>
+</span><span id="__span-16-25"><a id="__codelineno-16-25" name="__codelineno-16-25" href="#__codelineno-16-25"></a><span class="c1"># ── Unit tests ─────────────────────────────────────────────────────────────────</span>
+</span><span id="__span-16-26"><a id="__codelineno-16-26" name="__codelineno-16-26" href="#__codelineno-16-26"></a><span class="nt">unit-tests</span><span class="p">:</span>
+</span><span id="__span-16-27"><a id="__codelineno-16-27" name="__codelineno-16-27" href="#__codelineno-16-27"></a><span class="w">  </span><span class="nt">stage</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">test</span>
+</span><span id="__span-16-28"><a id="__codelineno-16-28" name="__codelineno-16-28" href="#__codelineno-16-28"></a><span class="w">  </span><span class="nt">script</span><span class="p">:</span>
+</span><span id="__span-16-29"><a id="__codelineno-16-29" name="__codelineno-16-29" href="#__codelineno-16-29"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">|</span>
+</span><span id="__span-16-30"><a id="__codelineno-16-30" name="__codelineno-16-30" href="#__codelineno-16-30"></a><span class="w">      </span><span class="no">CACHE_FLAGS=""</span>
+</span><span id="__span-16-31"><a id="__codelineno-16-31" name="__codelineno-16-31" href="#__codelineno-16-31"></a><span class="w">      </span><span class="no">if [[ -n "$BAZEL_REMOTE_CACHE" ]]; then</span>
+</span><span id="__span-16-32"><a id="__codelineno-16-32" name="__codelineno-16-32" href="#__codelineno-16-32"></a><span class="w">        </span><span class="no">CACHE_FLAGS="--remote_cache=$BAZEL_REMOTE_CACHE"</span>
+</span><span id="__span-16-33"><a id="__codelineno-16-33" name="__codelineno-16-33" href="#__codelineno-16-33"></a><span class="w">        </span><span class="no">if [[ -n "$BUILDBUDDY_API_KEY" ]]; then</span>
+</span><span id="__span-16-34"><a id="__codelineno-16-34" name="__codelineno-16-34" href="#__codelineno-16-34"></a><span class="w">          </span><span class="no">CACHE_FLAGS="$CACHE_FLAGS --remote_header=x-buildbuddy-api-key=$BUILDBUDDY_API_KEY"</span>
+</span><span id="__span-16-35"><a id="__codelineno-16-35" name="__codelineno-16-35" href="#__codelineno-16-35"></a><span class="w">        </span><span class="no">fi</span>
+</span><span id="__span-16-36"><a id="__codelineno-16-36" name="__codelineno-16-36" href="#__codelineno-16-36"></a><span class="w">        </span><span class="no">CACHE_FLAGS="$CACHE_FLAGS --remote_upload_local_results"</span>
+</span><span id="__span-16-37"><a id="__codelineno-16-37" name="__codelineno-16-37" href="#__codelineno-16-37"></a><span class="w">      </span><span class="no">fi</span>
+</span><span id="__span-16-38"><a id="__codelineno-16-38" name="__codelineno-16-38" href="#__codelineno-16-38"></a><span class="w">      </span><span class="no">bazel test //... $CACHE_FLAGS --cache_test_results=no</span>
+</span><span id="__span-16-39"><a id="__codelineno-16-39" name="__codelineno-16-39" href="#__codelineno-16-39"></a><span class="w">  </span><span class="nt">artifacts</span><span class="p">:</span>
+</span><span id="__span-16-40"><a id="__codelineno-16-40" name="__codelineno-16-40" href="#__codelineno-16-40"></a><span class="w">    </span><span class="nt">reports</span><span class="p">:</span>
+</span><span id="__span-16-41"><a id="__codelineno-16-41" name="__codelineno-16-41" href="#__codelineno-16-41"></a><span class="w">      </span><span class="nt">junit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bazel-testlogs/**/test.xml</span>
+</span><span id="__span-16-42"><a id="__codelineno-16-42" name="__codelineno-16-42" href="#__codelineno-16-42"></a><span class="w">    </span><span class="nt">when</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">always</span>
+</span><span id="__span-16-43"><a id="__codelineno-16-43" name="__codelineno-16-43" href="#__codelineno-16-43"></a><span class="w">    </span><span class="nt">expire_in</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">7 days</span>
+</span><span id="__span-16-44"><a id="__codelineno-16-44" name="__codelineno-16-44" href="#__codelineno-16-44"></a><span class="w">  </span><span class="nt">cache</span><span class="p">:</span>
+</span><span id="__span-16-45"><a id="__codelineno-16-45" name="__codelineno-16-45" href="#__codelineno-16-45"></a><span class="w">    </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bazel-$CI_COMMIT_REF_SLUG</span>
+</span><span id="__span-16-46"><a id="__codelineno-16-46" name="__codelineno-16-46" href="#__codelineno-16-46"></a><span class="w">    </span><span class="nt">paths</span><span class="p">:</span>
+</span><span id="__span-16-47"><a id="__codelineno-16-47" name="__codelineno-16-47" href="#__codelineno-16-47"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.cache/bazel/</span>
+</span><span id="__span-16-48"><a id="__codelineno-16-48" name="__codelineno-16-48" href="#__codelineno-16-48"></a>
+</span><span id="__span-16-49"><a id="__codelineno-16-49" name="__codelineno-16-49" href="#__codelineno-16-49"></a><span class="c1"># ── Build examples ─────────────────────────────────────────────────────────────</span>
+</span><span id="__span-16-50"><a id="__codelineno-16-50" name="__codelineno-16-50" href="#__codelineno-16-50"></a><span class="nt">build-examples</span><span class="p">:</span>
+</span><span id="__span-16-51"><a id="__codelineno-16-51" name="__codelineno-16-51" href="#__codelineno-16-51"></a><span class="w">  </span><span class="nt">stage</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build</span>
+</span><span id="__span-16-52"><a id="__codelineno-16-52" name="__codelineno-16-52" href="#__codelineno-16-52"></a><span class="w">  </span><span class="nt">script</span><span class="p">:</span>
+</span><span id="__span-16-53"><a id="__codelineno-16-53" name="__codelineno-16-53" href="#__codelineno-16-53"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">|</span>
+</span><span id="__span-16-54"><a id="__codelineno-16-54" name="__codelineno-16-54" href="#__codelineno-16-54"></a><span class="w">      </span><span class="no">CACHE_FLAGS=""</span>
+</span><span id="__span-16-55"><a id="__codelineno-16-55" name="__codelineno-16-55" href="#__codelineno-16-55"></a><span class="w">      </span><span class="no">if [[ -n "$BAZEL_REMOTE_CACHE" ]]; then</span>
+</span><span id="__span-16-56"><a id="__codelineno-16-56" name="__codelineno-16-56" href="#__codelineno-16-56"></a><span class="w">        </span><span class="no">CACHE_FLAGS="--remote_cache=$BAZEL_REMOTE_CACHE"</span>
+</span><span id="__span-16-57"><a id="__codelineno-16-57" name="__codelineno-16-57" href="#__codelineno-16-57"></a><span class="w">        </span><span class="no">if [[ -n "$BUILDBUDDY_API_KEY" ]]; then</span>
+</span><span id="__span-16-58"><a id="__codelineno-16-58" name="__codelineno-16-58" href="#__codelineno-16-58"></a><span class="w">          </span><span class="no">CACHE_FLAGS="$CACHE_FLAGS --remote_header=x-buildbuddy-api-key=$BUILDBUDDY_API_KEY"</span>
+</span><span id="__span-16-59"><a id="__codelineno-16-59" name="__codelineno-16-59" href="#__codelineno-16-59"></a><span class="w">        </span><span class="no">fi</span>
+</span><span id="__span-16-60"><a id="__codelineno-16-60" name="__codelineno-16-60" href="#__codelineno-16-60"></a><span class="w">      </span><span class="no">fi</span>
+</span><span id="__span-16-61"><a id="__codelineno-16-61" name="__codelineno-16-61" href="#__codelineno-16-61"></a><span class="w">      </span><span class="no">bazel build //examples/... $CACHE_FLAGS || true  # non-critical</span>
+</span><span id="__span-16-62"><a id="__codelineno-16-62" name="__codelineno-16-62" href="#__codelineno-16-62"></a><span class="w">  </span><span class="nt">allow_failure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-16-63"><a id="__codelineno-16-63" name="__codelineno-16-63" href="#__codelineno-16-63"></a>
+</span><span id="__span-16-64"><a id="__codelineno-16-64" name="__codelineno-16-64" href="#__codelineno-16-64"></a><span class="c1"># ── Determinism check ──────────────────────────────────────────────────────────</span>
+</span><span id="__span-16-65"><a id="__codelineno-16-65" name="__codelineno-16-65" href="#__codelineno-16-65"></a><span class="nt">determinism</span><span class="p">:</span>
+</span><span id="__span-16-66"><a id="__codelineno-16-66" name="__codelineno-16-66" href="#__codelineno-16-66"></a><span class="w">  </span><span class="nt">stage</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build</span>
+</span><span id="__span-16-67"><a id="__codelineno-16-67" name="__codelineno-16-67" href="#__codelineno-16-67"></a><span class="w">  </span><span class="nt">script</span><span class="p">:</span>
+</span><span id="__span-16-68"><a id="__codelineno-16-68" name="__codelineno-16-68" href="#__codelineno-16-68"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">|</span>
+</span><span id="__span-16-69"><a id="__codelineno-16-69" name="__codelineno-16-69" href="#__codelineno-16-69"></a><span class="w">      </span><span class="no">for base in a b; do</span>
+</span><span id="__span-16-70"><a id="__codelineno-16-70" name="__codelineno-16-70" href="#__codelineno-16-70"></a><span class="w">        </span><span class="no">bazel --output_base="$CI_PROJECT_DIR/.det_$base" \</span>
+</span><span id="__span-16-71"><a id="__codelineno-16-71" name="__codelineno-16-71" href="#__codelineno-16-71"></a><span class="w">          </span><span class="no">build --config=determinism //tests/smoke:hello</span>
+</span><span id="__span-16-72"><a id="__codelineno-16-72" name="__codelineno-16-72" href="#__codelineno-16-72"></a><span class="w">      </span><span class="no">done</span>
+</span><span id="__span-16-73"><a id="__codelineno-16-73" name="__codelineno-16-73" href="#__codelineno-16-73"></a><span class="w">      </span><span class="no">cmp \</span>
+</span><span id="__span-16-74"><a id="__codelineno-16-74" name="__codelineno-16-74" href="#__codelineno-16-74"></a><span class="w">        </span><span class="no">"$(bazel --output_base="$CI_PROJECT_DIR/.det_a" info bazel-bin)/tests/smoke/hello.js" \</span>
+</span><span id="__span-16-75"><a id="__codelineno-16-75" name="__codelineno-16-75" href="#__codelineno-16-75"></a><span class="w">        </span><span class="no">"$(bazel --output_base="$CI_PROJECT_DIR/.det_b" info bazel-bin)/tests/smoke/hello.js"</span>
+</span><span id="__span-16-76"><a id="__codelineno-16-76" name="__codelineno-16-76" href="#__codelineno-16-76"></a><span class="w">  </span><span class="nt">allow_failure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</span></code></pre></div>
+<p>For GitLab's <code>cache:</code> key to cover the local Bazel cache, point the output base into it:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a># .bazelrc  (add to the repo-level file)
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>startup --output_base=/root/.cache/bazel/output
+</span></code></pre></div>
+<hr />
+<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
+<h3 id="determinism-failures">Determinism Failures<a class="headerlink" href="#determinism-failures" title="Permanent link">&para;</a></h3>
+<p>Read the differing byte offset <code>cmp</code> names first: a difference early in a <code>.js</code>
+is usually a path that leaked in, one late is usually a timestamp. Then work
+through <a href="#known-sources-of-non-determinism">Known Sources of Non-Determinism</a>.
+The two that reach a plain <code>ts_compile</code> target are a <code>genrule</code> of your own
+calling a host tool, and an undeclared env var.</p>
+<h3 id="release-tool-issues">Release Tool Issues<a class="headerlink" href="#release-tool-issues" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Dirty working tree</strong>: commit or stash all changes; <code>--dry-run</code> reports what
+  is uncommitted without touching anything</li>
+<li><strong>Tag exists</strong>: <code>git tag -d &lt;tag&gt;</code> before push, or release the next patch
+  version</li>
+<li><strong>"no rules_typescript MODULE.bazel found"</strong>: <code>bazel run</code> was invoked from
+  outside the checkout; the tool resolves the repo from
+  <code>BUILD_WORKING_DIRECTORY</code> upward</li>
+</ul>
+<h3 id="ci-failures">CI Failures<a class="headerlink" href="#ci-failures" title="Permanent link">&para;</a></h3>
+<p>Open the failed job's log in GitHub Actions, then reproduce locally with
+<code>bazel test --config=ci //...</code>.</p>
+<h2 id="related-documentation">Related Documentation<a class="headerlink" href="#related-documentation" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../">Documentation index</a></li>
+<li><a href="../RELEASE_PROCESS/">Release Process</a> — the walkthrough this page summarises</li>
+<li><a href="https://github.com/mikn/rules_typescript/blob/main/AGENTS.md">AGENTS.md</a> — architecture, for contributors</li>
+<li><a href="https://github.com/mikn/rules_typescript/blob/main/TODO.md">TODO.md</a> — roadmap</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/mikn/rules_typescript" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "navigation.instant", "navigation.instant.progress", "content.code.copy", "content.code.annotate", "search.suggest", "search.highlight", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

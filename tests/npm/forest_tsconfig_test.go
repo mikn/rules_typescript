@@ -47,11 +47,13 @@ func TestWrittenConfigNamesNoPackage(t *testing.T) {
 			t.Errorf("%s: preserveSymlinks = %v, want unset: "+
 				"a package resolves at its realpath", c.target, opts["preserveSymlinks"])
 		}
-		if len(config.Files) != 0 {
-			t.Errorf("%s: files = %v, want []: a global reaches the program through `types`", c.target, config.Files)
+		if len(config.Files) != 1 {
+			t.Errorf("%s: files = %v, want the one src: a global reaches the "+
+				"program through `types`", c.target, config.Files)
 		}
-		if len(config.Include) != 1 {
-			t.Errorf("%s: include = %v, want the one src", c.target, config.Include)
+		if len(config.Include) != 0 {
+			t.Errorf("%s: include = %v, want []: no tsconfig, no pattern",
+				c.target, config.Include)
 		}
 	}
 }

@@ -1,5 +1,5 @@
-// The tsgo step runs tsgo from a program root: the exec root laid out again
-// under the target's output directory, the importer chain's node_modules in.
+// The tsgo step runs tsgo from a program root under the target's output
+// directory: the action's sources at their paths, the chain's node_modules in.
 
 package main
 
@@ -21,7 +21,10 @@ import (
 func runTsgo(args []string) error {
 	flags := flag.NewFlagSet("tsgo", flag.ExitOnError)
 	root := flags.String("root", "", "the program root to lay out, under the target's output directory")
-	var importers, overlays, manifests stringList
+	var sources, importers, overlays, manifests stringList
+	flags.Var(&sources, "source",
+		"an input of the action in the source tree, linked at its path under "+
+			"the root (repeatable); the output tree is linked whole")
 	flags.Var(&importers, "node_modules",
 		"an importer's node_modules directory, nearest first (repeatable); "+
 			"the last is the lockfile's root importer")
@@ -45,7 +48,7 @@ func runTsgo(args []string) error {
 	if err != nil {
 		return err
 	}
-	err = layOutProgramRoot(*root, importers, overlays, manifests)
+	err = layOutProgramRoot(*root, sources, importers, overlays, manifests)
 	if err != nil {
 		return err
 	}
@@ -118,10 +121,13 @@ func throughRoot(rootAbs, execroot, listed string) string {
 	return filepath.ToSlash(rel)
 }
 
-// layOutProgramRoot links the exec root's entries into root, each importer's
-// node_modules, overlay and manifest as built at its package's place.
+// Bazel's output tree, the top-level entry every action output is under.
+const outputTree = "bazel-out"
+
+// layOutProgramRoot links each source at its path under real directories, the
+// output tree whole, each importer's node_modules, overlays and manifests.
 func layOutProgramRoot(
-	root string, importers, overlays, manifests []string,
+	root string, sources, importers, overlays, manifests []string,
 ) error {
 	execroot, err := os.Getwd()
 	if err != nil {
@@ -130,14 +136,23 @@ func layOutProgramRoot(
 	if err := os.RemoveAll(root); err != nil {
 		return err
 	}
-	if err := linkEntries(root, execroot, "node_modules"); err != nil {
+	if err := linkAt(root, execroot, outputTree); err != nil {
 		return err
+	}
+	for _, file := range sources {
+		if file == outputTree || strings.HasPrefix(file, outputTree+"/") {
+			return fmt.Errorf("-source=%s is under %s, which the root links "+
+				"whole", file, outputTree)
+		}
+		if err := linkAt(root, execroot, filepath.FromSlash(file)); err != nil {
+			return err
+		}
 	}
 	for i, binDir := range importers {
 		at := "node_modules"
 		if i < len(importers)-1 {
 			dir := importerDir(binDir)
-			if err := realDirs(root, execroot, dir); err != nil {
+			if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
 				return err
 			}
 			at = filepath.Join(dir, "node_modules")
@@ -163,7 +178,7 @@ func layOutProgramRoot(
 	}
 	for _, file := range manifests {
 		dir := filepath.FromSlash(binRelative(path.Dir(file)))
-		if err := realDirs(root, execroot, dir); err != nil {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
 			return err
 		}
 		at := filepath.Join(root, dir, "package.json")
@@ -199,8 +214,8 @@ func importerDir(binDir string) string {
 	return dir
 }
 
-// overlayDir makes root/rel real and links every file under from into it over
-// a source entry of the same name; node_modules and the root itself skipped.
+// overlayDir links every file under from into root/rel over a source of the
+// same name; node_modules and the root itself skipped.
 func overlayDir(root, rootAbs, execroot, from, rel string) error {
 	entries, err := os.ReadDir(from)
 	if errors.Is(err, os.ErrNotExist) {
@@ -209,7 +224,7 @@ func overlayDir(root, rootAbs, execroot, from, rel string) error {
 	if err != nil {
 		return err
 	}
-	if err := realDirs(root, execroot, rel); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, rel), 0o755); err != nil {
 		return err
 	}
 	for _, entry := range entries {
@@ -240,50 +255,11 @@ func overlayDir(root, rootAbs, execroot, from, rel string) error {
 	return nil
 }
 
-// realDirs makes root/<each prefix of dir> a real directory holding a link
-// per entry of the exec root's directory at that level.
-func realDirs(root, execroot, dir string) error {
-	rel := ""
-	for _, part := range strings.Split(dir, string(filepath.Separator)) {
-		rel = filepath.Join(rel, part)
-		at := filepath.Join(root, rel)
-		st, err := os.Lstat(at)
-		if err == nil && st.IsDir() {
-			continue
-		}
-		if err == nil {
-			if err := os.Remove(at); err != nil {
-				return err
-			}
-		}
-		if err := linkEntries(at, filepath.Join(execroot, rel), ""); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// linkEntries creates dir and links every entry of from into it but skip; a
-// from that is not there is an empty directory.
-func linkEntries(dir, from, skip string) error {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+// linkAt links the exec root's rel into root at rel, its directories real.
+func linkAt(root, execroot, rel string) error {
+	at := filepath.Join(root, rel)
+	if err := os.MkdirAll(filepath.Dir(at), 0o755); err != nil {
 		return err
 	}
-	entries, err := os.ReadDir(from)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		if entry.Name() == skip {
-			continue
-		}
-		target := filepath.Join(from, entry.Name())
-		if err := os.Symlink(target, filepath.Join(dir, entry.Name())); err != nil {
-			return err
-		}
-	}
-	return nil
+	return os.Symlink(filepath.Join(execroot, rel), at)
 }

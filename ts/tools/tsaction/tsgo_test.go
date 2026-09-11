@@ -21,6 +21,8 @@ const (
 func tsgoArgs(rest ...string) []string {
 	flags := []string{
 		"-root=" + programRoot,
+		"-source=pkg/a.ts",
+		"-source=pkg/package.json",
 		"-node_modules=" + subImporter,
 		"-node_modules=" + rootImporter,
 		"-check=" + manifest,
@@ -28,8 +30,8 @@ func tsgoArgs(rest ...string) []string {
 	return append(flags, rest...)
 }
 
-// A fake exec root: sources, the importers' node_modules and pkg's outputs
-// under the bin dir: the manifest as written and as built, a declaration.
+// A fake exec root: the action's sources beside files it does not name, the
+// importers' node_modules and pkg's outputs (both manifests, a declaration).
 func newTsgoExecroot(t *testing.T, script string) (root, argv string) {
 	t.Helper()
 	root = t.TempDir()
@@ -68,16 +70,18 @@ func realpath(t *testing.T, p string) string {
 	return resolved
 }
 
-// The root importer at node_modules, pkg/sub's at its directory made real with
-// the sibling kept as a link; afterwards the root is gone, the stamp is there.
-func TestTsgoStep_RunsFromAProgramRoot(t *testing.T) {
+// The root holds each -source at its path, the output tree whole, the chain's
+// node_modules, and no file the action did not name; then it is gone, stamped.
+func TestTsgoStep_RunsFromAProgramRootOfTheSourcesNamed(t *testing.T) {
 	root, argv := newTsgoExecroot(t,
 		"pwd >> \"$0.argv\"\nreadlink node_modules >> \"$0.argv\"\n"+
 			"readlink pkg/sub/node_modules >> \"$0.argv\"\n"+
 			"ls | tr '\\n' ' ' >> \"$0.argv\"\necho >> \"$0.argv\"\n"+
 			"test -d pkg -a ! -L pkg && echo pkg-is-real >> \"$0.argv\"\n"+
-			"readlink pkg/other >> \"$0.argv\"\n"+
-			"test -f pkg/a.ts && echo source-through-link >> \"$0.argv\"\n")
+			"readlink pkg/a.ts >> \"$0.argv\"\n"+
+			"readlink bazel-out >> \"$0.argv\"\n"+
+			"test -e pkg/lib.ts || echo lib-absent >> \"$0.argv\"\n"+
+			"test -e pkg/other || echo other-absent >> \"$0.argv\"\n")
 	stamp := binDir + "/pkg/app.tscheck"
 
 	err := runTsgo(tsgoArgs("-stamp="+stamp, "--", "external/tsgo/tsc",
@@ -99,19 +103,23 @@ func TestTsgoStep_RunsFromAProgramRoot(t *testing.T) {
 	if want := filepath.Join(root, subImporter); got[5] != want {
 		t.Errorf("pkg/sub/node_modules -> %s, want the importer's %s", got[5], want)
 	}
-	for _, entry := range []string{"bazel-out", "external", "node_modules", "pkg"} {
-		if !strings.Contains(" "+got[6], " "+entry+" ") {
-			t.Errorf("the program root lists %q, want %s in it", got[6], entry)
-		}
+	if want := "bazel-out node_modules pkg "; got[6] != want {
+		t.Errorf("the program root lists %q, want %q: the sources' "+
+			"directories, the output tree and the root importer alone", got[6], want)
 	}
 	if got[7] != "pkg-is-real" {
 		t.Errorf("pkg is not a real directory on the way to pkg/sub: %q", got[7:])
 	}
-	if want := filepath.Join(root, "pkg/other"); got[8] != want {
-		t.Errorf("pkg/other -> %s, want the exec root's sibling %s", got[8], want)
+	if want := filepath.Join(root, "pkg/a.ts"); got[8] != want {
+		t.Errorf("pkg/a.ts -> %s, want the source at its exec path %s", got[8], want)
 	}
-	if got[9] != "source-through-link" {
-		t.Errorf("pkg/a.ts is not reachable from the program root: %q", got[9:])
+	if want := filepath.Join(root, "bazel-out"); got[9] != want {
+		t.Errorf("bazel-out -> %s, want the output tree whole %s", got[9], want)
+	}
+	want := []string{"lib-absent", "other-absent"}
+	if !reflect.DeepEqual(got[10:12], want) {
+		t.Errorf("the root holds files the action does not name: %q, want %q",
+			got[10:12], want)
 	}
 	if _, err := os.Stat(stamp); err != nil {
 		t.Errorf("no stamp after a passing run: %v", err)
@@ -121,13 +129,28 @@ func TestTsgoStep_RunsFromAProgramRoot(t *testing.T) {
 	}
 }
 
-// -overlay lays a dep's outputs over its package, -manifest its package.json
-// as built over the src; the importer's node_modules and the root are left.
+// A -source under the output tree would be written into the tree the root
+// links whole; the step refuses it before tsgo runs.
+func TestTsgoStep_ASourceUnderTheOutputTreeIsRefused(t *testing.T) {
+	_, argv := newTsgoExecroot(t, "echo ran\n")
+
+	err := runTsgo(tsgoArgs("-source="+binDir+"/pkg/lib.d.ts", "--",
+		"external/tsgo/tsc"))
+	if err == nil || !strings.Contains(err.Error(), binDir+"/pkg/lib.d.ts") {
+		t.Errorf("runTsgo = %v, want the output-tree source refused", err)
+	}
+	if _, err := os.Stat(argv); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("tsgo ran after the refusal: stat = %v", err)
+	}
+}
+
+// -overlay lays a dep's outputs over its package, -manifest its package.json as
+// built over the src; the dep's sources, the importer's links, the root: left.
 func TestTsgoStep_LaysADepsOutputsOverItsDirectory(t *testing.T) {
 	root, argv := newTsgoExecroot(t,
 		"readlink pkg/package.json >> \"$0.argv\"\n"+
 			"readlink pkg/lib.d.ts >> \"$0.argv\"\n"+
-			"readlink pkg/lib.ts >> \"$0.argv\"\n"+
+			"test -e pkg/lib.ts || echo lib-source-absent >> \"$0.argv\"\n"+
 			"readlink pkg/sub/node_modules >> \"$0.argv\"\n"+
 			"test -e pkg/app.program && echo root-linked >> \"$0.argv\" || "+
 			"echo root-skipped >> \"$0.argv\"\n"+
@@ -143,7 +166,7 @@ func TestTsgoStep_LaysADepsOutputsOverItsDirectory(t *testing.T) {
 	want := []string{
 		filepath.Join(root, binDir, "pkg/app.package.json"),
 		filepath.Join(root, binDir, "pkg/lib.d.ts"),
-		filepath.Join(root, "pkg/lib.ts"),
+		"lib-source-absent",
 		filepath.Join(root, subImporter),
 		"root-skipped",
 		"sub-is-real",
@@ -311,7 +334,7 @@ func TestTsgoStep_AFailingTsgoWithNoDiagnosticRelaysItsOutput(t *testing.T) {
 func TestTsgoStep_NeedsTheManifest(t *testing.T) {
 	_, argv := newTsgoExecroot(t, "echo ran\n")
 
-	err := runTsgo([]string{"-root=" + programRoot,
+	err := runTsgo([]string{"-root=" + programRoot, "-source=pkg/a.ts",
 		"-node_modules=" + rootImporter, "--", "external/tsgo/tsc"})
 	if err == nil || !strings.Contains(err.Error(), "-check=FILE") {
 		t.Errorf("runTsgo without -check = %v, want an error", err)

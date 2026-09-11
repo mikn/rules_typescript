@@ -71,9 +71,10 @@ ts_compile → TsConfig action (<name>.tsconfig.json + <name>.options.json from
              file's module
            → TsgoDeclare action (.d.ts; the default)
              or TsgoCheck validation action (.tscheck stamp in _validation; under oxc)
-           the tsgo runs are from a program root mirroring the exec root
-           with each importer's node_modules at the importer's directory,
-           the chain `node_modules` names; the check
+           the tsgo runs are from a program root holding the action's
+           sources at their paths and bazel-out whole, with each importer's
+           node_modules at the importer's directory, the chain
+           `node_modules` names; the check
            adds --explainFiles and fails an edge from a src into a file a
            label outside deps owns (the <name>.ownership manifest names the
            owner)

@@ -151,12 +151,18 @@ func writeTsconfig(args []string) error {
 		}
 	}
 
-	// showConfig reads a file, and the options this program runs under are the
-	// merged chain's; `files: []` keeps tsc off the bin dir when none is named.
+	// showConfig reads a file: the chain's options and roots, tsc's default
+	// include over the project rather than over the bin dir the file sits in.
 	dir := path.Dir(a.out)
 	first := map[string]any{"extends": a.extends(dir)}
-	if chain == nil || !chain.Inputs {
+	switch {
+	case chain == nil:
 		first["files"] = []string{}
+	case !chain.Inputs():
+		first["include"] = rebased(dir, path.Dir(a.project), []string{"**/*"})
+	}
+	if a.hasJavaScriptSrc() {
+		first["compilerOptions"] = map[string]any{"allowJs": true}
 	}
 	if err := writeJSON(a.out, first); err != nil {
 		return err
@@ -291,13 +297,21 @@ func (a *actionConfig) build(effective *effectiveOptions, roots []string,
 		opts["skipLibCheck"] = false
 	}
 
-	files, include := a.roots(roots, dir)
-	listed := map[string]bool{}
-	for _, p := range append(files, include...) {
-		listed[path.Clean(p)] = true
+	files, include, exclude := a.chainRoots(chain, dir)
+	named := make(map[string]bool, len(roots))
+	for _, p := range roots {
+		named[path.Clean(p)] = true
+	}
+	src := make(map[string]bool, len(a.srcs))
+	for _, s := range a.srcs {
+		rel := fileRelative(dir, s)
+		src[path.Clean(rel)] = true
+		if !named[path.Clean(rel)] {
+			files = append(files, rel)
+		}
 	}
 	for _, p := range typesRoots {
-		if !listed[path.Clean(p)] {
+		if !src[path.Clean(p)] {
 			include = append(include, p)
 		}
 	}
@@ -306,35 +320,46 @@ func (a *actionConfig) build(effective *effectiveOptions, roots []string,
 		CompilerOptions: opts,
 		Include:         include,
 		Files:           files,
-		Exclude:         []string{},
+		Exclude:         exclude,
 		References:      []string{},
 	}, nil
 }
 
-// roots splits the srcs into the root files, in the order showConfig printed
-// them, and the rest: the first declaration of an ambient pattern wins.
-func (a *actionConfig) roots(printed []string, dir string,
-) (files, include []string) {
-	rel := make([]string, len(a.srcs))
-	index := make(map[string]int, len(a.srcs))
-	for i, src := range a.srcs {
-		rel[i] = fileRelative(dir, src)
-		index[path.Clean(rel[i])] = i
+// chainRoots is the chain's files, include and exclude, each from its writer's
+// directory as tsc reads it; no exclude is `[]`: tsc's default names outDir.
+func (a *actionConfig) chainRoots(chain *tsconfig.Resolved, dir string,
+) (files, include, exclude []string) {
+	files, include, exclude = []string{}, []string{}, []string{}
+	if chain == nil {
+		return files, include, exclude
 	}
-	files, include = []string{}, []string{}
-	isRoot := make([]bool, len(a.srcs))
-	for _, p := range printed {
-		if i, ok := index[path.Clean(p)]; ok && !isRoot[i] {
-			isRoot[i] = true
-			files = append(files, rel[i])
+	if chain.Files != nil {
+		files = rebased(dir, chain.FilesDir, *chain.Files)
+	}
+	switch {
+	case chain.Include != nil:
+		include = rebased(dir, chain.IncludeDir, *chain.Include)
+	case chain.Files == nil:
+		include = rebased(dir, path.Dir(a.project), []string{"**/*"})
+	}
+	if chain.Exclude != nil {
+		exclude = rebased(dir, chain.ExcludeDir, *chain.Exclude)
+	}
+	return files, include, exclude
+}
+
+// rebased spells each spec written in from relative to dir.
+func rebased(dir, from string, specs []string) []string {
+	out := make([]string, 0, len(specs))
+	for _, spec := range specs {
+		if path.IsAbs(spec) {
+			out = append(out, spec)
+			continue
 		}
+		spec = relativePath(dir, path.Join(from, spec))
+		out = append(out, explicitlyRelative(spec))
 	}
-	for i, r := range rel {
-		if !isRoot[i] {
-			include = append(include, r)
-		}
-	}
-	return files, include
+	return out
 }
 
 // A .ts or .tsx src has an emit; a declaration has none to name.
@@ -359,7 +384,8 @@ func (a *actionConfig) hasTsxSrc() bool {
 	return false
 }
 
-// A JavaScript src is in `include`; without allowJs tsgo reports TS6504 on it.
+// A JavaScript src sets allowJs; without it a pattern skips the file and a
+// root entry for it is TS6504.
 func (a *actionConfig) hasJavaScriptSrc() bool {
 	for _, src := range a.srcs {
 		switch path.Ext(src) {

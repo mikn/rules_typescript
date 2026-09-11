@@ -18,7 +18,13 @@ _actions_aspect = aspect(implementation = _actions_aspect_impl)
 
 _COMPILE_MNEMONICS = ["TsConfig", "TsEmit", "TsgoDeclare", "TsgoCheck"]
 
-_TSGO_INPUTS = ("-tsconfig=", "-node_modules=", "-scratch=", "-tsgo=")
+_TSGO_INPUTS = (
+    "-tsconfig=",
+    "-source=",
+    "-node_modules=",
+    "-scratch=",
+    "-tsgo=",
+)
 
 def _es_modules_emit(argv):
     """The compile's TsEmit argv as the vitest runner's program registers it."""

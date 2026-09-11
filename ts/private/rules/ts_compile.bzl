@@ -28,12 +28,14 @@ and edge links that link reaches, a `@types/<name>` twin the chain links comes
 with it, a member link target brings the member's tree, and every first-party
 dep's npm files come along. tsgo walks up from the importing file for a bare
 specifier and nothing above a source in the exec root is an output, so tsaction
-runs it from a program root that mirrors the exec root with each importer's
-node_modules at the importer's directory, and the outputs of every first-party
-dep at or above the target's package laid over that package's sources -- its
-declarations, and its package.json as built at the package's path -- so every
-import resolves as it does over a pnpm install, the package's own name through
-the nearest manifest included. Under --//ts:declarations=oxc the check is a
+runs it from a program root holding the action's source inputs at their paths
+and the output tree whole, with each importer's node_modules at the importer's
+directory, and the outputs of every first-party dep at or above the target's
+package laid over that package's sources -- its declarations, and its
+package.json as built at the package's path -- so the tsconfig's own include
+names the srcs and every import resolves as it does over a pnpm install, the
+package's own name through the nearest manifest included. Under
+--//ts:declarations=oxc the check is a
 validation
 action in the _validation output group: it runs during `bazel build` and does
 not block downstream compilation. The linter the root module's ts.lint() names
