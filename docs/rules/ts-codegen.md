@@ -44,13 +44,13 @@ The generated sources are their own `ts_compile` target; see
 
 A `ts_codegen` is hand-written. Gazelle reads every one in the BUILD files it
 walks and never writes or rewrites one: a `ts_codegen` in a package's BUILD
-file is a dep of every target Gazelle writes there, a file its `outs` declare
-resolves to it wherever a program reaches the file, and everything under a
-declared `out_dir` is the target's output whether or not a local run of the
-generator left a copy on disk, so nothing under it is a source and an import
-into the tree resolves to the target. A checked-in `*.gen.ts` no rule declares
-is an ordinary source, listed by its program like any other; one the program's
-`exclude` names is not.
+file is a dep of every target Gazelle writes there, and the files its `outs`
+declare and everything under a declared `out_dir` are the target's output
+whether or not a local run of the generator left a copy on disk, so none is a
+src, a program reaching an out depends on the target, and an import into the
+tree resolves to it. A checked-in `*.gen.ts` no rule declares is an ordinary
+source, listed by its program like any other; one the program's `exclude`
+names is not.
 
 ## Compiling the Output
 

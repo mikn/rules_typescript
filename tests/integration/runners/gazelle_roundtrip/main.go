@@ -498,25 +498,28 @@ ts_codegen(
 )
 `
 
-// Bazel says the half the converge test cannot: the rewritten labels resolve,
-// and every program under worker/ type-checks against the generated declaration.
+// The copy on disk stays, in a shape no program here compiles against: the
+// declared out is the codegen's, and a green build says which copy was staged.
 func declarationMovesToACodegen(it *harness.IT) {
-	if err := os.Remove(it.Path("worker/worker-configuration.d.ts")); err != nil {
-		it.Fail("cannot delete the checked-in declaration: %v", err)
-	}
+	it.Write(it.Path("worker/worker-configuration.d.ts"),
+		"declare const WORKER_BUILD_ID: string;\n\n"+
+			"interface WorkerEnv {\n\treadonly stale: string;\n}\n")
 	it.Write(it.Path("worker/bindings.txt"), "bucket\n")
 	owner := it.Path("worker/BUILD.bazel")
 	it.Write(owner, it.Read(owner)+workerTypesCodegen)
 	it.MustBazel("run", "//:gazelle")
-	it.Pass("gazelle run over the migration: declaration deleted, ts_codegen appended")
+	it.Pass("gazelle run over the migration: ts_codegen appended, a stale " +
+		"copy left on disk")
 
 	it.RequireContains(owner, `name = "worker_types"`,
 		"the hand-written ts_codegen did not survive the Gazelle run")
 	requireLabels(it, "srcs", "//worker:worker",
 		[]string{"//worker:bindings.txt", "//worker:src/handler.ts"})
+	requireLabels(it, "srcs", "//worker:worker_test",
+		[]string{"//worker:src/handler.test.ts"})
 	requireLabels(it, "deps", "//worker:worker", []string{"//worker:worker_types"})
-	it.Pass("worker/BUILD.bazel keeps the ts_codegen; //worker loses the " +
-		"declaration and gains the codegen")
+	it.Pass("worker/BUILD.bazel keeps the ts_codegen; no rule in //worker " +
+		"lists the declared out on disk, and //worker gains the codegen")
 
 	for _, dir := range []string{"worker/test", "worker/test/deep"} {
 		requireLabels(it, "deps", testTarget(dir),
@@ -525,12 +528,30 @@ func declarationMovesToACodegen(it *harness.IT) {
 			"for the import", dir)
 	}
 
+	dirs := []string{"worker", "worker/test", "worker/test/deep"}
+	written := map[string]string{}
+	for _, dir := range dirs {
+		written[dir] = it.Read(it.Path(dir, "BUILD.bazel"))
+	}
+	it.MustBazel("run", "//:gazelle")
+	for _, dir := range dirs {
+		again := it.Read(it.Path(dir, "BUILD.bazel"))
+		if again != written[dir] {
+			fmt.Fprintf(os.Stderr, "--- %s/BUILD.bazel run 1 ---\n%s"+
+				"--- run 2 ---\n%s", dir, written[dir], again)
+			it.Fail("a second Gazelle run rewrote %s/BUILD.bazel", dir)
+		}
+	}
+	it.Pass("a second Gazelle run writes nothing under worker/")
+
 	it.MustBazel("test", "//worker/...")
-	it.Pass("bazel test //worker/...: every program under worker/ resolves the generated declaration")
+	it.Pass("bazel test //worker/...: every program under worker/ resolves " +
+		"the generated declaration")
 	declaration := it.Bin("worker/worker-configuration.d.ts")
 	it.RequireContains(declaration, "readonly bucket: string;",
 		"the generated declaration names no binding from bindings.txt")
-	it.Pass("the declaration the programs compiled against is the generated one")
+	it.Pass("the programs compiled against the generated declaration: each " +
+		"reads env.bucket, which the copy on disk does not declare")
 }
 
 // Every tsconfig.json here is below the root, so tsgo lists each; that the tsgo

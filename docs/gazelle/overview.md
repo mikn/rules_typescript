@@ -63,8 +63,8 @@ Five things, and no directive of its own.
    so its imports, and those of the first-party modules they reach, are the
    test's.
 5. **The hand-written `ts_codegen` rules** in the BUILD files walked: their
-   `outs`, and every `out_dir`, which is that target's output whatever a local
-   run of the generator left on disk.
+   `outs` and every `out_dir`, the target's output whatever a local run of the
+   generator left on disk.
 
 The listing resolves through the checkout's `node_modules`, so a repository
 with a root lockfile is installed before a run. tsgo prints no line for an
@@ -104,12 +104,15 @@ file. A file tsgo could have listed -- `.ts`, `.tsx`, `.mts`, `.cts`, `.js`,
 `.jsx`, `.mjs`, `.cjs` -- is a src only when the program lists it: one the
 tsconfig's `exclude` leaves out is neither a src nor data. Every other regular
 file under the package's tree -- not a `BUILD.bazel`, not the package's own
-`tsconfig.json`, not under a deeper package or a declared `out_dir` -- is a
-data src of the package: a `.json`, a `.css`, an image, a fixture, the
-`package.json`. The one unlisted JavaScript that is a src is the twin beside an
-owned declaration of the same stem (`x.mjs` beside `x.d.mts`): tsc drops it
-from the program and resolves `./x.mjs` to the declaration, so the listing
-never names the module itself.
+`tsconfig.json`, not under a deeper package -- is a data src of the package: a
+`.json`, a `.css`, an image, a fixture, the `package.json`. A file a
+`ts_codegen` writes -- one its `outs` declare, or anything under its `out_dir`
+-- is neither, listed or not: a copy on disk is what a local run of the
+generator left, and the target that reaches it depends on the codegen. The one
+unlisted JavaScript that is a src is the twin beside an owned declaration of
+the same stem (`x.mjs` beside `x.d.mts`): tsc drops it from the program and
+resolves `./x.mjs` to the declaration, so the listing never names the module
+itself.
 
 Two programs importing each other's files is a dependency cycle between two
 Bazel targets, which Bazel rejects with the loop of labels when it loads them.
@@ -311,12 +314,12 @@ tsconfig to the file, and it resolves as any edge does: to the rule whose
 that is not in the checkout is listed by no program, so Gazelle reads the entry
 from the chain itself, resolved against the package's directory as tsc
 resolves it, and writes the codegen into `deps`. Nothing else is written: no
-`types`, no filegroup. The checked-in copy of a declared out goes: a file that
-is both a src and an output of its package is a conflict Bazel rejects. The
-codegen is named for what it writes, never for its directory: the directory's
-name is the package's `ts_compile`, and a hand-written rule of another kind
-holding that name keeps the merger from writing the compile. The run names
-such a rule; rename it.
+`types`, no filegroup. A copy of a declared out left on disk by a local
+`wrangler types` is no rule's src: the out is the codegen's, and the program
+that lists it depends on the codegen. The codegen is named for what it writes,
+never for its directory: the directory's name is the package's `ts_compile`,
+and a hand-written rule of another kind holding that name keeps the merger
+from writing the compile. The run names such a rule; rename it.
 
 ```python
 # workers/proxy/BUILD.bazel -- the ts_codegen is hand-written; Gazelle leaves it

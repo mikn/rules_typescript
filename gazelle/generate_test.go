@@ -511,6 +511,50 @@ ts_codegen(
 	assertNoDanglingLabels(t, root)
 }
 
+// A declared out a local run of the generator left on disk is the codegen's:
+// no rule lists it, and the program reaching it depends on the codegen.
+func TestGenerate_ACodegenOutOnDiskIsNoSrc(t *testing.T) {
+	root, _ := converge(t, map[string]string{
+		"package.json": rootManifest,
+		"BUILD.bazel": "filegroup(\n    name = \"gen\",\n" +
+			"    srcs = [\"gen.sh\"],\n)\n",
+		"gen.sh": "#!/bin/sh\n",
+		"worker/BUILD.bazel": loadDefs + `"ts_codegen")
+
+ts_codegen(
+    name = "worker_types",
+    srcs = ["wrangler.jsonc"],
+    outs = ["worker-configuration.d.ts"],
+    generator = "//:gen",
+)
+`,
+		"worker/wrangler.jsonc": `{"name":"w"}` + "\n",
+		"worker/tsconfig.json": `{"compilerOptions":{"lib":["es2022"],` +
+			`"types":["./worker-configuration.d.ts"]},` +
+			`"include":["src/**/*","worker-configuration.d.ts"]}` + "\n",
+		"worker/worker-configuration.d.ts": "interface Env {\n\tKV: string;\n" +
+			"}\n",
+		"worker/src/index.ts": "export const handler = (env: Env) => " +
+			"env.KV;\n",
+		"worker/src/index.test.ts": "export const t = 1;\n",
+		"worker/test/tsconfig.json": `{"extends":"../tsconfig.json",` +
+			`"compilerOptions":{"types":["../worker-configuration.d.ts"]},` +
+			`"include":["**/*.ts"]}` + "\n",
+		"worker/test/index.spec.ts": "import { handler } from " +
+			"\"../src/index\";\nexport const t = handler;\n",
+	})
+	compile := onDiskRule(t, root, "worker", "ts_compile", "worker")
+	wantStrings(t, "ts_compile worker srcs", compile.AttrStrings("srcs"),
+		[]string{"src/index.ts", "wrangler.jsonc"})
+	test := onDiskRule(t, root, "worker", "ts_test", "worker_test")
+	wantStrings(t, "ts_test worker_test srcs", test.AttrStrings("srcs"),
+		[]string{"src/index.test.ts"})
+	below := onDiskRule(t, root, "worker/test", "ts_test", "test_test")
+	wantStrings(t, "ts_test test_test deps", below.AttrStrings("deps"),
+		[]string{"//worker", "//worker:worker_types"})
+	assertNoDanglingLabels(t, root)
+}
+
 // The ts_compile takes the directory's name; a hand-written rule of another
 // kind holding it keeps the merger from writing the compile; the run says so.
 func TestGenerate_AGeneratedNameAHandWrittenRuleHoldsIsSaid(t *testing.T) {

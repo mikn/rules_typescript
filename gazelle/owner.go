@@ -102,8 +102,8 @@ func (a srcSet) equal(b srcSet) bool {
 		slices.Equal(a.declaration, b.declaration)
 }
 
-// srcs is what pkg's targets compile: the files it owns, less those under a
-// codegen out_dir, plus the JavaScript each declaration stands in for.
+// srcs is what pkg's targets compile: the files it owns, less those a
+// ts_codegen writes, plus the JavaScript each declaration stands in for.
 func (s *programStore) srcs(pkg string, tc *tsConfig) srcSet {
 	var set srcSet
 	add := func(f string) {
@@ -121,7 +121,7 @@ func (s *programStore) srcs(pkg string, tc *tsConfig) srcSet {
 		if s.owner(f) != pkg {
 			continue
 		}
-		if _, out := codegenOutDirOwning(parentDir(f), tc); out {
+		if codegenWrites(f, tc) {
 			continue
 		}
 		add(f)

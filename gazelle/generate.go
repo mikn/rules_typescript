@@ -262,7 +262,7 @@ func programCandidate(name string) bool {
 }
 
 // dataFiles is every regular file under pkg's tree no listing decides; not a
-// deeper package's, an out_dir's, a BUILD file or the ts_config's own src.
+// deeper package's, a ts_codegen's, a BUILD file or the ts_config's own src.
 func (s *programStore) dataFiles(pkg string, tc *tsConfig) []string {
 	var out []string
 	for _, dir := range slices.Sorted(maps.Keys(s.files)) {
@@ -272,13 +272,11 @@ func (s *programStore) dataFiles(pkg string, tc *tsConfig) []string {
 		if s.nearestPackage(dir) != pkg {
 			continue
 		}
-		if _, gen := codegenOutDirOwning(dir, tc); gen {
-			continue
-		}
 		for _, f := range s.files[dir] {
 			switch {
 			case f == "BUILD.bazel", f == "BUILD", programCandidate(f):
 			case dir == pkg && f == "tsconfig.json":
+			case codegenWrites(path.Join(dir, f), tc):
 			default:
 				out = append(out, path.Join(dir, f))
 			}
@@ -366,6 +364,15 @@ func codegenOutDirOwning(rel string, tc *tsConfig) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// codegenWrites is whether a ts_codegen declares f: in outs, or under out_dir.
+func codegenWrites(f string, tc *tsConfig) bool {
+	if _, out := tc.codegenOuts[f]; out {
+		return true
+	}
+	_, under := codegenOutDirOwning(parentDir(f), tc)
+	return under
 }
 
 // codegenOutDirResult withdraws what Gazelle generates inside an out_dir. A BUILD
