@@ -96,6 +96,10 @@ ts.lint(
 use_repo(
     ts,
     "lint_config",
+    "tools_darwin_amd64",
+    "tools_darwin_arm64",
+    "tools_linux_amd64",
+    "tools_linux_arm64",
     "tsgo_darwin_amd64",
     "tsgo_darwin_arm64",
     "tsgo_linux_amd64",
@@ -114,6 +118,8 @@ use_repo(
 # they asked or not. Marked dev, the call applies only when rules_typescript is
 # itself the root module, i.e. for this repo's own tests.
 register_toolchains(
+    "//ts/tools/tsaction:source_toolchain",
+    "//tools/launcher:all",
     "//ts/toolchain:all",
     dev_dependency = True,
 )

@@ -8,6 +8,8 @@ target rewritten to the emitted file (docs/guides/npm.md § What a Workspace
 Member Is Imported As). The src stays staged as written beside it.
 """
 
+load("//ts/private:toolchain.bzl", "get_tools_toolchain")
+
 def manifest_action(ctx, src, out, tsx_extension):
     """Writes `src`, a package.json, to `out` as built; `tsx_extension` is
     what a .tsx emits under the target's tsconfig, ".js" or ".jsx"."""
@@ -18,7 +20,7 @@ def manifest_action(ctx, src, out, tsx_extension):
     ctx.actions.run(
         inputs = [src],
         outputs = [out],
-        executable = ctx.executable._tsaction,
+        executable = get_tools_toolchain(ctx).tsaction,
         arguments = ["manifest", args],
         mnemonic = "TsManifest",
         progress_message = "TsManifest %{label}",

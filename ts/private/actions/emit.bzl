@@ -6,6 +6,7 @@ Under `es_modules` the emit is oxc's whatever the module, with oxc's inputs
 alone. docs/rules/ts-compile.md § The Module Format.
 """
 
+load("//ts/private:toolchain.bzl", "get_tools_toolchain")
 load(":tsgo.bzl", "source_path")
 
 def emit_action(
@@ -76,7 +77,7 @@ def emit_action(
     ctx.actions.run(
         inputs = inputs,
         outputs = outputs,
-        executable = ctx.executable._tsaction,
+        executable = get_tools_toolchain(ctx).tsaction,
         tools = tools,
         arguments = ["emit", args],
         mnemonic = "TsEmit",

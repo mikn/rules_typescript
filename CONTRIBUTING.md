@@ -15,7 +15,7 @@
 
 ## Development Environment
 
-The only prerequisite is **Bazelisk** (or Bazel 9+). Every other dependency (the Rust toolchain, Go toolchain, Node.js, and npm packages) is fetched hermetically by Bazel on the first build.
+The only prerequisite is **Bazelisk** (or Bazel 9+). Every other dependency (the Rust toolchain, Go SDK, Node.js, and npm packages) is fetched hermetically by Bazel on the first build. This workspace builds its Go tools from source; a consumer downloads them from the tools release ([Release Process § Tools](https://mikn.github.io/rules_typescript/RELEASE_PROCESS/#tools)).
 
 ### Install Bazelisk
 
@@ -62,14 +62,20 @@ binary the toolchain resolved to for this host, with the arguments after `--`:
 bazel run //ts/toolchain:oxc_resolved -- --help
 bazel run //ts/toolchain:tsgo_resolved -- --version
 bazel run //ts/toolchain:node_resolved -- --version
+bazel run //ts/toolchain:tools_resolved
+bazel run //ts/toolchain:launcher_resolved
 ```
 
 The second prints `Version 7.0.2` and the third `v22.23.1`: the `typescript`
 release `ts/private/tsgo/pnpm-lock.yaml` pins and the Node.js version
-`MODULE.bazel` pins. `oxc_resolved` builds `oxc-bazel` first. No test asserts
-what the three print here; `//tests/integration/tsgo_lockfile` asserts what
-`tsgo_resolved` prints in a consumer workspace against that workspace's
-lockfile. `node_resolved` is the node the `tests/dev_server` and `tests/lsp`
+`MODULE.bazel` pins. `oxc_resolved` builds `oxc-bazel` first; `tools_resolved`
+prints tsaction's usage and `launcher_resolved` the launcher's config error,
+both from the source-built binaries `MODULE.bazel` registers ahead of
+`//ts/toolchain:all` here. No test asserts what the five print here;
+`//tests/integration/tsgo_lockfile` asserts what `tsgo_resolved` prints in a
+consumer workspace against that workspace's lockfile, and
+`//tests/integration/tools_release` that `tools_resolved` there runs the tools
+release's binary. `node_resolved` is the node the `tests/dev_server` and `tests/lsp`
 suites run, and the one a `tests/integration` workspace that makes no
 `node.toolchain()` call runs (`//tests/integration/node_version` makes one);
 `//tests/toolchain` pins which platform each toolchain's binary comes from.

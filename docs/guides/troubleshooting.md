@@ -78,7 +78,7 @@ repository root to be a Bazel package. Create a `BUILD.bazel` at the root; an
 empty file is enough, though the [quickstart](../getting-started/quickstart.md)
 puts the Gazelle target there.
 
-## No tsgo Toolchain / Declarations Are Missing
+## No tsgo or Tools Toolchain / Declarations Are Missing
 
 Toolchain registration is the consumer's job. Your `MODULE.bazel` needs:
 
@@ -86,8 +86,13 @@ Toolchain registration is the consumer's job. Your `MODULE.bazel` needs:
 register_toolchains("@rules_typescript//ts/toolchain:all")
 ```
 
-Without it nothing resolves the tsgo toolchain, and under the default
-`--//ts:declarations=tsgo` that means no `.d.ts` and no type-checking.
+Without it nothing resolves the tools toolchain, so every `ts_compile` fails
+toolchain resolution naming `//ts/toolchain:tools_toolchain_type`, and nothing
+resolves the tsgo toolchain, so under the default `--//ts:declarations=tsgo`
+there is no `.d.ts` and no type-checking. The tools are the assets of the
+`tools-v<N>` release `ts/private/tools_lock.bzl` names, fetched on first use
+from `github.com/mikn/rules_typescript/releases`; a fetch that cannot reach
+them fails naming the URL.
 
 To choose the compiler, point the `ts` extension at the lockfile that pins
 `typescript` (7 or later):
@@ -100,7 +105,9 @@ ts.tsgo(pnpm_lock = "//:pnpm-lock.yaml")
 `ts.tsgo(version = "7.0.2")` downloads a named release unverified instead. Both
 are in [Version Pinning](../getting-started/quickstart.md#version-pinning).
 
-Windows is not supported, so no tsgo toolchain resolves there. See
+Windows is not supported, so no tsgo, tools or launcher toolchain resolves
+there: a `ts_test`, `ts_binary`, `ts_dev_server` or `npm_bin` for a Windows
+target platform fails analysis naming the platform. See
 [COMPATIBILITY.md](https://github.com/mikn/rules_typescript/blob/main/COMPATIBILITY.md#windows).
 
 ## npm: pnpm-lock.yaml declares patchedDependencies with no patch file

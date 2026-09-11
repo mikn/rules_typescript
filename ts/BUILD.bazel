@@ -73,6 +73,7 @@ bzl_library(
     deps = [
         "//npm/private:npm_translate_lock",
         "//ts/private:toolchain",
+        "//ts/private:tools_lock",
         "//ts/private:tsgo_lock",
         "//ts/private/actions:lint",
     ],

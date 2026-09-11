@@ -1,0 +1,43 @@
+"""Integration test: a consumer downloads the Go tools from the tools release.
+
+The runner packs the four binaries the outer build made into the asset of this
+host's platform, as //tools/toolpack does for release.yml, and asserts its SRI
+is ts/private/tools_lock.bzl's; the nested Bazel then fetches that asset with
+the release URL rewritten to a closed local port and the asset in --distdir,
+Bazel's mirror of a URL by basename and checksum: wrong bytes at the basename
+are refused, the right ones build a ts_compile and run a ts_binary, both on
+binaries out of @tools_<platform>. docs/RELEASE_PROCESS.md § Tools.
+
+The child workspace lives in workspace/ and keeps its root BUILD file as
+BUILD.bazel.tpl, which the runner renames in the scratch copy: a real
+BUILD.bazel there would make workspace/ a subpackage, and glob() does not see
+into a subpackage.
+
+  bazel test //tests/integration/tools_release:tools_release_test
+"""
+
+load("@bazel_binaries//:defs.bzl", "bazel_binaries")
+load(
+    "@rules_bazel_integration_test//bazel_integration_test:defs.bzl",
+    "bazel_integration_test",
+    "integration_test_utils",
+)
+load("//tests/integration:tags.bzl", "nested_bazel_tags")
+
+bazel_integration_test(
+    name = "tools_release_test",
+    timeout = "long",
+    bazel_binaries = bazel_binaries,
+    bazel_version = bazel_binaries.versions.current,
+    data = [
+        "//:MODULE.bazel",
+        "//tools/copy_to_workspace",
+        "//tools/launcher:ts_launcher",
+        "//tools/lcov_merger",
+        "//ts/tools/tsaction",
+    ],
+    tags = nested_bazel_tags(),
+    test_runner = "//tests/integration/runners:tools_release_runner",
+    workspace_files = integration_test_utils.glob_workspace_files("workspace"),
+    workspace_path = "workspace",
+)

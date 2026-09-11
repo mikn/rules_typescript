@@ -34,7 +34,6 @@ sh_test(
     size = "small",
     srcs = ["ts_test_attrs_test.sh"],
     data = [
-        "//tools/launcher:launcher.bzl",
         "//ts/private/actions:workers_pool.bzl",
         "//ts/private/rules:ts_compile.bzl",
         "//ts/private/rules:ts_test.bzl",

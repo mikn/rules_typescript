@@ -21,6 +21,7 @@ bzl_library(
     deps = [
         "//ts/private:providers",
         "//ts/private:runtime",
+        "//ts/private:toolchain",
     ],
 )
 
@@ -38,7 +39,10 @@ bzl_library(
 bzl_library(
     name = "store",
     srcs = ["store.bzl"],
-    deps = ["//ts/private:providers"],
+    deps = [
+        "//ts/private:providers",
+        "//ts/private:toolchain",
+    ],
 )
 
 bzl_library(

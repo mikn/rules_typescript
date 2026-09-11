@@ -7,6 +7,11 @@ load(
     "NpmLinkInfo",
     "TsInfo",
 )
+load(
+    "//ts/private:toolchain.bzl",
+    "TOOLS_TOOLCHAIN_TYPE",
+    "get_tools_toolchain",
+)
 
 NpmStoreInfo = provider(
     doc = "One snapshot of the virtual store: its tree and the links beside " +
@@ -138,7 +143,7 @@ def _stage(ctx, tree, files, dest):
         allow_closure = True,
     )
     ctx.actions.run(
-        executable = ctx.executable._tsaction,
+        executable = get_tools_toolchain(ctx).tsaction,
         arguments = ["stage", args],
         inputs = files,
         outputs = [tree],
@@ -176,12 +181,6 @@ def _npm_store_impl(ctx):
     info = _store_info(ctx, parts, tree, links)
     return [DefaultInfo(files = info.transitive), info]
 
-_TSACTION = attr.label(
-    default = Label("//ts/tools/tsaction"),
-    executable = True,
-    cfg = "exec",
-)
-
 _DEPS = attr.label_keyed_string_dict(
     providers = [NpmStoreInfo],
     doc = "Store target -> the space-separated names this snapshot imports " +
@@ -210,8 +209,8 @@ npm_store = rule(
                   "store has it; the tree is in a closure through the edge " +
                   "that closes the cycle.",
         ),
-        "_tsaction": _TSACTION,
     },
+    toolchains = [TOOLS_TOOLCHAIN_TYPE],
     doc = """One store tree, named after its path: the snapshot's files copied
 by `tsaction stage` into `node_modules/.pnpm/<key>/node_modules/<name>`, and
 one declared symlink beside it per dependency, a cut edge's with no dependency
@@ -269,8 +268,8 @@ npm_store_member = rule(
             doc = "The member's directory from the workspace root.",
         ),
         "deps": _DEPS,
-        "_tsaction": _TSACTION,
     },
+    toolchains = [TOOLS_TOOLCHAIN_TYPE],
     doc = """A workspace member's store tree, `node_modules/.pnpm/<name with /
 as +>@0.0.0/node_modules/<name>`: its `.js`, `.js.map`, `.d.ts` and data srcs
 at their package-relative paths, the package.json as built in place of the

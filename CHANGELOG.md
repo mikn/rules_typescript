@@ -3,8 +3,9 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
-Nothing here has been released. There is no git tag, no GitHub release and no
-Bazel Central Registry entry; `0.2.0` is the version string in `MODULE.bazel`.
+No module release is here. There is no `v*` tag and no Bazel Central Registry
+entry; `0.2.0` is the version string in `MODULE.bazel`, and the one tag,
+`tools-v1`, releases the Go tools' binaries (`ts/private/tools_lock.bzl`).
 Consumers pin a commit
 ([quickstart](https://mikn.github.io/rules_typescript/getting-started/quickstart/#depending-on-rules_typescript)),
 so every entry below is a change against the commit you pinned last.

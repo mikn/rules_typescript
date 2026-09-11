@@ -12,6 +12,7 @@ load("@rules_typescript//ts:defs.bzl", "ts_binary")
 gazelle(
     name = "gazelle",
     gazelle = "@rules_typescript//gazelle:gazelle_typescript",
+    tags = ["manual"],
 )
 
 # Bundle the app entry point.  This pulls in //src/lib transitively and

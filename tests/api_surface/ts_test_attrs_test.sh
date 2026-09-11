@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The four attribute dicts ts_test composes are read out of the source; their
+# The three attribute dicts ts_test composes are read out of the source; their
 # public keys must be exactly the ten attributes docs/rules/ts-test.md lists.
 
 set -euo pipefail
@@ -32,7 +32,6 @@ public_keys() {
   public_keys ts/private/rules/ts_compile.bzl TS_COMPILE_ATTRS
   public_keys ts/private/rules/ts_test.bzl _TEST_ATTRS
   public_keys ts/private/actions/workers_pool.bzl WORKERS_POOL_ATTRS
-  public_keys tools/launcher/launcher.bzl LAUNCHER_ATTRS
 } | LC_ALL=C sort > "${got}"
 
 if ! LC_ALL=C diff -u "${want}" "${got}" > "${TEST_TMPDIR}/diff"; then

@@ -20,7 +20,11 @@ local_path_override(
     path = "{RULES_TS_ROOT}",
 )
 
-register_toolchains("@rules_typescript//ts/toolchain:all")
+register_toolchains(
+    "@rules_typescript//ts/tools/tsaction:source_toolchain",
+    "@rules_typescript//tools/launcher:all",
+    "@rules_typescript//ts/toolchain:all",
+)
 
 # The fixture's own lockfile: the runner installs it, Gazelle lists the tree
 # and the hub's store and links are built from the same file.

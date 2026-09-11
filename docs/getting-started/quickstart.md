@@ -1,10 +1,12 @@
 # Quick Start
 
 The only prerequisite is **Bazelisk** (or Bazel 9+ directly). Bazel fetches
-everything else hermetically on the first build: the Rust toolchain, the Go
-SDK, the Node.js runtime, tsgo, and the npm packages your targets reach. It
-also compiles `oxc-bazel` from Rust source, which dominates the wall time:
-expect minutes at any project size. After that everything is cached.
+everything else hermetically on the first build: the Rust toolchain, the
+Node.js runtime, tsgo, the Go tools of the [tools release](../RELEASE_PROCESS.md#tools),
+and the npm packages your targets reach; a Go SDK only when `bazel run
+//:gazelle` compiles Gazelle. It also compiles `oxc-bazel` from Rust source,
+which dominates the wall time: expect minutes at any project size. After that
+everything is cached.
 
 Choose your path:
 
@@ -35,9 +37,10 @@ scoop install bazelisk
 
 ## Depending on rules_typescript
 
-`rules_typescript` has no Bazel Central Registry entry and no tagged release
-yet, so a bare `bazel_dep(name = "rules_typescript", version = "0.2.0")`
-resolves against nothing. Pin it with a non-registry override. All three forms
+`rules_typescript` has no Bazel Central Registry entry and no module release
+yet (its one tag, `tools-v1`, releases the Go tools alone), so a bare
+`bazel_dep(name = "rules_typescript", version = "0.2.0")` resolves against
+nothing. Pin it with a non-registry override. All three forms
 below keep the `bazel_dep` line, which is what makes the module a direct
 dependency. bzlmod ignores the `version` value while a non-registry override is
 active, and accepts the line with no `version` at all.
@@ -153,6 +156,7 @@ load("@gazelle//:def.bzl", "gazelle")
 gazelle(
     name = "gazelle",
     gazelle = "@rules_typescript//gazelle:gazelle_typescript",
+    tags = ["manual"],
 )
 ```
 
@@ -263,6 +267,7 @@ load("@gazelle//:def.bzl", "gazelle")
 gazelle(
     name = "gazelle",
     gazelle = "@rules_typescript//gazelle:gazelle_typescript",
+    tags = ["manual"],
 )
 ```
 

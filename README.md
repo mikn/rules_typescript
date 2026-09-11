@@ -20,21 +20,24 @@ covers the migration questions.
 - **Gazelle generates BUILD files** — one package per `tsconfig.json`, its sources and deps read off tsgo's own listing of the program, and no directive of its own. It regenerates the attributes it owns on every run and names every value it drops, so a value it cannot derive needs `# keep` — see [Attributes Gazelle owns](https://mikn.github.io/rules_typescript/gazelle/directives/#attributes-gazelle-owns).
 - **Direct dependencies** — a source may import only what a direct dep provides. A declaration arriving through another dep's own deps does not satisfy an import: the build fails naming the file, the specifier and the label to add, and `bazel run //:gazelle` writes it.
 - **How npm packages are fetched** — one Bazel repository per package, fetched on demand, behind a `@npm` alias hub, so a target fetches only its own dependency closure. pnpm's virtual store is built as Bazel artifacts — one cached tree per resolution (name, version and peer set) — and each importer's `node_modules` links into it, so a target resolves what its importer declared.
-- **Zero prerequisites** — only Bazelisk needed; Node.js, Go, Rust and [pnpm](https://mikn.github.io/rules_typescript/guides/npm/#hermetic-pnpm) are all fetched hermetically. `pnpm-lock.yaml` is the one npm input; npm and yarn lockfiles are not read. pnpm edits the lockfile and installs the checkout Gazelle lists; a build never needs it.
+- **Zero prerequisites** — only Bazelisk needed; Node.js, Rust, the ruleset's own Go tools (the binaries of its [tools release](https://mikn.github.io/rules_typescript/RELEASE_PROCESS/#tools)) and [pnpm](https://mikn.github.io/rules_typescript/guides/npm/#hermetic-pnpm) are all fetched hermetically, and a Go SDK only under `bazel run //:gazelle`. `pnpm-lock.yaml` is the one npm input; npm and yarn lockfiles are not read. pnpm edits the lockfile and installs the checkout Gazelle lists; a build never needs it.
 
 ## Requirements
 
 The only prerequisite is **Bazelisk** (or Bazel 9+). Everything else — the Rust
-toolchain, Go toolchain, Node.js runtime, and the npm packages your targets
-actually reach — is fetched hermetically. The first build compiles `oxc-bazel`
-from Rust source, the slow part; everything after that is cached.
+toolchain, the Node.js runtime, the Go tools of the tools release, and the npm
+packages your targets actually reach — is fetched hermetically; a Go SDK is
+fetched only when `bazel run //:gazelle` compiles Gazelle. The first build
+compiles `oxc-bazel` from Rust source, the slow part; everything after that is
+cached.
 
 Supported platforms: Linux x86_64, Linux ARM64, macOS x86_64, macOS ARM64.
 **Windows is not supported right now. It may be considered in the future.** See
 [COMPATIBILITY.md](COMPATIBILITY.md#windows).
 
-**Nothing has shipped yet.** There is no tag, no release, no Bazel Central
-Registry entry and no production users. Pre-1.0, any commit may break the API
+**No module release has shipped.** There is no `v*` tag, no Bazel Central
+Registry entry and no production users; the one tag, `tools-v1`, releases the
+Go tools' binaries. Pre-1.0, any commit may break the API
 with no deprecation window. Every released break is listed in
 [CHANGELOG.md](CHANGELOG.md) with the edit it requires, and every unreleased one
 in [changelog.d/](changelog.d/); read both before moving a pin. Full policy:
@@ -100,6 +103,7 @@ load("@gazelle//:def.bzl", "gazelle")
 gazelle(
     name = "gazelle",
     gazelle = "@rules_typescript//gazelle:gazelle_typescript",
+    tags = ["manual"],
 )
 ```
 

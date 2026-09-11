@@ -24,6 +24,7 @@ WORDS=(
   TsStrictDeps _STRICT_DEPS_MJS strict_deps_check
   OxcCompile
   manifest_json member_manifest_json
+  _tsaction _copier LAUNCHER_ATTRS
 )
 
 # Attribute names that are also fixture directories under tests/: a hit is one
@@ -43,6 +44,8 @@ PATTERNS=(
   '<(name|test)>\.reads'
   '_[a-z_]+_test_(compile|node_modules)'
   'member_manifest(_tests)?\.bzl'
+  '\._launcher([^_[:alnum:]]|$)'
+  '"_launcher": attr'
 )
 
 # Files that assert a retired name is absent or inert, with why. Exact in both

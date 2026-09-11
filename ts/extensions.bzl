@@ -1,19 +1,29 @@
-"""Module extension for the rules_typescript compiler toolchains and linter."""
+"""Module extension for the rules_typescript toolchains and linter."""
 
 load("//npm/private:npm_translate_lock.bzl", "npmrc_registries")
-load("//ts/private:toolchain.bzl", "TSGO_PLATFORMS", "tsgo_toolchain_repo")
+load(
+    "//ts/private:toolchain.bzl",
+    "TSGO_PLATFORMS",
+    "tools_toolchain_repo",
+    "tsgo_toolchain_repo",
+)
+load(
+    "//ts/private:tools_lock.bzl",
+    "TOOLS_INTEGRITY",
+    "TOOLS_VERSION",
+    "tools_asset_prefix",
+    "tools_asset_url",
+)
 load("//ts/private:tsgo_lock.bzl", "tsgo_from_pnpm_lock", "tsgo_from_version")
 load("//ts/private/actions:lint.bzl", "lint_config_repo")
 
 # Label(), not a string, so it resolves in this repository from any consumer.
 _DEFAULT_TSGO_LOCK = Label("//ts/private/tsgo:pnpm-lock.yaml")
 
-# One repository per platform, named "<prefix>_<platform>" to match the labels
-# declare_tsgo_toolchains() generates.  rules_typescript itself is the only
-# module that use_repo's them: a consumer reaches the toolchains through
-# register_toolchains("@rules_typescript//ts/toolchain:all"), which resolves
-# these names in rules_typescript's own repo mapping.
+# "<prefix>_<platform>", the labels the declare_*_toolchains() macros generate;
+# rules_typescript alone use_repo's them, in its own repo mapping.
 _TSGO_REPO_PREFIX = "tsgo"
+_TOOLS_REPO_PREFIX = "tools"
 
 def _registries(module_ctx, npmrc):
     return npmrc_registries(module_ctx.read(npmrc)) if npmrc else {}
@@ -77,6 +87,12 @@ def _ts_impl(module_ctx):
             integrity = resolved.integrity,
             binary = spec.binary,
             npmrc = tag.npmrc if tag != None else None,
+        )
+        tools_toolchain_repo(
+            name = "{}_{}".format(_TOOLS_REPO_PREFIX, platform),
+            url = tools_asset_url(TOOLS_VERSION, platform),
+            integrity = TOOLS_INTEGRITY[platform],
+            strip_prefix = tools_asset_prefix(TOOLS_VERSION, platform),
         )
 
 _tsgo_tag = tag_class(

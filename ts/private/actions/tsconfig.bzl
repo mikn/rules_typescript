@@ -7,6 +7,8 @@ same file. The ts_config's jsx and module declarations are checked against
 the chain.
 """
 
+load("//ts/private:toolchain.bzl", "get_tools_toolchain")
+
 # The file the action config extends FIRST, so every key the user's chain sets
 # wins. moduleResolution is absent: tsgo derives it from the winning `module`.
 _BASELINE_OPTIONS = {
@@ -85,7 +87,7 @@ def tsconfig_action(
             transitive = [dep_dts],
         ),
         outputs = [tsconfig, options_file],
-        executable = ctx.executable._tsaction,
+        executable = get_tools_toolchain(ctx).tsaction,
         arguments = ["tsconfig", config_args],
         mnemonic = "TsConfig",
         progress_message = "TsConfig %{label}",

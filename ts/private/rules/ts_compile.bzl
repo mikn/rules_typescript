@@ -74,6 +74,7 @@ load("//ts/private:runtime.bzl", "JS_TOOL_TOOLCHAIN_TYPE")
 load(
     "//ts/private:toolchain.bzl",
     "OXC_TOOLCHAIN_TYPE",
+    "TOOLS_TOOLCHAIN_TYPE",
     "TSGO_TOOLCHAIN_TYPE",
     "get_oxc_toolchain",
 )
@@ -917,11 +918,6 @@ and tsgo derives the resolver from whichever `module` wins, which is Bundler
 for all of them but Node16/NodeNext.""",
         allow_single_file = [".json"],
     ),
-    "_tsaction": attr.label(
-        default = Label("//ts/tools/tsaction"),
-        executable = True,
-        cfg = "exec",
-    ),
     "_lint": attr.label(
         default = Label("//ts:lint"),
         providers = [LintConfigInfo],
@@ -934,6 +930,7 @@ for all of them but Node16/NodeNext.""",
 
 TS_COMPILE_TOOLCHAINS = [
     OXC_TOOLCHAIN_TYPE,
+    TOOLS_TOOLCHAIN_TYPE,
     config_common.toolchain_type(TSGO_TOOLCHAIN_TYPE, mandatory = False),
     config_common.toolchain_type(JS_TOOL_TOOLCHAIN_TYPE, mandatory = False),
 ]
