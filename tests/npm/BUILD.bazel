@@ -6,7 +6,12 @@ load("//tests/strict_deps:strict_deps_tests.bzl", "tsgo_check_test")
 load("//ts:defs.bzl", "ts_binary", "ts_codegen", "ts_compile", "ts_test")
 load(":forest_tests.bzl", "chain_test")
 load(":hub_provenance_tests.bzl", "store_provenance_test")
-load(":node_modules_tests.bzl", "member_link_test", "node_modules_test")
+load(
+    ":node_modules_tests.bzl",
+    "hoist_links_test",
+    "member_link_test",
+    "node_modules_test",
+)
 load(":parser_tests.bzl", "parser_test_suite")
 load(":store_tests.bzl", "peer_variant_stores", "store_test_suite")
 load(":workspace_link_tests.bzl", "member_view_test", "workspace_link_test_suite")
@@ -61,6 +66,10 @@ node_modules_test(
         "minimatch=minimatch@10.2.4",
         "undici-types=undici-types@6.21.0",
     ],
+    hoisted_members = [
+        "hoisted-member",
+        "nested-shared",
+    ],
     links = [
         "@types/bun",
         "@types/culori",
@@ -94,11 +103,23 @@ node_modules_test(
     dir = "tests/npm/multi_version/node_modules",
     has_parent = True,
     hoisted = ["minimatch=minimatch@10.2.4"],
+    hoisted_members = ["hoisted-member"],
     links = [
         "minimatch",
         "test-exclude",
     ],
     target_under_test = "//tests/npm/multi_version:node_modules",
+)
+
+# The members the root does not link, a link by name each: the root's
+# node_modules depends on no member's compile (nested-consumer has no target).
+hoist_links_test(
+    name = "hoist_links_test",
+    members = [
+        "hoisted-member",
+        "nested-shared",
+    ],
+    target_under_test = ":node_modules/.pnpm/node_modules",
 )
 
 # One link target per member the root links, into the member's store tree.

@@ -1,4 +1,5 @@
 load("//npm:defs.bzl", "node_modules", "node_modules_member")
+load("//tests/npm:forest_tests.bzl", "chain_test")
 load("//ts:defs.bzl", "ts_compile")
 
 package(default_visibility = ["//:__pkg__"])
@@ -22,4 +23,36 @@ ts_compile(
     srcs = ["nested_workspace_consumer.ts"],
     node_modules = ":node_modules",
     deps = [":node_modules/nested-shared"],
+)
+
+# The member no root importer links, through this importer's link: the compile
+# stages the hoist's link by name beside the member's tree the link brings.
+# keep
+node_modules_member(
+    name = "node_modules/hoisted-member",
+    member = "@npm//:hoisted-member",
+)
+
+ts_compile(
+    name = "hoisted_member_consumer",
+    srcs = ["hoisted_member_consumer.ts"],
+    node_modules = ":node_modules",
+    deps = [":node_modules/hoisted-member"],
+)
+
+_STORE = "tests/npm/node_modules/.pnpm/"
+
+chain_test(
+    name = "hoisted_member_chain_test",
+    size = "small",
+    chain = [
+        "tests/npm/nested/node_modules",
+        "tests/npm/node_modules",
+    ],
+    linked = [
+        "tests/npm/nested/node_modules/hoisted-member",
+        _STORE + "hoisted-member@0.0.0/node_modules/hoisted-member",
+        _STORE + "node_modules/hoisted-member",
+    ],
+    target_under_test = ":hoisted_member_consumer",
 )

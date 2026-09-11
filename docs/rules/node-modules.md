@@ -92,8 +92,8 @@ analysis naming it. `DefaultInfo.files` is every link and every store tree the
 links reach; a consumer that runs outside an action stages them and takes the
 directory, which no artifact names. `NodeModulesInfo` carries `label`, `dir`
 (the directory as a bin-dir path), `links` (name to `NpmLinkInfo(link, store)`),
-`parent` and `hoist` (the lockfile's hidden hoist, name to `NpmLinkInfo`, the
-root importer's `hoist` target's on every importer of the chain), and a
+`parent` and `hoist` (the lockfile's hidden hoist, the root importer's `hoist`
+target's `NpmHoistInfo` on every importer of the chain), and a
 `node_modules_member` returns `NpmLinkInfo` beside the
 view's `TsInfo` and `NpmPackageInfo`, so a target names it in `deps` where it
 named the view ([Providers](providers.md#nodemodulesinfo)).
@@ -117,7 +117,8 @@ instead. The link is a target of its own because a member's compile walks up
 to the importers above it: an importer target holding the member's link would
 depend on the member's tree, and through it on the member's compile, a cycle
 for every member the root links. `ts_compile`, `ts_test` and `ts_codegen` name
-the link target in `deps`.
+the link target in `deps`. The hidden hoist's link to a member the root does
+not link is by name alone for the same reason ([The Store](#the-store)).
 
 ## The Store
 
@@ -179,18 +180,27 @@ The call declares, `manual` and public:
   spells `/` as `+` and a peer suffix's brackets as `_` and so can order two
   ids the other way round. A pattern is pnpm's: `*` matches any run, `!`
   negates, the last matching pattern decides. Where platforms disagree the
-  link is under a `select()`.
+  link is under a `select()`. A workspace member the root importer does not
+  link is hoisted under its own name, and its link is declared by name
+  alone, `node_modules/.pnpm/node_modules/<name>` ->
+  `../<name with / as +>@0.0.0/node_modules/<name>`, with no dependency on
+  the member's tree: the root importer's `node_modules` names the hoist, and
+  the member's compile walks up to that `node_modules`, so a dependency on
+  the tree would close a cycle through every hoisted member. A member whose
+  BUILD file declares no target gets no link, there being no tree.
   `tests/npm/hoisted_dependencies.bzl` is pnpm's own answer over the fixture
   lockfile, and `tests/npm:store_tests_hoist` asserts the store's. The target
-  returns the links as [`NpmHoistInfo`](providers.md#npmhoistinfo); the root
-  importer names it in `hoist`, and every importer on its chain carries them
-  as `NodeModulesInfo.hoist`. A `ts_compile` or `ts_test` stages the hoist
-  links whose names its npm closure holds, with the store trees they enter --
-  pnpm's pick for a name can be a snapshot no edge of the closure reaches --
-  so a store package's import of a name it does not declare resolves as in
-  the checkout, and the action's inputs stay the closure's names: a bump
-  re-runs the targets whose closure holds the package. A first-party source
-  importing an undeclared name still fails the ownership check
+  returns the links as [`NpmHoistInfo`](providers.md#npmhoistinfo), the
+  members' under `members`; the root importer names it in `hoist`, and every
+  importer on its chain carries it as `NodeModulesInfo.hoist`. A `ts_compile`
+  or `ts_test` stages the hoist links whose names its npm closure holds, with
+  the store trees they enter -- pnpm's pick for a name can be a snapshot no
+  edge of the closure reaches; a member's tree comes with the member's link
+  target (`//tests/npm/nested:hoisted_member_chain_test`) -- so a store
+  package's import of a name it does not declare resolves as in the
+  checkout, and the action's inputs stay the closure's names: a bump re-runs
+  the targets whose closure holds the package. A first-party source importing
+  an undeclared name still fails the ownership check
   ([ts_compile](ts-compile.md#deps-have-to-be-direct)).
   `//tests/npm/features/hoist` runs one.
 

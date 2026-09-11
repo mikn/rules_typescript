@@ -159,19 +159,20 @@ names the closure holds ([The Store](node-modules.md#the-store)).
 | `dir` | `string` | The importer's `node_modules` directory as a bin-dir path, `bazel-out/<cfg>/bin/<package>/node_modules`: the parent of every link, which no artifact names |
 | `links` | `dict of string -> NpmLinkInfo` | Per package name, the declared symlink `node_modules/<name>` and the store it enters |
 | `parent` | `NodeModulesInfo or None` | The importer above's |
-| `hoist` | `dict of string -> NpmLinkInfo` | The lockfile's hidden hoist: per hoisted name, the declared symlink `node_modules/.pnpm/node_modules/<name>` (a `public-hoist-pattern` match's at the root importer's `node_modules/<name>`) and the store it enters; the root importer's `hoist` target's, the same on every importer of its chain |
+| `hoist` | `NpmHoistInfo` | The lockfile's hidden hoist, the root importer's `hoist` target's, the same on every importer of its chain ([NpmHoistInfo](#npmhoistinfo)) |
 
 ## NpmHoistInfo
 
 A lockfile's hidden hoist, what its `npm_store_hoist` target
 `node_modules/.pnpm/node_modules` returns
 ([The Store](node-modules.md#the-store)); the root importer names the target
-in `hoist`, and every importer on the chain carries the links as
+in `hoist`, and every importer on the chain carries it as
 `NodeModulesInfo.hoist`.
 
 | Field | Type | Description |
 |---|---|---|
-| `links` | `dict of string -> NpmLinkInfo` | Per hoisted name, the declared symlink and the store it enters |
+| `links` | `dict of string -> NpmLinkInfo` | Per hoisted name, the declared symlink `node_modules/.pnpm/node_modules/<name>` (a `public-hoist-pattern` match's at the root importer's `node_modules/<name>`) and the store it enters |
+| `members` | `dict of string -> File` | Per hoisted workspace member, the declared symlink alone, with no dependency on the member's tree; a consumer's closure holds the tree through the member's link target |
 
 ## NpmLinkInfo
 

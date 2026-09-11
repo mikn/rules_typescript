@@ -112,6 +112,19 @@ importers:
       nested-shared:
         specifier: workspace:*
         version: link:../../../packages/nested-shared
+      # The member below, linked here and nowhere above: the one route a
+      # consumer names it by.
+      hoisted-member:
+        specifier: workspace:*
+        version: link:../../../packages/hoisted-member
+
+  # A member the root importer does not link: pnpm hoists its name, and its
+  # compile walks up to the root's node_modules through this importer.
+  packages/hoisted-member:
+    dependencies:
+      zod:
+        specifier: ^3.0.0
+        version: 3.24.2
 
 packages:
 

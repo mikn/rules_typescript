@@ -79,16 +79,30 @@ def store_link(ctx, dir, name, store):
     )
     return link
 
-def _link(ctx, dir, name, dep, linked):
+def _claim(ctx, name, linked, owner):
     if name in linked:
         fail("{}: '{}' linked twice, to {} and {}".format(
             ctx.label,
             name,
-            linked[name].label,
-            dep.label,
+            linked[name],
+            owner,
         ))
-    linked[name] = dep
+    linked[name] = owner
+
+def _link(ctx, dir, name, dep, linked):
+    _claim(ctx, name, linked, dep.label)
     return store_link(ctx, dir, name, dep[NpmStoreInfo])
+
+def _link_by_name(ctx, dir, name, tree):
+    """The declared symlink `<dir>/<name>` to `tree`, a path in this package,
+    with no dependency behind it."""
+    path = "{}/{}".format(dir, name)
+    link = ctx.actions.declare_symlink(path)
+    ctx.actions.symlink(
+        output = link,
+        target_path = _relative(path.rsplit("/", 1)[0], tree),
+    )
+    return link
 
 def _dep_links(ctx, parts, cut = {}):
     links = {}
@@ -110,13 +124,7 @@ def _dep_links(ctx, parts, cut = {}):
                 ctx.label,
                 name,
             ))
-        path = "{}/{}".format(parts.links_dir, name)
-        link = ctx.actions.declare_symlink(path)
-        ctx.actions.symlink(
-            output = link,
-            target_path = _relative(path.rsplit("/", 1)[0], tree),
-        )
-        links[name] = link
+        links[name] = _link_by_name(ctx, parts.links_dir, name, tree)
     return links
 
 def _stage(ctx, tree, files, dest):
@@ -269,22 +277,27 @@ member's importer declares. Declared by `npm_virtual_store`.""",
 def _npm_store_hoist_impl(ctx):
     linked = {}
     links = {}
-    for dir, entries in (
-        (ctx.label.name, ctx.attr.private),
-        ("node_modules", ctx.attr.public),
+    members = {}
+    for dir, entries, names in (
+        (ctx.label.name, ctx.attr.private, ctx.attr.private_members),
+        ("node_modules", ctx.attr.public, ctx.attr.public_members),
     ):
-        for dep, names in entries.items():
-            for name in names.split(" "):
+        for dep, aliases in entries.items():
+            for name in aliases.split(" "):
                 links[name] = NpmLinkInfo(
                     link = _link(ctx, dir, name, dep, linked),
                     store = dep[NpmStoreInfo],
                 )
+        for name in names:
+            tree = store_target(store_key(name, MEMBER_VERSION, ""), name)
+            _claim(ctx, name, linked, ctx.label.same_package_label(tree))
+            members[name] = _link_by_name(ctx, dir, name, tree)
     return [
         DefaultInfo(files = depset(
-            [entry.link for entry in links.values()],
+            [entry.link for entry in links.values()] + members.values(),
             transitive = [entry.store.transitive for entry in links.values()],
         )),
-        NpmHoistInfo(links = links),
+        NpmHoistInfo(links = links, members = members),
     ]
 
 _HOISTED = attr.label_keyed_string_dict(
@@ -292,17 +305,27 @@ _HOISTED = attr.label_keyed_string_dict(
     doc = "Store target -> the space-separated names linked at it.",
 )
 
+_MEMBERS = attr.string_list(
+    doc = "The hoisted workspace members, by name: a link into each one's " +
+          "tree with no dependency behind it.",
+)
+
 npm_store_hoist = rule(
     implementation = _npm_store_hoist_impl,
     attrs = {
         "private": _HOISTED,
         "public": _HOISTED,
+        "private_members": _MEMBERS,
+        "public_members": _MEMBERS,
     },
     doc = """The hidden hoist of one lockfile: a declared symlink into a store
 tree per hoisted name, `private` ones under this target's name
 (`node_modules/.pnpm/node_modules/<name>`), `public` ones at the root
-importer's `node_modules/<name>`; `NpmHoistInfo` carries them for the root
-importer's `hoist`. Declared by `npm_virtual_store`.""",
+importer's `node_modules/<name>`; a hoisted workspace member's
+(`private_members`, `public_members`) by name alone, with no dependency on
+the member's tree, since the root importer's `node_modules` names this target
+and a member's compile walks up to it. `NpmHoistInfo` carries them for the
+root importer's `hoist`. Declared by `npm_virtual_store`.""",
 )
 
 def _join(names):
@@ -426,15 +449,15 @@ def virtual_store(name, graph, members, files, package_dir):
         )
 
     seen = {}
+    hoisted_members = {}
     for platform in platforms:
         for alias, (kind, ref) in hoisted_on(graph, platform).items():
             which, index = ref
-            if which == "member" and index not in member_targets:
-                continue
             if which == "member":
-                target = member_targets[index]
-            else:
-                target = snapshot_target(index)
+                if index in member_targets:
+                    hoisted_members[(kind, alias)] = True
+                continue
+            target = snapshot_target(index)
             seen.setdefault((kind, ":" + target, alias), []).append(platform)
     hoist = {"private": ({}, {}), "public": ({}, {})}
     for (kind, label, alias), on in seen.items():
@@ -449,6 +472,16 @@ def virtual_store(name, graph, members, files, package_dir):
         name = HOIST_TARGET,
         private = dicts["private"],
         public = dicts["public"],
+        private_members = sorted([
+            name
+            for (kind, name) in hoisted_members
+            if kind == "private"
+        ]),
+        public_members = sorted([
+            name
+            for (kind, name) in hoisted_members
+            if kind == "public"
+        ]),
         tags = ["manual"],
         visibility = ["//visibility:public"],
     )

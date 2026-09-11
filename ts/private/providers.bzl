@@ -246,11 +246,7 @@ the importer above it and the lockfile's hidden hoist
                  "declared symlink `node_modules/<name>` and the store it " +
                  "enters.",
         "parent": "NodeModulesInfo or None: the importer above's.",
-        "hoist": "dict of string -> NpmLinkInfo: the lockfile's hidden " +
-                 "hoist, per hoisted name the declared symlink " +
-                 "`node_modules/.pnpm/node_modules/<name>` (a " +
-                 "`public-hoist-pattern` match's at the root importer's " +
-                 "`node_modules/<name>`) and the store it enters; the root " +
+        "hoist": "NpmHoistInfo: the lockfile's hidden hoist, the root " +
                  "importer's `hoist` target's, the same on every importer " +
                  "of its chain.",
     },
@@ -259,10 +255,16 @@ the importer above it and the lockfile's hidden hoist
 NpmHoistInfo = provider(
     doc = """A lockfile's hidden hoist, what its `npm_store_hoist` target
 returns: the root importer names the target in `hoist`, and every importer
-on the chain carries the links as `NodeModulesInfo.hoist`.""",
+on the chain carries it as `NodeModulesInfo.hoist`.""",
     fields = {
         "links": "dict of string -> NpmLinkInfo: per hoisted name, the " +
-                 "declared symlink and the store it enters.",
+                 "declared symlink `node_modules/.pnpm/node_modules/<name>` " +
+                 "(a `public-hoist-pattern` match's at the root importer's " +
+                 "`node_modules/<name>`) and the store it enters.",
+        "members": "dict of string -> File: per hoisted workspace member, " +
+                   "the declared symlink alone, with no dependency on the " +
+                   "member's tree; a consumer's closure holds the tree " +
+                   "through the member's link target.",
     },
 )
 

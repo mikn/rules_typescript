@@ -1,9 +1,9 @@
 """pnpm's hidden hoist over tests/npm/pnpm-lock.yaml, as pnpm 10.32.1 wrote
 it: `node_modules/.modules.yaml#hoistedDependencies` after `pnpm install
 --frozen-lockfile` over a scratch copy of the lockfile and its members'
-package.json files (rt-evidence/logs/plan10/perf-forest/N.6e/
-02-pnpm-frozen-install.log), and the workspace members it linked beside them
-under `node_modules/.pnpm/node_modules`."""
+package.json files (rt-evidence/logs/plan10/perf-forest/wrap/fix-r2/
+01-pnpm-frozen-install.log), and the workspace members it linked beside them
+under `node_modules/.pnpm/node_modules` (02-pnpm-hoist-members.log)."""
 
 HOISTED = {
     "undici-types@6.21.0": {
@@ -509,4 +509,4 @@ HOISTED = {
     },
 }
 
-HOISTED_MEMBERS = ["nested-consumer", "nested-shared"]
+HOISTED_MEMBERS = ["hoisted-member", "nested-consumer", "nested-shared"]

@@ -103,7 +103,7 @@ the tsconfig's, read by tsaction; the emit knobs are the flags in ts/BUILD.bazel
   `--explainFiles` grammar, the tsconfig `extends` chain reader and the JSONC
   parser, shared by tsaction and Gazelle
 - `ts/private/node_modules.bzl` — `node_modules` and `node_modules_member`, an importer's links into the store: the chain `ts_compile` and `ts_test` resolve a direct npm dep along
-- `ts/private/providers.bzl` — TsInfo, TsTestRunnerInfo, TsConfigInfo, NpmPackageInfo, DevServerInfo, BundlerInfo, NodeModulesInfo, NpmLinkInfo
+- `ts/private/providers.bzl` — TsInfo, TsTestRunnerInfo, TsConfigInfo, NpmPackageInfo, DevServerInfo, BundlerInfo, NodeModulesInfo, NpmHoistInfo, NpmLinkInfo
 - `npm/private/npm_translate_lock.bzl` — pnpm lockfile reader (parsing only; no repository rule)
 - `npm/extensions.bzl` — the `npm` module extension (translate_lock, pnpm tags)
 - `npm/lazy.bzl` — whole-graph analysis + one `npm_import` per package + the alias hub

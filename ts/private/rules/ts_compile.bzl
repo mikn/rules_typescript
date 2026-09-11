@@ -375,8 +375,14 @@ def compile_program(ctx, es_modules = False, es_twins = False):
             npm_links.append(twin_importer.links[twin])
             npm_declared[twin] = twin_importer.links[twin].store.key
     for info in packages:
-        if info.package_name in chain[0].hoist:
-            npm_links.append(chain[0].hoist[info.package_name])
+        hoist = chain[0].hoist
+        if info.package_name in hoist.links:
+            npm_links.append(hoist.links[info.package_name])
+        elif info.package_name in hoist.members:
+            npm_links.append(NpmLinkInfo(
+                link = hoist.members[info.package_name],
+                store = info.store,
+            ))
     npm_files = depset(
         [entry.link for entry in npm_links],
         transitive = (
