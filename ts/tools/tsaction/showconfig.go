@@ -20,12 +20,13 @@ import (
 // effectiveOptions is the part of the printed compilerOptions the action config
 // rewrites or hands to oxc. tsgo 7 prints every enum by its lowercase name.
 type effectiveOptions struct {
-	Target          string    `json:"target"`
-	Jsx             string    `json:"jsx"`
-	JsxImportSource string    `json:"jsxImportSource"`
-	Module          string    `json:"module"`
-	Types           *[]string `json:"types"`
-	TypeRoots       []string  `json:"typeRoots"`
+	Target               string    `json:"target"`
+	Jsx                  string    `json:"jsx"`
+	JsxImportSource      string    `json:"jsxImportSource"`
+	Module               string    `json:"module"`
+	Types                *[]string `json:"types"`
+	TypeRoots            []string  `json:"typeRoots"`
+	IsolatedDeclarations bool      `json:"isolatedDeclarations"`
 }
 
 // oxcOptions is the options file: what oxc transforms with, and the module
@@ -256,14 +257,15 @@ func (a *actionConfig) build(effective *effectiveOptions, roots []string,
 	}
 	// typeRoots stays unset: a custom one stops tsgo's node_modules walk, and
 	// that walk is where a `types` entry naming a package outside @types resolves.
+	declaration := a.isolatedDeclarations || effective.IsolatedDeclarations
 	opts := map[string]any{
 		"rootDirs":    []string{relativePath(dir, ""), relativePath(dir, a.binDir)},
 		"rootDir":     relativePath(dir, ""),
 		"composite":   false,
 		"incremental": false,
-		// Off: a chain sets these under the composite turned off above, and the
-		// declare turns them on from its command line (TS5069; null unsets a path).
-		"declaration":         a.isolatedDeclarations,
+		// Off under the composite turned off; null unsets a path (TS5069).
+		// declaration on where the chain or oxc sets isolatedDeclarations.
+		"declaration":         declaration,
 		"declarationMap":      false,
 		"emitDeclarationOnly": false,
 		"declarationDir":      nil,

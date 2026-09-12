@@ -175,9 +175,10 @@ that pass too. Lowest precedence first:
    `composite` and `incremental` off, and the declaration emit off --
    `declaration`, `declarationMap`, `emitDeclarationOnly` false,
    `declarationDir` null -- since a chain sets those under a `composite` this
-   file turns off; `allowJs` when a src is JavaScript; `isolatedDeclarations`
-   under `--//ts:declarations=oxc`, with the `declaration` that option
-   requires; `skipLibCheck: false` under `--//ts:lib_check`. No emit shape:
+   file turns off. `declaration` stays true where `isolatedDeclarations` is
+   in force, which requires it (TS5069): a chain that sets the option, or
+   `--//ts:declarations=oxc`, which writes it; `allowJs` when a src is
+   JavaScript; `skipLibCheck: false` under `--//ts:lib_check`. No emit shape:
    each tsgo run says on its command line what it emits
    ([Architecture](#architecture)).
    The roots are the tsconfig's own: `files`, `include` and `exclude` are the
@@ -802,7 +803,9 @@ leaf's `bazel build` runs the check alone.
   Test's Program](ts-test.md#the-tests-program)). The written tsconfig turns
   `declaration` off, so the check runs no transformer, and declaration
   diagnostics (`TS4xxx`) surface in the declare, where the declarations are
-  emitted.
+  emitted. A chain that sets `isolatedDeclarations` keeps `declaration` on,
+  which the option requires, so its check runs the transformer and reports
+  an unannotated export (`TS9xxx`) as `tsc -p` does.
 
 ### `--//ts:declarations=oxc`
 

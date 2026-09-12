@@ -42,7 +42,9 @@ package's own name through the nearest manifest included. The check runs
 during `bazel build` and blocks no dependent; a type error fails the build.
 Under --//ts:declarations=tsgo a second run of the same program, TsgoDeclare,
 emits the .d.ts with the declaration shape on its command line, so the
-written tsconfig carries none and the check runs no declaration transformer.
+written tsconfig carries none and the check runs no declaration transformer;
+a chain that sets isolatedDeclarations keeps declaration on, which the option
+requires, and its check reports an unannotated export as `tsc -p` does.
 The linter the root module's ts.lint() names runs over the same sources as a
 second validation action, TsLint. The emit reads the same program root when
 tsgo emits the JavaScript.

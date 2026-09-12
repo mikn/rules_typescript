@@ -1,0 +1,42 @@
+"""A chain that sets declaration, isolatedDeclarations and declarationMap, as a
+package annotated for isolated declarations does. The check keeps declaration
+on, which isolatedDeclarations requires (TS5069), and reports an unannotated
+export as `tsc -p` does; the consumer's build runs the declare under it."""
+
+# Compiler options, not data: named by the ts_config.
+# gazelle:exclude isolated.tsconfig.json
+
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//ts:defs.bzl", "ts_compile", "ts_config")
+
+package(default_visibility = ["//:__pkg__"])
+
+# keep
+ts_config(
+    name = "tsconfig",
+    src = "isolated.tsconfig.json",
+)
+
+ts_compile(
+    name = "annotated",
+    srcs = ["annotated.ts"],
+    tsconfig = ":tsconfig",
+)
+
+ts_compile(
+    name = "consumer",
+    srcs = ["consumer.ts"],
+    tsconfig = ":tsconfig",
+    deps = [":annotated"],
+)
+
+build_test(
+    name = "isolated_test",
+    targets = [
+        ":annotated",
+        ":consumer",
+    ],
+)
+
+# The generated editor program for this package; see //:refresh_tsconfig.
+exports_files(["tsconfig.json"])

@@ -8,13 +8,13 @@ CI and a developer run them, and `bazel build //...` / `bazel test //...` with
 `--@rules_typescript//ts:declarations=tsgo`, `--norun_validations` and a disk
 cache. Four cache states, three runs per cell, the median with its spread;
 `tools/bench_parity.sh` ran both (`OTHER_CORES=2 REDO=6
-SYSTEM_PROCS=falcon-sensor-bpf`, the excluded targets below). Since
-`TsgoCheck` became every target's validation the runner passes
-`--@rules_typescript//ts:lint=@rules_typescript//ts:no_lint` in place of
-`--norun_validations`, which would now skip the check too. A target red at
-the parity proof is left out of the test-everything cells on both sides,
-together with the checkout rows that run the same files: Bazel never caches a
-failed test, so a red target would put its own run into every warm row. At
+SYSTEM_PROCS=falcon-sensor-bpf`, the excluded targets below). The runner
+passes `--@rules_typescript//ts:lint=@rules_typescript//ts:no_lint`, which
+turns the linter off alone; `--norun_validations` would skip `TsgoCheck` too.
+A target red at the parity proof is left out of the test-everything cells on
+both sides, together with the checkout rows that run the same files: Bazel
+never caches a failed test, so a red target would put its own run into every
+warm row. At
 f9fd041 thirteen `ts_test` targets were left out -- the nine red at that
 proof and the four that share a CI row with one of them: `//web:web_test`,
 `//web:node_tooling_test`, `//web:scripts_lib_test`, `//packages/ui:ui_test`,

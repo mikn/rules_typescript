@@ -1,0 +1,30 @@
+{
+    "compilerOptions": {
+        "declaration": true,
+        "declarationMap": true,
+        "isolatedDeclarations": true,
+        "jsx": "react-jsx",
+        "jsxImportSource": "preact",
+        "module": "esnext",
+        "paths": {
+            "@app/*": [
+                "src/*"
+            ],
+            "#lib": [
+                "lib/index.ts"
+            ]
+        },
+        "strict": true,
+        "target": "es2017",
+        "typeRoots": [
+            "../../../../base/typings"
+        ],
+        "useDefineForClassFields": false
+    },
+    "files": [
+        "../../../../pkg/src/a.ts"
+    ],
+    "include": [
+        "../../../../pkg/src"
+    ]
+}

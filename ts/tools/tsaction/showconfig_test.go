@@ -74,6 +74,20 @@ const noRootsLeaf = `{
 }
 `
 
+// The shape of a package annotated for isolated declarations: the chain sets
+// declaration, isolatedDeclarations and declarationMap itself.
+const isolatedLeaf = `{
+  "extends": "../base/tsconfig.base.json",
+  "compilerOptions": {
+    "module": "esnext",
+    "declaration": true,
+    "isolatedDeclarations": true,
+    "declarationMap": true
+  },
+  "include": ["src"]
+}
+`
+
 const binDir = "bazel-out/k8-fastbuild/bin"
 
 func writeFile(t *testing.T, path, body string) {
@@ -503,6 +517,29 @@ func TestTsconfigStep_WritesNoEmitShape(t *testing.T) {
 		if got := opts[key]; !reflect.DeepEqual(got, want) {
 			t.Errorf("compilerOptions.%s = %v, want %v", key, got, want)
 		}
+	}
+}
+
+// A chain that sets isolatedDeclarations keeps declaration on, which the
+// option requires (TS5069); the chain's own key stays in force via extends.
+func TestTsconfigStep_ChainIsolatedDeclarationsKeepsDeclaration(t *testing.T) {
+	capture := readTestdata(t, "showconfig-isolated.json")
+	e := newExecroot(t, isolatedLeaf, capture)
+
+	mustWriteTsconfig(t, e.tsconfigArgs())
+	config := readJSON(t, binDir+"/pkg/pkg.tsconfig.json")
+	opts := config["compilerOptions"].(map[string]any)
+	for key, want := range map[string]any{
+		"declaration": true, "declarationMap": false,
+		"emitDeclarationOnly": false, "declarationDir": nil,
+	} {
+		if got, ok := opts[key]; !ok || !reflect.DeepEqual(got, want) {
+			t.Errorf("compilerOptions.%s = %v (set: %v), want %v",
+				key, got, ok, want)
+		}
+	}
+	if got, ok := opts["isolatedDeclarations"]; ok {
+		t.Errorf("compilerOptions.isolatedDeclarations = %v, want unset", got)
 	}
 }
 

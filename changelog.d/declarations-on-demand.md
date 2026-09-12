@@ -10,11 +10,11 @@
   `filegroup(output_group = "declarations")`. A `data` entry or filegroup that
   read a `ts_compile`'s default outputs for its `.d.ts` names the group
   instead. The check runs no declaration transformer, so `TS4xxx` declaration
-  diagnostics surface in the declare; under `--//ts:declarations=oxc` the
-  check keeps `isolatedDeclarations` with the `declaration` it requires and
-  reports them there. `--norun_validations` now skips the type check in both
-  modes; `--@rules_typescript//ts:lint=@rules_typescript//ts:no_lint` turns
-  the linter off alone. `tsaction tsconfig` loses `-emit`, `-out_dir`,
+  diagnostics surface in the declare; a chain that sets `isolatedDeclarations`,
+  or `--//ts:declarations=oxc`, keeps the `declaration` that option requires,
+  and the check reports them there. `--norun_validations` now skips the type
+  check in both modes; `--@rules_typescript//ts:lint=@rules_typescript//ts:no_lint`
+  turns the linter off alone. `tsaction tsconfig` loses `-emit`, `-out_dir`,
   `-root_dir` and `-declaration_map`; `tsaction tsgo` runs without `-check`.
   A workspace member's hub view `@npm//:<name>` has the package's files as its
   default outputs, the `.d.ts` included.
