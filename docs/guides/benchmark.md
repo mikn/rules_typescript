@@ -70,18 +70,23 @@ run at f9fd041/f123f53, the second the run at 613f2b2/5049c1b.
 | Test everything | warm, nothing changed | 125.2 (125.1-126.3) | 37.2 (35.2-43.7) | 111.5 (111.3-111.5), exit 1/1 | 3.6 (3.3-3.7) | 0.53 / 0.67 | 0.37 / 0.16 |
 | Test everything | fresh output base, populated disk cache |  | 321.0 (297.7-338.0) |  | 66.3 (66.1-70.2) | 0.36 | 0.13 |
 | One-line change in web, re-check | warm | 19.5 (18.4-20.0) | 184.5 (146.1-186.2) | 13.2 (12.5-13.6) | 144.9 (133.5-145.3) | 1.70 / 1.07 | 0.55 / 1.41 |
-| One-line change in web, re-test the affected suites | warm | 48.1 (47.4-64.3), exit 134 | 744.3 (743.9-752.9), exit 3 | 49.3 (43.3-55.5), exit 134 | 610.7 (608.7-639.9), exit 3 | 0.54 / 0.75 | 0.29 / 0.42 |
+| One-line change in web, re-test | warm | 48.1 (47.4-64.3), exit 134 | 744.3 (743.9-752.9), exit 3 | 49.3 (43.3-55.5), exit 134 | 610.7 (608.7-639.9), exit 3 | 0.54 / 0.75 | 0.29 / 0.42 |
 | One-line change in a leaf worker, re-test | warm | 1.7 (1.5-2.1) | 9.2 (8.0-9.7) | 1.1 (1.1-1.1) | 5.5 (5.4-5.5) | 0.48 / 0.57 | 0.28 / 0.36 |
 
 The checkout's way: `.github/scripts/typecheck.sh`; the CI `run:` lines that
 run TypeScript tests outside the excluded rows (11 at f9fd041,
 12 at 613f2b2) plus cf-workers-test.yml's step in the 21 worker
-directories CI tests, one after another; `tsc -p web --noEmit`;
-`pnpm --filter=web run test:run --changed`; cf-workers-test.yml's step in
-workers/download. Bazel's: `bazel build //...`; `bazel test //...` minus the
-excluded labels; `bazel build //web/...`; `bazel test //web/...`;
-`bazel test //workers/download/...`. The edit is `;` appended to
-web/shared/lib/markdown/markedRenderer.ts and to workers/download/src/index.ts.
+directories CI tests, one after another; `tsc -p web --noEmit`; in these two
+runs `pnpm --filter=web run test:run --changed`, a command CI does not run --
+the runner's cell is now CI's row, `pnpm --filter=web run test:run`
+(test.yml:1105); cf-workers-test.yml's step in workers/download. Bazel's:
+`bazel build //...`; `bazel test //...` minus the excluded labels;
+`bazel build //web/...` -- the runner now runs `bazel build //web:web` as a
+cell of its own first, on the same output base, so the `//web/...` cell is
+what the target's build leaves: neither is in these two runs;
+`bazel test //web/...`; `bazel test //workers/download/...`. The edit is `;`
+appended to web/shared/lib/markdown/markedRenderer.ts and to
+workers/download/src/index.ts.
 
 ## What each difference is
 
@@ -163,11 +168,13 @@ nothing downstream re-runs; 144.9 s (133.5-145.3; 184.5 s at f123f53). The
 target is the unit: one line in web re-checks and re-emits web, and the emit
 is the cost tsc's `--noEmit` never pays.
 
-**One-line change in web, re-test the affected suites.** The checkout's way
-does not finish: `vitest run --changed` computes the affected set over web's
-test files and dies at V8's heap limit (`FATAL ERROR: Reached heap limit`,
-SIGABRT, exit 134) in every run, after 49.3 s (43.3-55.5); nothing in the
-checkout raises the heap. `bazel test //web/...` runs the three test targets
+**One-line change in web, re-test.** The checkout's cell in these two runs is
+not CI's row and not a number: `vitest run --changed` computes the affected
+set over web's test files and dies at V8's heap limit (`FATAL ERROR: Reached
+heap limit`, SIGABRT, exit 134) in every run, after 49.3 s (43.3-55.5);
+nothing in the checkout raises the heap. CI runs `vitest run` over the whole
+web program (test.yml:1105), which the runner's cell now is: web's suite on
+both sides. `bazel test //web/...` runs the three test targets
 whose inputs changed: `web_test` in 474.2 s (red, one test of three: its two
 cases at their 5000 ms budget, goblinStore and system-status.server, the
 load rows the exclusion names), `node_tooling_test` 9.6 s,
