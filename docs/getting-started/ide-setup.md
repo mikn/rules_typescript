@@ -468,8 +468,8 @@ would sit on the same lock a build wants.
 
 1. **Worker thread** reads `.bazel/tsserver-hook-data.json` (the `ts_compile`
    package list) and turns it into a module-name → declaration-path map
-2. **Internal packages** resolved from `bazel-bin` (`.d.ts` after a build) or the
-   source tree (`.ts` before one)
+2. **Internal packages** resolved from `bazel-bin` (`.d.ts` after a build
+   emitted them) or the source tree (`.ts` before one)
 3. **Fragments**, if the `.bazelrc` lines above are in place, add the packages
    of every target the aspect reached, including the ones no rule may name. One
    target built in two configurations writes two fragments, deduplicated by
@@ -486,7 +486,7 @@ the worker completes.
 
 ### Resolution Priority
 
-1. `.d.ts` in `bazel-bin` — fast, precise (available after `bazel build`)
+1. `.d.ts` in `bazel-bin` — fast, precise (available once a build emitted them)
 2. `.ts` source file — always available, slower for tsserver to process
 
 npm packages are not in the map: TypeScript resolves them itself through the
@@ -495,8 +495,11 @@ checkout's `node_modules`.
 ### What a Build Provides
 
 First-party resolution works without `bazel build`, since the source `.ts` files
-are always on disk. A build adds the `.d.ts` files and, with the aspect enabled,
-the fragments naming the packages `deps` could not reach.
+are always on disk. A build adds the `.d.ts` of every package a dependent's
+compile read -- of every package with `--output_groups=+declarations`
+([Which Tool Emits the Declarations](../rules/ts-compile.md#which-tool-emits-the-declarations))
+-- and, with the aspect enabled, the fragments naming the packages `deps` could
+not reach.
 
 npm resolution is bounded by the checkout's `node_modules`: a package the
 lockfile gained resolves in the editor after the next `pnpm install`.
