@@ -74,7 +74,6 @@ def _ts_test_impl(ctx):
 
     entry_points = [f for f in program.js if f.extension in _ENTRY_EXTENSIONS]
 
-    # The launcher shards over this list of runfiles paths.
     test_files_list = ctx.actions.declare_file(
         "{}_test_files.txt".format(ctx.label.name),
     )
@@ -100,6 +99,7 @@ def _ts_test_impl(ctx):
 
     launched = runner.launch(ctx, struct(
         entry_points = entry_points,
+        entry_extensions = _ENTRY_EXTENSIONS,
         test_files_list = test_files_list,
         chain = chain,
         transitive_js = program.transitive_js,

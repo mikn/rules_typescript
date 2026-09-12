@@ -321,7 +321,7 @@ ibazel test //...
 
 ibazel watches the build graph, so only affected targets are rebuilt and
 re-tested. To see what the launcher resolved (node binary, vitest entry, the
-chain's `node_modules`, shard split):
+chain's `node_modules`):
 
 ```bash
 bazel run //path/to:my_test -- --dump-config

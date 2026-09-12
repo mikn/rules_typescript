@@ -235,7 +235,7 @@ plain `vitest`:
 
 | Layer | Contents | Workspace projects |
 |-------|----------|---|
-| 1. Bazel | `root` (the `config`'s package; the test's own with none), `cacheDir` under `TEST_TMPDIR`, `server.fs.allow` naming the workspace's runfiles and `bazel-bin`'s realpath, `test.coverage.allowExternal`, `test.include` naming the compiled test files, `test.server.deps.inline` naming each workspace member in the closure, the plugin giving each module its id (below), the plugin resolving a relative `.ts` specifier to its compiled sibling, and the plugin resolving a tsconfig `paths` alias | yes |
+| 1. Bazel | `root` (the `config`'s package; the test's own with none), `cacheDir` under `TEST_TMPDIR`, `server.fs.allow` naming the workspace's runfiles and `bazel-bin`'s realpath, `test.coverage.allowExternal`, `test.server.deps.inline` naming each workspace member in the closure, the plugin giving each module its id (below), the plugin resolving a relative `.ts` specifier to its compiled sibling, and the plugin resolving a tsconfig `paths` alias | yes |
 | 2. user | the `config` file | it supplies the projects |
 | 3. provider | `test.coverage.provider` from `coverage_provider` | no, root only |
 | 4. snapshots | `test.resolveSnapshotPath` | no, root only |
@@ -247,13 +247,17 @@ from a later layer win: a `cacheDir` the config sets wins over layer 1's, and
 and 4 are root-only because coverage and `resolveSnapshotPath` are vitest's
 non-project options, applied once and never merged into a project.
 
-Layer 1's `include` is the compiled test files, relative to the root: under
-Bazel the run is the rule's `srcs`. A config's `include` is written for the
-sources (`**/*.test.{ts,tsx}`), which the compiled `.js` the launcher names
-never match, and the run would stop with `No test files found`; arrays
-concatenate, so the config's globs stay in the merged array and select
-nothing the launcher did not name. `//tests/vitest/config_include` is the
-example.
+`test.include` is set after the merge, on the root and on every project:
+`**/*.{test,spec}.{js,jsx,mjs,cjs}`, vitest's default include over the
+extensions a compiled test file has, so vitest collects the run by one crawl
+of the root, as it does in the checkout, and the launcher names no file. A
+config's `include` is written for the sources, which are in the runfiles
+beside the compiled files, and is not read: through it each test would run
+twice. The run is the test-named files among the compiled `srcs`, a config's
+`exclude` in force; a `ts_compile` dep's compiled test-named file under the
+root is in it too. `//tests/vitest/config_include` is the example, and
+`//tests/vitest/many_files` runs a thousand files, starting as its one-file
+test does.
 
 A module's id is its runfiles path where the runfiles hold the file and its
 realpath otherwise. Vite resolves every id to its realpath -- a test file's and
@@ -692,9 +696,11 @@ synthesises `test.xml` from the log.
 
 ## Sharding
 
-`ts_test` distributes test files across shards using `TEST_SHARD_INDEX` and
-`TEST_TOTAL_SHARDS`, on either runner. Set `shard_count` on the target and pass
-`--noincompatible_check_sharding_support`: the runner never touches
+Under vitest a shard is vitest's own `--shard=<index>/<count>` from
+`TEST_SHARD_INDEX` and `TEST_TOTAL_SHARDS`, over the files it collected, so
+`shard_count` is at most the count of test files: vitest refuses more. Under
+node:test the launcher splits its file list. Set `shard_count` on the target
+and pass `--noincompatible_check_sharding_support`: the runner never touches
 `TEST_SHARD_STATUS_FILE`, which is how Bazel expects a test runner to advertise
 sharding support, so without that flag a sharded run fails before any test
 starts.

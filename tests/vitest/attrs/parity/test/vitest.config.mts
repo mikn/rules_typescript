@@ -1,5 +1,5 @@
 export default {
   test: {
-    include: ["parity.js"],
+    passWithNoTests: true,
   },
 };

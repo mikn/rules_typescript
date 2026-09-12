@@ -35,31 +35,19 @@ func planVitest(
 		}
 	}
 
-	shard, err := shardFiles(r, v.TestFilesList)
-	if err != nil {
-		return nil, err
-	}
-	if len(shard) == 0 {
-		plan.ExitEarly = true
-		plan.Messages = append(plan.Messages, fmt.Sprintf(
-			"ts_test: no test files assigned to shard %d/%d", shardIndex(), totalShards()))
-		return plan, nil
-	}
-
-	files := make([]string, 0, len(shard))
-	for _, f := range shard {
-		files = append(files, f.path)
-	}
-
-	// Vitest globs its root for tests, and positional args only substring-filter
-	// that; bazel-bin holds every sibling's copy too.
+	// Without a runfiles tree the files sit in bazel-bin beside every sibling
+	// target's, so the root vitest globs is one of the test's own.
 	tree := r.Dir()
 	if tree == "" {
-		root, staged, err := stageTestRoot(shard)
+		files, err := testFiles(r, v.TestFilesList)
 		if err != nil {
 			return nil, err
 		}
-		tree, files = root, staged
+		root, err := stageTestRoot(files)
+		if err != nil {
+			return nil, err
+		}
+		tree = root
 		plan.Cleanup = func() { _ = os.RemoveAll(root) }
 	}
 	nodeModules, err := installNodeModules(
@@ -75,6 +63,7 @@ func planVitest(
 		filepath.Dir(configFile), filepath.FromSlash(v.RootRel))
 
 	flags := []string{"run", "--config", configFile}
+	flags = append(flags, shardFlag()...)
 	flags = append(flags, coverageFlags()...)
 	flags = append(flags, args...)
 
@@ -87,7 +76,7 @@ func planVitest(
 		return nil, err
 	}
 	argv := append(runtime, vitestBin)
-	plan.Argv = append(append(argv, flags...), files...)
+	plan.Argv = append(argv, flags...)
 	plan.UseExec = false
 	plan.PostRun = writeCoverage(cfg.Workspace, tree, plan.Dir)
 	if reads != nil {
@@ -99,6 +88,16 @@ func planVitest(
 		plan.PostRun = chainPostRun(plan.PostRun, reads.report(os.Stdout))
 	}
 	return plan, nil
+}
+
+// shardFlag is vitest's own split of the files it collected, under Bazel's
+// sharding; vitest counts shards from one.
+func shardFlag() []string {
+	total := totalShards()
+	if total < 2 {
+		return nil
+	}
+	return []string{fmt.Sprintf("--shard=%d/%d", shardIndex()+1, total)}
 }
 
 // stageFiles writes each entry as a regular file under the tree: a config's
@@ -127,25 +126,24 @@ func stageFiles(r *Resolver, tree string, stage map[string]string) error {
 	return nil
 }
 
-// stageTestRoot gives a manifest-only run a root of its own: symlinks to just
-// this shard's files, at the runfiles paths a runfiles tree would have used.
-func stageTestRoot(files []testFile) (root string, staged []string, err error) {
-	root, err = os.MkdirTemp(os.Getenv("TEST_TMPDIR"), "ts_test_root")
+// stageTestRoot gives a manifest-only run a root of its own: symlinks to the
+// test's files, at the runfiles paths a runfiles tree would have used.
+func stageTestRoot(files []testFile) (string, error) {
+	root, err := os.MkdirTemp(os.Getenv("TEST_TMPDIR"), "ts_test_root")
 	if err != nil {
-		return "", nil, err
+		return "", err
 	}
 	for _, f := range files {
 		link := filepath.Join(root, filepath.FromSlash(f.rlocation))
 		if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
-			return "", nil, err
+			return "", err
 		}
 		_ = os.Remove(link)
 		if err := os.Symlink(f.path, link); err != nil {
-			return "", nil, err
+			return "", err
 		}
-		staged = append(staged, link)
 	}
-	return root, staged, nil
+	return root, nil
 }
 
 // resolveVitest finds vitest's bin entry under the first importer on the
@@ -194,9 +192,9 @@ type testFile struct {
 	path      string
 }
 
-// shardFiles reads the generated list of compiled test files (one runfiles path
-// per line) and keeps the ones belonging to this shard.
-func shardFiles(r *Resolver, listPath string) ([]testFile, error) {
+// testFiles reads the generated list of compiled test files, one runfiles
+// path per line.
+func testFiles(r *Resolver, listPath string) ([]testFile, error) {
 	list, err := r.Path(listPath)
 	if err != nil {
 		return nil, err
@@ -207,25 +205,36 @@ func shardFiles(r *Resolver, listPath string) ([]testFile, error) {
 	}
 	defer f.Close()
 
-	index, total := shardIndex(), totalShards()
 	out := []testFile{}
 	scanner := bufio.NewScanner(f)
-	i := 0
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
 		}
-		if i%total == index {
-			abs, err := r.Path(line)
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, testFile{rlocation: line, path: abs})
+		abs, err := r.Path(line)
+		if err != nil {
+			return nil, err
 		}
-		i++
+		out = append(out, testFile{rlocation: line, path: abs})
 	}
 	return out, scanner.Err()
+}
+
+// shardFiles keeps the files of the list that belong to this shard.
+func shardFiles(r *Resolver, listPath string) ([]testFile, error) {
+	files, err := testFiles(r, listPath)
+	if err != nil {
+		return nil, err
+	}
+	index, total := shardIndex(), totalShards()
+	out := []testFile{}
+	for i, f := range files {
+		if i%total == index {
+			out = append(out, f)
+		}
+	}
+	return out, nil
 }
 
 func coverageFlags() []string {

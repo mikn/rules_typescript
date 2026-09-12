@@ -175,7 +175,9 @@ func treeRoot(plan *Plan) string {
 	return strings.TrimSuffix(plan.Dir, filepath.FromSlash("/_main/tests/app"))
 }
 
-func TestPlanVitestRunsEveryTestFileByDefault(t *testing.T) {
+// vitest collects the run by its own glob over the root: the launcher names
+// no file, so nothing is matched file by file against a list of arguments.
+func TestPlanVitestHandsVitestNoFile(t *testing.T) {
 	r, real := vitestFixture(t)
 	t.Setenv("COVERAGE_DIR", "")
 	plan, err := MakePlan(vitestConfig(), r, nil)
@@ -183,81 +185,76 @@ func TestPlanVitestRunsEveryTestFileByDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer plan.Cleanup()
-	joined := strings.Join(plan.Argv, " ")
 	tree := treeRoot(plan)
-	for _, want := range []string{
+	want := []string{
 		real["+node+/bin/node"],
 		filepath.Join(tree, "_main/tests/app/node_modules/vitest/vitest.mjs"),
-		"run --config " +
-			filepath.Join(tree, "_main/tests/app/_app_vitest.config.mjs"),
-		filepath.Join(tree, "_main/tests/app/a.test.js"),
-		filepath.Join(tree, "_main/tests/app/c.test.js"),
-	} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("argv %q is missing %q", joined, want)
-		}
+		"run", "--config",
+		filepath.Join(tree, "_main/tests/app/_app_vitest.config.mjs"),
 	}
-	if strings.Contains(joined, "--coverage") {
-		t.Errorf("argv %q has coverage flags on a plain run", joined)
+	if strings.Join(plan.Argv, "\x00") != strings.Join(want, "\x00") {
+		t.Errorf("argv = %q, want %q", plan.Argv, want)
 	}
 	if plan.UseExec {
 		t.Error("the test runner has to outlive vitest to post-process coverage")
 	}
 }
 
-// vitest reads its flags up to the first file, so the target's args go after
-// the launcher's own flags and before the files.
-func TestPlanVitestPutsArgsBeforeTheFiles(t *testing.T) {
+// The target's args follow the launcher's own flags.
+func TestPlanVitestPutsArgsAfterItsFlags(t *testing.T) {
 	r, _ := vitestFixture(t)
+	t.Setenv("TEST_TOTAL_SHARDS", "2")
+	t.Setenv("TEST_SHARD_INDEX", "0")
 	args := []string{"--reporter=dot"}
 	plan, err := MakePlan(vitestConfig(), r, args)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer plan.Cleanup()
-	flag := slices.Index(plan.Argv, args[0])
 	config := slices.Index(plan.Argv, "--config")
-	a := filepath.Join(treeRoot(plan), "_main/tests/app/a.test.js")
-	first := slices.Index(plan.Argv, a)
-	if flag < 0 || !(config < flag && flag < first) {
-		t.Errorf("argv = %q, want %q before the files", plan.Argv, args[0])
+	shard := slices.Index(plan.Argv, "--shard=1/2")
+	last := len(plan.Argv) - 1
+	if !(0 < config && config < shard && shard < last) ||
+		plan.Argv[last] != args[0] {
+		t.Errorf("argv = %q, want %q last, after --config and --shard",
+			plan.Argv, args[0])
 	}
 }
 
-func TestPlanVitestPartitionsShards(t *testing.T) {
-	r, _ := vitestFixture(t)
-	t.Setenv("TEST_TOTAL_SHARDS", "2")
-	t.Setenv("TEST_SHARD_INDEX", "1")
-	plan, err := MakePlan(vitestConfig(), r, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer plan.Cleanup()
-	joined := strings.Join(plan.Argv, " ")
-	tree := treeRoot(plan)
-	b := filepath.Join(tree, "_main/tests/app/b.test.js")
-	if !strings.Contains(joined, b) {
-		t.Errorf("shard 1 of 2 should run b.test.js, got %q", joined)
-	}
-	if strings.Contains(joined, "a.test.js") {
-		t.Errorf("shard 1 of 2 should not run a.test.js, got %q", joined)
-	}
-	a := filepath.Join(tree, "_main/tests/app/a.test.js")
-	if _, err := os.Lstat(a); !os.IsNotExist(err) {
-		t.Error("a.test.js belongs to the other shard; staging it would let vitest glob it")
-	}
-}
-
-func TestPlanVitestExitsCleanlyOnAnEmptyShard(t *testing.T) {
-	r, _ := vitestFixture(t)
-	t.Setenv("TEST_TOTAL_SHARDS", "8")
-	t.Setenv("TEST_SHARD_INDEX", "7")
-	plan, err := MakePlan(vitestConfig(), r, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !plan.ExitEarly {
-		t.Fatal("an empty shard must not start vitest")
+// A shard is vitest's own split of the files it collected.
+func TestPlanVitestShardsThroughVitest(t *testing.T) {
+	for _, tc := range []struct{ total, index, flag string }{
+		{"2", "1", "--shard=2/2"},
+		{"3", "0", "--shard=1/3"},
+		{"1", "0", ""},
+		{"", "", ""},
+	} {
+		r, _ := vitestFixture(t)
+		t.Setenv("TEST_TOTAL_SHARDS", tc.total)
+		t.Setenv("TEST_SHARD_INDEX", tc.index)
+		plan, err := MakePlan(vitestConfig(), r, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer plan.Cleanup()
+		if plan.ExitEarly {
+			t.Errorf("shard %s/%s: the plan exits before vitest", tc.index, tc.total)
+		}
+		flags := slices.DeleteFunc(slices.Clone(plan.Argv), func(a string) bool {
+			return !strings.HasPrefix(a, "--shard")
+		})
+		want := []string{}
+		if tc.flag != "" {
+			want = append(want, tc.flag)
+		}
+		if strings.Join(flags, ",") != strings.Join(want, ",") {
+			t.Errorf("shard %s/%s: flags %q, want %q", tc.index, tc.total, flags, want)
+		}
+		joined := strings.Join(plan.Argv, " ")
+		if strings.Contains(joined, ".test.js") {
+			t.Errorf("shard %s/%s: argv %q names a test file",
+				tc.index, tc.total, joined)
+		}
 	}
 }
 
@@ -527,14 +524,14 @@ func TestPlanVitestStagesAPrivateRootWithoutARunfilesDirectory(t *testing.T) {
 		t.Fatalf("dir = %q, want a package under a staged root of its own", plan.Dir)
 	}
 
+	last := plan.Argv[len(plan.Argv)-1]
+	if !strings.HasSuffix(last, "config.mjs") {
+		t.Errorf("argv = %q, want it to end at the flags", plan.Argv)
+	}
 	want := []string{
 		filepath.Join(root, "_main/tests/app/a.test.js"),
 		filepath.Join(root, "_main/tests/app/b.test.js"),
 		filepath.Join(root, "_main/tests/app/c.test.js"),
-	}
-	got := plan.Argv[len(plan.Argv)-len(want):]
-	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
-		t.Errorf("positional args = %q, want %q", got, want)
 	}
 	for i, link := range want {
 		resolved, err := filepath.EvalSymlinks(link)
@@ -577,6 +574,28 @@ func TestPlanVitestStagesAPrivateRootWithoutARunfilesDirectory(t *testing.T) {
 	plan.Cleanup()
 	if _, err := os.Stat(root); !os.IsNotExist(err) {
 		t.Errorf("cleanup left %s behind", root)
+	}
+}
+
+// vitest shards what it globs, so a shard's root holds every test file.
+func TestPlanVitestStagesEveryTestFileWhateverTheShard(t *testing.T) {
+	r, _ := vitestFixture(t)
+	t.Setenv("TEST_TOTAL_SHARDS", "2")
+	t.Setenv("TEST_SHARD_INDEX", "1")
+	plan, err := MakePlan(vitestConfig(), r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer plan.Cleanup()
+	root := treeRoot(plan)
+	for _, name := range []string{"a", "b", "c"} {
+		link := filepath.Join(root, "_main/tests/app/"+name+".test.js")
+		if _, err := os.Lstat(link); err != nil {
+			t.Errorf("%s.test.js is not staged: %v", name, err)
+		}
+	}
+	if !slices.Contains(plan.Argv, "--shard=2/2") {
+		t.Errorf("argv = %q, want vitest's --shard=2/2", plan.Argv)
 	}
 }
 
