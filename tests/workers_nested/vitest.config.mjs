@@ -2,12 +2,12 @@ import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 import { realpathSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-// The realpath of a build output the runfiles do not hold: the worker's
-// written tsconfig, beside the compiled test in bazel-out.
+// A build output the runfiles do not hold and every build writes to disk (a
+// FileWrite, never a cache-hit spawn's): the worker's ownership record.
 const compiledTest = realpathSync(
   resolve(import.meta.dirname, "test/worker.test.js"),
 );
-const undeclared = resolve(dirname(compiledTest), "../worker.tsconfig.json");
+const undeclared = resolve(dirname(compiledTest), "../worker.ownership");
 
 // Written as a worker's own config is: configPath relative to the worker root,
 // an environment, and no `resolve` key.
