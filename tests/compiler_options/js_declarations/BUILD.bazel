@@ -6,7 +6,8 @@ which is how a hand-written declaration types an untyped JavaScript module.
 monorepo shape, where the .mjs runs under vitest and the declaration is all the
 type check sees. `:with_runtime` is both files in one target; main.ts refuses
 the `any` the JavaScript alone would infer, so building it says which one the
-import resolved to.
+import resolved to, and each JavaScript file carries `// @ts-check` over an
+unannotated parameter, so a program that holds one says so as TS7006.
 
 ambient.d.mts has no import or export, and TypeScript exempts declaration files
 from the module-ness the .mts extension forces on a source: it is a script, and

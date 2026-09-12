@@ -296,8 +296,9 @@ func TestTsconfigStep_WritesTheChainShapedConfig(t *testing.T) {
     "rootDirs": ["../../../..", ".."],
     "types": ["node", "@cloudflare/workers-types"]
   },
-  "include": ["../../../../pkg/src", "./generated.d.ts"],
-  "files": ["../../../../pkg/globals.d.ts"],
+  "include": ["../../../../pkg/src", "../../../../pkg/globals.d.ts",
+    "./generated.d.ts"],
+  "files": [],
   "exclude": [],
   "references": []
 }`)
@@ -307,28 +308,29 @@ func TestTsconfigStep_WritesTheChainShapedConfig(t *testing.T) {
 }
 
 // The roots are the chain's own files, include and exclude, each spec from its
-// writer's directory; a src no root names joins files, a matched one nothing.
+// writer's directory; a src no root names joins include, a matched one nothing.
 func TestTsconfigStep_RootsAreTheChainsPatterns(t *testing.T) {
 	for name, tc := range map[string]struct {
 		leaf, capture, files, include, exclude string
 	}{
 		"leaf": {
 			patternLeaf, "showconfig-roots.json",
-			`["../../../../other/c.ts"]`,
-			`["../../../../pkg/src/**/*", "../../../../pkg/globals.d.ts"]`,
+			`[]`,
+			`["../../../../pkg/src/**/*", "../../../../pkg/globals.d.ts",
+			  "../../../../other/c.ts"]`,
 			`["../../../../pkg/src/**/*.test.ts"]`,
 		},
 		"inherited": {
 			inheritedRootsLeaf, "showconfig-chain.json",
-			`["../../../../pkg/globals.d.ts", "../../../../other/c.ts"]`,
-			`["../../../../pkg/src", "./generated.d.ts"]`,
+			`[]`,
+			`["../../../../pkg/src", "../../../../pkg/globals.d.ts",
+			  "../../../../other/c.ts", "./generated.d.ts"]`,
 			`["../../../../base/**/*.test.ts"]`,
 		},
 		"files": {
 			filesLeaf, "showconfig-roots.json",
-			`["../../../../pkg/src/a.ts", "../../../../pkg/globals.d.ts",
-			  "../../../../other/c.ts"]`,
-			`[]`, `[]`,
+			`["../../../../pkg/src/a.ts", "../../../../pkg/globals.d.ts"]`,
+			`["../../../../other/c.ts"]`, `[]`,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -433,7 +435,7 @@ func TestTsconfigStep_NoTypesUnderTypeRootsWritesNone(t *testing.T) {
 }
 
 // A target with no tsconfig extends the baseline alone: no chain, no paths, no
-// pattern, so the srcs are the files list.
+// pattern, so include names each src by its path.
 func TestTsconfigStep_NoTsconfigExtendsTheBaselineAlone(t *testing.T) {
 	e := newExecroot(t, noTypesLeaf, `{"compilerOptions": {"target": "es2022", "jsx": "react-jsx"}}`)
 	args := []string{
@@ -454,8 +456,8 @@ func TestTsconfigStep_NoTsconfigExtendsTheBaselineAlone(t *testing.T) {
 		t.Errorf("paths = %v, want none: no chain sets one", opts["paths"])
 	}
 	assertJSON(t, "types", opts["types"], `["node"]`)
-	assertJSON(t, "files", config["files"], `["../../../../pkg/src/a.ts"]`)
-	assertJSON(t, "include", config["include"], `[]`)
+	assertJSON(t, "files", config["files"], `[]`)
+	assertJSON(t, "include", config["include"], `["../../../../pkg/src/a.ts"]`)
 	assertJSON(t, "pkg.options.json", readJSON(t, binDir+"/pkg/pkg.options.json"), `{"target": "es2022", "jsx": "react-jsx"}`)
 }
 

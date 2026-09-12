@@ -184,9 +184,12 @@ that pass too. Lowest precedence first:
    The roots are the tsconfig's own: `files`, `include` and `exclude` are the
    chain's specs, each rewritten from the directory of the chain file that
    set it, a chain naming neither `files` nor `include` getting tsc's default
-   `**/*` over its directory; `files` then takes the srcs no root of the
-   chain names, and `include` each path-shaped `types` entry as a root file
-   at the path it is staged (below). A chain that sets no `exclude` gets `[]`,
+   `**/*` over its directory; `include` then names each src no root of the
+   chain names, and each path-shaped `types` entry as a root file at the
+   path it is staged (below), one entry per path, so tsc's rules for a
+   pattern's match -- `allowJs`, the higher-priority extension of a pair
+   listed together -- reach a src named by path, as they reach nothing in
+   `files`. A chain that sets no `exclude` gets `[]`,
    not tsc's default list, whose `outDir` entry is the output directory such
    an entry sits in. `references` is `[]`. The roots are patterns rather than
    a `files` entry per src because `--explainFiles` finds a `files` root's

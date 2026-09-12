@@ -292,12 +292,14 @@ func (a *actionConfig) build(effective *effectiveOptions, roots []string,
 	for _, p := range roots {
 		named[path.Clean(p)] = true
 	}
+	// tsc drops the lower-priority extension of a pair -- an .mjs beside its
+	// .d.mts -- from what include names, never from files.
 	src := make(map[string]bool, len(a.srcs))
 	for _, s := range a.srcs {
 		rel := fileRelative(dir, s)
 		src[path.Clean(rel)] = true
 		if !named[path.Clean(rel)] {
-			files = append(files, rel)
+			include = append(include, rel)
 		}
 	}
 	for _, p := range typesRoots {
