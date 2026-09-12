@@ -2,12 +2,12 @@ import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 import { realpathSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-// The realpath of a build output the runfiles do not hold: the worker's .d.ts,
-// beside the compiled test in bazel-out.
+// The realpath of a build output the runfiles do not hold: the worker's
+// written tsconfig, beside the compiled test in bazel-out.
 const compiledTest = realpathSync(
   resolve(import.meta.dirname, "test/worker.test.js"),
 );
-const undeclared = resolve(dirname(compiledTest), "../src/index.d.ts");
+const undeclared = resolve(dirname(compiledTest), "../worker.tsconfig.json");
 
 // Written as a worker's own config is: configPath relative to the worker root,
 // an environment, and no `resolve` key.

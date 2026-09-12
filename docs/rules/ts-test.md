@@ -29,8 +29,8 @@ the compiled files.
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `srcs` | `label_list` | required | The test files, as `ts_compile`'s `srcs`, with every other file of the package: a `.snap`, a fixture. The TypeScript ones are in the runfiles at their source paths too; see [Files at Run Time](#files-at-run-time) |
-| `deps` | `label_list` | `[]` | `ts_compile` and `@npm//` targets the tests import. A `ts_compile` dep's data srcs are in the runfiles beside its `.js`, and a dep in the test's package has its TypeScript srcs there too |
-| `tsconfig` | `label` | `None` | The test program's tsconfig, as on `ts_compile`: the package's own `tsconfig.json` or a `ts_config` target; under vitest its `paths` resolve at run time. See [The Test's tsconfig](#the-tests-tsconfig) |
+| `deps` | `label_list` | `[]` | `ts_compile` and `@npm//` targets the tests import. A dep under the test's `tsconfig` is checked from its sources ([The Test's Program](#the-tests-program)); a `ts_compile` dep's data srcs are in the runfiles beside its `.js`, and a dep in the test's package has its sources there too |
+| `tsconfig` | `label` | `None` | The test program's tsconfig, as on `ts_compile`: the package's own `tsconfig.json` or a `ts_config` target, the file the deps that join the program share; under vitest its `paths` resolve at run time. See [The Test's Program](#the-tests-program) and [The Test's tsconfig](#the-tests-tsconfig) |
 | `node_modules` | `label` | `None` | The nearest lockfile importer's `node_modules` target, as on `ts_compile`: the chain the tests resolve their npm deps along, at run time too. See [Files at Run Time](#files-at-run-time) |
 | `runner` | `label` | `//ts/runners:vitest` | The target that runs the compiled tests: `//ts/runners:vitest`, `//ts/runners:node_test` or any target providing `TsTestRunnerInfo`. See [Runners](#runners) |
 | `env` | `string_dict` | `{}` | Extra environment variables for the runner |
@@ -48,10 +48,10 @@ vitest runner's and an analysis error under the node:test runner.
 ## Files at Run Time
 
 A test's runfiles hold, at their source paths, the compiled program -- its own
-`.js` and every dep's -- the data srcs of every dep, and the TypeScript sources
-of its own package: its `srcs` and the srcs of every dep in the same Bazel
-package, `.ts`, `.tsx` and declarations. A test that reads its package's tree
-finds it where the checkout has it:
+`.js` and every dep's -- the data srcs of every dep, and the sources of its
+own package: its `srcs` and the srcs of every dep in the same Bazel package,
+`.ts`, `.tsx`, JavaScript and declarations. A test that reads its package's
+tree finds it where the checkout has it:
 
 ```ts
 const sdkSource = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
@@ -113,14 +113,33 @@ runners (`//tests/npm/multi_version:own_edge_node_test`,
 hoist link the runfiles carry for a name the closure holds
 (`//tests/npm/features/hoist`).
 
+## The Test's Program
+
+The test's program is its `srcs` and the sources of every dep whose `tsconfig`
+is the test's. The package's `tsconfig.json` names the compile and the test
+alike -- Gazelle writes it on both -- and the checkout's `tsc -p` checks their
+files as one program, so `TsgoCheck` on the test reads the compile's `.ts`,
+`.tsx`, JavaScript and declaration srcs beside the test files
+(`TsInfo.sources`) and the declarations the compile's own program read
+(`TsInfo.deps_declarations`), never the compile's emitted `.d.ts`: the check
+waits for no `TsgoDeclare`, and a type error in the package's sources fails
+the test's check as it fails the compile's. The edges stay the compile's to
+declare: an import from a test file into one of those sources lands on a file
+the compile's label owns, in `deps` already, and an import from one of them is
+not judged ([Deps have to be direct](ts-compile.md#deps-have-to-be-direct)).
+A dep under another `tsconfig` -- a `tsconfig.node.json` test over the
+package's browser compile, say -- reaches the test through its declarations, as
+it reaches any `ts_compile`. `//tests/package_program` pins both.
+
 ## The Test's tsconfig
 
 `tsconfig` is the test program's, as on
-[`ts_compile`](ts-compile.md#where-compiler-options-come-from). The test files
-are a program of their own, so a `lib`, a `types` entry or a `paths` alias the
-package's sources need is in the test program only when the test's tsconfig
-has it too; Gazelle names the package's own `tsconfig.json` on the test as on
-the compile. Three entries are the ones a test usually needs:
+[`ts_compile`](ts-compile.md#where-compiler-options-come-from): the package's
+own `tsconfig.json`, one program with the compile ([above](#the-tests-program)),
+or a file of the test's own, under which a dep arrives as declarations and a
+`lib`, a `types` entry or a `paths` alias those need is in the test program
+only when the test's tsconfig has it too. Three entries are the ones a test
+usually needs:
 
 - **`lib`.** A worker test needs `["esnext", "webworker"]`; `webworker` is in
   no set `target` implies.

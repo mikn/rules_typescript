@@ -83,7 +83,9 @@ ts_compile → TsConfig action (<name>.tsconfig.json + <name>.options.json from
            → TsLint validation action (.tslint stamp in _validation) when the
              root module's ts.lint() names a linter
 
-.d.ts = compilation boundary. Downstream sees only .d.ts, not .ts source.
+.d.ts = compilation boundary. Downstream sees only .d.ts, not .ts source;
+a ts_test under the target's tsconfig is the exception, one program with the
+compile over the .ts (docs/rules/ts-test.md § The Test's Program).
 Change implementation without changing .d.ts → no downstream recompilation.
 
 The strict-deps check is the tsgo action's: tests/strict_deps pins the manifest

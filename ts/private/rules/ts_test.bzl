@@ -1,9 +1,10 @@
 """ts_test: ts_compile's actions over the test files, run under a runner target.
 
 The rule takes TS_COMPILE_ATTRS and the test attributes; compile_program
-registers the actions a ts_compile over the same srcs would, and the importer
-chain tsgo resolved against is what the tests run in: the runfiles hold the
-chain's links and the store files the program reaches at their own paths.
+registers the actions a ts_compile over the same srcs would, every dep under
+the test's tsconfig checked from its sources, and the importer chain tsgo
+resolved against is what the tests run in: the runfiles hold the chain's links
+and the store files the program reaches at their own paths.
 `runner` names the target providing TsTestRunnerInfo whose `launch` writes the
 launcher config. docs/rules/ts-test.md is the reference.
 """
@@ -54,7 +55,11 @@ def _chain(ctx, program):
 
 def _ts_test_impl(ctx):
     runner = ctx.attr.runner[TsTestRunnerInfo]
-    program = compile_program(ctx, es_modules = runner.es_modules)
+    program = compile_program(
+        ctx,
+        es_modules = runner.es_modules,
+        package_program = True,
+    )
 
     linked = {info.package_name: True for info in program.packages}
     missing = [name for name in runner.packages if name not in linked]
@@ -217,9 +222,11 @@ ts_test = rule(
     ],
     doc = """Compiles TypeScript tests with ts_compile's actions and runs them.
 
-srcs, deps, tsconfig and node_modules are ts_compile's, and the importer chain
-tsgo checked the tests against is what they run in: the chain's links and the
-store files the program reaches sit in the runfiles at their own paths. `runner`
+srcs, deps, tsconfig and node_modules are ts_compile's; a dep under the test's
+tsconfig is checked from its sources, one program with the package's compile,
+and a dep under another through its declarations. The importer chain tsgo
+checked the tests against is what they run in: the chain's links and the store
+files the program reaches sit in the runfiles at their own paths. `runner`
 names the target that runs the compiled files, //ts/runners:vitest by default;
 `config`, `data`, `coverage_provider` and `wrangler_config` are the vitest
 runner's.

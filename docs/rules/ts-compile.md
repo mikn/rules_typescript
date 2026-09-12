@@ -91,8 +91,9 @@ through a Starlark transition; `tests/flags.bzl` is the ruleset's own.
   rewritten to the emitted file, by `tsaction manifest` -- as
   `<name>.package.json`, for the two readers that hold the emit: a dependent's
   program root lays it at the package's path, so a `ts_test` inside the
-  package resolves the package's own name to the `.d.ts` beside the test's
-  sources ([The node_modules Chain](#the-node_modules-chain)), and the
+  package resolves the package's own name to the compile's files beside the
+  test's -- its sources under the package's tsconfig, its `.d.ts` under
+  another ([The Test's Program](ts-test.md#the-tests-program)) -- and the
   member's store tree copies it as its `package.json`. A test's runfiles hold
   the src as written ([Files at Run Time](ts-test.md#files-at-run-time)). See
   [What a Workspace Member Is Imported
@@ -470,10 +471,12 @@ directory, the lockfile's root importer's at the root's `node_modules`, and
 the outputs of every first-party dep whose package is at or above the target's
 laid over that package's directory, its declarations beside the sources and
 its `package.json` as built at the package's path -- and runs tsgo from there.
-The root holds the srcs, the tsconfig chain and the deps' checked-in
-declarations, so the tsconfig's `include` names the target's srcs and, where
-a dep's outputs are laid over the package, the declarations under its
-patterns; a dep's emitted declarations and the store are reached by import.
+The root holds the srcs, the tsconfig chain, the deps' checked-in declarations
+and, on a `ts_test`, the sources of the deps under its tsconfig ([The Test's
+Program](ts-test.md#the-tests-program)), so the tsconfig's `include` names the
+target's srcs and those sources and, where a dep's outputs are laid over the
+package, the declarations under its patterns; a dep's emitted declarations and
+the store are reached by import.
 A bare specifier, an `exports`
 condition, a subpath, a `@types/*` pairing, a `types` entry and the package's
 own name through the nearest manifest resolve as tsc resolves them over a pnpm
@@ -794,7 +797,9 @@ leaf's `bazel build` runs the check alone.
 - **A type error fails the build** in the check, and again in the declare,
   whose `noEmitOnError` leaves no `.d.ts` behind.
 - **A dependent waits for the declaration emit**, the declaration transformer
-  over the whole program, and never for the check. The written tsconfig turns
+  over the whole program, and never for the check; a `ts_test` under the
+  target's tsconfig waits for neither, since it checks the sources ([The
+  Test's Program](ts-test.md#the-tests-program)). The written tsconfig turns
   `declaration` off, so the check runs no transformer, and declaration
   diagnostics (`TS4xxx`) surface in the declare, where the declarations are
   emitted.

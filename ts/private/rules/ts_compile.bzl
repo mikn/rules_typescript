@@ -20,7 +20,9 @@ The .d.ts are the compilation boundary: a dependent's program reads them and
 nothing else of the target, so a change that leaves them byte-identical
 recompiles no dependent. They are TsInfo.declarations and the `declarations`
 output group, never a default output: TsgoDeclare emits them when a dependent
-reads them or the group is requested, and a leaf runs the check alone.
+reads them or the group is requested, and a leaf runs the check alone. A
+ts_test under the target's tsconfig is the one dependent that reads the
+sources instead, one program with the compile (`package_program`).
 
 tsgo checks every program under --noEmit, TsgoCheck, a validation in the
 _validation output group, against the importer chain `node_modules` names: a
@@ -230,6 +232,9 @@ def _encloses(dep, target):
     return dep.package == "" or dep.package == target.package or \
            target.package.startswith(dep.package + "/")
 
+def _same_tsconfig(ctx, info):
+    return info.tsconfig != None and info.tsconfig == ctx.file.tsconfig
+
 def _importer_chain(ctx, packages):
     if not ctx.attr.node_modules:
         if packages:
@@ -307,14 +312,20 @@ def _npm_closure(direct, dep_sets):
                 packages.append(reached)
     return packages
 
-def compile_program(ctx, es_modules = False, es_twins = False):
+def compile_program(
+        ctx,
+        es_modules = False,
+        es_twins = False,
+        package_program = False):
     """Registers the actions over ctx's srcs, deps, tsconfig and node_modules.
 
     The body of ts_compile and of ts_test: one attrs dict, one set of action
     functions. `es_modules` emits the program as ES modules whatever its
     tsconfig's module, the vitest runner's program; `es_twins` adds, to a
     program tsgo emits, the ES twin of each .js for the vitest tests that
-    depend on it. Returns struct(outputs, js, importers, npm_files, packages,
+    depend on it; `package_program` checks every dep under the target's
+    tsconfig from its sources, one program with the package's compile, the
+    ts_test rule's. Returns struct(outputs, js, importers, npm_files, packages,
     transitive_js, transitive_data, es_twins, info, instrumented,
     output_groups): `importers` the chain's NodeModulesInfo nearest first and
     `npm_files` the store files the program reaches.
@@ -339,6 +350,7 @@ def compile_program(ctx, es_modules = False, es_twins = False):
     owner_sets = []
     overlays = {}
     dep_manifests = []
+    joined_source_sets = []
 
     # A dep reached through the store is in the program there; a copy of its
     # files at their exec paths would duplicate every module.
@@ -356,7 +368,11 @@ def compile_program(ctx, es_modules = False, es_twins = False):
             direct_npm_infos.append(npm_info)
             published.append(struct(label = dep.label, info = npm_info))
             continue
-        transitive_dts_sets.append(info.transitive_declarations)
+        if package_program and _same_tsconfig(ctx, info):
+            joined_source_sets.append(info.sources)
+            transitive_dts_sets.append(info.deps_declarations)
+        else:
+            transitive_dts_sets.append(info.transitive_declarations)
         transitive_js_sets.append(info.transitive_js)
         transitive_js_map_sets.append(info.transitive_js_maps)
         transitive_data_sets.append(info.transitive_data)
@@ -519,18 +535,19 @@ def compile_program(ctx, es_modules = False, es_twins = False):
         js_outputs + js_map_outputs + js_passthrough + data_staged + as_built
     )
 
+    program_srcs = compile_srcs + js_srcs
+    check_srcs = compile_srcs + js_srcs + passthrough_dts
+    joined = depset(transitive = joined_source_sets).to_list()
+
     owners = depset(
         [struct(
             label = label_text(ctx.label),
             files = depset(
-                dts_outputs + passthrough_dts + data_staged + as_built,
+                check_srcs + dts_outputs + data_staged + as_built,
             ),
         )],
         transitive = owner_sets,
     )
-
-    program_srcs = compile_srcs + js_srcs
-    check_srcs = compile_srcs + js_srcs + passthrough_dts
 
     # tsc reads a JSON src on its own: an import resolves to it, and the nearest
     # package.json decides a module's format and the package's own name.
@@ -581,7 +598,7 @@ def compile_program(ctx, es_modules = False, es_twins = False):
         written = tsconfig_action(
             ctx,
             tsgo = tsgo,
-            check_srcs = check_srcs,
+            check_srcs = check_srcs + joined,
             tsconfig_chain = tsconfig_chain,
             baseline_file = baseline_file,
             dep_dts = dep_dts_depset,
@@ -600,7 +617,9 @@ def compile_program(ctx, es_modules = False, es_twins = False):
 
     validation_outputs = []
     if program_srcs:
-        program_inputs = check_srcs + json_srcs + dep_json + dep_manifests
+        program_inputs = (
+            check_srcs + joined + json_srcs + dep_json + dep_manifests
+        )
         if compile_srcs:
             emit_action(
                 ctx,
@@ -699,7 +718,7 @@ def compile_program(ctx, es_modules = False, es_twins = False):
 
     transitive_dts = depset(
         dts_outputs + passthrough_dts,
-        transitive = transitive_dts_sets,
+        transitive = [dep_dts_depset],
         order = "postorder",
     )
     transitive_js = depset(
@@ -728,7 +747,9 @@ def compile_program(ctx, es_modules = False, es_twins = False):
         declarations = direct_dts,
         data = depset(data_staged, order = "postorder"),
         manifest = manifest,
-        sources = depset(compile_srcs + passthrough_dts, order = "postorder"),
+        sources = depset(check_srcs, order = "postorder"),
+        tsconfig = ctx.file.tsconfig,
+        deps_declarations = dep_dts_depset,
         transitive_js = transitive_js,
         transitive_js_maps = transitive_js_map,
         transitive_declarations = transitive_dts,
@@ -843,7 +864,8 @@ An npm dep reaches tsgo through the link of the nearest importer on the
 `node_modules` chain that declares it, under its package name; a first-party
 dep through its declarations, staged under bazel-bin at the paths the
 tsconfig's `paths` and their bin-dir twins reach, or through a relative
-import; a workspace member through its importer's link target,
+import -- on a ts_test, a dep under the test's tsconfig through its sources
+instead; a workspace member through its importer's link target,
 `//<importer>:node_modules/<name>`; the package's own name, from a test or a
 package below it, through the dep's manifest as built, which the program root
 lays at the package's path, the dep being the package's ts_compile.""",
@@ -926,7 +948,8 @@ the output tree as-is. Output paths stay relative to the target's package, so
 srcs may span a subtree.
 
 The .d.ts are the compilation boundary: a dependent's program reads them and
-nothing else of the target. They are TsInfo.declarations and the
+nothing else of the target, a ts_test under the target's tsconfig apart, which
+reads the sources. They are TsInfo.declarations and the
 `declarations` output group, not a default output: a leaf's `bazel build`
 runs the check alone, and the declarations are emitted when a dependent reads
 them or `--output_groups=declarations` asks.
