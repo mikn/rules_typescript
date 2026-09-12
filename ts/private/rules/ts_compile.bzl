@@ -34,12 +34,14 @@ dep's npm files come along. tsgo walks up from the importing file for a bare
 specifier and nothing above a source in the exec root is an output, so tsaction
 runs it from a program root holding the action's source inputs at their paths
 and the output tree whole, with each importer's node_modules at the importer's
-directory, and the outputs of every first-party dep at or above the target's
-package laid over that package's sources -- its declarations, and its
-package.json as built at the package's path -- so the tsconfig's own include
-names the srcs and every import resolves as it does over a pnpm install, the
-package's own name through the nearest manifest included. The check runs
-during `bazel build` and blocks no dependent; a type error fails the build.
+directory, and the declarations, manifest and data of every first-party dep at
+or above the target's package laid over that package's sources -- never its
+JavaScript, which a program reads through the declarations -- the dep's
+package.json as built at the package's path, so the tsconfig's own include
+names the srcs and the deps' declarations and every import resolves as it does
+over a pnpm install, the package's own name through the nearest manifest
+included. The check runs during `bazel build` and blocks no dependent; a type
+error fails the build.
 Under --//ts:declarations=tsgo a second run of the same program, TsgoDeclare,
 emits the .d.ts with the declaration shape on its command line, so the
 written tsconfig carries none and the check runs no declaration transformer;

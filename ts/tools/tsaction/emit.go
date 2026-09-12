@@ -40,7 +40,8 @@ func runEmit(args []string) error {
 		"an importer's node_modules directory, nearest first (repeatable)")
 	flags.Var(&e.overlays, "overlay",
 		"the output directory of a dep whose package is at or above this "+
-			"one's, laid over that package's sources (repeatable)")
+			"one's; its declarations, manifest and data are laid over that "+
+			"package's sources, never its JavaScript (repeatable)")
 	flags.Var(&e.manifests, "manifest",
 		"such a dep's package.json as built, laid at its package's "+
 			"package.json over the src (repeatable)")
