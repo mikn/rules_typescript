@@ -227,7 +227,7 @@ def _bin_dir(ctx, label):
     ])
 
 # A dep at or above this package shares its directory with the sources: the
-# program root lays the dep's outputs over them.
+# program root lays the dep's declarations and data over them.
 def _encloses(dep, target):
     if dep.workspace_root != target.workspace_root:
         return False

@@ -144,8 +144,8 @@ func TestTsgoStep_ASourceUnderTheOutputTreeIsRefused(t *testing.T) {
 	}
 }
 
-// -overlay lays a dep's outputs over its package, -manifest its package.json as
-// built over the src; the dep's sources, the importer's links, the root: left.
+// -overlay lays a dep's declarations over its package and -manifest its
+// manifest as built; the dep's sources, importer links and the root are left.
 func TestTsgoStep_LaysADepsOutputsOverItsDirectory(t *testing.T) {
 	root, argv := newTsgoExecroot(t,
 		"readlink pkg/package.json >> \"$0.argv\"\n"+
@@ -173,6 +173,29 @@ func TestTsgoStep_LaysADepsOutputsOverItsDirectory(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("the program root reads\n%q\nwant\n%q", got, want)
+	}
+}
+
+// The overlay lays a dep's declarations, manifest and data over its package
+// and none of its JavaScript: a program reads a dep through its declarations.
+func TestTsgoStep_LaysNoJavaScriptOverThePackage(t *testing.T) {
+	laid := []string{"gen/m.d.ts", "gen/n.d.mts", "gen/data.json", "package.json"}
+	left := []string{"gen/m.js", "gen/n.mjs", "gen/legacy.cjs", "gen/view.jsx"}
+	files := strings.Join(laid, " ") + " " + strings.Join(left, " ")
+	root, argv := newTsgoExecroot(t,
+		"for f in "+files+"; do "+
+			"if test -e pkg/$f; then echo \"$f\" >> \"$0.argv\"; fi; done\n")
+	for _, rel := range strings.Fields(files) {
+		writeFile(t, filepath.Join(root, binDir, "pkg", rel), "\n")
+	}
+
+	err := runTsgo(tsgoArgs("-overlay="+binDir+"/pkg", "--", "external/tsgo/tsc"))
+	if err != nil {
+		t.Fatalf("runTsgo: %v", err)
+	}
+	if got := recordedArgs(t, argv)[1:]; !reflect.DeepEqual(got, laid) {
+		t.Errorf("the overlay lays %q over pkg, want %q: the declarations, "+
+			"the manifest and the data, and no JavaScript", got, laid)
 	}
 }
 

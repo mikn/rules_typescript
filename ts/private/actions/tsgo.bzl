@@ -2,11 +2,13 @@
 
 tsaction runs tsgo from a program root holding the action's source inputs at
 their paths and the output tree whole, with each importer's node_modules at
-the importer's directory and the outputs of each first-party dep at or above
-the target's package laid over that package's sources, the dep's package.json
-as built at the package's path, so the tsconfig's include names the target's
-srcs and every bare specifier resolves as over pnpm's install, the package's
-own name included. TsgoCheck runs --noEmit over the written tsconfig, which
+the importer's directory and the declarations, manifest and data of each
+first-party dep at or above the target's package laid over that package's
+sources -- never the dep's JavaScript, which a program reads through the
+declarations -- the dep's package.json as built at the package's path, so the
+tsconfig's include names the target's srcs and the deps' declarations and
+every bare specifier resolves as over pnpm's install, the package's own name
+included. TsgoCheck runs --noEmit over the written tsconfig, which
 carries no emit shape, and checks the --explainFiles listing against the
 ownership manifest written here: an edge from one of the target's files into
 a file a label outside deps owns fails the action naming that label

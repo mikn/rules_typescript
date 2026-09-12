@@ -72,6 +72,8 @@ go_test(
     data = [
         ":consumer",
         ":consumer_declarations",
+        ":js_consumer_declarations",
+        ":js_downstream",
         ":tree",
     ],
     deps = ["//tests/verify"],
@@ -93,4 +95,29 @@ ts_compile(
         ":consumer",
         ":tree",
     ],
+)
+
+# The paraglide shape: a JavaScript src (allowJs) beside a tree whose `.js`
+# and `.d.ts` sit under the tsconfig's pattern.
+ts_compile(
+    name = "js_consumer",
+    srcs = [
+        "helper.js",
+        "js_consumer.ts",
+    ],
+    tsconfig = "tsconfig.tree.json",
+    deps = [":tree"],
+)
+
+# Reads js_consumer's declarations, so its build runs TsgoDeclare js_consumer.
+ts_compile(
+    name = "js_downstream",
+    srcs = ["js_downstream.ts"],
+    deps = [":js_consumer"],
+)
+
+filegroup(
+    name = "js_consumer_declarations",
+    srcs = [":js_consumer"],
+    output_group = "declarations",
 )

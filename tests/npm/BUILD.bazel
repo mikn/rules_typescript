@@ -178,7 +178,7 @@ go_test(
 )
 
 # The member's own test names the member: the program root lays :shared's
-# outputs over packages/shared and its manifest as built at the package's path.
+# declarations over packages/shared, its manifest as built at the package path.
 chain_test(
     name = "shared_test_chain_test",
     size = "small",

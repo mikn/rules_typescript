@@ -30,7 +30,8 @@ func runTsgo(args []string) error {
 			"the last is the lockfile's root importer")
 	flags.Var(&overlays, "overlay",
 		"the output directory of a dep whose package is at or above this "+
-			"one's, laid over that package's sources (repeatable)")
+			"one's; its declarations, manifest and data are laid over that "+
+			"package's sources, never its JavaScript (repeatable)")
 	flags.Var(&manifests, "manifest",
 		"such a dep's package.json as built, laid at its package's "+
 			"package.json over the src (repeatable)")
@@ -223,8 +224,8 @@ func importerDir(binDir string) string {
 	return dir
 }
 
-// overlayDir links every file under from into root/rel over a source of the
-// same name; node_modules and the root itself skipped.
+// overlayDir links every non-JavaScript file under from into root/rel over a
+// source of the same name; node_modules and the root itself skipped.
 func overlayDir(root, rootAbs, execroot, from, rel string) error {
 	entries, err := os.ReadDir(from)
 	if errors.Is(err, os.ErrNotExist) {
@@ -252,6 +253,9 @@ func overlayDir(root, rootAbs, execroot, from, rel string) error {
 				filepath.Join(rel, entry.Name())); err != nil {
 				return err
 			}
+			continue
+		}
+		if isJavaScript(entry.Name()) {
 			continue
 		}
 		if err := os.RemoveAll(at); err != nil {

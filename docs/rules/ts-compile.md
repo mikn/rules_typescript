@@ -208,8 +208,10 @@ chain's `module`, which decides which tool emits the JavaScript
 
 The program root keeps a program to its declared inputs
 ([The node_modules Chain](#the-node_modules-chain)): it holds the action's
-source inputs and nothing else of the source tree, so a pattern names the
-target's srcs whether or not the action is sandboxed. tsgo reads a root file,
+source inputs and nothing else of the source tree, and of a dep laid over the
+package its declarations and data and none of its JavaScript, so a pattern
+names the target's srcs and the deps' declarations whether or not the action
+is sandboxed. tsgo reads a root file,
 a relative import and a `paths` match at the path given, and resolves a bare
 specifier and a type reference directive to their realpaths. A path-shaped
 `types` entry is therefore listed as a root file: read at its path under the
@@ -472,15 +474,19 @@ program root under the target's output directory -- every source input of the
 action linked at its exec path under real directories, the output tree
 `bazel-out` linked whole, each importer's `node_modules` at the importer's
 directory, the lockfile's root importer's at the root's `node_modules`, and
-the outputs of every first-party dep whose package is at or above the target's
-laid over that package's directory, its declarations beside the sources and
-its `package.json` as built at the package's path -- and runs tsgo from there.
+the declarations, the data and the `package.json` as built of every
+first-party dep whose package is at or above the target's laid over that
+package's directory, the declarations beside the sources and the manifest at
+the package's path -- and runs tsgo from there. A dep's JavaScript is never
+laid: a program reads a dep through its declarations, and under `allowJs` a
+`.js` under the tsconfig's pattern would be a root beside its `.d.ts`, one
+the declaration emit writes a `.d.ts` for onto the dep's own.
 The root holds the srcs, the tsconfig chain, the deps' checked-in declarations
 and, on a `ts_test`, the sources of the deps under its tsconfig ([The Test's
 Program](ts-test.md#the-tests-program)), so the tsconfig's `include` names the
-target's srcs and those sources and, where a dep's outputs are laid over the
-package, the declarations under its patterns; a dep's emitted declarations and
-the store are reached by import.
+target's srcs and those sources and, where a dep is laid over the package,
+its declarations under the patterns; a dep's emitted declarations and the
+store are reached by import.
 A bare specifier, an `exports`
 condition, a subpath, a `@types/*` pairing, a `types` entry and the package's
 own name through the nearest manifest resolve as tsc resolves them over a pnpm

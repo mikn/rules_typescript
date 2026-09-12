@@ -380,10 +380,17 @@ func (a *actionConfig) hasTsxSrc() bool {
 // root entry for it is TS6504.
 func (a *actionConfig) hasJavaScriptSrc() bool {
 	for _, src := range a.srcs {
-		switch path.Ext(src) {
-		case ".js", ".mjs", ".cjs", ".jsx":
+		if isJavaScript(src) {
 			return true
 		}
+	}
+	return false
+}
+
+func isJavaScript(file string) bool {
+	switch path.Ext(file) {
+	case ".js", ".jsx", ".mjs", ".cjs":
+		return true
 	}
 	return false
 }
