@@ -11,10 +11,10 @@ the shape.
 TOOLS_VERSION = "1"
 
 TOOLS_INTEGRITY = {
-    "darwin_amd64": "sha256-lkhJ3Om1cC6mhQekscz8DH+gSMTPzqttV1AoD2f4U0k=",
-    "darwin_arm64": "sha256-cUfe3rgBWIBjNTk/4BeSZhibcckjKwAer5qlYzPPzOw=",
-    "linux_amd64": "sha256-UUjfmto3MzgatMiC1/irOdTVAwUBUyIoXucM7zzScCQ=",
-    "linux_arm64": "sha256-kCaaSl7xkaChQJ+pj4HFYoJD9OPTocC00tj5EZ5BHnM=",
+    "darwin_amd64": "sha256-VaOqjVqd6N94iGoeYdJEOZhY4ZSGZR2qlbYCUR2Khww=",
+    "darwin_arm64": "sha256-CZS8wPZZWrG1wXguUMc0bvLxGeWiDkI1ASWYB93/snQ=",
+    "linux_amd64": "sha256-Y2dOixFxp4wciv31oZnhwgHxeoqT7wPKqVSD2AGI5j4=",
+    "linux_arm64": "sha256-rlz6CbsvABC4UaOdUPJ1No+8EwKhE4vfKQrDXdqHsGo=",
 }
 
 _ASSET = "rules_typescript-tools-{version}-{platform}"
