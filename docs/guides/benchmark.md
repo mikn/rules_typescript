@@ -83,8 +83,12 @@ the runner's cell is now CI's row, `pnpm --filter=web run test:run`
 `bazel build //...`; `bazel test //...` minus the excluded labels;
 `bazel build //web/...` -- the runner now runs `bazel build //web:web` as a
 cell of its own first, on the same output base, so the `//web/...` cell is
-what the target's build leaves: neither is in these two runs;
-`bazel test //web/...`; `bazel test //workers/download/...`. The edit is `;`
+what the target's build leaves. In one `bazel build //web/...` the target's
+check, emit and declare run side by side after `TsConfig`; in the two cells
+the declare follows the check, so the two walls' sum is an upper bound on
+one `//web/...` build's wall, over it by about the shorter cell. Neither
+cell is in these two runs; `bazel test //web/...`;
+`bazel test //workers/download/...`. The edit is `;`
 appended to web/shared/lib/markdown/markedRenderer.ts and to
 workers/download/src/index.ts.
 
